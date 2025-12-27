@@ -1,0 +1,32 @@
+version: '3.9'
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_DB: tradevault
+      POSTGRES_USER: tradevault
+      POSTGRES_PASSWORD: tradevault
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+  backend:
+    build: ./backend
+    environment:
+      DB_URL: jdbc:postgresql://db:5432/tradevault
+      DB_USER: tradevault
+      DB_PASS: tradevault
+      JWT_SECRET: changeme-secret
+      FRONTEND_URL: http://localhost:4173
+    depends_on:
+      - db
+    ports:
+      - "8080:8080"
+  frontend:
+    build: ./frontend
+    depends_on:
+      - backend
+    ports:
+      - "4173:80"
+volumes:
+  db-data:
