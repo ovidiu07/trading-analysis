@@ -5,6 +5,8 @@ import com.tradevault.domain.enums.Role;
 import com.tradevault.dto.auth.AuthResponse;
 import com.tradevault.dto.auth.LoginRequest;
 import com.tradevault.dto.auth.RegisterRequest;
+import com.tradevault.dto.auth.UserDto;
+import com.tradevault.exception.DuplicateEmailException;
 import com.tradevault.repository.UserRepository;
 import com.tradevault.security.JwtTokenProvider;
 import lombok.RequiredArgsConstructor;
@@ -27,16 +29,19 @@ public class AuthService {
 
     @Transactional
     public AuthResponse register(RegisterRequest request) {
-        userRepository.findByEmail(request.getEmail()).ifPresent(u -> { throw new IllegalArgumentException("Email already used"); });
+        userRepository.findByEmail(request.getEmail())
+                .ifPresent(u -> { throw new DuplicateEmailException("Email already used"); });
         User user = User.builder()
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .role(Role.USER)
+                .baseCurrency("USD")
+                .timezone("Europe/Bucharest")
                 .createdAt(OffsetDateTime.now())
                 .build();
         userRepository.save(user);
         String token = jwtTokenProvider.createToken(user.getId(), user.getEmail());
-        return new AuthResponse(token);
+        return new AuthResponse(token, UserDto.from(user));
     }
 
     public AuthResponse login(LoginRequest request) {
@@ -46,6 +51,6 @@ public class AuthService {
         saved.setLastLoginAt(OffsetDateTime.now());
         userRepository.save(saved);
         String token = jwtTokenProvider.createToken(saved.getId(), saved.getEmail());
-        return new AuthResponse(token);
+        return new AuthResponse(token, UserDto.from(saved));
     }
 }
