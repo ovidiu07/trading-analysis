@@ -76,14 +76,30 @@ public class AnalyticsService {
     }
 
     private List<TimeSeriesPoint> buildEquity(List<Trade> trades) {
+        // Decide the event time consistently: closedAt if present (realized), otherwise openedAt.
+        Comparator<Trade> byEventTime = Comparator.comparing(
+                (Trade t) -> Optional.ofNullable(t.getClosedAt()).orElse(t.getOpenedAt()),
+                Comparator.nullsLast(Comparator.naturalOrder())
+        );
+
+        List<Trade> ordered = trades.stream()
+                .sorted(byEventTime)
+                .toList();
+
         BigDecimal equity = BigDecimal.ZERO;
-        List<TimeSeriesPoint> points = new ArrayList<>();
-        trades.stream().sorted(Comparator.comparing(Trade::getClosedAt, Comparator.nullsLast(Comparator.naturalOrder())))
-                .forEach(trade -> {
-                    equity = equity.add(trade.getPnlNet() == null ? BigDecimal.ZERO : trade.getPnlNet());
-                    LocalDate date = trade.getClosedAt() != null ? trade.getClosedAt().toLocalDate() : trade.getOpenedAt().toLocalDate();
-                    points.add(new TimeSeriesPoint(date, equity));
-                });
+        List<TimeSeriesPoint> points = new ArrayList<>(ordered.size());
+
+        for (Trade trade : ordered) {
+            OffsetDateTime when = trade.getClosedAt() != null ? trade.getClosedAt() : trade.getOpenedAt();
+            if (when == null) {
+                // Skip trades with no usable timestamp to avoid NPEs and inconsistent ordering.
+                continue;
+            }
+            BigDecimal pnl = trade.getPnlNet() == null ? BigDecimal.ZERO : trade.getPnlNet();
+            equity = equity.add(pnl);
+            points.add(new TimeSeriesPoint(when.toLocalDate(), equity));
+        }
+
         return points;
     }
 
