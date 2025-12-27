@@ -16,7 +16,13 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
   })
 
   if (!res.ok) {
-    const message = await res.text()
+    let message = 'Request failed'
+    try {
+      const errorBody = await res.json()
+      message = errorBody?.message || errorBody?.error || message
+    } catch (e) {
+      message = await res.text()
+    }
     throw new Error(message || 'Request failed')
   }
   if (res.status === 204) {

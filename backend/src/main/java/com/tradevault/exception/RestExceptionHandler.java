@@ -1,0 +1,57 @@
+package com.tradevault.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.BadCredentialsException;
+import org.springframework.security.core.AuthenticationException;
+import org.springframework.validation.FieldError;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ControllerAdvice;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+
+import java.util.List;
+
+@ControllerAdvice
+public class RestExceptionHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public ResponseEntity<ApiErrorResponse> handleValidation(MethodArgumentNotValidException ex) {
+        List<String> details = ex.getBindingResult().getAllErrors().stream()
+                .filter(error -> error instanceof FieldError)
+                .map(error -> ((FieldError) error).getField() + ": " + error.getDefaultMessage())
+                .toList();
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("VALIDATION_ERROR")
+                .details(details)
+                .message("Validation failed")
+                .build();
+        return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler(DuplicateEmailException.class)
+    public ResponseEntity<ApiErrorResponse> handleDuplicate(DuplicateEmailException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("EMAIL_IN_USE")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.CONFLICT).body(response);
+    }
+
+    @ExceptionHandler({AuthenticationException.class, BadCredentialsException.class})
+    public ResponseEntity<ApiErrorResponse> handleAuth(AuthenticationException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("UNAUTHORIZED")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(response);
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    public ResponseEntity<ApiErrorResponse> handleIllegalArgument(IllegalArgumentException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("VALIDATION_ERROR")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.badRequest().body(response);
+    }
+}
