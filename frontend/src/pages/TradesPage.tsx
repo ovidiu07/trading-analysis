@@ -2,8 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
 import { Alert, Box, Button, CircularProgress, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { useForm } from 'react-hook-form'
-import { TradeResponse, PageResponse, createTrade, searchTrades } from '../api/trades'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { TradeResponse, createTrade, searchTrades } from '../api/trades'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
+import { useAuth } from '../auth/AuthContext'
+import { ApiError } from '../api/client'
 
 const defaultValues: TradeFormValues = {
   symbol: '',
@@ -32,12 +35,21 @@ export default function TradesPage() {
   const [totalRows, setTotalRows] = useState<number>(0);
   const [loading, setLoading] = useState<boolean>(false);
   const [fetchError, setFetchError] = useState<string>('');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { isAuthenticated, logout } = useAuth();
 
   // Pagination state
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
     page: 0,
     pageSize: 5,
   });
+
+  const handleAuthFailure = useCallback((message?: string) => {
+    setFetchError(message || 'Please login to view trades');
+    logout();
+    navigate('/login', { replace: true, state: { from: location.pathname } });
+  }, [location.pathname, logout, navigate]);
 
   // Define columns based on TradeResponse fields
   const columns = useMemo<GridColDef[]>(() => [
@@ -70,6 +82,13 @@ export default function TradesPage() {
 
   // Function to fetch trades
   const fetchTrades = useCallback(async () => {
+    if (!isAuthenticated) {
+      setTrades([]);
+      setTotalRows(0);
+      setFetchError('Please login to view trades');
+      return;
+    }
+
     setLoading(true);
     setFetchError('');
 
@@ -83,13 +102,17 @@ export default function TradesPage() {
       setTrades(response.content || []);
       setTotalRows(response.totalElements);
     } catch (err) {
-      console.error('Failed to fetch trades:', err);
       setTrades([]);
-      setFetchError(err instanceof Error ? err.message : 'Failed to fetch trades');
+      const apiErr = err as ApiError;
+      if (apiErr.status === 401 || apiErr.status === 403) {
+        handleAuthFailure(apiErr.message);
+        return;
+      }
+      setFetchError(apiErr instanceof Error ? apiErr.message : 'Failed to fetch trades');
     } finally {
       setLoading(false);
     }
-  }, [paginationModel.page, paginationModel.pageSize]);
+  }, [handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize]);
 
   // Fetch trades when pagination changes
   useEffect(() => {
@@ -109,7 +132,12 @@ export default function TradesPage() {
       // Refresh the grid data after creating a trade
       fetchTrades();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create trade');
+      const apiErr = err as ApiError;
+      if (apiErr.status === 401 || apiErr.status === 403) {
+        handleAuthFailure(apiErr.message);
+        return;
+      }
+      setError(apiErr instanceof Error ? apiErr.message : 'Failed to create trade');
     }
   };
 
