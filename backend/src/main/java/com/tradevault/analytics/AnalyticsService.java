@@ -2,6 +2,8 @@ package com.tradevault.analytics;
 
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.analytics.AnalyticsResponse;
 import com.tradevault.dto.analytics.KpiSummary;
 import com.tradevault.dto.analytics.TimeSeriesPoint;
@@ -23,16 +25,34 @@ public class AnalyticsService {
     private final TradeRepository tradeRepository;
     private final CurrentUserService currentUserService;
 
-    public AnalyticsResponse summarize(OffsetDateTime from, OffsetDateTime to) {
+    public AnalyticsResponse summarize(OffsetDateTime from,
+                                       OffsetDateTime to,
+                                       String symbol,
+                                       Direction direction,
+                                       TradeStatus status,
+                                       String strategy) {
         User user = currentUserService.getCurrentUser();
         List<Trade> trades = tradeRepository.findByUserId(user.getId());
         if (from != null) trades = trades.stream().filter(t -> t.getOpenedAt().isAfter(from) || t.getOpenedAt().isEqual(from)).collect(Collectors.toList());
         if (to != null) trades = trades.stream().filter(t -> t.getOpenedAt().isBefore(to) || t.getOpenedAt().isEqual(to)).collect(Collectors.toList());
+        if (symbol != null && !symbol.isBlank()) {
+            trades = trades.stream().filter(t -> t.getSymbol() != null && t.getSymbol().equalsIgnoreCase(symbol)).toList();
+        }
+        if (direction != null) {
+            trades = trades.stream().filter(t -> t.getDirection() == direction).toList();
+        }
+        if (status != null) {
+            trades = trades.stream().filter(t -> t.getStatus() == status).toList();
+        }
+        if (strategy != null && !strategy.isBlank()) {
+            trades = trades.stream().filter(t -> t.getStrategyTag() != null && t.getStrategyTag().equalsIgnoreCase(strategy)).toList();
+        }
 
         KpiSummary kpi = buildKpi(trades);
         List<TimeSeriesPoint> equity = buildEquity(trades);
         List<TimeSeriesPoint> grouped = groupByDate(trades);
-        Map<String, Double> breakdown = trades.stream().collect(Collectors.groupingBy(Trade::getStrategyTag,
+        Map<String, Double> breakdown = trades.stream().collect(Collectors.groupingBy(
+                t -> Optional.ofNullable(t.getStrategyTag()).filter(s -> !s.isBlank()).orElse("Unspecified"),
                 Collectors.summingDouble(t -> t.getPnlNet() == null ? 0 : t.getPnlNet().doubleValue())));
 
         return AnalyticsResponse.builder()
@@ -57,6 +77,12 @@ public class AnalyticsService {
         BigDecimal grossLoss = losses.stream().map(BigDecimal::abs).reduce(BigDecimal.ZERO, BigDecimal::add);
         BigDecimal profitFactor = grossLoss.compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ZERO : grossProfit.divide(grossLoss, 2, RoundingMode.HALF_UP);
 
+        int totalTrades = trades.size();
+        int winningTrades = wins.size();
+        int losingTrades = losses.size();
+        int openTrades = (int) trades.stream().filter(t -> t.getStatus() == TradeStatus.OPEN).count();
+        int closedTrades = (int) trades.stream().filter(t -> t.getStatus() == TradeStatus.CLOSED).count();
+
         var streaks = calculateStreaks(trades);
         BigDecimal maxDrawdown = calculateDrawdown(trades);
 
@@ -72,6 +98,11 @@ public class AnalyticsService {
                 .maxDrawdown(maxDrawdown)
                 .maxWinStreak(streaks.maxWinStreak)
                 .maxLossStreak(streaks.maxLossStreak)
+                .totalTrades(totalTrades)
+                .winningTrades(winningTrades)
+                .losingTrades(losingTrades)
+                .openTrades(openTrades)
+                .closedTrades(closedTrades)
                 .build();
     }
 

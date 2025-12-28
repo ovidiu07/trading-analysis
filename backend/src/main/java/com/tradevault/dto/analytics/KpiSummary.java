@@ -19,4 +19,9 @@ public class KpiSummary {
     private BigDecimal maxDrawdown;
     private int maxWinStreak;
     private int maxLossStreak;
+    private int totalTrades;
+    private int winningTrades;
+    private int losingTrades;
+    private int openTrades;
+    private int closedTrades;
 }

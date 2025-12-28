@@ -1,23 +1,31 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
+import { DataGrid, GridColDef, GridPaginationModel, GridRowParams } from '@mui/x-data-grid'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
   Box,
   Button,
+  Chip,
   CircularProgress,
   Divider,
+  Grid,
   MenuItem,
   Paper,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material'
+import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { useForm } from 'react-hook-form'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { TradeResponse, createTrade, listTrades, searchTrades } from '../api/trades'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
+import { formatCurrency, formatDateTime, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
 
 const defaultValues: TradeFormValues = {
   symbol: '',
@@ -58,17 +66,6 @@ const defaultFilters = {
   direction: ''
 }
 
-// Helper function to format dates safely
-const formatDate = (dateString?: string | null): string => {
-  if (!dateString) return '-'
-  try {
-    const date = new Date(dateString)
-    return date.toLocaleString()
-  } catch (e) {
-    return dateString
-  }
-}
-
 export default function TradesPage() {
   const [trades, setTrades] = useState<TradeResponse[]>([])
   const [totalRows, setTotalRows] = useState<number>(0)
@@ -86,6 +83,7 @@ export default function TradesPage() {
     page: 0,
     pageSize: 10,
   })
+  const [expandedTrade, setExpandedTrade] = useState<TradeResponse | null>(null)
 
   const handleAuthFailure = useCallback((message?: string) => {
     setFetchError(message || 'Please login to view trades')
@@ -94,34 +92,66 @@ export default function TradesPage() {
   }, [location.pathname, logout, navigate])
 
   const columns = useMemo<GridColDef[]>(() => [
-    { field: 'symbol', headerName: 'Symbol', flex: 1 },
-    { field: 'market', headerName: 'Market', flex: 1 },
-    { field: 'direction', headerName: 'Direction', flex: 1 },
-    { field: 'status', headerName: 'Status', flex: 1 },
-    { field: 'timeframe', headerName: 'Timeframe', flex: 1 },
     {
       field: 'openedAt',
-      headerName: 'Opened At',
-      flex: 1,
-      valueFormatter: (params) => formatDate(params.value)
+      headerName: 'Opened',
+      flex: 1.1,
+      minWidth: 170,
+      valueFormatter: (params) => formatDateTime(params.value),
+      sortComparator: (a, b) => new Date(a as string).getTime() - new Date(b as string).getTime()
+    },
+    { field: 'symbol', headerName: 'Symbol', flex: 1, minWidth: 110 },
+    { field: 'market', headerName: 'Market', flex: 1, minWidth: 110 },
+    {
+      field: 'direction',
+      headerName: 'Direction',
+      flex: 0.9,
+      renderCell: (params) => (
+        <Chip
+          size="small"
+          label={params.value}
+          color={params.value === 'LONG' ? 'success' : 'error'}
+          variant="outlined"
+        />
+      )
     },
     {
-      field: 'closedAt',
-      headerName: 'Closed At',
-      flex: 1,
-      valueFormatter: (params) => formatDate(params.value)
+      field: 'status',
+      headerName: 'Status',
+      flex: 0.9,
+      renderCell: (params) => (
+        <Chip
+          size="small"
+          label={params.value}
+          color={params.value === 'CLOSED' ? 'primary' : 'warning'}
+          variant="outlined"
+        />
+      )
     },
-    { field: 'quantity', headerName: 'Quantity', flex: 1 },
-    { field: 'entryPrice', headerName: 'Entry Price', flex: 1 },
-    { field: 'exitPrice', headerName: 'Exit Price', flex: 1 },
-    { field: 'stopLossPrice', headerName: 'Stop Loss', flex: 1 },
-    { field: 'takeProfitPrice', headerName: 'Take Profit', flex: 1 },
-    { field: 'fees', headerName: 'Fees', flex: 1 },
-    { field: 'commission', headerName: 'Commission', flex: 1 },
-    { field: 'slippage', headerName: 'Slippage', flex: 1 },
-    { field: 'pnlNet', headerName: 'PnL Net', flex: 1 },
-    { field: 'rMultiple', headerName: 'R Multiple', flex: 1 },
-    { field: 'notes', headerName: 'Notes', flex: 1 },
+    { field: 'quantity', headerName: 'Quantity', flex: 0.9, valueFormatter: (params) => formatNumber(params.value, 4) },
+    { field: 'entryPrice', headerName: 'Entry', flex: 1, valueFormatter: (params) => formatCurrency(params.value) },
+    { field: 'exitPrice', headerName: 'Exit', flex: 1, valueFormatter: (params) => formatCurrency(params.value) },
+    {
+      field: 'pnlNet',
+      headerName: 'PnL (net)',
+      flex: 1,
+      valueFormatter: (params) => formatSignedCurrency(params.value),
+      cellClassName: (params) => (params.value ?? 0) >= 0 ? 'pnl-positive' : 'pnl-negative'
+    },
+    { field: 'pnlPercent', headerName: 'PnL %', flex: 0.9, valueFormatter: (params) => formatPercent(params.value) },
+    { field: 'rMultiple', headerName: 'R multiple', flex: 0.9, valueFormatter: (params) => formatNumber(params.value, 2) },
+    {
+      field: 'notes',
+      headerName: 'Notes',
+      flex: 1.4,
+      renderCell: (params) => (
+        <Tooltip title={params.value || 'No notes'}>
+          <Typography variant="body2" noWrap>
+            {params.value || '—'}
+          </Typography>
+        </Tooltip>
+      )
+    },
   ], [])
 
   const { register, handleSubmit, reset, formState: { errors } } = useForm<TradeFormValues>({ defaultValues })
@@ -143,6 +173,7 @@ export default function TradesPage() {
       const response = viewMode === 'search' && activeFilters
         ? await searchTrades({
           ...activeFilters,
+          direction: activeFilters.direction ? activeFilters.direction as 'LONG' | 'SHORT' : undefined,
           page: paginationModel.page,
           size: paginationModel.pageSize,
         })
@@ -151,10 +182,13 @@ export default function TradesPage() {
           size: paginationModel.pageSize,
         })
 
-      setTrades(response.content || [])
+      const rows = response.content || []
+      setTrades(rows)
       setTotalRows(response.totalElements)
+      setExpandedTrade((prev) => rows.find((t) => t.id === prev?.id) ?? null)
     } catch (err) {
       setTrades([])
+      setExpandedTrade(null)
       const apiErr = err as ApiError
       if (apiErr.status === 401 || apiErr.status === 403) {
         handleAuthFailure(apiErr.message)
@@ -209,7 +243,10 @@ export default function TradesPage() {
   return (
     <Box>
       <Stack direction="row" justifyContent="space-between" alignItems="center" mb={2}>
-        <Typography variant="h5">Trades</Typography>
+        <Box>
+          <Typography variant="h5">Trades</Typography>
+          <Typography variant="subtitle1" color="text.secondary">Log new trades, search history, and review details inline.</Typography>
+        </Box>
       </Stack>
 
       <Stack spacing={3}>
@@ -332,13 +369,89 @@ export default function TradesPage() {
               onPaginationModelChange={setPaginationModel}
               disableRowSelectionOnClick
               getRowId={(row) => row.id}
+              initialState={{
+                sorting: {
+                  sortModel: [{ field: 'openedAt', sort: 'desc' }],
+                },
+              }}
+              sx={{
+                '& .pnl-positive': { color: 'success.main' },
+                '& .pnl-negative': { color: 'error.main' },
+              }}
+              onRowClick={(params: GridRowParams) => setExpandedTrade((prev) => prev?.id === params.id ? null : params.row as TradeResponse)}
             />
             {!loading && trades.length === 0 && (
               <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Typography color="text.secondary">No trades to display</Typography>
               </Box>
             )}
+            {expandedTrade && (
+              <Box sx={{ mt: 2, bgcolor: 'grey.50', borderRadius: 2, p: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>Trade details</Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Typography variant="subtitle2" gutterBottom>Stops & targets</Typography>
+                    <Typography variant="body2">Stop loss: {formatCurrency(expandedTrade.stopLossPrice)}</Typography>
+                    <Typography variant="body2">Take profit: {formatCurrency(expandedTrade.takeProfitPrice)}</Typography>
+                    <Typography variant="body2">Timeframe: {expandedTrade.timeframe || '—'}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Typography variant="subtitle2" gutterBottom>Costs & risk</Typography>
+                    <Typography variant="body2">Fees: {formatCurrency(expandedTrade.fees)}</Typography>
+                    <Typography variant="body2">Commission: {formatCurrency(expandedTrade.commission)}</Typography>
+                    <Typography variant="body2">Slippage: {formatCurrency(expandedTrade.slippage)}</Typography>
+                    <Typography variant="body2">Risk: {formatCurrency(expandedTrade.riskAmount)} ({formatPercent(expandedTrade.riskPercent)})</Typography>
+                    <Typography variant="body2">R multiple: {formatNumber(expandedTrade.rMultiple)}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Typography variant="subtitle2" gutterBottom>Setup</Typography>
+                    <Typography variant="body2">Setup: {expandedTrade.setup || '—'}</Typography>
+                    <Typography variant="body2">Strategy: {expandedTrade.strategyTag || '—'}</Typography>
+                    <Typography variant="body2">Catalyst: {expandedTrade.catalystTag || '—'}</Typography>
+                    <Typography variant="body2">Capital used: {formatCurrency(expandedTrade.capitalUsed)}</Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" gutterBottom>Notes & tags</Typography>
+                    <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || '—'}</Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      {(expandedTrade.tags || []).map((tag: string) => (
+                        <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
+                      ))}
+                      {(expandedTrade.tags?.length || 0) === 0 && <Typography variant="body2" color="text.secondary">No tags</Typography>}
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </Box>
+            )}
           </Box>
+        </Paper>
+
+        <Paper sx={{ p: 2 }}>
+          <Typography variant="h6" gutterBottom>Field explanations</Typography>
+          <Accordion defaultExpanded>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Table columns</AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1}>
+                <Typography variant="body2"><strong>Opened</strong>: When the position was opened (newest first by default).</Typography>
+                <Typography variant="body2"><strong>Direction/Status</strong>: Long vs Short and whether the trade is still open or closed.</Typography>
+                <Typography variant="body2"><strong>PnL (net)</strong>: Profit or loss after fees, commission, and slippage.</Typography>
+                <Typography variant="body2"><strong>PnL %</strong>: Net PnL expressed as a percentage of risk or capital used.</Typography>
+                <Typography variant="body2"><strong>R multiple</strong>: Net PnL divided by the amount risked (1R equals your initial risk).</Typography>
+                <Typography variant="body2"><strong>Notes</strong>: Quick context for the setup; hover to read full text.</Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Detail panel</AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1}>
+                <Typography variant="body2"><strong>Stops & targets</strong>: Stop loss / take profit anchors and timeframe.</Typography>
+                <Typography variant="body2"><strong>Costs & risk</strong>: Fees, commission, slippage plus risk amount and percentage.</Typography>
+                <Typography variant="body2"><strong>Setup</strong>: Strategy tag, catalyst, setup description, and capital used.</Typography>
+                <Typography variant="body2"><strong>Tags</strong>: Any labels applied to the trade for filtering and review.</Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
         </Paper>
       </Stack>
     </Box>

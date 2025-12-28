@@ -1,7 +1,9 @@
 package com.tradevault.controller;
 
-import com.tradevault.dto.analytics.AnalyticsResponse;
 import com.tradevault.analytics.AnalyticsService;
+import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.analytics.AnalyticsResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,7 +20,11 @@ public class AnalyticsController {
 
     @GetMapping("/summary")
     public AnalyticsResponse summary(@RequestParam(required = false) OffsetDateTime from,
-                                     @RequestParam(required = false) OffsetDateTime to) {
-        return analyticsService.summarize(from, to);
+                                     @RequestParam(required = false) OffsetDateTime to,
+                                     @RequestParam(required = false) String symbol,
+                                     @RequestParam(required = false) Direction direction,
+                                     @RequestParam(required = false) TradeStatus status,
+                                     @RequestParam(required = false) String strategy) {
+        return analyticsService.summarize(from, to, symbol, direction, status, strategy);
     }
 }
