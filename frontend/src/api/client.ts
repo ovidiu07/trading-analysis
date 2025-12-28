@@ -47,6 +47,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
 
     if (res.status === 401 || res.status === 403) {
       message = 'Unauthorized or expired session. Please login again.'
+      clearAuthToken()
     }
 
     const error = new ApiError(`${statusLabel} - ${message}`)

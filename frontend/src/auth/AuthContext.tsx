@@ -1,6 +1,7 @@
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { AuthResponse, AuthUser, getCurrentUser, login as apiLogin, register as apiRegister } from '../api/auth'
 import { clearAuthToken } from '../api/client'
+import { UserSettingsRequest, updateUserSettings } from '../api/settings'
 
 export type AuthState = {
   isAuthenticated: boolean
@@ -14,6 +15,7 @@ export type AuthContextType = AuthState & {
   register: (email: string, password: string) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
+  updateSettings: (payload: UserSettingsRequest) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -39,6 +41,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const resetAuth = () => {
     clearAuthToken()
     setState(emptyState)
+  }
+
+  const setUser = (user: AuthUser | null) => {
+    setState((prev) => ({ ...prev, isAuthenticated: !!user, token: localStorage.getItem('token'), user }))
   }
 
   const refreshUser = async () => {
@@ -83,6 +89,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }
 
+  const updateSettings = async (payload: UserSettingsRequest) => {
+    const updated = await updateUserSettings(payload)
+    setUser(updated)
+  }
+
   const logout = () => {
     resetAuth()
   }
@@ -93,8 +104,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
     login,
     register,
     logout,
-    refreshUser
-  }), [state, initializing])
+    refreshUser,
+    updateSettings
+  }), [state, initializing, login, register, logout, refreshUser, updateSettings])
 
   return (
     <AuthContext.Provider value={value}>

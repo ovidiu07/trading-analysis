@@ -17,5 +17,5 @@ export async function register(email: string, password: string) {
 }
 
 export async function getCurrentUser() {
-  return apiGet<AuthUser>('/auth/me')
+  return apiGet<AuthUser>('/users/me')
 }
