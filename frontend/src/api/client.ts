@@ -1,47 +1,64 @@
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
 
+export class ApiError extends Error {
+  status?: number
+}
+
 function authHeader() {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
 }
 
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: {
-      'Content-Type': 'application/json',
-      ...authHeader(),
-      ...(options.headers || {})
-    },
-    ...options
-  })
+  const url = `${API_URL}${path}`
+  let res: Response
+  const { headers: customHeaders, ...rest } = options
 
-  if (!res.ok) {
-    let message = 'Request failed'
-    try {
-      // Clone the response before reading its body to avoid "body stream already read" error
-      const resClone = res.clone()
-      const errorBody = await resClone.json()
-      message = errorBody?.message || errorBody?.error || message
-    } catch (e) {
-      // If JSON parsing fails, try to get the text content from the original response
-      message = await res.text()
-    }
-    throw new Error(message || 'Request failed')
+  try {
+    res = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        ...authHeader(),
+        ...(customHeaders || {})
+      },
+      ...rest
+    })
+  } catch (e) {
+    const error = new ApiError(`Cannot reach API at ${url}. Check server/CORS/network.`)
+    throw error
   }
 
-  if (res.status === 204) {
+  const text = await res.text()
+
+  if (!res.ok) {
+    let message = ''
+    try {
+      const data = text ? JSON.parse(text) : null
+      message = data?.message || data?.error || ''
+    } catch (e) {
+      // ignore JSON parsing errors
+    }
+
+    if (!message) {
+      message = text || `${res.status} ${res.statusText}`
+    }
+
+    if (res.status === 401 || res.status === 403) {
+      message = 'Unauthorized. Please login again.'
+    }
+
+    const error = new ApiError(message || 'Request failed')
+    error.status = res.status
+    throw error
+  }
+
+  if (res.status === 204 || !text) {
     return undefined as T
   }
 
   try {
-    // Avoid crashing when the response has no JSON body (or an empty body).
-    const text = await res.text()
-    if (!text) {
-      return undefined as T
-    }
     return JSON.parse(text) as T
   } catch (e) {
-    // If we get here, it might be because the body stream was already read in the error handling
     console.error('Error parsing response:', e)
     return undefined as T
   }

@@ -1,11 +1,11 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Avatar, Box, Button, Container, TextField, Typography } from '@mui/material'
+import { Avatar, Box, Button, Container, Link as MuiLink, TextField, Typography } from '@mui/material'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
-import { login } from '../api/auth'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useState } from 'react'
+import { useAuth } from '../auth/AuthContext'
 
 const schema = z.object({
   email: z.string().email(),
@@ -17,15 +17,23 @@ type FormValues = z.infer<typeof schema>
 export default function LoginPage() {
   const { register, handleSubmit, formState } = useForm<FormValues>({ resolver: zodResolver(schema) })
   const navigate = useNavigate()
+  const location = useLocation()
+  const { login } = useAuth()
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const from = (location.state as { from?: string })?.from || '/trades'
 
   const onSubmit = async (data: FormValues) => {
     setError('')
+    setSubmitting(true)
     try {
       await login(data.email, data.password)
-      navigate('/dashboard')
+      navigate(from, { replace: true })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Login failed')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -39,12 +47,15 @@ export default function LoginPage() {
           Sign in
         </Typography>
         <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ mt: 1 }}>
-          <TextField margin="normal" fullWidth label="Email Address" {...register('email')} error={!!formState.errors.email} helperText={formState.errors.email?.message} />
-          <TextField margin="normal" fullWidth label="Password" type="password" {...register('password')} error={!!formState.errors.password} helperText={formState.errors.password?.message} />
+          <TextField margin="normal" fullWidth label="Email Address" autoComplete="email" {...register('email')} error={!!formState.errors.email} helperText={formState.errors.email?.message} />
+          <TextField margin="normal" fullWidth label="Password" type="password" autoComplete="current-password" {...register('password')} error={!!formState.errors.password} helperText={formState.errors.password?.message} />
           {error && <Typography color="error" variant="body2">{error}</Typography>}
-          <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }}>
+          <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }} disabled={submitting}>
             Sign In
           </Button>
+          <MuiLink component={Link} to="/register" variant="body2">
+            Don't have an account? Register
+          </MuiLink>
         </Box>
       </Box>
     </Container>

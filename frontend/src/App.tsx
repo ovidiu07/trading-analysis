@@ -6,7 +6,9 @@ import DashboardPage from './pages/DashboardPage'
 import TradesPage from './pages/TradesPage'
 import AnalyticsPage from './pages/AnalyticsPage'
 import SettingsPage from './pages/SettingsPage'
+import ProfilePage from './pages/ProfilePage'
 import Layout from './components/Layout'
+import ProtectedRoute from './components/ProtectedRoute'
 
 const theme = createTheme()
 
@@ -20,9 +22,10 @@ function App() {
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/dashboard" element={<DashboardPage />} />
-          <Route path="/trades" element={<TradesPage />} />
+          <Route path="/trades" element={<ProtectedRoute><TradesPage /></ProtectedRoute>} />
           <Route path="/analytics" element={<AnalyticsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
         </Route>
       </Routes>
     </ThemeProvider>
