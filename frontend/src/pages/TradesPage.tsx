@@ -127,7 +127,11 @@ export default function TradesPage() {
       const payload = buildTradePayload(values);
       await createTrade(payload);
       setSuccess('Trade created successfully');
-      reset({ ...defaultValues, openedAt: new Date().toISOString().slice(0, 16) });
+      reset({ 
+        ...defaultValues, 
+        status: 'OPEN', // Explicitly set status to prevent undefined
+        openedAt: new Date().toISOString().slice(0, 16) 
+      });
 
       // Refresh the grid data after creating a trade
       fetchTrades();
@@ -151,7 +155,7 @@ export default function TradesPage() {
         {success && <Alert severity="success">{success}</Alert>}
         {error && <Alert severity="error">{error}</Alert>}
         <TextField label="Symbol" required {...register('symbol')} />
-        <TextField label="Market" select {...register('market')}>
+        <TextField label="Market" select defaultValue="STOCK" {...register('market')}>
           <MenuItem value="STOCK">Stock</MenuItem>
           <MenuItem value="CFD">CFD</MenuItem>
           <MenuItem value="FOREX">Forex</MenuItem>
@@ -164,7 +168,7 @@ export default function TradesPage() {
           <MenuItem value="LONG">Long</MenuItem>
           <MenuItem value="SHORT">Short</MenuItem>
         </TextField>
-        <TextField label="Status" select {...register('status')}>
+        <TextField label="Status" select defaultValue="OPEN" {...register('status')}>
           <MenuItem value="OPEN">Open</MenuItem>
           <MenuItem value="CLOSED">Closed</MenuItem>
         </TextField>
