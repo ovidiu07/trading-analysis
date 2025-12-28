@@ -17,9 +17,16 @@ import java.util.UUID;
 public interface TradeRepository extends JpaRepository<Trade, UUID> {
     Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
-    @Query("SELECT t FROM Trade t WHERE t.user.id = :userId AND (:from IS NULL OR t.openedAt >= :from) AND (:to IS NULL OR t.openedAt <= :to)" +
-            " AND (:symbol IS NULL OR t.symbol = :symbol) AND (:strategy IS NULL OR t.strategyTag = :strategy)" +
-            " AND (:direction IS NULL OR t.direction = :direction) AND (:status IS NULL OR t.status = :status)")
+    @Query("""
+            SELECT t FROM Trade t
+            WHERE t.user.id = :userId
+              AND t.openedAt >= COALESCE(:from, t.openedAt)
+              AND t.openedAt <= COALESCE(:to, t.openedAt)
+              AND t.symbol = COALESCE(:symbol, t.symbol)
+              AND t.strategyTag = COALESCE(:strategy, t.strategyTag)
+              AND t.direction = COALESCE(:direction, t.direction)
+              AND t.status = COALESCE(:status, t.status)
+            """)
     Page<Trade> search(@Param("userId") UUID userId,
                       @Param("from") OffsetDateTime from,
                       @Param("to") OffsetDateTime to,
