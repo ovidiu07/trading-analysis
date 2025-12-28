@@ -33,7 +33,20 @@ public class TradeService {
 
     public Page<TradeResponse> search(int page, int size, OffsetDateTime from, OffsetDateTime to, String symbol, String strategy) {
         User user = currentUserService.getCurrentUser();
-        var result = tradeRepository.search(user.getId(), from, to, symbol, strategy, null, null, PageRequest.of(page, size));
+        var pageable = PageRequest.of(Math.max(page, 0), size);
+        var normalizedSymbol = (symbol == null || symbol.isBlank()) ? null : symbol;
+        var normalizedStrategy = (strategy == null || strategy.isBlank()) ? null : strategy;
+
+        var result = tradeRepository.search(
+                user.getId(),
+                from,
+                to,
+                normalizedSymbol,
+                normalizedStrategy,
+                null,
+                null,
+                pageable
+        );
         return result.map(this::toResponse);
     }
 

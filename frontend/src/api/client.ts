@@ -47,7 +47,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
       message = 'Unauthorized. Please login again.'
     }
 
-    const error = new ApiError(message || 'Request failed')
+    const error = new ApiError(`[${res.status}] ${message || 'Request failed'}`)
     error.status = res.status
     throw error
   }
