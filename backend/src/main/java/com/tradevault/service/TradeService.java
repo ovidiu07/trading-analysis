@@ -14,6 +14,7 @@ import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,23 +32,36 @@ public class TradeService {
     private final TagRepository tagRepository;
     private final CurrentUserService currentUserService;
 
-    public Page<TradeResponse> search(int page, int size, OffsetDateTime from, OffsetDateTime to, String symbol, String strategy) {
+    public Page<TradeResponse> search(int page, int size,
+                                      OffsetDateTime openedAtFrom,
+                                      OffsetDateTime openedAtTo,
+                                      OffsetDateTime closedAtFrom,
+                                      OffsetDateTime closedAtTo,
+                                      String symbol,
+                                      Direction direction) {
         User user = currentUserService.getCurrentUser();
-        var pageable = PageRequest.of(Math.max(page, 0), size);
+        var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
         var normalizedSymbol = (symbol == null || symbol.isBlank()) ? null : symbol;
-        var normalizedStrategy = (strategy == null || strategy.isBlank()) ? null : strategy;
 
         var result = tradeRepository.search(
                 user.getId(),
-                from,
-                to,
+                openedAtFrom,
+                openedAtTo,
+                closedAtFrom,
+                closedAtTo,
                 normalizedSymbol,
-                normalizedStrategy,
                 null,
+                direction,
                 null,
                 pageable
         );
         return result.map(this::toResponse);
+    }
+
+    public Page<TradeResponse> listAll(int page, int size) {
+        User user = currentUserService.getCurrentUser();
+        var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
+        return tradeRepository.findByUserIdOrderByOpenedAtDescCreatedAtDesc(user.getId(), pageable).map(this::toResponse);
     }
 
     @Transactional
@@ -69,8 +83,12 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
+        trade.setPnlGross(request.getPnlGross());
+        trade.setPnlNet(request.getPnlNet());
+        trade.setPnlPercent(request.getPnlPercent());
         trade.setRiskAmount(request.getRiskAmount());
         trade.setRiskPercent(request.getRiskPercent());
+        trade.setRMultiple(request.getRMultiple());
         trade.setCapitalUsed(request.getCapitalUsed());
         trade.setTimeframe(request.getTimeframe());
         trade.setSetup(request.getSetup());
@@ -109,8 +127,12 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
+        trade.setPnlGross(request.getPnlGross());
+        trade.setPnlNet(request.getPnlNet());
+        trade.setPnlPercent(request.getPnlPercent());
         trade.setRiskAmount(request.getRiskAmount());
         trade.setRiskPercent(request.getRiskPercent());
+        trade.setRMultiple(request.getRMultiple());
         trade.setCapitalUsed(request.getCapitalUsed());
         trade.setTimeframe(request.getTimeframe());
         trade.setSetup(request.getSetup());
@@ -150,22 +172,30 @@ public class TradeService {
             BigDecimal pnlGross = priceDiff.multiply(trade.getQuantity());
             BigDecimal totalCosts = defaultZero(trade.getFees()).add(defaultZero(trade.getCommission())).add(defaultZero(trade.getSlippage()));
             BigDecimal pnlNet = pnlGross.subtract(totalCosts);
-            trade.setPnlGross(pnlGross);
-            trade.setPnlNet(pnlNet);
-            if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
-                trade.setPnlPercent(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
-            } else if (trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
-                trade.setPnlPercent(pnlNet.divide(trade.getCapitalUsed(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
+            if (trade.getPnlGross() == null) {
+                trade.setPnlGross(pnlGross);
             }
-            if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
-                trade.setRMultiple(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP));
-            } else if (trade.getStopLossPrice() != null) {
-                BigDecimal riskPerUnit = trade.getDirection() == Direction.LONG ?
-                        trade.getEntryPrice().subtract(trade.getStopLossPrice()) :
-                        trade.getStopLossPrice().subtract(trade.getEntryPrice());
-                if (riskPerUnit.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal riskValue = riskPerUnit.multiply(trade.getQuantity());
-                    trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
+            if (trade.getPnlNet() == null) {
+                trade.setPnlNet(pnlNet);
+            }
+            if (trade.getPnlPercent() == null) {
+                if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
+                    trade.setPnlPercent(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
+                } else if (trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
+                    trade.setPnlPercent(pnlNet.divide(trade.getCapitalUsed(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
+                }
+            }
+            if (trade.getRMultiple() == null) {
+                if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
+                    trade.setRMultiple(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP));
+                } else if (trade.getStopLossPrice() != null) {
+                    BigDecimal riskPerUnit = trade.getDirection() == Direction.LONG ?
+                            trade.getEntryPrice().subtract(trade.getStopLossPrice()) :
+                            trade.getStopLossPrice().subtract(trade.getEntryPrice());
+                    if (riskPerUnit.compareTo(BigDecimal.ZERO) > 0) {
+                        BigDecimal riskValue = riskPerUnit.multiply(trade.getQuantity());
+                        trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
+                    }
                 }
             }
         }
@@ -183,14 +213,25 @@ public class TradeService {
                 .quantity(trade.getQuantity())
                 .entryPrice(trade.getEntryPrice())
                 .exitPrice(trade.getExitPrice())
+                .stopLossPrice(trade.getStopLossPrice())
+                .takeProfitPrice(trade.getTakeProfitPrice())
+                .fees(trade.getFees())
+                .commission(trade.getCommission())
+                .slippage(trade.getSlippage())
                 .pnlGross(trade.getPnlGross())
                 .pnlNet(trade.getPnlNet())
                 .pnlPercent(trade.getPnlPercent())
                 .rMultiple(trade.getRMultiple())
+                .riskAmount(trade.getRiskAmount())
+                .riskPercent(trade.getRiskPercent())
+                .capitalUsed(trade.getCapitalUsed())
                 .timeframe(trade.getTimeframe())
+                .setup(trade.getSetup())
                 .strategyTag(trade.getStrategyTag())
                 .catalystTag(trade.getCatalystTag())
                 .notes(trade.getNotes())
+                .createdAt(trade.getCreatedAt())
+                .updatedAt(trade.getUpdatedAt())
                 .tags(trade.getTags().stream().map(Tag::getName).collect(Collectors.toSet()))
                 .build();
     }

@@ -39,15 +39,17 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
       // ignore JSON parsing errors
     }
 
+    const statusLabel = `${res.status} ${res.statusText}`
+    const fallback = text || statusLabel
     if (!message) {
-      message = text || `${res.status} ${res.statusText}`
+      message = fallback
     }
 
     if (res.status === 401 || res.status === 403) {
-      message = 'Unauthorized. Please login again.'
+      message = 'Unauthorized or expired session. Please login again.'
     }
 
-    const error = new ApiError(`[${res.status}] ${message || 'Request failed'}`)
+    const error = new ApiError(`${statusLabel} - ${message}`)
     error.status = res.status
     throw error
   }

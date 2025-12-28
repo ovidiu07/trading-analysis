@@ -6,6 +6,7 @@ import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.GenericGenerator;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
@@ -80,6 +81,8 @@ public class Trade {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @CreationTimestamp
+    @Column(updatable = false)
     private OffsetDateTime createdAt;
 
     @UpdateTimestamp

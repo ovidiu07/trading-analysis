@@ -24,13 +24,24 @@ public class TradeResponse {
     private BigDecimal quantity;
     private BigDecimal entryPrice;
     private BigDecimal exitPrice;
+    private BigDecimal stopLossPrice;
+    private BigDecimal takeProfitPrice;
+    private BigDecimal fees;
+    private BigDecimal commission;
+    private BigDecimal slippage;
     private BigDecimal pnlNet;
     private BigDecimal pnlGross;
     private BigDecimal pnlPercent;
     private BigDecimal rMultiple;
+    private BigDecimal riskAmount;
+    private BigDecimal riskPercent;
+    private BigDecimal capitalUsed;
     private String timeframe;
+    private String setup;
     private String strategyTag;
     private String catalystTag;
     private String notes;
+    private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
     private Set<String> tags;
 }
