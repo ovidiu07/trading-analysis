@@ -26,6 +26,7 @@ import { AnalyticsResponse } from '../api/analytics'
 import { TradeResponse } from '../api/trades'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatDateTime, formatPercent, formatSignedCurrency } from '../utils/format'
+import { useAuth } from '../auth/AuthContext'
 
 type KpiCard = { label: string; value: string | number }
 
@@ -34,6 +35,8 @@ export default function DashboardPage() {
   const [recentTrades, setRecentTrades] = useState<TradeResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const { user } = useAuth()
+  const baseCurrency = user?.baseCurrency || 'USD'
 
   useEffect(() => {
     const load = async () => {
@@ -60,14 +63,14 @@ export default function DashboardPage() {
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: 'Net P&L', value: formatSignedCurrency(summary.kpi.totalPnlNet) },
-      { label: 'Gross P&L', value: formatSignedCurrency(summary.kpi.totalPnlGross) },
+      { label: 'Net P&L', value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
+      { label: 'Gross P&L', value: formatSignedCurrency(summary.kpi.totalPnlGross, baseCurrency) },
       { label: 'Win rate', value: formatPercent(summary.kpi.winRate) },
       { label: 'Profit factor', value: summary.kpi.profitFactor?.toFixed(2) ?? '—' },
-      { label: 'Expectancy', value: formatSignedCurrency(summary.kpi.expectancy) },
-      { label: 'Max drawdown', value: formatSignedCurrency(-Math.abs(summary.kpi.maxDrawdown || 0)) },
+      { label: 'Expectancy', value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
+      { label: 'Max drawdown', value: formatSignedCurrency(-Math.abs(summary.kpi.maxDrawdown || 0), baseCurrency) },
     ]
-  }, [summary])
+  }, [baseCurrency, summary])
 
   const kpiCards = loading
     ? Array.from({ length: 6 }, (_, idx) => ({ label: `placeholder-${idx}`, value: '' }))
@@ -126,8 +129,8 @@ export default function DashboardPage() {
                   <AreaChart data={equityData}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" />
-                    <YAxis tickFormatter={(v) => `$${v}`} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v as number)} labelFormatter={(label) => label as string} />
+                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} />
+                    <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
                     <Area type="monotone" dataKey="value" stroke="#1976d2" fill="#bbdefb" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -152,8 +155,8 @@ export default function DashboardPage() {
                   <BarChart data={groupedPnl}>
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" />
-                    <YAxis tickFormatter={(v) => `$${v}`} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v as number)} labelFormatter={(label) => label as string} />
+                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} />
+                    <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
                     <Bar dataKey="value" fill="#1976d2" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -200,7 +203,7 @@ export default function DashboardPage() {
                     <TableCell>{trade.status}</TableCell>
                     <TableCell>{formatDateTime(trade.openedAt)}</TableCell>
                     <TableCell align="right" sx={{ color: (trade.pnlNet || 0) >= 0 ? 'success.main' : 'error.main' }}>
-                      {formatSignedCurrency(trade.pnlNet ?? 0)}
+                      {formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
                     </TableCell>
                   </TableRow>
                 ))}

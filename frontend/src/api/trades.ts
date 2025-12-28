@@ -1,4 +1,4 @@
-import { apiGet, apiPost } from './client'
+import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
 export type TradeRequest = {
   symbol: string
@@ -110,4 +110,12 @@ export async function searchTrades(filters: TradeSearchFilters = {}) {
 
 export async function createTrade(request: TradeRequest) {
   return apiPost('/trades', request)
+}
+
+export async function updateTrade(id: string, request: TradeRequest) {
+  return apiPut<TradeResponse>(`/trades/${id}`, request)
+}
+
+export async function deleteTrade(id: string) {
+  return apiDelete(`/trades/${id}`)
 }

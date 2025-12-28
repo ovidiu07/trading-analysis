@@ -10,6 +10,7 @@ import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
 import java.util.List;
+import jakarta.persistence.EntityNotFoundException;
 
 @ControllerAdvice
 public class RestExceptionHandler {
@@ -53,5 +54,14 @@ public class RestExceptionHandler {
                 .message(ex.getMessage())
                 .build();
         return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler(EntityNotFoundException.class)
+    public ResponseEntity<ApiErrorResponse> handleNotFound(EntityNotFoundException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("NOT_FOUND")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
 }

@@ -5,7 +5,7 @@ import com.tradevault.dto.auth.LoginRequest;
 import com.tradevault.dto.auth.RegisterRequest;
 import com.tradevault.dto.auth.UserDto;
 import com.tradevault.service.AuthService;
-import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.UserService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -16,7 +16,7 @@ import org.springframework.web.bind.annotation.*;
 @RequiredArgsConstructor
 public class AuthController {
     private final AuthService authService;
-    private final CurrentUserService currentUserService;
+    private final UserService userService;
 
     @PostMapping("/register")
     public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request) {
@@ -30,6 +30,6 @@ public class AuthController {
 
     @GetMapping("/me")
     public ResponseEntity<UserDto> me() {
-        return ResponseEntity.ok(UserDto.from(currentUserService.getCurrentUser()));
+        return ResponseEntity.ok(userService.getCurrentUserProfile());
     }
 }

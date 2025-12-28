@@ -23,12 +23,14 @@ export default function Layout() {
           >
             TradeVault
           </Typography>
-          <Stack direction="row" spacing={1} sx={{ mr: 2 }}>
-            <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
-            {isAuthenticated && <Button color="inherit" component={Link} to="/trades">Trades</Button>}
-            <Button color="inherit" component={Link} to="/analytics">Analytics</Button>
-            <Button color="inherit" component={Link} to="/settings">Settings</Button>
-          </Stack>
+          {isAuthenticated && (
+            <Stack direction="row" spacing={1} sx={{ mr: 2 }}>
+              <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
+              <Button color="inherit" component={Link} to="/trades">Trades</Button>
+              <Button color="inherit" component={Link} to="/analytics">Analytics</Button>
+              <Button color="inherit" component={Link} to="/settings">Settings</Button>
+            </Stack>
+          )}
           {isAuthenticated ? (
             <Stack direction="row" spacing={1} alignItems="center">
               <Typography variant="body2" sx={{ maxWidth: 200, textOverflow: 'ellipsis', overflow: 'hidden' }}>

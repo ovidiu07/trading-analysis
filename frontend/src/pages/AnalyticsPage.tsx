@@ -19,6 +19,7 @@ import { Area, AreaChart, Bar, BarChart, CartesianGrid, Pie, PieChart, Responsiv
 import { AnalyticsFilters, AnalyticsResponse, fetchAnalyticsSummary } from '../api/analytics'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatPercent, formatSignedCurrency } from '../utils/format'
+import { useAuth } from '../auth/AuthContext'
 
 const COLORS = ['#4caf50', '#f44336', '#2196f3']
 type KpiCard = { label: string; value: string | number }
@@ -28,6 +29,8 @@ export default function AnalyticsPage() {
   const [summary, setSummary] = useState<AnalyticsResponse | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [error, setError] = useState('')
+  const { user } = useAuth()
+  const baseCurrency = user?.baseCurrency || 'USD'
 
   const loadAnalytics = async (activeFilters: AnalyticsFilters = {}) => {
     setLoading(true)
@@ -64,14 +67,14 @@ export default function AnalyticsPage() {
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: 'Net P&L', value: formatSignedCurrency(summary.kpi.totalPnlNet) },
+      { label: 'Net P&L', value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
       { label: 'Win rate', value: formatPercent(summary.kpi.winRate) },
       { label: 'Profit factor', value: summary.kpi.profitFactor?.toFixed(2) ?? '—' },
-      { label: 'Expectancy', value: formatSignedCurrency(summary.kpi.expectancy) },
+      { label: 'Expectancy', value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
       { label: 'Trades', value: summary.kpi.totalTrades ?? summary.kpi.winningTrades ?? 0 },
       { label: 'Open trades', value: summary.kpi.openTrades ?? 0 },
     ]
-  }, [summary])
+  }, [baseCurrency, summary])
 
   const kpiCards = loading
     ? Array.from({ length: 6 }, (_, idx) => ({ label: `placeholder-${idx}`, value: '' }))
@@ -173,7 +176,7 @@ export default function AnalyticsPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" />
                     <YAxis />
-                    <Tooltip formatter={(v: number) => formatCurrency(v as number)} />
+                    <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                     <Area type="monotone" dataKey="value" stroke="#1976d2" fill="#bbdefb" />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -221,7 +224,7 @@ export default function AnalyticsPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="name" />
                     <YAxis />
-                    <Tooltip formatter={(v: number) => formatCurrency(v as number)} />
+                    <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                     <Bar dataKey="value" fill="#1976d2" />
                   </BarChart>
                 </ResponsiveContainer>
@@ -243,7 +246,7 @@ export default function AnalyticsPage() {
                     <CartesianGrid strokeDasharray="3 3" />
                     <XAxis dataKey="date" />
                     <YAxis />
-                    <Tooltip formatter={(v: number) => formatCurrency(v as number)} />
+                    <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                     <Bar dataKey="value" fill="#1565c0" />
                   </BarChart>
                 </ResponsiveContainer>

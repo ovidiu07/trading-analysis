@@ -19,6 +19,8 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 public class TradeServiceTest {
@@ -51,6 +53,59 @@ public class TradeServiceTest {
         var response = tradeService.create(request);
         assertEquals(new BigDecimal("2000"), response.getPnlGross());
         assertEquals(new BigDecimal("1995"), response.getPnlNet());
+    }
+
+    @Test
+    void updatesExistingTradeForCurrentUser() {
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("AAPL")
+                .market(Market.STOCK)
+                .direction(Direction.LONG)
+                .status(TradeStatus.OPEN)
+                .openedAt(OffsetDateTime.now().minusDays(2))
+                .quantity(new BigDecimal("50"))
+                .entryPrice(new BigDecimal("10"))
+                .fees(BigDecimal.ZERO)
+                .commission(BigDecimal.ZERO)
+                .slippage(BigDecimal.ZERO)
+                .build();
+
+        TradeRequest updateRequest = baseRequest();
+        updateRequest.setDirection(Direction.SHORT);
+        updateRequest.setSymbol("MSFT");
+        updateRequest.setEntryPrice(new BigDecimal("20"));
+        updateRequest.setExitPrice(new BigDecimal("10"));
+        updateRequest.setQuantity(new BigDecimal("10"));
+
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.update(existing.getId(), updateRequest);
+
+        assertEquals("MSFT", response.getSymbol());
+        assertEquals(Direction.SHORT, response.getDirection());
+        assertEquals(new BigDecimal("100"), response.getPnlGross());
+    }
+
+    @Test
+    void throwsWhenUpdatingTradeNotOwnedByUser() {
+        UUID otherTradeId = UUID.randomUUID();
+        when(tradeRepository.findByIdAndUserId(otherTradeId, user.getId())).thenReturn(java.util.Optional.empty());
+
+        assertThrows(javax.persistence.EntityNotFoundException.class, () -> tradeService.update(otherTradeId, baseRequest()));
+    }
+
+    @Test
+    void deletesTradeForUser() {
+        UUID tradeId = UUID.randomUUID();
+        Trade trade = Trade.builder().id(tradeId).user(user).build();
+        when(tradeRepository.findByIdAndUserId(tradeId, user.getId())).thenReturn(java.util.Optional.of(trade));
+
+        tradeService.delete(tradeId);
+
+        verify(tradeRepository).delete(eq(trade));
     }
 
     private TradeRequest baseRequest() {

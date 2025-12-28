@@ -1,21 +1,39 @@
-const currencyFormatter = new Intl.NumberFormat(undefined, {
-  style: 'currency',
-  currency: 'USD',
-  minimumFractionDigits: 2,
-  maximumFractionDigits: 2,
-})
+const formatterCache = new Map<string, Intl.NumberFormat>()
+
+const getCurrencyFormatter = (currency?: string) => {
+  const key = currency && currency.trim() ? currency.toUpperCase() : 'USD'
+  if (!formatterCache.has(key)) {
+    try {
+      formatterCache.set(key, new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: key,
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }))
+    } catch (e) {
+      formatterCache.set('USD', new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: 'USD',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2,
+      }))
+      return formatterCache.get('USD')!
+    }
+  }
+  return formatterCache.get(key)!
+}
 
 const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
 
-export const formatCurrency = (value?: number | null) => {
+export const formatCurrency = (value?: number | null, currency?: string) => {
   if (value === undefined || value === null || Number.isNaN(value)) return '—'
-  return currencyFormatter.format(value)
+  return getCurrencyFormatter(currency).format(value)
 }
 
-export const formatSignedCurrency = (value?: number | null) => {
+export const formatSignedCurrency = (value?: number | null, currency?: string) => {
   if (value === undefined || value === null || Number.isNaN(value)) return '—'
   const sign = value > 0 ? '+' : ''
-  return `${sign}${currencyFormatter.format(value)}`
+  return `${sign}${getCurrencyFormatter(currency).format(value)}`
 }
 
 export const formatPercent = (value?: number | null) => {
