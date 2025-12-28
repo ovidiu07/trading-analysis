@@ -7,6 +7,7 @@ export type TradeRequest = {
   status: 'OPEN' | 'CLOSED'
   openedAt: string
   closedAt?: string | null
+  timeframe?: string
   quantity: number
   entryPrice: number
   exitPrice?: number | null
@@ -15,10 +16,13 @@ export type TradeRequest = {
   fees?: number
   commission?: number
   slippage?: number
+  pnlGross?: number | null
+  pnlNet?: number | null
+  pnlPercent?: number | null
   riskAmount?: number
   riskPercent?: number
+  rMultiple?: number | null
   capitalUsed?: number
-  timeframe?: string
   setup?: string
   strategyTag?: string
   catalystTag?: string
@@ -38,8 +42,20 @@ export type TradeResponse = {
   quantity?: number | null
   entryPrice?: number | null
   exitPrice?: number | null
+  stopLossPrice?: number | null
+  takeProfitPrice?: number | null
+  fees?: number | null
+  commission?: number | null
+  slippage?: number | null
   pnlGross?: number | null
   pnlNet?: number | null
+  pnlPercent?: number | null
+  riskAmount?: number | null
+  riskPercent?: number | null
+  rMultiple?: number | null
+  capitalUsed?: number | null
+  timeframe?: string | null
+  setup?: string | null
   strategyTag?: string | null
   catalystTag?: string | null
   notes?: string | null
@@ -58,26 +74,36 @@ export type PageResponse<T> = {
 export type TradeSearchParams = {
   page?: number
   size?: number
-  from?: string
-  to?: string
-  symbol?: string
-  strategy?: string
 }
 
-function toQuery(params: TradeSearchParams = {}) {
+export type TradeSearchFilters = {
+  page?: number
+  size?: number
+  openedAtFrom?: string
+  openedAtTo?: string
+  closedAtFrom?: string
+  closedAtTo?: string
+  symbol?: string
+  direction?: TradeRequest['direction']
+}
+
+function toQuery(params: Record<string, string | number | undefined | null> = {}) {
   const sp = new URLSearchParams()
-  if (params.page !== undefined) sp.set('page', String(params.page))
-  if (params.size !== undefined) sp.set('size', String(params.size))
-  if (params.from) sp.set('from', params.from)
-  if (params.to) sp.set('to', params.to)
-  if (params.symbol) sp.set('symbol', params.symbol)
-  if (params.strategy) sp.set('strategy', params.strategy)
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined && value !== null && value !== '') {
+      sp.set(key, String(value))
+    }
+  })
   const qs = sp.toString()
   return qs ? `?${qs}` : ''
 }
 
-export async function searchTrades(params: TradeSearchParams = {}) {
+export async function listTrades(params: TradeSearchParams = {}) {
   return apiGet<PageResponse<TradeResponse>>(`/trades${toQuery(params)}`)
+}
+
+export async function searchTrades(filters: TradeSearchFilters = {}) {
+  return apiGet<PageResponse<TradeResponse>>(`/trades/search${toQuery(filters)}`)
 }
 
 
