@@ -20,7 +20,7 @@ spring:
       max-request-size: 12MB
 
 jwt:
-  secret: ${JWT_SECRET:changeme-secret}
+  secret: ${JWT_SECRET:gPPiP7wvLam06Gus3EkRczpfZcJ8nDKF6FENCylIyvg=}
   expiry: ${JWT_EXPIRY:3600000}
 
 app:

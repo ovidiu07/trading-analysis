@@ -1,14 +1,9 @@
-import { useMemo, useState } from 'react'
-import { DataGrid, GridColDef } from '@mui/x-data-grid'
-import { Alert, Box, Button, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
+import { Alert, Box, Button, CircularProgress, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { useForm } from 'react-hook-form'
-import { createTrade } from '../api/trades'
+import { TradeResponse, PageResponse, createTrade, searchTrades } from '../api/trades'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
-
-const rows = [
-  { id: 1, symbol: 'AAPL', direction: 'LONG', pnl: 120, strategy: 'Breakout', date: '2024-05-02' },
-  { id: 2, symbol: 'TSLA', direction: 'SHORT', pnl: -50, strategy: 'Reversal', date: '2024-05-03' }
-]
 
 const defaultValues: TradeFormValues = {
   symbol: '',
@@ -20,31 +15,103 @@ const defaultValues: TradeFormValues = {
   entryPrice: 0
 }
 
+// Helper function to format dates safely
+const formatDate = (dateString?: string | null): string => {
+  if (!dateString) return '-';
+  try {
+    const date = new Date(dateString);
+    return date.toLocaleString();
+  } catch (e) {
+    return dateString;
+  }
+};
+
 export default function TradesPage() {
+  // State for trades data
+  const [trades, setTrades] = useState<TradeResponse[]>([]);
+  const [totalRows, setTotalRows] = useState<number>(0);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [fetchError, setFetchError] = useState<string>('');
+
+  // Pagination state
+  const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
+    page: 0,
+    pageSize: 5,
+  });
+
+  // Define columns based on TradeResponse fields
   const columns = useMemo<GridColDef[]>(() => [
     { field: 'symbol', headerName: 'Symbol', flex: 1 },
+    { field: 'market', headerName: 'Market', flex: 1 },
     { field: 'direction', headerName: 'Direction', flex: 1 },
-    { field: 'pnl', headerName: 'P&L', flex: 1 },
-    { field: 'strategy', headerName: 'Strategy', flex: 1 },
-    { field: 'date', headerName: 'Date', flex: 1 }
-  ], [])
+    { field: 'status', headerName: 'Status', flex: 1 },
+    { 
+      field: 'openedAt', 
+      headerName: 'Opened At', 
+      flex: 1,
+      valueFormatter: (params) => formatDate(params.value)
+    },
+    { 
+      field: 'closedAt', 
+      headerName: 'Closed At', 
+      flex: 1,
+      valueFormatter: (params) => formatDate(params.value)
+    },
+    { field: 'quantity', headerName: 'Quantity', flex: 1 },
+    { field: 'entryPrice', headerName: 'Entry Price', flex: 1 },
+    { field: 'exitPrice', headerName: 'Exit Price', flex: 1 },
+    { field: 'notes', headerName: 'Notes', flex: 1 },
+  ], []);
 
-  const { register, handleSubmit, reset } = useForm<TradeFormValues>({ defaultValues })
-  const [success, setSuccess] = useState('')
-  const [error, setError] = useState('')
+  // Form handling
+  const { register, handleSubmit, reset } = useForm<TradeFormValues>({ defaultValues });
+  const [success, setSuccess] = useState('');
+  const [error, setError] = useState('');
 
-  const onSubmit = async (values: TradeFormValues) => {
-    setSuccess('')
-    setError('')
+  // Function to fetch trades
+  const fetchTrades = useCallback(async () => {
+    setLoading(true);
+    setFetchError('');
+
     try {
-      const payload = buildTradePayload(values)
-      await createTrade(payload)
-      setSuccess('Trade created successfully')
-      reset({ ...defaultValues, openedAt: new Date().toISOString().slice(0, 16) })
+      const response = await searchTrades({
+        page: paginationModel.page,
+        size: paginationModel.pageSize
+      });
+
+      // Ensure we have an array even if the API returns null/undefined
+      setTrades(response.content || []);
+      setTotalRows(response.totalElements);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to create trade')
+      console.error('Failed to fetch trades:', err);
+      setTrades([]);
+      setFetchError(err instanceof Error ? err.message : 'Failed to fetch trades');
+    } finally {
+      setLoading(false);
     }
-  }
+  }, [paginationModel.page, paginationModel.pageSize]);
+
+  // Fetch trades when pagination changes
+  useEffect(() => {
+    fetchTrades();
+  }, [fetchTrades]);
+
+  // Handle form submission
+  const onSubmit = async (values: TradeFormValues) => {
+    setSuccess('');
+    setError('');
+    try {
+      const payload = buildTradePayload(values);
+      await createTrade(payload);
+      setSuccess('Trade created successfully');
+      reset({ ...defaultValues, openedAt: new Date().toISOString().slice(0, 16) });
+
+      // Refresh the grid data after creating a trade
+      fetchTrades();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create trade');
+    }
+  };
 
   return (
     <Box>
@@ -82,8 +149,39 @@ export default function TradesPage() {
         <Button type="submit" variant="contained">Save trade</Button>
       </Box>
 
-      <div style={{ height: 400, width: '100%' }}>
-        <DataGrid rows={rows} columns={columns} pageSizeOptions={[5]} />
+      {fetchError && <Alert severity="error" sx={{ mb: 2 }}>{fetchError}</Alert>}
+
+      <div style={{ height: 400, width: '100%', position: 'relative' }}>
+        {loading && (
+          <Box
+            sx={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              backgroundColor: 'rgba(255, 255, 255, 0.7)',
+              zIndex: 1,
+            }}
+          >
+            <CircularProgress />
+          </Box>
+        )}
+        <DataGrid
+          rows={trades}
+          columns={columns}
+          rowCount={totalRows}
+          loading={loading}
+          pageSizeOptions={[5, 10, 25]}
+          paginationModel={paginationModel}
+          paginationMode="server"
+          onPaginationModelChange={setPaginationModel}
+          disableRowSelectionOnClick
+          getRowId={(row) => row.id}
+        />
       </div>
     </Box>
   )

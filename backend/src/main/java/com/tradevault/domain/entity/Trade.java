@@ -1,11 +1,13 @@
 package com.tradevault.domain.entity;
 
+import com.tradevault.config.DirectionType;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
@@ -13,6 +15,7 @@ import java.time.OffsetDateTime;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+import org.hibernate.type.SqlTypes;
 
 @Getter
 @Setter
@@ -38,12 +41,18 @@ public class Trade {
     private String symbol;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(columnDefinition = "market_type")
     private Market market;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "direction", columnDefinition = "direction_type")
     private Direction direction;
 
     @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "status", columnDefinition = "status_type", nullable = false)
     private TradeStatus status;
 
     private OffsetDateTime openedAt;

@@ -16,7 +16,7 @@ services:
       DB_URL: jdbc:postgresql://db:5432/tradevault
       DB_USER: tradevault
       DB_PASS: tradevault
-      JWT_SECRET: changeme-secret
+      JWT_SECRET: gPPiP7wvLam06Gus3EkRczpfZcJ8nDKF6FENCylIyvg=
       FRONTEND_URL: http://localhost:4173
     depends_on:
       - db

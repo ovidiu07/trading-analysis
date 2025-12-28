@@ -49,8 +49,8 @@ public class TradeServiceTest {
         when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
 
         var response = tradeService.create(request);
-        assertEquals(new BigDecimal("2000.0000"), response.getPnlGross());
-        assertEquals(new BigDecimal("1995.0000"), response.getPnlNet());
+        assertEquals(new BigDecimal("2000"), response.getPnlGross());
+        assertEquals(new BigDecimal("1995"), response.getPnlNet());
     }
 
     private TradeRequest baseRequest() {

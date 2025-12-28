@@ -35,7 +35,7 @@ public class AuthService {
                 .email(request.getEmail())
                 .passwordHash(passwordEncoder.encode(request.getPassword()))
                 .role(Role.USER)
-                .baseCurrency("USD")
+                .baseCurrency("EUR")
                 .timezone("Europe/Bucharest")
                 .createdAt(OffsetDateTime.now())
                 .build();
