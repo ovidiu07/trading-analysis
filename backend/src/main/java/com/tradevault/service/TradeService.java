@@ -17,6 +17,8 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -29,6 +31,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class TradeService {
+    private static final Logger log = LoggerFactory.getLogger(TradeService.class);
     private final TradeRepository tradeRepository;
     private final AccountRepository accountRepository;
     private final TagRepository tagRepository;
@@ -177,7 +180,10 @@ public class TradeService {
     public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
-        return tradeRepository.findClosedTradesForLocalDate(user.getId(), date, zone.getId())
+        log.info("[CALENDAR] listClosedTradesByDate userId={}, date={}, tz={}", user.getId(), date, zone.getId());
+        var trades = tradeRepository.findClosedTradesForLocalDate(user.getId(), date, zone.getId());
+        log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
+        return trades
                 .stream()
                 .map(this::toResponse)
                 .toList();
