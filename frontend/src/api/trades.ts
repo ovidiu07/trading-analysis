@@ -127,6 +127,10 @@ export async function listClosedTradesForDate(date: string, tz?: string) {
   return apiGet<TradeResponse[]>(`/trades/closed-day${toQuery({ date, tz })}`)
 }
 
+export async function getTradeById(id: string) {
+  return apiGet<TradeResponse>(`/trades/${id}`)
+}
+
 export async function createTrade(request: TradeRequest) {
   return apiPost('/trades', request)
 }

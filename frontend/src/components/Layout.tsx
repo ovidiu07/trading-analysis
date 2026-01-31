@@ -28,6 +28,7 @@ export default function Layout() {
               <Button color="inherit" component={Link} to="/dashboard">Dashboard</Button>
               <Button color="inherit" component={Link} to="/trades">Trades</Button>
               <Button color="inherit" component={Link} to="/calendar">Calendar</Button>
+              <Button color="inherit" component={Link} to="/notebook">Notebook</Button>
               <Button color="inherit" component={Link} to="/analytics">Analytics</Button>
               <Button color="inherit" component={Link} to="/settings">Settings</Button>
             </Stack>

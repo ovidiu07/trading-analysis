@@ -3,6 +3,7 @@ package com.tradevault.controller;
 import com.tradevault.domain.enums.PnlBasis;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.trade.DailyPnlResponse;
+import com.tradevault.dto.trade.DailySummaryResponse;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.service.TradeCalendarService;
@@ -17,6 +18,7 @@ import org.springframework.http.HttpStatus;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.math.BigDecimal;
 import java.util.UUID;
 
 @RestController
@@ -73,6 +75,21 @@ public class TradeController {
         return tradeCalendarService.fetchDailyPnl(from, to, tz, resolved);
     }
 
+    @GetMapping("/daily-summary")
+    public DailySummaryResponse dailySummary(@RequestParam LocalDate date,
+                                             @RequestParam(required = false) String tz,
+                                             @RequestParam(defaultValue = "close") String basis) {
+        if (basis != null && !basis.isBlank() && !"close".equalsIgnoreCase(basis)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only close basis is supported for daily summary");
+        }
+        return tradeService.dailySummary(date, tz);
+    }
+
+    @GetMapping("/{id}")
+    public TradeResponse getById(@PathVariable UUID id) {
+        return tradeService.getById(id);
+    }
+
     @GetMapping("/closed-day")
     public java.util.List<TradeResponse> closedDay(@RequestParam LocalDate date,
                                                    @RequestParam(required = false) String tz) {
@@ -88,6 +105,14 @@ public class TradeController {
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         tradeService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/losses")
+    public java.util.List<TradeResponse> listLosses(@RequestParam LocalDate from,
+                                                    @RequestParam LocalDate to,
+                                                    @RequestParam(required = false) String tz,
+                                                    @RequestParam(required = false) BigDecimal minLoss) {
+        return tradeService.listLosses(from, to, tz, minLoss);
     }
 
     private PnlBasis resolveBasis(String basis) {
