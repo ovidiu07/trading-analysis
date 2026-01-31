@@ -3,8 +3,6 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
-  Alert,
-  Box,
   Card,
   CardContent,
   Divider,
@@ -27,6 +25,9 @@ import { TradeResponse } from '../api/trades'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatDateTime, formatPercent, formatSignedCurrency } from '../utils/format'
 import { useAuth } from '../auth/AuthContext'
+import PageHeader from '../components/ui/PageHeader'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorBanner from '../components/ui/ErrorBanner'
 
 type KpiCard = { label: string; value: string | number }
 
@@ -81,14 +82,12 @@ export default function DashboardPage() {
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4" gutterBottom>Dashboard</Typography>
-        <Typography variant="subtitle1" color="text.secondary">
-          Live view of your trading performance, equity growth, and most recent executions.
-        </Typography>
-      </Box>
+      <PageHeader
+        title="Dashboard"
+        subtitle="Live view of your trading performance, equity growth, and most recent executions."
+      />
 
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <ErrorBanner message={error} />}
 
       <Grid container spacing={2}>
         {kpiCards.map((kpi, idx) => (
@@ -123,7 +122,10 @@ export default function DashboardPage() {
               {loading ? (
                 <Skeleton variant="rectangular" height={320} />
               ) : equityData.length === 0 ? (
-                <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary' }}>No trades yet to build an equity curve.</Box>
+                <EmptyState
+                  title="No equity curve yet"
+                  description="Capture a few trades to see cumulative performance over time."
+                />
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <AreaChart data={equityData}>
@@ -149,7 +151,10 @@ export default function DashboardPage() {
               {loading ? (
                 <Skeleton variant="rectangular" height={320} />
               ) : groupedPnl.length === 0 ? (
-                <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary' }}>No grouped P&L yet.</Box>
+                <EmptyState
+                  title="No grouped P&L data"
+                  description="Daily P&L will appear once trades are closed."
+                />
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={groupedPnl}>

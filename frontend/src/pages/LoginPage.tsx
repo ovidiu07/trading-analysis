@@ -1,5 +1,5 @@
 import { zodResolver } from '@hookform/resolvers/zod'
-import { Avatar, Box, Button, Container, Link as MuiLink, TextField, Typography } from '@mui/material'
+import { Avatar, Box, Button, Card, CardContent, Container, Link as MuiLink, Stack, TextField, Typography } from '@mui/material'
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined'
 import { useForm } from 'react-hook-form'
 import { z } from 'zod'
@@ -38,25 +38,38 @@ export default function LoginPage() {
   }
 
   return (
-    <Container component="main" maxWidth="xs">
-      <Box sx={{ marginTop: 8, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        <Avatar sx={{ m: 1, bgcolor: 'secondary.main' }}>
-          <LockOutlinedIcon />
-        </Avatar>
-        <Typography component="h1" variant="h5">
-          Sign in
-        </Typography>
-        <Box component="form" onSubmit={handleSubmit(onSubmit)} sx={{ mt: 1 }}>
-          <TextField margin="normal" fullWidth label="Email Address" autoComplete="email" {...register('email')} error={!!formState.errors.email} helperText={formState.errors.email?.message} />
-          <TextField margin="normal" fullWidth label="Password" type="password" autoComplete="current-password" {...register('password')} error={!!formState.errors.password} helperText={formState.errors.password?.message} />
-          {error && <Typography color="error" variant="body2">{error}</Typography>}
-          <Button type="submit" fullWidth variant="contained" sx={{ mt: 3, mb: 2 }} disabled={submitting}>
-            Sign In
-          </Button>
-          <MuiLink component={Link} to="/register" variant="body2">
-            Don't have an account? Register
-          </MuiLink>
-        </Box>
+    <Container component="main" maxWidth="sm">
+      <Box sx={{ minHeight: '80vh', display: 'flex', alignItems: 'center' }}>
+        <Card sx={{ width: '100%' }}>
+          <CardContent sx={{ p: { xs: 3, md: 4 } }}>
+            <Stack spacing={3}>
+              <Stack spacing={1} alignItems="center">
+                <Avatar sx={{ bgcolor: 'primary.main', width: 48, height: 48 }}>
+                  <LockOutlinedIcon />
+                </Avatar>
+                <Typography component="h1" variant="h5">
+                  Welcome back
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Sign in to review your latest trading performance.
+                </Typography>
+              </Stack>
+              <Box component="form" onSubmit={handleSubmit(onSubmit)}>
+                <Stack spacing={2}>
+                  <TextField label="Email Address" autoComplete="email" {...register('email')} error={!!formState.errors.email} helperText={formState.errors.email?.message} />
+                  <TextField label="Password" type="password" autoComplete="current-password" {...register('password')} error={!!formState.errors.password} helperText={formState.errors.password?.message} />
+                  {error && <Typography color="error" variant="body2">{error}</Typography>}
+                  <Button type="submit" fullWidth variant="contained" disabled={submitting}>
+                    Sign In
+                  </Button>
+                  <MuiLink component={Link} to="/register" variant="body2" textAlign="center">
+                    Don't have an account? Register
+                  </MuiLink>
+                </Stack>
+              </Box>
+            </Stack>
+          </CardContent>
+        </Card>
       </Box>
     </Container>
   )

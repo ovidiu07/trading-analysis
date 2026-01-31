@@ -3,8 +3,6 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
-  Alert,
-  Box,
   Button,
   Card,
   CardContent,
@@ -20,6 +18,9 @@ import { AnalyticsFilters, AnalyticsResponse, fetchAnalyticsSummary } from '../a
 import { ApiError } from '../api/client'
 import { formatCurrency, formatPercent, formatSignedCurrency } from '../utils/format'
 import { useAuth } from '../auth/AuthContext'
+import PageHeader from '../components/ui/PageHeader'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorBanner from '../components/ui/ErrorBanner'
 
 const COLORS = ['#4caf50', '#f44336', '#2196f3']
 type KpiCard = { label: string; value: string | number }
@@ -94,15 +95,16 @@ export default function AnalyticsPage() {
 
   return (
     <Stack spacing={3}>
-      <Box>
-        <Typography variant="h4" gutterBottom>Analytics</Typography>
-        <Typography variant="subtitle1" color="text.secondary">Deep dive into performance, distribution, and win/loss behaviour.</Typography>
-      </Box>
+      <PageHeader
+        title="Analytics"
+        subtitle="Deep dive into performance, distribution, and win/loss behaviour."
+      />
 
       <Card>
         <CardContent>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-end">
             <TextField
+              size="small"
               label="From"
               type="date"
               InputLabelProps={{ shrink: true }}
@@ -110,6 +112,7 @@ export default function AnalyticsPage() {
               onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
             />
             <TextField
+              size="small"
               label="To"
               type="date"
               InputLabelProps={{ shrink: true }}
@@ -117,11 +120,13 @@ export default function AnalyticsPage() {
               onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
             />
             <TextField
+              size="small"
               label="Symbol"
               value={filters.symbol || ''}
               onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))}
             />
             <TextField
+              size="small"
               label="Direction"
               select
               SelectProps={{ native: true }}
@@ -140,7 +145,7 @@ export default function AnalyticsPage() {
         </CardContent>
       </Card>
 
-      {error && <Alert severity="error">{error}</Alert>}
+      {error && <ErrorBanner message={error} />}
 
       <Grid container spacing={2}>
         {kpiCards.map((kpi, idx) => (
@@ -169,7 +174,10 @@ export default function AnalyticsPage() {
               {loading ? (
                 <Skeleton variant="rectangular" height={320} />
               ) : (summary?.equityCurve?.length ?? 0) === 0 ? (
-                <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary' }}>No equity data for this range.</Box>
+                <EmptyState
+                  title="No equity data"
+                  description="Adjust the filters to include a broader trade range."
+                />
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <AreaChart data={summary?.equityCurve}>
@@ -191,7 +199,7 @@ export default function AnalyticsPage() {
               {loading ? (
                 <Skeleton variant="rectangular" height={320} />
               ) : winLossData.length === 0 ? (
-                <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary' }}>No trades available.</Box>
+                <EmptyState title="No trades in range" description="Try expanding the date range." />
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <PieChart>
@@ -217,7 +225,10 @@ export default function AnalyticsPage() {
               {loading ? (
                 <Skeleton variant="rectangular" height={320} />
               ) : breakdownData.length === 0 ? (
-                <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary' }}>No strategy breakdown for this range.</Box>
+                <EmptyState
+                  title="No strategy breakdown"
+                  description="Tag trades with strategies to populate this chart."
+                />
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={breakdownData}>
@@ -239,7 +250,10 @@ export default function AnalyticsPage() {
               {loading ? (
                 <Skeleton variant="rectangular" height={320} />
               ) : (summary?.groupedPnl?.length ?? 0) === 0 ? (
-                <Box sx={{ py: 6, textAlign: 'center', color: 'text.secondary' }}>No grouped P&L for this range.</Box>
+                <EmptyState
+                  title="No grouped P&L"
+                  description="P&L totals show after trades close in the selected range."
+                />
               ) : (
                 <ResponsiveContainer width="100%" height={320}>
                   <BarChart data={summary?.groupedPnl}>

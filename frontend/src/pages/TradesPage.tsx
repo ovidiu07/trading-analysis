@@ -7,6 +7,8 @@ import {
   Alert,
   Box,
   Button,
+  Card,
+  CardContent,
   Chip,
   CircularProgress,
   Dialog,
@@ -36,6 +38,9 @@ import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatDateTime, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
 import { TradeForm } from '../components/trades/TradeForm'
+import PageHeader from '../components/ui/PageHeader'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorBanner from '../components/ui/ErrorBanner'
 
 const buildDefaultValues = (): TradeFormValues => ({
   symbol: '',
@@ -140,10 +145,6 @@ export default function TradesPage() {
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
 
-  useEffect(() => {
-    console.log('[TradesPage] render', new Date().toISOString())
-  })
-
   const [viewMode, setViewMode] = useState<'list' | 'search'>('list')
   const [filters, setFilters] = useState(defaultFilters)
   const [activeFilters, setActiveFilters] = useState<typeof defaultFilters | null>(null)
@@ -176,24 +177,19 @@ export default function TradesPage() {
   }, [])
 
   const handleCreateTradeNote = useCallback(async (trade: TradeResponse) => {
-    console.log('[TradesPage] handleCreateTradeNote START', { tradeId: trade.id, symbol: trade.symbol })
     setNoteNavError('')
     try {
-      console.log('[TradesPage] Calling createNotebookNote...')
       const note = await createNotebookNote({
         type: 'TRADE_NOTE',
         title: `${trade.symbol} trade note`,
         relatedTradeId: trade.id
       })
-      console.log('[TradesPage] createNotebookNote response', note)
       const noteId = (note as any)?.id
       if (!noteId) {
-        console.error('[TradesPage] Missing note.id in response')
         setNoteNavError('Note was created but response did not include an id. Please refresh the page and open the note manually.')
         return
       }
       const target = `/notebook?noteId=${noteId}`
-      console.log('[TradesPage] Navigating to', target)
       navigate(target)
     } catch (err) {
       const apiErr = err as ApiError
@@ -204,7 +200,6 @@ export default function TradesPage() {
       const message = apiErr instanceof Error ? apiErr.message : 'Failed to create trade note'
       setEditError(message)
       setNoteNavError(message)
-      console.error('[TradesPage] Error creating note', apiErr)
     }
   }, [handleAuthFailure, navigate])
 
@@ -475,6 +470,7 @@ export default function TradesPage() {
         columns={columns}
         rowCount={totalRows}
         loading={loading}
+        density="compact"
         pageSizeOptions={[5, 10, 25]}
         paginationModel={paginationModel}
         paginationMode="server"
@@ -488,14 +484,17 @@ export default function TradesPage() {
         }}
         sx={{
           minWidth: 800,
-          '& .pnl-positive': { color: 'success.main' },
-          '& .pnl-negative': { color: 'error.main' },
+          '& .pnl-positive': { color: 'success.main', fontWeight: 600 },
+          '& .pnl-negative': { color: 'error.main', fontWeight: 600 },
         }}
         onRowClick={(params) => setExpandedTrade((prev) => prev?.id === params.id ? null : params.row as TradeResponse)}
       />
       {!loading && trades.length === 0 && (
-        <Box sx={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-          <Typography color="text.secondary">No trades to display</Typography>
+        <Box sx={{ position: 'absolute', inset: 0 }}>
+          <EmptyState
+            title="No trades to display"
+            description="Create a trade or adjust filters to see results."
+          />
         </Box>
       )}
     </Box>
@@ -539,160 +538,169 @@ export default function TradesPage() {
         </Paper>
       ))}
       {!loading && trades.length === 0 && (
-        <Typography color="text.secondary" textAlign="center">No trades to display</Typography>
+        <EmptyState
+          title="No trades to display"
+          description="Create a trade or adjust filters to see results."
+        />
       )}
     </Stack>
   )
 
   return (
-    <Box>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1} mb={2}>
-        <Box>
-          <Typography variant="h5">Trades</Typography>
-          <Typography variant="subtitle1" color="text.secondary">Log new trades, edit history, and review details inline.</Typography>
-        </Box>
-      </Stack>
+    <Stack spacing={3}>
+      <PageHeader
+        title="Trades"
+        subtitle="Log new trades, edit history, and review details inline."
+      />
 
       <Stack spacing={3}>
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>
-            Create Trade
-          </Typography>
-          {createSuccess && <Alert severity="success" sx={{ mb: 2 }}>{createSuccess}</Alert>}
-          {createError && <Alert severity="error" sx={{ mb: 2 }}>{createError}</Alert>}
-          <TradeForm
-            initialValues={createFormValues}
-            submitLabel="Save trade"
-            onSubmit={handleCreate}
-          />
-        </Paper>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>
+              Create Trade
+            </Typography>
+            {createSuccess && <Alert severity="success" sx={{ mb: 2 }}>{createSuccess}</Alert>}
+            {createError && <Alert severity="error" sx={{ mb: 2 }}>{createError}</Alert>}
+            <TradeForm
+              initialValues={createFormValues}
+              submitLabel="Save trade"
+              onSubmit={handleCreate}
+            />
+          </CardContent>
+        </Card>
 
-        <Paper sx={{ p: 2 }}>
-          <Accordion defaultExpanded>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Filters</AccordionSummary>
-            <AccordionDetails>
-              <Grid container spacing={2}>
-                <Grid item xs={12} md={6}>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                    <TextField label="Opened From" type="datetime-local" value={filters.openedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                    <TextField label="Opened To" type="datetime-local" value={filters.openedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                  </Stack>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                    <TextField label="Closed From" type="datetime-local" value={filters.closedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                    <TextField label="Closed To" type="datetime-local" value={filters.closedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                  </Stack>
+        <Card>
+          <CardContent>
+            <Accordion defaultExpanded>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>Filters</AccordionSummary>
+              <AccordionDetails>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} md={6}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                      <TextField size="small" label="Opened From" type="datetime-local" value={filters.openedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                      <TextField size="small" label="Opened To" type="datetime-local" value={filters.openedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                    </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                      <TextField size="small" label="Closed From" type="datetime-local" value={filters.closedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                      <TextField size="small" label="Closed To" type="datetime-local" value={filters.closedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                    </Stack>
+                  </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                      <TextField size="small" label="Symbol" value={filters.symbol} onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))} fullWidth />
+                      <TextField size="small" label="Direction" select value={filters.direction} onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value }))} fullWidth>
+                        <MenuItem value="">Any</MenuItem>
+                        <MenuItem value="LONG">Long</MenuItem>
+                        <MenuItem value="SHORT">Short</MenuItem>
+                      </TextField>
+                    </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                      <TextField size="small" label="Status" select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))} fullWidth>
+                        <MenuItem value="">Any</MenuItem>
+                        <MenuItem value="OPEN">Open</MenuItem>
+                        <MenuItem value="CLOSED">Closed</MenuItem>
+                      </TextField>
+                    </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                      <Button variant="contained" onClick={onSearch} fullWidth={isSmallScreen}>Search</Button>
+                      <Button variant="outlined" onClick={clearFilters} fullWidth={isSmallScreen}>Clear filters</Button>
+                    </Stack>
+                  </Grid>
                 </Grid>
-                <Grid item xs={12} md={6}>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                    <TextField label="Symbol" value={filters.symbol} onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))} fullWidth />
-                    <TextField label="Direction" select value={filters.direction} onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value }))} fullWidth>
-                      <MenuItem value="">Any</MenuItem>
-                      <MenuItem value="LONG">Long</MenuItem>
-                      <MenuItem value="SHORT">Short</MenuItem>
-                    </TextField>
-                  </Stack>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                    <TextField label="Status" select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))} fullWidth>
-                      <MenuItem value="">Any</MenuItem>
-                      <MenuItem value="OPEN">Open</MenuItem>
-                      <MenuItem value="CLOSED">Closed</MenuItem>
-                    </TextField>
-                  </Stack>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                    <Button variant="contained" onClick={onSearch} fullWidth={isSmallScreen}>Search</Button>
-                    <Button variant="outlined" onClick={clearFilters} fullWidth={isSmallScreen}>Clear filters</Button>
-                  </Stack>
-                </Grid>
-              </Grid>
-            </AccordionDetails>
-          </Accordion>
-        </Paper>
+              </AccordionDetails>
+            </Accordion>
+          </CardContent>
+        </Card>
 
-        <Paper sx={{ p: 2 }}>
-          <Stack direction="row" justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={2} spacing={1}>
-            <Typography variant="h6">Trades List</Typography>
-            {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>Showing search results</Alert>}
-          </Stack>
-          {fetchError && <Alert severity="error" sx={{ mb: 2 }}>{fetchError}</Alert>}
-          {noteNavError && <Alert severity="error" sx={{ mb: 2 }}>{noteNavError}</Alert>}
-          {isSmallScreen ? renderTradeCards() : renderTradesTable()}
-          {expandedTrade && !isSmallScreen && (
-            <Box sx={{ mt: 2, bgcolor: 'grey.50', borderRadius: 2, p: 2 }}>
-              <Typography variant="subtitle1" gutterBottom>Trade details</Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={4}>
-                  <Typography variant="subtitle2" gutterBottom>Stops & targets</Typography>
-                  <Typography variant="body2">Stop loss: {formatCurrency(expandedTrade.stopLossPrice, baseCurrency)}</Typography>
-                  <Typography variant="body2">Take profit: {formatCurrency(expandedTrade.takeProfitPrice, baseCurrency)}</Typography>
-                  <Typography variant="body2">Timeframe: {expandedTrade.timeframe || '—'}</Typography>
+        <Card>
+          <CardContent>
+            <Stack direction="row" justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={2} spacing={1}>
+              <Typography variant="h6">Trades List</Typography>
+              {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>Showing search results</Alert>}
+            </Stack>
+            {fetchError && <ErrorBanner message={fetchError} />}
+            {noteNavError && <ErrorBanner message={noteNavError} />}
+            {isSmallScreen ? renderTradeCards() : renderTradesTable()}
+            {expandedTrade && !isSmallScreen && (
+              <Box sx={{ mt: 2, bgcolor: 'grey.50', borderRadius: 2, p: 2 }}>
+                <Typography variant="subtitle1" gutterBottom>Trade details</Typography>
+                <Grid container spacing={2}>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Typography variant="subtitle2" gutterBottom>Stops & targets</Typography>
+                    <Typography variant="body2">Stop loss: {formatCurrency(expandedTrade.stopLossPrice, baseCurrency)}</Typography>
+                    <Typography variant="body2">Take profit: {formatCurrency(expandedTrade.takeProfitPrice, baseCurrency)}</Typography>
+                    <Typography variant="body2">Timeframe: {expandedTrade.timeframe || '—'}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Typography variant="subtitle2" gutterBottom>Costs & risk</Typography>
+                    <Typography variant="body2">Fees: {formatCurrency(expandedTrade.fees, baseCurrency)}</Typography>
+                    <Typography variant="body2">Commission: {formatCurrency(expandedTrade.commission, baseCurrency)}</Typography>
+                    <Typography variant="body2">Slippage: {formatCurrency(expandedTrade.slippage, baseCurrency)}</Typography>
+                    <Typography variant="body2">Risk: {formatCurrency(expandedTrade.riskAmount, baseCurrency)} ({formatPercent(expandedTrade.riskPercent)})</Typography>
+                    <Typography variant="body2">R multiple: {formatNumber(expandedTrade.rMultiple)}</Typography>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <Typography variant="subtitle2" gutterBottom>Setup</Typography>
+                    <Typography variant="body2">Setup: {expandedTrade.setup || '—'}</Typography>
+                    <Typography variant="body2">Strategy: {expandedTrade.strategyTag || '—'}</Typography>
+                    <Typography variant="body2">Catalyst: {expandedTrade.catalystTag || '—'}</Typography>
+                    <Typography variant="body2">Capital used: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
+                  </Grid>
+                  <Grid item xs={12}>
+                    <Typography variant="subtitle2" gutterBottom>Notes & tags</Typography>
+                    <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || '—'}</Typography>
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      {(expandedTrade.tags || []).map((tag: string) => (
+                        <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
+                      ))}
+                      {(expandedTrade.tags?.length || 0) === 0 && <Typography variant="body2" color="text.secondary">No tags</Typography>}
+                    </Stack>
+                  </Grid>
                 </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <Typography variant="subtitle2" gutterBottom>Costs & risk</Typography>
-                  <Typography variant="body2">Fees: {formatCurrency(expandedTrade.fees, baseCurrency)}</Typography>
-                  <Typography variant="body2">Commission: {formatCurrency(expandedTrade.commission, baseCurrency)}</Typography>
-                  <Typography variant="body2">Slippage: {formatCurrency(expandedTrade.slippage, baseCurrency)}</Typography>
-                  <Typography variant="body2">Risk: {formatCurrency(expandedTrade.riskAmount, baseCurrency)} ({formatPercent(expandedTrade.riskPercent)})</Typography>
-                  <Typography variant="body2">R multiple: {formatNumber(expandedTrade.rMultiple)}</Typography>
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <Typography variant="subtitle2" gutterBottom>Setup</Typography>
-                  <Typography variant="body2">Setup: {expandedTrade.setup || '—'}</Typography>
-                  <Typography variant="body2">Strategy: {expandedTrade.strategyTag || '—'}</Typography>
-                  <Typography variant="body2">Catalyst: {expandedTrade.catalystTag || '—'}</Typography>
-                  <Typography variant="body2">Capital used: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle2" gutterBottom>Notes & tags</Typography>
-                  <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || '—'}</Typography>
-                  <Stack direction="row" spacing={1} flexWrap="wrap">
-                    {(expandedTrade.tags || []).map((tag: string) => (
-                      <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
-                    ))}
-                    {(expandedTrade.tags?.length || 0) === 0 && <Typography variant="body2" color="text.secondary">No tags</Typography>}
-                  </Stack>
-                </Grid>
-              </Grid>
-            </Box>
-          )}
-        </Paper>
+              </Box>
+            )}
+          </CardContent>
+        </Card>
 
-        <Paper sx={{ p: 2 }}>
-          <Typography variant="h6" gutterBottom>Trade field explanations</Typography>
-          <Accordion defaultExpanded>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Core pricing & execution</AccordionSummary>
-            <AccordionDetails>
-              <Stack spacing={1}>
-                <Typography variant="body2"><strong>Entry / Exit / SL / TP</strong>: Prices for entering and exiting the trade plus optional stop loss and take profit anchors.</Typography>
-                <Typography variant="body2"><strong>Direction & Market</strong>: Whether the position is LONG or SHORT and the instrument type (stock, forex, crypto, etc.).</Typography>
-                <Typography variant="body2"><strong>Status</strong>: OPEN or CLOSED. OpenedAt marks when the position was opened; ClosedAt is set when it is closed.</Typography>
-                <Typography variant="body2"><strong>Capital Used</strong>: Cash or margin allocated to this trade.</Typography>
-              </Stack>
-            </AccordionDetails>
-          </Accordion>
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>P&L and risk</AccordionSummary>
-            <AccordionDetails>
-              <Stack spacing={1}>
-                <Typography variant="body2"><strong>Fees / Commission / Slippage</strong>: All trading costs deducted from gross PnL.</Typography>
-                <Typography variant="body2"><strong>PnL Gross</strong>: (Exit − Entry) × Quantity (flipped for SHORT) before costs.</Typography>
-                <Typography variant="body2"><strong>PnL Net</strong>: PnL Gross minus fees, commission, and slippage.</Typography>
-                <Typography variant="body2"><strong>PnL Percent</strong>: PnL Net divided by capital used (or risk amount when provided), expressed as a percentage.</Typography>
-                <Typography variant="body2"><strong>Risk Amount / Risk Percent</strong>: Monetary and percentage distance between entry and stop loss multiplied by quantity.</Typography>
-                <Typography variant="body2"><strong>R Multiple</strong>: PnL Net divided by Risk Amount. 1R equals the initial risk.</Typography>
-              </Stack>
-            </AccordionDetails>
-          </Accordion>
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Context</AccordionSummary>
-            <AccordionDetails>
-              <Stack spacing={1}>
-                <Typography variant="body2"><strong>Timeframe</strong>: Chart timeframe or holding period reference.</Typography>
-                <Typography variant="body2"><strong>Setup / Strategy / Catalyst</strong>: Qualitative tags describing why the trade was taken.</Typography>
-                <Typography variant="body2"><strong>Status & Direction</strong>: Quick at-a-glance orientation for dashboards and filters.</Typography>
-              </Stack>
-            </AccordionDetails>
-          </Accordion>
-        </Paper>
+        <Card>
+          <CardContent>
+            <Typography variant="h6" gutterBottom>Trade field explanations</Typography>
+            <Accordion defaultExpanded>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>Core pricing & execution</AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={1}>
+                  <Typography variant="body2"><strong>Entry / Exit / SL / TP</strong>: Prices for entering and exiting the trade plus optional stop loss and take profit anchors.</Typography>
+                  <Typography variant="body2"><strong>Direction & Market</strong>: Whether the position is LONG or SHORT and the instrument type (stock, forex, crypto, etc.).</Typography>
+                  <Typography variant="body2"><strong>Status</strong>: OPEN or CLOSED. OpenedAt marks when the position was opened; ClosedAt is set when it is closed.</Typography>
+                  <Typography variant="body2"><strong>Capital Used</strong>: Cash or margin allocated to this trade.</Typography>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>P&L and risk</AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={1}>
+                  <Typography variant="body2"><strong>Fees / Commission / Slippage</strong>: All trading costs deducted from gross PnL.</Typography>
+                  <Typography variant="body2"><strong>PnL Gross</strong>: (Exit − Entry) × Quantity (flipped for SHORT) before costs.</Typography>
+                  <Typography variant="body2"><strong>PnL Net</strong>: PnL Gross minus fees, commission, and slippage.</Typography>
+                  <Typography variant="body2"><strong>PnL Percent</strong>: PnL Net divided by capital used (or risk amount when provided), expressed as a percentage.</Typography>
+                  <Typography variant="body2"><strong>Risk Amount / Risk Percent</strong>: Monetary and percentage distance between entry and stop loss multiplied by quantity.</Typography>
+                  <Typography variant="body2"><strong>R Multiple</strong>: PnL Net divided by Risk Amount. 1R equals the initial risk.</Typography>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+            <Accordion>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>Context</AccordionSummary>
+              <AccordionDetails>
+                <Stack spacing={1}>
+                  <Typography variant="body2"><strong>Timeframe</strong>: Chart timeframe or holding period reference.</Typography>
+                  <Typography variant="body2"><strong>Setup / Strategy / Catalyst</strong>: Qualitative tags describing why the trade was taken.</Typography>
+                  <Typography variant="body2"><strong>Status & Direction</strong>: Quick at-a-glance orientation for dashboards and filters.</Typography>
+                </Stack>
+              </AccordionDetails>
+            </Accordion>
+          </CardContent>
+        </Card>
       </Stack>
 
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
@@ -721,6 +729,6 @@ export default function TradesPage() {
           <Button color="error" variant="contained" onClick={handleDelete}>Delete</Button>
         </DialogActions>
       </Dialog>
-    </Box>
+    </Stack>
   )
 }

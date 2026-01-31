@@ -1,6 +1,5 @@
 import { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Alert,
   Autocomplete,
   Box,
   Button,
@@ -61,6 +60,9 @@ import {
 } from '../api/notebook'
 import { formatCurrency, formatDate, formatDateTime } from '../utils/format'
 import { TradeResponse, getTradeById } from '../api/trades'
+import PageHeader from '../components/ui/PageHeader'
+import EmptyState from '../components/ui/EmptyState'
+import ErrorBanner from '../components/ui/ErrorBanner'
 
 type LossRecapForm = {
   from: string
@@ -149,14 +151,6 @@ export default function NotebookPage() {
   const [lossRecapOpen, setLossRecapOpen] = useState(false)
   const [lossRecapForm, setLossRecapForm] = useState(defaultLossRecap)
 
-  useEffect(() => {
-    console.log('[NotebookPage] render', new Date().toISOString(), {
-      search: location.search,
-      selectedNoteId: selectedNote?.id,
-      selectedFolderId
-    })
-  })
-
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
@@ -193,13 +187,11 @@ export default function NotebookPage() {
     if (!selectedFolderId) return
     setLoading(true)
     try {
-      console.log('[NotebookPage] loadNotes START', { selectedFolderId, searchQuery, tagIds: filterTags.map(t => t.id), urlNoteId })
       const data = await listNotebookNotes({
         folderId: selectedFolderId,
         q: searchQuery,
         tagIds: filterTags.map((tag) => tag.id)
       })
-      console.log('[NotebookPage] loadNotes DONE', { count: data.length })
       setNotes(data)
       // If a noteId is present in the URL, do not auto-select here; let refreshSelectedNote handle it.
       if (urlNoteId) return
@@ -223,19 +215,16 @@ export default function NotebookPage() {
 
   const refreshSelectedNote = useCallback(async (noteId: string) => {
     try {
-      console.log('[NotebookPage] refreshSelectedNote START', { noteId })
       const data = await getNotebookNote(noteId)
-      console.log('[NotebookPage] refreshSelectedNote DONE', { noteId: data.id, folderId: data.folderId })
       setSelectedNote(data)
       if (data.folderId && selectedFolderId !== data.folderId) {
-        console.log('[NotebookPage] Switching selectedFolderId to note.folderId', { from: selectedFolderId, to: data.folderId })
         setSelectedFolderId(data.folderId)
       }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         handleAuthFailure(err.message)
       } else {
-        console.error('[NotebookPage] refreshSelectedNote ERROR', err)
+        setError('Unable to refresh the selected note.')
       }
     }
   }, [handleAuthFailure, selectedFolderId])
@@ -251,9 +240,7 @@ export default function NotebookPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const noteId = params.get('noteId')
-    console.log('[NotebookPage] URL changed', { search: location.search, noteId })
     if (noteId) {
-      console.log('[NotebookPage] Calling refreshSelectedNote from URL effect', { noteId })
       refreshSelectedNote(noteId)
     }
   }, [location.search, refreshSelectedNote])
@@ -579,21 +566,26 @@ export default function NotebookPage() {
 
   return (
     <Stack spacing={3}>
-      {error && <Alert severity="error">{error}</Alert>}
-      <Paper sx={{ p: 2 }}>
-        <Stack direction="row" spacing={2} alignItems="center">
-          <Typography variant="h5" sx={{ flex: 1 }}>Notebook</Typography>
-          <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
-            New daily log
-          </Button>
-          <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
-            New plan
-          </Button>
-          <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
-            Create loss recap
-          </Button>
-        </Stack>
-      </Paper>
+      <PageHeader
+        title="Notebook"
+        subtitle="Capture session notes, daily logs, and trade reflections."
+        actions={(
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button variant="contained" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
+              New daily log
+            </Button>
+            <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
+              New plan
+            </Button>
+            <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
+              Create loss recap
+            </Button>
+          </Stack>
+        )}
+      />
+
+      {error && <ErrorBanner message={error} />}
+
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
         <Paper sx={{ flex: 1, minWidth: 260, p: 2 }}>
           <Stack spacing={2}>
@@ -669,9 +661,7 @@ export default function NotebookPage() {
             <Divider />
             {loading && <CircularProgress />}
             {!loading && notes.length === 0 && (
-              <Typography variant="body2" color="text.secondary">
-                No notes found.
-              </Typography>
+              <EmptyState title="No notes yet" description="Create a note or daily log to get started." />
             )}
             <List>
               {notes.map((note) => (
@@ -695,13 +685,16 @@ export default function NotebookPage() {
 
         <Paper sx={{ flex: 2, minWidth: 320, p: 2 }}>
           {!selectedNote && (
-            <Stack spacing={2} alignItems="center" justifyContent="center" sx={{ height: '100%' }}>
-              <Typography variant="h6">Select a note</Typography>
-              <Stack direction="row" spacing={1}>
-                <Button variant="outlined" onClick={() => handleCreateNote('DAILY_LOG')}>Create daily log</Button>
-                <Button variant="outlined" onClick={() => handleCreateNote('PLAN')}>Create plan</Button>
-              </Stack>
-            </Stack>
+            <EmptyState
+              title="Select a note"
+              description="Pick a note from the list or create a new one."
+              action={(
+                <Stack direction="row" spacing={1}>
+                  <Button variant="outlined" onClick={() => handleCreateNote('DAILY_LOG')}>Create daily log</Button>
+                  <Button variant="outlined" onClick={() => handleCreateNote('PLAN')}>Create plan</Button>
+                </Stack>
+              )}
+            />
           )}
           {selectedNote && (
             <Stack spacing={2}>
