@@ -9,6 +9,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -40,6 +41,65 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
                       @Param("direction") Direction direction,
                       @Param("status") TradeStatus status,
                       Pageable pageable);
+
+    interface DailyPnlAggregate {
+        LocalDate getDate();
+        java.math.BigDecimal getNetPnl();
+        long getTradeCount();
+        long getWins();
+        long getLosses();
+    }
+
+    @Query(value = """
+            SELECT (t.closed_at AT TIME ZONE :tz)::date AS date,
+                   COALESCE(SUM(t.pnl_net), 0) AS netPnl,
+                   COUNT(*) AS tradeCount,
+                   SUM(CASE WHEN t.pnl_net > 0 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN t.pnl_net < 0 THEN 1 ELSE 0 END) AS losses
+            FROM trades t
+            WHERE t.user_id = :userId
+              AND t.status = 'CLOSED'
+              AND t.closed_at IS NOT NULL
+              AND (t.closed_at AT TIME ZONE :tz)::date >= :fromDate
+              AND (t.closed_at AT TIME ZONE :tz)::date <= :toDate
+            GROUP BY (t.closed_at AT TIME ZONE :tz)::date
+            ORDER BY date
+            """, nativeQuery = true)
+    List<DailyPnlAggregate> aggregateDailyPnlByClosedDate(@Param("userId") UUID userId,
+                                                         @Param("fromDate") LocalDate fromDate,
+                                                         @Param("toDate") LocalDate toDate,
+                                                         @Param("tz") String tz);
+
+    @Query(value = """
+            SELECT (t.opened_at AT TIME ZONE :tz)::date AS date,
+                   COALESCE(SUM(t.pnl_net), 0) AS netPnl,
+                   COUNT(*) AS tradeCount,
+                   SUM(CASE WHEN t.pnl_net > 0 THEN 1 ELSE 0 END) AS wins,
+                   SUM(CASE WHEN t.pnl_net < 0 THEN 1 ELSE 0 END) AS losses
+            FROM trades t
+            WHERE t.user_id = :userId
+              AND t.opened_at IS NOT NULL
+              AND (t.opened_at AT TIME ZONE :tz)::date >= :fromDate
+              AND (t.opened_at AT TIME ZONE :tz)::date <= :toDate
+            GROUP BY (t.opened_at AT TIME ZONE :tz)::date
+            ORDER BY date
+            """, nativeQuery = true)
+    List<DailyPnlAggregate> aggregateDailyPnlByOpenedDate(@Param("userId") UUID userId,
+                                                          @Param("fromDate") LocalDate fromDate,
+                                                          @Param("toDate") LocalDate toDate,
+                                                          @Param("tz") String tz);
+
+    @Query(value = """
+            SELECT * FROM trades t
+            WHERE t.user_id = :userId
+              AND t.status = 'CLOSED'
+              AND t.closed_at IS NOT NULL
+              AND (t.closed_at AT TIME ZONE :tz)::date = :date
+            ORDER BY t.closed_at
+            """, nativeQuery = true)
+    List<Trade> findClosedTradesForLocalDate(@Param("userId") UUID userId,
+                                             @Param("date") LocalDate date,
+                                             @Param("tz") String tz);
 
     List<Trade> findByUserIdAndClosedAtBetweenOrderByClosedAt(UUID userId, OffsetDateTime from, OffsetDateTime to);
     List<Trade> findByUserId(UUID userId);

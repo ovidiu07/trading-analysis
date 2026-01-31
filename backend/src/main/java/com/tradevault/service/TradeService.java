@@ -19,7 +19,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -31,17 +33,26 @@ public class TradeService {
     private final AccountRepository accountRepository;
     private final TagRepository tagRepository;
     private final CurrentUserService currentUserService;
+    private final TimezoneService timezoneService;
 
     public Page<TradeResponse> search(int page, int size,
                                       OffsetDateTime openedAtFrom,
                                       OffsetDateTime openedAtTo,
                                       OffsetDateTime closedAtFrom,
                                       OffsetDateTime closedAtTo,
+                                      LocalDate closedDate,
+                                      String tz,
                                       String symbol,
-                                      Direction direction) {
+                                      Direction direction,
+                                      com.tradevault.domain.enums.TradeStatus status) {
         User user = currentUserService.getCurrentUser();
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
         var normalizedSymbol = (symbol == null || symbol.isBlank()) ? null : symbol;
+        if (closedDate != null) {
+            ZoneId zone = timezoneService.resolveZone(tz, user);
+            closedAtFrom = closedDate.atStartOfDay(zone).toOffsetDateTime();
+            closedAtTo = closedDate.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime();
+        }
 
         var result = tradeRepository.search(
                 user.getId(),
@@ -52,7 +63,7 @@ public class TradeService {
                 normalizedSymbol,
                 null,
                 direction,
-                null,
+                status,
                 pageable
         );
         return result.map(this::toResponse);
@@ -158,6 +169,15 @@ public class TradeService {
         User user = currentUserService.getCurrentUser();
         Trade trade = tradeRepository.findByIdAndUserId(id, user.getId()).orElseThrow(() -> new EntityNotFoundException("Trade not found"));
         tradeRepository.delete(trade);
+    }
+
+    public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz) {
+        User user = currentUserService.getCurrentUser();
+        ZoneId zone = timezoneService.resolveZone(tz, user);
+        return tradeRepository.findClosedTradesForLocalDate(user.getId(), date, zone.getId())
+                .stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     private BigDecimal defaultZero(BigDecimal value) {

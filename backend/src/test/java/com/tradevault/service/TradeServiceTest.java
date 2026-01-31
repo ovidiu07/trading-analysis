@@ -9,6 +9,7 @@ import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.service.TimezoneService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -28,6 +29,7 @@ public class TradeServiceTest {
     private AccountRepository accountRepository;
     private TagRepository tagRepository;
     private CurrentUserService currentUserService;
+    private TimezoneService timezoneService;
     private TradeService tradeService;
     private User user;
 
@@ -37,7 +39,8 @@ public class TradeServiceTest {
         accountRepository = Mockito.mock(AccountRepository.class);
         tagRepository = Mockito.mock(TagRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
-        tradeService = new TradeService(tradeRepository, accountRepository, tagRepository, currentUserService);
+        timezoneService = Mockito.mock(TimezoneService.class);
+        tradeService = new TradeService(tradeRepository, accountRepository, tagRepository, currentUserService, timezoneService);
         user = User.builder().id(UUID.randomUUID()).email("user@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
     }
