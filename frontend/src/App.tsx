@@ -1,4 +1,4 @@
-import { CssBaseline, ThemeProvider, createTheme } from '@mui/material'
+import { CssBaseline, ThemeProvider } from '@mui/material'
 import { Route, Routes, Navigate } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -11,30 +11,7 @@ import CalendarPage from './pages/CalendarPage'
 import NotebookPage from './pages/NotebookPage'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
-
-const theme = createTheme({
-  shape: { borderRadius: 12 },
-  palette: {
-    background: {
-      default: '#f5f7fb'
-    }
-  },
-  components: {
-    MuiCard: {
-      styleOverrides: {
-        root: { boxShadow: '0 4px 18px rgba(0,0,0,0.06)' }
-      }
-    },
-    MuiPaper: {
-      styleOverrides: {
-        root: { boxShadow: '0 4px 18px rgba(0,0,0,0.05)' }
-      }
-    },
-    MuiButton: {
-      defaultProps: { disableElevation: true }
-    }
-  }
-})
+import theme from './theme'
 
 function App() {
   return (

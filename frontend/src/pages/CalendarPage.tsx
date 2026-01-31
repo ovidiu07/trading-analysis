@@ -24,6 +24,8 @@ import { useAuth } from '../auth/AuthContext'
 import { DailyPnlResponse, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
+import PageHeader from '../components/ui/PageHeader'
+import EmptyState from '../components/ui/EmptyState'
 
 const weekStartsOn = 1
 
@@ -168,15 +170,11 @@ export default function CalendarPage() {
   }
 
   return (
-    <Card>
-      <CardContent>
-        <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={2} mb={3}>
-          <Box>
-            <Typography variant="h5">Calendar</Typography>
-            <Typography variant="body2" color="text.secondary">
-              Realized P&amp;L by trade close date in {timezone}.
-            </Typography>
-          </Box>
+    <Stack spacing={3}>
+      <PageHeader
+        title="Calendar"
+        subtitle={`Realized P&L by trade close date in ${timezone}.`}
+        actions={(
           <Stack direction="row" spacing={1} alignItems="center">
             <IconButton aria-label="Previous month" onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}>
               <ChevronLeftIcon />
@@ -186,53 +184,58 @@ export default function CalendarPage() {
               <ChevronRightIcon />
             </IconButton>
           </Stack>
-        </Stack>
-
-        <Stack direction="row" spacing={2} mb={2} flexWrap="wrap">
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.success.light, 0.4), border: `1px solid ${theme.palette.success.main}` }} />
-            <Typography variant="caption">Profit</Typography>
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.error.light, 0.4), border: `1px solid ${theme.palette.error.main}` }} />
-            <Typography variant="caption">Loss</Typography>
-          </Stack>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.grey[200], 0.8), border: `1px solid ${theme.palette.grey[300]}` }} />
-            <Typography variant="caption">Flat or No trades</Typography>
-          </Stack>
-        </Stack>
-
-        <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1 }}>
-          {weekdayLabels.map((label) => (
-            <Typography key={label} variant="caption" color="text.secondary" textAlign="center" fontWeight={600}>
-              {label}
-            </Typography>
-          ))}
-        </Box>
-
-        {loading ? (
-          <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-            <CircularProgress />
-          </Box>
-        ) : (
-          <>
-            {error && (
-              <Typography color="error" sx={{ mb: 2 }}>
-                {error}
-              </Typography>
-            )}
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
-              {days.map(renderDayCell)}
-            </Box>
-            {!error && dailyPnl.length === 0 && (
-              <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                No closed trades found in this range.
-              </Typography>
-            )}
-          </>
         )}
-      </CardContent>
+      />
+
+      <Card>
+        <CardContent>
+          <Stack direction="row" spacing={2} mb={2} flexWrap="wrap">
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.success.light, 0.4), border: `1px solid ${theme.palette.success.main}` }} />
+              <Typography variant="caption">Profit</Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.error.light, 0.4), border: `1px solid ${theme.palette.error.main}` }} />
+              <Typography variant="caption">Loss</Typography>
+            </Stack>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.grey[200], 0.8), border: `1px solid ${theme.palette.grey[300]}` }} />
+              <Typography variant="caption">Flat or No trades</Typography>
+            </Stack>
+          </Stack>
+
+          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1 }}>
+            {weekdayLabels.map((label) => (
+              <Typography key={label} variant="caption" color="text.secondary" textAlign="center" fontWeight={600}>
+                {label}
+              </Typography>
+            ))}
+          </Box>
+
+          {loading ? (
+            <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <>
+              {error && (
+                <Typography color="error" sx={{ mb: 2 }}>
+                  {error}
+                </Typography>
+              )}
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
+                {days.map(renderDayCell)}
+              </Box>
+              {!error && dailyPnl.length === 0 && (
+                <EmptyState
+                  title="No closed trades in this range"
+                  description="Once trades close, daily P&L will populate here."
+                />
+              )}
+            </>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={!!selectedDate} onClose={handleCloseDialog} fullWidth maxWidth="sm">
         <DialogTitle>
@@ -282,6 +285,6 @@ export default function CalendarPage() {
           </Button>
         </DialogActions>
       </Dialog>
-    </Card>
+    </Stack>
   )
 }

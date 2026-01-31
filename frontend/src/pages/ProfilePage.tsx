@@ -1,22 +1,23 @@
 import { Card, CardContent, Divider, Stack, Typography } from '@mui/material'
 import { useAuth } from '../auth/AuthContext'
+import PageHeader from '../components/ui/PageHeader'
+import EmptyState from '../components/ui/EmptyState'
 
 export default function ProfilePage() {
   const { user } = useAuth()
 
   if (!user) {
     return (
-      <Card>
-        <CardContent>
-          <Typography variant="h6">No user information available</Typography>
-        </CardContent>
-      </Card>
+      <EmptyState
+        title="No user information available"
+        description="Please sign in again to view profile details."
+      />
     )
   }
 
   return (
     <Stack spacing={2}>
-      <Typography variant="h5">Profile</Typography>
+      <PageHeader title="Profile" subtitle="View your account details and preferences." />
       <Card>
         <CardContent>
           <Stack spacing={1}>
