@@ -7,6 +7,7 @@ const getCurrencyFormatter = (currency?: string) => {
       formatterCache.set(key, new Intl.NumberFormat(undefined, {
         style: 'currency',
         currency: key,
+        currencyDisplay: 'narrowSymbol',
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }))
@@ -14,6 +15,7 @@ const getCurrencyFormatter = (currency?: string) => {
       formatterCache.set('USD', new Intl.NumberFormat(undefined, {
         style: 'currency',
         currency: 'USD',
+        currencyDisplay: 'narrowSymbol',
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }))
