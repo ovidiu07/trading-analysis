@@ -149,6 +149,14 @@ export default function NotebookPage() {
   const [lossRecapOpen, setLossRecapOpen] = useState(false)
   const [lossRecapForm, setLossRecapForm] = useState(defaultLossRecap)
 
+  useEffect(() => {
+    console.log('[NotebookPage] render', new Date().toISOString(), {
+      search: location.search,
+      selectedNoteId: selectedNote?.id,
+      selectedFolderId
+    })
+  })
+
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
   const apiBase = import.meta.env.VITE_API_URL || 'http://localhost:8080/api'
@@ -179,16 +187,22 @@ export default function NotebookPage() {
     }
   }, [handleAuthFailure, selectedFolderId])
 
+  const urlNoteId = useMemo(() => new URLSearchParams(location.search).get('noteId'), [location.search])
+
   const loadNotes = useCallback(async () => {
     if (!selectedFolderId) return
     setLoading(true)
     try {
+      console.log('[NotebookPage] loadNotes START', { selectedFolderId, searchQuery, tagIds: filterTags.map(t => t.id), urlNoteId })
       const data = await listNotebookNotes({
         folderId: selectedFolderId,
         q: searchQuery,
         tagIds: filterTags.map((tag) => tag.id)
       })
+      console.log('[NotebookPage] loadNotes DONE', { count: data.length })
       setNotes(data)
+      // If a noteId is present in the URL, do not auto-select here; let refreshSelectedNote handle it.
+      if (urlNoteId) return
       setSelectedNote((prev) => {
         if (!data.length) return null
         if (prev && data.some((note) => note.id === prev.id)) {
@@ -205,18 +219,26 @@ export default function NotebookPage() {
     } finally {
       setLoading(false)
     }
-  }, [filterTags, handleAuthFailure, searchQuery, selectedFolderId])
+  }, [filterTags, handleAuthFailure, searchQuery, selectedFolderId, urlNoteId])
 
   const refreshSelectedNote = useCallback(async (noteId: string) => {
     try {
+      console.log('[NotebookPage] refreshSelectedNote START', { noteId })
       const data = await getNotebookNote(noteId)
+      console.log('[NotebookPage] refreshSelectedNote DONE', { noteId: data.id, folderId: data.folderId })
       setSelectedNote(data)
+      if (data.folderId && selectedFolderId !== data.folderId) {
+        console.log('[NotebookPage] Switching selectedFolderId to note.folderId', { from: selectedFolderId, to: data.folderId })
+        setSelectedFolderId(data.folderId)
+      }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         handleAuthFailure(err.message)
+      } else {
+        console.error('[NotebookPage] refreshSelectedNote ERROR', err)
       }
     }
-  }, [handleAuthFailure])
+  }, [handleAuthFailure, selectedFolderId])
 
   useEffect(() => {
     loadFoldersAndTags()
@@ -229,7 +251,9 @@ export default function NotebookPage() {
   useEffect(() => {
     const params = new URLSearchParams(location.search)
     const noteId = params.get('noteId')
+    console.log('[NotebookPage] URL changed', { search: location.search, noteId })
     if (noteId) {
+      console.log('[NotebookPage] Calling refreshSelectedNote from URL effect', { noteId })
       refreshSelectedNote(noteId)
     }
   }, [location.search, refreshSelectedNote])
@@ -361,6 +385,10 @@ export default function NotebookPage() {
 
   const handleSaveNote = async () => {
     if (!selectedNote) return
+    if (!selectedNote.dateKey || !selectedNote.dateKey.trim()) {
+      setError('Date is required.')
+      return
+    }
     try {
       const updated = await updateNotebookNote(selectedNote.id, {
         title: selectedNote.title,
@@ -711,11 +739,14 @@ export default function NotebookPage() {
                   <MenuItem value="NOTE">Note</MenuItem>
                 </TextField>
                 <TextField
+                  required
                   label="Date"
                   type="date"
                   InputLabelProps={{ shrink: true }}
                   value={selectedNote.dateKey ?? ''}
                   onChange={(event) => setSelectedNote({ ...selectedNote, dateKey: event.target.value })}
+                  error={!selectedNote.dateKey || !selectedNote.dateKey.trim()}
+                  helperText={!selectedNote.dateKey || !selectedNote.dateKey.trim() ? 'Date is required' : ' '}
                   sx={{ minWidth: 200 }}
                 />
                 <Autocomplete

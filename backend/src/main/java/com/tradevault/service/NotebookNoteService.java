@@ -22,7 +22,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
-import java.util.*;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
@@ -37,12 +40,12 @@ public class NotebookNoteService {
 
     @Transactional
     public List<NotebookNoteResponse> list(UUID folderId,
-                                           NotebookNoteType type,
-                                           String query,
-                                           List<UUID> tagIds,
-                                           java.time.LocalDate from,
-                                           java.time.LocalDate to,
-                                           String sort) {
+                                          NotebookNoteType type,
+                                          String query,
+                                          List<UUID> tagIds,
+                                          java.time.LocalDate from,
+                                          java.time.LocalDate to,
+                                          String sort) {
         User user = currentUserService.getCurrentUser();
         NotebookFolder folder = null;
         if (folderId != null) {
@@ -51,7 +54,11 @@ public class NotebookNoteService {
         }
 
         Boolean isDeleted = null;
-        List<NotebookNoteType> types = null;
+
+        // IMPORTANT: This must remain effectively final for lambda capture.
+        // We therefore mutate an EnumSet rather than reassigning a local variable.
+        EnumSet<NotebookNoteType> typeFilter = EnumSet.noneOf(NotebookNoteType.class);
+
         UUID resolvedFolderId = folderId;
 
         if (folder != null && folder.getSystemKey() != null) {
@@ -74,7 +81,8 @@ public class NotebookNoteService {
                 case NotebookFolderService.SYSTEM_PLANS_GOALS -> {
                     isDeleted = false;
                     if (type == null) {
-                        types = List.of(NotebookNoteType.PLAN, NotebookNoteType.GOAL);
+                        typeFilter.add(NotebookNoteType.PLAN);
+                        typeFilter.add(NotebookNoteType.GOAL);
                     }
                 }
                 case NotebookFolderService.SYSTEM_SESSIONS_RECAP -> {
@@ -90,13 +98,33 @@ public class NotebookNoteService {
         Sort resolvedSort = resolveSort(sort);
         List<NotebookNote> notes;
         if (tagIds != null && !tagIds.isEmpty()) {
-            notes = noteRepository.searchNotesByTags(user.getId(), type, resolvedFolderId, from, to, isDeleted, query, tagIds, resolvedSort);
+            notes = noteRepository.searchNotesByTags(
+                    user.getId(),
+                    type,
+                    resolvedFolderId,
+                    from,
+                    to,
+                    isDeleted,
+                    query,
+                    tagIds,
+                    resolvedSort
+            );
         } else {
-            notes = noteRepository.searchNotes(user.getId(), type, resolvedFolderId, from, to, isDeleted, query, resolvedSort);
+            notes = noteRepository.searchNotes(
+                    user.getId(),
+                    type,
+                    resolvedFolderId,
+                    from,
+                    to,
+                    isDeleted,
+                    query,
+                    resolvedSort
+            );
         }
 
-        if (types != null && !types.isEmpty()) {
-            notes = notes.stream().filter(n -> types.contains(n.getType())).toList();
+        // Only apply this extra filter when we are in SYSTEM_PLANS_GOALS and caller did not pass a specific type.
+        if (!typeFilter.isEmpty()) {
+            notes = notes.stream().filter(n -> typeFilter.contains(n.getType())).toList();
         }
 
         Map<UUID, List<UUID>> noteTags = loadTagIds(notes);

@@ -131,6 +131,7 @@ export default function TradesPage() {
   const [createError, setCreateError] = useState('')
   const [editError, setEditError] = useState('')
   const [deleteError, setDeleteError] = useState('')
+  const [noteNavError, setNoteNavError] = useState('')
   const navigate = useNavigate()
   const location = useLocation()
   const { isAuthenticated, logout, user } = useAuth()
@@ -138,6 +139,10 @@ export default function TradesPage() {
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
+
+  useEffect(() => {
+    console.log('[TradesPage] render', new Date().toISOString())
+  })
 
   const [viewMode, setViewMode] = useState<'list' | 'search'>('list')
   const [filters, setFilters] = useState(defaultFilters)
@@ -171,20 +176,35 @@ export default function TradesPage() {
   }, [])
 
   const handleCreateTradeNote = useCallback(async (trade: TradeResponse) => {
+    console.log('[TradesPage] handleCreateTradeNote START', { tradeId: trade.id, symbol: trade.symbol })
+    setNoteNavError('')
     try {
+      console.log('[TradesPage] Calling createNotebookNote...')
       const note = await createNotebookNote({
         type: 'TRADE_NOTE',
         title: `${trade.symbol} trade note`,
         relatedTradeId: trade.id
       })
-      navigate(`/notebook?noteId=${note.id}`)
+      console.log('[TradesPage] createNotebookNote response', note)
+      const noteId = (note as any)?.id
+      if (!noteId) {
+        console.error('[TradesPage] Missing note.id in response')
+        setNoteNavError('Note was created but response did not include an id. Please refresh the page and open the note manually.')
+        return
+      }
+      const target = `/notebook?noteId=${noteId}`
+      console.log('[TradesPage] Navigating to', target)
+      navigate(target)
     } catch (err) {
       const apiErr = err as ApiError
       if (apiErr.status === 401 || apiErr.status === 403) {
         handleAuthFailure(apiErr.message)
         return
       }
-      setEditError(apiErr instanceof Error ? apiErr.message : 'Failed to create trade note')
+      const message = apiErr instanceof Error ? apiErr.message : 'Failed to create trade note'
+      setEditError(message)
+      setNoteNavError(message)
+      console.error('[TradesPage] Error creating note', apiErr)
     }
   }, [handleAuthFailure, navigate])
 
@@ -260,7 +280,15 @@ export default function TradesPage() {
       renderCell: (params) => (
         <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
           <Tooltip title="Create trade note">
-            <IconButton size="small" aria-label="Create trade note" onClick={() => handleCreateTradeNote(params.row as TradeResponse)}>
+            <IconButton
+              size="small"
+              aria-label="Create trade note"
+              type="button"
+              onClick={(e) => {
+                e.preventDefault()
+                handleCreateTradeNote(params.row as TradeResponse)
+              }}
+            >
               <NoteAddIcon fontSize="small" />
             </IconButton>
           </Tooltip>
@@ -586,6 +614,7 @@ export default function TradesPage() {
             {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>Showing search results</Alert>}
           </Stack>
           {fetchError && <Alert severity="error" sx={{ mb: 2 }}>{fetchError}</Alert>}
+          {noteNavError && <Alert severity="error" sx={{ mb: 2 }}>{noteNavError}</Alert>}
           {isSmallScreen ? renderTradeCards() : renderTradesTable()}
           {expandedTrade && !isSmallScreen && (
             <Box sx={{ mt: 2, bgcolor: 'grey.50', borderRadius: 2, p: 2 }}>

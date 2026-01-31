@@ -18,15 +18,18 @@ public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID
     @Query("""
         SELECT n FROM NotebookNote n
         WHERE n.user.id = :userId
-          AND (:type IS NULL OR n.type = :type)
-          AND (:folderId IS NULL OR n.folder.id = :folderId)
-          AND (:fromDate IS NULL OR n.dateKey >= :fromDate)
-          AND (:toDate IS NULL OR n.dateKey <= :toDate)
-          AND (:isDeleted IS NULL OR n.isDeleted = :isDeleted)
+          AND n.type = COALESCE(:type, n.type)
           AND (
-            :query IS NULL OR :query = '' OR
+                :folderId IS NULL
+                OR (n.folder IS NOT NULL AND n.folder.id = :folderId)
+          )
+          AND n.dateKey >= COALESCE(:fromDate, n.dateKey)
+          AND n.dateKey <= COALESCE(:toDate, n.dateKey)
+          AND n.isDeleted = COALESCE(:isDeleted, n.isDeleted)
+          AND (
+            COALESCE(:query, '') = '' OR
             LOWER(n.title) LIKE LOWER(CONCAT('%', :query, '%')) OR
-            LOWER(n.body) LIKE LOWER(CONCAT('%', :query, '%'))
+            LOWER(n.body)  LIKE LOWER(CONCAT('%', :query, '%'))
           )
         """)
     List<NotebookNote> searchNotes(@Param("userId") UUID userId,
@@ -42,16 +45,19 @@ public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID
         SELECT DISTINCT n FROM NotebookNote n
         JOIN NotebookTagLink l ON l.note.id = n.id
         WHERE n.user.id = :userId
-          AND (:type IS NULL OR n.type = :type)
-          AND (:folderId IS NULL OR n.folder.id = :folderId)
-          AND (:fromDate IS NULL OR n.dateKey >= :fromDate)
-          AND (:toDate IS NULL OR n.dateKey <= :toDate)
-          AND (:isDeleted IS NULL OR n.isDeleted = :isDeleted)
+          AND n.type = COALESCE(:type, n.type)
+          AND (
+                :folderId IS NULL
+                OR (n.folder IS NOT NULL AND n.folder.id = :folderId)
+          )
+          AND n.dateKey >= COALESCE(:fromDate, n.dateKey)
+          AND n.dateKey <= COALESCE(:toDate, n.dateKey)
+          AND n.isDeleted = COALESCE(:isDeleted, n.isDeleted)
           AND l.tag.id IN :tagIds
           AND (
-            :query IS NULL OR :query = '' OR
+            COALESCE(:query, '') = '' OR
             LOWER(n.title) LIKE LOWER(CONCAT('%', :query, '%')) OR
-            LOWER(n.body) LIKE LOWER(CONCAT('%', :query, '%'))
+            LOWER(n.body)  LIKE LOWER(CONCAT('%', :query, '%'))
           )
         """)
     List<NotebookNote> searchNotesByTags(@Param("userId") UUID userId,
