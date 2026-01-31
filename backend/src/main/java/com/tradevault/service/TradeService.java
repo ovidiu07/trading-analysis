@@ -24,6 +24,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -76,6 +77,13 @@ public class TradeService {
         User user = currentUserService.getCurrentUser();
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
         return tradeRepository.findByUserIdOrderByOpenedAtDescCreatedAtDesc(user.getId(), pageable).map(this::toResponse);
+    }
+
+    public TradeResponse getById(UUID id) {
+        User user = currentUserService.getCurrentUser();
+        Trade trade = tradeRepository.findByIdAndUserId(id, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+        return toResponse(trade);
     }
 
     @Transactional
@@ -185,6 +193,61 @@ public class TradeService {
         log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
         return trades
                 .stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz) {
+        User user = currentUserService.getCurrentUser();
+        ZoneId zone = timezoneService.resolveZone(tz, user);
+        var trades = tradeRepository.findClosedTradesForLocalDate(user.getId(), date, zone.getId());
+        if (trades == null || trades.isEmpty()) {
+            return com.tradevault.dto.trade.DailySummaryResponse.builder()
+                    .date(date)
+                    .netPnl(BigDecimal.ZERO)
+                    .tradeCount(0)
+                    .winners(0)
+                    .losers(0)
+                    .winRate(0)
+                    .equityPoints(List.of())
+                    .build();
+        }
+        BigDecimal netPnl = trades.stream()
+                .map(Trade::getPnlNet)
+                .filter(pnl -> pnl != null)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long winners = trades.stream().filter(t -> t.getPnlNet() != null && t.getPnlNet().compareTo(BigDecimal.ZERO) > 0).count();
+        long losers = trades.stream().filter(t -> t.getPnlNet() != null && t.getPnlNet().compareTo(BigDecimal.ZERO) < 0).count();
+        long tradeCount = trades.size();
+        double winRate = tradeCount == 0 ? 0 : (double) winners / (double) tradeCount;
+        List<BigDecimal> equityPoints = new java.util.ArrayList<>();
+        BigDecimal running = BigDecimal.ZERO;
+        for (Trade trade : trades) {
+            BigDecimal pnl = trade.getPnlNet() == null ? BigDecimal.ZERO : trade.getPnlNet();
+            running = running.add(pnl);
+            equityPoints.add(running);
+        }
+        return com.tradevault.dto.trade.DailySummaryResponse.builder()
+                .date(date)
+                .netPnl(netPnl)
+                .tradeCount(tradeCount)
+                .winners(winners)
+                .losers(losers)
+                .winRate(winRate)
+                .equityPoints(equityPoints)
+                .build();
+    }
+
+    public java.util.List<TradeResponse> listLosses(LocalDate from, LocalDate to, String tz, BigDecimal minLoss) {
+        User user = currentUserService.getCurrentUser();
+        ZoneId zone = timezoneService.resolveZone(tz, user);
+        OffsetDateTime fromDateTime = from.atStartOfDay(zone).toOffsetDateTime();
+        OffsetDateTime toDateTime = to.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime();
+        BigDecimal threshold = minLoss == null ? BigDecimal.ZERO : minLoss;
+        return tradeRepository.findByUserIdAndClosedAtBetweenOrderByClosedAt(user.getId(), fromDateTime, toDateTime)
+                .stream()
+                .filter(trade -> trade.getStatus() == com.tradevault.domain.enums.TradeStatus.CLOSED)
+                .filter(trade -> trade.getPnlNet() != null && trade.getPnlNet().compareTo(threshold.negate()) <= 0)
                 .map(this::toResponse)
                 .toList();
     }

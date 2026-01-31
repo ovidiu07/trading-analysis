@@ -62,3 +62,22 @@ npm run dev
 
 ## API Docs
 OpenAPI/Swagger UI available at `/swagger-ui/index.html` once the backend is running.
+
+## Notebook module
+The Notebook module adds a three-pane journaling workspace for daily logs, trade notes, plans/goals, and session recaps. It syncs daily P&L stats from closed trades (timezone-aware) and supports tags, templates, and attachments.
+
+### Notebook API endpoints
+- Folders: `GET /api/notebook/folders`, `POST /api/notebook/folders`, `PATCH /api/notebook/folders/:id`, `DELETE /api/notebook/folders/:id`
+- Notes: `GET /api/notebook/notes`, `GET /api/notebook/notes/:id`, `POST /api/notebook/notes`, `PATCH /api/notebook/notes/:id`, `DELETE /api/notebook/notes/:id`, `POST /api/notebook/notes/:id/restore`
+- Tags: `GET /api/notebook/tags`, `POST /api/notebook/tags`, `DELETE /api/notebook/tags/:id`, `POST /api/notebook/notes/:id/tags`
+- Attachments: `POST /api/notebook/attachments`, `GET /api/notebook/attachments/:id`, `GET /api/notebook/attachments?noteId=...`, `DELETE /api/notebook/attachments/:id`
+- Templates: `GET /api/notebook/templates`, `POST /api/notebook/templates`, `PATCH /api/notebook/templates/:id`, `DELETE /api/notebook/templates/:id`
+- Daily stats: `GET /api/trades/daily-summary?date=YYYY-MM-DD&tz=Europe/Bucharest`
+- Loss recap: `GET /api/trades/losses?from=YYYY-MM-DD&to=YYYY-MM-DD&minLoss=50&tz=Europe/Bucharest`
+
+### Notebook migrations
+Notebook entities live in `backend/src/main/resources/db/migration/V2__notebook.sql`. Run migrations with:
+```bash
+cd backend
+mvn -DskipTests=false flyway:migrate
+```

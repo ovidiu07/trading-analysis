@@ -27,8 +27,10 @@ import {
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
+import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { TradeResponse, createTrade, deleteTrade, listTrades, searchTrades, updateTrade } from '../api/trades'
+import { createNotebookNote } from '../api/notebook'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
@@ -168,6 +170,24 @@ export default function TradesPage() {
     setDeleteError('')
   }, [])
 
+  const handleCreateTradeNote = useCallback(async (trade: TradeResponse) => {
+    try {
+      const note = await createNotebookNote({
+        type: 'TRADE_NOTE',
+        title: `${trade.symbol} trade note`,
+        relatedTradeId: trade.id
+      })
+      navigate(`/notebook?noteId=${note.id}`)
+    } catch (err) {
+      const apiErr = err as ApiError
+      if (apiErr.status === 401 || apiErr.status === 403) {
+        handleAuthFailure(apiErr.message)
+        return
+      }
+      setEditError(apiErr instanceof Error ? apiErr.message : 'Failed to create trade note')
+    }
+  }, [handleAuthFailure, navigate])
+
   const columns = useMemo<GridColDef[]>(() => [
     {
       field: 'openedAt',
@@ -239,6 +259,11 @@ export default function TradesPage() {
       minWidth: 150,
       renderCell: (params) => (
         <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
+          <Tooltip title="Create trade note">
+            <IconButton size="small" aria-label="Create trade note" onClick={() => handleCreateTradeNote(params.row as TradeResponse)}>
+              <NoteAddIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
           <IconButton size="small" aria-label="Edit trade" onClick={() => handleEditClick(params.row as TradeResponse)}>
             <EditIcon fontSize="small" />
           </IconButton>
@@ -248,7 +273,7 @@ export default function TradesPage() {
         </Stack>
       )
     }
-  ], [baseCurrency, handleDeleteClick, handleEditClick])
+  ], [baseCurrency, handleCreateTradeNote, handleDeleteClick, handleEditClick])
 
   const fetchTrades = useCallback(async () => {
     if (!isAuthenticated) {
