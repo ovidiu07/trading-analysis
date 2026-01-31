@@ -84,8 +84,19 @@ export type TradeSearchFilters = {
   openedAtTo?: string
   closedAtFrom?: string
   closedAtTo?: string
+  closedDate?: string
+  tz?: string
   symbol?: string
   direction?: TradeRequest['direction']
+  status?: TradeRequest['status']
+}
+
+export type DailyPnlResponse = {
+  date: string
+  netPnl: number
+  tradeCount: number
+  wins: number
+  losses: number
 }
 
 function toQuery(params: Record<string, string | number | undefined | null> = {}) {
@@ -107,6 +118,13 @@ export async function searchTrades(filters: TradeSearchFilters = {}) {
   return apiGet<PageResponse<TradeResponse>>(`/trades/search${toQuery(filters)}`)
 }
 
+export async function fetchDailyPnl(params: { from: string; to: string; tz?: string; basis?: 'open' | 'close' }) {
+  return apiGet<DailyPnlResponse[]>(`/trades/daily-pnl${toQuery(params)}`)
+}
+
+export async function listClosedTradesForDate(date: string, tz?: string) {
+  return apiGet<TradeResponse[]>(`/trades/closed-day${toQuery({ date, tz })}`)
+}
 
 export async function createTrade(request: TradeRequest) {
   return apiPost('/trades', request)

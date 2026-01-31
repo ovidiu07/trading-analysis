@@ -1,7 +1,11 @@
 package com.tradevault.controller;
 
+import com.tradevault.domain.enums.PnlBasis;
+import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.trade.DailyPnlResponse;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
+import com.tradevault.service.TradeCalendarService;
 import com.tradevault.service.TradeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +15,7 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -19,6 +24,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TradeController {
     private final TradeService tradeService;
+    private final TradeCalendarService tradeCalendarService;
 
     @GetMapping
     public Page<TradeResponse> list(@RequestParam(defaultValue = "0") int page,
@@ -33,10 +39,13 @@ public class TradeController {
                                       @RequestParam(required = false) OffsetDateTime openedAtTo,
                                       @RequestParam(required = false) OffsetDateTime closedAtFrom,
                                       @RequestParam(required = false) OffsetDateTime closedAtTo,
+                                      @RequestParam(required = false) LocalDate closedDate,
+                                      @RequestParam(required = false) String tz,
                                       @RequestParam(required = false) String symbol,
-                                      @RequestParam(required = false) String direction) {
+                                      @RequestParam(required = false) String direction,
+                                      @RequestParam(required = false) TradeStatus status) {
         var parsedDirection = parseDirection(direction);
-        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, symbol, parsedDirection);
+        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, closedDate, tz, symbol, parsedDirection, status);
     }
 
     private com.tradevault.domain.enums.Direction parseDirection(String direction) {
@@ -55,6 +64,21 @@ public class TradeController {
         return ResponseEntity.ok(tradeService.create(request));
     }
 
+    @GetMapping("/daily-pnl")
+    public java.util.List<DailyPnlResponse> dailyPnl(@RequestParam LocalDate from,
+                                                     @RequestParam LocalDate to,
+                                                     @RequestParam(required = false) String tz,
+                                                     @RequestParam(defaultValue = "close") String basis) {
+        PnlBasis resolved = resolveBasis(basis);
+        return tradeCalendarService.fetchDailyPnl(from, to, tz, resolved);
+    }
+
+    @GetMapping("/closed-day")
+    public java.util.List<TradeResponse> closedDay(@RequestParam LocalDate date,
+                                                   @RequestParam(required = false) String tz) {
+        return tradeService.listClosedTradesByDate(date, tz);
+    }
+
     @PutMapping("/{id}")
     public ResponseEntity<TradeResponse> update(@PathVariable UUID id, @Valid @RequestBody TradeRequest request) {
         return ResponseEntity.ok(tradeService.update(id, request));
@@ -64,5 +88,16 @@ public class TradeController {
     public ResponseEntity<Void> delete(@PathVariable UUID id) {
         tradeService.delete(id);
         return ResponseEntity.noContent().build();
+    }
+
+    private PnlBasis resolveBasis(String basis) {
+        if (basis == null || basis.isBlank()) {
+            return PnlBasis.CLOSE;
+        }
+        try {
+            return PnlBasis.valueOf(basis.trim().toUpperCase());
+        } catch (IllegalArgumentException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid basis value: " + basis);
+        }
     }
 }

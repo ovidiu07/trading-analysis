@@ -151,6 +151,10 @@ rMultiple = pnlNet / riskValue
 
 The system generates various statistics and analytics through the `AnalyticsService` class. These statistics are exposed via the `/api/analytics/summary` endpoint.
 
+### Calendar Realized P&L
+
+The Calendar view uses realized (closed) P&L grouped by the trade close date in the user timezone (default `Europe/Bucharest`). Daily aggregates are computed server-side and include only trades with status `CLOSED` so open trades never affect the calendar totals.
+
 ### Key Performance Indicators (KPIs)
 
 The following KPIs are calculated:

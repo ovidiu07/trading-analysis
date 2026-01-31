@@ -70,8 +70,11 @@ const defaultFilters = {
   openedAtTo: '',
   closedAtFrom: '',
   closedAtTo: '',
+  closedDate: '',
+  tz: '',
   symbol: '',
-  direction: ''
+  direction: '',
+  status: ''
 }
 
 const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
@@ -120,6 +123,7 @@ export default function TradesPage() {
   const location = useLocation()
   const { isAuthenticated, logout, user } = useAuth()
   const baseCurrency = user?.baseCurrency || 'USD'
+  const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
 
@@ -252,6 +256,8 @@ export default function TradesPage() {
         ? await searchTrades({
           ...activeFilters,
           direction: activeFilters.direction ? activeFilters.direction as 'LONG' | 'SHORT' : undefined,
+          status: activeFilters.status ? activeFilters.status as 'OPEN' | 'CLOSED' : undefined,
+          tz: activeFilters.closedDate ? (activeFilters.tz || timezone) : activeFilters.tz || undefined,
           page: paginationModel.page,
           size: paginationModel.pageSize,
         })
@@ -276,11 +282,34 @@ export default function TradesPage() {
     } finally {
       setLoading(false)
     }
-  }, [activeFilters, handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize, viewMode])
+  }, [activeFilters, handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize, timezone, viewMode])
 
   useEffect(() => {
     fetchTrades()
   }, [fetchTrades])
+
+  useEffect(() => {
+    if (!location.search) return
+    const params = new URLSearchParams(location.search)
+    const closedDate = params.get('closedDate') || ''
+    const nextFilters = {
+      openedAtFrom: params.get('openedAtFrom') || '',
+      openedAtTo: params.get('openedAtTo') || '',
+      closedAtFrom: params.get('closedAtFrom') || '',
+      closedAtTo: params.get('closedAtTo') || '',
+      closedDate,
+      tz: params.get('tz') || (closedDate ? timezone : ''),
+      symbol: params.get('symbol') || '',
+      direction: params.get('direction') || '',
+      status: params.get('status') || '',
+    }
+    const hasFilters = Object.values(nextFilters).some((value) => value !== '')
+    if (!hasFilters) return
+    setFilters(nextFilters)
+    setActiveFilters(nextFilters)
+    setViewMode('search')
+    setPaginationModel((prev) => ({ ...prev, page: 0 }))
+  }, [location.search, timezone])
 
   const handleCreate = async (values: TradeFormValues) => {
     setCreateSuccess('')
@@ -497,6 +526,13 @@ export default function TradesPage() {
                       <MenuItem value="">Any</MenuItem>
                       <MenuItem value="LONG">Long</MenuItem>
                       <MenuItem value="SHORT">Short</MenuItem>
+                    </TextField>
+                  </Stack>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                    <TextField label="Status" select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))} fullWidth>
+                      <MenuItem value="">Any</MenuItem>
+                      <MenuItem value="OPEN">Open</MenuItem>
+                      <MenuItem value="CLOSED">Closed</MenuItem>
                     </TextField>
                   </Stack>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
