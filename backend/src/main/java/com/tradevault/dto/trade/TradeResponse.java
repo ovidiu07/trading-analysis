@@ -43,5 +43,6 @@ public class TradeResponse {
     private String notes;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
+    private UUID accountId;
     private Set<String> tags;
 }

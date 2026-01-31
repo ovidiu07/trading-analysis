@@ -335,6 +335,7 @@ public class TradeService {
                 .notes(trade.getNotes())
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
+                .accountId(trade.getAccount() != null ? trade.getAccount().getId() : null)
                 .tags((trade.getTags() == null ? java.util.Collections.<String>emptySet() : trade.getTags().stream().map(Tag::getName).collect(Collectors.toSet())))
                 .build();
     }

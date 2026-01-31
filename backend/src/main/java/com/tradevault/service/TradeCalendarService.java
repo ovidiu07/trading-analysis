@@ -26,15 +26,15 @@ public class TradeCalendarService {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
         String statusExpectation = (basis == PnlBasis.CLOSE) ? "CLOSED" : "OPEN";
-        log.info("[CALENDAR] fetchDailyPnl userId={}, from={}, to={}, tz={}, basis={}, statusExpectation={}",
-                user.getId(), from, to, zone.getId(), basis, statusExpectation);
+        /*log.info("[CALENDAR] fetchDailyPnl userId={}, from={}, to={}, tz={}, basis={}, statusExpectation={}",
+                user.getId(), from, to, zone.getId(), basis, statusExpectation);*/
 
         List<TradeRepository.DailyPnlAggregate> aggregates = switch (basis) {
             case OPEN -> tradeRepository.aggregateDailyPnlByOpenedDate(user.getId(), from, to, zone.getId());
             case CLOSE -> tradeRepository.aggregateDailyPnlByClosedDate(user.getId(), from, to, zone.getId());
         };
 
-        log.info("[CALENDAR] fetchDailyPnl result size={}", (aggregates != null ? aggregates.size() : 0));
+        /*log.info("[CALENDAR] fetchDailyPnl result size={}", (aggregates != null ? aggregates.size() : 0));*/
 
         return aggregates.stream()
                 .map(row -> new DailyPnlResponse(

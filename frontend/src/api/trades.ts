@@ -61,6 +61,7 @@ export type TradeResponse = {
   notes?: string | null
   createdAt?: string | null
   updatedAt?: string | null
+  accountId?: string | null
   tags?: string[]
 }
 

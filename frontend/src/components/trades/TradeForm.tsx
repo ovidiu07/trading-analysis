@@ -1,6 +1,6 @@
 import { ReactNode, useEffect } from 'react'
 import { Box, Button, Grid, MenuItem, Stack, TextField } from '@mui/material'
-import { useForm } from 'react-hook-form'
+import { useForm, Controller } from 'react-hook-form'
 import { TradeFormValues } from '../../utils/tradePayload'
 
 export type TradeFormProps = {
@@ -13,7 +13,7 @@ export type TradeFormProps = {
 }
 
 export function TradeForm({ initialValues, submitLabel, onSubmit, onCancel, error, secondaryAction }: TradeFormProps) {
-  const { register, handleSubmit, reset, formState: { errors } } = useForm<TradeFormValues>({ defaultValues: initialValues })
+  const { register, control, handleSubmit, reset, formState: { errors } } = useForm<TradeFormValues>({ defaultValues: initialValues })
 
   useEffect(() => {
     reset(initialValues)
@@ -30,27 +30,48 @@ export function TradeForm({ initialValues, submitLabel, onSubmit, onCancel, erro
           <TextField label="Symbol" required fullWidth error={!!errors.symbol} helperText={errors.symbol?.message} {...register('symbol', { required: 'Symbol is required' })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Market" select required fullWidth {...register('market', { required: true })}>
-            <MenuItem value="STOCK">Stock</MenuItem>
-            <MenuItem value="CFD">CFD</MenuItem>
-            <MenuItem value="FOREX">Forex</MenuItem>
-            <MenuItem value="CRYPTO">Crypto</MenuItem>
-            <MenuItem value="FUTURES">Futures</MenuItem>
-            <MenuItem value="OPTIONS">Options</MenuItem>
-            <MenuItem value="OTHER">Other</MenuItem>
-          </TextField>
+          <Controller
+            name="market"
+            control={control}
+            rules={{ required: true }}
+            render={({ field }) => (
+              <TextField label="Market" select required fullWidth {...field}>
+                <MenuItem value="STOCK">Stock</MenuItem>
+                <MenuItem value="CFD">CFD</MenuItem>
+                <MenuItem value="FOREX">Forex</MenuItem>
+                <MenuItem value="CRYPTO">Crypto</MenuItem>
+                <MenuItem value="FUTURES">Futures</MenuItem>
+                <MenuItem value="OPTIONS">Options</MenuItem>
+                <MenuItem value="OTHER">Other</MenuItem>
+              </TextField>
+            )}
+          />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Direction" select required fullWidth {...register('direction', { required: true })}>
-            <MenuItem value="LONG">Long</MenuItem>
-            <MenuItem value="SHORT">Short</MenuItem>
-          </TextField>
+          <Controller
+            name="direction"
+            control={control}
+            rules={{ required: true }}
+            render={({ field }) => (
+              <TextField label="Direction" select required fullWidth {...field}>
+                <MenuItem value="LONG">Long</MenuItem>
+                <MenuItem value="SHORT">Short</MenuItem>
+              </TextField>
+            )}
+          />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Status" select required fullWidth {...register('status', { required: true })}>
-            <MenuItem value="OPEN">Open</MenuItem>
-            <MenuItem value="CLOSED">Closed</MenuItem>
-          </TextField>
+          <Controller
+            name="status"
+            control={control}
+            rules={{ required: true }}
+            render={({ field }) => (
+              <TextField label="Status" select required fullWidth {...field}>
+                <MenuItem value="OPEN">Open</MenuItem>
+                <MenuItem value="CLOSED">Closed</MenuItem>
+              </TextField>
+            )}
+          />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
           <TextField label="Opened At" type="datetime-local" fullWidth required InputLabelProps={{ shrink: true }} {...register('openedAt', { required: true })} />

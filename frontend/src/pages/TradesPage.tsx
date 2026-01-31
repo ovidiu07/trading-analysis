@@ -78,7 +78,17 @@ const defaultFilters = {
 }
 
 const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
-  const toInputDate = (value?: string | null) => value ? new Date(value).toISOString().slice(0, 16) : ''
+  const toInputDate = (value?: string | null) => {
+    if (!value) return ''
+    const d = new Date(value)
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const yyyy = d.getFullYear()
+    const mm = pad(d.getMonth() + 1)
+    const dd = pad(d.getDate())
+    const hh = pad(d.getHours())
+    const mi = pad(d.getMinutes())
+    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
+  }
   return {
     symbol: trade.symbol,
     market: trade.market,
@@ -106,7 +116,7 @@ const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
     strategyTag: trade.strategyTag ?? '',
     catalystTag: trade.catalystTag ?? '',
     notes: trade.notes ?? '',
-    accountId: ''
+    accountId: trade.accountId ?? ''
   }
 }
 
