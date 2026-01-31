@@ -86,16 +86,16 @@ export function TradeForm({ initialValues, submitLabel, onSubmit, onCancel, erro
           <TextField label="Quantity" type="number" inputProps={{ step: '0.01' }} fullWidth required {...register('quantity', { valueAsNumber: true, required: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Entry Price" type="number" inputProps={{ step: '0.0001' }} fullWidth required {...register('entryPrice', { valueAsNumber: true, required: true })} />
+          <TextField label="Entry Price" type="number" inputProps={{ step: '0.000001' }} fullWidth required {...register('entryPrice', { valueAsNumber: true, required: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Exit Price" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('exitPrice', { valueAsNumber: true })} />
+          <TextField label="Exit Price" type="number" inputProps={{ step: '0.000001' }} fullWidth {...register('exitPrice', { valueAsNumber: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Stop Loss Price" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('stopLossPrice', { valueAsNumber: true })} />
+          <TextField label="Stop Loss Price" type="number" inputProps={{ step: '0.000001' }} fullWidth {...register('stopLossPrice', { valueAsNumber: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Take Profit Price" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('takeProfitPrice', { valueAsNumber: true })} />
+          <TextField label="Take Profit Price" type="number" inputProps={{ step: '0.000001' }} fullWidth {...register('takeProfitPrice', { valueAsNumber: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
           <TextField label="Fees" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('fees', { valueAsNumber: true })} />
