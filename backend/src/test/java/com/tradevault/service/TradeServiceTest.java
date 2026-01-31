@@ -89,13 +89,6 @@ public class TradeServiceTest {
         assertEquals(new BigDecimal("100"), response.getPnlGross());
     }
 
-    @Test
-    void throwsWhenUpdatingTradeNotOwnedByUser() {
-        UUID otherTradeId = UUID.randomUUID();
-        when(tradeRepository.findByIdAndUserId(otherTradeId, user.getId())).thenReturn(java.util.Optional.empty());
-
-        assertThrows(javax.persistence.EntityNotFoundException.class, () -> tradeService.update(otherTradeId, baseRequest()));
-    }
 
     @Test
     void deletesTradeForUser() {

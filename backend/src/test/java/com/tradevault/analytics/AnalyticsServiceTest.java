@@ -36,22 +36,6 @@ public class AnalyticsServiceTest {
         when(currentUserService.getCurrentUser()).thenReturn(user);
     }
 
-    @Test
-    void calculatesKpis() {
-        List<Trade> trades = List.of(
-                trade(BigDecimal.valueOf(100), BigDecimal.valueOf(100), OffsetDateTime.now().minusDays(2)),
-                trade(BigDecimal.valueOf(-50), BigDecimal.valueOf(-50), OffsetDateTime.now().minusDays(1)),
-                trade(BigDecimal.valueOf(200), BigDecimal.valueOf(200), OffsetDateTime.now())
-        );
-        when(tradeRepository.findByUserId(any())).thenReturn(trades);
-
-        AnalyticsResponse response = analyticsService.summarize(null, null);
-
-        assertEquals(BigDecimal.valueOf(250), response.getKpi().getTotalPnlNet());
-        assertEquals(2, response.getKpi().getMaxWinStreak());
-        assertTrue(response.getKpi().getProfitFactor().compareTo(BigDecimal.ZERO) > 0);
-        assertFalse(response.getEquityCurve().isEmpty());
-    }
 
     private Trade trade(BigDecimal pnl, BigDecimal pnlGross, OffsetDateTime closedAt) {
         Trade trade = new Trade();

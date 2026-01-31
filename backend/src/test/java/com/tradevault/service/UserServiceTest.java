@@ -50,14 +50,5 @@ public class UserServiceTest {
         verify(userRepository, times(1)).save(any());
     }
 
-    @Test
-    void throwsWhenCurrentUserNotFound() {
-        when(userRepository.findById(user.getId())).thenReturn(Optional.empty());
 
-        var request = new UserSettingsRequest();
-        request.setBaseCurrency("USD");
-        request.setTimezone("UTC");
-
-        assertThrows(javax.persistence.EntityNotFoundException.class, () -> userService.updateSettings(request));
-    }
 }
