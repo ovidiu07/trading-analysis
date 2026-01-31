@@ -273,9 +273,9 @@ export default function NotebookPage() {
         const [summary, trades] = await Promise.all([
           fetchDailySummary(selectedNote.dateKey, timezone),
           listClosedTrades(selectedNote.dateKey, timezone)
-        ])
+        ] as const)
         setDailySummary(summary)
-        setClosedTrades(trades)
+        setClosedTrades(trades as TradeResponse[])
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
           handleAuthFailure(err.message)
@@ -522,7 +522,7 @@ export default function NotebookPage() {
       const note = await createNotebookNote({
         type: 'SESSION_RECAP',
         title: `Loss recap ${lossRecapForm.from} → ${lossRecapForm.to}`,
-        body: buildLossRecapBody(losses)
+        body: buildLossRecapBody(losses as TradeResponse[])
       })
       setSelectedNote(note)
       loadNotes()
@@ -882,14 +882,14 @@ export default function NotebookPage() {
                 {attachments.map((item) => {
                   const downloadUrl = item.downloadUrl ? `${apiBase}${item.downloadUrl}` : '#'
                   return (
-                  <Stack key={item.id} direction="row" spacing={1} alignItems="center">
-                    <Button href={downloadUrl} target="_blank" rel="noreferrer">
-                      {item.fileName}
-                    </Button>
-                    <IconButton size="small" onClick={() => handleDeleteAttachment(item.id)}>
-                      <DeleteIcon fontSize="small" />
-                    </IconButton>
-                  </Stack>
+                    <Stack key={item.id} direction="row" spacing={1} alignItems="center">
+                      <Button href={downloadUrl} target="_blank" rel="noreferrer">
+                        {item.fileName}
+                      </Button>
+                      <IconButton size="small" onClick={() => handleDeleteAttachment(item.id)}>
+                        <DeleteIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
                   )
                 })}
               </Stack>
