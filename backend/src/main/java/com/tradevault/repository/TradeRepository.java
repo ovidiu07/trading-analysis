@@ -51,7 +51,7 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
     }
 
     @Query(value = """
-            SELECT CAST((t.closed_at AT TIME ZONE :tz) AS date) AS date,
+            SELECT (t.closed_at AT TIME ZONE :tz)::date AS date,
                    COALESCE(SUM(t.pnl_net), 0) AS netPnl,
                    COUNT(*) AS tradeCount,
                    SUM(CASE WHEN t.pnl_net > 0 THEN 1 ELSE 0 END) AS wins,
@@ -60,9 +60,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
             WHERE t.user_id = :userId
               AND t.status = 'CLOSED'
               AND t.closed_at IS NOT NULL
-              AND CAST((t.closed_at AT TIME ZONE :tz) AS date) >= :fromDate
-              AND CAST((t.closed_at AT TIME ZONE :tz) AS date) <= :toDate
-            GROUP BY CAST((t.closed_at AT TIME ZONE :tz) AS date)
+              AND (t.closed_at AT TIME ZONE :tz)::date >= :fromDate
+              AND (t.closed_at AT TIME ZONE :tz)::date <= :toDate
+            GROUP BY (t.closed_at AT TIME ZONE :tz)::date
             ORDER BY date
             """, nativeQuery = true)
     List<DailyPnlAggregate> aggregateDailyPnlByClosedDate(@Param("userId") UUID userId,
@@ -71,7 +71,7 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
                                                          @Param("tz") String tz);
 
     @Query(value = """
-            SELECT CAST((t.opened_at AT TIME ZONE :tz) AS date) AS date,
+            SELECT (t.opened_at AT TIME ZONE :tz)::date AS date,
                    COALESCE(SUM(t.pnl_net), 0) AS netPnl,
                    COUNT(*) AS tradeCount,
                    SUM(CASE WHEN t.pnl_net > 0 THEN 1 ELSE 0 END) AS wins,
@@ -79,9 +79,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
             FROM trades t
             WHERE t.user_id = :userId
               AND t.opened_at IS NOT NULL
-              AND CAST((t.opened_at AT TIME ZONE :tz) AS date) >= :fromDate
-              AND CAST((t.opened_at AT TIME ZONE :tz) AS date) <= :toDate
-            GROUP BY CAST((t.opened_at AT TIME ZONE :tz) AS date)
+              AND (t.opened_at AT TIME ZONE :tz)::date >= :fromDate
+              AND (t.opened_at AT TIME ZONE :tz)::date <= :toDate
+            GROUP BY (t.opened_at AT TIME ZONE :tz)::date
             ORDER BY date
             """, nativeQuery = true)
     List<DailyPnlAggregate> aggregateDailyPnlByOpenedDate(@Param("userId") UUID userId,
@@ -94,7 +94,7 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
             WHERE t.user_id = :userId
               AND t.status = 'CLOSED'
               AND t.closed_at IS NOT NULL
-              AND CAST((t.closed_at AT TIME ZONE :tz) AS date) = :date
+              AND (t.closed_at AT TIME ZONE :tz)::date = :date
             ORDER BY t.closed_at
             """, nativeQuery = true)
     List<Trade> findClosedTradesForLocalDate(@Param("userId") UUID userId,
