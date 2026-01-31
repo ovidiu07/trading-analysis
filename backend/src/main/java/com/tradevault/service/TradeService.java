@@ -94,9 +94,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
-        trade.setPnlGross(request.getPnlGross());
-        trade.setPnlNet(request.getPnlNet());
-        trade.setPnlPercent(request.getPnlPercent());
+        // Do NOT trust client-provided PnL values on create; compute authoritatively below
         trade.setRiskAmount(request.getRiskAmount());
         trade.setRiskPercent(request.getRiskPercent());
         trade.setRMultiple(request.getRMultiple());
@@ -116,7 +114,8 @@ public class TradeService {
             Set<Tag> tags = tagRepository.findAllById(request.getTagIds()).stream().filter(t -> t.getUser().getId().equals(user.getId())).collect(Collectors.toSet());
             trade.setTags(tags);
         }
-        calculateMetrics(trade);
+        // Always compute authoritative PnL on create
+        recalculateAndApplyPnl(trade);
         return toResponse(tradeRepository.save(trade));
     }
 
@@ -124,6 +123,9 @@ public class TradeService {
     public TradeResponse update(UUID id, TradeRequest request) {
         User user = currentUserService.getCurrentUser();
         Trade trade = tradeRepository.findByIdAndUserId(id, user.getId()).orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+        boolean shouldRecalculate = pnlInputsChanged(trade, request);
+
+        // Map incoming fields onto entity (do not trust client-provided PnL values)
         trade.setSymbol(request.getSymbol());
         trade.setMarket(request.getMarket());
         trade.setDirection(request.getDirection());
@@ -138,9 +140,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
-        trade.setPnlGross(request.getPnlGross());
-        trade.setPnlNet(request.getPnlNet());
-        trade.setPnlPercent(request.getPnlPercent());
+        // Never accept client PnL fields on update; we'll recompute if needed
         trade.setRiskAmount(request.getRiskAmount());
         trade.setRiskPercent(request.getRiskPercent());
         trade.setRMultiple(request.getRMultiple());
@@ -161,7 +161,10 @@ public class TradeService {
             Set<Tag> tags = tagRepository.findAllById(request.getTagIds()).stream().filter(t -> t.getUser().getId().equals(user.getId())).collect(Collectors.toSet());
             trade.setTags(tags);
         }
-        calculateMetrics(trade);
+
+        if (shouldRecalculate) {
+            recalculateAndApplyPnl(trade);
+        }
         return toResponse(tradeRepository.save(trade));
     }
 
@@ -221,6 +224,80 @@ public class TradeService {
         }
     }
 
+    private boolean equalBD(BigDecimal a, BigDecimal b) {
+        if (a == null && b == null) return true;
+        if (a == null || b == null) return false;
+        return a.compareTo(b) == 0;
+    }
+
+    private boolean pnlInputsChanged(Trade existing, TradeRequest request) {
+        // Fields that influence PnL or its denominators/meaning
+        boolean changed = false;
+        changed |= existing.getDirection() != request.getDirection();
+        changed |= !equalBD(existing.getQuantity(), request.getQuantity());
+        changed |= !equalBD(existing.getEntryPrice(), request.getEntryPrice());
+        changed |= !equalBD(existing.getExitPrice(), request.getExitPrice());
+        changed |= !equalBD(existing.getFees(), defaultZero(request.getFees()));
+        changed |= !equalBD(existing.getCommission(), defaultZero(request.getCommission()));
+        changed |= !equalBD(existing.getSlippage(), defaultZero(request.getSlippage()));
+        changed |= existing.getStatus() != request.getStatus();
+        changed |= (existing.getClosedAt() == null ? request.getClosedAt() != null : !existing.getClosedAt().equals(request.getClosedAt()));
+        changed |= !equalBD(existing.getRiskAmount(), request.getRiskAmount());
+        changed |= !equalBD(existing.getCapitalUsed(), request.getCapitalUsed());
+        return changed;
+    }
+
+    private void recalculateAndApplyPnl(Trade trade) {
+        // Reset derived fields first
+        trade.setPnlGross(null);
+        trade.setPnlNet(null);
+        trade.setPnlPercent(null);
+        trade.setRMultiple(null);
+
+        // Only compute when we have sufficient inputs
+        if (trade.getDirection() == null || trade.getEntryPrice() == null || trade.getQuantity() == null || trade.getExitPrice() == null) {
+            return; // leave as nulls for open/incomplete trades
+        }
+
+        BigDecimal priceDiff = trade.getDirection() == Direction.LONG ?
+                trade.getExitPrice().subtract(trade.getEntryPrice()) :
+                trade.getEntryPrice().subtract(trade.getExitPrice());
+        BigDecimal pnlGross = priceDiff.multiply(trade.getQuantity());
+        BigDecimal totalCosts = defaultZero(trade.getFees()).add(defaultZero(trade.getCommission())).add(defaultZero(trade.getSlippage()));
+        BigDecimal pnlNet = pnlGross.subtract(totalCosts);
+
+        trade.setPnlGross(pnlGross);
+        trade.setPnlNet(pnlNet);
+
+        if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
+            trade.setPnlPercent(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
+            trade.setRMultiple(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP));
+        } else if (trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
+            trade.setPnlPercent(pnlNet.divide(trade.getCapitalUsed(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
+            // R multiple via stop loss risk when possible
+            if (trade.getStopLossPrice() != null) {
+                BigDecimal riskPerUnit = trade.getDirection() == Direction.LONG ?
+                        trade.getEntryPrice().subtract(trade.getStopLossPrice()) :
+                        trade.getStopLossPrice().subtract(trade.getEntryPrice());
+                if (riskPerUnit.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal riskValue = riskPerUnit.multiply(trade.getQuantity());
+                    trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
+                }
+            }
+        } else {
+            // Attempt R multiple from stop loss if available even if percent cannot be computed
+            if (trade.getStopLossPrice() != null) {
+                BigDecimal riskPerUnit = trade.getDirection() == Direction.LONG ?
+                        trade.getEntryPrice().subtract(trade.getStopLossPrice()) :
+                        trade.getStopLossPrice().subtract(trade.getEntryPrice());
+                if (riskPerUnit.compareTo(BigDecimal.ZERO) > 0) {
+                    BigDecimal riskValue = riskPerUnit.multiply(trade.getQuantity());
+                    trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
+                }
+            }
+        }
+    }
+
     private TradeResponse toResponse(Trade trade) {
         return TradeResponse.builder()
                 .id(trade.getId())
@@ -252,7 +329,7 @@ public class TradeService {
                 .notes(trade.getNotes())
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
-                .tags(trade.getTags().stream().map(Tag::getName).collect(Collectors.toSet()))
+                .tags((trade.getTags() == null ? java.util.Collections.<String>emptySet() : trade.getTags().stream().map(Tag::getName).collect(Collectors.toSet())))
                 .build();
     }
 }

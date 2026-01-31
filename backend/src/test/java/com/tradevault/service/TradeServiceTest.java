@@ -13,6 +13,7 @@ import com.tradevault.service.TimezoneService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
+import org.mockito.ArgumentCaptor;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -92,6 +93,182 @@ public class TradeServiceTest {
         assertEquals(new BigDecimal("100"), response.getPnlGross());
     }
 
+    @Test
+    void updateNonPnlFieldsDoesNotChangePnl() {
+        OffsetDateTime opened = OffsetDateTime.now().minusDays(2);
+        OffsetDateTime closed = OffsetDateTime.now().minusDays(1);
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("AAPL")
+                .market(Market.STOCK)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(opened)
+                .closedAt(closed)
+                .quantity(new BigDecimal("100"))
+                .entryPrice(new BigDecimal("100"))
+                .exitPrice(new BigDecimal("120"))
+                .fees(new BigDecimal("2"))
+                .commission(new BigDecimal("3"))
+                .slippage(BigDecimal.ZERO)
+                .pnlGross(new BigDecimal("2000"))
+                .pnlNet(new BigDecimal("1995"))
+                .pnlPercent(new BigDecimal("0"))
+                .build();
+
+        TradeRequest updateRequest = new TradeRequest();
+        updateRequest.setSymbol("AAPL");
+        updateRequest.setMarket(Market.STOCK);
+        updateRequest.setDirection(Direction.LONG);
+        updateRequest.setStatus(TradeStatus.CLOSED);
+        updateRequest.setOpenedAt(opened);
+        updateRequest.setClosedAt(closed);
+        updateRequest.setQuantity(new BigDecimal("100"));
+        updateRequest.setEntryPrice(new BigDecimal("100"));
+        updateRequest.setExitPrice(new BigDecimal("120"));
+        updateRequest.setFees(new BigDecimal("2"));
+        updateRequest.setCommission(new BigDecimal("3"));
+        updateRequest.setSlippage(BigDecimal.ZERO);
+        updateRequest.setNotes("updated notes");
+        // client tries to modify pnl but it should be ignored since inputs didn't change
+        updateRequest.setPnlGross(new BigDecimal("999999"));
+        updateRequest.setPnlNet(new BigDecimal("888888"));
+        updateRequest.setPnlPercent(new BigDecimal("777"));
+
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.update(existing.getId(), updateRequest);
+
+        assertEquals(new BigDecimal("2000"), response.getPnlGross());
+        assertEquals(new BigDecimal("1995"), response.getPnlNet());
+        assertEquals("updated notes", response.getNotes());
+
+        ArgumentCaptor<Trade> captor = ArgumentCaptor.forClass(Trade.class);
+        verify(tradeRepository).save(captor.capture());
+        Trade saved = captor.getValue();
+        assertEquals(new BigDecimal("2000"), saved.getPnlGross());
+        assertEquals(new BigDecimal("1995"), saved.getPnlNet());
+    }
+
+    @Test
+    void updateDrivingFieldRecalculatesAndOverridesClientPnl() {
+        OffsetDateTime opened = OffsetDateTime.now().minusDays(2);
+        OffsetDateTime closed = OffsetDateTime.now().minusDays(1);
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("AAPL")
+                .market(Market.STOCK)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(opened)
+                .closedAt(closed)
+                .quantity(new BigDecimal("100"))
+                .entryPrice(new BigDecimal("100"))
+                .exitPrice(new BigDecimal("120"))
+                .fees(new BigDecimal("2"))
+                .commission(new BigDecimal("3"))
+                .slippage(BigDecimal.ZERO)
+                .pnlGross(new BigDecimal("2000"))
+                .pnlNet(new BigDecimal("1995"))
+                .build();
+
+        TradeRequest updateRequest = new TradeRequest();
+        updateRequest.setSymbol("AAPL");
+        updateRequest.setMarket(Market.STOCK);
+        updateRequest.setDirection(Direction.LONG);
+        updateRequest.setStatus(TradeStatus.CLOSED);
+        updateRequest.setOpenedAt(opened);
+        updateRequest.setClosedAt(closed);
+        updateRequest.setQuantity(new BigDecimal("100"));
+        updateRequest.setEntryPrice(new BigDecimal("100"));
+        // change exit price to trigger recalculation
+        updateRequest.setExitPrice(new BigDecimal("130"));
+        updateRequest.setFees(new BigDecimal("2"));
+        updateRequest.setCommission(new BigDecimal("3"));
+        updateRequest.setSlippage(BigDecimal.ZERO);
+        // bogus client pnl
+        updateRequest.setPnlGross(new BigDecimal("12345"));
+        updateRequest.setPnlNet(new BigDecimal("54321"));
+
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.update(existing.getId(), updateRequest);
+
+        assertEquals(new BigDecimal("3000"), response.getPnlGross());
+        assertEquals(new BigDecimal("2995"), response.getPnlNet());
+
+        ArgumentCaptor<Trade> captor = ArgumentCaptor.forClass(Trade.class);
+        verify(tradeRepository).save(captor.capture());
+        Trade saved = captor.getValue();
+        assertEquals(new BigDecimal("3000"), saved.getPnlGross());
+        assertEquals(new BigDecimal("2995"), saved.getPnlNet());
+    }
+
+    @Test
+    void updatingToOpenTradeNullsPnl() {
+        OffsetDateTime opened = OffsetDateTime.now().minusDays(2);
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("AAPL")
+                .market(Market.STOCK)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(opened)
+                .closedAt(OffsetDateTime.now().minusDays(1))
+                .quantity(new BigDecimal("100"))
+                .entryPrice(new BigDecimal("100"))
+                .exitPrice(new BigDecimal("120"))
+                .fees(new BigDecimal("2"))
+                .commission(new BigDecimal("3"))
+                .slippage(BigDecimal.ZERO)
+                .pnlGross(new BigDecimal("2000"))
+                .pnlNet(new BigDecimal("1995"))
+                .build();
+
+        TradeRequest updateRequest = new TradeRequest();
+        updateRequest.setSymbol("AAPL");
+        updateRequest.setMarket(Market.STOCK);
+        updateRequest.setDirection(Direction.LONG);
+        updateRequest.setStatus(TradeStatus.OPEN);
+        updateRequest.setOpenedAt(opened);
+        updateRequest.setClosedAt(null);
+        updateRequest.setQuantity(new BigDecimal("100"));
+        updateRequest.setEntryPrice(new BigDecimal("100"));
+        // remove exit price -> open trade
+        updateRequest.setExitPrice(null);
+        updateRequest.setFees(new BigDecimal("2"));
+        updateRequest.setCommission(new BigDecimal("3"));
+        updateRequest.setSlippage(BigDecimal.ZERO);
+
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.update(existing.getId(), updateRequest);
+
+        assertNull(response.getPnlGross());
+        assertNull(response.getPnlNet());
+        assertNull(response.getPnlPercent());
+    }
+
+    @Test
+    void createIgnoresClientProvidedPnl() {
+        TradeRequest request = baseRequest();
+        request.setExitPrice(new BigDecimal("120"));
+        request.setPnlGross(new BigDecimal("99999"));
+        request.setPnlNet(new BigDecimal("88888"));
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+        // server computes authoritatively
+        assertEquals(new BigDecimal("2000"), response.getPnlGross());
+        assertEquals(new BigDecimal("1995"), response.getPnlNet());
+    }
 
     @Test
     void deletesTradeForUser() {
