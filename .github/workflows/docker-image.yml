@@ -40,11 +40,17 @@ jobs:
       - name: Log in to Docker Hub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      - name: Build Docker image
+      - name: Build Backend Docker image
         run: docker build --platform linux/amd64 -t marley2022/tradejaudit:audit-service ./backend
 
-      - name: Push Docker image
+      - name: Build Frontend Docker image
+        run: docker build --platform linux/amd64 -t marley2022/tradejaudit:frontend-service ./frontend
+
+      - name: Push Backend Docker image
         run: docker push marley2022/tradejaudit:audit-service
+
+      - name: Push Frontend Docker image
+        run: docker push marley2022/tradejaudit:frontend-service
 
       - name: Final message
         run: echo Finished !
