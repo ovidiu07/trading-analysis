@@ -63,6 +63,15 @@ public class TradeCsvImportService {
             "Total",
             "Currency (Total)"
     );
+    private static final Set<String> ALLOWED_ACTIONS = Set.of(
+            "market buy",
+            "stop buy",
+            "limit buy",
+            "market sell",
+            "stop sell",
+            "limit sell"
+    );
+    private static final BigDecimal SHARE_TOLERANCE = new BigDecimal("0.0001");
 
     private final TradeRepository tradeRepository;
     private final TradeImportRowRepository tradeImportRowRepository;
@@ -152,8 +161,8 @@ public class TradeCsvImportService {
     }
 
     static GroupComputation computeGroup(List<ParsedRow> rows) {
-        List<ParsedRow> buys = rows.stream().filter(row -> "Market buy".equals(row.action())).toList();
-        List<ParsedRow> sells = rows.stream().filter(row -> "Market sell".equals(row.action())).toList();
+        List<ParsedRow> buys = rows.stream().filter(ParsedRow::isBuy).toList();
+        List<ParsedRow> sells = rows.stream().filter(ParsedRow::isSell).toList();
 
         if (buys.isEmpty()) {
             return GroupComputation.skipped("Sell without buy");
@@ -163,7 +172,7 @@ public class TradeCsvImportService {
             return GroupComputation.skipped("Buy shares missing");
         }
         BigDecimal totalSellShares = sumShares(sells);
-        if (totalSellShares.compareTo(totalBuyShares) > 0) {
+        if (totalSellShares.subtract(totalBuyShares).compareTo(SHARE_TOLERANCE) > 0) {
             return GroupComputation.skipped("Sell shares exceed buy shares");
         }
 
@@ -180,11 +189,17 @@ public class TradeCsvImportService {
         BigDecimal pnlGross = BigDecimal.ZERO;
         TradeStatus status = TradeStatus.OPEN;
 
-        if (!sells.isEmpty() && totalSellShares.compareTo(totalBuyShares) == 0) {
+        if (!sells.isEmpty() && withinTolerance(totalSellShares, totalBuyShares)) {
             closedAt = sells.get(sells.size() - 1).time();
             exitPrice = weightedAverage(sells);
             pnlGross = sumResults(sells);
             status = TradeStatus.CLOSED;
+        }
+        OffsetDateTime updatedAt = openedAt;
+        if (status == TradeStatus.CLOSED && closedAt != null) {
+            updatedAt = closedAt;
+        } else if (totalSellShares.compareTo(BigDecimal.ZERO) > 0) {
+            updatedAt = rows.get(rows.size() - 1).time();
         }
 
         GroupMetrics metrics = new GroupMetrics(
@@ -196,7 +211,8 @@ public class TradeCsvImportService {
                 exitPrice,
                 pnlGross,
                 pnlGross,
-                status
+                status,
+                updatedAt
         );
         return GroupComputation.processed(metrics);
     }
@@ -233,7 +249,7 @@ public class TradeCsvImportService {
         trade.setPnlGross(metrics.pnlGross());
         trade.setPnlNet(metrics.pnlNet());
         trade.setCreatedAt(metrics.openedAt());
-        trade.setUpdatedAt(metrics.status() == TradeStatus.CLOSED && metrics.closedAt() != null ? metrics.closedAt() : metrics.openedAt());
+        trade.setUpdatedAt(metrics.updatedAt());
         return new UpsertResult(trade, existing.isPresent());
     }
 
@@ -284,7 +300,13 @@ public class TradeCsvImportService {
         if (action == null || time == null || isin == null || ticker == null || sharesRaw == null || priceRaw == null) {
             return null;
         }
-        if (!"Market buy".equals(action) && !"Market sell".equals(action)) {
+        String actionNorm = action.trim().toLowerCase(Locale.ENGLISH);
+        if (!ALLOWED_ACTIONS.contains(actionNorm)) {
+            return null;
+        }
+        boolean isBuy = actionNorm.endsWith("buy");
+        boolean isSell = actionNorm.endsWith("sell");
+        if (!isBuy && !isSell) {
             return null;
         }
         OffsetDateTime parsedTime;
@@ -301,7 +323,7 @@ public class TradeCsvImportService {
         }
         BigDecimal result = resultRaw == null ? null : parseDecimal(resultRaw);
 
-        return new ParsedRow(action, parsedTime, isin, ticker, transactionId, shares, price, result);
+        return new ParsedRow(action, actionNorm, isBuy, isSell, parsedTime, isin, ticker, transactionId, shares, price, result);
     }
 
     private static BigDecimal sumShares(List<ParsedRow> rows) {
@@ -337,8 +359,15 @@ public class TradeCsvImportService {
         return trimmed.isBlank() ? null : trimmed;
     }
 
+    private static boolean withinTolerance(BigDecimal left, BigDecimal right) {
+        return left.subtract(right).abs().compareTo(SHARE_TOLERANCE) <= 0;
+    }
+
     record ParsedRow(
             String action,
+            String actionNorm,
+            boolean isBuy,
+            boolean isSell,
             OffsetDateTime time,
             String isin,
             String ticker,
@@ -357,7 +386,8 @@ public class TradeCsvImportService {
             BigDecimal exitPrice,
             BigDecimal pnlGross,
             BigDecimal pnlNet,
-            TradeStatus status
+            TradeStatus status,
+            OffsetDateTime updatedAt
     ) {}
 
     record GroupComputation(boolean skipped, String reason, GroupMetrics metrics) {
