@@ -3,9 +3,8 @@ services:
   backend:
     build: ./backend
     environment:
-      # Do NOT hardcode secrets in git. Supply these via a local .env file or your deployment environment.
-      DB_URL: ${DB_URL}
-      DB_USER: ${DB_USER}
+      DB_URL: jdbc:postgresql://tradevault-do-user-13395375-0.l.db.ondigitalocean.com:25060/tradevault?sslmode=require
+      DB_USER: tradevault
       DB_PASS: ${DB_PASS}
       JWT_SECRET: ${JWT_SECRET}
       FRONTEND_URL: ${FRONTEND_URL:https://tradejaudit.com}
