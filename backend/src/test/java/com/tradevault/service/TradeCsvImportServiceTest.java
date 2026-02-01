@@ -11,6 +11,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TradeCsvImportServiceTest {
 
@@ -27,6 +28,21 @@ class TradeCsvImportServiceTest {
         BigDecimal weighted = TradeCsvImportService.weightedAverage(rows);
 
         assertEquals(new BigDecimal("106.6666666667"), weighted);
+    }
+
+    @Test
+    void classifiesBuySellActionsBySuffix() {
+        var marketBuy = TradeCsvImportService.classifyAction("Market buy");
+        assertTrue(marketBuy.isBuy());
+        assertFalse(marketBuy.isSell());
+
+        var stopLimitBuy = TradeCsvImportService.classifyAction("  Stop limit buy ");
+        assertTrue(stopLimitBuy.isBuy());
+        assertFalse(stopLimitBuy.isSell());
+
+        var limitSell = TradeCsvImportService.classifyAction("LIMIT SELL");
+        assertTrue(limitSell.isSell());
+        assertFalse(limitSell.isBuy());
     }
 
     @Test
@@ -69,5 +85,21 @@ class TradeCsvImportServiceTest {
         assertNotNull(metrics);
         assertEquals(TradeStatus.OPEN, metrics.status());
         assertNull(metrics.closedAt());
+    }
+
+    @Test
+    void computeGroupSkipsWhenSellSharesExceedBuyShares() {
+        OffsetDateTime buyTime = OffsetDateTime.parse("2024-01-01T10:00:00Z");
+        OffsetDateTime sellTime = OffsetDateTime.parse("2024-01-02T10:00:00Z");
+        List<TradeCsvImportService.ParsedRow> rows = List.of(
+                new TradeCsvImportService.ParsedRow("Market buy", "market buy", true, false, buyTime, "ISIN1", "AAA", "tx1",
+                        new BigDecimal("10"), new BigDecimal("100"), null),
+                new TradeCsvImportService.ParsedRow("Market sell", "market sell", false, true, sellTime, "ISIN1", "AAA", "tx2",
+                        new BigDecimal("12"), new BigDecimal("110"), new BigDecimal("120"))
+        );
+
+        TradeCsvImportService.GroupComputation computation = TradeCsvImportService.computeGroup(rows);
+
+        assertTrue(computation.skipped());
     }
 }
