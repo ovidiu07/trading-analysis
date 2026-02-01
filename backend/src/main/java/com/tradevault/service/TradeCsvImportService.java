@@ -98,15 +98,13 @@ public class TradeCsvImportService {
                     if (!seenTransactionIds.add(row.transactionId())) {
                         continue;
                     }
-                    if (tradeImportRowRepository.existsByUserIdAndTransactionId(user.getId(), row.transactionId())) {
-                        continue;
-                    }
                 }
                 parsedRows.add(row);
             }
         }
 
         parsedRows.sort((a, b) -> a.time().compareTo(b.time()));
+        Set<String> existingTransactionIds = loadExistingTransactionIds(user, parsedRows);
         Map<String, List<ParsedRow>> grouped = groupByIsin(parsedRows);
 
         int tradesCreated = 0;
@@ -130,7 +128,7 @@ public class TradeCsvImportService {
             GroupMetrics metrics = computation.metrics();
             UpsertResult upsert = upsertTrade(user, metrics);
             tradeRepository.save(upsert.trade());
-            saveImportRows(user, rows);
+            saveImportRows(user, rows, existingTransactionIds);
             if (upsert.updated()) {
                 tradesUpdated++;
                 groupResults.add(TradeCsvImportGroupResult.builder()
@@ -266,11 +264,12 @@ public class TradeCsvImportService {
         return new UpsertResult(trade, existing.isPresent());
     }
 
-    private void saveImportRows(User user, List<ParsedRow> rows) {
+    private void saveImportRows(User user, List<ParsedRow> rows, Set<String> existingTransactionIds) {
         List<TradeImportRow> importRows = rows.stream()
                 .map(ParsedRow::transactionId)
                 .filter(Objects::nonNull)
                 .distinct()
+                .filter(txId -> !existingTransactionIds.contains(txId))
                 .map(txId -> TradeImportRow.builder()
                         .user(user)
                         .transactionId(txId)
@@ -279,7 +278,23 @@ public class TradeCsvImportService {
                 .toList();
         if (!importRows.isEmpty()) {
             tradeImportRowRepository.saveAll(importRows);
+            importRows.stream()
+                    .map(TradeImportRow::getTransactionId)
+                    .forEach(existingTransactionIds::add);
         }
+    }
+
+    private Set<String> loadExistingTransactionIds(User user, List<ParsedRow> rows) {
+        Set<String> transactionIds = rows.stream()
+                .map(ParsedRow::transactionId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+        if (transactionIds.isEmpty()) {
+            return new java.util.HashSet<>();
+        }
+        return tradeImportRowRepository.findAllByUserIdAndTransactionIdIn(user.getId(), transactionIds).stream()
+                .map(TradeImportRow::getTransactionId)
+                .collect(Collectors.toCollection(java.util.HashSet::new));
     }
 
     private Map<String, List<ParsedRow>> groupByIsin(List<ParsedRow> rows) {
