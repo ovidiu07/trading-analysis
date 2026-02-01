@@ -61,7 +61,7 @@ export default function LoginPage() {
                 TV
               </Avatar>
               <Box>
-                <Typography variant="h6" fontWeight={700}>TradeVault</Typography>
+                <Typography variant="h6" fontWeight={700}>TradejAudit</Typography>
                 <Typography variant="caption" color="text.secondary">
                   Trading journal + notebook
                 </Typography>
@@ -71,7 +71,7 @@ export default function LoginPage() {
               Your edge is discipline. Build it daily.
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              TradeVault is your trading journal + notebook to capture setups, review execution, and track performance—so you can trade with clarity, not emotion.
+              TradejAudit is your trading journal + notebook to capture setups, review execution, and track performance—so you can trade with clarity, not emotion.
             </Typography>
           </Stack>
           <Stack spacing={1.5}>
