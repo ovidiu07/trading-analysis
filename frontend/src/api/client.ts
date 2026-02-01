@@ -13,11 +13,12 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
   const url = `${API_URL}${path}`
   let res: Response
   const { headers: customHeaders, ...rest } = options
+  const isFormData = rest.body instanceof FormData
 
   try {
     res = await fetch(url, {
       headers: {
-        'Content-Type': 'application/json',
+        ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...authHeader(),
         ...(customHeaders || {})
       },
@@ -73,6 +74,10 @@ export async function apiGet<T>(path: string): Promise<T> {
 
 export async function apiPost<T>(path: string, body: unknown): Promise<T> {
   return apiRequest<T>(path, { method: 'POST', body: JSON.stringify(body) })
+}
+
+export async function apiPostMultipart<T>(path: string, formData: FormData): Promise<T> {
+  return apiRequest<T>(path, { method: 'POST', body: formData, headers: authHeader() })
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
