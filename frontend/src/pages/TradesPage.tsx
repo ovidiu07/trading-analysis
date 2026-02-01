@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
 import {
   Accordion,
@@ -30,8 +30,9 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
+import UploadFileIcon from '@mui/icons-material/UploadFile'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { TradeResponse, createTrade, deleteTrade, listTrades, searchTrades, updateTrade } from '../api/trades'
+import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, importTradesCsv, listTrades, searchTrades, updateTrade } from '../api/trades'
 import { createNotebookNote } from '../api/notebook'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
 import { useAuth } from '../auth/AuthContext'
@@ -158,6 +159,10 @@ export default function TradesPage() {
   const [editTarget, setEditTarget] = useState<TradeResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TradeResponse | null>(null)
   const [createFormValues, setCreateFormValues] = useState<TradeFormValues>(buildDefaultValues())
+  const [importSummary, setImportSummary] = useState<TradeCsvImportSummary | null>(null)
+  const [importError, setImportError] = useState('')
+  const [importLoading, setImportLoading] = useState(false)
+  const importInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleAuthFailure = useCallback((message?: string) => {
     setFetchError(message || 'Please login to view trades')
@@ -202,6 +207,7 @@ export default function TradesPage() {
       setNoteNavError(message)
     }
   }, [handleAuthFailure, navigate])
+
 
   const columns = useMemo<GridColDef[]>(() => [
     {
@@ -341,6 +347,35 @@ export default function TradesPage() {
       setLoading(false)
     }
   }, [activeFilters, handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize, timezone, viewMode])
+
+  const handleImportClick = useCallback(() => {
+    importInputRef.current?.click()
+  }, [])
+
+  const handleImportChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]
+    if (!file) {
+      return
+    }
+    setImportLoading(true)
+    setImportError('')
+    try {
+      const summary = await importTradesCsv(file)
+      setImportSummary(summary)
+      fetchTrades()
+    } catch (err) {
+      const apiErr = err as ApiError
+      if (apiErr.status === 401 || apiErr.status === 403) {
+        handleAuthFailure(apiErr.message)
+        return
+      }
+      const message = apiErr instanceof Error ? apiErr.message : 'Failed to import CSV'
+      setImportError(message)
+    } finally {
+      setImportLoading(false)
+      event.target.value = ''
+    }
+  }, [fetchTrades, handleAuthFailure])
 
   useEffect(() => {
     fetchTrades()
@@ -616,10 +651,70 @@ export default function TradesPage() {
           <CardContent>
             <Stack direction="row" justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={2} spacing={1}>
               <Typography variant="h6">Trades List</Typography>
-              {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>Showing search results</Alert>}
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>Showing search results</Alert>}
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={importLoading ? <CircularProgress size={16} /> : <UploadFileIcon />}
+                  onClick={handleImportClick}
+                  disabled={importLoading}
+                >
+                  Import CSV
+                </Button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".csv"
+                  hidden
+                  onChange={handleImportChange}
+                />
+              </Stack>
             </Stack>
             {fetchError && <ErrorBanner message={fetchError} />}
             {noteNavError && <ErrorBanner message={noteNavError} />}
+            {importError && <Alert severity="error" sx={{ mb: 2 }}>{importError}</Alert>}
+            {importSummary && (
+              <Box sx={{ mb: 2 }}>
+                <Alert severity="success" sx={{ mb: 2 }}>
+                  Imported {importSummary.totalRows} rows across {importSummary.isinGroups} ISIN groups.
+                </Alert>
+                <Grid container spacing={2}>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="subtitle2">Trades created</Typography>
+                    <Typography>{importSummary.tradesCreated}</Typography>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="subtitle2">Trades updated</Typography>
+                    <Typography>{importSummary.tradesUpdated}</Typography>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="subtitle2">Groups skipped</Typography>
+                    <Typography>{importSummary.groupsSkipped}</Typography>
+                  </Grid>
+                  <Grid item xs={6} md={3}>
+                    <Typography variant="subtitle2">ISIN groups</Typography>
+                    <Typography>{importSummary.isinGroups}</Typography>
+                  </Grid>
+                </Grid>
+                {importSummary.groupResults?.length > 0 && (
+                  <Box sx={{ mt: 2 }}>
+                    <Typography variant="subtitle2" gutterBottom>Per-ISIN results</Typography>
+                    <Stack spacing={1}>
+                      {importSummary.groupResults.map((result) => (
+                        <Alert
+                          key={`${result.isin}-${result.status}`}
+                          severity={result.status === 'SKIPPED' ? 'warning' : 'success'}
+                        >
+                          <strong>{result.isin}</strong>: {result.status}
+                          {result.reason ? ` — ${result.reason}` : ''}
+                        </Alert>
+                      ))}
+                    </Stack>
+                  </Box>
+                )}
+              </Box>
+            )}
             {isSmallScreen ? renderTradeCards() : renderTradesTable()}
             {expandedTrade && !isSmallScreen && (
               <Box sx={{ mt: 2, bgcolor: 'grey.50', borderRadius: 2, p: 2 }}>
