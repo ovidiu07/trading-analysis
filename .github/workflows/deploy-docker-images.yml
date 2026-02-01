@@ -20,7 +20,7 @@ jobs:
           host: ${{ vars.TRADER_SERVER_HOST }}
           username: ${{ vars.TRADER_SERVER_USERNAME }}
           key: ${{ secrets.TRADER_SSH_PRIVATE_KEY }}
-          source: src/main/resources/compose.yml
+          source: src/main/resources/tradevault-compose.yml
           target: ~/docker-compose
 
       - name: Deploy to server
@@ -32,18 +32,8 @@ jobs:
           script: |
             set -e
             cd ~/docker-compose/src/main/resources
-
-            # Write runtime secrets/config for docker compose (do not commit this file)
-            cat > .env <<EOF
-            DB_URL=${{ secrets.DB_URL }}
-            DB_USER=${{ secrets.DB_USER }}
-            DB_PASS=${{ secrets.DB_PASS }}
-            JWT_SECRET=${{ secrets.JWT_SECRET }}
-            FRONTEND_URL=${{ secrets.FRONTEND_URL }}
-            EOF
-
-            docker-compose -f compose.yml pull
-            docker-compose -f compose.yml up -d
+            docker-compose -f tradevault-compose.yml pull
+            docker-compose -f tradevault-compose.yml up -d
 
       - name: Final message
         run: echo Finished!
