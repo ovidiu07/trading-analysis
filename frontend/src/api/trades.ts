@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPut } from './client'
+import { apiDelete, apiGet, apiPost, apiPostMultipart, apiPut } from './client'
 
 export type TradeRequest = {
   symbol: string
@@ -100,6 +100,21 @@ export type DailyPnlResponse = {
   losses: number
 }
 
+export type TradeCsvImportGroupResult = {
+  isin: string
+  status: 'CREATED' | 'UPDATED' | 'SKIPPED'
+  reason?: string | null
+}
+
+export type TradeCsvImportSummary = {
+  totalRows: number
+  isinGroups: number
+  tradesCreated: number
+  tradesUpdated: number
+  groupsSkipped: number
+  groupResults: TradeCsvImportGroupResult[]
+}
+
 function toQuery(params: Record<string, string | number | undefined | null> = {}) {
   const sp = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -141,4 +156,10 @@ export async function updateTrade(id: string, request: TradeRequest) {
 
 export async function deleteTrade(id: string) {
   return apiDelete(`/trades/${id}`)
+}
+
+export async function importTradesCsv(file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiPostMultipart<TradeCsvImportSummary>('/trades/import/csv', formData)
 }

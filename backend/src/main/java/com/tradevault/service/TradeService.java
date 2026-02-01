@@ -116,6 +116,7 @@ public class TradeService {
         trade.setCatalystTag(request.getCatalystTag());
         trade.setNotes(request.getNotes());
         trade.setCreatedAt(OffsetDateTime.now());
+        trade.setUpdatedAt(trade.getCreatedAt());
         if (request.getAccountId() != null) {
             Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Account not found"));
@@ -176,6 +177,7 @@ public class TradeService {
         if (shouldRecalculate) {
             recalculateAndApplyPnl(trade);
         }
+        trade.setUpdatedAt(OffsetDateTime.now());
         return toResponse(tradeRepository.save(trade));
     }
 

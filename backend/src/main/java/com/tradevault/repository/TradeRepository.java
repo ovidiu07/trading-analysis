@@ -105,6 +105,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
 
   Optional<Trade> findByIdAndUserId(UUID id, UUID userId);
 
+  Optional<Trade> findByUserIdAndSymbolAndOpenedAt(UUID userId, String symbol, OffsetDateTime openedAt);
+
   interface DailyPnlAggregate {
 
     LocalDate getDate();

@@ -101,6 +101,7 @@ public class ImportExportService {
         trade.setNotes(record.get("notes"));
         trade.setStatus(trade.getClosedAt() != null ? TradeStatus.CLOSED : TradeStatus.OPEN);
         trade.setCreatedAt(OffsetDateTime.now());
+        trade.setUpdatedAt(trade.getCreatedAt());
         return trade;
     }
 

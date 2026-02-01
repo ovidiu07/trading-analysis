@@ -1,0 +1,374 @@
+package com.tradevault.service;
+
+import com.tradevault.domain.entity.Trade;
+import com.tradevault.domain.entity.TradeImportRow;
+import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.trade.TradeCsvImportGroupResult;
+import com.tradevault.dto.trade.TradeCsvImportSummary;
+import com.tradevault.repository.TradeImportRowRepository;
+import com.tradevault.repository.TradeRepository;
+import com.tradevault.security.AuthenticatedUserResolver;
+import lombok.RequiredArgsConstructor;
+import org.apache.commons.csv.CSVFormat;
+import org.apache.commons.csv.CSVParser;
+import org.apache.commons.csv.CSVRecord;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.web.multipart.MultipartFile;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class TradeCsvImportService {
+    private static final DateTimeFormatter TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ENGLISH);
+    private static final ZoneId SOURCE_ZONE = ZoneId.of("Europe/Bucharest");
+    private static final List<String> REQUIRED_HEADERS = List.of(
+            "Action",
+            "Time",
+            "ISIN",
+            "Ticker",
+            "Name",
+            "ID",
+            "No. of shares",
+            "Price / share",
+            "Currency (Price / share)",
+            "Exchange rate",
+            "Result",
+            "Currency (Result)",
+            "Total",
+            "Currency (Total)"
+    );
+
+    private final TradeRepository tradeRepository;
+    private final TradeImportRowRepository tradeImportRowRepository;
+    private final AuthenticatedUserResolver authenticatedUserResolver;
+
+    public TradeCsvImportSummary importCsv(MultipartFile file) throws IOException {
+        User user = authenticatedUserResolver.getCurrentUser();
+        List<ParsedRow> parsedRows = new ArrayList<>();
+        int totalRows = 0;
+        Set<String> seenTransactionIds = new java.util.HashSet<>();
+
+        CSVFormat csvFormat = CSVFormat.DEFAULT.builder()
+                .setHeader()
+                .setSkipHeaderRecord(true)
+                .setIgnoreEmptyLines(true)
+                .build();
+
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(file.getInputStream(), StandardCharsets.UTF_8));
+             CSVParser parser = new CSVParser(reader, csvFormat)) {
+            validateHeaders(parser);
+            for (CSVRecord record : parser) {
+                totalRows++;
+                ParsedRow row = parseRecord(record);
+                if (row == null) {
+                    continue;
+                }
+                if (row.transactionId() != null) {
+                    if (!seenTransactionIds.add(row.transactionId())) {
+                        continue;
+                    }
+                    if (tradeImportRowRepository.existsByUserIdAndTransactionId(user.getId(), row.transactionId())) {
+                        continue;
+                    }
+                }
+                parsedRows.add(row);
+            }
+        }
+
+        parsedRows.sort((a, b) -> a.time().compareTo(b.time()));
+        Map<String, List<ParsedRow>> grouped = groupByIsin(parsedRows);
+
+        int tradesCreated = 0;
+        int tradesUpdated = 0;
+        int groupsSkipped = 0;
+        List<TradeCsvImportGroupResult> groupResults = new ArrayList<>();
+
+        for (Map.Entry<String, List<ParsedRow>> entry : grouped.entrySet()) {
+            String isin = entry.getKey();
+            List<ParsedRow> rows = entry.getValue();
+            GroupComputation computation = computeGroup(rows);
+            if (computation.skipped()) {
+                groupsSkipped++;
+                groupResults.add(TradeCsvImportGroupResult.builder()
+                        .isin(isin)
+                        .status("SKIPPED")
+                        .reason(computation.reason())
+                        .build());
+                continue;
+            }
+            GroupMetrics metrics = computation.metrics();
+            UpsertResult upsert = upsertTrade(user, metrics);
+            tradeRepository.save(upsert.trade());
+            saveImportRows(user, rows);
+            if (upsert.updated()) {
+                tradesUpdated++;
+                groupResults.add(TradeCsvImportGroupResult.builder()
+                        .isin(isin)
+                        .status("UPDATED")
+                        .build());
+            } else {
+                tradesCreated++;
+                groupResults.add(TradeCsvImportGroupResult.builder()
+                        .isin(isin)
+                        .status("CREATED")
+                        .build());
+            }
+        }
+
+        return TradeCsvImportSummary.builder()
+                .totalRows(totalRows)
+                .isinGroups(grouped.size())
+                .tradesCreated(tradesCreated)
+                .tradesUpdated(tradesUpdated)
+                .groupsSkipped(groupsSkipped)
+                .groupResults(groupResults)
+                .build();
+    }
+
+    static GroupComputation computeGroup(List<ParsedRow> rows) {
+        List<ParsedRow> buys = rows.stream().filter(row -> "Market buy".equals(row.action())).toList();
+        List<ParsedRow> sells = rows.stream().filter(row -> "Market sell".equals(row.action())).toList();
+
+        if (buys.isEmpty()) {
+            return GroupComputation.skipped("Sell without buy");
+        }
+        BigDecimal totalBuyShares = sumShares(buys);
+        if (totalBuyShares.compareTo(BigDecimal.ZERO) <= 0) {
+            return GroupComputation.skipped("Buy shares missing");
+        }
+        BigDecimal totalSellShares = sumShares(sells);
+        if (totalSellShares.compareTo(totalBuyShares) > 0) {
+            return GroupComputation.skipped("Sell shares exceed buy shares");
+        }
+
+        OffsetDateTime openedAt = buys.get(0).time();
+        String symbol = rows.stream()
+                .map(ParsedRow::ticker)
+                .filter(value -> value != null && !value.isBlank())
+                .findFirst()
+                .orElse(null);
+        BigDecimal entryPrice = weightedAverage(buys);
+
+        OffsetDateTime closedAt = null;
+        BigDecimal exitPrice = null;
+        BigDecimal pnlGross = BigDecimal.ZERO;
+        TradeStatus status = TradeStatus.OPEN;
+
+        if (!sells.isEmpty() && totalSellShares.compareTo(totalBuyShares) == 0) {
+            closedAt = sells.get(sells.size() - 1).time();
+            exitPrice = weightedAverage(sells);
+            pnlGross = sumResults(sells);
+            status = TradeStatus.CLOSED;
+        }
+
+        GroupMetrics metrics = new GroupMetrics(
+                symbol,
+                openedAt,
+                closedAt,
+                totalBuyShares,
+                entryPrice,
+                exitPrice,
+                pnlGross,
+                pnlGross,
+                status
+        );
+        return GroupComputation.processed(metrics);
+    }
+
+    static BigDecimal weightedAverage(List<ParsedRow> rows) {
+        BigDecimal totalShares = sumShares(rows);
+        if (totalShares.compareTo(BigDecimal.ZERO) == 0) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal total = BigDecimal.ZERO;
+        for (ParsedRow row : rows) {
+            total = total.add(row.price().multiply(row.shares()));
+        }
+        return total.divide(totalShares, 10, RoundingMode.HALF_UP);
+    }
+
+    private UpsertResult upsertTrade(User user, GroupMetrics metrics) {
+        UUID userId = user.getId();
+        Optional<Trade> existing = Optional.empty();
+        if (metrics.symbol() != null) {
+            existing = tradeRepository.findByUserIdAndSymbolAndOpenedAt(userId, metrics.symbol(), metrics.openedAt());
+        }
+        Trade trade = existing.orElseGet(Trade::new);
+        trade.setUser(user);
+        trade.setSymbol(metrics.symbol());
+        trade.setMarket(Market.STOCK);
+        trade.setDirection(Direction.LONG);
+        trade.setStatus(metrics.status());
+        trade.setOpenedAt(metrics.openedAt());
+        trade.setClosedAt(metrics.closedAt());
+        trade.setQuantity(metrics.quantity());
+        trade.setEntryPrice(metrics.entryPrice());
+        trade.setExitPrice(metrics.exitPrice());
+        trade.setPnlGross(metrics.pnlGross());
+        trade.setPnlNet(metrics.pnlNet());
+        trade.setCreatedAt(metrics.openedAt());
+        trade.setUpdatedAt(metrics.status() == TradeStatus.CLOSED && metrics.closedAt() != null ? metrics.closedAt() : metrics.openedAt());
+        return new UpsertResult(trade, existing.isPresent());
+    }
+
+    private void saveImportRows(User user, List<ParsedRow> rows) {
+        List<TradeImportRow> importRows = rows.stream()
+                .map(ParsedRow::transactionId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .map(txId -> TradeImportRow.builder()
+                        .user(user)
+                        .transactionId(txId)
+                        .importedAt(OffsetDateTime.now(ZoneOffset.UTC))
+                        .build())
+                .toList();
+        if (!importRows.isEmpty()) {
+            tradeImportRowRepository.saveAll(importRows);
+        }
+    }
+
+    private Map<String, List<ParsedRow>> groupByIsin(List<ParsedRow> rows) {
+        Map<String, List<ParsedRow>> grouped = new LinkedHashMap<>();
+        for (ParsedRow row : rows) {
+            grouped.computeIfAbsent(row.isin(), key -> new ArrayList<>()).add(row);
+        }
+        return grouped;
+    }
+
+    private void validateHeaders(CSVParser parser) {
+        Map<String, Integer> headers = parser.getHeaderMap();
+        if (headers == null || headers.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CSV headers are missing");
+        }
+        if (!headers.keySet().containsAll(REQUIRED_HEADERS)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CSV headers do not match the expected format");
+        }
+    }
+
+    private ParsedRow parseRecord(CSVRecord record) {
+        String action = trim(record.get("Action"));
+        String time = trim(record.get("Time"));
+        String isin = trim(record.get("ISIN"));
+        String ticker = trim(record.get("Ticker"));
+        String transactionId = trim(record.get("ID"));
+        String sharesRaw = trim(record.get("No. of shares"));
+        String priceRaw = trim(record.get("Price / share"));
+        String resultRaw = trim(record.get("Result"));
+
+        if (action == null || time == null || isin == null || ticker == null || sharesRaw == null || priceRaw == null) {
+            return null;
+        }
+        if (!"Market buy".equals(action) && !"Market sell".equals(action)) {
+            return null;
+        }
+        OffsetDateTime parsedTime;
+        try {
+            LocalDateTime localTime = LocalDateTime.parse(time, TIME_FORMATTER);
+            parsedTime = localTime.atZone(SOURCE_ZONE).withZoneSameInstant(ZoneOffset.UTC).toOffsetDateTime();
+        } catch (DateTimeParseException ex) {
+            return null;
+        }
+        BigDecimal shares = parseDecimal(sharesRaw);
+        BigDecimal price = parseDecimal(priceRaw);
+        if (shares == null || price == null) {
+            return null;
+        }
+        BigDecimal result = resultRaw == null ? null : parseDecimal(resultRaw);
+
+        return new ParsedRow(action, parsedTime, isin, ticker, transactionId, shares, price, result);
+    }
+
+    private static BigDecimal sumShares(List<ParsedRow> rows) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (ParsedRow row : rows) {
+            total = total.add(row.shares());
+        }
+        return total;
+    }
+
+    private static BigDecimal sumResults(List<ParsedRow> rows) {
+        BigDecimal total = BigDecimal.ZERO;
+        for (ParsedRow row : rows) {
+            if (row.result() != null) {
+                total = total.add(row.result());
+            }
+        }
+        return total;
+    }
+
+    private static BigDecimal parseDecimal(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return new BigDecimal(value.trim());
+    }
+
+    private static String trim(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isBlank() ? null : trimmed;
+    }
+
+    record ParsedRow(
+            String action,
+            OffsetDateTime time,
+            String isin,
+            String ticker,
+            String transactionId,
+            BigDecimal shares,
+            BigDecimal price,
+            BigDecimal result
+    ) {}
+
+    record GroupMetrics(
+            String symbol,
+            OffsetDateTime openedAt,
+            OffsetDateTime closedAt,
+            BigDecimal quantity,
+            BigDecimal entryPrice,
+            BigDecimal exitPrice,
+            BigDecimal pnlGross,
+            BigDecimal pnlNet,
+            TradeStatus status
+    ) {}
+
+    record GroupComputation(boolean skipped, String reason, GroupMetrics metrics) {
+        static GroupComputation skipped(String reason) {
+            return new GroupComputation(true, reason, null);
+        }
+
+        static GroupComputation processed(GroupMetrics metrics) {
+            return new GroupComputation(false, null, metrics);
+        }
+    }
+
+    record UpsertResult(Trade trade, boolean updated) {}
+}

@@ -6,20 +6,25 @@ import com.tradevault.dto.trade.DailyPnlResponse;
 import com.tradevault.dto.trade.DailySummaryResponse;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
+import com.tradevault.dto.trade.TradeCsvImportSummary;
 import com.tradevault.service.TradeCalendarService;
+import com.tradevault.service.TradeCsvImportService;
 import com.tradevault.service.TradeService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.math.BigDecimal;
 import java.util.UUID;
+import java.io.IOException;
 
 @RestController
 @RequestMapping("/api/trades")
@@ -27,6 +32,7 @@ import java.util.UUID;
 public class TradeController {
     private final TradeService tradeService;
     private final TradeCalendarService tradeCalendarService;
+    private final TradeCsvImportService tradeCsvImportService;
 
     @GetMapping
     public Page<TradeResponse> list(@RequestParam(defaultValue = "0") int page,
@@ -64,6 +70,14 @@ public class TradeController {
     @PostMapping
     public ResponseEntity<TradeResponse> create(@Valid @RequestBody TradeRequest request) {
         return ResponseEntity.ok(tradeService.create(request));
+    }
+
+    @PostMapping(value = "/import/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<TradeCsvImportSummary> importCsv(@RequestParam("file") MultipartFile file) throws IOException {
+        if (file == null || file.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "CSV file is required");
+        }
+        return ResponseEntity.ok(tradeCsvImportService.importCsv(file));
     }
 
     @GetMapping("/daily-pnl")

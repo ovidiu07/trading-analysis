@@ -1,18 +1,16 @@
 package com.tradevault.service;
 
 import com.tradevault.domain.entity.User;
-import com.tradevault.security.CustomUserDetails;
-import org.springframework.security.core.Authentication;
-import org.springframework.security.core.context.SecurityContextHolder;
+import com.tradevault.security.AuthenticatedUserResolver;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 @Component
+@RequiredArgsConstructor
 public class CurrentUserService {
+    private final AuthenticatedUserResolver authenticatedUserResolver;
+
     public User getCurrentUser() {
-        Authentication auth = SecurityContextHolder.getContext().getAuthentication();
-        if (auth != null && auth.getPrincipal() instanceof CustomUserDetails details) {
-            return details.getUser();
-        }
-        throw new IllegalStateException("No authenticated user");
+        return authenticatedUserResolver.getCurrentUser();
     }
 }
