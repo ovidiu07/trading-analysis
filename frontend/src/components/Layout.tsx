@@ -57,14 +57,14 @@ export default function Layout() {
     const match = navItems.find((item) => location.pathname.startsWith(item.path))
     if (match) return match.label
     if (location.pathname.startsWith('/profile')) return 'Profile'
-    return 'TradeVault'
+    return 'TradeJAudit'
   }, [location.pathname, navItems])
 
   const drawer = (
     <Stack sx={{ height: '100%' }}>
       <Box sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ color: 'common.white' }}>
-          TradeVault
+          TradeJAudit
         </Typography>
         <Typography variant="caption" sx={{ color: 'rgba(226,232,240,0.7)' }}>
           Trading intelligence hub
