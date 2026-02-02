@@ -145,7 +145,7 @@ export default function Layout() {
           </Drawer>
         </Box>
       )}
-      <Box sx={{ flexGrow: 1 }}>
+      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <AppBar position="sticky" elevation={0}>
           <Toolbar sx={{ justifyContent: 'space-between', gap: 2 }}>
             <Stack direction="row" alignItems="center" spacing={1.5}>
@@ -184,9 +184,28 @@ export default function Layout() {
             )}
           </Toolbar>
         </AppBar>
-        <Container maxWidth="xl" sx={{ py: { xs: 3, md: 4 } }}>
+        <Container maxWidth="xl" sx={{ py: { xs: 3, md: 4 }, flexGrow: 1 }}>
           <Outlet />
         </Container>
+        <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2 }}>
+          <Container maxWidth="xl">
+            <Stack
+              direction={{ xs: 'column', md: 'row' }}
+              spacing={1}
+              alignItems={{ xs: 'flex-start', md: 'center' }}
+              justifyContent="space-between"
+            >
+              <Typography variant="caption" color="text.secondary">
+                For journaling and analytics only. Not investment advice.
+              </Typography>
+              <Stack direction="row" spacing={2}>
+                <Button component={Link} to="/terms" size="small">Terms</Button>
+                <Button component={Link} to="/privacy" size="small">Privacy</Button>
+                <Button component={Link} to="/cookies" size="small">Cookies</Button>
+              </Stack>
+            </Stack>
+          </Container>
+        </Box>
       </Box>
     </Box>
   )

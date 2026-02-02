@@ -58,6 +58,9 @@ public class NotebookNote {
 
     private OffsetDateTime deletedAt;
 
+    @Column(name = "is_pinned")
+    private boolean isPinned;
+
     @CreationTimestamp
     @Column(updatable = false)
     private OffsetDateTime createdAt;
