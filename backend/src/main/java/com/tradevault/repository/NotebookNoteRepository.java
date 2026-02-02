@@ -23,8 +23,8 @@ public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID
                 :folderId IS NULL
                 OR (n.folder IS NOT NULL AND n.folder.id = :folderId)
           )
-          AND n.dateKey >= COALESCE(:fromDate, n.dateKey)
-          AND n.dateKey <= COALESCE(:toDate, n.dateKey)
+          AND (:fromDate IS NULL OR n.dateKey >= :fromDate)
+          AND (:toDate IS NULL OR n.dateKey <= :toDate)
           AND n.isDeleted = COALESCE(:isDeleted, n.isDeleted)
           AND (
             COALESCE(:query, '') = '' OR
@@ -50,8 +50,8 @@ public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID
                 :folderId IS NULL
                 OR (n.folder IS NOT NULL AND n.folder.id = :folderId)
           )
-          AND n.dateKey >= COALESCE(:fromDate, n.dateKey)
-          AND n.dateKey <= COALESCE(:toDate, n.dateKey)
+          AND (:fromDate IS NULL OR n.dateKey >= :fromDate)
+          AND (:toDate IS NULL OR n.dateKey <= :toDate)
           AND n.isDeleted = COALESCE(:isDeleted, n.isDeleted)
           AND l.tag.id IN :tagIds
           AND (

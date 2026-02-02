@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Alert, Card, CardContent, Stack, TextField, Button } from '@mui/material'
+import { Alert, Button, Card, CardContent, Stack, TextField, Typography } from '@mui/material'
 import { useAuth } from '../auth/AuthContext'
 import { fetchUserSettings } from '../api/settings'
 import { ApiError } from '../api/client'
@@ -74,6 +74,19 @@ export default function SettingsPage() {
               required
             />
             <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button>
+          </Stack>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent>
+          <Stack spacing={1}>
+            <Typography variant="h6">Account deletion</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Request deletion of your account and data. This workflow is coming soon.
+            </Typography>
+            <Button variant="outlined" disabled>
+              Delete account (coming soon)
+            </Button>
           </Stack>
         </CardContent>
       </Card>

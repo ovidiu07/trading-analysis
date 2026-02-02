@@ -1,6 +1,7 @@
 package com.tradevault.dto.notebook;
 
 import com.tradevault.domain.enums.NotebookNoteType;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Data;
 
 import java.time.LocalDate;
@@ -16,5 +17,7 @@ public class NotebookNoteRequest {
     private String bodyJson;
     private LocalDate dateKey;
     private UUID relatedTradeId;
+    @JsonProperty("isPinned")
+    private Boolean isPinned;
     private List<UUID> tagIds;
 }
