@@ -17,6 +17,8 @@ import com.tradevault.repository.NotebookTagRepository;
 import com.tradevault.repository.TradeRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Safelist;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -25,12 +27,22 @@ import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
 public class NotebookNoteService {
+    private static final Safelist NOTE_BODY_SAFELIST = Safelist.relaxed()
+            .addTags("hr", "pre", "code", "label", "input", "span")
+            .addAttributes("a", "rel", "target")
+            .addAttributes("input", "type", "checked", "disabled")
+            .addAttributes("ul", "data-type")
+            .addAttributes("li", "data-type")
+            .addAttributes("label", "data-type")
+            .removeTags("img");
+
     private final NotebookNoteRepository noteRepository;
     private final NotebookFolderRepository folderRepository;
     private final NotebookTagRepository tagRepository;
@@ -200,7 +212,7 @@ public class NotebookNoteService {
     }
 
     private void applyRequest(NotebookNote note, NotebookNoteRequest request, User user) {
-        if (request.getType() != null) {
+        if (request.getType() != null && request.getType() != note.getType()) {
             note.setType(request.getType());
         } else if (note.getType() == null) {
             note.setType(NotebookNoteType.NOTE);
@@ -208,25 +220,39 @@ public class NotebookNoteService {
         if (request.getFolderId() != null) {
             NotebookFolder folder = folderRepository.findByIdAndUserId(request.getFolderId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Folder not found"));
-            note.setFolder(folder);
+            if (note.getFolder() == null || !Objects.equals(note.getFolder().getId(), folder.getId())) {
+                note.setFolder(folder);
+            }
         }
-        if (request.getTitle() != null) {
+        if (request.getTitle() != null && !Objects.equals(note.getTitle(), request.getTitle())) {
             note.setTitle(request.getTitle());
         }
         if (request.getBody() != null) {
-            note.setBody(request.getBody());
+            String sanitized = sanitizeHtml(request.getBody());
+            if (!Objects.equals(note.getBody(), sanitized)) {
+                note.setBody(sanitized);
+            }
         }
-        if (request.getBodyJson() != null) {
+        if (request.getBodyJson() != null && !Objects.equals(note.getBodyJson(), request.getBodyJson())) {
             note.setBodyJson(request.getBodyJson());
         }
-        if (request.getDateKey() != null) {
+        if (request.getDateKey() != null && !Objects.equals(note.getDateKey(), request.getDateKey())) {
             note.setDateKey(request.getDateKey());
         }
         if (request.getRelatedTradeId() != null) {
             Trade trade = tradeRepository.findByIdAndUserId(request.getRelatedTradeId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
-            note.setRelatedTrade(trade);
+            if (note.getRelatedTrade() == null || !Objects.equals(note.getRelatedTrade().getId(), trade.getId())) {
+                note.setRelatedTrade(trade);
+            }
         }
+        if (request.getIsPinned() != null && request.getIsPinned() != note.isPinned()) {
+            note.setPinned(request.getIsPinned());
+        }
+    }
+
+    private String sanitizeHtml(String html) {
+        return Jsoup.clean(html, NOTE_BODY_SAFELIST);
     }
 
     private void replaceTags(NotebookNote note, List<UUID> tagIds, User user) {
@@ -271,6 +297,7 @@ public class NotebookNoteService {
                 .relatedTradeId(note.getRelatedTrade() != null ? note.getRelatedTrade().getId() : null)
                 .isDeleted(note.isDeleted())
                 .deletedAt(note.getDeletedAt())
+                .isPinned(note.isPinned())
                 .createdAt(note.getCreatedAt())
                 .updatedAt(note.getUpdatedAt())
                 .tagIds(tagIds)
@@ -279,12 +306,12 @@ public class NotebookNoteService {
 
     private Sort resolveSort(String sort) {
         if (sort == null || sort.isBlank()) {
-            return Sort.by(Sort.Direction.DESC, "updatedAt");
+            return Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("updatedAt"));
         }
         return switch (sort) {
-            case "date" -> Sort.by(Sort.Direction.DESC, "dateKey", "updatedAt");
-            case "created" -> Sort.by(Sort.Direction.DESC, "createdAt");
-            default -> Sort.by(Sort.Direction.DESC, "updatedAt");
+            case "date" -> Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("dateKey"), Sort.Order.desc("updatedAt"));
+            case "created" -> Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("createdAt"));
+            default -> Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("updatedAt"));
         };
     }
 }

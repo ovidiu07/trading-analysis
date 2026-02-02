@@ -184,6 +184,10 @@ export default function LoginPage() {
                     Create free account
                   </Button>
                   <Typography variant="caption" color="text.secondary" textAlign="center">
+                    By continuing you agree to the <MuiLink component={Link} to="/terms">Terms</MuiLink> and{' '}
+                    <MuiLink component={Link} to="/privacy">Privacy Policy</MuiLink>.
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary" textAlign="center">
                     Encrypted in transit. No broker login required.
                   </Typography>
                   <MuiLink component={Link} to="/register" variant="body2" textAlign="center">

@@ -64,4 +64,31 @@ public class RestExceptionHandler {
                 .build();
         return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
     }
+
+    @ExceptionHandler(CaptchaVerificationException.class)
+    public ResponseEntity<ApiErrorResponse> handleCaptcha(CaptchaVerificationException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("CAPTCHA_FAILED")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    @ExceptionHandler(RateLimitExceededException.class)
+    public ResponseEntity<ApiErrorResponse> handleRateLimit(RateLimitExceededException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("RATE_LIMITED")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
+    }
+
+    @ExceptionHandler(UnsupportedOperationException.class)
+    public ResponseEntity<ApiErrorResponse> handleUnsupported(UnsupportedOperationException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("NOT_IMPLEMENTED")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).body(response);
+    }
 }

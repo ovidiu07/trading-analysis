@@ -1,5 +1,5 @@
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { AuthResponse, AuthUser, getCurrentUser, login as apiLogin, register as apiRegister } from '../api/auth'
+import { AuthResponse, AuthUser, RegisterPayload, getCurrentUser, login as apiLogin, register as apiRegister } from '../api/auth'
 import { clearAuthToken } from '../api/client'
 import { UserSettingsRequest, updateUserSettings } from '../api/settings'
 
@@ -12,7 +12,7 @@ export type AuthState = {
 export type AuthContextType = AuthState & {
   initializing: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (email: string, password: string) => Promise<void>
+  register: (payload: RegisterPayload) => Promise<void>
   logout: () => void
   refreshUser: () => Promise<void>
   updateSettings: (payload: UserSettingsRequest) => Promise<void>
@@ -81,8 +81,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }
 
-  const register = async (email: string, password: string) => {
-    const response = await apiRegister(email, password)
+  const register = async (payload: RegisterPayload) => {
+    const response = await apiRegister(payload)
     setState(applyAuthResponse(response))
     if (!response.user) {
       await refreshUser()

@@ -24,6 +24,7 @@ export type NotebookNote = {
   dateKey?: string | null
   relatedTradeId?: string | null
   isDeleted?: boolean
+  isPinned?: boolean
   createdAt?: string
   updatedAt?: string
   tagIds?: string[]

@@ -26,6 +26,12 @@ jwt:
 app:
   upload-dir: ${UPLOAD_DIR:uploads}
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  legal:
+    terms-version: ${TERMS_VERSION:2024-09-01}
+    privacy-version: ${PRIVACY_VERSION:2024-09-01}
+  captcha:
+    turnstile-secret: ${TURNSTILE_SECRET_KEY:}
+    turnstile-site-key: ${TURNSTILE_SITE_KEY:}
 
 logging:
   level:
