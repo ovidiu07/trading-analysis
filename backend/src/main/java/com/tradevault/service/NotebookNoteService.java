@@ -27,6 +27,7 @@ import java.time.OffsetDateTime;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -211,7 +212,7 @@ public class NotebookNoteService {
     }
 
     private void applyRequest(NotebookNote note, NotebookNoteRequest request, User user) {
-        if (request.getType() != null) {
+        if (request.getType() != null && request.getType() != note.getType()) {
             note.setType(request.getType());
         } else if (note.getType() == null) {
             note.setType(NotebookNoteType.NOTE);
@@ -219,26 +220,33 @@ public class NotebookNoteService {
         if (request.getFolderId() != null) {
             NotebookFolder folder = folderRepository.findByIdAndUserId(request.getFolderId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Folder not found"));
-            note.setFolder(folder);
+            if (note.getFolder() == null || !Objects.equals(note.getFolder().getId(), folder.getId())) {
+                note.setFolder(folder);
+            }
         }
-        if (request.getTitle() != null) {
+        if (request.getTitle() != null && !Objects.equals(note.getTitle(), request.getTitle())) {
             note.setTitle(request.getTitle());
         }
         if (request.getBody() != null) {
-            note.setBody(sanitizeHtml(request.getBody()));
+            String sanitized = sanitizeHtml(request.getBody());
+            if (!Objects.equals(note.getBody(), sanitized)) {
+                note.setBody(sanitized);
+            }
         }
-        if (request.getBodyJson() != null) {
+        if (request.getBodyJson() != null && !Objects.equals(note.getBodyJson(), request.getBodyJson())) {
             note.setBodyJson(request.getBodyJson());
         }
-        if (request.getDateKey() != null) {
+        if (request.getDateKey() != null && !Objects.equals(note.getDateKey(), request.getDateKey())) {
             note.setDateKey(request.getDateKey());
         }
         if (request.getRelatedTradeId() != null) {
             Trade trade = tradeRepository.findByIdAndUserId(request.getRelatedTradeId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
-            note.setRelatedTrade(trade);
+            if (note.getRelatedTrade() == null || !Objects.equals(note.getRelatedTrade().getId(), trade.getId())) {
+                note.setRelatedTrade(trade);
+            }
         }
-        if (request.getIsPinned() != null) {
+        if (request.getIsPinned() != null && request.getIsPinned() != note.isPinned()) {
             note.setPinned(request.getIsPinned());
         }
     }
