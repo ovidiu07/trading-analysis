@@ -62,7 +62,7 @@ export default function TermsPage() {
         <Stack spacing={1}>
           <Typography variant="h6">9. Contact</Typography>
           <Typography variant="body2" color="text.secondary">
-            Contact support at support@example.com (placeholder).
+            Contact support at contact@ihomeprosolutions.ro.
           </Typography>
         </Stack>
       </Stack>

@@ -16,12 +16,7 @@ export default function CookiesPage() {
             We use essential cookies for authentication and session security.
           </Typography>
         </Stack>
-        <Stack spacing={1}>
-          <Typography variant="h6">Analytics cookies (placeholder)</Typography>
-          <Typography variant="body2" color="text.secondary">
-            If analytics are enabled, list providers, purposes, and opt-out instructions here.
-          </Typography>
-        </Stack>
+
       </Stack>
     </Container>
   )

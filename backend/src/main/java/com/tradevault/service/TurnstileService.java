@@ -16,7 +16,8 @@ import org.springframework.util.LinkedMultiValueMap;
 import org.springframework.util.MultiValueMap;
 import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
-import org.springframework.web.client.RestTemplateBuilder;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+
 
 import java.time.Duration;
 import java.util.List;

@@ -49,7 +49,7 @@ export default function PrivacyPage() {
         <Stack spacing={1}>
           <Typography variant="h6">7. Contact</Typography>
           <Typography variant="body2" color="text.secondary">
-            Privacy requests: privacy@example.com (placeholder).
+            Privacy requests: contact@ihomeprosolutions.ro
           </Typography>
         </Stack>
       </Stack>
