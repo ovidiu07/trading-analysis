@@ -854,8 +854,9 @@ public class AnalyticsService {
         for (int i = 0; i < buckets; i++) {
             BigDecimal start = min.add(bucketSize.multiply(BigDecimal.valueOf(i)));
             BigDecimal end = i == buckets - 1 ? max : start.add(bucketSize);
+            int finalI = i;
             int count = (int) values.stream()
-                    .filter(v -> v.compareTo(start) >= 0 && (i == buckets - 1 ? v.compareTo(end) <= 0 : v.compareTo(end) < 0))
+                    .filter(v -> v.compareTo(start) >= 0 && (finalI == buckets - 1 ? v.compareTo(end) <= 0 : v.compareTo(end) < 0))
                     .count();
             result.add(HistogramBucket.builder()
                     .label(String.format("%s-%s", start.setScale(2, RoundingMode.HALF_UP), end.setScale(2, RoundingMode.HALF_UP)))
