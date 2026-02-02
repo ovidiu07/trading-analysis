@@ -737,7 +737,7 @@ export default function AnalyticsPage() {
                 </Grid>
                 <Grid item xs={12} md={8}>
                   <Typography variant="subtitle2" gutterBottom>R distribution</Typography>
-                  {summary.risk.rDistribution.length === 0 ? (
+                  {(summary?.risk?.rDistribution?.length ?? 0) === 0 ? (
                     <EmptyState title="No R distribution" description="Track R multiples to see this chart." />
                   ) : (
                     <ResponsiveContainer width="100%" height={220}>
