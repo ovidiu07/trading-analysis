@@ -42,13 +42,15 @@ import {
   YAxis,
   Line,
 } from 'recharts'
-import { AnalyticsFilters, AnalyticsResponse, fetchAnalyticsSummary } from '../api/analytics'
+import { AdviceCard, AnalyticsFilters, AnalyticsResponse, CoachResponse, fetchAnalyticsCoach, fetchAnalyticsSummary } from '../api/analytics'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
 import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
+import { useNavigate } from 'react-router-dom'
 
 const COLORS = ['#4caf50', '#f44336', '#2196f3']
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
@@ -70,11 +72,15 @@ const formatDuration = (seconds?: number | null) => {
 export default function AnalyticsPage() {
   const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
   const [summary, setSummary] = useState<AnalyticsResponse | null>(null)
+  const [coach, setCoach] = useState<CoachResponse | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
+  const [coachLoading, setCoachLoading] = useState<boolean>(false)
   const [error, setError] = useState('')
+  const [coachError, setCoachError] = useState('')
   const [tab, setTab] = useState(0)
   const { user } = useAuth()
   const baseCurrency = user?.baseCurrency || 'USD'
+  const navigate = useNavigate()
 
   const loadAnalytics = async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setLoading(true)
@@ -90,17 +96,34 @@ export default function AnalyticsPage() {
     }
   }
 
+  const loadCoach = async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
+    setCoachLoading(true)
+    setCoachError('')
+    try {
+      const data = await fetchAnalyticsCoach(activeFilters)
+      setCoach(data)
+    } catch (err) {
+      const apiErr = err as ApiError
+      setCoachError(apiErr.message || 'Unable to load coach insights')
+    } finally {
+      setCoachLoading(false)
+    }
+  }
+
   useEffect(() => {
     loadAnalytics(DEFAULT_FILTERS)
+    loadCoach(DEFAULT_FILTERS)
   }, [])
 
   const applyFilters = () => {
     loadAnalytics(filters)
+    loadCoach(filters)
   }
 
   const resetFilters = () => {
     setFilters(DEFAULT_FILTERS)
     loadAnalytics(DEFAULT_FILTERS)
+    loadCoach(DEFAULT_FILTERS)
   }
 
   const kpis = useMemo<KpiCard[]>(() => {
@@ -157,6 +180,35 @@ export default function AnalyticsPage() {
 
   const heatmapData = summary?.timeEdge?.hourOfDay ?? []
   const heatmapMax = Math.max(...heatmapData.map((d) => Math.abs(d.netPnl)), 0)
+
+  const sortedCoachAdvice = useMemo(() => {
+    const advice = coach?.advice ?? []
+    const severityRank = { critical: 0, warn: 1, info: 2 }
+    const confidenceRank = { high: 0, medium: 1, low: 2 }
+    return [...advice].sort((a, b) => {
+      const severityDelta = severityRank[a.severity] - severityRank[b.severity]
+      if (severityDelta !== 0) return severityDelta
+      return confidenceRank[a.confidence] - confidenceRank[b.confidence]
+    })
+  }, [coach])
+
+  const handleViewTrades = (card: AdviceCard) => {
+    const params = new URLSearchParams()
+    const dateMode = card.filters?.dateMode || filters.dateMode || 'CLOSE'
+    if (filters.from) {
+      if (dateMode === 'OPEN') params.set('openedAtFrom', filters.from)
+      else params.set('closedAtFrom', filters.from)
+    }
+    if (filters.to) {
+      if (dateMode === 'OPEN') params.set('openedAtTo', filters.to)
+      else params.set('closedAtTo', filters.to)
+    }
+    if (card.filters?.symbol || filters.symbol) params.set('symbol', card.filters?.symbol || filters.symbol || '')
+    if (card.filters?.direction || filters.direction) params.set('direction', card.filters?.direction || filters.direction || '')
+    if (card.filters?.status || filters.status) params.set('status', card.filters?.status || filters.status || '')
+    const qs = params.toString()
+    navigate(`/trades${qs ? `?${qs}` : ''}`)
+  }
 
   return (
     <Stack spacing={3}>
@@ -334,9 +386,11 @@ export default function AnalyticsPage() {
       </Card>
 
       {error && <ErrorBanner message={error} />}
+      {coachError && <ErrorBanner message={coachError} />}
 
       <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="scrollable" scrollButtons="auto">
         <Tab label="Overview" />
+        <Tab label="Coach" />
         <Tab label="Consistency" />
         <Tab label="Time edge" />
         <Tab label="Symbols & tags" />
@@ -506,6 +560,38 @@ export default function AnalyticsPage() {
       </TabPanel>
 
       <TabPanel value={tab} index={1}>
+        <Stack spacing={2}>
+          <Box>
+            <Typography variant="h6" fontWeight={700}>Coach insights</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Actionable guidance from your own trade history. No AI.
+            </Typography>
+          </Box>
+          {coachLoading && (
+            <Stack spacing={2}>
+              {Array.from({ length: 3 }).map((_, idx) => (
+                <Card key={`coach-skeleton-${idx}`}>
+                  <CardContent>
+                    <Skeleton height={120} />
+                  </CardContent>
+                </Card>
+              ))}
+            </Stack>
+          )}
+          {!coachLoading && sortedCoachAdvice.length === 0 && (
+            <EmptyState title="No coach insights yet" description="Log more closed trades to unlock coach insights." />
+          )}
+          {!coachLoading && sortedCoachAdvice.length > 0 && (
+            <Stack spacing={2}>
+              {sortedCoachAdvice.map((card) => (
+                <CoachAdviceCard key={card.id} card={card} currency={baseCurrency} onViewTrades={handleViewTrades} />
+              ))}
+            </Stack>
+          )}
+        </Stack>
+      </TabPanel>
+
+      <TabPanel value={tab} index={2}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={8}>
             <Card sx={{ height: '100%' }}>
@@ -572,7 +658,7 @@ export default function AnalyticsPage() {
         </Grid>
       </TabPanel>
 
-      <TabPanel value={tab} index={2}>
+      <TabPanel value={tab} index={3}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
@@ -654,7 +740,7 @@ export default function AnalyticsPage() {
         </Grid>
       </TabPanel>
 
-      <TabPanel value={tab} index={3}>
+      <TabPanel value={tab} index={4}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
@@ -719,7 +805,7 @@ export default function AnalyticsPage() {
         </Grid>
       </TabPanel>
 
-      <TabPanel value={tab} index={4}>
+      <TabPanel value={tab} index={5}>
         <Card>
           <CardContent>
             <Typography variant="h6" gutterBottom>Risk analytics</Typography>
@@ -762,7 +848,7 @@ export default function AnalyticsPage() {
         </Card>
       </TabPanel>
 
-      <TabPanel value={tab} index={5}>
+      <TabPanel value={tab} index={6}>
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card>

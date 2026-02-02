@@ -4,15 +4,18 @@ import userEvent from '@testing-library/user-event'
 import { vi } from 'vitest'
 import AnalyticsPage from './AnalyticsPage'
 import { AuthProvider } from '../auth/AuthContext'
-import { AnalyticsResponse } from '../api/analytics'
+import { AnalyticsResponse, CoachResponse } from '../api/analytics'
+import { MemoryRouter } from 'react-router-dom'
 
 const mockFetchAnalyticsSummary = vi.fn()
+const mockFetchAnalyticsCoach = vi.fn()
 
 vi.mock('../api/analytics', async () => {
   const actual = await vi.importActual<typeof import('../api/analytics')>('../api/analytics')
   return {
     ...actual,
-    fetchAnalyticsSummary: (...args: unknown[]) => mockFetchAnalyticsSummary(...args)
+    fetchAnalyticsSummary: (...args: unknown[]) => mockFetchAnalyticsSummary(...args),
+    fetchAnalyticsCoach: (...args: unknown[]) => mockFetchAnalyticsCoach(...args)
   }
 })
 
@@ -143,26 +146,45 @@ const buildResponse = (): AnalyticsResponse => ({
   breakdown: {},
 })
 
+const buildCoachResponse = (): CoachResponse => ({
+  dataQuality: {
+    totalTrades: 20,
+    closedTrades: 18,
+    missingClosedAtCount: 0,
+    missingPnlNetCount: 0,
+    missingEntryExitCount: 0,
+    inconsistentPnlCount: 0,
+  },
+  advice: [],
+})
+
 describe('AnalyticsPage', () => {
   it('requests analytics summary on load and renders KPI', async () => {
     mockFetchAnalyticsSummary.mockResolvedValueOnce(buildResponse())
+    mockFetchAnalyticsCoach.mockResolvedValueOnce(buildCoachResponse())
     render(
-      <AuthProvider>
-        <AnalyticsPage />
-      </AuthProvider>
+      <MemoryRouter>
+        <AuthProvider>
+          <AnalyticsPage />
+        </AuthProvider>
+      </MemoryRouter>
     )
 
     await waitFor(() => expect(mockFetchAnalyticsSummary).toHaveBeenCalled())
     expect(mockFetchAnalyticsSummary).toHaveBeenCalledWith({ status: 'CLOSED', dateMode: 'CLOSE' })
+    expect(mockFetchAnalyticsCoach).toHaveBeenCalledWith({ status: 'CLOSED', dateMode: 'CLOSE' })
     expect(await screen.findByText('Net P&L')).toBeInTheDocument()
   })
 
   it('applies filters and triggers request', async () => {
     mockFetchAnalyticsSummary.mockResolvedValue(buildResponse())
+    mockFetchAnalyticsCoach.mockResolvedValue(buildCoachResponse())
     render(
-      <AuthProvider>
-        <AnalyticsPage />
-      </AuthProvider>
+      <MemoryRouter>
+        <AuthProvider>
+          <AnalyticsPage />
+        </AuthProvider>
+      </MemoryRouter>
     )
 
     const user = userEvent.setup()
@@ -171,6 +193,7 @@ describe('AnalyticsPage', () => {
 
     await waitFor(() => {
       expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
+      expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
     })
   })
 })
