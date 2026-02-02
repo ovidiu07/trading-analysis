@@ -69,7 +69,7 @@ export default function DashboardPage() {
       { label: 'Win rate', value: formatPercent(summary.kpi.winRate) },
       { label: 'Profit factor', value: summary.kpi.profitFactor?.toFixed(2) ?? '—' },
       { label: 'Expectancy', value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
-      { label: 'Max drawdown', value: formatSignedCurrency(-Math.abs(summary.kpi.maxDrawdown || 0), baseCurrency) },
+      { label: 'Max drawdown', value: formatSignedCurrency(-Math.abs(summary.drawdown?.maxDrawdown || 0), baseCurrency) },
     ]
   }, [baseCurrency, summary])
 
