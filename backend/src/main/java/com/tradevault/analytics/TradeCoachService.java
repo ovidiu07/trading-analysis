@@ -445,7 +445,7 @@ public class TradeCoachService {
         if (counts.isEmpty()) {
             return List.of();
         }
-        int threshold = percentile(counts, 75);
+        int threshold = percentile(counts);
         List<TradeMetrics> highVolumeTrades = byDay.values().stream()
                 .filter(list -> list.size() >= threshold)
                 .flatMap(List::stream)
@@ -640,8 +640,8 @@ public class TradeCoachService {
         if (pnlValues.isEmpty()) {
             return trades;
         }
-        BigDecimal p1 = percentile(pnlValues, 1);
-        BigDecimal p99 = percentile(pnlValues, 99);
+        BigDecimal p1 = percentileRank(pnlValues, 1);
+        BigDecimal p99 = percentileRank(pnlValues, 99);
         return trades.stream()
                 .filter(t -> {
                     BigDecimal pnl = t.getPnlNet() == null ? BigDecimal.ZERO : t.getPnlNet();
@@ -650,16 +650,16 @@ public class TradeCoachService {
                 .toList();
     }
 
-    private BigDecimal percentile(List<BigDecimal> values, int percentile) {
+    private BigDecimal percentileRank(List<BigDecimal> values, int percentile) {
         if (values.isEmpty()) return BigDecimal.ZERO;
         int index = (int) Math.ceil(percentile / 100.0 * values.size()) - 1;
         index = Math.max(0, Math.min(index, values.size() - 1));
         return values.get(index);
     }
 
-    private int percentile(List<Integer> values, int percentile) {
+    private int percentile(List<Integer> values) {
         if (values.isEmpty()) return 0;
-        int index = (int) Math.ceil(percentile / 100.0 * values.size()) - 1;
+        int index = (int) Math.ceil(75 / 100.0 * values.size()) - 1;
         index = Math.max(0, Math.min(index, values.size() - 1));
         return values.get(index);
     }
