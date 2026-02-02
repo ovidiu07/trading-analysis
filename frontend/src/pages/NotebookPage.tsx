@@ -42,7 +42,7 @@ import EditIcon from '@mui/icons-material/Edit'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import ViewListIcon from '@mui/icons-material/ViewList'
 import CloseIcon from '@mui/icons-material/Close'
-import { useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate, unstable_useBlocker as useBlocker } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 import {
@@ -79,12 +79,19 @@ import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import RichTextEditor from '../components/ui/RichTextEditor'
-import {
-  buildNotebookFingerprint,
-  createAutosaveScheduler,
-  isNotebookDirty,
-  shouldAutosave
-} from '../utils/notebookAutosave'
+const buildNoteFingerprint = (note: NotebookNote | null) => {
+  if (!note) return ''
+  return JSON.stringify({
+    title: note.title ?? '',
+    body: note.body ?? '',
+    bodyJson: note.bodyJson ?? '',
+    dateKey: note.dateKey ?? '',
+    folderId: note.folderId ?? '',
+    type: note.type ?? '',
+    relatedTradeId: note.relatedTradeId ?? '',
+    isPinned: note.isPinned ?? false
+  })
+}
 
 type LossRecapForm = {
   from: string
@@ -287,7 +294,6 @@ export default function NotebookPage() {
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false)
   const [newMenuAnchor, setNewMenuAnchor] = useState<null | HTMLElement>(null)
   const [mobilePanel, setMobilePanel] = useState<'list' | 'editor'>('list')
-  const autosaveSchedulerRef = useRef<ReturnType<typeof createAutosaveScheduler> | null>(null)
   const persistedFingerprintRef = useRef<string>('')
   const isSavingRef = useRef(false)
 
@@ -298,6 +304,32 @@ export default function NotebookPage() {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isMdUp = useMediaQuery(theme.breakpoints.up('md'))
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
+
+  const confirmDiscard = useCallback(() => {
+    if (!isDirty) return true
+    return window.confirm('You have unsaved changes. Discard them?')
+  }, [isDirty])
+
+  const blocker = useBlocker(isDirty)
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm('You have unsaved changes. Discard them and continue?')) {
+      blocker.proceed()
+    } else {
+      blocker.reset()
+    }
+  }, [blocker])
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isDirty])
 
   const handleAuthFailure = useCallback((message?: string) => {
     setError(message || 'Please login again to access your notebook.')
@@ -327,6 +359,7 @@ export default function NotebookPage() {
   }, [handleAuthFailure, selectedFolderId])
 
   const urlNoteId = useMemo(() => new URLSearchParams(location.search).get('noteId'), [location.search])
+  const allNotesFolder = useMemo(() => folders.find((folder) => folder.systemKey === 'ALL_NOTES'), [folders])
 
   const loadNotes = useCallback(async () => {
     if (!selectedFolderId) return
@@ -368,6 +401,9 @@ export default function NotebookPage() {
       if (data.folderId && selectedFolderId !== data.folderId) {
         setSelectedFolderId(data.folderId)
       }
+      if (!data.folderId && allNotesFolder && selectedFolderId !== allNotesFolder.id) {
+        setSelectedFolderId(allNotesFolder.id)
+      }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         handleAuthFailure(err.message)
@@ -375,7 +411,7 @@ export default function NotebookPage() {
         setError('Unable to refresh the selected note.')
       }
     }
-  }, [handleAuthFailure, selectedFolderId])
+  }, [allNotesFolder, handleAuthFailure, selectedFolderId])
 
   useEffect(() => {
     loadFoldersAndTags()
@@ -489,7 +525,7 @@ export default function NotebookPage() {
   }, [listOpen])
 
   useEffect(() => {
-    persistedFingerprintRef.current = buildNotebookFingerprint(selectedNote)
+    persistedFingerprintRef.current = buildNoteFingerprint(selectedNote)
     setIsDirty(false)
     setSaveState('idle')
     setLastSavedAt(selectedNote?.updatedAt ?? null)
@@ -514,8 +550,6 @@ export default function NotebookPage() {
     }
     return build(null)
   }, [folders])
-
-  const allNotesFolder = useMemo(() => folders.find((folder) => folder.systemKey === 'ALL_NOTES'), [folders])
 
   const visibleNotes = useMemo(() => {
     if (typeFilter === 'PINNED') {
@@ -578,13 +612,24 @@ export default function NotebookPage() {
     return true
   }, [filterTags, folders, searchQuery, selectedFolderId, typeFilter])
 
+  useEffect(() => {
+    if (!urlNoteId || !selectedNote) return
+    if (noteMatchesFilters(selectedNote)) return
+    setInfoMessage('Note opened outside your current filters. Showing it in All notes.')
+    setSelectedFolderId(allNotesFolder?.id ?? selectedFolderId)
+    setTypeFilter('ALL')
+    setFilterTags([])
+    setSearchQuery('')
+  }, [allNotesFolder, noteMatchesFilters, selectedFolderId, selectedNote, urlNoteId])
+
   const updateDraftNote = useCallback((next: NotebookNote) => {
     setSelectedNote(next)
-    setIsDirty(isNotebookDirty(next, persistedFingerprintRef.current))
+    setIsDirty(buildNoteFingerprint(next) !== persistedFingerprintRef.current)
     setSaveState('idle')
   }, [])
 
   const handleCreateNote = async (type: NotebookNoteType) => {
+    if (!confirmDiscard()) return
     try {
       const targetFolder = folders.find((folder) => folder.id === selectedFolderId)
       const folderId = targetFolder && !targetFolder.systemKey ? targetFolder.id : undefined
@@ -618,13 +663,11 @@ export default function NotebookPage() {
     }
   }
 
-  const handleSaveNote = useCallback(async (autoSave = false) => {
+  const handleSaveNote = useCallback(async () => {
     if (!selectedNote) return
     if (isSavingRef.current) return
     if (selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())) {
-      if (!autoSave) {
-        setError('Date is required for daily logs.')
-      }
+      setError('Date is required for daily logs.')
       return
     }
     try {
@@ -641,7 +684,7 @@ export default function NotebookPage() {
         relatedTradeId: selectedNote.relatedTradeId,
         isPinned: selectedNote.isPinned
       })
-      persistedFingerprintRef.current = buildNotebookFingerprint(updated)
+      persistedFingerprintRef.current = buildNoteFingerprint(updated)
       setSelectedNote(updated)
       setIsDirty(false)
       setSaveState('saved')
@@ -658,37 +701,6 @@ export default function NotebookPage() {
       isSavingRef.current = false
     }
   }, [handleAuthFailure, selectedNote, upsertNote])
-
-  useEffect(() => {
-    autosaveSchedulerRef.current?.cancel()
-    autosaveSchedulerRef.current = createAutosaveScheduler(() => {
-      if (shouldAutosave({
-        hasNote: Boolean(selectedNote),
-        isDirty,
-        isSaving: isSavingRef.current,
-        viewMode
-      })) {
-        handleSaveNote(true)
-      }
-    }, 1200)
-    return () => autosaveSchedulerRef.current?.cancel()
-  }, [handleSaveNote, isDirty, selectedNote, viewMode])
-
-  useEffect(() => {
-    if (!autosaveSchedulerRef.current) return
-    const shouldSchedule = shouldAutosave({
-      hasNote: Boolean(selectedNote),
-      isDirty,
-      isSaving: isSavingRef.current,
-      viewMode
-    })
-    if (!shouldSchedule) {
-      autosaveSchedulerRef.current.cancel()
-      return
-    }
-    autosaveSchedulerRef.current.schedule()
-    return () => autosaveSchedulerRef.current?.cancel()
-  }, [isDirty, selectedNote, viewMode])
 
   const handleDeleteNote = async () => {
     if (!selectedNote) return
@@ -843,6 +855,7 @@ export default function NotebookPage() {
   }
 
   const handleLossRecap = async () => {
+    if (!confirmDiscard()) return
     try {
       const losses = await listLosses(lossRecapForm.from, lossRecapForm.to, timezone, lossRecapForm.minLoss)
       const note = await createNotebookNote({
@@ -908,6 +921,22 @@ export default function NotebookPage() {
     void handleCreateNote(action)
   }
 
+  const handleSelectFolder = (folderId: string) => {
+    if (selectedFolderId === folderId) return
+    if (!confirmDiscard()) return
+    setSelectedFolderId(folderId)
+  }
+
+  const handleSelectNote = (note: NotebookNote) => {
+    if (selectedNote?.id === note.id) return
+    if (!confirmDiscard()) return
+    setSelectedNote(note)
+    navigate(`/notebook?noteId=${note.id}`)
+    if (isMobile) {
+      setMobilePanel('editor')
+    }
+  }
+
   return (
     <Stack spacing={3}>
       <PageHeader
@@ -955,11 +984,13 @@ export default function NotebookPage() {
           display: 'grid',
           gap: 2,
           alignItems: 'start',
-          gridTemplateColumns: { xs: '1fr', lg: '280px 1fr' }
+          gridTemplateColumns: { xs: '1fr', lg: '280px 1fr' },
+          width: '100%',
+          minWidth: 0
         }}
       >
         {isDesktop && (
-          <Paper sx={{ p: 2 }}>
+          <Paper sx={{ p: 2, minWidth: 0 }}>
             <Stack spacing={2}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
                 <Typography variant="subtitle1" fontWeight={600}>Filters</Typography>
@@ -979,7 +1010,7 @@ export default function NotebookPage() {
                       <ListItemButton
                         key={folder.id}
                         selected={selectedFolderId === folder.id}
-                        onClick={() => setSelectedFolderId(folder.id)}
+                        onClick={() => handleSelectFolder(folder.id)}
                         sx={{ pl: 2 + depth * 2 }}
                       >
                         <ListItemText primary={folder.name} secondary={folder.systemKey ? 'System view' : null} />
@@ -1026,10 +1057,12 @@ export default function NotebookPage() {
           sx={{
             display: 'grid',
             gap: 2,
-            gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 340px) 1fr' }
+            gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 340px) 1fr' },
+            width: '100%',
+            minWidth: 0
           }}
         >
-          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'list' ? 'block' : 'none', md: 'block' } }}>
+          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'list' ? 'block' : 'none', md: 'block' }, minWidth: 0 }}>
             <Stack spacing={2}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
                 <Typography variant="subtitle1" fontWeight={600}>Notes</Typography>
@@ -1120,13 +1153,7 @@ export default function NotebookPage() {
                         <ListItemButton
                           key={note.id}
                           selected={selectedNote?.id === note.id}
-                          onClick={() => {
-                            setSelectedNote(note)
-                            navigate(`/notebook?noteId=${note.id}`)
-                            if (isMobile) {
-                              setMobilePanel('editor')
-                            }
-                          }}
+                          onClick={() => handleSelectNote(note)}
                           sx={{ alignItems: 'flex-start' }}
                         >
                           <Stack spacing={0.5} sx={{ flexGrow: 1 }}>
@@ -1160,7 +1187,7 @@ export default function NotebookPage() {
             </Stack>
           </Paper>
 
-          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'editor' ? 'block' : 'none', md: 'block' } }}>
+          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'editor' ? 'block' : 'none', md: 'block' }, minWidth: 0 }}>
             {!selectedNote && (
               <EmptyState
                 title="Select a note"
@@ -1221,8 +1248,8 @@ export default function NotebookPage() {
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
                         <Button
                           variant="contained"
-                          onClick={() => handleSaveNote(false)}
-                          disabled={saveState === 'saving'}
+                          onClick={handleSaveNote}
+                          disabled={saveState === 'saving' || !isDirty}
                           fullWidth={isMobile}
                         >
                           {saveState === 'saving' ? 'Saving…' : 'Save'}
@@ -1482,7 +1509,7 @@ export default function NotebookPage() {
                   key={folder.id}
                   selected={selectedFolderId === folder.id}
                   onClick={() => {
-                    setSelectedFolderId(folder.id)
+                    handleSelectFolder(folder.id)
                     setFiltersDrawerOpen(false)
                   }}
                   sx={{ pl: 2 + depth * 2 }}

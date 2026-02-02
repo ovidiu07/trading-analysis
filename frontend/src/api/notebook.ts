@@ -30,6 +30,14 @@ export type NotebookNote = {
   tagIds?: string[]
 }
 
+export type NotebookNoteSummary = {
+  id: string
+  title: string
+  type: NotebookNoteType
+  journalDate: string
+  createdAt?: string
+}
+
 export type NotebookTag = {
   id: string
   name: string
@@ -102,6 +110,11 @@ export async function listNotebookNotes(params: {
   }
   const suffix = searchParams.toString() ? `?${searchParams.toString()}` : ''
   return apiGet(`/notebook/notes${suffix}`)
+}
+
+export async function listNotebookNotesByDate(from: string, to: string): Promise<NotebookNoteSummary[]> {
+  const searchParams = new URLSearchParams({ from, to })
+  return apiGet(`/notebook/notes/by-date?${searchParams.toString()}`)
 }
 
 export async function getNotebookNote(id: string): Promise<NotebookNote> {

@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="240" height="240" viewBox="0 0 240 240" fill="none" role="img" aria-label="TradeJAudit icon">
+  <defs>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1f6feb" stop-opacity="1"/>
+      <stop offset="1" stop-color="#6ea8fe" stop-opacity="0.9"/>
+    </linearGradient>
+    <filter id="softShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="10" stdDeviation="10" flood-color="#000" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <g id="icon" transform="translate(40 40)">
+    <rect x="0" y="0" width="160" height="160" rx="36" fill="none" stroke="#1f6feb" stroke-width="10" opacity="0.92"/>
+    <line x1="52" y1="46" x2="52" y2="118" stroke="#1f6feb" stroke-width="10" stroke-linecap="round" opacity="0.92"/>
+    <rect x="40" y="70" width="24" height="34" rx="10" fill="url(#accent)" opacity="0.95"/>
+    <line x1="86" y1="56" x2="86" y2="126" stroke="#1f6feb" stroke-width="10" stroke-linecap="round" opacity="0.92"/>
+    <rect x="74" y="82" width="24" height="30" rx="10" fill="url(#accent)" opacity="0.95"/>
+    <line x1="120" y1="42" x2="120" y2="122" stroke="#1f6feb" stroke-width="10" stroke-linecap="round" opacity="0.92"/>
+    <rect x="108" y="66" width="24" height="42" rx="10" fill="url(#accent)" opacity="0.95"/>
+    <path d="M54 124 L74 142 L128 92"
+          fill="none"
+          stroke="#1f6feb"
+          stroke-width="12"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          filter="url(#softShadow)"/>
+  </g>
+</svg>

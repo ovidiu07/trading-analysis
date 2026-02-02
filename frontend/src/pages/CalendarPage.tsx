@@ -6,6 +6,7 @@ import {
   ButtonBase,
   Card,
   CardContent,
+  Chip,
   CircularProgress,
   Dialog,
   DialogActions,
@@ -22,6 +23,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
 import { DailyPnlResponse, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
+import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/ui/PageHeader'
@@ -42,8 +44,11 @@ export default function CalendarPage() {
   const [error, setError] = useState('')
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedTrades, setSelectedTrades] = useState<TradeResponse[]>([])
+  const [selectedNotes, setSelectedNotes] = useState<NotebookNoteSummary[]>([])
   const [selectedLoading, setSelectedLoading] = useState(false)
   const [selectedError, setSelectedError] = useState('')
+  const [selectedNotesLoading, setSelectedNotesLoading] = useState(false)
+  const [selectedNotesError, setSelectedNotesError] = useState('')
 
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth])
   const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth])
@@ -95,6 +100,26 @@ export default function CalendarPage() {
     loadTrades()
   }, [selectedDate, timezone])
 
+  useEffect(() => {
+    if (!selectedDate) return
+    const loadNotes = async () => {
+      setSelectedNotesLoading(true)
+      setSelectedNotesError('')
+      try {
+        const dateKey = format(selectedDate, 'yyyy-MM-dd')
+        const data = await listNotebookNotesByDate(dateKey, dateKey)
+        setSelectedNotes(data)
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Failed to load notes'
+        setSelectedNotes([])
+        setSelectedNotesError(message)
+      } finally {
+        setSelectedNotesLoading(false)
+      }
+    }
+    loadNotes()
+  }, [selectedDate])
+
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''
   const selectedAggregate = selectedDateKey ? pnlByDate.get(selectedDateKey) : undefined
   const selectedNetPnl = selectedAggregate?.netPnl ?? 0
@@ -108,6 +133,8 @@ export default function CalendarPage() {
     setSelectedDate(null)
     setSelectedTrades([])
     setSelectedError('')
+    setSelectedNotes([])
+    setSelectedNotesError('')
   }
 
   const handleViewInTrades = () => {
@@ -204,12 +231,14 @@ export default function CalendarPage() {
             </Stack>
           </Stack>
 
-          <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1 }}>
-            {weekdayLabels.map((label) => (
-              <Typography key={label} variant="caption" color="text.secondary" textAlign="center" fontWeight={600}>
-                {label}
-              </Typography>
-            ))}
+          <Box sx={{ overflowX: { xs: 'auto', md: 'visible' } }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1, minWidth: { xs: 560, md: 'auto' } }}>
+              {weekdayLabels.map((label) => (
+                <Typography key={label} variant="caption" color="text.secondary" textAlign="center" fontWeight={600}>
+                  {label}
+                </Typography>
+              ))}
+            </Box>
           </Box>
 
           {loading ? (
@@ -223,8 +252,10 @@ export default function CalendarPage() {
                   {error}
                 </Typography>
               )}
-              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1 }}>
-                {days.map(renderDayCell)}
+              <Box sx={{ overflowX: { xs: 'auto', md: 'visible' } }}>
+                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, minWidth: { xs: 560, md: 'auto' } }}>
+                  {days.map(renderDayCell)}
+                </Box>
               </Box>
               {!error && dailyPnl.length === 0 && (
                 <EmptyState
@@ -277,6 +308,42 @@ export default function CalendarPage() {
               ))}
             </Stack>
           )}
+          <Divider sx={{ my: 2 }} />
+          <Stack spacing={1} sx={{ mb: 1 }}>
+            <Typography variant="subtitle2" color="text.secondary">Notes</Typography>
+            {selectedNotesLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
+                <CircularProgress size={20} />
+              </Box>
+            ) : selectedNotesError ? (
+              <Typography color="error">{selectedNotesError}</Typography>
+            ) : selectedNotes.length === 0 ? (
+              <Typography color="text.secondary">No note for this day.</Typography>
+            ) : (
+              <Stack spacing={1}>
+                {selectedNotes.map((note) => (
+                  <Box key={note.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50' }}>
+                    <Stack direction="row" justifyContent="space-between" spacing={2} alignItems="center">
+                      <Box>
+                        <Typography variant="subtitle2">{note.title || 'Untitled note'}</Typography>
+                        <Chip size="small" label={note.type.replace('_', ' ')} variant="outlined" />
+                      </Box>
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        onClick={() => {
+                          navigate(`/notebook?noteId=${note.id}`)
+                          handleCloseDialog()
+                        }}
+                      >
+                        Open note
+                      </Button>
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            )}
+          </Stack>
         </DialogContent>
         <DialogActions>
           <Button onClick={handleCloseDialog}>Close</Button>

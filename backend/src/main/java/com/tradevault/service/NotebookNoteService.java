@@ -10,6 +10,7 @@ import com.tradevault.domain.enums.NotebookNoteType;
 import com.tradevault.domain.enums.NotebookTagEntityType;
 import com.tradevault.dto.notebook.NotebookNoteRequest;
 import com.tradevault.dto.notebook.NotebookNoteResponse;
+import com.tradevault.dto.notebook.NotebookNoteSummaryResponse;
 import com.tradevault.repository.NotebookFolderRepository;
 import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.NotebookTagLinkRepository;
@@ -23,7 +24,11 @@ import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.AbstractMap;
+import java.util.Comparator;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +47,7 @@ public class NotebookNoteService {
             .addAttributes("li", "data-type")
             .addAttributes("label", "data-type")
             .removeTags("img");
+    private static final ZoneId DISPLAY_ZONE = ZoneId.of("Europe/Bucharest");
 
     private final NotebookNoteRepository noteRepository;
     private final NotebookFolderRepository folderRepository;
@@ -55,8 +61,8 @@ public class NotebookNoteService {
                                           NotebookNoteType type,
                                           String query,
                                           List<UUID> tagIds,
-                                          java.time.LocalDate from,
-                                          java.time.LocalDate to,
+                                          LocalDate from,
+                                          LocalDate to,
                                           String sort) {
         User user = currentUserService.getCurrentUser();
         NotebookFolder folder = null;
@@ -211,6 +217,41 @@ public class NotebookNoteService {
         return get(note.getId());
     }
 
+    @Transactional(readOnly = true)
+    public List<NotebookNoteSummaryResponse> listByDate(LocalDate from, LocalDate to) {
+        LocalDate start = from != null ? from : to;
+        LocalDate end = to != null ? to : from;
+        if (start == null || end == null) {
+            throw new IllegalArgumentException("from and to are required");
+        }
+        if (end.isBefore(start)) {
+            throw new IllegalArgumentException("to must be on or after from");
+        }
+        User user = currentUserService.getCurrentUser();
+        List<NotebookNote> notes = noteRepository.findByUserIdAndIsDeletedFalse(user.getId());
+
+        return notes.stream()
+                .map(note -> new AbstractMap.SimpleEntry<>(note, resolveJournalDate(note)))
+                .filter(entry -> entry.getValue() != null
+                        && !entry.getValue().isBefore(start)
+                        && !entry.getValue().isAfter(end))
+                .sorted(Comparator
+                        .comparing((AbstractMap.SimpleEntry<NotebookNote, LocalDate> entry) -> entry.getValue())
+                        .thenComparing(entry -> entry.getKey().getCreatedAt(), Comparator.nullsLast(Comparator.naturalOrder())))
+                .map(entry -> {
+                    NotebookNote note = entry.getKey();
+                    LocalDate journalDate = entry.getValue();
+                    return NotebookNoteSummaryResponse.builder()
+                            .id(note.getId())
+                            .title(resolveTitle(note))
+                            .type(note.getType())
+                            .journalDate(journalDate)
+                            .createdAt(note.getCreatedAt())
+                            .build();
+                })
+                .toList();
+    }
+
     private void applyRequest(NotebookNote note, NotebookNoteRequest request, User user) {
         if (request.getType() != null && request.getType() != note.getType()) {
             note.setType(request.getType());
@@ -302,6 +343,23 @@ public class NotebookNoteService {
                 .updatedAt(note.getUpdatedAt())
                 .tagIds(tagIds)
                 .build();
+    }
+
+    private LocalDate resolveJournalDate(NotebookNote note) {
+        if (note.getDateKey() != null) {
+            return note.getDateKey();
+        }
+        if (note.getCreatedAt() == null) {
+            return null;
+        }
+        return note.getCreatedAt().atZoneSameInstant(DISPLAY_ZONE).toLocalDate();
+    }
+
+    private String resolveTitle(NotebookNote note) {
+        if (note.getTitle() != null && !note.getTitle().isBlank()) {
+            return note.getTitle();
+        }
+        return "Untitled note";
     }
 
     private Sort resolveSort(String sort) {

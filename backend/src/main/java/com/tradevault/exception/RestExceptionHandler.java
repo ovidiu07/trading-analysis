@@ -6,10 +6,14 @@ import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 
+import java.time.LocalDate;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import jakarta.persistence.EntityNotFoundException;
 
 @ControllerAdvice
@@ -25,6 +29,31 @@ public class RestExceptionHandler {
                 .error("VALIDATION_ERROR")
                 .details(details)
                 .message("Validation failed")
+                .build();
+        return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException ex) {
+        String field = ex.getName();
+        String received = ex.getValue() == null ? null : ex.getValue().toString();
+        String expected = ex.getRequiredType() == null ? "Unknown" : ex.getRequiredType().getSimpleName();
+        String message = "Invalid value for '%s'.".formatted(field);
+
+        if (LocalDate.class.equals(ex.getRequiredType())) {
+            expected = "YYYY-MM-DD";
+            message = "Invalid date format for '%s' (expected YYYY-MM-DD)".formatted(field);
+        }
+
+        Map<String, String> details = new LinkedHashMap<>();
+        details.put("field", field);
+        details.put("expected", expected);
+        details.put("received", received);
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("VALIDATION_ERROR")
+                .message(message)
+                .details(details)
                 .build();
         return ResponseEntity.badRequest().body(response);
     }

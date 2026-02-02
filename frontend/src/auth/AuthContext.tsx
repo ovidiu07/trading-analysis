@@ -1,6 +1,6 @@
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react'
 import { AuthResponse, AuthUser, RegisterPayload, getCurrentUser, login as apiLogin, register as apiRegister } from '../api/auth'
-import { clearAuthToken } from '../api/client'
+import { ApiError, clearAuthToken } from '../api/client'
 import { UserSettingsRequest, updateUserSettings } from '../api/settings'
 
 export type AuthState = {
@@ -57,7 +57,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         user
       }))
     } catch (e) {
-      resetAuth()
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        resetAuth()
+      }
       throw e
     }
   }
