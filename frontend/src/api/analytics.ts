@@ -188,6 +188,52 @@ export type AnalyticsResponse = {
   breakdown: Record<string, number>
 }
 
+export type AdviceSeverity = 'info' | 'warn' | 'critical'
+export type AdviceConfidence = 'low' | 'medium' | 'high'
+export type AdviceEvidence = {
+  label: string
+  value: number | null
+  kind: 'currency' | 'percent' | 'number'
+}
+
+export type AdviceFilters = {
+  symbol?: string
+  market?: string
+  direction?: string
+  status?: string
+  strategyTag?: string
+  setup?: string
+  catalystTag?: string
+  dateMode?: 'OPEN' | 'CLOSE'
+  hourBucket?: string
+  holdingBucket?: string
+}
+
+export type AdviceCard = {
+  id: string
+  severity: AdviceSeverity
+  confidence: AdviceConfidence
+  title: string
+  message: string[]
+  evidence: AdviceEvidence[]
+  recommendedActions: string[]
+  filters?: AdviceFilters | null
+}
+
+export type CoachDataQuality = {
+  totalTrades: number
+  closedTrades: number
+  missingClosedAtCount: number
+  missingPnlNetCount: number
+  missingEntryExitCount: number
+  inconsistentPnlCount: number
+}
+
+export type CoachResponse = {
+  dataQuality: CoachDataQuality
+  advice: AdviceCard[]
+}
+
 export type AnalyticsFilters = {
   from?: string
   to?: string
@@ -220,4 +266,8 @@ const toQuery = (params: Record<string, string | string[] | number | boolean | u
 
 export async function fetchAnalyticsSummary(filters: AnalyticsFilters = {}) {
   return apiGet<AnalyticsResponse>(`/analytics/summary${toQuery(filters)}`)
+}
+
+export async function fetchAnalyticsCoach(filters: AnalyticsFilters = {}) {
+  return apiGet<CoachResponse>(`/analytics/coach${toQuery(filters)}`)
 }

@@ -36,3 +36,14 @@ app:
 logging:
   level:
     root: INFO
+
+tradecoach:
+  min-trades-for-finding: ${TRADECOACH_MIN_TRADES:10}
+  break-even-band: ${TRADECOACH_BE_BAND:1.0}
+  cost-drag-pct: ${TRADECOACH_COST_PCT:0.05}
+  cost-drag-avg: ${TRADECOACH_COST_AVG:2.0}
+  overtrading-cluster-minutes: ${TRADECOACH_CLUSTER_MIN:10}
+  holding-bucket-delta: ${TRADECOACH_HOLDING_DELTA:30.0}
+  holding-bucket-delta-r: ${TRADECOACH_HOLDING_DELTA_R:0.2}
+  critical-expectancy: ${TRADECOACH_CRITICAL_EXPECTANCY:-50.0}
+  data-quality-penalty-ratio: ${TRADECOACH_DQ_PENALTY:0.2}
