@@ -1,4 +1,4 @@
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChangeEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Autocomplete,
@@ -10,11 +10,13 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  Drawer,
   IconButton,
   InputAdornment,
   List,
   ListItemButton,
   ListItemText,
+  Menu,
   MenuItem,
   Paper,
   Skeleton,
@@ -24,7 +26,9 @@ import {
   Tooltip,
   ToggleButton,
   ToggleButtonGroup,
-  Typography
+  Typography,
+  useMediaQuery,
+  useTheme
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
@@ -37,6 +41,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility'
 import EditIcon from '@mui/icons-material/Edit'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import ViewListIcon from '@mui/icons-material/ViewList'
+import CloseIcon from '@mui/icons-material/Close'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
@@ -74,6 +79,12 @@ import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import RichTextEditor from '../components/ui/RichTextEditor'
+import {
+  buildNotebookFingerprint,
+  createAutosaveScheduler,
+  isNotebookDirty,
+  shouldAutosave
+} from '../utils/notebookAutosave'
 
 type LossRecapForm = {
   from: string
@@ -271,13 +282,22 @@ export default function NotebookPage() {
   const [templateSelection, setTemplateSelection] = useState('')
   const [lossRecapOpen, setLossRecapOpen] = useState(false)
   const [lossRecapForm, setLossRecapForm] = useState(defaultLossRecap)
-  const saveTimeoutRef = useRef<number | null>(null)
   const [filtersOpen, setFiltersOpen] = useState(() => localStorage.getItem('tv-notebook-filters') !== 'collapsed')
   const [listOpen, setListOpen] = useState(() => localStorage.getItem('tv-notebook-list') !== 'collapsed')
+  const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false)
+  const [newMenuAnchor, setNewMenuAnchor] = useState<null | HTMLElement>(null)
+  const [mobilePanel, setMobilePanel] = useState<'list' | 'editor'>('list')
+  const autosaveSchedulerRef = useRef<ReturnType<typeof createAutosaveScheduler> | null>(null)
+  const persistedFingerprintRef = useRef<string>('')
+  const isSavingRef = useRef(false)
 
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
   const apiBase = import.meta.env.VITE_API_URL || '/api'
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isMdUp = useMediaQuery(theme.breakpoints.up('md'))
+  const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
 
   const handleAuthFailure = useCallback((message?: string) => {
     setError(message || 'Please login again to access your notebook.')
@@ -469,10 +489,14 @@ export default function NotebookPage() {
   }, [listOpen])
 
   useEffect(() => {
+    persistedFingerprintRef.current = buildNotebookFingerprint(selectedNote)
     setIsDirty(false)
     setSaveState('idle')
     setLastSavedAt(selectedNote?.updatedAt ?? null)
-  }, [selectedNote?.id])
+    if (isMobile) {
+      setMobilePanel(selectedNote ? 'editor' : 'list')
+    }
+  }, [isMobile, selectedNote?.id, selectedNote?.updatedAt])
 
 
   const folderTree = useMemo(() => {
@@ -556,7 +580,7 @@ export default function NotebookPage() {
 
   const updateDraftNote = useCallback((next: NotebookNote) => {
     setSelectedNote(next)
-    setIsDirty(true)
+    setIsDirty(isNotebookDirty(next, persistedFingerprintRef.current))
     setSaveState('idle')
   }, [])
 
@@ -594,8 +618,9 @@ export default function NotebookPage() {
     }
   }
 
-  const handleSaveNote = async (autoSave = false) => {
+  const handleSaveNote = useCallback(async (autoSave = false) => {
     if (!selectedNote) return
+    if (isSavingRef.current) return
     if (selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())) {
       if (!autoSave) {
         setError('Date is required for daily logs.')
@@ -603,6 +628,7 @@ export default function NotebookPage() {
       return
     }
     try {
+      isSavingRef.current = true
       setSaveState('saving')
       setError('')
       const dateKey = selectedNote.dateKey && selectedNote.dateKey.trim() ? selectedNote.dateKey : null
@@ -615,7 +641,9 @@ export default function NotebookPage() {
         relatedTradeId: selectedNote.relatedTradeId,
         isPinned: selectedNote.isPinned
       })
+      persistedFingerprintRef.current = buildNotebookFingerprint(updated)
       setSelectedNote(updated)
+      setIsDirty(false)
       setSaveState('saved')
       setLastSavedAt(updated.updatedAt ?? null)
       upsertNote(updated)
@@ -626,23 +654,41 @@ export default function NotebookPage() {
         setError('Unable to save note.')
         setSaveState('error')
       }
+    } finally {
+      isSavingRef.current = false
     }
-  }
+  }, [handleAuthFailure, selectedNote, upsertNote])
 
   useEffect(() => {
-    if (!selectedNote || !isDirty || viewMode !== 'edit') return
-    if (saveTimeoutRef.current) {
-      window.clearTimeout(saveTimeoutRef.current)
-    }
-    saveTimeoutRef.current = window.setTimeout(() => {
-      handleSaveNote(true)
-    }, 1200)
-    return () => {
-      if (saveTimeoutRef.current) {
-        window.clearTimeout(saveTimeoutRef.current)
+    autosaveSchedulerRef.current?.cancel()
+    autosaveSchedulerRef.current = createAutosaveScheduler(() => {
+      if (shouldAutosave({
+        hasNote: Boolean(selectedNote),
+        isDirty,
+        isSaving: isSavingRef.current,
+        viewMode
+      })) {
+        handleSaveNote(true)
       }
-    }
+    }, 1200)
+    return () => autosaveSchedulerRef.current?.cancel()
   }, [handleSaveNote, isDirty, selectedNote, viewMode])
+
+  useEffect(() => {
+    if (!autosaveSchedulerRef.current) return
+    const shouldSchedule = shouldAutosave({
+      hasNote: Boolean(selectedNote),
+      isDirty,
+      isSaving: isSavingRef.current,
+      viewMode
+    })
+    if (!shouldSchedule) {
+      autosaveSchedulerRef.current.cancel()
+      return
+    }
+    autosaveSchedulerRef.current.schedule()
+    return () => autosaveSchedulerRef.current?.cancel()
+  }, [isDirty, selectedNote, viewMode])
 
   const handleDeleteNote = async () => {
     if (!selectedNote) return
@@ -846,23 +892,54 @@ export default function NotebookPage() {
     }
   }
 
+  const openNewMenu = Boolean(newMenuAnchor)
+  const handleOpenNewMenu = (event: MouseEvent<HTMLElement>) => {
+    setNewMenuAnchor(event.currentTarget)
+  }
+  const handleCloseNewMenu = () => {
+    setNewMenuAnchor(null)
+  }
+  const handleNewMenuSelect = (action: 'DAILY_LOG' | 'PLAN' | 'SESSION_RECAP' | 'NOTE' | 'GOAL') => {
+    handleCloseNewMenu()
+    if (action === 'SESSION_RECAP') {
+      setLossRecapOpen(true)
+      return
+    }
+    void handleCreateNote(action)
+  }
+
   return (
     <Stack spacing={3}>
       <PageHeader
         title="Notebook"
         subtitle="Capture session notes, daily logs, and trade reflections."
         actions={(
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button variant="contained" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
-              New daily log
-            </Button>
-            <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
-              New plan
-            </Button>
-            <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
-              Create loss recap
-            </Button>
-          </Stack>
+          isMobile ? (
+            <>
+              <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNewMenu}>
+                New
+              </Button>
+              <Menu anchorEl={newMenuAnchor} open={openNewMenu} onClose={handleCloseNewMenu}>
+                <MenuItem onClick={() => handleNewMenuSelect('DAILY_LOG')}>New daily log</MenuItem>
+                <MenuItem onClick={() => handleNewMenuSelect('PLAN')}>New plan</MenuItem>
+                <MenuItem onClick={() => handleNewMenuSelect('SESSION_RECAP')}>Create loss recap</MenuItem>
+                <MenuItem onClick={() => handleNewMenuSelect('NOTE')}>New note</MenuItem>
+                <MenuItem onClick={() => handleNewMenuSelect('GOAL')}>New goal</MenuItem>
+              </Menu>
+            </>
+          ) : (
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button variant="contained" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
+                New daily log
+              </Button>
+              <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
+                New plan
+              </Button>
+              <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
+                Create loss recap
+              </Button>
+            </Stack>
+          )
         )}
       />
 
@@ -873,426 +950,580 @@ export default function NotebookPage() {
         </Alert>
       )}
 
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-        <Paper sx={{ flex: 1, minWidth: 260, p: 2 }}>
+      <Box
+        sx={{
+          display: 'grid',
+          gap: 2,
+          alignItems: 'start',
+          gridTemplateColumns: { xs: '1fr', lg: '280px 1fr' }
+        }}
+      >
+        {isDesktop && (
+          <Paper sx={{ p: 2 }}>
+            <Stack spacing={2}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="subtitle1" fontWeight={600}>Filters</Typography>
+                <IconButton size="small" onClick={() => setFiltersOpen((prev) => !prev)} aria-label="Toggle filters panel">
+                  <FilterAltIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+              {filtersOpen && (
+                <Stack spacing={2}>
+                  <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddFolder}>
+                    Add folder
+                  </Button>
+                  <Divider />
+                  <Typography variant="subtitle2">Folders</Typography>
+                  <List dense>
+                    {folderTree.map(({ folder, depth }) => (
+                      <ListItemButton
+                        key={folder.id}
+                        selected={selectedFolderId === folder.id}
+                        onClick={() => setSelectedFolderId(folder.id)}
+                        sx={{ pl: 2 + depth * 2 }}
+                      >
+                        <ListItemText primary={folder.name} secondary={folder.systemKey ? 'System view' : null} />
+                        {!folder.systemKey && (
+                          <Tooltip title="Delete folder">
+                            <IconButton size="small" onClick={(event) => {
+                              event.stopPropagation()
+                              handleDeleteFolder(folder.id)
+                            }}>
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </ListItemButton>
+                    ))}
+                  </List>
+                  <Divider />
+                  <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                    <Typography variant="subtitle2">Tags</Typography>
+                    <Button size="small" onClick={handleAddTag}>Add tag</Button>
+                  </Stack>
+                  <Autocomplete
+                    multiple
+                    options={tags}
+                    value={filterTags}
+                    onChange={(_, value) => setFilterTags(value)}
+                    getOptionLabel={(option) => option.name}
+                    renderTags={(value, getTagProps) =>
+                      value.map((option, index) => (
+                        <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
+                      ))
+                    }
+                    renderInput={(params) => (
+                      <TextField {...params} placeholder="Filter by tag" size="small" />
+                    )}
+                  />
+                </Stack>
+              )}
+            </Stack>
+          </Paper>
+        )}
+
+        <Box
+          sx={{
+            display: 'grid',
+            gap: 2,
+            gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 340px) 1fr' }
+          }}
+        >
+          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'list' ? 'block' : 'none', md: 'block' } }}>
+            <Stack spacing={2}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="subtitle1" fontWeight={600}>Notes</Typography>
+                <Stack direction="row" spacing={1}>
+                  {!isDesktop && (
+                    <IconButton size="small" onClick={() => setFiltersDrawerOpen(true)} aria-label="Open filters">
+                      <FilterAltIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                  {isMdUp && (
+                    <IconButton size="small" onClick={() => setListOpen((prev) => !prev)} aria-label="Toggle note list">
+                      <ViewListIcon fontSize="small" />
+                    </IconButton>
+                  )}
+                </Stack>
+              </Stack>
+              {(listOpen || !isMdUp) && (
+                <>
+                  {!isMobile && (
+                    <Stack direction="row" spacing={1} flexWrap="wrap">
+                      <Button variant="outlined" onClick={() => handleCreateNote('NOTE')}>New note</Button>
+                      <Button variant="outlined" onClick={() => handleCreateNote('GOAL')}>New goal</Button>
+                    </Stack>
+                  )}
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                    <TextField
+                      size="small"
+                      placeholder="Search notes..."
+                      value={searchQuery}
+                      onChange={(event) => setSearchQuery(event.target.value)}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchIcon fontSize="small" />
+                          </InputAdornment>
+                        )
+                      }}
+                      fullWidth
+                    />
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                      <TextField
+                        select
+                        size="small"
+                        label="Sort"
+                        value={sortOrder}
+                        onChange={(event) => setSortOrder(event.target.value as 'updated' | 'created' | 'date')}
+                        sx={{ minWidth: { sm: 160 } }}
+                      >
+                        <MenuItem value="updated">Last updated</MenuItem>
+                        <MenuItem value="created">Created</MenuItem>
+                        <MenuItem value="date">Note date</MenuItem>
+                      </TextField>
+                      <Typography variant="caption" color="text.secondary">
+                        {visibleNotes.length} notes
+                      </Typography>
+                    </Stack>
+                  </Stack>
+                  <ToggleButtonGroup
+                    size="small"
+                    value={typeFilter}
+                    exclusive
+                    onChange={(_, value) => value && setTypeFilter(value)}
+                    sx={{ flexWrap: 'wrap', gap: 1 }}
+                  >
+                    <ToggleButton value="ALL">All</ToggleButton>
+                    <ToggleButton value="DAILY_LOG">Daily logs</ToggleButton>
+                    <ToggleButton value="PLAN">Plans</ToggleButton>
+                    <ToggleButton value="SESSION_RECAP">Recaps</ToggleButton>
+                    <ToggleButton value="PINNED">Pinned</ToggleButton>
+                  </ToggleButtonGroup>
+                  <Divider />
+                  {loading && (
+                    <Stack spacing={1}>
+                      <Skeleton variant="rounded" height={56} />
+                      <Skeleton variant="rounded" height={56} />
+                      <Skeleton variant="rounded" height={56} />
+                    </Stack>
+                  )}
+                  {!loading && visibleNotes.length === 0 && (
+                    <EmptyState title="No notes yet" description="Create a note or daily log to get started." />
+                  )}
+                  <List>
+                    {visibleNotes.map((note) => {
+                      const folderName = note.folderId ? folderMap.get(note.folderId)?.name : undefined
+                      const previewSource = resolveNoteHtml(note)
+                      const excerpt = previewSource ? extractPlainText(previewSource).slice(0, 120) : 'Start writing your note...'
+                      return (
+                        <ListItemButton
+                          key={note.id}
+                          selected={selectedNote?.id === note.id}
+                          onClick={() => {
+                            setSelectedNote(note)
+                            navigate(`/notebook?noteId=${note.id}`)
+                            if (isMobile) {
+                              setMobilePanel('editor')
+                            }
+                          }}
+                          sx={{ alignItems: 'flex-start' }}
+                        >
+                          <Stack spacing={0.5} sx={{ flexGrow: 1 }}>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                              <Typography variant="subtitle2" fontWeight={600} noWrap>
+                                {note.title || 'Untitled note'}
+                              </Typography>
+                              {note.isPinned && <StarIcon fontSize="small" color="warning" />}
+                              <Chip label={note.type.replace('_', ' ')} size="small" variant="outlined" />
+                            </Stack>
+                            <Typography variant="caption" color="text.secondary">
+                              {excerpt}
+                            </Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                              {folderName && <Chip label={folderName} size="small" />}
+                              {note.tagIds?.slice(0, 2).map((tagId) => {
+                                const tag = tagMap.get(tagId)
+                                return tag ? <Chip key={tagId} label={tag.name} size="small" variant="outlined" /> : null
+                              })}
+                              <Typography variant="caption" color="text.secondary">
+                                Updated {note.updatedAt ? formatDateTime(note.updatedAt, timezone) : '—'}
+                              </Typography>
+                            </Stack>
+                          </Stack>
+                        </ListItemButton>
+                      )
+                    })}
+                  </List>
+                </>
+              )}
+            </Stack>
+          </Paper>
+
+          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'editor' ? 'block' : 'none', md: 'block' } }}>
+            {!selectedNote && (
+              <EmptyState
+                title="Select a note"
+                description="Pick a note from the list or create a new one."
+                action={(
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <Button variant="outlined" onClick={() => handleCreateNote('DAILY_LOG')}>Create daily log</Button>
+                    <Button variant="outlined" onClick={() => handleCreateNote('PLAN')}>Create plan</Button>
+                  </Stack>
+                )}
+              />
+            )}
+            {selectedNote && (
+              <Stack spacing={2}>
+                {isMobile && (
+                  <Button size="small" onClick={() => setMobilePanel('list')}>
+                    Back to list
+                  </Button>
+                )}
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+                  <TextField
+                    label="Title"
+                    value={selectedNote.title ?? ''}
+                    onChange={(event) => updateDraftNote({ ...selectedNote, title: event.target.value })}
+                    fullWidth
+                  />
+                  <Box
+                    sx={{
+                      position: { xs: 'sticky', md: 'static' },
+                      top: { xs: 0, md: 'auto' },
+                      zIndex: 1,
+                      width: { xs: '100%', md: 'auto' },
+                      bgcolor: { xs: 'background.paper', md: 'transparent' },
+                      pb: { xs: 1, md: 0 }
+                    }}
+                  >
+                    <Stack spacing={1} alignItems={{ xs: 'stretch', md: 'flex-end' }}>
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                        <Tooltip title={selectedNote.isPinned ? 'Unpin note' : 'Pin note'}>
+                          <IconButton onClick={() => updateDraftNote({ ...selectedNote, isPinned: !selectedNote.isPinned })}>
+                            {selectedNote.isPinned ? <StarIcon color="warning" /> : <StarBorderIcon />}
+                          </IconButton>
+                        </Tooltip>
+                        <ToggleButtonGroup
+                          size="small"
+                          value={viewMode}
+                          exclusive
+                          onChange={(_, value) => value && setViewMode(value)}
+                        >
+                          <ToggleButton value="read" aria-label="Read mode">
+                            <VisibilityIcon fontSize="small" />
+                          </ToggleButton>
+                          <ToggleButton value="edit" aria-label="Edit mode">
+                            <EditIcon fontSize="small" />
+                          </ToggleButton>
+                        </ToggleButtonGroup>
+                      </Stack>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                        <Button
+                          variant="contained"
+                          onClick={() => handleSaveNote(false)}
+                          disabled={saveState === 'saving'}
+                          fullWidth={isMobile}
+                        >
+                          {saveState === 'saving' ? 'Saving…' : 'Save'}
+                        </Button>
+                        {selectedNote.isDeleted ? (
+                          <Button
+                            variant="outlined"
+                            startIcon={<RestoreIcon />}
+                            onClick={handleRestoreNote}
+                            fullWidth={isMobile}
+                          >
+                            Restore
+                          </Button>
+                        ) : (
+                          <Button
+                            color="error"
+                            variant="outlined"
+                            startIcon={<DeleteIcon />}
+                            onClick={handleDeleteNote}
+                            fullWidth={isMobile}
+                          >
+                            Delete
+                          </Button>
+                        )}
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary">
+                        {saveState === 'saving' && 'Saving…'}
+                        {saveState === 'error' && 'Save failed'}
+                        {saveState === 'saved' && lastSavedAt && `Saved ${formatDateTime(lastSavedAt, timezone)}`}
+                        {saveState === 'idle' && (isDirty ? 'Unsaved changes' : 'All changes saved')}
+                      </Typography>
+                    </Stack>
+                  </Box>
+                </Stack>
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                  <TextField
+                    select
+                    label="Type"
+                    value={selectedNote.type}
+                    onChange={(event) => updateDraftNote({ ...selectedNote, type: event.target.value as NotebookNoteType })}
+                    sx={{ minWidth: { md: 200 }, width: { xs: '100%', md: 'auto' } }}
+                  >
+                    <MenuItem value="DAILY_LOG">Daily Log</MenuItem>
+                    <MenuItem value="TRADE_NOTE">Trade Note</MenuItem>
+                    <MenuItem value="PLAN">Plan</MenuItem>
+                    <MenuItem value="GOAL">Goal</MenuItem>
+                    <MenuItem value="SESSION_RECAP">Session Recap</MenuItem>
+                    <MenuItem value="NOTE">Note</MenuItem>
+                  </TextField>
+                  <TextField
+                    select
+                    label="Folder"
+                    value={selectedNote.folderId ?? ''}
+                    onChange={(event) => updateDraftNote({ ...selectedNote, folderId: event.target.value || null })}
+                    sx={{ minWidth: { md: 200 }, width: { xs: '100%', md: 'auto' } }}
+                  >
+                    <MenuItem value="">No folder</MenuItem>
+                    {folders.filter((folder) => !folder.systemKey).map((folder) => (
+                      <MenuItem key={folder.id} value={folder.id}>{folder.name}</MenuItem>
+                    ))}
+                  </TextField>
+                  <TextField
+                    required={selectedNote.type === 'DAILY_LOG'}
+                    label="Date"
+                    type="date"
+                    InputLabelProps={{ shrink: true }}
+                    value={selectedNote.dateKey ?? ''}
+                    onChange={(event) => updateDraftNote({ ...selectedNote, dateKey: event.target.value })}
+                    error={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())}
+                    helperText={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim()) ? 'Date is required' : ' '}
+                    sx={{ minWidth: { md: 200 }, width: { xs: '100%', md: 'auto' } }}
+                  />
+                  <TextField
+                    label="Linked trade ID"
+                    value={selectedNote.relatedTradeId ?? ''}
+                    onChange={(event) => updateDraftNote({ ...selectedNote, relatedTradeId: event.target.value || null })}
+                    placeholder="Optional trade UUID"
+                    sx={{ minWidth: { md: 240 }, width: { xs: '100%', md: 'auto' } }}
+                  />
+                  <Autocomplete
+                    multiple
+                    options={tags}
+                    value={noteTags}
+                    onChange={(_, value) => handleUpdateTags(value)}
+                    getOptionLabel={(option) => option.name}
+                    renderTags={(value, getTagProps) =>
+                      value.map((option, index) => (
+                        <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
+                      ))
+                    }
+                    renderInput={(params) => (
+                      <TextField {...params} label="Tags" placeholder="Tags" />
+                    )}
+                    sx={{ flex: 1, minWidth: { md: 240 } }}
+                  />
+                </Stack>
+
+                {selectedNote.type === 'DAILY_LOG' && dailySummary && (
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                      <Stack>
+                        <Typography variant="subtitle2">Net P&L</Typography>
+                        <Typography variant="h6">{formatCurrency(dailySummary.netPnl, baseCurrency)}</Typography>
+                      </Stack>
+                      <Box
+                        sx={{
+                          display: 'grid',
+                          gap: 2,
+                          gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' },
+                          flex: 1
+                        }}
+                      >
+                        <Stack>
+                          <Typography variant="caption">Trades</Typography>
+                          <Typography>{dailySummary.tradeCount}</Typography>
+                        </Stack>
+                        <Stack>
+                          <Typography variant="caption">Winners</Typography>
+                          <Typography>{dailySummary.winners}</Typography>
+                        </Stack>
+                        <Stack>
+                          <Typography variant="caption">Losers</Typography>
+                          <Typography>{dailySummary.losers}</Typography>
+                        </Stack>
+                        <Stack>
+                          <Typography variant="caption">Win rate</Typography>
+                          <Typography>{Math.round(dailySummary.winRate * 100)}%</Typography>
+                        </Stack>
+                      </Box>
+                      {renderSparkline(dailySummary.equityPoints)}
+                    </Stack>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle2" gutterBottom>Trades closed today</Typography>
+                    {closedTrades.length === 0 && (
+                      <Typography variant="body2" color="text.secondary">No closed trades for this date.</Typography>
+                    )}
+                    {closedTrades.map((trade) => (
+                      <Stack key={trade.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 1 }}>
+                        <Chip label={trade.symbol} size="small" />
+                        <Typography variant="body2">{trade.direction}</Typography>
+                        <Typography variant="body2">{formatDateTime(trade.closedAt, timezone)}</Typography>
+                        <Typography variant="body2">{formatCurrency(trade.pnlNet ?? 0, baseCurrency)}</Typography>
+                      </Stack>
+                    ))}
+                  </Paper>
+                )}
+
+                {selectedNote.type === 'TRADE_NOTE' && tradeDetail && (
+                  <Paper variant="outlined" sx={{ p: 2 }}>
+                    <Stack spacing={1}>
+                      <Typography variant="subtitle2">Trade summary</Typography>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                        <Chip label={tradeDetail.symbol} />
+                        <Typography variant="body2">{tradeDetail.direction}</Typography>
+                        <Typography variant="body2">Opened {formatDateTime(tradeDetail.openedAt, timezone)}</Typography>
+                        {tradeDetail.closedAt && (
+                          <Typography variant="body2">Closed {formatDateTime(tradeDetail.closedAt, timezone)}</Typography>
+                        )}
+                        <Typography variant="body2">{formatCurrency(tradeDetail.pnlNet ?? 0, baseCurrency)}</Typography>
+                        {tradeDetail.strategyTag && (
+                          <Chip label={tradeDetail.strategyTag} size="small" variant="outlined" />
+                        )}
+                      </Stack>
+                    </Stack>
+                  </Paper>
+                )}
+
+                <Stack spacing={1}>
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    flexWrap={{ xs: 'nowrap', sm: 'wrap' }}
+                    sx={{
+                      overflowX: { xs: 'auto', sm: 'visible' },
+                      pb: { xs: 1, sm: 0 }
+                    }}
+                  >
+                    <TextField
+                      select
+                      size="small"
+                      label="Apply template"
+                      value={templateSelection}
+                      onChange={(event) => setTemplateSelection(event.target.value)}
+                      sx={{ minWidth: 200 }}
+                    >
+                      <MenuItem value="">None</MenuItem>
+                      {templates.map((template) => (
+                        <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
+                      ))}
+                    </TextField>
+                    <Button variant="outlined" onClick={handleApplyTemplate}>Apply</Button>
+                    <Button variant="text" onClick={handleSaveTemplate}>Save as template</Button>
+                    {selectedNote.type === 'DAILY_LOG' && (
+                      <Button variant="text" onClick={handleInsertDailyLogTemplate}>Insert daily log structure</Button>
+                    )}
+                  </Stack>
+                  <RichTextEditor
+                    value={editorValue}
+                    readOnly={viewMode === 'read'}
+                    onChange={(html) => updateDraftNote({ ...selectedNote, body: html, bodyJson: null })}
+                  />
+                </Stack>
+
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2">Attachments</Typography>
+                  <Button component="label" variant="outlined" fullWidth={isMobile}>
+                    Upload attachment
+                    <input hidden type="file" onChange={handleUploadAttachment} />
+                  </Button>
+                  {attachments.length === 0 && (
+                    <Typography variant="body2" color="text.secondary">No attachments yet.</Typography>
+                  )}
+                  {attachments.map((item) => {
+                    const downloadUrl = item.downloadUrl ? `${apiBase}${item.downloadUrl}` : '#'
+                    return (
+                      <Stack key={item.id} direction="row" spacing={1} alignItems="center">
+                        <Button href={downloadUrl} target="_blank" rel="noreferrer">
+                          {item.fileName}
+                        </Button>
+                        <IconButton size="small" onClick={() => handleDeleteAttachment(item.id)}>
+                          <DeleteIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                    )
+                  })}
+                </Stack>
+              </Stack>
+            )}
+          </Paper>
+        </Box>
+      </Box>
+
+      <Drawer
+        anchor="left"
+        open={filtersDrawerOpen}
+        onClose={() => setFiltersDrawerOpen(false)}
+        ModalProps={{ keepMounted: true }}
+        sx={{ display: { lg: 'none' } }}
+      >
+        <Box sx={{ width: { xs: '100vw', sm: 320 }, p: 2 }}>
           <Stack spacing={2}>
             <Stack direction="row" alignItems="center" justifyContent="space-between">
               <Typography variant="subtitle1" fontWeight={600}>Filters</Typography>
-              <IconButton size="small" onClick={() => setFiltersOpen((prev) => !prev)} aria-label="Toggle filters panel">
-                <FilterAltIcon fontSize="small" />
+              <IconButton size="small" onClick={() => setFiltersDrawerOpen(false)} aria-label="Close filters">
+                <CloseIcon fontSize="small" />
               </IconButton>
             </Stack>
-            {filtersOpen && (
-              <Stack spacing={2}>
-                <TextField
-                  size="small"
-                  placeholder="Search notes..."
-                  value={searchQuery}
-                  onChange={(event) => setSearchQuery(event.target.value)}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchIcon fontSize="small" />
-                      </InputAdornment>
-                    )
+            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddFolder}>
+              Add folder
+            </Button>
+            <Divider />
+            <Typography variant="subtitle2">Folders</Typography>
+            <List dense>
+              {folderTree.map(({ folder, depth }) => (
+                <ListItemButton
+                  key={folder.id}
+                  selected={selectedFolderId === folder.id}
+                  onClick={() => {
+                    setSelectedFolderId(folder.id)
+                    setFiltersDrawerOpen(false)
                   }}
-                />
-                <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddFolder}>
-                  Add folder
-                </Button>
-                <Divider />
-                <Typography variant="subtitle2">Folders</Typography>
-                <List dense>
-                  {folderTree.map(({ folder, depth }) => (
-                    <ListItemButton
-                      key={folder.id}
-                      selected={selectedFolderId === folder.id}
-                      onClick={() => setSelectedFolderId(folder.id)}
-                      sx={{ pl: 2 + depth * 2 }}
-                    >
-                      <ListItemText primary={folder.name} secondary={folder.systemKey ? 'System view' : null} />
-                      {!folder.systemKey && (
-                        <Tooltip title="Delete folder">
-                          <IconButton size="small" onClick={(event) => {
-                            event.stopPropagation()
-                            handleDeleteFolder(folder.id)
-                          }}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                    </ListItemButton>
-                  ))}
-                </List>
-                <Divider />
-                <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                  <Typography variant="subtitle2">Tags</Typography>
-                  <Button size="small" onClick={handleAddTag}>Add tag</Button>
-                </Stack>
-                <Autocomplete
-                  multiple
-                  options={tags}
-                  value={filterTags}
-                  onChange={(_, value) => setFilterTags(value)}
-                  getOptionLabel={(option) => option.name}
-                  renderTags={(value, getTagProps) =>
-                    value.map((option, index) => (
-                      <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
-                    ))
-                  }
-                  renderInput={(params) => (
-                    <TextField {...params} placeholder="Filter by tag" size="small" />
-                  )}
-                />
-              </Stack>
-            )}
-          </Stack>
-        </Paper>
-
-        <Paper sx={{ flex: 1.2, minWidth: 300, p: 2 }}>
-          <Stack spacing={2}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Typography variant="subtitle1" fontWeight={600}>Notes</Typography>
-              <IconButton size="small" onClick={() => setListOpen((prev) => !prev)} aria-label="Toggle note list">
-                <ViewListIcon fontSize="small" />
-              </IconButton>
-            </Stack>
-            {listOpen && (
-              <>
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                  <Button variant="outlined" onClick={() => handleCreateNote('NOTE')}>New note</Button>
-                  <Button variant="outlined" onClick={() => handleCreateNote('GOAL')}>New goal</Button>
-                </Stack>
-                <ToggleButtonGroup
-                  size="small"
-                  value={typeFilter}
-                  exclusive
-                  onChange={(_, value) => value && setTypeFilter(value)}
+                  sx={{ pl: 2 + depth * 2 }}
                 >
-                  <ToggleButton value="ALL">All</ToggleButton>
-                  <ToggleButton value="DAILY_LOG">Daily logs</ToggleButton>
-                  <ToggleButton value="PLAN">Plans</ToggleButton>
-                  <ToggleButton value="SESSION_RECAP">Recaps</ToggleButton>
-                  <ToggleButton value="PINNED">Pinned</ToggleButton>
-                </ToggleButtonGroup>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  <TextField
-                    select
-                    size="small"
-                    label="Sort"
-                    value={sortOrder}
-                    onChange={(event) => setSortOrder(event.target.value as 'updated' | 'created' | 'date')}
-                    sx={{ minWidth: 160 }}
-                  >
-                    <MenuItem value="updated">Last updated</MenuItem>
-                    <MenuItem value="created">Created</MenuItem>
-                    <MenuItem value="date">Note date</MenuItem>
-                  </TextField>
-                  <Typography variant="caption" color="text.secondary">
-                    {visibleNotes.length} notes
-                  </Typography>
-                </Stack>
-                <Divider />
-                {loading && (
-                  <Stack spacing={1}>
-                    <Skeleton variant="rounded" height={56} />
-                    <Skeleton variant="rounded" height={56} />
-                    <Skeleton variant="rounded" height={56} />
-                  </Stack>
-                )}
-                {!loading && visibleNotes.length === 0 && (
-                  <EmptyState title="No notes yet" description="Create a note or daily log to get started." />
-                )}
-                <List>
-                  {visibleNotes.map((note) => {
-                    const folderName = note.folderId ? folderMap.get(note.folderId)?.name : undefined
-                    const previewSource = resolveNoteHtml(note)
-                    const excerpt = previewSource ? extractPlainText(previewSource).slice(0, 120) : 'Start writing your note...'
-                    return (
-                      <ListItemButton
-                        key={note.id}
-                        selected={selectedNote?.id === note.id}
-                        onClick={() => {
-                          setSelectedNote(note)
-                          navigate(`/notebook?noteId=${note.id}`)
-                        }}
-                        sx={{ alignItems: 'flex-start' }}
-                      >
-                        <Stack spacing={0.5} sx={{ flexGrow: 1 }}>
-                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                            <Typography variant="subtitle2" fontWeight={600}>
-                              {note.title || 'Untitled note'}
-                            </Typography>
-                            {note.isPinned && <StarIcon fontSize="small" color="warning" />}
-                            <Chip label={note.type.replace('_', ' ')} size="small" variant="outlined" />
-                          </Stack>
-                          <Typography variant="caption" color="text.secondary">
-                            {excerpt}
-                          </Typography>
-                          <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                            {folderName && <Chip label={folderName} size="small" />}
-                            {note.tagIds?.slice(0, 2).map((tagId) => {
-                              const tag = tagMap.get(tagId)
-                              return tag ? <Chip key={tagId} label={tag.name} size="small" variant="outlined" /> : null
-                            })}
-                            <Typography variant="caption" color="text.secondary">
-                              Updated {note.updatedAt ? formatDateTime(note.updatedAt, timezone) : '—'}
-                            </Typography>
-                          </Stack>
-                        </Stack>
-                      </ListItemButton>
-                    )
-                  })}
-                </List>
-              </>
-            )}
-          </Stack>
-        </Paper>
-
-        <Paper sx={{ flex: 2, minWidth: 320, p: 2 }}>
-          {!selectedNote && (
-            <EmptyState
-              title="Select a note"
-              description="Pick a note from the list or create a new one."
-              action={(
-                <Stack direction="row" spacing={1}>
-                  <Button variant="outlined" onClick={() => handleCreateNote('DAILY_LOG')}>Create daily log</Button>
-                  <Button variant="outlined" onClick={() => handleCreateNote('PLAN')}>Create plan</Button>
-                </Stack>
-              )}
-            />
-          )}
-          {selectedNote && (
-            <Stack spacing={2}>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
-                <TextField
-                  label="Title"
-                  value={selectedNote.title ?? ''}
-                  onChange={(event) => updateDraftNote({ ...selectedNote, title: event.target.value })}
-                  fullWidth
-                />
-                <Stack spacing={1} alignItems="flex-end">
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Tooltip title={selectedNote.isPinned ? 'Unpin note' : 'Pin note'}>
-                      <IconButton onClick={() => updateDraftNote({ ...selectedNote, isPinned: !selectedNote.isPinned })}>
-                        {selectedNote.isPinned ? <StarIcon color="warning" /> : <StarBorderIcon />}
-                      </IconButton>
-                    </Tooltip>
-                    <ToggleButtonGroup
-                      size="small"
-                      value={viewMode}
-                      exclusive
-                      onChange={(_, value) => value && setViewMode(value)}
-                    >
-                      <ToggleButton value="read" aria-label="Read mode">
-                        <VisibilityIcon fontSize="small" />
-                      </ToggleButton>
-                      <ToggleButton value="edit" aria-label="Edit mode">
-                        <EditIcon fontSize="small" />
-                      </ToggleButton>
-                    </ToggleButtonGroup>
-                  </Stack>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Button variant="contained" onClick={() => handleSaveNote(false)} disabled={saveState === 'saving'}>
-                      {saveState === 'saving' ? 'Saving…' : 'Save'}
-                    </Button>
-                    {selectedNote.isDeleted ? (
-                      <Button variant="outlined" startIcon={<RestoreIcon />} onClick={handleRestoreNote}>Restore</Button>
-                    ) : (
-                      <Button color="error" variant="outlined" startIcon={<DeleteIcon />} onClick={handleDeleteNote}>
-                        Delete
-                      </Button>
-                    )}
-                  </Stack>
-                  <Typography variant="caption" color="text.secondary">
-                    {saveState === 'saving' && 'Saving…'}
-                    {saveState === 'error' && 'Save failed'}
-                    {saveState === 'saved' && lastSavedAt && `Saved ${formatDateTime(lastSavedAt, timezone)}`}
-                    {saveState === 'idle' && (isDirty ? 'Unsaved changes' : 'All changes saved')}
-                  </Typography>
-                </Stack>
-              </Stack>
-              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                <TextField
-                  select
-                  label="Type"
-                  value={selectedNote.type}
-                  onChange={(event) => updateDraftNote({ ...selectedNote, type: event.target.value as NotebookNoteType })}
-                  sx={{ minWidth: 200 }}
-                >
-                  <MenuItem value="DAILY_LOG">Daily Log</MenuItem>
-                  <MenuItem value="TRADE_NOTE">Trade Note</MenuItem>
-                  <MenuItem value="PLAN">Plan</MenuItem>
-                  <MenuItem value="GOAL">Goal</MenuItem>
-                  <MenuItem value="SESSION_RECAP">Session Recap</MenuItem>
-                  <MenuItem value="NOTE">Note</MenuItem>
-                </TextField>
-                <TextField
-                  select
-                  label="Folder"
-                  value={selectedNote.folderId ?? ''}
-                  onChange={(event) => updateDraftNote({ ...selectedNote, folderId: event.target.value || null })}
-                  sx={{ minWidth: 200 }}
-                >
-                  <MenuItem value="">No folder</MenuItem>
-                  {folders.filter((folder) => !folder.systemKey).map((folder) => (
-                    <MenuItem key={folder.id} value={folder.id}>{folder.name}</MenuItem>
-                  ))}
-                </TextField>
-                <TextField
-                  required={selectedNote.type === 'DAILY_LOG'}
-                  label="Date"
-                  type="date"
-                  InputLabelProps={{ shrink: true }}
-                  value={selectedNote.dateKey ?? ''}
-                  onChange={(event) => updateDraftNote({ ...selectedNote, dateKey: event.target.value })}
-                  error={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())}
-                  helperText={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim()) ? 'Date is required' : ' '}
-                  sx={{ minWidth: 200 }}
-                />
-                <TextField
-                  label="Linked trade ID"
-                  value={selectedNote.relatedTradeId ?? ''}
-                  onChange={(event) => updateDraftNote({ ...selectedNote, relatedTradeId: event.target.value || null })}
-                  placeholder="Optional trade UUID"
-                  sx={{ minWidth: 240 }}
-                />
-                <Autocomplete
-                  multiple
-                  options={tags}
-                  value={noteTags}
-                  onChange={(_, value) => handleUpdateTags(value)}
-                  getOptionLabel={(option) => option.name}
-                  renderTags={(value, getTagProps) =>
-                    value.map((option, index) => (
-                      <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
-                    ))
-                  }
-                  renderInput={(params) => (
-                    <TextField {...params} label="Tags" placeholder="Tags" />
-                  )}
-                  sx={{ flex: 1 }}
-                />
-              </Stack>
-
-              {selectedNote.type === 'DAILY_LOG' && dailySummary && (
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center">
-                    <Stack>
-                      <Typography variant="subtitle2">Net P&L</Typography>
-                      <Typography variant="h6">{formatCurrency(dailySummary.netPnl, baseCurrency)}</Typography>
-                    </Stack>
-                    <Stack direction="row" spacing={2}>
-                      <Stack>
-                        <Typography variant="caption">Trades</Typography>
-                        <Typography>{dailySummary.tradeCount}</Typography>
-                      </Stack>
-                      <Stack>
-                        <Typography variant="caption">Winners</Typography>
-                        <Typography>{dailySummary.winners}</Typography>
-                      </Stack>
-                      <Stack>
-                        <Typography variant="caption">Losers</Typography>
-                        <Typography>{dailySummary.losers}</Typography>
-                      </Stack>
-                      <Stack>
-                        <Typography variant="caption">Win rate</Typography>
-                        <Typography>{Math.round(dailySummary.winRate * 100)}%</Typography>
-                      </Stack>
-                    </Stack>
-                    {renderSparkline(dailySummary.equityPoints)}
-                  </Stack>
-                  <Divider sx={{ my: 2 }} />
-                  <Typography variant="subtitle2" gutterBottom>Trades closed today</Typography>
-                  {closedTrades.length === 0 && (
-                    <Typography variant="body2" color="text.secondary">No closed trades for this date.</Typography>
-                  )}
-                  {closedTrades.map((trade) => (
-                    <Stack key={trade.id} direction="row" spacing={1} alignItems="center" sx={{ mb: 1 }}>
-                      <Chip label={trade.symbol} size="small" />
-                      <Typography variant="body2">{trade.direction}</Typography>
-                      <Typography variant="body2">{formatDateTime(trade.closedAt, timezone)}</Typography>
-                      <Typography variant="body2">{formatCurrency(trade.pnlNet ?? 0, baseCurrency)}</Typography>
-                    </Stack>
-                  ))}
-                </Paper>
-              )}
-
-              {selectedNote.type === 'TRADE_NOTE' && tradeDetail && (
-                <Paper variant="outlined" sx={{ p: 2 }}>
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle2">Trade summary</Typography>
-                    <Stack direction="row" spacing={2} alignItems="center">
-                      <Chip label={tradeDetail.symbol} />
-                      <Typography variant="body2">{tradeDetail.direction}</Typography>
-                      <Typography variant="body2">Opened {formatDateTime(tradeDetail.openedAt, timezone)}</Typography>
-                      {tradeDetail.closedAt && (
-                        <Typography variant="body2">Closed {formatDateTime(tradeDetail.closedAt, timezone)}</Typography>
-                      )}
-                      <Typography variant="body2">{formatCurrency(tradeDetail.pnlNet ?? 0, baseCurrency)}</Typography>
-                      {tradeDetail.strategyTag && (
-                        <Chip label={tradeDetail.strategyTag} size="small" variant="outlined" />
-                      )}
-                    </Stack>
-                  </Stack>
-                </Paper>
-              )}
-
-              <Stack spacing={1}>
-                <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                  <TextField
-                    select
-                    size="small"
-                    label="Apply template"
-                    value={templateSelection}
-                    onChange={(event) => setTemplateSelection(event.target.value)}
-                    sx={{ minWidth: 200 }}
-                  >
-                    <MenuItem value="">None</MenuItem>
-                    {templates.map((template) => (
-                      <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
-                    ))}
-                  </TextField>
-                  <Button variant="outlined" onClick={handleApplyTemplate}>Apply</Button>
-                  <Button variant="text" onClick={handleSaveTemplate}>Save as template</Button>
-                  {selectedNote.type === 'DAILY_LOG' && (
-                    <Button variant="text" onClick={handleInsertDailyLogTemplate}>Insert daily log structure</Button>
-                  )}
-                </Stack>
-                <RichTextEditor
-                  value={editorValue}
-                  readOnly={viewMode === 'read'}
-                  onChange={(html) => updateDraftNote({ ...selectedNote, body: html, bodyJson: null })}
-                />
-              </Stack>
-
-              <Stack spacing={1}>
-                <Typography variant="subtitle2">Attachments</Typography>
-                <Button component="label" variant="outlined">
-                  Upload attachment
-                  <input hidden type="file" onChange={handleUploadAttachment} />
-                </Button>
-                {attachments.length === 0 && (
-                  <Typography variant="body2" color="text.secondary">No attachments yet.</Typography>
-                )}
-                {attachments.map((item) => {
-                  const downloadUrl = item.downloadUrl ? `${apiBase}${item.downloadUrl}` : '#'
-                  return (
-                    <Stack key={item.id} direction="row" spacing={1} alignItems="center">
-                      <Button href={downloadUrl} target="_blank" rel="noreferrer">
-                        {item.fileName}
-                      </Button>
-                      <IconButton size="small" onClick={() => handleDeleteAttachment(item.id)}>
+                  <ListItemText primary={folder.name} secondary={folder.systemKey ? 'System view' : null} />
+                  {!folder.systemKey && (
+                    <Tooltip title="Delete folder">
+                      <IconButton size="small" onClick={(event) => {
+                        event.stopPropagation()
+                        handleDeleteFolder(folder.id)
+                      }}>
                         <DeleteIcon fontSize="small" />
                       </IconButton>
-                    </Stack>
-                  )
-                })}
-              </Stack>
+                    </Tooltip>
+                  )}
+                </ListItemButton>
+              ))}
+            </List>
+            <Divider />
+            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+              <Typography variant="subtitle2">Tags</Typography>
+              <Button size="small" onClick={handleAddTag}>Add tag</Button>
             </Stack>
-          )}
-        </Paper>
-      </Stack>
+            <Autocomplete
+              multiple
+              options={tags}
+              value={filterTags}
+              onChange={(_, value) => setFilterTags(value)}
+              getOptionLabel={(option) => option.name}
+              renderTags={(value, getTagProps) =>
+                value.map((option, index) => (
+                  <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
+                ))
+              }
+              renderInput={(params) => (
+                <TextField {...params} placeholder="Filter by tag" size="small" />
+              )}
+            />
+          </Stack>
+        </Box>
+      </Drawer>
 
       <Snackbar
         open={showDeleteUndo}
