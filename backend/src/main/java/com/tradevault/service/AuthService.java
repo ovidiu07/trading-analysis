@@ -1,7 +1,9 @@
 package com.tradevault.service;
 
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.LegalDocumentType;
 import com.tradevault.domain.enums.Role;
+import com.tradevault.config.LegalConfig;
 import com.tradevault.dto.auth.AuthResponse;
 import com.tradevault.dto.auth.LoginRequest;
 import com.tradevault.dto.auth.RegisterRequest;
@@ -26,9 +28,16 @@ public class AuthService {
     private final PasswordEncoder passwordEncoder;
     private final AuthenticationManager authenticationManager;
     private final JwtTokenProvider jwtTokenProvider;
+    private final LegalConfig legalConfig;
+    private final LegalAcceptanceService legalAcceptanceService;
+    private final TurnstileService turnstileService;
+    private final RegistrationRateLimiter registrationRateLimiter;
 
     @Transactional
-    public AuthResponse register(RegisterRequest request) {
+    public AuthResponse register(RegisterRequest request, String ipAddress, String userAgent) {
+        registrationRateLimiter.assertAllowed(ipAddress);
+        validateLegalAcceptance(request);
+        turnstileService.verifyToken(request.getCaptchaToken(), ipAddress);
         userRepository.findByEmail(request.getEmail())
                 .ifPresent(u -> { throw new DuplicateEmailException("Email already used"); });
         User user = User.builder()
@@ -40,6 +49,22 @@ public class AuthService {
                 .createdAt(OffsetDateTime.now())
                 .build();
         userRepository.save(user);
+        legalAcceptanceService.record(
+                user,
+                LegalDocumentType.TERMS,
+                legalConfig.getTermsVersion(),
+                ipAddress,
+                userAgent,
+                request.getLocale()
+        );
+        legalAcceptanceService.record(
+                user,
+                LegalDocumentType.PRIVACY,
+                legalConfig.getPrivacyVersion(),
+                ipAddress,
+                userAgent,
+                request.getLocale()
+        );
         String token = jwtTokenProvider.createToken(user.getId(), user.getEmail());
         return new AuthResponse(token, UserDto.from(user));
     }
@@ -52,5 +77,20 @@ public class AuthService {
         userRepository.save(saved);
         String token = jwtTokenProvider.createToken(saved.getId(), saved.getEmail());
         return new AuthResponse(token, UserDto.from(saved));
+    }
+
+    private void validateLegalAcceptance(RegisterRequest request) {
+        if (!Boolean.TRUE.equals(request.getTermsAccepted())) {
+            throw new IllegalArgumentException("Terms acceptance is required");
+        }
+        if (!Boolean.TRUE.equals(request.getPrivacyAccepted())) {
+            throw new IllegalArgumentException("Privacy acknowledgment is required");
+        }
+        if (legalConfig.getTermsVersion() == null || !legalConfig.getTermsVersion().equals(request.getTermsVersion())) {
+            throw new IllegalArgumentException("Terms version mismatch");
+        }
+        if (legalConfig.getPrivacyVersion() == null || !legalConfig.getPrivacyVersion().equals(request.getPrivacyVersion())) {
+            throw new IllegalArgumentException("Privacy version mismatch");
+        }
     }
 }

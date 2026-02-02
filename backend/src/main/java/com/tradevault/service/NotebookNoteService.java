@@ -17,6 +17,8 @@ import com.tradevault.repository.NotebookTagRepository;
 import com.tradevault.repository.TradeRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.jsoup.Jsoup;
+import org.jsoup.safety.Safelist;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -31,6 +33,15 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class NotebookNoteService {
+    private static final Safelist NOTE_BODY_SAFELIST = Safelist.relaxed()
+            .addTags("hr", "pre", "code", "label", "input", "span")
+            .addAttributes("a", "rel", "target")
+            .addAttributes("input", "type", "checked", "disabled")
+            .addAttributes("ul", "data-type")
+            .addAttributes("li", "data-type")
+            .addAttributes("label", "data-type")
+            .removeTags("img");
+
     private final NotebookNoteRepository noteRepository;
     private final NotebookFolderRepository folderRepository;
     private final NotebookTagRepository tagRepository;
@@ -214,7 +225,7 @@ public class NotebookNoteService {
             note.setTitle(request.getTitle());
         }
         if (request.getBody() != null) {
-            note.setBody(request.getBody());
+            note.setBody(sanitizeHtml(request.getBody()));
         }
         if (request.getBodyJson() != null) {
             note.setBodyJson(request.getBodyJson());
@@ -227,6 +238,13 @@ public class NotebookNoteService {
                     .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
             note.setRelatedTrade(trade);
         }
+        if (request.getIsPinned() != null) {
+            note.setPinned(request.getIsPinned());
+        }
+    }
+
+    private String sanitizeHtml(String html) {
+        return Jsoup.clean(html, NOTE_BODY_SAFELIST);
     }
 
     private void replaceTags(NotebookNote note, List<UUID> tagIds, User user) {
@@ -271,6 +289,7 @@ public class NotebookNoteService {
                 .relatedTradeId(note.getRelatedTrade() != null ? note.getRelatedTrade().getId() : null)
                 .isDeleted(note.isDeleted())
                 .deletedAt(note.getDeletedAt())
+                .isPinned(note.isPinned())
                 .createdAt(note.getCreatedAt())
                 .updatedAt(note.getUpdatedAt())
                 .tagIds(tagIds)
@@ -279,12 +298,12 @@ public class NotebookNoteService {
 
     private Sort resolveSort(String sort) {
         if (sort == null || sort.isBlank()) {
-            return Sort.by(Sort.Direction.DESC, "updatedAt");
+            return Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("updatedAt"));
         }
         return switch (sort) {
-            case "date" -> Sort.by(Sort.Direction.DESC, "dateKey", "updatedAt");
-            case "created" -> Sort.by(Sort.Direction.DESC, "createdAt");
-            default -> Sort.by(Sort.Direction.DESC, "updatedAt");
+            case "date" -> Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("dateKey"), Sort.Order.desc("updatedAt"));
+            case "created" -> Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("createdAt"));
+            default -> Sort.by(Sort.Order.desc("isPinned"), Sort.Order.desc("updatedAt"));
         };
     }
 }

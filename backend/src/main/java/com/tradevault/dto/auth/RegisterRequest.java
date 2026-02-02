@@ -2,6 +2,7 @@ package com.tradevault.dto.auth;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 import lombok.Data;
 
@@ -14,4 +15,20 @@ public class RegisterRequest {
     @NotBlank
     @Size(min = 8)
     private String password;
+
+    @NotNull
+    private Boolean termsAccepted;
+
+    @NotBlank
+    private String termsVersion;
+
+    @NotNull
+    private Boolean privacyAccepted;
+
+    @NotBlank
+    private String privacyVersion;
+
+    private String captchaToken;
+
+    private String locale;
 }

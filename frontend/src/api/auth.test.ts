@@ -25,7 +25,16 @@ describe('auth api', () => {
   })
 
   it('register calls correct endpoint and stores token', async () => {
-    await register('user@example.com', 'Password1!')
+    await register({
+      email: 'user@example.com',
+      password: 'Password1!',
+      termsAccepted: true,
+      termsVersion: '2024-09-01',
+      privacyAccepted: true,
+      privacyVersion: '2024-09-01',
+      captchaToken: 'token',
+      locale: 'en-GB'
+    })
     expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/auth/register', expect.anything())
     expect(localStorage.getItem('token')).toBe('abc')
   })

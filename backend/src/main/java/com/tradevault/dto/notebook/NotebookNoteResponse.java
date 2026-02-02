@@ -1,6 +1,7 @@
 package com.tradevault.dto.notebook;
 
 import com.tradevault.domain.enums.NotebookNoteType;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import lombok.Value;
 
@@ -20,8 +21,11 @@ public class NotebookNoteResponse {
     String bodyJson;
     LocalDate dateKey;
     UUID relatedTradeId;
+    @JsonProperty("isDeleted")
     boolean isDeleted;
     OffsetDateTime deletedAt;
+    @JsonProperty("isPinned")
+    boolean isPinned;
     OffsetDateTime createdAt;
     OffsetDateTime updatedAt;
     List<UUID> tagIds;

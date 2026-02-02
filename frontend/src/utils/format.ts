@@ -48,16 +48,16 @@ export const formatNumber = (value?: number | null, maximumFractionDigits = 2) =
   return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value)
 }
 
-export const formatDateTime = (value?: string | null) => {
+export const formatDateTime = (value?: string | null, timeZone?: string) => {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString()
+  return date.toLocaleString(undefined, timeZone ? { timeZone } : undefined)
 }
 
-export const formatDate = (value?: string | null) => {
+export const formatDate = (value?: string | null, timeZone?: string) => {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString()
+  return date.toLocaleDateString(undefined, timeZone ? { timeZone } : undefined)
 }
