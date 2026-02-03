@@ -1,4 +1,4 @@
-import { Box, Divider, IconButton, Stack, Tooltip, Typography } from '@mui/material'
+import { Box, Divider, IconButton, Menu, MenuItem, Stack, Tooltip, Typography } from '@mui/material'
 import FormatBoldIcon from '@mui/icons-material/FormatBold'
 import FormatItalicIcon from '@mui/icons-material/FormatItalic'
 import FormatUnderlinedIcon from '@mui/icons-material/FormatUnderlined'
@@ -12,13 +12,15 @@ import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
 import UndoIcon from '@mui/icons-material/Undo'
 import RedoIcon from '@mui/icons-material/Redo'
 import LinkIcon from '@mui/icons-material/Link'
-import { useCallback, useEffect, useRef } from 'react'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 type RichTextEditorProps = {
   value: string
   onChange: (value: string) => void
   readOnly?: boolean
   placeholder?: string
+  compactToolbar?: boolean
 }
 
 const sanitizeHtml = (html: string) => {
@@ -63,8 +65,17 @@ const sanitizeHtml = (html: string) => {
   return doc.body.innerHTML
 }
 
-export default function RichTextEditor({ value, onChange, readOnly = false, placeholder }: RichTextEditorProps) {
+export default function RichTextEditor({
+  value,
+  onChange,
+  readOnly = false,
+  placeholder,
+  compactToolbar = false
+}: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement | null>(null)
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null)
+  const openMore = Boolean(moreAnchor)
+  const compactButtonSx = compactToolbar ? { width: 44, height: 44 } : undefined
 
   useEffect(() => {
     if (!editorRef.current) return
@@ -109,6 +120,11 @@ export default function RichTextEditor({ value, onChange, readOnly = false, plac
     onChange(sanitizeHtml(editorRef.current.innerHTML))
   }
 
+  const handleMoreAction = (action: () => void) => {
+    action()
+    setMoreAnchor(null)
+  }
+
   return (
     <Stack spacing={1}>
       {!readOnly && (
@@ -124,82 +140,154 @@ export default function RichTextEditor({ value, onChange, readOnly = false, plac
             p: 0.5
           }}
         >
-          <Stack direction="row" spacing={0.5} flexWrap="wrap" alignItems="center">
-            {[1, 2, 3].map((level) => (
-              <Tooltip key={level} title={`Heading ${level}`}>
-                <IconButton size="small" onClick={() => handleHeading(level)} aria-label={`Heading ${level}`}>
-                  <Typography variant="caption" fontWeight={700}>H{level}</Typography>
-                </IconButton>
-              </Tooltip>
-            ))}
-            <Tooltip title="Bold">
-              <IconButton size="small" onClick={() => exec('bold')}>
-                <FormatBoldIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Italic">
-              <IconButton size="small" onClick={() => exec('italic')}>
-                <FormatItalicIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Underline">
-              <IconButton size="small" onClick={() => exec('underline')}>
-                <FormatUnderlinedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Divider flexItem orientation="vertical" />
-            <Tooltip title="Bullet list">
-              <IconButton size="small" onClick={() => exec('insertUnorderedList')}>
-                <FormatListBulletedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Numbered list">
-              <IconButton size="small" onClick={() => exec('insertOrderedList')}>
-                <FormatListNumberedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Checklist">
-              <IconButton size="small" onClick={handleChecklist}>
-                <CheckBoxOutlinedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Divider flexItem orientation="vertical" />
-            <Tooltip title="Blockquote">
-              <IconButton size="small" onClick={() => exec('formatBlock', 'blockquote')}>
-                <FormatQuoteIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Inline code">
-              <IconButton size="small" onClick={() => exec('insertHTML', '<code></code>')}>
-                <CodeIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Code block">
-              <IconButton size="small" onClick={handleCodeBlock}>
-                <DataObjectIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Horizontal rule">
-              <IconButton size="small" onClick={() => exec('insertHorizontalRule')}>
-                <HorizontalRuleIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Link">
-              <IconButton size="small" onClick={handleLink}>
-                <LinkIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Divider flexItem orientation="vertical" />
-            <Tooltip title="Undo">
-              <IconButton size="small" onClick={() => exec('undo')}>
-                <UndoIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-            <Tooltip title="Redo">
-              <IconButton size="small" onClick={() => exec('redo')}>
-                <RedoIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+          <Stack
+            direction="row"
+            spacing={0.5}
+            flexWrap={compactToolbar ? 'nowrap' : 'wrap'}
+            alignItems="center"
+            sx={{ overflowX: compactToolbar ? 'auto' : 'visible' }}
+          >
+            {compactToolbar ? (
+              <>
+                <Tooltip title="Bold">
+                  <IconButton size="small" onClick={() => exec('bold')} sx={compactButtonSx}>
+                    <FormatBoldIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Italic">
+                  <IconButton size="small" onClick={() => exec('italic')} sx={compactButtonSx}>
+                    <FormatItalicIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Bullet list">
+                  <IconButton size="small" onClick={() => exec('insertUnorderedList')} sx={compactButtonSx}>
+                    <FormatListBulletedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Numbered list">
+                  <IconButton size="small" onClick={() => exec('insertOrderedList')} sx={compactButtonSx}>
+                    <FormatListNumberedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Checklist">
+                  <IconButton size="small" onClick={handleChecklist} sx={compactButtonSx}>
+                    <CheckBoxOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Link">
+                  <IconButton size="small" onClick={handleLink} sx={compactButtonSx}>
+                    <LinkIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Divider flexItem orientation="vertical" />
+                <Tooltip title="More">
+                  <IconButton
+                    size="small"
+                    onClick={(event) => setMoreAnchor(event.currentTarget)}
+                    aria-label="More formatting options"
+                    sx={compactButtonSx}
+                  >
+                    <MoreVertIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Menu
+                  anchorEl={moreAnchor}
+                  open={openMore}
+                  onClose={() => setMoreAnchor(null)}
+                >
+                  {[1, 2, 3].map((level) => (
+                    <MenuItem key={level} onClick={() => handleMoreAction(() => handleHeading(level))}>
+                      Heading {level}
+                    </MenuItem>
+                  ))}
+                  <MenuItem onClick={() => handleMoreAction(() => exec('underline'))}>Underline</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('formatBlock', 'blockquote'))}>Blockquote</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHTML', '<code></code>'))}>Inline code</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(handleCodeBlock)}>Code block</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHorizontalRule'))}>Horizontal rule</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('undo'))}>Undo</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('redo'))}>Redo</MenuItem>
+                </Menu>
+              </>
+            ) : (
+              <>
+                {[1, 2, 3].map((level) => (
+                  <Tooltip key={level} title={`Heading ${level}`}>
+                    <IconButton size="small" onClick={() => handleHeading(level)} aria-label={`Heading ${level}`}>
+                      <Typography variant="caption" fontWeight={700}>H{level}</Typography>
+                    </IconButton>
+                  </Tooltip>
+                ))}
+                <Tooltip title="Bold">
+                  <IconButton size="small" onClick={() => exec('bold')}>
+                    <FormatBoldIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Italic">
+                  <IconButton size="small" onClick={() => exec('italic')}>
+                    <FormatItalicIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Underline">
+                  <IconButton size="small" onClick={() => exec('underline')}>
+                    <FormatUnderlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Divider flexItem orientation="vertical" />
+                <Tooltip title="Bullet list">
+                  <IconButton size="small" onClick={() => exec('insertUnorderedList')}>
+                    <FormatListBulletedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Numbered list">
+                  <IconButton size="small" onClick={() => exec('insertOrderedList')}>
+                    <FormatListNumberedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Checklist">
+                  <IconButton size="small" onClick={handleChecklist}>
+                    <CheckBoxOutlinedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Divider flexItem orientation="vertical" />
+                <Tooltip title="Blockquote">
+                  <IconButton size="small" onClick={() => exec('formatBlock', 'blockquote')}>
+                    <FormatQuoteIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Inline code">
+                  <IconButton size="small" onClick={() => exec('insertHTML', '<code></code>')}>
+                    <CodeIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Code block">
+                  <IconButton size="small" onClick={handleCodeBlock}>
+                    <DataObjectIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Horizontal rule">
+                  <IconButton size="small" onClick={() => exec('insertHorizontalRule')}>
+                    <HorizontalRuleIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Link">
+                  <IconButton size="small" onClick={handleLink}>
+                    <LinkIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Divider flexItem orientation="vertical" />
+                <Tooltip title="Undo">
+                  <IconButton size="small" onClick={() => exec('undo')}>
+                    <UndoIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Redo">
+                  <IconButton size="small" onClick={() => exec('redo')}>
+                    <RedoIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              </>
+            )}
           </Stack>
         </Box>
       )}
