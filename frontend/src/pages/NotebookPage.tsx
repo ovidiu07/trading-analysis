@@ -42,7 +42,10 @@ import EditIcon from '@mui/icons-material/Edit'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import ViewListIcon from '@mui/icons-material/ViewList'
 import CloseIcon from '@mui/icons-material/Close'
-import { useLocation, useNavigate, unstable_useBlocker as useBlocker } from 'react-router-dom'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
+import { useLocation, useNavigate } from 'react-router-dom'
+import { useBlocker } from "react-router";
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 import {
@@ -240,8 +243,30 @@ const convertMarkdownToHtml = (markdown: string) => {
 }
 
 const resolveNoteHtml = (note: NotebookNote | null) => {
-  if (!note?.body) return ''
-  return looksLikeHtml(note.body) ? note.body : convertMarkdownToHtml(note.body)
+  if (!note) return ''
+  // Prefer structured content if available
+  if (note.bodyJson && note.bodyJson.trim()) {
+    try {
+      const parsed = JSON.parse(note.bodyJson)
+      if (parsed && typeof parsed === 'object' && typeof parsed.content === 'string') {
+        return parsed.content
+      }
+      // If bodyJson contains raw HTML string instead of JSON object
+      if (typeof parsed === 'string' && parsed.trim()) {
+        return looksLikeHtml(parsed) ? parsed : convertMarkdownToHtml(parsed)
+      }
+    } catch {
+      // If not valid JSON, treat bodyJson as potential HTML
+      const maybeHtml = note.bodyJson
+      if (maybeHtml && maybeHtml.trim()) {
+        return looksLikeHtml(maybeHtml) ? maybeHtml : convertMarkdownToHtml(maybeHtml)
+      }
+    }
+  }
+  if (note.body && note.body.trim()) {
+    return looksLikeHtml(note.body) ? note.body : convertMarkdownToHtml(note.body)
+  }
+  return ''
 }
 
 const extractPlainText = (html: string) => {
@@ -293,6 +318,7 @@ export default function NotebookPage() {
   const [listOpen, setListOpen] = useState(() => localStorage.getItem('tv-notebook-list') !== 'collapsed')
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false)
   const [newMenuAnchor, setNewMenuAnchor] = useState<null | HTMLElement>(null)
+  const [editorMenuAnchor, setEditorMenuAnchor] = useState<null | HTMLElement>(null)
   const [mobilePanel, setMobilePanel] = useState<'list' | 'editor'>('list')
   const persistedFingerprintRef = useRef<string>('')
   const isSavingRef = useRef(false)
@@ -301,7 +327,7 @@ export default function NotebookPage() {
   const baseCurrency = user?.baseCurrency || 'USD'
   const apiBase = import.meta.env.VITE_API_URL || '/api'
   const theme = useTheme()
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const isMdUp = useMediaQuery(theme.breakpoints.up('md'))
   const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
 
@@ -604,7 +630,9 @@ export default function NotebookPage() {
       return false
     }
     if (searchQuery.trim()) {
-      const haystack = `${note.title ?? ''} ${note.body ?? ''}`.toLowerCase()
+      const previewSource = resolveNoteHtml(note)
+      const text = previewSource ? extractPlainText(previewSource) : ''
+      const haystack = `${note.title ?? ''} ${text}`.toLowerCase()
       if (!haystack.includes(searchQuery.toLowerCase())) {
         return false
       }
@@ -675,9 +703,13 @@ export default function NotebookPage() {
       setSaveState('saving')
       setError('')
       const dateKey = selectedNote.dateKey && selectedNote.dateKey.trim() ? selectedNote.dateKey : null
+      const html = editorValue
+      const payloadBodyJson = selectedNote.bodyJson && selectedNote.bodyJson.trim() ? selectedNote.bodyJson : JSON.stringify({ format: 'html', content: html })
+      const payloadBody = selectedNote.body && selectedNote.body.trim() ? selectedNote.body : extractPlainText(html)
       const updated = await updateNotebookNote(selectedNote.id, {
         title: selectedNote.title,
-        body: selectedNote.body,
+        body: payloadBody,
+        bodyJson: payloadBodyJson,
         dateKey,
         folderId: selectedNote.folderId,
         type: selectedNote.type,
@@ -758,7 +790,10 @@ export default function NotebookPage() {
     if (!selectedNote || !templateSelection) return
     const template = templates.find((item) => item.id === templateSelection)
     if (!template) return
-    updateDraftNote({ ...selectedNote, body: template.content ?? '', bodyJson: null })
+    const html = template.content ?? ''
+    const plain = extractPlainText(html)
+    const json = JSON.stringify({ format: 'html', content: html })
+    updateDraftNote({ ...selectedNote, body: plain, bodyJson: json })
   }
 
   const handleSaveTemplate = async () => {
@@ -766,10 +801,11 @@ export default function NotebookPage() {
     const name = window.prompt('Template name?')
     if (!name) return
     try {
+      // Save current editor HTML as template content for fidelity
       await createNotebookTemplate({
         name,
         appliesToType: selectedNote.type,
-        content: selectedNote.body ?? ''
+        content: editorValue
       })
       const data = await listNotebookTemplates(selectedNote.type)
       setTemplates(data)
@@ -794,7 +830,9 @@ export default function NotebookPage() {
       '<h2>Post-session review</h2>',
       '<p></p>'
     ].join('')
-    updateDraftNote({ ...selectedNote, body: html, bodyJson: null })
+    const plain = extractPlainText(html)
+    const json = JSON.stringify({ format: 'html', content: html })
+    updateDraftNote({ ...selectedNote, body: plain, bodyJson: json })
   }
 
   const handleUpdateTags = async (value: NotebookTag[]) => {
@@ -858,10 +896,14 @@ export default function NotebookPage() {
     if (!confirmDiscard()) return
     try {
       const losses = await listLosses(lossRecapForm.from, lossRecapForm.to, timezone, lossRecapForm.minLoss)
+      const markdown = buildLossRecapBody(losses as TradeResponse[], timezone)
+      const html = convertMarkdownToHtml(markdown)
+      const plain = extractPlainText(html)
       const note = await createNotebookNote({
         type: 'SESSION_RECAP',
         title: `Loss recap ${lossRecapForm.from} → ${lossRecapForm.to}`,
-        body: buildLossRecapBody(losses as TradeResponse[], timezone)
+        body: plain,
+        bodyJson: JSON.stringify({ format: 'html', content: html })
       })
       setSelectedNote(note)
       setSaveState('saved')
@@ -938,7 +980,7 @@ export default function NotebookPage() {
   }
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={3} sx={{ overflowX: 'hidden' }} >
       <PageHeader
         title="Notebook"
         subtitle="Capture session notes, daily logs, and trade reflections."
@@ -986,7 +1028,8 @@ export default function NotebookPage() {
           alignItems: 'start',
           gridTemplateColumns: { xs: '1fr', lg: '280px 1fr' },
           width: '100%',
-          minWidth: 0
+          minWidth: 0,
+          overflowX: 'hidden'
         }}
       >
         {isDesktop && (
@@ -1203,9 +1246,44 @@ export default function NotebookPage() {
             {selectedNote && (
               <Stack spacing={2}>
                 {isMobile && (
-                  <Button size="small" onClick={() => setMobilePanel('list')}>
-                    Back to list
-                  </Button>
+                  <Box sx={{ position: 'sticky', top: 0, zIndex: 2, bgcolor: 'background.paper', borderBottom: '1px solid', borderColor: 'divider', py: 1 }}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ px: 1 }}>
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <IconButton size="small" onClick={() => setMobilePanel('list')} aria-label="Back to notes list">
+                          <ArrowBackIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton size="small" onClick={() => setFiltersDrawerOpen(true)} aria-label="Open folders">
+                          <FilterAltIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                      <Typography variant="subtitle2" noWrap sx={{ flexGrow: 1, mx: 1, textAlign: 'center' }}>
+                        {selectedNote.title || 'Untitled note'}
+                      </Typography>
+                      <IconButton
+                        size="small"
+                        aria-label="More actions"
+                        onClick={(e) => setEditorMenuAnchor(e.currentTarget)}
+                      >
+                        <MoreVertIcon fontSize="small" />
+                      </IconButton>
+                    </Stack>
+                    <Menu
+                      anchorEl={editorMenuAnchor}
+                      open={Boolean(editorMenuAnchor)}
+                      onClose={() => setEditorMenuAnchor(null)}
+                    >
+                      <MenuItem onClick={() => { setEditorMenuAnchor(null); void handleSaveNote(); }} disabled={saveState === 'saving' || !isDirty}>Save</MenuItem>
+                      <MenuItem onClick={() => { setEditorMenuAnchor(null); updateDraftNote({ ...selectedNote, isPinned: !selectedNote.isPinned }); }}>{selectedNote.isPinned ? 'Unpin' : 'Pin'}</MenuItem>
+                      {selectedNote.isDeleted ? (
+                        <MenuItem onClick={() => { setEditorMenuAnchor(null); void handleRestoreNote(); }}>Restore</MenuItem>
+                      ) : (
+                        <MenuItem onClick={() => { setEditorMenuAnchor(null); void handleDeleteNote(); }}>Delete</MenuItem>
+                      )}
+                      <MenuItem onClick={() => { setEditorMenuAnchor(null); handleInsertDailyLogTemplate(); }}>Insert daily log structure</MenuItem>
+                      <MenuItem onClick={() => { setEditorMenuAnchor(null); void handleSaveTemplate(); }}>Save as template</MenuItem>
+                      <MenuItem onClick={() => { setEditorMenuAnchor(null); setFiltersDrawerOpen(true); }}>Open folders</MenuItem>
+                    </Menu>
+                  </Box>
                 )}
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
                   <TextField
@@ -1450,7 +1528,12 @@ export default function NotebookPage() {
                   <RichTextEditor
                     value={editorValue}
                     readOnly={viewMode === 'read'}
-                    onChange={(html) => updateDraftNote({ ...selectedNote, body: html, bodyJson: null })}
+                    onChange={(html) => {
+                                          if (!selectedNote) return
+                                          const plain = extractPlainText(html)
+                                          const json = JSON.stringify({ format: 'html', content: html })
+                                          updateDraftNote({ ...selectedNote, body: plain, bodyJson: json })
+                                        }}
                   />
                 </Stack>
 
@@ -1490,7 +1573,7 @@ export default function NotebookPage() {
         ModalProps={{ keepMounted: true }}
         sx={{ display: { lg: 'none' } }}
       >
-        <Box sx={{ width: { xs: '100vw', sm: 320 }, p: 2 }}>
+        <Box sx={{ width: { xs: '100vw', sm: 320 }, p: 2, height: '100dvh', maxHeight: '100dvh', overflowY: 'auto' }}>
           <Stack spacing={2}>
             <Stack direction="row" alignItems="center" justifyContent="space-between">
               <Typography variant="subtitle1" fontWeight={600}>Filters</Typography>
@@ -1570,9 +1653,9 @@ export default function NotebookPage() {
         </Alert>
       </Snackbar>
 
-      <Dialog open={lossRecapOpen} onClose={() => setLossRecapOpen(false)}>
+      <Dialog open={lossRecapOpen} onClose={() => setLossRecapOpen(false)} fullScreen={isMobile} scroll="paper">
         <DialogTitle>Create loss recap</DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ maxHeight: '100dvh', overflowY: 'auto' }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
               label="From"

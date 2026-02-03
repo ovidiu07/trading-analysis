@@ -37,7 +37,7 @@ public class AuthService {
     public AuthResponse register(RegisterRequest request, String ipAddress, String userAgent) {
         registrationRateLimiter.assertAllowed(ipAddress);
         validateLegalAcceptance(request);
-        turnstileService.verifyToken(request.getCaptchaToken(), ipAddress);
+        // CAPTCHA verification removed to allow registration without it
         userRepository.findByEmail(request.getEmail())
                 .ifPresent(u -> { throw new DuplicateEmailException("Email already used"); });
         User user = User.builder()

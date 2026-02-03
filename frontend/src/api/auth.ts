@@ -11,7 +11,6 @@ export type RegisterPayload = {
   termsVersion: string
   privacyAccepted: boolean
   privacyVersion: string
-  captchaToken?: string | null
   locale?: string | null
 }
 
