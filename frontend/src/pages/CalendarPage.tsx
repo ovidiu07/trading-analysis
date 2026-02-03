@@ -16,6 +16,7 @@ import {
   IconButton,
   Stack,
   Typography,
+  useMediaQuery,
   useTheme,
 } from '@mui/material'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
@@ -33,6 +34,8 @@ const weekStartsOn = 1
 
 export default function CalendarPage() {
   const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'lg'))
   const navigate = useNavigate()
   const { user } = useAuth()
   const baseCurrency = user?.baseCurrency || 'USD'
@@ -174,21 +177,24 @@ export default function CalendarPage() {
           borderColor,
           backgroundColor,
           width: '100%',
-          minHeight: 110,
-          p: 1.5,
+          height: '100%',
+          minHeight: { xs: 72, sm: 92, md: 110 },
+          p: { xs: 1, sm: 1.25, md: 1.5 },
           opacity: isCurrentMonth ? 1 : 0.45,
           alignItems: 'flex-start',
           justifyContent: 'flex-start',
+          minWidth: 0,
+          overflow: 'hidden'
         }}
       >
-        <Stack spacing={0.5} sx={{ width: '100%' }}>
-          <Typography variant="subtitle2" fontWeight={600}>
+        <Stack spacing={0.5} sx={{ width: '100%', minWidth: 0 }}>
+          <Typography variant={isMobile ? 'body2' : 'subtitle2'} fontWeight={600}>
             {format(day, 'd')}
           </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Typography variant={isMobile ? 'caption' : 'body2'} color="text.secondary" noWrap>
             {formatSignedCurrency(netPnl ?? null, baseCurrency)}
           </Typography>
-          <Typography variant="caption" color="text.secondary">
+          <Typography variant="caption" color="text.secondary" noWrap>
             {entry ? `${entry.tradeCount} trades` : 'No trades'}
           </Typography>
         </Stack>
@@ -202,21 +208,44 @@ export default function CalendarPage() {
         title="Calendar"
         subtitle={`Realized P&L by trade close date in ${timezone}.`}
         actions={(
-          <Stack direction="row" spacing={1} alignItems="center">
-            <IconButton aria-label="Previous month" onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}>
+          <Box
+            sx={{
+              width: { xs: '100%', md: 'auto' },
+              display: 'grid',
+              gridTemplateColumns: { xs: '44px 1fr 44px', sm: 'auto auto auto' },
+              alignItems: 'center',
+              gap: { xs: 1, sm: 1.5 },
+              justifyContent: { xs: 'center', sm: 'flex-start' }
+            }}
+          >
+            <IconButton
+              aria-label="Previous month"
+              onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}
+              sx={{ width: 44, height: 44 }}
+            >
               <ChevronLeftIcon />
             </IconButton>
-            <Typography variant="h6">{format(currentMonth, 'MMMM yyyy')}</Typography>
-            <IconButton aria-label="Next month" onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}>
+            <Typography
+              variant={isMobile ? 'subtitle1' : 'h6'}
+              textAlign="center"
+              sx={{ minWidth: 0, whiteSpace: 'nowrap' }}
+            >
+              {format(currentMonth, 'MMMM yyyy')}
+            </Typography>
+            <IconButton
+              aria-label="Next month"
+              onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}
+              sx={{ width: 44, height: 44 }}
+            >
               <ChevronRightIcon />
             </IconButton>
-          </Stack>
+          </Box>
         )}
       />
 
       <Card>
         <CardContent>
-          <Stack direction="row" spacing={2} mb={2} flexWrap="wrap">
+          <Stack direction="row" spacing={2} mb={{ xs: 1.5, sm: 2 }} flexWrap="wrap">
             <Stack direction="row" spacing={1} alignItems="center">
               <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.success.light, 0.4), border: `1px solid ${theme.palette.success.main}` }} />
               <Typography variant="caption">Profit</Typography>
@@ -231,14 +260,26 @@ export default function CalendarPage() {
             </Stack>
           </Stack>
 
-          <Box sx={{ overflowX: { xs: 'auto', md: 'visible' } }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, mb: 1, minWidth: { xs: 560, md: 'auto' } }}>
-              {weekdayLabels.map((label) => (
-                <Typography key={label} variant="caption" color="text.secondary" textAlign="center" fontWeight={600}>
-                  {label}
-                </Typography>
-              ))}
-            </Box>
+          <Box
+            sx={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+              gap: { xs: 0.5, sm: 1 },
+              mb: { xs: 0.5, sm: 1 }
+            }}
+          >
+            {weekdayLabels.map((label) => (
+              <Typography
+                key={label}
+                variant="caption"
+                color="text.secondary"
+                textAlign="center"
+                fontWeight={600}
+                sx={{ minWidth: 0 }}
+              >
+                {label}
+              </Typography>
+            ))}
           </Box>
 
           {loading ? (
@@ -252,10 +293,15 @@ export default function CalendarPage() {
                   {error}
                 </Typography>
               )}
-              <Box sx={{ overflowX: { xs: 'auto', md: 'visible' } }}>
-                <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(7, 1fr)', gap: 1, minWidth: { xs: 560, md: 'auto' } }}>
-                  {days.map(renderDayCell)}
-                </Box>
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+                  gap: { xs: 0.5, sm: 1 },
+                  gridAutoRows: { xs: 'minmax(72px, auto)', sm: 'minmax(92px, auto)', md: 'minmax(110px, auto)' }
+                }}
+              >
+                {days.map(renderDayCell)}
               </Box>
               {!error && dailyPnl.length === 0 && (
                 <EmptyState
@@ -268,14 +314,22 @@ export default function CalendarPage() {
         </CardContent>
       </Card>
 
-      <Dialog open={!!selectedDate} onClose={handleCloseDialog} fullWidth maxWidth="sm">
+      <Dialog
+        open={!!selectedDate}
+        onClose={handleCloseDialog}
+        fullWidth
+        fullScreen={isMobile}
+        maxWidth={isTablet ? 'md' : 'sm'}
+      >
         <DialogTitle>
           {selectedDate ? `Trades closed on ${format(selectedDate, 'PPP')}` : 'Trades'}
         </DialogTitle>
-        <DialogContent dividers>
+        <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 } }}>
           <Stack spacing={1} sx={{ mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary">Daily summary</Typography>
-            <Typography variant="h6">{formatSignedCurrency(selectedNetPnl, baseCurrency)}</Typography>
+            <Typography variant={isMobile ? 'subtitle1' : 'h6'}>
+              {formatSignedCurrency(selectedNetPnl, baseCurrency)}
+            </Typography>
             <Typography variant="body2" color="text.secondary">
               {selectedTradeCount} trades closed
             </Typography>
@@ -293,14 +347,14 @@ export default function CalendarPage() {
             <Stack spacing={1.5}>
               {selectedTrades.map((trade) => (
                 <Box key={trade.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50' }}>
-                  <Stack direction="row" justifyContent="space-between" spacing={2}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={2}>
                     <Box>
                       <Typography variant="subtitle2">{trade.symbol}</Typography>
                       <Typography variant="caption" color="text.secondary">
                         {trade.direction} · {formatDateTime(trade.closedAt)}
                       </Typography>
                     </Box>
-                    <Typography variant="subtitle2">
+                    <Typography variant="subtitle2" sx={{ whiteSpace: 'nowrap' }}>
                       {formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
                     </Typography>
                   </Stack>
@@ -323,7 +377,12 @@ export default function CalendarPage() {
               <Stack spacing={1}>
                 {selectedNotes.map((note) => (
                   <Box key={note.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50' }}>
-                    <Stack direction="row" justifyContent="space-between" spacing={2} alignItems="center">
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      justifyContent="space-between"
+                      spacing={2}
+                      alignItems={{ sm: 'center' }}
+                    >
                       <Box>
                         <Typography variant="subtitle2">{note.title || 'Untitled note'}</Typography>
                         <Chip size="small" label={note.type.replace('_', ' ')} variant="outlined" />
