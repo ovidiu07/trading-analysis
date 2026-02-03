@@ -4,6 +4,10 @@ export type AuthUser = { id: string; email: string; role?: string; baseCurrency?
 
 export type AuthResponse = { token: string, user?: AuthUser }
 
+export type RegisterResponse = { success: boolean; requiresEmailVerification: boolean }
+
+export type SuccessResponse = { success: boolean }
+
 export type RegisterPayload = {
   email: string
   password: string
@@ -21,9 +25,27 @@ export async function login(email: string, password: string) {
 }
 
 export async function register(payload: RegisterPayload) {
-  const response = await apiPost<AuthResponse>('/auth/register', payload)
-  setAuthToken(response.token)
-  return response
+  return apiPost<RegisterResponse>('/auth/register', payload)
+}
+
+export async function verifyEmail(email: string, token: string) {
+  return apiPost<SuccessResponse>('/auth/verify-email', { email, token })
+}
+
+export async function resendVerification(email: string) {
+  return apiPost<SuccessResponse>('/auth/resend-verification', { email })
+}
+
+export async function forgotPassword(email: string) {
+  return apiPost<SuccessResponse>('/auth/forgot-password', { email })
+}
+
+export async function resetPassword(email: string, token: string, newPassword: string) {
+  return apiPost<SuccessResponse>('/auth/reset-password', { email, token, newPassword })
+}
+
+export async function changePassword(currentPassword: string, newPassword: string) {
+  return apiPost<SuccessResponse>('/auth/change-password', { currentPassword, newPassword })
 }
 
 export async function getCurrentUser() {

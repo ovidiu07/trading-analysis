@@ -16,12 +16,7 @@ type TradeFormValues = {
   fees?: number
   commission?: number
   slippage?: number
-  pnlGross?: number
-  pnlNet?: number
-  pnlPercent?: number
   riskAmount?: number
-  riskPercent?: number
-  rMultiple?: number
   capitalUsed?: number
   setup?: string
   strategyTag?: string
@@ -49,12 +44,7 @@ export function buildTradePayload(values: TradeFormValues): TradeRequest {
     fees: toNullableNumber(values.fees) ?? undefined,
     commission: toNullableNumber(values.commission) ?? undefined,
     slippage: toNullableNumber(values.slippage) ?? undefined,
-    pnlGross: toNullableNumber(values.pnlGross),
-    pnlNet: toNullableNumber(values.pnlNet),
-    pnlPercent: toNullableNumber(values.pnlPercent),
     riskAmount: toNullableNumber(values.riskAmount) ?? undefined,
-    riskPercent: toNullableNumber(values.riskPercent) ?? undefined,
-    rMultiple: toNullableNumber(values.rMultiple),
     capitalUsed: toNullableNumber(values.capitalUsed) ?? undefined,
     timeframe: values.timeframe || undefined,
     setup: values.setup || undefined,

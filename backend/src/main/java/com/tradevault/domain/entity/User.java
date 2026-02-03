@@ -35,4 +35,11 @@ public class User {
 
     private OffsetDateTime createdAt;
     private OffsetDateTime lastLoginAt;
+
+    @Column(name = "email_verified_at")
+    private OffsetDateTime emailVerifiedAt;
+
+    public boolean isVerified() {
+        return emailVerifiedAt != null;
+    }
 }

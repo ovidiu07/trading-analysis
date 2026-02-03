@@ -37,6 +37,7 @@ public class Trade {
     @JoinColumn(name = "account_id")
     private Account account;
 
+    @Column(name = "symbol", nullable = false)
     private String symbol;
 
     @Enumerated(EnumType.STRING)
@@ -73,6 +74,7 @@ public class Trade {
     private BigDecimal rMultiple;
     private BigDecimal capitalUsed;
     private String setup;
+    @Column(name = "strategy_tag")
     private String strategyTag;
     private String catalystTag;
 

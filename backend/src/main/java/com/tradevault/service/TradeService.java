@@ -89,6 +89,7 @@ public class TradeService {
     @Transactional
     public TradeResponse create(TradeRequest request) {
         User user = currentUserService.getCurrentUser();
+        validateClosedTrade(request);
         Trade trade = new Trade();
         trade.setUser(user);
         trade.setSymbol(request.getSymbol());
@@ -107,8 +108,6 @@ public class TradeService {
         trade.setSlippage(defaultZero(request.getSlippage()));
         // Do NOT trust client-provided PnL values on create; compute authoritatively below
         trade.setRiskAmount(request.getRiskAmount());
-        trade.setRiskPercent(request.getRiskPercent());
-        trade.setRMultiple(request.getRMultiple());
         trade.setCapitalUsed(request.getCapitalUsed());
         trade.setTimeframe(request.getTimeframe());
         trade.setSetup(request.getSetup());
@@ -126,7 +125,8 @@ public class TradeService {
             Set<Tag> tags = tagRepository.findAllById(request.getTagIds()).stream().filter(t -> t.getUser().getId().equals(user.getId())).collect(Collectors.toSet());
             trade.setTags(tags);
         }
-        // Always compute authoritative PnL on create
+        // Always compute authoritative derived metrics on create
+        recalculateRiskPercent(trade);
         recalculateAndApplyPnl(trade);
         return toResponse(tradeRepository.save(trade));
     }
@@ -135,6 +135,7 @@ public class TradeService {
     public TradeResponse update(UUID id, TradeRequest request) {
         User user = currentUserService.getCurrentUser();
         Trade trade = tradeRepository.findByIdAndUserId(id, user.getId()).orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+        validateClosedTrade(request);
         boolean shouldRecalculate = pnlInputsChanged(trade, request);
 
         // Map incoming fields onto entity (do not trust client-provided PnL values)
@@ -154,8 +155,6 @@ public class TradeService {
         trade.setSlippage(defaultZero(request.getSlippage()));
         // Never accept client PnL fields on update; we'll recompute if needed
         trade.setRiskAmount(request.getRiskAmount());
-        trade.setRiskPercent(request.getRiskPercent());
-        trade.setRMultiple(request.getRMultiple());
         trade.setCapitalUsed(request.getCapitalUsed());
         trade.setTimeframe(request.getTimeframe());
         trade.setSetup(request.getSetup());
@@ -174,6 +173,7 @@ public class TradeService {
             trade.setTags(tags);
         }
 
+        recalculateRiskPercent(trade);
         if (shouldRecalculate) {
             recalculateAndApplyPnl(trade);
         }
@@ -315,6 +315,7 @@ public class TradeService {
         changed |= (existing.getClosedAt() == null ? request.getClosedAt() != null : !existing.getClosedAt().equals(request.getClosedAt()));
         changed |= !equalBD(existing.getRiskAmount(), request.getRiskAmount());
         changed |= !equalBD(existing.getCapitalUsed(), request.getCapitalUsed());
+        changed |= !equalBD(existing.getStopLossPrice(), request.getStopLossPrice());
         return changed;
     }
 
@@ -366,6 +367,19 @@ public class TradeService {
                     trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
                 }
             }
+        }
+    }
+
+    private void recalculateRiskPercent(Trade trade) {
+        trade.setRiskPercent(null);
+        if (trade.getRiskAmount() != null && trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
+            trade.setRiskPercent(trade.getRiskAmount().divide(trade.getCapitalUsed(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
+        }
+    }
+
+    private void validateClosedTrade(TradeRequest request) {
+        if (request.getStatus() == com.tradevault.domain.enums.TradeStatus.CLOSED && request.getExitPrice() == null) {
+            throw new IllegalArgumentException("Exit price is required when status is CLOSED");
         }
     }
 

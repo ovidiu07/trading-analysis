@@ -112,6 +112,15 @@ public class RestExceptionHandler {
         return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS).body(response);
     }
 
+    @ExceptionHandler(EmailNotVerifiedException.class)
+    public ResponseEntity<ApiErrorResponse> handleEmailNotVerified(EmailNotVerifiedException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("EMAIL_NOT_VERIFIED")
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
     @ExceptionHandler(UnsupportedOperationException.class)
     public ResponseEntity<ApiErrorResponse> handleUnsupported(UnsupportedOperationException ex) {
         ApiErrorResponse response = ApiErrorResponse.builder()

@@ -2,6 +2,8 @@ const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 export class ApiError extends Error {
   status?: number
+  code?: string
+  details?: unknown
 }
 
 function authHeader() {
@@ -22,6 +24,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
         ...authHeader(),
         ...(customHeaders || {})
       },
+      credentials: 'include',
       ...rest
     })
   } catch (e) {
@@ -33,9 +36,13 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
 
   if (!res.ok) {
     let message = ''
+    let errorCode: string | undefined
+    let details: unknown
     try {
       const data = text ? JSON.parse(text) : null
       message = data?.message || data?.error || ''
+      errorCode = data?.error
+      details = data?.details
     } catch (e) {
       // ignore JSON parsing errors
     }
@@ -47,12 +54,16 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
     }
 
     if (res.status === 401 || res.status === 403) {
-      message = 'Unauthorized or expired session. Please login again.'
-      clearAuthToken()
+      if (errorCode !== 'EMAIL_NOT_VERIFIED') {
+        message = 'Unauthorized or expired session. Please login again.'
+        clearAuthToken()
+      }
     }
 
     const error = new ApiError(`${statusLabel} - ${message}`)
     error.status = res.status
+    error.code = errorCode
+    error.details = details
     throw error
   }
 

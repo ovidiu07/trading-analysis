@@ -132,9 +132,6 @@ public class TradeServiceTest {
         updateRequest.setSlippage(BigDecimal.ZERO);
         updateRequest.setNotes("updated notes");
         // client tries to modify pnl but it should be ignored since inputs didn't change
-        updateRequest.setPnlGross(new BigDecimal("999999"));
-        updateRequest.setPnlNet(new BigDecimal("888888"));
-        updateRequest.setPnlPercent(new BigDecimal("777"));
 
         when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
         when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
@@ -189,9 +186,7 @@ public class TradeServiceTest {
         updateRequest.setFees(new BigDecimal("2"));
         updateRequest.setCommission(new BigDecimal("3"));
         updateRequest.setSlippage(BigDecimal.ZERO);
-        // bogus client pnl
-        updateRequest.setPnlGross(new BigDecimal("12345"));
-        updateRequest.setPnlNet(new BigDecimal("54321"));
+
 
         when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
         when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
@@ -259,8 +254,7 @@ public class TradeServiceTest {
     void createIgnoresClientProvidedPnl() {
         TradeRequest request = baseRequest();
         request.setExitPrice(new BigDecimal("120"));
-        request.setPnlGross(new BigDecimal("99999"));
-        request.setPnlNet(new BigDecimal("88888"));
+
 
         when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
 

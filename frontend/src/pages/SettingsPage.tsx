@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Alert, Button, Card, CardContent, Stack, TextField, Typography } from '@mui/material'
 import { useAuth } from '../auth/AuthContext'
 import { fetchUserSettings } from '../api/settings'
+import { changePassword } from '../api/auth'
 import { ApiError } from '../api/client'
 import PageHeader from '../components/ui/PageHeader'
 
@@ -14,6 +15,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' })
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState('')
+  const [passwordError, setPasswordError] = useState('')
 
   useEffect(() => {
     setForm({
@@ -48,6 +53,33 @@ export default function SettingsPage() {
     }
   }
 
+  const handlePasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPasswordSaving(true)
+    setPasswordMessage('')
+    setPasswordError('')
+    if (passwordForm.newPassword.length < 8) {
+      setPasswordError('New password must be at least 8 characters long')
+      setPasswordSaving(false)
+      return
+    }
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordError('New passwords do not match')
+      setPasswordSaving(false)
+      return
+    }
+    try {
+      await changePassword(passwordForm.currentPassword, passwordForm.newPassword)
+      setPasswordMessage('Password updated successfully')
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    } catch (err) {
+      const apiErr = err as ApiError
+      setPasswordError(apiErr.message || 'Failed to update password')
+    } finally {
+      setPasswordSaving(false)
+    }
+  }
+
   return (
     <Stack spacing={3}>
       <PageHeader
@@ -74,6 +106,43 @@ export default function SettingsPage() {
               required
             />
             <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button>
+          </Stack>
+        </CardContent>
+      </Card>
+      <Card>
+        <CardContent>
+          <Stack spacing={2} component="form" onSubmit={handlePasswordSubmit} maxWidth={420}>
+            <Typography variant="h6">Change password</Typography>
+            <Typography variant="body2" color="text.secondary">
+              Update your password regularly to keep your journal secure.
+            </Typography>
+            {passwordMessage && <Alert severity="success">{passwordMessage}</Alert>}
+            {passwordError && <Alert severity="error">{passwordError}</Alert>}
+            <TextField
+              label="Current password"
+              type="password"
+              value={passwordForm.currentPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
+              required
+            />
+            <TextField
+              label="New password"
+              type="password"
+              value={passwordForm.newPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
+              helperText="Minimum 8 characters"
+              required
+            />
+            <TextField
+              label="Confirm new password"
+              type="password"
+              value={passwordForm.confirmPassword}
+              onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+              required
+            />
+            <Button type="submit" variant="contained" disabled={passwordSaving}>
+              {passwordSaving ? 'Updating…' : 'Update password'}
+            </Button>
           </Stack>
         </CardContent>
       </Card>

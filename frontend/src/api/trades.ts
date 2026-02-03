@@ -16,12 +16,7 @@ export type TradeRequest = {
   fees?: number
   commission?: number
   slippage?: number
-  pnlGross?: number | null
-  pnlNet?: number | null
-  pnlPercent?: number | null
   riskAmount?: number
-  riskPercent?: number
-  rMultiple?: number | null
   capitalUsed?: number
   setup?: string
   strategyTag?: string

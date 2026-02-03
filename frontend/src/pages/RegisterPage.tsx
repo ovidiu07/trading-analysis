@@ -38,7 +38,7 @@ export default function RegisterPage() {
         privacyVersion,
         locale: navigator.language
       })
-      navigate('/trades')
+      navigate(`/register/confirm?email=${encodeURIComponent(data.email)}`)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Registration failed')
     } finally {

@@ -1,9 +1,6 @@
 package com.tradevault.controller;
 
-import com.tradevault.dto.auth.AuthResponse;
-import com.tradevault.dto.auth.LoginRequest;
-import com.tradevault.dto.auth.RegisterRequest;
-import com.tradevault.dto.auth.UserDto;
+import com.tradevault.dto.auth.*;
 import com.tradevault.service.AuthService;
 import com.tradevault.service.UserService;
 import jakarta.validation.Valid;
@@ -20,8 +17,8 @@ public class AuthController {
     private final UserService userService;
 
     @PostMapping("/register")
-    public ResponseEntity<AuthResponse> register(@Valid @RequestBody RegisterRequest request,
-                                                 HttpServletRequest httpRequest) {
+    public ResponseEntity<RegisterResponse> register(@Valid @RequestBody RegisterRequest request,
+                                                     HttpServletRequest httpRequest) {
         String ipAddress = resolveIp(httpRequest);
         String userAgent = httpRequest.getHeader("User-Agent");
         return ResponseEntity.ok(authService.register(request, ipAddress, userAgent));
@@ -30,6 +27,35 @@ public class AuthController {
     @PostMapping("/login")
     public ResponseEntity<AuthResponse> login(@Valid @RequestBody LoginRequest request) {
         return ResponseEntity.ok(authService.login(request));
+    }
+
+    @PostMapping("/verify-email")
+    public ResponseEntity<SuccessResponse> verifyEmail(@Valid @RequestBody VerifyEmailRequest request) {
+        return ResponseEntity.ok(authService.verifyEmail(request));
+    }
+
+    @PostMapping("/resend-verification")
+    public ResponseEntity<SuccessResponse> resendVerification(@Valid @RequestBody ResendVerificationRequest request,
+                                                              HttpServletRequest httpRequest) {
+        String ipAddress = resolveIp(httpRequest);
+        return ResponseEntity.ok(authService.resendVerification(request, ipAddress));
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<SuccessResponse> changePassword(@Valid @RequestBody ChangePasswordRequest request) {
+        return ResponseEntity.ok(authService.changePassword(request));
+    }
+
+    @PostMapping("/forgot-password")
+    public ResponseEntity<SuccessResponse> forgotPassword(@Valid @RequestBody ForgotPasswordRequest request,
+                                                          HttpServletRequest httpRequest) {
+        String ipAddress = resolveIp(httpRequest);
+        return ResponseEntity.ok(authService.forgotPassword(request, ipAddress));
+    }
+
+    @PostMapping("/reset-password")
+    public ResponseEntity<SuccessResponse> resetPassword(@Valid @RequestBody ResetPasswordRequest request) {
+        return ResponseEntity.ok(authService.resetPassword(request));
     }
 
     @GetMapping("/me")

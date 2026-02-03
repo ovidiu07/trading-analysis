@@ -59,12 +59,7 @@ const buildDefaultValues = (): TradeFormValues => ({
   fees: 0,
   commission: 0,
   slippage: 0,
-  pnlGross: undefined,
-  pnlNet: undefined,
-  pnlPercent: undefined,
   riskAmount: undefined,
-  riskPercent: undefined,
-  rMultiple: undefined,
   capitalUsed: undefined,
   setup: '',
   strategyTag: '',
@@ -113,12 +108,7 @@ const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
     fees: trade.fees ?? 0,
     commission: trade.commission ?? 0,
     slippage: trade.slippage ?? 0,
-    pnlGross: trade.pnlGross ?? undefined,
-    pnlNet: trade.pnlNet ?? undefined,
-    pnlPercent: trade.pnlPercent ?? undefined,
     riskAmount: trade.riskAmount ?? undefined,
-    riskPercent: trade.riskPercent ?? undefined,
-    rMultiple: trade.rMultiple ?? undefined,
     capitalUsed: trade.capitalUsed ?? undefined,
     setup: trade.setup ?? '',
     strategyTag: trade.strategyTag ?? '',
@@ -808,6 +798,13 @@ export default function TradesPage() {
               onSubmit={handleUpdateTrade}
               onCancel={() => setEditDialogOpen(false)}
               error={editError}
+              computedValues={{
+                pnlGross: editTarget.pnlGross,
+                pnlNet: editTarget.pnlNet,
+                pnlPercent: editTarget.pnlPercent,
+                riskPercent: editTarget.riskPercent,
+                rMultiple: editTarget.rMultiple,
+              }}
             />
           )}
         </DialogContent>

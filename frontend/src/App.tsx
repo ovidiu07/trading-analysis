@@ -2,6 +2,10 @@ import { CssBaseline, ThemeProvider } from '@mui/material'
 import { Route, Routes, Navigate } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
+import CheckEmailPage from './pages/CheckEmailPage'
+import VerifyEmailPage from './pages/VerifyEmailPage'
+import ForgotPasswordPage from './pages/ForgotPasswordPage'
+import ResetPasswordPage from './pages/ResetPasswordPage'
 import DashboardPage from './pages/DashboardPage'
 import TradesPage from './pages/TradesPage'
 import AnalyticsPage from './pages/AnalyticsPage'
@@ -23,6 +27,10 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/register/confirm" element={<CheckEmailPage />} />
+        <Route path="/verify" element={<VerifyEmailPage />} />
+        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="/terms" element={<TermsPage />} />

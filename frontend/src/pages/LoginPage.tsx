@@ -10,6 +10,8 @@ import { useNavigate, useLocation, Link } from 'react-router-dom'
 import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import loginHero from '../assets/login-hero.svg'
+import { resendVerification } from '../api/auth'
+import { ApiError } from '../api/client'
 
 const schema = z.object({
   email: z.string().email(),
@@ -19,26 +21,53 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function LoginPage() {
-  const { register, handleSubmit, formState } = useForm<FormValues>({ resolver: zodResolver(schema) })
+  const { register, handleSubmit, formState, watch } = useForm<FormValues>({ resolver: zodResolver(schema) })
   const navigate = useNavigate()
   const location = useLocation()
   const { login } = useAuth()
   const [error, setError] = useState('')
+  const [errorCode, setErrorCode] = useState<string | undefined>(undefined)
   const [submitting, setSubmitting] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
+  const [resendMessage, setResendMessage] = useState('')
+  const [resending, setResending] = useState(false)
+
+  const emailValue = watch('email')
 
   const from = (location.state as { from?: string })?.from || '/trades'
 
   const onSubmit = async (data: FormValues) => {
     setError('')
+    setErrorCode(undefined)
+    setResendMessage('')
     setSubmitting(true)
     try {
       await login(data.email, data.password)
       navigate(from, { replace: true })
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Login failed')
+      const apiErr = err as ApiError
+      setError(apiErr.message || 'Login failed')
+      setErrorCode(apiErr.code)
     } finally {
       setSubmitting(false)
+    }
+  }
+
+  const handleResend = async () => {
+    setResendMessage('')
+    if (!emailValue) {
+      setError('Enter your email address to resend verification.')
+      return
+    }
+    setResending(true)
+    try {
+      await resendVerification(emailValue)
+      setResendMessage('Verification email sent. Please check your inbox.')
+    } catch (err) {
+      const apiErr = err as ApiError
+      setError(apiErr.message || 'Failed to resend verification email')
+    } finally {
+      setResending(false)
     }
   }
 
@@ -170,6 +199,14 @@ export default function LoginPage() {
                       {error}
                     </Alert>
                   )}
+                  {errorCode === 'EMAIL_NOT_VERIFIED' && (
+                    <Stack spacing={1}>
+                      {resendMessage && <Alert severity="success">{resendMessage}</Alert>}
+                      <Button variant="outlined" onClick={handleResend} disabled={resending}>
+                        {resending ? 'Sending…' : 'Resend verification email'}
+                      </Button>
+                    </Stack>
+                  )}
                   <Button type="submit" fullWidth variant="contained" disabled={submitting}>
                     {submitting ? (
                       <>
@@ -190,6 +227,9 @@ export default function LoginPage() {
                   <Typography variant="caption" color="text.secondary" textAlign="center">
                     Encrypted in transit. No broker login required.
                   </Typography>
+                  <MuiLink component={Link} to="/forgot-password" variant="body2" textAlign="center">
+                    Forgot password?
+                  </MuiLink>
                   <MuiLink component={Link} to="/register" variant="body2" textAlign="center">
                     New here? Create an account
                   </MuiLink>

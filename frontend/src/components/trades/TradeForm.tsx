@@ -1,7 +1,16 @@
 import { ReactNode, useEffect } from 'react'
-import { Box, Button, Grid, MenuItem, Stack, TextField } from '@mui/material'
+import { Box, Button, Grid, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { useForm, Controller } from 'react-hook-form'
 import { TradeFormValues } from '../../utils/tradePayload'
+import { formatNumber, formatPercent } from '../../utils/format'
+
+export type ComputedTradeMetrics = {
+  pnlGross?: number | null
+  pnlNet?: number | null
+  pnlPercent?: number | null
+  riskPercent?: number | null
+  rMultiple?: number | null
+}
 
 export type TradeFormProps = {
   initialValues: TradeFormValues
@@ -10,9 +19,10 @@ export type TradeFormProps = {
   onCancel?: () => void
   error?: string
   secondaryAction?: ReactNode
+  computedValues?: ComputedTradeMetrics
 }
 
-export function TradeForm({ initialValues, submitLabel, onSubmit, onCancel, error, secondaryAction }: TradeFormProps) {
+export function TradeForm({ initialValues, submitLabel, onSubmit, onCancel, error, secondaryAction, computedValues }: TradeFormProps) {
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<TradeFormValues>({ defaultValues: initialValues })
 
   useEffect(() => {
@@ -107,25 +117,10 @@ export function TradeForm({ initialValues, submitLabel, onSubmit, onCancel, erro
           <TextField label="Slippage" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('slippage', { valueAsNumber: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="PnL Gross" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('pnlGross', { valueAsNumber: true })} />
+          <TextField label="Risk Amount" type="number" inputProps={{ step: '0.0001' }} fullWidth helperText="Optional: improves P&L % and R multiple" {...register('riskAmount', { valueAsNumber: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
-          <TextField label="PnL Net" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('pnlNet', { valueAsNumber: true })} />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <TextField label="PnL Percent" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('pnlPercent', { valueAsNumber: true })} />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Risk Amount" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('riskAmount', { valueAsNumber: true })} />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Risk Percent" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('riskPercent', { valueAsNumber: true })} />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <TextField label="R Multiple" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('rMultiple', { valueAsNumber: true })} />
-        </Grid>
-        <Grid item xs={12} sm={6} md={4}>
-          <TextField label="Capital Used" type="number" inputProps={{ step: '0.0001' }} fullWidth {...register('capitalUsed', { valueAsNumber: true })} />
+          <TextField label="Capital Used" type="number" inputProps={{ step: '0.0001' }} fullWidth helperText="Optional: improves P&L %" {...register('capitalUsed', { valueAsNumber: true })} />
         </Grid>
         <Grid item xs={12} sm={6} md={4}>
           <TextField label="Setup" fullWidth {...register('setup')} />
@@ -142,6 +137,29 @@ export function TradeForm({ initialValues, submitLabel, onSubmit, onCancel, erro
         <Grid item xs={12}>
           <TextField label="Notes" fullWidth multiline minRows={3} {...register('notes')} />
         </Grid>
+
+        {computedValues && (
+          <>
+            <Grid item xs={12}>
+              <Typography variant="subtitle2" color="text.secondary">Computed metrics (read-only)</Typography>
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField label="PnL Gross" value={formatNumber(computedValues.pnlGross)} fullWidth InputProps={{ readOnly: true }} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField label="PnL Net" value={formatNumber(computedValues.pnlNet)} fullWidth InputProps={{ readOnly: true }} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField label="PnL Percent" value={formatPercent(computedValues.pnlPercent)} fullWidth InputProps={{ readOnly: true }} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField label="Risk Percent" value={formatPercent(computedValues.riskPercent)} fullWidth InputProps={{ readOnly: true }} />
+            </Grid>
+            <Grid item xs={12} sm={6} md={4}>
+              <TextField label="R Multiple" value={formatNumber(computedValues.rMultiple)} fullWidth InputProps={{ readOnly: true }} />
+            </Grid>
+          </>
+        )}
       </Grid>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mt={2} justifyContent="flex-start" alignItems={{ xs: 'stretch', sm: 'center' }}>
         <Button type="submit" variant="contained">{submitLabel}</Button>

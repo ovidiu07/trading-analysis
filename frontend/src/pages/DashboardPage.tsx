@@ -16,6 +16,9 @@ import {
   TableRow,
   Typography,
   Chip,
+  Box,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
@@ -38,6 +41,9 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
   const { user } = useAuth()
   const baseCurrency = user?.baseCurrency || 'USD'
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const chartHeight = isMobile ? 240 : 320
 
   useEffect(() => {
     const load = async () => {
@@ -91,7 +97,7 @@ export default function DashboardPage() {
 
       <Grid container spacing={2}>
         {kpiCards.map((kpi, idx) => (
-          <Grid item xs={12} sm={6} md={4} key={kpi.label || idx}>
+          <Grid item xs={12} sm={6} md={4} lg={2} key={kpi.label || idx}>
             <Card>
               <CardContent>
                 {loading ? (
@@ -120,18 +126,18 @@ export default function DashboardPage() {
                 <Typography variant="body2" color="text.secondary">Cumulative P&L over time</Typography>
               </Stack>
               {loading ? (
-                <Skeleton variant="rectangular" height={320} />
+                <Skeleton variant="rectangular" height={chartHeight} />
               ) : equityData.length === 0 ? (
                 <EmptyState
                   title="No equity curve yet"
                   description="Capture a few trades to see cumulative performance over time."
                 />
               ) : (
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={chartHeight}>
                   <AreaChart data={equityData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} />
+                    <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isMobile ? 10 : 12 }} />
                     <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
                     <Area type="monotone" dataKey="value" stroke="#1976d2" fill="#bbdefb" />
                   </AreaChart>
@@ -149,18 +155,18 @@ export default function DashboardPage() {
                 <Typography variant="body2" color="text.secondary">Grouped by day</Typography>
               </Stack>
               {loading ? (
-                <Skeleton variant="rectangular" height={320} />
+                <Skeleton variant="rectangular" height={chartHeight} />
               ) : groupedPnl.length === 0 ? (
                 <EmptyState
                   title="No grouped P&L data"
                   description="Daily P&L will appear once trades are closed."
                 />
               ) : (
-                <ResponsiveContainer width="100%" height={320}>
+                <ResponsiveContainer width="100%" height={chartHeight}>
                   <BarChart data={groupedPnl}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" />
-                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} />
+                    <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isMobile ? 10 : 12 }} />
                     <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
                     <Bar dataKey="value" fill="#1976d2" />
                   </BarChart>
@@ -183,7 +189,8 @@ export default function DashboardPage() {
           ) : recentTrades.length === 0 ? (
             <Typography color="text.secondary">No trades have been recorded yet.</Typography>
           ) : (
-            <Table size="small">
+            <Box sx={{ overflowX: 'auto' }}>
+              <Table size={isMobile ? 'small' : 'medium'}>
               <TableHead>
                 <TableRow>
                   <TableCell>Symbol</TableCell>
@@ -213,7 +220,8 @@ export default function DashboardPage() {
                   </TableRow>
                 ))}
               </TableBody>
-            </Table>
+              </Table>
+            </Box>
           )}
         </CardContent>
       </Card>
