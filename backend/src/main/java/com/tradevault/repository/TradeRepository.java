@@ -11,15 +11,17 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface TradeRepository extends JpaRepository<Trade, UUID> {
+public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecificationExecutor<Trade> {
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
   Page<Trade> findByUserIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, Pageable pageable);
 
+  @Deprecated(forRemoval = false)
   @Query("""
       SELECT t FROM Trade t
       WHERE t.user.id = :userId
@@ -27,8 +29,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
         AND (:openedAtTo IS NULL OR t.openedAt <= :openedAtTo)
         AND (:closedAtFrom IS NULL OR t.closedAt >= :closedAtFrom)
         AND (:closedAtTo IS NULL OR t.closedAt <= :closedAtTo)
-        AND (:symbol IS NULL OR LOWER(t.symbol) = LOWER(:symbol))
-        AND (:strategy IS NULL OR LOWER(t.strategyTag) = LOWER(:strategy))
+        AND (:symbol IS NULL OR LOWER(t.symbol) = :symbol)
+        AND (:strategy IS NULL OR LOWER(t.strategyTag) = :strategy)
         AND (:direction IS NULL OR t.direction = :direction)
         AND (:status IS NULL OR t.status = :status)
       """)

@@ -1,4 +1,5 @@
 const formatterCache = new Map<string, Intl.NumberFormat>()
+const compactFormatterCache = new Map<string, Intl.NumberFormat>()
 
 const getCurrencyFormatter = (currency?: string) => {
   const key = currency && currency.trim() ? currency.toUpperCase() : 'USD'
@@ -25,6 +26,35 @@ const getCurrencyFormatter = (currency?: string) => {
   return formatterCache.get(key)!
 }
 
+const getCompactCurrencyFormatter = (currency?: string) => {
+  const key = currency && currency.trim() ? currency.toUpperCase() : 'USD'
+  if (!compactFormatterCache.has(key)) {
+    try {
+      compactFormatterCache.set(key, new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: key,
+        currencyDisplay: 'narrowSymbol',
+        notation: 'compact',
+        compactDisplay: 'short',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 1,
+      }))
+    } catch (e) {
+      compactFormatterCache.set('USD', new Intl.NumberFormat(undefined, {
+        style: 'currency',
+        currency: 'USD',
+        currencyDisplay: 'narrowSymbol',
+        notation: 'compact',
+        compactDisplay: 'short',
+        minimumFractionDigits: 0,
+        maximumFractionDigits: 1,
+      }))
+      return compactFormatterCache.get('USD')!
+    }
+  }
+  return compactFormatterCache.get(key)!
+}
+
 const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
 
 export const formatCurrency = (value?: number | null, currency?: string) => {
@@ -36,6 +66,11 @@ export const formatSignedCurrency = (value?: number | null, currency?: string) =
   if (value === undefined || value === null || Number.isNaN(value)) return '—'
   const sign = value > 0 ? '+' : ''
   return `${sign}${getCurrencyFormatter(currency).format(value)}`
+}
+
+export const formatCompactCurrency = (value?: number | null, currency?: string) => {
+  if (value === undefined || value === null || Number.isNaN(value)) return '—'
+  return getCompactCurrencyFormatter(currency).format(value)
 }
 
 export const formatPercent = (value?: number | null) => {

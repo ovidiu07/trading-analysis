@@ -25,7 +25,7 @@ import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, i
 import { useAuth } from '../auth/AuthContext'
 import { DailyPnlResponse, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
-import { formatDateTime, formatSignedCurrency } from '../utils/format'
+import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
@@ -154,6 +154,9 @@ export default function CalendarPage() {
     const isCurrentMonth = isSameMonth(day, currentMonth)
     const isPositive = netPnl !== undefined && netPnl > 0
     const isNegative = netPnl !== undefined && netPnl < 0
+    const pnlLabel = netPnl === undefined
+      ? '—'
+      : (isMobile ? formatCompactCurrency(netPnl, baseCurrency) : formatSignedCurrency(netPnl, baseCurrency))
     const backgroundColor = isPositive
       ? alpha(theme.palette.success.light, 0.25)
       : isNegative
@@ -164,12 +167,24 @@ export default function CalendarPage() {
       : isNegative
         ? theme.palette.error.main
         : theme.palette.grey[300]
+    const pnlBadgeColor = isPositive
+      ? theme.palette.success.main
+      : isNegative
+        ? theme.palette.error.main
+        : theme.palette.grey[600]
+    const ariaLabelParts = entry
+      ? [
+        `View realized P&L for ${dateKey}`,
+        `Net P&L ${formatSignedCurrency(netPnl ?? 0, baseCurrency)}`,
+        `${entry.tradeCount} trades`
+      ]
+      : [`View realized P&L for ${dateKey}`, 'No trades']
 
     return (
       <ButtonBase
         key={dateKey}
         onClick={() => handleDayClick(day)}
-        aria-label={`View realized P&L for ${dateKey}`}
+        aria-label={ariaLabelParts.join('. ')}
         sx={{
           textAlign: 'left',
           borderRadius: 2,
@@ -187,16 +202,37 @@ export default function CalendarPage() {
           overflow: 'hidden'
         }}
       >
-        <Stack spacing={0.5} sx={{ width: '100%', minWidth: 0 }}>
-          <Typography variant={isMobile ? 'body2' : 'subtitle2'} fontWeight={600}>
-            {format(day, 'd')}
-          </Typography>
-          <Typography variant={isMobile ? 'caption' : 'body2'} color="text.secondary" noWrap>
-            {formatSignedCurrency(netPnl ?? null, baseCurrency)}
-          </Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {entry ? `${entry.tradeCount} trades` : 'No trades'}
-          </Typography>
+        <Stack spacing={0.5} sx={{ width: '100%', minWidth: 0, height: '100%', justifyContent: 'space-between' }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between">
+            <Typography variant={isMobile ? 'body2' : 'subtitle2'} fontWeight={600}>
+              {format(day, 'd')}
+            </Typography>
+            <Typography
+              variant="caption"
+              color="text.secondary"
+              noWrap
+              sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}
+            >
+              {entry ? `${entry.tradeCount} trades` : 'No trades'}
+            </Typography>
+          </Stack>
+          <Box sx={{ display: 'flex' }}>
+            <Box
+              sx={{
+                px: 0.75,
+                py: 0.25,
+                borderRadius: 1,
+                bgcolor: pnlBadgeColor,
+                color: 'common.white',
+                fontSize: isMobile ? '0.7rem' : '0.75rem',
+                fontWeight: 600,
+                lineHeight: 1.2,
+                whiteSpace: 'nowrap'
+              }}
+            >
+              {pnlLabel}
+            </Box>
+          </Box>
         </Stack>
       </ButtonBase>
     )
@@ -404,9 +440,9 @@ export default function CalendarPage() {
             )}
           </Stack>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={handleCloseDialog}>Close</Button>
-          <Button variant="contained" onClick={handleViewInTrades} disabled={!selectedDate}>
+        <DialogActions sx={{ flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1, px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 2 } }}>
+          <Button onClick={handleCloseDialog} fullWidth={isMobile}>Close</Button>
+          <Button variant="contained" onClick={handleViewInTrades} disabled={!selectedDate} fullWidth={isMobile}>
             View in Trades
           </Button>
         </DialogActions>

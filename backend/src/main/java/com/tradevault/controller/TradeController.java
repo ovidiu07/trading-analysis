@@ -50,10 +50,11 @@ public class TradeController {
                                       @RequestParam(required = false) LocalDate closedDate,
                                       @RequestParam(required = false) String tz,
                                       @RequestParam(required = false) String symbol,
+                                      @RequestParam(required = false) String strategy,
                                       @RequestParam(required = false) String direction,
                                       @RequestParam(required = false) TradeStatus status) {
         var parsedDirection = parseDirection(direction);
-        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, closedDate, tz, symbol, parsedDirection, status);
+        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, closedDate, tz, symbol, strategy, parsedDirection, status);
     }
 
     private com.tradevault.domain.enums.Direction parseDirection(String direction) {

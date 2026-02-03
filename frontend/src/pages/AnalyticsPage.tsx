@@ -26,6 +26,8 @@ import {
   ToggleButtonGroup,
   Tooltip,
   Typography,
+  useMediaQuery,
+  useTheme,
 } from '@mui/material'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
@@ -81,6 +83,13 @@ export default function AnalyticsPage() {
   const { user } = useAuth()
   const baseCurrency = user?.baseCurrency || 'USD'
   const navigate = useNavigate()
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const chartHeights = {
+    large: isMobile ? 220 : 320,
+    medium: isMobile ? 200 : 260,
+    small: isMobile ? 180 : 240
+  }
 
   const loadAnalytics = async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setLoading(true)
@@ -210,6 +219,120 @@ export default function AnalyticsPage() {
     navigate(`/trades${qs ? `?${qs}` : ''}`)
   }
 
+  const advancedFilters = (
+    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }} flexWrap="wrap">
+      <TextField
+        size="small"
+        label="Market"
+        select
+        SelectProps={{ native: true }}
+        value={filters.market || ''}
+        onChange={(e) => setFilters((prev) => ({ ...prev, market: e.target.value }))}
+        fullWidth={isMobile}
+        sx={{ minWidth: { xs: '100%', sm: 160 } }}
+      >
+        <option value="">Any</option>
+        {summary?.filterOptions?.markets?.map((mkt) => (
+          <option key={mkt} value={mkt}>{mkt}</option>
+        ))}
+      </TextField>
+      <TextField
+        size="small"
+        label="Holding bucket"
+        select
+        SelectProps={{ native: true }}
+        value={filters.holdingBucket || ''}
+        onChange={(e) => setFilters((prev) => ({ ...prev, holdingBucket: e.target.value }))}
+        fullWidth={isMobile}
+        sx={{ minWidth: { xs: '100%', sm: 160 } }}
+      >
+        <option value="">Any</option>
+        <option value="<5m">&lt;5m</option>
+        <option value="5-15m">5-15m</option>
+        <option value="15-60m">15-60m</option>
+        <option value="1-4h">1-4h</option>
+        <option value=">4h">&gt;4h</option>
+      </TextField>
+      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }} fullWidth={isMobile}>
+        <InputLabel>Strategy</InputLabel>
+        <Select
+          multiple
+          label="Strategy"
+          value={filters.strategy ?? []}
+          onChange={(e) => setFilters((prev) => ({ ...prev, strategy: e.target.value as string[] }))}
+          renderValue={(selected) => (
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {(selected as string[]).map((value) => (
+                <Chip key={value} size="small" label={value} />
+              ))}
+            </Stack>
+          )}
+        >
+          {summary?.filterOptions?.strategies?.map((strategy) => (
+            <MenuItem key={strategy} value={strategy}>{strategy}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }} fullWidth={isMobile}>
+        <InputLabel>Setup</InputLabel>
+        <Select
+          multiple
+          label="Setup"
+          value={filters.setup ?? []}
+          onChange={(e) => setFilters((prev) => ({ ...prev, setup: e.target.value as string[] }))}
+          renderValue={(selected) => (
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {(selected as string[]).map((value) => (
+                <Chip key={value} size="small" label={value} />
+              ))}
+            </Stack>
+          )}
+        >
+          {summary?.filterOptions?.setups?.map((setup) => (
+            <MenuItem key={setup} value={setup}>{setup}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }} fullWidth={isMobile}>
+        <InputLabel>Catalyst</InputLabel>
+        <Select
+          multiple
+          label="Catalyst"
+          value={filters.catalyst ?? []}
+          onChange={(e) => setFilters((prev) => ({ ...prev, catalyst: e.target.value as string[] }))}
+          renderValue={(selected) => (
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {(selected as string[]).map((value) => (
+                <Chip key={value} size="small" label={value} />
+              ))}
+            </Stack>
+          )}
+        >
+          {summary?.filterOptions?.catalysts?.map((catalyst) => (
+            <MenuItem key={catalyst} value={catalyst}>{catalyst}</MenuItem>
+          ))}
+        </Select>
+      </FormControl>
+      <FormControlLabel
+        sx={{ ml: 0 }}
+        control={
+          <Switch
+            checked={filters.excludeOutliers ?? false}
+            onChange={(e) => setFilters((prev) => ({ ...prev, excludeOutliers: e.target.checked }))}
+          />
+        }
+        label="Exclude outliers"
+      />
+    </Stack>
+  )
+
+  const filterActions = (
+    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
+      <Button variant="contained" onClick={applyFilters} fullWidth={isMobile}>Apply</Button>
+      <Button variant="text" onClick={resetFilters} fullWidth={isMobile}>Reset</Button>
+    </Stack>
+  )
+
   return (
     <Stack spacing={3}>
       <PageHeader
@@ -220,13 +343,14 @@ export default function AnalyticsPage() {
       <Card>
         <CardContent>
           <Stack spacing={2}>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-end" flexWrap="wrap">
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'flex-end' }} flexWrap="wrap">
               <ToggleButtonGroup
                 color="primary"
                 exclusive
                 size="small"
                 value={filters.dateMode ?? 'CLOSE'}
                 onChange={(_, value) => value && setFilters((prev) => ({ ...prev, dateMode: value }))}
+                sx={{ flexWrap: 'wrap' }}
               >
                 <ToggleButton value="OPEN">Open date</ToggleButton>
                 <ToggleButton value="CLOSE">Close date</ToggleButton>
@@ -238,6 +362,8 @@ export default function AnalyticsPage() {
                 InputLabelProps={{ shrink: true }}
                 value={filters.from || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
+                fullWidth={isMobile}
+                sx={{ minWidth: { xs: '100%', sm: 140 } }}
               />
               <TextField
                 size="small"
@@ -246,12 +372,16 @@ export default function AnalyticsPage() {
                 InputLabelProps={{ shrink: true }}
                 value={filters.to || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
+                fullWidth={isMobile}
+                sx={{ minWidth: { xs: '100%', sm: 140 } }}
               />
               <TextField
                 size="small"
                 label="Symbol"
                 value={filters.symbol || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))}
+                fullWidth={isMobile}
+                sx={{ minWidth: { xs: '100%', sm: 140 } }}
               />
               <TextField
                 size="small"
@@ -260,6 +390,8 @@ export default function AnalyticsPage() {
                 SelectProps={{ native: true }}
                 value={filters.direction || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value as 'LONG' | 'SHORT' }))}
+                fullWidth={isMobile}
+                sx={{ minWidth: { xs: '100%', sm: 140 } }}
               >
                 <option value="">Any</option>
                 <option value="LONG">Long</option>
@@ -272,115 +404,24 @@ export default function AnalyticsPage() {
                 SelectProps={{ native: true }}
                 value={filters.status || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value as 'OPEN' | 'CLOSED' }))}
+                fullWidth={isMobile}
+                sx={{ minWidth: { xs: '100%', sm: 140 } }}
               >
                 <option value="CLOSED">Closed</option>
                 <option value="OPEN">Open</option>
               </TextField>
-              <TextField
-                size="small"
-                label="Market"
-                select
-                SelectProps={{ native: true }}
-                value={filters.market || ''}
-                onChange={(e) => setFilters((prev) => ({ ...prev, market: e.target.value }))}
-              >
-                <option value="">Any</option>
-                {summary?.filterOptions?.markets?.map((mkt) => (
-                  <option key={mkt} value={mkt}>{mkt}</option>
-                ))}
-              </TextField>
-              <TextField
-                size="small"
-                label="Holding bucket"
-                select
-                SelectProps={{ native: true }}
-                value={filters.holdingBucket || ''}
-                onChange={(e) => setFilters((prev) => ({ ...prev, holdingBucket: e.target.value }))}
-              >
-                <option value="">Any</option>
-                <option value="<5m">&lt;5m</option>
-                <option value="5-15m">5-15m</option>
-                <option value="15-60m">15-60m</option>
-                <option value="1-4h">1-4h</option>
-                <option value=">4h">&gt;4h</option>
-              </TextField>
-              <FormControlLabel
-                control={
-                  <Switch
-                    checked={filters.excludeOutliers ?? false}
-                    onChange={(e) => setFilters((prev) => ({ ...prev, excludeOutliers: e.target.checked }))}
-                  />
-                }
-                label="Exclude outliers"
-              />
             </Stack>
-
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="center" flexWrap="wrap">
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Strategy</InputLabel>
-                <Select
-                  multiple
-                  label="Strategy"
-                  value={filters.strategy ?? []}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, strategy: e.target.value as string[] }))}
-                  renderValue={(selected) => (
-                    <Stack direction="row" spacing={1} flexWrap="wrap">
-                      {(selected as string[]).map((value) => (
-                        <Chip key={value} size="small" label={value} />
-                      ))}
-                    </Stack>
-                  )}
-                >
-                  {summary?.filterOptions?.strategies?.map((strategy) => (
-                    <MenuItem key={strategy} value={strategy}>{strategy}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Setup</InputLabel>
-                <Select
-                  multiple
-                  label="Setup"
-                  value={filters.setup ?? []}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, setup: e.target.value as string[] }))}
-                  renderValue={(selected) => (
-                    <Stack direction="row" spacing={1} flexWrap="wrap">
-                      {(selected as string[]).map((value) => (
-                        <Chip key={value} size="small" label={value} />
-                      ))}
-                    </Stack>
-                  )}
-                >
-                  {summary?.filterOptions?.setups?.map((setup) => (
-                    <MenuItem key={setup} value={setup}>{setup}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <FormControl size="small" sx={{ minWidth: 200 }}>
-                <InputLabel>Catalyst</InputLabel>
-                <Select
-                  multiple
-                  label="Catalyst"
-                  value={filters.catalyst ?? []}
-                  onChange={(e) => setFilters((prev) => ({ ...prev, catalyst: e.target.value as string[] }))}
-                  renderValue={(selected) => (
-                    <Stack direction="row" spacing={1} flexWrap="wrap">
-                      {(selected as string[]).map((value) => (
-                        <Chip key={value} size="small" label={value} />
-                      ))}
-                    </Stack>
-                  )}
-                >
-                  {summary?.filterOptions?.catalysts?.map((catalyst) => (
-                    <MenuItem key={catalyst} value={catalyst}>{catalyst}</MenuItem>
-                  ))}
-                </Select>
-              </FormControl>
-              <Stack direction="row" spacing={1}>
-                <Button variant="contained" onClick={applyFilters}>Apply</Button>
-                <Button variant="text" onClick={resetFilters}>Reset</Button>
-              </Stack>
-            </Stack>
+            {isMobile ? (
+              <Accordion>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>Advanced filters</AccordionSummary>
+                <AccordionDetails>
+                  {advancedFilters}
+                </AccordionDetails>
+              </Accordion>
+            ) : (
+              advancedFilters
+            )}
+            {filterActions}
           </Stack>
         </CardContent>
       </Card>
@@ -402,14 +443,18 @@ export default function AnalyticsPage() {
         <Stack spacing={2}>
           <Stack direction="row" spacing={2} sx={{ overflowX: 'auto', pb: 1 }}>
             {kpiCards.map((kpi, idx) => (
-              <Card key={kpi.label || idx} sx={{ minWidth: 200 }}>
-                <CardContent>
+              <Card key={kpi.label || idx} sx={{ minWidth: { xs: 160, sm: 200 } }}>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
                   {loading ? (
                     <Skeleton height={32} />
                   ) : (
                     <>
-                      <Typography variant="subtitle2" color="text.secondary">{kpi.label}</Typography>
-                      <Typography variant="h5" fontWeight={700}>{kpi.value}</Typography>
+                      <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
+                        {kpi.label}
+                      </Typography>
+                      <Typography variant="h5" fontWeight={700} sx={{ fontSize: { xs: '1.2rem', sm: '1.5rem' } }}>
+                        {kpi.value}
+                      </Typography>
                     </>
                   )}
                 </CardContent>
@@ -421,9 +466,13 @@ export default function AnalyticsPage() {
             {secondaryKpis.map((kpi) => (
               <Grid item xs={12} sm={6} md={4} key={kpi.label}>
                 <Card>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="text.secondary">{kpi.label}</Typography>
-                    <Typography variant="h6" fontWeight={600}>{kpi.value}</Typography>
+                  <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
+                      {kpi.label}
+                    </Typography>
+                    <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' } }}>
+                      {kpi.value}
+                    </Typography>
                   </CardContent>
                 </Card>
               </Grid>
@@ -431,9 +480,13 @@ export default function AnalyticsPage() {
             {costKpis.map((kpi) => (
               <Grid item xs={12} sm={6} md={4} key={kpi.label}>
                 <Card>
-                  <CardContent>
-                    <Typography variant="subtitle2" color="text.secondary">{kpi.label}</Typography>
-                    <Typography variant="h6" fontWeight={600}>{kpi.value}</Typography>
+                  <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                    <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
+                      {kpi.label}
+                    </Typography>
+                    <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' } }}>
+                      {kpi.value}
+                    </Typography>
                   </CardContent>
                 </Card>
               </Grid>
@@ -451,15 +504,15 @@ export default function AnalyticsPage() {
                     </Tooltip>
                   </Stack>
                   {loading ? (
-                    <Skeleton variant="rectangular" height={320} />
+                    <Skeleton variant="rectangular" height={chartHeights.large} />
                   ) : (summary?.equityCurve?.length ?? 0) === 0 ? (
                     <EmptyState title="No equity data" description="Adjust the filters to include a broader trade range." />
                   ) : (
-                    <ResponsiveContainer width="100%" height={320}>
+                    <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <AreaChart data={summary?.equityCurve}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis />
+                        <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                         <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                         <Area type="monotone" dataKey="value" stroke="#1976d2" fill="#bbdefb" />
                       </AreaChart>
@@ -478,15 +531,15 @@ export default function AnalyticsPage() {
                     </Tooltip>
                   </Stack>
                   {loading ? (
-                    <Skeleton variant="rectangular" height={320} />
+                    <Skeleton variant="rectangular" height={chartHeights.large} />
                   ) : drawdownSeries.length === 0 ? (
                     <EmptyState title="No drawdown data" description="Add closed trades to see drawdowns." />
                   ) : (
-                    <ResponsiveContainer width="100%" height={320}>
+                    <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <AreaChart data={drawdownSeries}>
                         <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" />
-                        <YAxis />
+                        <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                         <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                         <Area type="monotone" dataKey="value" stroke="#ef5350" fill="#ffcdd2" />
                       </AreaChart>
@@ -508,15 +561,15 @@ export default function AnalyticsPage() {
                     </Tooltip>
                   </Stack>
                   {loading ? (
-                    <Skeleton variant="rectangular" height={320} />
+                    <Skeleton variant="rectangular" height={chartHeights.large} />
                   ) : pnlHistogram.length === 0 ? (
                     <EmptyState title="No distribution data" description="Close trades to populate the histogram." />
                   ) : (
-                    <ResponsiveContainer width="100%" height={320}>
+                    <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <BarChart data={pnlHistogram}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="label" hide />
-                        <YAxis />
+                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                         <ChartTooltip formatter={(v: number) => formatNumber(v as number)} />
                         <Bar dataKey="count" fill="#1565c0" />
                       </BarChart>
@@ -598,15 +651,15 @@ export default function AnalyticsPage() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>Rolling metrics (20 trades)</Typography>
                 {loading ? (
-                  <Skeleton variant="rectangular" height={300} />
+                  <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : rolling20.length === 0 ? (
                   <EmptyState title="No rolling metrics" description="Need at least 20 closed trades." />
                 ) : (
-                  <ResponsiveContainer width="100%" height={300}>
+                  <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <LineChart data={rolling20}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
+                      <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                       <ChartTooltip />
                       <Line type="monotone" dataKey="winRate" stroke="#4caf50" name="Win rate" />
                       <Line type="monotone" dataKey="profitFactor" stroke="#1976d2" name="Profit factor" />
@@ -638,15 +691,15 @@ export default function AnalyticsPage() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>Weekly grouped P&L</Typography>
                 {loading ? (
-                  <Skeleton variant="rectangular" height={240} />
+                  <Skeleton variant="rectangular" height={chartHeights.small} />
                 ) : (summary?.weeklyPnl?.length ?? 0) === 0 ? (
                   <EmptyState title="No weekly P&L" description="Close trades to see weekly results." />
                 ) : (
-                  <ResponsiveContainer width="100%" height={240}>
+                  <ResponsiveContainer width="100%" height={chartHeights.small}>
                     <BarChart data={summary?.weeklyPnl}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" />
-                      <YAxis />
+                      <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                       <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                       <Bar dataKey="value" fill="#1565c0" />
                     </BarChart>
@@ -665,15 +718,15 @@ export default function AnalyticsPage() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>P&L by day of week</Typography>
                 {loading ? (
-                  <Skeleton variant="rectangular" height={260} />
+                  <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : (summary?.timeEdge?.dayOfWeek?.length ?? 0) === 0 ? (
                   <EmptyState title="No day-of-week edge" description="Need closed trades to compute." />
                 ) : (
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={summary?.timeEdge?.dayOfWeek}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="bucket" />
-                      <YAxis />
+                      <XAxis dataKey="bucket" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                       <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                       <Bar dataKey="netPnl" fill="#1976d2" />
                     </BarChart>
@@ -687,15 +740,15 @@ export default function AnalyticsPage() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>Holding time buckets</Typography>
                 {loading ? (
-                  <Skeleton variant="rectangular" height={260} />
+                  <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : (summary?.timeEdge?.holdingBuckets?.length ?? 0) === 0 ? (
                   <EmptyState title="No holding time data" description="Closed trades needed for holding time analytics." />
                 ) : (
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={summary?.timeEdge?.holdingBuckets}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="bucket" />
-                      <YAxis />
+                      <XAxis dataKey="bucket" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                       <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                       <Bar dataKey="netPnl" fill="#4caf50" />
                     </BarChart>
@@ -712,12 +765,12 @@ export default function AnalyticsPage() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>Hour-of-day heatmap (Net P&L)</Typography>
                 {loading ? (
-                  <Skeleton variant="rectangular" height={140} />
+                  <Skeleton variant="rectangular" height={chartHeights.small} />
                 ) : heatmapData.length === 0 ? (
                   <EmptyState title="No hour-of-day data" description="Close trades to see hourly edge." />
                 ) : (
                   <Box sx={{ overflowX: 'auto' }}>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(24, minmax(40px, 1fr))', gap: 0.5 }}>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(24, minmax(32px, 1fr))', sm: 'repeat(24, minmax(40px, 1fr))' }, gap: 0.5 }}>
                       {heatmapData.map((bucket) => {
                         const intensity = heatmapMax === 0 ? 0 : Math.abs(bucket.netPnl) / heatmapMax
                         const color = bucket.netPnl >= 0
@@ -725,7 +778,7 @@ export default function AnalyticsPage() {
                           : `rgba(244, 67, 54, ${0.2 + intensity * 0.6})`
                         return (
                           <Tooltip key={bucket.bucket} title={`${bucket.bucket}:00 • N=${bucket.trades} • Win ${formatPercent(bucket.winRate)}`}>
-                            <Box sx={{ p: 1, textAlign: 'center', borderRadius: 1, backgroundColor: color }}>
+                            <Box sx={{ p: { xs: 0.5, sm: 1 }, textAlign: 'center', borderRadius: 1, backgroundColor: color }}>
                               <Typography variant="caption">{bucket.bucket}</Typography>
                             </Box>
                           </Tooltip>
@@ -747,15 +800,15 @@ export default function AnalyticsPage() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>Top symbols</Typography>
                 {loading ? (
-                  <Skeleton variant="rectangular" height={260} />
+                  <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : symbolBars.length === 0 ? (
                   <EmptyState title="No symbol data" description="Close trades with symbols to populate." />
                 ) : (
-                  <ResponsiveContainer width="100%" height={260}>
+                  <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={symbolBars}>
                       <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" />
-                      <YAxis />
+                      <XAxis dataKey="name" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
+                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                       <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
                       <Bar
                         dataKey="netPnl"
@@ -778,7 +831,7 @@ export default function AnalyticsPage() {
               <CardContent>
                 <Typography variant="h6" gutterBottom>Strategy leaderboard</Typography>
                 {loading ? (
-                  <Skeleton variant="rectangular" height={260} />
+                  <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : (summary?.attribution?.strategies?.length ?? 0) === 0 ? (
                   <EmptyState title="No strategy tags" description="Tag trades with strategies." />
                 ) : (
@@ -826,11 +879,11 @@ export default function AnalyticsPage() {
                   {(summary?.risk?.rDistribution?.length ?? 0) === 0 ? (
                     <EmptyState title="No R distribution" description="Track R multiples to see this chart." />
                   ) : (
-                    <ResponsiveContainer width="100%" height={220}>
+                    <ResponsiveContainer width="100%" height={chartHeights.small}>
                       <BarChart data={summary.risk.rDistribution}>
                         <CartesianGrid strokeDasharray="3 3" />
                         <XAxis dataKey="label" hide />
-                        <YAxis />
+                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                         <ChartTooltip />
                         <Bar dataKey="count" fill="#7b1fa2" />
                       </BarChart>

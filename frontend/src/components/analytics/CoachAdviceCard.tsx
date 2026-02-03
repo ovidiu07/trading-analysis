@@ -46,7 +46,7 @@ const formatEvidence = (evidence: AdviceEvidence, currency: string) => {
 export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachAdviceCardProps) {
   return (
     <Card variant="outlined">
-      <CardContent>
+      <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
         <Stack spacing={2}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between">
             <Stack spacing={0.5}>
@@ -57,7 +57,12 @@ export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachA
               </Stack>
             </Stack>
             {onViewTrades && (
-              <Button variant="outlined" size="small" onClick={() => onViewTrades(card)}>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => onViewTrades(card)}
+                sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, width: { xs: '100%', sm: 'auto' } }}
+              >
                 View trades
               </Button>
             )}

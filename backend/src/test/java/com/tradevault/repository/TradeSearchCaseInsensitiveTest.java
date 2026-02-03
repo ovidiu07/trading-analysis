@@ -6,11 +6,13 @@ import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.Role;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.repository.spec.TradeSpecifications;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -95,16 +97,11 @@ class TradeSearchCaseInsensitiveTest {
                 .strategyTag("BreakOut")
                 .build());
 
-        var page = tradeRepository.search(
-                user.getId(),
-                null,
-                null,
-                null,
-                null,
-                "aapl",
-                "breakout",
-                null,
-                TradeStatus.CLOSED,
+        var page = tradeRepository.findAll(
+                Specification.where(TradeSpecifications.userId(user.getId()))
+                        .and(TradeSpecifications.symbolEqualsIgnoreCase("aapl"))
+                        .and(TradeSpecifications.strategyEqualsIgnoreCase("breakout"))
+                        .and(TradeSpecifications.status(TradeStatus.CLOSED)),
                 PageRequest.of(0, 10)
         );
 

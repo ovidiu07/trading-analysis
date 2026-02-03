@@ -78,6 +78,7 @@ export default function Layout() {
             component={Link}
             to={item.path}
             selected={location.pathname.startsWith(item.path)}
+            title={item.label}
             sx={{
               borderRadius: 2,
               mb: 0.5,
@@ -95,7 +96,7 @@ export default function Layout() {
             <ListItemIcon sx={{ color: 'inherit', minWidth: 36 }}>
               {item.icon}
             </ListItemIcon>
-            <ListItemText primary={item.label} />
+            <ListItemText primary={item.label} primaryTypographyProps={{ noWrap: true }} sx={{ minWidth: 0 }} />
           </ListItemButton>
         ))}
       </List>
@@ -147,14 +148,14 @@ export default function Layout() {
       )}
       <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
         <AppBar position="sticky" elevation={0}>
-          <Toolbar sx={{ justifyContent: 'space-between', gap: 2 }}>
-            <Stack direction="row" alignItems="center" spacing={1.5}>
+          <Toolbar sx={{ justifyContent: 'space-between', gap: 2, flexWrap: { xs: 'wrap', sm: 'nowrap' }, py: { xs: 1, sm: 0 } }}>
+            <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
               {isAuthenticated && isMobile && (
                 <IconButton onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open menu">
                   <MenuIcon />
                 </IconButton>
               )}
-              <Typography variant="h6">{pageTitle}</Typography>
+              <Typography variant="h6" sx={{ fontSize: { xs: '1rem', sm: '1.25rem' }, whiteSpace: 'nowrap' }}>{pageTitle}</Typography>
             </Stack>
             {isAuthenticated ? (
               <Stack direction="row" spacing={1} alignItems="center">
@@ -164,6 +165,7 @@ export default function Layout() {
                   startIcon={<AccountCircleIcon />}
                   component={Link}
                   to="/profile"
+                  sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                 >
                   Profile
                 </Button>
@@ -172,9 +174,20 @@ export default function Layout() {
                   color="inherit"
                   startIcon={<LogoutIcon />}
                   onClick={handleLogout}
+                  sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                 >
                   Logout
                 </Button>
+                <Tooltip title="Profile">
+                  <IconButton color="inherit" component={Link} to="/profile" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                    <AccountCircleIcon />
+                  </IconButton>
+                </Tooltip>
+                <Tooltip title="Logout">
+                  <IconButton color="inherit" onClick={handleLogout} sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
+                    <LogoutIcon />
+                  </IconButton>
+                </Tooltip>
               </Stack>
             ) : (
               <Stack direction="row" spacing={1}>
@@ -184,7 +197,7 @@ export default function Layout() {
             )}
           </Toolbar>
         </AppBar>
-        <Container maxWidth="xl" sx={{ py: { xs: 3, md: 4 }, flexGrow: 1 }}>
+        <Container maxWidth="xl" sx={{ py: { xs: 2.5, md: 4 }, px: { xs: 2, sm: 3 }, flexGrow: 1 }}>
           <Outlet />
         </Container>
         <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2 }}>

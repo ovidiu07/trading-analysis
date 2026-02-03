@@ -10,11 +10,13 @@ import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.spec.TradeSpecifications;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
@@ -25,6 +27,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -47,30 +50,66 @@ public class TradeService {
                                       LocalDate closedDate,
                                       String tz,
                                       String symbol,
+                                      String strategy,
                                       Direction direction,
                                       com.tradevault.domain.enums.TradeStatus status) {
         User user = currentUserService.getCurrentUser();
+        logSearchParams(symbol, strategy);
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
-        var normalizedSymbol = (symbol == null || symbol.isBlank()) ? null : symbol;
+        var normalizedSymbol = normalizeSearchToken(symbol);
+        var normalizedStrategy = normalizeSearchToken(strategy);
         if (closedDate != null) {
             ZoneId zone = timezoneService.resolveZone(tz, user);
             closedAtFrom = closedDate.atStartOfDay(zone).toOffsetDateTime();
             closedAtTo = closedDate.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime();
         }
 
-        var result = tradeRepository.search(
-                user.getId(),
-                openedAtFrom,
-                openedAtTo,
-                closedAtFrom,
-                closedAtTo,
-                normalizedSymbol,
-                null,
-                direction,
-                status,
-                pageable
-        );
+        Specification<Trade> spec = Specification.where(TradeSpecifications.userId(user.getId()))
+                .and(TradeSpecifications.openedAtFrom(openedAtFrom))
+                .and(TradeSpecifications.openedAtTo(openedAtTo))
+                .and(TradeSpecifications.closedAtFrom(closedAtFrom))
+                .and(TradeSpecifications.closedAtTo(closedAtTo))
+                .and(TradeSpecifications.symbolEqualsIgnoreCase(normalizedSymbol))
+                .and(TradeSpecifications.strategyEqualsIgnoreCase(normalizedStrategy))
+                .and(TradeSpecifications.direction(direction))
+                .and(TradeSpecifications.status(status));
+
+        var result = tradeRepository.findAll(spec, pageable);
         return result.map(this::toResponse);
+    }
+
+    private static String normalizeSearchToken(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private void logSearchParams(String symbol, String strategy) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        log.debug("[TradeSearch] symbolType={}, strategyType={}, symbolValue={}, strategyValue={}",
+                typeName(symbol), typeName(strategy), safeParamValue(symbol), safeParamValue(strategy));
+    }
+
+    private static String typeName(Object value) {
+        return value == null ? "null" : value.getClass().getName();
+    }
+
+    private static String safeParamValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() > 64) {
+            trimmed = trimmed.substring(0, 64) + "...";
+        }
+        return "'" + trimmed + "'";
     }
 
     public Page<TradeResponse> listAll(int page, int size) {
