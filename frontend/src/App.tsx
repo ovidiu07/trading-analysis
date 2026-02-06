@@ -16,8 +16,13 @@ import NotebookPage from './pages/NotebookPage'
 import TermsPage from './pages/TermsPage'
 import PrivacyPage from './pages/PrivacyPage'
 import CookiesPage from './pages/CookiesPage'
+import InsightsPage from './pages/InsightsPage'
+import InsightDetailPage from './pages/InsightDetailPage'
+import AdminContentPage from './pages/admin/AdminContentPage'
+import AdminContentEditorPage from './pages/admin/AdminContentEditorPage'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
+import AdminRoute from './components/AdminRoute'
 import theme from './theme'
 
 function App() {
@@ -41,8 +46,13 @@ function App() {
           <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
           <Route path="/notebook" element={<ProtectedRoute><NotebookPage /></ProtectedRoute>} />
           <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
+          <Route path="/insights" element={<ProtectedRoute><InsightsPage /></ProtectedRoute>} />
+          <Route path="/insights/:idOrSlug" element={<ProtectedRoute><InsightDetailPage /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
+          <Route path="/admin/content" element={<AdminRoute><AdminContentPage /></AdminRoute>} />
+          <Route path="/admin/content/new" element={<AdminRoute><AdminContentEditorPage /></AdminRoute>} />
+          <Route path="/admin/content/:id" element={<AdminRoute><AdminContentEditorPage /></AdminRoute>} />
         </Route>
       </Routes>
     </ThemeProvider>

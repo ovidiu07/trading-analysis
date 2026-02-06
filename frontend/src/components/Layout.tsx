@@ -24,9 +24,11 @@ import TableChartIcon from '@mui/icons-material/TableChart'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import NoteIcon from '@mui/icons-material/Note'
 import InsightsIcon from '@mui/icons-material/Insights'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AccountCircleIcon from '@mui/icons-material/AccountCircle'
 import LogoutIcon from '@mui/icons-material/Logout'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useMemo, useState } from 'react'
@@ -37,6 +39,7 @@ export default function Layout() {
   const location = useLocation()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+  const isCompact = useMediaQuery('(max-width:560px)')
   const [mobileOpen, setMobileOpen] = useState(false)
 
   const handleLogout = () => {
@@ -44,14 +47,23 @@ export default function Layout() {
     navigate('/login')
   }
 
-  const navItems = useMemo(() => ([
-    { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-    { label: 'Trades', path: '/trades', icon: <TableChartIcon /> },
-    { label: 'Calendar', path: '/calendar', icon: <CalendarMonthIcon /> },
-    { label: 'Notebook', path: '/notebook', icon: <NoteIcon /> },
-    { label: 'Analytics', path: '/analytics', icon: <InsightsIcon /> },
-    { label: 'Settings', path: '/settings', icon: <SettingsIcon /> }
-  ]), [])
+  const navItems = useMemo(() => {
+    const items = [
+      { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
+      { label: 'Trades', path: '/trades', icon: <TableChartIcon /> },
+      { label: 'Calendar', path: '/calendar', icon: <CalendarMonthIcon /> },
+      { label: 'Notebook', path: '/notebook', icon: <NoteIcon /> },
+      { label: 'Analytics', path: '/analytics', icon: <InsightsIcon /> },
+      { label: 'Insights', path: '/insights', icon: <MenuBookIcon /> },
+      { label: 'Settings', path: '/settings', icon: <SettingsIcon /> }
+    ]
+
+    if (user?.role === 'ADMIN') {
+      items.push({ label: 'Admin', path: '/admin/content', icon: <AdminPanelSettingsIcon /> })
+    }
+
+    return items
+  }, [user?.role])
 
   const pageTitle = useMemo(() => {
     const match = navItems.find((item) => location.pathname.startsWith(item.path))
@@ -146,8 +158,16 @@ export default function Layout() {
           </Drawer>
         </Box>
       )}
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <AppBar position="sticky" elevation={0}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: '100vh',
+          alignItems: isCompact ? 'center' : 'stretch'
+        }}
+      >
+        <AppBar position="sticky" elevation={0} sx={{ width: '100%' }}>
           <Toolbar sx={{ justifyContent: 'space-between', gap: 2, flexWrap: { xs: 'wrap', sm: 'nowrap' }, py: { xs: 1, sm: 0 } }}>
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
               {isAuthenticated && isMobile && (
@@ -197,10 +217,18 @@ export default function Layout() {
             )}
           </Toolbar>
         </AppBar>
-        <Container maxWidth="xl" sx={{ py: { xs: 2.5, md: 4 }, px: { xs: 2, sm: 3 }, flexGrow: 1 }}>
+        <Container
+          maxWidth="xl"
+          sx={{
+            py: { xs: 2.5, md: 4 },
+            px: { xs: 2, sm: 3 },
+            flexGrow: 1,
+            width: '100%'
+          }}
+        >
           <Outlet />
         </Container>
-        <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2 }}>
+        <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2, width: '100%' }}>
           <Container maxWidth="xl">
             <Stack
               direction={{ xs: 'column', md: 'row' }}

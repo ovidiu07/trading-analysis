@@ -53,9 +53,6 @@ app:
 logging:
   level:
     root: INFO
-    org.hibernate.SQL: DEBUG
-    org.hibernate.orm.jdbc.bind: TRACE
-    com.tradevault.service.TradeService: DEBUG
 
 tradecoach:
   min-trades-for-finding: ${TRADECOACH_MIN_TRADES:10}

@@ -81,3 +81,15 @@ Notebook entities live in `backend/src/main/resources/db/migration/V2__notebook.
 cd backend
 mvn -DskipTests=false flyway:migrate
 ```
+
+## Insights publishing
+Admins can create and publish strategies + weekly plans for all authenticated users to read in the Insights section.
+
+### Publish flow
+1. Visit `/admin/content` (ADMIN only) to see all drafts, published items, and archived items.
+2. Click “Create new” to draft a strategy or weekly plan.
+3. Save as draft, then publish when ready. Published items are visible at `/insights` for all signed-in users.
+
+### Content endpoints
+- Admin CRUD: `POST /api/admin/content`, `PUT /api/admin/content/{id}`, `POST /api/admin/content/{id}/publish`, `POST /api/admin/content/{id}/archive`, `DELETE /api/admin/content/{id}`
+- Read-only: `GET /api/content?type=STRATEGY|WEEKLY_PLAN&activeOnly=true`, `GET /api/content/{idOrSlug}`
