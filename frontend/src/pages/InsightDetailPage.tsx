@@ -6,7 +6,8 @@ import {
   CardContent,
   Chip,
   Stack,
-  Typography
+  Typography,
+  type ChipProps
 } from '@mui/material'
 import { Link, useParams } from 'react-router-dom'
 import PageHeader from '../components/ui/PageHeader'
@@ -16,6 +17,12 @@ import MarkdownContent from '../components/ui/MarkdownContent'
 import { ApiError } from '../api/client'
 import { ContentPost, getContent } from '../api/content'
 import { formatDate, formatDateTime } from '../utils/format'
+
+type ChipItem = {
+  label: string
+  variant: 'outlined' | 'filled'
+  color?: ChipProps['color']
+}
 
 export default function InsightDetailPage() {
   const { idOrSlug } = useParams()
@@ -36,14 +43,22 @@ export default function InsightDetailPage() {
       .finally(() => setLoading(false))
   }, [idOrSlug])
 
-  const chips = useMemo(() => {
+  const chips = useMemo<ChipItem[]>(() => {
     if (!post) return []
-    const tagChips = (post.tags || []).map((tag) => ({ label: tag, variant: 'outlined' as const }))
-    const symbolChips = (post.symbols || []).map((symbol) => ({ label: symbol, variant: 'outlined' as const }))
-    const typeChip = {
+    const tagChips: ChipItem[] = (post.tags || []).map((tag) => ({
+      label: tag,
+      variant: 'outlined',
+      color: undefined
+    }))
+    const symbolChips: ChipItem[] = (post.symbols || []).map((symbol) => ({
+      label: symbol,
+      variant: 'outlined',
+      color: undefined
+    }))
+    const typeChip: ChipItem = {
       label: post.type === 'STRATEGY' ? 'Strategy' : 'Weekly plan',
-      variant: 'filled' as const,
-      color: 'primary' as const
+      variant: 'filled',
+      color: 'primary'
     }
     return [typeChip, ...tagChips, ...symbolChips]
   }, [post])
