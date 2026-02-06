@@ -321,6 +321,7 @@ export default function NotebookPage() {
   const [mobilePanel, setMobilePanel] = useState<'list' | 'editor'>('list')
   const persistedFingerprintRef = useRef<string>('')
   const isSavingRef = useRef(false)
+  const outOfFilterNoticeRef = useRef<string | null>(null)
 
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
@@ -422,12 +423,6 @@ export default function NotebookPage() {
     try {
       const data = await getNotebookNote(noteId)
       setSelectedNote(data)
-      if (data.folderId && selectedFolderId !== data.folderId) {
-        setSelectedFolderId(data.folderId)
-      }
-      if (!data.folderId && allNotesFolder && selectedFolderId !== allNotesFolder.id) {
-        setSelectedFolderId(allNotesFolder.id)
-      }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         handleAuthFailure(err.message)
@@ -435,7 +430,7 @@ export default function NotebookPage() {
         setError('Unable to refresh the selected note.')
       }
     }
-  }, [allNotesFolder, handleAuthFailure, selectedFolderId])
+  }, [handleAuthFailure])
 
   useEffect(() => {
     loadFoldersAndTags()
@@ -592,6 +587,7 @@ export default function NotebookPage() {
 
   const tagMap = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags])
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders])
+  const outsideFilterMessage = 'Note opened outside your current filters. Adjust filters to see it in the list.'
 
   const sortNotes = useCallback((items: NotebookNote[]) => {
     const getTime = (value?: string | null) => (value ? new Date(value).getTime() : 0)
@@ -646,13 +642,19 @@ export default function NotebookPage() {
 
   useEffect(() => {
     if (!urlNoteId || !selectedNote) return
-    if (noteMatchesFilters(selectedNote)) return
-    setInfoMessage('Note opened outside your current filters. Showing it in All notes.')
-    setSelectedFolderId(allNotesFolder?.id ?? selectedFolderId)
-    setTypeFilter('ALL')
-    setFilterTags([])
-    setSearchQuery('')
-  }, [allNotesFolder, noteMatchesFilters, selectedFolderId, selectedNote, urlNoteId])
+    if (noteMatchesFilters(selectedNote)) {
+      if (infoMessage === outsideFilterMessage) {
+        setInfoMessage('')
+      }
+      if (outOfFilterNoticeRef.current === selectedNote.id) {
+        outOfFilterNoticeRef.current = null
+      }
+      return
+    }
+    if (outOfFilterNoticeRef.current === selectedNote.id) return
+    outOfFilterNoticeRef.current = selectedNote.id
+    setInfoMessage(outsideFilterMessage)
+  }, [infoMessage, noteMatchesFilters, outsideFilterMessage, selectedNote, urlNoteId])
 
   const updateDraftNote = useCallback((next: NotebookNote) => {
     setSelectedNote(next)

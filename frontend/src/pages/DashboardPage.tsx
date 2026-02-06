@@ -43,7 +43,27 @@ export default function DashboardPage() {
   const baseCurrency = user?.baseCurrency || 'USD'
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
-  const chartHeight = isMobile ? 240 : 320
+  const isCompact = useMediaQuery('(max-width:560px)')
+  const chartHeight = isCompact ? 180 : isMobile ? 240 : 320
+  const compactGap = theme.spacing(1.5)
+  const dashboardSx = isCompact
+    ? {
+      width: '100%',
+      mx: 'auto',
+      '& .MuiGrid-container': {
+        width: '100%',
+        marginLeft: 0,
+        marginRight: 0,
+        marginTop: 0,
+        columnGap: compactGap,
+        rowGap: compactGap
+      },
+      '& .MuiGrid-item': {
+        paddingLeft: 0,
+        paddingTop: 0
+      }
+    }
+    : { width: '100%', mx: 'auto' }
 
   useEffect(() => {
     const load = async () => {
@@ -87,19 +107,21 @@ export default function DashboardPage() {
   const groupedPnl = useMemo(() => summary?.groupedPnl || [], [summary])
 
   return (
-    <Stack spacing={3}>
-      <PageHeader
-        title="Dashboard"
-        subtitle="Live view of your trading performance, equity growth, and most recent executions."
-      />
+    <Stack spacing={isCompact ? 2 : 3} sx={dashboardSx}>
+      {!isCompact && (
+        <PageHeader
+          title="Dashboard"
+          subtitle="Live view of your trading performance, equity growth, and most recent executions."
+        />
+      )}
 
       {error && <ErrorBanner message={error} />}
 
-      <Grid container spacing={2}>
+      <Grid container spacing={isCompact ? 0 : 2}>
         {kpiCards.map((kpi, idx) => (
           <Grid item xs={12} sm={6} md={4} lg={2} key={kpi.label || idx}>
             <Card>
-              <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+              <CardContent sx={{ p: isCompact ? 1.25 : { xs: 1.5, sm: 2.5 } }}>
                 {loading ? (
                   <>
                     <Skeleton width="50%" />
@@ -130,11 +152,11 @@ export default function DashboardPage() {
         ))}
       </Grid>
 
-      <Grid container spacing={2}>
+      <Grid container spacing={isCompact ? 0 : 2}>
         <Grid item xs={12} md={8}>
           <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={2} spacing={0.5}>
+            <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={isCompact ? 1.5 : 2} spacing={0.5}>
                 <Typography variant="h6">Equity curve</Typography>
                 <Typography variant="body2" color="text.secondary">Cumulative P&L over time</Typography>
               </Stack>
@@ -149,8 +171,8 @@ export default function DashboardPage() {
                 <ResponsiveContainer width="100%" height={chartHeight}>
                   <AreaChart data={equityData}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 8 : 20} />
-                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isMobile ? 10 : 12 }} />
+                    <XAxis dataKey="date" tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} minTickGap={isCompact ? 6 : isMobile ? 8 : 20} />
+                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} width={isCompact ? 48 : undefined} />
                     <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
                     <Area type="monotone" dataKey="value" stroke="#1976d2" fill="#bbdefb" />
                   </AreaChart>
@@ -162,8 +184,8 @@ export default function DashboardPage() {
 
         <Grid item xs={12} md={4}>
           <Card sx={{ height: '100%' }}>
-            <CardContent>
-              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={2} spacing={0.5}>
+            <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={isCompact ? 1.5 : 2} spacing={0.5}>
                 <Typography variant="h6">Daily P&L</Typography>
                 <Typography variant="body2" color="text.secondary">Grouped by day</Typography>
               </Stack>
@@ -178,8 +200,8 @@ export default function DashboardPage() {
                 <ResponsiveContainer width="100%" height={chartHeight}>
                   <BarChart data={groupedPnl}>
                     <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 8 : 20} />
-                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isMobile ? 10 : 12 }} />
+                    <XAxis dataKey="date" tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} minTickGap={isCompact ? 6 : isMobile ? 8 : 20} />
+                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} width={isCompact ? 48 : undefined} />
                     <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
                     <Bar dataKey="value" fill="#1976d2" />
                   </BarChart>
@@ -191,7 +213,7 @@ export default function DashboardPage() {
       </Grid>
 
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={1} spacing={0.5}>
             <Typography variant="h6">Recent trades</Typography>
             <Typography variant="body2" color="text.secondary">Newest first</Typography>
@@ -206,17 +228,17 @@ export default function DashboardPage() {
               <Table size={isMobile ? 'small' : 'medium'}>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ py: isMobile ? 0.75 : 1.5 }}>Symbol</TableCell>
-                  <TableCell sx={{ py: isMobile ? 0.75 : 1.5 }}>Direction</TableCell>
-                  <TableCell sx={{ py: isMobile ? 0.75 : 1.5 }}>Status</TableCell>
-                  <TableCell sx={{ py: isMobile ? 0.75 : 1.5 }}>Opened</TableCell>
-                  <TableCell align="right" sx={{ py: isMobile ? 0.75 : 1.5 }}>PnL (net)</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Symbol</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Direction</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Status</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Opened</TableCell>
+                  <TableCell align="right" sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>PnL (net)</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {recentTrades.map((trade) => (
                   <TableRow key={trade.id} hover>
-                    <TableCell sx={{ fontWeight: 600, py: isMobile ? 0.75 : 1.5 }}>{trade.symbol}</TableCell>
+                    <TableCell sx={{ fontWeight: 600, py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{trade.symbol}</TableCell>
                     <TableCell>
                       <Chip
                         size="small"
@@ -225,9 +247,9 @@ export default function DashboardPage() {
                         variant="outlined"
                       />
                     </TableCell>
-                    <TableCell sx={{ py: isMobile ? 0.75 : 1.5 }}>{trade.status}</TableCell>
-                    <TableCell sx={{ py: isMobile ? 0.75 : 1.5 }}>{formatDateTime(trade.openedAt)}</TableCell>
-                    <TableCell align="right" sx={{ py: isMobile ? 0.75 : 1.5, color: (trade.pnlNet || 0) >= 0 ? 'success.main' : 'error.main' }}>
+                    <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{trade.status}</TableCell>
+                    <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{formatDateTime(trade.openedAt)}</TableCell>
+                    <TableCell align="right" sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5, color: (trade.pnlNet || 0) >= 0 ? 'success.main' : 'error.main' }}>
                       {formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
                     </TableCell>
                   </TableRow>

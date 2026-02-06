@@ -85,11 +85,19 @@ export default function AnalyticsPage() {
   const navigate = useNavigate()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isCompact = useMediaQuery('(max-width:560px)')
   const chartHeights = {
-    large: isMobile ? 220 : 320,
-    medium: isMobile ? 200 : 260,
-    small: isMobile ? 180 : 240
+    large: isCompact ? 190 : isMobile ? 220 : 320,
+    medium: isCompact ? 170 : isMobile ? 200 : 260,
+    small: isCompact ? 150 : isMobile ? 180 : 240
   }
+  const compactInputSx = isCompact
+    ? {
+      '& .MuiInputBase-root': { minHeight: 38 },
+      '& .MuiInputBase-input': { py: 0.75 }
+    }
+    : {}
+  const tabSx = { minHeight: isCompact ? 40 : 48, px: isCompact ? 1.5 : 2 }
 
   const loadAnalytics = async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setLoading(true)
@@ -220,7 +228,7 @@ export default function AnalyticsPage() {
   }
 
   const advancedFilters = (
-    <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'center' }} flexWrap="wrap">
+    <Stack direction={{ xs: 'column', md: 'row' }} spacing={isCompact ? 1.5 : 2} alignItems={{ xs: 'stretch', md: 'center' }} flexWrap="wrap">
       <TextField
         size="small"
         label="Market"
@@ -229,7 +237,7 @@ export default function AnalyticsPage() {
         value={filters.market || ''}
         onChange={(e) => setFilters((prev) => ({ ...prev, market: e.target.value }))}
         fullWidth={isMobile}
-        sx={{ minWidth: { xs: '100%', sm: 160 } }}
+        sx={{ minWidth: { xs: '100%', sm: 160 }, ...compactInputSx }}
       >
         <option value="">Any</option>
         {summary?.filterOptions?.markets?.map((mkt) => (
@@ -244,7 +252,7 @@ export default function AnalyticsPage() {
         value={filters.holdingBucket || ''}
         onChange={(e) => setFilters((prev) => ({ ...prev, holdingBucket: e.target.value }))}
         fullWidth={isMobile}
-        sx={{ minWidth: { xs: '100%', sm: 160 } }}
+        sx={{ minWidth: { xs: '100%', sm: 160 }, ...compactInputSx }}
       >
         <option value="">Any</option>
         <option value="<5m">&lt;5m</option>
@@ -253,7 +261,7 @@ export default function AnalyticsPage() {
         <option value="1-4h">1-4h</option>
         <option value=">4h">&gt;4h</option>
       </TextField>
-      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }} fullWidth={isMobile}>
+      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
         <InputLabel>Strategy</InputLabel>
         <Select
           multiple
@@ -273,7 +281,7 @@ export default function AnalyticsPage() {
           ))}
         </Select>
       </FormControl>
-      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }} fullWidth={isMobile}>
+      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
         <InputLabel>Setup</InputLabel>
         <Select
           multiple
@@ -293,7 +301,7 @@ export default function AnalyticsPage() {
           ))}
         </Select>
       </FormControl>
-      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 } }} fullWidth={isMobile}>
+      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
         <InputLabel>Catalyst</InputLabel>
         <Select
           multiple
@@ -334,23 +342,27 @@ export default function AnalyticsPage() {
   )
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={isCompact ? 2 : 3}>
       <PageHeader
         title="Analytics"
         subtitle="Pro-grade diagnostics across performance, consistency, and edge."
       />
 
       <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ xs: 'stretch', md: 'flex-end' }} flexWrap="wrap">
+        <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+          <Stack spacing={isCompact ? 1.5 : 2}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={isCompact ? 1 : 2} alignItems={{ xs: 'stretch', md: 'flex-end' }} flexWrap="wrap">
               <ToggleButtonGroup
                 color="primary"
                 exclusive
                 size="small"
                 value={filters.dateMode ?? 'CLOSE'}
                 onChange={(_, value) => value && setFilters((prev) => ({ ...prev, dateMode: value }))}
-                sx={{ flexWrap: 'wrap' }}
+                sx={{
+                  flexWrap: 'wrap',
+                  width: { xs: '100%', sm: 'auto' },
+                  '& .MuiToggleButton-root': { minHeight: isCompact ? 34 : 36, flex: { xs: 1, sm: '0 0 auto' } }
+                }}
               >
                 <ToggleButton value="OPEN">Open date</ToggleButton>
                 <ToggleButton value="CLOSE">Close date</ToggleButton>
@@ -363,7 +375,7 @@ export default function AnalyticsPage() {
                 value={filters.from || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
                 fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 } }}
+                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
               />
               <TextField
                 size="small"
@@ -373,7 +385,7 @@ export default function AnalyticsPage() {
                 value={filters.to || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
                 fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 } }}
+                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
               />
               <TextField
                 size="small"
@@ -381,7 +393,7 @@ export default function AnalyticsPage() {
                 value={filters.symbol || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))}
                 fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 } }}
+                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
               />
               <TextField
                 size="small"
@@ -391,7 +403,7 @@ export default function AnalyticsPage() {
                 value={filters.direction || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value as 'LONG' | 'SHORT' }))}
                 fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 } }}
+                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
               >
                 <option value="">Any</option>
                 <option value="LONG">Long</option>
@@ -405,7 +417,7 @@ export default function AnalyticsPage() {
                 value={filters.status || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value as 'OPEN' | 'CLOSED' }))}
                 fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 } }}
+                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
               >
                 <option value="CLOSED">Closed</option>
                 <option value="OPEN">Open</option>
@@ -429,14 +441,25 @@ export default function AnalyticsPage() {
       {error && <ErrorBanner message={error} />}
       {coachError && <ErrorBanner message={coachError} />}
 
-      <Tabs value={tab} onChange={(_, value) => setTab(value)} variant="scrollable" scrollButtons="auto">
-        <Tab label="Overview" />
-        <Tab label="Coach" />
-        <Tab label="Consistency" />
-        <Tab label="Time edge" />
-        <Tab label="Symbols & tags" />
-        <Tab label="Risk" />
-        <Tab label="Data quality" />
+      <Tabs
+        value={tab}
+        onChange={(_, value) => setTab(value)}
+        variant="scrollable"
+        scrollButtons={isCompact ? false : 'auto'}
+        allowScrollButtonsMobile
+        sx={{
+          minHeight: isCompact ? 40 : 48,
+          '& .MuiTabs-scroller': { overflowX: 'auto' },
+          '& .MuiTabs-flexContainer': { gap: isCompact ? 1 : 2, px: isCompact ? 0.5 : 0 }
+        }}
+      >
+        <Tab label="Overview" sx={tabSx} />
+        <Tab label="Coach" sx={tabSx} />
+        <Tab label="Consistency" sx={tabSx} />
+        <Tab label="Time edge" sx={tabSx} />
+        <Tab label="Symbols & tags" sx={tabSx} />
+        <Tab label="Risk" sx={tabSx} />
+        <Tab label="Data quality" sx={tabSx} />
       </Tabs>
 
       <TabPanel value={tab} index={0}>

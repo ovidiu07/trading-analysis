@@ -95,6 +95,16 @@ export type DailyPnlResponse = {
   losses: number
 }
 
+export type MonthlyPnlSummaryResponse = {
+  year: number
+  month: number
+  timezone: string
+  netPnl: number
+  grossPnl?: number | null
+  tradeCount?: number
+  tradingDays?: number
+}
+
 export type TradeCsvImportGroupResult = {
   isin: string
   status: 'CREATED' | 'UPDATED' | 'SKIPPED'
@@ -131,6 +141,10 @@ export async function searchTrades(filters: TradeSearchFilters = {}) {
 
 export async function fetchDailyPnl(params: { from: string; to: string; tz?: string; basis?: 'open' | 'close' }) {
   return apiGet<DailyPnlResponse[]>(`/trades/daily-pnl${toQuery(params)}`)
+}
+
+export async function fetchMonthlyPnlSummary(params: { year: number; month: number; tz?: string; basis?: 'open' | 'close' }) {
+  return apiGet<MonthlyPnlSummaryResponse>(`/calendar/month-summary${toQuery(params)}`)
 }
 
 export async function listClosedTradesForDate(date: string, tz?: string) {

@@ -90,6 +90,28 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       @Param("tz") String tz);
 
   @Query(value = """
+      WITH x AS (
+        SELECT t.pnl_net AS pnl_net,
+               t.pnl_gross AS pnl_gross,
+               CAST((t.closed_at AT TIME ZONE :tz) AS date) AS local_date
+        FROM trades t
+        WHERE t.user_id = :userId
+          AND t.status = 'CLOSED'
+          AND t.closed_at IS NOT NULL
+      )
+      SELECT COALESCE(SUM(x.pnl_net), 0) AS netPnl,
+             COALESCE(SUM(x.pnl_gross), 0) AS grossPnl,
+             COUNT(*) AS tradeCount,
+             COUNT(DISTINCT x.local_date) AS tradingDays
+      FROM x
+      WHERE x.local_date >= :fromDate
+        AND x.local_date <= :toDate
+      """, nativeQuery = true)
+  MonthlyPnlAggregate aggregateMonthlyPnlByClosedDate(@Param("userId") UUID userId,
+      @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
+      @Param("tz") String tz);
+
+  @Query(value = """
       SELECT * FROM trades t
       WHERE t.user_id = :userId
         AND t.status = 'CLOSED'
@@ -120,5 +142,16 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
     long getWins();
 
     long getLosses();
+  }
+
+  interface MonthlyPnlAggregate {
+
+    java.math.BigDecimal getNetPnl();
+
+    java.math.BigDecimal getGrossPnl();
+
+    long getTradeCount();
+
+    long getTradingDays();
   }
 }

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   alpha,
   Box,
@@ -14,6 +14,7 @@ import {
   DialogTitle,
   Divider,
   IconButton,
+  Skeleton,
   Stack,
   Typography,
   useMediaQuery,
@@ -23,7 +24,7 @@ import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
-import { DailyPnlResponse, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
+import { DailyPnlResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
@@ -36,6 +37,7 @@ export default function CalendarPage() {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'lg'))
+  const isCompact = useMediaQuery('(max-width:560px)')
   const navigate = useNavigate()
   const { user } = useAuth()
   const baseCurrency = user?.baseCurrency || 'USD'
@@ -45,6 +47,9 @@ export default function CalendarPage() {
   const [dailyPnl, setDailyPnl] = useState<DailyPnlResponse[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [monthSummary, setMonthSummary] = useState<MonthlyPnlSummaryResponse | null>(null)
+  const [monthSummaryLoading, setMonthSummaryLoading] = useState(false)
+  const [monthSummaryError, setMonthSummaryError] = useState('')
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedTrades, setSelectedTrades] = useState<TradeResponse[]>([])
   const [selectedNotes, setSelectedNotes] = useState<NotebookNoteSummary[]>([])
@@ -58,10 +63,27 @@ export default function CalendarPage() {
   const calendarStart = useMemo(() => startOfWeek(monthStart, { weekStartsOn }), [monthStart])
   const calendarEnd = useMemo(() => endOfWeek(monthEnd, { weekStartsOn }), [monthEnd])
   const days = useMemo(() => eachDayOfInterval({ start: calendarStart, end: calendarEnd }), [calendarStart, calendarEnd])
+  const monthDays = useMemo(() => days.filter((day) => isSameMonth(day, currentMonth)), [currentMonth, days])
   const weekdayLabels = useMemo(() => eachDayOfInterval({ start: calendarStart, end: addDays(calendarStart, 6) })
     .map((day) => format(day, 'EEE')), [calendarStart])
+  const monthKey = useMemo(() => format(currentMonth, 'yyyy-MM'), [currentMonth])
+  const monthLabel = useMemo(() => format(currentMonth, 'MMMM yyyy'), [currentMonth])
+  const summaryCacheKey = useMemo(() => `${monthKey}-${timezone}`, [monthKey, timezone])
 
   const pnlByDate = useMemo(() => new Map(dailyPnl.map((entry) => [entry.date, entry])), [dailyPnl])
+  const monthSummaryCache = useRef(new Map<string, MonthlyPnlSummaryResponse>())
+
+  const derivedSummary = useMemo(() => {
+    return dailyPnl.reduce((acc, entry) => {
+      if (!entry.date.startsWith(monthKey)) {
+        return acc
+      }
+      acc.netPnl += entry.netPnl
+      acc.tradeCount += entry.tradeCount
+      acc.tradingDays += 1
+      return acc
+    }, { netPnl: 0, tradeCount: 0, tradingDays: 0 })
+  }, [dailyPnl, monthKey])
 
   useEffect(() => {
     const fetchData = async () => {
@@ -82,6 +104,44 @@ export default function CalendarPage() {
     }
     fetchData()
   }, [calendarEnd, calendarStart, timezone])
+
+  useEffect(() => {
+    let active = true
+    const cached = monthSummaryCache.current.get(summaryCacheKey)
+    if (cached) {
+      setMonthSummary(cached)
+      setMonthSummaryLoading(false)
+      setMonthSummaryError('')
+      return
+    }
+
+    const loadSummary = async () => {
+      setMonthSummaryLoading(true)
+      setMonthSummaryError('')
+      setMonthSummary(null)
+      try {
+        const year = currentMonth.getFullYear()
+        const month = currentMonth.getMonth() + 1
+        const data = await fetchMonthlyPnlSummary({ year, month, tz: timezone, basis: 'close' })
+        if (!active) return
+        monthSummaryCache.current.set(summaryCacheKey, data)
+        setMonthSummary(data)
+      } catch (err) {
+        if (!active) return
+        const message = err instanceof Error ? err.message : 'Failed to load monthly summary'
+        setMonthSummaryError(message)
+      } finally {
+        if (active) {
+          setMonthSummaryLoading(false)
+        }
+      }
+    }
+
+    loadSummary()
+    return () => {
+      active = false
+    }
+  }, [currentMonth, summaryCacheKey, timezone])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -127,6 +187,31 @@ export default function CalendarPage() {
   const selectedAggregate = selectedDateKey ? pnlByDate.get(selectedDateKey) : undefined
   const selectedNetPnl = selectedAggregate?.netPnl ?? 0
   const selectedTradeCount = selectedAggregate?.tradeCount ?? selectedTrades.length
+
+  const summaryNetPnl = monthSummary?.netPnl ?? derivedSummary.netPnl
+  const summaryGrossPnl = monthSummary?.grossPnl
+  const summaryTradeCount = monthSummary?.tradeCount ?? derivedSummary.tradeCount
+  const summaryTradingDays = monthSummary?.tradingDays ?? derivedSummary.tradingDays
+  const showSummarySkeleton = (monthSummaryLoading || loading) && !monthSummary && dailyPnl.length === 0
+  const showSummaryError = monthSummaryError && !monthSummary && dailyPnl.length === 0
+  const hasGross = summaryGrossPnl !== undefined && summaryGrossPnl !== null
+  const isSummaryPositive = summaryNetPnl > 0
+  const isSummaryNegative = summaryNetPnl < 0
+  const summaryBorderColor = isSummaryPositive
+    ? theme.palette.success.main
+    : isSummaryNegative
+      ? theme.palette.error.main
+      : theme.palette.grey[300]
+  const summaryBackground = isSummaryPositive
+    ? alpha(theme.palette.success.light, 0.3)
+    : isSummaryNegative
+      ? alpha(theme.palette.error.light, 0.3)
+      : alpha(theme.palette.grey[200], 0.6)
+  const summaryTextColor = isSummaryPositive
+    ? theme.palette.success.main
+    : isSummaryNegative
+      ? theme.palette.error.main
+      : theme.palette.text.primary
 
   const handleDayClick = (day: Date) => {
     setSelectedDate(day)
@@ -238,8 +323,86 @@ export default function CalendarPage() {
     )
   }
 
+  const renderDayRow = (day: Date) => {
+    const dateKey = format(day, 'yyyy-MM-dd')
+    const entry = pnlByDate.get(dateKey)
+    const netPnl = entry?.netPnl
+    const isPositive = netPnl !== undefined && netPnl > 0
+    const isNegative = netPnl !== undefined && netPnl < 0
+    const backgroundColor = isPositive
+      ? alpha(theme.palette.success.light, 0.2)
+      : isNegative
+        ? alpha(theme.palette.error.light, 0.2)
+        : alpha(theme.palette.grey[200], 0.6)
+    const borderColor = isPositive
+      ? theme.palette.success.main
+      : isNegative
+        ? theme.palette.error.main
+        : theme.palette.grey[300]
+    const pnlBadgeColor = isPositive
+      ? theme.palette.success.main
+      : isNegative
+        ? theme.palette.error.main
+        : theme.palette.grey[600]
+    const pnlLabel = netPnl === undefined ? '—' : formatSignedCurrency(netPnl, baseCurrency)
+    const tradeLabel = entry ? `${entry.tradeCount} trades` : 'No trades'
+    const ariaLabelParts = entry
+      ? [
+        `View realized P&L for ${dateKey}`,
+        `Net P&L ${formatSignedCurrency(netPnl ?? 0, baseCurrency)}`,
+        `${entry.tradeCount} trades`
+      ]
+      : [`View realized P&L for ${dateKey}`, 'No trades']
+
+    return (
+      <ButtonBase
+        key={dateKey}
+        onClick={() => handleDayClick(day)}
+        aria-label={ariaLabelParts.join('. ')}
+        sx={{
+          textAlign: 'left',
+          borderRadius: 2,
+          border: '1px solid',
+          borderColor,
+          backgroundColor,
+          width: '100%',
+          p: 1.25,
+          minHeight: 68,
+          alignItems: 'center',
+          justifyContent: 'flex-start'
+        }}
+      >
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ width: '100%', minWidth: 0 }}>
+          <Stack spacing={0.25} sx={{ minWidth: 0 }}>
+            <Typography variant="subtitle2" fontWeight={600} noWrap>
+              {format(day, 'EEE, MMM d')}
+            </Typography>
+            <Typography variant="caption" color="text.secondary">
+              {tradeLabel}
+            </Typography>
+          </Stack>
+          <Box
+            sx={{
+              px: 1,
+              py: 0.4,
+              borderRadius: 1,
+              bgcolor: pnlBadgeColor,
+              color: 'common.white',
+              fontSize: '0.8rem',
+              fontWeight: 600,
+              lineHeight: 1.2,
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {pnlLabel}
+          </Box>
+        </Stack>
+      </ButtonBase>
+    )
+  }
+
   return (
-    <Stack spacing={3}>
+    <Stack spacing={isCompact ? 2 : 3}>
       <PageHeader
         title="Calendar"
         subtitle={`Realized P&L by trade close date in ${timezone}.`}
@@ -280,8 +443,131 @@ export default function CalendarPage() {
       />
 
       <Card>
-        <CardContent>
-          <Stack direction="row" spacing={2} mb={{ xs: 1.5, sm: 2 }} flexWrap="wrap">
+        <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+          <Box
+            sx={{
+              mb: { xs: 1.5, sm: 2 },
+              p: { xs: 1.5, sm: 2 },
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: summaryBorderColor,
+              bgcolor: summaryBackground
+            }}
+          >
+            <Stack
+              direction={isCompact ? 'column' : 'row'}
+              spacing={isCompact ? 1.5 : 3}
+              alignItems={isCompact ? 'center' : 'flex-start'}
+              justifyContent="space-between"
+            >
+              <Stack
+                spacing={0.5}
+                sx={{ minWidth: 0, width: isCompact ? '100%' : 'auto' }}
+                alignItems={isCompact ? 'center' : 'flex-start'}
+              >
+                <Typography variant="subtitle2" color="text.secondary">
+                  Monthly Realized P&L (net)
+                </Typography>
+                {showSummarySkeleton ? (
+                  <Skeleton variant="text" width={180} height={32} />
+                ) : (
+                  <Typography
+                    variant={isCompact ? 'h5' : 'h4'}
+                    sx={{ fontWeight: 700, color: summaryTextColor, textAlign: isCompact ? 'center' : 'left' }}
+                  >
+                    {formatSignedCurrency(summaryNetPnl, baseCurrency)}
+                  </Typography>
+                )}
+                <Typography variant="caption" color="text.secondary">
+                  {monthLabel} · {timezone}
+                </Typography>
+              </Stack>
+              <Stack
+                direction={isCompact ? 'column' : 'row'}
+                spacing={1}
+                sx={{ width: isCompact ? '100%' : 'auto' }}
+                alignItems="stretch"
+              >
+                {hasGross && (
+                  <Box
+                    sx={{
+                      flex: 1,
+                      minWidth: isCompact ? '100%' : 150,
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 2,
+                      bgcolor: 'common.white',
+                      border: '1px solid',
+                      borderColor: alpha(theme.palette.divider, 0.6),
+                      textAlign: isCompact ? 'center' : 'left'
+                    }}
+                  >
+                    <Typography variant="caption" color="text.secondary">
+                      Gross P&L
+                    </Typography>
+                    {showSummarySkeleton ? (
+                      <Skeleton variant="text" width={120} height={20} />
+                    ) : (
+                      <Typography variant="subtitle2">
+                        {formatSignedCurrency(summaryGrossPnl ?? 0, baseCurrency)}
+                      </Typography>
+                    )}
+                  </Box>
+                )}
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: isCompact ? '100%' : 140,
+                    px: 1.5,
+                    py: 1,
+                    borderRadius: 2,
+                    bgcolor: 'common.white',
+                    border: '1px solid',
+                    borderColor: alpha(theme.palette.divider, 0.6),
+                    textAlign: isCompact ? 'center' : 'left'
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Trading days
+                  </Typography>
+                  {showSummarySkeleton ? (
+                    <Skeleton variant="text" width={60} height={20} />
+                  ) : (
+                    <Typography variant="subtitle2">{summaryTradingDays}</Typography>
+                  )}
+                </Box>
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: isCompact ? '100%' : 140,
+                    px: 1.5,
+                    py: 1,
+                    borderRadius: 2,
+                    bgcolor: 'common.white',
+                    border: '1px solid',
+                    borderColor: alpha(theme.palette.divider, 0.6),
+                    textAlign: isCompact ? 'center' : 'left'
+                  }}
+                >
+                  <Typography variant="caption" color="text.secondary">
+                    Trades closed
+                  </Typography>
+                  {showSummarySkeleton ? (
+                    <Skeleton variant="text" width={60} height={20} />
+                  ) : (
+                    <Typography variant="subtitle2">{summaryTradeCount}</Typography>
+                  )}
+                </Box>
+              </Stack>
+            </Stack>
+            {showSummaryError && (
+              <Typography variant="caption" color="error" sx={{ mt: 1, display: 'block' }}>
+                {monthSummaryError}
+              </Typography>
+            )}
+          </Box>
+
+          <Stack direction={isCompact ? 'column' : 'row'} spacing={isCompact ? 1 : 2} mb={{ xs: 1.5, sm: 2 }} flexWrap="wrap">
             <Stack direction="row" spacing={1} alignItems="center">
               <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.success.light, 0.4), border: `1px solid ${theme.palette.success.main}` }} />
               <Typography variant="caption">Profit</Typography>
@@ -296,27 +582,29 @@ export default function CalendarPage() {
             </Stack>
           </Stack>
 
-          <Box
-            sx={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-              gap: { xs: 0.5, sm: 1 },
-              mb: { xs: 0.5, sm: 1 }
-            }}
-          >
-            {weekdayLabels.map((label) => (
-              <Typography
-                key={label}
-                variant="caption"
-                color="text.secondary"
-                textAlign="center"
-                fontWeight={600}
-                sx={{ minWidth: 0 }}
-              >
-                {label}
-              </Typography>
-            ))}
-          </Box>
+          {!isCompact && (
+            <Box
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+                gap: { xs: 0.5, sm: 1 },
+                mb: { xs: 0.5, sm: 1 }
+              }}
+            >
+              {weekdayLabels.map((label) => (
+                <Typography
+                  key={label}
+                  variant="caption"
+                  color="text.secondary"
+                  textAlign="center"
+                  fontWeight={600}
+                  sx={{ minWidth: 0 }}
+                >
+                  {label}
+                </Typography>
+              ))}
+            </Box>
+          )}
 
           {loading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
@@ -329,17 +617,23 @@ export default function CalendarPage() {
                   {error}
                 </Typography>
               )}
-              <Box
-                sx={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
-                  gap: { xs: 0.5, sm: 1 },
-                  gridAutoRows: { xs: 'minmax(72px, auto)', sm: 'minmax(92px, auto)', md: 'minmax(110px, auto)' }
-                }}
-              >
-                {days.map(renderDayCell)}
-              </Box>
-              {!error && dailyPnl.length === 0 && (
+              {isCompact ? (
+                <Stack spacing={1}>
+                  {monthDays.map(renderDayRow)}
+                </Stack>
+              ) : (
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
+                    gap: { xs: 0.5, sm: 1 },
+                    gridAutoRows: { xs: 'minmax(72px, auto)', sm: 'minmax(92px, auto)', md: 'minmax(110px, auto)' }
+                  }}
+                >
+                  {days.map(renderDayCell)}
+                </Box>
+              )}
+              {!error && dailyPnl.length === 0 && !isCompact && (
                 <EmptyState
                   title="No closed trades in this range"
                   description="Once trades close, daily P&L will populate here."
