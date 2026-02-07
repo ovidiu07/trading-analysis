@@ -44,6 +44,7 @@ import ErrorBanner from '../components/ui/ErrorBanner'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { alpha } from '@mui/material/styles'
+import { useDemoData } from '../features/demo/DemoDataContext'
 
 const buildDefaultValues = (): TradeFormValues => ({
   symbol: '',
@@ -134,6 +135,7 @@ export default function TradesPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { isAuthenticated, logout, user } = useAuth()
+  const { refreshToken } = useDemoData()
   const baseCurrency = user?.baseCurrency || 'USD'
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
@@ -340,7 +342,7 @@ export default function TradesPage() {
     } finally {
       setLoading(false)
     }
-  }, [activeFilters, handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize, t, timezone, viewMode])
+  }, [activeFilters, handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize, t, timezone, viewMode, refreshToken])
 
   const handleImportClick = useCallback(() => {
     importInputRef.current?.click()

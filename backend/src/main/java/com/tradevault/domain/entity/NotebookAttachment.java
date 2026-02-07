@@ -37,6 +37,9 @@ public class NotebookAttachment {
 
     private String storageKey;
 
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
+
     @CreationTimestamp
     @Column(updatable = false)
     private OffsetDateTime createdAt;

@@ -49,6 +49,7 @@ public class AuthService {
     private final TemplateRenderer templateRenderer;
     private final MailConfig mailConfig;
     private final CurrentUserService currentUserService;
+    private final DemoDataService demoDataService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -67,8 +68,10 @@ public class AuthService {
                 .baseCurrency("USD")
                 .timezone("Europe/Bucharest")
                 .createdAt(OffsetDateTime.now())
+                .demoEnabled(true)
                 .build();
         userRepository.save(user);
+        demoDataService.generateDemoDataForUser(user.getId(), true);
         legalAcceptanceService.record(
                 user,
                 LegalDocumentType.TERMS,
@@ -97,6 +100,7 @@ public class AuthService {
         if (!saved.isVerified()) {
             throw new EmailNotVerifiedException("Email not verified. Please check your inbox or resend the verification email.");
         }
+        demoDataService.ensureDemoDataForLogin(saved.getId());
         saved.setLastLoginAt(OffsetDateTime.now());
         userRepository.save(saved);
         String token = jwtTokenProvider.createToken(saved.getId(), saved.getEmail());

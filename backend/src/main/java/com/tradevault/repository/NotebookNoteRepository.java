@@ -17,6 +17,12 @@ public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID
 
     List<NotebookNote> findByUserIdAndIsDeletedFalse(UUID userId);
 
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    boolean existsByUserIdAndDemoSeedIdIsNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
     @Query("""
         SELECT n FROM NotebookNote n
         WHERE n.user.id = :userId

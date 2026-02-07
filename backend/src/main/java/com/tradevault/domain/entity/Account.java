@@ -30,4 +30,7 @@ public class Account {
     private String accountCurrency;
     private BigDecimal startingBalance;
     private OffsetDateTime createdAt;
+
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
 }

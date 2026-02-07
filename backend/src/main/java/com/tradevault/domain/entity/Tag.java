@@ -28,4 +28,7 @@ public class Tag {
 
     @Enumerated(EnumType.STRING)
     private TagType type;
+
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
 }

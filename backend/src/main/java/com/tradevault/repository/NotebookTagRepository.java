@@ -11,4 +11,8 @@ public interface NotebookTagRepository extends JpaRepository<NotebookTag, UUID> 
     List<NotebookTag> findByUserIdOrderByNameAsc(UUID userId);
 
     Optional<NotebookTag> findByIdAndUserId(UUID id, UUID userId);
+
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 }

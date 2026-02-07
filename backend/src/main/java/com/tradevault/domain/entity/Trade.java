@@ -86,6 +86,9 @@ public class Trade {
 
     private OffsetDateTime updatedAt;
 
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "trade_tags",

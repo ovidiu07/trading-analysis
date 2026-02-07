@@ -82,6 +82,7 @@ import ErrorBanner from '../components/ui/ErrorBanner'
 import RichTextEditor from '../components/ui/RichTextEditor'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { useDemoData } from '../features/demo/DemoDataContext'
 const buildNoteFingerprint = (note: NotebookNote | null) => {
   if (!note) return ''
   return JSON.stringify({
@@ -282,6 +283,7 @@ const extractPlainText = (html: string) => {
 export default function NotebookPage() {
   const { t } = useI18n()
   const { logout, user } = useAuth()
+  const { refreshToken } = useDemoData()
   const navigate = useNavigate()
   const location = useLocation()
   const [folders, setFolders] = useState<NotebookFolder[]>([])
@@ -439,11 +441,11 @@ export default function NotebookPage() {
 
   useEffect(() => {
     loadFoldersAndTags()
-  }, [loadFoldersAndTags])
+  }, [loadFoldersAndTags, refreshToken])
 
   useEffect(() => {
     loadNotes()
-  }, [loadNotes])
+  }, [loadNotes, refreshToken])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -468,7 +470,7 @@ export default function NotebookPage() {
     if (selectedNote) {
       loadTemplates()
     }
-  }, [handleAuthFailure, selectedNote])
+  }, [handleAuthFailure, selectedNote, refreshToken])
 
   useEffect(() => {
     const loadStats = async () => {
@@ -493,7 +495,7 @@ export default function NotebookPage() {
       }
     }
     loadStats()
-  }, [handleAuthFailure, selectedNote, timezone])
+  }, [handleAuthFailure, selectedNote, timezone, refreshToken])
 
   useEffect(() => {
     const loadTrade = async () => {
@@ -511,7 +513,7 @@ export default function NotebookPage() {
       }
     }
     loadTrade()
-  }, [handleAuthFailure, selectedNote?.relatedTradeId])
+  }, [handleAuthFailure, selectedNote?.relatedTradeId, refreshToken])
 
   useEffect(() => {
     const loadAttachments = async () => {
@@ -529,7 +531,7 @@ export default function NotebookPage() {
       }
     }
     loadAttachments()
-  }, [handleAuthFailure, selectedNote])
+  }, [handleAuthFailure, selectedNote, refreshToken])
 
   useEffect(() => {
     if (!selectedNote) {

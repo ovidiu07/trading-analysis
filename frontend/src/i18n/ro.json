@@ -204,6 +204,7 @@
   "analytics": {
     "title": "Analiză",
     "subtitle": "Diagnoză avansată pentru performanță, consistență și avantaj.",
+    "mobileTabsLabel": "Vizualizare analiză",
     "errors": {
       "loadAnalytics": "Nu s-au putut încărca datele de analiză.",
       "loadCoach": "Nu s-au putut încărca recomandările coach-ului."
@@ -518,6 +519,31 @@
       "chartEquityCurve": "Afișează P&L net cumulat în timp.",
       "chartDailyPnl": "Afișează P&L net agregat pe zile.",
       "chartRecentTrades": "Afișează cele mai recente tranzacții cu context rapid."
+    },
+    "empty": {
+      "noTradesTitle": "Nu ai tranzacții încă",
+      "noTradesBody": "Importă tranzacții reale sau adaugă prima tranzacție pentru a începe urmărirea performanței.",
+      "importTrades": "Importă tranzacții",
+      "addTrade": "Adaugă tranzacție"
+    }
+  },
+  "demo": {
+    "banner": {
+      "title": "Vizualizezi date demo",
+      "subtitle": "Aceste date de exemplu sunt aici ca să poți explora platforma. Poți importa sau adăuga tranzacții reale oricând.",
+      "removeAction": "Șterge datele demo",
+      "learnMoreAction": "Află mai multe"
+    },
+    "remove": {
+      "confirmTitle": "Ștergi datele demo?",
+      "confirmBody": "Acțiunea șterge permanent toate tranzacțiile demo, notele demo și conținutul demo asociat profilului tău. Nu poate fi anulată.",
+      "removing": "Se șterge...",
+      "error": "Datele demo nu au putut fi șterse. Încearcă din nou."
+    },
+    "learnMore": {
+      "title": "Despre modul demo",
+      "body1": "Datele demo te ajută să previzualizezi imediat dashboard-ul, analizele, calendarul, notebook-ul și insights.",
+      "body2": "Când ștergi datele demo, datele reale adăugate de tine rămân intacte, iar contul trece în modul cu date reale."
     }
   },
   "editor": {
@@ -1083,8 +1109,8 @@
       "untitledNote": "Notă fără titlu"
     },
     "empty": {
-      "noNotesTitle": "Nu există note încă",
-      "noNotesBody": "Creează o notă sau un jurnal zilnic pentru a începe.",
+      "noNotesTitle": "Creează prima ta notă",
+      "noNotesBody": "Începe jurnalizarea cu o notă, un plan sau un jurnal zilnic.",
       "noAttachments": "Nu există atașamente încă."
     },
     "saveState": {

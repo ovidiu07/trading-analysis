@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { I18nProvider } from './i18n'
+import { DemoDataProvider } from './features/demo/DemoDataContext'
 
 const client = new QueryClient()
 
@@ -14,7 +15,9 @@ const router = createBrowserRouter([
     element: (
         <AuthProvider>
           <I18nProvider>
-            <App />
+            <DemoDataProvider>
+              <App />
+            </DemoDataProvider>
           </I18nProvider>
         </AuthProvider>
     ),

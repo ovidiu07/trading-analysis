@@ -204,6 +204,7 @@
   "analytics": {
     "title": "Analytics",
     "subtitle": "Pro-grade diagnostics across performance, consistency, and edge.",
+    "mobileTabsLabel": "Analytics view",
     "errors": {
       "loadAnalytics": "Failed to load analytics data.",
       "loadCoach": "Failed to load coach insights."
@@ -518,6 +519,31 @@
       "chartEquityCurve": "Shows cumulative net P&L over time.",
       "chartDailyPnl": "Shows net P&L grouped by day.",
       "chartRecentTrades": "Shows your latest trades and quick context."
+    },
+    "empty": {
+      "noTradesTitle": "No trades yet",
+      "noTradesBody": "Import real trades or add your first trade to start tracking performance.",
+      "importTrades": "Import trades",
+      "addTrade": "Add trade"
+    }
+  },
+  "demo": {
+    "banner": {
+      "title": "You're viewing demo data",
+      "subtitle": "This sample data is here so you can explore the platform. Import or add real trades anytime.",
+      "removeAction": "Remove demo data",
+      "learnMoreAction": "Learn more"
+    },
+    "remove": {
+      "confirmTitle": "Remove demo data?",
+      "confirmBody": "This permanently deletes all demo trades, notes, and demo-related content from your profile. This action cannot be undone.",
+      "removing": "Removing...",
+      "error": "Could not remove demo data. Please try again."
+    },
+    "learnMore": {
+      "title": "About demo mode",
+      "body1": "Demo data helps you preview dashboards, analytics, calendar stats, notebook workflows, and insights right away.",
+      "body2": "Removing demo data keeps any real data you added and switches your account to real-data mode."
     }
   },
   "editor": {
@@ -1083,8 +1109,8 @@
       "untitledNote": "Untitled note"
     },
     "empty": {
-      "noNotesTitle": "No notes yet",
-      "noNotesBody": "Create a note or daily log to get started.",
+      "noNotesTitle": "Create your first note",
+      "noNotesBody": "Start journaling with a note, plan, or daily log.",
       "noAttachments": "No attachments yet."
     },
     "saveState": {

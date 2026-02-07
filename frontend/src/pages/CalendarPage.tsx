@@ -31,6 +31,7 @@ import { useNavigate } from 'react-router-dom'
 import EmptyState from '../components/ui/EmptyState'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { useDemoData } from '../features/demo/DemoDataContext'
 
 const weekStartsOn = 1
 
@@ -42,6 +43,7 @@ export default function CalendarPage() {
   const isCompact = useMediaQuery('(max-width:560px)')
   const navigate = useNavigate()
   const { user } = useAuth()
+  const { refreshToken } = useDemoData()
   const baseCurrency = user?.baseCurrency || 'USD'
   const timezone = user?.timezone || 'Europe/Bucharest'
 
@@ -77,6 +79,10 @@ export default function CalendarPage() {
   const pnlByDate = useMemo(() => new Map(dailyPnl.map((entry) => [entry.date, entry])), [dailyPnl])
   const monthSummaryCache = useRef(new Map<string, MonthlyPnlSummaryResponse>())
 
+  useEffect(() => {
+    monthSummaryCache.current.clear()
+  }, [refreshToken])
+
   const derivedSummary = useMemo(() => {
     return dailyPnl.reduce((acc, entry) => {
       if (!entry.date.startsWith(monthKey)) {
@@ -107,7 +113,7 @@ export default function CalendarPage() {
       }
     }
     fetchData()
-  }, [calendarEnd, calendarStart, timezone])
+  }, [calendarEnd, calendarStart, timezone, refreshToken])
 
   useEffect(() => {
     let active = true
@@ -145,7 +151,7 @@ export default function CalendarPage() {
     return () => {
       active = false
     }
-  }, [currentMonth, summaryCacheKey, timezone])
+  }, [currentMonth, summaryCacheKey, timezone, refreshToken])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -165,7 +171,7 @@ export default function CalendarPage() {
       }
     }
     loadTrades()
-  }, [selectedDate, timezone])
+  }, [selectedDate, timezone, refreshToken])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -185,7 +191,7 @@ export default function CalendarPage() {
       }
     }
     loadNotes()
-  }, [selectedDate])
+  }, [selectedDate, refreshToken])
 
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''
   const selectedAggregate = selectedDateKey ? pnlByDate.get(selectedDateKey) : undefined
@@ -639,7 +645,7 @@ export default function CalendarPage() {
                   {days.map(renderDayCell)}
                 </Box>
               )}
-              {!error && dailyPnl.length === 0 && !isCompact && (
+              {!error && dailyPnl.length === 0 && (
                 <EmptyState
                   title={t('calendar.empty.closedTradesTitle')}
                   description={t('calendar.empty.closedTradesBody')}

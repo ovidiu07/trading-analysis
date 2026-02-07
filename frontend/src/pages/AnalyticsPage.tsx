@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Accordion,
   AccordionDetails,
@@ -55,6 +55,7 @@ import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { useDemoData } from '../features/demo/DemoDataContext'
 
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
 type KpiCard = { label: string; value: string | number }
@@ -83,6 +84,7 @@ export default function AnalyticsPage() {
   const [coachError, setCoachError] = useState('')
   const [tab, setTab] = useState(0)
   const { user } = useAuth()
+  const { refreshToken } = useDemoData()
   const baseCurrency = user?.baseCurrency || 'USD'
   const navigate = useNavigate()
   const theme = useTheme()
@@ -150,7 +152,7 @@ export default function AnalyticsPage() {
     }
   }), [theme.palette.background.paper, theme.palette.divider, theme.palette.text.primary, theme.palette.text.secondary])
 
-  const loadAnalytics = async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
+  const loadAnalytics = useCallback(async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setLoading(true)
     setError('')
     try {
@@ -162,9 +164,9 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
-  const loadCoach = async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
+  const loadCoach = useCallback(async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setCoachLoading(true)
     setCoachError('')
     try {
@@ -176,12 +178,18 @@ export default function AnalyticsPage() {
     } finally {
       setCoachLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     loadAnalytics(DEFAULT_FILTERS)
     loadCoach(DEFAULT_FILTERS)
-  }, [])
+  }, [loadAnalytics, loadCoach])
+
+  useEffect(() => {
+    if (refreshToken === 0) return
+    loadAnalytics(filters)
+    loadCoach(filters)
+  }, [filters, loadAnalytics, loadCoach, refreshToken])
 
   const applyFilters = () => {
     loadAnalytics(filters)
@@ -529,11 +537,11 @@ export default function AnalyticsPage() {
 
       {isMobile ? (
         <FormControl size="small" sx={filterFieldSx}>
-          <InputLabel id="analytics-tab-select-label">{t('analytics.title')}</InputLabel>
+          <InputLabel id="analytics-tab-select-label">{t('analytics.mobileTabsLabel')}</InputLabel>
           <Select
             labelId="analytics-tab-select-label"
             value={tab}
-            label={t('analytics.title')}
+            label={t('analytics.mobileTabsLabel')}
             onChange={(event) => setTab(Number(event.target.value))}
           >
             {tabLabels.map((label, idx) => (

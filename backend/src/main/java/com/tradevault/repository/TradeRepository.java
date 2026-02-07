@@ -131,6 +131,12 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
 
   Optional<Trade> findByUserIdAndSymbolAndOpenedAt(UUID userId, String symbol, OffsetDateTime openedAt);
 
+  boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+  boolean existsByUserIdAndDemoSeedIdIsNull(UUID userId);
+
+  long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
   interface DailyPnlAggregate {
 
     LocalDate getDate();

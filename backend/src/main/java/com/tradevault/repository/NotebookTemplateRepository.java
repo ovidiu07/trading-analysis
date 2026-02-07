@@ -16,4 +16,8 @@ public interface NotebookTemplateRepository extends JpaRepository<NotebookTempla
     Optional<NotebookTemplate> findByIdAndUserId(UUID id, UUID userId);
 
     boolean existsByUserId(UUID userId);
+
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 }

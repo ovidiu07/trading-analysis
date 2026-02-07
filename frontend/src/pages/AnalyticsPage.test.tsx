@@ -243,7 +243,7 @@ describe('AnalyticsPage', () => {
     )
 
     await waitFor(() => expect(mockFetchAnalyticsSummary).toHaveBeenCalled())
-    expect(screen.getByLabelText('Analytics')).toBeInTheDocument()
+    expect(screen.getByLabelText('Analytics view')).toBeInTheDocument()
     expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
     expect(screen.getByText('Advanced')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument()

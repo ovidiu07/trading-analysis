@@ -39,6 +39,9 @@ public class NotebookTemplate {
     @Column(columnDefinition = "TEXT")
     private String content;
 
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
+
     @CreationTimestamp
     @Column(updatable = false)
     private OffsetDateTime createdAt;

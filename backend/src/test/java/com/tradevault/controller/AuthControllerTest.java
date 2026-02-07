@@ -60,7 +60,7 @@ class AuthControllerTest {
     }
 
     @Test
-    void registerReturnsTokenAndUser() throws Exception {
+    void registerReturnsSuccessAndRequiresVerification() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
@@ -73,9 +73,8 @@ class AuthControllerTest {
                                 "locale", "en-GB"
                         ))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty())
-                .andExpect(jsonPath("$.user.email").value("user@example.com"))
-                .andExpect(jsonPath("$.user.baseCurrency").value("USD"));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.requiresEmailVerification").value(true));
     }
 
     @Test
@@ -106,6 +105,7 @@ class AuthControllerTest {
                 .email("login@example.com")
                 .passwordHash(passwordEncoder.encode("Password1!"))
                 .role(com.tradevault.domain.enums.Role.USER)
+                .emailVerifiedAt(java.time.OffsetDateTime.now())
                 .build());
 
         mockMvc.perform(post("/api/auth/login")

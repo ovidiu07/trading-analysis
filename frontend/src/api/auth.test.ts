@@ -38,16 +38,15 @@ describe('auth api', () => {
       termsVersion: '2024-09-01',
       privacyAccepted: true,
       privacyVersion: '2024-09-01',
-      captchaToken: 'token',
       locale: 'en-GB'
     })
-    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/auth/register', expect.anything())
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/register', expect.anything())
     expect(localStorage.getItem('token')).toBeUndefined()
   })
 
   it('login calls correct endpoint and stores token', async () => {
     await login('user@example.com', 'Password1!')
-    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/auth/login', expect.anything())
+    expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', expect.anything())
     expect(localStorage.getItem('token')).toBe('abc')
   })
 })

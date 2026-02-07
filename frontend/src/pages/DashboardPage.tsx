@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
+  Button,
   Grid,
   Stack,
   useMediaQuery,
@@ -22,6 +23,8 @@ import DashboardChartTooltip from '../components/dashboard/DashboardChartTooltip
 import RecentTradesTable from '../components/dashboard/RecentTradesTable'
 import { readDashboardQueryState } from '../features/dashboard/queryState'
 import { useNavigate, useSearchParams } from 'react-router-dom'
+import EmptyState from '../components/ui/EmptyState'
+import { useDemoData } from '../features/demo/DemoDataContext'
 
 type KpiCard = {
   label: string
@@ -54,6 +57,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const { user } = useAuth()
+  const { refreshToken } = useDemoData()
   const baseCurrency = user?.baseCurrency || 'USD'
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
@@ -98,7 +102,7 @@ export default function DashboardPage() {
     }
 
     load()
-  }, [dashboardFilters, queryState.from, queryState.to, t, timezone])
+  }, [dashboardFilters, queryState.from, queryState.to, t, timezone, refreshToken])
 
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
@@ -162,6 +166,7 @@ export default function DashboardPage() {
   }, [navigate, queryState.from, queryState.status, queryState.to])
 
   const chartError = error ? t('dashboard.chartError') : ''
+  const hasNoTrades = !loading && !error && (summary?.kpi?.totalTrades ?? 0) === 0 && recentTrades.length === 0
   const xAxisTickProps = useMemo(
     () => ({
       fontSize: isMobile ? 10 : 11,
@@ -173,6 +178,22 @@ export default function DashboardPage() {
   return (
     <Stack spacing={2.5} sx={{ width: '100%', mx: 'auto' }}>
       {error && <ErrorBanner message={error} />}
+      {hasNoTrades && (
+        <EmptyState
+          title={t('dashboard.empty.noTradesTitle')}
+          description={t('dashboard.empty.noTradesBody')}
+          action={(
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button variant="contained" onClick={() => navigate('/trades')}>
+                {t('dashboard.empty.importTrades')}
+              </Button>
+              <Button variant="outlined" onClick={() => navigate('/trades')}>
+                {t('dashboard.empty.addTrade')}
+              </Button>
+            </Stack>
+          )}
+        />
+      )}
 
       <Grid container spacing={{ xs: 1.25, sm: 2 }}>
         {kpiCards.map((kpi, idx) => (

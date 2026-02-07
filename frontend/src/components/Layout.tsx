@@ -34,6 +34,7 @@ import TopBar from './layout/TopBar'
 import DefinitionsDrawer from './dashboard/DefinitionsDrawer'
 import { buildDashboardSearchParams, DashboardQueryState, readDashboardQueryState } from '../features/dashboard/queryState'
 import { resolveRouteMeta } from '../config/routeMeta'
+import DemoDataBanner from './demo/DemoDataBanner'
 
 const SIDEBAR_WIDTH = 272
 const SIDEBAR_COLLAPSED_WIDTH = 88
@@ -318,6 +319,7 @@ export default function Layout() {
             width: '100%'
           }}
         >
+          <DemoDataBanner />
           <Outlet />
         </Container>
         <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2, width: '100%' }}>
