@@ -85,6 +85,16 @@ public class RestExceptionHandler {
         return ResponseEntity.badRequest().body(response);
     }
 
+    @ExceptionHandler(TradeSearchValidationException.class)
+    public ResponseEntity<ApiErrorResponse> handleTradeSearchValidation(TradeSearchValidationException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("VALIDATION_ERROR")
+                .message(ex.getMessage())
+                .details(ex.getDetails())
+                .build();
+        return ResponseEntity.badRequest().body(response);
+    }
+
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNotFound(EntityNotFoundException ex) {
         ApiErrorResponse response = ApiErrorResponse.builder()
