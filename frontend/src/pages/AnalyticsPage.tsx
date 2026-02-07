@@ -29,6 +29,7 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import {
@@ -48,7 +49,6 @@ import { AdviceCard, AnalyticsFilters, AnalyticsResponse, CoachResponse, fetchAn
 import { ApiError } from '../api/client'
 import { formatCurrency, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
 import { useAuth } from '../auth/AuthContext'
-import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
@@ -56,13 +56,12 @@ import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 
-const COLORS = ['#4caf50', '#f44336', '#2196f3']
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
 type KpiCard = { label: string; value: string | number }
 
 const TabPanel = ({ value, index, children }: { value: number; index: number; children: React.ReactNode }) => {
   if (value !== index) return null
-  return <Box sx={{ mt: 2 }}>{children}</Box>
+  return <Box sx={{ mt: 2, minWidth: 0 }}>{children}</Box>
 }
 
 const formatDuration = (seconds?: number | null) => {
@@ -90,17 +89,66 @@ export default function AnalyticsPage() {
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isCompact = useMediaQuery('(max-width:560px)')
   const chartHeights = {
-    large: isCompact ? 190 : isMobile ? 220 : 320,
-    medium: isCompact ? 170 : isMobile ? 200 : 260,
-    small: isCompact ? 150 : isMobile ? 180 : 240
+    large: isCompact ? 220 : isMobile ? 250 : 320,
+    medium: isCompact ? 200 : isMobile ? 230 : 260,
+    small: isCompact ? 180 : isMobile ? 210 : 240
   }
-  const compactInputSx = isCompact
-    ? {
-      '& .MuiInputBase-root': { minHeight: 38 },
-      '& .MuiInputBase-input': { py: 0.75 }
+  const compactInputSx = {
+    '& .MuiInputBase-root': { minHeight: 44 },
+    '& .MuiInputBase-input': { py: isCompact ? 1 : 1.1 },
+    '& .MuiSelect-select': { minHeight: 'unset' }
+  }
+  const tabSx = {
+    minHeight: 44,
+    minWidth: isCompact ? 120 : 136,
+    px: isCompact ? 1.5 : 2,
+    whiteSpace: 'nowrap',
+    flexShrink: 0
+  }
+  const chartAxisTick = useMemo(() => ({
+    fill: theme.palette.text.secondary,
+    fontSize: isMobile ? 10 : 12
+  }), [isMobile, theme.palette.text.secondary])
+  const filterGridTemplate = {
+    xs: 'minmax(0, 1fr)',
+    sm: 'repeat(2, minmax(0, 1fr))',
+    lg: 'repeat(3, minmax(0, 1fr))'
+  }
+  const chartCardContentSx = { p: { xs: 1.5, sm: 2.5 }, overflow: 'hidden' }
+  const xAxisProps = {
+    tick: chartAxisTick,
+    minTickGap: isMobile ? 16 : 24,
+    tickMargin: isMobile ? 6 : 10,
+    interval: isCompact ? 'preserveStartEnd' as const : undefined
+  }
+  const tabLabels = [
+    t('analytics.tabs.overview'),
+    t('analytics.tabs.coach'),
+    t('analytics.tabs.consistency'),
+    t('analytics.tabs.timeEdge'),
+    t('analytics.tabs.symbolsAndTags'),
+    t('analytics.tabs.risk'),
+    t('analytics.tabs.dataQuality')
+  ]
+  const chartGridStroke = useMemo(() => alpha(theme.palette.divider, 0.9), [theme.palette.divider])
+  const chartTooltipProps = useMemo(() => ({
+    contentStyle: {
+      backgroundColor: theme.palette.background.paper,
+      border: `1px solid ${theme.palette.divider}`,
+      borderRadius: 10,
+      color: theme.palette.text.primary
+    },
+    labelStyle: {
+      color: theme.palette.text.secondary,
+      fontWeight: 600
+    },
+    itemStyle: {
+      color: theme.palette.text.primary
+    },
+    cursor: {
+      stroke: theme.palette.divider
     }
-    : {}
-  const tabSx = { minHeight: isCompact ? 40 : 48, px: isCompact ? 1.5 : 2 }
+  }), [theme.palette.background.paper, theme.palette.divider, theme.palette.text.primary, theme.palette.text.secondary])
 
   const loadAnalytics = async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setLoading(true)
@@ -230,8 +278,28 @@ export default function AnalyticsPage() {
     navigate(`/trades${qs ? `?${qs}` : ''}`)
   }
 
+  const filterFieldSx = { width: '100%', minWidth: 0, ...compactInputSx }
+  const multiSelectSx = {
+    width: '100%',
+    minWidth: 0,
+    ...compactInputSx,
+    '& .MuiChip-root': {
+      maxWidth: '100%'
+    },
+    '& .MuiChip-label': {
+      whiteSpace: 'normal'
+    }
+  }
+
   const advancedFilters = (
-    <Stack direction={{ xs: 'column', md: 'row' }} spacing={isCompact ? 1.5 : 2} alignItems={{ xs: 'stretch', md: 'center' }} flexWrap="wrap">
+    <Box
+      sx={{
+        display: 'grid',
+        gap: isCompact ? 1 : 1.5,
+        gridTemplateColumns: filterGridTemplate,
+        width: '100%'
+      }}
+    >
       <TextField
         size="small"
         label={t('analytics.filters.market')}
@@ -239,8 +307,8 @@ export default function AnalyticsPage() {
         SelectProps={{ native: true }}
         value={filters.market || ''}
         onChange={(e) => setFilters((prev) => ({ ...prev, market: e.target.value }))}
-        fullWidth={isMobile}
-        sx={{ minWidth: { xs: '100%', sm: 160 }, ...compactInputSx }}
+        fullWidth
+        sx={filterFieldSx}
       >
         <option value="">{t('trades.filters.any')}</option>
         {summary?.filterOptions?.markets?.map((mkt) => (
@@ -254,8 +322,8 @@ export default function AnalyticsPage() {
         SelectProps={{ native: true }}
         value={filters.holdingBucket || ''}
         onChange={(e) => setFilters((prev) => ({ ...prev, holdingBucket: e.target.value }))}
-        fullWidth={isMobile}
-        sx={{ minWidth: { xs: '100%', sm: 160 }, ...compactInputSx }}
+        fullWidth
+        sx={filterFieldSx}
       >
         <option value="">{t('trades.filters.any')}</option>
         <option value="<5m">&lt;5m</option>
@@ -264,7 +332,7 @@ export default function AnalyticsPage() {
         <option value="1-4h">1-4h</option>
         <option value=">4h">&gt;4h</option>
       </TextField>
-      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
+      <FormControl size="small" sx={multiSelectSx} fullWidth>
         <InputLabel>{t('analytics.filters.strategy')}</InputLabel>
         <Select
           multiple
@@ -284,7 +352,7 @@ export default function AnalyticsPage() {
           ))}
         </Select>
       </FormControl>
-      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
+      <FormControl size="small" sx={multiSelectSx} fullWidth>
         <InputLabel>{t('analytics.filters.setup')}</InputLabel>
         <Select
           multiple
@@ -304,7 +372,7 @@ export default function AnalyticsPage() {
           ))}
         </Select>
       </FormControl>
-      <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
+      <FormControl size="small" sx={multiSelectSx} fullWidth>
         <InputLabel>{t('analytics.filters.catalyst')}</InputLabel>
         <Select
           multiple
@@ -325,7 +393,7 @@ export default function AnalyticsPage() {
         </Select>
       </FormControl>
       <FormControlLabel
-        sx={{ ml: 0 }}
+        sx={{ ml: 0, minHeight: 44 }}
         control={
           <Switch
             checked={filters.excludeOutliers ?? false}
@@ -334,42 +402,57 @@ export default function AnalyticsPage() {
         }
         label={t('analytics.filters.excludeOutliers')}
       />
-    </Stack>
+    </Box>
   )
 
   const filterActions = (
-    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-      <Button variant="contained" onClick={applyFilters} fullWidth={isMobile}>{t('common.apply')}</Button>
-      <Button variant="text" onClick={resetFilters} fullWidth={isMobile}>{t('common.reset')}</Button>
-    </Stack>
+    <Box
+      sx={{
+        display: 'grid',
+        gap: 1,
+        width: { xs: '100%', sm: 'fit-content' },
+        gridTemplateColumns: { xs: 'minmax(0, 1fr)', sm: 'repeat(2, minmax(120px, 1fr))' }
+      }}
+    >
+      <Button variant="contained" onClick={applyFilters} fullWidth sx={{ minHeight: 44 }}>{t('common.apply')}</Button>
+      <Button variant="text" onClick={resetFilters} fullWidth sx={{ minHeight: 44 }}>{t('common.reset')}</Button>
+    </Box>
   )
 
   return (
-    <Stack spacing={isCompact ? 2 : 3}>
-      <PageHeader
-        title={t('analytics.title')}
-        subtitle={t('analytics.subtitle')}
-      />
-
+    <Stack
+      spacing={isCompact ? 2 : 3}
+      sx={{
+        width: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
+        overflowX: 'clip',
+        '& > *': { minWidth: 0 },
+        '& .MuiGrid-container': { width: '100%', margin: 0 },
+        '& .MuiGrid-item': { minWidth: 0 },
+        '& .analytics-copy': { overflowWrap: 'anywhere', wordBreak: 'break-word' }
+      }}
+    >
       <Card>
         <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
           <Stack spacing={isCompact ? 1.5 : 2}>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={isCompact ? 1 : 2} alignItems={{ xs: 'stretch', md: 'flex-end' }} flexWrap="wrap">
-              <ToggleButtonGroup
-                color="primary"
-                exclusive
-                size="small"
-                value={filters.dateMode ?? 'CLOSE'}
-                onChange={(_, value) => value && setFilters((prev) => ({ ...prev, dateMode: value }))}
-                sx={{
-                  flexWrap: 'wrap',
-                  width: { xs: '100%', sm: 'auto' },
-                  '& .MuiToggleButton-root': { minHeight: isCompact ? 34 : 36, flex: { xs: 1, sm: '0 0 auto' } }
-                }}
-              >
-                <ToggleButton value="OPEN">{t('analytics.filters.openDate')}</ToggleButton>
-                <ToggleButton value="CLOSE">{t('analytics.filters.closeDate')}</ToggleButton>
-              </ToggleButtonGroup>
+            <Box sx={{ display: 'grid', gap: isCompact ? 1 : 1.5, gridTemplateColumns: filterGridTemplate }}>
+              <Box sx={{ gridColumn: { xs: '1 / -1', lg: 'span 1' } }}>
+                <ToggleButtonGroup
+                  color="primary"
+                  exclusive
+                  size="small"
+                  value={filters.dateMode ?? 'CLOSE'}
+                  onChange={(_, value) => value && setFilters((prev) => ({ ...prev, dateMode: value }))}
+                  sx={{
+                    width: '100%',
+                    '& .MuiToggleButton-root': { minHeight: 44, flex: 1 }
+                  }}
+                >
+                  <ToggleButton value="OPEN">{t('analytics.filters.openDate')}</ToggleButton>
+                  <ToggleButton value="CLOSE">{t('analytics.filters.closeDate')}</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
               <TextField
                 size="small"
                 label={t('analytics.filters.from')}
@@ -377,8 +460,8 @@ export default function AnalyticsPage() {
                 InputLabelProps={{ shrink: true }}
                 value={filters.from || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, from: e.target.value }))}
-                fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
+                fullWidth
+                sx={filterFieldSx}
               />
               <TextField
                 size="small"
@@ -387,16 +470,16 @@ export default function AnalyticsPage() {
                 InputLabelProps={{ shrink: true }}
                 value={filters.to || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, to: e.target.value }))}
-                fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
+                fullWidth
+                sx={filterFieldSx}
               />
               <TextField
                 size="small"
                 label={t('analytics.filters.symbol')}
                 value={filters.symbol || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))}
-                fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
+                fullWidth
+                sx={filterFieldSx}
               />
               <TextField
                 size="small"
@@ -405,8 +488,8 @@ export default function AnalyticsPage() {
                 SelectProps={{ native: true }}
                 value={filters.direction || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value as 'LONG' | 'SHORT' }))}
-                fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
+                fullWidth
+                sx={filterFieldSx}
               >
                 <option value="">{t('trades.filters.any')}</option>
                 <option value="LONG">{t('trades.direction.LONG')}</option>
@@ -419,13 +502,13 @@ export default function AnalyticsPage() {
                 SelectProps={{ native: true }}
                 value={filters.status || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value as 'OPEN' | 'CLOSED' }))}
-                fullWidth={isMobile}
-                sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
+                fullWidth
+                sx={filterFieldSx}
               >
                 <option value="CLOSED">{t('trades.status.CLOSED')}</option>
                 <option value="OPEN">{t('trades.status.OPEN')}</option>
               </TextField>
-            </Stack>
+            </Box>
             {isMobile ? (
               <Accordion>
                 <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('analytics.filters.advanced')}</AccordionSummary>
@@ -444,102 +527,129 @@ export default function AnalyticsPage() {
       {error && <ErrorBanner message={error} />}
       {coachError && <ErrorBanner message={coachError} />}
 
-      <Tabs
-        value={tab}
-        onChange={(_, value) => setTab(value)}
-        variant="scrollable"
-        scrollButtons={isCompact ? false : 'auto'}
-        allowScrollButtonsMobile
-        sx={{
-          minHeight: isCompact ? 40 : 48,
-          '& .MuiTabs-scroller': { overflowX: 'auto' },
-          '& .MuiTabs-flexContainer': { gap: isCompact ? 1 : 2, px: isCompact ? 0.5 : 0 }
-        }}
-      >
-        <Tab label={t('analytics.tabs.overview')} sx={tabSx} />
-        <Tab label={t('analytics.tabs.coach')} sx={tabSx} />
-        <Tab label={t('analytics.tabs.consistency')} sx={tabSx} />
-        <Tab label={t('analytics.tabs.timeEdge')} sx={tabSx} />
-        <Tab label={t('analytics.tabs.symbolsAndTags')} sx={tabSx} />
-        <Tab label={t('analytics.tabs.risk')} sx={tabSx} />
-        <Tab label={t('analytics.tabs.dataQuality')} sx={tabSx} />
-      </Tabs>
+      {isMobile ? (
+        <FormControl size="small" sx={filterFieldSx}>
+          <InputLabel id="analytics-tab-select-label">{t('analytics.title')}</InputLabel>
+          <Select
+            labelId="analytics-tab-select-label"
+            value={tab}
+            label={t('analytics.title')}
+            onChange={(event) => setTab(Number(event.target.value))}
+          >
+            {tabLabels.map((label, idx) => (
+              <MenuItem key={label} value={idx}>{label}</MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      ) : (
+        <Tabs
+          value={tab}
+          onChange={(_, value) => setTab(value)}
+          variant="scrollable"
+          scrollButtons={isCompact ? false : 'auto'}
+          allowScrollButtonsMobile
+          sx={{
+            minHeight: 44,
+            '& .MuiTabs-scroller': { overflowX: 'auto' },
+            '& .MuiTabs-flexContainer': {
+              gap: isCompact ? 1 : 1.5,
+              px: isCompact ? 0.5 : 0,
+              width: 'max-content',
+              minWidth: '100%'
+            }
+          }}
+        >
+          <Tab label={t('analytics.tabs.overview')} sx={tabSx} />
+          <Tab label={t('analytics.tabs.coach')} sx={tabSx} />
+          <Tab label={t('analytics.tabs.consistency')} sx={tabSx} />
+          <Tab label={t('analytics.tabs.timeEdge')} sx={tabSx} />
+          <Tab label={t('analytics.tabs.symbolsAndTags')} sx={tabSx} />
+          <Tab label={t('analytics.tabs.risk')} sx={tabSx} />
+          <Tab label={t('analytics.tabs.dataQuality')} sx={tabSx} />
+        </Tabs>
+      )}
 
       <TabPanel value={tab} index={0}>
         <Stack spacing={2}>
-          <Grid container spacing={isCompact ? 1 : 2}>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: isCompact ? 1 : 2,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(160px, 100%), 1fr))'
+            }}
+          >
             {kpiCards.map((kpi, idx) => (
-              <Grid item xs={6} sm={4} md={2} key={kpi.label || idx}>
-                <Card sx={{ height: '100%' }}>
-                  <CardContent sx={{ p: { xs: 1.25, sm: 2 } }}>
-                    {loading ? (
-                      <Skeleton height={32} />
-                    ) : (
-                      <>
-                        <Typography
-                          variant="subtitle2"
-                          color="text.secondary"
-                          sx={{
-                            fontSize: { xs: '0.72rem', sm: '0.85rem' },
-                            display: '-webkit-box',
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            WebkitLineClamp: 2,
-                            WebkitBoxOrient: 'vertical'
-                          }}
-                        >
-                          {kpi.label}
-                        </Typography>
-                        <Typography
-                          variant="h5"
-                          fontWeight={700}
-                          sx={{ fontSize: { xs: '1rem', sm: '1.35rem' }, overflowWrap: 'anywhere' }}
-                        >
-                          {kpi.value}
-                        </Typography>
-                      </>
-                    )}
-                  </CardContent>
-                </Card>
-              </Grid>
+              <Card key={kpi.label || idx} sx={{ height: '100%' }}>
+                <CardContent sx={{ p: { xs: 1.25, sm: 2 } }}>
+                  {loading ? (
+                    <Skeleton height={32} />
+                  ) : (
+                    <>
+                      <Typography
+                        variant="subtitle2"
+                        color="text.secondary"
+                        sx={{
+                          fontSize: { xs: '0.72rem', sm: '0.85rem' },
+                          display: '-webkit-box',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical'
+                        }}
+                      >
+                        {kpi.label}
+                      </Typography>
+                      <Typography
+                        variant="h5"
+                        fontWeight={700}
+                        sx={{ fontSize: { xs: '1.3rem', sm: '1.5rem' }, overflowWrap: 'anywhere' }}
+                      >
+                        {kpi.value}
+                      </Typography>
+                    </>
+                  )}
+                </CardContent>
+              </Card>
             ))}
-          </Grid>
+          </Box>
 
-          <Grid container spacing={2}>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))'
+            }}
+          >
             {secondaryKpis.map((kpi) => (
-              <Grid item xs={12} sm={6} md={4} key={kpi.label}>
-                <Card>
-                  <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-                    <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
-                      {kpi.label}
-                    </Typography>
-                    <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' } }}>
-                      {kpi.value}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
+              <Card key={kpi.label}>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
+                    {kpi.label}
+                  </Typography>
+                  <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
+                    {kpi.value}
+                  </Typography>
+                </CardContent>
+              </Card>
             ))}
             {costKpis.map((kpi) => (
-              <Grid item xs={12} sm={6} md={4} key={kpi.label}>
-                <Card>
-                  <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-                    <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
-                      {kpi.label}
-                    </Typography>
-                    <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' } }}>
-                      {kpi.value}
-                    </Typography>
-                  </CardContent>
-                </Card>
-              </Grid>
+              <Card key={kpi.label}>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
+                    {kpi.label}
+                  </Typography>
+                  <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
+                    {kpi.value}
+                  </Typography>
+                </CardContent>
+              </Card>
             ))}
-          </Grid>
+          </Box>
 
           <Grid container spacing={2}>
             <Grid item xs={12} md={8}>
               <Card sx={{ height: '100%' }}>
-                <CardContent>
+                <CardContent sx={chartCardContentSx}>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
                     <Typography variant="h6">{t('analytics.overview.equityCurve.title')}</Typography>
                     <Tooltip title={t('analytics.overview.equityCurve.tooltip')}>
@@ -553,11 +663,19 @@ export default function AnalyticsPage() {
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <AreaChart data={summary?.equityCurve}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
-                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                        <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
-                        <Area type="monotone" dataKey="value" stroke="#1976d2" fill="#bbdefb" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                        <XAxis dataKey="date" {...xAxisProps} />
+                        <YAxis tick={chartAxisTick} />
+                        <ChartTooltip
+                          formatter={(v: number) => formatCurrency(v as number, baseCurrency)}
+                          {...chartTooltipProps}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke={theme.palette.primary.main}
+                          fill={alpha(theme.palette.primary.main, 0.24)}
+                        />
                       </AreaChart>
                     </ResponsiveContainer>
                   )}
@@ -566,7 +684,7 @@ export default function AnalyticsPage() {
             </Grid>
             <Grid item xs={12} md={4}>
               <Card sx={{ height: '100%' }}>
-                <CardContent>
+                <CardContent sx={chartCardContentSx}>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
                     <Typography variant="h6">{t('analytics.overview.drawdown.title')}</Typography>
                     <Tooltip title={t('analytics.overview.drawdown.tooltip')}>
@@ -580,11 +698,19 @@ export default function AnalyticsPage() {
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <AreaChart data={drawdownSeries}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
-                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                        <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
-                        <Area type="monotone" dataKey="value" stroke="#ef5350" fill="#ffcdd2" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                        <XAxis dataKey="date" {...xAxisProps} />
+                        <YAxis tick={chartAxisTick} />
+                        <ChartTooltip
+                          formatter={(v: number) => formatCurrency(v as number, baseCurrency)}
+                          {...chartTooltipProps}
+                        />
+                        <Area
+                          type="monotone"
+                          dataKey="value"
+                          stroke={theme.palette.error.main}
+                          fill={alpha(theme.palette.error.main, 0.24)}
+                        />
                       </AreaChart>
                     </ResponsiveContainer>
                   )}
@@ -596,7 +722,7 @@ export default function AnalyticsPage() {
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
               <Card sx={{ height: '100%' }}>
-                <CardContent>
+                <CardContent sx={chartCardContentSx}>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
                     <Typography variant="h6">{t('analytics.overview.histogram.title')}</Typography>
                     <Tooltip title={t('analytics.overview.histogram.tooltip')}>
@@ -610,11 +736,11 @@ export default function AnalyticsPage() {
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <BarChart data={pnlHistogram}>
-                        <CartesianGrid strokeDasharray="3 3" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                         <XAxis dataKey="label" hide />
-                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                        <ChartTooltip formatter={(v: number) => formatNumber(v as number)} />
-                        <Bar dataKey="count" fill="#1565c0" />
+                        <YAxis tick={chartAxisTick} />
+                        <ChartTooltip formatter={(v: number) => formatNumber(v as number)} {...chartTooltipProps} />
+                        <Bar dataKey="count" fill={theme.palette.primary.main} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
@@ -623,7 +749,7 @@ export default function AnalyticsPage() {
             </Grid>
             <Grid item xs={12} md={6}>
               <Card sx={{ height: '100%' }}>
-                <CardContent>
+                <CardContent sx={chartCardContentSx}>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
                     <Typography variant="h6">{t('analytics.overview.traderRead.title')}</Typography>
                     <Tooltip title={t('analytics.overview.traderRead.tooltip')}>
@@ -637,16 +763,16 @@ export default function AnalyticsPage() {
                   ) : (
                     <Stack spacing={1}>
                       {summary?.traderRead?.insights.map((insight, idx) => (
-                        <Typography variant="body2" key={`${insight.text}-${idx}`}>• {insight.text}</Typography>
+                        <Typography className="analytics-copy" variant="body2" key={`${insight.text}-${idx}`}>• {insight.text}</Typography>
                       ))}
                     </Stack>
                   )}
                   <Divider sx={{ my: 2 }} />
                   <Stack spacing={1}>
                     <Typography variant="subtitle2">{t('analytics.overview.drawdownHighlights.title')}</Typography>
-                    <Typography variant="body2">{t('analytics.overview.drawdownHighlights.maxDrawdown')}: {formatCurrency(summary?.drawdown?.maxDrawdown, baseCurrency)}</Typography>
-                    <Typography variant="body2">{t('analytics.overview.drawdownHighlights.recoveryFactor')}: {summary?.drawdown?.recoveryFactor?.toFixed(2) ?? t('common.na')}</Typography>
-                    <Typography variant="body2">{t('analytics.overview.drawdownHighlights.ulcerIndex')}: {summary?.drawdown?.ulcerIndex?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.overview.drawdownHighlights.maxDrawdown')}: {formatCurrency(summary?.drawdown?.maxDrawdown, baseCurrency)}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.overview.drawdownHighlights.recoveryFactor')}: {summary?.drawdown?.recoveryFactor?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.overview.drawdownHighlights.ulcerIndex')}: {summary?.drawdown?.ulcerIndex?.toFixed(2) ?? t('common.na')}</Typography>
                   </Stack>
                 </CardContent>
               </Card>
@@ -691,7 +817,7 @@ export default function AnalyticsPage() {
         <Grid container spacing={2}>
           <Grid item xs={12} md={8}>
             <Card sx={{ height: '100%' }}>
-              <CardContent>
+              <CardContent sx={chartCardContentSx}>
                 <Typography variant="h6" gutterBottom>{t('analytics.consistency.rollingMetrics.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
@@ -700,12 +826,12 @@ export default function AnalyticsPage() {
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <LineChart data={rolling20}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
-                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                      <ChartTooltip />
-                      <Line type="monotone" dataKey="winRate" stroke="#4caf50" name={t('analytics.kpis.winRate')} />
-                      <Line type="monotone" dataKey="profitFactor" stroke="#1976d2" name={t('analytics.kpis.profitFactor')} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                      <XAxis dataKey="date" {...xAxisProps} />
+                      <YAxis tick={chartAxisTick} />
+                      <ChartTooltip {...chartTooltipProps} />
+                      <Line type="monotone" dataKey="winRate" stroke={theme.palette.success.main} name={t('analytics.kpis.winRate')} />
+                      <Line type="monotone" dataKey="profitFactor" stroke={theme.palette.primary.main} name={t('analytics.kpis.profitFactor')} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
@@ -714,24 +840,24 @@ export default function AnalyticsPage() {
           </Grid>
           <Grid item xs={12} md={4}>
             <Card sx={{ height: '100%' }}>
-              <CardContent>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2.5 }, overflow: 'hidden' }}>
                 <Typography variant="h6" gutterBottom>{t('analytics.consistency.streaks.title')}</Typography>
                 <Stack spacing={1}>
-                  <Typography variant="body2">{t('analytics.consistency.streaks.maxWin')}: {summary?.consistency?.streaks?.maxWinStreak ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.consistency.streaks.maxLoss')}: {summary?.consistency?.streaks?.maxLossStreak ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.consistency.streaks.current')}: {summary?.consistency?.streaks?.currentStreakType ?? t('common.na')} ({summary?.consistency?.streaks?.currentStreakCount ?? 0})</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.maxWin')}: {summary?.consistency?.streaks?.maxWinStreak ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.maxLoss')}: {summary?.consistency?.streaks?.maxLossStreak ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.current')}: {summary?.consistency?.streaks?.currentStreakType ?? t('common.na')} ({summary?.consistency?.streaks?.currentStreakCount ?? 0})</Typography>
                   <Divider sx={{ my: 1 }} />
-                  <Typography variant="body2">{t('analytics.consistency.streaks.greenWeeks')}: {summary?.consistency?.greenWeeks ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.consistency.streaks.redWeeks')}: {summary?.consistency?.redWeeks ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.consistency.streaks.bestDay')}: {summary?.consistency?.bestDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.bestDay?.value, baseCurrency)})</Typography>
-                  <Typography variant="body2">{t('analytics.consistency.streaks.worstDay')}: {summary?.consistency?.worstDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.worstDay?.value, baseCurrency)})</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.greenWeeks')}: {summary?.consistency?.greenWeeks ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.redWeeks')}: {summary?.consistency?.redWeeks ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.bestDay')}: {summary?.consistency?.bestDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.bestDay?.value, baseCurrency)})</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.worstDay')}: {summary?.consistency?.worstDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.worstDay?.value, baseCurrency)})</Typography>
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12}>
             <Card>
-              <CardContent>
+              <CardContent sx={chartCardContentSx}>
                 <Typography variant="h6" gutterBottom>{t('analytics.consistency.weeklyPnl.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.small} />
@@ -740,11 +866,11 @@ export default function AnalyticsPage() {
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.small}>
                     <BarChart data={summary?.weeklyPnl}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
-                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
-                      <Bar dataKey="value" fill="#1565c0" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                      <XAxis dataKey="date" {...xAxisProps} />
+                      <YAxis tick={chartAxisTick} />
+                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
+                      <Bar dataKey="value" fill={theme.palette.primary.main} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -758,7 +884,7 @@ export default function AnalyticsPage() {
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
-              <CardContent>
+              <CardContent sx={chartCardContentSx}>
                 <Typography variant="h6" gutterBottom>{t('analytics.timeEdge.dayOfWeek.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
@@ -767,11 +893,11 @@ export default function AnalyticsPage() {
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={summary?.timeEdge?.dayOfWeek}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="bucket" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
-                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
-                      <Bar dataKey="netPnl" fill="#1976d2" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                      <XAxis dataKey="bucket" {...xAxisProps} />
+                      <YAxis tick={chartAxisTick} />
+                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
+                      <Bar dataKey="netPnl" fill={theme.palette.primary.main} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
@@ -780,7 +906,7 @@ export default function AnalyticsPage() {
           </Grid>
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
-              <CardContent>
+              <CardContent sx={chartCardContentSx}>
                 <Typography variant="h6" gutterBottom>{t('analytics.timeEdge.holdingBuckets.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
@@ -789,45 +915,49 @@ export default function AnalyticsPage() {
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={summary?.timeEdge?.holdingBuckets}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="bucket" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
-                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
-                      <Bar dataKey="netPnl" fill="#4caf50" />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                      <XAxis dataKey="bucket" {...xAxisProps} />
+                      <YAxis tick={chartAxisTick} />
+                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
+                      <Bar dataKey="netPnl" fill={theme.palette.success.main} />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
                 <Divider sx={{ my: 1 }} />
-                <Typography variant="body2">{t('analytics.timeEdge.holdingBuckets.avgHolding')}: {formatDuration(summary?.timeEdge?.averageHoldingSeconds)}</Typography>
-                <Typography variant="body2">{t('analytics.timeEdge.holdingBuckets.medianHolding')}: {formatDuration(summary?.timeEdge?.medianHoldingSeconds)}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.timeEdge.holdingBuckets.avgHolding')}: {formatDuration(summary?.timeEdge?.averageHoldingSeconds)}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.timeEdge.holdingBuckets.medianHolding')}: {formatDuration(summary?.timeEdge?.medianHoldingSeconds)}</Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12}>
             <Card>
-              <CardContent>
+              <CardContent sx={chartCardContentSx}>
                 <Typography variant="h6" gutterBottom>{t('analytics.timeEdge.hourHeatmap.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.small} />
                 ) : heatmapData.length === 0 ? (
                   <EmptyState title={t('analytics.timeEdge.hourHeatmap.emptyTitle')} description={t('analytics.timeEdge.hourHeatmap.emptyBody')} />
                 ) : (
-                  <Box sx={{ overflowX: 'auto' }}>
-                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(24, minmax(32px, 1fr))', sm: 'repeat(24, minmax(40px, 1fr))' }, gap: 0.5 }}>
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: 'repeat(8, minmax(0, 1fr))', sm: 'repeat(12, minmax(0, 1fr))', md: 'repeat(24, minmax(0, 1fr))' },
+                      gap: 0.5
+                    }}
+                  >
                       {heatmapData.map((bucket) => {
                         const intensity = heatmapMax === 0 ? 0 : Math.abs(bucket.netPnl) / heatmapMax
                         const color = bucket.netPnl >= 0
-                          ? `rgba(76, 175, 80, ${0.2 + intensity * 0.6})`
-                          : `rgba(244, 67, 54, ${0.2 + intensity * 0.6})`
+                          ? alpha(theme.palette.success.main, 0.24 + intensity * 0.58)
+                          : alpha(theme.palette.error.main, 0.24 + intensity * 0.58)
                         return (
                           <Tooltip key={bucket.bucket} title={t('analytics.timeEdge.hourHeatmap.tooltip', { hour: bucket.bucket, trades: bucket.trades, winRate: formatPercent(bucket.winRate) })}>
-                            <Box sx={{ p: { xs: 0.5, sm: 1 }, textAlign: 'center', borderRadius: 1, backgroundColor: color }}>
-                              <Typography variant="caption">{bucket.bucket}</Typography>
+                            <Box sx={{ p: { xs: 0.5, sm: 1 }, minHeight: 38, textAlign: 'center', borderRadius: 1, backgroundColor: color, border: '1px solid', borderColor: alpha(theme.palette.divider, 0.85) }}>
+                              <Typography className="analytics-copy" variant="caption">{bucket.bucket}</Typography>
                             </Box>
                           </Tooltip>
                         )
                       })}
-                    </Box>
                   </Box>
                 )}
               </CardContent>
@@ -840,7 +970,7 @@ export default function AnalyticsPage() {
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
-              <CardContent>
+              <CardContent sx={chartCardContentSx}>
                 <Typography variant="h6" gutterBottom>{t('analytics.symbols.topSymbols.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
@@ -849,29 +979,29 @@ export default function AnalyticsPage() {
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={symbolBars}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="name" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
-                      <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
+                      <XAxis dataKey="name" {...xAxisProps} />
+                      <YAxis tick={chartAxisTick} />
+                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
                       <Bar
                         dataKey="netPnl"
-                        fill="#1976d2"
+                        fill={theme.palette.primary.main}
                         onClick={(data) => setFilters((prev) => ({ ...prev, symbol: data?.name }))}
                       />
                     </BarChart>
                   </ResponsiveContainer>
                 )}
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="body2">{t('analytics.symbols.topSymbols.top1PnlShare')}: {formatPercent(summary?.attribution?.concentration?.top1PnlShare ?? null)}</Typography>
-                <Typography variant="body2">{t('analytics.symbols.topSymbols.top3PnlShare')}: {formatPercent(summary?.attribution?.concentration?.top3PnlShare ?? null)}</Typography>
-                <Typography variant="body2">{t('analytics.symbols.topSymbols.top1TradeShare')}: {formatPercent(summary?.attribution?.concentration?.top1TradeShare ?? null)}</Typography>
-                <Typography variant="body2">{t('analytics.symbols.topSymbols.top3TradeShare')}: {formatPercent(summary?.attribution?.concentration?.top3TradeShare ?? null)}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.symbols.topSymbols.top1PnlShare')}: {formatPercent(summary?.attribution?.concentration?.top1PnlShare ?? null)}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.symbols.topSymbols.top3PnlShare')}: {formatPercent(summary?.attribution?.concentration?.top3PnlShare ?? null)}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.symbols.topSymbols.top1TradeShare')}: {formatPercent(summary?.attribution?.concentration?.top1TradeShare ?? null)}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.symbols.topSymbols.top3TradeShare')}: {formatPercent(summary?.attribution?.concentration?.top3TradeShare ?? null)}</Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
-              <CardContent>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2.5 }, overflow: 'hidden' }}>
                 <Typography variant="h6" gutterBottom>{t('analytics.symbols.strategyLeaderboard.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
@@ -880,12 +1010,12 @@ export default function AnalyticsPage() {
                 ) : (
                   <Stack spacing={1}>
                     {summary?.attribution?.strategies?.slice(0, 6).map((row) => (
-                      <Stack key={row.name} direction="row" spacing={1} justifyContent="space-between" alignItems="center">
-                        <Stack direction="row" spacing={1} alignItems="center">
-                          <Typography variant="body2">{row.name}</Typography>
+                      <Stack key={row.name} direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                        <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
+                          <Typography className="analytics-copy" variant="body2">{row.name}</Typography>
                           {row.lowSample && <Chip size="small" label={t('analytics.symbols.strategyLeaderboard.lowSample')} />}
                         </Stack>
-                        <Typography variant="body2">{formatSignedCurrency(row.netPnl, baseCurrency)} • N={row.trades}</Typography>
+                        <Typography className="analytics-copy" variant="body2">{formatSignedCurrency(row.netPnl, baseCurrency)} • N={row.trades}</Typography>
                       </Stack>
                     ))}
                   </Stack>
@@ -893,7 +1023,7 @@ export default function AnalyticsPage() {
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="subtitle2">{t('analytics.symbols.strategyLeaderboard.stopDoing')}</Typography>
                 {(summary?.attribution?.bottomSymbols ?? []).map((row) => (
-                  <Typography key={row.name} variant="body2">• {row.name} ({formatSignedCurrency(row.netPnl, baseCurrency)}, N={row.trades})</Typography>
+                  <Typography className="analytics-copy" key={row.name} variant="body2">• {row.name} ({formatSignedCurrency(row.netPnl, baseCurrency)}, N={row.trades})</Typography>
                 ))}
               </CardContent>
             </Card>
@@ -903,18 +1033,18 @@ export default function AnalyticsPage() {
 
       <TabPanel value={tab} index={5}>
         <Card>
-          <CardContent>
+          <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
             <Typography variant="h6" gutterBottom>{t('analytics.risk.title')}</Typography>
             {summary?.risk?.available ? (
               <Grid container spacing={2}>
                 <Grid item xs={12} md={4}>
                   <Stack spacing={1}>
-                    <Typography variant="body2">{t('analytics.risk.averageR')}: {summary.risk.averageR?.toFixed(2) ?? t('common.na')}</Typography>
-                    <Typography variant="body2">{t('analytics.risk.medianR')}: {summary.risk.medianR?.toFixed(2) ?? t('common.na')}</Typography>
-                    <Typography variant="body2">{t('analytics.risk.expectancyR')}: {summary.risk.expectancyR?.toFixed(2) ?? t('common.na')}</Typography>
-                    <Typography variant="body2">{t('analytics.risk.winRateR')}: {formatPercent(summary.risk.winRateR)}</Typography>
-                    <Typography variant="body2">{t('analytics.risk.avgRiskAmount')}: {formatCurrency(summary.risk.averageRiskAmount, baseCurrency)}</Typography>
-                    <Typography variant="body2">{t('analytics.risk.avgRiskPercent')}: {formatPercent(summary.risk.averageRiskPercent)}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.averageR')}: {summary.risk.averageR?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.medianR')}: {summary.risk.medianR?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.expectancyR')}: {summary.risk.expectancyR?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.winRateR')}: {formatPercent(summary.risk.winRateR)}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.avgRiskAmount')}: {formatCurrency(summary.risk.averageRiskAmount, baseCurrency)}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.avgRiskPercent')}: {formatPercent(summary.risk.averageRiskPercent)}</Typography>
                   </Stack>
                 </Grid>
                 <Grid item xs={12} md={8}>
@@ -924,11 +1054,11 @@ export default function AnalyticsPage() {
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.small}>
                       <BarChart data={summary.risk.rDistribution}>
-                        <CartesianGrid strokeDasharray="3 3" />
+                        <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                         <XAxis dataKey="label" hide />
-                        <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
-                        <ChartTooltip />
-                        <Bar dataKey="count" fill="#7b1fa2" />
+                        <YAxis tick={chartAxisTick} />
+                        <ChartTooltip {...chartTooltipProps} />
+                        <Bar dataKey="count" fill={theme.palette.secondary.main} />
                       </BarChart>
                     </ResponsiveContainer>
                   )}
@@ -948,29 +1078,29 @@ export default function AnalyticsPage() {
         <Grid container spacing={2}>
           <Grid item xs={12} md={6}>
             <Card>
-              <CardContent>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
                 <Typography variant="h6" gutterBottom>{t('analytics.dataQuality.title')}</Typography>
                 <Stack spacing={1}>
-                  <Typography variant="body2">{t('analytics.dataQuality.missingClosedAt')}: {summary?.dataQuality?.missingClosedAtCount ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.dataQuality.inconsistentStatus')}: {summary?.dataQuality?.inconsistentStatusCount ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.dataQuality.missingStrategy')}: {summary?.dataQuality?.missingStrategyCount ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.dataQuality.missingSetup')}: {summary?.dataQuality?.missingSetupCount ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.dataQuality.missingCatalyst')}: {summary?.dataQuality?.missingCatalystCount ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.dataQuality.missingPnlPercent')}: {summary?.dataQuality?.missingPnlPercentCount ?? 0}</Typography>
-                  <Typography variant="body2">{t('analytics.dataQuality.missingRisk')}: {summary?.dataQuality?.missingRiskCount ?? 0}</Typography>
-                  <Typography variant="body2">{summary?.dataQuality?.timezoneNote}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.missingClosedAt')}: {summary?.dataQuality?.missingClosedAtCount ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.inconsistentStatus')}: {summary?.dataQuality?.inconsistentStatusCount ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.missingStrategy')}: {summary?.dataQuality?.missingStrategyCount ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.missingSetup')}: {summary?.dataQuality?.missingSetupCount ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.missingCatalyst')}: {summary?.dataQuality?.missingCatalystCount ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.missingPnlPercent')}: {summary?.dataQuality?.missingPnlPercentCount ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.missingRisk')}: {summary?.dataQuality?.missingRiskCount ?? 0}</Typography>
+                  <Typography className="analytics-copy" variant="body2">{summary?.dataQuality?.timezoneNote}</Typography>
                 </Stack>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} md={6}>
             <Card>
-              <CardContent>
+              <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
                 <Typography variant="h6" gutterBottom>{t('analytics.dataQuality.outlierPolicy.title')}</Typography>
-                <Typography variant="body2">{t('analytics.dataQuality.outlierPolicy.thresholds')}: {formatNumber(summary?.distribution?.outlierLower ?? null)} {t('analytics.dataQuality.outlierPolicy.to')} {formatNumber(summary?.distribution?.outlierUpper ?? null)}</Typography>
-                <Typography variant="body2">{t('analytics.dataQuality.outlierPolicy.outliersDetected')}: {summary?.distribution?.outlierCount ?? 0}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.outlierPolicy.thresholds')}: {formatNumber(summary?.distribution?.outlierLower ?? null)} {t('analytics.dataQuality.outlierPolicy.to')} {formatNumber(summary?.distribution?.outlierUpper ?? null)}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.outlierPolicy.outliersDetected')}: {summary?.distribution?.outlierCount ?? 0}</Typography>
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="body2">{t('analytics.dataQuality.outlierPolicy.hint')}</Typography>
+                <Typography className="analytics-copy" variant="body2">{t('analytics.dataQuality.outlierPolicy.hint')}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -978,16 +1108,16 @@ export default function AnalyticsPage() {
       </TabPanel>
 
       <Card>
-        <CardContent>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
           <Typography variant="h6" gutterBottom>{t('analytics.help.title')}</Typography>
           <Accordion defaultExpanded>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('analytics.help.kpis.title')}</AccordionSummary>
             <AccordionDetails>
               <Stack spacing={1}>
-                <Typography variant="body2"><strong>{t('analytics.kpis.winRate')}</strong>: {t('analytics.help.kpis.winRate')}</Typography>
-                <Typography variant="body2"><strong>{t('analytics.kpis.profitFactor')}</strong>: {t('analytics.help.kpis.profitFactor')}</Typography>
-                <Typography variant="body2"><strong>{t('analytics.kpis.expectancy')}</strong>: {t('analytics.help.kpis.expectancy')}</Typography>
-                <Typography variant="body2"><strong>{t('analytics.kpis.payoffRatio')}</strong>: {t('analytics.help.kpis.payoffRatio')}</Typography>
+                <Typography className="analytics-copy" variant="body2"><strong>{t('analytics.kpis.winRate')}</strong>: {t('analytics.help.kpis.winRate')}</Typography>
+                <Typography className="analytics-copy" variant="body2"><strong>{t('analytics.kpis.profitFactor')}</strong>: {t('analytics.help.kpis.profitFactor')}</Typography>
+                <Typography className="analytics-copy" variant="body2"><strong>{t('analytics.kpis.expectancy')}</strong>: {t('analytics.help.kpis.expectancy')}</Typography>
+                <Typography className="analytics-copy" variant="body2"><strong>{t('analytics.kpis.payoffRatio')}</strong>: {t('analytics.help.kpis.payoffRatio')}</Typography>
               </Stack>
             </AccordionDetails>
           </Accordion>
@@ -995,9 +1125,9 @@ export default function AnalyticsPage() {
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('analytics.help.timeConsistency.title')}</AccordionSummary>
             <AccordionDetails>
               <Stack spacing={1}>
-                <Typography variant="body2"><strong>{t('analytics.overview.drawdown.title')}</strong>: {t('analytics.help.timeConsistency.drawdown')}</Typography>
-                <Typography variant="body2"><strong>{t('analytics.consistency.rollingMetrics.title')}</strong>: {t('analytics.help.timeConsistency.rollingMetrics')}</Typography>
-                <Typography variant="body2"><strong>{t('analytics.timeEdge.hourHeatmap.title')}</strong>: {t('analytics.help.timeConsistency.heatmap')}</Typography>
+                <Typography className="analytics-copy" variant="body2"><strong>{t('analytics.overview.drawdown.title')}</strong>: {t('analytics.help.timeConsistency.drawdown')}</Typography>
+                <Typography className="analytics-copy" variant="body2"><strong>{t('analytics.consistency.rollingMetrics.title')}</strong>: {t('analytics.help.timeConsistency.rollingMetrics')}</Typography>
+                <Typography className="analytics-copy" variant="body2"><strong>{t('analytics.timeEdge.hourHeatmap.title')}</strong>: {t('analytics.help.timeConsistency.heatmap')}</Typography>
               </Stack>
             </AccordionDetails>
           </Accordion>

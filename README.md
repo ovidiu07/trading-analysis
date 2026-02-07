@@ -47,6 +47,17 @@ npm install
 npm run dev
 ```
 
+### Frontend UI title policy (no duplicates)
+- Route-level page titles/subtitles are centralized in `frontend/src/config/routeMeta.ts`.
+- `Layout` resolves route metadata and passes the title/subtitle to the shared `TopBar` once.
+- When a page must own its in-content title (for example detail/editor flows), set `showHeader: false` in route metadata and render the local header in the page.
+- A guard test (`frontend/src/config/routeMeta.guard.test.ts`) prevents reintroducing duplicate page-level route titles on primary pages.
+
+### Dark theme contrast tokens
+- Dark mode typography and surface tokens are defined in `frontend/src/theme.ts` (for example: `palette.text.primary`, `palette.text.secondary`, `palette.text.disabled`, link colors, surface/border tones).
+- Prefer theme tokens and component overrides (`MuiDataGrid`, `MuiTableCell`, `MuiInputBase`, `MuiChip`, etc.) over one-off hardcoded colors.
+- For charts and custom UI blocks, use theme-derived colors (`theme.palette.*`, `alpha(...)`) so contrast remains consistent on dark surfaces.
+
 ## Internationalization (i18n)
 - Frontend locale files live in:
   - `frontend/src/i18n/en.json`

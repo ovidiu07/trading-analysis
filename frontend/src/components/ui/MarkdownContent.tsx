@@ -46,7 +46,9 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
           fontStyle: 'italic'
         },
         '& pre': {
-          backgroundColor: 'rgba(15, 23, 42, 0.08)',
+          backgroundColor: 'action.hover',
+          border: '1px solid',
+          borderColor: 'divider',
           padding: '0.85rem',
           borderRadius: 10,
           overflowX: 'auto'
@@ -63,7 +65,10 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
         },
         '& a': {
           color: 'primary.main',
-          textDecoration: 'underline'
+          textDecoration: 'underline',
+          '&:hover': {
+            color: 'primary.light'
+          }
         }
       }}
       dangerouslySetInnerHTML={{ __html: html }}

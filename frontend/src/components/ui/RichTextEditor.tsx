@@ -329,7 +329,9 @@ export default function RichTextEditor({
             color: 'text.secondary'
           },
           '& pre': {
-            backgroundColor: 'rgba(15, 23, 42, 0.08)',
+            backgroundColor: 'action.hover',
+            border: '1px solid',
+            borderColor: 'divider',
             padding: '0.75rem',
             borderRadius: 8,
             overflowX: 'auto'

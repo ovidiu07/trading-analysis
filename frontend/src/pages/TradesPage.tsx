@@ -39,11 +39,11 @@ import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatDateTime, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
 import { TradeForm } from '../components/trades/TradeForm'
-import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { alpha } from '@mui/material/styles'
 
 const buildDefaultValues = (): TradeFormValues => ({
   symbol: '',
@@ -496,7 +496,7 @@ export default function TradesPage() {
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            backgroundColor: 'rgba(255, 255, 255, 0.7)',
+            backgroundColor: alpha(theme.palette.background.default, 0.72),
             zIndex: 1,
           }}
         >
@@ -590,11 +590,6 @@ export default function TradesPage() {
 
   return (
     <Stack spacing={3}>
-      <PageHeader
-        title={t('trades.title')}
-        subtitle={t('trades.subtitle')}
-      />
-
       <Stack spacing={3}>
         <Card>
           <CardContent>
@@ -722,7 +717,7 @@ export default function TradesPage() {
             )}
             {isSmallScreen ? renderTradeCards() : renderTradesTable()}
             {expandedTrade && !isSmallScreen && (
-              <Box sx={{ mt: 2, bgcolor: 'grey.50', borderRadius: 2, p: 2 }}>
+              <Box sx={{ mt: 2, bgcolor: 'background.default', borderRadius: 2, border: '1px solid', borderColor: 'divider', p: 2 }}>
                 <Typography variant="subtitle1" gutterBottom>{t('trades.details.title')}</Typography>
                 <Grid container spacing={2}>
                   <Grid item xs={12} sm={6} md={4}>

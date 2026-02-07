@@ -28,7 +28,6 @@ import { DailyPnlResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, li
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
-import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
@@ -214,12 +213,12 @@ export default function CalendarPage() {
     ? theme.palette.success.main
     : isSummaryNegative
       ? theme.palette.error.main
-      : theme.palette.grey[300]
+      : theme.palette.divider
   const summaryBackground = isSummaryPositive
-    ? alpha(theme.palette.success.light, 0.3)
+    ? alpha(theme.palette.success.main, 0.2)
     : isSummaryNegative
-      ? alpha(theme.palette.error.light, 0.3)
-      : alpha(theme.palette.grey[200], 0.6)
+      ? alpha(theme.palette.error.main, 0.2)
+      : alpha(theme.palette.background.paper, 0.82)
   const summaryTextColor = isSummaryPositive
     ? theme.palette.success.main
     : isSummaryNegative
@@ -259,17 +258,17 @@ export default function CalendarPage() {
       ? alpha(theme.palette.success.light, 0.25)
       : isNegative
         ? alpha(theme.palette.error.light, 0.25)
-        : alpha(theme.palette.grey[200], 0.6)
+        : alpha(theme.palette.background.paper, 0.78)
     const borderColor = isPositive
       ? theme.palette.success.main
       : isNegative
         ? theme.palette.error.main
-        : theme.palette.grey[300]
+        : theme.palette.divider
     const pnlBadgeColor = isPositive
       ? theme.palette.success.main
       : isNegative
         ? theme.palette.error.main
-        : theme.palette.grey[600]
+        : alpha(theme.palette.text.secondary, 0.9)
     const ariaLabelParts = entry
       ? [
         t('calendar.aria.viewRealizedPnl', { date: dateKey }),
@@ -321,7 +320,7 @@ export default function CalendarPage() {
                 py: 0.25,
                 borderRadius: 1,
                 bgcolor: pnlBadgeColor,
-                color: 'common.white',
+                color: isPositive || isNegative ? 'common.black' : 'background.default',
                 fontSize: isMobile ? '0.7rem' : '0.75rem',
                 fontWeight: 600,
                 lineHeight: 1.2,
@@ -346,17 +345,17 @@ export default function CalendarPage() {
       ? alpha(theme.palette.success.light, 0.2)
       : isNegative
         ? alpha(theme.palette.error.light, 0.2)
-        : alpha(theme.palette.grey[200], 0.6)
+        : alpha(theme.palette.background.paper, 0.78)
     const borderColor = isPositive
       ? theme.palette.success.main
       : isNegative
         ? theme.palette.error.main
-        : theme.palette.grey[300]
+        : theme.palette.divider
     const pnlBadgeColor = isPositive
       ? theme.palette.success.main
       : isNegative
         ? theme.palette.error.main
-        : theme.palette.grey[600]
+        : alpha(theme.palette.text.secondary, 0.9)
     const pnlLabel = netPnl === undefined ? t('common.na') : formatSignedCurrency(netPnl, baseCurrency)
     const tradeLabel = entry ? t('calendar.tradeCount', { count: entry.tradeCount }) : t('calendar.noTrades')
     const ariaLabelParts = entry
@@ -400,7 +399,7 @@ export default function CalendarPage() {
               py: 0.4,
               borderRadius: 1,
               bgcolor: pnlBadgeColor,
-              color: 'common.white',
+              color: isPositive || isNegative ? 'common.black' : 'background.default',
               fontSize: '0.8rem',
               fontWeight: 600,
               lineHeight: 1.2,
@@ -416,44 +415,38 @@ export default function CalendarPage() {
 
   return (
     <Stack spacing={isCompact ? 2 : 3}>
-      <PageHeader
-        title={t('calendar.title')}
-        subtitle={t('calendar.subtitle', { timezone })}
-        actions={(
-          <Box
-            sx={{
-              width: { xs: '100%', md: 'auto' },
-              display: 'grid',
-              gridTemplateColumns: { xs: '44px 1fr 44px', sm: 'auto auto auto' },
-              alignItems: 'center',
-              gap: { xs: 1, sm: 1.5 },
-              justifyContent: { xs: 'center', sm: 'flex-start' }
-            }}
-          >
-            <IconButton
-              aria-label={t('calendar.previousMonth')}
-              onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}
-              sx={{ width: 44, height: 44 }}
-            >
-              <ChevronLeftIcon />
-            </IconButton>
-            <Typography
-              variant={isMobile ? 'subtitle1' : 'h6'}
-              textAlign="center"
-              sx={{ minWidth: 0, whiteSpace: 'nowrap' }}
-            >
-              {monthLabel}
-            </Typography>
-            <IconButton
-              aria-label={t('calendar.nextMonth')}
-              onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}
-              sx={{ width: 44, height: 44 }}
-            >
-              <ChevronRightIcon />
-            </IconButton>
-          </Box>
-        )}
-      />
+      <Box
+        sx={{
+          width: { xs: '100%', md: 'auto' },
+          display: 'grid',
+          gridTemplateColumns: { xs: '44px 1fr 44px', sm: 'auto auto auto' },
+          alignItems: 'center',
+          gap: { xs: 1, sm: 1.5 },
+          justifyContent: { xs: 'center', sm: 'flex-start' }
+        }}
+      >
+        <IconButton
+          aria-label={t('calendar.previousMonth')}
+          onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}
+          sx={{ width: 44, height: 44 }}
+        >
+          <ChevronLeftIcon />
+        </IconButton>
+        <Typography
+          variant={isMobile ? 'subtitle1' : 'h6'}
+          textAlign="center"
+          sx={{ minWidth: 0, whiteSpace: 'nowrap' }}
+        >
+          {monthLabel}
+        </Typography>
+        <IconButton
+          aria-label={t('calendar.nextMonth')}
+          onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}
+          sx={{ width: 44, height: 44 }}
+        >
+          <ChevronRightIcon />
+        </IconButton>
+      </Box>
 
       <Card>
         <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
@@ -509,9 +502,9 @@ export default function CalendarPage() {
                       px: 1.5,
                       py: 1,
                       borderRadius: 2,
-                      bgcolor: 'common.white',
+                      bgcolor: alpha(theme.palette.background.default, 0.45),
                       border: '1px solid',
-                      borderColor: alpha(theme.palette.divider, 0.6),
+                      borderColor: 'divider',
                       textAlign: isCompact ? 'center' : 'left'
                     }}
                   >
@@ -534,9 +527,9 @@ export default function CalendarPage() {
                     px: 1.5,
                     py: 1,
                     borderRadius: 2,
-                    bgcolor: 'common.white',
+                    bgcolor: alpha(theme.palette.background.default, 0.45),
                     border: '1px solid',
-                    borderColor: alpha(theme.palette.divider, 0.6),
+                    borderColor: 'divider',
                     textAlign: isCompact ? 'center' : 'left'
                   }}
                 >
@@ -556,9 +549,9 @@ export default function CalendarPage() {
                     px: 1.5,
                     py: 1,
                     borderRadius: 2,
-                    bgcolor: 'common.white',
+                    bgcolor: alpha(theme.palette.background.default, 0.45),
                     border: '1px solid',
-                    borderColor: alpha(theme.palette.divider, 0.6),
+                    borderColor: 'divider',
                     textAlign: isCompact ? 'center' : 'left'
                   }}
                 >
@@ -590,7 +583,7 @@ export default function CalendarPage() {
               <Typography variant="caption">{t('calendar.legend.loss')}</Typography>
             </Stack>
             <Stack direction="row" spacing={1} alignItems="center">
-              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.grey[200], 0.8), border: `1px solid ${theme.palette.grey[300]}` }} />
+              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.background.paper, 0.8), border: `1px solid ${theme.palette.divider}` }} />
               <Typography variant="caption">{t('calendar.legend.flat')}</Typography>
             </Stack>
           </Stack>
@@ -689,7 +682,7 @@ export default function CalendarPage() {
           ) : (
             <Stack spacing={1.5}>
               {selectedTrades.map((trade) => (
-                <Box key={trade.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50' }}>
+                <Box key={trade.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: alpha(theme.palette.background.default, 0.52), border: '1px solid', borderColor: 'divider' }}>
                   <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={2}>
                     <Box>
                       <Typography variant="subtitle2">{trade.symbol}</Typography>
@@ -719,7 +712,7 @@ export default function CalendarPage() {
             ) : (
               <Stack spacing={1}>
                 {selectedNotes.map((note) => (
-                  <Box key={note.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: 'grey.50' }}>
+                  <Box key={note.id} sx={{ p: 1.5, borderRadius: 2, bgcolor: alpha(theme.palette.background.default, 0.52), border: '1px solid', borderColor: 'divider' }}>
                     <Stack
                       direction={{ xs: 'column', sm: 'row' }}
                       justifyContent="space-between"

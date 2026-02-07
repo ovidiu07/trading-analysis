@@ -77,7 +77,6 @@ import {
 } from '../api/notebook'
 import { formatCurrency, formatDate, formatDateTime } from '../utils/format'
 import { TradeResponse, getTradeById } from '../api/trades'
-import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import RichTextEditor from '../components/ui/RichTextEditor'
@@ -1107,38 +1106,34 @@ export default function NotebookPage() {
 
   return (
     <Stack spacing={3} sx={{ overflowX: 'hidden', height: '100%', minHeight: 0, overflow: 'hidden' }}>
-      <PageHeader
-        title={t('notebook.title')}
-        subtitle={t('notebook.subtitle')}
-        actions={(
-          isMobile ? (
-            <>
-              <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNewMenu}>
-                {t('notebook.actions.new')}
-              </Button>
-              <Menu anchorEl={newMenuAnchor} open={openNewMenu} onClose={handleCloseNewMenu}>
-                <MenuItem onClick={() => handleNewMenuSelect('DAILY_LOG')}>{t('notebook.actions.newDailyLog')}</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('PLAN')}>{t('notebook.actions.newPlan')}</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('SESSION_RECAP')}>{t('notebook.actions.createLossRecap')}</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('NOTE')}>{t('notebook.actions.newNote')}</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('GOAL')}>{t('notebook.actions.newGoal')}</MenuItem>
-              </Menu>
-            </>
-          ) : (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <Button variant="contained" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
-                {t('notebook.actions.newDailyLog')}
-              </Button>
-              <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
-                {t('notebook.actions.newPlan')}
-              </Button>
-              <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
-                {t('notebook.actions.createLossRecap')}
-              </Button>
-            </Stack>
-          )
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end" spacing={1}>
+        {isMobile ? (
+          <>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNewMenu}>
+              {t('notebook.actions.new')}
+            </Button>
+            <Menu anchorEl={newMenuAnchor} open={openNewMenu} onClose={handleCloseNewMenu}>
+              <MenuItem onClick={() => handleNewMenuSelect('DAILY_LOG')}>{t('notebook.actions.newDailyLog')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('PLAN')}>{t('notebook.actions.newPlan')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('SESSION_RECAP')}>{t('notebook.actions.createLossRecap')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('NOTE')}>{t('notebook.actions.newNote')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('GOAL')}>{t('notebook.actions.newGoal')}</MenuItem>
+            </Menu>
+          </>
+        ) : (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button variant="contained" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
+              {t('notebook.actions.newDailyLog')}
+            </Button>
+            <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
+              {t('notebook.actions.newPlan')}
+            </Button>
+            <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
+              {t('notebook.actions.createLossRecap')}
+            </Button>
+          </Stack>
         )}
-      />
+      </Stack>
 
       {error && <ErrorBanner message={error} />}
       {infoMessage && (

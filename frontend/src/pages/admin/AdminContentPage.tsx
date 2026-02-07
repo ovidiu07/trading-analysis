@@ -17,7 +17,6 @@ import {
   useMediaQuery
 } from '@mui/material'
 import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
-import PageHeader from '../../components/ui/PageHeader'
 import EmptyState from '../../components/ui/EmptyState'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import LoadingState from '../../components/ui/LoadingState'
@@ -229,15 +228,11 @@ export default function AdminContentPage() {
 
   return (
     <Stack spacing={3}>
-      <PageHeader
-        title={t('adminContent.title')}
-        subtitle={t('adminContent.subtitle')}
-        actions={(
-          <Button variant="contained" onClick={() => navigate('/admin/content/new')}>
-            {t('adminContent.actions.createNew')}
-          </Button>
-        )}
-      />
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end">
+        <Button variant="contained" onClick={() => navigate('/admin/content/new')} fullWidth={isCompact}>
+          {t('adminContent.actions.createNew')}
+        </Button>
+      </Stack>
 
       <Card>
         <CardContent>

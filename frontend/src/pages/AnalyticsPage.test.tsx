@@ -11,6 +11,27 @@ import { I18nProvider } from '../i18n'
 const mockFetchAnalyticsSummary = vi.fn()
 const mockFetchAnalyticsCoach = vi.fn()
 
+const setViewportWidth = (width: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
+  window.matchMedia = vi.fn().mockImplementation((query: string) => {
+    const minMatch = query.match(/\(min-width:\s*(\d+(?:\.\d+)?)px\)/)
+    const maxMatch = query.match(/\(max-width:\s*(\d+(?:\.\d+)?)px\)/)
+    const min = minMatch ? Number(minMatch[1]) : null
+    const max = maxMatch ? Number(maxMatch[1]) : null
+    const matches = (min === null || width >= min) && (max === null || width <= max)
+    return {
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }
+  }) as unknown as typeof window.matchMedia
+}
+
 vi.mock('../api/analytics', async () => {
   const actual = await vi.importActual<typeof import('../api/analytics')>('../api/analytics')
   return {
@@ -162,6 +183,7 @@ const buildCoachResponse = (): CoachResponse => ({
 describe('AnalyticsPage', () => {
   beforeEach(() => {
     localStorage.setItem('app.language', 'en')
+    setViewportWidth(1280)
   })
 
   it('requests analytics summary on load and renders KPI', async () => {
@@ -204,5 +226,27 @@ describe('AnalyticsPage', () => {
       expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
       expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
     })
+  })
+
+  it('switches to mobile-friendly controls on narrow screens', async () => {
+    setViewportWidth(390)
+    mockFetchAnalyticsSummary.mockResolvedValue(buildResponse())
+    mockFetchAnalyticsCoach.mockResolvedValue(buildCoachResponse())
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <I18nProvider>
+            <AnalyticsPage />
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => expect(mockFetchAnalyticsSummary).toHaveBeenCalled())
+    expect(screen.getByLabelText('Analytics')).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByText('Advanced')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument()
   })
 })

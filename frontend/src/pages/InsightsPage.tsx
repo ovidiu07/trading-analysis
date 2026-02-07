@@ -15,7 +15,6 @@ import {
   useMediaQuery
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
-import PageHeader from '../components/ui/PageHeader'
 import LoadingState from '../components/ui/LoadingState'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
@@ -96,11 +95,6 @@ export default function InsightsPage() {
 
   return (
     <Stack spacing={3}>
-      <PageHeader
-        title={t('insights.title')}
-        subtitle={t('insights.subtitle')}
-      />
-
       <Card>
         <CardContent>
           <Stack spacing={2}>

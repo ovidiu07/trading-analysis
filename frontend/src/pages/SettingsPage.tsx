@@ -4,7 +4,6 @@ import { useAuth } from '../auth/AuthContext'
 import { fetchUserSettings } from '../api/settings'
 import { changePassword } from '../api/auth'
 import { ApiError } from '../api/client'
-import PageHeader from '../components/ui/PageHeader'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 
@@ -85,10 +84,6 @@ export default function SettingsPage() {
 
   return (
     <Stack spacing={3}>
-      <PageHeader
-        title={t('settings.title')}
-        subtitle={t('settings.subtitle')}
-      />
       <Card>
         <CardContent>
           {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}

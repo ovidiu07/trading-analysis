@@ -1,6 +1,5 @@
 import { Card, CardContent, Divider, Stack, Typography } from '@mui/material'
 import { useAuth } from '../auth/AuthContext'
-import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import { useI18n } from '../i18n'
 
@@ -19,7 +18,6 @@ export default function ProfilePage() {
 
   return (
     <Stack spacing={2}>
-      <PageHeader title={t('profile.title')} subtitle={t('profile.subtitle')} />
       <Card>
         <CardContent>
           <Stack spacing={1}>

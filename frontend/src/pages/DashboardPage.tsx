@@ -5,6 +5,7 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material'
+import { alpha } from '@mui/material/styles'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { fetchDashboardSummary, fetchRecentTrades } from '../api/dashboard'
 import { AnalyticsResponse } from '../api/analytics'
@@ -163,9 +164,10 @@ export default function DashboardPage() {
   const chartError = error ? t('dashboard.chartError') : ''
   const xAxisTickProps = useMemo(
     () => ({
-      fontSize: isMobile ? 10 : 11
+      fontSize: isMobile ? 10 : 11,
+      fill: theme.palette.text.secondary
     }),
-    [isMobile]
+    [isMobile, theme.palette.text.secondary]
   )
 
   return (
@@ -202,7 +204,7 @@ export default function DashboardPage() {
             {equityData.length > 0 ? (
               <ResponsiveContainer width="100%" height={chartHeight}>
                 <AreaChart data={equityData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.9)} />
                   <XAxis
                     dataKey="date"
                     tick={xAxisTickProps}
@@ -212,7 +214,7 @@ export default function DashboardPage() {
                   />
                   <YAxis
                     tickFormatter={(v) => formatCurrency(v as number, baseCurrency)}
-                    tick={{ fontSize: isMobile ? 10 : 11 }}
+                    tick={{ ...xAxisTickProps }}
                     width={isMobile ? 56 : 72}
                   />
                   <ReferenceLine y={0} stroke={theme.palette.divider} strokeDasharray="5 5" />
@@ -237,7 +239,7 @@ export default function DashboardPage() {
             {groupedPnl.length > 0 ? (
               <ResponsiveContainer width="100%" height={chartHeight}>
                 <BarChart data={groupedPnl}>
-                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <CartesianGrid strokeDasharray="3 3" stroke={alpha(theme.palette.divider, 0.9)} />
                   <XAxis
                     dataKey="date"
                     tick={xAxisTickProps}
@@ -247,7 +249,7 @@ export default function DashboardPage() {
                   />
                   <YAxis
                     tickFormatter={(v) => formatCurrency(v as number, baseCurrency)}
-                    tick={{ fontSize: isMobile ? 10 : 11 }}
+                    tick={{ ...xAxisTickProps }}
                     width={isMobile ? 56 : 72}
                   />
                   <ReferenceLine y={0} stroke={theme.palette.divider} strokeDasharray="5 5" />

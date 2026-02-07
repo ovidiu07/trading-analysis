@@ -32,6 +32,7 @@ const MARKET_OPTIONS = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS',
 type TopBarProps = {
   title: string
   subtitle?: string
+  showTitle?: boolean
   isAuthenticated: boolean
   showMenuToggle: boolean
   onMenuToggle: () => void
@@ -48,6 +49,7 @@ type TopBarProps = {
 export default function TopBar({
   title,
   subtitle,
+  showTitle = true,
   isAuthenticated,
   showMenuToggle,
   onMenuToggle,
@@ -174,16 +176,20 @@ export default function TopBar({
                   <MenuIcon />
                 </IconButton>
               )}
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="h1" sx={{ lineHeight: 1.2, fontSize: { xs: 20, sm: 24 } }} noWrap>
-                  {title}
-                </Typography>
-                {subtitle && (
-                  <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }} noWrap>
-                    {subtitle}
+              {showTitle ? (
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography variant="h1" sx={{ lineHeight: 1.2, fontSize: { xs: 20, sm: 24 } }} noWrap>
+                    {title}
                   </Typography>
-                )}
-              </Box>
+                  {subtitle && (
+                    <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }} noWrap>
+                      {subtitle}
+                    </Typography>
+                  )}
+                </Box>
+              ) : (
+                <Box sx={{ minWidth: 0, width: 0, height: 40 }} />
+              )}
             </Stack>
 
             {isAuthenticated ? (

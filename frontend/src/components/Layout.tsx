@@ -33,6 +33,7 @@ import { useI18n } from '../i18n'
 import TopBar from './layout/TopBar'
 import DefinitionsDrawer from './dashboard/DefinitionsDrawer'
 import { buildDashboardSearchParams, DashboardQueryState, readDashboardQueryState } from '../features/dashboard/queryState'
+import { resolveRouteMeta } from '../config/routeMeta'
 
 const SIDEBAR_WIDTH = 272
 const SIDEBAR_COLLAPSED_WIDTH = 88
@@ -101,42 +102,27 @@ export default function Layout() {
   const allNavItems = useMemo(() => navSections.flatMap((section) => section.items), [navSections])
 
   const pageMeta = useMemo(() => {
-    const fallback = { title: t('app.name'), subtitle: '' }
-
-    if (location.pathname.startsWith('/profile')) {
-      return { title: t('nav.profile'), subtitle: '' }
-    }
-    if (location.pathname.startsWith('/dashboard')) {
-      return { title: t('dashboard.title'), subtitle: t('dashboard.subtitle') }
-    }
-    if (location.pathname.startsWith('/trades')) {
-      return { title: t('trades.title'), subtitle: t('trades.subtitle') }
-    }
-    if (location.pathname.startsWith('/calendar')) {
-      return { title: t('calendar.title'), subtitle: t('calendar.subtitle') }
-    }
-    if (location.pathname.startsWith('/notebook')) {
-      return { title: t('notebook.title'), subtitle: t('notebook.subtitle') }
-    }
-    if (location.pathname.startsWith('/analytics')) {
-      return { title: t('analytics.title'), subtitle: t('analytics.subtitle') }
-    }
-    if (location.pathname.startsWith('/insights')) {
-      return { title: t('insights.title'), subtitle: t('insights.subtitle') }
-    }
-    if (location.pathname.startsWith('/settings')) {
-      return { title: t('settings.title'), subtitle: t('settings.subtitle') }
-    }
-    if (location.pathname.startsWith('/admin/content')) {
-      return { title: t('adminContent.title'), subtitle: t('adminContent.subtitle') }
+    const timezone = user?.timezone || 'Europe/Bucharest'
+    const fromRouteMeta = resolveRouteMeta(location.pathname, t, { timezone })
+    if (fromRouteMeta) {
+      return {
+        id: fromRouteMeta.id,
+        title: fromRouteMeta.pageTitle,
+        subtitle: fromRouteMeta.pageSubtitle,
+        showHeader: fromRouteMeta.showHeader
+      }
     }
 
-    const match = allNavItems.find((item) => location.pathname.startsWith(item.path))
-    if (!match) return fallback
-    return { title: match.label, subtitle: '' }
-  }, [allNavItems, location.pathname, t])
+    const navMatch = allNavItems.find((item) => location.pathname.startsWith(item.path))
+    return {
+      id: '',
+      title: navMatch?.label || t('app.name'),
+      subtitle: '',
+      showHeader: true
+    }
+  }, [allNavItems, location.pathname, t, user?.timezone])
 
-  const isDashboard = location.pathname.startsWith('/dashboard')
+  const isDashboard = pageMeta.id === 'dashboard'
   const dashboardState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
 
   const updateDashboardState = useCallback((patch: Partial<DashboardQueryState>) => {
@@ -175,7 +161,7 @@ export default function Layout() {
     <Stack sx={{ height: '100%' }}>
       <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ p: 2 }}>
         <Box sx={{ minWidth: 0 }}>
-          <Typography variant="h6" sx={{ color: 'common.white' }} noWrap>
+          <Typography variant="h6" sx={{ color: 'text.primary' }} noWrap>
             {desktopCollapsed ? 'TJ' : t('app.name')}
           </Typography>
           {!desktopCollapsed && (
@@ -196,7 +182,7 @@ export default function Layout() {
           </Tooltip>
         )}
       </Stack>
-      <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)' }} />
+      <Divider sx={{ borderColor: 'divider' }} />
       <List sx={{ px: 1, pt: 1.5, flexGrow: 1 }}>
         {navSections.map((section) => (
           <Box key={section.key} sx={{ mb: 1 }}>
@@ -231,9 +217,9 @@ export default function Layout() {
                     color: 'inherit',
                     '&.Mui-selected': {
                       bgcolor: 'action.selected',
-                      color: 'common.white',
+                      color: 'text.primary',
                       '& .MuiListItemIcon-root': {
-                        color: 'common.white'
+                        color: 'text.primary'
                       }
                     },
                     '&:hover': {
@@ -266,7 +252,7 @@ export default function Layout() {
       </List>
       <Box sx={{ flexGrow: 1 }} />
       <Box sx={{ px: desktopCollapsed ? 1 : 2, pb: 2 }}>
-        <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)', mb: 1.5 }} />
+        <Divider sx={{ borderColor: 'divider', mb: 1.5 }} />
         <Tooltip title={user?.email || ''} arrow disableHoverListener={!desktopCollapsed}>
           <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', textAlign: desktopCollapsed ? 'center' : 'left' }}>
             {desktopCollapsed ? (user?.email || '…')[0].toUpperCase() : user?.email}
@@ -299,7 +285,7 @@ export default function Layout() {
           </Drawer>
         </Box>
       )}
-        <Box
+      <Box
         sx={{
           flexGrow: 1,
           display: 'flex',
@@ -310,6 +296,7 @@ export default function Layout() {
         <TopBar
           title={pageMeta.title}
           subtitle={pageMeta.subtitle}
+          showTitle={pageMeta.showHeader}
           isAuthenticated={isAuthenticated}
           showMenuToggle={isAuthenticated && isMobile}
           onMenuToggle={() => setMobileOpen(!mobileOpen)}
