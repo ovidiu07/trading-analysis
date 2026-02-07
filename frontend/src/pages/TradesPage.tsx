@@ -32,7 +32,7 @@ import DeleteIcon from '@mui/icons-material/Delete'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
 import UploadFileIcon from '@mui/icons-material/UploadFile'
 import { useLocation, useNavigate } from 'react-router-dom'
-import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, importTradesCsv, listTrades, searchTrades, updateTrade } from '../api/trades'
+import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, getTradeById, importTradesCsv, listTrades, searchTrades, updateTrade } from '../api/trades'
 import { createNotebookNote } from '../api/notebook'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
 import { useAuth } from '../auth/AuthContext'
@@ -155,6 +155,7 @@ export default function TradesPage() {
   const [importSummary, setImportSummary] = useState<TradeCsvImportSummary | null>(null)
   const [importError, setImportError] = useState('')
   const [importLoading, setImportLoading] = useState(false)
+  const [highlightTradeId, setHighlightTradeId] = useState('')
   const importInputRef = useRef<HTMLInputElement | null>(null)
 
   const handleAuthFailure = useCallback((message?: string) => {
@@ -377,6 +378,7 @@ export default function TradesPage() {
   useEffect(() => {
     if (!location.search) return
     const params = new URLSearchParams(location.search)
+    const tradeId = params.get('tradeId') || ''
     const closedDate = params.get('closedDate') || ''
     const nextFilters = {
       openedAtFrom: params.get('openedAtFrom') || '',
@@ -389,6 +391,7 @@ export default function TradesPage() {
       direction: params.get('direction') || '',
       status: params.get('status') || '',
     }
+    setHighlightTradeId(tradeId)
     const hasFilters = Object.values(nextFilters).some((value) => value !== '')
     if (!hasFilters) return
     setFilters(nextFilters)
@@ -396,6 +399,13 @@ export default function TradesPage() {
     setViewMode('search')
     setPaginationModel((prev) => ({ ...prev, page: 0 }))
   }, [location.search, timezone])
+
+  useEffect(() => {
+    if (!highlightTradeId) return
+    getTradeById(highlightTradeId)
+      .then((trade) => setExpandedTrade(trade))
+      .catch(() => {})
+  }, [highlightTradeId])
 
   const handleCreate = async (values: TradeFormValues) => {
     setCreateSuccess('')
@@ -514,7 +524,11 @@ export default function TradesPage() {
           minWidth: 800,
           '& .pnl-positive': { color: 'success.main', fontWeight: 600 },
           '& .pnl-negative': { color: 'error.main', fontWeight: 600 },
+          '& .trade-row-highlight': {
+            backgroundColor: 'action.selected'
+          }
         }}
+        getRowClassName={(params) => (params.id === highlightTradeId ? 'trade-row-highlight' : '')}
         onRowClick={(params) => setExpandedTrade((prev) => prev?.id === params.id ? null : params.row as TradeResponse)}
       />
       {!loading && trades.length === 0 && (

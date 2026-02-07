@@ -1,84 +1,93 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  Accordion,
-  AccordionDetails,
-  AccordionSummary,
-  Card,
-  CardContent,
-  Divider,
   Grid,
-  Skeleton,
   Stack,
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableRow,
-  Typography,
-  Chip,
-  Box,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
-import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
+import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { fetchDashboardSummary, fetchRecentTrades } from '../api/dashboard'
 import { AnalyticsResponse } from '../api/analytics'
-import { TradeResponse } from '../api/trades'
+import { DailyPnlResponse, TradeResponse, fetchDailyPnl } from '../api/trades'
 import { ApiError } from '../api/client'
-import { formatCurrency, formatDateTime, formatPercent, formatSignedCurrency } from '../utils/format'
+import { formatCurrency } from '../utils/format'
 import { useAuth } from '../auth/AuthContext'
-import PageHeader from '../components/ui/PageHeader'
-import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import KPIStatCard from '../components/dashboard/KPIStatCard'
+import ChartCard from '../components/dashboard/ChartCard'
+import DashboardChartTooltip from '../components/dashboard/DashboardChartTooltip'
+import RecentTradesTable from '../components/dashboard/RecentTradesTable'
+import { readDashboardQueryState } from '../features/dashboard/queryState'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 
-type KpiCard = { label: string; value: string | number }
+type KpiCard = {
+  label: string
+  value: number | null
+  formatType: 'currency' | 'percent' | 'ratio' | 'number'
+  tooltipText: string
+}
+
+type DailyPnlPoint = {
+  date: string
+  value: number
+  tradeCount?: number
+}
+
+const formatChartDateLabel = (value: string, locale: string) => {
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+  return new Intl.DateTimeFormat(locale, { month: 'numeric', day: 'numeric' }).format(parsed)
+}
 
 export default function DashboardPage() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const [summary, setSummary] = useState<AnalyticsResponse | null>(null)
   const [recentTrades, setRecentTrades] = useState<TradeResponse[]>([])
+  const [dailyPnlSeries, setDailyPnlSeries] = useState<DailyPnlResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const { user } = useAuth()
   const baseCurrency = user?.baseCurrency || 'USD'
+  const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
-  const isCompact = useMediaQuery('(max-width:560px)')
-  const chartHeight = isCompact ? 180 : isMobile ? 240 : 320
-  const compactGap = theme.spacing(1.5)
-  const dashboardSx = isCompact
-    ? {
-      width: '100%',
-      mx: 'auto',
-      '& .MuiGrid-container': {
-        width: '100%',
-        marginLeft: 0,
-        marginRight: 0,
-        marginTop: 0,
-        columnGap: compactGap,
-        rowGap: compactGap
-      },
-      '& .MuiGrid-item': {
-        paddingLeft: 0,
-        paddingTop: 0
-      }
-    }
-    : { width: '100%', mx: 'auto' }
+  const isCompact = useMediaQuery(theme.breakpoints.down('md'))
+  const chartHeight = isMobile ? 220 : isCompact ? 260 : 320
+
+  const queryState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
+
+  const dashboardFilters = useMemo(() => ({
+    from: queryState.from,
+    to: queryState.to,
+    status: queryState.status,
+    market: (queryState.market as any) || undefined,
+    accountId: queryState.accountId || undefined
+  }), [queryState.accountId, queryState.from, queryState.market, queryState.status, queryState.to])
 
   useEffect(() => {
     const load = async () => {
       setLoading(true)
       setError('')
       try {
-        const [summaryResponse, trades] = await Promise.all([
-          fetchDashboardSummary(),
-          fetchRecentTrades(5),
+        const [summaryResponse, trades, dailyPnlResponse] = await Promise.all([
+          fetchDashboardSummary(dashboardFilters),
+          fetchRecentTrades(7, dashboardFilters),
+          fetchDailyPnl({
+            from: queryState.from,
+            to: queryState.to,
+            tz: timezone,
+            basis: 'close'
+          }).catch(() => [] as DailyPnlResponse[]),
         ])
         setSummary(summaryResponse)
         setRecentTrades(trades)
+        setDailyPnlSeries(dailyPnlResponse)
       } catch (err) {
         const apiErr = err as ApiError
         setError(translateApiError(apiErr, t))
@@ -88,209 +97,182 @@ export default function DashboardPage() {
     }
 
     load()
-  }, [])
+  }, [dashboardFilters, queryState.from, queryState.to, t, timezone])
 
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: t('dashboard.kpis.netPnl'), value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
-      { label: t('dashboard.kpis.grossPnl'), value: formatSignedCurrency(summary.kpi.totalPnlGross, baseCurrency) },
-      { label: t('dashboard.kpis.winRate'), value: formatPercent(summary.kpi.winRate) },
-      { label: t('dashboard.kpis.profitFactor'), value: summary.kpi.profitFactor?.toFixed(2) ?? t('common.na') },
-      { label: t('dashboard.kpis.expectancy'), value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
-      { label: t('dashboard.kpis.maxDrawdown'), value: formatSignedCurrency(-Math.abs(summary.drawdown?.maxDrawdown || 0), baseCurrency) },
+      { label: t('dashboard.kpis.netPnl'), value: summary.kpi.totalPnlNet, formatType: 'currency', tooltipText: t('dashboard.help.kpiNetGross') },
+      { label: t('dashboard.kpis.grossPnl'), value: summary.kpi.totalPnlGross, formatType: 'currency', tooltipText: t('dashboard.help.kpiNetGross') },
+      { label: t('dashboard.kpis.winRate'), value: summary.kpi.winRate, formatType: 'percent', tooltipText: t('dashboard.help.kpiWinRate') },
+      { label: t('dashboard.kpis.profitFactor'), value: summary.kpi.profitFactor, formatType: 'ratio', tooltipText: t('dashboard.help.kpiProfitFactor') },
+      { label: t('dashboard.kpis.expectancy'), value: summary.kpi.expectancy, formatType: 'currency', tooltipText: t('dashboard.help.kpiExpectancy') },
+      { label: t('dashboard.kpis.maxDrawdown'), value: -Math.abs(summary.drawdown?.maxDrawdown || 0), formatType: 'currency', tooltipText: t('dashboard.help.kpiDrawdown') },
     ]
-  }, [baseCurrency, summary, t])
+  }, [summary, t])
 
-  const kpiCards = loading
-    ? Array.from({ length: 6 }, (_, idx) => ({ label: `placeholder-${idx}`, value: '' }))
-    : kpis
+  const kpiCards = useMemo<KpiCard[]>(() => {
+    if (loading) {
+      return Array.from({ length: 6 }, (_, idx) => ({
+        label: `${t('dashboard.kpis.placeholder')} ${idx + 1}`,
+        value: null,
+        formatType: 'number',
+        tooltipText: ''
+      }))
+    }
+    return kpis
+  }, [kpis, loading, t])
 
   const equityData = useMemo(() => summary?.equityCurve || [], [summary])
-  const groupedPnl = useMemo(() => summary?.groupedPnl || [], [summary])
+  const groupedPnl = useMemo<DailyPnlPoint[]>(() => {
+    if (dailyPnlSeries.length > 0) {
+      return dailyPnlSeries.map((point) => ({
+        date: point.date,
+        value: point.netPnl,
+        tradeCount: point.tradeCount
+      }))
+    }
+
+    return (summary?.groupedPnl || []).map((point) => ({
+      date: point.date,
+      value: point.value
+    }))
+  }, [dailyPnlSeries, summary?.groupedPnl])
+
+  const toTradesList = useCallback(() => {
+    const params = new URLSearchParams()
+    params.set('openedAtFrom', queryState.from)
+    params.set('openedAtTo', queryState.to)
+    if (queryState.status !== 'ALL') {
+      params.set('status', queryState.status)
+    }
+    navigate(`/trades?${params.toString()}`)
+  }, [navigate, queryState.from, queryState.status, queryState.to])
+
+  const toTradeDetail = useCallback((trade: TradeResponse) => {
+    const params = new URLSearchParams()
+    params.set('tradeId', trade.id)
+    params.set('openedAtFrom', queryState.from)
+    params.set('openedAtTo', queryState.to)
+    if (queryState.status !== 'ALL') {
+      params.set('status', queryState.status)
+    }
+    navigate(`/trades?${params.toString()}`)
+  }, [navigate, queryState.from, queryState.status, queryState.to])
+
+  const chartError = error ? t('dashboard.chartError') : ''
+  const xAxisTickProps = useMemo(
+    () => ({
+      fontSize: isMobile ? 10 : 11
+    }),
+    [isMobile]
+  )
 
   return (
-    <Stack spacing={isCompact ? 2 : 3} sx={dashboardSx}>
-      {!isCompact && (
-        <PageHeader
-          title={t('dashboard.title')}
-          subtitle={t('dashboard.subtitle')}
-        />
-      )}
-
+    <Stack spacing={2.5} sx={{ width: '100%', mx: 'auto' }}>
       {error && <ErrorBanner message={error} />}
 
-      <Grid container spacing={isCompact ? 0 : 2}>
+      <Grid container spacing={{ xs: 1.25, sm: 2 }}>
         {kpiCards.map((kpi, idx) => (
-          <Grid item xs={12} sm={6} md={4} lg={2} key={kpi.label || idx}>
-            <Card>
-              <CardContent sx={{ p: isCompact ? 1.25 : { xs: 1.5, sm: 2.5 } }}>
-                {loading ? (
-                  <>
-                    <Skeleton width="50%" />
-                    <Skeleton width="70%" height={32} />
-                  </>
-                ) : (
-                  <>
-                    <Typography
-                      variant="subtitle2"
-                      color="text.secondary"
-                      title={kpi.label}
-                      sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' }, whiteSpace: 'normal' }}
-                    >
-                      {kpi.label}
-                    </Typography>
-                    <Typography
-                      variant="h5"
-                      fontWeight={700}
-                      sx={{ fontSize: { xs: '1.25rem', sm: '1.5rem' } }}
-                    >
-                      {kpi.value}
-                    </Typography>
-                  </>
-                )}
-              </CardContent>
-            </Card>
+          <Grid item xs={6} sm={6} md={4} key={`${kpi.label}-${idx}`}>
+            <KPIStatCard
+              label={kpi.label}
+              value={kpi.value}
+              formatType={kpi.formatType}
+              tooltipText={kpi.tooltipText}
+              currency={baseCurrency}
+              loading={loading}
+            />
           </Grid>
         ))}
       </Grid>
 
-      <Grid container spacing={isCompact ? 0 : 2}>
-        <Grid item xs={12} md={8}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={isCompact ? 1.5 : 2} spacing={0.5}>
-                <Typography variant="h6">{t('dashboard.equityCurve.title')}</Typography>
-                <Typography variant="body2" color="text.secondary">{t('dashboard.equityCurve.subtitle')}</Typography>
-              </Stack>
-              {loading ? (
-                <Skeleton variant="rectangular" height={chartHeight} />
-              ) : equityData.length === 0 ? (
-                  <EmptyState
-                  title={t('dashboard.equityCurve.emptyTitle')}
-                  description={t('dashboard.equityCurve.emptyBody')}
+      <Grid container spacing={2}>
+        <Grid item xs={12} md={6}>
+          <ChartCard
+            title={t('dashboard.equityCurve.title')}
+            subtitle={t('dashboard.equityCurve.subtitle')}
+            tooltipText={t('dashboard.help.chartEquityCurve')}
+            loading={loading}
+            error={chartError}
+            emptyTitle={t('dashboard.equityCurve.emptyTitle')}
+            emptyDescription={t('dashboard.equityCurve.emptyBody')}
+            height={chartHeight}
+          >
+            {equityData.length > 0 ? (
+              <ResponsiveContainer width="100%" height={chartHeight}>
+                <AreaChart data={equityData}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <XAxis
+                    dataKey="date"
+                    tick={xAxisTickProps}
+                    minTickGap={isMobile ? 16 : 24}
+                    tickFormatter={(value) => formatChartDateLabel(String(value), locale)}
+                    interval={isMobile ? 'preserveStartEnd' : 'preserveEnd'}
                   />
-              ) : (
-                <ResponsiveContainer width="100%" height={chartHeight}>
-                  <AreaChart data={equityData}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} minTickGap={isCompact ? 6 : isMobile ? 8 : 20} />
-                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} width={isCompact ? 48 : undefined} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
-                    <Area type="monotone" dataKey="value" stroke="#1976d2" fill="#bbdefb" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
+                  <YAxis
+                    tickFormatter={(v) => formatCurrency(v as number, baseCurrency)}
+                    tick={{ fontSize: isMobile ? 10 : 11 }}
+                    width={isMobile ? 56 : 72}
+                  />
+                  <ReferenceLine y={0} stroke={theme.palette.divider} strokeDasharray="5 5" />
+                  <ChartTooltip content={<DashboardChartTooltip currency={baseCurrency} />} />
+                  <Area type="monotone" dataKey="value" stroke={theme.palette.primary.main} fill={theme.palette.primary.dark} fillOpacity={0.35} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : undefined}
+          </ChartCard>
         </Grid>
-
-        <Grid item xs={12} md={4}>
-          <Card sx={{ height: '100%' }}>
-            <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={isCompact ? 1.5 : 2} spacing={0.5}>
-                <Typography variant="h6">{t('dashboard.dailyPnl.title')}</Typography>
-                <Typography variant="body2" color="text.secondary">{t('dashboard.dailyPnl.subtitle')}</Typography>
-              </Stack>
-              {loading ? (
-                <Skeleton variant="rectangular" height={chartHeight} />
-              ) : groupedPnl.length === 0 ? (
-                  <EmptyState
-                  title={t('dashboard.dailyPnl.emptyTitle')}
-                  description={t('dashboard.dailyPnl.emptyBody')}
+        <Grid item xs={12} md={6}>
+          <ChartCard
+            title={t('dashboard.dailyPnl.title')}
+            subtitle={t('dashboard.dailyPnl.subtitle')}
+            tooltipText={t('dashboard.help.chartDailyPnl')}
+            loading={loading}
+            error={chartError}
+            emptyTitle={t('dashboard.dailyPnl.emptyTitle')}
+            emptyDescription={t('dashboard.dailyPnl.emptyBody')}
+            height={chartHeight}
+          >
+            {groupedPnl.length > 0 ? (
+              <ResponsiveContainer width="100%" height={chartHeight}>
+                <BarChart data={groupedPnl}>
+                  <CartesianGrid strokeDasharray="3 3" stroke={theme.palette.divider} />
+                  <XAxis
+                    dataKey="date"
+                    tick={xAxisTickProps}
+                    minTickGap={isMobile ? 16 : 24}
+                    tickFormatter={(value) => formatChartDateLabel(String(value), locale)}
+                    interval={isMobile ? 'preserveStartEnd' : 'preserveEnd'}
                   />
-              ) : (
-                <ResponsiveContainer width="100%" height={chartHeight}>
-                  <BarChart data={groupedPnl}>
-                    <CartesianGrid strokeDasharray="3 3" />
-                    <XAxis dataKey="date" tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} minTickGap={isCompact ? 6 : isMobile ? 8 : 20} />
-                    <YAxis tickFormatter={(v) => formatCurrency(v as number, baseCurrency)} tick={{ fontSize: isCompact ? 9 : isMobile ? 10 : 12 }} width={isCompact ? 48 : undefined} />
-                    <Tooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} labelFormatter={(label) => label as string} />
-                    <Bar dataKey="value" fill="#1976d2" />
-                  </BarChart>
-                </ResponsiveContainer>
-              )}
-            </CardContent>
-          </Card>
+                  <YAxis
+                    tickFormatter={(v) => formatCurrency(v as number, baseCurrency)}
+                    tick={{ fontSize: isMobile ? 10 : 11 }}
+                    width={isMobile ? 56 : 72}
+                  />
+                  <ReferenceLine y={0} stroke={theme.palette.divider} strokeDasharray="5 5" />
+                  <ChartTooltip content={<DashboardChartTooltip currency={baseCurrency} />} />
+                  <Bar
+                    dataKey="value"
+                    radius={[4, 4, 0, 0]}
+                    fill={theme.palette.primary.main}
+                  />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : undefined}
+          </ChartCard>
         </Grid>
       </Grid>
 
-      <Card>
-        <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={1} spacing={0.5}>
-            <Typography variant="h6">{t('dashboard.recentTrades.title')}</Typography>
-            <Typography variant="body2" color="text.secondary">{t('dashboard.recentTrades.subtitle')}</Typography>
-          </Stack>
-          <Divider sx={{ mb: 2 }} />
-          {loading ? (
-            <Skeleton variant="rectangular" height={210} />
-          ) : recentTrades.length === 0 ? (
-            <Typography color="text.secondary">{t('dashboard.recentTrades.empty')}</Typography>
-          ) : (
-            <Box sx={{ overflowX: 'auto' }}>
-              <Table size={isMobile ? 'small' : 'medium'}>
-              <TableHead>
-                <TableRow>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.symbol')}</TableCell>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.direction')}</TableCell>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.status')}</TableCell>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.opened')}</TableCell>
-                  <TableCell align="right" sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.pnlNet')}</TableCell>
-                </TableRow>
-              </TableHead>
-              <TableBody>
-                {recentTrades.map((trade) => (
-                  <TableRow key={trade.id} hover>
-                    <TableCell sx={{ fontWeight: 600, py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{trade.symbol}</TableCell>
-                    <TableCell>
-                      <Chip
-                        size="small"
-                        label={t(`trades.direction.${trade.direction}`)}
-                        color={trade.direction === 'LONG' ? 'success' : 'error'}
-                        variant="outlined"
-                      />
-                    </TableCell>
-                    <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t(`trades.status.${trade.status}`)}</TableCell>
-                    <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{formatDateTime(trade.openedAt)}</TableCell>
-                    <TableCell align="right" sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5, color: (trade.pnlNet || 0) >= 0 ? 'success.main' : 'error.main' }}>
-                      {formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-              </Table>
-            </Box>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent>
-          <Typography variant="h6" gutterBottom>{t('dashboard.help.title')}</Typography>
-          <Accordion defaultExpanded>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('dashboard.help.kpiSection')}</AccordionSummary>
-            <AccordionDetails>
-              <Stack spacing={1}>
-                <Typography variant="body2"><strong>{t('dashboard.kpis.netPnl')}/{t('dashboard.kpis.grossPnl')}</strong>: {t('dashboard.help.kpiNetGross')}</Typography>
-                <Typography variant="body2"><strong>{t('dashboard.kpis.winRate')}</strong>: {t('dashboard.help.kpiWinRate')}</Typography>
-                <Typography variant="body2"><strong>{t('dashboard.kpis.profitFactor')}</strong>: {t('dashboard.help.kpiProfitFactor')}</Typography>
-                <Typography variant="body2"><strong>{t('dashboard.kpis.expectancy')}</strong>: {t('dashboard.help.kpiExpectancy')}</Typography>
-                <Typography variant="body2"><strong>{t('dashboard.kpis.maxDrawdown')}</strong>: {t('dashboard.help.kpiDrawdown')}</Typography>
-              </Stack>
-            </AccordionDetails>
-          </Accordion>
-          <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('dashboard.help.chartsSection')}</AccordionSummary>
-            <AccordionDetails>
-              <Stack spacing={1}>
-                <Typography variant="body2"><strong>{t('dashboard.equityCurve.title')}</strong>: {t('dashboard.help.chartEquityCurve')}</Typography>
-                <Typography variant="body2"><strong>{t('dashboard.dailyPnl.title')}</strong>: {t('dashboard.help.chartDailyPnl')}</Typography>
-                <Typography variant="body2"><strong>{t('dashboard.recentTrades.title')}</strong>: {t('dashboard.help.chartRecentTrades')}</Typography>
-              </Stack>
-            </AccordionDetails>
-          </Accordion>
-        </CardContent>
-      </Card>
+      <RecentTradesTable
+        title={t('dashboard.recentTrades.title')}
+        subtitle={t('dashboard.recentTrades.subtitle')}
+        trades={recentTrades}
+        loading={loading}
+        currency={baseCurrency}
+        onViewAll={toTradesList}
+        onRowClick={toTradeDetail}
+      />
     </Stack>
   )
 }

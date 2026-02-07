@@ -20,6 +20,7 @@
     "search": "Search",
     "apply": "Apply",
     "reset": "Reset",
+    "retry": "Retry",
     "yes": "Yes",
     "no": "No",
     "none": "None",
@@ -43,6 +44,15 @@
     "register": "Register",
     "logout": "Logout",
     "openMenu": "Open menu"
+  },
+  "navGroups": {
+    "trading": "Trading",
+    "journal": "Journal",
+    "system": "System"
+  },
+  "layout": {
+    "collapseSidebar": "Collapse sidebar",
+    "expandSidebar": "Expand sidebar"
   },
   "footer": {
     "terms": "Terms",
@@ -442,14 +452,34 @@
   },
   "dashboard": {
     "title": "Dashboard",
-    "subtitle": "Live view of your trading performance, equity growth, and recent executions.",
+    "subtitle": "Live view of your trading performance, equity growth, and most recent executions.",
+    "chartError": "Unable to load chart data for this range.",
+    "chartTooltip": {
+      "tradeCount": "{{count}} trades"
+    },
+    "topBar": {
+      "from": "From",
+      "to": "To",
+      "account": "Account",
+      "market": "Market",
+      "status": "Status",
+      "currency": "Currency",
+      "timezone": "Timezone",
+      "comingSoon": "Coming soon"
+    },
+    "definitions": {
+      "open": "Definitions",
+      "title": "Definitions",
+      "subtitle": "KPI and chart descriptions for the dashboard."
+    },
     "kpis": {
       "netPnl": "Net P&L",
       "grossPnl": "Gross P&L",
       "winRate": "Win rate",
       "profitFactor": "Profit factor",
       "expectancy": "Expectancy",
-      "maxDrawdown": "Max drawdown"
+      "maxDrawdown": "Max drawdown",
+      "placeholder": "Metric"
     },
     "equityCurve": {
       "title": "Equity curve",
@@ -466,7 +496,8 @@
     "recentTrades": {
       "title": "Recent trades",
       "subtitle": "Newest first",
-      "empty": "No trades have been recorded yet."
+      "empty": "No trades have been recorded yet.",
+      "viewAll": "View all trades"
     },
     "table": {
       "symbol": "Symbol",

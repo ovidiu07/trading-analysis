@@ -83,8 +83,10 @@ export type TradeSearchFilters = {
   closedDate?: string
   tz?: string
   symbol?: string
+  market?: TradeRequest['market']
   direction?: TradeRequest['direction']
   status?: TradeRequest['status']
+  accountId?: string
 }
 
 export type DailyPnlResponse = {

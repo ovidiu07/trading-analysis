@@ -467,26 +467,43 @@ export default function AnalyticsPage() {
 
       <TabPanel value={tab} index={0}>
         <Stack spacing={2}>
-          <Stack direction="row" spacing={2} sx={{ overflowX: 'auto', pb: 1 }}>
+          <Grid container spacing={isCompact ? 1 : 2}>
             {kpiCards.map((kpi, idx) => (
-              <Card key={kpi.label || idx} sx={{ minWidth: { xs: 160, sm: 200 } }}>
-                <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
-                  {loading ? (
-                    <Skeleton height={32} />
-                  ) : (
-                    <>
-                      <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
-                        {kpi.label}
-                      </Typography>
-                      <Typography variant="h5" fontWeight={700} sx={{ fontSize: { xs: '1.2rem', sm: '1.5rem' } }}>
-                        {kpi.value}
-                      </Typography>
-                    </>
-                  )}
-                </CardContent>
-              </Card>
+              <Grid item xs={6} sm={4} md={2} key={kpi.label || idx}>
+                <Card sx={{ height: '100%' }}>
+                  <CardContent sx={{ p: { xs: 1.25, sm: 2 } }}>
+                    {loading ? (
+                      <Skeleton height={32} />
+                    ) : (
+                      <>
+                        <Typography
+                          variant="subtitle2"
+                          color="text.secondary"
+                          sx={{
+                            fontSize: { xs: '0.72rem', sm: '0.85rem' },
+                            display: '-webkit-box',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical'
+                          }}
+                        >
+                          {kpi.label}
+                        </Typography>
+                        <Typography
+                          variant="h5"
+                          fontWeight={700}
+                          sx={{ fontSize: { xs: '1rem', sm: '1.35rem' }, overflowWrap: 'anywhere' }}
+                        >
+                          {kpi.value}
+                        </Typography>
+                      </>
+                    )}
+                  </CardContent>
+                </Card>
+              </Grid>
             ))}
-          </Stack>
+          </Grid>
 
           <Grid container spacing={2}>
             {secondaryKpis.map((kpi) => (

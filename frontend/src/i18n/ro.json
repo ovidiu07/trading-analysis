@@ -20,6 +20,7 @@
     "search": "Caută",
     "apply": "Aplică",
     "reset": "Resetează",
+    "retry": "Reîncearcă",
     "yes": "Da",
     "no": "Nu",
     "none": "Niciunul",
@@ -43,6 +44,15 @@
     "register": "Înregistrare",
     "logout": "Deconectare",
     "openMenu": "Deschide meniul"
+  },
+  "navGroups": {
+    "trading": "Tranzacționare",
+    "journal": "Jurnal",
+    "system": "Sistem"
+  },
+  "layout": {
+    "collapseSidebar": "Restrânge bara laterală",
+    "expandSidebar": "Extinde bara laterală"
   },
   "footer": {
     "terms": "Termeni",
@@ -442,14 +452,34 @@
   },
   "dashboard": {
     "title": "Tablou de bord",
-    "subtitle": "Privire live asupra performanței, creșterii equity și execuțiilor recente.",
+    "subtitle": "Privire live asupra performanței, creșterii equity și celor mai recente execuții.",
+    "chartError": "Datele pentru grafice nu pot fi încărcate pentru acest interval.",
+    "chartTooltip": {
+      "tradeCount": "{{count}} tranzacții"
+    },
+    "topBar": {
+      "from": "De la",
+      "to": "Până la",
+      "account": "Cont",
+      "market": "Piață",
+      "status": "Stare",
+      "currency": "Monedă",
+      "timezone": "Fus orar",
+      "comingSoon": "În curând"
+    },
+    "definitions": {
+      "open": "Definiții",
+      "title": "Definiții",
+      "subtitle": "Descrieri KPI și grafice pentru dashboard."
+    },
     "kpis": {
       "netPnl": "P&L net",
       "grossPnl": "P&L brut",
       "winRate": "Rată de câștig",
       "profitFactor": "Factor de profit",
       "expectancy": "Expectanță",
-      "maxDrawdown": "Drawdown maxim"
+      "maxDrawdown": "Drawdown maxim",
+      "placeholder": "Metrică"
     },
     "equityCurve": {
       "title": "Curba equity",
@@ -466,7 +496,8 @@
     "recentTrades": {
       "title": "Tranzacții recente",
       "subtitle": "Cele mai noi primele",
-      "empty": "Nu au fost înregistrate încă tranzacții."
+      "empty": "Nu au fost înregistrate încă tranzacții.",
+      "viewAll": "Vezi toate tranzacțiile"
     },
     "table": {
       "symbol": "Simbol",

@@ -10,9 +10,22 @@ type EmptyStateProps = {
 
 export default function EmptyState({ title, description, action, icon }: EmptyStateProps) {
   return (
-    <Stack spacing={1.5} alignItems="center" justifyContent="center" sx={{ py: 6, textAlign: 'center' }}>
-      {icon && <Box sx={{ fontSize: 32, color: 'text.secondary' }}>{icon}</Box>}
-      <Typography variant="h6">{title}</Typography>
+    <Stack
+      spacing={1.5}
+      alignItems="center"
+      justifyContent="center"
+      sx={{
+        py: 5,
+        px: 2,
+        textAlign: 'center',
+        minHeight: 160,
+        border: '1px dashed',
+        borderColor: 'divider',
+        borderRadius: 2
+      }}
+    >
+      {icon && <Box sx={{ fontSize: 28, color: 'text.secondary' }}>{icon}</Box>}
+      <Typography variant="subtitle1">{title}</Typography>
       {description && (
         <Typography variant="body2" color="text.secondary">
           {description}

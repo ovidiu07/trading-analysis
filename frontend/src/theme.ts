@@ -1,55 +1,79 @@
 import { alpha, createTheme } from '@mui/material'
 import type {} from '@mui/x-data-grid/themeAugmentation'
 
+export const terminalTokens = {
+  spacing: [4, 8, 12, 16, 24, 32] as const,
+  radius: {
+    card: 14,
+    input: 10
+  },
+  colors: {
+    background: '#070c14',
+    surface: '#111a27',
+    surfaceRaised: '#152134',
+    border: '#273447',
+    textPrimary: '#e5edf8',
+    textSecondary: '#92a3bd',
+    accent: '#45a3ff',
+    positive: '#24b774',
+    negative: '#e76060'
+  }
+}
+
 const theme = createTheme({
   spacing: 8,
   shape: {
-    borderRadius: 12
+    borderRadius: terminalTokens.radius.card
   },
   palette: {
-    mode: 'light',
+    mode: 'dark',
     primary: {
-      main: '#1f6feb',
-      light: '#6ea8fe',
-      dark: '#1b4fbf'
+      main: terminalTokens.colors.accent,
+      light: '#7ec2ff',
+      dark: '#246ebf'
     },
     secondary: {
-      main: '#5c6ac4'
+      main: '#3d8bff'
     },
     success: {
-      main: '#1f9d55',
-      light: '#d1fae5'
+      main: terminalTokens.colors.positive,
+      light: alpha(terminalTokens.colors.positive, 0.2)
     },
     error: {
-      main: '#d64545',
-      light: '#fde2e2'
+      main: terminalTokens.colors.negative,
+      light: alpha(terminalTokens.colors.negative, 0.2)
     },
     warning: {
-      main: '#f4b740'
+      main: '#f4ae45'
     },
     info: {
-      main: '#1c64f2'
+      main: '#64b5ff'
     },
     background: {
-      default: '#f4f6fb',
-      paper: '#ffffff'
+      default: terminalTokens.colors.background,
+      paper: terminalTokens.colors.surface
     },
     text: {
-      primary: '#0b1f36',
-      secondary: '#5b6b7b'
+      primary: terminalTokens.colors.textPrimary,
+      secondary: terminalTokens.colors.textSecondary
     },
-    divider: '#e2e8f0'
+    divider: alpha(terminalTokens.colors.border, 0.85),
+    action: {
+      hover: alpha('#ffffff', 0.04),
+      selected: alpha(terminalTokens.colors.accent, 0.2),
+      focus: alpha(terminalTokens.colors.accent, 0.28)
+    }
   },
   typography: {
-    fontFamily: '"Inter", "Roboto", "Helvetica", "Arial", sans-serif',
-    h1: { fontSize: 32, fontWeight: 700, letterSpacing: -0.5 },
-    h2: { fontSize: 28, fontWeight: 700, letterSpacing: -0.4 },
-    h3: { fontSize: 24, fontWeight: 700 },
-    h4: { fontSize: 22, fontWeight: 700 },
-    h5: { fontSize: 20, fontWeight: 700 },
-    h6: { fontSize: 18, fontWeight: 600 },
-    subtitle1: { fontSize: 15, fontWeight: 500 },
-    subtitle2: { fontSize: 13, fontWeight: 600 },
+    fontFamily: '"IBM Plex Sans", "Inter", "Roboto", "Helvetica", "Arial", sans-serif',
+    h1: { fontSize: 28, fontWeight: 700, letterSpacing: -0.3 },
+    h2: { fontSize: 24, fontWeight: 700, letterSpacing: -0.2 },
+    h3: { fontSize: 22, fontWeight: 700 },
+    h4: { fontSize: 20, fontWeight: 700 },
+    h5: { fontSize: 18, fontWeight: 700 },
+    h6: { fontSize: 16, fontWeight: 600 },
+    subtitle1: { fontSize: 14, fontWeight: 600 },
+    subtitle2: { fontSize: 13, fontWeight: 600, letterSpacing: 0.15 },
     body1: { fontSize: 14 },
     body2: { fontSize: 13 },
     caption: { fontSize: 12 }
@@ -58,52 +82,52 @@ const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         html: {
-          width: '100%',
-          overflowX: 'hidden'
+          width: '100%'
         },
         body: {
-          backgroundColor: '#f4f6fb',
           width: '100%',
-          overflowX: 'hidden'
+          margin: 0,
+          background: `radial-gradient(circle at 20% 0%, ${alpha('#1c2f4b', 0.35)} 0%, ${terminalTokens.colors.background} 55%)`
         },
         '#root': {
           width: '100%',
-          overflowX: 'hidden'
+          minHeight: '100%'
         }
       }
     },
     MuiAppBar: {
       styleOverrides: {
         root: {
-          background: '#ffffff',
-          color: '#0b1f36',
-          borderBottom: '1px solid #e2e8f0'
+          background: alpha('#0b1320', 0.92),
+          backdropFilter: 'blur(8px)',
+          borderBottom: `1px solid ${alpha(terminalTokens.colors.border, 0.9)}`
         }
       }
     },
     MuiDrawer: {
       styleOverrides: {
         paper: {
-          backgroundColor: '#0f172a',
-          color: '#e2e8f0',
-          borderRight: '0'
+          background: '#0d1522',
+          color: terminalTokens.colors.textPrimary,
+          borderRight: `1px solid ${alpha(terminalTokens.colors.border, 0.9)}`
         }
       }
     },
     MuiPaper: {
       styleOverrides: {
         root: {
-          borderRadius: 14,
-          boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)'
+          borderRadius: terminalTokens.radius.card,
+          border: `1px solid ${alpha(terminalTokens.colors.border, 0.75)}`
         }
       }
     },
     MuiCard: {
       styleOverrides: {
         root: {
-          borderRadius: 16,
-          border: '1px solid #e2e8f0',
-          boxShadow: '0 14px 32px rgba(15, 23, 42, 0.08)'
+          borderRadius: terminalTokens.radius.card,
+          border: `1px solid ${alpha(terminalTokens.colors.border, 0.75)}`,
+          backgroundColor: terminalTokens.colors.surface,
+          boxShadow: '0 0 0 1px rgba(0,0,0,0.16), 0 10px 24px rgba(0,0,0,0.2)'
         }
       }
     },
@@ -113,7 +137,7 @@ const theme = createTheme({
       },
       styleOverrides: {
         root: {
-          borderRadius: 10,
+          borderRadius: terminalTokens.radius.input,
           textTransform: 'none',
           fontWeight: 600
         }
@@ -122,17 +146,17 @@ const theme = createTheme({
     MuiOutlinedInput: {
       styleOverrides: {
         root: {
-          backgroundColor: '#ffffff',
-          borderRadius: 10,
+          backgroundColor: terminalTokens.colors.surfaceRaised,
+          borderRadius: terminalTokens.radius.input,
           '& .MuiOutlinedInput-notchedOutline': {
-            borderColor: '#d0d7e2'
+            borderColor: alpha(terminalTokens.colors.border, 0.9)
           },
           '&:hover .MuiOutlinedInput-notchedOutline': {
-            borderColor: '#94a3b8'
+            borderColor: alpha(terminalTokens.colors.accent, 0.75)
           },
           '&.Mui-focused .MuiOutlinedInput-notchedOutline': {
-            borderColor: '#1f6feb',
-            boxShadow: `0 0 0 3px ${alpha('#1f6feb', 0.2)}`
+            borderColor: terminalTokens.colors.accent,
+            boxShadow: `0 0 0 3px ${alpha(terminalTokens.colors.accent, 0.2)}`
           }
         }
       }
@@ -140,7 +164,7 @@ const theme = createTheme({
     MuiInputLabel: {
       styleOverrides: {
         root: {
-          color: '#5b6b7b'
+          color: terminalTokens.colors.textSecondary
         }
       }
     },
@@ -155,7 +179,7 @@ const theme = createTheme({
     MuiDialog: {
       styleOverrides: {
         paper: {
-          borderRadius: 16
+          borderRadius: terminalTokens.radius.card
         }
       }
     },
@@ -164,12 +188,14 @@ const theme = createTheme({
         head: {
           fontSize: 12,
           fontWeight: 700,
-          color: '#64748b',
+          color: terminalTokens.colors.textSecondary,
           textTransform: 'uppercase',
-          letterSpacing: 0.5
+          letterSpacing: 0.8,
+          borderBottom: `1px solid ${alpha(terminalTokens.colors.border, 0.85)}`
         },
         body: {
-          fontSize: 13
+          fontSize: 13,
+          borderBottom: `1px solid ${alpha(terminalTokens.colors.border, 0.65)}`
         }
       }
     },
@@ -184,14 +210,16 @@ const theme = createTheme({
     MuiIconButton: {
       styleOverrides: {
         root: {
-          borderRadius: 10
+          borderRadius: terminalTokens.radius.input
         }
       }
     },
     MuiTooltip: {
       styleOverrides: {
         tooltip: {
-          backgroundColor: '#0f172a',
+          backgroundColor: '#0d1522',
+          color: terminalTokens.colors.textPrimary,
+          border: `1px solid ${alpha(terminalTokens.colors.border, 0.9)}`,
           fontSize: 12,
           padding: '8px 10px',
           borderRadius: 8
@@ -201,15 +229,16 @@ const theme = createTheme({
     MuiDataGrid: {
       styleOverrides: {
         root: {
-          border: '1px solid #e2e8f0',
-          borderRadius: 12
+          border: `1px solid ${alpha(terminalTokens.colors.border, 0.85)}`,
+          borderRadius: terminalTokens.radius.card,
+          backgroundColor: terminalTokens.colors.surface
         },
         columnHeaders: {
-          backgroundColor: '#f1f5f9',
-          borderBottom: '1px solid #e2e8f0'
+          backgroundColor: '#0f1827',
+          borderBottom: `1px solid ${alpha(terminalTokens.colors.border, 0.85)}`
         },
         cell: {
-          borderBottom: '1px solid #e2e8f0'
+          borderBottom: `1px solid ${alpha(terminalTokens.colors.border, 0.55)}`
         }
       }
     }
