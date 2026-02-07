@@ -23,10 +23,12 @@ import { ApiError } from '../api/client'
 import { ContentPost, ContentPostType, listPublishedContent } from '../api/content'
 import { formatDate, formatDateTime } from '../utils/format'
 import { Link } from 'react-router-dom'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
-const typeTabs: { label: string; type: ContentPostType }[] = [
-  { label: 'Strategies', type: 'STRATEGY' },
-  { label: 'Weekly Plans', type: 'WEEKLY_PLAN' }
+const typeTabs: { key: string; type: ContentPostType }[] = [
+  { key: 'insights.tabs.strategies', type: 'STRATEGY' },
+  { key: 'insights.tabs.weeklyPlans', type: 'WEEKLY_PLAN' }
 ]
 
 const parseCsv = (value: string) => value
@@ -37,6 +39,7 @@ const parseCsv = (value: string) => value
 const normalize = (value: string) => value.trim().toLowerCase()
 
 export default function InsightsPage() {
+  const { t } = useI18n()
   const isCompact = useMediaQuery('(max-width:560px)')
   const [tab, setTab] = useState(0)
   const [search, setSearch] = useState('')
@@ -56,7 +59,7 @@ export default function InsightsPage() {
       setItems(data)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Unable to load insights')
+      setError(translateApiError(apiErr, t))
     } finally {
       setLoading(false)
     }
@@ -84,18 +87,18 @@ export default function InsightsPage() {
   }, [items, tagFilter, symbolFilter])
 
   const emptyTitle = activeType === 'STRATEGY'
-    ? 'No strategies published yet'
-    : 'No weekly plans published yet'
+    ? t('insights.empty.strategiesTitle')
+    : t('insights.empty.weeklyTitle')
 
   const emptyDescription = activeType === 'STRATEGY'
-    ? 'Once published, strategies will show up here for everyone.'
-    : 'Weekly plans will appear here after the admin publishes them.'
+    ? t('insights.empty.strategiesBody')
+    : t('insights.empty.weeklyBody')
 
   return (
     <Stack spacing={3}>
       <PageHeader
-        title="Insights"
-        subtitle="Published strategies and weekly plans from the team, ready for your next session."
+        title={t('insights.title')}
+        subtitle={t('insights.subtitle')}
       />
 
       <Card>
@@ -109,14 +112,14 @@ export default function InsightsPage() {
               scrollButtons={isCompact ? true : 'auto'}
             >
               {typeTabs.map((item) => (
-                <Tab key={item.type} label={item.label} />
+                <Tab key={item.type} label={t(item.key)} />
               ))}
             </Tabs>
             <Grid container spacing={2} alignItems="center">
               <Grid item xs={12} md={6}>
                 <TextField
                   fullWidth
-                  placeholder="Search strategies or weekly plans"
+                  placeholder={t('insights.searchPlaceholder')}
                   value={search}
                   onChange={(event) => setSearch(event.target.value)}
                   InputProps={{
@@ -131,7 +134,7 @@ export default function InsightsPage() {
               <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
-                  placeholder="Filter by tags (comma-separated)"
+                  placeholder={t('insights.tagsPlaceholder')}
                   value={tagFilter}
                   onChange={(event) => setTagFilter(event.target.value)}
                 />
@@ -139,7 +142,7 @@ export default function InsightsPage() {
               <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
-                  placeholder="Filter by symbols (comma-separated)"
+                  placeholder={t('insights.symbolsPlaceholder')}
                   value={symbolFilter}
                   onChange={(event) => setSymbolFilter(event.target.value)}
                 />
@@ -180,7 +183,7 @@ export default function InsightsPage() {
                       )}
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap">
-                      <Chip label={item.type === 'STRATEGY' ? 'Strategy' : 'Weekly plan'} size="small" color="primary" />
+                      <Chip label={item.type === 'STRATEGY' ? t('insights.type.strategy') : t('insights.type.weeklyPlan')} size="small" color="primary" />
                       {(item.tags || []).slice(0, 3).map((tag) => (
                         <Chip key={tag} label={tag} size="small" variant="outlined" />
                       ))}
@@ -190,11 +193,11 @@ export default function InsightsPage() {
                     </Stack>
                     {item.type === 'WEEKLY_PLAN' && item.weekStart && item.weekEnd && (
                       <Typography variant="body2" color="text.secondary">
-                        Week of {formatDate(item.weekStart)} – {formatDate(item.weekEnd)}
+                        {t('insights.weekOf')} {formatDate(item.weekStart)} - {formatDate(item.weekEnd)}
                       </Typography>
                     )}
                     <Typography variant="caption" color="text.secondary">
-                      Updated {formatDateTime(item.updatedAt || item.publishedAt || '')}
+                      {t('insights.updated')} {formatDateTime(item.updatedAt || item.publishedAt || '')}
                     </Typography>
                     <Box sx={{ flexGrow: 1 }} />
                     <Button
@@ -203,7 +206,7 @@ export default function InsightsPage() {
                       to={`/insights/${item.slug || item.id}`}
                       sx={{ alignSelf: 'flex-start' }}
                     >
-                      View details
+                      {t('common.viewDetails')}
                     </Button>
                   </Stack>
                 </CardContent>

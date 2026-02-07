@@ -9,6 +9,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { ThemeProvider } from '@mui/material'
 import theme from '../theme'
 import { formatSignedCurrency } from '../utils/format'
+import { I18nProvider } from '../i18n'
 
 const mockFetchDailyPnl = vi.fn()
 const mockFetchMonthlyPnlSummary = vi.fn()
@@ -51,13 +52,11 @@ describe('CalendarPage', () => {
 
   beforeEach(() => {
     localStorage.clear()
-    vi.useFakeTimers()
-    vi.setSystemTime(new Date('2026-02-06T12:00:00Z'))
+    localStorage.setItem('app.language', 'en')
     mockFetchDailyPnl.mockResolvedValue([])
   })
 
   afterEach(() => {
-    vi.useRealTimers()
     vi.clearAllMocks()
   })
 
@@ -69,24 +68,37 @@ describe('CalendarPage', () => {
     render(
       <MemoryRouter>
         <AuthProvider>
-          <ThemeProvider theme={theme}>
-            <CalendarPage />
-          </ThemeProvider>
+          <I18nProvider>
+            <ThemeProvider theme={theme}>
+              <CalendarPage />
+            </ThemeProvider>
+          </I18nProvider>
         </AuthProvider>
       </MemoryRouter>
     )
 
-    expect(await screen.findByText(formatSignedCurrency(1200, 'USD'))).toBeInTheDocument()
     await waitFor(() => {
-      expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledWith({ year: 2026, month: 2, tz: 'Europe/Bucharest', basis: 'close' })
+      expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledTimes(1)
     })
+    expect(await screen.findByText(formatSignedCurrency(1200, 'USD'))).toBeInTheDocument()
+    expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledWith(expect.objectContaining({ tz: 'Europe/Bucharest', basis: 'close' }))
 
-    const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime })
+    const firstRequest = mockFetchMonthlyPnlSummary.mock.calls[0][0] as { year: number; month: number }
+    const expectedNextMonth = new Date(firstRequest.year, firstRequest.month - 1, 1)
+    expectedNextMonth.setMonth(expectedNextMonth.getMonth() + 1)
+
+    const user = userEvent.setup()
     await user.click(screen.getByLabelText('Next month'))
 
     expect(await screen.findByText(formatSignedCurrency(-300, 'USD'))).toBeInTheDocument()
     await waitFor(() => {
-      expect(mockFetchMonthlyPnlSummary).toHaveBeenLastCalledWith({ year: 2026, month: 3, tz: 'Europe/Bucharest', basis: 'close' })
+      expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledTimes(2)
+    })
+    expect(mockFetchMonthlyPnlSummary).toHaveBeenLastCalledWith({
+      year: expectedNextMonth.getFullYear(),
+      month: expectedNextMonth.getMonth() + 1,
+      tz: 'Europe/Bucharest',
+      basis: 'close'
     })
   })
 })

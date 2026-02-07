@@ -17,6 +17,8 @@ import MarkdownContent from '../components/ui/MarkdownContent'
 import { ApiError } from '../api/client'
 import { ContentPost, getContent } from '../api/content'
 import { formatDate, formatDateTime } from '../utils/format'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 type ChipItem = {
   label: string
@@ -25,6 +27,7 @@ type ChipItem = {
 }
 
 export default function InsightDetailPage() {
+  const { t } = useI18n()
   const { idOrSlug } = useParams()
   const [post, setPost] = useState<ContentPost | null>(null)
   const [loading, setLoading] = useState(false)
@@ -38,7 +41,7 @@ export default function InsightDetailPage() {
       .then((data) => setPost(data))
       .catch((err) => {
         const apiErr = err as ApiError
-        setError(apiErr.message || 'Unable to load insight')
+        setError(translateApiError(apiErr, t))
       })
       .finally(() => setLoading(false))
   }, [idOrSlug])
@@ -56,7 +59,7 @@ export default function InsightDetailPage() {
       color: undefined
     }))
     const typeChip: ChipItem = {
-      label: post.type === 'STRATEGY' ? 'Strategy' : 'Weekly plan',
+      label: post.type === 'STRATEGY' ? t('insights.type.strategy') : t('insights.type.weeklyPlan'),
       variant: 'filled',
       color: 'primary'
     }
@@ -87,11 +90,11 @@ export default function InsightDetailPage() {
         title={post.title}
         subtitle={post.summary || undefined}
         breadcrumbs={[
-          <Button key="back" component={Link} to="/insights" size="small">Insights</Button>,
+          <Button key="back" component={Link} to="/insights" size="small">{t('insights.title')}</Button>,
           <Typography key="current" variant="body2">{post.title}</Typography>
         ]}
         actions={(
-          <Button component={Link} to="/insights" variant="outlined">Back to Insights</Button>
+          <Button component={Link} to="/insights" variant="outlined">{t('insightDetail.backToInsights')}</Button>
         )}
       />
 
@@ -111,11 +114,11 @@ export default function InsightDetailPage() {
             </Stack>
             {post.type === 'WEEKLY_PLAN' && post.weekStart && post.weekEnd && (
               <Typography variant="body2" color="text.secondary">
-                Week of {formatDate(post.weekStart)} – {formatDate(post.weekEnd)}
+                {t('insights.weekOf')} {formatDate(post.weekStart)} - {formatDate(post.weekEnd)}
               </Typography>
             )}
             <Typography variant="body2" color="text.secondary">
-              Last updated {formatDateTime(post.updatedAt || post.publishedAt || '')}
+              {t('insightDetail.lastUpdated')} {formatDateTime(post.updatedAt || post.publishedAt || '')}
             </Typography>
           </Stack>
         </CardContent>
@@ -128,7 +131,7 @@ export default function InsightDetailPage() {
       </Card>
 
       <Alert severity="info">
-        For journaling and educational purposes only. Not investment advice.
+        {t('insightDetail.infoAlert')}
       </Alert>
     </Stack>
   )

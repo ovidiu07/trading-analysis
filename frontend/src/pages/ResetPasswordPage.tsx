@@ -3,8 +3,11 @@ import { Alert, Box, Button, Card, CardContent, Container, Stack, TextField, Typ
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { resetPassword } from '../api/auth'
 import { ApiError } from '../api/client'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 export default function ResetPasswordPage() {
+  const { t } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
   const params = new URLSearchParams(location.search)
@@ -21,25 +24,25 @@ export default function ResetPasswordPage() {
     setMessage('')
     setError('')
     if (!email || !token) {
-      setError('Reset link is missing or invalid.')
+      setError(t('resetPassword.errors.invalidLink'))
       return
     }
     if (newPassword.length < 8) {
-      setError('Password must be at least 8 characters long')
+      setError(t('resetPassword.errors.shortPassword'))
       return
     }
     if (newPassword !== confirmPassword) {
-      setError('Passwords do not match')
+      setError(t('resetPassword.errors.passwordMismatch'))
       return
     }
     setSubmitting(true)
     try {
       await resetPassword(email, token, newPassword)
-      setMessage('Password updated successfully. You can now sign in.')
+      setMessage(t('resetPassword.success'))
       setTimeout(() => navigate('/login'), 800)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Failed to reset password')
+      setError(translateApiError(apiErr, t))
     } finally {
       setSubmitting(false)
     }
@@ -51,31 +54,31 @@ export default function ResetPasswordPage() {
         <Card sx={{ width: '100%' }}>
           <CardContent sx={{ p: { xs: 3, md: 4 } }}>
             <Stack spacing={2} component="form" onSubmit={handleSubmit}>
-              <Typography variant="h5" fontWeight={700}>Set a new password</Typography>
+              <Typography variant="h5" fontWeight={700}>{t('resetPassword.title')}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Choose a strong password to secure your TradeVault account.
+                {t('resetPassword.subtitle')}
               </Typography>
               {message && <Alert severity="success">{message}</Alert>}
               {error && <Alert severity="error">{error}</Alert>}
               <TextField
-                label="New password"
+                label={t('resetPassword.newPassword')}
                 type="password"
                 value={newPassword}
                 onChange={(e) => setNewPassword(e.target.value)}
                 required
               />
               <TextField
-                label="Confirm new password"
+                label={t('resetPassword.confirmPassword')}
                 type="password"
                 value={confirmPassword}
                 onChange={(e) => setConfirmPassword(e.target.value)}
                 required
               />
               <Button type="submit" variant="contained" disabled={submitting}>
-                {submitting ? 'Updating…' : 'Update password'}
+                {submitting ? t('auth.updating') : t('resetPassword.update')}
               </Button>
               <Button component={Link} to="/login" variant="outlined">
-                Back to login
+                {t('forgotPassword.backToLogin')}
               </Button>
             </Stack>
           </CardContent>

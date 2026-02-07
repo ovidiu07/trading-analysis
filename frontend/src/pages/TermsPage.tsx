@@ -1,68 +1,69 @@
 import { Box, Container, Stack, Typography } from '@mui/material'
+import { useI18n } from '../i18n'
 
 export default function TermsPage() {
+  const { t } = useI18n()
   return (
     <Container maxWidth="md">
       <Stack spacing={2}>
         <Box>
-          <Typography variant="h4" fontWeight={700}>Terms &amp; Conditions</Typography>
+          <Typography variant="h4" fontWeight={700}>{t('legal.terms.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Draft for review — this content must be reviewed by qualified legal counsel for applicable jurisdictions.
+            {t('legal.disclaimer')}
           </Typography>
         </Box>
         <Stack spacing={1}>
-          <Typography variant="h6">1. Service description</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s1.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            TradeJAudit provides a trading journal and analytics workspace for recording trades, notes, and reflections.
+            {t('legal.terms.sections.s1.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">2. Eligibility &amp; account</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s2.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            You are responsible for maintaining the confidentiality of your account credentials and the accuracy of information you submit.
+            {t('legal.terms.sections.s2.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">3. User content</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s3.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            You retain ownership of your notes and data. You grant TradeJAudit a limited license to process and display your content to provide the service.
+            {t('legal.terms.sections.s3.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">4. No investment advice &amp; risk disclosure</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s4.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            TradeJAudit does not provide investment, legal, tax, or financial advice, and is not a broker-dealer. You are solely responsible for
-            your trading decisions. Past performance does not guarantee future results. Trading involves substantial risk of loss.
+            {t('legal.terms.sections.s4.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">5. Prohibited use</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s5.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            You agree not to use the service to upload unlawful content, infringe intellectual property, or attempt to compromise security.
+            {t('legal.terms.sections.s5.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">6. Data retention &amp; deletion</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s6.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Retention periods and deletion workflows are described in the Privacy Policy. You may request account deletion as described there.
+            {t('legal.terms.sections.s6.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">7. Changes to these terms</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s7.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            We may update these terms from time to time. We will provide notice of material changes and capture your acceptance for new versions.
+            {t('legal.terms.sections.s7.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">8. Governing law</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s8.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Insert governing law and jurisdiction after legal review.
+            {t('legal.terms.sections.s8.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">9. Contact</Typography>
+          <Typography variant="h6">{t('legal.terms.sections.s9.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Contact support at contact@ihomeprosolutions.ro.
+            {t('legal.terms.sections.s9.body')}
           </Typography>
         </Stack>
       </Stack>

@@ -1,6 +1,7 @@
 import { Box, Button, Card, CardContent, Chip, Divider, Stack, Typography } from '@mui/material'
 import type { AdviceCard, AdviceEvidence } from '../../api/analytics'
 import { formatCurrency, formatNumber, formatPercent, formatSignedCurrency } from '../../utils/format'
+import { useI18n } from '../../i18n'
 
 type CoachAdviceCardProps = {
   card: AdviceCard
@@ -44,6 +45,7 @@ const formatEvidence = (evidence: AdviceEvidence, currency: string) => {
 }
 
 export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachAdviceCardProps) {
+  const { t } = useI18n()
   return (
     <Card variant="outlined">
       <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
@@ -53,7 +55,7 @@ export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachA
               <Typography variant="subtitle1" fontWeight={700}>{card.title}</Typography>
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Chip size="small" color={severityColor(card.severity)} label={card.severity.toUpperCase()} />
-                <Chip size="small" color={confidenceColor(card.confidence)} label={`${card.confidence} confidence`} />
+                <Chip size="small" color={confidenceColor(card.confidence)} label={t('analytics.coach.confidenceLabel', { confidence: card.confidence })} />
               </Stack>
             </Stack>
             {onViewTrades && (
@@ -63,7 +65,7 @@ export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachA
                 onClick={() => onViewTrades(card)}
                 sx={{ alignSelf: { xs: 'flex-start', sm: 'center' }, width: { xs: '100%', sm: 'auto' } }}
               >
-                View trades
+                {t('analytics.coach.viewTrades')}
               </Button>
             )}
           </Stack>
@@ -81,7 +83,7 @@ export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachA
             <>
               <Divider />
               <Stack spacing={0.5}>
-                <Typography variant="caption" color="text.secondary" textTransform="uppercase">Recommended actions</Typography>
+                <Typography variant="caption" color="text.secondary" textTransform="uppercase">{t('analytics.coach.recommendedActions')}</Typography>
                 <Stack direction="row" spacing={1} flexWrap="wrap">
                   {card.recommendedActions.map((action) => (
                     <Chip key={`${card.id}-${action}`} size="small" label={action} />

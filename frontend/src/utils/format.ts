@@ -1,11 +1,16 @@
+import { getCurrentLocale } from '../i18n'
+
 const formatterCache = new Map<string, Intl.NumberFormat>()
 const compactFormatterCache = new Map<string, Intl.NumberFormat>()
+const numberFormatterCache = new Map<string, Intl.NumberFormat>()
 
 const getCurrencyFormatter = (currency?: string) => {
+  const locale = getCurrentLocale()
   const key = currency && currency.trim() ? currency.toUpperCase() : 'USD'
-  if (!formatterCache.has(key)) {
+  const cacheKey = `${locale}:${key}`
+  if (!formatterCache.has(cacheKey)) {
     try {
-      formatterCache.set(key, new Intl.NumberFormat(undefined, {
+      formatterCache.set(cacheKey, new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: key,
         currencyDisplay: 'narrowSymbol',
@@ -13,24 +18,27 @@ const getCurrencyFormatter = (currency?: string) => {
         maximumFractionDigits: 2,
       }))
     } catch (e) {
-      formatterCache.set('USD', new Intl.NumberFormat(undefined, {
+      const fallbackKey = `${locale}:USD`
+      formatterCache.set(fallbackKey, new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: 'USD',
         currencyDisplay: 'narrowSymbol',
         minimumFractionDigits: 2,
         maximumFractionDigits: 2,
       }))
-      return formatterCache.get('USD')!
+      return formatterCache.get(fallbackKey)!
     }
   }
-  return formatterCache.get(key)!
+  return formatterCache.get(cacheKey)!
 }
 
 const getCompactCurrencyFormatter = (currency?: string) => {
+  const locale = getCurrentLocale()
   const key = currency && currency.trim() ? currency.toUpperCase() : 'USD'
-  if (!compactFormatterCache.has(key)) {
+  const cacheKey = `${locale}:${key}`
+  if (!compactFormatterCache.has(cacheKey)) {
     try {
-      compactFormatterCache.set(key, new Intl.NumberFormat(undefined, {
+      compactFormatterCache.set(cacheKey, new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: key,
         currencyDisplay: 'narrowSymbol',
@@ -40,7 +48,8 @@ const getCompactCurrencyFormatter = (currency?: string) => {
         maximumFractionDigits: 1,
       }))
     } catch (e) {
-      compactFormatterCache.set('USD', new Intl.NumberFormat(undefined, {
+      const fallbackKey = `${locale}:USD`
+      compactFormatterCache.set(fallbackKey, new Intl.NumberFormat(locale, {
         style: 'currency',
         currency: 'USD',
         currencyDisplay: 'narrowSymbol',
@@ -49,13 +58,20 @@ const getCompactCurrencyFormatter = (currency?: string) => {
         minimumFractionDigits: 0,
         maximumFractionDigits: 1,
       }))
-      return compactFormatterCache.get('USD')!
+      return compactFormatterCache.get(fallbackKey)!
     }
   }
-  return compactFormatterCache.get(key)!
+  return compactFormatterCache.get(cacheKey)!
 }
 
-const numberFormatter = new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 })
+const getNumberFormatter = (maximumFractionDigits = 2) => {
+  const locale = getCurrentLocale()
+  const cacheKey = `${locale}:${maximumFractionDigits}`
+  if (!numberFormatterCache.has(cacheKey)) {
+    numberFormatterCache.set(cacheKey, new Intl.NumberFormat(locale, { maximumFractionDigits }))
+  }
+  return numberFormatterCache.get(cacheKey)!
+}
 
 export const formatCurrency = (value?: number | null, currency?: string) => {
   if (value === undefined || value === null || Number.isNaN(value)) return '—'
@@ -75,24 +91,24 @@ export const formatCompactCurrency = (value?: number | null, currency?: string) 
 
 export const formatPercent = (value?: number | null) => {
   if (value === undefined || value === null || Number.isNaN(value)) return '—'
-  return `${numberFormatter.format(value)}%`
+  return `${getNumberFormatter(2).format(value)}%`
 }
 
 export const formatNumber = (value?: number | null, maximumFractionDigits = 2) => {
   if (value === undefined || value === null || Number.isNaN(value)) return '—'
-  return new Intl.NumberFormat(undefined, { maximumFractionDigits }).format(value)
+  return getNumberFormatter(maximumFractionDigits).format(value)
 }
 
 export const formatDateTime = (value?: string | null, timeZone?: string) => {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleString(undefined, timeZone ? { timeZone } : undefined)
+  return date.toLocaleString(getCurrentLocale(), timeZone ? { timeZone } : undefined)
 }
 
 export const formatDate = (value?: string | null, timeZone?: string) => {
   if (!value) return '—'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
-  return date.toLocaleDateString(undefined, timeZone ? { timeZone } : undefined)
+  return date.toLocaleDateString(getCurrentLocale(), timeZone ? { timeZone } : undefined)
 }

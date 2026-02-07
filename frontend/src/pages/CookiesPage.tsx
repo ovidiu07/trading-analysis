@@ -1,19 +1,21 @@
 import { Box, Container, Stack, Typography } from '@mui/material'
+import { useI18n } from '../i18n'
 
 export default function CookiesPage() {
+  const { t } = useI18n()
   return (
     <Container maxWidth="md">
       <Stack spacing={2}>
         <Box>
-          <Typography variant="h4" fontWeight={700}>Cookie Policy</Typography>
+          <Typography variant="h4" fontWeight={700}>{t('legal.cookies.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Draft for review — this content must be reviewed by qualified legal counsel for applicable jurisdictions.
+            {t('legal.disclaimer')}
           </Typography>
         </Box>
         <Stack spacing={1}>
-          <Typography variant="h6">Essential cookies</Typography>
+          <Typography variant="h6">{t('legal.cookies.sections.s1.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            We use essential cookies for authentication and session security.
+            {t('legal.cookies.sections.s1.body')}
           </Typography>
         </Stack>
 

@@ -1,11 +1,12 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { vi } from 'vitest'
+import { beforeEach, vi } from 'vitest'
 import AnalyticsPage from './AnalyticsPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { AnalyticsResponse, CoachResponse } from '../api/analytics'
 import { MemoryRouter } from 'react-router-dom'
+import { I18nProvider } from '../i18n'
 
 const mockFetchAnalyticsSummary = vi.fn()
 const mockFetchAnalyticsCoach = vi.fn()
@@ -159,13 +160,19 @@ const buildCoachResponse = (): CoachResponse => ({
 })
 
 describe('AnalyticsPage', () => {
+  beforeEach(() => {
+    localStorage.setItem('app.language', 'en')
+  })
+
   it('requests analytics summary on load and renders KPI', async () => {
     mockFetchAnalyticsSummary.mockResolvedValueOnce(buildResponse())
     mockFetchAnalyticsCoach.mockResolvedValueOnce(buildCoachResponse())
     render(
       <MemoryRouter>
         <AuthProvider>
-          <AnalyticsPage />
+          <I18nProvider>
+            <AnalyticsPage />
+          </I18nProvider>
         </AuthProvider>
       </MemoryRouter>
     )
@@ -182,7 +189,9 @@ describe('AnalyticsPage', () => {
     render(
       <MemoryRouter>
         <AuthProvider>
-          <AnalyticsPage />
+          <I18nProvider>
+            <AnalyticsPage />
+          </I18nProvider>
         </AuthProvider>
       </MemoryRouter>
     )

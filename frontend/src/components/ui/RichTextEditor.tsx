@@ -14,6 +14,7 @@ import RedoIcon from '@mui/icons-material/Redo'
 import LinkIcon from '@mui/icons-material/Link'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useI18n } from '../../i18n'
 
 type RichTextEditorProps = {
   value: string
@@ -72,6 +73,7 @@ export default function RichTextEditor({
   placeholder,
   compactToolbar = false
 }: RichTextEditorProps) {
+  const { t } = useI18n()
   const editorRef = useRef<HTMLDivElement | null>(null)
   const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null)
   const openMore = Boolean(moreAnchor)
@@ -110,7 +112,7 @@ export default function RichTextEditor({
 
   const handleLink = () => {
     if (readOnly) return
-    const url = window.prompt('Enter URL', 'https://')
+    const url = window.prompt(t('editor.enterUrl'), 'https://')
     if (!url) return
     exec('createLink', url)
   }
@@ -149,42 +151,42 @@ export default function RichTextEditor({
           >
             {compactToolbar ? (
               <>
-                <Tooltip title="Bold">
+                <Tooltip title={t('editor.bold')}>
                   <IconButton size="small" onClick={() => exec('bold')} sx={compactButtonSx}>
                     <FormatBoldIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Italic">
+                <Tooltip title={t('editor.italic')}>
                   <IconButton size="small" onClick={() => exec('italic')} sx={compactButtonSx}>
                     <FormatItalicIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Bullet list">
+                <Tooltip title={t('editor.bulletList')}>
                   <IconButton size="small" onClick={() => exec('insertUnorderedList')} sx={compactButtonSx}>
                     <FormatListBulletedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Numbered list">
+                <Tooltip title={t('editor.numberedList')}>
                   <IconButton size="small" onClick={() => exec('insertOrderedList')} sx={compactButtonSx}>
                     <FormatListNumberedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Checklist">
+                <Tooltip title={t('editor.checklist')}>
                   <IconButton size="small" onClick={handleChecklist} sx={compactButtonSx}>
                     <CheckBoxOutlinedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Link">
+                <Tooltip title={t('editor.link')}>
                   <IconButton size="small" onClick={handleLink} sx={compactButtonSx}>
                     <LinkIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
                 <Divider flexItem orientation="vertical" />
-                <Tooltip title="More">
+                <Tooltip title={t('editor.more')}>
                   <IconButton
                     size="small"
                     onClick={(event) => setMoreAnchor(event.currentTarget)}
-                    aria-label="More formatting options"
+                    aria-label={t('editor.moreOptions')}
                     sx={compactButtonSx}
                   >
                     <MoreVertIcon fontSize="small" />
@@ -197,91 +199,91 @@ export default function RichTextEditor({
                 >
                   {[1, 2, 3].map((level) => (
                     <MenuItem key={level} onClick={() => handleMoreAction(() => handleHeading(level))}>
-                      Heading {level}
+                      {t('editor.heading', { level })}
                     </MenuItem>
                   ))}
-                  <MenuItem onClick={() => handleMoreAction(() => exec('underline'))}>Underline</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('formatBlock', 'blockquote'))}>Blockquote</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHTML', '<code></code>'))}>Inline code</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(handleCodeBlock)}>Code block</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHorizontalRule'))}>Horizontal rule</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('undo'))}>Undo</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('redo'))}>Redo</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('underline'))}>{t('editor.underline')}</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('formatBlock', 'blockquote'))}>{t('editor.blockquote')}</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHTML', '<code></code>'))}>{t('editor.inlineCode')}</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(handleCodeBlock)}>{t('editor.codeBlock')}</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHorizontalRule'))}>{t('editor.horizontalRule')}</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('undo'))}>{t('editor.undo')}</MenuItem>
+                  <MenuItem onClick={() => handleMoreAction(() => exec('redo'))}>{t('editor.redo')}</MenuItem>
                 </Menu>
               </>
             ) : (
               <>
                 {[1, 2, 3].map((level) => (
-                  <Tooltip key={level} title={`Heading ${level}`}>
-                    <IconButton size="small" onClick={() => handleHeading(level)} aria-label={`Heading ${level}`}>
+                  <Tooltip key={level} title={t('editor.heading', { level })}>
+                    <IconButton size="small" onClick={() => handleHeading(level)} aria-label={t('editor.heading', { level })}>
                       <Typography variant="caption" fontWeight={700}>H{level}</Typography>
                     </IconButton>
                   </Tooltip>
                 ))}
-                <Tooltip title="Bold">
+                <Tooltip title={t('editor.bold')}>
                   <IconButton size="small" onClick={() => exec('bold')}>
                     <FormatBoldIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Italic">
+                <Tooltip title={t('editor.italic')}>
                   <IconButton size="small" onClick={() => exec('italic')}>
                     <FormatItalicIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Underline">
+                <Tooltip title={t('editor.underline')}>
                   <IconButton size="small" onClick={() => exec('underline')}>
                     <FormatUnderlinedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
                 <Divider flexItem orientation="vertical" />
-                <Tooltip title="Bullet list">
+                <Tooltip title={t('editor.bulletList')}>
                   <IconButton size="small" onClick={() => exec('insertUnorderedList')}>
                     <FormatListBulletedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Numbered list">
+                <Tooltip title={t('editor.numberedList')}>
                   <IconButton size="small" onClick={() => exec('insertOrderedList')}>
                     <FormatListNumberedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Checklist">
+                <Tooltip title={t('editor.checklist')}>
                   <IconButton size="small" onClick={handleChecklist}>
                     <CheckBoxOutlinedIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
                 <Divider flexItem orientation="vertical" />
-                <Tooltip title="Blockquote">
+                <Tooltip title={t('editor.blockquote')}>
                   <IconButton size="small" onClick={() => exec('formatBlock', 'blockquote')}>
                     <FormatQuoteIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Inline code">
+                <Tooltip title={t('editor.inlineCode')}>
                   <IconButton size="small" onClick={() => exec('insertHTML', '<code></code>')}>
                     <CodeIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Code block">
+                <Tooltip title={t('editor.codeBlock')}>
                   <IconButton size="small" onClick={handleCodeBlock}>
                     <DataObjectIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Horizontal rule">
+                <Tooltip title={t('editor.horizontalRule')}>
                   <IconButton size="small" onClick={() => exec('insertHorizontalRule')}>
                     <HorizontalRuleIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Link">
+                <Tooltip title={t('editor.link')}>
                   <IconButton size="small" onClick={handleLink}>
                     <LinkIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
                 <Divider flexItem orientation="vertical" />
-                <Tooltip title="Undo">
+                <Tooltip title={t('editor.undo')}>
                   <IconButton size="small" onClick={() => exec('undo')}>
                     <UndoIcon fontSize="small" />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Redo">
+                <Tooltip title={t('editor.redo')}>
                   <IconButton size="small" onClick={() => exec('redo')}>
                     <RedoIcon fontSize="small" />
                   </IconButton>
@@ -296,7 +298,7 @@ export default function RichTextEditor({
         contentEditable={!readOnly}
         suppressContentEditableWarning
         onInput={handleInput}
-        data-placeholder={placeholder || 'Start writing your note…'}
+        data-placeholder={placeholder || t('editor.placeholder')}
         sx={{
           border: '1px solid',
           borderColor: 'divider',

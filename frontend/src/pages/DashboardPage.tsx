@@ -31,10 +31,13 @@ import { useAuth } from '../auth/AuthContext'
 import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 type KpiCard = { label: string; value: string | number }
 
 export default function DashboardPage() {
+  const { t } = useI18n()
   const [summary, setSummary] = useState<AnalyticsResponse | null>(null)
   const [recentTrades, setRecentTrades] = useState<TradeResponse[]>([])
   const [loading, setLoading] = useState(true)
@@ -78,7 +81,7 @@ export default function DashboardPage() {
         setRecentTrades(trades)
       } catch (err) {
         const apiErr = err as ApiError
-        setError(apiErr.message || 'Unable to load dashboard data')
+        setError(translateApiError(apiErr, t))
       } finally {
         setLoading(false)
       }
@@ -90,14 +93,14 @@ export default function DashboardPage() {
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: 'Net P&L', value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
-      { label: 'Gross P&L', value: formatSignedCurrency(summary.kpi.totalPnlGross, baseCurrency) },
-      { label: 'Win rate', value: formatPercent(summary.kpi.winRate) },
-      { label: 'Profit factor', value: summary.kpi.profitFactor?.toFixed(2) ?? '—' },
-      { label: 'Expectancy', value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
-      { label: 'Max drawdown', value: formatSignedCurrency(-Math.abs(summary.drawdown?.maxDrawdown || 0), baseCurrency) },
+      { label: t('dashboard.kpis.netPnl'), value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
+      { label: t('dashboard.kpis.grossPnl'), value: formatSignedCurrency(summary.kpi.totalPnlGross, baseCurrency) },
+      { label: t('dashboard.kpis.winRate'), value: formatPercent(summary.kpi.winRate) },
+      { label: t('dashboard.kpis.profitFactor'), value: summary.kpi.profitFactor?.toFixed(2) ?? t('common.na') },
+      { label: t('dashboard.kpis.expectancy'), value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
+      { label: t('dashboard.kpis.maxDrawdown'), value: formatSignedCurrency(-Math.abs(summary.drawdown?.maxDrawdown || 0), baseCurrency) },
     ]
-  }, [baseCurrency, summary])
+  }, [baseCurrency, summary, t])
 
   const kpiCards = loading
     ? Array.from({ length: 6 }, (_, idx) => ({ label: `placeholder-${idx}`, value: '' }))
@@ -110,8 +113,8 @@ export default function DashboardPage() {
     <Stack spacing={isCompact ? 2 : 3} sx={dashboardSx}>
       {!isCompact && (
         <PageHeader
-          title="Dashboard"
-          subtitle="Live view of your trading performance, equity growth, and most recent executions."
+          title={t('dashboard.title')}
+          subtitle={t('dashboard.subtitle')}
         />
       )}
 
@@ -157,16 +160,16 @@ export default function DashboardPage() {
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
               <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={isCompact ? 1.5 : 2} spacing={0.5}>
-                <Typography variant="h6">Equity curve</Typography>
-                <Typography variant="body2" color="text.secondary">Cumulative P&L over time</Typography>
+                <Typography variant="h6">{t('dashboard.equityCurve.title')}</Typography>
+                <Typography variant="body2" color="text.secondary">{t('dashboard.equityCurve.subtitle')}</Typography>
               </Stack>
               {loading ? (
                 <Skeleton variant="rectangular" height={chartHeight} />
               ) : equityData.length === 0 ? (
-                <EmptyState
-                  title="No equity curve yet"
-                  description="Capture a few trades to see cumulative performance over time."
-                />
+                  <EmptyState
+                  title={t('dashboard.equityCurve.emptyTitle')}
+                  description={t('dashboard.equityCurve.emptyBody')}
+                  />
               ) : (
                 <ResponsiveContainer width="100%" height={chartHeight}>
                   <AreaChart data={equityData}>
@@ -186,16 +189,16 @@ export default function DashboardPage() {
           <Card sx={{ height: '100%' }}>
             <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
               <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={isCompact ? 1.5 : 2} spacing={0.5}>
-                <Typography variant="h6">Daily P&L</Typography>
-                <Typography variant="body2" color="text.secondary">Grouped by day</Typography>
+                <Typography variant="h6">{t('dashboard.dailyPnl.title')}</Typography>
+                <Typography variant="body2" color="text.secondary">{t('dashboard.dailyPnl.subtitle')}</Typography>
               </Stack>
               {loading ? (
                 <Skeleton variant="rectangular" height={chartHeight} />
               ) : groupedPnl.length === 0 ? (
-                <EmptyState
-                  title="No grouped P&L data"
-                  description="Daily P&L will appear once trades are closed."
-                />
+                  <EmptyState
+                  title={t('dashboard.dailyPnl.emptyTitle')}
+                  description={t('dashboard.dailyPnl.emptyBody')}
+                  />
               ) : (
                 <ResponsiveContainer width="100%" height={chartHeight}>
                   <BarChart data={groupedPnl}>
@@ -215,24 +218,24 @@ export default function DashboardPage() {
       <Card>
         <CardContent sx={{ p: isCompact ? 1.5 : { xs: 2, sm: 2.5 } }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} alignItems={{ xs: 'flex-start', sm: 'center' }} justifyContent="space-between" mb={1} spacing={0.5}>
-            <Typography variant="h6">Recent trades</Typography>
-            <Typography variant="body2" color="text.secondary">Newest first</Typography>
+            <Typography variant="h6">{t('dashboard.recentTrades.title')}</Typography>
+            <Typography variant="body2" color="text.secondary">{t('dashboard.recentTrades.subtitle')}</Typography>
           </Stack>
           <Divider sx={{ mb: 2 }} />
           {loading ? (
             <Skeleton variant="rectangular" height={210} />
           ) : recentTrades.length === 0 ? (
-            <Typography color="text.secondary">No trades have been recorded yet.</Typography>
+            <Typography color="text.secondary">{t('dashboard.recentTrades.empty')}</Typography>
           ) : (
             <Box sx={{ overflowX: 'auto' }}>
               <Table size={isMobile ? 'small' : 'medium'}>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Symbol</TableCell>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Direction</TableCell>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Status</TableCell>
-                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>Opened</TableCell>
-                  <TableCell align="right" sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>PnL (net)</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.symbol')}</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.direction')}</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.status')}</TableCell>
+                  <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.opened')}</TableCell>
+                  <TableCell align="right" sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t('dashboard.table.pnlNet')}</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
@@ -242,12 +245,12 @@ export default function DashboardPage() {
                     <TableCell>
                       <Chip
                         size="small"
-                        label={trade.direction}
+                        label={t(`trades.direction.${trade.direction}`)}
                         color={trade.direction === 'LONG' ? 'success' : 'error'}
                         variant="outlined"
                       />
                     </TableCell>
-                    <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{trade.status}</TableCell>
+                    <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{t(`trades.status.${trade.status}`)}</TableCell>
                     <TableCell sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5 }}>{formatDateTime(trade.openedAt)}</TableCell>
                     <TableCell align="right" sx={{ py: isCompact ? 0.5 : isMobile ? 0.75 : 1.5, color: (trade.pnlNet || 0) >= 0 ? 'success.main' : 'error.main' }}>
                       {formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
@@ -263,26 +266,26 @@ export default function DashboardPage() {
 
       <Card>
         <CardContent>
-          <Typography variant="h6" gutterBottom>Field explanations</Typography>
+          <Typography variant="h6" gutterBottom>{t('dashboard.help.title')}</Typography>
           <Accordion defaultExpanded>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Key performance indicators</AccordionSummary>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('dashboard.help.kpiSection')}</AccordionSummary>
             <AccordionDetails>
               <Stack spacing={1}>
-                <Typography variant="body2"><strong>Net/Gross P&L</strong>: Total profit or loss after (net) or before (gross) costs.</Typography>
-                <Typography variant="body2"><strong>Win rate</strong>: Percentage of trades with positive net P&L.</Typography>
-                <Typography variant="body2"><strong>Profit factor</strong>: Gross profit divided by gross loss (values above 1 indicate profitability).</Typography>
-                <Typography variant="body2"><strong>Expectancy</strong>: Average net P&L per trade.</Typography>
-                <Typography variant="body2"><strong>Max drawdown</strong>: Largest decline from an equity peak.</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.kpis.netPnl')}/{t('dashboard.kpis.grossPnl')}</strong>: {t('dashboard.help.kpiNetGross')}</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.kpis.winRate')}</strong>: {t('dashboard.help.kpiWinRate')}</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.kpis.profitFactor')}</strong>: {t('dashboard.help.kpiProfitFactor')}</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.kpis.expectancy')}</strong>: {t('dashboard.help.kpiExpectancy')}</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.kpis.maxDrawdown')}</strong>: {t('dashboard.help.kpiDrawdown')}</Typography>
               </Stack>
             </AccordionDetails>
           </Accordion>
           <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Charts</AccordionSummary>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('dashboard.help.chartsSection')}</AccordionSummary>
             <AccordionDetails>
               <Stack spacing={1}>
-                <Typography variant="body2"><strong>Equity curve</strong>: Running total of net P&L over time.</Typography>
-                <Typography variant="body2"><strong>Daily P&L</strong>: Sum of net P&L grouped by trade open date.</Typography>
-                <Typography variant="body2"><strong>Recent trades</strong>: Latest executions ordered by open time.</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.equityCurve.title')}</strong>: {t('dashboard.help.chartEquityCurve')}</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.dailyPnl.title')}</strong>: {t('dashboard.help.chartDailyPnl')}</Typography>
+                <Typography variant="body2"><strong>{t('dashboard.recentTrades.title')}</strong>: {t('dashboard.help.chartRecentTrades')}</Typography>
               </Stack>
             </AccordionDetails>
           </Accordion>

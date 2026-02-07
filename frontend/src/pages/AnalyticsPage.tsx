@@ -53,6 +53,8 @@ import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
 import { useNavigate } from 'react-router-dom'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 const COLORS = ['#4caf50', '#f44336', '#2196f3']
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
@@ -72,6 +74,7 @@ const formatDuration = (seconds?: number | null) => {
 }
 
 export default function AnalyticsPage() {
+  const { t } = useI18n()
   const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
   const [summary, setSummary] = useState<AnalyticsResponse | null>(null)
   const [coach, setCoach] = useState<CoachResponse | null>(null)
@@ -107,7 +110,7 @@ export default function AnalyticsPage() {
       setSummary(data)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Unable to load analytics')
+      setError(translateApiError(apiErr, t, 'analytics.errors.loadAnalytics'))
     } finally {
       setLoading(false)
     }
@@ -121,7 +124,7 @@ export default function AnalyticsPage() {
       setCoach(data)
     } catch (err) {
       const apiErr = err as ApiError
-      setCoachError(apiErr.message || 'Unable to load coach insights')
+      setCoachError(translateApiError(apiErr, t, 'analytics.errors.loadCoach'))
     } finally {
       setCoachLoading(false)
     }
@@ -151,37 +154,37 @@ export default function AnalyticsPage() {
         ? '∞'
         : summary.kpi.profitFactor?.toFixed(2) ?? '—'
     return [
-      { label: 'Net P&L', value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
-      { label: 'Win rate', value: formatPercent(summary.kpi.winRate) },
-      { label: 'Profit factor', value: pf },
-      { label: 'Expectancy', value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
-      { label: 'Trades', value: summary.kpi.totalTrades ?? 0 },
-      { label: 'Open trades', value: summary.kpi.openTrades ?? 0 },
+      { label: t('analytics.kpis.netPnl'), value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
+      { label: t('analytics.kpis.winRate'), value: formatPercent(summary.kpi.winRate) },
+      { label: t('analytics.kpis.profitFactor'), value: pf },
+      { label: t('analytics.kpis.expectancy'), value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
+      { label: t('analytics.kpis.trades'), value: summary.kpi.totalTrades ?? 0 },
+      { label: t('analytics.kpis.openTrades'), value: summary.kpi.openTrades ?? 0 },
     ]
-  }, [baseCurrency, summary])
+  }, [baseCurrency, summary, t])
 
   const secondaryKpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: 'Gross profit', value: formatSignedCurrency(summary.kpi.grossProfit, baseCurrency) },
-      { label: 'Gross loss', value: formatSignedCurrency(-Math.abs(summary.kpi.grossLoss), baseCurrency) },
-      { label: 'Avg win', value: formatSignedCurrency(summary.kpi.averageWin, baseCurrency) },
-      { label: 'Avg loss', value: formatSignedCurrency(-Math.abs(summary.kpi.averageLoss), baseCurrency) },
-      { label: 'Median trade', value: formatSignedCurrency(summary.kpi.medianPnl, baseCurrency) },
-      { label: 'Payoff ratio', value: summary.kpi.payoffRatio?.toFixed(2) ?? '—' },
+      { label: t('analytics.kpis.grossProfit'), value: formatSignedCurrency(summary.kpi.grossProfit, baseCurrency) },
+      { label: t('analytics.kpis.grossLoss'), value: formatSignedCurrency(-Math.abs(summary.kpi.grossLoss), baseCurrency) },
+      { label: t('analytics.kpis.avgWin'), value: formatSignedCurrency(summary.kpi.averageWin, baseCurrency) },
+      { label: t('analytics.kpis.avgLoss'), value: formatSignedCurrency(-Math.abs(summary.kpi.averageLoss), baseCurrency) },
+      { label: t('analytics.kpis.medianTrade'), value: formatSignedCurrency(summary.kpi.medianPnl, baseCurrency) },
+      { label: t('analytics.kpis.payoffRatio'), value: summary.kpi.payoffRatio?.toFixed(2) ?? t('common.na') },
     ]
-  }, [baseCurrency, summary])
+  }, [baseCurrency, summary, t])
 
   const costKpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: 'Fees', value: formatSignedCurrency(summary.costs.totalFees, baseCurrency) },
-      { label: 'Commission', value: formatSignedCurrency(summary.costs.totalCommission, baseCurrency) },
-      { label: 'Slippage', value: formatSignedCurrency(summary.costs.totalSlippage, baseCurrency) },
-      { label: 'Total costs', value: formatSignedCurrency(summary.costs.totalCosts, baseCurrency) },
-      { label: 'Net vs gross', value: formatSignedCurrency(summary.costs.netVsGrossDelta, baseCurrency) },
+      { label: t('analytics.kpis.fees'), value: formatSignedCurrency(summary.costs.totalFees, baseCurrency) },
+      { label: t('analytics.kpis.commission'), value: formatSignedCurrency(summary.costs.totalCommission, baseCurrency) },
+      { label: t('analytics.kpis.slippage'), value: formatSignedCurrency(summary.costs.totalSlippage, baseCurrency) },
+      { label: t('analytics.kpis.totalCosts'), value: formatSignedCurrency(summary.costs.totalCosts, baseCurrency) },
+      { label: t('analytics.kpis.netVsGross'), value: formatSignedCurrency(summary.costs.netVsGrossDelta, baseCurrency) },
     ]
-  }, [baseCurrency, summary])
+  }, [baseCurrency, summary, t])
 
   const kpiCards = loading ? Array.from({ length: 6 }, (_, idx) => ({ label: `placeholder-${idx}`, value: '' })) : kpis
 
@@ -231,7 +234,7 @@ export default function AnalyticsPage() {
     <Stack direction={{ xs: 'column', md: 'row' }} spacing={isCompact ? 1.5 : 2} alignItems={{ xs: 'stretch', md: 'center' }} flexWrap="wrap">
       <TextField
         size="small"
-        label="Market"
+        label={t('analytics.filters.market')}
         select
         SelectProps={{ native: true }}
         value={filters.market || ''}
@@ -239,14 +242,14 @@ export default function AnalyticsPage() {
         fullWidth={isMobile}
         sx={{ minWidth: { xs: '100%', sm: 160 }, ...compactInputSx }}
       >
-        <option value="">Any</option>
+        <option value="">{t('trades.filters.any')}</option>
         {summary?.filterOptions?.markets?.map((mkt) => (
           <option key={mkt} value={mkt}>{mkt}</option>
         ))}
       </TextField>
       <TextField
         size="small"
-        label="Holding bucket"
+        label={t('analytics.filters.holdingBucket')}
         select
         SelectProps={{ native: true }}
         value={filters.holdingBucket || ''}
@@ -254,7 +257,7 @@ export default function AnalyticsPage() {
         fullWidth={isMobile}
         sx={{ minWidth: { xs: '100%', sm: 160 }, ...compactInputSx }}
       >
-        <option value="">Any</option>
+        <option value="">{t('trades.filters.any')}</option>
         <option value="<5m">&lt;5m</option>
         <option value="5-15m">5-15m</option>
         <option value="15-60m">15-60m</option>
@@ -262,10 +265,10 @@ export default function AnalyticsPage() {
         <option value=">4h">&gt;4h</option>
       </TextField>
       <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
-        <InputLabel>Strategy</InputLabel>
+        <InputLabel>{t('analytics.filters.strategy')}</InputLabel>
         <Select
           multiple
-          label="Strategy"
+          label={t('analytics.filters.strategy')}
           value={filters.strategy ?? []}
           onChange={(e) => setFilters((prev) => ({ ...prev, strategy: e.target.value as string[] }))}
           renderValue={(selected) => (
@@ -282,10 +285,10 @@ export default function AnalyticsPage() {
         </Select>
       </FormControl>
       <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
-        <InputLabel>Setup</InputLabel>
+        <InputLabel>{t('analytics.filters.setup')}</InputLabel>
         <Select
           multiple
-          label="Setup"
+          label={t('analytics.filters.setup')}
           value={filters.setup ?? []}
           onChange={(e) => setFilters((prev) => ({ ...prev, setup: e.target.value as string[] }))}
           renderValue={(selected) => (
@@ -302,10 +305,10 @@ export default function AnalyticsPage() {
         </Select>
       </FormControl>
       <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 200 }, ...compactInputSx }} fullWidth={isMobile}>
-        <InputLabel>Catalyst</InputLabel>
+        <InputLabel>{t('analytics.filters.catalyst')}</InputLabel>
         <Select
           multiple
-          label="Catalyst"
+          label={t('analytics.filters.catalyst')}
           value={filters.catalyst ?? []}
           onChange={(e) => setFilters((prev) => ({ ...prev, catalyst: e.target.value as string[] }))}
           renderValue={(selected) => (
@@ -329,23 +332,23 @@ export default function AnalyticsPage() {
             onChange={(e) => setFilters((prev) => ({ ...prev, excludeOutliers: e.target.checked }))}
           />
         }
-        label="Exclude outliers"
+        label={t('analytics.filters.excludeOutliers')}
       />
     </Stack>
   )
 
   const filterActions = (
     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
-      <Button variant="contained" onClick={applyFilters} fullWidth={isMobile}>Apply</Button>
-      <Button variant="text" onClick={resetFilters} fullWidth={isMobile}>Reset</Button>
+      <Button variant="contained" onClick={applyFilters} fullWidth={isMobile}>{t('common.apply')}</Button>
+      <Button variant="text" onClick={resetFilters} fullWidth={isMobile}>{t('common.reset')}</Button>
     </Stack>
   )
 
   return (
     <Stack spacing={isCompact ? 2 : 3}>
       <PageHeader
-        title="Analytics"
-        subtitle="Pro-grade diagnostics across performance, consistency, and edge."
+        title={t('analytics.title')}
+        subtitle={t('analytics.subtitle')}
       />
 
       <Card>
@@ -364,12 +367,12 @@ export default function AnalyticsPage() {
                   '& .MuiToggleButton-root': { minHeight: isCompact ? 34 : 36, flex: { xs: 1, sm: '0 0 auto' } }
                 }}
               >
-                <ToggleButton value="OPEN">Open date</ToggleButton>
-                <ToggleButton value="CLOSE">Close date</ToggleButton>
+                <ToggleButton value="OPEN">{t('analytics.filters.openDate')}</ToggleButton>
+                <ToggleButton value="CLOSE">{t('analytics.filters.closeDate')}</ToggleButton>
               </ToggleButtonGroup>
               <TextField
                 size="small"
-                label="From"
+                label={t('analytics.filters.from')}
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={filters.from || ''}
@@ -379,7 +382,7 @@ export default function AnalyticsPage() {
               />
               <TextField
                 size="small"
-                label="To"
+                label={t('analytics.filters.to')}
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={filters.to || ''}
@@ -389,7 +392,7 @@ export default function AnalyticsPage() {
               />
               <TextField
                 size="small"
-                label="Symbol"
+                label={t('analytics.filters.symbol')}
                 value={filters.symbol || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))}
                 fullWidth={isMobile}
@@ -397,7 +400,7 @@ export default function AnalyticsPage() {
               />
               <TextField
                 size="small"
-                label="Direction"
+                label={t('analytics.filters.direction')}
                 select
                 SelectProps={{ native: true }}
                 value={filters.direction || ''}
@@ -405,13 +408,13 @@ export default function AnalyticsPage() {
                 fullWidth={isMobile}
                 sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
               >
-                <option value="">Any</option>
-                <option value="LONG">Long</option>
-                <option value="SHORT">Short</option>
+                <option value="">{t('trades.filters.any')}</option>
+                <option value="LONG">{t('trades.direction.LONG')}</option>
+                <option value="SHORT">{t('trades.direction.SHORT')}</option>
               </TextField>
               <TextField
                 size="small"
-                label="Status"
+                label={t('analytics.filters.status')}
                 select
                 SelectProps={{ native: true }}
                 value={filters.status || ''}
@@ -419,13 +422,13 @@ export default function AnalyticsPage() {
                 fullWidth={isMobile}
                 sx={{ minWidth: { xs: '100%', sm: 140 }, ...compactInputSx }}
               >
-                <option value="CLOSED">Closed</option>
-                <option value="OPEN">Open</option>
+                <option value="CLOSED">{t('trades.status.CLOSED')}</option>
+                <option value="OPEN">{t('trades.status.OPEN')}</option>
               </TextField>
             </Stack>
             {isMobile ? (
               <Accordion>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>Advanced filters</AccordionSummary>
+                <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('analytics.filters.advanced')}</AccordionSummary>
                 <AccordionDetails>
                   {advancedFilters}
                 </AccordionDetails>
@@ -453,13 +456,13 @@ export default function AnalyticsPage() {
           '& .MuiTabs-flexContainer': { gap: isCompact ? 1 : 2, px: isCompact ? 0.5 : 0 }
         }}
       >
-        <Tab label="Overview" sx={tabSx} />
-        <Tab label="Coach" sx={tabSx} />
-        <Tab label="Consistency" sx={tabSx} />
-        <Tab label="Time edge" sx={tabSx} />
-        <Tab label="Symbols & tags" sx={tabSx} />
-        <Tab label="Risk" sx={tabSx} />
-        <Tab label="Data quality" sx={tabSx} />
+        <Tab label={t('analytics.tabs.overview')} sx={tabSx} />
+        <Tab label={t('analytics.tabs.coach')} sx={tabSx} />
+        <Tab label={t('analytics.tabs.consistency')} sx={tabSx} />
+        <Tab label={t('analytics.tabs.timeEdge')} sx={tabSx} />
+        <Tab label={t('analytics.tabs.symbolsAndTags')} sx={tabSx} />
+        <Tab label={t('analytics.tabs.risk')} sx={tabSx} />
+        <Tab label={t('analytics.tabs.dataQuality')} sx={tabSx} />
       </Tabs>
 
       <TabPanel value={tab} index={0}>
@@ -521,15 +524,15 @@ export default function AnalyticsPage() {
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-                    <Typography variant="h6">Equity curve</Typography>
-                    <Tooltip title="Cumulative net P&L based on closed trades ordered by close time.">
+                    <Typography variant="h6">{t('analytics.overview.equityCurve.title')}</Typography>
+                    <Tooltip title={t('analytics.overview.equityCurve.tooltip')}>
                       <IconButton size="small"><InfoOutlinedIcon fontSize="inherit" /></IconButton>
                     </Tooltip>
                   </Stack>
                   {loading ? (
                     <Skeleton variant="rectangular" height={chartHeights.large} />
                   ) : (summary?.equityCurve?.length ?? 0) === 0 ? (
-                    <EmptyState title="No equity data" description="Adjust the filters to include a broader trade range." />
+                    <EmptyState title={t('analytics.overview.equityCurve.emptyTitle')} description={t('analytics.overview.equityCurve.emptyBody')} />
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <AreaChart data={summary?.equityCurve}>
@@ -548,15 +551,15 @@ export default function AnalyticsPage() {
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-                    <Typography variant="h6">Drawdown</Typography>
-                    <Tooltip title="P&L drawdown computed on cumulative net P&L (peak-to-trough).">
+                    <Typography variant="h6">{t('analytics.overview.drawdown.title')}</Typography>
+                    <Tooltip title={t('analytics.overview.drawdown.tooltip')}>
                       <IconButton size="small"><InfoOutlinedIcon fontSize="inherit" /></IconButton>
                     </Tooltip>
                   </Stack>
                   {loading ? (
                     <Skeleton variant="rectangular" height={chartHeights.large} />
                   ) : drawdownSeries.length === 0 ? (
-                    <EmptyState title="No drawdown data" description="Add closed trades to see drawdowns." />
+                    <EmptyState title={t('analytics.overview.drawdown.emptyTitle')} description={t('analytics.overview.drawdown.emptyBody')} />
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <AreaChart data={drawdownSeries}>
@@ -578,15 +581,15 @@ export default function AnalyticsPage() {
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-                    <Typography variant="h6">P&L histogram</Typography>
-                    <Tooltip title="Distribution of trade net P&L, highlighting dispersion and outliers.">
+                    <Typography variant="h6">{t('analytics.overview.histogram.title')}</Typography>
+                    <Tooltip title={t('analytics.overview.histogram.tooltip')}>
                       <IconButton size="small"><InfoOutlinedIcon fontSize="inherit" /></IconButton>
                     </Tooltip>
                   </Stack>
                   {loading ? (
                     <Skeleton variant="rectangular" height={chartHeights.large} />
                   ) : pnlHistogram.length === 0 ? (
-                    <EmptyState title="No distribution data" description="Close trades to populate the histogram." />
+                    <EmptyState title={t('analytics.overview.histogram.emptyTitle')} description={t('analytics.overview.histogram.emptyBody')} />
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.large}>
                       <BarChart data={pnlHistogram}>
@@ -605,15 +608,15 @@ export default function AnalyticsPage() {
               <Card sx={{ height: '100%' }}>
                 <CardContent>
                   <Stack direction="row" spacing={1} alignItems="center" mb={1}>
-                    <Typography variant="h6">Trader read</Typography>
-                    <Tooltip title="Auto-generated insights with sample size context.">
+                    <Typography variant="h6">{t('analytics.overview.traderRead.title')}</Typography>
+                    <Tooltip title={t('analytics.overview.traderRead.tooltip')}>
                       <IconButton size="small"><InfoOutlinedIcon fontSize="inherit" /></IconButton>
                     </Tooltip>
                   </Stack>
                   {loading ? (
                     <Skeleton height={240} />
                   ) : (summary?.traderRead?.insights?.length ?? 0) === 0 ? (
-                    <EmptyState title="No insights yet" description="Add more trades to surface insights." />
+                    <EmptyState title={t('analytics.overview.traderRead.emptyTitle')} description={t('analytics.overview.traderRead.emptyBody')} />
                   ) : (
                     <Stack spacing={1}>
                       {summary?.traderRead?.insights.map((insight, idx) => (
@@ -623,10 +626,10 @@ export default function AnalyticsPage() {
                   )}
                   <Divider sx={{ my: 2 }} />
                   <Stack spacing={1}>
-                    <Typography variant="subtitle2">Drawdown highlights</Typography>
-                    <Typography variant="body2">Max drawdown: {formatCurrency(summary?.drawdown?.maxDrawdown, baseCurrency)}</Typography>
-                    <Typography variant="body2">Recovery factor: {summary?.drawdown?.recoveryFactor?.toFixed(2) ?? '—'}</Typography>
-                    <Typography variant="body2">Ulcer index: {summary?.drawdown?.ulcerIndex?.toFixed(2) ?? '—'}</Typography>
+                    <Typography variant="subtitle2">{t('analytics.overview.drawdownHighlights.title')}</Typography>
+                    <Typography variant="body2">{t('analytics.overview.drawdownHighlights.maxDrawdown')}: {formatCurrency(summary?.drawdown?.maxDrawdown, baseCurrency)}</Typography>
+                    <Typography variant="body2">{t('analytics.overview.drawdownHighlights.recoveryFactor')}: {summary?.drawdown?.recoveryFactor?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography variant="body2">{t('analytics.overview.drawdownHighlights.ulcerIndex')}: {summary?.drawdown?.ulcerIndex?.toFixed(2) ?? t('common.na')}</Typography>
                   </Stack>
                 </CardContent>
               </Card>
@@ -638,9 +641,9 @@ export default function AnalyticsPage() {
       <TabPanel value={tab} index={1}>
         <Stack spacing={2}>
           <Box>
-            <Typography variant="h6" fontWeight={700}>Coach insights</Typography>
+            <Typography variant="h6" fontWeight={700}>{t('analytics.coachSection.title')}</Typography>
             <Typography variant="body2" color="text.secondary">
-              Actionable guidance from your own trade history. No AI.
+              {t('analytics.coachSection.subtitle')}
             </Typography>
           </Box>
           {coachLoading && (
@@ -655,7 +658,7 @@ export default function AnalyticsPage() {
             </Stack>
           )}
           {!coachLoading && sortedCoachAdvice.length === 0 && (
-            <EmptyState title="No coach insights yet" description="Log more closed trades to unlock coach insights." />
+            <EmptyState title={t('analytics.coachSection.emptyTitle')} description={t('analytics.coachSection.emptyBody')} />
           )}
           {!coachLoading && sortedCoachAdvice.length > 0 && (
             <Stack spacing={2}>
@@ -672,11 +675,11 @@ export default function AnalyticsPage() {
           <Grid item xs={12} md={8}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Rolling metrics (20 trades)</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.consistency.rollingMetrics.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : rolling20.length === 0 ? (
-                  <EmptyState title="No rolling metrics" description="Need at least 20 closed trades." />
+                  <EmptyState title={t('analytics.consistency.rollingMetrics.emptyTitle')} description={t('analytics.consistency.rollingMetrics.emptyBody')} />
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <LineChart data={rolling20}>
@@ -684,8 +687,8 @@ export default function AnalyticsPage() {
                       <XAxis dataKey="date" tick={{ fontSize: isMobile ? 10 : 12 }} minTickGap={isMobile ? 12 : 20} />
                       <YAxis tick={{ fontSize: isMobile ? 10 : 12 }} />
                       <ChartTooltip />
-                      <Line type="monotone" dataKey="winRate" stroke="#4caf50" name="Win rate" />
-                      <Line type="monotone" dataKey="profitFactor" stroke="#1976d2" name="Profit factor" />
+                      <Line type="monotone" dataKey="winRate" stroke="#4caf50" name={t('analytics.kpis.winRate')} />
+                      <Line type="monotone" dataKey="profitFactor" stroke="#1976d2" name={t('analytics.kpis.profitFactor')} />
                     </LineChart>
                   </ResponsiveContainer>
                 )}
@@ -695,16 +698,16 @@ export default function AnalyticsPage() {
           <Grid item xs={12} md={4}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Streaks & weekly</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.consistency.streaks.title')}</Typography>
                 <Stack spacing={1}>
-                  <Typography variant="body2">Max win streak: {summary?.consistency?.streaks?.maxWinStreak ?? 0}</Typography>
-                  <Typography variant="body2">Max loss streak: {summary?.consistency?.streaks?.maxLossStreak ?? 0}</Typography>
-                  <Typography variant="body2">Current streak: {summary?.consistency?.streaks?.currentStreakType ?? '—'} ({summary?.consistency?.streaks?.currentStreakCount ?? 0})</Typography>
+                  <Typography variant="body2">{t('analytics.consistency.streaks.maxWin')}: {summary?.consistency?.streaks?.maxWinStreak ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.consistency.streaks.maxLoss')}: {summary?.consistency?.streaks?.maxLossStreak ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.consistency.streaks.current')}: {summary?.consistency?.streaks?.currentStreakType ?? t('common.na')} ({summary?.consistency?.streaks?.currentStreakCount ?? 0})</Typography>
                   <Divider sx={{ my: 1 }} />
-                  <Typography variant="body2">Green weeks: {summary?.consistency?.greenWeeks ?? 0}</Typography>
-                  <Typography variant="body2">Red weeks: {summary?.consistency?.redWeeks ?? 0}</Typography>
-                  <Typography variant="body2">Best day: {summary?.consistency?.bestDay?.date ?? '—'} ({formatSignedCurrency(summary?.consistency?.bestDay?.value, baseCurrency)})</Typography>
-                  <Typography variant="body2">Worst day: {summary?.consistency?.worstDay?.date ?? '—'} ({formatSignedCurrency(summary?.consistency?.worstDay?.value, baseCurrency)})</Typography>
+                  <Typography variant="body2">{t('analytics.consistency.streaks.greenWeeks')}: {summary?.consistency?.greenWeeks ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.consistency.streaks.redWeeks')}: {summary?.consistency?.redWeeks ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.consistency.streaks.bestDay')}: {summary?.consistency?.bestDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.bestDay?.value, baseCurrency)})</Typography>
+                  <Typography variant="body2">{t('analytics.consistency.streaks.worstDay')}: {summary?.consistency?.worstDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.worstDay?.value, baseCurrency)})</Typography>
                 </Stack>
               </CardContent>
             </Card>
@@ -712,11 +715,11 @@ export default function AnalyticsPage() {
           <Grid item xs={12}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Weekly grouped P&L</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.consistency.weeklyPnl.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.small} />
                 ) : (summary?.weeklyPnl?.length ?? 0) === 0 ? (
-                  <EmptyState title="No weekly P&L" description="Close trades to see weekly results." />
+                  <EmptyState title={t('analytics.consistency.weeklyPnl.emptyTitle')} description={t('analytics.consistency.weeklyPnl.emptyBody')} />
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.small}>
                     <BarChart data={summary?.weeklyPnl}>
@@ -739,11 +742,11 @@ export default function AnalyticsPage() {
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>P&L by day of week</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.timeEdge.dayOfWeek.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : (summary?.timeEdge?.dayOfWeek?.length ?? 0) === 0 ? (
-                  <EmptyState title="No day-of-week edge" description="Need closed trades to compute." />
+                  <EmptyState title={t('analytics.timeEdge.dayOfWeek.emptyTitle')} description={t('analytics.timeEdge.dayOfWeek.emptyBody')} />
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={summary?.timeEdge?.dayOfWeek}>
@@ -761,11 +764,11 @@ export default function AnalyticsPage() {
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Holding time buckets</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.timeEdge.holdingBuckets.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : (summary?.timeEdge?.holdingBuckets?.length ?? 0) === 0 ? (
-                  <EmptyState title="No holding time data" description="Closed trades needed for holding time analytics." />
+                  <EmptyState title={t('analytics.timeEdge.holdingBuckets.emptyTitle')} description={t('analytics.timeEdge.holdingBuckets.emptyBody')} />
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={summary?.timeEdge?.holdingBuckets}>
@@ -778,19 +781,19 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                 )}
                 <Divider sx={{ my: 1 }} />
-                <Typography variant="body2">Avg holding: {formatDuration(summary?.timeEdge?.averageHoldingSeconds)}</Typography>
-                <Typography variant="body2">Median holding: {formatDuration(summary?.timeEdge?.medianHoldingSeconds)}</Typography>
+                <Typography variant="body2">{t('analytics.timeEdge.holdingBuckets.avgHolding')}: {formatDuration(summary?.timeEdge?.averageHoldingSeconds)}</Typography>
+                <Typography variant="body2">{t('analytics.timeEdge.holdingBuckets.medianHolding')}: {formatDuration(summary?.timeEdge?.medianHoldingSeconds)}</Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Hour-of-day heatmap (Net P&L)</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.timeEdge.hourHeatmap.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.small} />
                 ) : heatmapData.length === 0 ? (
-                  <EmptyState title="No hour-of-day data" description="Close trades to see hourly edge." />
+                  <EmptyState title={t('analytics.timeEdge.hourHeatmap.emptyTitle')} description={t('analytics.timeEdge.hourHeatmap.emptyBody')} />
                 ) : (
                   <Box sx={{ overflowX: 'auto' }}>
                     <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(24, minmax(32px, 1fr))', sm: 'repeat(24, minmax(40px, 1fr))' }, gap: 0.5 }}>
@@ -800,7 +803,7 @@ export default function AnalyticsPage() {
                           ? `rgba(76, 175, 80, ${0.2 + intensity * 0.6})`
                           : `rgba(244, 67, 54, ${0.2 + intensity * 0.6})`
                         return (
-                          <Tooltip key={bucket.bucket} title={`${bucket.bucket}:00 • N=${bucket.trades} • Win ${formatPercent(bucket.winRate)}`}>
+                          <Tooltip key={bucket.bucket} title={t('analytics.timeEdge.hourHeatmap.tooltip', { hour: bucket.bucket, trades: bucket.trades, winRate: formatPercent(bucket.winRate) })}>
                             <Box sx={{ p: { xs: 0.5, sm: 1 }, textAlign: 'center', borderRadius: 1, backgroundColor: color }}>
                               <Typography variant="caption">{bucket.bucket}</Typography>
                             </Box>
@@ -821,11 +824,11 @@ export default function AnalyticsPage() {
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Top symbols</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.symbols.topSymbols.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : symbolBars.length === 0 ? (
-                  <EmptyState title="No symbol data" description="Close trades with symbols to populate." />
+                  <EmptyState title={t('analytics.symbols.topSymbols.emptyTitle')} description={t('analytics.symbols.topSymbols.emptyBody')} />
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.medium}>
                     <BarChart data={symbolBars}>
@@ -842,28 +845,28 @@ export default function AnalyticsPage() {
                   </ResponsiveContainer>
                 )}
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="body2">Top 1 P&L share: {formatPercent(summary?.attribution?.concentration?.top1PnlShare ?? null)}</Typography>
-                <Typography variant="body2">Top 3 P&L share: {formatPercent(summary?.attribution?.concentration?.top3PnlShare ?? null)}</Typography>
-                <Typography variant="body2">Top 1 trade share: {formatPercent(summary?.attribution?.concentration?.top1TradeShare ?? null)}</Typography>
-                <Typography variant="body2">Top 3 trade share: {formatPercent(summary?.attribution?.concentration?.top3TradeShare ?? null)}</Typography>
+                <Typography variant="body2">{t('analytics.symbols.topSymbols.top1PnlShare')}: {formatPercent(summary?.attribution?.concentration?.top1PnlShare ?? null)}</Typography>
+                <Typography variant="body2">{t('analytics.symbols.topSymbols.top3PnlShare')}: {formatPercent(summary?.attribution?.concentration?.top3PnlShare ?? null)}</Typography>
+                <Typography variant="body2">{t('analytics.symbols.topSymbols.top1TradeShare')}: {formatPercent(summary?.attribution?.concentration?.top1TradeShare ?? null)}</Typography>
+                <Typography variant="body2">{t('analytics.symbols.topSymbols.top3TradeShare')}: {formatPercent(summary?.attribution?.concentration?.top3TradeShare ?? null)}</Typography>
               </CardContent>
             </Card>
           </Grid>
           <Grid item xs={12} md={6}>
             <Card sx={{ height: '100%' }}>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Strategy leaderboard</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.symbols.strategyLeaderboard.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.medium} />
                 ) : (summary?.attribution?.strategies?.length ?? 0) === 0 ? (
-                  <EmptyState title="No strategy tags" description="Tag trades with strategies." />
+                  <EmptyState title={t('analytics.symbols.strategyLeaderboard.emptyTitle')} description={t('analytics.symbols.strategyLeaderboard.emptyBody')} />
                 ) : (
                   <Stack spacing={1}>
                     {summary?.attribution?.strategies?.slice(0, 6).map((row) => (
                       <Stack key={row.name} direction="row" spacing={1} justifyContent="space-between" alignItems="center">
                         <Stack direction="row" spacing={1} alignItems="center">
                           <Typography variant="body2">{row.name}</Typography>
-                          {row.lowSample && <Chip size="small" label="Low sample" />}
+                          {row.lowSample && <Chip size="small" label={t('analytics.symbols.strategyLeaderboard.lowSample')} />}
                         </Stack>
                         <Typography variant="body2">{formatSignedCurrency(row.netPnl, baseCurrency)} • N={row.trades}</Typography>
                       </Stack>
@@ -871,7 +874,7 @@ export default function AnalyticsPage() {
                   </Stack>
                 )}
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="subtitle2">What to stop doing</Typography>
+                <Typography variant="subtitle2">{t('analytics.symbols.strategyLeaderboard.stopDoing')}</Typography>
                 {(summary?.attribution?.bottomSymbols ?? []).map((row) => (
                   <Typography key={row.name} variant="body2">• {row.name} ({formatSignedCurrency(row.netPnl, baseCurrency)}, N={row.trades})</Typography>
                 ))}
@@ -884,23 +887,23 @@ export default function AnalyticsPage() {
       <TabPanel value={tab} index={5}>
         <Card>
           <CardContent>
-            <Typography variant="h6" gutterBottom>Risk analytics</Typography>
+            <Typography variant="h6" gutterBottom>{t('analytics.risk.title')}</Typography>
             {summary?.risk?.available ? (
               <Grid container spacing={2}>
                 <Grid item xs={12} md={4}>
                   <Stack spacing={1}>
-                    <Typography variant="body2">Average R: {summary.risk.averageR?.toFixed(2) ?? '—'}</Typography>
-                    <Typography variant="body2">Median R: {summary.risk.medianR?.toFixed(2) ?? '—'}</Typography>
-                    <Typography variant="body2">Expectancy (R): {summary.risk.expectancyR?.toFixed(2) ?? '—'}</Typography>
-                    <Typography variant="body2">Win rate (R&gt;0): {formatPercent(summary.risk.winRateR)}</Typography>
-                    <Typography variant="body2">Avg risk amount: {formatCurrency(summary.risk.averageRiskAmount, baseCurrency)}</Typography>
-                    <Typography variant="body2">Avg risk %: {formatPercent(summary.risk.averageRiskPercent)}</Typography>
+                    <Typography variant="body2">{t('analytics.risk.averageR')}: {summary.risk.averageR?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography variant="body2">{t('analytics.risk.medianR')}: {summary.risk.medianR?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography variant="body2">{t('analytics.risk.expectancyR')}: {summary.risk.expectancyR?.toFixed(2) ?? t('common.na')}</Typography>
+                    <Typography variant="body2">{t('analytics.risk.winRateR')}: {formatPercent(summary.risk.winRateR)}</Typography>
+                    <Typography variant="body2">{t('analytics.risk.avgRiskAmount')}: {formatCurrency(summary.risk.averageRiskAmount, baseCurrency)}</Typography>
+                    <Typography variant="body2">{t('analytics.risk.avgRiskPercent')}: {formatPercent(summary.risk.averageRiskPercent)}</Typography>
                   </Stack>
                 </Grid>
                 <Grid item xs={12} md={8}>
-                  <Typography variant="subtitle2" gutterBottom>R distribution</Typography>
+                  <Typography variant="subtitle2" gutterBottom>{t('analytics.risk.rDistribution.title')}</Typography>
                   {(summary?.risk?.rDistribution?.length ?? 0) === 0 ? (
-                    <EmptyState title="No R distribution" description="Track R multiples to see this chart." />
+                    <EmptyState title={t('analytics.risk.rDistribution.emptyTitle')} description={t('analytics.risk.rDistribution.emptyBody')} />
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.small}>
                       <BarChart data={summary.risk.rDistribution}>
@@ -916,8 +919,8 @@ export default function AnalyticsPage() {
               </Grid>
             ) : (
               <EmptyState
-                title="Risk data not available"
-                description="Start tracking stop-loss or risk fields to unlock R analytics."
+                title={t('analytics.risk.unavailableTitle')}
+                description={t('analytics.risk.unavailableBody')}
               />
             )}
           </CardContent>
@@ -929,15 +932,15 @@ export default function AnalyticsPage() {
           <Grid item xs={12} md={6}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Data quality</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.dataQuality.title')}</Typography>
                 <Stack spacing={1}>
-                  <Typography variant="body2">Missing closed_at: {summary?.dataQuality?.missingClosedAtCount ?? 0}</Typography>
-                  <Typography variant="body2">Open status with closed_at: {summary?.dataQuality?.inconsistentStatusCount ?? 0}</Typography>
-                  <Typography variant="body2">Missing strategy tags: {summary?.dataQuality?.missingStrategyCount ?? 0}</Typography>
-                  <Typography variant="body2">Missing setup tags: {summary?.dataQuality?.missingSetupCount ?? 0}</Typography>
-                  <Typography variant="body2">Missing catalyst tags: {summary?.dataQuality?.missingCatalystCount ?? 0}</Typography>
-                  <Typography variant="body2">Missing pnl %: {summary?.dataQuality?.missingPnlPercentCount ?? 0}</Typography>
-                  <Typography variant="body2">Missing risk fields: {summary?.dataQuality?.missingRiskCount ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.dataQuality.missingClosedAt')}: {summary?.dataQuality?.missingClosedAtCount ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.dataQuality.inconsistentStatus')}: {summary?.dataQuality?.inconsistentStatusCount ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.dataQuality.missingStrategy')}: {summary?.dataQuality?.missingStrategyCount ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.dataQuality.missingSetup')}: {summary?.dataQuality?.missingSetupCount ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.dataQuality.missingCatalyst')}: {summary?.dataQuality?.missingCatalystCount ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.dataQuality.missingPnlPercent')}: {summary?.dataQuality?.missingPnlPercentCount ?? 0}</Typography>
+                  <Typography variant="body2">{t('analytics.dataQuality.missingRisk')}: {summary?.dataQuality?.missingRiskCount ?? 0}</Typography>
                   <Typography variant="body2">{summary?.dataQuality?.timezoneNote}</Typography>
                 </Stack>
               </CardContent>
@@ -946,11 +949,11 @@ export default function AnalyticsPage() {
           <Grid item xs={12} md={6}>
             <Card>
               <CardContent>
-                <Typography variant="h6" gutterBottom>Outlier policy</Typography>
-                <Typography variant="body2">Thresholds: {formatNumber(summary?.distribution?.outlierLower ?? null)} to {formatNumber(summary?.distribution?.outlierUpper ?? null)}</Typography>
-                <Typography variant="body2">Outliers detected: {summary?.distribution?.outlierCount ?? 0}</Typography>
+                <Typography variant="h6" gutterBottom>{t('analytics.dataQuality.outlierPolicy.title')}</Typography>
+                <Typography variant="body2">{t('analytics.dataQuality.outlierPolicy.thresholds')}: {formatNumber(summary?.distribution?.outlierLower ?? null)} {t('analytics.dataQuality.outlierPolicy.to')} {formatNumber(summary?.distribution?.outlierUpper ?? null)}</Typography>
+                <Typography variant="body2">{t('analytics.dataQuality.outlierPolicy.outliersDetected')}: {summary?.distribution?.outlierCount ?? 0}</Typography>
                 <Divider sx={{ my: 2 }} />
-                <Typography variant="body2">Exclude outliers to see sensitivity changes.</Typography>
+                <Typography variant="body2">{t('analytics.dataQuality.outlierPolicy.hint')}</Typography>
               </CardContent>
             </Card>
           </Grid>
@@ -959,25 +962,25 @@ export default function AnalyticsPage() {
 
       <Card>
         <CardContent>
-          <Typography variant="h6" gutterBottom>Field explanations</Typography>
+          <Typography variant="h6" gutterBottom>{t('analytics.help.title')}</Typography>
           <Accordion defaultExpanded>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>KPIs</AccordionSummary>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('analytics.help.kpis.title')}</AccordionSummary>
             <AccordionDetails>
               <Stack spacing={1}>
-                <Typography variant="body2"><strong>Win rate</strong>: Percentage of closed trades that finished green.</Typography>
-                <Typography variant="body2"><strong>Profit factor</strong>: Gross profit divided by gross loss.</Typography>
-                <Typography variant="body2"><strong>Expectancy</strong>: Average net P&L per closed trade.</Typography>
-                <Typography variant="body2"><strong>Payoff ratio</strong>: Avg win divided by absolute avg loss.</Typography>
+                <Typography variant="body2"><strong>{t('analytics.kpis.winRate')}</strong>: {t('analytics.help.kpis.winRate')}</Typography>
+                <Typography variant="body2"><strong>{t('analytics.kpis.profitFactor')}</strong>: {t('analytics.help.kpis.profitFactor')}</Typography>
+                <Typography variant="body2"><strong>{t('analytics.kpis.expectancy')}</strong>: {t('analytics.help.kpis.expectancy')}</Typography>
+                <Typography variant="body2"><strong>{t('analytics.kpis.payoffRatio')}</strong>: {t('analytics.help.kpis.payoffRatio')}</Typography>
               </Stack>
             </AccordionDetails>
           </Accordion>
           <Accordion>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>Time & consistency</AccordionSummary>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('analytics.help.timeConsistency.title')}</AccordionSummary>
             <AccordionDetails>
               <Stack spacing={1}>
-                <Typography variant="body2"><strong>Drawdown</strong>: Peak-to-trough decline on cumulative net P&L.</Typography>
-                <Typography variant="body2"><strong>Rolling metrics</strong>: 20-trade rolling win rate and profit factor.</Typography>
-                <Typography variant="body2"><strong>Heatmap</strong>: Hour-of-day net P&L in Europe/Bucharest time.</Typography>
+                <Typography variant="body2"><strong>{t('analytics.overview.drawdown.title')}</strong>: {t('analytics.help.timeConsistency.drawdown')}</Typography>
+                <Typography variant="body2"><strong>{t('analytics.consistency.rollingMetrics.title')}</strong>: {t('analytics.help.timeConsistency.rollingMetrics')}</Typography>
+                <Typography variant="body2"><strong>{t('analytics.timeEdge.hourHeatmap.title')}</strong>: {t('analytics.help.timeConsistency.heatmap')}</Typography>
               </Stack>
             </AccordionDetails>
           </Accordion>

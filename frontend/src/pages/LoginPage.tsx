@@ -12,6 +12,8 @@ import { useAuth } from '../auth/AuthContext'
 import loginHero from '../assets/login-hero.svg'
 import { resendVerification } from '../api/auth'
 import { ApiError } from '../api/client'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 const schema = z.object({
   email: z.string().email(),
@@ -21,6 +23,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function LoginPage() {
+  const { t } = useI18n()
   const { register, handleSubmit, formState, watch } = useForm<FormValues>({ resolver: zodResolver(schema) })
   const navigate = useNavigate()
   const location = useLocation()
@@ -46,7 +49,7 @@ export default function LoginPage() {
       navigate(from, { replace: true })
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Login failed')
+      setError(translateApiError(apiErr, t, 'errors.unauthorized'))
       setErrorCode(apiErr.code)
     } finally {
       setSubmitting(false)
@@ -56,16 +59,16 @@ export default function LoginPage() {
   const handleResend = async () => {
     setResendMessage('')
     if (!emailValue) {
-      setError('Enter your email address to resend verification.')
+      setError(t('login.errors.enterEmailToResend'))
       return
     }
     setResending(true)
     try {
       await resendVerification(emailValue)
-      setResendMessage('Verification email sent. Please check your inbox.')
+      setResendMessage(t('login.success.verificationSent'))
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Failed to resend verification email')
+      setError(translateApiError(apiErr, t))
     } finally {
       setResending(false)
     }
@@ -90,25 +93,25 @@ export default function LoginPage() {
                 TV
               </Avatar>
               <Box>
-                <Typography variant="h6" fontWeight={700}>TradejAudit</Typography>
+                <Typography variant="h6" fontWeight={700}>{t('app.name')}</Typography>
                 <Typography variant="caption" color="text.secondary">
-                  Trading journal + notebook
+                  {t('login.brand.subtitle')}
                 </Typography>
               </Box>
             </Stack>
             <Typography component="h1" variant="h3" sx={{ fontWeight: 700, fontSize: { xs: '2rem', md: '2.75rem' } }}>
-              Your edge is discipline. Build it daily.
+              {t('login.hero.title')}
             </Typography>
             <Typography variant="body1" color="text.secondary">
-              TradejAudit is your trading journal + notebook to capture setups, review execution, and track performance—so you can trade with clarity, not emotion.
+              {t('login.hero.subtitle')}
             </Typography>
           </Stack>
           <Stack spacing={1.5}>
             {[
-              'Log trades in seconds. Review patterns in minutes.',
-              'Turn notes into playbooks: setups, rules, mistakes, lessons.',
-              'See performance by day, strategy, ticker, and tag.',
-              'Attach screenshots and context to every trade.'
+              t('login.hero.points.fastLogging'),
+              t('login.hero.points.playbooks'),
+              t('login.hero.points.performance'),
+              t('login.hero.points.attachments')
             ].map((text) => (
               <Stack key={text} direction="row" spacing={1.5} alignItems="flex-start">
                 <CheckCircleOutlineIcon color="primary" sx={{ mt: '2px' }} />
@@ -119,7 +122,7 @@ export default function LoginPage() {
             ))}
           </Stack>
           <Typography variant="subtitle2" sx={{ fontStyle: 'italic' }}>
-            Professionals don’t chase P&amp;L — they execute a process.
+            {t('login.hero.quote')}
           </Typography>
           <Box
             sx={{
@@ -133,13 +136,13 @@ export default function LoginPage() {
             <Box
               component="img"
               src={loginHero}
-              alt="Abstract trading workspace with charts"
+              alt={t('login.hero.imageAlt')}
               loading="lazy"
               sx={{ width: '100%', display: 'block', maxHeight: { xs: 220, md: 260 }, objectFit: 'cover' }}
             />
           </Box>
           <Stack direction="row" spacing={2} flexWrap="wrap">
-            {['Built for disciplined execution', 'Your data stays private', 'Export anytime'].map((item) => (
+            {[t('login.hero.badges.discipline'), t('login.hero.badges.privacy'), t('login.hero.badges.export')].map((item) => (
               <Typography key={item} variant="caption" color="text.secondary">
                 {item}
               </Typography>
@@ -155,37 +158,37 @@ export default function LoginPage() {
                   <LockOutlinedIcon />
                 </Avatar>
                 <Typography component="h2" variant="h5" fontWeight={700}>
-                  Welcome back
+                  {t('login.form.title')}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Sign in to keep your journal, analytics, and playbooks in sync.
+                  {t('login.form.subtitle')}
                 </Typography>
               </Stack>
               <Box component="form" onSubmit={handleSubmit(onSubmit)} noValidate>
                 <Stack spacing={2}>
                   <TextField
-                    label="Email Address"
+                    label={t('login.form.email')}
                     type="email"
                     autoComplete="email"
                     {...register('email')}
                     error={!!formState.errors.email}
-                    helperText={formState.errors.email?.message}
+                    helperText={formState.errors.email ? t('login.validation.email') : ''}
                     fullWidth
                   />
                   <TextField
-                    label="Password"
+                    label={t('login.form.password')}
                     type={showPassword ? 'text' : 'password'}
                     autoComplete="current-password"
                     {...register('password')}
                     error={!!formState.errors.password}
-                    helperText={formState.errors.password?.message}
+                    helperText={formState.errors.password ? t('login.validation.password') : ''}
                     fullWidth
                     InputProps={{
                       endAdornment: (
                         <InputAdornment position="end">
                           <IconButton
                             onClick={() => setShowPassword((prev) => !prev)}
-                            aria-label={showPassword ? 'Hide password' : 'Show password'}
+                            aria-label={showPassword ? t('auth.hidePassword') : t('auth.showPassword')}
                             edge="end"
                           >
                             {showPassword ? <VisibilityOffIcon /> : <VisibilityIcon />}
@@ -203,7 +206,7 @@ export default function LoginPage() {
                     <Stack spacing={1}>
                       {resendMessage && <Alert severity="success">{resendMessage}</Alert>}
                       <Button variant="outlined" onClick={handleResend} disabled={resending}>
-                        {resending ? 'Sending…' : 'Resend verification email'}
+                        {resending ? t('auth.sending') : t('login.actions.resendVerification')}
                       </Button>
                     </Stack>
                   )}
@@ -211,27 +214,27 @@ export default function LoginPage() {
                     {submitting ? (
                       <>
                         <CircularProgress size={18} sx={{ mr: 1 }} />
-                        Signing in
+                        {t('auth.signingIn')}
                       </>
                     ) : (
-                      'Sign in'
+                      t('auth.signin')
                     )}
                   </Button>
                   <Button component={Link} to="/register" fullWidth variant="outlined">
-                    Create free account
+                    {t('login.actions.createFreeAccount')}
                   </Button>
                   <Typography variant="caption" color="text.secondary" textAlign="center">
-                    By continuing you agree to the <MuiLink component={Link} to="/terms">Terms</MuiLink> and{' '}
-                    <MuiLink component={Link} to="/privacy">Privacy Policy</MuiLink>.
+                    {t('login.form.agreePrefix')} <MuiLink component={Link} to="/terms">{t('footer.terms')}</MuiLink> {t('login.form.and')}{' '}
+                    <MuiLink component={Link} to="/privacy">{t('login.form.privacyPolicy')}</MuiLink>.
                   </Typography>
                   <Typography variant="caption" color="text.secondary" textAlign="center">
-                    Encrypted in transit. No broker login required.
+                    {t('login.form.securityNote')}
                   </Typography>
                   <MuiLink component={Link} to="/forgot-password" variant="body2" textAlign="center">
-                    Forgot password?
+                    {t('login.actions.forgotPassword')}
                   </MuiLink>
                   <MuiLink component={Link} to="/register" variant="body2" textAlign="center">
-                    New here? Create an account
+                    {t('login.actions.newHere')}
                   </MuiLink>
                 </Stack>
               </Box>

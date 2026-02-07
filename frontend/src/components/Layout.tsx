@@ -6,11 +6,14 @@ import {
   Container,
   Divider,
   Drawer,
+  FormControl,
   IconButton,
+  MenuItem,
   List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
+  Select,
   Stack,
   Toolbar,
   Tooltip,
@@ -31,11 +34,13 @@ import LogoutIcon from '@mui/icons-material/Logout'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useI18n } from '../i18n'
 
 export default function Layout() {
   const navigate = useNavigate()
   const { isAuthenticated, user, logout } = useAuth()
+  const { t, language, setLanguage } = useI18n()
   const location = useLocation()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
@@ -49,37 +54,43 @@ export default function Layout() {
 
   const navItems = useMemo(() => {
     const items = [
-      { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-      { label: 'Trades', path: '/trades', icon: <TableChartIcon /> },
-      { label: 'Calendar', path: '/calendar', icon: <CalendarMonthIcon /> },
-      { label: 'Notebook', path: '/notebook', icon: <NoteIcon /> },
-      { label: 'Analytics', path: '/analytics', icon: <InsightsIcon /> },
-      { label: 'Insights', path: '/insights', icon: <MenuBookIcon /> },
-      { label: 'Settings', path: '/settings', icon: <SettingsIcon /> }
+      { label: t('nav.dashboard'), path: '/dashboard', icon: <DashboardIcon /> },
+      { label: t('nav.trades'), path: '/trades', icon: <TableChartIcon /> },
+      { label: t('nav.calendar'), path: '/calendar', icon: <CalendarMonthIcon /> },
+      { label: t('nav.notebook'), path: '/notebook', icon: <NoteIcon /> },
+      { label: t('nav.analytics'), path: '/analytics', icon: <InsightsIcon /> },
+      { label: t('nav.insights'), path: '/insights', icon: <MenuBookIcon /> },
+      { label: t('nav.settings'), path: '/settings', icon: <SettingsIcon /> }
     ]
 
     if (user?.role === 'ADMIN') {
-      items.push({ label: 'Admin', path: '/admin/content', icon: <AdminPanelSettingsIcon /> })
+      items.push({ label: t('nav.admin'), path: '/admin/content', icon: <AdminPanelSettingsIcon /> })
     }
 
     return items
-  }, [user?.role])
+  }, [t, user?.role])
 
   const pageTitle = useMemo(() => {
     const match = navItems.find((item) => location.pathname.startsWith(item.path))
     if (match) return match.label
-    if (location.pathname.startsWith('/profile')) return 'Profile'
-    return 'TradeJAudit'
-  }, [location.pathname, navItems])
+    if (location.pathname.startsWith('/profile')) return t('nav.profile')
+    return t('app.name')
+  }, [location.pathname, navItems, t])
+
+  useEffect(() => {
+    document.title = pageTitle === t('app.name')
+      ? t('app.name')
+      : `${pageTitle} | ${t('app.name')}`
+  }, [pageTitle, t])
 
   const drawer = (
     <Stack sx={{ height: '100%' }}>
       <Box sx={{ p: 3 }}>
         <Typography variant="h6" sx={{ color: 'common.white' }}>
-          TradeJAudit
+          {t('app.name')}
         </Typography>
         <Typography variant="caption" sx={{ color: 'rgba(226,232,240,0.7)' }}>
-          Trading intelligence hub
+          {t('app.tagline')}
         </Typography>
       </Box>
       <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)' }} />
@@ -121,14 +132,14 @@ export default function Layout() {
               {(user?.email || 'U')[0].toUpperCase()}
             </Avatar>
             <Box sx={{ flexGrow: 1 }}>
-              <Typography variant="body2" sx={{ color: 'common.white', fontWeight: 600 }}>
-                {user?.email || 'Trader'}
-              </Typography>
+                <Typography variant="body2" sx={{ color: 'common.white', fontWeight: 600 }}>
+                  {user?.email || t('nav.profile')}
+                </Typography>
               <Typography variant="caption" sx={{ color: 'rgba(226,232,240,0.7)' }}>
                 {user?.baseCurrency || 'USD'} · {user?.timezone || 'UTC'}
               </Typography>
             </Box>
-            <Tooltip title="Logout" arrow>
+            <Tooltip title={t('nav.logout')} arrow>
               <IconButton color="inherit" size="small" onClick={handleLogout}>
                 <LogoutIcon fontSize="small" />
               </IconButton>
@@ -171,7 +182,7 @@ export default function Layout() {
           <Toolbar sx={{ justifyContent: 'space-between', gap: 2, flexWrap: { xs: 'wrap', sm: 'nowrap' }, py: { xs: 1, sm: 0 } }}>
             <Stack direction="row" alignItems="center" spacing={1.5} sx={{ minWidth: 0 }}>
               {isAuthenticated && isMobile && (
-                <IconButton onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open menu">
+                <IconButton onClick={() => setMobileOpen(!mobileOpen)} aria-label={t('nav.openMenu')}>
                   <MenuIcon />
                 </IconButton>
               )}
@@ -179,6 +190,17 @@ export default function Layout() {
             </Stack>
             {isAuthenticated ? (
               <Stack direction="row" spacing={1} alignItems="center">
+                <FormControl size="small" sx={{ minWidth: 112 }}>
+                  <Select
+                    value={language}
+                    onChange={(event) => setLanguage(event.target.value as 'en' | 'ro')}
+                    sx={{ color: 'inherit', '& .MuiSvgIcon-root': { color: 'inherit' } }}
+                    aria-label={t('language.label')}
+                  >
+                    <MenuItem value="en">{t('language.english')}</MenuItem>
+                    <MenuItem value="ro">{t('language.romanian')}</MenuItem>
+                  </Select>
+                </FormControl>
                 <Button
                   size="small"
                   color="inherit"
@@ -187,7 +209,7 @@ export default function Layout() {
                   to="/profile"
                   sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                 >
-                  Profile
+                  {t('nav.profile')}
                 </Button>
                 <Button
                   size="small"
@@ -196,23 +218,34 @@ export default function Layout() {
                   onClick={handleLogout}
                   sx={{ display: { xs: 'none', sm: 'inline-flex' } }}
                 >
-                  Logout
+                  {t('nav.logout')}
                 </Button>
-                <Tooltip title="Profile">
+                <Tooltip title={t('nav.profile')}>
                   <IconButton color="inherit" component={Link} to="/profile" sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
                     <AccountCircleIcon />
                   </IconButton>
                 </Tooltip>
-                <Tooltip title="Logout">
+                <Tooltip title={t('nav.logout')}>
                   <IconButton color="inherit" onClick={handleLogout} sx={{ display: { xs: 'inline-flex', sm: 'none' } }}>
                     <LogoutIcon />
                   </IconButton>
                 </Tooltip>
               </Stack>
             ) : (
-              <Stack direction="row" spacing={1}>
-                <Button color="inherit" component={Link} to="/login">Login</Button>
-                <Button variant="contained" component={Link} to="/register">Register</Button>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <FormControl size="small" sx={{ minWidth: 112 }}>
+                  <Select
+                    value={language}
+                    onChange={(event) => setLanguage(event.target.value as 'en' | 'ro')}
+                    sx={{ color: 'inherit', '& .MuiSvgIcon-root': { color: 'inherit' } }}
+                    aria-label={t('language.label')}
+                  >
+                    <MenuItem value="en">{t('language.english')}</MenuItem>
+                    <MenuItem value="ro">{t('language.romanian')}</MenuItem>
+                  </Select>
+                </FormControl>
+                <Button color="inherit" component={Link} to="/login">{t('nav.login')}</Button>
+                <Button variant="contained" component={Link} to="/register">{t('nav.register')}</Button>
               </Stack>
             )}
           </Toolbar>
@@ -237,12 +270,12 @@ export default function Layout() {
               justifyContent="space-between"
             >
               <Typography variant="caption" color="text.secondary">
-                For journaling and analytics only. Not investment advice.
+                {t('app.disclaimer')}
               </Typography>
               <Stack direction="row" spacing={2}>
-                <Button component={Link} to="/terms" size="small">Terms</Button>
-                <Button component={Link} to="/privacy" size="small">Privacy</Button>
-                <Button component={Link} to="/cookies" size="small">Cookies</Button>
+                <Button component={Link} to="/terms" size="small">{t('footer.terms')}</Button>
+                <Button component={Link} to="/privacy" size="small">{t('footer.privacy')}</Button>
+                <Button component={Link} to="/cookies" size="small">{t('footer.cookies')}</Button>
               </Stack>
             </Stack>
           </Container>

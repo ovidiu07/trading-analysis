@@ -1,0 +1,1141 @@
+{
+  "app": {
+    "name": "TradeJAudit",
+    "tagline": "Hub de inteligență pentru tranzacționare",
+    "disclaimer": "Doar pentru jurnal și analiză. Nu reprezintă sfat de investiții."
+  },
+  "language": {
+    "label": "Limbă",
+    "english": "Engleză",
+    "romanian": "Română"
+  },
+  "common": {
+    "loading": "Se încarcă...",
+    "save": "Salvează",
+    "cancel": "Anulează",
+    "delete": "Șterge",
+    "edit": "Editează",
+    "confirm": "Confirmă",
+    "close": "Închide",
+    "search": "Caută",
+    "apply": "Aplică",
+    "reset": "Resetează",
+    "yes": "Da",
+    "no": "Nu",
+    "none": "Niciunul",
+    "all": "Toate",
+    "back": "Înapoi",
+    "viewDetails": "Vezi detalii",
+    "noData": "Fără date",
+    "na": "-"
+  },
+  "nav": {
+    "dashboard": "Tablou de bord",
+    "trades": "Tranzacții",
+    "calendar": "Calendar",
+    "notebook": "Caiet",
+    "analytics": "Analiză",
+    "insights": "Perspective",
+    "settings": "Setări",
+    "admin": "Administrare",
+    "profile": "Profil",
+    "login": "Autentificare",
+    "register": "Înregistrare",
+    "logout": "Deconectare",
+    "openMenu": "Deschide meniul"
+  },
+  "footer": {
+    "terms": "Termeni",
+    "privacy": "Confidențialitate",
+    "cookies": "Cookie-uri"
+  },
+  "errors": {
+    "genericTitle": "A apărut o eroare",
+    "generic": "A apărut o eroare. Încearcă din nou.",
+    "network": "Serverul nu poate fi accesat. Verifică conexiunea.",
+    "unauthorized": "Sesiune expirată sau neautorizată. Autentifică-te din nou.",
+    "forbidden": "Nu ai permisiunea pentru această acțiune.",
+    "notFound": "Resursa solicitată nu a fost găsită.",
+    "validation": "Verifică câmpurile marcate.",
+    "EMAIL_NOT_VERIFIED": "Email neverificat. Verifică inboxul sau retrimite verificarea.",
+    "EMAIL_IN_USE": "Există deja un cont cu acest email.",
+    "CAPTCHA_FAILED": "Verificarea captcha a eșuat. Încearcă din nou.",
+    "RATE_LIMITED": "Prea multe cereri. Așteaptă și încearcă din nou.",
+    "NOT_IMPLEMENTED": "Această funcționalitate nu este disponibilă încă."
+  },
+  "auth": {
+    "hidePassword": "Ascunde parola",
+    "showPassword": "Arată parola",
+    "signin": "Autentificare",
+    "signingIn": "Se autentifică",
+    "signup": "Creează cont",
+    "sending": "Se trimite...",
+    "updating": "Se actualizează..."
+  },
+  "admin": {
+    "accessRequiredTitle": "Este necesar acces de administrator",
+    "accessRequiredBody": "Nu ai permisiunea să vezi această zonă.",
+    "backToDashboard": "Înapoi la tabloul de bord"
+  },
+  "emptyState": {
+    "selectNote": "Selectează o notă",
+    "selectNoteBody": "Alege o notă din listă sau creează una nouă."
+  },
+  "adminContent": {
+    "actions": {
+      "archive": "Arhivează",
+      "createContent": "Creează conținut",
+      "createNew": "Creează nou",
+      "publish": "Publică",
+      "working": "Se procesează..."
+    },
+    "dialog": {
+      "archiveBody": "Arhivezi acest conținut? Va fi ascuns din Insights, dar păstrat în istoric.",
+      "archiveTitle": "Arhivează conținutul",
+      "publishBody": "Publici acest conținut în Insights? Toți utilizatorii îl vor vedea imediat.",
+      "publishTitle": "Publică conținutul"
+    },
+    "empty": {
+      "body": "Creează prima strategie sau primul plan săptămânal pentru a-l publica în Insights.",
+      "title": "Nu există conținut încă"
+    },
+    "messages": {
+      "actionFailed": "Acțiunea a eșuat. Încearcă din nou.",
+      "archived": "Conținut arhivat",
+      "published": "Conținut publicat"
+    },
+    "searchPlaceholder": "Titlu, rezumat sau conținut",
+    "statuses": {
+      "all": "Toate stările",
+      "archived": "Arhivat",
+      "draft": "Ciornă",
+      "published": "Publicat"
+    },
+    "subtitle": "Creează, publică și arhivează strategii sau planuri săptămânale.",
+    "table": {
+      "actions": "Acțiuni",
+      "anytime": "Oricând",
+      "noSummary": "Fără rezumat",
+      "ongoing": "În desfășurare",
+      "status": "Stare",
+      "title": "Titlu",
+      "type": "Tip",
+      "updated": "Actualizat",
+      "visibleRange": "Interval vizibil"
+    },
+    "title": "Conținut administrare",
+    "types": {
+      "all": "Toate tipurile",
+      "strategy": "Strategie",
+      "weeklyPlan": "Plan săptămânal"
+    }
+  },
+  "adminEditor": {
+    "actions": {
+      "archive": "Arhivează",
+      "hidePreview": "Ascunde previzualizarea",
+      "insertWeeklyTemplate": "Inserează șablon săptămânal",
+      "publish": "Publică",
+      "saveDraft": "Salvează ciorna",
+      "saving": "Se salvează...",
+      "showPreview": "Arată previzualizarea"
+    },
+    "errors": {
+      "archiveFailed": "Nu s-a putut arhiva conținutul.",
+      "publishFailed": "Nu s-a putut publica conținutul.",
+      "saveFailed": "Nu s-a putut salva ciorna."
+    },
+    "fields": {
+      "body": "Conținut",
+      "bodyHint": "Folosește markdown pentru titluri, liste și evidențieri.",
+      "commaSeparated": "separate prin virgulă",
+      "slug": "Slug",
+      "slugHint": "Opțional. Dacă este gol, slug-ul se generează din titlu.",
+      "summary": "Rezumat",
+      "symbols": "Simboluri",
+      "tags": "Etichete",
+      "title": "Titlu",
+      "type": "Tip",
+      "visibleFrom": "Vizibil de la",
+      "visibleUntil": "Vizibil până la",
+      "weekEnd": "Sfârșit săptămână",
+      "weekStart": "Început săptămână"
+    },
+    "newContent": "Conținut nou",
+    "preview": "Previzualizare",
+    "subtitle": "Construiește strategii și planuri săptămânale pentru secțiunea Insights.",
+    "title": {
+      "create": "Creează conținut",
+      "edit": "Editează conținut"
+    },
+    "untitled": "Fără titlu",
+    "updated": "Actualizat",
+    "validation": {
+      "bodyRequired": "Conținutul este obligatoriu.",
+      "titleRequired": "Titlul este obligatoriu.",
+      "visibleUntilAfterFrom": "„Vizibil până la” trebuie să fie după „Vizibil de la”.",
+      "weekEndAfterStart": "Sfârșitul săptămânii trebuie să fie după început.",
+      "weekEndRequired": "Sfârșitul săptămânii este obligatoriu pentru planurile săptămânale.",
+      "weekStartRequired": "Începutul săptămânii este obligatoriu pentru planurile săptămânale."
+    },
+    "weeklyTemplate": {
+      "focus": "Focus",
+      "ifThen": "Scenarii dacă/atunci",
+      "ifThenHint": "Dacă ___ atunci ___",
+      "invalidation": "Invalidare",
+      "invalidationHint": "Limitele de risc și ce ar invalida planul",
+      "keyLevels": "Niveluri cheie",
+      "primaryTheme": "Tema principală de piață",
+      "riskCues": "Semnale risk-on / risk-off",
+      "watchlist": "Watchlist",
+      "watchlistHint": "Ticker — teză, nivel, trigger"
+    }
+  },
+  "analytics": {
+    "title": "Analiză",
+    "subtitle": "Diagnoză avansată pentru performanță, consistență și avantaj.",
+    "errors": {
+      "loadAnalytics": "Nu s-au putut încărca datele de analiză.",
+      "loadCoach": "Nu s-au putut încărca recomandările coach-ului."
+    },
+    "coach": {
+      "confidenceLabel": "Încredere",
+      "recommendedActions": "Acțiuni recomandate",
+      "viewTrades": "Vezi tranzacțiile"
+    },
+    "filters": {
+      "advanced": "Avansat",
+      "catalyst": "Catalizator",
+      "closeDate": "Data închiderii",
+      "direction": "Direcție",
+      "excludeOutliers": "Exclude outlier-ele",
+      "from": "De la",
+      "holdingBucket": "Interval de deținere",
+      "market": "Piață",
+      "openDate": "Data deschiderii",
+      "setup": "Setup",
+      "status": "Stare",
+      "strategy": "Strategie",
+      "symbol": "Simbol",
+      "to": "Până la"
+    },
+    "kpis": {
+      "avgLoss": "Pierdere medie",
+      "avgWin": "Câștig mediu",
+      "commission": "Comision",
+      "expectancy": "Expectanță",
+      "fees": "Taxe",
+      "grossLoss": "Pierdere brută",
+      "grossProfit": "Profit brut",
+      "medianTrade": "Tranzacție mediană",
+      "netPnl": "P&L net",
+      "netVsGross": "Net vs brut",
+      "openTrades": "Tranzacții deschise",
+      "payoffRatio": "Raport payoff",
+      "profitFactor": "Factor de profit",
+      "slippage": "Slippage",
+      "totalCosts": "Costuri totale",
+      "trades": "Tranzacții",
+      "winRate": "Rată de câștig"
+    },
+    "tabs": {
+      "coach": "Coach",
+      "consistency": "Consistență",
+      "dataQuality": "Calitatea datelor",
+      "overview": "Privire generală",
+      "risk": "Risc",
+      "symbolsAndTags": "Simboluri & etichete",
+      "timeEdge": "Avantaj temporal"
+    },
+    "overview": {
+      "equityCurve": {
+        "title": "Curba equity",
+        "tooltip": "P&L net cumulat pe baza tranzacțiilor închise, ordonate după momentul închiderii.",
+        "emptyTitle": "Nu există date pentru curba equity",
+        "emptyBody": "Ajustează filtrele pentru a include un interval mai larg de tranzacții."
+      },
+      "drawdown": {
+        "title": "Drawdown",
+        "tooltip": "Drawdown-ul P&L calculat pe P&L net cumulat (de la vârf la minim).",
+        "emptyTitle": "Nu există date de drawdown",
+        "emptyBody": "Adaugă tranzacții închise pentru a vedea drawdown-urile."
+      },
+      "histogram": {
+        "title": "Histogramă P&L",
+        "tooltip": "Distribuția P&L net per tranzacție, evidențiind dispersia și outlier-ele.",
+        "emptyTitle": "Nu există date de distribuție",
+        "emptyBody": "Închide tranzacții pentru a popula histograma."
+      },
+      "traderRead": {
+        "title": "Citire trader",
+        "tooltip": "Insight-uri generate automat, cu context privind dimensiunea eșantionului.",
+        "emptyTitle": "Nu există încă insight-uri",
+        "emptyBody": "Adaugă mai multe tranzacții pentru a obține insight-uri."
+      },
+      "drawdownHighlights": {
+        "title": "Repere drawdown",
+        "maxDrawdown": "Drawdown maxim",
+        "recoveryFactor": "Factor de recuperare",
+        "ulcerIndex": "Indice ulcer"
+      }
+    },
+    "coachSection": {
+      "title": "Insight-uri coach",
+      "subtitle": "Recomandări acționabile generate din istoricul tău de tranzacționare.",
+      "emptyTitle": "Nu există încă insight-uri coach",
+      "emptyBody": "Loghează mai multe tranzacții închise pentru a debloca insight-uri coach."
+    },
+    "consistency": {
+      "rollingMetrics": {
+        "title": "Metrici rolling (20 tranzacții)",
+        "emptyTitle": "Nu există metrici rolling",
+        "emptyBody": "Sunt necesare cel puțin 20 de tranzacții închise."
+      },
+      "streaks": {
+        "title": "Streak-uri & săptămânal",
+        "maxWin": "Streak maxim de câștig",
+        "maxLoss": "Streak maxim de pierdere",
+        "current": "Streak curent",
+        "greenWeeks": "Săptămâni verzi",
+        "redWeeks": "Săptămâni roșii",
+        "bestDay": "Cea mai bună zi",
+        "worstDay": "Cea mai slabă zi"
+      },
+      "weeklyPnl": {
+        "title": "P&L săptămânal agregat",
+        "emptyTitle": "Nu există P&L săptămânal",
+        "emptyBody": "Închide tranzacții pentru a vedea rezultatele pe săptămâni."
+      }
+    },
+    "timeEdge": {
+      "dayOfWeek": {
+        "title": "P&L pe ziua săptămânii",
+        "emptyTitle": "Nu există avantaj pe ziua săptămânii",
+        "emptyBody": "Sunt necesare tranzacții închise pentru calcul."
+      },
+      "holdingBuckets": {
+        "title": "Intervale de deținere",
+        "emptyTitle": "Nu există date de timp de deținere",
+        "emptyBody": "Sunt necesare tranzacții închise pentru analiza duratei de deținere.",
+        "avgHolding": "Durată medie",
+        "medianHolding": "Durată mediană"
+      },
+      "hourHeatmap": {
+        "title": "Heatmap pe oră (P&L net)",
+        "emptyTitle": "Nu există date pe interval orar",
+        "emptyBody": "Închide tranzacții pentru a vedea avantajul orar.",
+        "tooltip": "{{hour}}:00 • N={{trades}} • Câștig {{winRate}}"
+      }
+    },
+    "symbols": {
+      "topSymbols": {
+        "title": "Simboluri de top",
+        "emptyTitle": "Nu există date pe simboluri",
+        "emptyBody": "Închide tranzacții cu simboluri pentru a popula acest grafic.",
+        "top1PnlShare": "Pondere P&L top 1",
+        "top3PnlShare": "Pondere P&L top 3",
+        "top1TradeShare": "Pondere tranzacții top 1",
+        "top3TradeShare": "Pondere tranzacții top 3"
+      },
+      "strategyLeaderboard": {
+        "title": "Clasament strategii",
+        "emptyTitle": "Nu există etichete de strategie",
+        "emptyBody": "Etichetează tranzacțiile cu strategii pentru a le clasa aici.",
+        "lowSample": "Eșantion mic",
+        "stopDoing": "Ce ar trebui să oprești"
+      }
+    },
+    "risk": {
+      "title": "Analiză de risc",
+      "averageR": "R mediu",
+      "medianR": "R median",
+      "expectancyR": "Expectanță (R)",
+      "winRateR": "Rată de câștig (R>0)",
+      "avgRiskAmount": "Risc mediu (sumă)",
+      "avgRiskPercent": "Risc mediu %",
+      "unavailableTitle": "Datele de risc nu sunt disponibile",
+      "unavailableBody": "Începe să urmărești stop-loss-ul sau câmpurile de risc pentru a debloca analiza R.",
+      "rDistribution": {
+        "title": "Distribuție R",
+        "emptyTitle": "Nu există distribuție R",
+        "emptyBody": "Urmărește multiplii R pentru a vedea acest grafic."
+      }
+    },
+    "dataQuality": {
+      "title": "Calitatea datelor",
+      "missingClosedAt": "Lipsă closed_at",
+      "inconsistentStatus": "Status OPEN cu closed_at",
+      "missingStrategy": "Lipsă etichete strategie",
+      "missingSetup": "Lipsă etichete setup",
+      "missingCatalyst": "Lipsă etichete catalizator",
+      "missingPnlPercent": "Lipsă P&L %",
+      "missingRisk": "Lipsă câmpuri de risc",
+      "outlierPolicy": {
+        "title": "Politica pentru outlier-e",
+        "thresholds": "Praguri",
+        "to": "până la",
+        "outliersDetected": "Outlier-e detectate",
+        "hint": "Exclude outlier-ele pentru a vedea modificările de sensibilitate."
+      }
+    },
+    "help": {
+      "title": "Explicații câmpuri",
+      "kpis": {
+        "title": "KPI-uri",
+        "winRate": "Procentul tranzacțiilor închise care s-au terminat pe plus.",
+        "profitFactor": "Profitul brut împărțit la pierderea brută.",
+        "expectancy": "P&L net mediu per tranzacție închisă.",
+        "payoffRatio": "Câștigul mediu împărțit la valoarea absolută a pierderii medii."
+      },
+      "timeConsistency": {
+        "title": "Timp & consistență",
+        "drawdown": "Scăderea de la vârf la minim pe P&L net cumulat.",
+        "rollingMetrics": "Rata de câștig și factorul de profit rolling pe 20 de tranzacții.",
+        "heatmap": "P&L net pe interval orar în fusul Europe/Bucharest."
+      }
+    }
+  },
+  "calendar": {
+    "title": "Calendar",
+    "subtitle": "P&L realizat după data închiderii tranzacției în {{timezone}}.",
+    "previousMonth": "Luna anterioară",
+    "nextMonth": "Luna următoare",
+    "noTrades": "Fără tranzacții",
+    "tradeCount": "{{count}} tranzacții",
+    "monthlyRealizedNet": "Net realizat lunar",
+    "grossPnl": "P&L brut",
+    "tradingDays": "Zile de tranzacționare",
+    "tradesClosed": "Tranzacții închise",
+    "legend": {
+      "profit": "Profit",
+      "loss": "Pierdere",
+      "flat": "Plat"
+    },
+    "empty": {
+      "closedTradesTitle": "Nu există tranzacții închise în acest interval",
+      "closedTradesBody": "După închiderea tranzacțiilor, P&L-ul zilnic va apărea aici."
+    },
+    "aria": {
+      "viewRealizedPnl": "Vezi P&L realizat pentru {{date}}",
+      "netPnl": "P&L net {{value}}",
+      "tradeCount": "{{count}} tranzacții"
+    },
+    "dialog": {
+      "closedOn": "Tranzacții închise la {{date}}",
+      "dailySummary": "Rezumat zilnic",
+      "tradeCountClosed": "{{count}} tranzacții închise",
+      "noClosedTrades": "Nu există tranzacții închise pentru această zi.",
+      "notes": "Note",
+      "noNote": "Nu există note pentru această dată.",
+      "untitledNote": "Notă fără titlu",
+      "openNote": "Deschide nota",
+      "viewInTrades": "Vezi în Tranzacții"
+    }
+  },
+  "checkEmail": {
+    "errors": {
+      "enterEmailOnLogin": "Introdu adresa de email pe pagina de autentificare pentru a retrimite verificarea."
+    },
+    "subtitle": "Am trimis un link de verificare la {{email}}. Confirmă emailul pentru a-ți activa contul.",
+    "title": "Verifică emailul",
+    "yourInbox": "inbox-ul tău"
+  },
+  "dashboard": {
+    "title": "Tablou de bord",
+    "subtitle": "Privire live asupra performanței, creșterii equity și execuțiilor recente.",
+    "kpis": {
+      "netPnl": "P&L net",
+      "grossPnl": "P&L brut",
+      "winRate": "Rată de câștig",
+      "profitFactor": "Factor de profit",
+      "expectancy": "Expectanță",
+      "maxDrawdown": "Drawdown maxim"
+    },
+    "equityCurve": {
+      "title": "Curba equity",
+      "subtitle": "P&L cumulat în timp",
+      "emptyTitle": "Curba equity nu este disponibilă încă",
+      "emptyBody": "Înregistrează câteva tranzacții pentru a vedea performanța cumulată în timp."
+    },
+    "dailyPnl": {
+      "title": "P&L zilnic",
+      "subtitle": "Agregat pe zi",
+      "emptyTitle": "Nu există date P&L agregat",
+      "emptyBody": "P&L-ul zilnic apare după închiderea tranzacțiilor."
+    },
+    "recentTrades": {
+      "title": "Tranzacții recente",
+      "subtitle": "Cele mai noi primele",
+      "empty": "Nu au fost înregistrate încă tranzacții."
+    },
+    "table": {
+      "symbol": "Simbol",
+      "direction": "Direcție",
+      "status": "Stare",
+      "opened": "Deschis la",
+      "pnlNet": "P&L net"
+    },
+    "help": {
+      "title": "Explicații câmpuri",
+      "kpiSection": "KPI-uri",
+      "kpiNetGross": "P&L net și brut arată performanța după și înainte de costuri.",
+      "kpiWinRate": "Rata de câștig este ponderea tranzacțiilor închise care s-au terminat pe plus.",
+      "kpiProfitFactor": "Factorul de profit este profitul brut împărțit la pierderea brută.",
+      "kpiExpectancy": "Expectanța este P&L net mediu per tranzacție închisă.",
+      "kpiDrawdown": "Drawdown-ul maxim este cea mai mare scădere de la vârf la minim în P&L cumulativ.",
+      "chartsSection": "Grafice",
+      "chartEquityCurve": "Afișează P&L net cumulat în timp.",
+      "chartDailyPnl": "Afișează P&L net agregat pe zile.",
+      "chartRecentTrades": "Afișează cele mai recente tranzacții cu context rapid."
+    }
+  },
+  "editor": {
+    "bold": "Îngroșat",
+    "italic": "Cursiv",
+    "underline": "Subliniat",
+    "heading": "Titlu {{level}}",
+    "bulletList": "Listă cu puncte",
+    "numberedList": "Listă numerotată",
+    "checklist": "Checklist",
+    "blockquote": "Citat",
+    "codeBlock": "Bloc de cod",
+    "inlineCode": "Cod inline",
+    "link": "Link",
+    "horizontalRule": "Linie orizontală",
+    "undo": "Anulează",
+    "redo": "Refă",
+    "more": "Mai mult",
+    "moreOptions": "Mai multe opțiuni",
+    "enterUrl": "Introdu URL-ul",
+    "placeholder": "Începe să scrii nota..."
+  },
+  "forgotPassword": {
+    "title": "Resetează parola",
+    "subtitle": "Introdu emailul asociat contului. Dacă există, îți trimitem un link de resetare.",
+    "email": "Adresă de email",
+    "sendLink": "Trimite link de resetare",
+    "backToLogin": "Înapoi la autentificare",
+    "success": "Dacă există un cont pentru acest email, linkul de resetare a fost trimis."
+  },
+  "insightDetail": {
+    "backToInsights": "Înapoi la Insights",
+    "infoAlert": "Doar pentru jurnal și scop educațional. Nu reprezintă sfat de investiții.",
+    "lastUpdated": "Actualizat la"
+  },
+  "insights": {
+    "title": "Insights",
+    "subtitle": "Strategii și planuri săptămânale publicate de echipă, pregătite pentru următoarea sesiune.",
+    "searchPlaceholder": "Caută strategii sau planuri săptămânale",
+    "tagsPlaceholder": "Filtrează după etichete (separate prin virgulă)",
+    "symbolsPlaceholder": "Filtrează după simboluri (separate prin virgulă)",
+    "empty": {
+      "strategiesTitle": "Nu există strategii publicate încă",
+      "strategiesBody": "După publicare, strategiile vor apărea aici pentru toți utilizatorii.",
+      "weeklyTitle": "Nu există planuri săptămânale publicate încă",
+      "weeklyBody": "Planurile săptămânale vor apărea aici după publicare."
+    },
+    "type": {
+      "strategy": "Strategie",
+      "weeklyPlan": "Plan săptămânal"
+    },
+    "updated": "Actualizat",
+    "weekOf": "Săptămâna din",
+    "tabs": {
+      "strategies": "Strategii",
+      "weeklyPlans": "Planuri săptămânale"
+    }
+  },
+  "legal": {
+    "disclaimer": "Versiune de lucru. Acest conținut trebuie revizuit de consultanți juridici calificați pentru jurisdicția aplicabilă.",
+    "terms": {
+      "title": "Termeni și condiții",
+      "sections": {
+        "s1": {
+          "title": "1. Domeniu de aplicare",
+          "body": "Acești termeni guvernează utilizarea aplicației TradeJAudit și a serviciilor conexe."
+        },
+        "s2": {
+          "title": "2. Responsabilitățile contului",
+          "body": "Ești responsabil pentru securitatea contului, corectitudinea datelor și utilizarea legală."
+        },
+        "s3": {
+          "title": "3. Utilizare permisă",
+          "body": "Nu este permisă abuzarea, perturbarea, ingineria inversă sau utilizarea serviciului în scopuri ilegale."
+        },
+        "s4": {
+          "title": "4. Proprietatea datelor",
+          "body": "Tu păstrezi proprietatea asupra conținutului încărcat. Ne acorzi o licență limitată pentru operarea serviciului."
+        },
+        "s5": {
+          "title": "5. Disponibilitate",
+          "body": "Putem actualiza, suspenda sau opri funcționalități. Urmărim fiabilitatea, dar nu garantăm acces neîntrerupt."
+        },
+        "s6": {
+          "title": "6. Declarație privind investițiile",
+          "body": "TradeJAudit este un instrument de jurnal și analiză. Nu oferă sfaturi de investiții."
+        },
+        "s7": {
+          "title": "7. Limitarea răspunderii",
+          "body": "În măsura permisă de lege, răspunderea este limitată la daune directe și exclude pierderile indirecte."
+        },
+        "s8": {
+          "title": "8. Încetare",
+          "body": "Putem suspenda sau închide conturi care încalcă acești termeni sau legea aplicabilă."
+        },
+        "s9": {
+          "title": "9. Modificări ale termenilor",
+          "body": "Putem actualiza acești termeni. Utilizarea continuă după modificări înseamnă acceptarea versiunii revizuite."
+        }
+      }
+    },
+    "privacy": {
+      "title": "Politica de confidențialitate",
+      "sections": {
+        "s1": {
+          "title": "1. Date colectate",
+          "body": "Colectăm date de cont, setări ale aplicației și conținutul creat de tine în aplicație."
+        },
+        "s2": {
+          "title": "2. Cum folosim datele",
+          "body": "Folosim datele pentru funcționalitățile de bază, îmbunătățirea fiabilității și protejarea conturilor."
+        },
+        "s3": {
+          "title": "3. Temei legal",
+          "body": "Prelucrarea se bazează pe executarea contractului, interes legitim și consimțământ, unde este necesar."
+        },
+        "s4": {
+          "title": "4. Partajare",
+          "body": "Nu vindem date personale. Datele pot fi partajate cu furnizori de infrastructură în baza unor garanții contractuale."
+        },
+        "s5": {
+          "title": "5. Perioada de stocare",
+          "body": "Păstrăm datele cât timp contul este activ și cât este necesar pentru obligații legale sau de securitate."
+        },
+        "s6": {
+          "title": "6. Securitate",
+          "body": "Aplicăm măsuri tehnice și organizaționale de protecție, însă niciun sistem nu este lipsit de riscuri."
+        },
+        "s7": {
+          "title": "7. Drepturile tale",
+          "body": "Poți solicita acces, corectare, export sau ștergere a datelor personale, unde legea permite."
+        }
+      }
+    },
+    "cookies": {
+      "title": "Politica de cookie-uri",
+      "sections": {
+        "s1": {
+          "title": "Cum folosim cookie-urile",
+          "body": "Cookie-urile ajută la securizarea sesiunilor, memorarea preferințelor și îmbunătățirea performanței."
+        }
+      }
+    }
+  },
+  "login": {
+    "actions": {
+      "createFreeAccount": "Creează cont gratuit",
+      "forgotPassword": "Ai uitat parola?",
+      "newHere": "Ești nou? Creează un cont",
+      "resendVerification": "Retrimite emailul de verificare"
+    },
+    "brand": {
+      "subtitle": "Jurnal de tranzacționare + caiet"
+    },
+    "errors": {
+      "enterEmailToResend": "Introdu adresa de email pentru a retrimite verificarea."
+    },
+    "form": {
+      "agreePrefix": "Continuând, ești de acord cu",
+      "and": "și",
+      "email": "Adresă de email",
+      "password": "Parolă",
+      "privacyPolicy": "Politica de confidențialitate",
+      "securityNote": "Date criptate în tranzit. Nu este necesară autentificarea la broker.",
+      "subtitle": "Autentifică-te pentru a sincroniza jurnalul, analiza și playbook-urile.",
+      "title": "Bine ai revenit"
+    },
+    "hero": {
+      "badges": {
+        "discipline": "Conceput pentru execuție disciplinată",
+        "export": "Export oricând",
+        "privacy": "Datele tale rămân private"
+      },
+      "imageAlt": "Spațiu de lucru abstract pentru trading cu grafice",
+      "points": {
+        "attachments": "Atașează capturi și context fiecărei tranzacții.",
+        "fastLogging": "Înregistrează tranzacțiile în secunde. Analizează tipare în minute.",
+        "performance": "Vezi performanța pe zi, strategie, ticker și etichetă.",
+        "playbooks": "Transformă notițele în playbook-uri: setup-uri, reguli, greșeli, lecții."
+      },
+      "quote": "Profesioniștii nu urmăresc P&L-ul, ci execută un proces.",
+      "subtitle": "TradeJAudit este jurnalul tău de tranzacționare + caietul tău pentru a captura setup-uri, a revizui execuția și a urmări performanța - ca să tranzacționezi cu claritate, nu cu emoție.",
+      "title": "Avantajul tău este disciplina. Construiește-l zilnic."
+    },
+    "success": {
+      "verificationSent": "Emailul de verificare a fost trimis. Verifică inboxul."
+    },
+    "validation": {
+      "email": "Introdu o adresă de email validă",
+      "password": "Parola trebuie să aibă cel puțin 6 caractere"
+    }
+  },
+  "profile": {
+    "title": "Profil",
+    "subtitle": "Vezi detaliile contului și preferințele tale.",
+    "emptyTitle": "Nu există informații despre utilizator",
+    "emptyDescription": "Autentifică-te din nou pentru a vedea detaliile profilului.",
+    "fields": {
+      "email": "Email",
+      "role": "Rol",
+      "timezone": "Fus orar",
+      "baseCurrency": "Monedă de bază"
+    },
+    "passwordComingSoon": "Funcția de schimbare a parolei va fi disponibilă în curând."
+  },
+  "register": {
+    "title": "Creează cont",
+    "subtitle": "Începe să urmărești tranzacțiile și să construiești insight-uri de performanță.",
+    "email": "Adresă de email",
+    "password": "Parolă",
+    "legalPrefix": "Sunt de acord cu",
+    "andAcknowledge": "și confirm",
+    "termsAndConditions": "Termenii și condițiile",
+    "privacyPolicy": "Politica de confidențialitate",
+    "alreadyHaveAccount": "Ai deja cont? Autentifică-te",
+    "validation": {
+      "email": "Introdu o adresă de email validă",
+      "password": "Parola trebuie să aibă cel puțin 8 caractere",
+      "legal": "Trebuie să accepți Termenii și Politica de confidențialitate."
+    }
+  },
+  "resetPassword": {
+    "title": "Setează o parolă nouă",
+    "subtitle": "Alege o parolă puternică pentru a-ți securiza contul.",
+    "newPassword": "Parolă nouă",
+    "confirmPassword": "Confirmă parola nouă",
+    "update": "Actualizează parola",
+    "success": "Parola a fost actualizată cu succes. Acum te poți autentifica.",
+    "errors": {
+      "invalidLink": "Linkul de resetare lipsește sau este invalid.",
+      "passwordMismatch": "Parolele nu coincid",
+      "shortPassword": "Parola trebuie să aibă cel puțin 8 caractere"
+    }
+  },
+  "settings": {
+    "title": "Setări",
+    "subtitle": "Actualizează moneda de bază și fusul orar; modificările se aplică în toată aplicația.",
+    "timezone": "Fus orar",
+    "timezoneHint": "Fus orar IANA (ex: Europe/Bucharest)",
+    "baseCurrency": "Monedă de bază",
+    "baseCurrencyHint": "Cod monedă ISO (ex: USD, EUR, GBP)",
+    "actions": {
+      "save": "Salvează setările"
+    },
+    "messages": {
+      "saving": "Se salvează...",
+      "saved": "Setările au fost salvate și sincronizate"
+    },
+    "password": {
+      "title": "Schimbă parola",
+      "subtitle": "Actualizează parola periodic pentru a-ți păstra jurnalul în siguranță.",
+      "current": "Parola curentă",
+      "new": "Parolă nouă",
+      "confirm": "Confirmă parola nouă",
+      "minHint": "Minim 8 caractere",
+      "updateAction": "Actualizează parola",
+      "errors": {
+        "mismatch": "Parolele noi nu coincid",
+        "short": "Parola nouă trebuie să aibă cel puțin 8 caractere"
+      },
+      "messages": {
+        "updated": "Parola a fost actualizată cu succes"
+      }
+    },
+    "delete": {
+      "title": "Ștergere cont",
+      "subtitle": "Solicită ștergerea contului și a datelor. Fluxul va fi disponibil în curând.",
+      "action": "Șterge contul (în curând)"
+    }
+  },
+  "trades": {
+    "title": "Tranzacții",
+    "subtitle": "Înregistrează tranzacții noi, editează istoricul și analizează detaliile.",
+    "tradeNoteSuffix": "notă de tranzacție",
+    "actions": {
+      "createTradeNote": "Creează notă de tranzacție",
+      "editTrade": "Editează tranzacția",
+      "updateTrade": "Actualizează tranzacția",
+      "deleteTrade": "Șterge tranzacția"
+    },
+    "create": {
+      "title": "Creează tranzacție",
+      "save": "Salvează tranzacția"
+    },
+    "deleteConfirm": "Sigur vrei să ștergi tranzacția {{symbol}}?",
+    "empty": {
+      "title": "Nu există tranzacții de afișat",
+      "body": "Creează o tranzacție sau ajustează filtrele pentru a vedea rezultate."
+    },
+    "errors": {
+      "loginRequired": "Autentifică-te pentru a vedea tranzacțiile.",
+      "fetchFailed": "Nu s-au putut încărca tranzacțiile.",
+      "createFailed": "Nu s-a putut crea tranzacția.",
+      "updateFailed": "Nu s-a putut actualiza tranzacția.",
+      "deleteFailed": "Nu s-a putut șterge tranzacția.",
+      "importFailed": "Nu s-a putut importa fișierul CSV.",
+      "createTradeNoteFailed": "Nu s-a putut crea nota de tranzacție.",
+      "noteMissingId": "Nota a fost creată, dar nu a fost returnat un ID. Reîncarcă pagina și deschide nota manual."
+    },
+    "filters": {
+      "title": "Filtre",
+      "openedFrom": "Deschis de la",
+      "openedTo": "Deschis până la",
+      "closedFrom": "Închis de la",
+      "closedTo": "Închis până la",
+      "symbol": "Simbol",
+      "direction": "Direcție",
+      "status": "Stare",
+      "any": "Oricare",
+      "clear": "Curăță filtrele"
+    },
+    "list": {
+      "title": "Lista tranzacțiilor",
+      "searchResults": "Rezultate filtrate",
+      "importCsv": "Importă CSV"
+    },
+    "import": {
+      "summary": "Au fost importate {{rows}} rânduri din {{groups}} grupuri ISIN.",
+      "tradesCreated": "Tranzacții create",
+      "tradesUpdated": "Tranzacții actualizate",
+      "groupsSkipped": "Grupuri omise",
+      "isinGroups": "Grupuri ISIN",
+      "perIsinResults": "Rezultate per ISIN",
+      "status": {
+        "SKIPPED": "Omis",
+        "IMPORTED": "Importat"
+      }
+    },
+    "card": {
+      "entry": "Intrare",
+      "exit": "Ieșire",
+      "pnl": "P&L",
+      "pnlPercent": "P&L %",
+      "notes": "Note"
+    },
+    "table": {
+      "opened": "Deschis la",
+      "symbol": "Simbol",
+      "market": "Piață",
+      "direction": "Direcție",
+      "status": "Stare",
+      "qty": "Cantitate",
+      "entry": "Intrare",
+      "exit": "Ieșire",
+      "pnlNet": "P&L net",
+      "pnlPercent": "P&L %",
+      "rMultiple": "Multiplu R",
+      "notes": "Note",
+      "noNotes": "Fără note",
+      "actions": "Acțiuni"
+    },
+    "details": {
+      "title": "Detalii tranzacție",
+      "stopsAndTargets": "Stop-uri & ținte",
+      "stopLoss": "Stop loss",
+      "takeProfit": "Take profit",
+      "timeframe": "Timeframe",
+      "costsAndRisk": "Costuri & risc",
+      "risk": "Risc",
+      "setup": "Setup",
+      "notesAndTags": "Note & etichete",
+      "noTags": "Fără etichete"
+    },
+    "form": {
+      "symbol": "Simbol",
+      "market": "Piață",
+      "direction": "Direcție",
+      "status": "Stare",
+      "openedAt": "Deschis la",
+      "closedAt": "Închis la",
+      "timeframe": "Timeframe",
+      "quantity": "Cantitate",
+      "entryPrice": "Preț intrare",
+      "exitPrice": "Preț ieșire",
+      "stopLossPrice": "Preț stop loss",
+      "takeProfitPrice": "Preț take profit",
+      "fees": "Taxe",
+      "commission": "Comision",
+      "slippage": "Slippage",
+      "riskAmount": "Sumă risc",
+      "riskAmountHint": "Opțional: îmbunătățește calculul P&L % și multiplu R",
+      "capitalUsed": "Capital folosit",
+      "capitalUsedHint": "Opțional: folosit pentru calculul P&L %",
+      "setup": "Setup",
+      "strategyTag": "Etichetă strategie",
+      "catalystTag": "Etichetă catalizator",
+      "notes": "Note",
+      "accountId": "ID cont",
+      "computedMetrics": "Metrici calculate (doar citire)",
+      "pnlGross": "P&L brut",
+      "pnlNet": "P&L net",
+      "pnlPercent": "P&L %",
+      "riskPercent": "Risc %",
+      "rMultiple": "Multiplu R",
+      "validation": {
+        "symbolRequired": "Simbolul este obligatoriu"
+      }
+    },
+    "help": {
+      "title": "Explicații câmpuri tranzacție",
+      "corePricing": {
+        "entryExit": "Entry / Exit / SL / TP",
+        "entryExitBody": "Prețuri de intrare și ieșire plus ancore opționale pentru stop-loss și take-profit.",
+        "directionMarket": "Direcție & piață",
+        "directionMarketBody": "Dacă poziția este LONG sau SHORT și tipul instrumentului (acțiuni, forex, crypto etc.).",
+        "status": "Stare",
+        "statusBody": "OPEN sau CLOSED. OpenedAt marchează deschiderea poziției; ClosedAt se completează la închidere.",
+        "capitalUsed": "Capital folosit",
+        "capitalUsedBody": "Numerar sau marjă alocată acestei tranzacții."
+      },
+      "pnlAndRisk": {
+        "feesCosts": "Taxe / Comision / Slippage",
+        "feesCostsBody": "Toate costurile de tranzacționare deduse din P&L brut.",
+        "pnlGross": "P&L brut",
+        "pnlGrossBody": "(Ieșire − Intrare) × Cantitate (inversat pentru SHORT) înainte de costuri.",
+        "pnlNet": "P&L net",
+        "pnlNetBody": "P&L brut minus taxe, comision și slippage.",
+        "pnlPercent": "P&L procentual",
+        "pnlPercentBody": "P&L net împărțit la capitalul folosit (sau suma de risc dacă există), exprimat procentual.",
+        "riskAmountPercent": "Sumă risc / Procent risc",
+        "riskAmountPercentBody": "Distanța monetară și procentuală între intrare și stop loss înmulțită cu cantitatea.",
+        "rMultiple": "Multiplu R",
+        "rMultipleBody": "P&L net împărțit la suma de risc. 1R reprezintă riscul inițial."
+      },
+      "context": {
+        "timeframe": "Timeframe",
+        "timeframeBody": "Referință pentru intervalul graficului sau perioada de deținere.",
+        "setupStrategyCatalyst": "Setup / Strategie / Catalizator",
+        "setupStrategyCatalystBody": "Etichete calitative care descriu de ce a fost luată tranzacția.",
+        "statusDirection": "Stare & Direcție",
+        "statusDirectionBody": "Orientare rapidă pentru dashboard-uri și filtre."
+      },
+      "sections": {
+        "corePricing": "Prețuri de bază",
+        "pnlAndRisk": "P&L și risc",
+        "context": "Context"
+      }
+    },
+    "messages": {
+      "created": "Tranzacția a fost creată cu succes"
+    },
+    "market": {
+      "STOCK": "STOCK",
+      "CFD": "CFD",
+      "FOREX": "FOREX",
+      "CRYPTO": "CRYPTO",
+      "FUTURES": "FUTURES",
+      "OPTIONS": "OPTIONS",
+      "OTHER": "OTHER"
+    },
+    "direction": {
+      "LONG": "Long",
+      "SHORT": "Short"
+    },
+    "status": {
+      "OPEN": "Deschisă",
+      "CLOSED": "Închisă"
+    }
+  },
+  "verifyEmail": {
+    "title": "Verifică emailul",
+    "loading": "Verificăm linkul de confirmare...",
+    "success": "Email verificat. Acum te poți autentifica în contul tău.",
+    "goToLogin": "Mergi la autentificare",
+    "errors": {
+      "invalidLink": "Linkul de verificare lipsește sau este invalid."
+    }
+  },
+  "notebook": {
+    "title": "Caiet",
+    "subtitle": "Capturează notițe de sesiune, jurnale zilnice și reflecții despre tranzacții.",
+    "actions": {
+      "addFolder": "Adaugă folder",
+      "deleteFolder": "Șterge folder",
+      "addTag": "Adaugă etichetă",
+      "new": "Nou",
+      "newDailyLog": "Jurnal zilnic nou",
+      "newPlan": "Plan nou",
+      "createLossRecap": "Creează recapitulare pierderi",
+      "newNote": "Notă nouă",
+      "newGoal": "Obiectiv nou",
+      "createDailyLog": "Creează jurnal zilnic",
+      "createPlan": "Creează plan",
+      "collapseFilters": "Restrânge filtrele",
+      "expandFilters": "Extinde filtrele",
+      "pin": "Fixează",
+      "unpin": "Anulează fixarea",
+      "pinNote": "Fixează nota",
+      "unpinNote": "Anulează fixarea notei",
+      "restore": "Restaurează",
+      "delete": "Șterge",
+      "insertDailyLogStructure": "Inserează structura jurnalului zilnic",
+      "saveAsTemplate": "Salvează ca șablon",
+      "openFolders": "Deschide folderele",
+      "uploadAttachment": "Încarcă atașament",
+      "undo": "Anulează",
+      "create": "Creează"
+    },
+    "aria": {
+      "openFilters": "Deschide filtrele",
+      "toggleNoteList": "Comută lista de note",
+      "filterByType": "Filtrează notele după tip",
+      "backToNotesList": "Înapoi la lista de note",
+      "openFolders": "Deschide folderele",
+      "moreActions": "Mai multe acțiuni",
+      "readMode": "Mod citire",
+      "editMode": "Mod editare",
+      "closeFilters": "Închide filtrele"
+    },
+    "sections": {
+      "filters": "Filtre",
+      "folders": "Foldere",
+      "tags": "Etichete",
+      "notes": "Note",
+      "editor": "Editor",
+      "attachments": "Atașamente"
+    },
+    "labels": {
+      "systemView": "Vizualizare sistem",
+      "notesCount": "{{count}} note",
+      "updatedAt": "Actualizat {{date}}",
+      "listCollapsed": "Lista este restrânsă",
+      "noFolder": "Fără folder",
+      "notAvailable": "—"
+    },
+    "placeholders": {
+      "filterByTag": "Filtrează după etichetă",
+      "searchNotes": "Caută note...",
+      "tradeId": "UUID tranzacție (opțional)"
+    },
+    "fields": {
+      "sort": "Sortare",
+      "title": "Titlu",
+      "type": "Tip",
+      "folder": "Folder",
+      "date": "Dată",
+      "linkedTradeId": "ID tranzacție asociată",
+      "tags": "Etichete",
+      "applyTemplate": "Aplică șablonul"
+    },
+    "sort": {
+      "updated": "Ultima actualizare",
+      "created": "Creare",
+      "noteDate": "Data notei"
+    },
+    "filterType": {
+      "ALL": "Toate",
+      "DAILY_LOG": "Jurnale zilnice",
+      "PLAN": "Planuri",
+      "SESSION_RECAP": "Recapitulări",
+      "PINNED": "Fixate"
+    },
+    "noteType": {
+      "DAILY_LOG": "Jurnal zilnic",
+      "TRADE_NOTE": "Notă tranzacție",
+      "PLAN": "Plan",
+      "GOAL": "Obiectiv",
+      "SESSION_RECAP": "Recapitulare sesiune",
+      "NOTE": "Notă"
+    },
+    "defaultTitle": {
+      "dailyLog": "Jurnal zilnic {{date}}",
+      "untitledNote": "Notă fără titlu"
+    },
+    "empty": {
+      "noNotesTitle": "Nu există note încă",
+      "noNotesBody": "Creează o notă sau un jurnal zilnic pentru a începe.",
+      "noAttachments": "Nu există atașamente încă."
+    },
+    "saveState": {
+      "saving": "Se salvează…",
+      "error": "Salvarea a eșuat",
+      "savedAt": "Salvat {{date}}",
+      "unsaved": "Modificări nesalvate",
+      "allSaved": "Toate modificările sunt salvate"
+    },
+    "prompts": {
+      "discardChanges": "Ai modificări nesalvate. Le abandonezi?",
+      "discardAndContinue": "Ai modificări nesalvate. Le abandonezi și continui?",
+      "moveToRecentlyDeleted": "Muți această notă în „Șterse recent”?",
+      "templateName": "Nume șablon?",
+      "newTagName": "Nume etichetă nouă",
+      "folderName": "Nume folder"
+    },
+    "messages": {
+      "noteOutsideFilters": "Nota a fost deschisă în afara filtrelor curente. Ajustează filtrele pentru a o vedea în listă.",
+      "noteCreatedOutsideFilters": "Nota a fost creată în afara filtrelor curente. Este afișată în Toate notele.",
+      "noteMovedToRecentlyDeleted": "Nota a fost mutată în „Șterse recent”."
+    },
+    "validation": {
+      "dateRequired": "Data este obligatorie",
+      "dailyLogDateRequired": "Data este obligatorie pentru jurnalele zilnice."
+    },
+    "errors": {
+      "loginRequired": "Autentifică-te din nou pentru a accesa caietul.",
+      "loadFolders": "Nu s-au putut încărca folderele caietului.",
+      "loadNotes": "Nu s-au putut încărca notele.",
+      "refreshNote": "Nu s-a putut reîmprospăta nota selectată.",
+      "createNote": "Nu s-a putut crea nota.",
+      "saveNote": "Nu s-a putut salva nota.",
+      "deleteNote": "Nu s-a putut șterge nota.",
+      "restoreNote": "Nu s-a putut restaura nota.",
+      "createTag": "Nu s-a putut crea eticheta.",
+      "uploadAttachment": "Nu s-a putut încărca atașamentul.",
+      "deleteAttachment": "Nu s-a putut șterge atașamentul.",
+      "createLossRecap": "Nu s-a putut crea nota de recapitulare a pierderilor.",
+      "createFolder": "Nu s-a putut crea folderul.",
+      "deleteFolder": "Nu s-a putut șterge folderul."
+    },
+    "dailyTemplate": {
+      "sessionBias": "Bias-ul sesiunii",
+      "keyLevels": "Niveluri cheie",
+      "newsAndCatalysts": "Știri și catalizatori",
+      "rulesToExecute": "Reguli de execuție",
+      "postSessionReview": "Revizuire post-sesiune"
+    },
+    "dailySummary": {
+      "netPnl": "P&L net",
+      "trades": "Tranzacții",
+      "winners": "Câștigătoare",
+      "losers": "Pierzătoare",
+      "winRate": "Rată de câștig",
+      "tradesClosedToday": "Tranzacții închise astăzi",
+      "noClosedTrades": "Nu există tranzacții închise pentru această dată."
+    },
+    "tradeSummary": {
+      "title": "Rezumat tranzacție",
+      "openedAt": "Deschisă {{date}}",
+      "closedAt": "Închisă {{date}}"
+    },
+    "lossRecap": {
+      "dialogTitle": "Creează recapitulare pierderi",
+      "from": "De la",
+      "to": "Până la",
+      "minLoss": "Pierdere minimă",
+      "title": "Recapitulare pierderi",
+      "noteTitle": "Recapitulare pierderi {{from}} → {{to}}",
+      "noLossesMatched": "Nicio pierdere nu corespunde criteriilor selectate.",
+      "table": {
+        "symbol": "Simbol",
+        "direction": "Direcție",
+        "closed": "Închisă",
+        "netPnl": "P&L net",
+        "setup": "Setup"
+      },
+      "reflectionTitle": "Întrebări de reflecție",
+      "promptMistake": "Care a fost greșeala?",
+      "promptRule": "Ce regulă a fost încălcată?",
+      "promptFix": "Care este corecția?"
+    }
+  }
+}

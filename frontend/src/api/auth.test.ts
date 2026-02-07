@@ -20,11 +20,17 @@ describe('auth api', () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ token: 'abc', user: { id: '1', email: 'test@example.com' } })
+      text: async () => JSON.stringify({ token: 'abc', user: { id: '1', email: 'test@example.com' } })
     })
   })
 
-  it('register calls correct endpoint and stores token', async () => {
+  it('register calls correct endpoint without setting auth token', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: true, requiresEmailVerification: true })
+    })
+
     await register({
       email: 'user@example.com',
       password: 'Password1!',
@@ -36,7 +42,7 @@ describe('auth api', () => {
       locale: 'en-GB'
     })
     expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/auth/register', expect.anything())
-    expect(localStorage.getItem('token')).toBe('abc')
+    expect(localStorage.getItem('token')).toBeUndefined()
   })
 
   it('login calls correct endpoint and stores token', async () => {

@@ -30,10 +30,13 @@ import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../
 import { useNavigate } from 'react-router-dom'
 import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 const weekStartsOn = 1
 
 export default function CalendarPage() {
+  const { t, locale } = useI18n()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'lg'))
@@ -64,10 +67,12 @@ export default function CalendarPage() {
   const calendarEnd = useMemo(() => endOfWeek(monthEnd, { weekStartsOn }), [monthEnd])
   const days = useMemo(() => eachDayOfInterval({ start: calendarStart, end: calendarEnd }), [calendarStart, calendarEnd])
   const monthDays = useMemo(() => days.filter((day) => isSameMonth(day, currentMonth)), [currentMonth, days])
-  const weekdayLabels = useMemo(() => eachDayOfInterval({ start: calendarStart, end: addDays(calendarStart, 6) })
-    .map((day) => format(day, 'EEE')), [calendarStart])
+  const weekdayLabels = useMemo(() => {
+    const formatter = new Intl.DateTimeFormat(locale, { weekday: 'short' })
+    return eachDayOfInterval({ start: calendarStart, end: addDays(calendarStart, 6) }).map((day) => formatter.format(day))
+  }, [calendarStart, locale])
   const monthKey = useMemo(() => format(currentMonth, 'yyyy-MM'), [currentMonth])
-  const monthLabel = useMemo(() => format(currentMonth, 'MMMM yyyy'), [currentMonth])
+  const monthLabel = useMemo(() => new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(currentMonth), [currentMonth, locale])
   const summaryCacheKey = useMemo(() => `${monthKey}-${timezone}`, [monthKey, timezone])
 
   const pnlByDate = useMemo(() => new Map(dailyPnl.map((entry) => [entry.date, entry])), [dailyPnl])
@@ -95,7 +100,7 @@ export default function CalendarPage() {
         const data = await fetchDailyPnl({ from, to, tz: timezone, basis: 'close' })
         setDailyPnl(data)
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load calendar data'
+        const message = translateApiError(err, t, 'calendar.errors.loadCalendar')
         setError(message)
         setDailyPnl([])
       } finally {
@@ -128,7 +133,7 @@ export default function CalendarPage() {
         setMonthSummary(data)
       } catch (err) {
         if (!active) return
-        const message = err instanceof Error ? err.message : 'Failed to load monthly summary'
+        const message = translateApiError(err, t, 'calendar.errors.loadMonthlySummary')
         setMonthSummaryError(message)
       } finally {
         if (active) {
@@ -153,7 +158,7 @@ export default function CalendarPage() {
         const data = await listClosedTradesForDate(dateKey, timezone)
         setSelectedTrades(data)
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load trades'
+        const message = translateApiError(err, t, 'calendar.errors.loadTrades')
         setSelectedTrades([])
         setSelectedError(message)
       } finally {
@@ -173,7 +178,7 @@ export default function CalendarPage() {
         const data = await listNotebookNotesByDate(dateKey, dateKey)
         setSelectedNotes(data)
       } catch (err) {
-        const message = err instanceof Error ? err.message : 'Failed to load notes'
+        const message = translateApiError(err, t, 'calendar.errors.loadNotes')
         setSelectedNotes([])
         setSelectedNotesError(message)
       } finally {
@@ -192,6 +197,14 @@ export default function CalendarPage() {
   const summaryGrossPnl = monthSummary?.grossPnl
   const summaryTradeCount = monthSummary?.tradeCount ?? derivedSummary.tradeCount
   const summaryTradingDays = monthSummary?.tradingDays ?? derivedSummary.tradingDays
+  const noteTypeLabels: Record<string, string> = {
+    DAILY_LOG: t('notebook.noteType.DAILY_LOG'),
+    TRADE_NOTE: t('notebook.noteType.TRADE_NOTE'),
+    PLAN: t('notebook.noteType.PLAN'),
+    GOAL: t('notebook.noteType.GOAL'),
+    SESSION_RECAP: t('notebook.noteType.SESSION_RECAP'),
+    NOTE: t('notebook.noteType.NOTE')
+  }
   const showSummarySkeleton = (monthSummaryLoading || loading) && !monthSummary && dailyPnl.length === 0
   const showSummaryError = monthSummaryError && !monthSummary && dailyPnl.length === 0
   const hasGross = summaryGrossPnl !== undefined && summaryGrossPnl !== null
@@ -240,7 +253,7 @@ export default function CalendarPage() {
     const isPositive = netPnl !== undefined && netPnl > 0
     const isNegative = netPnl !== undefined && netPnl < 0
     const pnlLabel = netPnl === undefined
-      ? '—'
+      ? t('common.na')
       : (isMobile ? formatCompactCurrency(netPnl, baseCurrency) : formatSignedCurrency(netPnl, baseCurrency))
     const backgroundColor = isPositive
       ? alpha(theme.palette.success.light, 0.25)
@@ -259,11 +272,11 @@ export default function CalendarPage() {
         : theme.palette.grey[600]
     const ariaLabelParts = entry
       ? [
-        `View realized P&L for ${dateKey}`,
-        `Net P&L ${formatSignedCurrency(netPnl ?? 0, baseCurrency)}`,
-        `${entry.tradeCount} trades`
+        t('calendar.aria.viewRealizedPnl', { date: dateKey }),
+        t('calendar.aria.netPnl', { value: formatSignedCurrency(netPnl ?? 0, baseCurrency) }),
+        t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
-      : [`View realized P&L for ${dateKey}`, 'No trades']
+      : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
 
     return (
       <ButtonBase
@@ -298,7 +311,7 @@ export default function CalendarPage() {
               noWrap
               sx={{ fontSize: isMobile ? '0.65rem' : '0.75rem' }}
             >
-              {entry ? `${entry.tradeCount} trades` : 'No trades'}
+              {entry ? t('calendar.tradeCount', { count: entry.tradeCount }) : t('calendar.noTrades')}
             </Typography>
           </Stack>
           <Box sx={{ display: 'flex' }}>
@@ -344,15 +357,15 @@ export default function CalendarPage() {
       : isNegative
         ? theme.palette.error.main
         : theme.palette.grey[600]
-    const pnlLabel = netPnl === undefined ? '—' : formatSignedCurrency(netPnl, baseCurrency)
-    const tradeLabel = entry ? `${entry.tradeCount} trades` : 'No trades'
+    const pnlLabel = netPnl === undefined ? t('common.na') : formatSignedCurrency(netPnl, baseCurrency)
+    const tradeLabel = entry ? t('calendar.tradeCount', { count: entry.tradeCount }) : t('calendar.noTrades')
     const ariaLabelParts = entry
       ? [
-        `View realized P&L for ${dateKey}`,
-        `Net P&L ${formatSignedCurrency(netPnl ?? 0, baseCurrency)}`,
-        `${entry.tradeCount} trades`
+        t('calendar.aria.viewRealizedPnl', { date: dateKey }),
+        t('calendar.aria.netPnl', { value: formatSignedCurrency(netPnl ?? 0, baseCurrency) }),
+        t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
-      : [`View realized P&L for ${dateKey}`, 'No trades']
+      : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
 
     return (
       <ButtonBase
@@ -375,7 +388,7 @@ export default function CalendarPage() {
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ width: '100%', minWidth: 0 }}>
           <Stack spacing={0.25} sx={{ minWidth: 0 }}>
             <Typography variant="subtitle2" fontWeight={600} noWrap>
-              {format(day, 'EEE, MMM d')}
+              {new Intl.DateTimeFormat(locale, { weekday: 'short', month: 'short', day: 'numeric' }).format(day)}
             </Typography>
             <Typography variant="caption" color="text.secondary">
               {tradeLabel}
@@ -404,8 +417,8 @@ export default function CalendarPage() {
   return (
     <Stack spacing={isCompact ? 2 : 3}>
       <PageHeader
-        title="Calendar"
-        subtitle={`Realized P&L by trade close date in ${timezone}.`}
+        title={t('calendar.title')}
+        subtitle={t('calendar.subtitle', { timezone })}
         actions={(
           <Box
             sx={{
@@ -418,7 +431,7 @@ export default function CalendarPage() {
             }}
           >
             <IconButton
-              aria-label="Previous month"
+              aria-label={t('calendar.previousMonth')}
               onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}
               sx={{ width: 44, height: 44 }}
             >
@@ -429,10 +442,10 @@ export default function CalendarPage() {
               textAlign="center"
               sx={{ minWidth: 0, whiteSpace: 'nowrap' }}
             >
-              {format(currentMonth, 'MMMM yyyy')}
+              {monthLabel}
             </Typography>
             <IconButton
-              aria-label="Next month"
+              aria-label={t('calendar.nextMonth')}
               onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}
               sx={{ width: 44, height: 44 }}
             >
@@ -466,7 +479,7 @@ export default function CalendarPage() {
                 alignItems={isCompact ? 'center' : 'flex-start'}
               >
                 <Typography variant="subtitle2" color="text.secondary">
-                  Monthly Realized P&L (net)
+                  {t('calendar.monthlyRealizedNet')}
                 </Typography>
                 {showSummarySkeleton ? (
                   <Skeleton variant="text" width={180} height={32} />
@@ -503,7 +516,7 @@ export default function CalendarPage() {
                     }}
                   >
                     <Typography variant="caption" color="text.secondary">
-                      Gross P&L
+                      {t('calendar.grossPnl')}
                     </Typography>
                     {showSummarySkeleton ? (
                       <Skeleton variant="text" width={120} height={20} />
@@ -528,7 +541,7 @@ export default function CalendarPage() {
                   }}
                 >
                   <Typography variant="caption" color="text.secondary">
-                    Trading days
+                    {t('calendar.tradingDays')}
                   </Typography>
                   {showSummarySkeleton ? (
                     <Skeleton variant="text" width={60} height={20} />
@@ -550,7 +563,7 @@ export default function CalendarPage() {
                   }}
                 >
                   <Typography variant="caption" color="text.secondary">
-                    Trades closed
+                    {t('calendar.tradesClosed')}
                   </Typography>
                   {showSummarySkeleton ? (
                     <Skeleton variant="text" width={60} height={20} />
@@ -570,15 +583,15 @@ export default function CalendarPage() {
           <Stack direction={isCompact ? 'column' : 'row'} spacing={isCompact ? 1 : 2} mb={{ xs: 1.5, sm: 2 }} flexWrap="wrap">
             <Stack direction="row" spacing={1} alignItems="center">
               <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.success.light, 0.4), border: `1px solid ${theme.palette.success.main}` }} />
-              <Typography variant="caption">Profit</Typography>
+              <Typography variant="caption">{t('calendar.legend.profit')}</Typography>
             </Stack>
             <Stack direction="row" spacing={1} alignItems="center">
               <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.error.light, 0.4), border: `1px solid ${theme.palette.error.main}` }} />
-              <Typography variant="caption">Loss</Typography>
+              <Typography variant="caption">{t('calendar.legend.loss')}</Typography>
             </Stack>
             <Stack direction="row" spacing={1} alignItems="center">
               <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.grey[200], 0.8), border: `1px solid ${theme.palette.grey[300]}` }} />
-              <Typography variant="caption">Flat or No trades</Typography>
+              <Typography variant="caption">{t('calendar.legend.flat')}</Typography>
             </Stack>
           </Stack>
 
@@ -635,8 +648,8 @@ export default function CalendarPage() {
               )}
               {!error && dailyPnl.length === 0 && !isCompact && (
                 <EmptyState
-                  title="No closed trades in this range"
-                  description="Once trades close, daily P&L will populate here."
+                  title={t('calendar.empty.closedTradesTitle')}
+                  description={t('calendar.empty.closedTradesBody')}
                 />
               )}
             </>
@@ -652,16 +665,16 @@ export default function CalendarPage() {
         maxWidth={isTablet ? 'md' : 'sm'}
       >
         <DialogTitle>
-          {selectedDate ? `Trades closed on ${format(selectedDate, 'PPP')}` : 'Trades'}
+          {selectedDate ? t('calendar.dialog.closedOn', { date: format(selectedDate, 'PPP') }) : t('nav.trades')}
         </DialogTitle>
         <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 } }}>
           <Stack spacing={1} sx={{ mb: 2 }}>
-            <Typography variant="subtitle2" color="text.secondary">Daily summary</Typography>
+            <Typography variant="subtitle2" color="text.secondary">{t('calendar.dialog.dailySummary')}</Typography>
             <Typography variant={isMobile ? 'subtitle1' : 'h6'}>
               {formatSignedCurrency(selectedNetPnl, baseCurrency)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              {selectedTradeCount} trades closed
+              {t('calendar.dialog.tradeCountClosed', { count: selectedTradeCount })}
             </Typography>
           </Stack>
           <Divider sx={{ mb: 2 }} />
@@ -672,7 +685,7 @@ export default function CalendarPage() {
           ) : selectedError ? (
             <Typography color="error">{selectedError}</Typography>
           ) : selectedTrades.length === 0 ? (
-            <Typography color="text.secondary">No closed trades for this day.</Typography>
+            <Typography color="text.secondary">{t('calendar.dialog.noClosedTrades')}</Typography>
           ) : (
             <Stack spacing={1.5}>
               {selectedTrades.map((trade) => (
@@ -681,7 +694,7 @@ export default function CalendarPage() {
                     <Box>
                       <Typography variant="subtitle2">{trade.symbol}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {trade.direction} · {formatDateTime(trade.closedAt)}
+                        {t(`trades.direction.${trade.direction}`)} · {formatDateTime(trade.closedAt)}
                       </Typography>
                     </Box>
                     <Typography variant="subtitle2" sx={{ whiteSpace: 'nowrap' }}>
@@ -694,7 +707,7 @@ export default function CalendarPage() {
           )}
           <Divider sx={{ my: 2 }} />
           <Stack spacing={1} sx={{ mb: 1 }}>
-            <Typography variant="subtitle2" color="text.secondary">Notes</Typography>
+            <Typography variant="subtitle2" color="text.secondary">{t('calendar.dialog.notes')}</Typography>
             {selectedNotesLoading ? (
               <Box sx={{ display: 'flex', justifyContent: 'center', py: 2 }}>
                 <CircularProgress size={20} />
@@ -702,7 +715,7 @@ export default function CalendarPage() {
             ) : selectedNotesError ? (
               <Typography color="error">{selectedNotesError}</Typography>
             ) : selectedNotes.length === 0 ? (
-              <Typography color="text.secondary">No note for this day.</Typography>
+              <Typography color="text.secondary">{t('calendar.dialog.noNote')}</Typography>
             ) : (
               <Stack spacing={1}>
                 {selectedNotes.map((note) => (
@@ -714,8 +727,8 @@ export default function CalendarPage() {
                       alignItems={{ sm: 'center' }}
                     >
                       <Box>
-                        <Typography variant="subtitle2">{note.title || 'Untitled note'}</Typography>
-                        <Chip size="small" label={note.type.replace('_', ' ')} variant="outlined" />
+                        <Typography variant="subtitle2">{note.title || t('calendar.dialog.untitledNote')}</Typography>
+                        <Chip size="small" label={noteTypeLabels[note.type] ?? note.type.replace('_', ' ')} variant="outlined" />
                       </Box>
                       <Button
                         variant="outlined"
@@ -725,7 +738,7 @@ export default function CalendarPage() {
                           handleCloseDialog()
                         }}
                       >
-                        Open note
+                        {t('calendar.dialog.openNote')}
                       </Button>
                     </Stack>
                   </Box>
@@ -735,9 +748,9 @@ export default function CalendarPage() {
           </Stack>
         </DialogContent>
         <DialogActions sx={{ flexDirection: { xs: 'column', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1, px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 2 } }}>
-          <Button onClick={handleCloseDialog} fullWidth={isMobile}>Close</Button>
+          <Button onClick={handleCloseDialog} fullWidth={isMobile}>{t('common.close')}</Button>
           <Button variant="contained" onClick={handleViewInTrades} disabled={!selectedDate} fullWidth={isMobile}>
-            View in Trades
+            {t('calendar.dialog.viewInTrades')}
           </Button>
         </DialogActions>
       </Dialog>

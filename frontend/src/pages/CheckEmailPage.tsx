@@ -3,8 +3,11 @@ import { Alert, Box, Button, Card, CardContent, Container, Stack, Typography } f
 import { Link, useLocation } from 'react-router-dom'
 import { resendVerification } from '../api/auth'
 import { ApiError } from '../api/client'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 export default function CheckEmailPage() {
+  const { t } = useI18n()
   const location = useLocation()
   const params = new URLSearchParams(location.search)
   const email = params.get('email') || ''
@@ -16,16 +19,16 @@ export default function CheckEmailPage() {
     setMessage('')
     setError('')
     if (!email) {
-      setError('Enter your email on the login screen to resend verification.')
+      setError(t('checkEmail.errors.enterEmailOnLogin'))
       return
     }
     setSending(true)
     try {
       await resendVerification(email)
-      setMessage('Verification email sent. Please check your inbox.')
+      setMessage(t('login.success.verificationSent'))
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Failed to resend verification email')
+      setError(translateApiError(apiErr, t))
     } finally {
       setSending(false)
     }
@@ -37,17 +40,17 @@ export default function CheckEmailPage() {
         <Card sx={{ width: '100%' }}>
           <CardContent sx={{ p: { xs: 3, md: 4 } }}>
             <Stack spacing={2}>
-              <Typography variant="h5" fontWeight={700}>Check your email</Typography>
+              <Typography variant="h5" fontWeight={700}>{t('checkEmail.title')}</Typography>
               <Typography variant="body2" color="text.secondary">
-                We sent a verification link to {email || 'your inbox'}. Confirm your email to activate your TradeVault account.
+                {t('checkEmail.subtitle', { email: email || t('checkEmail.yourInbox') })}
               </Typography>
               {message && <Alert severity="success">{message}</Alert>}
               {error && <Alert severity="error">{error}</Alert>}
               <Button variant="contained" onClick={handleResend} disabled={sending}>
-                {sending ? 'Sending…' : 'Resend verification email'}
+                {sending ? t('auth.sending') : t('login.actions.resendVerification')}
               </Button>
               <Button component={Link} to="/login" variant="outlined">
-                Back to login
+                {t('forgotPassword.backToLogin')}
               </Button>
             </Stack>
           </CardContent>

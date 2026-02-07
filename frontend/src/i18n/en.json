@@ -1,0 +1,1141 @@
+{
+  "app": {
+    "name": "TradeJAudit",
+    "tagline": "Trading intelligence hub",
+    "disclaimer": "For journaling and analytics only. Not investment advice."
+  },
+  "language": {
+    "label": "Language",
+    "english": "English",
+    "romanian": "Română"
+  },
+  "common": {
+    "loading": "Loading...",
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "confirm": "Confirm",
+    "close": "Close",
+    "search": "Search",
+    "apply": "Apply",
+    "reset": "Reset",
+    "yes": "Yes",
+    "no": "No",
+    "none": "None",
+    "all": "All",
+    "back": "Back",
+    "viewDetails": "View details",
+    "noData": "No data",
+    "na": "-"
+  },
+  "nav": {
+    "dashboard": "Dashboard",
+    "trades": "Trades",
+    "calendar": "Calendar",
+    "notebook": "Notebook",
+    "analytics": "Analytics",
+    "insights": "Insights",
+    "settings": "Settings",
+    "admin": "Admin",
+    "profile": "Profile",
+    "login": "Login",
+    "register": "Register",
+    "logout": "Logout",
+    "openMenu": "Open menu"
+  },
+  "footer": {
+    "terms": "Terms",
+    "privacy": "Privacy",
+    "cookies": "Cookies"
+  },
+  "errors": {
+    "genericTitle": "Something went wrong",
+    "generic": "Something went wrong. Please try again.",
+    "network": "Cannot reach the server. Please check your connection.",
+    "unauthorized": "Unauthorized or expired session. Please log in again.",
+    "forbidden": "You do not have permission to perform this action.",
+    "notFound": "The requested resource was not found.",
+    "validation": "Please review the highlighted fields.",
+    "EMAIL_NOT_VERIFIED": "Email not verified. Please check your inbox or resend verification.",
+    "EMAIL_IN_USE": "An account with this email already exists.",
+    "CAPTCHA_FAILED": "Captcha verification failed. Please try again.",
+    "RATE_LIMITED": "Too many requests. Please wait and try again.",
+    "NOT_IMPLEMENTED": "This feature is not available yet."
+  },
+  "auth": {
+    "hidePassword": "Hide password",
+    "showPassword": "Show password",
+    "signin": "Sign in",
+    "signingIn": "Signing in",
+    "signup": "Sign up",
+    "sending": "Sending...",
+    "updating": "Updating..."
+  },
+  "admin": {
+    "accessRequiredTitle": "Admin access required",
+    "accessRequiredBody": "You do not have permission to view this area.",
+    "backToDashboard": "Back to dashboard"
+  },
+  "emptyState": {
+    "selectNote": "Select a note",
+    "selectNoteBody": "Pick a note from the list or create a new one."
+  },
+  "adminContent": {
+    "actions": {
+      "archive": "Archive",
+      "createContent": "Create content",
+      "createNew": "Create new",
+      "publish": "Publish",
+      "working": "Working..."
+    },
+    "dialog": {
+      "archiveBody": "Archive this content? It will be hidden from Insights but kept for records.",
+      "archiveTitle": "Archive content",
+      "publishBody": "Publish this content to Insights? All users will see it immediately.",
+      "publishTitle": "Publish content"
+    },
+    "empty": {
+      "body": "Create your first strategy or weekly plan to publish it to Insights.",
+      "title": "No content yet"
+    },
+    "messages": {
+      "actionFailed": "Action failed. Please try again.",
+      "archived": "Content archived",
+      "published": "Content published"
+    },
+    "searchPlaceholder": "Title, summary, or body",
+    "statuses": {
+      "all": "All statuses",
+      "archived": "Archived",
+      "draft": "Draft",
+      "published": "Published"
+    },
+    "subtitle": "Create, publish, and archive strategies or weekly plans.",
+    "table": {
+      "actions": "Actions",
+      "anytime": "Anytime",
+      "noSummary": "No summary",
+      "ongoing": "Ongoing",
+      "status": "Status",
+      "title": "Title",
+      "type": "Type",
+      "updated": "Updated",
+      "visibleRange": "Visible range"
+    },
+    "title": "Admin content",
+    "types": {
+      "all": "All types",
+      "strategy": "Strategy",
+      "weeklyPlan": "Weekly plan"
+    }
+  },
+  "adminEditor": {
+    "actions": {
+      "archive": "Archive",
+      "hidePreview": "Hide preview",
+      "insertWeeklyTemplate": "Insert weekly template",
+      "publish": "Publish",
+      "saveDraft": "Save draft",
+      "saving": "Saving...",
+      "showPreview": "Show preview"
+    },
+    "errors": {
+      "archiveFailed": "Could not archive content.",
+      "publishFailed": "Could not publish content.",
+      "saveFailed": "Could not save draft."
+    },
+    "fields": {
+      "body": "Body",
+      "bodyHint": "Use markdown for headings, lists, and emphasis.",
+      "commaSeparated": "comma-separated",
+      "slug": "Slug",
+      "slugHint": "Optional. If empty, a slug is generated from the title.",
+      "summary": "Summary",
+      "symbols": "Symbols",
+      "tags": "Tags",
+      "title": "Title",
+      "type": "Type",
+      "visibleFrom": "Visible from",
+      "visibleUntil": "Visible until",
+      "weekEnd": "Week end",
+      "weekStart": "Week start"
+    },
+    "newContent": "New content",
+    "preview": "Preview",
+    "subtitle": "Build strategies and weekly plans for the Insights section.",
+    "title": {
+      "create": "Create content",
+      "edit": "Edit content"
+    },
+    "untitled": "Untitled",
+    "updated": "Updated",
+    "validation": {
+      "bodyRequired": "Body is required.",
+      "titleRequired": "Title is required.",
+      "visibleUntilAfterFrom": "Visible until must be after visible from.",
+      "weekEndAfterStart": "Week end must be after week start.",
+      "weekEndRequired": "Week end is required for weekly plans.",
+      "weekStartRequired": "Week start is required for weekly plans."
+    },
+    "weeklyTemplate": {
+      "focus": "Focus",
+      "ifThen": "If/Then scenarios",
+      "ifThenHint": "If ___ then ___",
+      "invalidation": "Invalidation",
+      "invalidationHint": "Risk limits and what would invalidate the plan",
+      "keyLevels": "Key levels",
+      "primaryTheme": "Primary market theme",
+      "riskCues": "Risk-on / risk-off cues",
+      "watchlist": "Watchlist",
+      "watchlistHint": "Ticker — thesis, level, trigger"
+    }
+  },
+  "analytics": {
+    "title": "Analytics",
+    "subtitle": "Pro-grade diagnostics across performance, consistency, and edge.",
+    "errors": {
+      "loadAnalytics": "Failed to load analytics data.",
+      "loadCoach": "Failed to load coach insights."
+    },
+    "coach": {
+      "confidenceLabel": "Confidence",
+      "recommendedActions": "Recommended actions",
+      "viewTrades": "View trades"
+    },
+    "filters": {
+      "advanced": "Advanced",
+      "catalyst": "Catalyst",
+      "closeDate": "Close date",
+      "direction": "Direction",
+      "excludeOutliers": "Exclude outliers",
+      "from": "From",
+      "holdingBucket": "Holding bucket",
+      "market": "Market",
+      "openDate": "Open date",
+      "setup": "Setup",
+      "status": "Status",
+      "strategy": "Strategy",
+      "symbol": "Symbol",
+      "to": "To"
+    },
+    "kpis": {
+      "avgLoss": "Avg loss",
+      "avgWin": "Avg win",
+      "commission": "Commission",
+      "expectancy": "Expectancy",
+      "fees": "Fees",
+      "grossLoss": "Gross loss",
+      "grossProfit": "Gross profit",
+      "medianTrade": "Median trade",
+      "netPnl": "Net P&L",
+      "netVsGross": "Net vs gross",
+      "openTrades": "Open trades",
+      "payoffRatio": "Payoff ratio",
+      "profitFactor": "Profit factor",
+      "slippage": "Slippage",
+      "totalCosts": "Total costs",
+      "trades": "Trades",
+      "winRate": "Win rate"
+    },
+    "tabs": {
+      "coach": "Coach",
+      "consistency": "Consistency",
+      "dataQuality": "Data quality",
+      "overview": "Overview",
+      "risk": "Risk",
+      "symbolsAndTags": "Symbols & tags",
+      "timeEdge": "Time edge"
+    },
+    "overview": {
+      "equityCurve": {
+        "title": "Equity curve",
+        "tooltip": "Cumulative net P&L based on closed trades ordered by close time.",
+        "emptyTitle": "No equity data",
+        "emptyBody": "Adjust the filters to include a broader trade range."
+      },
+      "drawdown": {
+        "title": "Drawdown",
+        "tooltip": "P&L drawdown computed on cumulative net P&L (peak-to-trough).",
+        "emptyTitle": "No drawdown data",
+        "emptyBody": "Add closed trades to see drawdowns."
+      },
+      "histogram": {
+        "title": "P&L histogram",
+        "tooltip": "Distribution of trade net P&L, highlighting dispersion and outliers.",
+        "emptyTitle": "No distribution data",
+        "emptyBody": "Close trades to populate the histogram."
+      },
+      "traderRead": {
+        "title": "Trader read",
+        "tooltip": "Auto-generated insights with sample size context.",
+        "emptyTitle": "No insights yet",
+        "emptyBody": "Add more trades to surface insights."
+      },
+      "drawdownHighlights": {
+        "title": "Drawdown highlights",
+        "maxDrawdown": "Max drawdown",
+        "recoveryFactor": "Recovery factor",
+        "ulcerIndex": "Ulcer index"
+      }
+    },
+    "coachSection": {
+      "title": "Coach insights",
+      "subtitle": "Actionable guidance generated from your own trade history.",
+      "emptyTitle": "No coach insights yet",
+      "emptyBody": "Log more closed trades to unlock coach insights."
+    },
+    "consistency": {
+      "rollingMetrics": {
+        "title": "Rolling metrics (20 trades)",
+        "emptyTitle": "No rolling metrics",
+        "emptyBody": "Need at least 20 closed trades."
+      },
+      "streaks": {
+        "title": "Streaks & weekly",
+        "maxWin": "Max win streak",
+        "maxLoss": "Max loss streak",
+        "current": "Current streak",
+        "greenWeeks": "Green weeks",
+        "redWeeks": "Red weeks",
+        "bestDay": "Best day",
+        "worstDay": "Worst day"
+      },
+      "weeklyPnl": {
+        "title": "Weekly grouped P&L",
+        "emptyTitle": "No weekly P&L",
+        "emptyBody": "Close trades to see weekly results."
+      }
+    },
+    "timeEdge": {
+      "dayOfWeek": {
+        "title": "P&L by day of week",
+        "emptyTitle": "No day-of-week edge",
+        "emptyBody": "Need closed trades to compute."
+      },
+      "holdingBuckets": {
+        "title": "Holding time buckets",
+        "emptyTitle": "No holding time data",
+        "emptyBody": "Closed trades are needed for holding-time analytics.",
+        "avgHolding": "Avg holding",
+        "medianHolding": "Median holding"
+      },
+      "hourHeatmap": {
+        "title": "Hour-of-day heatmap (Net P&L)",
+        "emptyTitle": "No hour-of-day data",
+        "emptyBody": "Close trades to see hourly edge.",
+        "tooltip": "{{hour}}:00 • N={{trades}} • Win {{winRate}}"
+      }
+    },
+    "symbols": {
+      "topSymbols": {
+        "title": "Top symbols",
+        "emptyTitle": "No symbol data",
+        "emptyBody": "Close trades with symbols to populate this chart.",
+        "top1PnlShare": "Top 1 P&L share",
+        "top3PnlShare": "Top 3 P&L share",
+        "top1TradeShare": "Top 1 trade share",
+        "top3TradeShare": "Top 3 trade share"
+      },
+      "strategyLeaderboard": {
+        "title": "Strategy leaderboard",
+        "emptyTitle": "No strategy tags",
+        "emptyBody": "Tag trades with strategies to rank them here.",
+        "lowSample": "Low sample",
+        "stopDoing": "What to stop doing"
+      }
+    },
+    "risk": {
+      "title": "Risk analytics",
+      "averageR": "Average R",
+      "medianR": "Median R",
+      "expectancyR": "Expectancy (R)",
+      "winRateR": "Win rate (R>0)",
+      "avgRiskAmount": "Avg risk amount",
+      "avgRiskPercent": "Avg risk %",
+      "unavailableTitle": "Risk data not available",
+      "unavailableBody": "Start tracking stop-loss or risk fields to unlock R analytics.",
+      "rDistribution": {
+        "title": "R distribution",
+        "emptyTitle": "No R distribution",
+        "emptyBody": "Track R multiples to see this chart."
+      }
+    },
+    "dataQuality": {
+      "title": "Data quality",
+      "missingClosedAt": "Missing closed_at",
+      "inconsistentStatus": "Open status with closed_at",
+      "missingStrategy": "Missing strategy tags",
+      "missingSetup": "Missing setup tags",
+      "missingCatalyst": "Missing catalyst tags",
+      "missingPnlPercent": "Missing P&L %",
+      "missingRisk": "Missing risk fields",
+      "outlierPolicy": {
+        "title": "Outlier policy",
+        "thresholds": "Thresholds",
+        "to": "to",
+        "outliersDetected": "Outliers detected",
+        "hint": "Exclude outliers to see sensitivity changes."
+      }
+    },
+    "help": {
+      "title": "Field explanations",
+      "kpis": {
+        "title": "KPIs",
+        "winRate": "Percentage of closed trades that finished green.",
+        "profitFactor": "Gross profit divided by gross loss.",
+        "expectancy": "Average net P&L per closed trade.",
+        "payoffRatio": "Average win divided by absolute average loss."
+      },
+      "timeConsistency": {
+        "title": "Time & consistency",
+        "drawdown": "Peak-to-trough decline on cumulative net P&L.",
+        "rollingMetrics": "20-trade rolling win rate and profit factor.",
+        "heatmap": "Hour-of-day net P&L in Europe/Bucharest time."
+      }
+    }
+  },
+  "calendar": {
+    "title": "Calendar",
+    "subtitle": "Realized P&L by trade close date in {{timezone}}.",
+    "previousMonth": "Previous month",
+    "nextMonth": "Next month",
+    "noTrades": "No trades",
+    "tradeCount": "{{count}} trades",
+    "monthlyRealizedNet": "Monthly realized net",
+    "grossPnl": "Gross P&L",
+    "tradingDays": "Trading days",
+    "tradesClosed": "Trades closed",
+    "legend": {
+      "profit": "Profit",
+      "loss": "Loss",
+      "flat": "Flat"
+    },
+    "empty": {
+      "closedTradesTitle": "No closed trades in this range",
+      "closedTradesBody": "Once trades close, daily P&L will populate here."
+    },
+    "aria": {
+      "viewRealizedPnl": "View realized P&L for {{date}}",
+      "netPnl": "Net P&L {{value}}",
+      "tradeCount": "{{count}} trades"
+    },
+    "dialog": {
+      "closedOn": "Trades closed on {{date}}",
+      "dailySummary": "Daily summary",
+      "tradeCountClosed": "{{count}} trades closed",
+      "noClosedTrades": "No closed trades for this day.",
+      "notes": "Notes",
+      "noNote": "No notes for this date.",
+      "untitledNote": "Untitled note",
+      "openNote": "Open note",
+      "viewInTrades": "View in Trades"
+    }
+  },
+  "checkEmail": {
+    "errors": {
+      "enterEmailOnLogin": "Enter your email on the login screen to resend verification."
+    },
+    "subtitle": "We sent a verification link to {{email}}. Confirm your email to activate your account.",
+    "title": "Check your email",
+    "yourInbox": "your inbox"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Live view of your trading performance, equity growth, and recent executions.",
+    "kpis": {
+      "netPnl": "Net P&L",
+      "grossPnl": "Gross P&L",
+      "winRate": "Win rate",
+      "profitFactor": "Profit factor",
+      "expectancy": "Expectancy",
+      "maxDrawdown": "Max drawdown"
+    },
+    "equityCurve": {
+      "title": "Equity curve",
+      "subtitle": "Cumulative P&L over time",
+      "emptyTitle": "No equity curve yet",
+      "emptyBody": "Capture a few trades to see cumulative performance over time."
+    },
+    "dailyPnl": {
+      "title": "Daily P&L",
+      "subtitle": "Grouped by day",
+      "emptyTitle": "No grouped P&L data",
+      "emptyBody": "Daily P&L appears once trades are closed."
+    },
+    "recentTrades": {
+      "title": "Recent trades",
+      "subtitle": "Newest first",
+      "empty": "No trades have been recorded yet."
+    },
+    "table": {
+      "symbol": "Symbol",
+      "direction": "Direction",
+      "status": "Status",
+      "opened": "Opened",
+      "pnlNet": "Net P&L"
+    },
+    "help": {
+      "title": "Field explanations",
+      "kpiSection": "KPIs",
+      "kpiNetGross": "Net and gross P&L show your performance after and before costs.",
+      "kpiWinRate": "Win rate is the share of closed trades that ended positive.",
+      "kpiProfitFactor": "Profit factor is gross profit divided by gross loss.",
+      "kpiExpectancy": "Expectancy is average net P&L per closed trade.",
+      "kpiDrawdown": "Max drawdown is the largest peak-to-trough decline in cumulative P&L.",
+      "chartsSection": "Charts",
+      "chartEquityCurve": "Shows cumulative net P&L over time.",
+      "chartDailyPnl": "Shows net P&L grouped by day.",
+      "chartRecentTrades": "Shows your latest trades and quick context."
+    }
+  },
+  "editor": {
+    "bold": "Bold",
+    "italic": "Italic",
+    "underline": "Underline",
+    "heading": "Heading {{level}}",
+    "bulletList": "Bullet list",
+    "numberedList": "Numbered list",
+    "checklist": "Checklist",
+    "blockquote": "Blockquote",
+    "codeBlock": "Code block",
+    "inlineCode": "Inline code",
+    "link": "Link",
+    "horizontalRule": "Horizontal rule",
+    "undo": "Undo",
+    "redo": "Redo",
+    "more": "More",
+    "moreOptions": "More options",
+    "enterUrl": "Enter URL",
+    "placeholder": "Start writing your note..."
+  },
+  "forgotPassword": {
+    "backToLogin": "Back to login",
+    "email": "Email address",
+    "sendLink": "Send reset link",
+    "subtitle": "Enter the email associated with your account. We'll send a reset link if it exists.",
+    "success": "If an account exists for this email, a reset link has been sent.",
+    "title": "Reset your password"
+  },
+  "insightDetail": {
+    "backToInsights": "Back to Insights",
+    "infoAlert": "For journaling and educational purposes only. Not investment advice.",
+    "lastUpdated": "Last updated"
+  },
+  "insights": {
+    "empty": {
+      "strategiesBody": "Once published, strategies will show up here for everyone.",
+      "strategiesTitle": "No strategies published yet",
+      "weeklyBody": "Weekly plans will appear here after the admin publishes them.",
+      "weeklyTitle": "No weekly plans published yet"
+    },
+    "searchPlaceholder": "Search strategies or weekly plans",
+    "subtitle": "Published strategies and weekly plans from the team, ready for your next session.",
+    "symbolsPlaceholder": "Filter by symbols (comma-separated)",
+    "tagsPlaceholder": "Filter by tags (comma-separated)",
+    "title": "Insights",
+    "type": {
+      "strategy": "Strategy",
+      "weeklyPlan": "Weekly Plan"
+    },
+    "updated": "Updated",
+    "weekOf": "Week of",
+    "tabs": {
+      "strategies": "Strategies",
+      "weeklyPlans": "Weekly plans"
+    }
+  },
+  "legal": {
+    "disclaimer": "Draft for review. This content should be reviewed by qualified legal counsel for your jurisdiction.",
+    "terms": {
+      "title": "Terms & Conditions",
+      "sections": {
+        "s1": {
+          "title": "1. Scope",
+          "body": "These terms govern your use of TradeJAudit and related services."
+        },
+        "s2": {
+          "title": "2. Account responsibilities",
+          "body": "You are responsible for account security, accurate information, and lawful use."
+        },
+        "s3": {
+          "title": "3. Acceptable use",
+          "body": "Do not abuse, disrupt, reverse engineer, or use the service for unlawful activity."
+        },
+        "s4": {
+          "title": "4. Data ownership",
+          "body": "You retain ownership of your uploaded content. You grant us a limited license to operate the service."
+        },
+        "s5": {
+          "title": "5. Availability",
+          "body": "We may update, suspend, or discontinue features. We aim for reliability but do not guarantee uninterrupted access."
+        },
+        "s6": {
+          "title": "6. Financial disclaimer",
+          "body": "TradeJAudit is an analysis and journaling tool. It does not provide investment advice."
+        },
+        "s7": {
+          "title": "7. Liability limits",
+          "body": "To the fullest extent permitted by law, liability is limited to direct damages and excludes indirect losses."
+        },
+        "s8": {
+          "title": "8. Termination",
+          "body": "We may suspend or terminate accounts that violate these terms or applicable law."
+        },
+        "s9": {
+          "title": "9. Changes to terms",
+          "body": "We may update these terms. Continued use after updates means you accept the revised version."
+        }
+      }
+    },
+    "privacy": {
+      "title": "Privacy Policy",
+      "sections": {
+        "s1": {
+          "title": "1. Data we collect",
+          "body": "We collect account data, app settings, and content you create in the app."
+        },
+        "s2": {
+          "title": "2. How we use data",
+          "body": "We use data to deliver core functionality, improve reliability, and protect accounts."
+        },
+        "s3": {
+          "title": "3. Legal basis",
+          "body": "Processing is based on contract performance, legitimate interests, and consent where required."
+        },
+        "s4": {
+          "title": "4. Sharing",
+          "body": "We do not sell personal data. Data may be shared with infrastructure providers under contractual safeguards."
+        },
+        "s5": {
+          "title": "5. Retention",
+          "body": "We retain data while your account is active and as needed for legal or security obligations."
+        },
+        "s6": {
+          "title": "6. Security",
+          "body": "We apply technical and organizational safeguards, but no system is risk-free."
+        },
+        "s7": {
+          "title": "7. Your rights",
+          "body": "You may request access, correction, export, or deletion of your personal data where applicable."
+        }
+      }
+    },
+    "cookies": {
+      "title": "Cookie Policy",
+      "sections": {
+        "s1": {
+          "title": "How cookies are used",
+          "body": "Cookies help keep sessions secure, remember preferences, and improve performance."
+        }
+      }
+    }
+  },
+  "login": {
+    "actions": {
+      "createFreeAccount": "Create free account",
+      "forgotPassword": "Forgot password?",
+      "newHere": "New here? Create an account",
+      "resendVerification": "Resend verification email"
+    },
+    "brand": {
+      "subtitle": "Trading journal + notebook"
+    },
+    "errors": {
+      "enterEmailToResend": "Enter your email address to resend verification."
+    },
+    "form": {
+      "agreePrefix": "By continuing you agree to the",
+      "and": "and",
+      "email": "Email Address",
+      "password": "Password",
+      "privacyPolicy": "Privacy Policy",
+      "securityNote": "Encrypted in transit. No broker login required.",
+      "subtitle": "Sign in to keep your journal, analytics, and playbooks in sync.",
+      "title": "Welcome back"
+    },
+    "hero": {
+      "badges": {
+        "discipline": "Built for disciplined execution",
+        "export": "Export anytime",
+        "privacy": "Your data stays private"
+      },
+      "imageAlt": "Abstract trading workspace with charts",
+      "points": {
+        "attachments": "Attach screenshots and context to every trade.",
+        "fastLogging": "Log trades in seconds. Review patterns in minutes.",
+        "performance": "See performance by day, strategy, ticker, and tag.",
+        "playbooks": "Turn notes into playbooks: setups, rules, mistakes, lessons."
+      },
+      "quote": "Professionals do not chase P&L - they execute a process.",
+      "subtitle": "TradeJAudit is your trading journal + notebook to capture setups, review execution, and track performance - so you can trade with clarity, not emotion.",
+      "title": "Your edge is discipline. Build it daily."
+    },
+    "success": {
+      "verificationSent": "Verification email sent. Please check your inbox."
+    },
+    "validation": {
+      "email": "Enter a valid email address",
+      "password": "Password must be at least 6 characters"
+    }
+  },
+  "profile": {
+    "title": "Profile",
+    "subtitle": "View your account details and preferences.",
+    "emptyTitle": "No user information available",
+    "emptyDescription": "Please sign in again to view profile details.",
+    "fields": {
+      "email": "Email",
+      "role": "Role",
+      "timezone": "Timezone",
+      "baseCurrency": "Base currency"
+    },
+    "passwordComingSoon": "Password change functionality is coming soon."
+  },
+  "register": {
+    "alreadyHaveAccount": "Already have an account? Sign in",
+    "andAcknowledge": "and acknowledge the",
+    "email": "Email address",
+    "legalPrefix": "I agree to the",
+    "password": "Password",
+    "privacyPolicy": "Privacy Policy",
+    "subtitle": "Start tracking trades and building performance insights.",
+    "termsAndConditions": "Terms And Conditions",
+    "title": "Create account",
+    "validation": {
+      "email": "Enter a valid email address",
+      "legal": "You must accept the Terms and Privacy Policy.",
+      "password": "Password must be at least 8 characters long"
+    }
+  },
+  "resetPassword": {
+    "confirmPassword": "Confirm new password",
+    "errors": {
+      "invalidLink": "Reset link is missing or invalid.",
+      "passwordMismatch": "Passwords do not match",
+      "shortPassword": "Password must be at least 8 characters long"
+    },
+    "newPassword": "New password",
+    "subtitle": "Choose a strong password to secure your account.",
+    "success": "Password updated successfully. You can now sign in.",
+    "title": "Set a new password",
+    "update": "Update password"
+  },
+  "settings": {
+    "title": "Settings",
+    "subtitle": "Update your base currency and timezone. Changes apply across the app.",
+    "timezone": "Timezone",
+    "timezoneHint": "IANA timezone (e.g., Europe/Bucharest)",
+    "baseCurrency": "Base currency",
+    "baseCurrencyHint": "ISO currency code (e.g., USD, EUR, GBP)",
+    "actions": {
+      "save": "Save settings"
+    },
+    "messages": {
+      "saving": "Saving...",
+      "saved": "Settings saved and synced across the app"
+    },
+    "password": {
+      "title": "Change password",
+      "subtitle": "Update your password regularly to keep your journal secure.",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "minHint": "Minimum 8 characters",
+      "updateAction": "Update password",
+      "errors": {
+        "mismatch": "New passwords do not match",
+        "short": "New password must be at least 8 characters long"
+      },
+      "messages": {
+        "updated": "Password updated successfully"
+      }
+    },
+    "delete": {
+      "title": "Account deletion",
+      "subtitle": "Request deletion of your account and data. This workflow is coming soon.",
+      "action": "Delete account (coming soon)"
+    }
+  },
+  "trades": {
+    "title": "Trades",
+    "subtitle": "Log new trades, edit history, and review details inline.",
+    "tradeNoteSuffix": "trade note",
+    "actions": {
+      "createTradeNote": "Create trade note",
+      "editTrade": "Edit trade",
+      "updateTrade": "Update trade",
+      "deleteTrade": "Delete trade"
+    },
+    "create": {
+      "title": "Create trade",
+      "save": "Save trade"
+    },
+    "deleteConfirm": "Are you sure you want to delete trade {{symbol}}?",
+    "empty": {
+      "title": "No trades to display",
+      "body": "Create a trade or adjust filters to see results."
+    },
+    "errors": {
+      "loginRequired": "Please log in to view trades.",
+      "fetchFailed": "Could not load trades.",
+      "createFailed": "Could not create trade.",
+      "updateFailed": "Could not update trade.",
+      "deleteFailed": "Could not delete trade.",
+      "importFailed": "Could not import CSV.",
+      "createTradeNoteFailed": "Could not create trade note.",
+      "noteMissingId": "Note was created but no note ID was returned. Refresh and open it manually."
+    },
+    "filters": {
+      "title": "Filters",
+      "openedFrom": "Opened from",
+      "openedTo": "Opened to",
+      "closedFrom": "Closed from",
+      "closedTo": "Closed to",
+      "symbol": "Symbol",
+      "direction": "Direction",
+      "status": "Status",
+      "any": "Any",
+      "clear": "Clear filters"
+    },
+    "list": {
+      "title": "Trades list",
+      "searchResults": "Search results",
+      "importCsv": "Import CSV"
+    },
+    "import": {
+      "summary": "Imported {{rows}} rows across {{groups}} ISIN groups.",
+      "tradesCreated": "Trades created",
+      "tradesUpdated": "Trades updated",
+      "groupsSkipped": "Groups skipped",
+      "isinGroups": "ISIN groups",
+      "perIsinResults": "Per-ISIN results",
+      "status": {
+        "SKIPPED": "Skipped",
+        "IMPORTED": "Imported"
+      }
+    },
+    "card": {
+      "entry": "Entry",
+      "exit": "Exit",
+      "pnl": "P&L",
+      "pnlPercent": "P&L %",
+      "notes": "Notes"
+    },
+    "table": {
+      "opened": "Opened",
+      "symbol": "Symbol",
+      "market": "Market",
+      "direction": "Direction",
+      "status": "Status",
+      "qty": "Qty",
+      "entry": "Entry",
+      "exit": "Exit",
+      "pnlNet": "Net P&L",
+      "pnlPercent": "P&L %",
+      "rMultiple": "R multiple",
+      "notes": "Notes",
+      "noNotes": "No notes",
+      "actions": "Actions"
+    },
+    "details": {
+      "title": "Trade details",
+      "stopsAndTargets": "Stops & targets",
+      "stopLoss": "Stop loss",
+      "takeProfit": "Take profit",
+      "timeframe": "Timeframe",
+      "costsAndRisk": "Costs & risk",
+      "risk": "Risk",
+      "setup": "Setup",
+      "notesAndTags": "Notes & tags",
+      "noTags": "No tags"
+    },
+    "form": {
+      "symbol": "Symbol",
+      "market": "Market",
+      "direction": "Direction",
+      "status": "Status",
+      "openedAt": "Opened at",
+      "closedAt": "Closed at",
+      "timeframe": "Timeframe",
+      "quantity": "Quantity",
+      "entryPrice": "Entry price",
+      "exitPrice": "Exit price",
+      "stopLossPrice": "Stop-loss price",
+      "takeProfitPrice": "Take-profit price",
+      "fees": "Fees",
+      "commission": "Commission",
+      "slippage": "Slippage",
+      "riskAmount": "Risk amount",
+      "riskAmountHint": "Optional: improves P&L % and R multiple",
+      "capitalUsed": "Capital used",
+      "capitalUsedHint": "Optional: used to calculate P&L %",
+      "setup": "Setup",
+      "strategyTag": "Strategy tag",
+      "catalystTag": "Catalyst tag",
+      "notes": "Notes",
+      "accountId": "Account ID",
+      "computedMetrics": "Computed metrics (read-only)",
+      "pnlGross": "Gross P&L",
+      "pnlNet": "Net P&L",
+      "pnlPercent": "P&L %",
+      "riskPercent": "Risk %",
+      "rMultiple": "R multiple",
+      "validation": {
+        "symbolRequired": "Symbol is required"
+      }
+    },
+    "help": {
+      "title": "Trade field explanations",
+      "corePricing": {
+        "entryExit": "Entry / Exit / SL / TP",
+        "entryExitBody": "Prices for entering and exiting the trade plus optional stop-loss and take-profit anchors.",
+        "directionMarket": "Direction & market",
+        "directionMarketBody": "Whether the position is LONG or SHORT and the instrument type (stock, forex, crypto, etc.).",
+        "status": "Status",
+        "statusBody": "OPEN or CLOSED. OpenedAt marks when the position opened; ClosedAt is set when it closes.",
+        "capitalUsed": "Capital used",
+        "capitalUsedBody": "Cash or margin allocated to this trade."
+      },
+      "pnlAndRisk": {
+        "feesCosts": "Fees / Commission / Slippage",
+        "feesCostsBody": "All trading costs deducted from gross P&L.",
+        "pnlGross": "P&L gross",
+        "pnlGrossBody": "(Exit − Entry) × Quantity (flipped for SHORT) before costs.",
+        "pnlNet": "P&L net",
+        "pnlNetBody": "P&L gross minus fees, commission, and slippage.",
+        "pnlPercent": "P&L percent",
+        "pnlPercentBody": "P&L net divided by capital used (or risk amount when provided), expressed as a percentage.",
+        "riskAmountPercent": "Risk amount / Risk percent",
+        "riskAmountPercentBody": "Monetary and percentage distance between entry and stop loss multiplied by quantity.",
+        "rMultiple": "R multiple",
+        "rMultipleBody": "P&L net divided by risk amount. 1R equals the initial risk."
+      },
+      "context": {
+        "timeframe": "Timeframe",
+        "timeframeBody": "Chart timeframe or holding-period reference.",
+        "setupStrategyCatalyst": "Setup / Strategy / Catalyst",
+        "setupStrategyCatalystBody": "Qualitative tags describing why the trade was taken.",
+        "statusDirection": "Status & Direction",
+        "statusDirectionBody": "Quick at-a-glance orientation for dashboards and filters."
+      },
+      "sections": {
+        "corePricing": "Core pricing",
+        "pnlAndRisk": "P&L and risk",
+        "context": "Context"
+      }
+    },
+    "messages": {
+      "created": "Trade created successfully"
+    },
+    "market": {
+      "STOCK": "STOCK",
+      "CFD": "CFD",
+      "FOREX": "FOREX",
+      "CRYPTO": "CRYPTO",
+      "FUTURES": "FUTURES",
+      "OPTIONS": "OPTIONS",
+      "OTHER": "OTHER"
+    },
+    "direction": {
+      "LONG": "Long",
+      "SHORT": "Short"
+    },
+    "status": {
+      "OPEN": "Open",
+      "CLOSED": "Closed"
+    }
+  },
+  "verifyEmail": {
+    "errors": {
+      "invalidLink": "Verification link is missing or invalid."
+    },
+    "goToLogin": "Go to login",
+    "loading": "Checking your verification link...",
+    "success": "Email verified. You can now sign in to your account.",
+    "title": "Verify your email"
+  },
+  "notebook": {
+    "title": "Notebook",
+    "subtitle": "Capture session notes, daily logs, and trade reflections.",
+    "actions": {
+      "addFolder": "Add folder",
+      "deleteFolder": "Delete folder",
+      "addTag": "Add tag",
+      "new": "New",
+      "newDailyLog": "New daily log",
+      "newPlan": "New plan",
+      "createLossRecap": "Create loss recap",
+      "newNote": "New note",
+      "newGoal": "New goal",
+      "createDailyLog": "Create daily log",
+      "createPlan": "Create plan",
+      "collapseFilters": "Collapse filters",
+      "expandFilters": "Expand filters",
+      "pin": "Pin",
+      "unpin": "Unpin",
+      "pinNote": "Pin note",
+      "unpinNote": "Unpin note",
+      "restore": "Restore",
+      "delete": "Delete",
+      "insertDailyLogStructure": "Insert daily log structure",
+      "saveAsTemplate": "Save as template",
+      "openFolders": "Open folders",
+      "uploadAttachment": "Upload attachment",
+      "undo": "Undo",
+      "create": "Create"
+    },
+    "aria": {
+      "openFilters": "Open filters",
+      "toggleNoteList": "Toggle note list",
+      "filterByType": "Filter notes by type",
+      "backToNotesList": "Back to notes list",
+      "openFolders": "Open folders",
+      "moreActions": "More actions",
+      "readMode": "Read mode",
+      "editMode": "Edit mode",
+      "closeFilters": "Close filters"
+    },
+    "sections": {
+      "filters": "Filters",
+      "folders": "Folders",
+      "tags": "Tags",
+      "notes": "Notes",
+      "editor": "Editor",
+      "attachments": "Attachments"
+    },
+    "labels": {
+      "systemView": "System view",
+      "notesCount": "{{count}} notes",
+      "updatedAt": "Updated {{date}}",
+      "listCollapsed": "List collapsed",
+      "noFolder": "No folder",
+      "notAvailable": "—"
+    },
+    "placeholders": {
+      "filterByTag": "Filter by tag",
+      "searchNotes": "Search notes...",
+      "tradeId": "Optional trade UUID"
+    },
+    "fields": {
+      "sort": "Sort",
+      "title": "Title",
+      "type": "Type",
+      "folder": "Folder",
+      "date": "Date",
+      "linkedTradeId": "Linked trade ID",
+      "tags": "Tags",
+      "applyTemplate": "Apply template"
+    },
+    "sort": {
+      "updated": "Last updated",
+      "created": "Created",
+      "noteDate": "Note date"
+    },
+    "filterType": {
+      "ALL": "All",
+      "DAILY_LOG": "Daily logs",
+      "PLAN": "Plans",
+      "SESSION_RECAP": "Recaps",
+      "PINNED": "Pinned"
+    },
+    "noteType": {
+      "DAILY_LOG": "Daily log",
+      "TRADE_NOTE": "Trade note",
+      "PLAN": "Plan",
+      "GOAL": "Goal",
+      "SESSION_RECAP": "Session recap",
+      "NOTE": "Note"
+    },
+    "defaultTitle": {
+      "dailyLog": "Daily log {{date}}",
+      "untitledNote": "Untitled note"
+    },
+    "empty": {
+      "noNotesTitle": "No notes yet",
+      "noNotesBody": "Create a note or daily log to get started.",
+      "noAttachments": "No attachments yet."
+    },
+    "saveState": {
+      "saving": "Saving…",
+      "error": "Save failed",
+      "savedAt": "Saved {{date}}",
+      "unsaved": "Unsaved changes",
+      "allSaved": "All changes saved"
+    },
+    "prompts": {
+      "discardChanges": "You have unsaved changes. Discard them?",
+      "discardAndContinue": "You have unsaved changes. Discard them and continue?",
+      "moveToRecentlyDeleted": "Move this note to Recently deleted?",
+      "templateName": "Template name?",
+      "newTagName": "New tag name",
+      "folderName": "Folder name"
+    },
+    "messages": {
+      "noteOutsideFilters": "Note opened outside your current filters. Adjust filters to see it in the list.",
+      "noteCreatedOutsideFilters": "Note created outside your current filters. Showing it in All notes.",
+      "noteMovedToRecentlyDeleted": "Note moved to Recently deleted."
+    },
+    "validation": {
+      "dateRequired": "Date is required",
+      "dailyLogDateRequired": "Date is required for daily logs."
+    },
+    "errors": {
+      "loginRequired": "Please log in again to access your notebook.",
+      "loadFolders": "Could not load notebook folders.",
+      "loadNotes": "Could not load notes.",
+      "refreshNote": "Could not refresh the selected note.",
+      "createNote": "Could not create note.",
+      "saveNote": "Could not save note.",
+      "deleteNote": "Could not delete note.",
+      "restoreNote": "Could not restore note.",
+      "createTag": "Could not create tag.",
+      "uploadAttachment": "Could not upload attachment.",
+      "deleteAttachment": "Could not delete attachment.",
+      "createLossRecap": "Could not create loss recap note.",
+      "createFolder": "Could not create folder.",
+      "deleteFolder": "Could not delete folder."
+    },
+    "dailyTemplate": {
+      "sessionBias": "Session bias",
+      "keyLevels": "Key levels",
+      "newsAndCatalysts": "News & catalysts",
+      "rulesToExecute": "Rules to execute",
+      "postSessionReview": "Post-session review"
+    },
+    "dailySummary": {
+      "netPnl": "Net P&L",
+      "trades": "Trades",
+      "winners": "Winners",
+      "losers": "Losers",
+      "winRate": "Win rate",
+      "tradesClosedToday": "Trades closed today",
+      "noClosedTrades": "No closed trades for this date."
+    },
+    "tradeSummary": {
+      "title": "Trade summary",
+      "openedAt": "Opened {{date}}",
+      "closedAt": "Closed {{date}}"
+    },
+    "lossRecap": {
+      "dialogTitle": "Create loss recap",
+      "from": "From",
+      "to": "To",
+      "minLoss": "Min loss",
+      "title": "Loss recap",
+      "noteTitle": "Loss recap {{from}} → {{to}}",
+      "noLossesMatched": "No losses matched the selected criteria.",
+      "table": {
+        "symbol": "Symbol",
+        "direction": "Direction",
+        "closed": "Closed",
+        "netPnl": "Net P&L",
+        "setup": "Setup"
+      },
+      "reflectionTitle": "Reflection prompts",
+      "promptMistake": "What was the mistake?",
+      "promptRule": "What rule was violated?",
+      "promptFix": "What is the fix?"
+    }
+  }
+}

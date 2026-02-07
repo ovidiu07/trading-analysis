@@ -3,6 +3,7 @@ import { Link, Navigate, useLocation } from 'react-router-dom'
 import { ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import LoadingState from './ui/LoadingState'
+import { useI18n } from '../i18n'
 
 type AdminRouteProps = {
   children: ReactNode
@@ -10,6 +11,7 @@ type AdminRouteProps = {
 
 export default function AdminRoute({ children }: AdminRouteProps) {
   const { isAuthenticated, initializing, user } = useAuth()
+  const { t } = useI18n()
   const location = useLocation()
 
   if (initializing) {
@@ -28,11 +30,11 @@ export default function AdminRoute({ children }: AdminRouteProps) {
     return (
       <Box sx={{ py: 6 }}>
         <Stack spacing={2} alignItems="center" textAlign="center">
-          <Typography variant="h5">Admin access required</Typography>
+          <Typography variant="h5">{t('admin.accessRequiredTitle')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            You don&apos;t have permission to view this area.
+            {t('admin.accessRequiredBody')}
           </Typography>
-          <Button variant="contained" component={Link} to="/dashboard">Back to dashboard</Button>
+          <Button variant="contained" component={Link} to="/dashboard">{t('admin.backToDashboard')}</Button>
         </Stack>
       </Box>
     )

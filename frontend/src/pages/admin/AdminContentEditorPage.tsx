@@ -34,8 +34,31 @@ import {
   updateContent
 } from '../../api/content'
 import { formatDate, formatDateTime } from '../../utils/format'
+import { useI18n } from '../../i18n'
+import { translateApiError } from '../../i18n/errorMessages'
 
-const weeklyTemplate = `## Focus\n\n- Primary market theme\n- Risk-on / risk-off cues\n\n## Key Levels\n\n- \n\n## Watchlist\n\n- Ticker — thesis, level, trigger\n\n## If/Then Scenarios\n\n- If ___ then ___\n\n## Invalidation\n\n- Risk limits and what would invalidate the plan\n`
+const buildWeeklyTemplate = (t: (key: string) => string) => [
+  `## ${t('adminEditor.weeklyTemplate.focus')}`,
+  '',
+  `- ${t('adminEditor.weeklyTemplate.primaryTheme')}`,
+  `- ${t('adminEditor.weeklyTemplate.riskCues')}`,
+  '',
+  `## ${t('adminEditor.weeklyTemplate.keyLevels')}`,
+  '',
+  '- ',
+  '',
+  `## ${t('adminEditor.weeklyTemplate.watchlist')}`,
+  '',
+  `- ${t('adminEditor.weeklyTemplate.watchlistHint')}`,
+  '',
+  `## ${t('adminEditor.weeklyTemplate.ifThen')}`,
+  '',
+  `- ${t('adminEditor.weeklyTemplate.ifThenHint')}`,
+  '',
+  `## ${t('adminEditor.weeklyTemplate.invalidation')}`,
+  '',
+  `- ${t('adminEditor.weeklyTemplate.invalidationHint')}`
+].join('\n')
 
 const parseCsv = (value: string) => value
   .split(',')
@@ -86,6 +109,7 @@ const defaultForm: ContentFormState = {
 }
 
 export default function AdminContentEditorPage() {
+  const { t } = useI18n()
   const navigate = useNavigate()
   const { id } = useParams()
   const isDesktop = useMediaQuery('(min-width:1024px)')
@@ -126,10 +150,10 @@ export default function AdminContentEditorPage() {
       })
       .catch((err) => {
         const apiErr = err as ApiError
-        setError(apiErr.message || 'Unable to load content')
+        setError(translateApiError(apiErr, t))
       })
       .finally(() => setLoading(false))
-  }, [id])
+  }, [id, t])
 
   const buildPayload = (): ContentPostRequest => ({
     type: form.type,
@@ -148,24 +172,24 @@ export default function AdminContentEditorPage() {
   const validate = () => {
     const errors: Record<string, string> = {}
     if (!form.title.trim()) {
-      errors.title = 'Title is required'
+      errors.title = t('adminEditor.validation.titleRequired')
     }
     if (!form.body.trim()) {
-      errors.body = 'Body is required'
+      errors.body = t('adminEditor.validation.bodyRequired')
     }
     if (form.type === 'WEEKLY_PLAN') {
       if (!form.weekStart) {
-        errors.weekStart = 'Week start is required'
+        errors.weekStart = t('adminEditor.validation.weekStartRequired')
       }
       if (!form.weekEnd) {
-        errors.weekEnd = 'Week end is required'
+        errors.weekEnd = t('adminEditor.validation.weekEndRequired')
       }
       if (form.weekStart && form.weekEnd && form.weekStart > form.weekEnd) {
-        errors.weekEnd = 'Week end must be after week start'
+        errors.weekEnd = t('adminEditor.validation.weekEndAfterStart')
       }
     }
     if (form.visibleFrom && form.visibleUntil && form.visibleFrom > form.visibleUntil) {
-      errors.visibleUntil = 'Visible until must be after visible from'
+      errors.visibleUntil = t('adminEditor.validation.visibleUntilAfterFrom')
     }
     setFieldErrors(errors)
     return Object.keys(errors).length === 0
@@ -192,7 +216,7 @@ export default function AdminContentEditorPage() {
       return saved
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Failed to save content')
+      setError(translateApiError(apiErr, t, 'adminEditor.errors.saveFailed'))
       return null
     } finally {
       setSaving(false)
@@ -209,7 +233,7 @@ export default function AdminContentEditorPage() {
       setStatus(published.status)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Failed to publish content')
+      setError(translateApiError(apiErr, t, 'adminEditor.errors.publishFailed'))
     } finally {
       setSaving(false)
     }
@@ -224,7 +248,7 @@ export default function AdminContentEditorPage() {
       setStatus(archived.status)
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Failed to archive content')
+      setError(translateApiError(apiErr, t, 'adminEditor.errors.archiveFailed'))
     } finally {
       setSaving(false)
     }
@@ -242,8 +266,8 @@ export default function AdminContentEditorPage() {
 
   const statusChip = useMemo(() => {
     const color = status === 'PUBLISHED' ? 'success' : status === 'ARCHIVED' ? 'default' : 'warning'
-    return <Chip label={status} color={color} size="small" />
-  }, [status])
+    return <Chip label={t(`adminContent.statuses.${status.toLowerCase()}`)} color={color} size="small" />
+  }, [status, t])
 
   if (loading) {
     return (
@@ -258,32 +282,32 @@ export default function AdminContentEditorPage() {
   return (
     <Stack spacing={3}>
       <PageHeader
-        title={post ? 'Edit content' : 'Create content'}
-        subtitle="Build strategies and weekly plans for the Insights section."
+        title={post ? t('adminEditor.title.edit') : t('adminEditor.title.create')}
+        subtitle={t('adminEditor.subtitle')}
         actions={(
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
             <Button variant="outlined" onClick={saveDraft} disabled={saving}>
-              {saving ? 'Saving…' : 'Save draft'}
+              {saving ? t('adminEditor.actions.saving') : t('adminEditor.actions.saveDraft')}
             </Button>
             <Button
               variant="contained"
               onClick={() => setConfirmAction('publish')}
               disabled={saving || status === 'PUBLISHED'}
             >
-              Publish
+              {t('adminEditor.actions.publish')}
             </Button>
             <Button
               variant="text"
               onClick={() => setConfirmAction('archive')}
               disabled={saving || status === 'ARCHIVED' || !post}
             >
-              Archive
+              {t('adminEditor.actions.archive')}
             </Button>
           </Stack>
         )}
         breadcrumbs={[
-          <Button key="admin" size="small" onClick={() => navigate('/admin/content')}>Admin</Button>,
-          <Typography key="current" variant="body2">{post ? post.title : 'New content'}</Typography>
+          <Button key="admin" size="small" onClick={() => navigate('/admin/content')}>{t('nav.admin')}</Button>,
+          <Typography key="current" variant="body2">{post ? post.title : t('adminEditor.newContent')}</Typography>
         ]}
       />
 
@@ -298,21 +322,21 @@ export default function AdminContentEditorPage() {
                   {statusChip}
                   {post?.updatedAt && (
                     <Typography variant="caption" color="text.secondary">
-                      Updated {formatDateTime(post.updatedAt)}
+                      {t('adminEditor.updated')} {formatDateTime(post.updatedAt)}
                     </Typography>
                   )}
                 </Stack>
                 <TextField
                   select
-                  label="Type"
+                  label={t('adminEditor.fields.type')}
                   value={form.type}
                   onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value as ContentPostType }))}
                 >
-                  <MenuItem value="STRATEGY">Strategy</MenuItem>
-                  <MenuItem value="WEEKLY_PLAN">Weekly plan</MenuItem>
+                  <MenuItem value="STRATEGY">{t('adminContent.types.strategy')}</MenuItem>
+                  <MenuItem value="WEEKLY_PLAN">{t('adminContent.types.weeklyPlan')}</MenuItem>
                 </TextField>
                 <TextField
-                  label="Title"
+                  label={t('adminEditor.fields.title')}
                   value={form.title}
                   onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
                   error={Boolean(fieldErrors.title)}
@@ -320,26 +344,26 @@ export default function AdminContentEditorPage() {
                   required
                 />
                 <TextField
-                  label="Slug"
+                  label={t('adminEditor.fields.slug')}
                   value={form.slug}
                   onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))}
-                  helperText="Optional. If empty, we auto-generate one from the title."
+                  helperText={t('adminEditor.fields.slugHint')}
                 />
                 <TextField
-                  label="Summary"
+                  label={t('adminEditor.fields.summary')}
                   value={form.summary}
                   onChange={(event) => setForm((prev) => ({ ...prev, summary: event.target.value }))}
                   multiline
                   minRows={2}
                 />
                 <TextField
-                  label="Body (Markdown)"
+                  label={t('adminEditor.fields.body')}
                   value={form.body}
                   onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))}
                   multiline
                   minRows={10}
                   error={Boolean(fieldErrors.body)}
-                  helperText={fieldErrors.body || 'Use markdown for headings, lists, and emphasis.'}
+                  helperText={fieldErrors.body || t('adminEditor.fields.bodyHint')}
                   required
                 />
                 {form.type === 'WEEKLY_PLAN' && (
@@ -347,26 +371,26 @@ export default function AdminContentEditorPage() {
                     variant="outlined"
                     onClick={() => setForm((prev) => ({
                       ...prev,
-                      body: prev.body ? `${prev.body}\n\n${weeklyTemplate}` : weeklyTemplate
+                      body: prev.body ? `${prev.body}\n\n${buildWeeklyTemplate(t)}` : buildWeeklyTemplate(t)
                     }))}
                   >
-                    Insert weekly plan template
+                    {t('adminEditor.actions.insertWeeklyTemplate')}
                   </Button>
                 )}
                 <Divider />
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
                     <TextField
-                      label="Tags"
-                      placeholder="comma-separated"
+                      label={t('adminEditor.fields.tags')}
+                      placeholder={t('adminEditor.fields.commaSeparated')}
                       value={form.tagsInput}
                       onChange={(event) => setForm((prev) => ({ ...prev, tagsInput: event.target.value }))}
                     />
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
-                      label="Symbols"
-                      placeholder="comma-separated"
+                      label={t('adminEditor.fields.symbols')}
+                      placeholder={t('adminEditor.fields.commaSeparated')}
                       value={form.symbolsInput}
                       onChange={(event) => setForm((prev) => ({ ...prev, symbolsInput: event.target.value }))}
                     />
@@ -376,7 +400,7 @@ export default function AdminContentEditorPage() {
                   <Grid container spacing={2}>
                     <Grid item xs={12} md={6}>
                       <TextField
-                        label="Week start"
+                        label={t('adminEditor.fields.weekStart')}
                         type="date"
                         InputLabelProps={{ shrink: true }}
                         value={form.weekStart}
@@ -387,7 +411,7 @@ export default function AdminContentEditorPage() {
                     </Grid>
                     <Grid item xs={12} md={6}>
                       <TextField
-                        label="Week end"
+                        label={t('adminEditor.fields.weekEnd')}
                         type="date"
                         InputLabelProps={{ shrink: true }}
                         value={form.weekEnd}
@@ -401,7 +425,7 @@ export default function AdminContentEditorPage() {
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
                     <TextField
-                      label="Visible from"
+                      label={t('adminEditor.fields.visibleFrom')}
                       type="datetime-local"
                       InputLabelProps={{ shrink: true }}
                       value={form.visibleFrom}
@@ -410,7 +434,7 @@ export default function AdminContentEditorPage() {
                   </Grid>
                   <Grid item xs={12} md={6}>
                     <TextField
-                      label="Visible until"
+                      label={t('adminEditor.fields.visibleUntil')}
                       type="datetime-local"
                       InputLabelProps={{ shrink: true }}
                       value={form.visibleUntil}
@@ -428,20 +452,20 @@ export default function AdminContentEditorPage() {
         <Grid item xs={12} md={5}>
           {!isDesktop && (
             <Button variant="outlined" onClick={() => setShowPreview((prev) => !prev)} sx={{ mb: 2 }}>
-              {showPreview ? 'Hide preview' : 'Show preview'}
+              {showPreview ? t('adminEditor.actions.hidePreview') : t('adminEditor.actions.showPreview')}
             </Button>
           )}
           {showPreview && (
             <Card>
               <CardContent>
                 <Stack spacing={2}>
-                  <Typography variant="subtitle2" color="text.secondary">Preview</Typography>
-                  <Typography variant="h6">{form.title || 'Untitled'}</Typography>
+                  <Typography variant="subtitle2" color="text.secondary">{t('adminEditor.preview')}</Typography>
+                  <Typography variant="h6">{form.title || t('adminEditor.untitled')}</Typography>
                   {form.summary && (
                     <Typography variant="body2" color="text.secondary">{form.summary}</Typography>
                   )}
                   <Stack direction="row" spacing={1} flexWrap="wrap">
-                    <Chip label={form.type === 'STRATEGY' ? 'Strategy' : 'Weekly plan'} size="small" color="primary" />
+                    <Chip label={form.type === 'STRATEGY' ? t('adminContent.types.strategy') : t('adminContent.types.weeklyPlan')} size="small" color="primary" />
                     {parseCsv(form.tagsInput).map((tag) => (
                       <Chip key={tag} label={tag} size="small" variant="outlined" />
                     ))}
@@ -451,7 +475,7 @@ export default function AdminContentEditorPage() {
                   </Stack>
                   {form.type === 'WEEKLY_PLAN' && form.weekStart && form.weekEnd && (
                     <Typography variant="body2" color="text.secondary">
-                      Week of {formatDate(form.weekStart)} – {formatDate(form.weekEnd)}
+                      {t('insights.weekOf')} {formatDate(form.weekStart)} - {formatDate(form.weekEnd)}
                     </Typography>
                   )}
                   <MarkdownContent content={form.body} />
@@ -463,18 +487,18 @@ export default function AdminContentEditorPage() {
       </Grid>
 
       <Dialog open={Boolean(confirmAction)} onClose={() => setConfirmAction(null)} fullWidth maxWidth="xs">
-        <DialogTitle>{confirmAction === 'publish' ? 'Publish content' : 'Archive content'}</DialogTitle>
+        <DialogTitle>{confirmAction === 'publish' ? t('adminContent.dialog.publishTitle') : t('adminContent.dialog.archiveTitle')}</DialogTitle>
         <DialogContent>
           <Typography variant="body2" color="text.secondary">
             {confirmAction === 'publish'
-              ? 'Publish this content to Insights? All users will see it immediately.'
-              : 'Archive this content? It will be hidden from Insights but kept for records.'}
+              ? t('adminContent.dialog.publishBody')
+              : t('adminContent.dialog.archiveBody')}
           </Typography>
         </DialogContent>
         <DialogActions>
-          <Button variant="text" onClick={() => setConfirmAction(null)} disabled={saving}>Cancel</Button>
+          <Button variant="text" onClick={() => setConfirmAction(null)} disabled={saving}>{t('common.cancel')}</Button>
           <Button variant="contained" onClick={handleConfirmAction} disabled={saving}>
-            {saving ? 'Working…' : 'Confirm'}
+            {saving ? t('adminContent.actions.working') : t('common.confirm')}
           </Button>
         </DialogActions>
       </Dialog>

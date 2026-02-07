@@ -1,12 +1,15 @@
 import { useEffect, useState } from 'react'
-import { Alert, Button, Card, CardContent, Stack, TextField, Typography } from '@mui/material'
+import { Alert, Button, Card, CardContent, MenuItem, Stack, TextField, Typography } from '@mui/material'
 import { useAuth } from '../auth/AuthContext'
 import { fetchUserSettings } from '../api/settings'
 import { changePassword } from '../api/auth'
 import { ApiError } from '../api/client'
 import PageHeader from '../components/ui/PageHeader'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 export default function SettingsPage() {
+  const { t, language, setLanguage } = useI18n()
   const { user, updateSettings, refreshUser } = useAuth()
   const [form, setForm] = useState({
     baseCurrency: user?.baseCurrency || 'USD',
@@ -44,10 +47,10 @@ export default function SettingsPage() {
     try {
       await updateSettings(form)
       await refreshUser()
-      setMessage('Settings saved and synced across the app')
+      setMessage(t('settings.messages.saved'))
     } catch (err) {
       const apiErr = err as ApiError
-      setError(apiErr.message || 'Failed to save settings')
+      setError(translateApiError(apiErr, t))
     } finally {
       setSaving(false)
     }
@@ -59,22 +62,22 @@ export default function SettingsPage() {
     setPasswordMessage('')
     setPasswordError('')
     if (passwordForm.newPassword.length < 8) {
-      setPasswordError('New password must be at least 8 characters long')
+      setPasswordError(t('settings.password.errors.short'))
       setPasswordSaving(false)
       return
     }
     if (passwordForm.newPassword !== passwordForm.confirmPassword) {
-      setPasswordError('New passwords do not match')
+      setPasswordError(t('settings.password.errors.mismatch'))
       setPasswordSaving(false)
       return
     }
     try {
       await changePassword(passwordForm.currentPassword, passwordForm.newPassword)
-      setPasswordMessage('Password updated successfully')
+      setPasswordMessage(t('settings.password.messages.updated'))
       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' })
     } catch (err) {
       const apiErr = err as ApiError
-      setPasswordError(apiErr.message || 'Failed to update password')
+      setPasswordError(translateApiError(apiErr, t))
     } finally {
       setPasswordSaving(false)
     }
@@ -83,8 +86,8 @@ export default function SettingsPage() {
   return (
     <Stack spacing={3}>
       <PageHeader
-        title="Settings"
-        subtitle="Update your base currency and timezone; changes apply everywhere including dashboard and trades."
+        title={t('settings.title')}
+        subtitle={t('settings.subtitle')}
       />
       <Card>
         <CardContent>
@@ -92,56 +95,65 @@ export default function SettingsPage() {
           {error && <Alert severity="error" sx={{ mb: 2 }}>{error}</Alert>}
           <Stack component="form" spacing={2} onSubmit={handleSubmit} maxWidth={420}>
             <TextField
-              label="Base currency"
+              label={t('settings.baseCurrency')}
               value={form.baseCurrency}
               onChange={(e) => setForm((prev) => ({ ...prev, baseCurrency: e.target.value.toUpperCase() }))}
-              helperText="ISO currency code (e.g., USD, EUR, GBP)"
+              helperText={t('settings.baseCurrencyHint')}
               required
             />
             <TextField
-              label="Timezone"
+              label={t('settings.timezone')}
               value={form.timezone}
               onChange={(e) => setForm((prev) => ({ ...prev, timezone: e.target.value }))}
-              helperText="IANA timezone (e.g., Europe/Bucharest)"
+              helperText={t('settings.timezoneHint')}
               required
             />
-            <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Saving…' : 'Save settings'}</Button>
+            <TextField
+              select
+              label={t('language.label')}
+              value={language}
+              onChange={(e) => setLanguage(e.target.value as 'en' | 'ro')}
+            >
+              <MenuItem value="en">{t('language.english')}</MenuItem>
+              <MenuItem value="ro">{t('language.romanian')}</MenuItem>
+            </TextField>
+            <Button type="submit" variant="contained" disabled={saving}>{saving ? t('settings.messages.saving') : t('settings.actions.save')}</Button>
           </Stack>
         </CardContent>
       </Card>
       <Card>
         <CardContent>
           <Stack spacing={2} component="form" onSubmit={handlePasswordSubmit} maxWidth={420}>
-            <Typography variant="h6">Change password</Typography>
+            <Typography variant="h6">{t('settings.password.title')}</Typography>
             <Typography variant="body2" color="text.secondary">
-              Update your password regularly to keep your journal secure.
+              {t('settings.password.subtitle')}
             </Typography>
             {passwordMessage && <Alert severity="success">{passwordMessage}</Alert>}
             {passwordError && <Alert severity="error">{passwordError}</Alert>}
             <TextField
-              label="Current password"
+              label={t('settings.password.current')}
               type="password"
               value={passwordForm.currentPassword}
               onChange={(e) => setPasswordForm((prev) => ({ ...prev, currentPassword: e.target.value }))}
               required
             />
             <TextField
-              label="New password"
+              label={t('settings.password.new')}
               type="password"
               value={passwordForm.newPassword}
               onChange={(e) => setPasswordForm((prev) => ({ ...prev, newPassword: e.target.value }))}
-              helperText="Minimum 8 characters"
+              helperText={t('settings.password.minHint')}
               required
             />
             <TextField
-              label="Confirm new password"
+              label={t('settings.password.confirm')}
               type="password"
               value={passwordForm.confirmPassword}
               onChange={(e) => setPasswordForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
               required
             />
             <Button type="submit" variant="contained" disabled={passwordSaving}>
-              {passwordSaving ? 'Updating…' : 'Update password'}
+              {passwordSaving ? t('auth.updating') : t('settings.password.updateAction')}
             </Button>
           </Stack>
         </CardContent>
@@ -149,12 +161,12 @@ export default function SettingsPage() {
       <Card>
         <CardContent>
           <Stack spacing={1}>
-            <Typography variant="h6">Account deletion</Typography>
+            <Typography variant="h6">{t('settings.delete.title')}</Typography>
             <Typography variant="body2" color="text.secondary">
-              Request deletion of your account and data. This workflow is coming soon.
+              {t('settings.delete.subtitle')}
             </Typography>
             <Button variant="outlined" disabled>
-              Delete account (coming soon)
+              {t('settings.delete.action')}
             </Button>
           </Stack>
         </CardContent>

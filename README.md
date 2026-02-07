@@ -47,6 +47,33 @@ npm install
 npm run dev
 ```
 
+## Internationalization (i18n)
+- Frontend locale files live in:
+  - `frontend/src/i18n/en.json`
+  - `frontend/src/i18n/ro.json`
+- Runtime setup is in `frontend/src/i18n/index.tsx` and is loaded from `frontend/src/main.tsx`.
+
+### Add a new translation key
+1. Add the key in `frontend/src/i18n/en.json`.
+2. Add the same key in `frontend/src/i18n/ro.json`.
+3. Use it in UI code with `const { t } = useI18n()` and `t('your.key.path')`.
+4. For API/server errors, map codes in `frontend/src/i18n/errorMessages.ts` and use `translateApiError(...)`.
+
+### Add a new language
+1. Create a new locale JSON file in `frontend/src/i18n/` (for example `fr.json`).
+2. Register it in `frontend/src/i18n/index.tsx`:
+   - extend `AppLanguage`
+   - add `LOCALES` entry
+   - add `RESOURCES` entry
+   - add language option in `Layout.tsx` language selector.
+
+### Language persistence and default
+- Selected language is persisted in `localStorage` under key `app.language`.
+- Startup language resolution:
+  1. Use `app.language` from localStorage if present (`en` or `ro`).
+  2. Otherwise, use browser language (`ro*` -> Romanian, otherwise English).
+  3. Fallback for missing keys is English.
+
 ## Production builds
 - Backend JAR: `mvn clean package`
 - Frontend static bundle: `npm run build` (served by Nginx via frontend Dockerfile)

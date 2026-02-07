@@ -6,16 +6,19 @@ import { z } from 'zod'
 import { useNavigate, Link } from 'react-router-dom'
 import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 
 const schema = z.object({
   email: z.string().email(),
   password: z.string().min(8),
-  legalAccepted: z.boolean().refine((value) => value, { message: 'You must accept the Terms and Privacy Policy.' })
+  legalAccepted: z.boolean().refine((value) => value, { message: 'LEGAL_REQUIRED' })
 })
 
 type FormValues = z.infer<typeof schema>
 
 export default function RegisterPage() {
+  const { t, locale } = useI18n()
   const { register, handleSubmit, formState } = useForm<FormValues>({ resolver: zodResolver(schema), mode: 'onChange' })
   const navigate = useNavigate()
   const { register: registerUser } = useAuth()
@@ -36,11 +39,11 @@ export default function RegisterPage() {
         termsVersion,
         privacyAccepted: true,
         privacyVersion,
-        locale: navigator.language
+        locale
       })
       navigate(`/register/confirm?email=${encodeURIComponent(data.email)}`)
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Registration failed')
+      setError(translateApiError(err, t))
     } finally {
       setSubmitting(false)
     }
@@ -57,30 +60,30 @@ export default function RegisterPage() {
                   <LockOutlinedIcon />
                 </Avatar>
                 <Typography component="h1" variant="h5">
-                  Create account
+                  {t('register.title')}
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Start tracking trades and building performance insights.
+                  {t('register.subtitle')}
                 </Typography>
               </Stack>
               <Box component="form" onSubmit={handleSubmit(onSubmit)}>
                 <Stack spacing={2}>
-                  <TextField label="Email Address" {...register('email')} error={!!formState.errors.email} helperText={formState.errors.email?.message} />
-                  <TextField label="Password" type="password" autoComplete="new-password" {...register('password')} error={!!formState.errors.password} helperText={formState.errors.password?.message} />
+                  <TextField label={t('register.email')} {...register('email')} error={!!formState.errors.email} helperText={formState.errors.email ? t('register.validation.email') : ''} />
+                  <TextField label={t('register.password')} type="password" autoComplete="new-password" {...register('password')} error={!!formState.errors.password} helperText={formState.errors.password ? t('register.validation.password') : ''} />
                   <FormControlLabel
                     control={<Checkbox {...register('legalAccepted')} />}
                     label={(
                       <Typography variant="body2">
-                        I agree to the <MuiLink component={Link} to="/terms">Terms &amp; Conditions</MuiLink> and acknowledge the{' '}
-                        <MuiLink component={Link} to="/privacy">Privacy Policy</MuiLink>.
+                        {t('register.legalPrefix')} <MuiLink component={Link} to="/terms">{t('register.termsAndConditions')}</MuiLink> {t('register.andAcknowledge')}{' '}
+                        <MuiLink component={Link} to="/privacy">{t('register.privacyPolicy')}</MuiLink>.
                       </Typography>
                     )}
                   />
                   {formState.errors.legalAccepted && (
-                    <Typography color="error" variant="body2">{formState.errors.legalAccepted.message}</Typography>
+                    <Typography color="error" variant="body2">{t('register.validation.legal')}</Typography>
                   )}
                   <Typography variant="caption" color="text.secondary">
-                    For journaling and analytics only. Not investment advice.
+                    {t('app.disclaimer')}
                   </Typography>
                   {error && <Typography color="error" variant="body2">{error}</Typography>}
                   <Button
@@ -89,10 +92,10 @@ export default function RegisterPage() {
                     variant="contained"
                     disabled={submitting || !formState.isValid}
                   >
-                    Sign Up
+                    {t('auth.signup')}
                   </Button>
                   <MuiLink component={Link} to="/login" variant="body2" textAlign="center">
-                    Already have an account? Sign in
+                    {t('register.alreadyHaveAccount')}
                   </MuiLink>
                 </Stack>
               </Box>
