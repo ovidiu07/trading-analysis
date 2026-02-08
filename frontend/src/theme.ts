@@ -89,13 +89,21 @@ const theme = createTheme({
     MuiCssBaseline: {
       styleOverrides: {
         html: {
-          width: '100%'
+          width: '100%',
+          maxWidth: '100%',
+          overflowX: 'clip'
         },
         body: {
           width: '100%',
+          maxWidth: '100%',
+          overflowX: 'clip',
           margin: 0,
           color: terminalTokens.colors.textPrimary,
           background: `radial-gradient(circle at 20% 0%, ${alpha('#1c2f4b', 0.35)} 0%, ${terminalTokens.colors.background} 55%)`
+        },
+        'img, video, canvas': {
+          maxWidth: '100%',
+          height: 'auto'
         },
         a: {
           color: terminalTokens.colors.link,
@@ -106,7 +114,9 @@ const theme = createTheme({
         },
         '#root': {
           width: '100%',
-          minHeight: '100%'
+          maxWidth: '100%',
+          minHeight: '100%',
+          overflowX: 'clip'
         }
       }
     },

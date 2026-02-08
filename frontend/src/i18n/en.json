@@ -466,7 +466,10 @@
       "status": "Status",
       "currency": "Currency",
       "timezone": "Timezone",
-      "comingSoon": "Coming soon"
+      "comingSoon": "Coming soon",
+      "activeFilters": "Active filters",
+      "filters": "Filters",
+      "closeFilters": "Close filters"
     },
     "definitions": {
       "open": "Definitions",
@@ -734,6 +737,10 @@
     "validation": {
       "email": "Enter a valid email address",
       "password": "Password must be at least 6 characters"
+    },
+    "mobileCta": {
+      "login": "Login",
+      "create": "Create account"
     }
   },
   "profile": {
@@ -938,6 +945,13 @@
       "pnlPercent": "P&L %",
       "riskPercent": "Risk %",
       "rMultiple": "R multiple",
+      "sections": {
+        "required": "Required basics",
+        "execution": "Core execution",
+        "risk": "Risk",
+        "costs": "Costs",
+        "context": "Context"
+      },
       "validation": {
         "symbolRequired": "Symbol is required"
       }

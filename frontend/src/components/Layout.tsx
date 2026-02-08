@@ -264,14 +264,14 @@ export default function Layout() {
   )
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', width: '100%', overflowX: 'clip' }}>
       {isAuthenticated && (
         <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 } }}>
           <Drawer
             variant={isMobile ? 'temporary' : 'permanent'}
             open={isMobile ? mobileOpen : true}
             onClose={() => setMobileOpen(false)}
-            ModalProps={{ keepMounted: true }}
+            ModalProps={{ keepMounted: false }}
             sx={{
               '& .MuiDrawer-paper': {
                 width: isMobile ? SIDEBAR_WIDTH : effectiveSidebarWidth,
@@ -316,7 +316,12 @@ export default function Layout() {
             py: { xs: 1.5, md: 3 },
             px: { xs: 1.5, sm: 2.5, md: 3 },
             flexGrow: 1,
-            width: '100%'
+            width: '100%',
+            minWidth: 0,
+            overflowX: 'clip',
+            '& > *': {
+              minWidth: 0
+            }
           }}
         >
           <DemoDataBanner />

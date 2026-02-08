@@ -466,7 +466,10 @@
       "status": "Stare",
       "currency": "Monedă",
       "timezone": "Fus orar",
-      "comingSoon": "În curând"
+      "comingSoon": "În curând",
+      "activeFilters": "Filtre active",
+      "filters": "Filtre",
+      "closeFilters": "Închide filtrele"
     },
     "definitions": {
       "open": "Definiții",
@@ -734,6 +737,10 @@
     "validation": {
       "email": "Introdu o adresă de email validă",
       "password": "Parola trebuie să aibă cel puțin 6 caractere"
+    },
+    "mobileCta": {
+      "login": "Autentificare",
+      "create": "Creează cont"
     }
   },
   "profile": {
@@ -938,6 +945,13 @@
       "pnlPercent": "P&L %",
       "riskPercent": "Risc %",
       "rMultiple": "Multiplu R",
+      "sections": {
+        "required": "Bază obligatorie",
+        "execution": "Execuție principală",
+        "risk": "Risc",
+        "costs": "Costuri",
+        "context": "Context"
+      },
       "validation": {
         "symbolRequired": "Simbolul este obligatoriu"
       }

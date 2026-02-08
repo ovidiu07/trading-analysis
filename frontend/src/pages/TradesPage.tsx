@@ -27,6 +27,7 @@ import {
   useTheme,
 } from '@mui/material'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
@@ -150,6 +151,7 @@ export default function TradesPage() {
     pageSize: 10,
   })
   const [expandedTrade, setExpandedTrade] = useState<TradeResponse | null>(null)
+  const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<TradeResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TradeResponse | null>(null)
@@ -418,6 +420,7 @@ export default function TradesPage() {
       setCreateSuccess(t('trades.messages.created'))
       const freshDefaults = buildDefaultValues()
       setCreateFormValues(freshDefaults)
+      setCreateDialogOpen(false)
       fetchTrades()
     } catch (err) {
       const apiErr = err as ApiError
@@ -483,6 +486,11 @@ export default function TradesPage() {
     setActiveFilters(null)
     setViewMode('list')
     setPaginationModel((prev) => ({ ...prev, page: 0 }))
+  }
+
+  const openCreateDialog = () => {
+    setCreateError('')
+    setCreateDialogOpen(true)
   }
 
   const renderTradesTable = () => (
@@ -591,214 +599,245 @@ export default function TradesPage() {
   )
 
   return (
-    <Stack spacing={3}>
-      <Stack spacing={3}>
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>{t('trades.create.title')}</Typography>
-            {createSuccess && <Alert severity="success" sx={{ mb: 2 }}>{createSuccess}</Alert>}
-            {createError && <Alert severity="error" sx={{ mb: 2 }}>{createError}</Alert>}
-            <TradeForm
-              initialValues={createFormValues}
-              submitLabel={t('trades.create.save')}
-              onSubmit={handleCreate}
-            />
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent>
-            <Accordion defaultExpanded>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.filters.title')}</AccordionSummary>
-              <AccordionDetails>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} md={6}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                      <TextField size="small" label={t('trades.filters.openedFrom')} type="datetime-local" value={filters.openedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                      <TextField size="small" label={t('trades.filters.openedTo')} type="datetime-local" value={filters.openedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                    </Stack>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                      <TextField size="small" label={t('trades.filters.closedFrom')} type="datetime-local" value={filters.closedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                      <TextField size="small" label={t('trades.filters.closedTo')} type="datetime-local" value={filters.closedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
-                    </Stack>
-                  </Grid>
-                  <Grid item xs={12} md={6}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                      <TextField size="small" label={t('trades.filters.symbol')} value={filters.symbol} onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))} fullWidth />
-                      <TextField size="small" label={t('trades.filters.direction')} select value={filters.direction} onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value }))} fullWidth>
-                        <MenuItem value="">{t('trades.filters.any')}</MenuItem>
-                        <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
-                        <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
-                      </TextField>
-                    </Stack>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
-                      <TextField size="small" label={t('trades.filters.status')} select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))} fullWidth>
-                        <MenuItem value="">{t('trades.filters.any')}</MenuItem>
-                        <MenuItem value="OPEN">{t('trades.status.OPEN')}</MenuItem>
-                        <MenuItem value="CLOSED">{t('trades.status.CLOSED')}</MenuItem>
-                      </TextField>
-                    </Stack>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
-                      <Button variant="contained" onClick={onSearch} fullWidth={isSmallScreen}>{t('common.search')}</Button>
-                      <Button variant="outlined" onClick={clearFilters} fullWidth={isSmallScreen}>{t('trades.filters.clear')}</Button>
-                    </Stack>
-                  </Grid>
-                </Grid>
-              </AccordionDetails>
-            </Accordion>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent>
-            <Stack direction="row" justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} mb={2} spacing={1}>
-              <Typography variant="h6">{t('trades.list.title')}</Typography>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>{t('trades.list.searchResults')}</Alert>}
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={importLoading ? <CircularProgress size={16} /> : <UploadFileIcon />}
-                  onClick={handleImportClick}
-                  disabled={importLoading}
-                >
-                  {t('trades.list.importCsv')}
-                </Button>
-                <input
-                  ref={importInputRef}
-                  type="file"
-                  accept=".csv"
-                  hidden
-                  onChange={handleImportChange}
-                />
-              </Stack>
+    <Stack spacing={3} sx={{ pb: { xs: 'calc(84px + env(safe-area-inset-bottom))', md: 0 } }}>
+      <Card>
+        <CardContent>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} mb={2} spacing={1.25}>
+            <Typography variant="h6">{t('trades.list.title')}</Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+              {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>{t('trades.list.searchResults')}</Alert>}
+              <Button
+                variant="contained"
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={openCreateDialog}
+                sx={{ display: { xs: 'none', md: 'inline-flex' } }}
+              >
+                {t('trades.create.title')}
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={importLoading ? <CircularProgress size={16} /> : <UploadFileIcon />}
+                onClick={handleImportClick}
+                disabled={importLoading}
+              >
+                {t('trades.list.importCsv')}
+              </Button>
+              <input
+                ref={importInputRef}
+                type="file"
+                accept=".csv"
+                hidden
+                onChange={handleImportChange}
+              />
             </Stack>
-            {fetchError && <ErrorBanner message={fetchError} />}
-            {noteNavError && <ErrorBanner message={noteNavError} />}
-            {importError && <Alert severity="error" sx={{ mb: 2 }}>{importError}</Alert>}
-            {importSummary && (
-              <Box sx={{ mb: 2 }}>
-                <Alert severity="success" sx={{ mb: 2 }}>
-                  {t('trades.import.summary', { rows: importSummary.totalRows, groups: importSummary.isinGroups })}
-                </Alert>
-                <Grid container spacing={2}>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="subtitle2">{t('trades.import.tradesCreated')}</Typography>
-                    <Typography>{importSummary.tradesCreated}</Typography>
-                  </Grid>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="subtitle2">{t('trades.import.tradesUpdated')}</Typography>
-                    <Typography>{importSummary.tradesUpdated}</Typography>
-                  </Grid>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="subtitle2">{t('trades.import.groupsSkipped')}</Typography>
-                    <Typography>{importSummary.groupsSkipped}</Typography>
-                  </Grid>
-                  <Grid item xs={6} md={3}>
-                    <Typography variant="subtitle2">{t('trades.import.isinGroups')}</Typography>
-                    <Typography>{importSummary.isinGroups}</Typography>
-                  </Grid>
+          </Stack>
+          {createSuccess && <Alert severity="success" sx={{ mb: 2 }}>{createSuccess}</Alert>}
+          {fetchError && <ErrorBanner message={fetchError} />}
+          {noteNavError && <ErrorBanner message={noteNavError} />}
+          {importError && <Alert severity="error" sx={{ mb: 2 }}>{importError}</Alert>}
+          {importSummary && (
+            <Box sx={{ mb: 2 }}>
+              <Alert severity="success" sx={{ mb: 2 }}>
+                {t('trades.import.summary', { rows: importSummary.totalRows, groups: importSummary.isinGroups })}
+              </Alert>
+              <Grid container spacing={2}>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="subtitle2">{t('trades.import.tradesCreated')}</Typography>
+                  <Typography>{importSummary.tradesCreated}</Typography>
                 </Grid>
-                {importSummary.groupResults?.length > 0 && (
-                  <Box sx={{ mt: 2 }}>
-                    <Typography variant="subtitle2" gutterBottom>{t('trades.import.perIsinResults')}</Typography>
-                    <Stack spacing={1}>
-                      {importSummary.groupResults.map((result) => (
-                        <Alert
-                          key={`${result.isin}-${result.status}`}
-                          severity={result.status === 'SKIPPED' ? 'warning' : 'success'}
-                        >
-                          <strong>{result.isin}</strong>: {result.status === 'SKIPPED' ? t('trades.import.status.SKIPPED') : t('trades.import.status.IMPORTED')}
-                          {result.reason ? ` — ${result.reason}` : ''}
-                        </Alert>
-                      ))}
-                    </Stack>
-                  </Box>
-                )}
-              </Box>
-            )}
-            {isSmallScreen ? renderTradeCards() : renderTradesTable()}
-            {expandedTrade && !isSmallScreen && (
-              <Box sx={{ mt: 2, bgcolor: 'background.default', borderRadius: 2, border: '1px solid', borderColor: 'divider', p: 2 }}>
-                <Typography variant="subtitle1" gutterBottom>{t('trades.details.title')}</Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="subtitle2" gutterBottom>{t('trades.details.stopsAndTargets')}</Typography>
-                    <Typography variant="body2">{t('trades.details.stopLoss')}: {formatCurrency(expandedTrade.stopLossPrice, baseCurrency)}</Typography>
-                    <Typography variant="body2">{t('trades.details.takeProfit')}: {formatCurrency(expandedTrade.takeProfitPrice, baseCurrency)}</Typography>
-                    <Typography variant="body2">{t('trades.details.timeframe')}: {expandedTrade.timeframe || t('common.na')}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="subtitle2" gutterBottom>{t('trades.details.costsAndRisk')}</Typography>
-                    <Typography variant="body2">{t('trades.form.fees')}: {formatCurrency(expandedTrade.fees, baseCurrency)}</Typography>
-                    <Typography variant="body2">{t('trades.form.commission')}: {formatCurrency(expandedTrade.commission, baseCurrency)}</Typography>
-                    <Typography variant="body2">{t('trades.form.slippage')}: {formatCurrency(expandedTrade.slippage, baseCurrency)}</Typography>
-                    <Typography variant="body2">{t('trades.details.risk')}: {formatCurrency(expandedTrade.riskAmount, baseCurrency)} ({formatPercent(expandedTrade.riskPercent)})</Typography>
-                    <Typography variant="body2">{t('trades.form.rMultiple')}: {formatNumber(expandedTrade.rMultiple)}</Typography>
-                  </Grid>
-                  <Grid item xs={12} sm={6} md={4}>
-                    <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
-                    <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
-                    <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
-                    <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
-                    <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
-                  </Grid>
-                  <Grid item xs={12}>
-                    <Typography variant="subtitle2" gutterBottom>{t('trades.details.notesAndTags')}</Typography>
-                    <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || t('common.na')}</Typography>
-                    <Stack direction="row" spacing={1} flexWrap="wrap">
-                      {(expandedTrade.tags || []).map((tag: string) => (
-                        <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
-                      ))}
-                      {(expandedTrade.tags?.length || 0) === 0 && <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>}
-                    </Stack>
-                  </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="subtitle2">{t('trades.import.tradesUpdated')}</Typography>
+                  <Typography>{importSummary.tradesUpdated}</Typography>
                 </Grid>
-              </Box>
-            )}
-          </CardContent>
-        </Card>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="subtitle2">{t('trades.import.groupsSkipped')}</Typography>
+                  <Typography>{importSummary.groupsSkipped}</Typography>
+                </Grid>
+                <Grid item xs={6} md={3}>
+                  <Typography variant="subtitle2">{t('trades.import.isinGroups')}</Typography>
+                  <Typography>{importSummary.isinGroups}</Typography>
+                </Grid>
+              </Grid>
+              {importSummary.groupResults?.length > 0 && (
+                <Box sx={{ mt: 2 }}>
+                  <Typography variant="subtitle2" gutterBottom>{t('trades.import.perIsinResults')}</Typography>
+                  <Stack spacing={1}>
+                    {importSummary.groupResults.map((result) => (
+                      <Alert
+                        key={`${result.isin}-${result.status}`}
+                        severity={result.status === 'SKIPPED' ? 'warning' : 'success'}
+                      >
+                        <strong>{result.isin}</strong>: {result.status === 'SKIPPED' ? t('trades.import.status.SKIPPED') : t('trades.import.status.IMPORTED')}
+                        {result.reason ? ` — ${result.reason}` : ''}
+                      </Alert>
+                    ))}
+                  </Stack>
+                </Box>
+              )}
+            </Box>
+          )}
+          {isSmallScreen ? renderTradeCards() : renderTradesTable()}
+          {expandedTrade && !isSmallScreen && (
+            <Box sx={{ mt: 2, bgcolor: 'background.default', borderRadius: 2, border: '1px solid', borderColor: 'divider', p: 2 }}>
+              <Typography variant="subtitle1" gutterBottom>{t('trades.details.title')}</Typography>
+              <Grid container spacing={2}>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.stopsAndTargets')}</Typography>
+                  <Typography variant="body2">{t('trades.details.stopLoss')}: {formatCurrency(expandedTrade.stopLossPrice, baseCurrency)}</Typography>
+                  <Typography variant="body2">{t('trades.details.takeProfit')}: {formatCurrency(expandedTrade.takeProfitPrice, baseCurrency)}</Typography>
+                  <Typography variant="body2">{t('trades.details.timeframe')}: {expandedTrade.timeframe || t('common.na')}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.costsAndRisk')}</Typography>
+                  <Typography variant="body2">{t('trades.form.fees')}: {formatCurrency(expandedTrade.fees, baseCurrency)}</Typography>
+                  <Typography variant="body2">{t('trades.form.commission')}: {formatCurrency(expandedTrade.commission, baseCurrency)}</Typography>
+                  <Typography variant="body2">{t('trades.form.slippage')}: {formatCurrency(expandedTrade.slippage, baseCurrency)}</Typography>
+                  <Typography variant="body2">{t('trades.details.risk')}: {formatCurrency(expandedTrade.riskAmount, baseCurrency)} ({formatPercent(expandedTrade.riskPercent)})</Typography>
+                  <Typography variant="body2">{t('trades.form.rMultiple')}: {formatNumber(expandedTrade.rMultiple)}</Typography>
+                </Grid>
+                <Grid item xs={12} sm={6} md={4}>
+                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
+                  <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
+                </Grid>
+                <Grid item xs={12}>
+                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.notesAndTags')}</Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || t('common.na')}</Typography>
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
+                    {(expandedTrade.tags || []).map((tag: string) => (
+                      <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
+                    ))}
+                    {(expandedTrade.tags?.length || 0) === 0 && <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>}
+                  </Stack>
+                </Grid>
+              </Grid>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
 
-        <Card>
-          <CardContent>
-            <Typography variant="h6" gutterBottom>{t('trades.help.title')}</Typography>
-            <Accordion defaultExpanded>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.corePricing')}</AccordionSummary>
-              <AccordionDetails>
-                <Stack spacing={1}>
-                  <Typography variant="body2"><strong>{t('trades.help.corePricing.entryExit')}</strong>: {t('trades.help.corePricing.entryExitBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.corePricing.directionMarket')}</strong>: {t('trades.help.corePricing.directionMarketBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.corePricing.status')}</strong>: {t('trades.help.corePricing.statusBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.corePricing.capitalUsed')}</strong>: {t('trades.help.corePricing.capitalUsedBody')}</Typography>
-                </Stack>
-              </AccordionDetails>
-            </Accordion>
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.pnlAndRisk')}</AccordionSummary>
-              <AccordionDetails>
-                <Stack spacing={1}>
-                  <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.feesCosts')}</strong>: {t('trades.help.pnlAndRisk.feesCostsBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.pnlGross')}</strong>: {t('trades.help.pnlAndRisk.pnlGrossBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.pnlNet')}</strong>: {t('trades.help.pnlAndRisk.pnlNetBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.pnlPercent')}</strong>: {t('trades.help.pnlAndRisk.pnlPercentBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.riskAmountPercent')}</strong>: {t('trades.help.pnlAndRisk.riskAmountPercentBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.rMultiple')}</strong>: {t('trades.help.pnlAndRisk.rMultipleBody')}</Typography>
-                </Stack>
-              </AccordionDetails>
-            </Accordion>
-            <Accordion>
-              <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.context')}</AccordionSummary>
-              <AccordionDetails>
-                <Stack spacing={1}>
-                  <Typography variant="body2"><strong>{t('trades.help.context.timeframe')}</strong>: {t('trades.help.context.timeframeBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.context.setupStrategyCatalyst')}</strong>: {t('trades.help.context.setupStrategyCatalystBody')}</Typography>
-                  <Typography variant="body2"><strong>{t('trades.help.context.statusDirection')}</strong>: {t('trades.help.context.statusDirectionBody')}</Typography>
-                </Stack>
-              </AccordionDetails>
-            </Accordion>
-          </CardContent>
-        </Card>
-      </Stack>
+      <Card>
+        <CardContent>
+          <Accordion defaultExpanded={!isSmallScreen}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.filters.title')}</AccordionSummary>
+            <AccordionDetails>
+              <Grid container spacing={2}>
+                <Grid item xs={12} md={6}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                    <TextField size="small" label={t('trades.filters.openedFrom')} type="datetime-local" value={filters.openedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                    <TextField size="small" label={t('trades.filters.openedTo')} type="datetime-local" value={filters.openedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, openedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                  </Stack>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                    <TextField size="small" label={t('trades.filters.closedFrom')} type="datetime-local" value={filters.closedAtFrom} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtFrom: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                    <TextField size="small" label={t('trades.filters.closedTo')} type="datetime-local" value={filters.closedAtTo} onChange={(e) => setFilters((prev) => ({ ...prev, closedAtTo: e.target.value }))} InputLabelProps={{ shrink: true }} fullWidth />
+                  </Stack>
+                </Grid>
+                <Grid item xs={12} md={6}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                    <TextField size="small" label={t('trades.filters.symbol')} value={filters.symbol} onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))} fullWidth />
+                    <TextField size="small" label={t('trades.filters.direction')} select value={filters.direction} onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value }))} fullWidth>
+                      <MenuItem value="">{t('trades.filters.any')}</MenuItem>
+                      <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
+                      <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
+                    </TextField>
+                  </Stack>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
+                    <TextField size="small" label={t('trades.filters.status')} select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))} fullWidth>
+                      <MenuItem value="">{t('trades.filters.any')}</MenuItem>
+                      <MenuItem value="OPEN">{t('trades.status.OPEN')}</MenuItem>
+                      <MenuItem value="CLOSED">{t('trades.status.CLOSED')}</MenuItem>
+                    </TextField>
+                  </Stack>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2}>
+                    <Button variant="contained" onClick={onSearch} fullWidth={isSmallScreen}>{t('common.search')}</Button>
+                    <Button variant="outlined" onClick={clearFilters} fullWidth={isSmallScreen}>{t('trades.filters.clear')}</Button>
+                  </Stack>
+                </Grid>
+              </Grid>
+            </AccordionDetails>
+          </Accordion>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          <Typography variant="h6" gutterBottom>{t('trades.help.title')}</Typography>
+          <Accordion defaultExpanded>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.corePricing')}</AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1}>
+                <Typography variant="body2"><strong>{t('trades.help.corePricing.entryExit')}</strong>: {t('trades.help.corePricing.entryExitBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.corePricing.directionMarket')}</strong>: {t('trades.help.corePricing.directionMarketBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.corePricing.status')}</strong>: {t('trades.help.corePricing.statusBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.corePricing.capitalUsed')}</strong>: {t('trades.help.corePricing.capitalUsedBody')}</Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.pnlAndRisk')}</AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1}>
+                <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.feesCosts')}</strong>: {t('trades.help.pnlAndRisk.feesCostsBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.pnlGross')}</strong>: {t('trades.help.pnlAndRisk.pnlGrossBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.pnlNet')}</strong>: {t('trades.help.pnlAndRisk.pnlNetBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.pnlPercent')}</strong>: {t('trades.help.pnlAndRisk.pnlPercentBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.riskAmountPercent')}</strong>: {t('trades.help.pnlAndRisk.riskAmountPercentBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.pnlAndRisk.rMultiple')}</strong>: {t('trades.help.pnlAndRisk.rMultipleBody')}</Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
+          <Accordion>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.context')}</AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={1}>
+                <Typography variant="body2"><strong>{t('trades.help.context.timeframe')}</strong>: {t('trades.help.context.timeframeBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.context.setupStrategyCatalyst')}</strong>: {t('trades.help.context.setupStrategyCatalystBody')}</Typography>
+                <Typography variant="body2"><strong>{t('trades.help.context.statusDirection')}</strong>: {t('trades.help.context.statusDirectionBody')}</Typography>
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
+        </CardContent>
+      </Card>
+
+      <Box
+        sx={(theme) => ({
+          position: 'fixed',
+          left: 12,
+          right: 12,
+          bottom: 'calc(10px + env(safe-area-inset-bottom))',
+          zIndex: theme.zIndex.appBar + 1,
+          display: { xs: 'block', md: 'none' }
+        })}
+      >
+        <Button fullWidth variant="contained" size="large" startIcon={<AddIcon />} onClick={openCreateDialog}>
+          {t('trades.create.title')}
+        </Button>
+      </Box>
+
+      <Dialog
+        open={createDialogOpen}
+        onClose={() => setCreateDialogOpen(false)}
+        maxWidth="lg"
+        fullWidth
+        fullScreen={isSmallScreen}
+        keepMounted
+      >
+        <DialogTitle>{t('trades.create.title')}</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <TradeForm
+            initialValues={createFormValues}
+            submitLabel={t('trades.create.save')}
+            onSubmit={handleCreate}
+            onCancel={() => setCreateDialogOpen(false)}
+            error={createError}
+            stickyActions={isSmallScreen}
+          />
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
         <DialogTitle>{t('trades.actions.editTrade')}</DialogTitle>

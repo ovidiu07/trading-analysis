@@ -67,6 +67,10 @@ export default function DashboardPage() {
 
   const queryState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
 
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [])
+
   const dashboardFilters = useMemo(() => ({
     from: queryState.from,
     to: queryState.to,
@@ -176,7 +180,19 @@ export default function DashboardPage() {
   )
 
   return (
-    <Stack spacing={2.5} sx={{ width: '100%', mx: 'auto' }}>
+    <Stack
+      spacing={2.5}
+      sx={{
+        width: '100%',
+        maxWidth: '100%',
+        mx: 'auto',
+        minWidth: 0,
+        overflowX: 'clip',
+        '& > *': { minWidth: 0 },
+        '& .MuiGrid-container': { width: '100%', m: 0 },
+        '& .MuiGrid-item': { minWidth: 0 }
+      }}
+    >
       {error && <ErrorBanner message={error} />}
       {hasNoTrades && (
         <EmptyState
@@ -195,7 +211,7 @@ export default function DashboardPage() {
         />
       )}
 
-      <Grid container spacing={{ xs: 1.25, sm: 2 }}>
+      <Grid container spacing={{ xs: 1.25, sm: 2 }} sx={{ width: '100%', m: 0 }}>
         {kpiCards.map((kpi, idx) => (
           <Grid item xs={6} sm={6} md={4} key={`${kpi.label}-${idx}`}>
             <KPIStatCard
@@ -210,7 +226,7 @@ export default function DashboardPage() {
         ))}
       </Grid>
 
-      <Grid container spacing={2}>
+      <Grid container spacing={{ xs: 0, sm: 2 }} sx={{ width: '100%', m: 0 }}>
         <Grid item xs={12} md={6}>
           <ChartCard
             title={t('dashboard.equityCurve.title')}

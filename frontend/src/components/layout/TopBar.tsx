@@ -1,4 +1,6 @@
 import { useMemo, useState } from 'react'
+import CloseIcon from '@mui/icons-material/Close'
+import FilterListIcon from '@mui/icons-material/FilterList'
 import MenuIcon from '@mui/icons-material/Menu'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import {
@@ -7,6 +9,7 @@ import {
   Box,
   Button,
   Chip,
+  Drawer,
   FormControl,
   IconButton,
   InputLabel,
@@ -67,6 +70,8 @@ export default function TopBar({
   const profileOpen = Boolean(profileAnchor)
   const theme = useTheme()
   const isNarrow = useMediaQuery(theme.breakpoints.down('md'))
+  const isDashboardMobile = isDashboard && isNarrow
+  const [dashboardFiltersOpen, setDashboardFiltersOpen] = useState(false)
 
   const timezone = user?.timezone || 'Europe/Bucharest'
   const currency = user?.baseCurrency || 'USD'
@@ -153,14 +158,27 @@ export default function TopBar({
       </Button>
     </Stack>
   ), [dashboardState.accountId, dashboardState.from, dashboardState.to, marketValue, onDashboardStateChange, onOpenDefinitions, statusValue, t])
+  const dashboardFilterSummary = useMemo(() => {
+    const statusLabel = statusValue === 'ALL' ? t('trades.filters.any') : t(`trades.status.${statusValue}`)
+    const summaryParts = [
+      `${dashboardState.from} - ${dashboardState.to}`,
+      `${t('dashboard.topBar.status')}: ${statusLabel}`
+    ]
+    if (marketValue) {
+      summaryParts.push(`${t('dashboard.topBar.market')}: ${marketValue}`)
+    }
+    return summaryParts.join(' | ')
+  }, [dashboardState.from, dashboardState.to, marketValue, statusValue, t])
 
   return (
-    <AppBar position="sticky" elevation={0}>
+    <>
+      <AppBar position="sticky" elevation={0}>
       <Toolbar
         sx={{
-          minHeight: { xs: isDashboard ? 92 : 72, md: isDashboard ? 132 : 72 },
-          py: isDashboard ? 1.5 : 1,
-          alignItems: 'flex-start'
+          minHeight: { xs: isDashboard ? (isDashboardMobile ? 102 : 92) : 72, md: isDashboard ? 132 : 72 },
+          py: isDashboard ? (isDashboardMobile ? 1 : 1.5) : 1,
+          alignItems: 'flex-start',
+          overflowX: 'clip'
         }}
       >
         <Stack spacing={1.5} sx={{ width: '100%' }}>
@@ -289,9 +307,85 @@ export default function TopBar({
               </Stack>
             )}
           </Stack>
-          {isDashboard && dashboardFilters}
+          {isDashboard && !isDashboardMobile && dashboardFilters}
+          {isDashboardMobile && (
+            <Stack
+              direction="row"
+              alignItems="center"
+              justifyContent="space-between"
+              spacing={1}
+              sx={{
+                p: 1.25,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderRadius: 2,
+                bgcolor: 'background.paper',
+                minWidth: 0
+              }}
+            >
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="caption" color="text.secondary">
+                  {t('dashboard.topBar.activeFilters')}
+                </Typography>
+                <Typography variant="body2" sx={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                  {dashboardFilterSummary}
+                </Typography>
+              </Box>
+              <Button
+                variant="contained"
+                startIcon={<FilterListIcon />}
+                onClick={() => setDashboardFiltersOpen(true)}
+                aria-label={t('dashboard.topBar.filters')}
+                sx={{ minHeight: 40, flexShrink: 0 }}
+              >
+                {t('dashboard.topBar.filters')}
+              </Button>
+            </Stack>
+          )}
         </Stack>
       </Toolbar>
-    </AppBar>
+      </AppBar>
+      <Drawer
+        anchor="bottom"
+        open={dashboardFiltersOpen}
+        onClose={() => setDashboardFiltersOpen(false)}
+        ModalProps={{ keepMounted: false }}
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          '& .MuiDrawer-paper': {
+            width: '100%',
+            maxWidth: '100vw',
+            borderBottomLeftRadius: 0,
+            borderBottomRightRadius: 0,
+            borderTopLeftRadius: 16,
+            borderTopRightRadius: 16,
+            px: 2,
+            pt: 1.5,
+            pb: 'calc(16px + env(safe-area-inset-bottom))',
+            maxHeight: '85dvh',
+            overflowY: 'auto'
+          }
+        }}
+      >
+        <Stack spacing={2}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography variant="h6">{t('dashboard.topBar.filters')}</Typography>
+              <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                {dashboardFilterSummary}
+              </Typography>
+            </Box>
+            <IconButton
+              onClick={() => setDashboardFiltersOpen(false)}
+              aria-label={t('dashboard.topBar.closeFilters')}
+              sx={{ width: 40, height: 40 }}
+            >
+              <CloseIcon />
+            </IconButton>
+          </Stack>
+          {dashboardFilters}
+        </Stack>
+      </Drawer>
+    </>
   )
 }

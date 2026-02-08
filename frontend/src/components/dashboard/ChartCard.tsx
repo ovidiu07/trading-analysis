@@ -1,5 +1,5 @@
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
-import { Card, CardContent, IconButton, Skeleton, Stack, Tooltip, Typography } from '@mui/material'
+import { Box, Card, CardContent, IconButton, Skeleton, Stack, Tooltip, Typography } from '@mui/material'
 import { ReactNode } from 'react'
 import EmptyState from '../ui/EmptyState'
 import ErrorState from '../ui/ErrorState'
@@ -28,10 +28,10 @@ export default function ChartCard({
   children
 }: ChartCardProps) {
   return (
-    <Card sx={{ height: '100%' }}>
-      <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5} sx={{ mb: 1.5 }}>
-          <Stack spacing={0.25}>
+    <Card sx={{ height: '100%', width: '100%', minWidth: 0 }}>
+      <CardContent sx={{ p: { xs: 1.5, sm: 2.5 }, minWidth: 0 }}>
+        <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5} sx={{ mb: 1.5, minWidth: 0 }}>
+          <Stack spacing={0.25} sx={{ minWidth: 0 }}>
             <Typography variant="h6" sx={{ fontSize: { xs: '0.95rem', sm: '1rem' } }}>{title}</Typography>
             {subtitle && (
               <Typography variant="body2" color="text.secondary">
@@ -56,7 +56,11 @@ export default function ChartCard({
             title={emptyTitle || 'No data'}
             description={emptyDescription}
           />
-        ) : children}
+        ) : (
+          <Box sx={{ width: '100%', minWidth: 0, mx: 'auto' }}>
+            {children}
+          </Box>
+        )}
       </CardContent>
     </Card>
   )
