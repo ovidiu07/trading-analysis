@@ -1,7 +1,6 @@
 package com.tradevault.domain.entity;
 
 import com.tradevault.domain.enums.ContentPostStatus;
-import com.tradevault.domain.enums.ContentPostType;
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -16,6 +15,8 @@ import org.hibernate.type.SqlTypes;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.HashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Getter
@@ -31,22 +32,16 @@ public class ContentPost {
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
     private UUID id;
 
-    @Enumerated(EnumType.STRING)
-    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(columnDefinition = "content_post_type", nullable = false)
-    private ContentPostType type;
-
-    @Column(nullable = false)
-    private String title;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "content_type_id", nullable = false)
+    private ContentType contentType;
 
     @Column(unique = true)
     private String slug;
 
-    @Column(columnDefinition = "TEXT")
-    private String summary;
-
-    @Column(columnDefinition = "TEXT", nullable = false)
-    private String body;
+    @OneToMany(mappedBy = "contentPost", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.LAZY)
+    @Builder.Default
+    private Set<ContentPostTranslation> translations = new HashSet<>();
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)

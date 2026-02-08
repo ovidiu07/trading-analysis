@@ -1,4 +1,5 @@
 const API_URL = import.meta.env.VITE_API_URL || '/api'
+import { getCurrentLanguage } from '../i18n'
 
 export class ApiError extends Error {
   status?: number
@@ -10,6 +11,10 @@ export class ApiError extends Error {
 function authHeader() {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+function localeHeader() {
+  return { 'Accept-Language': getCurrentLanguage() }
 }
 
 async function readResponseText(res: Response): Promise<string> {
@@ -41,6 +46,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
       headers: {
         ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...authHeader(),
+        ...localeHeader(),
         ...(customHeaders || {})
       },
       credentials: 'include',

@@ -96,8 +96,12 @@
       "archive": "Arhivează",
       "createContent": "Creează conținut",
       "createNew": "Creează nou",
+      "manageTypes": "Gestionează tipurile",
       "publish": "Publică",
       "working": "Se procesează..."
+    },
+    "badges": {
+      "roMissing": "RO lipsă"
     },
     "dialog": {
       "archiveBody": "Arhivezi acest conținut? Va fi ascuns din Insights, dar păstrat în istoric.",
@@ -121,7 +125,7 @@
       "draft": "Ciornă",
       "published": "Publicat"
     },
-    "subtitle": "Creează, publică și arhivează strategii sau planuri săptămânale.",
+    "subtitle": "Creează, publică și arhivează conținut Insights localizat.",
     "table": {
       "actions": "Acțiuni",
       "anytime": "Oricând",
@@ -143,6 +147,7 @@
   "adminEditor": {
     "actions": {
       "archive": "Arhivează",
+      "copyEnToRo": "Copiază EN în RO",
       "hidePreview": "Ascunde previzualizarea",
       "insertWeeklyTemplate": "Inserează șablon săptămânal",
       "publish": "Publică",
@@ -182,7 +187,10 @@
     "updated": "Actualizat",
     "validation": {
       "bodyRequired": "Conținutul este obligatoriu.",
+      "localeBodyRequired": "Conținutul este obligatoriu pentru {{locale}}.",
+      "localeTitleRequired": "Titlul este obligatoriu pentru {{locale}}.",
       "titleRequired": "Titlul este obligatoriu.",
+      "typeRequired": "Tipul este obligatoriu.",
       "visibleUntilAfterFrom": "„Vizibil până la” trebuie să fie după „Vizibil de la”.",
       "weekEndAfterStart": "Sfârșitul săptămânii trebuie să fie după început.",
       "weekEndRequired": "Sfârșitul săptămânii este obligatoriu pentru planurile săptămânale.",
@@ -199,6 +207,49 @@
       "riskCues": "Semnale risk-on / risk-off",
       "watchlist": "Watchlist",
       "watchlistHint": "Ticker — teză, nivel, trigger"
+    }
+  },
+  "adminTypes": {
+    "actions": {
+      "backToContent": "Înapoi la conținut",
+      "create": "Creează tip",
+      "saving": "Se salvează..."
+    },
+    "dialog": {
+      "createTitle": "Creează tip de conținut",
+      "editTitle": "Editează tipul de conținut"
+    },
+    "empty": {
+      "title": "Nu există tipuri de conținut",
+      "body": "Creează cel puțin un tip pentru a organiza și filtra articolele localizate."
+    },
+    "fields": {
+      "description": "Descriere",
+      "displayName": "Nume afișat",
+      "key": "Cheie",
+      "keyHint": "Cheie cu majuscule, format [A-Z0-9_]",
+      "sortOrder": "Ordine"
+    },
+    "messages": {
+      "saved": "Tipul de conținut a fost salvat",
+      "saveFailed": "Nu s-a putut salva tipul de conținut."
+    },
+    "status": {
+      "active": "Activ",
+      "inactive": "Inactiv"
+    },
+    "subtitle": "Gestionează tipurile dinamice de conținut și etichetele EN/RO.",
+    "table": {
+      "actions": "Acțiuni",
+      "name": "Nume",
+      "sortOrder": "Ordine",
+      "status": "Stare"
+    },
+    "title": "Gestionare tipuri conținut",
+    "validation": {
+      "enDisplayNameRequired": "Numele afișat în engleză este obligatoriu.",
+      "keyFormat": "Cheia trebuie să respecte formatul [A-Z0-9_].",
+      "keyRequired": "Cheia este obligatorie."
     }
   },
   "analytics": {
@@ -589,6 +640,8 @@
     "tagsPlaceholder": "Filtrează după etichete (separate prin virgulă)",
     "symbolsPlaceholder": "Filtrează după simboluri (separate prin virgulă)",
     "empty": {
+      "defaultTitle": "Nu există conținut publicat încă",
+      "defaultBody": "Conținutul Insights localizat va apărea aici după publicare.",
       "strategiesTitle": "Nu există strategii publicate încă",
       "strategiesBody": "După publicare, strategiile vor apărea aici pentru toți utilizatorii.",
       "weeklyTitle": "Nu există planuri săptămânale publicate încă",

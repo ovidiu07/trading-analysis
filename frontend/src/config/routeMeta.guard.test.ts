@@ -17,6 +17,7 @@ const guardEntries: GuardEntry[] = [
   { file: 'src/pages/SettingsPage.tsx', forbidden: ["t('settings.title')", '<PageHeader'] },
   { file: 'src/pages/ProfilePage.tsx', forbidden: ["t('profile.title')", '<PageHeader'] },
   { file: 'src/pages/admin/AdminContentPage.tsx', forbidden: ["t('adminContent.title')", '<PageHeader'] },
+  { file: 'src/pages/admin/AdminContentTypesPage.tsx', forbidden: ["t('adminTypes.title')", '<PageHeader'] },
   { file: 'src/pages/TermsPage.tsx', forbidden: ["t('legal.terms.title')"] },
   { file: 'src/pages/PrivacyPage.tsx', forbidden: ["t('legal.privacy.title')"] },
   { file: 'src/pages/CookiesPage.tsx', forbidden: ["t('legal.cookies.title')"] }
@@ -35,6 +36,7 @@ describe('Route title metadata guard', () => {
       'settings',
       'profile',
       'adminContent',
+      'adminContentTypes',
       'terms',
       'privacy',
       'cookies'

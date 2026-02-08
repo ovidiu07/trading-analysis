@@ -1,15 +1,49 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
-export type ContentPostType = 'STRATEGY' | 'WEEKLY_PLAN'
 export type ContentPostStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
+
+export type LocalizedContent = {
+  title: string
+  summary?: string | null
+  body: string
+}
+
+export type LocalizedContentType = {
+  displayName: string
+  description?: string | null
+}
+
+export type ContentType = {
+  id: string
+  key: string
+  sortOrder: number
+  active: boolean
+  displayName: string
+  description?: string | null
+  locale?: string
+  resolvedLocale?: string
+  translations?: Record<string, LocalizedContentType> | null
+  missingLocales?: string[]
+}
+
+export type ContentTypeRequest = {
+  key: string
+  active: boolean
+  sortOrder: number
+  translations: Record<string, LocalizedContentType>
+}
 
 export type ContentPost = {
   id: string
-  type: ContentPostType
+  contentTypeId: string
+  contentTypeKey: string
+  contentTypeDisplayName: string
   title: string
   slug?: string | null
   summary?: string | null
   body: string
+  locale?: string
+  resolvedLocale?: string
   status: ContentPostStatus
   tags?: string[]
   symbols?: string[]
@@ -21,6 +55,8 @@ export type ContentPost = {
   createdAt?: string | null
   updatedAt?: string | null
   publishedAt?: string | null
+  translations?: Record<string, LocalizedContent> | null
+  missingLocales?: string[]
 }
 
 export type PageResponse<T> = {
@@ -32,17 +68,15 @@ export type PageResponse<T> = {
 }
 
 export type ContentPostRequest = {
-  type: ContentPostType
-  title: string
+  contentTypeId: string
   slug?: string | null
-  summary?: string | null
-  body: string
   tags?: string[]
   symbols?: string[]
   visibleFrom?: string | null
   visibleUntil?: string | null
   weekStart?: string | null
   weekEnd?: string | null
+  translations: Record<string, LocalizedContent>
 }
 
 type QueryParams = Record<string, string | number | boolean | undefined | null>
@@ -58,7 +92,27 @@ const toQuery = (params: QueryParams = {}) => {
   return qs ? `?${qs}` : ''
 }
 
-export async function listPublishedContent(params: { type?: ContentPostType; q?: string; activeOnly?: boolean } = {}) {
+export async function listContentTypes() {
+  return apiGet<ContentType[]>('/content-types')
+}
+
+export async function listAdminContentTypes(params: { includeInactive?: boolean } = {}) {
+  return apiGet<ContentType[]>(`/admin/content-types${toQuery(params)}`)
+}
+
+export async function getAdminContentType(id: string) {
+  return apiGet<ContentType>(`/admin/content-types/${id}`)
+}
+
+export async function createContentType(payload: ContentTypeRequest) {
+  return apiPost<ContentType>('/admin/content-types', payload)
+}
+
+export async function updateContentType(id: string, payload: ContentTypeRequest) {
+  return apiPut<ContentType>(`/admin/content-types/${id}`, payload)
+}
+
+export async function listPublishedContent(params: { type?: string; q?: string; activeOnly?: boolean } = {}) {
   return apiGet<ContentPost[]>(`/content${toQuery(params)}`)
 }
 
@@ -66,7 +120,17 @@ export async function getContent(idOrSlug: string) {
   return apiGet<ContentPost>(`/content/${idOrSlug}`)
 }
 
-export async function listAdminContent(params: { page?: number; size?: number; type?: ContentPostType; status?: ContentPostStatus; q?: string } = {}) {
+export async function getAdminContent(id: string) {
+  return apiGet<ContentPost>(`/admin/content/${id}`)
+}
+
+export async function listAdminContent(params: {
+  page?: number
+  size?: number
+  contentTypeId?: string
+  status?: ContentPostStatus
+  q?: string
+} = {}) {
   return apiGet<PageResponse<ContentPost>>(`/admin/content${toQuery(params)}`)
 }
 

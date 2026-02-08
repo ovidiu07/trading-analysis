@@ -20,6 +20,7 @@ import InsightsPage from './pages/InsightsPage'
 import InsightDetailPage from './pages/InsightDetailPage'
 import AdminContentPage from './pages/admin/AdminContentPage'
 import AdminContentEditorPage from './pages/admin/AdminContentEditorPage'
+import AdminContentTypesPage from './pages/admin/AdminContentTypesPage'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
@@ -51,6 +52,7 @@ function App() {
           <Route path="/settings" element={<ProtectedRoute><SettingsPage /></ProtectedRoute>} />
           <Route path="/profile" element={<ProtectedRoute><ProfilePage /></ProtectedRoute>} />
           <Route path="/admin/content" element={<AdminRoute><AdminContentPage /></AdminRoute>} />
+          <Route path="/admin/content/types" element={<AdminRoute><AdminContentTypesPage /></AdminRoute>} />
           <Route path="/admin/content/new" element={<AdminRoute><AdminContentEditorPage /></AdminRoute>} />
           <Route path="/admin/content/:id" element={<AdminRoute><AdminContentEditorPage /></AdminRoute>} />
         </Route>

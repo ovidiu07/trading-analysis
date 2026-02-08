@@ -96,8 +96,12 @@
       "archive": "Archive",
       "createContent": "Create content",
       "createNew": "Create new",
+      "manageTypes": "Manage types",
       "publish": "Publish",
       "working": "Working..."
+    },
+    "badges": {
+      "roMissing": "RO missing"
     },
     "dialog": {
       "archiveBody": "Archive this content? It will be hidden from Insights but kept for records.",
@@ -121,7 +125,7 @@
       "draft": "Draft",
       "published": "Published"
     },
-    "subtitle": "Create, publish, and archive strategies or weekly plans.",
+    "subtitle": "Create, publish, and archive localized insights content.",
     "table": {
       "actions": "Actions",
       "anytime": "Anytime",
@@ -143,6 +147,7 @@
   "adminEditor": {
     "actions": {
       "archive": "Archive",
+      "copyEnToRo": "Copy EN to RO",
       "hidePreview": "Hide preview",
       "insertWeeklyTemplate": "Insert weekly template",
       "publish": "Publish",
@@ -182,7 +187,10 @@
     "updated": "Updated",
     "validation": {
       "bodyRequired": "Body is required.",
+      "localeBodyRequired": "Body is required for {{locale}}.",
+      "localeTitleRequired": "Title is required for {{locale}}.",
       "titleRequired": "Title is required.",
+      "typeRequired": "Type is required.",
       "visibleUntilAfterFrom": "Visible until must be after visible from.",
       "weekEndAfterStart": "Week end must be after week start.",
       "weekEndRequired": "Week end is required for weekly plans.",
@@ -199,6 +207,49 @@
       "riskCues": "Risk-on / risk-off cues",
       "watchlist": "Watchlist",
       "watchlistHint": "Ticker — thesis, level, trigger"
+    }
+  },
+  "adminTypes": {
+    "actions": {
+      "backToContent": "Back to content",
+      "create": "Create type",
+      "saving": "Saving..."
+    },
+    "dialog": {
+      "createTitle": "Create content type",
+      "editTitle": "Edit content type"
+    },
+    "empty": {
+      "title": "No content types",
+      "body": "Create at least one type to organize and filter localized articles."
+    },
+    "fields": {
+      "description": "Description",
+      "displayName": "Display name",
+      "key": "Key",
+      "keyHint": "Uppercase key, format [A-Z0-9_]",
+      "sortOrder": "Sort order"
+    },
+    "messages": {
+      "saved": "Content type saved",
+      "saveFailed": "Could not save content type."
+    },
+    "status": {
+      "active": "Active",
+      "inactive": "Inactive"
+    },
+    "subtitle": "Manage dynamic content types and their EN/RO labels.",
+    "table": {
+      "actions": "Actions",
+      "name": "Name",
+      "sortOrder": "Sort order",
+      "status": "Status"
+    },
+    "title": "Manage content types",
+    "validation": {
+      "enDisplayNameRequired": "English display name is required.",
+      "keyFormat": "Key must match [A-Z0-9_].",
+      "keyRequired": "Key is required."
     }
   },
   "analytics": {
@@ -584,6 +635,8 @@
   },
   "insights": {
     "empty": {
+      "defaultBody": "Localized insights will appear here after publication.",
+      "defaultTitle": "No content published yet",
       "strategiesBody": "Once published, strategies will show up here for everyone.",
       "strategiesTitle": "No strategies published yet",
       "weeklyBody": "Weekly plans will appear here after the admin publishes them.",

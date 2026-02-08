@@ -2,7 +2,6 @@ package com.tradevault.repository;
 
 import com.tradevault.domain.entity.ContentPost;
 import com.tradevault.domain.enums.ContentPostStatus;
-import com.tradevault.domain.enums.ContentPostType;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
@@ -19,29 +18,45 @@ public interface ContentPostRepository extends JpaRepository<ContentPost, UUID> 
 
     @Query("""
         SELECT p FROM ContentPost p
-        WHERE (p.type = COALESCE(:type, p.type))
+        WHERE (:contentTypeId IS NULL OR p.contentType.id = :contentTypeId)
           AND (p.status = COALESCE(:status, p.status))
           AND (
             COALESCE(:query, '') = '' OR
-            LOWER(p.title) LIKE LOWER(CONCAT('%', :query, '%')) OR
-            LOWER(p.summary) LIKE LOWER(CONCAT('%', :query, '%')) OR
-            LOWER(p.body) LIKE LOWER(CONCAT('%', :query, '%'))
+            EXISTS (
+                SELECT 1 FROM ContentPostTranslation tr
+                WHERE tr.contentPost = p
+                  AND tr.locale IN (:locale, :fallbackLocale)
+                  AND (
+                    LOWER(tr.title) LIKE LOWER(CONCAT('%', :query, '%')) OR
+                    LOWER(COALESCE(tr.summary, '')) LIKE LOWER(CONCAT('%', :query, '%')) OR
+                    LOWER(tr.bodyMarkdown) LIKE LOWER(CONCAT('%', :query, '%'))
+                  )
+            )
           )
         """)
-    Page<ContentPost> searchAdmin(@Param("type") ContentPostType type,
+    Page<ContentPost> searchAdmin(@Param("contentTypeId") UUID contentTypeId,
                                   @Param("status") ContentPostStatus status,
                                   @Param("query") String query,
+                                  @Param("locale") String locale,
+                                  @Param("fallbackLocale") String fallbackLocale,
                                   Pageable pageable);
 
     @Query("""
         SELECT p FROM ContentPost p
         WHERE p.status = :status
-          AND (p.type = COALESCE(:type, p.type))
+          AND (:contentTypeKey IS NULL OR p.contentType.key = :contentTypeKey)
           AND (
             COALESCE(:query, '') = '' OR
-            LOWER(p.title) LIKE LOWER(CONCAT('%', :query, '%')) OR
-            LOWER(p.summary) LIKE LOWER(CONCAT('%', :query, '%')) OR
-            LOWER(p.body) LIKE LOWER(CONCAT('%', :query, '%'))
+            EXISTS (
+                SELECT 1 FROM ContentPostTranslation tr
+                WHERE tr.contentPost = p
+                  AND tr.locale IN (:locale, :fallbackLocale)
+                  AND (
+                    LOWER(tr.title) LIKE LOWER(CONCAT('%', :query, '%')) OR
+                    LOWER(COALESCE(tr.summary, '')) LIKE LOWER(CONCAT('%', :query, '%')) OR
+                    LOWER(tr.bodyMarkdown) LIKE LOWER(CONCAT('%', :query, '%'))
+                  )
+            )
           )
           AND (
             :activeOnly = false OR
@@ -53,8 +68,10 @@ public interface ContentPostRepository extends JpaRepository<ContentPost, UUID> 
         ORDER BY p.publishedAt DESC, p.updatedAt DESC
         """)
     List<ContentPost> searchPublished(@Param("status") ContentPostStatus status,
-                                      @Param("type") ContentPostType type,
+                                      @Param("contentTypeKey") String contentTypeKey,
                                       @Param("query") String query,
+                                      @Param("locale") String locale,
+                                      @Param("fallbackLocale") String fallbackLocale,
                                       @Param("activeOnly") boolean activeOnly,
                                       @Param("now") OffsetDateTime now);
 }

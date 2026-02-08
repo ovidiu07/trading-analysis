@@ -40,13 +40,29 @@ describe('auth api', () => {
       privacyVersion: '2024-09-01',
       locale: 'en-GB'
     })
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth/register', expect.anything())
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/auth/register')
+    expect(options).toEqual(expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Accept-Language': 'en',
+        'Content-Type': 'application/json'
+      })
+    }))
     expect(localStorage.getItem('token')).toBeUndefined()
   })
 
   it('login calls correct endpoint and stores token', async () => {
     await login('user@example.com', 'Password1!')
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth/login', expect.anything())
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/auth/login')
+    expect(options).toEqual(expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Accept-Language': 'en',
+        'Content-Type': 'application/json'
+      })
+    }))
     expect(localStorage.getItem('token')).toBe('abc')
   })
 })

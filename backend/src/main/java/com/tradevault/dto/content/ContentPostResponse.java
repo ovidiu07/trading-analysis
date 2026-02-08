@@ -1,24 +1,28 @@
 package com.tradevault.dto.content;
 
 import com.tradevault.domain.enums.ContentPostStatus;
-import com.tradevault.domain.enums.ContentPostType;
 import lombok.Builder;
 import lombok.Value;
 
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 @Value
 @Builder
 public class ContentPostResponse {
     UUID id;
-    ContentPostType type;
+    UUID contentTypeId;
+    String contentTypeKey;
+    String contentTypeDisplayName;
     String title;
     String slug;
     String summary;
     String body;
+    String locale;
+    String resolvedLocale;
     ContentPostStatus status;
     List<String> tags;
     List<String> symbols;
@@ -30,4 +34,6 @@ public class ContentPostResponse {
     OffsetDateTime createdAt;
     OffsetDateTime updatedAt;
     OffsetDateTime publishedAt;
+    Map<String, LocalizedContentResponse> translations;
+    List<String> missingLocales;
 }

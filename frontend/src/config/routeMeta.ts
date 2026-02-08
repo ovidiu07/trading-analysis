@@ -89,6 +89,12 @@ export const ROUTE_META_DEFINITIONS: RouteMetaDefinition[] = [
     pageSubtitleKey: 'adminContent.subtitle'
   },
   {
+    id: 'adminContentTypes',
+    match: matchesExact('/admin/content/types'),
+    pageTitleKey: 'adminTypes.title',
+    pageSubtitleKey: 'adminTypes.subtitle'
+  },
+  {
     id: 'adminEditor',
     match: (pathname) => pathname.startsWith('/admin/content/'),
     pageTitleKey: 'adminContent.title',

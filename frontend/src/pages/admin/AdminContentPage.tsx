@@ -24,9 +24,10 @@ import { ApiError } from '../../api/client'
 import {
   ContentPost,
   ContentPostStatus,
-  ContentPostType,
+  ContentType,
   archiveContent,
   listAdminContent,
+  listAdminContentTypes,
   publishContent
 } from '../../api/content'
 import { formatDate, formatDateTime } from '../../utils/format'
@@ -41,26 +42,22 @@ const statusOptions: { label: string; value: ContentPostStatus | '' }[] = [
   { label: 'adminContent.statuses.archived', value: 'ARCHIVED' }
 ]
 
-const typeOptions: { label: string; value: ContentPostType | '' }[] = [
-  { label: 'adminContent.types.all', value: '' },
-  { label: 'adminContent.types.strategy', value: 'STRATEGY' },
-  { label: 'adminContent.types.weeklyPlan', value: 'WEEKLY_PLAN' }
-]
-
 type ActionState = {
   type: 'publish' | 'archive'
   post: ContentPost
 }
 
 export default function AdminContentPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const navigate = useNavigate()
   const isCompact = useMediaQuery('(max-width:560px)')
   const [items, setItems] = useState<ContentPost[]>([])
+  const [contentTypes, setContentTypes] = useState<ContentType[]>([])
   const [totalRows, setTotalRows] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [typesLoading, setTypesLoading] = useState(false)
   const [error, setError] = useState('')
-  const [filters, setFilters] = useState({ q: '', type: '', status: '' })
+  const [filters, setFilters] = useState({ q: '', contentTypeId: '', status: '' })
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({ page: 0, pageSize: 10 })
   const [confirmAction, setConfirmAction] = useState<ActionState | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
@@ -75,6 +72,19 @@ export default function AdminContentPage() {
     visibleRange: !isCompact
   }), [isCompact])
 
+  const loadTypes = async () => {
+    setTypesLoading(true)
+    try {
+      const data = await listAdminContentTypes({ includeInactive: true })
+      setContentTypes(data)
+    } catch (err) {
+      const apiErr = err as ApiError
+      setError(translateApiError(apiErr, t))
+    } finally {
+      setTypesLoading(false)
+    }
+  }
+
   const loadContent = async () => {
     setLoading(true)
     setError('')
@@ -83,7 +93,7 @@ export default function AdminContentPage() {
         page: paginationModel.page,
         size: paginationModel.pageSize,
         q: filters.q,
-        type: filters.type ? (filters.type as ContentPostType) : undefined,
+        contentTypeId: filters.contentTypeId || undefined,
         status: filters.status ? (filters.status as ContentPostStatus) : undefined
       })
       setItems(data.content)
@@ -97,12 +107,17 @@ export default function AdminContentPage() {
   }
 
   useEffect(() => {
+    loadTypes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language])
+
+  useEffect(() => {
     const handle = window.setTimeout(() => {
       loadContent()
     }, 300)
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters, paginationModel])
+  }, [filters, paginationModel, language])
 
   const handleConfirm = async () => {
     if (!confirmAction) return
@@ -130,23 +145,34 @@ export default function AdminContentPage() {
       field: 'title',
       headerName: t('adminContent.table.title'),
       flex: 1.4,
-      minWidth: 180,
-      renderCell: (params) => (
-        <Stack spacing={0.5} sx={{ minWidth: 0 }}>
-          <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>{params.row.title}</Typography>
-          <Typography variant="caption" color="text.secondary" noWrap>
-            {params.row.summary || t('adminContent.table.noSummary')}
-          </Typography>
-        </Stack>
-      )
+      minWidth: 220,
+      renderCell: (params) => {
+        const row = params.row as ContentPost
+        const roMissing = (row.missingLocales || []).includes('ro')
+        return (
+          <Stack spacing={0.5} sx={{ minWidth: 0 }}>
+            <Stack direction="row" spacing={1} alignItems="center">
+              <Typography variant="subtitle2" sx={{ fontWeight: 700 }} noWrap>{row.title}</Typography>
+              {roMissing && (
+                <Typography variant="caption" color="warning.main">
+                  {t('adminContent.badges.roMissing')}
+                </Typography>
+              )}
+            </Stack>
+            <Typography variant="caption" color="text.secondary" noWrap>
+              {row.summary || t('adminContent.table.noSummary')}
+            </Typography>
+          </Stack>
+        )
+      }
     },
     {
       field: 'type',
       headerName: t('adminContent.table.type'),
-      minWidth: 140,
+      minWidth: 180,
       renderCell: (params) => (
         <Typography variant="body2">
-          {params.row.type === 'STRATEGY' ? t('adminContent.types.strategy') : t('adminContent.types.weeklyPlan')}
+          {params.row.contentTypeDisplayName || params.row.contentTypeKey}
         </Typography>
       )
     },
@@ -173,7 +199,7 @@ export default function AdminContentPage() {
       flex: 1,
       renderCell: (params) => {
         const row = params.row as ContentPost
-        if (row.type === 'WEEKLY_PLAN' && row.weekStart && row.weekEnd) {
+        if (row.contentTypeKey === 'WEEKLY_PLAN' && row.weekStart && row.weekEnd) {
           return (
             <Typography variant="body2">
               {formatDate(row.weekStart)} – {formatDate(row.weekEnd)}
@@ -228,9 +254,12 @@ export default function AdminContentPage() {
 
   return (
     <Stack spacing={3}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end">
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
         <Button variant="contained" onClick={() => navigate('/admin/content/new')} fullWidth={isCompact}>
           {t('adminContent.actions.createNew')}
+        </Button>
+        <Button variant="outlined" onClick={() => navigate('/admin/content/types')} fullWidth={isCompact}>
+          {t('adminContent.actions.manageTypes')}
         </Button>
       </Stack>
 
@@ -251,11 +280,15 @@ export default function AdminContentPage() {
                 select
                 fullWidth
                 label={t('adminContent.table.type')}
-                value={filters.type}
-                onChange={(event) => setFilters((prev) => ({ ...prev, type: event.target.value }))}
+                value={filters.contentTypeId}
+                onChange={(event) => setFilters((prev) => ({ ...prev, contentTypeId: event.target.value }))}
               >
-                {typeOptions.map((option) => (
-                  <MenuItem key={option.label} value={option.value}>{t(option.label)}</MenuItem>
+                <MenuItem value="">{t('adminContent.types.all')}</MenuItem>
+                {contentTypes.map((contentType) => (
+                  <MenuItem key={contentType.id} value={contentType.id}>
+                    {contentType.displayName}
+                    {!contentType.active ? ` (${t('adminTypes.status.inactive')})` : ''}
+                  </MenuItem>
                 ))}
               </TextField>
             </Grid>
@@ -278,7 +311,7 @@ export default function AdminContentPage() {
 
       {error && <ErrorBanner message={error} />}
 
-      {loading && items.length === 0 ? (
+      {(loading && items.length === 0) || (typesLoading && contentTypes.length === 0) ? (
         <Card>
           <CardContent>
             <LoadingState rows={5} height={32} />

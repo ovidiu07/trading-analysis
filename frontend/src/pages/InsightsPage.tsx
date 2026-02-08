@@ -19,16 +19,11 @@ import LoadingState from '../components/ui/LoadingState'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import { ApiError } from '../api/client'
-import { ContentPost, ContentPostType, listPublishedContent } from '../api/content'
+import { ContentPost, ContentType, listContentTypes, listPublishedContent } from '../api/content'
 import { formatDate, formatDateTime } from '../utils/format'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
-
-const typeTabs: { key: string; type: ContentPostType }[] = [
-  { key: 'insights.tabs.strategies', type: 'STRATEGY' },
-  { key: 'insights.tabs.weeklyPlans', type: 'WEEKLY_PLAN' }
-]
 
 const parseCsv = (value: string) => value
   .split(',')
@@ -40,6 +35,7 @@ const normalize = (value: string) => value.trim().toLowerCase()
 export default function InsightsPage() {
   const { t } = useI18n()
   const isCompact = useMediaQuery('(max-width:560px)')
+  const [types, setTypes] = useState<ContentType[]>([])
   const [tab, setTab] = useState(0)
   const [search, setSearch] = useState('')
   const [tagFilter, setTagFilter] = useState('')
@@ -48,13 +44,28 @@ export default function InsightsPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
 
-  const activeType = typeTabs[tab]?.type ?? 'STRATEGY'
+  const activeType = types[tab] || null
+  const activeTypeKey = activeType?.key
 
-  const fetchContent = async (query = search, type = activeType) => {
+  const loadTypes = async () => {
+    try {
+      const data = await listContentTypes()
+      setTypes(data)
+      setTab((current) => {
+        if (data.length === 0) return 0
+        return current >= data.length ? 0 : current
+      })
+    } catch (err) {
+      const apiErr = err as ApiError
+      setError(translateApiError(apiErr, t))
+    }
+  }
+
+  const fetchContent = async (query = search, typeKey = activeTypeKey) => {
     setLoading(true)
     setError('')
     try {
-      const data = await listPublishedContent({ type, q: query, activeOnly: true })
+      const data = await listPublishedContent({ type: typeKey, q: query, activeOnly: true })
       setItems(data)
     } catch (err) {
       const apiErr = err as ApiError
@@ -65,12 +76,17 @@ export default function InsightsPage() {
   }
 
   useEffect(() => {
+    loadTypes()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
     const handle = window.setTimeout(() => {
       fetchContent()
     }, 300)
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, search])
+  }, [tab, search, types.length])
 
   const filteredItems = useMemo(() => {
     const tagTokens = parseCsv(tagFilter).map(normalize)
@@ -85,13 +101,17 @@ export default function InsightsPage() {
     })
   }, [items, tagFilter, symbolFilter])
 
-  const emptyTitle = activeType === 'STRATEGY'
+  const emptyTitle = activeTypeKey === 'STRATEGY'
     ? t('insights.empty.strategiesTitle')
-    : t('insights.empty.weeklyTitle')
+    : activeTypeKey === 'WEEKLY_PLAN'
+      ? t('insights.empty.weeklyTitle')
+      : t('insights.empty.defaultTitle')
 
-  const emptyDescription = activeType === 'STRATEGY'
+  const emptyDescription = activeTypeKey === 'STRATEGY'
     ? t('insights.empty.strategiesBody')
-    : t('insights.empty.weeklyBody')
+    : activeTypeKey === 'WEEKLY_PLAN'
+      ? t('insights.empty.weeklyBody')
+      : t('insights.empty.defaultBody')
 
   return (
     <Stack spacing={3}>
@@ -99,14 +119,14 @@ export default function InsightsPage() {
         <CardContent>
           <Stack spacing={2}>
             <Tabs
-              value={tab}
+              value={types.length === 0 ? false : tab}
               onChange={(_, value) => setTab(value)}
               variant="scrollable"
               allowScrollButtonsMobile
               scrollButtons={isCompact ? true : 'auto'}
             >
-              {typeTabs.map((item) => (
-                <Tab key={item.type} label={t(item.key)} />
+              {types.map((item) => (
+                <Tab key={item.id} label={item.displayName} />
               ))}
             </Tabs>
             <Grid container spacing={2} alignItems="center">
@@ -177,7 +197,7 @@ export default function InsightsPage() {
                       )}
                     </Box>
                     <Stack direction="row" spacing={1} flexWrap="wrap">
-                      <Chip label={item.type === 'STRATEGY' ? t('insights.type.strategy') : t('insights.type.weeklyPlan')} size="small" color="primary" />
+                      <Chip label={item.contentTypeDisplayName || item.contentTypeKey} size="small" color="primary" />
                       {(item.tags || []).slice(0, 3).map((tag) => (
                         <Chip key={tag} label={tag} size="small" variant="outlined" />
                       ))}
@@ -185,7 +205,7 @@ export default function InsightsPage() {
                         <Chip key={symbol} label={symbol} size="small" variant="outlined" />
                       ))}
                     </Stack>
-                    {item.type === 'WEEKLY_PLAN' && item.weekStart && item.weekEnd && (
+                    {item.contentTypeKey === 'WEEKLY_PLAN' && item.weekStart && item.weekEnd && (
                       <Typography variant="body2" color="text.secondary">
                         {t('insights.weekOf')} {formatDate(item.weekStart)} - {formatDate(item.weekEnd)}
                       </Typography>

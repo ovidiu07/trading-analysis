@@ -59,12 +59,12 @@ export default function InsightDetailPage() {
       color: undefined
     }))
     const typeChip: ChipItem = {
-      label: post.type === 'STRATEGY' ? t('insights.type.strategy') : t('insights.type.weeklyPlan'),
+      label: post.contentTypeDisplayName || post.contentTypeKey,
       variant: 'filled',
       color: 'primary'
     }
     return [typeChip, ...tagChips, ...symbolChips]
-  }, [post])
+  }, [post, t])
 
   if (loading && !post) {
     return (
@@ -112,7 +112,7 @@ export default function InsightDetailPage() {
                 />
               ))}
             </Stack>
-            {post.type === 'WEEKLY_PLAN' && post.weekStart && post.weekEnd && (
+            {post.contentTypeKey === 'WEEKLY_PLAN' && post.weekStart && post.weekEnd && (
               <Typography variant="body2" color="text.secondary">
                 {t('insights.weekOf')} {formatDate(post.weekStart)} - {formatDate(post.weekEnd)}
               </Typography>

@@ -13,12 +13,13 @@ import {
   Grid,
   MenuItem,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   Typography,
   useMediaQuery
 } from '@mui/material'
 import { useNavigate, useParams } from 'react-router-dom'
-import PageHeader from '../../components/ui/PageHeader'
 import LoadingState from '../../components/ui/LoadingState'
 import MarkdownContent from '../../components/ui/MarkdownContent'
 import { ApiError } from '../../api/client'
@@ -26,16 +27,26 @@ import {
   ContentPost,
   ContentPostRequest,
   ContentPostStatus,
-  ContentPostType,
+  ContentType,
   archiveContent,
   createContentDraft,
-  getContent,
+  getAdminContent,
+  listAdminContentTypes,
   publishContent,
   updateContent
 } from '../../api/content'
 import { formatDate, formatDateTime } from '../../utils/format'
 import { useI18n } from '../../i18n'
 import { translateApiError } from '../../i18n/errorMessages'
+import {
+  buildTranslationsPayload,
+  copyLocaleContent,
+  createDefaultTranslations,
+  isLocaleMissing,
+  type EditorLocale,
+  type TranslationDraft,
+  updateLocalizedField
+} from './contentEditorState'
 
 const buildWeeklyTemplate = (t: (key: string) => string) => [
   `## ${t('adminEditor.weeklyTemplate.focus')}`,
@@ -81,39 +92,54 @@ const toInputDateTime = (value?: string | null) => {
 }
 
 type ContentFormState = {
-  type: ContentPostType
-  title: string
+  contentTypeId: string
   slug: string
-  summary: string
-  body: string
   tagsInput: string
   symbolsInput: string
   visibleFrom: string
   visibleUntil: string
   weekStart: string
   weekEnd: string
+  translations: TranslationDraft
 }
 
-const defaultForm: ContentFormState = {
-  type: 'STRATEGY',
-  title: '',
+const buildDefaultForm = (): ContentFormState => ({
+  contentTypeId: '',
   slug: '',
-  summary: '',
-  body: '',
   tagsInput: '',
   symbolsInput: '',
   visibleFrom: '',
   visibleUntil: '',
   weekStart: '',
-  weekEnd: ''
-}
+  weekEnd: '',
+  translations: createDefaultTranslations()
+})
+
+const toForm = (post: ContentPost): ContentFormState => ({
+  contentTypeId: post.contentTypeId,
+  slug: post.slug || '',
+  tagsInput: joinCsv(post.tags),
+  symbolsInput: joinCsv(post.symbols),
+  visibleFrom: toInputDateTime(post.visibleFrom),
+  visibleUntil: toInputDateTime(post.visibleUntil),
+  weekStart: post.weekStart || '',
+  weekEnd: post.weekEnd || '',
+  translations: createDefaultTranslations(post.translations ?? undefined, {
+    title: post.title,
+    summary: post.summary,
+    body: post.body,
+    resolvedLocale: (post.resolvedLocale as 'en' | 'ro' | undefined) ?? 'en'
+  })
+})
 
 export default function AdminContentEditorPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const navigate = useNavigate()
   const { id } = useParams()
   const isDesktop = useMediaQuery('(min-width:1024px)')
-  const [form, setForm] = useState<ContentFormState>(defaultForm)
+  const [form, setForm] = useState<ContentFormState>(buildDefaultForm)
+  const [types, setTypes] = useState<ContentType[]>([])
+  const [activeLocale, setActiveLocale] = useState<EditorLocale>('en')
   const [post, setPost] = useState<ContentPost | null>(null)
   const [status, setStatus] = useState<ContentPostStatus>('DRAFT')
   const [loading, setLoading] = useState(false)
@@ -128,56 +154,82 @@ export default function AdminContentEditorPage() {
   }, [isDesktop])
 
   useEffect(() => {
-    if (!id) return
     setLoading(true)
-    getContent(id)
-      .then((data) => {
-        setPost(data)
-        setStatus(data.status)
-        setForm({
-          type: data.type,
-          title: data.title,
-          slug: data.slug || '',
-          summary: data.summary || '',
-          body: data.body || '',
-          tagsInput: joinCsv(data.tags),
-          symbolsInput: joinCsv(data.symbols),
-          visibleFrom: toInputDateTime(data.visibleFrom),
-          visibleUntil: toInputDateTime(data.visibleUntil),
-          weekStart: data.weekStart || '',
-          weekEnd: data.weekEnd || ''
-        })
+    setError('')
+
+    Promise.all([
+      listAdminContentTypes({ includeInactive: true }),
+      id ? getAdminContent(id) : Promise.resolve(null)
+    ])
+      .then(([loadedTypes, loadedPost]) => {
+        setTypes(loadedTypes)
+
+        if (loadedPost) {
+          setPost(loadedPost)
+          setStatus(loadedPost.status)
+          setForm(toForm(loadedPost))
+          return
+        }
+
+        const firstType = loadedTypes.find((item) => item.active) || loadedTypes[0]
+        setForm((prev) => ({
+          ...prev,
+          contentTypeId: prev.contentTypeId || firstType?.id || ''
+        }))
       })
       .catch((err) => {
         const apiErr = err as ApiError
         setError(translateApiError(apiErr, t))
       })
       .finally(() => setLoading(false))
-  }, [id, t])
+  }, [id, t, language])
+
+  const selectedType = useMemo(() => types.find((type) => type.id === form.contentTypeId) || null, [types, form.contentTypeId])
+  const isWeeklyPlan = selectedType?.key === 'WEEKLY_PLAN'
+  const roMissing = isLocaleMissing(form.translations, 'ro')
 
   const buildPayload = (): ContentPostRequest => ({
-    type: form.type,
-    title: form.title.trim(),
+    contentTypeId: form.contentTypeId,
     slug: form.slug.trim() ? form.slug.trim() : undefined,
-    summary: form.summary.trim() ? form.summary.trim() : undefined,
-    body: form.body.trim(),
     tags: parseCsv(form.tagsInput),
     symbols: parseCsv(form.symbolsInput),
     visibleFrom: form.visibleFrom ? new Date(form.visibleFrom).toISOString() : undefined,
     visibleUntil: form.visibleUntil ? new Date(form.visibleUntil).toISOString() : undefined,
-    weekStart: form.type === 'WEEKLY_PLAN' ? (form.weekStart || undefined) : undefined,
-    weekEnd: form.type === 'WEEKLY_PLAN' ? (form.weekEnd || undefined) : undefined
+    weekStart: isWeeklyPlan ? (form.weekStart || undefined) : undefined,
+    weekEnd: isWeeklyPlan ? (form.weekEnd || undefined) : undefined,
+    translations: buildTranslationsPayload(form.translations)
   })
 
   const validate = () => {
     const errors: Record<string, string> = {}
-    if (!form.title.trim()) {
-      errors.title = t('adminEditor.validation.titleRequired')
+
+    if (!form.contentTypeId) {
+      errors.contentTypeId = t('adminEditor.validation.typeRequired')
     }
-    if (!form.body.trim()) {
-      errors.body = t('adminEditor.validation.bodyRequired')
+
+    if (!form.translations.en.title.trim()) {
+      errors.enTitle = t('adminEditor.validation.titleRequired')
     }
-    if (form.type === 'WEEKLY_PLAN') {
+
+    if (!form.translations.en.body.trim()) {
+      errors.enBody = t('adminEditor.validation.bodyRequired')
+    }
+
+    const roHasAnyContent = Boolean(
+      form.translations.ro.title.trim() ||
+      form.translations.ro.summary.trim() ||
+      form.translations.ro.body.trim()
+    )
+
+    if (roHasAnyContent && !form.translations.ro.title.trim()) {
+      errors.roTitle = t('adminEditor.validation.localeTitleRequired', { locale: 'RO' })
+    }
+
+    if (roHasAnyContent && !form.translations.ro.body.trim()) {
+      errors.roBody = t('adminEditor.validation.localeBodyRequired', { locale: 'RO' })
+    }
+
+    if (isWeeklyPlan) {
       if (!form.weekStart) {
         errors.weekStart = t('adminEditor.validation.weekStartRequired')
       }
@@ -188,9 +240,11 @@ export default function AdminContentEditorPage() {
         errors.weekEnd = t('adminEditor.validation.weekEndAfterStart')
       }
     }
+
     if (form.visibleFrom && form.visibleUntil && form.visibleFrom > form.visibleUntil) {
       errors.visibleUntil = t('adminEditor.validation.visibleUntilAfterFrom')
     }
+
     setFieldErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -206,10 +260,7 @@ export default function AdminContentEditorPage() {
         : await createContentDraft(payload)
       setPost(saved)
       setStatus(saved.status)
-      setForm((prev) => ({
-        ...prev,
-        slug: saved.slug || prev.slug
-      }))
+      setForm(toForm(saved))
       if (!post) {
         navigate(`/admin/content/${saved.id}`, { replace: true })
       }
@@ -231,6 +282,7 @@ export default function AdminContentEditorPage() {
       const published = await publishContent(saved.id)
       setPost(published)
       setStatus(published.status)
+      setForm(toForm(published))
     } catch (err) {
       const apiErr = err as ApiError
       setError(translateApiError(apiErr, t, 'adminEditor.errors.publishFailed'))
@@ -246,6 +298,7 @@ export default function AdminContentEditorPage() {
       const archived = await archiveContent(post.id)
       setPost(archived)
       setStatus(archived.status)
+      setForm(toForm(archived))
     } catch (err) {
       const apiErr = err as ApiError
       setError(translateApiError(apiErr, t, 'adminEditor.errors.archiveFailed'))
@@ -279,37 +332,39 @@ export default function AdminContentEditorPage() {
     )
   }
 
+  const activeTranslation = form.translations[activeLocale]
+  const activeLocaleUpper = activeLocale.toUpperCase()
+  const roIsMissing = (post?.missingLocales || []).includes('ro') || roMissing
+
   return (
     <Stack spacing={3}>
-      <PageHeader
-        title={post ? t('adminEditor.title.edit') : t('adminEditor.title.create')}
-        subtitle={t('adminEditor.subtitle')}
-        actions={(
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-            <Button variant="outlined" onClick={saveDraft} disabled={saving}>
-              {saving ? t('adminEditor.actions.saving') : t('adminEditor.actions.saveDraft')}
-            </Button>
-            <Button
-              variant="contained"
-              onClick={() => setConfirmAction('publish')}
-              disabled={saving || status === 'PUBLISHED'}
-            >
-              {t('adminEditor.actions.publish')}
-            </Button>
-            <Button
-              variant="text"
-              onClick={() => setConfirmAction('archive')}
-              disabled={saving || status === 'ARCHIVED' || !post}
-            >
-              {t('adminEditor.actions.archive')}
-            </Button>
-          </Stack>
-        )}
-        breadcrumbs={[
-          <Button key="admin" size="small" onClick={() => navigate('/admin/content')}>{t('nav.admin')}</Button>,
-          <Typography key="current" variant="body2">{post ? post.title : t('adminEditor.newContent')}</Typography>
-        ]}
-      />
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
+        <Stack direction="row" spacing={1} alignItems="center">
+          {statusChip}
+          {roIsMissing && (
+            <Typography variant="caption" color="warning.main">{t('adminContent.badges.roMissing')}</Typography>
+          )}
+        </Stack>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+          <Button variant="outlined" onClick={saveDraft} disabled={saving}>
+            {saving ? t('adminEditor.actions.saving') : t('adminEditor.actions.saveDraft')}
+          </Button>
+          <Button
+            variant="contained"
+            onClick={() => setConfirmAction('publish')}
+            disabled={saving || status === 'PUBLISHED'}
+          >
+            {t('adminEditor.actions.publish')}
+          </Button>
+          <Button
+            variant="text"
+            onClick={() => setConfirmAction('archive')}
+            disabled={saving || status === 'ARCHIVED' || !post}
+          >
+            {t('adminEditor.actions.archive')}
+          </Button>
+        </Stack>
+      </Stack>
 
       {error && <Alert severity="error">{error}</Alert>}
 
@@ -318,65 +373,116 @@ export default function AdminContentEditorPage() {
           <Card>
             <CardContent>
               <Stack spacing={2}>
-                <Stack direction="row" spacing={1} alignItems="center">
-                  {statusChip}
+                <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                  <Typography variant="subtitle2" color="text.secondary">
+                    {post ? t('adminEditor.title.edit') : t('adminEditor.title.create')}
+                  </Typography>
                   {post?.updatedAt && (
                     <Typography variant="caption" color="text.secondary">
                       {t('adminEditor.updated')} {formatDateTime(post.updatedAt)}
                     </Typography>
                   )}
                 </Stack>
+
                 <TextField
                   select
                   label={t('adminEditor.fields.type')}
-                  value={form.type}
-                  onChange={(event) => setForm((prev) => ({ ...prev, type: event.target.value as ContentPostType }))}
+                  value={form.contentTypeId}
+                  onChange={(event) => setForm((prev) => ({ ...prev, contentTypeId: event.target.value }))}
+                  error={Boolean(fieldErrors.contentTypeId)}
+                  helperText={fieldErrors.contentTypeId}
                 >
-                  <MenuItem value="STRATEGY">{t('adminContent.types.strategy')}</MenuItem>
-                  <MenuItem value="WEEKLY_PLAN">{t('adminContent.types.weeklyPlan')}</MenuItem>
+                  {types.map((contentType) => (
+                    <MenuItem key={contentType.id} value={contentType.id}>
+                      {contentType.displayName}
+                    </MenuItem>
+                  ))}
                 </TextField>
-                <TextField
-                  label={t('adminEditor.fields.title')}
-                  value={form.title}
-                  onChange={(event) => setForm((prev) => ({ ...prev, title: event.target.value }))}
-                  error={Boolean(fieldErrors.title)}
-                  helperText={fieldErrors.title}
-                  required
-                />
+
                 <TextField
                   label={t('adminEditor.fields.slug')}
                   value={form.slug}
                   onChange={(event) => setForm((prev) => ({ ...prev, slug: event.target.value }))}
                   helperText={t('adminEditor.fields.slugHint')}
                 />
+
+                <Divider />
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
+                  <Tabs value={activeLocale} onChange={(_, value) => setActiveLocale(value)}>
+                    <Tab value="en" label="EN" />
+                    <Tab value="ro" label="RO" />
+                  </Tabs>
+                  {roMissing && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={() => setForm((prev) => ({
+                        ...prev,
+                        translations: {
+                          ...prev.translations,
+                          ro: copyLocaleContent(prev.translations.en)
+                        }
+                      }))}
+                    >
+                      {t('adminEditor.actions.copyEnToRo')}
+                    </Button>
+                  )}
+                </Stack>
+
                 <TextField
-                  label={t('adminEditor.fields.summary')}
-                  value={form.summary}
-                  onChange={(event) => setForm((prev) => ({ ...prev, summary: event.target.value }))}
+                  label={`${t('adminEditor.fields.title')} (${activeLocaleUpper})`}
+                  value={activeTranslation.title}
+                  onChange={(event) => setForm((prev) => ({
+                    ...prev,
+                    translations: updateLocalizedField(prev.translations, activeLocale, { title: event.target.value })
+                  }))}
+                  error={Boolean(activeLocale === 'en' ? fieldErrors.enTitle : fieldErrors.roTitle)}
+                  helperText={activeLocale === 'en' ? fieldErrors.enTitle : fieldErrors.roTitle}
+                  required={activeLocale === 'en'}
+                />
+
+                <TextField
+                  label={`${t('adminEditor.fields.summary')} (${activeLocaleUpper})`}
+                  value={activeTranslation.summary}
+                  onChange={(event) => setForm((prev) => ({
+                    ...prev,
+                    translations: updateLocalizedField(prev.translations, activeLocale, { summary: event.target.value })
+                  }))}
                   multiline
                   minRows={2}
                 />
+
                 <TextField
-                  label={t('adminEditor.fields.body')}
-                  value={form.body}
-                  onChange={(event) => setForm((prev) => ({ ...prev, body: event.target.value }))}
+                  label={`${t('adminEditor.fields.body')} (${activeLocaleUpper})`}
+                  value={activeTranslation.body}
+                  onChange={(event) => setForm((prev) => ({
+                    ...prev,
+                    translations: updateLocalizedField(prev.translations, activeLocale, { body: event.target.value })
+                  }))}
                   multiline
                   minRows={10}
-                  error={Boolean(fieldErrors.body)}
-                  helperText={fieldErrors.body || t('adminEditor.fields.bodyHint')}
-                  required
+                  error={Boolean(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody)}
+                  helperText={(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody) || t('adminEditor.fields.bodyHint')}
+                  required={activeLocale === 'en'}
                 />
-                {form.type === 'WEEKLY_PLAN' && (
+
+                {isWeeklyPlan && (
                   <Button
                     variant="outlined"
                     onClick={() => setForm((prev) => ({
                       ...prev,
-                      body: prev.body ? `${prev.body}\n\n${buildWeeklyTemplate(t)}` : buildWeeklyTemplate(t)
+                      translations: updateLocalizedField(prev.translations, activeLocale, {
+                        body: prev.translations[activeLocale].body
+                          ? `${prev.translations[activeLocale].body}\n\n${buildWeeklyTemplate(t)}`
+                          : buildWeeklyTemplate(t)
+                      })
                     }))}
                   >
                     {t('adminEditor.actions.insertWeeklyTemplate')}
                   </Button>
                 )}
+
                 <Divider />
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
@@ -396,7 +502,8 @@ export default function AdminContentEditorPage() {
                     />
                   </Grid>
                 </Grid>
-                {form.type === 'WEEKLY_PLAN' && (
+
+                {isWeeklyPlan && (
                   <Grid container spacing={2}>
                     <Grid item xs={12} md={6}>
                       <TextField
@@ -422,6 +529,7 @@ export default function AdminContentEditorPage() {
                     </Grid>
                   </Grid>
                 )}
+
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
                     <TextField
@@ -444,6 +552,15 @@ export default function AdminContentEditorPage() {
                     />
                   </Grid>
                 </Grid>
+
+                <Stack direction="row" spacing={1}>
+                  <Button size="small" variant="text" onClick={() => navigate('/admin/content')}>
+                    {t('adminTypes.actions.backToContent')}
+                  </Button>
+                  <Typography variant="caption" color="text.secondary">
+                    {form.translations.en.title || t('adminEditor.newContent')}
+                  </Typography>
+                </Stack>
               </Stack>
             </CardContent>
           </Card>
@@ -459,13 +576,13 @@ export default function AdminContentEditorPage() {
             <Card>
               <CardContent>
                 <Stack spacing={2}>
-                  <Typography variant="subtitle2" color="text.secondary">{t('adminEditor.preview')}</Typography>
-                  <Typography variant="h6">{form.title || t('adminEditor.untitled')}</Typography>
-                  {form.summary && (
-                    <Typography variant="body2" color="text.secondary">{form.summary}</Typography>
+                  <Typography variant="subtitle2" color="text.secondary">{t('adminEditor.preview')} ({activeLocaleUpper})</Typography>
+                  <Typography variant="h6">{activeTranslation.title || t('adminEditor.untitled')}</Typography>
+                  {activeTranslation.summary && (
+                    <Typography variant="body2" color="text.secondary">{activeTranslation.summary}</Typography>
                   )}
                   <Stack direction="row" spacing={1} flexWrap="wrap">
-                    <Chip label={form.type === 'STRATEGY' ? t('adminContent.types.strategy') : t('adminContent.types.weeklyPlan')} size="small" color="primary" />
+                    <Chip label={selectedType?.displayName || t('adminEditor.fields.type')} size="small" color="primary" />
                     {parseCsv(form.tagsInput).map((tag) => (
                       <Chip key={tag} label={tag} size="small" variant="outlined" />
                     ))}
@@ -473,12 +590,12 @@ export default function AdminContentEditorPage() {
                       <Chip key={symbol} label={symbol} size="small" variant="outlined" />
                     ))}
                   </Stack>
-                  {form.type === 'WEEKLY_PLAN' && form.weekStart && form.weekEnd && (
+                  {isWeeklyPlan && form.weekStart && form.weekEnd && (
                     <Typography variant="body2" color="text.secondary">
                       {t('insights.weekOf')} {formatDate(form.weekStart)} - {formatDate(form.weekEnd)}
                     </Typography>
                   )}
-                  <MarkdownContent content={form.body} />
+                  <MarkdownContent content={activeTranslation.body} />
                 </Stack>
               </CardContent>
             </Card>
