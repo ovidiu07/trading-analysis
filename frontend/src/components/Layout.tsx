@@ -124,6 +124,7 @@ export default function Layout() {
   }, [allNavItems, location.pathname, t, user?.timezone])
 
   const isDashboard = pageMeta.id === 'dashboard'
+  const publicLocaleBase = language === 'ro' ? '/ro' : '/en'
   const dashboardState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
 
   const updateDashboardState = useCallback((patch: Partial<DashboardQueryState>) => {
@@ -339,9 +340,9 @@ export default function Layout() {
                 {t('app.disclaimer')}
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                <Button component={Link} to="/terms" size="small">{t('footer.terms')}</Button>
-                <Button component={Link} to="/privacy" size="small">{t('footer.privacy')}</Button>
-                <Button component={Link} to="/cookies" size="small">{t('footer.cookies')}</Button>
+                <Button component="a" href={`${publicLocaleBase}/terms/`} size="small">{t('footer.terms')}</Button>
+                <Button component="a" href={`${publicLocaleBase}/privacy/`} size="small">{t('footer.privacy')}</Button>
+                <Button component="a" href={`${publicLocaleBase}/cookies/`} size="small">{t('footer.cookies')}</Button>
               </Stack>
             </Stack>
           </Container>

@@ -30,7 +30,29 @@ const resolveLanguage = (value?: string | null): AppLanguage => {
   return 'en'
 }
 
+const detectLanguageFromUrl = (): AppLanguage | null => {
+  const params = new URLSearchParams(window.location.search)
+  const queryLanguage = params.get('lang')
+  if (queryLanguage === 'en' || queryLanguage === 'ro') {
+    return queryLanguage
+  }
+
+  const pathname = window.location.pathname.toLowerCase()
+  if (pathname === '/ro' || pathname.startsWith('/ro/')) {
+    return 'ro'
+  }
+  if (pathname === '/en' || pathname.startsWith('/en/')) {
+    return 'en'
+  }
+  return null
+}
+
 const detectInitialLanguage = (): AppLanguage => {
+  const fromUrl = detectLanguageFromUrl()
+  if (fromUrl) {
+    return fromUrl
+  }
+
   const stored = localStorage.getItem(STORAGE_KEY)
   if (stored === 'en' || stored === 'ro') {
     return stored

@@ -3,8 +3,9 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "dev": "vite",
-    "build": "tsc && vite build",
+    "seo:generate": "node scripts/generate-seo-pages.mjs",
+    "dev": "npm run seo:generate && vite",
+    "build": "npm run seo:generate && tsc && vite build",
     "preview": "vite preview",
     "test": "vitest"
   },

@@ -24,7 +24,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function LoginPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const { register, handleSubmit, formState, watch } = useForm<FormValues>({ resolver: zodResolver(schema) })
   const navigate = useNavigate()
   const location = useLocation()
@@ -41,6 +41,8 @@ export default function LoginPage() {
   const emailValue = watch('email')
   const emailField = register('email')
   const formAnchorId = 'login-form'
+  const publicTermsUrl = `/${language}/terms/`
+  const publicPrivacyUrl = `/${language}/privacy/`
 
   const from = (location.state as { from?: string })?.from || '/trades'
 
@@ -255,8 +257,8 @@ export default function LoginPage() {
                       {t('login.actions.createFreeAccount')}
                     </Button>
                     <Typography variant="caption" color="text.secondary" textAlign="center">
-                      {t('login.form.agreePrefix')} <MuiLink component={Link} to="/terms">{t('footer.terms')}</MuiLink> {t('login.form.and')}{' '}
-                      <MuiLink component={Link} to="/privacy">{t('login.form.privacyPolicy')}</MuiLink>.
+                      {t('login.form.agreePrefix')} <MuiLink href={publicTermsUrl}>{t('footer.terms')}</MuiLink> {t('login.form.and')}{' '}
+                      <MuiLink href={publicPrivacyUrl}>{t('login.form.privacyPolicy')}</MuiLink>.
                     </Typography>
                     <Typography variant="caption" color="text.secondary" textAlign="center">
                       {t('login.form.securityNote')}

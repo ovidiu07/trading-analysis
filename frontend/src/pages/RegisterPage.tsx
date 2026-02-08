@@ -27,6 +27,9 @@ export default function RegisterPage() {
 
   const termsVersion = import.meta.env.VITE_TERMS_VERSION || '2024-09-01'
   const privacyVersion = import.meta.env.VITE_PRIVACY_VERSION || '2024-09-01'
+  const language = locale.startsWith('ro') ? 'ro' : 'en'
+  const publicTermsUrl = `/${language}/terms/`
+  const publicPrivacyUrl = `/${language}/privacy/`
 
   const onSubmit = async (data: FormValues) => {
     setError('')
@@ -74,8 +77,8 @@ export default function RegisterPage() {
                     control={<Checkbox {...register('legalAccepted')} />}
                     label={(
                       <Typography variant="body2">
-                        {t('register.legalPrefix')} <MuiLink component={Link} to="/terms">{t('register.termsAndConditions')}</MuiLink> {t('register.andAcknowledge')}{' '}
-                        <MuiLink component={Link} to="/privacy">{t('register.privacyPolicy')}</MuiLink>.
+                        {t('register.legalPrefix')} <MuiLink href={publicTermsUrl}>{t('register.termsAndConditions')}</MuiLink> {t('register.andAcknowledge')}{' '}
+                        <MuiLink href={publicPrivacyUrl}>{t('register.privacyPolicy')}</MuiLink>.
                       </Typography>
                     )}
                   />
