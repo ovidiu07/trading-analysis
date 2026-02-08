@@ -1,55 +1,54 @@
-import { Box, Container, Stack, Typography } from '@mui/material'
+import { Container, Stack, Typography } from '@mui/material'
+import { useI18n } from '../i18n'
 
 export default function PrivacyPage() {
+  const { t } = useI18n()
   return (
     <Container maxWidth="md">
       <Stack spacing={2}>
-        <Box>
-          <Typography variant="h4" fontWeight={700}>Privacy Policy</Typography>
-          <Typography variant="body2" color="text.secondary">
-            Draft for review — this content must be reviewed by qualified legal counsel for applicable jurisdictions.
-          </Typography>
-        </Box>
+        <Typography variant="body2" color="text.secondary">
+          {t('legal.disclaimer')}
+        </Typography>
         <Stack spacing={1}>
-          <Typography variant="h6">1. Data we collect</Typography>
+          <Typography variant="h6">{t('legal.privacy.sections.s1.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Account data (email, password hash), trading notes and logs you submit, and technical data such as IP address, device, and user agent.
+            {t('legal.privacy.sections.s1.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">2. How we use data</Typography>
+          <Typography variant="h6">{t('legal.privacy.sections.s2.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            To provide the service, secure accounts, prevent abuse, and improve product performance. Optional analytics should be documented here.
+            {t('legal.privacy.sections.s2.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">3. Legal bases (placeholder)</Typography>
+          <Typography variant="h6">{t('legal.privacy.sections.s3.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Insert lawful bases for processing after legal review (e.g., contract, legitimate interests, consent).
+            {t('legal.privacy.sections.s3.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">4. Retention</Typography>
+          <Typography variant="h6">{t('legal.privacy.sections.s4.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            We retain data while your account is active and as needed for security, compliance, and backup purposes.
+            {t('legal.privacy.sections.s4.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">5. Your rights</Typography>
+          <Typography variant="h6">{t('legal.privacy.sections.s5.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            You can request access, correction, or deletion of your data. Contact us to exercise these rights.
+            {t('legal.privacy.sections.s5.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">6. Security</Typography>
+          <Typography variant="h6">{t('legal.privacy.sections.s6.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            We use encryption in transit, password hashing, and access controls to protect your data.
+            {t('legal.privacy.sections.s6.body')}
           </Typography>
         </Stack>
         <Stack spacing={1}>
-          <Typography variant="h6">7. Contact</Typography>
+          <Typography variant="h6">{t('legal.privacy.sections.s7.title')}</Typography>
           <Typography variant="body2" color="text.secondary">
-            Privacy requests: contact@ihomeprosolutions.ro
+            {t('legal.privacy.sections.s7.body')}
           </Typography>
         </Stack>
       </Stack>

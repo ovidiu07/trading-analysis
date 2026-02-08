@@ -26,4 +26,7 @@ public class NotebookTag {
     private String name;
 
     private String color;
+
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
 }

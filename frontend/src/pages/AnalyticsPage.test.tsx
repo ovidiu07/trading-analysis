@@ -1,18 +1,43 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { vi } from 'vitest'
+import { beforeEach, vi } from 'vitest'
 import AnalyticsPage from './AnalyticsPage'
 import { AuthProvider } from '../auth/AuthContext'
-import { AnalyticsResponse } from '../api/analytics'
+import { AnalyticsResponse, CoachResponse } from '../api/analytics'
+import { MemoryRouter } from 'react-router-dom'
+import { I18nProvider } from '../i18n'
 
 const mockFetchAnalyticsSummary = vi.fn()
+const mockFetchAnalyticsCoach = vi.fn()
+
+const setViewportWidth = (width: number) => {
+  Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
+  window.matchMedia = vi.fn().mockImplementation((query: string) => {
+    const minMatch = query.match(/\(min-width:\s*(\d+(?:\.\d+)?)px\)/)
+    const maxMatch = query.match(/\(max-width:\s*(\d+(?:\.\d+)?)px\)/)
+    const min = minMatch ? Number(minMatch[1]) : null
+    const max = maxMatch ? Number(maxMatch[1]) : null
+    const matches = (min === null || width >= min) && (max === null || width <= max)
+    return {
+      matches,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }
+  }) as unknown as typeof window.matchMedia
+}
 
 vi.mock('../api/analytics', async () => {
   const actual = await vi.importActual<typeof import('../api/analytics')>('../api/analytics')
   return {
     ...actual,
-    fetchAnalyticsSummary: (...args: unknown[]) => mockFetchAnalyticsSummary(...args)
+    fetchAnalyticsSummary: (...args: unknown[]) => mockFetchAnalyticsSummary(...args),
+    fetchAnalyticsCoach: (...args: unknown[]) => mockFetchAnalyticsCoach(...args)
   }
 })
 
@@ -143,26 +168,54 @@ const buildResponse = (): AnalyticsResponse => ({
   breakdown: {},
 })
 
+const buildCoachResponse = (): CoachResponse => ({
+  dataQuality: {
+    totalTrades: 20,
+    closedTrades: 18,
+    missingClosedAtCount: 0,
+    missingPnlNetCount: 0,
+    missingEntryExitCount: 0,
+    inconsistentPnlCount: 0,
+  },
+  advice: [],
+})
+
 describe('AnalyticsPage', () => {
+  beforeEach(() => {
+    localStorage.setItem('app.language', 'en')
+    setViewportWidth(1280)
+  })
+
   it('requests analytics summary on load and renders KPI', async () => {
     mockFetchAnalyticsSummary.mockResolvedValueOnce(buildResponse())
+    mockFetchAnalyticsCoach.mockResolvedValueOnce(buildCoachResponse())
     render(
-      <AuthProvider>
-        <AnalyticsPage />
-      </AuthProvider>
+      <MemoryRouter>
+        <AuthProvider>
+          <I18nProvider>
+            <AnalyticsPage />
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
     )
 
     await waitFor(() => expect(mockFetchAnalyticsSummary).toHaveBeenCalled())
     expect(mockFetchAnalyticsSummary).toHaveBeenCalledWith({ status: 'CLOSED', dateMode: 'CLOSE' })
+    expect(mockFetchAnalyticsCoach).toHaveBeenCalledWith({ status: 'CLOSED', dateMode: 'CLOSE' })
     expect(await screen.findByText('Net P&L')).toBeInTheDocument()
   })
 
   it('applies filters and triggers request', async () => {
     mockFetchAnalyticsSummary.mockResolvedValue(buildResponse())
+    mockFetchAnalyticsCoach.mockResolvedValue(buildCoachResponse())
     render(
-      <AuthProvider>
-        <AnalyticsPage />
-      </AuthProvider>
+      <MemoryRouter>
+        <AuthProvider>
+          <I18nProvider>
+            <AnalyticsPage />
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
     )
 
     const user = userEvent.setup()
@@ -171,6 +224,29 @@ describe('AnalyticsPage', () => {
 
     await waitFor(() => {
       expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
+      expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
     })
+  })
+
+  it('switches to mobile-friendly controls on narrow screens', async () => {
+    setViewportWidth(390)
+    mockFetchAnalyticsSummary.mockResolvedValue(buildResponse())
+    mockFetchAnalyticsCoach.mockResolvedValue(buildCoachResponse())
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <I18nProvider>
+            <AnalyticsPage />
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => expect(mockFetchAnalyticsSummary).toHaveBeenCalled())
+    expect(screen.getByLabelText('Analytics view')).toBeInTheDocument()
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.getByText('Advanced')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Apply' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Reset' })).toBeInTheDocument()
   })
 })

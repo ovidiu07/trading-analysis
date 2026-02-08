@@ -11,15 +11,17 @@ import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface TradeRepository extends JpaRepository<Trade, UUID> {
+public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecificationExecutor<Trade> {
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
   Page<Trade> findByUserIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, Pageable pageable);
 
+  @Deprecated(forRemoval = false)
   @Query("""
       SELECT t FROM Trade t
       WHERE t.user.id = :userId
@@ -27,8 +29,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
         AND (:openedAtTo IS NULL OR t.openedAt <= :openedAtTo)
         AND (:closedAtFrom IS NULL OR t.closedAt >= :closedAtFrom)
         AND (:closedAtTo IS NULL OR t.closedAt <= :closedAtTo)
-        AND (:symbol IS NULL OR LOWER(t.symbol) = LOWER(:symbol))
-        AND (:strategy IS NULL OR LOWER(t.strategyTag) = LOWER(:strategy))
+        AND (:symbol IS NULL OR LOWER(t.symbol) = :symbol)
+        AND (:strategy IS NULL OR LOWER(t.strategyTag) = :strategy)
         AND (:direction IS NULL OR t.direction = :direction)
         AND (:status IS NULL OR t.status = :status)
       """)
@@ -88,6 +90,28 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
       @Param("tz") String tz);
 
   @Query(value = """
+      WITH x AS (
+        SELECT t.pnl_net AS pnl_net,
+               t.pnl_gross AS pnl_gross,
+               CAST((t.closed_at AT TIME ZONE :tz) AS date) AS local_date
+        FROM trades t
+        WHERE t.user_id = :userId
+          AND t.status = 'CLOSED'
+          AND t.closed_at IS NOT NULL
+      )
+      SELECT COALESCE(SUM(x.pnl_net), 0) AS netPnl,
+             COALESCE(SUM(x.pnl_gross), 0) AS grossPnl,
+             COUNT(*) AS tradeCount,
+             COUNT(DISTINCT x.local_date) AS tradingDays
+      FROM x
+      WHERE x.local_date >= :fromDate
+        AND x.local_date <= :toDate
+      """, nativeQuery = true)
+  MonthlyPnlAggregate aggregateMonthlyPnlByClosedDate(@Param("userId") UUID userId,
+      @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
+      @Param("tz") String tz);
+
+  @Query(value = """
       SELECT * FROM trades t
       WHERE t.user_id = :userId
         AND t.status = 'CLOSED'
@@ -107,6 +131,12 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
 
   Optional<Trade> findByUserIdAndSymbolAndOpenedAt(UUID userId, String symbol, OffsetDateTime openedAt);
 
+  boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+  boolean existsByUserIdAndDemoSeedIdIsNull(UUID userId);
+
+  long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
   interface DailyPnlAggregate {
 
     LocalDate getDate();
@@ -118,5 +148,16 @@ public interface TradeRepository extends JpaRepository<Trade, UUID> {
     long getWins();
 
     long getLosses();
+  }
+
+  interface MonthlyPnlAggregate {
+
+    java.math.BigDecimal getNetPnl();
+
+    java.math.BigDecimal getGrossPnl();
+
+    long getTradeCount();
+
+    long getTradingDays();
   }
 }

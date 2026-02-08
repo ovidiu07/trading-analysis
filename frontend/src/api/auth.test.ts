@@ -20,11 +20,17 @@ describe('auth api', () => {
     fetchMock.mockResolvedValue({
       ok: true,
       status: 200,
-      json: async () => ({ token: 'abc', user: { id: '1', email: 'test@example.com' } })
+      text: async () => JSON.stringify({ token: 'abc', user: { id: '1', email: 'test@example.com' } })
     })
   })
 
-  it('register calls correct endpoint and stores token', async () => {
+  it('register calls correct endpoint without setting auth token', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({ success: true, requiresEmailVerification: true })
+    })
+
     await register({
       email: 'user@example.com',
       password: 'Password1!',
@@ -32,16 +38,31 @@ describe('auth api', () => {
       termsVersion: '2024-09-01',
       privacyAccepted: true,
       privacyVersion: '2024-09-01',
-      captchaToken: 'token',
       locale: 'en-GB'
     })
-    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/auth/register', expect.anything())
-    expect(localStorage.getItem('token')).toBe('abc')
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/auth/register')
+    expect(options).toEqual(expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Accept-Language': 'en',
+        'Content-Type': 'application/json'
+      })
+    }))
+    expect(localStorage.getItem('token')).toBeUndefined()
   })
 
   it('login calls correct endpoint and stores token', async () => {
     await login('user@example.com', 'Password1!')
-    expect(fetchMock).toHaveBeenCalledWith('http://localhost:8080/api/auth/login', expect.anything())
+    const [url, options] = fetchMock.mock.calls[0]
+    expect(String(url)).toContain('/api/auth/login')
+    expect(options).toEqual(expect.objectContaining({
+      method: 'POST',
+      headers: expect.objectContaining({
+        'Accept-Language': 'en',
+        'Content-Type': 'application/json'
+      })
+    }))
     expect(localStorage.getItem('token')).toBe('abc')
   })
 })

@@ -1,11 +1,9 @@
 package com.tradevault.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tradevault.exception.CaptchaVerificationException;
 import com.tradevault.repository.UserRepository;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
-import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -14,7 +12,6 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.web.servlet.MockMvc;
-import org.springframework.boot.test.mock.mockito.MockBean;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -22,10 +19,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyString;
-import static org.mockito.Mockito.doNothing;
-import static org.mockito.Mockito.doThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -60,8 +53,6 @@ class AuthControllerTest {
     @Autowired
     PasswordEncoder passwordEncoder;
 
-    @MockBean
-    com.tradevault.service.TurnstileService turnstileService;
 
     @AfterEach
     void cleanUp() {
@@ -69,8 +60,7 @@ class AuthControllerTest {
     }
 
     @Test
-    void registerReturnsTokenAndUser() throws Exception {
-        doNothing().when(turnstileService).verifyToken(anyString(), any());
+    void registerReturnsSuccessAndRequiresVerification() throws Exception {
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
@@ -80,18 +70,15 @@ class AuthControllerTest {
                                 "termsVersion", "2024-09-01",
                                 "privacyAccepted", true,
                                 "privacyVersion", "2024-09-01",
-                                "captchaToken", "test-token",
                                 "locale", "en-GB"
                         ))))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.token").isNotEmpty())
-                .andExpect(jsonPath("$.user.email").value("user@example.com"))
-                .andExpect(jsonPath("$.user.baseCurrency").value("USD"));
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.requiresEmailVerification").value(true));
     }
 
     @Test
     void registerDuplicateEmailReturnsConflict() throws Exception {
-        doNothing().when(turnstileService).verifyToken(anyString(), any());
         userRepository.save(com.tradevault.domain.entity.User.builder()
                 .email("dup@example.com")
                 .passwordHash(passwordEncoder.encode("Password1!"))
@@ -106,8 +93,7 @@ class AuthControllerTest {
                                 "termsAccepted", true,
                                 "termsVersion", "2024-09-01",
                                 "privacyAccepted", true,
-                                "privacyVersion", "2024-09-01",
-                                "captchaToken", "test-token"
+                                "privacyVersion", "2024-09-01"
                         ))))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.error").value("EMAIL_IN_USE"));
@@ -119,6 +105,7 @@ class AuthControllerTest {
                 .email("login@example.com")
                 .passwordHash(passwordEncoder.encode("Password1!"))
                 .role(com.tradevault.domain.enums.Role.USER)
+                .emailVerifiedAt(java.time.OffsetDateTime.now())
                 .build());
 
         mockMvc.perform(post("/api/auth/login")
@@ -146,7 +133,6 @@ class AuthControllerTest {
 
     @Test
     void registerEndpointIsNotForbidden() throws Exception {
-        doNothing().when(turnstileService).verifyToken(anyString(), any());
         var result = mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
@@ -155,8 +141,7 @@ class AuthControllerTest {
                                 "termsAccepted", true,
                                 "termsVersion", "2024-09-01",
                                 "privacyAccepted", true,
-                                "privacyVersion", "2024-09-01",
-                                "captchaToken", "test-token"
+                                "privacyVersion", "2024-09-01"
                         ))))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -166,7 +151,6 @@ class AuthControllerTest {
 
     @Test
     void registerFailsWithoutTerms() throws Exception {
-        doNothing().when(turnstileService).verifyToken(anyString(), any());
         mockMvc.perform(post("/api/auth/register")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(Map.of(
@@ -175,31 +159,10 @@ class AuthControllerTest {
                                 "termsAccepted", false,
                                 "termsVersion", "2024-09-01",
                                 "privacyAccepted", true,
-                                "privacyVersion", "2024-09-01",
-                                "captchaToken", "test-token"
+                                "privacyVersion", "2024-09-01"
                         ))))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.error").value("VALIDATION_ERROR"));
     }
 
-    @Test
-    void registerFailsWithInvalidCaptcha() throws Exception {
-        doThrow(new CaptchaVerificationException("Captcha verification failed"))
-                .when(turnstileService)
-                .verifyToken(Mockito.eq("bad-token"), any());
-
-        mockMvc.perform(post("/api/auth/register")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content(objectMapper.writeValueAsString(Map.of(
-                                "email", "captcha@example.com",
-                                "password", "Password1!",
-                                "termsAccepted", true,
-                                "termsVersion", "2024-09-01",
-                                "privacyAccepted", true,
-                                "privacyVersion", "2024-09-01",
-                                "captchaToken", "bad-token"
-                        ))))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.error").value("CAPTCHA_FAILED"));
-    }
 }

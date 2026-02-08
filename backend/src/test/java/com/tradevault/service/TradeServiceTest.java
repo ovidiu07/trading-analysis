@@ -6,6 +6,7 @@ import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.trade.TradeRequest;
+import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
@@ -14,9 +15,15 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.mockito.ArgumentCaptor;
+import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.data.jpa.domain.Specification;
+import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -24,6 +31,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.never;
 
 public class TradeServiceTest {
     private TradeRepository tradeRepository;
@@ -132,9 +140,6 @@ public class TradeServiceTest {
         updateRequest.setSlippage(BigDecimal.ZERO);
         updateRequest.setNotes("updated notes");
         // client tries to modify pnl but it should be ignored since inputs didn't change
-        updateRequest.setPnlGross(new BigDecimal("999999"));
-        updateRequest.setPnlNet(new BigDecimal("888888"));
-        updateRequest.setPnlPercent(new BigDecimal("777"));
 
         when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
         when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
@@ -189,9 +194,7 @@ public class TradeServiceTest {
         updateRequest.setFees(new BigDecimal("2"));
         updateRequest.setCommission(new BigDecimal("3"));
         updateRequest.setSlippage(BigDecimal.ZERO);
-        // bogus client pnl
-        updateRequest.setPnlGross(new BigDecimal("12345"));
-        updateRequest.setPnlNet(new BigDecimal("54321"));
+
 
         when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
         when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
@@ -259,8 +262,7 @@ public class TradeServiceTest {
     void createIgnoresClientProvidedPnl() {
         TradeRequest request = baseRequest();
         request.setExitPrice(new BigDecimal("120"));
-        request.setPnlGross(new BigDecimal("99999"));
-        request.setPnlNet(new BigDecimal("88888"));
+
 
         when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
 
@@ -279,6 +281,54 @@ public class TradeServiceTest {
         tradeService.delete(tradeId);
 
         verify(tradeRepository).delete(eq(trade));
+    }
+
+    @Test
+    void openedAtToDateOnlyUsesInclusiveEndOfDayInBucharest() {
+        ZoneId zone = ZoneId.of("Europe/Bucharest");
+        OffsetDateTime parsedTo = ReflectionTestUtils.invokeMethod(
+                tradeService,
+                "parseDateTimeFilter",
+                "2026-02-06",
+                zone,
+                true,
+                "openedAtTo"
+        );
+
+        assertNotNull(parsedTo);
+        assertEquals(OffsetDateTime.parse("2026-02-06T23:59:59.999999999+02:00"), parsedTo);
+        OffsetDateTime tradeOpenedAt = OffsetDateTime.parse("2026-02-06T18:08:00+02:00");
+        assertFalse(tradeOpenedAt.isAfter(parsedTo));
+    }
+
+    @Test
+    void searchRejectsOpenedRangeWhenFromIsAfterTo() {
+        when(timezoneService.resolveZone(null, user)).thenReturn(ZoneId.of("Europe/Bucharest"));
+
+        TradeSearchValidationException ex = assertThrows(
+                TradeSearchValidationException.class,
+                () -> tradeService.search(
+                        0,
+                        50,
+                        "2026-02-07",
+                        "2026-02-06",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null
+                )
+        );
+
+        assertEquals("Invalid date range: 'openedAtFrom' must be before or equal to 'openedAtTo'.", ex.getMessage());
+        Map<String, Object> details = (Map<String, Object>) ex.getDetails();
+        List<Map<String, String>> fieldErrors = (List<Map<String, String>>) details.get("fieldErrors");
+        assertEquals("openedAtFrom", fieldErrors.get(0).get("field"));
+        assertEquals("openedAtTo", fieldErrors.get(1).get("field"));
+        verify(tradeRepository, never()).findAll(any(Specification.class), any(Pageable.class));
     }
 
     private TradeRequest baseRequest() {

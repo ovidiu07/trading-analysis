@@ -10,4 +10,8 @@ import java.util.UUID;
 public interface TagRepository extends JpaRepository<Tag, UUID> {
     List<Tag> findByUserId(UUID userId);
     List<Tag> findByUserIdAndType(UUID userId, TagType type);
+
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 }

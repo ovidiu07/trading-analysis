@@ -193,12 +193,15 @@ public class TradeCsvImportService {
 
         OffsetDateTime closedAt = null;
         BigDecimal exitPrice = null;
-        BigDecimal pnlGross = BigDecimal.ZERO;
+        BigDecimal pnlGross = null;
+        BigDecimal pnlNet = null;
         TradeStatus status = TradeStatus.OPEN;
 
         if (totalSellShares.compareTo(SHARE_TOLERANCE) > 0) {
             exitPrice = weightedAverage(sells);
-            pnlGross = sumResults(sells);
+            BigDecimal priceDiff = exitPrice.subtract(entryPrice);
+            pnlGross = priceDiff.multiply(totalBuyShares);
+            pnlNet = pnlGross;
         }
 
         if (totalSellShares.compareTo(SHARE_TOLERANCE) <= 0) {
@@ -221,7 +224,7 @@ public class TradeCsvImportService {
                 entryPrice,
                 exitPrice,
                 pnlGross,
-                pnlGross,
+                pnlNet,
                 status,
                 updatedAt
         );

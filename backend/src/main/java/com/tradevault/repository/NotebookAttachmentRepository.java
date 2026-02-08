@@ -11,4 +11,8 @@ public interface NotebookAttachmentRepository extends JpaRepository<NotebookAtta
     List<NotebookAttachment> findByNoteId(UUID noteId);
 
     Optional<NotebookAttachment> findByIdAndUserId(UUID id, UUID userId);
+
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 }

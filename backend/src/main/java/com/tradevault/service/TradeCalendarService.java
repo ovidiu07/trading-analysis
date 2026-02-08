@@ -3,6 +3,7 @@ package com.tradevault.service;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.PnlBasis;
 import com.tradevault.dto.trade.DailyPnlResponse;
+import com.tradevault.dto.trade.MonthlyPnlSummaryResponse;
 import com.tradevault.repository.TradeRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -11,7 +12,9 @@ import org.slf4j.LoggerFactory;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
+import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.math.BigDecimal;
 
 @Service
 @RequiredArgsConstructor
@@ -45,5 +48,32 @@ public class TradeCalendarService {
                         row.getLosses()
                 ))
                 .toList();
+    }
+
+    public MonthlyPnlSummaryResponse fetchMonthlySummary(int year, int month, String tz, PnlBasis basis) {
+        User user = currentUserService.getCurrentUser();
+        ZoneId zone = timezoneService.resolveZone(tz, user);
+        LocalDate monthStart = LocalDate.of(year, month, 1);
+        LocalDate monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth());
+
+        TradeRepository.MonthlyPnlAggregate aggregate = switch (basis) {
+            case CLOSE -> tradeRepository.aggregateMonthlyPnlByClosedDate(user.getId(), monthStart, monthEnd, zone.getId());
+            case OPEN -> throw new IllegalArgumentException("Monthly summary supports CLOSE basis only");
+        };
+
+        BigDecimal netPnl = aggregate != null && aggregate.getNetPnl() != null ? aggregate.getNetPnl() : BigDecimal.ZERO;
+        BigDecimal grossPnl = aggregate != null && aggregate.getGrossPnl() != null ? aggregate.getGrossPnl() : BigDecimal.ZERO;
+        long tradeCount = aggregate != null ? aggregate.getTradeCount() : 0;
+        long tradingDays = aggregate != null ? aggregate.getTradingDays() : 0;
+
+        return new MonthlyPnlSummaryResponse(
+                year,
+                month,
+                zone.getId(),
+                netPnl,
+                grossPnl,
+                tradeCount,
+                tradingDays
+        );
     }
 }

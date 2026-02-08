@@ -38,4 +38,7 @@ public class NotebookTagLink {
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(columnDefinition = "notebook_tag_entity_type", nullable = false)
     private NotebookTagEntityType entityType;
+
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
 }

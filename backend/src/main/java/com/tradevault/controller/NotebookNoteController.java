@@ -3,9 +3,11 @@ package com.tradevault.controller;
 import com.tradevault.domain.enums.NotebookNoteType;
 import com.tradevault.dto.notebook.NotebookNoteRequest;
 import com.tradevault.dto.notebook.NotebookNoteResponse;
+import com.tradevault.dto.notebook.NotebookNoteSummaryResponse;
 import com.tradevault.service.NotebookNoteService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
@@ -23,10 +25,16 @@ public class NotebookNoteController {
                                            @RequestParam(required = false) NotebookNoteType type,
                                            @RequestParam(required = false) String q,
                                            @RequestParam(required = false) List<UUID> tagIds,
-                                           @RequestParam(required = false) LocalDate from,
-                                           @RequestParam(required = false) LocalDate to,
+                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                           @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
                                            @RequestParam(required = false) String sort) {
         return noteService.list(folderId, type, q, tagIds, from, to, sort);
+    }
+
+    @GetMapping("/by-date")
+    public List<NotebookNoteSummaryResponse> listByDate(@RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                                        @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to) {
+        return noteService.listByDate(from, to);
     }
 
     @GetMapping("/{id}")

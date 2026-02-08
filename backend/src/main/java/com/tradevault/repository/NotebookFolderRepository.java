@@ -13,4 +13,8 @@ public interface NotebookFolderRepository extends JpaRepository<NotebookFolder, 
     Optional<NotebookFolder> findByIdAndUserId(UUID id, UUID userId);
 
     Optional<NotebookFolder> findByUserIdAndSystemKey(UUID userId, String systemKey);
+
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 }

@@ -35,12 +35,7 @@ public class TradeRequest {
     private BigDecimal fees = BigDecimal.ZERO;
     private BigDecimal commission = BigDecimal.ZERO;
     private BigDecimal slippage = BigDecimal.ZERO;
-    private BigDecimal pnlGross;
-    private BigDecimal pnlNet;
-    private BigDecimal pnlPercent;
     private BigDecimal riskAmount;
-    private BigDecimal riskPercent;
-    private BigDecimal rMultiple;
     private BigDecimal capitalUsed;
     private String timeframe;
     private String setup;

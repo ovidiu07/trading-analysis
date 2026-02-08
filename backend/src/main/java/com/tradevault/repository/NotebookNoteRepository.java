@@ -15,6 +15,14 @@ import java.util.UUID;
 public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID> {
     Optional<NotebookNote> findByIdAndUserId(UUID id, UUID userId);
 
+    List<NotebookNote> findByUserIdAndIsDeletedFalse(UUID userId);
+
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    boolean existsByUserIdAndDemoSeedIdIsNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
     @Query("""
         SELECT n FROM NotebookNote n
         WHERE n.user.id = :userId

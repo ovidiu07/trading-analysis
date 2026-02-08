@@ -27,8 +27,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
   Typography,
-  useMediaQuery,
-  useTheme
+  useMediaQuery
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
 import AddIcon from '@mui/icons-material/Add'
@@ -42,7 +41,10 @@ import EditIcon from '@mui/icons-material/Edit'
 import FilterAltIcon from '@mui/icons-material/FilterAlt'
 import ViewListIcon from '@mui/icons-material/ViewList'
 import CloseIcon from '@mui/icons-material/Close'
+import ArrowBackIcon from '@mui/icons-material/ArrowBack'
+import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useLocation, useNavigate } from 'react-router-dom'
+import { useBlocker } from "react-router";
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 import {
@@ -75,16 +77,25 @@ import {
 } from '../api/notebook'
 import { formatCurrency, formatDate, formatDateTime } from '../utils/format'
 import { TradeResponse, getTradeById } from '../api/trades'
-import PageHeader from '../components/ui/PageHeader'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import RichTextEditor from '../components/ui/RichTextEditor'
-import {
-  buildNotebookFingerprint,
-  createAutosaveScheduler,
-  isNotebookDirty,
-  shouldAutosave
-} from '../utils/notebookAutosave'
+import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
+import { useDemoData } from '../features/demo/DemoDataContext'
+const buildNoteFingerprint = (note: NotebookNote | null) => {
+  if (!note) return ''
+  return JSON.stringify({
+    title: note.title ?? '',
+    body: note.body ?? '',
+    bodyJson: note.bodyJson ?? '',
+    dateKey: note.dateKey ?? '',
+    folderId: note.folderId ?? '',
+    type: note.type ?? '',
+    relatedTradeId: note.relatedTradeId ?? '',
+    isPinned: note.isPinned ?? false
+  })
+}
 
 type LossRecapForm = {
   from: string
@@ -92,33 +103,36 @@ type LossRecapForm = {
   minLoss: number
 }
 
+type TranslateFn = (key: string, params?: Record<string, string | number>) => string
+
 const defaultLossRecap: LossRecapForm = {
   from: new Date().toISOString().slice(0, 10),
   to: new Date().toISOString().slice(0, 10),
   minLoss: 50
 }
 
-const buildLossRecapBody = (trades: TradeResponse[], timezone?: string) => {
+const buildLossRecapBody = (trades: TradeResponse[], t: TranslateFn, timezone?: string) => {
   if (!trades.length) {
-    return 'No losses matched the selected criteria.'
+    return t('notebook.lossRecap.noLossesMatched')
   }
   const rows = trades
     .map((trade) => {
       const pnl = trade.pnlNet ?? 0
-      return `| ${trade.symbol} | ${trade.direction} | ${formatDateTime(trade.closedAt, timezone)} | ${pnl.toFixed(2)} | ${trade.setup ?? ''} |`
+      const direction = trade.direction ? t(`trades.direction.${trade.direction}`) : ''
+      return `| ${trade.symbol} | ${direction} | ${formatDateTime(trade.closedAt, timezone)} | ${pnl.toFixed(2)} | ${trade.setup ?? ''} |`
     })
     .join('\n')
   return [
-    '## Loss recap',
+    `## ${t('notebook.lossRecap.title')}`,
     '',
-    '| Symbol | Direction | Closed | Net P&L | Setup |',
+    `| ${t('notebook.lossRecap.table.symbol')} | ${t('notebook.lossRecap.table.direction')} | ${t('notebook.lossRecap.table.closed')} | ${t('notebook.lossRecap.table.netPnl')} | ${t('notebook.lossRecap.table.setup')} |`,
     '| --- | --- | --- | --- | --- |',
     rows,
     '',
-    '### Reflection prompts',
-    '- What was the mistake?',
-    '- What rule was violated?',
-    '- What is the fix?'
+    `### ${t('notebook.lossRecap.reflectionTitle')}`,
+    `- ${t('notebook.lossRecap.promptMistake')}`,
+    `- ${t('notebook.lossRecap.promptRule')}`,
+    `- ${t('notebook.lossRecap.promptFix')}`
   ].join('\n')
 }
 
@@ -233,8 +247,30 @@ const convertMarkdownToHtml = (markdown: string) => {
 }
 
 const resolveNoteHtml = (note: NotebookNote | null) => {
-  if (!note?.body) return ''
-  return looksLikeHtml(note.body) ? note.body : convertMarkdownToHtml(note.body)
+  if (!note) return ''
+  // Prefer structured content if available
+  if (note.bodyJson && note.bodyJson.trim()) {
+    try {
+      const parsed = JSON.parse(note.bodyJson)
+      if (parsed && typeof parsed === 'object' && typeof parsed.content === 'string') {
+        return parsed.content
+      }
+      // If bodyJson contains raw HTML string instead of JSON object
+      if (typeof parsed === 'string' && parsed.trim()) {
+        return looksLikeHtml(parsed) ? parsed : convertMarkdownToHtml(parsed)
+      }
+    } catch {
+      // If not valid JSON, treat bodyJson as potential HTML
+      const maybeHtml = note.bodyJson
+      if (maybeHtml && maybeHtml.trim()) {
+        return looksLikeHtml(maybeHtml) ? maybeHtml : convertMarkdownToHtml(maybeHtml)
+      }
+    }
+  }
+  if (note.body && note.body.trim()) {
+    return looksLikeHtml(note.body) ? note.body : convertMarkdownToHtml(note.body)
+  }
+  return ''
 }
 
 const extractPlainText = (html: string) => {
@@ -245,7 +281,9 @@ const extractPlainText = (html: string) => {
 }
 
 export default function NotebookPage() {
+  const { t } = useI18n()
   const { logout, user } = useAuth()
+  const { refreshToken } = useDemoData()
   const navigate = useNavigate()
   const location = useLocation()
   const [folders, setFolders] = useState<NotebookFolder[]>([])
@@ -286,24 +324,50 @@ export default function NotebookPage() {
   const [listOpen, setListOpen] = useState(() => localStorage.getItem('tv-notebook-list') !== 'collapsed')
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false)
   const [newMenuAnchor, setNewMenuAnchor] = useState<null | HTMLElement>(null)
+  const [editorMenuAnchor, setEditorMenuAnchor] = useState<null | HTMLElement>(null)
   const [mobilePanel, setMobilePanel] = useState<'list' | 'editor'>('list')
-  const autosaveSchedulerRef = useRef<ReturnType<typeof createAutosaveScheduler> | null>(null)
   const persistedFingerprintRef = useRef<string>('')
   const isSavingRef = useRef(false)
+  const outOfFilterNoticeRef = useRef<string | null>(null)
 
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
   const apiBase = import.meta.env.VITE_API_URL || '/api'
-  const theme = useTheme()
-  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
-  const isMdUp = useMediaQuery(theme.breakpoints.up('md'))
-  const isDesktop = useMediaQuery(theme.breakpoints.up('lg'))
+  const isMobile = useMediaQuery('(max-width: 767.98px)')
+  const isTabletUp = useMediaQuery('(min-width: 768px)')
+  const isDesktop = useMediaQuery('(min-width: 1024px)')
+
+  const confirmDiscard = useCallback(() => {
+    if (!isDirty) return true
+    return window.confirm(t('notebook.prompts.discardChanges'))
+  }, [isDirty, t])
+
+  const blocker = useBlocker(isDirty)
+
+  useEffect(() => {
+    if (blocker.state !== 'blocked') return
+    if (window.confirm(t('notebook.prompts.discardAndContinue'))) {
+      blocker.proceed()
+    } else {
+      blocker.reset()
+    }
+  }, [blocker, t])
+
+  useEffect(() => {
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!isDirty) return
+      event.preventDefault()
+      event.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handleBeforeUnload)
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload)
+  }, [isDirty])
 
   const handleAuthFailure = useCallback((message?: string) => {
-    setError(message || 'Please login again to access your notebook.')
+    setError(message || t('notebook.errors.loginRequired'))
     logout()
     navigate('/login', { replace: true, state: { from: location.pathname } })
-  }, [location.pathname, logout, navigate])
+  }, [location.pathname, logout, navigate, t])
 
   const loadFoldersAndTags = useCallback(async () => {
     try {
@@ -319,14 +383,15 @@ export default function NotebookPage() {
       }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Failed to load notebook folders.')
+      setError(translateApiError(err, t, 'notebook.errors.loadFolders'))
     }
-  }, [handleAuthFailure, selectedFolderId])
+  }, [handleAuthFailure, selectedFolderId, t])
 
   const urlNoteId = useMemo(() => new URLSearchParams(location.search).get('noteId'), [location.search])
+  const allNotesFolder = useMemo(() => folders.find((folder) => folder.systemKey === 'ALL_NOTES'), [folders])
 
   const loadNotes = useCallback(async () => {
     if (!selectedFolderId) return
@@ -352,38 +417,35 @@ export default function NotebookPage() {
       })
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Failed to load notes.')
+      setError(translateApiError(err, t, 'notebook.errors.loadNotes'))
     } finally {
       setLoading(false)
     }
-  }, [filterTags, handleAuthFailure, searchQuery, selectedFolderId, sortOrder, typeFilter, urlNoteId])
+  }, [filterTags, handleAuthFailure, searchQuery, selectedFolderId, sortOrder, t, typeFilter, urlNoteId])
 
   const refreshSelectedNote = useCallback(async (noteId: string) => {
     try {
       const data = await getNotebookNote(noteId)
       setSelectedNote(data)
-      if (data.folderId && selectedFolderId !== data.folderId) {
-        setSelectedFolderId(data.folderId)
-      }
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
       } else {
-        setError('Unable to refresh the selected note.')
+        setError(translateApiError(err, t, 'notebook.errors.refreshNote'))
       }
     }
-  }, [handleAuthFailure, selectedFolderId])
+  }, [handleAuthFailure, t])
 
   useEffect(() => {
     loadFoldersAndTags()
-  }, [loadFoldersAndTags])
+  }, [loadFoldersAndTags, refreshToken])
 
   useEffect(() => {
     loadNotes()
-  }, [loadNotes])
+  }, [loadNotes, refreshToken])
 
   useEffect(() => {
     const params = new URLSearchParams(location.search)
@@ -401,14 +463,14 @@ export default function NotebookPage() {
         setTemplateSelection('')
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          handleAuthFailure(err.message)
+          handleAuthFailure()
         }
       }
     }
     if (selectedNote) {
       loadTemplates()
     }
-  }, [handleAuthFailure, selectedNote])
+  }, [handleAuthFailure, selectedNote, refreshToken])
 
   useEffect(() => {
     const loadStats = async () => {
@@ -426,14 +488,14 @@ export default function NotebookPage() {
         setClosedTrades(trades as TradeResponse[])
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          handleAuthFailure(err.message)
+          handleAuthFailure()
           return
         }
         setDailySummary(null)
       }
     }
     loadStats()
-  }, [handleAuthFailure, selectedNote, timezone])
+  }, [handleAuthFailure, selectedNote, timezone, refreshToken])
 
   useEffect(() => {
     const loadTrade = async () => {
@@ -446,12 +508,12 @@ export default function NotebookPage() {
         setTradeDetail(trade)
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          handleAuthFailure(err.message)
+          handleAuthFailure()
         }
       }
     }
     loadTrade()
-  }, [handleAuthFailure, selectedNote?.relatedTradeId])
+  }, [handleAuthFailure, selectedNote?.relatedTradeId, refreshToken])
 
   useEffect(() => {
     const loadAttachments = async () => {
@@ -464,12 +526,12 @@ export default function NotebookPage() {
         setAttachments(data)
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-          handleAuthFailure(err.message)
+          handleAuthFailure()
         }
       }
     }
     loadAttachments()
-  }, [handleAuthFailure, selectedNote])
+  }, [handleAuthFailure, selectedNote, refreshToken])
 
   useEffect(() => {
     if (!selectedNote) {
@@ -489,7 +551,13 @@ export default function NotebookPage() {
   }, [listOpen])
 
   useEffect(() => {
-    persistedFingerprintRef.current = buildNotebookFingerprint(selectedNote)
+    if (isDesktop && filtersDrawerOpen) {
+      setFiltersDrawerOpen(false)
+    }
+  }, [filtersDrawerOpen, isDesktop])
+
+  useEffect(() => {
+    persistedFingerprintRef.current = buildNoteFingerprint(selectedNote)
     setIsDirty(false)
     setSaveState('idle')
     setLastSavedAt(selectedNote?.updatedAt ?? null)
@@ -515,8 +583,6 @@ export default function NotebookPage() {
     return build(null)
   }, [folders])
 
-  const allNotesFolder = useMemo(() => folders.find((folder) => folder.systemKey === 'ALL_NOTES'), [folders])
-
   const visibleNotes = useMemo(() => {
     if (typeFilter === 'PINNED') {
       return notes.filter((note) => note.isPinned)
@@ -528,6 +594,15 @@ export default function NotebookPage() {
 
   const tagMap = useMemo(() => new Map(tags.map((tag) => [tag.id, tag])), [tags])
   const folderMap = useMemo(() => new Map(folders.map((folder) => [folder.id, folder])), [folders])
+  const outsideFilterMessage = t('notebook.messages.noteOutsideFilters')
+  const noteTypeLabels = useMemo(() => ({
+    DAILY_LOG: t('notebook.noteType.DAILY_LOG'),
+    TRADE_NOTE: t('notebook.noteType.TRADE_NOTE'),
+    PLAN: t('notebook.noteType.PLAN'),
+    GOAL: t('notebook.noteType.GOAL'),
+    SESSION_RECAP: t('notebook.noteType.SESSION_RECAP'),
+    NOTE: t('notebook.noteType.NOTE')
+  }), [t])
 
   const sortNotes = useCallback((items: NotebookNote[]) => {
     const getTime = (value?: string | null) => (value ? new Date(value).getTime() : 0)
@@ -570,7 +645,9 @@ export default function NotebookPage() {
       return false
     }
     if (searchQuery.trim()) {
-      const haystack = `${note.title ?? ''} ${note.body ?? ''}`.toLowerCase()
+      const previewSource = resolveNoteHtml(note)
+      const text = previewSource ? extractPlainText(previewSource) : ''
+      const haystack = `${note.title ?? ''} ${text}`.toLowerCase()
       if (!haystack.includes(searchQuery.toLowerCase())) {
         return false
       }
@@ -578,20 +655,39 @@ export default function NotebookPage() {
     return true
   }, [filterTags, folders, searchQuery, selectedFolderId, typeFilter])
 
+  useEffect(() => {
+    if (!urlNoteId || !selectedNote) return
+    if (noteMatchesFilters(selectedNote)) {
+      if (infoMessage === outsideFilterMessage) {
+        setInfoMessage('')
+      }
+      if (outOfFilterNoticeRef.current === selectedNote.id) {
+        outOfFilterNoticeRef.current = null
+      }
+      return
+    }
+    if (outOfFilterNoticeRef.current === selectedNote.id) return
+    outOfFilterNoticeRef.current = selectedNote.id
+    setInfoMessage(outsideFilterMessage)
+  }, [infoMessage, noteMatchesFilters, outsideFilterMessage, selectedNote, urlNoteId])
+
   const updateDraftNote = useCallback((next: NotebookNote) => {
     setSelectedNote(next)
-    setIsDirty(isNotebookDirty(next, persistedFingerprintRef.current))
+    setIsDirty(buildNoteFingerprint(next) !== persistedFingerprintRef.current)
     setSaveState('idle')
   }, [])
 
   const handleCreateNote = async (type: NotebookNoteType) => {
+    if (!confirmDiscard()) return
     try {
       const targetFolder = folders.find((folder) => folder.id === selectedFolderId)
       const folderId = targetFolder && !targetFolder.systemKey ? targetFolder.id : undefined
       const today = new Date().toISOString().slice(0, 10)
       const note = await createNotebookNote({
         type,
-        title: type === 'DAILY_LOG' ? `Daily log ${formatDate(new Date().toISOString())}` : 'Untitled note',
+        title: type === 'DAILY_LOG'
+          ? t('notebook.defaultTitle.dailyLog', { date: formatDate(new Date().toISOString()) })
+          : t('notebook.defaultTitle.untitledNote'),
         dateKey: type === 'DAILY_LOG' ? today : today,
         folderId,
         isPinned: false
@@ -602,7 +698,7 @@ export default function NotebookPage() {
       setViewMode('edit')
       upsertNote(note)
       if (!noteMatchesFilters(note)) {
-        setInfoMessage('Note created outside your current filters. Showing it in All notes.')
+        setInfoMessage(t('notebook.messages.noteCreatedOutsideFilters'))
         setSelectedFolderId(allNotesFolder?.id ?? selectedFolderId)
         setTypeFilter('ALL')
         setFilterTags([])
@@ -611,20 +707,18 @@ export default function NotebookPage() {
       navigate(`/notebook?noteId=${note.id}`, { replace: true })
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
       } else {
-        setError('Unable to create note.')
+        setError(translateApiError(err, t, 'notebook.errors.createNote'))
       }
     }
   }
 
-  const handleSaveNote = useCallback(async (autoSave = false) => {
+  const handleSaveNote = useCallback(async () => {
     if (!selectedNote) return
     if (isSavingRef.current) return
     if (selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())) {
-      if (!autoSave) {
-        setError('Date is required for daily logs.')
-      }
+      setError(t('notebook.validation.dailyLogDateRequired'))
       return
     }
     try {
@@ -632,16 +726,20 @@ export default function NotebookPage() {
       setSaveState('saving')
       setError('')
       const dateKey = selectedNote.dateKey && selectedNote.dateKey.trim() ? selectedNote.dateKey : null
+      const html = editorValue
+      const payloadBodyJson = selectedNote.bodyJson && selectedNote.bodyJson.trim() ? selectedNote.bodyJson : JSON.stringify({ format: 'html', content: html })
+      const payloadBody = selectedNote.body && selectedNote.body.trim() ? selectedNote.body : extractPlainText(html)
       const updated = await updateNotebookNote(selectedNote.id, {
         title: selectedNote.title,
-        body: selectedNote.body,
+        body: payloadBody,
+        bodyJson: payloadBodyJson,
         dateKey,
         folderId: selectedNote.folderId,
         type: selectedNote.type,
         relatedTradeId: selectedNote.relatedTradeId,
         isPinned: selectedNote.isPinned
       })
-      persistedFingerprintRef.current = buildNotebookFingerprint(updated)
+      persistedFingerprintRef.current = buildNoteFingerprint(updated)
       setSelectedNote(updated)
       setIsDirty(false)
       setSaveState('saved')
@@ -649,50 +747,19 @@ export default function NotebookPage() {
       upsertNote(updated)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
       } else {
-        setError('Unable to save note.')
+        setError(translateApiError(err, t, 'notebook.errors.saveNote'))
         setSaveState('error')
       }
     } finally {
       isSavingRef.current = false
     }
-  }, [handleAuthFailure, selectedNote, upsertNote])
-
-  useEffect(() => {
-    autosaveSchedulerRef.current?.cancel()
-    autosaveSchedulerRef.current = createAutosaveScheduler(() => {
-      if (shouldAutosave({
-        hasNote: Boolean(selectedNote),
-        isDirty,
-        isSaving: isSavingRef.current,
-        viewMode
-      })) {
-        handleSaveNote(true)
-      }
-    }, 1200)
-    return () => autosaveSchedulerRef.current?.cancel()
-  }, [handleSaveNote, isDirty, selectedNote, viewMode])
-
-  useEffect(() => {
-    if (!autosaveSchedulerRef.current) return
-    const shouldSchedule = shouldAutosave({
-      hasNote: Boolean(selectedNote),
-      isDirty,
-      isSaving: isSavingRef.current,
-      viewMode
-    })
-    if (!shouldSchedule) {
-      autosaveSchedulerRef.current.cancel()
-      return
-    }
-    autosaveSchedulerRef.current.schedule()
-    return () => autosaveSchedulerRef.current?.cancel()
-  }, [isDirty, selectedNote, viewMode])
+  }, [handleAuthFailure, selectedNote, t, upsertNote])
 
   const handleDeleteNote = async () => {
     if (!selectedNote) return
-    if (!window.confirm('Move this note to Recently deleted?')) {
+    if (!window.confirm(t('notebook.prompts.moveToRecentlyDeleted'))) {
       return
     }
     try {
@@ -703,9 +770,9 @@ export default function NotebookPage() {
       setShowDeleteUndo(true)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
       } else {
-        setError('Unable to delete note.')
+        setError(translateApiError(err, t, 'notebook.errors.deleteNote'))
       }
     }
   }
@@ -718,9 +785,9 @@ export default function NotebookPage() {
       upsertNote(restored)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
       } else {
-        setError('Unable to restore note.')
+        setError(translateApiError(err, t, 'notebook.errors.restoreNote'))
       }
     }
   }
@@ -735,10 +802,10 @@ export default function NotebookPage() {
       setLastDeletedNote(null)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Unable to restore note.')
+      setError(translateApiError(err, t, 'notebook.errors.restoreNote'))
     }
   }
 
@@ -746,24 +813,28 @@ export default function NotebookPage() {
     if (!selectedNote || !templateSelection) return
     const template = templates.find((item) => item.id === templateSelection)
     if (!template) return
-    updateDraftNote({ ...selectedNote, body: template.content ?? '', bodyJson: null })
+    const html = template.content ?? ''
+    const plain = extractPlainText(html)
+    const json = JSON.stringify({ format: 'html', content: html })
+    updateDraftNote({ ...selectedNote, body: plain, bodyJson: json })
   }
 
   const handleSaveTemplate = async () => {
     if (!selectedNote) return
-    const name = window.prompt('Template name?')
+    const name = window.prompt(t('notebook.prompts.templateName'))
     if (!name) return
     try {
+      // Save current editor HTML as template content for fidelity
       await createNotebookTemplate({
         name,
         appliesToType: selectedNote.type,
-        content: selectedNote.body ?? ''
+        content: editorValue
       })
       const data = await listNotebookTemplates(selectedNote.type)
       setTemplates(data)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
       }
     }
   }
@@ -771,18 +842,20 @@ export default function NotebookPage() {
   const handleInsertDailyLogTemplate = () => {
     if (!selectedNote) return
     const html = [
-      '<h2>Session bias</h2>',
+      `<h2>${t('notebook.dailyTemplate.sessionBias')}</h2>`,
       '<p></p>',
-      '<h2>Key levels</h2>',
+      `<h2>${t('notebook.dailyTemplate.keyLevels')}</h2>`,
       '<ul><li></li></ul>',
-      '<h2>News &amp; catalysts</h2>',
+      `<h2>${t('notebook.dailyTemplate.newsAndCatalysts')}</h2>`,
       '<ul><li></li></ul>',
-      '<h2>Rules to execute</h2>',
+      `<h2>${t('notebook.dailyTemplate.rulesToExecute')}</h2>`,
       '<ul data-type="taskList"><li data-type="taskItem"><label><input type="checkbox" /></label><div><p></p></div></li></ul>',
-      '<h2>Post-session review</h2>',
+      `<h2>${t('notebook.dailyTemplate.postSessionReview')}</h2>`,
       '<p></p>'
     ].join('')
-    updateDraftNote({ ...selectedNote, body: html, bodyJson: null })
+    const plain = extractPlainText(html)
+    const json = JSON.stringify({ format: 'html', content: html })
+    updateDraftNote({ ...selectedNote, body: plain, bodyJson: json })
   }
 
   const handleUpdateTags = async (value: NotebookTag[]) => {
@@ -799,17 +872,17 @@ export default function NotebookPage() {
   }
 
   const handleAddTag = async () => {
-    const name = window.prompt('New tag name')
+    const name = window.prompt(t('notebook.prompts.newTagName'))
     if (!name) return
     try {
       const newTag = await createNotebookTag({ name })
       setTags((prev) => [...prev, newTag])
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Unable to create tag.')
+      setError(translateApiError(err, t, 'notebook.errors.createTag'))
     }
   }
 
@@ -822,10 +895,10 @@ export default function NotebookPage() {
       setAttachments(data)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Unable to upload attachment.')
+      setError(translateApiError(err, t, 'notebook.errors.uploadAttachment'))
     }
   }
 
@@ -835,20 +908,25 @@ export default function NotebookPage() {
       setAttachments((prev) => prev.filter((item) => item.id !== id))
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Unable to delete attachment.')
+      setError(translateApiError(err, t, 'notebook.errors.deleteAttachment'))
     }
   }
 
   const handleLossRecap = async () => {
+    if (!confirmDiscard()) return
     try {
       const losses = await listLosses(lossRecapForm.from, lossRecapForm.to, timezone, lossRecapForm.minLoss)
+      const markdown = buildLossRecapBody(losses as TradeResponse[], t, timezone)
+      const html = convertMarkdownToHtml(markdown)
+      const plain = extractPlainText(html)
       const note = await createNotebookNote({
         type: 'SESSION_RECAP',
-        title: `Loss recap ${lossRecapForm.from} → ${lossRecapForm.to}`,
-        body: buildLossRecapBody(losses as TradeResponse[], timezone)
+        title: t('notebook.lossRecap.noteTitle', { from: lossRecapForm.from, to: lossRecapForm.to }),
+        body: plain,
+        bodyJson: JSON.stringify({ format: 'html', content: html })
       })
       setSelectedNote(note)
       setSaveState('saved')
@@ -857,25 +935,25 @@ export default function NotebookPage() {
       setLossRecapOpen(false)
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Unable to create loss recap note.')
+      setError(translateApiError(err, t, 'notebook.errors.createLossRecap'))
     }
   }
 
   const handleAddFolder = async () => {
-    const name = window.prompt('Folder name')
+    const name = window.prompt(t('notebook.prompts.folderName'))
     if (!name) return
     try {
       const folder = await createNotebookFolder({ name })
       setFolders((prev) => [...prev, folder])
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Unable to create folder.')
+      setError(translateApiError(err, t, 'notebook.errors.createFolder'))
     }
   }
 
@@ -885,10 +963,10 @@ export default function NotebookPage() {
       setFolders((prev) => prev.filter((folder) => folder.id !== folderId))
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure(err.message)
+        handleAuthFailure()
         return
       }
-      setError('Unable to delete folder.')
+      setError(translateApiError(err, t, 'notebook.errors.deleteFolder'))
     }
   }
 
@@ -908,40 +986,156 @@ export default function NotebookPage() {
     void handleCreateNote(action)
   }
 
-  return (
-    <Stack spacing={3}>
-      <PageHeader
-        title="Notebook"
-        subtitle="Capture session notes, daily logs, and trade reflections."
-        actions={(
-          isMobile ? (
-            <>
-              <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNewMenu}>
-                New
-              </Button>
-              <Menu anchorEl={newMenuAnchor} open={openNewMenu} onClose={handleCloseNewMenu}>
-                <MenuItem onClick={() => handleNewMenuSelect('DAILY_LOG')}>New daily log</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('PLAN')}>New plan</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('SESSION_RECAP')}>Create loss recap</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('NOTE')}>New note</MenuItem>
-                <MenuItem onClick={() => handleNewMenuSelect('GOAL')}>New goal</MenuItem>
-              </Menu>
-            </>
-          ) : (
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <Button variant="contained" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
-                New daily log
-              </Button>
-              <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
-                New plan
-              </Button>
-              <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
-                Create loss recap
-              </Button>
-            </Stack>
-          )
+  const handleSelectFolder = (folderId: string) => {
+    if (selectedFolderId === folderId) return
+    if (!confirmDiscard()) return
+    setSelectedFolderId(folderId)
+  }
+
+  const handleSelectNote = (note: NotebookNote) => {
+    if (selectedNote?.id === note.id) return
+    if (!confirmDiscard()) return
+    setSelectedNote(note)
+    navigate(`/notebook?noteId=${note.id}`)
+    if (isMobile) {
+      setMobilePanel('editor')
+    }
+  }
+
+  const isFiltersCollapsed = isDesktop && !filtersOpen
+  const isListCollapsed = isTabletUp && !listOpen
+
+  const filtersColumn = isDesktop
+    ? (filtersOpen ? 'minmax(220px, 300px)' : '72px')
+    : '1fr'
+  const listColumn = isTabletUp
+    ? (listOpen ? 'minmax(280px, 360px)' : '96px')
+    : '1fr'
+  const panelsTemplate = isDesktop
+    ? `${filtersColumn} ${listColumn} minmax(0, 1fr)`
+    : isTabletUp
+      ? `${listColumn} minmax(0, 1fr)`
+      : '1fr'
+
+  const panelSx = {
+    minWidth: 0,
+    height: '100%',
+    minHeight: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden'
+  }
+
+  const panelHeaderSx = {
+    px: 2,
+    py: 1.5,
+    borderBottom: '1px solid',
+    borderColor: 'divider',
+    backgroundColor: 'background.paper'
+  }
+
+  const panelBodySx = {
+    p: 2,
+    pt: 1.5,
+    pb: 'calc(16px + env(safe-area-inset-bottom))',
+    flex: 1,
+    minHeight: 0,
+    overflowY: 'auto',
+    overflowX: 'hidden'
+  }
+
+  const renderFiltersContent = (onAfterSelect?: () => void) => (
+    <Stack spacing={2}>
+      <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddFolder}>
+        {t('notebook.actions.addFolder')}
+      </Button>
+      <Divider />
+      <Typography variant="subtitle2">{t('notebook.sections.folders')}</Typography>
+      <List dense sx={{ minWidth: 0 }}>
+        {folderTree.map(({ folder, depth }) => (
+          <ListItemButton
+            key={folder.id}
+            selected={selectedFolderId === folder.id}
+            onClick={() => {
+              handleSelectFolder(folder.id)
+              onAfterSelect?.()
+            }}
+            sx={{ pl: 2 + depth * 2, pr: 1 }}
+          >
+            <ListItemText
+              primary={folder.name}
+              secondary={folder.systemKey ? t('notebook.labels.systemView') : null}
+              primaryTypographyProps={{ noWrap: true }}
+            />
+            {!folder.systemKey && (
+              <Tooltip title={t('notebook.actions.deleteFolder')}>
+                <IconButton
+                  size="small"
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    handleDeleteFolder(folder.id)
+                  }}
+                >
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+          </ListItemButton>
+        ))}
+      </List>
+      <Divider />
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+        <Typography variant="subtitle2">{t('notebook.sections.tags')}</Typography>
+        <Button size="small" onClick={handleAddTag}>{t('notebook.actions.addTag')}</Button>
+      </Stack>
+      <Autocomplete
+        multiple
+        options={tags}
+        value={filterTags}
+        onChange={(_, value) => setFilterTags(value)}
+        getOptionLabel={(option) => option.name}
+        renderTags={(value, getTagProps) =>
+          value.map((option, index) => (
+            <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
+          ))
+        }
+        renderInput={(params) => (
+          <TextField {...params} placeholder={t('notebook.placeholders.filterByTag')} size="small" />
         )}
       />
+    </Stack>
+  )
+
+  return (
+    <Stack spacing={3} sx={{ overflowX: 'hidden', height: '100%', minHeight: 0, overflow: 'hidden' }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="flex-end" spacing={1}>
+        {isMobile ? (
+          <>
+            <Button variant="contained" startIcon={<AddIcon />} onClick={handleOpenNewMenu}>
+              {t('notebook.actions.new')}
+            </Button>
+            <Menu anchorEl={newMenuAnchor} open={openNewMenu} onClose={handleCloseNewMenu}>
+              <MenuItem onClick={() => handleNewMenuSelect('DAILY_LOG')}>{t('notebook.actions.newDailyLog')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('PLAN')}>{t('notebook.actions.newPlan')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('SESSION_RECAP')}>{t('notebook.actions.createLossRecap')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('NOTE')}>{t('notebook.actions.newNote')}</MenuItem>
+              <MenuItem onClick={() => handleNewMenuSelect('GOAL')}>{t('notebook.actions.newGoal')}</MenuItem>
+            </Menu>
+          </>
+        ) : (
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button variant="contained" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('DAILY_LOG')}>
+              {t('notebook.actions.newDailyLog')}
+            </Button>
+            <Button variant="outlined" startIcon={<NoteAddIcon />} onClick={() => handleCreateNote('PLAN')}>
+              {t('notebook.actions.newPlan')}
+            </Button>
+            <Button variant="outlined" onClick={() => setLossRecapOpen(true)}>
+              {t('notebook.actions.createLossRecap')}
+            </Button>
+          </Stack>
+        )}
+      </Stack>
 
       {error && <ErrorBanner message={error} />}
       {infoMessage && (
@@ -954,110 +1148,85 @@ export default function NotebookPage() {
         sx={{
           display: 'grid',
           gap: 2,
-          alignItems: 'start',
-          gridTemplateColumns: { xs: '1fr', lg: '280px 1fr' }
+          width: '100%',
+          minWidth: 0,
+          flex: 1,
+          minHeight: 0,
+          alignItems: 'stretch',
+          gridTemplateRows: 'minmax(0, 1fr)',
+          gridTemplateColumns: panelsTemplate
         }}
       >
         {isDesktop && (
-          <Paper sx={{ p: 2 }}>
-            <Stack spacing={2}>
-              <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="subtitle1" fontWeight={600}>Filters</Typography>
-                <IconButton size="small" onClick={() => setFiltersOpen((prev) => !prev)} aria-label="Toggle filters panel">
-                  <FilterAltIcon fontSize="small" />
-                </IconButton>
+          <Paper sx={panelSx}>
+            <Box sx={panelHeaderSx}>
+              <Stack direction="row" alignItems="center" justifyContent={isFiltersCollapsed ? 'center' : 'space-between'}>
+                {!isFiltersCollapsed && (
+                  <Typography variant="subtitle1" fontWeight={600}>{t('notebook.sections.filters')}</Typography>
+                )}
+                <Tooltip title={filtersOpen ? t('notebook.actions.collapseFilters') : t('notebook.actions.expandFilters')}>
+                  <IconButton
+                    size="small"
+                    onClick={() => setFiltersOpen((prev) => !prev)}
+                    aria-label={filtersOpen ? t('notebook.actions.collapseFilters') : t('notebook.actions.expandFilters')}
+                    sx={isMobile ? { minWidth: 44, minHeight: 44 } : undefined}
+                  >
+                    <FilterAltIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
               </Stack>
-              {filtersOpen && (
-                <Stack spacing={2}>
-                  <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddFolder}>
-                    Add folder
-                  </Button>
-                  <Divider />
-                  <Typography variant="subtitle2">Folders</Typography>
-                  <List dense>
-                    {folderTree.map(({ folder, depth }) => (
-                      <ListItemButton
-                        key={folder.id}
-                        selected={selectedFolderId === folder.id}
-                        onClick={() => setSelectedFolderId(folder.id)}
-                        sx={{ pl: 2 + depth * 2 }}
-                      >
-                        <ListItemText primary={folder.name} secondary={folder.systemKey ? 'System view' : null} />
-                        {!folder.systemKey && (
-                          <Tooltip title="Delete folder">
-                            <IconButton size="small" onClick={(event) => {
-                              event.stopPropagation()
-                              handleDeleteFolder(folder.id)
-                            }}>
-                              <DeleteIcon fontSize="small" />
-                            </IconButton>
-                          </Tooltip>
-                        )}
-                      </ListItemButton>
-                    ))}
-                  </List>
-                  <Divider />
-                  <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                    <Typography variant="subtitle2">Tags</Typography>
-                    <Button size="small" onClick={handleAddTag}>Add tag</Button>
-                  </Stack>
-                  <Autocomplete
-                    multiple
-                    options={tags}
-                    value={filterTags}
-                    onChange={(_, value) => setFilterTags(value)}
-                    getOptionLabel={(option) => option.name}
-                    renderTags={(value, getTagProps) =>
-                      value.map((option, index) => (
-                        <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
-                      ))
-                    }
-                    renderInput={(params) => (
-                      <TextField {...params} placeholder="Filter by tag" size="small" />
-                    )}
-                  />
-                </Stack>
-              )}
-            </Stack>
+            </Box>
+            {filtersOpen && (
+              <Box sx={panelBodySx}>
+                {renderFiltersContent()}
+              </Box>
+            )}
           </Paper>
         )}
 
-        <Box
-          sx={{
-            display: 'grid',
-            gap: 2,
-            gridTemplateColumns: { xs: '1fr', md: 'minmax(260px, 340px) 1fr' }
-          }}
-        >
-          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'list' ? 'block' : 'none', md: 'block' } }}>
-            <Stack spacing={2}>
+        {(!isMobile || mobilePanel === 'list') && (
+          <Paper sx={panelSx}>
+            <Box sx={panelHeaderSx}>
               <Stack direction="row" alignItems="center" justifyContent="space-between">
-                <Typography variant="subtitle1" fontWeight={600}>Notes</Typography>
+                {!isListCollapsed && (
+                  <Typography variant="subtitle1" fontWeight={600}>{t('notebook.sections.notes')}</Typography>
+                )}
                 <Stack direction="row" spacing={1}>
                   {!isDesktop && (
-                    <IconButton size="small" onClick={() => setFiltersDrawerOpen(true)} aria-label="Open filters">
+                    <IconButton
+                      size="small"
+                      onClick={() => setFiltersDrawerOpen(true)}
+                      aria-label={t('notebook.aria.openFilters')}
+                      sx={isMobile ? { minWidth: 44, minHeight: 44 } : undefined}
+                    >
                       <FilterAltIcon fontSize="small" />
                     </IconButton>
                   )}
-                  {isMdUp && (
-                    <IconButton size="small" onClick={() => setListOpen((prev) => !prev)} aria-label="Toggle note list">
+                  {isTabletUp && (
+                    <IconButton
+                      size="small"
+                      onClick={() => setListOpen((prev) => !prev)}
+                      aria-label={t('notebook.aria.toggleNoteList')}
+                    >
                       <ViewListIcon fontSize="small" />
                     </IconButton>
                   )}
                 </Stack>
               </Stack>
-              {(listOpen || !isMdUp) && (
-                <>
+            </Box>
+            <Box sx={panelBodySx}>
+              {(listOpen || !isTabletUp) ? (
+                <Stack spacing={2}>
                   {!isMobile && (
                     <Stack direction="row" spacing={1} flexWrap="wrap">
-                      <Button variant="outlined" onClick={() => handleCreateNote('NOTE')}>New note</Button>
-                      <Button variant="outlined" onClick={() => handleCreateNote('GOAL')}>New goal</Button>
+                      <Button variant="outlined" onClick={() => handleCreateNote('NOTE')}>{t('notebook.actions.newNote')}</Button>
+                      <Button variant="outlined" onClick={() => handleCreateNote('GOAL')}>{t('notebook.actions.newGoal')}</Button>
                     </Stack>
                   )}
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
                     <TextField
                       size="small"
-                      placeholder="Search notes..."
+                      placeholder={t('notebook.placeholders.searchNotes')}
                       value={searchQuery}
                       onChange={(event) => setSearchQuery(event.target.value)}
                       InputProps={{
@@ -1069,21 +1238,21 @@ export default function NotebookPage() {
                       }}
                       fullWidth
                     />
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ width: { xs: '100%', sm: 'auto' } }}>
                       <TextField
                         select
                         size="small"
-                        label="Sort"
+                        label={t('notebook.fields.sort')}
                         value={sortOrder}
                         onChange={(event) => setSortOrder(event.target.value as 'updated' | 'created' | 'date')}
-                        sx={{ minWidth: { sm: 160 } }}
+                        sx={{ minWidth: { sm: 160 }, width: { xs: '100%', sm: 'auto' } }}
                       >
-                        <MenuItem value="updated">Last updated</MenuItem>
-                        <MenuItem value="created">Created</MenuItem>
-                        <MenuItem value="date">Note date</MenuItem>
+                        <MenuItem value="updated">{t('notebook.sort.updated')}</MenuItem>
+                        <MenuItem value="created">{t('notebook.sort.created')}</MenuItem>
+                        <MenuItem value="date">{t('notebook.sort.noteDate')}</MenuItem>
                       </TextField>
                       <Typography variant="caption" color="text.secondary">
-                        {visibleNotes.length} notes
+                        {t('notebook.labels.notesCount', { count: visibleNotes.length })}
                       </Typography>
                     </Stack>
                   </Stack>
@@ -1092,13 +1261,19 @@ export default function NotebookPage() {
                     value={typeFilter}
                     exclusive
                     onChange={(_, value) => value && setTypeFilter(value)}
-                    sx={{ flexWrap: 'wrap', gap: 1 }}
+                    aria-label={t('notebook.aria.filterByType')}
+                    sx={{
+                      flexWrap: { xs: 'nowrap', sm: 'wrap' },
+                      gap: 1,
+                      overflowX: { xs: 'auto', sm: 'visible' },
+                      '& .MuiToggleButton-root': { flexShrink: 0 }
+                    }}
                   >
-                    <ToggleButton value="ALL">All</ToggleButton>
-                    <ToggleButton value="DAILY_LOG">Daily logs</ToggleButton>
-                    <ToggleButton value="PLAN">Plans</ToggleButton>
-                    <ToggleButton value="SESSION_RECAP">Recaps</ToggleButton>
-                    <ToggleButton value="PINNED">Pinned</ToggleButton>
+                    <ToggleButton value="ALL">{t('notebook.filterType.ALL')}</ToggleButton>
+                    <ToggleButton value="DAILY_LOG">{t('notebook.filterType.DAILY_LOG')}</ToggleButton>
+                    <ToggleButton value="PLAN">{t('notebook.filterType.PLAN')}</ToggleButton>
+                    <ToggleButton value="SESSION_RECAP">{t('notebook.filterType.SESSION_RECAP')}</ToggleButton>
+                    <ToggleButton value="PINNED">{t('notebook.filterType.PINNED')}</ToggleButton>
                   </ToggleButtonGroup>
                   <Divider />
                   {loading && (
@@ -1109,35 +1284,42 @@ export default function NotebookPage() {
                     </Stack>
                   )}
                   {!loading && visibleNotes.length === 0 && (
-                    <EmptyState title="No notes yet" description="Create a note or daily log to get started." />
+                    <EmptyState title={t('notebook.empty.noNotesTitle')} description={t('notebook.empty.noNotesBody')} />
                   )}
-                  <List>
+                  <List sx={{ minWidth: 0 }}>
                     {visibleNotes.map((note) => {
                       const folderName = note.folderId ? folderMap.get(note.folderId)?.name : undefined
                       const previewSource = resolveNoteHtml(note)
-                      const excerpt = previewSource ? extractPlainText(previewSource).slice(0, 120) : 'Start writing your note...'
+                      const excerpt = previewSource ? extractPlainText(previewSource).slice(0, 160) : t('editor.placeholder')
                       return (
                         <ListItemButton
                           key={note.id}
                           selected={selectedNote?.id === note.id}
-                          onClick={() => {
-                            setSelectedNote(note)
-                            navigate(`/notebook?noteId=${note.id}`)
-                            if (isMobile) {
-                              setMobilePanel('editor')
-                            }
-                          }}
+                          onClick={() => handleSelectNote(note)}
                           sx={{ alignItems: 'flex-start' }}
                         >
-                          <Stack spacing={0.5} sx={{ flexGrow: 1 }}>
+                          <Stack spacing={0.5} sx={{ flexGrow: 1, minWidth: 0 }}>
                             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                              <Typography variant="subtitle2" fontWeight={600} noWrap>
-                                {note.title || 'Untitled note'}
+                              <Typography
+                                variant="subtitle2"
+                                fontWeight={600}
+                                sx={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', minWidth: 0 }}
+                              >
+                                {note.title || t('notebook.defaultTitle.untitledNote')}
                               </Typography>
                               {note.isPinned && <StarIcon fontSize="small" color="warning" />}
-                              <Chip label={note.type.replace('_', ' ')} size="small" variant="outlined" />
+                              <Chip label={noteTypeLabels[note.type]} size="small" variant="outlined" />
                             </Stack>
-                            <Typography variant="caption" color="text.secondary">
+                            <Typography
+                              variant="caption"
+                              color="text.secondary"
+                              sx={{
+                                display: '-webkit-box',
+                                WebkitLineClamp: 2,
+                                WebkitBoxOrient: 'vertical',
+                                overflow: 'hidden'
+                              }}
+                            >
                               {excerpt}
                             </Typography>
                             <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
@@ -1147,7 +1329,7 @@ export default function NotebookPage() {
                                 return tag ? <Chip key={tagId} label={tag.name} size="small" variant="outlined" /> : null
                               })}
                               <Typography variant="caption" color="text.secondary">
-                                Updated {note.updatedAt ? formatDateTime(note.updatedAt, timezone) : '—'}
+                                {t('notebook.labels.updatedAt', { date: note.updatedAt ? formatDateTime(note.updatedAt, timezone) : t('notebook.labels.notAvailable') })}
                               </Typography>
                             </Stack>
                           </Stack>
@@ -1155,52 +1337,90 @@ export default function NotebookPage() {
                       )
                     })}
                   </List>
-                </>
+                </Stack>
+              ) : (
+                <Stack alignItems="center" justifyContent="center" sx={{ height: '100%' }}>
+                  <Typography variant="caption" color="text.secondary">{t('notebook.labels.listCollapsed')}</Typography>
+                </Stack>
               )}
-            </Stack>
+            </Box>
           </Paper>
+        )}
 
-          <Paper sx={{ p: 2, display: { xs: mobilePanel === 'editor' ? 'block' : 'none', md: 'block' } }}>
-            {!selectedNote && (
-              <EmptyState
-                title="Select a note"
-                description="Pick a note from the list or create a new one."
-                action={(
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                    <Button variant="outlined" onClick={() => handleCreateNote('DAILY_LOG')}>Create daily log</Button>
-                    <Button variant="outlined" onClick={() => handleCreateNote('PLAN')}>Create plan</Button>
-                  </Stack>
-                )}
-              />
-            )}
-            {selectedNote && (
-              <Stack spacing={2}>
-                {isMobile && (
-                  <Button size="small" onClick={() => setMobilePanel('list')}>
-                    Back to list
-                  </Button>
-                )}
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
-                  <TextField
-                    label="Title"
-                    value={selectedNote.title ?? ''}
-                    onChange={(event) => updateDraftNote({ ...selectedNote, title: event.target.value })}
-                    fullWidth
-                  />
-                  <Box
-                    sx={{
-                      position: { xs: 'sticky', md: 'static' },
-                      top: { xs: 0, md: 'auto' },
-                      zIndex: 1,
-                      width: { xs: '100%', md: 'auto' },
-                      bgcolor: { xs: 'background.paper', md: 'transparent' },
-                      pb: { xs: 1, md: 0 }
-                    }}
-                  >
-                    <Stack spacing={1} alignItems={{ xs: 'stretch', md: 'flex-end' }}>
+        {(!isMobile || mobilePanel === 'editor') && (
+          <Paper sx={panelSx}>
+            <Box sx={panelHeaderSx}>
+              {!selectedNote && (
+                <Typography variant="subtitle1" fontWeight={600}>{t('notebook.sections.editor')}</Typography>
+              )}
+              {selectedNote && (
+                <Stack spacing={1.5}>
+                  {isMobile && (
+                    <>
+                      <Stack direction="row" alignItems="center" justifyContent="space-between">
+                        <Stack direction="row" spacing={1} alignItems="center">
+                          <IconButton
+                            size="small"
+                            onClick={() => setMobilePanel('list')}
+                            aria-label={t('notebook.aria.backToNotesList')}
+                            sx={{ minWidth: 44, minHeight: 44 }}
+                          >
+                            <ArrowBackIcon fontSize="small" />
+                          </IconButton>
+                          <IconButton
+                            size="small"
+                            onClick={() => setFiltersDrawerOpen(true)}
+                            aria-label={t('notebook.aria.openFolders')}
+                            sx={{ minWidth: 44, minHeight: 44 }}
+                          >
+                            <FilterAltIcon fontSize="small" />
+                          </IconButton>
+                        </Stack>
+                        <Typography variant="subtitle2" noWrap sx={{ flexGrow: 1, mx: 1, textAlign: 'center' }}>
+                          {selectedNote.title || t('notebook.defaultTitle.untitledNote')}
+                        </Typography>
+                        <IconButton
+                          size="small"
+                          aria-label={t('notebook.aria.moreActions')}
+                          onClick={(e) => setEditorMenuAnchor(e.currentTarget)}
+                          sx={{ minWidth: 44, minHeight: 44 }}
+                        >
+                          <MoreVertIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                      <Menu
+                        anchorEl={editorMenuAnchor}
+                        open={Boolean(editorMenuAnchor)}
+                        onClose={() => setEditorMenuAnchor(null)}
+                      >
+                        <MenuItem onClick={() => { setEditorMenuAnchor(null); updateDraftNote({ ...selectedNote, isPinned: !selectedNote.isPinned }); }}>
+                          {selectedNote.isPinned ? t('notebook.actions.unpin') : t('notebook.actions.pin')}
+                        </MenuItem>
+                        {selectedNote.isDeleted ? (
+                          <MenuItem onClick={() => { setEditorMenuAnchor(null); void handleRestoreNote(); }}>{t('notebook.actions.restore')}</MenuItem>
+                        ) : (
+                          <MenuItem onClick={() => { setEditorMenuAnchor(null); void handleDeleteNote(); }}>{t('notebook.actions.delete')}</MenuItem>
+                        )}
+                        <MenuItem onClick={() => { setEditorMenuAnchor(null); handleInsertDailyLogTemplate(); }}>{t('notebook.actions.insertDailyLogStructure')}</MenuItem>
+                        <MenuItem onClick={() => { setEditorMenuAnchor(null); void handleSaveTemplate(); }}>{t('notebook.actions.saveAsTemplate')}</MenuItem>
+                        <MenuItem onClick={() => { setEditorMenuAnchor(null); setFiltersDrawerOpen(true); }}>{t('notebook.actions.openFolders')}</MenuItem>
+                      </Menu>
+                    </>
+                  )}
+                  <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems="flex-start">
+                    <TextField
+                      label={t('notebook.fields.title')}
+                      value={selectedNote.title ?? ''}
+                      onChange={(event) => updateDraftNote({ ...selectedNote, title: event.target.value })}
+                      fullWidth
+                    />
+                    <Stack spacing={1} alignItems={{ xs: 'stretch', md: 'flex-end' }} sx={{ width: { xs: '100%', md: 'auto' } }}>
                       <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                        <Tooltip title={selectedNote.isPinned ? 'Unpin note' : 'Pin note'}>
-                          <IconButton onClick={() => updateDraftNote({ ...selectedNote, isPinned: !selectedNote.isPinned })}>
+                        <Tooltip title={selectedNote.isPinned ? t('notebook.actions.unpinNote') : t('notebook.actions.pinNote')}>
+                          <IconButton
+                            onClick={() => updateDraftNote({ ...selectedNote, isPinned: !selectedNote.isPinned })}
+                            sx={isMobile ? { minWidth: 44, minHeight: 44 } : undefined}
+                          >
                             {selectedNote.isPinned ? <StarIcon color="warning" /> : <StarBorderIcon />}
                           </IconButton>
                         </Tooltip>
@@ -1210,10 +1430,10 @@ export default function NotebookPage() {
                           exclusive
                           onChange={(_, value) => value && setViewMode(value)}
                         >
-                          <ToggleButton value="read" aria-label="Read mode">
+                          <ToggleButton value="read" aria-label={t('notebook.aria.readMode')}>
                             <VisibilityIcon fontSize="small" />
                           </ToggleButton>
-                          <ToggleButton value="edit" aria-label="Edit mode">
+                          <ToggleButton value="edit" aria-label={t('notebook.aria.editMode')}>
                             <EditIcon fontSize="small" />
                           </ToggleButton>
                         </ToggleButtonGroup>
@@ -1221,11 +1441,11 @@ export default function NotebookPage() {
                       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
                         <Button
                           variant="contained"
-                          onClick={() => handleSaveNote(false)}
-                          disabled={saveState === 'saving'}
+                          onClick={handleSaveNote}
+                          disabled={saveState === 'saving' || !isDirty}
                           fullWidth={isMobile}
                         >
-                          {saveState === 'saving' ? 'Saving…' : 'Save'}
+                          {saveState === 'saving' ? t('notebook.saveState.saving') : t('common.save')}
                         </Button>
                         {selectedNote.isDeleted ? (
                           <Button
@@ -1234,7 +1454,7 @@ export default function NotebookPage() {
                             onClick={handleRestoreNote}
                             fullWidth={isMobile}
                           >
-                            Restore
+                            {t('notebook.actions.restore')}
                           </Button>
                         ) : (
                           <Button
@@ -1244,286 +1464,289 @@ export default function NotebookPage() {
                             onClick={handleDeleteNote}
                             fullWidth={isMobile}
                           >
-                            Delete
+                            {t('common.delete')}
                           </Button>
                         )}
                       </Stack>
                       <Typography variant="caption" color="text.secondary">
-                        {saveState === 'saving' && 'Saving…'}
-                        {saveState === 'error' && 'Save failed'}
-                        {saveState === 'saved' && lastSavedAt && `Saved ${formatDateTime(lastSavedAt, timezone)}`}
-                        {saveState === 'idle' && (isDirty ? 'Unsaved changes' : 'All changes saved')}
+                        {saveState === 'saving' && t('notebook.saveState.saving')}
+                        {saveState === 'error' && t('notebook.saveState.error')}
+                        {saveState === 'saved' && lastSavedAt && t('notebook.saveState.savedAt', { date: formatDateTime(lastSavedAt, timezone) })}
+                        {saveState === 'idle' && (isDirty ? t('notebook.saveState.unsaved') : t('notebook.saveState.allSaved'))}
                       </Typography>
                     </Stack>
-                  </Box>
+                  </Stack>
                 </Stack>
-                <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
-                  <TextField
-                    select
-                    label="Type"
-                    value={selectedNote.type}
-                    onChange={(event) => updateDraftNote({ ...selectedNote, type: event.target.value as NotebookNoteType })}
-                    sx={{ minWidth: { md: 200 }, width: { xs: '100%', md: 'auto' } }}
-                  >
-                    <MenuItem value="DAILY_LOG">Daily Log</MenuItem>
-                    <MenuItem value="TRADE_NOTE">Trade Note</MenuItem>
-                    <MenuItem value="PLAN">Plan</MenuItem>
-                    <MenuItem value="GOAL">Goal</MenuItem>
-                    <MenuItem value="SESSION_RECAP">Session Recap</MenuItem>
-                    <MenuItem value="NOTE">Note</MenuItem>
-                  </TextField>
-                  <TextField
-                    select
-                    label="Folder"
-                    value={selectedNote.folderId ?? ''}
-                    onChange={(event) => updateDraftNote({ ...selectedNote, folderId: event.target.value || null })}
-                    sx={{ minWidth: { md: 200 }, width: { xs: '100%', md: 'auto' } }}
-                  >
-                    <MenuItem value="">No folder</MenuItem>
-                    {folders.filter((folder) => !folder.systemKey).map((folder) => (
-                      <MenuItem key={folder.id} value={folder.id}>{folder.name}</MenuItem>
-                    ))}
-                  </TextField>
-                  <TextField
-                    required={selectedNote.type === 'DAILY_LOG'}
-                    label="Date"
-                    type="date"
-                    InputLabelProps={{ shrink: true }}
-                    value={selectedNote.dateKey ?? ''}
-                    onChange={(event) => updateDraftNote({ ...selectedNote, dateKey: event.target.value })}
-                    error={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())}
-                    helperText={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim()) ? 'Date is required' : ' '}
-                    sx={{ minWidth: { md: 200 }, width: { xs: '100%', md: 'auto' } }}
-                  />
-                  <TextField
-                    label="Linked trade ID"
-                    value={selectedNote.relatedTradeId ?? ''}
-                    onChange={(event) => updateDraftNote({ ...selectedNote, relatedTradeId: event.target.value || null })}
-                    placeholder="Optional trade UUID"
-                    sx={{ minWidth: { md: 240 }, width: { xs: '100%', md: 'auto' } }}
-                  />
-                  <Autocomplete
-                    multiple
-                    options={tags}
-                    value={noteTags}
-                    onChange={(_, value) => handleUpdateTags(value)}
-                    getOptionLabel={(option) => option.name}
-                    renderTags={(value, getTagProps) =>
-                      value.map((option, index) => (
-                        <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
-                      ))
-                    }
-                    renderInput={(params) => (
-                      <TextField {...params} label="Tags" placeholder="Tags" />
-                    )}
-                    sx={{ flex: 1, minWidth: { md: 240 } }}
-                  />
-                </Stack>
-
-                {selectedNote.type === 'DAILY_LOG' && dailySummary && (
-                  <Paper variant="outlined" sx={{ p: 2 }}>
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-                      <Stack>
-                        <Typography variant="subtitle2">Net P&L</Typography>
-                        <Typography variant="h6">{formatCurrency(dailySummary.netPnl, baseCurrency)}</Typography>
-                      </Stack>
-                      <Box
-                        sx={{
-                          display: 'grid',
-                          gap: 2,
-                          gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' },
-                          flex: 1
-                        }}
-                      >
-                        <Stack>
-                          <Typography variant="caption">Trades</Typography>
-                          <Typography>{dailySummary.tradeCount}</Typography>
-                        </Stack>
-                        <Stack>
-                          <Typography variant="caption">Winners</Typography>
-                          <Typography>{dailySummary.winners}</Typography>
-                        </Stack>
-                        <Stack>
-                          <Typography variant="caption">Losers</Typography>
-                          <Typography>{dailySummary.losers}</Typography>
-                        </Stack>
-                        <Stack>
-                          <Typography variant="caption">Win rate</Typography>
-                          <Typography>{Math.round(dailySummary.winRate * 100)}%</Typography>
-                        </Stack>
-                      </Box>
-                      {renderSparkline(dailySummary.equityPoints)}
+              )}
+            </Box>
+            <Box sx={panelBodySx}>
+              {!selectedNote && (
+                <EmptyState
+                  title={t('emptyState.selectNote')}
+                  description={t('emptyState.selectNoteBody')}
+                  action={(
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <Button variant="outlined" onClick={() => handleCreateNote('DAILY_LOG')}>{t('notebook.actions.createDailyLog')}</Button>
+                      <Button variant="outlined" onClick={() => handleCreateNote('PLAN')}>{t('notebook.actions.createPlan')}</Button>
                     </Stack>
-                    <Divider sx={{ my: 2 }} />
-                    <Typography variant="subtitle2" gutterBottom>Trades closed today</Typography>
-                    {closedTrades.length === 0 && (
-                      <Typography variant="body2" color="text.secondary">No closed trades for this date.</Typography>
-                    )}
-                    {closedTrades.map((trade) => (
-                      <Stack key={trade.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 1 }}>
-                        <Chip label={trade.symbol} size="small" />
-                        <Typography variant="body2">{trade.direction}</Typography>
-                        <Typography variant="body2">{formatDateTime(trade.closedAt, timezone)}</Typography>
-                        <Typography variant="body2">{formatCurrency(trade.pnlNet ?? 0, baseCurrency)}</Typography>
-                      </Stack>
-                    ))}
-                  </Paper>
-                )}
-
-                {selectedNote.type === 'TRADE_NOTE' && tradeDetail && (
-                  <Paper variant="outlined" sx={{ p: 2 }}>
-                    <Stack spacing={1}>
-                      <Typography variant="subtitle2">Trade summary</Typography>
-                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
-                        <Chip label={tradeDetail.symbol} />
-                        <Typography variant="body2">{tradeDetail.direction}</Typography>
-                        <Typography variant="body2">Opened {formatDateTime(tradeDetail.openedAt, timezone)}</Typography>
-                        {tradeDetail.closedAt && (
-                          <Typography variant="body2">Closed {formatDateTime(tradeDetail.closedAt, timezone)}</Typography>
-                        )}
-                        <Typography variant="body2">{formatCurrency(tradeDetail.pnlNet ?? 0, baseCurrency)}</Typography>
-                        {tradeDetail.strategyTag && (
-                          <Chip label={tradeDetail.strategyTag} size="small" variant="outlined" />
-                        )}
-                      </Stack>
-                    </Stack>
-                  </Paper>
-                )}
-
-                <Stack spacing={1}>
-                  <Stack
-                    direction="row"
-                    spacing={1}
-                    alignItems="center"
-                    flexWrap={{ xs: 'nowrap', sm: 'wrap' }}
+                  )}
+                />
+              )}
+              {selectedNote && (
+                <Stack spacing={2}>
+                  <Box
                     sx={{
-                      overflowX: { xs: 'auto', sm: 'visible' },
-                      pb: { xs: 1, sm: 0 }
+                      display: 'grid',
+                      gap: 2,
+                      gridTemplateColumns: {
+                        xs: '1fr',
+                        sm: 'repeat(2, minmax(0, 1fr))',
+                        lg: 'repeat(3, minmax(0, 1fr))'
+                      }
                     }}
                   >
                     <TextField
                       select
-                      size="small"
-                      label="Apply template"
-                      value={templateSelection}
-                      onChange={(event) => setTemplateSelection(event.target.value)}
-                      sx={{ minWidth: 200 }}
+                      label={t('notebook.fields.type')}
+                      value={selectedNote.type}
+                      onChange={(event) => updateDraftNote({ ...selectedNote, type: event.target.value as NotebookNoteType })}
+                      fullWidth
                     >
-                      <MenuItem value="">None</MenuItem>
-                      {templates.map((template) => (
-                        <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
+                      <MenuItem value="DAILY_LOG">{noteTypeLabels.DAILY_LOG}</MenuItem>
+                      <MenuItem value="TRADE_NOTE">{noteTypeLabels.TRADE_NOTE}</MenuItem>
+                      <MenuItem value="PLAN">{noteTypeLabels.PLAN}</MenuItem>
+                      <MenuItem value="GOAL">{noteTypeLabels.GOAL}</MenuItem>
+                      <MenuItem value="SESSION_RECAP">{noteTypeLabels.SESSION_RECAP}</MenuItem>
+                      <MenuItem value="NOTE">{noteTypeLabels.NOTE}</MenuItem>
+                    </TextField>
+                    <TextField
+                      select
+                      label={t('notebook.fields.folder')}
+                      value={selectedNote.folderId ?? ''}
+                      onChange={(event) => updateDraftNote({ ...selectedNote, folderId: event.target.value || null })}
+                      fullWidth
+                    >
+                      <MenuItem value="">{t('notebook.labels.noFolder')}</MenuItem>
+                      {folders.filter((folder) => !folder.systemKey).map((folder) => (
+                        <MenuItem key={folder.id} value={folder.id}>{folder.name}</MenuItem>
                       ))}
                     </TextField>
-                    <Button variant="outlined" onClick={handleApplyTemplate}>Apply</Button>
-                    <Button variant="text" onClick={handleSaveTemplate}>Save as template</Button>
-                    {selectedNote.type === 'DAILY_LOG' && (
-                      <Button variant="text" onClick={handleInsertDailyLogTemplate}>Insert daily log structure</Button>
-                    )}
-                  </Stack>
-                  <RichTextEditor
-                    value={editorValue}
-                    readOnly={viewMode === 'read'}
-                    onChange={(html) => updateDraftNote({ ...selectedNote, body: html, bodyJson: null })}
-                  />
-                </Stack>
+                    <TextField
+                      required={selectedNote.type === 'DAILY_LOG'}
+                      label={t('notebook.fields.date')}
+                      type="date"
+                      InputLabelProps={{ shrink: true }}
+                      value={selectedNote.dateKey ?? ''}
+                      onChange={(event) => updateDraftNote({ ...selectedNote, dateKey: event.target.value })}
+                      error={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())}
+                      helperText={selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim()) ? t('notebook.validation.dateRequired') : ' '}
+                      fullWidth
+                    />
+                    <TextField
+                      label={t('notebook.fields.linkedTradeId')}
+                      value={selectedNote.relatedTradeId ?? ''}
+                      onChange={(event) => updateDraftNote({ ...selectedNote, relatedTradeId: event.target.value || null })}
+                      placeholder={t('notebook.placeholders.tradeId')}
+                      fullWidth
+                      inputProps={{ style: { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace' } }}
+                    />
+                    <Autocomplete
+                      multiple
+                      options={tags}
+                      value={noteTags}
+                      onChange={(_, value) => handleUpdateTags(value)}
+                      getOptionLabel={(option) => option.name}
+                      renderTags={(value, getTagProps) =>
+                        value.map((option, index) => (
+                          <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
+                        ))
+                      }
+                      renderInput={(params) => (
+                        <TextField {...params} label={t('notebook.fields.tags')} placeholder={t('notebook.fields.tags')} />
+                      )}
+                    />
+                  </Box>
 
-                <Stack spacing={1}>
-                  <Typography variant="subtitle2">Attachments</Typography>
-                  <Button component="label" variant="outlined" fullWidth={isMobile}>
-                    Upload attachment
-                    <input hidden type="file" onChange={handleUploadAttachment} />
-                  </Button>
-                  {attachments.length === 0 && (
-                    <Typography variant="body2" color="text.secondary">No attachments yet.</Typography>
-                  )}
-                  {attachments.map((item) => {
-                    const downloadUrl = item.downloadUrl ? `${apiBase}${item.downloadUrl}` : '#'
-                    return (
-                      <Stack key={item.id} direction="row" spacing={1} alignItems="center">
-                        <Button href={downloadUrl} target="_blank" rel="noreferrer">
-                          {item.fileName}
-                        </Button>
-                        <IconButton size="small" onClick={() => handleDeleteAttachment(item.id)}>
-                          <DeleteIcon fontSize="small" />
-                        </IconButton>
+                  {selectedNote.type === 'DAILY_LOG' && dailySummary && (
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                        <Stack>
+                          <Typography variant="subtitle2">{t('notebook.dailySummary.netPnl')}</Typography>
+                          <Typography variant="h6">{formatCurrency(dailySummary.netPnl, baseCurrency)}</Typography>
+                        </Stack>
+                        <Box
+                          sx={{
+                            display: 'grid',
+                            gap: 2,
+                            gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', sm: 'repeat(4, minmax(0, 1fr))' },
+                            flex: 1
+                          }}
+                        >
+                          <Stack>
+                            <Typography variant="caption">{t('notebook.dailySummary.trades')}</Typography>
+                            <Typography>{dailySummary.tradeCount}</Typography>
+                          </Stack>
+                          <Stack>
+                            <Typography variant="caption">{t('notebook.dailySummary.winners')}</Typography>
+                            <Typography>{dailySummary.winners}</Typography>
+                          </Stack>
+                          <Stack>
+                            <Typography variant="caption">{t('notebook.dailySummary.losers')}</Typography>
+                            <Typography>{dailySummary.losers}</Typography>
+                          </Stack>
+                          <Stack>
+                            <Typography variant="caption">{t('notebook.dailySummary.winRate')}</Typography>
+                            <Typography>{Math.round(dailySummary.winRate * 100)}%</Typography>
+                          </Stack>
+                        </Box>
+                        {renderSparkline(dailySummary.equityPoints)}
                       </Stack>
-                    )
-                  })}
+                      <Divider sx={{ my: 2 }} />
+                      <Typography variant="subtitle2" gutterBottom>{t('notebook.dailySummary.tradesClosedToday')}</Typography>
+                      {closedTrades.length === 0 && (
+                        <Typography variant="body2" color="text.secondary">{t('notebook.dailySummary.noClosedTrades')}</Typography>
+                      )}
+                      {closedTrades.map((trade) => (
+                        <Stack key={trade.id} direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} sx={{ mb: 1 }}>
+                          <Chip label={trade.symbol} size="small" />
+                          <Typography variant="body2">{t(`trades.direction.${trade.direction}`)}</Typography>
+                          <Typography variant="body2">{formatDateTime(trade.closedAt, timezone)}</Typography>
+                          <Typography variant="body2">{formatCurrency(trade.pnlNet ?? 0, baseCurrency)}</Typography>
+                        </Stack>
+                      ))}
+                    </Paper>
+                  )}
+
+                  {selectedNote.type === 'TRADE_NOTE' && tradeDetail && (
+                    <Paper variant="outlined" sx={{ p: 2 }}>
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle2">{t('notebook.tradeSummary.title')}</Typography>
+                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
+                          <Chip label={tradeDetail.symbol} />
+                          <Typography variant="body2">{t(`trades.direction.${tradeDetail.direction}`)}</Typography>
+                          <Typography variant="body2">{t('notebook.tradeSummary.openedAt', { date: formatDateTime(tradeDetail.openedAt, timezone) })}</Typography>
+                          {tradeDetail.closedAt && (
+                            <Typography variant="body2">{t('notebook.tradeSummary.closedAt', { date: formatDateTime(tradeDetail.closedAt, timezone) })}</Typography>
+                          )}
+                          <Typography variant="body2">{formatCurrency(tradeDetail.pnlNet ?? 0, baseCurrency)}</Typography>
+                          {tradeDetail.strategyTag && (
+                            <Chip label={tradeDetail.strategyTag} size="small" variant="outlined" />
+                          )}
+                        </Stack>
+                      </Stack>
+                    </Paper>
+                  )}
+
+                  <Stack spacing={1}>
+                    <Stack
+                      direction={{ xs: 'column', sm: 'row' }}
+                      spacing={1}
+                      alignItems={{ sm: 'center' }}
+                      flexWrap="wrap"
+                    >
+                      <TextField
+                        select
+                        size="small"
+                        label={t('notebook.fields.applyTemplate')}
+                        value={templateSelection}
+                        onChange={(event) => setTemplateSelection(event.target.value)}
+                        sx={{ minWidth: { sm: 200 }, width: { xs: '100%', sm: 'auto' } }}
+                      >
+                        <MenuItem value="">{t('common.none')}</MenuItem>
+                        {templates.map((template) => (
+                          <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
+                        ))}
+                      </TextField>
+                      <Button variant="outlined" onClick={handleApplyTemplate}>{t('common.apply')}</Button>
+                      <Button variant="text" onClick={handleSaveTemplate}>{t('notebook.actions.saveAsTemplate')}</Button>
+                      {selectedNote.type === 'DAILY_LOG' && (
+                        <Button variant="text" onClick={handleInsertDailyLogTemplate}>{t('notebook.actions.insertDailyLogStructure')}</Button>
+                      )}
+                    </Stack>
+                    <RichTextEditor
+                      value={editorValue}
+                      readOnly={viewMode === 'read'}
+                      compactToolbar={isMobile}
+                      onChange={(html) => {
+                        if (!selectedNote) return
+                        const plain = extractPlainText(html)
+                        const json = JSON.stringify({ format: 'html', content: html })
+                        updateDraftNote({ ...selectedNote, body: plain, bodyJson: json })
+                      }}
+                    />
+                  </Stack>
+
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle2">{t('notebook.sections.attachments')}</Typography>
+                    <Button component="label" variant="outlined" fullWidth={isMobile}>
+                      {t('notebook.actions.uploadAttachment')}
+                      <input hidden type="file" onChange={handleUploadAttachment} />
+                    </Button>
+                    {attachments.length === 0 && (
+                      <Typography variant="body2" color="text.secondary">{t('notebook.empty.noAttachments')}</Typography>
+                    )}
+                    {attachments.map((item) => {
+                      const downloadUrl = item.downloadUrl ? `${apiBase}${item.downloadUrl}` : '#'
+                      return (
+                        <Stack key={item.id} direction="row" spacing={1} alignItems="center">
+                          <Button
+                            href={downloadUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            sx={{
+                              textTransform: 'none',
+                              maxWidth: '100%',
+                              justifyContent: 'flex-start',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap'
+                            }}
+                          >
+                            {item.fileName}
+                          </Button>
+                          <IconButton size="small" onClick={() => handleDeleteAttachment(item.id)}>
+                            <DeleteIcon fontSize="small" />
+                          </IconButton>
+                        </Stack>
+                      )
+                    })}
+                  </Stack>
                 </Stack>
-              </Stack>
-            )}
+              )}
+            </Box>
           </Paper>
-        </Box>
+        )}
       </Box>
 
-      <Drawer
-        anchor="left"
-        open={filtersDrawerOpen}
-        onClose={() => setFiltersDrawerOpen(false)}
-        ModalProps={{ keepMounted: true }}
-        sx={{ display: { lg: 'none' } }}
-      >
-        <Box sx={{ width: { xs: '100vw', sm: 320 }, p: 2 }}>
-          <Stack spacing={2}>
-            <Stack direction="row" alignItems="center" justifyContent="space-between">
-              <Typography variant="subtitle1" fontWeight={600}>Filters</Typography>
-              <IconButton size="small" onClick={() => setFiltersDrawerOpen(false)} aria-label="Close filters">
-                <CloseIcon fontSize="small" />
-              </IconButton>
+      {!isDesktop && (
+        <Drawer
+          anchor={isMobile ? 'bottom' : 'left'}
+          open={filtersDrawerOpen}
+          onClose={() => setFiltersDrawerOpen(false)}
+          ModalProps={{ keepMounted: true }}
+          PaperProps={{
+            sx: {
+              width: isMobile ? '100%' : 320,
+              height: isMobile ? '75dvh' : '100dvh',
+              maxHeight: isMobile ? '90dvh' : '100dvh',
+              borderTopLeftRadius: isMobile ? 16 : 0,
+              borderTopRightRadius: isMobile ? 16 : 0
+            }
+          }}
+        >
+          <Box sx={{ p: 2, height: '100%', overflowY: 'auto', pb: 'calc(16px + env(safe-area-inset-bottom))' }}>
+            <Stack spacing={2}>
+              <Stack direction="row" alignItems="center" justifyContent="space-between">
+                <Typography variant="subtitle1" fontWeight={600}>{t('notebook.sections.filters')}</Typography>
+                <IconButton size="small" onClick={() => setFiltersDrawerOpen(false)} aria-label={t('notebook.aria.closeFilters')}>
+                  <CloseIcon fontSize="small" />
+                </IconButton>
+              </Stack>
+              {renderFiltersContent(() => setFiltersDrawerOpen(false))}
             </Stack>
-            <Button variant="contained" startIcon={<AddIcon />} onClick={handleAddFolder}>
-              Add folder
-            </Button>
-            <Divider />
-            <Typography variant="subtitle2">Folders</Typography>
-            <List dense>
-              {folderTree.map(({ folder, depth }) => (
-                <ListItemButton
-                  key={folder.id}
-                  selected={selectedFolderId === folder.id}
-                  onClick={() => {
-                    setSelectedFolderId(folder.id)
-                    setFiltersDrawerOpen(false)
-                  }}
-                  sx={{ pl: 2 + depth * 2 }}
-                >
-                  <ListItemText primary={folder.name} secondary={folder.systemKey ? 'System view' : null} />
-                  {!folder.systemKey && (
-                    <Tooltip title="Delete folder">
-                      <IconButton size="small" onClick={(event) => {
-                        event.stopPropagation()
-                        handleDeleteFolder(folder.id)
-                      }}>
-                        <DeleteIcon fontSize="small" />
-                      </IconButton>
-                    </Tooltip>
-                  )}
-                </ListItemButton>
-              ))}
-            </List>
-            <Divider />
-            <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-              <Typography variant="subtitle2">Tags</Typography>
-              <Button size="small" onClick={handleAddTag}>Add tag</Button>
-            </Stack>
-            <Autocomplete
-              multiple
-              options={tags}
-              value={filterTags}
-              onChange={(_, value) => setFilterTags(value)}
-              getOptionLabel={(option) => option.name}
-              renderTags={(value, getTagProps) =>
-                value.map((option, index) => (
-                  <Chip label={option.name} {...getTagProps({ index })} key={option.id} />
-                ))
-              }
-              renderInput={(params) => (
-                <TextField {...params} placeholder="Filter by tag" size="small" />
-              )}
-            />
-          </Stack>
-        </Box>
-      </Drawer>
+          </Box>
+        </Drawer>
+      )}
 
       <Snackbar
         open={showDeleteUndo}
@@ -1535,34 +1758,34 @@ export default function NotebookPage() {
           severity="info"
           action={(
             <Button color="inherit" size="small" onClick={handleUndoDelete}>
-              Undo
+              {t('notebook.actions.undo')}
             </Button>
           )}
         >
-          Note moved to Recently deleted.
+          {t('notebook.messages.noteMovedToRecentlyDeleted')}
         </Alert>
       </Snackbar>
 
-      <Dialog open={lossRecapOpen} onClose={() => setLossRecapOpen(false)}>
-        <DialogTitle>Create loss recap</DialogTitle>
-        <DialogContent>
+      <Dialog open={lossRecapOpen} onClose={() => setLossRecapOpen(false)} fullScreen={isMobile} scroll="paper">
+        <DialogTitle>{t('notebook.lossRecap.dialogTitle')}</DialogTitle>
+        <DialogContent sx={{ maxHeight: '100dvh', overflowY: 'auto' }}>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <TextField
-              label="From"
+              label={t('notebook.lossRecap.from')}
               type="date"
               InputLabelProps={{ shrink: true }}
               value={lossRecapForm.from}
               onChange={(event) => setLossRecapForm({ ...lossRecapForm, from: event.target.value })}
             />
             <TextField
-              label="To"
+              label={t('notebook.lossRecap.to')}
               type="date"
               InputLabelProps={{ shrink: true }}
               value={lossRecapForm.to}
               onChange={(event) => setLossRecapForm({ ...lossRecapForm, to: event.target.value })}
             />
             <TextField
-              label="Min loss"
+              label={t('notebook.lossRecap.minLoss')}
               type="number"
               value={lossRecapForm.minLoss}
               onChange={(event) => setLossRecapForm({ ...lossRecapForm, minLoss: Number(event.target.value) })}
@@ -1570,8 +1793,8 @@ export default function NotebookPage() {
           </Stack>
         </DialogContent>
         <DialogActions>
-          <Button onClick={() => setLossRecapOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleLossRecap}>Create</Button>
+          <Button onClick={() => setLossRecapOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={handleLossRecap}>{t('notebook.actions.create')}</Button>
         </DialogActions>
       </Dialog>
     </Stack>

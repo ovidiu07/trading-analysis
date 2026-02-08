@@ -35,4 +35,21 @@ public class User {
 
     private OffsetDateTime createdAt;
     private OffsetDateTime lastLoginAt;
+
+    @Column(name = "email_verified_at")
+    private OffsetDateTime emailVerifiedAt;
+
+    @Column(name = "demo_enabled", nullable = false)
+    @Builder.Default
+    private boolean demoEnabled = true;
+
+    @Column(name = "demo_seed_id")
+    private UUID demoSeedId;
+
+    @Column(name = "demo_removed_at")
+    private OffsetDateTime demoRemovedAt;
+
+    public boolean isVerified() {
+        return emailVerifiedAt != null;
+    }
 }

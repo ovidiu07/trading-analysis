@@ -1,12 +1,38 @@
 const API_URL = import.meta.env.VITE_API_URL || '/api'
+import { getCurrentLanguage } from '../i18n'
 
 export class ApiError extends Error {
   status?: number
+  code?: string
+  details?: unknown
+  rawMessage?: string
 }
 
 function authHeader() {
   const token = localStorage.getItem('token')
   return token ? { Authorization: `Bearer ${token}` } : {}
+}
+
+function localeHeader() {
+  return { 'Accept-Language': getCurrentLanguage() }
+}
+
+async function readResponseText(res: Response): Promise<string> {
+  const response = res as Response & {
+    text?: () => Promise<string>
+    json?: () => Promise<unknown>
+  }
+
+  if (typeof response.text === 'function') {
+    return response.text()
+  }
+
+  if (typeof response.json === 'function') {
+    const payload = await response.json()
+    return payload === undefined ? '' : JSON.stringify(payload)
+  }
+
+  return ''
 }
 
 async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -20,22 +46,29 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
       headers: {
         ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...authHeader(),
+        ...localeHeader(),
         ...(customHeaders || {})
       },
+      credentials: 'include',
       ...rest
     })
   } catch (e) {
-    const error = new ApiError(`Cannot reach API at ${url}. Check server/CORS/network.`)
+    const error = new ApiError('Network request failed')
+    error.code = 'NETWORK_ERROR'
     throw error
   }
 
-  const text = await res.text()
+  const text = await readResponseText(res)
 
   if (!res.ok) {
     let message = ''
+    let errorCode: string | undefined
+    let details: unknown
     try {
       const data = text ? JSON.parse(text) : null
       message = data?.message || data?.error || ''
+      errorCode = data?.error
+      details = data?.details
     } catch (e) {
       // ignore JSON parsing errors
     }
@@ -47,12 +80,18 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
     }
 
     if (res.status === 401 || res.status === 403) {
-      message = 'Unauthorized or expired session. Please login again.'
-      clearAuthToken()
+      if (errorCode !== 'EMAIL_NOT_VERIFIED') {
+        errorCode = 'UNAUTHORIZED'
+        message = 'Unauthorized or expired session. Please log in again.'
+        clearAuthToken()
+      }
     }
 
-    const error = new ApiError(`${statusLabel} - ${message}`)
+    const error = new ApiError(message)
     error.status = res.status
+    error.code = errorCode
+    error.details = details
+    error.rawMessage = message
     throw error
   }
 

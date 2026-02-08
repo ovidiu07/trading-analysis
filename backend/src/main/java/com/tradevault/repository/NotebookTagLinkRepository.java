@@ -12,4 +12,8 @@ public interface NotebookTagLinkRepository extends JpaRepository<NotebookTagLink
     void deleteByNoteId(UUID noteId);
 
     List<NotebookTagLink> findByNoteIdIn(List<UUID> noteIds);
+
+    boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
+
+    long deleteByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 }

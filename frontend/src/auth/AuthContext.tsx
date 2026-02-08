@@ -1,6 +1,6 @@
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { AuthResponse, AuthUser, RegisterPayload, getCurrentUser, login as apiLogin, register as apiRegister } from '../api/auth'
-import { clearAuthToken } from '../api/client'
+import { AuthResponse, AuthUser, RegisterPayload, RegisterResponse, getCurrentUser, login as apiLogin, register as apiRegister } from '../api/auth'
+import { ApiError, clearAuthToken } from '../api/client'
 import { UserSettingsRequest, updateUserSettings } from '../api/settings'
 
 export type AuthState = {
@@ -12,7 +12,7 @@ export type AuthState = {
 export type AuthContextType = AuthState & {
   initializing: boolean
   login: (email: string, password: string) => Promise<void>
-  register: (payload: RegisterPayload) => Promise<void>
+  register: (payload: RegisterPayload) => Promise<RegisterResponse>
   logout: () => void
   refreshUser: () => Promise<void>
   updateSettings: (payload: UserSettingsRequest) => Promise<void>
@@ -57,7 +57,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
         user
       }))
     } catch (e) {
-      resetAuth()
+      if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        resetAuth()
+      }
       throw e
     }
   }
@@ -82,11 +84,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }
 
   const register = async (payload: RegisterPayload) => {
-    const response = await apiRegister(payload)
-    setState(applyAuthResponse(response))
-    if (!response.user) {
-      await refreshUser()
-    }
+    return apiRegister(payload)
   }
 
   const updateSettings = async (payload: UserSettingsRequest) => {

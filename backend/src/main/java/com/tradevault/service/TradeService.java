@@ -7,14 +7,17 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
+import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.spec.TradeSpecifications;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
@@ -22,9 +25,15 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
@@ -33,6 +42,9 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class TradeService {
     private static final Logger log = LoggerFactory.getLogger(TradeService.class);
+    private static final DateTimeFormatter DATE_ONLY_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
+    private static final DateTimeFormatter OFFSET_DATE_TIME_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    private static final DateTimeFormatter LOCAL_DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     private final TradeRepository tradeRepository;
     private final AccountRepository accountRepository;
     private final TagRepository tagRepository;
@@ -40,37 +52,128 @@ public class TradeService {
     private final TimezoneService timezoneService;
 
     public Page<TradeResponse> search(int page, int size,
-                                      OffsetDateTime openedAtFrom,
-                                      OffsetDateTime openedAtTo,
+                                      String openedAtFromRaw,
+                                      String openedAtToRaw,
                                       OffsetDateTime closedAtFrom,
                                       OffsetDateTime closedAtTo,
                                       LocalDate closedDate,
                                       String tz,
                                       String symbol,
+                                      String strategy,
                                       Direction direction,
                                       com.tradevault.domain.enums.TradeStatus status) {
         User user = currentUserService.getCurrentUser();
+        ZoneId zone = timezoneService.resolveZone(tz, user);
+        OffsetDateTime openedAtFrom = parseDateTimeFilter(openedAtFromRaw, zone, false, "openedAtFrom");
+        OffsetDateTime openedAtTo = parseDateTimeFilter(openedAtToRaw, zone, true, "openedAtTo");
+        logSearchParams(symbol, strategy);
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
-        var normalizedSymbol = (symbol == null || symbol.isBlank()) ? null : symbol;
+        var normalizedSymbol = normalizeSearchToken(symbol);
+        var normalizedStrategy = normalizeSearchToken(strategy);
         if (closedDate != null) {
-            ZoneId zone = timezoneService.resolveZone(tz, user);
             closedAtFrom = closedDate.atStartOfDay(zone).toOffsetDateTime();
             closedAtTo = closedDate.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime();
         }
+        validateDateRange(openedAtFrom, openedAtTo, "openedAtFrom", "openedAtTo");
+        validateDateRange(closedAtFrom, closedAtTo, "closedAtFrom", "closedAtTo");
 
-        var result = tradeRepository.search(
-                user.getId(),
-                openedAtFrom,
-                openedAtTo,
-                closedAtFrom,
-                closedAtTo,
-                normalizedSymbol,
-                null,
-                direction,
-                status,
-                pageable
-        );
+        Specification<Trade> spec = Specification.where(TradeSpecifications.userId(user.getId()))
+                .and(TradeSpecifications.openedAtFrom(openedAtFrom))
+                .and(TradeSpecifications.openedAtTo(openedAtTo))
+                .and(TradeSpecifications.closedAtFrom(closedAtFrom))
+                .and(TradeSpecifications.closedAtTo(closedAtTo))
+                .and(TradeSpecifications.symbolEqualsIgnoreCase(normalizedSymbol))
+                .and(TradeSpecifications.strategyEqualsIgnoreCase(normalizedStrategy))
+                .and(TradeSpecifications.direction(direction))
+                .and(TradeSpecifications.status(status));
+
+        var result = tradeRepository.findAll(spec, pageable);
         return result.map(this::toResponse);
+    }
+
+    private OffsetDateTime parseDateTimeFilter(String rawValue, ZoneId zone, boolean endOfDayForDateOnly, String fieldName) {
+        if (rawValue == null || rawValue.isBlank()) {
+            return null;
+        }
+        String value = rawValue.trim();
+        try {
+            if (value.length() == 10) {
+                LocalDate date = LocalDate.parse(value, DATE_ONLY_FORMATTER);
+                if (endOfDayForDateOnly) {
+                    return date.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime();
+                }
+                return date.atStartOfDay(zone).toOffsetDateTime();
+            }
+            return OffsetDateTime.parse(value, OFFSET_DATE_TIME_FORMATTER);
+        } catch (DateTimeParseException ex) {
+            try {
+                LocalDateTime localDateTime = LocalDateTime.parse(value, LOCAL_DATE_TIME_FORMATTER);
+                return localDateTime.atZone(zone).toOffsetDateTime();
+            } catch (DateTimeParseException ignored) {
+                throw invalidDateTimeFormat(fieldName, rawValue);
+            }
+        }
+    }
+
+    private void validateDateRange(OffsetDateTime from, OffsetDateTime to, String fromField, String toField) {
+        if (from == null || to == null || !from.isAfter(to)) {
+            return;
+        }
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("fieldErrors", List.of(
+                Map.of("field", fromField, "message", "Must be before or equal to " + toField),
+                Map.of("field", toField, "message", "Must be after or equal to " + fromField)
+        ));
+        throw new TradeSearchValidationException(
+                "Invalid date range: '%s' must be before or equal to '%s'.".formatted(fromField, toField),
+                details
+        );
+    }
+
+    private TradeSearchValidationException invalidDateTimeFormat(String fieldName, String rawValue) {
+        Map<String, Object> details = new LinkedHashMap<>();
+        details.put("fieldErrors", List.of(
+                Map.of("field", fieldName, "message", "Expected YYYY-MM-DD or ISO date-time")
+        ));
+        details.put("received", rawValue);
+        return new TradeSearchValidationException(
+                "Invalid date format for '%s' (expected YYYY-MM-DD or ISO date-time)".formatted(fieldName),
+                details
+        );
+    }
+
+    private static String normalizeSearchToken(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isBlank()) {
+            return null;
+        }
+        return trimmed.toLowerCase(Locale.ROOT);
+    }
+
+    private void logSearchParams(String symbol, String strategy) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        log.debug("[TradeSearch] symbolType={}, strategyType={}, symbolValue={}, strategyValue={}",
+                typeName(symbol), typeName(strategy), safeParamValue(symbol), safeParamValue(strategy));
+    }
+
+    private static String typeName(Object value) {
+        return value == null ? "null" : value.getClass().getName();
+    }
+
+    private static String safeParamValue(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.length() > 64) {
+            trimmed = trimmed.substring(0, 64) + "...";
+        }
+        return "'" + trimmed + "'";
     }
 
     public Page<TradeResponse> listAll(int page, int size) {
@@ -89,6 +192,7 @@ public class TradeService {
     @Transactional
     public TradeResponse create(TradeRequest request) {
         User user = currentUserService.getCurrentUser();
+        validateClosedTrade(request);
         Trade trade = new Trade();
         trade.setUser(user);
         trade.setSymbol(request.getSymbol());
@@ -107,8 +211,6 @@ public class TradeService {
         trade.setSlippage(defaultZero(request.getSlippage()));
         // Do NOT trust client-provided PnL values on create; compute authoritatively below
         trade.setRiskAmount(request.getRiskAmount());
-        trade.setRiskPercent(request.getRiskPercent());
-        trade.setRMultiple(request.getRMultiple());
         trade.setCapitalUsed(request.getCapitalUsed());
         trade.setTimeframe(request.getTimeframe());
         trade.setSetup(request.getSetup());
@@ -126,7 +228,8 @@ public class TradeService {
             Set<Tag> tags = tagRepository.findAllById(request.getTagIds()).stream().filter(t -> t.getUser().getId().equals(user.getId())).collect(Collectors.toSet());
             trade.setTags(tags);
         }
-        // Always compute authoritative PnL on create
+        // Always compute authoritative derived metrics on create
+        recalculateRiskPercent(trade);
         recalculateAndApplyPnl(trade);
         return toResponse(tradeRepository.save(trade));
     }
@@ -135,6 +238,7 @@ public class TradeService {
     public TradeResponse update(UUID id, TradeRequest request) {
         User user = currentUserService.getCurrentUser();
         Trade trade = tradeRepository.findByIdAndUserId(id, user.getId()).orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+        validateClosedTrade(request);
         boolean shouldRecalculate = pnlInputsChanged(trade, request);
 
         // Map incoming fields onto entity (do not trust client-provided PnL values)
@@ -154,8 +258,6 @@ public class TradeService {
         trade.setSlippage(defaultZero(request.getSlippage()));
         // Never accept client PnL fields on update; we'll recompute if needed
         trade.setRiskAmount(request.getRiskAmount());
-        trade.setRiskPercent(request.getRiskPercent());
-        trade.setRMultiple(request.getRMultiple());
         trade.setCapitalUsed(request.getCapitalUsed());
         trade.setTimeframe(request.getTimeframe());
         trade.setSetup(request.getSetup());
@@ -174,6 +276,7 @@ public class TradeService {
             trade.setTags(tags);
         }
 
+        recalculateRiskPercent(trade);
         if (shouldRecalculate) {
             recalculateAndApplyPnl(trade);
         }
@@ -315,6 +418,7 @@ public class TradeService {
         changed |= (existing.getClosedAt() == null ? request.getClosedAt() != null : !existing.getClosedAt().equals(request.getClosedAt()));
         changed |= !equalBD(existing.getRiskAmount(), request.getRiskAmount());
         changed |= !equalBD(existing.getCapitalUsed(), request.getCapitalUsed());
+        changed |= !equalBD(existing.getStopLossPrice(), request.getStopLossPrice());
         return changed;
     }
 
@@ -366,6 +470,19 @@ public class TradeService {
                     trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
                 }
             }
+        }
+    }
+
+    private void recalculateRiskPercent(Trade trade) {
+        trade.setRiskPercent(null);
+        if (trade.getRiskAmount() != null && trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
+            trade.setRiskPercent(trade.getRiskAmount().divide(trade.getCapitalUsed(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
+        }
+    }
+
+    private void validateClosedTrade(TradeRequest request) {
+        if (request.getStatus() == com.tradevault.domain.enums.TradeStatus.CLOSED && request.getExitPrice() == null) {
+            throw new IllegalArgumentException("Exit price is required when status is CLOSED");
         }
     }
 

@@ -1,143 +1,284 @@
 import {
-  AppBar,
-  Avatar,
   Box,
   Button,
   Container,
   Divider,
   Drawer,
   IconButton,
+  ListSubheader,
   List,
   ListItemButton,
   ListItemIcon,
   ListItemText,
   Stack,
-  Toolbar,
   Tooltip,
   Typography,
   useMediaQuery,
   useTheme
 } from '@mui/material'
-import MenuIcon from '@mui/icons-material/Menu'
 import DashboardIcon from '@mui/icons-material/Dashboard'
 import TableChartIcon from '@mui/icons-material/TableChart'
 import CalendarMonthIcon from '@mui/icons-material/CalendarMonth'
 import NoteIcon from '@mui/icons-material/Note'
 import InsightsIcon from '@mui/icons-material/Insights'
+import MenuBookIcon from '@mui/icons-material/MenuBook'
 import SettingsIcon from '@mui/icons-material/Settings'
-import AccountCircleIcon from '@mui/icons-material/AccountCircle'
-import LogoutIcon from '@mui/icons-material/Logout'
-import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom'
+import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
+import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
+import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import { Link, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { useMemo, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useState } from 'react'
+import { useI18n } from '../i18n'
+import TopBar from './layout/TopBar'
+import DefinitionsDrawer from './dashboard/DefinitionsDrawer'
+import { buildDashboardSearchParams, DashboardQueryState, readDashboardQueryState } from '../features/dashboard/queryState'
+import { resolveRouteMeta } from '../config/routeMeta'
+import DemoDataBanner from './demo/DemoDataBanner'
+
+const SIDEBAR_WIDTH = 272
+const SIDEBAR_COLLAPSED_WIDTH = 88
+const SIDEBAR_STORAGE_KEY = 'layout.sidebarCollapsed'
+
+type NavItem = {
+  label: string
+  path: string
+  icon: ReactNode
+}
+
+type NavSection = {
+  key: 'trading' | 'journal' | 'system'
+  label: string
+  items: NavItem[]
+}
 
 export default function Layout() {
   const navigate = useNavigate()
   const { isAuthenticated, user, logout } = useAuth()
+  const { t, language, setLanguage } = useI18n()
   const location = useLocation()
+  const [searchParams, setSearchParams] = useSearchParams()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [definitionsOpen, setDefinitionsOpen] = useState(false)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const persisted = localStorage.getItem(SIDEBAR_STORAGE_KEY)
+    return persisted === 'true'
+  })
 
   const handleLogout = () => {
     logout()
     navigate('/login')
   }
 
-  const navItems = useMemo(() => ([
-    { label: 'Dashboard', path: '/dashboard', icon: <DashboardIcon /> },
-    { label: 'Trades', path: '/trades', icon: <TableChartIcon /> },
-    { label: 'Calendar', path: '/calendar', icon: <CalendarMonthIcon /> },
-    { label: 'Notebook', path: '/notebook', icon: <NoteIcon /> },
-    { label: 'Analytics', path: '/analytics', icon: <InsightsIcon /> },
-    { label: 'Settings', path: '/settings', icon: <SettingsIcon /> }
-  ]), [])
+  const navSections = useMemo<NavSection[]>(() => {
+    const tradingItems: NavItem[] = [
+      { label: t('nav.dashboard'), path: '/dashboard', icon: <DashboardIcon /> },
+      { label: t('nav.trades'), path: '/trades', icon: <TableChartIcon /> },
+      { label: t('nav.calendar'), path: '/calendar', icon: <CalendarMonthIcon /> },
+    ]
 
-  const pageTitle = useMemo(() => {
-    const match = navItems.find((item) => location.pathname.startsWith(item.path))
-    if (match) return match.label
-    if (location.pathname.startsWith('/profile')) return 'Profile'
-    return 'TradeJAudit'
-  }, [location.pathname, navItems])
+    const journalItems: NavItem[] = [
+      { label: t('nav.notebook'), path: '/notebook', icon: <NoteIcon /> },
+      { label: t('nav.insights'), path: '/insights', icon: <MenuBookIcon /> },
+      { label: t('nav.analytics'), path: '/analytics', icon: <InsightsIcon /> },
+    ]
+
+    const systemItems: NavItem[] = [
+      { label: t('nav.settings'), path: '/settings', icon: <SettingsIcon /> }
+    ]
+
+    if (user?.role === 'ADMIN') {
+      systemItems.push({ label: t('nav.admin'), path: '/admin/content', icon: <AdminPanelSettingsIcon /> })
+    }
+
+    return [
+      { key: 'trading', label: t('navGroups.trading'), items: tradingItems },
+      { key: 'journal', label: t('navGroups.journal'), items: journalItems },
+      { key: 'system', label: t('navGroups.system'), items: systemItems }
+    ]
+  }, [t, user?.role])
+
+  const allNavItems = useMemo(() => navSections.flatMap((section) => section.items), [navSections])
+
+  const pageMeta = useMemo(() => {
+    const timezone = user?.timezone || 'Europe/Bucharest'
+    const fromRouteMeta = resolveRouteMeta(location.pathname, t, { timezone })
+    if (fromRouteMeta) {
+      return {
+        id: fromRouteMeta.id,
+        title: fromRouteMeta.pageTitle,
+        subtitle: fromRouteMeta.pageSubtitle,
+        showHeader: fromRouteMeta.showHeader
+      }
+    }
+
+    const navMatch = allNavItems.find((item) => location.pathname.startsWith(item.path))
+    return {
+      id: '',
+      title: navMatch?.label || t('app.name'),
+      subtitle: '',
+      showHeader: true
+    }
+  }, [allNavItems, location.pathname, t, user?.timezone])
+
+  const isDashboard = pageMeta.id === 'dashboard'
+  const dashboardState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
+
+  const updateDashboardState = useCallback((patch: Partial<DashboardQueryState>) => {
+    const nextState: DashboardQueryState = { ...dashboardState, ...patch }
+    const nextParams = buildDashboardSearchParams(nextState, searchParams)
+    setSearchParams(nextParams)
+  }, [dashboardState, searchParams, setSearchParams])
+
+  useEffect(() => {
+    if (!isDashboard) return
+    const next = buildDashboardSearchParams(dashboardState, searchParams)
+    if (next.toString() === searchParams.toString()) return
+    setSearchParams(next, { replace: true })
+  }, [dashboardState, isDashboard, searchParams, setSearchParams])
+
+  useEffect(() => {
+    document.title = pageMeta.title === t('app.name')
+      ? t('app.name')
+      : `${pageMeta.title} | ${t('app.name')}`
+  }, [pageMeta.title, t])
+
+  useEffect(() => {
+    localStorage.setItem(SIDEBAR_STORAGE_KEY, String(sidebarCollapsed))
+  }, [sidebarCollapsed])
+
+  useEffect(() => {
+    if (!isDashboard) {
+      setDefinitionsOpen(false)
+    }
+  }, [isDashboard])
+
+  const desktopCollapsed = isMobile ? false : sidebarCollapsed
+  const effectiveSidebarWidth = desktopCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH
 
   const drawer = (
     <Stack sx={{ height: '100%' }}>
-      <Box sx={{ p: 3 }}>
-        <Typography variant="h6" sx={{ color: 'common.white' }}>
-          TradeJAudit
-        </Typography>
-        <Typography variant="caption" sx={{ color: 'rgba(226,232,240,0.7)' }}>
-          Trading intelligence hub
-        </Typography>
-      </Box>
-      <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)' }} />
-      <List sx={{ px: 1, pt: 1 }}>
-        {navItems.map((item) => (
-          <ListItemButton
-            key={item.path}
-            component={Link}
-            to={item.path}
-            selected={location.pathname.startsWith(item.path)}
-            sx={{
-              borderRadius: 2,
-              mb: 0.5,
-              color: 'inherit',
-              '&.Mui-selected': {
-                bgcolor: 'rgba(148, 163, 184, 0.2)',
-                color: 'common.white'
-              },
-              '&:hover': {
-                bgcolor: 'rgba(148, 163, 184, 0.15)'
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ p: 2 }}>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="h6" sx={{ color: 'text.primary' }} noWrap>
+            {desktopCollapsed ? 'TJ' : t('app.name')}
+          </Typography>
+          {!desktopCollapsed && (
+            <Typography variant="caption" sx={{ color: 'text.secondary' }} noWrap>
+              {t('app.tagline')}
+            </Typography>
+          )}
+        </Box>
+        {!isMobile && (
+          <Tooltip title={desktopCollapsed ? t('layout.expandSidebar') : t('layout.collapseSidebar')} arrow>
+            <IconButton
+              size="small"
+              onClick={() => setSidebarCollapsed((prev) => !prev)}
+              aria-label={desktopCollapsed ? t('layout.expandSidebar') : t('layout.collapseSidebar')}
+            >
+              {desktopCollapsed ? <ChevronRightIcon fontSize="small" /> : <ChevronLeftIcon fontSize="small" />}
+            </IconButton>
+          </Tooltip>
+        )}
+      </Stack>
+      <Divider sx={{ borderColor: 'divider' }} />
+      <List sx={{ px: 1, pt: 1.5, flexGrow: 1 }}>
+        {navSections.map((section) => (
+          <Box key={section.key} sx={{ mb: 1 }}>
+            {!desktopCollapsed && (
+              <ListSubheader
+                disableSticky
+                sx={{
+                  backgroundColor: 'transparent',
+                  color: 'text.secondary',
+                  fontSize: 11,
+                  lineHeight: 1.6,
+                  textTransform: 'uppercase',
+                  letterSpacing: 1,
+                  px: 1.5
+                }}
+              >
+                {section.label}
+              </ListSubheader>
+            )}
+            {section.items.map((item) => {
+              const button = (
+                <ListItemButton
+                  key={item.path}
+                  component={Link}
+                  to={item.path}
+                  selected={location.pathname.startsWith(item.path)}
+                  sx={{
+                    borderRadius: 2,
+                    mb: 0.5,
+                    px: desktopCollapsed ? 1.25 : 1.5,
+                    justifyContent: desktopCollapsed ? 'center' : 'flex-start',
+                    color: 'inherit',
+                    '&.Mui-selected': {
+                      bgcolor: 'action.selected',
+                      color: 'text.primary',
+                      '& .MuiListItemIcon-root': {
+                        color: 'text.primary'
+                      }
+                    },
+                    '&:hover': {
+                      bgcolor: 'action.hover'
+                    }
+                  }}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  <ListItemIcon sx={{ color: 'inherit', minWidth: desktopCollapsed ? 'auto' : 34 }}>
+                    {item.icon}
+                  </ListItemIcon>
+                  {!desktopCollapsed && (
+                    <ListItemText primary={item.label} primaryTypographyProps={{ noWrap: true }} sx={{ minWidth: 0 }} />
+                  )}
+                </ListItemButton>
+              )
+
+              if (desktopCollapsed) {
+                return (
+                  <Tooltip key={item.path} title={item.label} placement="right" arrow>
+                    {button}
+                  </Tooltip>
+                )
               }
-            }}
-            onClick={() => setMobileOpen(false)}
-          >
-            <ListItemIcon sx={{ color: 'inherit', minWidth: 36 }}>
-              {item.icon}
-            </ListItemIcon>
-            <ListItemText primary={item.label} />
-          </ListItemButton>
+
+              return button
+            })}
+          </Box>
         ))}
       </List>
       <Box sx={{ flexGrow: 1 }} />
-      {isAuthenticated && (
-        <Box sx={{ px: 2, pb: 2 }}>
-          <Divider sx={{ borderColor: 'rgba(148,163,184,0.2)', mb: 2 }} />
-          <Stack direction="row" spacing={1.5} alignItems="center">
-            <Avatar sx={{ bgcolor: 'primary.main', width: 32, height: 32 }}>
-              {(user?.email || 'U')[0].toUpperCase()}
-            </Avatar>
-            <Box sx={{ flexGrow: 1 }}>
-              <Typography variant="body2" sx={{ color: 'common.white', fontWeight: 600 }}>
-                {user?.email || 'Trader'}
-              </Typography>
-              <Typography variant="caption" sx={{ color: 'rgba(226,232,240,0.7)' }}>
-                {user?.baseCurrency || 'USD'} · {user?.timezone || 'UTC'}
-              </Typography>
-            </Box>
-            <Tooltip title="Logout" arrow>
-              <IconButton color="inherit" size="small" onClick={handleLogout}>
-                <LogoutIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
-        </Box>
-      )}
+      <Box sx={{ px: desktopCollapsed ? 1 : 2, pb: 2 }}>
+        <Divider sx={{ borderColor: 'divider', mb: 1.5 }} />
+        <Tooltip title={user?.email || ''} arrow disableHoverListener={!desktopCollapsed}>
+          <Typography variant="caption" color="text.secondary" noWrap sx={{ display: 'block', textAlign: desktopCollapsed ? 'center' : 'left' }}>
+            {desktopCollapsed ? (user?.email || '…')[0].toUpperCase() : user?.email}
+          </Typography>
+        </Tooltip>
+      </Box>
     </Stack>
   )
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', width: '100%', overflowX: 'clip' }}>
       {isAuthenticated && (
-        <Box component="nav" sx={{ width: { md: 260 }, flexShrink: { md: 0 } }}>
+        <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 } }}>
           <Drawer
             variant={isMobile ? 'temporary' : 'permanent'}
             open={isMobile ? mobileOpen : true}
             onClose={() => setMobileOpen(false)}
-            ModalProps={{ keepMounted: true }}
+            ModalProps={{ keepMounted: false }}
             sx={{
               '& .MuiDrawer-paper': {
-                width: 260
+                width: isMobile ? SIDEBAR_WIDTH : effectiveSidebarWidth,
+                transition: theme.transitions.create('width', {
+                  duration: theme.transitions.duration.shorter,
+                  easing: theme.transitions.easing.easeInOut
+                })
               }
             }}
           >
@@ -145,49 +286,48 @@ export default function Layout() {
           </Drawer>
         </Box>
       )}
-      <Box sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
-        <AppBar position="sticky" elevation={0}>
-          <Toolbar sx={{ justifyContent: 'space-between', gap: 2 }}>
-            <Stack direction="row" alignItems="center" spacing={1.5}>
-              {isAuthenticated && isMobile && (
-                <IconButton onClick={() => setMobileOpen(!mobileOpen)} aria-label="Open menu">
-                  <MenuIcon />
-                </IconButton>
-              )}
-              <Typography variant="h6">{pageTitle}</Typography>
-            </Stack>
-            {isAuthenticated ? (
-              <Stack direction="row" spacing={1} alignItems="center">
-                <Button
-                  size="small"
-                  color="inherit"
-                  startIcon={<AccountCircleIcon />}
-                  component={Link}
-                  to="/profile"
-                >
-                  Profile
-                </Button>
-                <Button
-                  size="small"
-                  color="inherit"
-                  startIcon={<LogoutIcon />}
-                  onClick={handleLogout}
-                >
-                  Logout
-                </Button>
-              </Stack>
-            ) : (
-              <Stack direction="row" spacing={1}>
-                <Button color="inherit" component={Link} to="/login">Login</Button>
-                <Button variant="contained" component={Link} to="/register">Register</Button>
-              </Stack>
-            )}
-          </Toolbar>
-        </AppBar>
-        <Container maxWidth="xl" sx={{ py: { xs: 3, md: 4 }, flexGrow: 1 }}>
+      <Box
+        sx={{
+          flexGrow: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          minHeight: '100vh'
+        }}
+      >
+        <TopBar
+          title={pageMeta.title}
+          subtitle={pageMeta.subtitle}
+          showTitle={pageMeta.showHeader}
+          isAuthenticated={isAuthenticated}
+          showMenuToggle={isAuthenticated && isMobile}
+          onMenuToggle={() => setMobileOpen(!mobileOpen)}
+          user={user}
+          language={language}
+          onLanguageChange={(value) => setLanguage(value)}
+          isDashboard={isDashboard}
+          dashboardState={dashboardState}
+          onDashboardStateChange={updateDashboardState}
+          onOpenDefinitions={() => setDefinitionsOpen(true)}
+          onLogout={handleLogout}
+        />
+        <Container
+          maxWidth="xl"
+          sx={{
+            py: { xs: 1.5, md: 3 },
+            px: { xs: 1.5, sm: 2.5, md: 3 },
+            flexGrow: 1,
+            width: '100%',
+            minWidth: 0,
+            overflowX: 'clip',
+            '& > *': {
+              minWidth: 0
+            }
+          }}
+        >
+          <DemoDataBanner />
           <Outlet />
         </Container>
-        <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2 }}>
+        <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2, width: '100%' }}>
           <Container maxWidth="xl">
             <Stack
               direction={{ xs: 'column', md: 'row' }}
@@ -196,17 +336,21 @@ export default function Layout() {
               justifyContent="space-between"
             >
               <Typography variant="caption" color="text.secondary">
-                For journaling and analytics only. Not investment advice.
+                {t('app.disclaimer')}
               </Typography>
-              <Stack direction="row" spacing={2}>
-                <Button component={Link} to="/terms" size="small">Terms</Button>
-                <Button component={Link} to="/privacy" size="small">Privacy</Button>
-                <Button component={Link} to="/cookies" size="small">Cookies</Button>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
+                <Button component={Link} to="/terms" size="small">{t('footer.terms')}</Button>
+                <Button component={Link} to="/privacy" size="small">{t('footer.privacy')}</Button>
+                <Button component={Link} to="/cookies" size="small">{t('footer.cookies')}</Button>
               </Stack>
             </Stack>
           </Container>
         </Box>
       </Box>
+      <DefinitionsDrawer
+        open={definitionsOpen}
+        onClose={() => setDefinitionsOpen(false)}
+      />
     </Box>
   )
 }

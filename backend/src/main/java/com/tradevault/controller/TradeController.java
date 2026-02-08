@@ -43,17 +43,18 @@ public class TradeController {
     @GetMapping("/search")
     public Page<TradeResponse> search(@RequestParam(defaultValue = "0") int page,
                                       @RequestParam(defaultValue = "20") int size,
-                                      @RequestParam(required = false) OffsetDateTime openedAtFrom,
-                                      @RequestParam(required = false) OffsetDateTime openedAtTo,
+                                      @RequestParam(required = false) String openedAtFrom,
+                                      @RequestParam(required = false) String openedAtTo,
                                       @RequestParam(required = false) OffsetDateTime closedAtFrom,
                                       @RequestParam(required = false) OffsetDateTime closedAtTo,
                                       @RequestParam(required = false) LocalDate closedDate,
                                       @RequestParam(required = false) String tz,
                                       @RequestParam(required = false) String symbol,
+                                      @RequestParam(required = false) String strategy,
                                       @RequestParam(required = false) String direction,
                                       @RequestParam(required = false) TradeStatus status) {
         var parsedDirection = parseDirection(direction);
-        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, closedDate, tz, symbol, parsedDirection, status);
+        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, closedDate, tz, symbol, strategy, parsedDirection, status);
     }
 
     private com.tradevault.domain.enums.Direction parseDirection(String direction) {

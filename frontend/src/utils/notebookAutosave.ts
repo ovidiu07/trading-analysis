@@ -1,25 +1,11 @@
-import { NotebookNote } from '../api/notebook'
-
-export type NotebookDraftSnapshot = Pick<
-  NotebookNote,
-  'title' | 'body' | 'dateKey' | 'folderId' | 'type' | 'relatedTradeId' | 'isPinned'
->
-
-export const buildNotebookFingerprint = (note: NotebookDraftSnapshot | null | undefined) => {
-  if (!note) return ''
-  return JSON.stringify({
-    title: note.title ?? '',
-    body: note.body ?? '',
-    dateKey: note.dateKey ?? '',
-    folderId: note.folderId ?? '',
-    type: note.type ?? '',
-    relatedTradeId: note.relatedTradeId ?? '',
-    isPinned: Boolean(note.isPinned)
-  })
-}
-
-export const isNotebookDirty = (note: NotebookDraftSnapshot | null | undefined, savedFingerprint: string | null) => {
-  return buildNotebookFingerprint(note) !== (savedFingerprint ?? '')
+type NotebookDraftFingerprintInput = {
+  title?: string | null
+  body?: string | null
+  dateKey?: string | null
+  folderId?: string | null
+  type?: string | null
+  relatedTradeId?: string | null
+  isPinned?: boolean | null
 }
 
 type AutosaveState = {
@@ -29,27 +15,43 @@ type AutosaveState = {
   viewMode: 'read' | 'edit'
 }
 
-export const shouldAutosave = ({ hasNote, isDirty, isSaving, viewMode }: AutosaveState) => {
-  return hasNote && isDirty && !isSaving && viewMode === 'edit'
+export function buildNotebookFingerprint(input: NotebookDraftFingerprintInput): string {
+  return JSON.stringify({
+    title: input.title ?? '',
+    body: input.body ?? '',
+    dateKey: input.dateKey ?? '',
+    folderId: input.folderId ?? '',
+    type: input.type ?? '',
+    relatedTradeId: input.relatedTradeId ?? '',
+    isPinned: input.isPinned ?? false
+  })
 }
 
-export const createAutosaveScheduler = (callback: () => void, delayMs: number) => {
-  let timeoutId: ReturnType<typeof setTimeout> | null = null
+export function isNotebookDirty(input: NotebookDraftFingerprintInput, savedFingerprint: string): boolean {
+  return buildNotebookFingerprint(input) !== savedFingerprint
+}
+
+export function shouldAutosave(state: AutosaveState): boolean {
+  return state.hasNote && state.isDirty && !state.isSaving && state.viewMode === 'edit'
+}
+
+export function createAutosaveScheduler(callback: () => void, delayMs = 1200) {
+  let timeoutId: ReturnType<typeof setTimeout> | undefined
+
   return {
     schedule() {
       if (timeoutId) {
         clearTimeout(timeoutId)
       }
       timeoutId = setTimeout(() => {
-        timeoutId = null
+        timeoutId = undefined
         callback()
       }, delayMs)
     },
     cancel() {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-        timeoutId = null
-      }
+      if (!timeoutId) return
+      clearTimeout(timeoutId)
+      timeoutId = undefined
     }
   }
 }
