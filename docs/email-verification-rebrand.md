@@ -4,7 +4,7 @@
 - Registration/resend verification emails now use TradeJAudit branding and localized copy (`en`, `ro`).
 - Sender defaults are now:
   - `From`: `TradeJAudit <no-reply@tradejaudit.com>`
-  - `Reply-To`: `support@tradejaudit.com` (fallback: `contact@tradejaudit.com`)
+  - `Reply-To`: `no-reply@tradejaudit.com` (fallback: `no-reply@tradejaudit.com`)
 - Verification template is rebuilt as table-based dark email HTML with:
   - hidden preheader
   - centered `max-width: 600px` container
@@ -20,9 +20,9 @@ Set these in environment/application config:
 
 - `MAIL_FROM_NAME=TradeJAudit`
 - `MAIL_FROM_ADDRESS=no-reply@tradejaudit.com`
-- `MAIL_REPLY_TO_ADDRESS=support@tradejaudit.com`
-- `MAIL_SUPPORT_EMAIL=support@tradejaudit.com`
-- `MAIL_CONTACT_EMAIL=contact@tradejaudit.com`
+- `MAIL_REPLY_TO_ADDRESS=no-reply@tradejaudit.com`
+- `MAIL_SUPPORT_EMAIL=no-reply@tradejaudit.com`
+- `MAIL_CONTACT_EMAIL=no-reply@tradejaudit.com`
 - `MAIL_LOGO_URL=https://tradejaudit.com/branding/tradejaudit-logo-email@2x.png`
 
 ### Header behavior

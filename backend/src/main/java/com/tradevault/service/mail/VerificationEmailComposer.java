@@ -112,7 +112,7 @@ public class VerificationEmailComposer {
         if (mailConfig.getFromAddress() != null && !mailConfig.getFromAddress().isBlank()) {
             return mailConfig.getFromAddress();
         }
-        return "support@tradejaudit.com";
+        return "no-reply@tradejaudit.com";
     }
 
     private String resolveReplyToEmail() {
@@ -123,7 +123,7 @@ public class VerificationEmailComposer {
         if (supportEmail != null && !supportEmail.isBlank()) {
             return supportEmail;
         }
-        return "contact@tradejaudit.com";
+        return "no-reply@tradejaudit.com";
     }
 
     private String resolveLogoUrl() {

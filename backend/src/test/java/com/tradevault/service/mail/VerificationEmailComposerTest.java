@@ -28,7 +28,7 @@ class VerificationEmailComposerTest {
 
         assertThat(content.locale()).isEqualTo("en");
         assertThat(content.subject()).isEqualTo("Verify your TradeJAudit email");
-        assertThat(content.replyTo()).isEqualTo("support@tradejaudit.com");
+        assertThat(content.replyTo()).isEqualTo("no-reply@tradejaudit.com");
         assertThat(content.htmlBody()).contains("TradeJAudit");
         assertThat(content.htmlBody()).doesNotContain("TradeVault");
         assertThat(content.htmlBody()).contains("https://tradejaudit.com/verify?email=trader%40example.com&token=sample-token");
@@ -90,9 +90,9 @@ class VerificationEmailComposerTest {
         MailConfig mailConfig = new MailConfig();
         mailConfig.setFromName("TradeJAudit");
         mailConfig.setFromAddress("no-reply@tradejaudit.com");
-        mailConfig.setReplyToAddress("support@tradejaudit.com");
-        mailConfig.setSupportEmail("support@tradejaudit.com");
-        mailConfig.setContactEmail("contact@tradejaudit.com");
+        mailConfig.setReplyToAddress("no-reply@tradejaudit.com");
+        mailConfig.setSupportEmail("no-reply@tradejaudit.com");
+        mailConfig.setContactEmail("no-reply@tradejaudit.com");
         mailConfig.setLogoUrl("https://tradejaudit.com/branding/tradejaudit-logo-email@2x.png");
 
         MailTranslationService translationService = new MailTranslationService(new LocaleResolverService());

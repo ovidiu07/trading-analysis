@@ -243,7 +243,7 @@ public class AuthService {
         if (mailConfig.getContactEmail() != null && !mailConfig.getContactEmail().isBlank()) {
             return mailConfig.getContactEmail();
         }
-        return mailConfig.getFromAddress() == null ? "support@tradejaudit.com" : mailConfig.getFromAddress();
+        return mailConfig.getFromAddress() == null ? "no-reply@tradejaudit.com" : mailConfig.getFromAddress();
     }
 
     private void validateLegalAcceptance(RegisterRequest request) {

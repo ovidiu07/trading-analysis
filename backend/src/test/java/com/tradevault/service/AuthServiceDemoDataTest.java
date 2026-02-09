@@ -104,10 +104,10 @@ class AuthServiceDemoDataTest {
                         "Preheader",
                         "<html></html>",
                         "text",
-                        "support@tradejaudit.com",
-                        "support@tradejaudit.com"
+                        "no-reply@tradejaudit.com",
+                        "no-reply@tradejaudit.com"
                 ));
-        when(mailConfig.getSupportEmail()).thenReturn("support@tradejaudit.com");
+        when(mailConfig.getSupportEmail()).thenReturn("no-reply@tradejaudit.com");
     }
 
     @Test

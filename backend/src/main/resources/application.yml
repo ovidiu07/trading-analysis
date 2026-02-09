@@ -23,7 +23,7 @@ spring:
     host: ${MAIL_HOST:smtppro.zoho.eu}
     port: ${MAIL_PORT:587}
     username: ${MAIL_USERNAME:no-reply@tradejaudit.com}
-    password: ${MAIL_PASSWORD:Davidqwerty2025$}
+    password: ${MAIL_PASSWORD:wm52yqaSQ5FK}
     properties:
       mail:
         smtp:
@@ -47,10 +47,10 @@ app:
   mail:
     from-name: ${MAIL_FROM_NAME:TradeJAudit}
     from-address: ${MAIL_FROM_ADDRESS:no-reply@tradejaudit.com}
-    reply-to-address: ${MAIL_REPLY_TO_ADDRESS:support@tradejaudit.com}
+    reply-to-address: ${MAIL_REPLY_TO_ADDRESS:no-reply@tradejaudit.com}
     template-base-url: ${MAIL_TEMPLATE_BASE_URL:}
-    support-email: ${MAIL_SUPPORT_EMAIL:support@tradejaudit.com}
-    contact-email: ${MAIL_CONTACT_EMAIL:contact@tradejaudit.com}
+    support-email: ${MAIL_SUPPORT_EMAIL:no-reply@tradejaudit.com}
+    contact-email: ${MAIL_CONTACT_EMAIL:no-reply@tradejaudit.com}
     logo-url: ${MAIL_LOGO_URL:https://tradejaudit.com/branding/tradejaudit-logo-email@2x.png}
 
 logging:
