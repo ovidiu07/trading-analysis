@@ -267,7 +267,7 @@ export default function Layout() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', width: '100%', overflowX: 'clip' }}>
       {isAuthenticated && (
-        <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 } }}>
+        <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 }, minWidth: 0 }}>
           <Drawer
             variant={isMobile ? 'temporary' : 'permanent'}
             open={isMobile ? mobileOpen : true}
@@ -292,7 +292,11 @@ export default function Layout() {
           flexGrow: 1,
           display: 'flex',
           flexDirection: 'column',
-          minHeight: '100vh'
+          minHeight: '100vh',
+          minWidth: 0,
+          width: '100%',
+          maxWidth: '100%',
+          overflowX: 'clip'
         }}
       >
         <TopBar

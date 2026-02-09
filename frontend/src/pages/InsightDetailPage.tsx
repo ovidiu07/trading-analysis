@@ -93,9 +93,6 @@ export default function InsightDetailPage() {
           <Button key="back" component={Link} to="/insights" size="small">{t('insights.title')}</Button>,
           <Typography key="current" variant="body2">{post.title}</Typography>
         ]}
-        actions={(
-          <Button component={Link} to="/insights" variant="outlined">{t('insightDetail.backToInsights')}</Button>
-        )}
       />
 
       <Card>

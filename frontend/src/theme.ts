@@ -88,6 +88,13 @@ const theme = createTheme({
   components: {
     MuiCssBaseline: {
       styleOverrides: {
+        '*, *::before, *::after': {
+          boxSizing: 'border-box'
+        },
+        ':focus-visible': {
+          outline: `2px solid ${alpha(terminalTokens.colors.accent, 0.95)}`,
+          outlineOffset: 2
+        },
         html: {
           width: '100%',
           maxWidth: '100%',
