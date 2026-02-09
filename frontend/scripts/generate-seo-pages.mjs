@@ -8,8 +8,9 @@ const frontendDir = path.resolve(__dirname, '..')
 const publicDir = path.join(frontendDir, 'public')
 
 const SITE_URL = 'https://tradejaudit.com'
-const OG_IMAGE = `${SITE_URL}/og/default-1200x630.png`
-const OG_IMAGE_FALLBACK = `${SITE_URL}/og/default-fallback-1200x630.png`
+const OG_IMAGE_VERSION = '20260209'
+const OG_IMAGE = `${SITE_URL}/og/tradejaudit-1200x630.jpg?v=${OG_IMAGE_VERSION}`
+const OG_IMAGE_FALLBACK = `${SITE_URL}/og/tradejaudit-600x315.jpg?v=${OG_IMAGE_VERSION}`
 const DEFAULT_LANG = 'en'
 const TODAY = new Date().toISOString().slice(0, 10)
 
@@ -51,9 +52,9 @@ const routeDefinitions = [
     key: 'home',
     includeJsonLd: true,
     en: {
-      title: 'TradeJAudit | Trading Journal and Analytics Workspace',
+      title: 'TradeJAudit - Trading Journal + Analytics',
       description:
-        'Trading journal and analytics workspace for disciplined execution. Dashboard | Trades | Analytics | Calendar | Notebook | Insights. Educational scenarios and setups with clear criteria.',
+        'Journal trades, review execution, and see analytics that highlight what works. Built for beginners and active traders: clear setups, insights, scenarios, and education.',
       heading: 'Build trading discipline with a data-backed workflow',
       intro:
         'TradeJAudit helps you log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews.',
@@ -67,9 +68,9 @@ const routeDefinitions = [
       note: 'Main areas: Dashboard | Trades | Analytics | Calendar | Notebook | Insights.'
     },
     ro: {
-      title: 'TradeJAudit | Jurnal de Tranzactionare si Analiza',
+      title: 'TradeJAudit - Jurnal de Tranzactionare + Analytics',
       description:
-        'Jurnal de tranzactionare si spatiu de analiza pentru executie disciplinata. Dashboard | Trades | Analytics | Calendar | Notebook | Insights. Scenarii educationale si set-up-uri cu criterii clare.',
+        'Jurnalizeaza tranzactiile, analizeaza executia si vezi statistici clare despre ce functioneaza. Pentru incepatori si traderi activi: setup-uri, insight-uri, scenarii si educatie continua.',
       heading: 'Construieste disciplina cu un flux bazat pe date',
       intro:
         'TradeJAudit te ajuta sa inregistrezi tranzactii, sa revizuiesti decizii si sa imbunatatesti consistenta prin analiza, jurnalizare si revizii structurate.',
@@ -1708,11 +1709,14 @@ const buildHtml = ({ language, page }) => {
   const alternateLanguage = language === 'en' ? 'ro' : 'en'
   const route = normalizePublicPath(language, page.slug)
   const alternateRoute = normalizePublicPath(alternateLanguage, page.slug)
-  const canonicalUrl = `${SITE_URL}${route}`
+  const isDefaultHomeRoute = language === DEFAULT_LANG && page.slug === ''
+  const canonicalUrl = isDefaultHomeRoute ? `${SITE_URL}/` : `${SITE_URL}${route}`
   const alternateUrl = `${SITE_URL}${alternateRoute}`
   const ogLocale = localeToOg[language]
   const ogAltLocale = localeToOg[alternateLanguage]
-  const jsonLd = page.includeJsonLd ? buildJsonLd(language, route) : ''
+  const jsonLdRoute = isDefaultHomeRoute ? '/' : route
+  const jsonLd = page.includeJsonLd ? buildJsonLd(language, jsonLdRoute) : ''
+  const enHref = page.slug === '' ? `${SITE_URL}/` : `${SITE_URL}${normalizePublicPath('en', page.slug)}`
 
   return `<!doctype html>
 <html lang="${language}">
@@ -1723,9 +1727,9 @@ const buildHtml = ({ language, page }) => {
   <meta name="description" content="${escapeHtml(current.description)}" />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
   <link rel="canonical" href="${canonicalUrl}" />
-  <link rel="alternate" hreflang="en" href="${SITE_URL}${normalizePublicPath('en', page.slug)}" />
+  <link rel="alternate" hreflang="en" href="${enHref}" />
   <link rel="alternate" hreflang="ro" href="${SITE_URL}${normalizePublicPath('ro', page.slug)}" />
-  <link rel="alternate" hreflang="x-default" href="${SITE_URL}${normalizePublicPath(DEFAULT_LANG, page.slug)}" />
+  <link rel="alternate" hreflang="x-default" href="${enHref}" />
 
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="TradeJAudit" />
@@ -1733,10 +1737,15 @@ const buildHtml = ({ language, page }) => {
   <meta property="og:description" content="${escapeHtml(current.description)}" />
   <meta property="og:url" content="${canonicalUrl}" />
   <meta property="og:image" content="${OG_IMAGE}" />
-  <meta property="og:image" content="${OG_IMAGE_FALLBACK}" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
-  <meta property="og:image:alt" content="TradeJAudit main areas: Dashboard, Trades, Analytics, Calendar, Notebook, Insights." />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:alt" content="TradeJAudit trading journal with dashboard, trades, analytics, calendar, notebook, and insights." />
+  <meta property="og:image" content="${OG_IMAGE_FALLBACK}" />
+  <meta property="og:image:width" content="600" />
+  <meta property="og:image:height" content="315" />
+  <meta property="og:image:type" content="image/jpeg" />
+  <meta property="og:image:alt" content="TradeJAudit trading workflow overview for social previews." />
   <meta property="og:locale" content="${ogLocale}" />
   <meta property="og:locale:alternate" content="${ogAltLocale}" />
 
@@ -1816,7 +1825,8 @@ for (const language of ['en', 'ro']) {
     mkdirSync(outDir, { recursive: true })
     const html = buildHtml({ language, page })
     writeFileSync(path.join(outDir, 'index.html'), html)
-    allPublicPaths.push(route)
+    const sitemapRoute = language === DEFAULT_LANG && page.slug === '' ? '/' : route
+    allPublicPaths.push(sitemapRoute)
   }
 }
 
