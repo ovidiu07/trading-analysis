@@ -32,8 +32,8 @@ export async function verifyEmail(email: string, token: string) {
   return apiPost<SuccessResponse>('/auth/verify-email', { email, token })
 }
 
-export async function resendVerification(email: string) {
-  return apiPost<SuccessResponse>('/auth/resend-verification', { email })
+export async function resendVerification(email: string, locale?: string | null) {
+  return apiPost<SuccessResponse>('/auth/resend-verification', { email, locale })
 }
 
 export async function forgotPassword(email: string) {

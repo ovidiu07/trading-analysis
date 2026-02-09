@@ -24,7 +24,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function LoginPage() {
-  const { t, language } = useI18n()
+  const { t, language, locale } = useI18n()
   const { register, handleSubmit, formState, watch } = useForm<FormValues>({ resolver: zodResolver(schema) })
   const navigate = useNavigate()
   const location = useLocation()
@@ -71,7 +71,7 @@ export default function LoginPage() {
     }
     setResending(true)
     try {
-      await resendVerification(emailValue)
+      await resendVerification(emailValue, locale)
       setResendMessage(t('login.success.verificationSent'))
     } catch (err) {
       const apiErr = err as ApiError

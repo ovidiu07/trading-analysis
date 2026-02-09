@@ -7,7 +7,7 @@ import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 
 export default function VerifyEmailPage() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
   const params = new URLSearchParams(location.search)
@@ -49,7 +49,7 @@ export default function VerifyEmailPage() {
     }
     setResending(true)
     try {
-      await resendVerification(email)
+      await resendVerification(email, locale)
       setResendMessage(t('login.success.verificationSent'))
     } catch (err) {
       const apiErr = err as ApiError

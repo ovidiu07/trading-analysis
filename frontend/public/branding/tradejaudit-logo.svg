@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="128" viewBox="0 0 512 128" fill="none" role="img" aria-label="TradeJAudit logo">
+  <defs>
+    <linearGradient id="shieldFill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#1E3554" />
+      <stop offset="100%" stop-color="#0F1D32" />
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#7FC1FF" />
+      <stop offset="100%" stop-color="#45A3FF" />
+    </linearGradient>
+  </defs>
+
+  <g transform="translate(8 8)">
+    <path d="M56 8L96 22V58C96 84 80 105 56 116C32 105 16 84 16 58V22L56 8Z" fill="url(#shieldFill)" stroke="#2F4D72" stroke-width="3" />
+    <rect x="33" y="60" width="8" height="22" rx="2" fill="#7FC1FF" />
+    <rect x="48" y="42" width="8" height="40" rx="2" fill="#45A3FF" />
+    <rect x="63" y="52" width="8" height="30" rx="2" fill="#7FC1FF" />
+    <path d="M34 37L46 49L74 25" stroke="url(#accent)" stroke-width="6" stroke-linecap="round" stroke-linejoin="round" />
+  </g>
+
+  <g fill="#EAF1FF" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700" letter-spacing="0.2">
+    <text x="130" y="56">TradeJ</text>
+    <text x="130" y="99" fill="#AFC8E7" font-size="36" font-weight="600">Audit</text>
+  </g>
+</svg>

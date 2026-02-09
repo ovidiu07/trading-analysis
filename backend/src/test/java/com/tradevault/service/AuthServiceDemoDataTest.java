@@ -9,6 +9,8 @@ import com.tradevault.repository.UserRepository;
 import com.tradevault.security.JwtTokenProvider;
 import com.tradevault.service.mail.MailService;
 import com.tradevault.service.mail.TemplateRenderer;
+import com.tradevault.service.mail.VerificationEmailComposer;
+import com.tradevault.service.mail.VerificationEmailContent;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -42,6 +44,7 @@ class AuthServiceDemoDataTest {
     private UserTokenService userTokenService;
     private MailService mailService;
     private TemplateRenderer templateRenderer;
+    private VerificationEmailComposer verificationEmailComposer;
     private MailConfig mailConfig;
     private CurrentUserService currentUserService;
     private DemoDataService demoDataService;
@@ -62,6 +65,7 @@ class AuthServiceDemoDataTest {
         userTokenService = mock(UserTokenService.class);
         mailService = mock(MailService.class);
         templateRenderer = mock(TemplateRenderer.class);
+        verificationEmailComposer = mock(VerificationEmailComposer.class);
         mailConfig = mock(MailConfig.class);
         currentUserService = mock(CurrentUserService.class);
         demoDataService = mock(DemoDataService.class);
@@ -80,6 +84,7 @@ class AuthServiceDemoDataTest {
                 userTokenService,
                 mailService,
                 templateRenderer,
+                verificationEmailComposer,
                 mailConfig,
                 currentUserService,
                 demoDataService
@@ -92,6 +97,16 @@ class AuthServiceDemoDataTest {
         when(passwordEncoder.encode(anyString())).thenReturn("encoded-pass");
         when(userTokenService.issue(any(User.class), eq(TokenType.EMAIL_VERIFY), any(Duration.class))).thenReturn("verify-token");
         when(templateRenderer.render(anyString(), any(Map.class))).thenReturn("<html></html>");
+        when(verificationEmailComposer.compose(anyString(), anyString(), anyString(), any(Duration.class)))
+                .thenReturn(new VerificationEmailContent(
+                        "en",
+                        "Verify your TradeJAudit email",
+                        "Preheader",
+                        "<html></html>",
+                        "text",
+                        "support@tradejaudit.com",
+                        "support@tradejaudit.com"
+                ));
         when(mailConfig.getSupportEmail()).thenReturn("support@tradejaudit.com");
     }
 
