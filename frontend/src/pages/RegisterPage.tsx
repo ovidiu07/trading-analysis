@@ -8,6 +8,8 @@ import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { ApiError } from '../api/client'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const schema = z.object({
   email: z.string().email(),
@@ -44,8 +46,21 @@ export default function RegisterPage() {
         privacyVersion,
         locale
       })
+      trackEvent('auth_sign_up_submit', {
+        method: 'email',
+        success: true,
+        feature_area: 'auth'
+      })
       navigate(`/register/confirm?email=${encodeURIComponent(data.email)}`)
     } catch (err) {
+      const apiErr = err as ApiError
+      trackEvent('auth_sign_up_submit', {
+        method: 'email',
+        success: false,
+        error_code: apiErr.code || (apiErr.status ? `HTTP_${apiErr.status}` : 'UNKNOWN'),
+        error_message: apiErr.rawMessage || apiErr.message,
+        feature_area: 'auth'
+      })
       setError(translateApiError(err, t))
     } finally {
       setSubmitting(false)

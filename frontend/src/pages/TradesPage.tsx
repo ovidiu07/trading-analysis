@@ -46,6 +46,7 @@ import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { alpha } from '@mui/material/styles'
 import { useDemoData } from '../features/demo/DemoDataContext'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const buildDefaultValues = (): TradeFormValues => ({
   symbol: '',
@@ -83,6 +84,9 @@ const defaultFilters = {
   direction: '',
   status: ''
 }
+
+const countActiveFilters = (filters: typeof defaultFilters) =>
+  Object.values(filters).filter((value) => value !== '').length
 
 const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
   const toInputDate = (value?: string | null) => {
@@ -355,18 +359,48 @@ export default function TradesPage() {
     if (!file) {
       return
     }
+    trackEvent('trade_import_start', {
+      method: 'csv',
+      success: true,
+      feature_area: 'trades'
+    })
     setImportLoading(true)
     setImportError('')
     try {
       const summary = await importTradesCsv(file)
       setImportSummary(summary)
+      trackEvent('trade_import_success', {
+        method: 'csv',
+        success: true,
+        total_rows: summary.totalRows,
+        trades_created: summary.tradesCreated,
+        trades_updated: summary.tradesUpdated,
+        groups_skipped: summary.groupsSkipped,
+        feature_area: 'trades'
+      })
       fetchTrades()
     } catch (err) {
       const apiErr = err as ApiError
+      const errorCode = apiErr.code || (apiErr.status ? `HTTP_${apiErr.status}` : 'UNKNOWN')
+      const errorMessage = apiErr.rawMessage || apiErr.message
       if (apiErr.status === 401 || apiErr.status === 403) {
+        trackEvent('trade_import_fail', {
+          method: 'csv',
+          success: false,
+          error_code: errorCode,
+          error_message: errorMessage,
+          feature_area: 'trades'
+        })
         handleAuthFailure(apiErr.message)
         return
       }
+      trackEvent('trade_import_fail', {
+        method: 'csv',
+        success: false,
+        error_code: errorCode,
+        error_message: errorMessage,
+        feature_area: 'trades'
+      })
       const message = apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.importFailed') : t('trades.errors.importFailed')
       setImportError(message)
     } finally {
@@ -417,6 +451,11 @@ export default function TradesPage() {
     try {
       const payload = buildTradePayload(values)
       await createTrade(payload)
+      trackEvent('trade_create_submit', {
+        method: 'manual_form',
+        success: true,
+        feature_area: 'trades'
+      })
       setCreateSuccess(t('trades.messages.created'))
       const freshDefaults = buildDefaultValues()
       setCreateFormValues(freshDefaults)
@@ -424,10 +463,26 @@ export default function TradesPage() {
       fetchTrades()
     } catch (err) {
       const apiErr = err as ApiError
+      const errorCode = apiErr.code || (apiErr.status ? `HTTP_${apiErr.status}` : 'UNKNOWN')
+      const errorMessage = apiErr.rawMessage || apiErr.message
       if (apiErr.status === 401 || apiErr.status === 403) {
+        trackEvent('trade_create_submit', {
+          method: 'manual_form',
+          success: false,
+          error_code: errorCode,
+          error_message: errorMessage,
+          feature_area: 'trades'
+        })
         handleAuthFailure(apiErr.message)
         return
       }
+      trackEvent('trade_create_submit', {
+        method: 'manual_form',
+        success: false,
+        error_code: errorCode,
+        error_message: errorMessage,
+        feature_area: 'trades'
+      })
       setCreateError(apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.createFailed') : t('trades.errors.createFailed'))
     }
   }
@@ -476,6 +531,12 @@ export default function TradesPage() {
   }
 
   const onSearch = () => {
+    trackEvent('filter_apply', {
+      method: 'manual_search',
+      success: true,
+      filter_count: countActiveFilters(filters),
+      feature_area: 'trades'
+    })
     setActiveFilters(filters)
     setViewMode('search')
     setPaginationModel((prev) => ({ ...prev, page: 0 }))

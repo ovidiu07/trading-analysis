@@ -17,6 +17,7 @@ import { ApiError } from '../../api/client'
 import { useDemoData } from '../../features/demo/DemoDataContext'
 import { useI18n } from '../../i18n'
 import { translateApiError } from '../../i18n/errorMessages'
+import { trackEvent } from '../../utils/analytics/ga4'
 
 export default function DemoDataBanner() {
   const { t } = useI18n()
@@ -66,7 +67,13 @@ export default function DemoDataBanner() {
             <Button
               variant="contained"
               color="warning"
-              onClick={() => setConfirmOpen(true)}
+              onClick={() => {
+                trackEvent('demo_data_remove_click', {
+                  success: true,
+                  feature_area: 'demo'
+                })
+                setConfirmOpen(true)
+              }}
               disabled={removing}
               sx={{ width: { xs: '100%', sm: 'auto' } }}
             >

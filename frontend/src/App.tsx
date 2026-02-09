@@ -1,5 +1,6 @@
+import { useEffect } from 'react'
 import { CssBaseline, ThemeProvider } from '@mui/material'
-import { Route, Routes, Navigate } from 'react-router-dom'
+import { Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
 import CheckEmailPage from './pages/CheckEmailPage'
@@ -25,11 +26,26 @@ import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
 import theme from './theme'
+import { trackPageView } from './utils/analytics/ga4'
+
+function GaRouteTracker() {
+  const location = useLocation()
+
+  useEffect(() => {
+    if (location.pathname === '/') {
+      return
+    }
+    trackPageView(`${location.pathname}${location.search}`)
+  }, [location.pathname, location.search])
+
+  return null
+}
 
 function App() {
   return (
     <ThemeProvider theme={theme}>
       <CssBaseline />
+      <GaRouteTracker />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />

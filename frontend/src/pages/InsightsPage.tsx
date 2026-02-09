@@ -28,6 +28,7 @@ import { formatDate, formatDateTime } from '../utils/format'
 import { Link } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const parseCsv = (value: string) => value
   .split(',')
@@ -81,6 +82,13 @@ export default function InsightsPage() {
       setLoading(false)
     }
   }
+
+  useEffect(() => {
+    trackEvent('insights_view', {
+      success: true,
+      feature_area: 'insights'
+    })
+  }, [])
 
   useEffect(() => {
     loadTypes()
@@ -302,7 +310,7 @@ export default function InsightsPage() {
       ) : (
         <Box
           component="section"
-          aria-label={t('insights.title')}
+          aria-label={t('nav.insights')}
           sx={{
             display: 'grid',
             gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },

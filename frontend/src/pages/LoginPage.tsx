@@ -15,6 +15,7 @@ import { resendVerification } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const schema = z.object({
   email: z.string().email(),
@@ -53,9 +54,21 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       await login(data.email, data.password)
+      trackEvent('auth_login_submit', {
+        method: 'email',
+        success: true,
+        feature_area: 'auth'
+      })
       navigate(from, { replace: true })
     } catch (err) {
       const apiErr = err as ApiError
+      trackEvent('auth_login_submit', {
+        method: 'email',
+        success: false,
+        error_code: apiErr.code || (apiErr.status ? `HTTP_${apiErr.status}` : 'UNKNOWN'),
+        error_message: apiErr.rawMessage || apiErr.message,
+        feature_area: 'auth'
+      })
       setError(translateApiError(apiErr, t, 'errors.unauthorized'))
       setErrorCode(apiErr.code)
     } finally {

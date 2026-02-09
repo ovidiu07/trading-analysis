@@ -53,6 +53,41 @@ npm run dev
 - When a page must own its in-content title (for example detail/editor flows), set `showHeader: false` in route metadata and render the local header in the page.
 - A guard test (`frontend/src/config/routeMeta.guard.test.ts`) prevents reintroducing duplicate page-level route titles on primary pages.
 
+## Analytics (GA4)
+GA4 is integrated for the SPA shell and route navigation.
+
+### Configuration
+- Measurement ID env: `VITE_GA_MEASUREMENT_ID`
+- Fallback ID when env is missing: `G-8H5HCBG170`
+- Dev toggle: `VITE_GA_ENABLE_IN_DEV=true` (disabled by default in local/dev)
+
+### Integration points
+- GA utility + event helpers: `frontend/src/utils/analytics/ga4.ts`
+- One-time GA initialization at app bootstrap: `frontend/src/main.tsx`
+- SPA route page views (`page_view` via `gtag('config', ...)` on navigation): `frontend/src/App.tsx`
+- Outbound external links (`outbound_link_click`) are tracked globally via delegated click listener in `frontend/src/utils/analytics/ga4.ts`
+
+### Events currently tracked
+- `auth_sign_up_submit`: `frontend/src/pages/RegisterPage.tsx`
+- `auth_login_submit`: `frontend/src/pages/LoginPage.tsx`
+- `auth_email_confirm_view`: `frontend/src/pages/CheckEmailPage.tsx`
+- `auth_email_confirm_view`: `frontend/src/pages/VerifyEmailPage.tsx`
+- `demo_data_remove_click`: `frontend/src/components/demo/DemoDataBanner.tsx`
+- `trade_create_submit`: `frontend/src/pages/TradesPage.tsx`
+- `trade_import_start`: `frontend/src/pages/TradesPage.tsx`
+- `trade_import_success`: `frontend/src/pages/TradesPage.tsx`
+- `trade_import_fail`: `frontend/src/pages/TradesPage.tsx`
+- `filter_apply` (Trades): `frontend/src/pages/TradesPage.tsx`
+- `filter_apply` (Analytics): `frontend/src/pages/AnalyticsPage.tsx`
+- `insights_view`: `frontend/src/pages/InsightsPage.tsx`
+- `outbound_link_click`: `frontend/src/utils/analytics/ga4.ts`
+
+### Validation checklist (GA4 Realtime / DebugView)
+1. Open the app and verify first `page_view` appears.
+2. Navigate between routes (`/dashboard`, `/trades`, `/analytics`, etc.) and confirm one `page_view` per navigation.
+3. Trigger each tracked action and confirm one corresponding event per interaction.
+4. Confirm no console errors related to GA and only one GA script tag (`#ga4-gtag-js`) in DOM.
+
 ### Dark theme contrast tokens
 - Dark mode typography and surface tokens are defined in `frontend/src/theme.ts` (for example: `palette.text.primary`, `palette.text.secondary`, `palette.text.disabled`, link colors, surface/border tones).
 - Prefer theme tokens and component overrides (`MuiDataGrid`, `MuiTableCell`, `MuiInputBase`, `MuiChip`, etc.) over one-off hardcoded colors.

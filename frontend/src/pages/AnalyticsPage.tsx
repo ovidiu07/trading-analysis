@@ -56,6 +56,7 @@ import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
 type KpiCard = { label: string; value: string | number }
@@ -72,6 +73,17 @@ const formatDuration = (seconds?: number | null) => {
   const hours = Math.round(mins / 60)
   return `${hours}h`
 }
+
+const countActiveFilterFields = (filters: AnalyticsFilters) =>
+  Object.values(filters).reduce((count, value) => {
+    if (Array.isArray(value)) {
+      return count + (value.length > 0 ? 1 : 0)
+    }
+    if (typeof value === 'boolean') {
+      return count + (value ? 1 : 0)
+    }
+    return count + (value ? 1 : 0)
+  }, 0)
 
 export default function AnalyticsPage() {
   const { t } = useI18n()
@@ -192,6 +204,12 @@ export default function AnalyticsPage() {
   }, [filters, loadAnalytics, loadCoach, refreshToken])
 
   const applyFilters = () => {
+    trackEvent('filter_apply', {
+      method: 'manual_apply',
+      success: true,
+      filter_count: countActiveFilterFields(filters),
+      feature_area: 'analytics'
+    })
     loadAnalytics(filters)
     loadCoach(filters)
   }

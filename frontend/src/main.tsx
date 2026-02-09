@@ -6,8 +6,10 @@ import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { I18nProvider } from './i18n'
 import { DemoDataProvider } from './features/demo/DemoDataContext'
+import { initializeAnalytics } from './utils/analytics/ga4'
 
 const client = new QueryClient()
+initializeAnalytics()
 
 const router = createBrowserRouter([
   {
