@@ -1754,6 +1754,14 @@ const buildHtml = ({ language, page }) => {
   <meta name="twitter:description" content="${escapeHtml(current.description)}" />
   <meta name="twitter:image" content="${OG_IMAGE}" />
   <meta name="theme-color" content="#060b12" />
+  <!-- Google tag (gtag.js) -->
+  <script async src="https://www.googletagmanager.com/gtag/js?id=G-8H5HCBG170"></script>
+  <script>
+    window.dataLayer = window.dataLayer || [];
+    function gtag(){dataLayer.push(arguments);}
+    gtag('js', new Date());
+    gtag('config', 'G-8H5HCBG170');
+  </script>
   ${jsonLd}
   <style>${styles}</style>
 </head>

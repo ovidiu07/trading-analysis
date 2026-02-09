@@ -62,6 +62,9 @@ GA4 is integrated for the SPA shell and route navigation.
 - Dev toggle: `VITE_GA_ENABLE_IN_DEV=true` (disabled by default in local/dev)
 
 ### Integration points
+- Global HTML tag injection:
+  - SPA/app shell (`/login`, `/register`, authenticated routes): `frontend/index.html`
+  - SEO/landing pages (`/en/*`, `/ro/*`): generated from `frontend/scripts/generate-seo-pages.mjs` into `frontend/public/*`
 - GA utility + event helpers: `frontend/src/utils/analytics/ga4.ts`
 - One-time GA initialization at app bootstrap: `frontend/src/main.tsx`
 - SPA route page views (`page_view` via `gtag('config', ...)` on navigation): `frontend/src/App.tsx`
@@ -87,6 +90,9 @@ GA4 is integrated for the SPA shell and route navigation.
 2. Navigate between routes (`/dashboard`, `/trades`, `/analytics`, etc.) and confirm one `page_view` per navigation.
 3. Trigger each tracked action and confirm one corresponding event per interaction.
 4. Confirm no console errors related to GA and only one GA script tag (`#ga4-gtag-js`) in DOM.
+5. Verify server HTML source includes `G-8H5HCBG170` on both:
+   - SEO page source (for example `/en/`, `/en/features/`)
+   - SPA source (for example `/login` or `/register`)
 
 ### Dark theme contrast tokens
 - Dark mode typography and surface tokens are defined in `frontend/src/theme.ts` (for example: `palette.text.primary`, `palette.text.secondary`, `palette.text.disabled`, link colors, surface/border tones).
