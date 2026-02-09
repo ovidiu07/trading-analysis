@@ -660,6 +660,8 @@
   },
   "legal": {
     "disclaimer": "Draft for review. This content should be reviewed by qualified legal counsel for your jurisdiction.",
+    "tableOfContents": "On this page",
+    "jumpToSection": "Jump to section",
     "terms": {
       "title": "Terms & Conditions",
       "sections": {

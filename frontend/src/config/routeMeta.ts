@@ -62,7 +62,8 @@ export const ROUTE_META_DEFINITIONS: RouteMetaDefinition[] = [
     id: 'insights',
     match: matchesExact('/insights'),
     pageTitleKey: 'insights.title',
-    pageSubtitleKey: 'insights.subtitle'
+    pageSubtitleKey: 'insights.subtitle',
+    showHeader: false
   },
   {
     id: 'insightDetail',

@@ -28,167 +28,897 @@
   <meta name="twitter:title" content="Cookie Policy | TradeJAudit" />
   <meta name="twitter:description" content="Read TradeJAudit cookie policy on session security, preference storage, and performance-related cookies." />
   <meta name="twitter:image" content="https://tradejaudit.com/og/default-1200x630.png" />
-
-  <meta name="theme-color" content="#0e1a33" />
+  <meta name="theme-color" content="#060b12" />
   
   <style>
-    :root {
-      color-scheme: light;
-      --bg: #f3f6fc;
-      --surface: #ffffff;
-      --ink: #10213f;
-      --muted: #5c6f8f;
-      --accent: #1d6eff;
-      --border: #d8e3f7;
+  :root {
+    --bg-0: #050b16;
+    --bg-1: #0a1220;
+    --bg-2: #102338;
+    --surface-0: rgba(16, 25, 39, 0.88);
+    --surface-1: rgba(23, 36, 56, 0.72);
+    --surface-2: #121f31;
+    --text-0: #eef4ff;
+    --text-1: #c4d0e5;
+    --muted: #91a2bc;
+    --border: rgba(67, 93, 126, 0.74);
+    --shadow: 0 16px 40px rgba(2, 8, 16, 0.42);
+    --radius-sm: 10px;
+    --radius-md: 14px;
+    --radius-lg: 18px;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 24px;
+    --space-6: 32px;
+    --space-7: 48px;
+    --space-8: 64px;
+    --accent: #45a3ff;
+    --danger: #ef6e6e;
+    --focus-ring: 0 0 0 3px rgba(69, 163, 255, 0.32);
+    --max-width: 1160px;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    width: 100%;
+    margin: 0;
+    max-width: 100%;
+    overflow-x: hidden;
+  }
+
+  body {
+    color: var(--text-0);
+    font-family: "IBM Plex Sans", "Inter", "Roboto", "Helvetica", "Arial", sans-serif;
+    line-height: 1.6;
+    background:
+      radial-gradient(850px 420px at 13% -8%, rgba(69, 163, 255, 0.32), rgba(69, 163, 255, 0) 64%),
+      radial-gradient(760px 360px at 90% 0%, rgba(109, 157, 255, 0.16), rgba(109, 157, 255, 0) 66%),
+      linear-gradient(164deg, var(--bg-0) 0%, var(--bg-1) 44%, var(--bg-2) 100%);
+  }
+
+  body::after {
+    content: '';
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background-image: radial-gradient(rgba(255, 255, 255, 0.06) 0.65px, transparent 0.65px);
+    background-size: 4px 4px;
+    opacity: 0.04;
+  }
+
+  img,
+  video,
+  canvas {
+    max-width: 100%;
+    height: auto;
+  }
+
+  a,
+  button,
+  summary,
+  input,
+  select,
+  textarea {
+    transition: all 180ms ease;
+  }
+
+  :where(a, button, summary, input, select, textarea):focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+  }
+
+  .skip-link {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+  }
+
+  .skip-link:focus {
+    left: 16px;
+    top: 16px;
+    z-index: 1001;
+    background: #0f1b2b;
+    color: #fff;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 8px 12px;
+  }
+
+  .site-container {
+    width: min(var(--max-width), calc(100% - 32px));
+    margin: 0 auto;
+    min-width: 0;
+  }
+
+  .site-header {
+    position: sticky;
+    top: 0;
+    z-index: 1000;
+    backdrop-filter: blur(10px);
+    background: rgba(10, 18, 32, 0.82);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .header-shell {
+    min-height: 74px;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--space-4);
+    padding: var(--space-3) 0;
+  }
+
+  .brand {
+    min-width: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-3);
+    color: var(--text-0);
+    text-decoration: none;
+  }
+
+  .brand strong {
+    display: block;
+    font-size: 1rem;
+    line-height: 1.3;
+    letter-spacing: 0.2px;
+  }
+
+  .brand small {
+    display: block;
+    font-size: 0.77rem;
+    color: var(--muted);
+    line-height: 1.3;
+  }
+
+  .brand-logo {
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(69, 163, 255, 0.9), rgba(105, 190, 255, 0.9));
+    color: #031225;
+    font-weight: 700;
+    box-shadow: 0 6px 14px rgba(24, 88, 145, 0.4);
+    flex-shrink: 0;
+  }
+
+  .desktop-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .nav-link {
+    color: var(--text-1);
+    text-decoration: none;
+    font-size: 0.92rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    padding: 8px 12px;
+  }
+
+  .nav-link:hover {
+    color: var(--text-0);
+    border-color: var(--border);
+    background: rgba(196, 214, 238, 0.08);
+  }
+
+  .nav-link.is-active {
+    color: #06162a;
+    border-color: transparent;
+    background: rgba(126, 198, 255, 0.94);
+  }
+
+  .desktop-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+
+  .language-switch {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 0;
+  }
+
+  .chip-link {
+    text-decoration: none;
+    color: var(--text-1);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    font-size: 0.8rem;
+    padding: 6px 10px;
+    background: rgba(31, 46, 67, 0.6);
+    line-height: 1.2;
+  }
+
+  .chip-link.is-active,
+  .chip-link:hover {
+    color: var(--text-0);
+    border-color: rgba(127, 193, 255, 0.85);
+  }
+
+  .button {
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    font-size: 0.9rem;
+    font-weight: 600;
+    padding: 9px 14px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 44px;
+    line-height: 1.2;
+    white-space: nowrap;
+  }
+
+  .button-primary {
+    color: #041525;
+    background: linear-gradient(130deg, #45a3ff, #70c3ff);
+    border-color: rgba(134, 206, 255, 0.9);
+  }
+
+  .button-primary:hover {
+    filter: brightness(1.04);
+    transform: translateY(-1px);
+  }
+
+  .button-ghost {
+    color: var(--text-0);
+    border-color: var(--border);
+    background: rgba(20, 32, 50, 0.6);
+  }
+
+  .button-ghost:hover {
+    border-color: rgba(127, 193, 255, 0.82);
+    background: rgba(30, 46, 67, 0.7);
+  }
+
+  .menu-toggle {
+    display: none;
+    border: 1px solid var(--border);
+    background: rgba(20, 32, 50, 0.8);
+    color: var(--text-0);
+    border-radius: var(--radius-sm);
+    min-height: 44px;
+    min-width: 44px;
+    padding: 8px 12px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    align-items: center;
+    gap: 8px;
+    justify-self: end;
+  }
+
+  .menu-toggle-label {
+    font-size: 0.82rem;
+    color: var(--text-1);
+  }
+
+  .mobile-menu {
+    display: none;
+    border-top: 1px solid var(--border);
+    background: rgba(11, 20, 33, 0.96);
+  }
+
+  .mobile-menu[data-open='true'] {
+    display: block;
+  }
+
+  .mobile-menu-inner {
+    display: grid;
+    gap: var(--space-4);
+    padding: var(--space-4) 0 var(--space-5);
+  }
+
+  .mobile-nav-links {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .mobile-nav-links .nav-link {
+    width: 100%;
+    text-align: left;
+  }
+
+  .mobile-menu-utility {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .mobile-cta-row {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-2);
+  }
+
+  .page-main {
+    width: 100%;
+    overflow-x: hidden;
+    padding: var(--space-6) 0 var(--space-8);
+  }
+
+  .section {
+    margin-top: var(--space-6);
+  }
+
+  .section:first-of-type {
+    margin-top: 0;
+  }
+
+  .hero-grid {
+    display: grid;
+    grid-template-columns: 1.08fr 0.92fr;
+    gap: var(--space-5);
+    align-items: stretch;
+  }
+
+  .card {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-lg);
+    background: var(--surface-0);
+    box-shadow: var(--shadow);
+    padding: clamp(18px, 3vw, 28px);
+    min-width: 0;
+  }
+
+  .card-soft {
+    background: var(--surface-1);
+  }
+
+  .hero-content h1 {
+    margin: var(--space-2) 0 0;
+    font-size: clamp(1.85rem, 4vw, 2.85rem);
+    line-height: 1.18;
+    letter-spacing: -0.4px;
+    max-width: 20ch;
+  }
+
+  .hero-badge {
+    display: inline-flex;
+    align-items: center;
+    margin: 0;
+    border-radius: 999px;
+    border: 1px solid rgba(127, 193, 255, 0.62);
+    background: rgba(22, 43, 67, 0.7);
+    color: #b8daf9;
+    font-size: 0.78rem;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+    padding: 6px 10px;
+  }
+
+  .hero-intro {
+    margin: var(--space-3) 0 0;
+    color: var(--text-1);
+    max-width: 64ch;
+  }
+
+  .hero-actions {
+    margin-top: var(--space-4);
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .hero-side h2 {
+    margin: 0;
+    font-size: 1.08rem;
+    line-height: 1.3;
+  }
+
+  .hero-side ul,
+  .card ul,
+  .legal-article ul {
+    margin: var(--space-3) 0 0;
+    padding-left: 18px;
+    color: var(--text-1);
+  }
+
+  .hero-side li + li,
+  .card li + li,
+  .legal-article li + li {
+    margin-top: 8px;
+  }
+
+  .hero-note,
+  .section-note {
+    margin: var(--space-4) 0 0;
+    color: var(--muted);
+    font-size: 0.93rem;
+  }
+
+  .section-heading h2 {
+    margin: 0;
+    font-size: clamp(1.35rem, 2.4vw, 1.85rem);
+    line-height: 1.2;
+    letter-spacing: -0.2px;
+  }
+
+  .section-heading p {
+    margin: var(--space-2) 0 0;
+    color: var(--text-1);
+    max-width: 72ch;
+  }
+
+  .card-grid {
+    display: grid;
+    gap: var(--space-4);
+    margin-top: var(--space-4);
+  }
+
+  .card-grid-3 {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .card h3 {
+    margin: 0;
+    font-size: 1.02rem;
+    line-height: 1.3;
+  }
+
+  .card p {
+    margin: var(--space-2) 0 0;
+    color: var(--text-1);
+  }
+
+  .chip-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: var(--space-2);
+    margin-top: var(--space-4);
+  }
+
+  .chip-item {
+    min-height: 44px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: rgba(23, 37, 56, 0.72);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    color: var(--text-0);
+    font-weight: 600;
+    font-size: 0.86rem;
+    text-align: center;
+  }
+
+  .cta-panel h2 {
+    margin: 0;
+    font-size: clamp(1.35rem, 2.6vw, 1.85rem);
+    line-height: 1.25;
+  }
+
+  .plan-name {
+    margin: 0;
+    color: var(--text-1);
+    font-weight: 600;
+  }
+
+  .plan-price {
+    margin: var(--space-2) 0 0;
+    font-size: 2rem;
+    font-weight: 700;
+    letter-spacing: -0.2px;
+    line-height: 1;
+  }
+
+  .plan-price span {
+    font-size: 0.95rem;
+    color: var(--muted);
+    margin-left: 4px;
+  }
+
+  .pricing-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+
+  .pricing-card .button {
+    margin-top: auto;
+    width: 100%;
+  }
+
+  .pricing-card-featured {
+    border-color: rgba(111, 193, 255, 0.92);
+    background: linear-gradient(160deg, rgba(19, 37, 59, 0.95), rgba(16, 28, 43, 0.93));
+  }
+
+  .legal-section .section-heading {
+    margin-bottom: var(--space-4);
+  }
+
+  .legal-layout {
+    display: grid;
+    grid-template-columns: minmax(220px, 260px) minmax(0, 1fr);
+    gap: var(--space-4);
+    align-items: start;
+  }
+
+  .legal-toc {
+    position: sticky;
+    top: 96px;
+  }
+
+  .legal-toc h3 {
+    margin: 0 0 var(--space-2);
+    font-size: 0.98rem;
+    color: var(--text-0);
+  }
+
+  .toc-list {
+    display: grid;
+    gap: var(--space-2);
+  }
+
+  .toc-list a {
+    color: var(--text-1);
+    text-decoration: none;
+    border-radius: var(--radius-sm);
+    border: 1px solid transparent;
+    padding: 7px 8px;
+    font-size: 0.88rem;
+    line-height: 1.35;
+  }
+
+  .toc-list a:hover {
+    color: var(--text-0);
+    border-color: var(--border);
+    background: rgba(26, 39, 58, 0.8);
+  }
+
+  .legal-article {
+    display: grid;
+    gap: var(--space-4);
+  }
+
+  .legal-article-section h3 {
+    margin: 0;
+    font-size: 1.1rem;
+    line-height: 1.3;
+  }
+
+  .legal-article-section p {
+    margin: var(--space-2) 0 0;
+    color: var(--text-1);
+    overflow-wrap: anywhere;
+  }
+
+  .legal-toc-mobile {
+    display: none;
+    margin-bottom: var(--space-3);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    background: rgba(17, 30, 46, 0.86);
+    padding: 10px 12px;
+  }
+
+  .legal-toc-mobile summary {
+    cursor: pointer;
+    list-style: none;
+    font-weight: 600;
+  }
+
+  .legal-toc-mobile[open] .toc-list {
+    margin-top: var(--space-3);
+  }
+
+  .site-footer {
+    border-top: 1px solid var(--border);
+    background: rgba(10, 17, 29, 0.86);
+  }
+
+  .footer-shell {
+    min-height: 76px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-4) 0;
+  }
+
+  .footer-copy {
+    margin: 0;
+    color: var(--muted);
+    font-size: 0.85rem;
+    max-width: 55ch;
+  }
+
+  .footer-links {
+    display: inline-flex;
+    gap: var(--space-2);
+    flex-wrap: wrap;
+  }
+
+  .footer-links a {
+    color: var(--text-1);
+    text-decoration: none;
+    font-size: 0.88rem;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    padding: 7px 10px;
+  }
+
+  .footer-links a:hover {
+    color: var(--text-0);
+    border-color: var(--border);
+    background: rgba(29, 44, 64, 0.65);
+  }
+
+  @media (max-width: 1080px) {
+    .header-shell {
+      grid-template-columns: minmax(0, 1fr) auto;
     }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: radial-gradient(circle at top right, #dce8ff, var(--bg) 55%);
-      color: var(--ink);
-      line-height: 1.55;
+
+    .desktop-nav,
+    .desktop-actions {
+      display: none;
     }
-    .wrap {
-      width: min(960px, calc(100% - 32px));
-      margin: 0 auto;
-      padding: 18px 0 38px;
+
+    .menu-toggle {
+      display: inline-flex;
     }
-    header {
-      display: flex;
-      flex-wrap: wrap;
-      justify-content: space-between;
-      gap: 14px;
-      align-items: center;
-      margin-bottom: 20px;
-      padding-bottom: 14px;
-      border-bottom: 1px solid var(--border);
+
+    .hero-grid {
+      grid-template-columns: 1fr;
     }
-    .brand {
-      font-weight: 700;
-      letter-spacing: 0.2px;
+
+    .card-grid-3,
+    .chip-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    nav {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
+  }
+
+  @media (max-width: 900px) {
+    .legal-layout {
+      grid-template-columns: 1fr;
     }
-    nav a,
-    .lang a,
-    .auth a,
-    .cta a {
-      text-decoration: none;
-      color: var(--ink);
-      font-weight: 500;
-      border: 1px solid transparent;
-      border-radius: 999px;
-      padding: 6px 12px;
+
+    .legal-toc {
+      display: none;
     }
-    nav a:hover,
-    .lang a:hover,
-    .auth a:hover,
-    .cta a:hover {
-      border-color: var(--border);
-      background: #eef4ff;
+
+    .legal-toc-mobile {
+      display: block;
     }
-    .lang,
-    .auth {
-      display: flex;
-      gap: 8px;
+
+    .legal-toc-mobile .toc-list a {
+      display: block;
     }
-    .panel {
-      background: var(--surface);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 24px;
-      box-shadow: 0 10px 25px rgba(9, 24, 56, 0.08);
+  }
+
+  @media (max-width: 720px) {
+    .site-container {
+      width: calc(100% - 24px);
     }
-    h1 {
-      margin: 0;
-      font-size: clamp(1.6rem, 3vw, 2.35rem);
-      line-height: 1.2;
+
+    .page-main {
+      padding-top: var(--space-5);
+      padding-bottom: var(--space-7);
     }
-    p { margin: 10px 0 0; color: var(--muted); }
-    ul {
-      margin: 16px 0 0;
-      padding-left: 18px;
-      color: var(--ink);
+
+    .hero-content h1 {
+      font-size: clamp(1.6rem, 8vw, 2rem);
     }
-    li + li { margin-top: 8px; }
-    .note {
-      margin-top: 16px;
-      padding: 12px;
-      border-left: 3px solid var(--accent);
-      background: #f5f8ff;
-      color: var(--ink);
-      border-radius: 8px;
-      font-size: 0.96rem;
+
+    .chip-grid,
+    .card-grid-3 {
+      grid-template-columns: 1fr;
     }
-    .cta {
-      margin-top: 18px;
-      display: flex;
-      flex-wrap: wrap;
-      gap: 10px;
+
+    .mobile-cta-row {
+      grid-template-columns: 1fr;
     }
-    .cta a.primary {
-      background: var(--accent);
-      border-color: var(--accent);
-      color: #fff;
-      font-weight: 700;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition: none !important;
+      animation: none !important;
     }
-    .meta {
-      margin-top: 24px;
-      font-size: 0.9rem;
-      color: var(--muted);
-      display: flex;
-      flex-wrap: wrap;
-      gap: 16px;
-      justify-content: space-between;
-    }
-    .meta a { color: inherit; }
-    @media (max-width: 720px) {
-      header { flex-direction: column; align-items: flex-start; }
-      .panel { padding: 20px; }
-    }
-  </style>
+  }
+</style>
 </head>
 <body>
-  <div class="wrap">
-    <header>
-      <div>
-        <div class="brand">TradeJAudit</div>
-        <small>Journal and analytics for disciplined execution</small>
+  <a href="#main-content" class="skip-link">Skip to content</a>
+  
+    <header class="site-header">
+      <div class="site-container header-shell">
+        <a class="brand" href="/en/">
+          <span class="brand-logo" aria-hidden="true">TJ</span>
+          <span>
+            <strong>TradeJAudit</strong>
+            <small>Journal and analytics for disciplined execution</small>
+          </span>
+        </a>
+
+        <nav class="desktop-nav" aria-label="Public navigation">
+          <a class="nav-link" href="/en/">Home</a><a class="nav-link" href="/en/features/">Features</a><a class="nav-link" href="/en/pricing/">Pricing</a><a class="nav-link" href="/en/about/">About</a>
+        </nav>
+
+        <div class="desktop-actions">
+          <div class="language-switch" aria-label="Language">
+            <a class="chip-link is-active" href="/en/cookies/">English</a>
+            <a class="chip-link" href="/ro/cookies/">Romana</a>
+          </div>
+          <a class="button button-ghost" href="/login?lang=en">Login</a>
+          <a class="button button-primary" href="/register?lang=en">Create account</a>
+        </div>
+
+        <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="mobile-menu" data-menu-toggle>
+          <span class="menu-toggle-label">Menu</span>
+          <span aria-hidden="true">☰</span>
+        </button>
       </div>
-      <nav aria-label="Public navigation"><a href="/en/">Home</a><a href="/en/features/">Features</a><a href="/en/pricing/">Pricing</a><a href="/en/about/">About</a><a href="/en/terms/">Terms</a><a href="/en/privacy/">Privacy</a><a href="/en/cookies/">Cookies</a></nav>
-      <div class="lang">
-        <a href="/en/cookies/">English</a>
-        <a href="/ro/cookies/">Romana</a>
-      </div>
-      <div class="auth">
-        <a href="/login?lang=en">Login</a>
-        <a href="/register?lang=en">Create account</a>
+
+      <div class="mobile-menu" id="mobile-menu" data-mobile-menu>
+        <div class="site-container mobile-menu-inner">
+          <nav aria-label="Mobile navigation" class="mobile-nav-links">
+            <a class="nav-link" href="/en/">Home</a><a class="nav-link" href="/en/features/">Features</a><a class="nav-link" href="/en/pricing/">Pricing</a><a class="nav-link" href="/en/about/">About</a>
+          </nav>
+          <div class="mobile-menu-utility">
+            <div class="language-switch" aria-label="Language">
+              <a class="chip-link is-active" href="/en/cookies/">English</a>
+              <a class="chip-link" href="/ro/cookies/">Romana</a>
+            </div>
+            <div class="mobile-cta-row">
+              <a class="button button-ghost" href="/login?lang=en">Login</a>
+              <a class="button button-primary" href="/register?lang=en">Create account</a>
+            </div>
+          </div>
+        </div>
       </div>
     </header>
+  
 
-    <main class="panel">
-      <h1>Cookie Policy</h1>
-      <p>TradeJAudit uses cookies primarily for secure sessions, preference persistence, and performance monitoring.</p>
-      <ul>
-        <li>Essential cookies support authentication and session continuity.</li><li>Preference cookies keep language and interface settings consistent.</li><li>Performance cookies help improve loading and stability.</li>
-      </ul>
-      <div class="note">Cookie usage should be reviewed against local compliance requirements.</div>
-      <div class="cta">
-        <a class="primary" href="/login?lang=en">Open app login</a>
-        <a href="/en/terms/">Terms and conditions</a>
+  <main id="main-content" class="page-main">
+    <div class="site-container">
+      
+    <section class="section hero" aria-labelledby="hero-title">
+      <div class="hero-grid">
+        <article class="hero-content card">
+          <p class="hero-badge">Legal</p>
+          <h1 id="hero-title">Cookie Policy</h1>
+          <p class="hero-intro">TradeJAudit uses cookies primarily for secure sessions, preference persistence, and performance monitoring.</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="/login?lang=en">Open app login</a>
+            <a class="button button-ghost" href="/en/terms/">Terms and conditions</a>
+          </div>
+        </article>
+
+        <aside class="hero-side card" aria-label="Quick summary">
+          <h2>What you get</h2>
+          <ul>
+            <li>Essential cookies support authentication and session continuity.</li><li>Preference cookies keep language and interface settings consistent.</li><li>Performance cookies help improve loading and stability.</li>
+          </ul>
+          <p class="hero-note">Cookie usage should be reviewed against local compliance requirements.</p>
+        </aside>
       </div>
-    </main>
+    </section>
+  
+    <section class="section" aria-labelledby="legal-points-title">
+      <div class="section-heading">
+        <h2 id="legal-points-title">Key points</h2>
+      </div>
+      <div class="card-grid card-grid-3">
+        
+          <article class="card card-soft">
+            <p>Essential cookies support authentication and session continuity.</p>
+          </article>
+        
+          <article class="card card-soft">
+            <p>Preference cookies keep language and interface settings consistent.</p>
+          </article>
+        
+          <article class="card card-soft">
+            <p>Performance cookies help improve loading and stability.</p>
+          </article>
+        
+      </div>
+    </section>
 
-    <div class="meta">
-      <span>Canonical: <a href="https://tradejaudit.com/en/cookies/">https://tradejaudit.com/en/cookies/</a></span>
-      <span>Alternate: <a href="https://tradejaudit.com/ro/cookies/">https://tradejaudit.com/ro/cookies/</a></span>
-      <span>Default: <a href="https://tradejaudit.com/en/cookies/">https://tradejaudit.com/en/cookies/</a></span>
-      <span>Updated: 2026-02-08</span>
+    <section class="section legal-section" aria-labelledby="legal-detail-title">
+      <div class="section-heading">
+        <h2 id="legal-detail-title">Detailed sections</h2>
+        <p>Draft for review. This content should be reviewed by qualified legal counsel for your jurisdiction.</p>
+      </div>
+
+      <details class="legal-toc-mobile">
+        <summary>Jump to section</summary>
+        <nav aria-label="On this page" class="toc-list">
+          <a href="#section-1-how-cookies-are-used">How cookies are used</a>
+        </nav>
+      </details>
+
+      <div class="legal-layout">
+        <aside class="card legal-toc" aria-label="On this page">
+          <h3>On this page</h3>
+          <nav class="toc-list">
+            <a href="#section-1-how-cookies-are-used">How cookies are used</a>
+          </nav>
+        </aside>
+
+        <article class="card legal-article">
+          
+            <section id="section-1-how-cookies-are-used" class="legal-article-section" aria-labelledby="section-1-how-cookies-are-used-title">
+              <h3 id="section-1-how-cookies-are-used-title">How cookies are used</h3>
+              <p>Cookies help keep sessions secure, remember preferences, and improve performance.</p>
+            </section>
+          
+        </article>
+      </div>
+    </section>
+  
     </div>
-  </div>
+  </main>
+
+  
+    <footer class="site-footer">
+      <div class="site-container footer-shell">
+        <p class="footer-copy">For journaling and analytics only. Not investment advice.</p>
+        <nav class="footer-links" aria-label="Legal links">
+          <a href="/en/terms/">Terms</a>
+          <a href="/en/privacy/">Privacy</a>
+          <a href="/en/cookies/">Cookies</a>
+        </nav>
+      </div>
+    </footer>
+  
+
+  <script>
+    (() => {
+      const menuToggle = document.querySelector('[data-menu-toggle]')
+      const mobileMenu = document.querySelector('[data-mobile-menu]')
+      if (!menuToggle || !mobileMenu) return
+
+      const setMenuOpen = (open) => {
+        menuToggle.setAttribute('aria-expanded', open ? 'true' : 'false')
+        mobileMenu.setAttribute('data-open', open ? 'true' : 'false')
+      }
+
+      setMenuOpen(false)
+
+      menuToggle.addEventListener('click', () => {
+        const expanded = menuToggle.getAttribute('aria-expanded') === 'true'
+        setMenuOpen(!expanded)
+      })
+
+      mobileMenu.querySelectorAll('a').forEach((link) => {
+        link.addEventListener('click', () => setMenuOpen(false))
+      })
+
+      window.addEventListener('resize', () => {
+        if (window.innerWidth > 1080) {
+          setMenuOpen(false)
+        }
+      })
+    })()
+  </script>
+
+  <noscript>
+    <style>
+      .mobile-menu { display: block !important; }
+      .menu-toggle { display: none !important; }
+    </style>
+  </noscript>
+
+  <!-- Canonical: https://tradejaudit.com/en/cookies/ | Alternate: https://tradejaudit.com/ro/cookies/ | Updated: 2026-02-09 -->
 </body>
 </html>

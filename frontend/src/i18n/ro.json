@@ -660,6 +660,8 @@
   },
   "legal": {
     "disclaimer": "Versiune de lucru. Acest conținut trebuie revizuit de consultanți juridici calificați pentru jurisdicția aplicabilă.",
+    "tableOfContents": "Pe această pagină",
+    "jumpToSection": "Mergi la secțiune",
     "terms": {
       "title": "Termeni și condiții",
       "sections": {

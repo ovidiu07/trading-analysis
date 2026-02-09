@@ -5,16 +5,18 @@ import {
   Card,
   CardContent,
   Chip,
-  Grid,
+  Drawer,
   InputAdornment,
   Stack,
   Tab,
   Tabs,
   TextField,
   Typography,
-  useMediaQuery
+  useMediaQuery,
+  useTheme
 } from '@mui/material'
 import SearchIcon from '@mui/icons-material/Search'
+import TuneIcon from '@mui/icons-material/Tune'
 import LoadingState from '../components/ui/LoadingState'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
@@ -34,7 +36,9 @@ const normalize = (value: string) => value.trim().toLowerCase()
 
 export default function InsightsPage() {
   const { t } = useI18n()
-  const isCompact = useMediaQuery('(max-width:560px)')
+  const theme = useTheme()
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
+
   const [types, setTypes] = useState<ContentType[]>([])
   const [tab, setTab] = useState(0)
   const [search, setSearch] = useState('')
@@ -43,6 +47,7 @@ export default function InsightsPage() {
   const [items, setItems] = useState<ContentPost[]>([])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false)
 
   const activeType = types[tab] || null
   const activeTypeKey = activeType?.key
@@ -82,11 +87,11 @@ export default function InsightsPage() {
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
-      fetchContent()
+      void fetchContent()
     }, 300)
     return () => window.clearTimeout(handle)
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, search, types.length])
+  }, [activeTypeKey, search])
 
   const filteredItems = useMemo(() => {
     const tagTokens = parseCsv(tagFilter).map(normalize)
@@ -113,24 +118,78 @@ export default function InsightsPage() {
       ? t('insights.empty.weeklyBody')
       : t('insights.empty.defaultBody')
 
+  const clearAdvancedFilters = () => {
+    setTagFilter('')
+    setSymbolFilter('')
+  }
+
   return (
-    <Stack spacing={3}>
-      <Card>
-        <CardContent>
-          <Stack spacing={2}>
-            <Tabs
-              value={types.length === 0 ? false : tab}
-              onChange={(_, value) => setTab(value)}
-              variant="scrollable"
-              allowScrollButtonsMobile
-              scrollButtons={isCompact ? true : 'auto'}
-            >
-              {types.map((item) => (
-                <Tab key={item.id} label={item.displayName} />
-              ))}
-            </Tabs>
-            <Grid container spacing={2} alignItems="center">
-              <Grid item xs={12} md={6}>
+    <Stack spacing={3} sx={{ width: '100%', minWidth: 0, overflowX: 'hidden' }}>
+      <Stack spacing={0.75} sx={{ minWidth: 0 }}>
+        <Typography
+          component="h1"
+          variant="h4"
+          sx={{
+            fontWeight: 700,
+            fontSize: { xs: '1.7rem', sm: '2rem' },
+            lineHeight: 1.2,
+            overflowWrap: 'anywhere'
+          }}
+        >
+          {t('nav.insights')}
+        </Typography>
+        <Typography
+          variant="body2"
+          color="text.secondary"
+          sx={{ maxWidth: { xs: '100%', md: '78ch' }, overflowWrap: 'anywhere' }}
+        >
+          {t('insights.subtitle')}
+        </Typography>
+      </Stack>
+
+      <Card sx={{ overflow: 'hidden' }}>
+        <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
+          <Stack spacing={2} sx={{ minWidth: 0 }}>
+            <Box sx={{ minWidth: 0, mx: -0.5, px: 0.5, overflowX: 'auto' }}>
+              <Tabs
+                value={types.length === 0 ? false : tab}
+                onChange={(_, value) => setTab(value)}
+                variant="scrollable"
+                allowScrollButtonsMobile
+                scrollButtons="auto"
+                aria-label={t('nav.insights')}
+                sx={{
+                  minHeight: 44,
+                  '& .MuiTabs-indicator': { display: 'none' },
+                  '& .MuiTabs-scrollButtons': {
+                    color: 'text.secondary'
+                  },
+                  '& .MuiTab-root': {
+                    textTransform: 'none',
+                    minHeight: 40,
+                    minWidth: 'max-content',
+                    border: '1px solid',
+                    borderColor: 'divider',
+                    borderRadius: 999,
+                    px: 1.5,
+                    mr: 1,
+                    color: 'text.secondary'
+                  },
+                  '& .MuiTab-root.Mui-selected': {
+                    color: 'text.primary',
+                    borderColor: 'primary.main',
+                    bgcolor: 'action.selected'
+                  }
+                }}
+              >
+                {types.map((item) => (
+                  <Tab key={item.id} label={item.displayName} />
+                ))}
+              </Tabs>
+            </Box>
+
+            {isMobile ? (
+              <Stack spacing={1.25} sx={{ minWidth: 0 }}>
                 <TextField
                   fullWidth
                   placeholder={t('insights.searchPlaceholder')}
@@ -144,24 +203,56 @@ export default function InsightsPage() {
                     )
                   }}
                 />
-              </Grid>
-              <Grid item xs={12} md={3}>
+                <Button
+                  variant="outlined"
+                  startIcon={<TuneIcon />}
+                  onClick={() => setMobileFiltersOpen(true)}
+                  sx={{ alignSelf: 'flex-start', minHeight: 44 }}
+                >
+                  {t('dashboard.topBar.filters')}
+                </Button>
+              </Stack>
+            ) : (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: { sm: 'repeat(2, minmax(0, 1fr))', md: '2fr 1fr 1fr' },
+                  gap: 1.5,
+                  alignItems: 'center',
+                  minWidth: 0,
+                  '& > *': {
+                    minWidth: 0
+                  }
+                }}
+              >
+                <TextField
+                  fullWidth
+                  placeholder={t('insights.searchPlaceholder')}
+                  value={search}
+                  onChange={(event) => setSearch(event.target.value)}
+                  sx={{ gridColumn: { sm: '1 / -1', md: 'auto' } }}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        <SearchIcon fontSize="small" />
+                      </InputAdornment>
+                    )
+                  }}
+                />
                 <TextField
                   fullWidth
                   placeholder={t('insights.tagsPlaceholder')}
                   value={tagFilter}
                   onChange={(event) => setTagFilter(event.target.value)}
                 />
-              </Grid>
-              <Grid item xs={12} md={3}>
                 <TextField
                   fullWidth
                   placeholder={t('insights.symbolsPlaceholder')}
                   value={symbolFilter}
                   onChange={(event) => setSymbolFilter(event.target.value)}
                 />
-              </Grid>
-            </Grid>
+              </Box>
+            )}
           </Stack>
         </CardContent>
       </Card>
@@ -180,55 +271,124 @@ export default function InsightsPage() {
           description={emptyDescription}
         />
       ) : (
-        <Grid container spacing={2}>
-          {filteredItems.map((item) => (
-            <Grid item xs={12} md={6} key={item.id}>
-              <Card sx={{ height: '100%' }}>
-                <CardContent>
-                  <Stack spacing={2} height="100%">
-                    <Box>
-                      <Typography variant="h6" sx={{ fontWeight: 700 }}>
+        <Box
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))' },
+            gap: 2,
+            minWidth: 0,
+            '& > *': {
+              minWidth: 0
+            }
+          }}
+        >
+          {filteredItems.map((item) => {
+            const tags = item.tags || []
+            const symbols = item.symbols || []
+            const visibleTags = tags.slice(0, 2)
+            const visibleSymbols = symbols.slice(0, 2)
+            const hiddenCount = Math.max(tags.length - visibleTags.length, 0) + Math.max(symbols.length - visibleSymbols.length, 0)
+
+            return (
+              <Card key={item.id} sx={{ height: '100%', minWidth: 0, overflow: 'hidden' }}>
+                <CardContent sx={{ p: { xs: 2, sm: 2.5 }, height: '100%' }}>
+                  <Stack spacing={1.75} sx={{ minWidth: 0, height: '100%' }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="h6" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
                         {item.title}
                       </Typography>
                       {item.summary && (
-                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+                        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.75, overflowWrap: 'anywhere' }}>
                           {item.summary}
                         </Typography>
                       )}
                     </Box>
-                    <Stack direction="row" spacing={1} flexWrap="wrap">
+
+                    <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ minWidth: 0 }}>
                       <Chip label={item.contentTypeDisplayName || item.contentTypeKey} size="small" color="primary" />
-                      {(item.tags || []).slice(0, 3).map((tag) => (
-                        <Chip key={tag} label={tag} size="small" variant="outlined" />
+                      {visibleTags.map((tag) => (
+                        <Chip key={`${item.id}-${tag}`} label={tag} size="small" variant="outlined" />
                       ))}
-                      {(item.symbols || []).slice(0, 3).map((symbol) => (
-                        <Chip key={symbol} label={symbol} size="small" variant="outlined" />
+                      {visibleSymbols.map((symbol) => (
+                        <Chip key={`${item.id}-${symbol}`} label={symbol} size="small" variant="outlined" />
                       ))}
+                      {hiddenCount > 0 && (
+                        <Chip label={`+${hiddenCount}`} size="small" variant="outlined" />
+                      )}
                     </Stack>
+
                     {item.contentTypeKey === 'WEEKLY_PLAN' && item.weekStart && item.weekEnd && (
-                      <Typography variant="body2" color="text.secondary">
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                         {t('insights.weekOf')} {formatDate(item.weekStart)} - {formatDate(item.weekEnd)}
                       </Typography>
                     )}
-                    <Typography variant="caption" color="text.secondary">
+
+                    <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                       {t('insights.updated')} {formatDateTime(item.updatedAt || item.publishedAt || '')}
                     </Typography>
+
                     <Box sx={{ flexGrow: 1 }} />
+
                     <Button
                       variant="outlined"
                       component={Link}
                       to={`/insights/${item.slug || item.id}`}
-                      sx={{ alignSelf: 'flex-start' }}
+                      sx={{ alignSelf: 'flex-start', minHeight: 44 }}
                     >
                       {t('common.viewDetails')}
                     </Button>
                   </Stack>
                 </CardContent>
               </Card>
-            </Grid>
-          ))}
-        </Grid>
+            )
+          })}
+        </Box>
       )}
+
+      <Drawer
+        anchor="right"
+        open={mobileFiltersOpen}
+        onClose={() => setMobileFiltersOpen(false)}
+        ModalProps={{ keepMounted: false }}
+        sx={{
+          display: { xs: 'block', sm: 'none' },
+          '& .MuiDrawer-paper': {
+            width: 'min(92vw, 360px)',
+            maxWidth: '100vw',
+            p: 2,
+            borderLeft: '1px solid',
+            borderColor: 'divider',
+            overflowX: 'hidden'
+          }
+        }}
+      >
+        <Stack spacing={1.5} sx={{ minWidth: 0, height: '100%' }}>
+          <Typography variant="h6" sx={{ fontWeight: 700 }}>
+            {t('dashboard.topBar.filters')}
+          </Typography>
+          <TextField
+            fullWidth
+            placeholder={t('insights.tagsPlaceholder')}
+            value={tagFilter}
+            onChange={(event) => setTagFilter(event.target.value)}
+          />
+          <TextField
+            fullWidth
+            placeholder={t('insights.symbolsPlaceholder')}
+            value={symbolFilter}
+            onChange={(event) => setSymbolFilter(event.target.value)}
+          />
+          <Box sx={{ flexGrow: 1 }} />
+          <Stack direction="row" spacing={1}>
+            <Button variant="outlined" fullWidth onClick={clearAdvancedFilters}>
+              {t('common.reset')}
+            </Button>
+            <Button variant="contained" fullWidth onClick={() => setMobileFiltersOpen(false)}>
+              {t('common.apply')}
+            </Button>
+          </Stack>
+        </Stack>
+      </Drawer>
     </Stack>
   )
 }

@@ -70,6 +70,7 @@ export default function TopBar({
   const profileOpen = Boolean(profileAnchor)
   const theme = useTheme()
   const isNarrow = useMediaQuery(theme.breakpoints.down('md'))
+  const isCompact = useMediaQuery(theme.breakpoints.down('sm'))
   const isDashboardMobile = isDashboard && isNarrow
   const [dashboardFiltersOpen, setDashboardFiltersOpen] = useState(false)
 
@@ -175,18 +176,20 @@ export default function TopBar({
       <AppBar position="sticky" elevation={0}>
       <Toolbar
         sx={{
-          minHeight: { xs: isDashboard ? (isDashboardMobile ? 102 : 92) : 72, md: isDashboard ? 132 : 72 },
+          minHeight: { xs: isDashboard ? (isDashboardMobile ? 102 : 92) : 70, md: isDashboard ? 132 : 72 },
           py: isDashboard ? (isDashboardMobile ? 1 : 1.5) : 1,
           alignItems: 'flex-start',
-          overflowX: 'clip'
+          overflowX: 'clip',
+          minWidth: 0
         }}
       >
-        <Stack spacing={1.5} sx={{ width: '100%' }}>
+        <Stack spacing={1.5} sx={{ width: '100%', minWidth: 0 }}>
           <Stack
             direction={{ xs: 'column', sm: 'row' }}
             alignItems={{ xs: 'stretch', sm: 'center' }}
             justifyContent="space-between"
             spacing={1.5}
+            sx={{ minWidth: 0 }}
           >
             <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 0 }}>
               {showMenuToggle && (
@@ -200,7 +203,15 @@ export default function TopBar({
                     {title}
                   </Typography>
                   {subtitle && (
-                    <Typography variant="body2" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' } }} noWrap>
+                    <Typography
+                      variant="body2"
+                      color="text.secondary"
+                      sx={{
+                        display: { xs: 'none', sm: 'block' },
+                        maxWidth: '68ch',
+                        overflowWrap: 'anywhere'
+                      }}
+                    >
                       {subtitle}
                     </Typography>
                   )}
@@ -217,7 +228,12 @@ export default function TopBar({
                 alignItems="center"
                 justifyContent={{ xs: 'flex-end', sm: 'flex-start' }}
                 flexWrap={{ xs: 'wrap', sm: 'nowrap' }}
-                sx={{ width: { xs: '100%', sm: 'auto' }, rowGap: 1 }}
+                sx={{
+                  width: { xs: '100%', sm: 'auto' },
+                  rowGap: 1,
+                  minWidth: 0,
+                  overflowX: 'hidden'
+                }}
               >
                 <Typography
                   variant="caption"
@@ -233,11 +249,12 @@ export default function TopBar({
                     <Chip label={timezone} size="small" variant="outlined" aria-label={t('dashboard.topBar.timezone')} />
                   </>
                 )}
-                <FormControl size="small" sx={{ minWidth: { xs: 88, sm: 110 } }}>
+                <FormControl size="small" sx={{ minWidth: { xs: 72, sm: 110 }, flexShrink: 0 }}>
                   <Select
                     value={language}
                     onChange={(event) => onLanguageChange(event.target.value as AppLanguage)}
                     inputProps={{ 'aria-label': t('language.label') }}
+                    renderValue={(value) => (isCompact ? String(value).toUpperCase() : t(value === 'en' ? 'language.english' : 'language.romanian'))}
                   >
                     <MenuItem value="en">{t('language.english')}</MenuItem>
                     <MenuItem value="ro">{t('language.romanian')}</MenuItem>
@@ -290,13 +307,19 @@ export default function TopBar({
                 alignItems="center"
                 justifyContent={{ xs: 'flex-end', sm: 'flex-start' }}
                 flexWrap={{ xs: 'wrap', sm: 'nowrap' }}
-                sx={{ width: { xs: '100%', sm: 'auto' }, rowGap: 1 }}
+                sx={{
+                  width: { xs: '100%', sm: 'auto' },
+                  rowGap: 1,
+                  minWidth: 0,
+                  overflowX: 'hidden'
+                }}
               >
-                <FormControl size="small" sx={{ minWidth: { xs: 88, sm: 112 } }}>
+                <FormControl size="small" sx={{ minWidth: { xs: 72, sm: 112 }, flexShrink: 0 }}>
                   <Select
                     value={language}
                     onChange={(event) => onLanguageChange(event.target.value as AppLanguage)}
                     inputProps={{ 'aria-label': t('language.label') }}
+                    renderValue={(value) => (isCompact ? String(value).toUpperCase() : t(value === 'en' ? 'language.english' : 'language.romanian'))}
                   >
                     <MenuItem value="en">{t('language.english')}</MenuItem>
                     <MenuItem value="ro">{t('language.romanian')}</MenuItem>

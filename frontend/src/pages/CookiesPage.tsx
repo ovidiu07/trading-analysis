@@ -1,22 +1,23 @@
-import { Container, Stack, Typography } from '@mui/material'
+import { Container } from '@mui/material'
 import { useI18n } from '../i18n'
+import LegalDocumentLayout from '../components/legal/LegalDocumentLayout'
 
 export default function CookiesPage() {
   const { t } = useI18n()
-  return (
-    <Container maxWidth="md">
-      <Stack spacing={2}>
-        <Typography variant="body2" color="text.secondary">
-          {t('legal.disclaimer')}
-        </Typography>
-        <Stack spacing={1}>
-          <Typography variant="h6">{t('legal.cookies.sections.s1.title')}</Typography>
-          <Typography variant="body2" color="text.secondary">
-            {t('legal.cookies.sections.s1.body')}
-          </Typography>
-        </Stack>
+  const sections = ['s1'].map((sectionKey) => ({
+    id: `cookies-${sectionKey}`,
+    title: t(`legal.cookies.sections.${sectionKey}.title`),
+    body: t(`legal.cookies.sections.${sectionKey}.body`)
+  }))
 
-      </Stack>
+  return (
+    <Container maxWidth="lg" sx={{ minWidth: 0 }}>
+      <LegalDocumentLayout
+        disclaimer={t('legal.disclaimer')}
+        tocLabel={t('legal.tableOfContents')}
+        jumpLabel={t('legal.jumpToSection')}
+        sections={sections}
+      />
     </Container>
   )
 }

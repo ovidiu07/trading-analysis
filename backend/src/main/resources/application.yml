@@ -22,8 +22,8 @@ spring:
   mail:
     host: ${MAIL_HOST:smtppro.zoho.eu}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:contact@ihomeprosolutions.ro}
-    password: ${MAIL_PASSWORD:Marley01042022$}
+    username: ${MAIL_USERNAME:no-reply@tradejaudit.com}
+    password: ${MAIL_PASSWORD:Davidqwerty2025$}
     properties:
       mail:
         smtp:
@@ -46,9 +46,9 @@ app:
     turnstile-site-key: ${TURNSTILE_SITE_KEY:}
   mail:
     from-name: ${MAIL_FROM_NAME:TradeVault}
-    from-address: ${MAIL_FROM_ADDRESS:contact@ihomeprosolutions.ro}
+    from-address: ${MAIL_FROM_ADDRESS:no-reply@tradejaudit.com}
     template-base-url: ${MAIL_TEMPLATE_BASE_URL:}
-    support-email: ${MAIL_SUPPORT_EMAIL:contact@ihomeprosolutions.ro}
+    support-email: ${MAIL_SUPPORT_EMAIL:no-reply@tradejaudit.com}
 
 logging:
   level:
