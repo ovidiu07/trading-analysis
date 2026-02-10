@@ -58,7 +58,7 @@ storage:
     bucket: ${STORAGE_S3_BUCKET:tradejaudit}
     region: ${STORAGE_S3_REGION:eu-central-1}
     endpoint: ${STORAGE_S3_ENDPOINT:}
-    access-key: ${STORAGE_S3_ACCESS_KEY:AKIA3I6HNKMGCWZLOCVS}
+    access-key: ${STORAGE_S3_ACCESS_KEY:AKIA3I6HNKMGENBEBPX4}
     secret-key: ${STORAGE_S3_SECRET_KEY:}
     public-base-url: ${STORAGE_S3_PUBLIC_BASE_URL:}
     path-style-access: ${STORAGE_S3_PATH_STYLE_ACCESS:false}
@@ -84,3 +84,9 @@ tradecoach:
   holding-bucket-delta-r: ${TRADECOACH_HOLDING_DELTA_R:0.2}
   critical-expectancy: ${TRADECOACH_CRITICAL_EXPECTANCY:-50.0}
   data-quality-penalty-ratio: ${TRADECOACH_DQ_PENALTY:0.2}
+
+notifications:
+  dispatch:
+    fixed-delay-ms: ${NOTIFICATIONS_DISPATCH_INTERVAL_MS:60000}
+  stream:
+    heartbeat-ms: ${NOTIFICATIONS_STREAM_HEARTBEAT_MS:25000}

@@ -22,6 +22,7 @@ public class ContentPostRequest {
     private OffsetDateTime visibleUntil;
     private LocalDate weekStart;
     private LocalDate weekEnd;
+    private Boolean notifySubscribersAboutUpdate;
 
     @NotNull
     @Valid

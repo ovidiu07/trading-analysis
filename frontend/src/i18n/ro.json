@@ -194,6 +194,7 @@
       "body": "Conținut",
       "bodyHint": "Folosește markdown pentru titluri, liste și evidențieri.",
       "commaSeparated": "separate prin virgulă",
+      "notifySubscribersAboutUpdate": "Notifică abonații despre această actualizare",
       "slug": "Slug",
       "slugHint": "Opțional. Dacă este gol, slug-ul se generează din titlu.",
       "summary": "Rezumat",
@@ -909,6 +910,59 @@
       "title": "Ștergere cont",
       "subtitle": "Solicită ștergerea contului și a datelor. Fluxul va fi disponibil în curând.",
       "action": "Șterge contul (în curând)"
+    }
+  },
+  "notifications": {
+    "title": "Notificări",
+    "untitled": "Insight fără titlu",
+    "tabs": {
+      "unread": "Necitite",
+      "all": "Toate"
+    },
+    "markAllRead": "Marchează tot ca citit",
+    "labels": {
+      "new": "Nou",
+      "updated": "Actualizat"
+    },
+    "empty": {
+      "unread": "Nu există notificări necitite.",
+      "all": "Nu există notificări încă."
+    },
+    "actions": {
+      "loadMore": "Încarcă mai multe"
+    },
+    "errors": {
+      "load": "Notificările nu au putut fi încărcate.",
+      "markAll": "Nu s-au putut marca toate notificările ca citite."
+    },
+    "status": {
+      "polling": "Fluxul live nu este disponibil. Verificăm periodic actualizările."
+    },
+    "settings": {
+      "title": "Setări notificări",
+      "subtitle": "Alege ce insight-uri trebuie să declanșeze notificări în aplicație.",
+      "enable": "Activează notificările",
+      "notifyOnNew": "Notifică pentru conținut nou",
+      "notifyOnUpdates": "Notifică pentru actualizări de conținut",
+      "subscriptionMode": "Mod de abonare",
+      "mode": {
+        "all": "Toate categoriile",
+        "selected": "Doar categoriile selectate"
+      },
+      "selectCategories": "Selectează categoriile",
+      "noCategoriesSelected": "Nicio categorie selectată",
+      "helper": "Actualizările sunt trimise doar pentru conținutul din categoriile selectate.",
+      "actions": {
+        "save": "Salvează setările de notificări"
+      },
+      "messages": {
+        "saved": "Setările de notificări au fost salvate"
+      }
+    },
+    "toast": {
+      "published": "Insight nou publicat: {{title}}",
+      "updated": "Insight actualizat: {{title}}",
+      "view": "Vezi"
     }
   },
   "trades": {

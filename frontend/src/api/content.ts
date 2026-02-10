@@ -78,6 +78,7 @@ export type ContentPostRequest = {
   visibleUntil?: string | null
   weekStart?: string | null
   weekEnd?: string | null
+  notifySubscribersAboutUpdate?: boolean
   translations: Record<string, LocalizedContent>
 }
 
@@ -96,6 +97,10 @@ const toQuery = (params: QueryParams = {}) => {
 
 export async function listContentTypes() {
   return apiGet<ContentType[]>('/content-types')
+}
+
+export async function listContentCategories() {
+  return apiGet<ContentType[]>('/content-categories')
 }
 
 export async function listAdminContentTypes(params: { includeInactive?: boolean } = {}) {

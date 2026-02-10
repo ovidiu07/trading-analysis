@@ -3,6 +3,7 @@ import { getCurrentLocale } from '../i18n'
 const formatterCache = new Map<string, Intl.NumberFormat>()
 const compactFormatterCache = new Map<string, Intl.NumberFormat>()
 const numberFormatterCache = new Map<string, Intl.NumberFormat>()
+const relativeFormatterCache = new Map<string, Intl.RelativeTimeFormat>()
 
 const getCurrencyFormatter = (currency?: string) => {
   const locale = getCurrentLocale()
@@ -73,6 +74,14 @@ const getNumberFormatter = (maximumFractionDigits = 2) => {
   return numberFormatterCache.get(cacheKey)!
 }
 
+const getRelativeFormatter = () => {
+  const locale = getCurrentLocale()
+  if (!relativeFormatterCache.has(locale)) {
+    relativeFormatterCache.set(locale, new Intl.RelativeTimeFormat(locale, { numeric: 'auto' }))
+  }
+  return relativeFormatterCache.get(locale)!
+}
+
 export const formatCurrency = (value?: number | null, currency?: string) => {
   if (value === undefined || value === null || Number.isNaN(value)) return '—'
   return getCurrencyFormatter(currency).format(value)
@@ -125,4 +134,34 @@ export const formatDate = (value?: string | null, timeZone?: string) => {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
   return date.toLocaleDateString(getCurrentLocale(), timeZone ? { timeZone } : undefined)
+}
+
+export const formatRelativeTime = (value?: string | null) => {
+  if (!value) return '—'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+
+  const diffInSeconds = Math.round((date.getTime() - Date.now()) / 1000)
+  const absSeconds = Math.abs(diffInSeconds)
+  const formatter = getRelativeFormatter()
+
+  if (absSeconds < 60) {
+    return formatter.format(diffInSeconds, 'second')
+  }
+  if (absSeconds < 3600) {
+    return formatter.format(Math.round(diffInSeconds / 60), 'minute')
+  }
+  if (absSeconds < 86400) {
+    return formatter.format(Math.round(diffInSeconds / 3600), 'hour')
+  }
+  if (absSeconds < 604800) {
+    return formatter.format(Math.round(diffInSeconds / 86400), 'day')
+  }
+  if (absSeconds < 2629800) {
+    return formatter.format(Math.round(diffInSeconds / 604800), 'week')
+  }
+  if (absSeconds < 31557600) {
+    return formatter.format(Math.round(diffInSeconds / 2629800), 'month')
+  }
+  return formatter.format(Math.round(diffInSeconds / 31557600), 'year')
 }

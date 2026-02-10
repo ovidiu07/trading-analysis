@@ -11,6 +11,7 @@ import com.tradevault.service.mail.MailService;
 import com.tradevault.service.mail.TemplateRenderer;
 import com.tradevault.service.mail.VerificationEmailComposer;
 import com.tradevault.service.mail.VerificationEmailContent;
+import com.tradevault.service.notification.NotificationPreferencesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -48,6 +49,7 @@ class AuthServiceDemoDataTest {
     private MailConfig mailConfig;
     private CurrentUserService currentUserService;
     private DemoDataService demoDataService;
+    private NotificationPreferencesService notificationPreferencesService;
     private AuthService authService;
 
     @BeforeEach
@@ -69,6 +71,7 @@ class AuthServiceDemoDataTest {
         mailConfig = mock(MailConfig.class);
         currentUserService = mock(CurrentUserService.class);
         demoDataService = mock(DemoDataService.class);
+        notificationPreferencesService = mock(NotificationPreferencesService.class);
 
         authService = new AuthService(
                 userRepository,
@@ -87,7 +90,8 @@ class AuthServiceDemoDataTest {
                 verificationEmailComposer,
                 mailConfig,
                 currentUserService,
-                demoDataService
+                demoDataService,
+                notificationPreferencesService
         );
 
         ReflectionTestUtils.setField(authService, "frontendUrl", "http://localhost:5173");

@@ -194,6 +194,7 @@
       "body": "Body",
       "bodyHint": "Use markdown for headings, lists, and emphasis.",
       "commaSeparated": "comma-separated",
+      "notifySubscribersAboutUpdate": "Notify subscribers about this update",
       "slug": "Slug",
       "slugHint": "Optional. If empty, a slug is generated from the title.",
       "summary": "Summary",
@@ -909,6 +910,59 @@
       "title": "Account deletion",
       "subtitle": "Request deletion of your account and data. This workflow is coming soon.",
       "action": "Delete account (coming soon)"
+    }
+  },
+  "notifications": {
+    "title": "Notifications",
+    "untitled": "Untitled insight",
+    "tabs": {
+      "unread": "Unread",
+      "all": "All"
+    },
+    "markAllRead": "Mark all as read",
+    "labels": {
+      "new": "New",
+      "updated": "Updated"
+    },
+    "empty": {
+      "unread": "No unread notifications.",
+      "all": "No notifications yet."
+    },
+    "actions": {
+      "loadMore": "Load more"
+    },
+    "errors": {
+      "load": "Could not load notifications.",
+      "markAll": "Could not mark all notifications as read."
+    },
+    "status": {
+      "polling": "Live stream unavailable. Checking for updates periodically."
+    },
+    "settings": {
+      "title": "Notification settings",
+      "subtitle": "Choose which insights should trigger in-app notifications.",
+      "enable": "Enable notifications",
+      "notifyOnNew": "Notify on new content",
+      "notifyOnUpdates": "Notify on content updates",
+      "subscriptionMode": "Subscription mode",
+      "mode": {
+        "all": "All categories",
+        "selected": "Only selected categories"
+      },
+      "selectCategories": "Select categories",
+      "noCategoriesSelected": "No categories selected",
+      "helper": "Updates are sent only for content matching your selected categories.",
+      "actions": {
+        "save": "Save notification settings"
+      },
+      "messages": {
+        "saved": "Notification settings saved"
+      }
+    },
+    "toast": {
+      "published": "New insight published: {{title}}",
+      "updated": "Insight updated: {{title}}",
+      "view": "View"
     }
   },
   "trades": {

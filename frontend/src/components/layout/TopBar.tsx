@@ -33,6 +33,7 @@ import type { AuthUser } from '../../api/auth'
 import type { DashboardQueryState, DashboardStatusFilter } from '../../features/dashboard/queryState'
 import { useI18n } from '../../i18n'
 import type { ThemePreference } from '../../themeMode'
+import NotificationBell from './NotificationBell'
 
 const MARKET_OPTIONS = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'] as const
 
@@ -308,6 +309,7 @@ export default function TopBar({
                     {user?.email || ''}
                   </Typography>
                   {themeSelector}
+                  <NotificationBell />
                   {!isNarrow && (
                   <>
                     <Chip label={currency} size="small" variant="outlined" aria-label={t('dashboard.topBar.currency')} />

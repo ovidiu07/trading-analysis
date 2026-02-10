@@ -18,6 +18,7 @@ import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.ContentPostTranslationRepository;
 import com.tradevault.repository.ContentTypeRepository;
 import com.tradevault.repository.ContentTypeTranslationRepository;
+import com.tradevault.service.notification.NotificationEventService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -33,6 +34,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -52,6 +54,7 @@ public class ContentPostService {
     private final TranslationResolver translationResolver;
     private final LocaleResolverService localeResolverService;
     private final AssetService assetService;
+    private final NotificationEventService notificationEventService;
 
     @Transactional(readOnly = true)
     public Page<ContentPostResponse> adminList(UUID contentTypeId,
@@ -112,8 +115,26 @@ public class ContentPostService {
     public ContentPostResponse update(UUID id, ContentPostRequest request, String locale) {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
+        boolean wasPublished = post.getStatus() == ContentPostStatus.PUBLISHED;
+        MeaningfulContentSnapshot before = wasPublished ? MeaningfulContentSnapshot.from(post, this::readList) : null;
+
         applyRequest(post, request, false);
+
+        boolean meaningfulUpdate = false;
+        if (wasPublished) {
+            MeaningfulContentSnapshot after = MeaningfulContentSnapshot.from(post, this::readList);
+            meaningfulUpdate = !after.equals(before);
+            if (meaningfulUpdate) {
+                post.setContentVersion(Math.max(0, post.getContentVersion()) + 1);
+            }
+        }
+
         repository.save(post);
+
+        if (wasPublished && meaningfulUpdate && shouldNotifySubscribersOnUpdate(request)) {
+            User actingAdmin = currentUserService.getCurrentUser();
+            notificationEventService.createUpdatedEvent(post, actingAdmin);
+        }
         return adminGet(id, locale);
     }
 
@@ -121,11 +142,21 @@ public class ContentPostService {
     public ContentPostResponse publish(UUID id, String locale) {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
+        boolean wasPublished = post.getStatus() == ContentPostStatus.PUBLISHED;
+
         post.setStatus(ContentPostStatus.PUBLISHED);
+        if (!wasPublished) {
+            post.setContentVersion(Math.max(0, post.getContentVersion()) + 1);
+        }
         if (post.getPublishedAt() == null) {
             post.setPublishedAt(OffsetDateTime.now());
         }
         repository.save(post);
+
+        if (!wasPublished) {
+            User actingAdmin = currentUserService.getCurrentUser();
+            notificationEventService.createPublishedEvent(post, actingAdmin);
+        }
         return adminGet(id, locale);
     }
 
@@ -395,6 +426,10 @@ public class ContentPostService {
         return normalized.toUpperCase(Locale.ROOT);
     }
 
+    private boolean shouldNotifySubscribersOnUpdate(ContentPostRequest request) {
+        return request.getNotifySubscribersAboutUpdate() == null || request.getNotifySubscribersAboutUpdate();
+    }
+
     private String writeList(List<String> values) {
         if (values == null || values.isEmpty()) {
             return null;
@@ -520,4 +555,59 @@ public class ContentPostService {
     }
 
     private record DraftTranslation(String title, String summary, String body) {}
+
+    private record ComparableTranslation(String title, String summary, String body) {
+        static ComparableTranslation from(ContentPostTranslation translation) {
+            return new ComparableTranslation(
+                    normalizeText(translation.getTitle()),
+                    normalizeText(translation.getSummary()),
+                    normalizeText(translation.getBodyMarkdown())
+            );
+        }
+    }
+
+    private record MeaningfulContentSnapshot(UUID contentTypeId,
+                                             List<String> normalizedTags,
+                                             List<String> normalizedSymbols,
+                                             Map<String, ComparableTranslation> translations) {
+        static MeaningfulContentSnapshot from(ContentPost post, java.util.function.Function<String, List<String>> listReader) {
+            List<String> tags = normalizeTags(listReader.apply(post.getTags()));
+            List<String> symbols = normalizeSymbols(listReader.apply(post.getSymbols()));
+            Map<String, ComparableTranslation> translations = post.getTranslations().stream()
+                    .collect(Collectors.toMap(
+                            ContentPostTranslation::getLocale,
+                            ComparableTranslation::from,
+                            (first, second) -> first
+                    ));
+            return new MeaningfulContentSnapshot(post.getContentType().getId(), tags, symbols, translations);
+        }
+    }
+
+    private static List<String> normalizeTags(List<String> values) {
+        return normalizeList(values, false);
+    }
+
+    private static List<String> normalizeSymbols(List<String> values) {
+        return normalizeList(values, true);
+    }
+
+    private static List<String> normalizeList(List<String> values, boolean uppercase) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        Set<String> unique = values.stream()
+                .filter(item -> item != null && !item.trim().isBlank())
+                .map(item -> uppercase
+                        ? item.trim().toUpperCase(Locale.ROOT)
+                        : item.trim().toLowerCase(Locale.ROOT))
+                .collect(Collectors.toSet());
+        return unique.stream().sorted().toList();
+    }
+
+    private static String normalizeText(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value.trim();
+    }
 }

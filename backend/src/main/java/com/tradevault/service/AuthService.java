@@ -16,6 +16,7 @@ import com.tradevault.service.mail.MailService;
 import com.tradevault.service.mail.TemplateRenderer;
 import com.tradevault.service.mail.VerificationEmailComposer;
 import com.tradevault.service.mail.VerificationEmailContent;
+import com.tradevault.service.notification.NotificationPreferencesService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -53,6 +54,7 @@ public class AuthService {
     private final MailConfig mailConfig;
     private final CurrentUserService currentUserService;
     private final DemoDataService demoDataService;
+    private final NotificationPreferencesService notificationPreferencesService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -75,6 +77,7 @@ public class AuthService {
                 .demoEnabled(true)
                 .build();
         userRepository.save(user);
+        notificationPreferencesService.ensureForUser(user);
         demoDataService.generateDemoDataForUser(user.getId(), true);
         legalAcceptanceService.record(
                 user,

@@ -4,12 +4,14 @@ import {
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
   Grid,
   MenuItem,
   Stack,
@@ -161,6 +163,7 @@ export default function AdminContentEditorPage() {
   const [confirmAction, setConfirmAction] = useState<'publish' | 'archive' | null>(null)
   const [assets, setAssets] = useState<AssetItem[]>([])
   const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([])
+  const [notifySubscribersAboutUpdate, setNotifySubscribersAboutUpdate] = useState(true)
   const bodyInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
@@ -181,6 +184,7 @@ export default function AdminContentEditorPage() {
         if (loadedPost) {
           setPost(loadedPost)
           setStatus(loadedPost.status)
+          setNotifySubscribersAboutUpdate(true)
           setForm(toForm(loadedPost))
           setAssets(loadedPost.assets || [])
           setUploadQueue([])
@@ -189,6 +193,7 @@ export default function AdminContentEditorPage() {
 
         setAssets([])
         setUploadQueue([])
+        setNotifySubscribersAboutUpdate(true)
         const firstType = loadedTypes.find((item) => item.active) || loadedTypes[0]
         setForm((prev) => ({
           ...prev,
@@ -215,6 +220,7 @@ export default function AdminContentEditorPage() {
     visibleUntil: form.visibleUntil ? new Date(form.visibleUntil).toISOString() : undefined,
     weekStart: isWeeklyPlan ? (form.weekStart || undefined) : undefined,
     weekEnd: isWeeklyPlan ? (form.weekEnd || undefined) : undefined,
+    notifySubscribersAboutUpdate: status === 'PUBLISHED' ? notifySubscribersAboutUpdate : undefined,
     translations: buildTranslationsPayload(form.translations)
   })
 
@@ -515,6 +521,18 @@ export default function AdminContentEditorPage() {
           </Button>
         </Stack>
       </Stack>
+
+      {status === 'PUBLISHED' && (
+        <FormControlLabel
+          control={(
+            <Checkbox
+              checked={notifySubscribersAboutUpdate}
+              onChange={(event) => setNotifySubscribersAboutUpdate(event.target.checked)}
+            />
+          )}
+          label={t('adminEditor.fields.notifySubscribersAboutUpdate')}
+        />
+      )}
 
       {error && <Alert severity="error">{error}</Alert>}
 
