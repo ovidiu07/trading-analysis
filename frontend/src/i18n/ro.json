@@ -1120,31 +1120,44 @@
     "title": "Caiet",
     "subtitle": "Capturează notițe de sesiune, jurnale zilnice și reflecții despre tranzacții.",
     "actions": {
+      "add": "Adaugă",
       "addFolder": "Adaugă folder",
       "deleteFolder": "Șterge folder",
       "addTag": "Adaugă etichetă",
       "new": "Nou",
       "newDailyLog": "Jurnal zilnic nou",
+      "newTradeNote": "Notă de tranzacție nouă",
       "newPlan": "Plan nou",
+      "newRecap": "Recapitulare nouă",
       "createLossRecap": "Creează recapitulare pierderi",
       "newNote": "Notă nouă",
       "newGoal": "Obiectiv nou",
+      "fromTemplate": "Din șablon",
       "createDailyLog": "Creează jurnal zilnic",
       "createPlan": "Creează plan",
       "collapseFilters": "Restrânge filtrele",
       "expandFilters": "Extinde filtrele",
+      "collapseList": "Restrânge lista",
+      "expandList": "Extinde lista",
       "pin": "Fixează",
       "unpin": "Anulează fixarea",
       "pinNote": "Fixează nota",
       "unpinNote": "Anulează fixarea notei",
       "restore": "Restaurează",
       "delete": "Șterge",
+      "duplicate": "Duplică",
+      "export": "Exportă",
       "insertDailyLogStructure": "Inserează structura jurnalului zilnic",
       "saveAsTemplate": "Salvează ca șablon",
       "openFolders": "Deschide folderele",
       "uploadAttachment": "Încarcă atașament",
+      "unlinkTrade": "Deconectează tranzacția",
       "undo": "Anulează",
-      "create": "Creează"
+      "create": "Creează",
+      "list": "Listă",
+      "info": "Info",
+      "showInfo": "Arată detaliile",
+      "hideInfo": "Ascunde detaliile"
     },
     "upload": {
       "dropTitle": "Atașează fișiere la această notă",
@@ -1159,15 +1172,36 @@
       "moreActions": "Mai multe acțiuni",
       "readMode": "Mod citire",
       "editMode": "Mod editare",
-      "closeFilters": "Închide filtrele"
+      "closeFilters": "Închide filtrele",
+      "openNavigation": "Deschide navigarea",
+      "folderActions": "Acțiuni folder"
     },
     "sections": {
       "filters": "Filtre",
       "folders": "Foldere",
+      "smartViews": "Vizualizări rapide",
       "tags": "Etichete",
       "notes": "Note",
       "editor": "Editor",
       "attachments": "Atașamente"
+    },
+    "sidebar": {
+      "tradeLink": "Legătură tranzacție",
+      "tagsAndFolder": "Etichete și folder",
+      "templates": "Șabloane",
+      "date": "Dată"
+    },
+    "tabs": {
+      "content": "Conținut",
+      "review": "Review"
+    },
+    "smartViews": {
+      "allNotes": "Toate notele",
+      "dailyLogs": "Jurnale zilnice",
+      "plans": "Planuri",
+      "recaps": "Recapitulări",
+      "pinned": "Fixate",
+      "recentlyDeleted": "Șterse recent"
     },
     "labels": {
       "systemView": "Vizualizare sistem",
@@ -1175,11 +1209,17 @@
       "updatedAt": "Actualizat {{date}}",
       "listCollapsed": "Lista este restrânsă",
       "noFolder": "Fără folder",
-      "notAvailable": "—"
+      "notAvailable": "—",
+      "noActiveFilters": "Nu există filtre active",
+      "linkedTradeShort": "Tranzacție legată",
+      "attachmentsShort": "Atașamente",
+      "tradeLinked": "Tranzacție legată",
+      "copySuffix": "copie"
     },
     "placeholders": {
       "filterByTag": "Filtrează după etichetă",
       "searchNotes": "Caută note...",
+      "searchTrade": "Caută tranzacție după simbol",
       "tradeId": "UUID tranzacție (opțional)"
     },
     "fields": {
@@ -1188,9 +1228,15 @@
       "type": "Tip",
       "folder": "Folder",
       "date": "Dată",
+      "from": "De la",
+      "to": "Până la",
       "linkedTradeId": "ID tranzacție asociată",
+      "linkTrade": "Leagă tranzacție",
+      "linkedTrade": "Tranzacție legată",
+      "hasAttachments": "Are atașamente",
       "tags": "Etichete",
-      "applyTemplate": "Aplică șablonul"
+      "applyTemplate": "Aplică șablonul",
+      "template": "Șablon"
     },
     "sort": {
       "updated": "Ultima actualizare",
@@ -1219,7 +1265,9 @@
     "empty": {
       "noNotesTitle": "Creează prima ta notă",
       "noNotesBody": "Începe jurnalizarea cu o notă, un plan sau un jurnal zilnic.",
-      "noAttachments": "Nu există atașamente încă."
+      "noAttachments": "Nu există atașamente încă.",
+      "noFolders": "Nu există foldere încă.",
+      "emptyPreview": "Nu există previzualizare."
     },
     "saveState": {
       "saving": "Se salvează…",
@@ -1282,6 +1330,26 @@
       "title": "Rezumat tranzacție",
       "openedAt": "Deschisă {{date}}",
       "closedAt": "Închisă {{date}}"
+    },
+    "review": {
+      "title": "Review tranzacție",
+      "setupQuality": "Calitatea setup-ului",
+      "followedPlan": "Ai respectat planul?",
+      "ruleBreaks": "Reguli încălcate",
+      "didWell": "Ce am făcut bine",
+      "improveNext": "Ce voi îmbunătăți data viitoare",
+      "nextRule": "O regulă acționabilă pentru următoarea sesiune",
+      "ruleBreaksOptions": {
+        "early_exit": "Ieșire prea devreme",
+        "oversize": "Poziție supradimensionată",
+        "revenge": "Tranzacție de revenge",
+        "moved_stop_loss": "Stop loss mutat",
+        "chased_entry": "Intrare forțată",
+        "no_entry_criteria": "Fără criterii de intrare",
+        "added_without_setup": "Adăugare fără setup",
+        "ignored_news": "Știri ignorate",
+        "no_risk_plan": "Fără plan de risc"
+      }
     },
     "lossRecap": {
       "dialogTitle": "Creează recapitulare pierderi",

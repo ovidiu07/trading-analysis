@@ -15,8 +15,13 @@ public class NotebookNoteRequest {
     private String title;
     private String body;
     private String bodyJson;
+    private String reviewJson;
+    private Boolean clearReview;
     private LocalDate dateKey;
+    private Boolean clearDateKey;
     private UUID relatedTradeId;
+    private Boolean clearRelatedTrade;
+    private Boolean clearFolder;
     @JsonProperty("isPinned")
     private Boolean isPinned;
     private List<UUID> tagIds;

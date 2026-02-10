@@ -17,11 +17,17 @@ export type NotebookNote = {
   id: string
   type: NotebookNoteType
   folderId?: string | null
+  clearFolder?: boolean
   title?: string | null
   body?: string | null
   bodyJson?: string | null
+  reviewJson?: string | null
+  clearReview?: boolean
   dateKey?: string | null
+  clearDateKey?: boolean
   relatedTradeId?: string | null
+  clearRelatedTrade?: boolean
+  hasAttachments?: boolean
   isDeleted?: boolean
   isPinned?: boolean
   createdAt?: string

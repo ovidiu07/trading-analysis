@@ -1120,31 +1120,44 @@
     "title": "Notebook",
     "subtitle": "Capture session notes, daily logs, and trade reflections.",
     "actions": {
+      "add": "Add",
       "addFolder": "Add folder",
       "deleteFolder": "Delete folder",
       "addTag": "Add tag",
       "new": "New",
       "newDailyLog": "New daily log",
+      "newTradeNote": "New trade note",
       "newPlan": "New plan",
+      "newRecap": "New recap",
       "createLossRecap": "Create loss recap",
       "newNote": "New note",
       "newGoal": "New goal",
+      "fromTemplate": "From template",
       "createDailyLog": "Create daily log",
       "createPlan": "Create plan",
       "collapseFilters": "Collapse filters",
       "expandFilters": "Expand filters",
+      "collapseList": "Collapse list",
+      "expandList": "Expand list",
       "pin": "Pin",
       "unpin": "Unpin",
       "pinNote": "Pin note",
       "unpinNote": "Unpin note",
       "restore": "Restore",
       "delete": "Delete",
+      "duplicate": "Duplicate",
+      "export": "Export",
       "insertDailyLogStructure": "Insert daily log structure",
       "saveAsTemplate": "Save as template",
       "openFolders": "Open folders",
       "uploadAttachment": "Upload attachment",
+      "unlinkTrade": "Unlink trade",
       "undo": "Undo",
-      "create": "Create"
+      "create": "Create",
+      "list": "List",
+      "info": "Info",
+      "showInfo": "Show info",
+      "hideInfo": "Hide info"
     },
     "upload": {
       "dropTitle": "Attach files to this note",
@@ -1159,15 +1172,36 @@
       "moreActions": "More actions",
       "readMode": "Read mode",
       "editMode": "Edit mode",
-      "closeFilters": "Close filters"
+      "closeFilters": "Close filters",
+      "openNavigation": "Open navigation",
+      "folderActions": "Folder actions"
     },
     "sections": {
       "filters": "Filters",
       "folders": "Folders",
+      "smartViews": "Smart views",
       "tags": "Tags",
       "notes": "Notes",
       "editor": "Editor",
       "attachments": "Attachments"
+    },
+    "sidebar": {
+      "tradeLink": "Trade link",
+      "tagsAndFolder": "Tags and folder",
+      "templates": "Templates",
+      "date": "Date"
+    },
+    "tabs": {
+      "content": "Content",
+      "review": "Review"
+    },
+    "smartViews": {
+      "allNotes": "All notes",
+      "dailyLogs": "Daily logs",
+      "plans": "Plans",
+      "recaps": "Recaps",
+      "pinned": "Pinned",
+      "recentlyDeleted": "Recently deleted"
     },
     "labels": {
       "systemView": "System view",
@@ -1175,11 +1209,17 @@
       "updatedAt": "Updated {{date}}",
       "listCollapsed": "List collapsed",
       "noFolder": "No folder",
-      "notAvailable": "—"
+      "notAvailable": "—",
+      "noActiveFilters": "No active filters",
+      "linkedTradeShort": "Linked trade",
+      "attachmentsShort": "Attachments",
+      "tradeLinked": "Trade linked",
+      "copySuffix": "copy"
     },
     "placeholders": {
       "filterByTag": "Filter by tag",
       "searchNotes": "Search notes...",
+      "searchTrade": "Search trade by symbol",
       "tradeId": "Optional trade UUID"
     },
     "fields": {
@@ -1188,9 +1228,15 @@
       "type": "Type",
       "folder": "Folder",
       "date": "Date",
+      "from": "From",
+      "to": "To",
       "linkedTradeId": "Linked trade ID",
+      "linkTrade": "Link trade",
+      "linkedTrade": "Linked trade",
+      "hasAttachments": "Has attachments",
       "tags": "Tags",
-      "applyTemplate": "Apply template"
+      "applyTemplate": "Apply template",
+      "template": "Template"
     },
     "sort": {
       "updated": "Last updated",
@@ -1219,7 +1265,9 @@
     "empty": {
       "noNotesTitle": "Create your first note",
       "noNotesBody": "Start journaling with a note, plan, or daily log.",
-      "noAttachments": "No attachments yet."
+      "noAttachments": "No attachments yet.",
+      "noFolders": "No folders yet.",
+      "emptyPreview": "No preview available."
     },
     "saveState": {
       "saving": "Saving…",
@@ -1282,6 +1330,26 @@
       "title": "Trade summary",
       "openedAt": "Opened {{date}}",
       "closedAt": "Closed {{date}}"
+    },
+    "review": {
+      "title": "Trade review",
+      "setupQuality": "Setup quality",
+      "followedPlan": "Followed plan?",
+      "ruleBreaks": "Rule breaks",
+      "didWell": "What I did well",
+      "improveNext": "What I'll improve next time",
+      "nextRule": "One actionable rule for next session",
+      "ruleBreaksOptions": {
+        "early_exit": "Early exit",
+        "oversize": "Oversized position",
+        "revenge": "Revenge trade",
+        "moved_stop_loss": "Moved stop loss",
+        "chased_entry": "Chased entry",
+        "no_entry_criteria": "No entry criteria",
+        "added_without_setup": "Added without setup",
+        "ignored_news": "Ignored market news",
+        "no_risk_plan": "No risk plan"
+      }
     },
     "lossRecap": {
       "dialogTitle": "Create loss recap",

@@ -7,6 +7,7 @@ services:
       DB_USER: tradevault
       DB_PASS: ${DB_PASS}
       JWT_SECRET: ${JWT_SECRET}
+      STORAGE_S3_SECRET_KEY: ${STORAGE_S3_SECRET_KEY}
       FRONTEND_URL: ${FRONTEND_URL:https://tradejaudit.com}
     ports:
       - "8080:8080"

@@ -19,8 +19,11 @@ public class NotebookNoteResponse {
     String title;
     String body;
     String bodyJson;
+    String reviewJson;
     LocalDate dateKey;
     UUID relatedTradeId;
+    @JsonProperty("hasAttachments")
+    boolean hasAttachments;
     @JsonProperty("isDeleted")
     boolean isDeleted;
     OffsetDateTime deletedAt;
