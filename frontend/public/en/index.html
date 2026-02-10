@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>TradeJAudit - Trading Journal + Analytics</title>
-  <meta name="description" content="Journal trades, review execution, and see analytics that highlight what works. Built for beginners and active traders: clear setups, insights, scenarios, and education." />
+  <meta name="description" content="Build trading discipline with a data-backed workflow. Log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews." />
   <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1" />
   <link rel="canonical" href="https://tradejaudit.com/" />
   <link rel="alternate" hreflang="en" href="https://tradejaudit.com/" />
@@ -14,7 +14,7 @@
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="TradeJAudit" />
   <meta property="og:title" content="TradeJAudit - Trading Journal + Analytics" />
-  <meta property="og:description" content="Journal trades, review execution, and see analytics that highlight what works. Built for beginners and active traders: clear setups, insights, scenarios, and education." />
+  <meta property="og:description" content="Build trading discipline with a data-backed workflow. Log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews." />
   <meta property="og:url" content="https://tradejaudit.com/" />
   <meta property="og:image" content="https://tradejaudit.com/og/tradejaudit-1200x630.jpg?v=20260209" />
   <meta property="og:image:width" content="1200" />
@@ -31,7 +31,7 @@
 
   <meta name="twitter:card" content="summary_large_image" />
   <meta name="twitter:title" content="TradeJAudit - Trading Journal + Analytics" />
-  <meta name="twitter:description" content="Journal trades, review execution, and see analytics that highlight what works. Built for beginners and active traders: clear setups, insights, scenarios, and education." />
+  <meta name="twitter:description" content="Build trading discipline with a data-backed workflow. Log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews." />
   <meta name="twitter:image" content="https://tradejaudit.com/og/tradejaudit-1200x630.jpg?v=20260209" />
   <meta name="theme-color" content="#060b12" />
   <!-- Google tag (gtag.js) -->
@@ -77,6 +77,10 @@
     box-sizing: border-box;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   html,
   body {
     width: 100%;
@@ -87,7 +91,8 @@
 
   body {
     color: var(--text-0);
-    font-family: "IBM Plex Sans", "Inter", "Roboto", "Helvetica", "Arial", sans-serif;
+    font-family: "Inter", "Segoe UI", "Roboto", "Helvetica", "Arial", sans-serif;
+    font-size: 16px;
     line-height: 1.6;
     background:
       radial-gradient(850px 420px at 13% -8%, rgba(69, 163, 255, 0.32), rgba(69, 163, 255, 0) 64%),
@@ -476,6 +481,10 @@
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .card-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .card h3 {
     margin: 0;
     font-size: 1.02rem;
@@ -513,6 +522,266 @@
     margin: 0;
     font-size: clamp(1.35rem, 2.6vw, 1.85rem);
     line-height: 1.25;
+  }
+
+  .hero-home {
+    margin-top: 0;
+  }
+
+  .hero-home-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
+  .hero-home-copy h1 {
+    margin: var(--space-2) 0 0;
+    font-size: clamp(2rem, 6vw, 3.1rem);
+    line-height: 1.12;
+    letter-spacing: -0.5px;
+    max-width: 20ch;
+  }
+
+  .hero-trust {
+    margin: var(--space-3) 0 0;
+    color: #d3e4f7;
+    font-size: 0.86rem;
+    letter-spacing: 0.1px;
+  }
+
+  .hero-preview-shell {
+    padding: var(--space-4);
+  }
+
+  .hero-preview-track {
+    display: flex;
+    gap: var(--space-3);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(130, 183, 228, 0.42) transparent;
+    padding-bottom: 6px;
+  }
+
+  .preview-mini-card {
+    min-width: min(84vw, 340px);
+    scroll-snap-align: start;
+    border: 1px solid rgba(103, 144, 184, 0.46);
+    border-radius: 14px;
+    background: rgba(17, 28, 45, 0.8);
+    padding: 12px;
+  }
+
+  .preview-image-shell {
+    border-radius: 12px;
+    border: 1px solid rgba(78, 117, 155, 0.55);
+    background: #0c1626;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+  }
+
+  .preview-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .preview-mini-copy h3 {
+    margin: 10px 0 0;
+    font-size: 0.98rem;
+    line-height: 1.25;
+  }
+
+  .preview-mini-copy p {
+    margin: 6px 0 0;
+    font-size: 0.86rem;
+    color: var(--muted);
+  }
+
+  .path-grid,
+  .workflow-grid,
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .path-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .path-card .button {
+    margin-top: var(--space-4);
+    width: 100%;
+  }
+
+  .workflow-card {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .workflow-step-number {
+    font-family: "IBM Plex Mono", "SFMono-Regular", "Consolas", "Menlo", monospace;
+    font-size: 0.82rem;
+    color: #9ec9ef;
+    letter-spacing: 1px;
+  }
+
+  .workflow-snippet {
+    margin-top: auto;
+    border: 1px solid rgba(84, 125, 164, 0.5);
+    border-radius: 12px;
+    padding: 12px;
+    background: rgba(18, 31, 48, 0.75);
+  }
+
+  .workflow-snippet-title {
+    margin: 0;
+    color: #d6e8fb;
+    font-size: 0.83rem;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+
+  .workflow-snippet ul {
+    margin-top: 8px;
+    padding-left: 16px;
+  }
+
+  .workflow-snippet li {
+    color: #9eb7d4;
+    font-size: 0.82rem;
+  }
+
+  .section-preview {
+    scroll-margin-top: 90px;
+  }
+
+  .home-preview-grid {
+    margin-top: var(--space-4);
+    display: flex;
+    gap: var(--space-3);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(130, 183, 228, 0.42) transparent;
+    padding-bottom: 6px;
+  }
+
+  .preview-gallery-card {
+    min-width: min(86vw, 360px);
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .preview-gallery-card h3 {
+    margin-top: var(--space-3);
+  }
+
+  .preview-link {
+    margin-top: auto;
+    width: fit-content;
+    color: #9ed0ff;
+    text-decoration: none;
+    font-size: 0.86rem;
+    border: 1px solid rgba(96, 148, 197, 0.5);
+    border-radius: 999px;
+    padding: 6px 10px;
+    background: rgba(21, 38, 59, 0.7);
+  }
+
+  .preview-link:hover {
+    color: #d5ecff;
+    border-color: rgba(130, 183, 228, 0.75);
+    background: rgba(29, 51, 78, 0.8);
+  }
+
+  .metric-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .metric-title {
+    margin: 0;
+    color: #b5cde7;
+    font-size: 0.86rem;
+    letter-spacing: 0.2px;
+  }
+
+  .metric-value {
+    margin: 4px 0 0;
+    color: #edf6ff;
+    font-family: "IBM Plex Mono", "SFMono-Regular", "Consolas", "Menlo", monospace;
+    font-size: 1.24rem;
+    letter-spacing: 0.2px;
+  }
+
+  .contrast-grid {
+    margin-top: var(--space-4);
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: 1fr;
+  }
+
+  .contrast-card ul {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+  }
+
+  .contrast-card li {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    color: var(--text-1);
+  }
+
+  .contrast-card li + li {
+    margin-top: 10px;
+  }
+
+  .contrast-card li span {
+    font-family: "IBM Plex Mono", "SFMono-Regular", "Consolas", "Menlo", monospace;
+    font-size: 0.83rem;
+    font-weight: 600;
+    line-height: 1.8;
+  }
+
+  .contrast-positive li span {
+    color: #81caf7;
+  }
+
+  .contrast-negative li span {
+    color: #f4a1a1;
+  }
+
+  .final-cta {
+    text-align: center;
+    padding: clamp(24px, 3.6vw, 38px);
+  }
+
+  .final-cta p {
+    margin: var(--space-3) auto 0;
+    max-width: 56ch;
+  }
+
+  .final-cta .hero-actions {
+    justify-content: center;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .elevate-card {
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    }
+
+    .elevate-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(122, 175, 221, 0.72);
+      box-shadow: 0 20px 42px rgba(2, 8, 16, 0.52);
+    }
   }
 
   .plan-name {
@@ -673,6 +942,71 @@
     background: rgba(29, 44, 64, 0.65);
   }
 
+  @media (min-width: 760px) {
+    .path-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .contrast-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1081px) {
+    .hero-home-grid {
+      grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+      gap: var(--space-5);
+    }
+
+    .hero-preview-track {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      overflow: visible;
+      padding-bottom: 0;
+    }
+
+    .hero-preview-track .preview-mini-card {
+      min-width: 0;
+    }
+
+    .hero-preview-track .preview-mini-card:first-child {
+      grid-column: 1 / -1;
+    }
+
+    .workflow-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .home-preview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      overflow: visible;
+      padding-bottom: 0;
+    }
+
+    .preview-gallery-card {
+      min-width: 0;
+    }
+  }
+
+  @media (min-width: 1320px) {
+    .home-preview-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+  }
+
   @media (max-width: 1080px) {
     .header-shell {
       grid-template-columns: minmax(0, 1fr) auto;
@@ -740,6 +1074,10 @@
   }
 
   @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
     *,
     *::before,
     *::after {
@@ -804,67 +1142,329 @@
   <main id="main-content" class="page-main">
     <div class="site-container">
       
-    <section class="section hero" aria-labelledby="hero-title">
-      <div class="hero-grid">
-        <article class="hero-content card">
+  
+    <section class="section hero-home" aria-labelledby="hero-title">
+      <div class="hero-home-grid">
+        <article class="card hero-home-copy">
           <p class="hero-badge">Trading Journal + Analytics</p>
           <h1 id="hero-title">Build trading discipline with a data-backed workflow</h1>
-          <p class="hero-intro">TradeJAudit helps you log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews.</p>
+          <p class="hero-intro">Log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews.</p>
           <div class="hero-actions">
             <a class="button button-primary" href="/register?lang=en">Start free account</a>
-            <a class="button button-ghost" href="/en/features/">See features</a>
+            <a class="button button-ghost" href="#preview-demo">See a preview</a>
           </div>
+          <p class="hero-trust">Free account • No credit card • Educational only</p>
         </article>
 
-        <aside class="hero-side card" aria-label="Quick summary">
-          <h2>What you get</h2>
-          <ul>
-            <li>Track execution quality with structured trade logs.</li><li>Review behavior patterns using dashboard and analytics views.</li><li>Use educational scenarios and setups with clear criteria.</li>
-          </ul>
-          <p class="hero-note">Main areas: Dashboard | Trades | Analytics | Calendar | Notebook | Insights.</p>
+        <aside class="card hero-preview-shell" aria-label="Product preview cards">
+          <div class="hero-preview-track">
+            
+              <article class="preview-mini-card elevate-card">
+                <div class="preview-image-shell is-hero">
+                  
+    <img
+      src="/marketing/previews/dashboard.svg"
+      alt="Dashboard KPI card preview"
+      width="1200"
+      height="760"
+      loading="eager"
+      fetchpriority="high"
+      decoding="async"
+      sizes="(max-width: 1080px) 84vw, 300px"
+      class="preview-image"
+    />
+  
+                </div>
+                <div class="preview-mini-copy">
+                  <h3>Dashboard KPI card</h3>
+                  <p>Session context in one snapshot.</p>
+                </div>
+              </article>
+            
+              <article class="preview-mini-card elevate-card">
+                <div class="preview-image-shell is-hero">
+                  
+    <img
+      src="/marketing/previews/analytics.svg"
+      alt="Analytics equity curve preview"
+      width="1200"
+      height="760"
+      loading="lazy"
+      
+      decoding="async"
+      sizes="(max-width: 1080px) 84vw, 300px"
+      class="preview-image"
+    />
+  
+                </div>
+                <div class="preview-mini-copy">
+                  <h3>Analytics equity curve</h3>
+                  <p>Equity and drawdown side by side.</p>
+                </div>
+              </article>
+            
+              <article class="preview-mini-card elevate-card">
+                <div class="preview-image-shell is-hero">
+                  
+    <img
+      src="/marketing/previews/notebook.svg"
+      alt="Notebook review template preview"
+      width="1200"
+      height="760"
+      loading="lazy"
+      
+      decoding="async"
+      sizes="(max-width: 1080px) 84vw, 300px"
+      class="preview-image"
+    />
+  
+                </div>
+                <div class="preview-mini-copy">
+                  <h3>Notebook review note</h3>
+                  <p>Structured post-session checklist.</p>
+                </div>
+              </article>
+            
+          </div>
         </aside>
       </div>
     </section>
   
-    <section class="section" aria-labelledby="benefits-title">
+  
+    <section class="section" aria-labelledby="choose-path-title">
       <div class="section-heading">
-        <h2 id="benefits-title">Built for beginners and active traders</h2>
-        <p>A clean workflow for execution, review, and learning consistency.</p>
+        <h2 id="choose-path-title">Choose your path</h2>
       </div>
-      <div class="card-grid card-grid-3">
+      <div class="card-grid card-grid-2 path-grid">
         
-          <article class="card card-soft">
-            <h3>Benefit</h3>
-            <p>Track execution quality with structured trade logs.</p>
+          <article class="card card-soft path-card elevate-card">
+            <h3>I&#39;m new to trading</h3>
+            <ul>
+              <li>Start with a simple risk rule</li><li>Log your first trade in 10 minutes</li>
+            </ul>
+            <a class="button button-primary" href="/register?lang=en&path=beginner">Start as beginner</a>
           </article>
         
-          <article class="card card-soft">
-            <h3>Benefit</h3>
-            <p>Review behavior patterns using dashboard and analytics views.</p>
-          </article>
-        
-          <article class="card card-soft">
-            <h3>Benefit</h3>
-            <p>Use educational scenarios and setups with clear criteria.</p>
+          <article class="card card-soft path-card elevate-card">
+            <h3>I&#39;m an active trader</h3>
+            <ul>
+              <li>Track execution quality</li><li>Spot patterns via analytics</li>
+            </ul>
+            <a class="button button-primary" href="/register?lang=en&path=active">Start as active trader</a>
           </article>
         
       </div>
     </section>
-
-    <section class="section" aria-labelledby="areas-title">
+  
+  
+    <section class="section" aria-labelledby="workflow-title">
       <div class="section-heading">
-        <h2 id="areas-title">Main areas</h2>
+        <h2 id="workflow-title">A practical 3-step workflow</h2>
+        <p>Replace scattered notes with a repeatable review loop you can run after every session.</p>
       </div>
-      <div class="chip-grid">
-        <span class="chip-item">Dashboard</span><span class="chip-item">Trades</span><span class="chip-item">Analytics</span><span class="chip-item">Calendar</span><span class="chip-item">Notebook</span><span class="chip-item">Insights</span>
+      <div class="card-grid card-grid-3 workflow-grid">
+        
+          <article class="card workflow-card elevate-card">
+            <span class="workflow-step-number" aria-hidden="true">01</span>
+            <h3>Log</h3>
+            <p>Capture setup, risk, and execution details while context is still fresh.</p>
+            <div class="workflow-snippet">
+              <p class="workflow-snippet-title">Trade log entry</p>
+              <ul>
+                <li>Setup: Breakout retest</li><li>Risk: 1R max</li><li>Execution: Followed plan</li>
+              </ul>
+            </div>
+          </article>
+        
+          <article class="card workflow-card elevate-card">
+            <span class="workflow-step-number" aria-hidden="true">02</span>
+            <h3>Review</h3>
+            <p>Use analytics, calendar context, and notebook notes to inspect decision quality.</p>
+            <div class="workflow-snippet">
+              <p class="workflow-snippet-title">Review checklist</p>
+              <ul>
+                <li>Equity + drawdown context</li><li>Execution grade</li><li>Behavior notes</li>
+              </ul>
+            </div>
+          </article>
+        
+          <article class="card workflow-card elevate-card">
+            <span class="workflow-step-number" aria-hidden="true">03</span>
+            <h3>Improve</h3>
+            <p>Convert observations into clear process adjustments for the next session.</p>
+            <div class="workflow-snippet">
+              <p class="workflow-snippet-title">Next-session action</p>
+              <ul>
+                <li>Refine entry trigger</li><li>Avoid late-session overtrading</li><li>Pre-market checklist</li>
+              </ul>
+            </div>
+          </article>
+        
       </div>
-      <p class="section-note">Built for beginners + active traders who want repeatable routines, not hype.</p>
     </section>
-
+  
+  
+    <section id="preview-demo" class="section section-preview" aria-labelledby="preview-gallery-title">
+      <div class="section-heading">
+        <h2 id="preview-gallery-title">Preview the platform (demo data)</h2>
+        <p>Explore the core modules with sample data before creating your account.</p>
+      </div>
+      <div class="home-preview-grid">
+        
+          <article class="card preview-gallery-card elevate-card">
+            <div class="preview-image-shell">
+              
+    <img
+      src="/marketing/previews/dashboard.svg"
+      alt="Dashboard KPI preview"
+      width="1200"
+      height="760"
+      loading="eager"
+      fetchpriority="high"
+      decoding="async"
+      sizes="(max-width: 1080px) 88vw, (max-width: 1320px) 44vw, 280px"
+      class="preview-image"
+    />
+  
+            </div>
+            <h3>Dashboard KPIs</h3>
+            <p>Quick health check for process and risk consistency.</p>
+            <a class="preview-link" href="/en/features/">Learn more</a>
+          </article>
+        
+          <article class="card preview-gallery-card elevate-card">
+            <div class="preview-image-shell">
+              
+    <img
+      src="/marketing/previews/analytics.svg"
+      alt="Analytics chart preview"
+      width="1200"
+      height="760"
+      loading="lazy"
+      
+      decoding="async"
+      sizes="(max-width: 1080px) 88vw, (max-width: 1320px) 44vw, 280px"
+      class="preview-image"
+    />
+  
+            </div>
+            <h3>Analytics (equity curve + drawdown)</h3>
+            <p>Inspect whether performance comes from repeatable behavior.</p>
+            <a class="preview-link" href="/en/features/">Learn more</a>
+          </article>
+        
+          <article class="card preview-gallery-card elevate-card">
+            <div class="preview-image-shell">
+              
+    <img
+      src="/marketing/previews/calendar.svg"
+      alt="Calendar daily P and L preview"
+      width="1200"
+      height="760"
+      loading="lazy"
+      
+      decoding="async"
+      sizes="(max-width: 1080px) 88vw, (max-width: 1320px) 44vw, 280px"
+      class="preview-image"
+    />
+  
+            </div>
+            <h3>Calendar (daily P and L tiles)</h3>
+            <p>Review streaks and session clustering by day.</p>
+            <a class="preview-link" href="/en/features/">Learn more</a>
+          </article>
+        
+          <article class="card preview-gallery-card elevate-card">
+            <div class="preview-image-shell">
+              
+    <img
+      src="/marketing/previews/notebook.svg"
+      alt="Notebook post-trade template preview"
+      width="1200"
+      height="760"
+      loading="lazy"
+      
+      decoding="async"
+      sizes="(max-width: 1080px) 88vw, (max-width: 1320px) 44vw, 280px"
+      class="preview-image"
+    />
+  
+            </div>
+            <h3>Notebook (post-trade review template)</h3>
+            <p>Document lessons and prepare your next-session checklist.</p>
+            <a class="preview-link" href="/en/features/">Learn more</a>
+          </article>
+        
+      </div>
+    </section>
+  
+  
+    <section class="section" aria-labelledby="metrics-title">
+      <div class="section-heading">
+        <h2 id="metrics-title">Metrics that matter</h2>
+        <p>A focused set of diagnostics to separate process quality from noise.</p>
+      </div>
+      <div class="card-grid metrics-grid">
+        
+          <article class="card card-soft metric-card elevate-card">
+            <p class="metric-title">Win rate</p>
+            <p class="metric-value">52.4%</p>
+            <p>Shows whether your edge is real or random.</p>
+          </article>
+        
+          <article class="card card-soft metric-card elevate-card">
+            <p class="metric-title">Profit factor</p>
+            <p class="metric-value">1.58</p>
+            <p>Shows whether average wins outweigh losses after costs.</p>
+          </article>
+        
+          <article class="card card-soft metric-card elevate-card">
+            <p class="metric-title">Expectancy</p>
+            <p class="metric-value">0.22R</p>
+            <p>Shows expected outcome per trade over a sample.</p>
+          </article>
+        
+          <article class="card card-soft metric-card elevate-card">
+            <p class="metric-title">Drawdown and recovery</p>
+            <p class="metric-value">-6.1%</p>
+            <p>Shows whether risk is controlled and recoverable.</p>
+          </article>
+        
+          <article class="card card-soft metric-card elevate-card">
+            <p class="metric-title">Execution quality (A/B/C)</p>
+            <p class="metric-value">A/B/C</p>
+            <p>Shows if plan adherence is improving over time.</p>
+          </article>
+        
+      </div>
+    </section>
+  
+  
+    <section class="section" aria-labelledby="no-signals-title">
+      <div class="section-heading">
+        <h2 id="no-signals-title">No signals. Just process.</h2>
+      </div>
+      <div class="contrast-grid">
+        <article class="card contrast-card contrast-positive">
+          <h3>Process and review benefits</h3>
+          <ul>
+            <li><span aria-hidden="true">+</span>Structured trade logs with risk context.</li><li><span aria-hidden="true">+</span>Session-by-session diagnostics and journaling.</li><li><span aria-hidden="true">+</span>Educational review loops for consistent execution.</li>
+          </ul>
+        </article>
+        <article class="card contrast-card contrast-negative">
+          <h3>What you don&#39;t do</h3>
+          <ul>
+            <li><span aria-hidden="true">x</span>No signal calls or copy-trading prompts.</li><li><span aria-hidden="true">x</span>No profit promises or guaranteed outcomes.</li><li><span aria-hidden="true">x</span>No investment advice.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+  
+  
     <section class="section">
-      <div class="cta-panel card">
+      <div class="card cta-panel final-cta">
         <h2>Start your review system in minutes</h2>
-        <p>TradeJAudit helps you log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews.</p>
+        <p>Set up your log, review flow, and notebook templates in one place.</p>
         <div class="hero-actions">
           <a class="button button-primary" href="/register?lang=en">Start free account</a>
           <a class="button button-ghost" href="/en/features/">See features</a>
@@ -872,6 +1472,7 @@
       </div>
     </section>
   
+
     </div>
   </main>
 

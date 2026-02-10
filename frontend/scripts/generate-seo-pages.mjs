@@ -54,33 +54,31 @@ const routeDefinitions = [
     en: {
       title: 'TradeJAudit - Trading Journal + Analytics',
       description:
-        'Journal trades, review execution, and see analytics that highlight what works. Built for beginners and active traders: clear setups, insights, scenarios, and education.',
+        'Build trading discipline with a data-backed workflow. Log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews.',
       heading: 'Build trading discipline with a data-backed workflow',
-      intro:
-        'TradeJAudit helps you log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews.',
+      intro: 'Log trades, review decisions, and improve consistency through analytics, journaling, and structured post-session reviews.',
       bullets: [
         'Track execution quality with structured trade logs.',
         'Review behavior patterns using dashboard and analytics views.',
         'Use educational scenarios and setups with clear criteria.'
       ],
       ctaPrimary: 'Start free account',
-      ctaSecondary: 'See features',
+      ctaSecondary: 'See a preview',
       note: 'Main areas: Dashboard | Trades | Analytics | Calendar | Notebook | Insights.'
     },
     ro: {
       title: 'TradeJAudit - Jurnal de Tranzactionare + Analytics',
       description:
-        'Jurnalizeaza tranzactiile, analizeaza executia si vezi statistici clare despre ce functioneaza. Pentru incepatori si traderi activi: setup-uri, insight-uri, scenarii si educatie continua.',
-      heading: 'Construieste disciplina cu un flux bazat pe date',
-      intro:
-        'TradeJAudit te ajuta sa inregistrezi tranzactii, sa revizuiesti decizii si sa imbunatatesti consistenta prin analiza, jurnalizare si revizii structurate.',
+        'Construieste disciplina in trading cu un flux bazat pe date. Inregistreaza tranzactii, revizuieste decizii si imbunatateste consistenta prin analiza, jurnalizare si revizii post-sesiune.',
+      heading: 'Construieste disciplina in trading cu un flux bazat pe date',
+      intro: 'Inregistreaza tranzactii, revizuieste decizii si imbunatateste consistenta prin analiza, jurnalizare si revizii post-sesiune structurate.',
       bullets: [
         'Urmareste calitatea executiei cu jurnale de tranzactii structurate.',
         'Analizeaza tipare comportamentale cu dashboard si analytics.',
         'Foloseste scenarii educationale si set-up-uri cu criterii clare.'
       ],
       ctaPrimary: 'Creeaza cont gratuit',
-      ctaSecondary: 'Vezi functionalitati',
+      ctaSecondary: 'Vezi un preview',
       note: 'Zone principale: Dashboard | Trades | Analytics | Calendar | Notebook | Insights.'
     }
   },
@@ -322,25 +320,297 @@ const routeLinkByKey = {
   cookies: 'cookies'
 }
 
-const pageBlueprints = {
-  home: {
-    en: {
-      heroBadge: 'Trading Journal + Analytics',
-      sectionTitle: 'Built for beginners and active traders',
-      sectionBody: 'A clean workflow for execution, review, and learning consistency.',
-      mainAreasTitle: 'Main areas',
-      socialProof: 'Built for beginners + active traders who want repeatable routines, not hype.',
-      finalCtaTitle: 'Start your review system in minutes'
+const previewAssets = {
+  dashboard: {
+    src: '/marketing/previews/dashboard.svg',
+    width: 1200,
+    height: 760
+  },
+  analytics: {
+    src: '/marketing/previews/analytics.svg',
+    width: 1200,
+    height: 760
+  },
+  calendar: {
+    src: '/marketing/previews/calendar.svg',
+    width: 1200,
+    height: 760
+  },
+  notebook: {
+    src: '/marketing/previews/notebook.svg',
+    width: 1200,
+    height: 760
+  }
+}
+
+const homeLandingContent = {
+  en: {
+    hero: {
+      badge: 'Trading Journal + Analytics',
+      ctaSecondary: 'See a preview',
+      trustLine: 'Free account \u2022 No credit card \u2022 Educational only',
+      previewAriaLabel: 'Product preview cards',
+      previewCards: [
+        {
+          key: 'dashboard',
+          title: 'Dashboard KPI card',
+          description: 'Session context in one snapshot.',
+          alt: 'Dashboard KPI card preview'
+        },
+        {
+          key: 'analytics',
+          title: 'Analytics equity curve',
+          description: 'Equity and drawdown side by side.',
+          alt: 'Analytics equity curve preview'
+        },
+        {
+          key: 'notebook',
+          title: 'Notebook review note',
+          description: 'Structured post-session checklist.',
+          alt: 'Notebook review template preview'
+        }
+      ]
     },
-    ro: {
-      heroBadge: 'Jurnal de Trading + Analiza',
-      sectionTitle: 'Construit pentru incepatori si traderi activi',
-      sectionBody: 'Un flux clar pentru executie, revizie si invatare constanta.',
-      mainAreasTitle: 'Zone principale',
-      socialProof: 'Construit pentru incepatori + traderi activi care vor rutina repetabila, nu hype.',
-      finalCtaTitle: 'Porneste sistemul tau de revizie in cateva minute'
+    pathSelector: {
+      title: 'Choose your path',
+      cards: [
+        {
+          title: "I'm new to trading",
+          bullets: ['Start with a simple risk rule', 'Log your first trade in 10 minutes'],
+          cta: 'Start as beginner',
+          path: 'beginner'
+        },
+        {
+          title: "I'm an active trader",
+          bullets: ['Track execution quality', 'Spot patterns via analytics'],
+          cta: 'Start as active trader',
+          path: 'active'
+        }
+      ]
+    },
+    workflow: {
+      title: 'A practical 3-step workflow',
+      intro: 'Replace scattered notes with a repeatable review loop you can run after every session.',
+      steps: [
+        {
+          title: 'Log',
+          body: 'Capture setup, risk, and execution details while context is still fresh.',
+          snippetTitle: 'Trade log entry',
+          snippetRows: ['Setup: Breakout retest', 'Risk: 1R max', 'Execution: Followed plan']
+        },
+        {
+          title: 'Review',
+          body: 'Use analytics, calendar context, and notebook notes to inspect decision quality.',
+          snippetTitle: 'Review checklist',
+          snippetRows: ['Equity + drawdown context', 'Execution grade', 'Behavior notes']
+        },
+        {
+          title: 'Improve',
+          body: 'Convert observations into clear process adjustments for the next session.',
+          snippetTitle: 'Next-session action',
+          snippetRows: ['Refine entry trigger', 'Avoid late-session overtrading', 'Pre-market checklist']
+        }
+      ]
+    },
+    previewGallery: {
+      title: 'Preview the platform (demo data)',
+      intro: 'Explore the core modules with sample data before creating your account.',
+      learnMore: 'Learn more',
+      items: [
+        {
+          key: 'dashboard',
+          title: 'Dashboard KPIs',
+          body: 'Quick health check for process and risk consistency.',
+          alt: 'Dashboard KPI preview'
+        },
+        {
+          key: 'analytics',
+          title: 'Analytics (equity curve + drawdown)',
+          body: 'Inspect whether performance comes from repeatable behavior.',
+          alt: 'Analytics chart preview'
+        },
+        {
+          key: 'calendar',
+          title: 'Calendar (daily P and L tiles)',
+          body: 'Review streaks and session clustering by day.',
+          alt: 'Calendar daily P and L preview'
+        },
+        {
+          key: 'notebook',
+          title: 'Notebook (post-trade review template)',
+          body: 'Document lessons and prepare your next-session checklist.',
+          alt: 'Notebook post-trade template preview'
+        }
+      ]
+    },
+    metrics: {
+      title: 'Metrics that matter',
+      intro: 'A focused set of diagnostics to separate process quality from noise.',
+      items: [
+        { title: 'Win rate', value: '52.4%', body: 'Shows whether your edge is real or random.' },
+        { title: 'Profit factor', value: '1.58', body: 'Shows whether average wins outweigh losses after costs.' },
+        { title: 'Expectancy', value: '0.22R', body: 'Shows expected outcome per trade over a sample.' },
+        { title: 'Drawdown and recovery', value: '-6.1%', body: 'Shows whether risk is controlled and recoverable.' },
+        { title: 'Execution quality (A/B/C)', value: 'A/B/C', body: 'Shows if plan adherence is improving over time.' }
+      ]
+    },
+    noSignals: {
+      title: 'No signals. Just process.',
+      leftTitle: 'Process and review benefits',
+      leftRows: [
+        'Structured trade logs with risk context.',
+        'Session-by-session diagnostics and journaling.',
+        'Educational review loops for consistent execution.'
+      ],
+      rightTitle: "What you don't do",
+      rightRows: [
+        'No signal calls or copy-trading prompts.',
+        'No profit promises or guaranteed outcomes.',
+        'No investment advice.'
+      ]
+    },
+    finalCta: {
+      title: 'Start your review system in minutes',
+      body: 'Set up your log, review flow, and notebook templates in one place.',
+      primary: 'Start free account',
+      secondary: 'See features'
     }
   },
+  ro: {
+    hero: {
+      badge: 'Jurnal de Trading + Analiza',
+      ctaSecondary: 'Vezi un preview',
+      trustLine: 'Cont gratuit \u2022 Fara card \u2022 Doar educational',
+      previewAriaLabel: 'Carduri de preview produs',
+      previewCards: [
+        {
+          key: 'dashboard',
+          title: 'Card KPI dashboard',
+          description: 'Contextul sesiunii intr-o privire.',
+          alt: 'Preview card KPI dashboard'
+        },
+        {
+          key: 'analytics',
+          title: 'Curba equity in analytics',
+          description: 'Equity si drawdown in acelasi loc.',
+          alt: 'Preview analytics equity'
+        },
+        {
+          key: 'notebook',
+          title: 'Nota de review in notebook',
+          description: 'Checklist structurat post-sesiune.',
+          alt: 'Preview sablon notebook review'
+        }
+      ]
+    },
+    pathSelector: {
+      title: 'Alege traseul tau',
+      cards: [
+        {
+          title: 'Sunt la inceput in trading',
+          bullets: ['Porneste cu o regula simpla de risc', 'Logheaza prima tranzactie in 10 minute'],
+          cta: 'Porneste ca incepator',
+          path: 'beginner'
+        },
+        {
+          title: 'Sunt trader activ',
+          bullets: ['Urmareste calitatea executiei', 'Identifica tipare prin analytics'],
+          cta: 'Porneste ca trader activ',
+          path: 'active'
+        }
+      ]
+    },
+    workflow: {
+      title: 'Un flux practic in 3 pasi',
+      intro: 'Inlocuieste notitele dispersate cu o rutina repetabila de revizie dupa fiecare sesiune.',
+      steps: [
+        {
+          title: 'Log',
+          body: 'Captureaza setup-ul, riscul si executia cat timp contextul este proaspat.',
+          snippetTitle: 'Intrare in jurnal',
+          snippetRows: ['Setup: Breakout retest', 'Risc: 1R maxim', 'Executie: Plan respectat']
+        },
+        {
+          title: 'Revizuire',
+          body: 'Foloseste analytics, calendar si notebook pentru a evalua calitatea deciziilor.',
+          snippetTitle: 'Checklist de revizie',
+          snippetRows: ['Context equity + drawdown', 'Nota de executie', 'Observatii comportamentale']
+        },
+        {
+          title: 'Imbunatatire',
+          body: 'Transforma observatiile in ajustari clare pentru sesiunea urmatoare.',
+          snippetTitle: 'Actiune pentru urmatoarea sesiune',
+          snippetRows: ['Rafineaza trigger-ul de intrare', 'Evita overtrading la final de zi', 'Checklist pre-market']
+        }
+      ]
+    },
+    previewGallery: {
+      title: 'Previzualizeaza platforma (date demo)',
+      intro: 'Parcurge modulele principale pe date demo inainte sa iti creezi contul.',
+      learnMore: 'Afla mai multe',
+      items: [
+        {
+          key: 'dashboard',
+          title: 'Dashboard KPI',
+          body: 'Verificare rapida pentru proces, risc si consistenta.',
+          alt: 'Preview KPI dashboard'
+        },
+        {
+          key: 'analytics',
+          title: 'Analytics (curba equity + drawdown)',
+          body: 'Verifica daca rezultatele vin din comportament repetabil.',
+          alt: 'Preview chart analytics'
+        },
+        {
+          key: 'calendar',
+          title: 'Calendar (tile-uri zilnice P and L)',
+          body: 'Revizuieste serii de zile si distributia pe sesiuni.',
+          alt: 'Preview calendar P and L'
+        },
+        {
+          key: 'notebook',
+          title: 'Notebook (sablon post-trade review)',
+          body: 'Documenteaza lectii si pregateste checklist-ul urmator.',
+          alt: 'Preview notebook post-trade'
+        }
+      ]
+    },
+    metrics: {
+      title: 'Metrici care conteaza',
+      intro: 'Un set clar de indicatori pentru a separa calitatea procesului de zgomot.',
+      items: [
+        { title: 'Win rate', value: '52.4%', body: 'Arata daca edge-ul este real sau aleator.' },
+        { title: 'Profit factor', value: '1.58', body: 'Arata daca media castigurilor depaseste pierderile.' },
+        { title: 'Expectancy', value: '0.22R', body: 'Arata rezultatul estimat per tranzactie pe un esantion.' },
+        { title: 'Drawdown si recovery', value: '-6.1%', body: 'Arata daca riscul ramane controlat si recuperabil.' },
+        { title: 'Calitatea executiei (A/B/C)', value: 'A/B/C', body: 'Arata daca respectarea planului se imbunatateste.' }
+      ]
+    },
+    noSignals: {
+      title: 'Fara semnale. Doar proces.',
+      leftTitle: 'Beneficii de proces si revizie',
+      leftRows: [
+        'Jurnale structurate cu context de risc.',
+        'Diagnostic pe sesiune cu analytics si notite.',
+        'Bucle educationale pentru executie consistenta.'
+      ],
+      rightTitle: 'Ce nu faci',
+      rightRows: [
+        'Fara semnale de tranzactionare sau copy trading.',
+        'Fara promisiuni de profit sau rezultate garantate.',
+        'Fara sfaturi de investitii.'
+      ]
+    },
+    finalCta: {
+      title: 'Porneste sistemul tau de revizie in cateva minute',
+      body: 'Configurezi jurnalul, fluxul de revizie si template-urile notebook intr-un singur loc.',
+      primary: 'Creeaza cont gratuit',
+      secondary: 'Vezi functionalitati'
+    }
+  }
+}
+
+const pageBlueprints = {
   features: {
     en: {
       heroBadge: 'Feature Overview',
@@ -547,11 +817,6 @@ const pageBlueprints = {
   }
 }
 
-const mainAreas = {
-  en: ['Dashboard', 'Trades', 'Analytics', 'Calendar', 'Notebook', 'Insights'],
-  ro: ['Dashboard', 'Tranzactii', 'Analiza', 'Calendar', 'Caiet', 'Insights']
-}
-
 const legalPages = new Set(['terms', 'privacy', 'cookies'])
 
 const legalSections = {
@@ -671,6 +936,27 @@ const buildSecondaryCtaHref = (language, pageKey) => {
   return normalizePublicPath(language, slug)
 }
 
+const buildRegisterPathHref = (language, audiencePath) => `/register?lang=${language}&path=${audiencePath}`
+
+const buildPreviewImage = ({ key, alt, eager = false, sizes = '(max-width: 1080px) 92vw, 460px' }) => {
+  const asset = previewAssets[key]
+  if (!asset) return ''
+
+  return `
+    <img
+      src="${asset.src}"
+      alt="${escapeHtml(alt)}"
+      width="${asset.width}"
+      height="${asset.height}"
+      loading="${eager ? 'eager' : 'lazy'}"
+      ${eager ? 'fetchpriority="high"' : ''}
+      decoding="async"
+      sizes="${sizes}"
+      class="preview-image"
+    />
+  `
+}
+
 const buildHeader = (language, page) => {
   const labels = navLabels[language]
   const langLinks = buildLanguageLinks(language, page.slug)
@@ -777,46 +1063,197 @@ const renderHero = (language, page, current) => {
   `
 }
 
-const renderHome = (language, current) => {
-  const blueprint = pageBlueprints.home[language]
+const HeroWithPreview = (language, current) => {
+  const content = homeLandingContent[language]
+  const ctaPrimaryHref = buildPrimaryCtaHref(language, 'home')
+
   return `
-    <section class="section" aria-labelledby="benefits-title">
-      <div class="section-heading">
-        <h2 id="benefits-title">${escapeHtml(blueprint.sectionTitle)}</h2>
-        <p>${escapeHtml(blueprint.sectionBody)}</p>
+    <section class="section hero-home" aria-labelledby="hero-title">
+      <div class="hero-home-grid">
+        <article class="card hero-home-copy">
+          <p class="hero-badge">${escapeHtml(content.hero.badge)}</p>
+          <h1 id="hero-title">${escapeHtml(current.heading)}</h1>
+          <p class="hero-intro">${escapeHtml(current.intro)}</p>
+          <div class="hero-actions">
+            <a class="button button-primary" href="${ctaPrimaryHref}">${escapeHtml(current.ctaPrimary)}</a>
+            <a class="button button-ghost" href="#preview-demo">${escapeHtml(content.hero.ctaSecondary)}</a>
+          </div>
+          <p class="hero-trust">${escapeHtml(content.hero.trustLine)}</p>
+        </article>
+
+        <aside class="card hero-preview-shell" aria-label="${escapeHtml(content.hero.previewAriaLabel)}">
+          <div class="hero-preview-track">
+            ${content.hero.previewCards.map((item, idx) => `
+              <article class="preview-mini-card elevate-card">
+                <div class="preview-image-shell is-hero">
+                  ${buildPreviewImage({ key: item.key, alt: item.alt, eager: idx === 0, sizes: '(max-width: 1080px) 84vw, 300px' })}
+                </div>
+                <div class="preview-mini-copy">
+                  <h3>${escapeHtml(item.title)}</h3>
+                  <p>${escapeHtml(item.description)}</p>
+                </div>
+              </article>
+            `).join('')}
+          </div>
+        </aside>
       </div>
-      <div class="card-grid card-grid-3">
-        ${current.bullets.map((item) => `
-          <article class="card card-soft">
-            <h3>${escapeHtml(language === 'ro' ? 'Beneficiu' : 'Benefit')}</h3>
-            <p>${escapeHtml(item)}</p>
+    </section>
+  `
+}
+
+const PathSelector = (language) => {
+  const content = homeLandingContent[language].pathSelector
+
+  return `
+    <section class="section" aria-labelledby="choose-path-title">
+      <div class="section-heading">
+        <h2 id="choose-path-title">${escapeHtml(content.title)}</h2>
+      </div>
+      <div class="card-grid card-grid-2 path-grid">
+        ${content.cards.map((card) => `
+          <article class="card card-soft path-card elevate-card">
+            <h3>${escapeHtml(card.title)}</h3>
+            <ul>
+              ${card.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+            </ul>
+            <a class="button button-primary" href="${buildRegisterPathHref(language, card.path)}">${escapeHtml(card.cta)}</a>
           </article>
         `).join('')}
       </div>
     </section>
+  `
+}
 
-    <section class="section" aria-labelledby="areas-title">
+const WorkflowSteps = (language) => {
+  const content = homeLandingContent[language].workflow
+
+  return `
+    <section class="section" aria-labelledby="workflow-title">
       <div class="section-heading">
-        <h2 id="areas-title">${escapeHtml(blueprint.mainAreasTitle)}</h2>
+        <h2 id="workflow-title">${escapeHtml(content.title)}</h2>
+        <p>${escapeHtml(content.intro)}</p>
       </div>
-      <div class="chip-grid">
-        ${mainAreas[language].map((item) => `<span class="chip-item">${escapeHtml(item)}</span>`).join('')}
+      <div class="card-grid card-grid-3 workflow-grid">
+        ${content.steps.map((step, idx) => `
+          <article class="card workflow-card elevate-card">
+            <span class="workflow-step-number" aria-hidden="true">${String(idx + 1).padStart(2, '0')}</span>
+            <h3>${escapeHtml(step.title)}</h3>
+            <p>${escapeHtml(step.body)}</p>
+            <div class="workflow-snippet">
+              <p class="workflow-snippet-title">${escapeHtml(step.snippetTitle)}</p>
+              <ul>
+                ${step.snippetRows.map((row) => `<li>${escapeHtml(row)}</li>`).join('')}
+              </ul>
+            </div>
+          </article>
+        `).join('')}
       </div>
-      <p class="section-note">${escapeHtml(blueprint.socialProof)}</p>
     </section>
+  `
+}
 
+const PreviewGallery = (language) => {
+  const content = homeLandingContent[language].previewGallery
+  const featureHref = normalizePublicPath(language, 'features')
+
+  return `
+    <section id="preview-demo" class="section section-preview" aria-labelledby="preview-gallery-title">
+      <div class="section-heading">
+        <h2 id="preview-gallery-title">${escapeHtml(content.title)}</h2>
+        <p>${escapeHtml(content.intro)}</p>
+      </div>
+      <div class="home-preview-grid">
+        ${content.items.map((item, idx) => `
+          <article class="card preview-gallery-card elevate-card">
+            <div class="preview-image-shell">
+              ${buildPreviewImage({ key: item.key, alt: item.alt, eager: idx === 0, sizes: '(max-width: 1080px) 88vw, (max-width: 1320px) 44vw, 280px' })}
+            </div>
+            <h3>${escapeHtml(item.title)}</h3>
+            <p>${escapeHtml(item.body)}</p>
+            <a class="preview-link" href="${featureHref}">${escapeHtml(content.learnMore)}</a>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `
+}
+
+const MetricsGrid = (language) => {
+  const content = homeLandingContent[language].metrics
+
+  return `
+    <section class="section" aria-labelledby="metrics-title">
+      <div class="section-heading">
+        <h2 id="metrics-title">${escapeHtml(content.title)}</h2>
+        <p>${escapeHtml(content.intro)}</p>
+      </div>
+      <div class="card-grid metrics-grid">
+        ${content.items.map((metric) => `
+          <article class="card card-soft metric-card elevate-card">
+            <p class="metric-title">${escapeHtml(metric.title)}</p>
+            <p class="metric-value">${escapeHtml(metric.value)}</p>
+            <p>${escapeHtml(metric.body)}</p>
+          </article>
+        `).join('')}
+      </div>
+    </section>
+  `
+}
+
+const NoSignalsBlock = (language) => {
+  const content = homeLandingContent[language].noSignals
+
+  return `
+    <section class="section" aria-labelledby="no-signals-title">
+      <div class="section-heading">
+        <h2 id="no-signals-title">${escapeHtml(content.title)}</h2>
+      </div>
+      <div class="contrast-grid">
+        <article class="card contrast-card contrast-positive">
+          <h3>${escapeHtml(content.leftTitle)}</h3>
+          <ul>
+            ${content.leftRows.map((item) => `<li><span aria-hidden="true">+</span>${escapeHtml(item)}</li>`).join('')}
+          </ul>
+        </article>
+        <article class="card contrast-card contrast-negative">
+          <h3>${escapeHtml(content.rightTitle)}</h3>
+          <ul>
+            ${content.rightRows.map((item) => `<li><span aria-hidden="true">x</span>${escapeHtml(item)}</li>`).join('')}
+          </ul>
+        </article>
+      </div>
+    </section>
+  `
+}
+
+const FinalCTA = (language) => {
+  const content = homeLandingContent[language].finalCta
+  const ctaPrimaryHref = buildPrimaryCtaHref(language, 'home')
+  const ctaSecondaryHref = normalizePublicPath(language, 'features')
+
+  return `
     <section class="section">
-      <div class="cta-panel card">
-        <h2>${escapeHtml(blueprint.finalCtaTitle)}</h2>
-        <p>${escapeHtml(current.intro)}</p>
+      <div class="card cta-panel final-cta">
+        <h2>${escapeHtml(content.title)}</h2>
+        <p>${escapeHtml(content.body)}</p>
         <div class="hero-actions">
-          <a class="button button-primary" href="/register?lang=${language}">${escapeHtml(current.ctaPrimary)}</a>
-          <a class="button button-ghost" href="${normalizePublicPath(language, 'features')}">${escapeHtml(current.ctaSecondary)}</a>
+          <a class="button button-primary" href="${ctaPrimaryHref}">${escapeHtml(content.primary)}</a>
+          <a class="button button-ghost" href="${ctaSecondaryHref}">${escapeHtml(content.secondary)}</a>
         </div>
       </div>
     </section>
   `
 }
+
+const renderHome = (language, current) => `
+  ${HeroWithPreview(language, current)}
+  ${PathSelector(language)}
+  ${WorkflowSteps(language)}
+  ${PreviewGallery(language)}
+  ${MetricsGrid(language)}
+  ${NoSignalsBlock(language)}
+  ${FinalCTA(language)}
+`
 
 const renderFeatures = (language, current) => {
   const blueprint = pageBlueprints.features[language]
@@ -977,11 +1414,11 @@ const renderLegal = (language, pageKey, current) => {
 }
 
 const renderPageContent = (language, page, current) => {
-  const hero = renderHero(language, page, current)
-
   if (page.key === 'home') {
-    return `${hero}${renderHome(language, current)}`
+    return renderHome(language, current)
   }
+
+  const hero = renderHero(language, page, current)
 
   if (page.key === 'features') {
     return `${hero}${renderFeatures(language, current)}`
@@ -1032,6 +1469,10 @@ const styles = `
     box-sizing: border-box;
   }
 
+  html {
+    scroll-behavior: smooth;
+  }
+
   html,
   body {
     width: 100%;
@@ -1042,7 +1483,8 @@ const styles = `
 
   body {
     color: var(--text-0);
-    font-family: "IBM Plex Sans", "Inter", "Roboto", "Helvetica", "Arial", sans-serif;
+    font-family: "Inter", "Segoe UI", "Roboto", "Helvetica", "Arial", sans-serif;
+    font-size: 16px;
     line-height: 1.6;
     background:
       radial-gradient(850px 420px at 13% -8%, rgba(69, 163, 255, 0.32), rgba(69, 163, 255, 0) 64%),
@@ -1431,6 +1873,10 @@ const styles = `
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
+  .card-grid-2 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .card h3 {
     margin: 0;
     font-size: 1.02rem;
@@ -1468,6 +1914,266 @@ const styles = `
     margin: 0;
     font-size: clamp(1.35rem, 2.6vw, 1.85rem);
     line-height: 1.25;
+  }
+
+  .hero-home {
+    margin-top: 0;
+  }
+
+  .hero-home-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
+  .hero-home-copy h1 {
+    margin: var(--space-2) 0 0;
+    font-size: clamp(2rem, 6vw, 3.1rem);
+    line-height: 1.12;
+    letter-spacing: -0.5px;
+    max-width: 20ch;
+  }
+
+  .hero-trust {
+    margin: var(--space-3) 0 0;
+    color: #d3e4f7;
+    font-size: 0.86rem;
+    letter-spacing: 0.1px;
+  }
+
+  .hero-preview-shell {
+    padding: var(--space-4);
+  }
+
+  .hero-preview-track {
+    display: flex;
+    gap: var(--space-3);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(130, 183, 228, 0.42) transparent;
+    padding-bottom: 6px;
+  }
+
+  .preview-mini-card {
+    min-width: min(84vw, 340px);
+    scroll-snap-align: start;
+    border: 1px solid rgba(103, 144, 184, 0.46);
+    border-radius: 14px;
+    background: rgba(17, 28, 45, 0.8);
+    padding: 12px;
+  }
+
+  .preview-image-shell {
+    border-radius: 12px;
+    border: 1px solid rgba(78, 117, 155, 0.55);
+    background: #0c1626;
+    overflow: hidden;
+    aspect-ratio: 16 / 10;
+  }
+
+  .preview-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+
+  .preview-mini-copy h3 {
+    margin: 10px 0 0;
+    font-size: 0.98rem;
+    line-height: 1.25;
+  }
+
+  .preview-mini-copy p {
+    margin: 6px 0 0;
+    font-size: 0.86rem;
+    color: var(--muted);
+  }
+
+  .path-grid,
+  .workflow-grid,
+  .metrics-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .path-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .path-card .button {
+    margin-top: var(--space-4);
+    width: 100%;
+  }
+
+  .workflow-card {
+    display: grid;
+    gap: var(--space-3);
+  }
+
+  .workflow-step-number {
+    font-family: "IBM Plex Mono", "SFMono-Regular", "Consolas", "Menlo", monospace;
+    font-size: 0.82rem;
+    color: #9ec9ef;
+    letter-spacing: 1px;
+  }
+
+  .workflow-snippet {
+    margin-top: auto;
+    border: 1px solid rgba(84, 125, 164, 0.5);
+    border-radius: 12px;
+    padding: 12px;
+    background: rgba(18, 31, 48, 0.75);
+  }
+
+  .workflow-snippet-title {
+    margin: 0;
+    color: #d6e8fb;
+    font-size: 0.83rem;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+  }
+
+  .workflow-snippet ul {
+    margin-top: 8px;
+    padding-left: 16px;
+  }
+
+  .workflow-snippet li {
+    color: #9eb7d4;
+    font-size: 0.82rem;
+  }
+
+  .section-preview {
+    scroll-margin-top: 90px;
+  }
+
+  .home-preview-grid {
+    margin-top: var(--space-4);
+    display: flex;
+    gap: var(--space-3);
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(130, 183, 228, 0.42) transparent;
+    padding-bottom: 6px;
+  }
+
+  .preview-gallery-card {
+    min-width: min(86vw, 360px);
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .preview-gallery-card h3 {
+    margin-top: var(--space-3);
+  }
+
+  .preview-link {
+    margin-top: auto;
+    width: fit-content;
+    color: #9ed0ff;
+    text-decoration: none;
+    font-size: 0.86rem;
+    border: 1px solid rgba(96, 148, 197, 0.5);
+    border-radius: 999px;
+    padding: 6px 10px;
+    background: rgba(21, 38, 59, 0.7);
+  }
+
+  .preview-link:hover {
+    color: #d5ecff;
+    border-color: rgba(130, 183, 228, 0.75);
+    background: rgba(29, 51, 78, 0.8);
+  }
+
+  .metric-card {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .metric-title {
+    margin: 0;
+    color: #b5cde7;
+    font-size: 0.86rem;
+    letter-spacing: 0.2px;
+  }
+
+  .metric-value {
+    margin: 4px 0 0;
+    color: #edf6ff;
+    font-family: "IBM Plex Mono", "SFMono-Regular", "Consolas", "Menlo", monospace;
+    font-size: 1.24rem;
+    letter-spacing: 0.2px;
+  }
+
+  .contrast-grid {
+    margin-top: var(--space-4);
+    display: grid;
+    gap: var(--space-4);
+    grid-template-columns: 1fr;
+  }
+
+  .contrast-card ul {
+    list-style: none;
+    margin: var(--space-3) 0 0;
+    padding: 0;
+  }
+
+  .contrast-card li {
+    display: grid;
+    grid-template-columns: 16px minmax(0, 1fr);
+    gap: 10px;
+    align-items: start;
+    color: var(--text-1);
+  }
+
+  .contrast-card li + li {
+    margin-top: 10px;
+  }
+
+  .contrast-card li span {
+    font-family: "IBM Plex Mono", "SFMono-Regular", "Consolas", "Menlo", monospace;
+    font-size: 0.83rem;
+    font-weight: 600;
+    line-height: 1.8;
+  }
+
+  .contrast-positive li span {
+    color: #81caf7;
+  }
+
+  .contrast-negative li span {
+    color: #f4a1a1;
+  }
+
+  .final-cta {
+    text-align: center;
+    padding: clamp(24px, 3.6vw, 38px);
+  }
+
+  .final-cta p {
+    margin: var(--space-3) auto 0;
+    max-width: 56ch;
+  }
+
+  .final-cta .hero-actions {
+    justify-content: center;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .elevate-card {
+      transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
+    }
+
+    .elevate-card:hover {
+      transform: translateY(-4px);
+      border-color: rgba(122, 175, 221, 0.72);
+      box-shadow: 0 20px 42px rgba(2, 8, 16, 0.52);
+    }
   }
 
   .plan-name {
@@ -1628,6 +2334,71 @@ const styles = `
     background: rgba(29, 44, 64, 0.65);
   }
 
+  @media (min-width: 760px) {
+    .path-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .contrast-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (min-width: 1081px) {
+    .hero-home-grid {
+      grid-template-columns: minmax(0, 1.06fr) minmax(0, 0.94fr);
+      gap: var(--space-5);
+    }
+
+    .hero-preview-track {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      overflow: visible;
+      padding-bottom: 0;
+    }
+
+    .hero-preview-track .preview-mini-card {
+      min-width: 0;
+    }
+
+    .hero-preview-track .preview-mini-card:first-child {
+      grid-column: 1 / -1;
+    }
+
+    .workflow-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+
+    .home-preview-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      overflow: visible;
+      padding-bottom: 0;
+    }
+
+    .preview-gallery-card {
+      min-width: 0;
+    }
+  }
+
+  @media (min-width: 1320px) {
+    .home-preview-grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .metrics-grid {
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+    }
+  }
+
   @media (max-width: 1080px) {
     .header-shell {
       grid-template-columns: minmax(0, 1fr) auto;
@@ -1695,6 +2466,10 @@ const styles = `
   }
 
   @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
     *,
     *::before,
     *::after {
