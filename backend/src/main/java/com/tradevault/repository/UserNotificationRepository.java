@@ -117,19 +117,19 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
             OR (
               np.mode = 'SELECTED'
               AND (
-                COALESCE(np.categories_json, '[]'::jsonb) ? (e.category_id::text)
+                jsonb_exists(COALESCE(np.categories_json, '[]'::jsonb), e.category_id::text)
                 OR (
                   np.match_policy = 'CATEGORY_OR_TAGS_OR_SYMBOLS'
                   AND (
                     EXISTS (
                       SELECT 1
                       FROM jsonb_array_elements_text(COALESCE(np.tags_json, '[]'::jsonb)) AS pref_tag(tag_value)
-                      WHERE COALESCE(e.tags, '[]'::jsonb) ? pref_tag.tag_value
+                      WHERE jsonb_exists(COALESCE(e.tags, '[]'::jsonb), pref_tag.tag_value)
                     )
                     OR EXISTS (
                       SELECT 1
                       FROM jsonb_array_elements_text(COALESCE(np.symbols_json, '[]'::jsonb)) AS pref_symbol(symbol_value)
-                      WHERE COALESCE(e.symbols, '[]'::jsonb) ? pref_symbol.symbol_value
+                      WHERE jsonb_exists(COALESCE(e.symbols, '[]'::jsonb), pref_symbol.symbol_value)
                     )
                   )
                 )
