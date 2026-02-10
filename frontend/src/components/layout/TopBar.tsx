@@ -3,6 +3,9 @@ import CloseIcon from '@mui/icons-material/Close'
 import FilterListIcon from '@mui/icons-material/FilterList'
 import MenuIcon from '@mui/icons-material/Menu'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined'
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined'
+import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined'
 import {
   AppBar,
   Avatar,
@@ -29,6 +32,7 @@ import type { AppLanguage } from '../../i18n'
 import type { AuthUser } from '../../api/auth'
 import type { DashboardQueryState, DashboardStatusFilter } from '../../features/dashboard/queryState'
 import { useI18n } from '../../i18n'
+import type { ThemePreference } from '../../themeMode'
 
 const MARKET_OPTIONS = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'] as const
 
@@ -42,6 +46,8 @@ type TopBarProps = {
   user: AuthUser | null
   language: AppLanguage
   onLanguageChange: (language: AppLanguage) => void
+  themePreference: ThemePreference
+  onThemePreferenceChange: (preference: ThemePreference) => void
   isDashboard: boolean
   dashboardState: DashboardQueryState
   onDashboardStateChange: (patch: Partial<DashboardQueryState>) => void
@@ -59,6 +65,8 @@ export default function TopBar({
   user,
   language,
   onLanguageChange,
+  themePreference,
+  onThemePreferenceChange,
   isDashboard,
   dashboardState,
   onDashboardStateChange,
@@ -77,6 +85,58 @@ export default function TopBar({
 
   const timezone = user?.timezone || 'Europe/Bucharest'
   const currency = user?.baseCurrency || 'USD'
+
+  const getThemeLabel = (value: ThemePreference) => {
+    if (value === 'light') return t('theme.light')
+    if (value === 'dark') return t('theme.dark')
+    return t('theme.system')
+  }
+
+  const getThemeIcon = (value: ThemePreference) => {
+    if (value === 'light') return <LightModeOutlinedIcon fontSize="small" />
+    if (value === 'dark') return <DarkModeOutlinedIcon fontSize="small" />
+    return <SettingsBrightnessOutlinedIcon fontSize="small" />
+  }
+
+  const themeSelector = (
+    <FormControl size="small" sx={{ minWidth: isXs ? 56 : 132, flexShrink: 0 }}>
+      <Select
+        value={themePreference}
+        onChange={(event) => onThemePreferenceChange(event.target.value as ThemePreference)}
+        inputProps={{ 'aria-label': t('theme.label') }}
+        sx={{ minHeight: 44 }}
+        renderValue={(value) => (
+          <Stack direction="row" spacing={0.75} alignItems="center" sx={{ minWidth: 0 }}>
+            {getThemeIcon(value as ThemePreference)}
+            {!isCompact && (
+              <Typography variant="body2" noWrap>
+                {getThemeLabel(value as ThemePreference)}
+              </Typography>
+            )}
+          </Stack>
+        )}
+      >
+        <MenuItem value="system">
+          <Stack direction="row" spacing={1} alignItems="center">
+            <SettingsBrightnessOutlinedIcon fontSize="small" />
+            <Typography variant="body2">{t('theme.system')}</Typography>
+          </Stack>
+        </MenuItem>
+        <MenuItem value="light">
+          <Stack direction="row" spacing={1} alignItems="center">
+            <LightModeOutlinedIcon fontSize="small" />
+            <Typography variant="body2">{t('theme.light')}</Typography>
+          </Stack>
+        </MenuItem>
+        <MenuItem value="dark">
+          <Stack direction="row" spacing={1} alignItems="center">
+            <DarkModeOutlinedIcon fontSize="small" />
+            <Typography variant="body2">{t('theme.dark')}</Typography>
+          </Stack>
+        </MenuItem>
+      </Select>
+    </FormControl>
+  )
 
   const statusValue = dashboardState.status
   const marketValue = dashboardState.market
@@ -247,6 +307,7 @@ export default function TopBar({
                   >
                     {user?.email || ''}
                   </Typography>
+                  {themeSelector}
                   {!isNarrow && (
                   <>
                     <Chip label={currency} size="small" variant="outlined" aria-label={t('dashboard.topBar.currency')} />
@@ -313,9 +374,9 @@ export default function TopBar({
                 </Menu>
               </Stack>
             ) : (
-              <Stack
-                direction="row"
-                spacing={0.75}
+                <Stack
+                  direction="row"
+                  spacing={0.75}
                 alignItems="center"
                 sx={{
                   maxWidth: '100%',
@@ -323,7 +384,8 @@ export default function TopBar({
                   minWidth: 0,
                   overflow: 'hidden'
                 }}
-              >
+                >
+                {themeSelector}
                 <FormControl size="small" sx={{ minWidth: isXs ? 68 : 112, flexShrink: 0 }}>
                   <Select
                     value={language}

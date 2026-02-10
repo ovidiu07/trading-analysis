@@ -70,6 +70,7 @@ public class AuthService {
                 .role(Role.USER)
                 .baseCurrency("USD")
                 .timezone("Europe/Bucharest")
+                .themePreference("SYSTEM")
                 .createdAt(OffsetDateTime.now())
                 .demoEnabled(true)
                 .build();

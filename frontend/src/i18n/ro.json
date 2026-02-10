@@ -9,6 +9,12 @@
     "english": "Engleză",
     "romanian": "Română"
   },
+  "theme": {
+    "label": "Temă",
+    "light": "Deschisă",
+    "dark": "Închisă",
+    "system": "Sistem"
+  },
   "common": {
     "loading": "Se încarcă...",
     "save": "Salvează",

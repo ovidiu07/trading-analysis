@@ -6,13 +6,16 @@ import { changePassword } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { ThemePreference, fromBackendThemePreference, toBackendThemePreference, useThemeMode } from '../themeMode'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
   const { user, updateSettings, refreshUser } = useAuth()
+  const { preference: themePreference, setPreference: setThemePreference } = useThemeMode()
   const [form, setForm] = useState({
     baseCurrency: user?.baseCurrency || 'USD',
-    timezone: user?.timezone || 'UTC'
+    timezone: user?.timezone || 'UTC',
+    themePreference
   })
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState('')
@@ -25,7 +28,8 @@ export default function SettingsPage() {
   useEffect(() => {
     setForm({
       baseCurrency: user?.baseCurrency || 'USD',
-      timezone: user?.timezone || 'UTC'
+      timezone: user?.timezone || 'UTC',
+      themePreference: user ? fromBackendThemePreference(user.themePreference) : themePreference
     })
   }, [user])
 
@@ -33,7 +37,8 @@ export default function SettingsPage() {
     if (!user) {
       fetchUserSettings().then((profile) => setForm({
         baseCurrency: profile.baseCurrency || 'USD',
-        timezone: profile.timezone || 'UTC'
+        timezone: profile.timezone || 'UTC',
+        themePreference: fromBackendThemePreference(profile.themePreference)
       })).catch(() => {})
     }
   }, [user])
@@ -44,7 +49,12 @@ export default function SettingsPage() {
     setMessage('')
     setError('')
     try {
-      await updateSettings(form)
+      await updateSettings({
+        baseCurrency: form.baseCurrency,
+        timezone: form.timezone,
+        themePreference: toBackendThemePreference(form.themePreference)
+      })
+      setThemePreference(form.themePreference)
       await refreshUser()
       setMessage(t('settings.messages.saved'))
     } catch (err) {
@@ -111,6 +121,20 @@ export default function SettingsPage() {
             >
               <MenuItem value="en">{t('language.english')}</MenuItem>
               <MenuItem value="ro">{t('language.romanian')}</MenuItem>
+            </TextField>
+            <TextField
+              select
+              label={t('theme.label')}
+              value={form.themePreference}
+              onChange={(e) => {
+                const nextThemePreference = e.target.value as ThemePreference
+                setForm((prev) => ({ ...prev, themePreference: nextThemePreference }))
+                setThemePreference(nextThemePreference)
+              }}
+            >
+              <MenuItem value="light">{t('theme.light')}</MenuItem>
+              <MenuItem value="dark">{t('theme.dark')}</MenuItem>
+              <MenuItem value="system">{t('theme.system')}</MenuItem>
             </TextField>
             <Button type="submit" variant="contained" disabled={saving}>{saving ? t('settings.messages.saving') : t('settings.actions.save')}</Button>
           </Stack>

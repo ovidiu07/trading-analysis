@@ -166,7 +166,7 @@ export default function LoginPage() {
               sx={{
                 borderRadius: 3,
                 overflow: 'hidden',
-                background: 'linear-gradient(135deg, rgba(25,118,210,0.08), rgba(10,25,41,0.06))',
+                background: (theme) => `linear-gradient(135deg, ${alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.14 : 0.09)}, ${alpha(theme.palette.background.default, theme.palette.mode === 'light' ? 0.06 : 0.12)})`,
                 border: '1px solid',
                 borderColor: 'divider'
               }}

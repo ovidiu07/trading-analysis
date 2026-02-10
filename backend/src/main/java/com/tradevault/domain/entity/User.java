@@ -33,6 +33,10 @@ public class User {
     private String baseCurrency;
     private String timezone;
 
+    @Column(name = "theme_preference", nullable = false)
+    @Builder.Default
+    private String themePreference = "SYSTEM";
+
     private OffsetDateTime createdAt;
     private OffsetDateTime lastLoginAt;
 

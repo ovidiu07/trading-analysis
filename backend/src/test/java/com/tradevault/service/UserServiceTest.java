@@ -30,6 +30,7 @@ public class UserServiceTest {
                 .email("user@test.com")
                 .baseCurrency("USD")
                 .timezone("UTC")
+                .themePreference("SYSTEM")
                 .build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
     }
@@ -42,11 +43,13 @@ public class UserServiceTest {
         UserSettingsRequest request = new UserSettingsRequest();
         request.setBaseCurrency("EUR");
         request.setTimezone("Europe/Bucharest");
+        request.setThemePreference("DARK");
 
         var result = userService.updateSettings(request);
 
         assertEquals("EUR", result.getBaseCurrency());
         assertEquals("Europe/Bucharest", result.getTimezone());
+        assertEquals("DARK", result.getThemePreference());
         verify(userRepository, times(1)).save(any());
     }
 

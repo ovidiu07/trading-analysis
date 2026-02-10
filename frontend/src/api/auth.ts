@@ -1,6 +1,13 @@
 import { apiGet, apiPost, setAuthToken } from './client'
 
-export type AuthUser = { id: string; email: string; role?: string; baseCurrency?: string; timezone?: string }
+export type AuthUser = {
+  id: string
+  email: string
+  role?: string
+  baseCurrency?: string
+  timezone?: string
+  themePreference?: 'LIGHT' | 'DARK' | 'SYSTEM'
+}
 
 export type AuthResponse = { token: string, user?: AuthUser }
 

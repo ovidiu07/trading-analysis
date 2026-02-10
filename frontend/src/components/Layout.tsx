@@ -35,6 +35,7 @@ import DefinitionsDrawer from './dashboard/DefinitionsDrawer'
 import { buildDashboardSearchParams, DashboardQueryState, readDashboardQueryState } from '../features/dashboard/queryState'
 import { resolveRouteMeta } from '../config/routeMeta'
 import DemoDataBanner from './demo/DemoDataBanner'
+import { ThemePreference, toBackendThemePreference, useThemeMode } from '../themeMode'
 
 const SIDEBAR_WIDTH = 272
 const SIDEBAR_COLLAPSED_WIDTH = 88
@@ -54,8 +55,9 @@ type NavSection = {
 
 export default function Layout() {
   const navigate = useNavigate()
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, updateSettings } = useAuth()
   const { t, language, setLanguage } = useI18n()
+  const { preference: themePreference, setPreference } = useThemeMode()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const theme = useTheme()
@@ -71,6 +73,18 @@ export default function Layout() {
     logout()
     navigate('/login')
   }
+
+  const handleThemePreferenceChange = useCallback((nextPreference: ThemePreference) => {
+    setPreference(nextPreference)
+    if (!isAuthenticated || !user) {
+      return
+    }
+    updateSettings({
+      baseCurrency: user.baseCurrency || 'USD',
+      timezone: user.timezone || 'UTC',
+      themePreference: toBackendThemePreference(nextPreference)
+    }).catch(() => {})
+  }, [isAuthenticated, setPreference, updateSettings, user])
 
   const navSections = useMemo<NavSection[]>(() => {
     const tradingItems: NavItem[] = [
@@ -309,6 +323,8 @@ export default function Layout() {
           user={user}
           language={language}
           onLanguageChange={(value) => setLanguage(value)}
+          themePreference={themePreference}
+          onThemePreferenceChange={handleThemePreferenceChange}
           isDashboard={isDashboard}
           dashboardState={dashboardState}
           onDashboardStateChange={updateDashboardState}

@@ -155,7 +155,7 @@ const renderSparkline = (points: number[] = []) => {
     .join(' ')
   return (
     <svg width={width} height={height}>
-      <path d={path} stroke="#1976d2" strokeWidth="2" fill="none" />
+      <path d={path} stroke="currentColor" strokeWidth="2" fill="none" />
     </svg>
   )
 }
@@ -1673,7 +1673,9 @@ export default function NotebookPage() {
                             <Typography>{Math.round(dailySummary.winRate * 100)}%</Typography>
                           </Stack>
                         </Box>
-                        {renderSparkline(dailySummary.equityPoints)}
+                        <Box sx={{ color: 'primary.main' }}>
+                          {renderSparkline(dailySummary.equityPoints)}
+                        </Box>
                       </Stack>
                       <Divider sx={{ my: 2 }} />
                       <Typography variant="subtitle2" gutterBottom>{t('notebook.dailySummary.tradesClosedToday')}</Typography>

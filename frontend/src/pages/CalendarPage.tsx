@@ -38,6 +38,7 @@ const weekStartsOn = 1
 export default function CalendarPage() {
   const { t, locale } = useI18n()
   const theme = useTheme()
+  const isLightMode = theme.palette.mode === 'light'
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'lg'))
   const isCompact = useMediaQuery('(max-width:560px)')
@@ -221,15 +222,57 @@ export default function CalendarPage() {
       ? theme.palette.error.main
       : theme.palette.divider
   const summaryBackground = isSummaryPositive
-    ? alpha(theme.palette.success.main, 0.2)
+    ? alpha(theme.palette.success.main, isLightMode ? 0.14 : 0.2)
     : isSummaryNegative
-      ? alpha(theme.palette.error.main, 0.2)
-      : alpha(theme.palette.background.paper, 0.82)
+      ? alpha(theme.palette.error.main, isLightMode ? 0.14 : 0.2)
+      : isLightMode
+        ? alpha(theme.palette.primary.main, 0.05)
+        : alpha(theme.palette.background.paper, 0.82)
   const summaryTextColor = isSummaryPositive
     ? theme.palette.success.main
     : isSummaryNegative
       ? theme.palette.error.main
       : theme.palette.text.primary
+
+  const resolveDayTone = (netPnl: number | undefined) => {
+    const isPositive = netPnl !== undefined && netPnl > 0
+    const isNegative = netPnl !== undefined && netPnl < 0
+
+    if (isPositive) {
+      return {
+        isPositive,
+        isNegative,
+        backgroundColor: alpha(theme.palette.success.main, isLightMode ? 0.14 : 0.25),
+        borderColor: isLightMode ? alpha(theme.palette.success.main, 0.72) : theme.palette.success.main,
+        badgeColor: isLightMode ? alpha(theme.palette.success.main, 0.92) : theme.palette.success.main,
+        badgeTextColor: isLightMode ? theme.palette.common.white : theme.palette.common.black
+      }
+    }
+
+    if (isNegative) {
+      return {
+        isPositive,
+        isNegative,
+        backgroundColor: alpha(theme.palette.error.main, isLightMode ? 0.13 : 0.25),
+        borderColor: isLightMode ? alpha(theme.palette.error.main, 0.72) : theme.palette.error.main,
+        badgeColor: isLightMode ? alpha(theme.palette.error.main, 0.92) : theme.palette.error.main,
+        badgeTextColor: isLightMode ? theme.palette.common.white : theme.palette.common.black
+      }
+    }
+
+    return {
+      isPositive,
+      isNegative,
+      backgroundColor: isLightMode
+        ? alpha(theme.palette.grey[100], 0.95)
+        : alpha(theme.palette.background.paper, 0.78),
+      borderColor: isLightMode ? alpha(theme.palette.text.secondary, 0.45) : theme.palette.divider,
+      badgeColor: isLightMode
+        ? alpha(theme.palette.text.secondary, 0.22)
+        : alpha(theme.palette.text.secondary, 0.9),
+      badgeTextColor: isLightMode ? theme.palette.text.primary : theme.palette.background.default
+    }
+  }
 
   const handleDayClick = (day: Date) => {
     setSelectedDate(day)
@@ -255,26 +298,10 @@ export default function CalendarPage() {
     const entry = pnlByDate.get(dateKey)
     const netPnl = entry?.netPnl
     const isCurrentMonth = isSameMonth(day, currentMonth)
-    const isPositive = netPnl !== undefined && netPnl > 0
-    const isNegative = netPnl !== undefined && netPnl < 0
+    const { isPositive, isNegative, backgroundColor, borderColor, badgeColor, badgeTextColor } = resolveDayTone(netPnl)
     const pnlLabel = netPnl === undefined
       ? t('common.na')
       : (isMobile ? formatCompactCurrency(netPnl, baseCurrency) : formatSignedCurrency(netPnl, baseCurrency))
-    const backgroundColor = isPositive
-      ? alpha(theme.palette.success.light, 0.25)
-      : isNegative
-        ? alpha(theme.palette.error.light, 0.25)
-        : alpha(theme.palette.background.paper, 0.78)
-    const borderColor = isPositive
-      ? theme.palette.success.main
-      : isNegative
-        ? theme.palette.error.main
-        : theme.palette.divider
-    const pnlBadgeColor = isPositive
-      ? theme.palette.success.main
-      : isNegative
-        ? theme.palette.error.main
-        : alpha(theme.palette.text.secondary, 0.9)
     const ariaLabelParts = entry
       ? [
         t('calendar.aria.viewRealizedPnl', { date: dateKey }),
@@ -325,8 +352,8 @@ export default function CalendarPage() {
                 px: 0.75,
                 py: 0.25,
                 borderRadius: 1,
-                bgcolor: pnlBadgeColor,
-                color: isPositive || isNegative ? 'common.black' : 'background.default',
+                bgcolor: badgeColor,
+                color: badgeTextColor,
                 fontSize: isMobile ? '0.7rem' : '0.75rem',
                 fontWeight: 600,
                 lineHeight: 1.2,
@@ -345,23 +372,7 @@ export default function CalendarPage() {
     const dateKey = format(day, 'yyyy-MM-dd')
     const entry = pnlByDate.get(dateKey)
     const netPnl = entry?.netPnl
-    const isPositive = netPnl !== undefined && netPnl > 0
-    const isNegative = netPnl !== undefined && netPnl < 0
-    const backgroundColor = isPositive
-      ? alpha(theme.palette.success.light, 0.2)
-      : isNegative
-        ? alpha(theme.palette.error.light, 0.2)
-        : alpha(theme.palette.background.paper, 0.78)
-    const borderColor = isPositive
-      ? theme.palette.success.main
-      : isNegative
-        ? theme.palette.error.main
-        : theme.palette.divider
-    const pnlBadgeColor = isPositive
-      ? theme.palette.success.main
-      : isNegative
-        ? theme.palette.error.main
-        : alpha(theme.palette.text.secondary, 0.9)
+    const { isPositive, isNegative, backgroundColor, borderColor, badgeColor, badgeTextColor } = resolveDayTone(netPnl)
     const pnlLabel = netPnl === undefined ? t('common.na') : formatSignedCurrency(netPnl, baseCurrency)
     const tradeLabel = entry ? t('calendar.tradeCount', { count: entry.tradeCount }) : t('calendar.noTrades')
     const ariaLabelParts = entry
@@ -404,8 +415,8 @@ export default function CalendarPage() {
               px: 1,
               py: 0.4,
               borderRadius: 1,
-              bgcolor: pnlBadgeColor,
-              color: isPositive || isNegative ? 'common.black' : 'background.default',
+              bgcolor: badgeColor,
+              color: badgeTextColor,
               fontSize: '0.8rem',
               fontWeight: 600,
               lineHeight: 1.2,
@@ -485,6 +496,7 @@ export default function CalendarPage() {
                 ) : (
                   <Typography
                     variant={isCompact ? 'h5' : 'h4'}
+                    className="metric-value"
                     sx={{ fontWeight: 700, color: summaryTextColor, textAlign: isCompact ? 'center' : 'left' }}
                   >
                     {formatSignedCurrency(summaryNetPnl, baseCurrency)}
@@ -520,9 +532,9 @@ export default function CalendarPage() {
                     {showSummarySkeleton ? (
                       <Skeleton variant="text" width={120} height={20} />
                     ) : (
-                      <Typography variant="subtitle2">
+                    <Typography variant="subtitle2" className="metric-value">
                         {formatSignedCurrency(summaryGrossPnl ?? 0, baseCurrency)}
-                      </Typography>
+                    </Typography>
                     )}
                   </Box>
                 )}
@@ -545,7 +557,7 @@ export default function CalendarPage() {
                   {showSummarySkeleton ? (
                     <Skeleton variant="text" width={60} height={20} />
                   ) : (
-                    <Typography variant="subtitle2">{summaryTradingDays}</Typography>
+                    <Typography variant="subtitle2" className="metric-value">{summaryTradingDays}</Typography>
                   )}
                 </Box>
                 <Box
@@ -567,7 +579,7 @@ export default function CalendarPage() {
                   {showSummarySkeleton ? (
                     <Skeleton variant="text" width={60} height={20} />
                   ) : (
-                    <Typography variant="subtitle2">{summaryTradeCount}</Typography>
+                    <Typography variant="subtitle2" className="metric-value">{summaryTradeCount}</Typography>
                   )}
                 </Box>
               </Stack>
@@ -589,7 +601,15 @@ export default function CalendarPage() {
               <Typography variant="caption">{t('calendar.legend.loss')}</Typography>
             </Stack>
             <Stack direction="row" spacing={1} alignItems="center">
-              <Box sx={{ width: 14, height: 14, borderRadius: 1, bgcolor: alpha(theme.palette.background.paper, 0.8), border: `1px solid ${theme.palette.divider}` }} />
+              <Box
+                sx={{
+                  width: 14,
+                  height: 14,
+                  borderRadius: 1,
+                  bgcolor: isLightMode ? alpha(theme.palette.grey[100], 0.95) : alpha(theme.palette.background.paper, 0.8),
+                  border: `1px solid ${isLightMode ? alpha(theme.palette.text.secondary, 0.45) : theme.palette.divider}`
+                }}
+              />
               <Typography variant="caption">{t('calendar.legend.flat')}</Typography>
             </Stack>
           </Stack>
@@ -669,7 +689,7 @@ export default function CalendarPage() {
         <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 } }}>
           <Stack spacing={1} sx={{ mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary">{t('calendar.dialog.dailySummary')}</Typography>
-            <Typography variant={isMobile ? 'subtitle1' : 'h6'}>
+            <Typography variant={isMobile ? 'subtitle1' : 'h6'} className="metric-value">
               {formatSignedCurrency(selectedNetPnl, baseCurrency)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
@@ -696,7 +716,7 @@ export default function CalendarPage() {
                         {t(`trades.direction.${trade.direction}`)} · {formatDateTime(trade.closedAt)}
                       </Typography>
                     </Box>
-                    <Typography variant="subtitle2" sx={{ whiteSpace: 'nowrap' }}>
+                    <Typography variant="subtitle2" className="metric-value" sx={{ whiteSpace: 'nowrap' }}>
                       {formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
                     </Typography>
                   </Stack>

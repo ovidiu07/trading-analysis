@@ -15,8 +15,16 @@ public class UserDto {
     private Role role;
     private String timezone;
     private String baseCurrency;
+    private String themePreference;
 
     public static UserDto from(User user) {
-        return new UserDto(user.getId(), user.getEmail(), user.getRole(), user.getTimezone(), user.getBaseCurrency());
+        return new UserDto(
+                user.getId(),
+                user.getEmail(),
+                user.getRole(),
+                user.getTimezone(),
+                user.getBaseCurrency(),
+                user.getThemePreference()
+        );
     }
 }

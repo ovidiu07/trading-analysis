@@ -1,5 +1,4 @@
 import { useEffect } from 'react'
-import { CssBaseline, ThemeProvider } from '@mui/material'
 import { Route, Routes, Navigate, useLocation } from 'react-router-dom'
 import LoginPage from './pages/LoginPage'
 import RegisterPage from './pages/RegisterPage'
@@ -25,7 +24,6 @@ import AdminContentTypesPage from './pages/admin/AdminContentTypesPage'
 import Layout from './components/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import AdminRoute from './components/AdminRoute'
-import theme from './theme'
 import { trackPageView } from './utils/analytics/ga4'
 
 function GaRouteTracker() {
@@ -43,8 +41,7 @@ function GaRouteTracker() {
 
 function App() {
   return (
-    <ThemeProvider theme={theme}>
-      <CssBaseline />
+    <>
       <GaRouteTracker />
       <Routes>
         <Route path="/login" element={<LoginPage />} />
@@ -73,7 +70,7 @@ function App() {
           <Route path="/admin/content/:id" element={<AdminRoute><AdminContentEditorPage /></AdminRoute>} />
         </Route>
       </Routes>
-    </ThemeProvider>
+    </>
   )
 }
 
