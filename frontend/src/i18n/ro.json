@@ -27,6 +27,7 @@
     "all": "Toate",
     "back": "Înapoi",
     "viewDetails": "Vezi detalii",
+    "download": "Descarcă",
     "noData": "Fără date",
     "na": "-"
   },
@@ -72,6 +73,12 @@
     "CAPTCHA_FAILED": "Verificarea captcha a eșuat. Încearcă din nou.",
     "RATE_LIMITED": "Prea multe cereri. Așteaptă și încearcă din nou.",
     "NOT_IMPLEMENTED": "Această funcționalitate nu este disponibilă încă."
+  },
+  "assets": {
+    "errors": {
+      "tooLarge": "Fișierul depășește limita de 20 MB.",
+      "typeNotAllowed": "Tipul fișierului nu este permis."
+    }
   },
   "auth": {
     "hidePassword": "Ascunde parola",
@@ -157,8 +164,25 @@
     },
     "errors": {
       "archiveFailed": "Nu s-a putut arhiva conținutul.",
+      "copyLinkFailed": "Linkul nu a putut fi copiat.",
+      "deleteAssetFailed": "Asset-ul nu a putut fi șters.",
+      "downloadAssetFailed": "Asset-ul nu a putut fi descărcat.",
       "publishFailed": "Nu s-a putut publica conținutul.",
-      "saveFailed": "Nu s-a putut salva ciorna."
+      "saveBeforeUpload": "Salvează ciorna înainte de a încărca asset-uri.",
+      "saveFailed": "Nu s-a putut salva ciorna.",
+      "uploadFailed": "Asset-ul nu a putut fi încărcat."
+    },
+    "assets": {
+      "title": "Asset-uri",
+      "dropTitle": "Glisează fișiere aici sau selectează din dispozitiv",
+      "dropHint": "Imaginile și documentele sunt acceptate. Poți încărca mai multe fișiere simultan.",
+      "saveFirstHint": "Ciorna va fi salvată automat înainte de upload.",
+      "selectFiles": "Selectează fișiere",
+      "empty": "Nu există asset-uri încărcate.",
+      "copyLink": "Copiază linkul",
+      "insertIntoBody": "Inserează în conținut",
+      "remove": "Elimină",
+      "download": "Descarcă"
     },
     "fields": {
       "body": "Conținut",
@@ -630,8 +654,13 @@
   },
   "insightDetail": {
     "backToInsights": "Înapoi la Insights",
+    "attachments": "Atașamente",
+    "noAttachments": "Nu există atașamente disponibile.",
     "infoAlert": "Doar pentru jurnal și scop educațional. Nu reprezintă sfat de investiții.",
-    "lastUpdated": "Actualizat la"
+    "lastUpdated": "Actualizat la",
+    "errors": {
+      "downloadFailed": "Atașamentul nu a putut fi descărcat."
+    }
   },
   "insights": {
     "title": "Insights",
@@ -1111,6 +1140,10 @@
       "undo": "Anulează",
       "create": "Creează"
     },
+    "upload": {
+      "dropTitle": "Atașează fișiere la această notă",
+      "dropHint": "Poți încărca mai multe fișiere. Imaginile afișează automat previzualizare."
+    },
     "aria": {
       "openFilters": "Deschide filtrele",
       "toggleNoteList": "Comută lista de note",
@@ -1217,6 +1250,7 @@
       "restoreNote": "Nu s-a putut restaura nota.",
       "createTag": "Nu s-a putut crea eticheta.",
       "uploadAttachment": "Nu s-a putut încărca atașamentul.",
+      "downloadAttachment": "Nu s-a putut descărca atașamentul.",
       "deleteAttachment": "Nu s-a putut șterge atașamentul.",
       "createLossRecap": "Nu s-a putut crea nota de recapitulare a pierderilor.",
       "createFolder": "Nu s-a putut crea folderul.",

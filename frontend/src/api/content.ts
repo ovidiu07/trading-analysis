@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
+import type { AssetItem } from './assets'
 
 export type ContentPostStatus = 'DRAFT' | 'PUBLISHED' | 'ARCHIVED'
 
@@ -55,6 +56,7 @@ export type ContentPost = {
   createdAt?: string | null
   updatedAt?: string | null
   publishedAt?: string | null
+  assets?: AssetItem[]
   translations?: Record<string, LocalizedContent> | null
   missingLocales?: string[]
 }

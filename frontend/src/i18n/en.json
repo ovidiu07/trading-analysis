@@ -27,6 +27,7 @@
     "all": "All",
     "back": "Back",
     "viewDetails": "View details",
+    "download": "Download",
     "noData": "No data",
     "na": "-"
   },
@@ -72,6 +73,12 @@
     "CAPTCHA_FAILED": "Captcha verification failed. Please try again.",
     "RATE_LIMITED": "Too many requests. Please wait and try again.",
     "NOT_IMPLEMENTED": "This feature is not available yet."
+  },
+  "assets": {
+    "errors": {
+      "tooLarge": "File exceeds the 20 MB upload limit.",
+      "typeNotAllowed": "File type is not allowed."
+    }
   },
   "auth": {
     "hidePassword": "Hide password",
@@ -157,8 +164,25 @@
     },
     "errors": {
       "archiveFailed": "Could not archive content.",
+      "copyLinkFailed": "Could not copy the link.",
+      "deleteAssetFailed": "Could not delete asset.",
+      "downloadAssetFailed": "Could not download asset.",
       "publishFailed": "Could not publish content.",
-      "saveFailed": "Could not save draft."
+      "saveBeforeUpload": "Save the draft first, then upload assets.",
+      "saveFailed": "Could not save draft.",
+      "uploadFailed": "Could not upload asset."
+    },
+    "assets": {
+      "title": "Assets",
+      "dropTitle": "Drop files here or select from your device",
+      "dropHint": "Images and documents are supported. Upload multiple files at once.",
+      "saveFirstHint": "Draft will be saved automatically before upload.",
+      "selectFiles": "Select files",
+      "empty": "No assets uploaded yet.",
+      "copyLink": "Copy link",
+      "insertIntoBody": "Insert into body",
+      "remove": "Remove",
+      "download": "Download"
     },
     "fields": {
       "body": "Body",
@@ -630,8 +654,13 @@
   },
   "insightDetail": {
     "backToInsights": "Back to Insights",
+    "attachments": "Attachments",
+    "noAttachments": "No attachments available.",
     "infoAlert": "For journaling and educational purposes only. Not investment advice.",
-    "lastUpdated": "Last updated"
+    "lastUpdated": "Last updated",
+    "errors": {
+      "downloadFailed": "Could not download attachment."
+    }
   },
   "insights": {
     "empty": {
@@ -1111,6 +1140,10 @@
       "undo": "Undo",
       "create": "Create"
     },
+    "upload": {
+      "dropTitle": "Attach files to this note",
+      "dropHint": "You can upload multiple files. Images show previews automatically."
+    },
     "aria": {
       "openFilters": "Open filters",
       "toggleNoteList": "Toggle note list",
@@ -1217,6 +1250,7 @@
       "restoreNote": "Could not restore note.",
       "createTag": "Could not create tag.",
       "uploadAttachment": "Could not upload attachment.",
+      "downloadAttachment": "Could not download attachment.",
       "deleteAttachment": "Could not delete attachment.",
       "createLossRecap": "Could not create loss recap note.",
       "createFolder": "Could not create folder.",

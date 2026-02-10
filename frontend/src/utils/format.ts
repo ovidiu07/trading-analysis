@@ -99,6 +99,20 @@ export const formatNumber = (value?: number | null, maximumFractionDigits = 2) =
   return getNumberFormatter(maximumFractionDigits).format(value)
 }
 
+export const formatFileSize = (value?: number | null) => {
+  if (value === undefined || value === null || Number.isNaN(value) || value < 0) return '—'
+  if (value < 1024) return `${value} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let size = value / 1024
+  let index = 0
+  while (size >= 1024 && index < units.length - 1) {
+    size /= 1024
+    index += 1
+  }
+  const decimals = size >= 10 ? 1 : 2
+  return `${size.toFixed(decimals)} ${units[index]}`
+}
+
 export const formatDateTime = (value?: string | null, timeZone?: string) => {
   if (!value) return '—'
   const date = new Date(value)

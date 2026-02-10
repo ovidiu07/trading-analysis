@@ -35,12 +35,12 @@ public class ContentTypeService {
     @Transactional(readOnly = true)
     public List<ContentTypeResponse> listActive(String locale) {
         List<ContentType> types = contentTypeRepository.findByActiveTrueOrderBySortOrderAscKeyAsc();
-        Map<UUID, Map<String, ContentTypeTranslation>> translations = fetchTranslations(types, List.of(locale, LocaleResolverService.DEFAULT_LOCALE), false);
+        Map<UUID, Map<String, ContentTypeTranslation>> translations = fetchTranslations(types, localeResolverService.getSupportedLocales(), false);
         return types.stream()
                 .map(type -> toResponse(type,
                         locale,
                         translations.getOrDefault(type.getId(), Map.of()),
-                        false,
+                        true,
                         false))
                 .toList();
     }

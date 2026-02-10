@@ -136,8 +136,52 @@ GA4 is integrated for the SPA shell and route navigation.
 - `DB_PASS` – database password
 - `JWT_SECRET` – JWT signing secret
 - `JWT_EXPIRY` – token expiry in milliseconds
-- `UPLOAD_DIR` – local upload directory
 - `FRONTEND_URL` – allowed CORS origin
+
+### Asset storage (AWS S3 + MinIO compatible)
+- `STORAGE_PROVIDER` – storage provider (`s3`)
+- `STORAGE_S3_BUCKET` – bucket name
+- `STORAGE_S3_REGION` – AWS region (optional for MinIO, defaults `us-east-1`)
+- `STORAGE_S3_ENDPOINT` – custom endpoint (required for MinIO, optional for AWS)
+- `STORAGE_S3_ACCESS_KEY` – access key
+- `STORAGE_S3_SECRET_KEY` – secret key
+- `STORAGE_S3_PUBLIC_BASE_URL` – optional CDN/public base URL
+- `STORAGE_S3_PATH_STYLE_ACCESS` – `true` for most MinIO setups
+- `STORAGE_S3_PRESIGN_ENABLED` – `true` to return short-lived pre-signed URLs
+- `STORAGE_S3_PRESIGN_EXPIRATION_MINUTES` – pre-signed URL TTL (default `60`)
+- `UPLOADS_MAX_FILE_SIZE_MB` – max upload size per file (default `20`)
+- `UPLOADS_ALLOWED_MIME_TYPES` – comma-separated allowlist
+
+Default allowlist:
+- `image/jpeg`, `image/png`, `image/webp`, `image/gif`
+- `application/pdf`, `text/plain`, `text/csv`, `application/json`
+- `application/msword`, `application/vnd.openxmlformats-officedocument.wordprocessingml.document`
+- `application/vnd.ms-excel`, `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`
+
+Example (AWS S3):
+```bash
+STORAGE_PROVIDER=s3
+STORAGE_S3_BUCKET=tradejaudit-prod-assets
+STORAGE_S3_REGION=eu-central-1
+STORAGE_S3_ACCESS_KEY=...
+STORAGE_S3_SECRET_KEY=...
+STORAGE_S3_PRESIGN_ENABLED=true
+STORAGE_S3_PRESIGN_EXPIRATION_MINUTES=60
+UPLOADS_MAX_FILE_SIZE_MB=20
+```
+
+Example (MinIO):
+```bash
+STORAGE_PROVIDER=s3
+STORAGE_S3_BUCKET=tradejaudit-assets
+STORAGE_S3_REGION=us-east-1
+STORAGE_S3_ENDPOINT=http://127.0.0.1:9000
+STORAGE_S3_PATH_STYLE_ACCESS=true
+STORAGE_S3_ACCESS_KEY=minioadmin
+STORAGE_S3_SECRET_KEY=minioadmin
+STORAGE_S3_PRESIGN_ENABLED=true
+UPLOADS_MAX_FILE_SIZE_MB=20
+```
 
 ## API Docs
 OpenAPI/Swagger UI available at `/swagger-ui/index.html` once the backend is running.
@@ -149,7 +193,7 @@ The Notebook module adds a three-pane journaling workspace for daily logs, trade
 - Folders: `GET /api/notebook/folders`, `POST /api/notebook/folders`, `PATCH /api/notebook/folders/:id`, `DELETE /api/notebook/folders/:id`
 - Notes: `GET /api/notebook/notes`, `GET /api/notebook/notes/:id`, `POST /api/notebook/notes`, `PATCH /api/notebook/notes/:id`, `DELETE /api/notebook/notes/:id`, `POST /api/notebook/notes/:id/restore`
 - Tags: `GET /api/notebook/tags`, `POST /api/notebook/tags`, `DELETE /api/notebook/tags/:id`, `POST /api/notebook/notes/:id/tags`
-- Attachments: `POST /api/notebook/attachments`, `GET /api/notebook/attachments/:id`, `GET /api/notebook/attachments?noteId=...`, `DELETE /api/notebook/attachments/:id`
+- Assets: `POST /api/assets/upload` (`scope=NOTEBOOK&noteId=...`), `GET /api/assets/notebook/:noteId`, `DELETE /api/assets/:assetId`, `GET /api/assets/:assetId/download`, `GET /api/assets/:assetId/view`
 - Templates: `GET /api/notebook/templates`, `POST /api/notebook/templates`, `PATCH /api/notebook/templates/:id`, `DELETE /api/notebook/templates/:id`
 - Daily stats: `GET /api/trades/daily-summary?date=YYYY-MM-DD&tz=Europe/Bucharest`
 - Loss recap: `GET /api/trades/losses?from=YYYY-MM-DD&to=YYYY-MM-DD&minLoss=50&tz=Europe/Bucharest`
@@ -172,3 +216,4 @@ Admins can create and publish strategies + weekly plans for all authenticated us
 ### Content endpoints
 - Admin CRUD: `POST /api/admin/content`, `PUT /api/admin/content/{id}`, `POST /api/admin/content/{id}/publish`, `POST /api/admin/content/{id}/archive`, `DELETE /api/admin/content/{id}`
 - Read-only: `GET /api/content?type=STRATEGY|WEEKLY_PLAN&activeOnly=true`, `GET /api/content/{idOrSlug}`
+- Content assets: `POST /api/assets/upload` (`scope=CONTENT&contentId=...`), `GET /api/assets/content/{contentId}`, `DELETE /api/assets/{assetId}`, `GET /api/assets/{assetId}/download`, `GET /api/assets/{assetId}/view`

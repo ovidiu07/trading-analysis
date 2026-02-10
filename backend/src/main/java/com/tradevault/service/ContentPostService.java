@@ -9,6 +9,7 @@ import com.tradevault.domain.entity.ContentTypeTranslation;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.ContentPostStatus;
 import com.tradevault.domain.enums.Role;
+import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.content.ContentPostRequest;
 import com.tradevault.dto.content.ContentPostResponse;
 import com.tradevault.dto.content.LocalizedContentRequest;
@@ -50,6 +51,7 @@ public class ContentPostService {
     private final ObjectMapper objectMapper;
     private final TranslationResolver translationResolver;
     private final LocaleResolverService localeResolverService;
+    private final AssetService assetService;
 
     @Transactional(readOnly = true)
     public Page<ContentPostResponse> adminList(UUID contentTypeId,
@@ -65,12 +67,14 @@ public class ContentPostService {
 
         Map<UUID, Map<String, ContentPostTranslation>> postTranslations = fetchPostTranslations(posts, localeResolverService.getSupportedLocales(), false);
         Map<UUID, Map<String, ContentTypeTranslation>> typeTranslations = fetchTypeTranslations(posts, localeResolverService.getSupportedLocales(), false);
+        Map<UUID, List<AssetResponse>> assetsByContent = assetService.mapByContentPosts(posts);
 
         List<ContentPostResponse> responses = posts.stream()
                 .map(post -> toResponse(post,
                         locale,
                         postTranslations.getOrDefault(post.getId(), Map.of()),
                         typeTranslations.getOrDefault(post.getContentType().getId(), Map.of()),
+                        assetsByContent.getOrDefault(post.getId(), List.of()),
                         false,
                         true))
                 .toList();
@@ -87,8 +91,9 @@ public class ContentPostService {
                 .getOrDefault(post.getId(), Map.of());
         Map<String, ContentTypeTranslation> typeTranslations = fetchTypeTranslations(List.of(post), null, true)
                 .getOrDefault(post.getContentType().getId(), Map.of());
+        List<AssetResponse> assets = assetService.mapByContentPosts(List.of(post)).getOrDefault(post.getId(), List.of());
 
-        return toResponse(post, locale, postTranslations, typeTranslations, true, true);
+        return toResponse(post, locale, postTranslations, typeTranslations, assets, true, true);
     }
 
     @Transactional
@@ -137,6 +142,7 @@ public class ContentPostService {
     public void delete(UUID id) {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
+        assetService.deleteAssetsForContent(id);
         repository.delete(post);
     }
 
@@ -158,15 +164,17 @@ public class ContentPostService {
             return List.of();
         }
 
-        Map<UUID, Map<String, ContentPostTranslation>> postTranslations = fetchPostTranslations(posts, List.of(locale, LocaleResolverService.DEFAULT_LOCALE), false);
+        Map<UUID, Map<String, ContentPostTranslation>> postTranslations = fetchPostTranslations(posts, localeResolverService.getSupportedLocales(), false);
         Map<UUID, Map<String, ContentTypeTranslation>> typeTranslations = fetchTypeTranslations(posts, List.of(locale, LocaleResolverService.DEFAULT_LOCALE), false);
+        Map<UUID, List<AssetResponse>> assetsByContent = assetService.mapByContentPosts(posts);
 
         return posts.stream()
                 .map(post -> toResponse(post,
                         locale,
                         postTranslations.getOrDefault(post.getId(), Map.of()),
                         typeTranslations.getOrDefault(post.getContentType().getId(), Map.of()),
-                        false,
+                        assetsByContent.getOrDefault(post.getId(), List.of()),
+                        true,
                         false))
                 .toList();
     }
@@ -180,12 +188,12 @@ public class ContentPostService {
             throw new EntityNotFoundException("Content not found");
         }
 
-        Map<String, ContentPostTranslation> postTranslations = fetchPostTranslations(List.of(post), List.of(locale, LocaleResolverService.DEFAULT_LOCALE), false)
+        Map<String, ContentPostTranslation> postTranslations = fetchPostTranslations(List.of(post), localeResolverService.getSupportedLocales(), false)
                 .getOrDefault(post.getId(), Map.of());
         Map<String, ContentTypeTranslation> typeTranslations = fetchTypeTranslations(List.of(post), List.of(locale, LocaleResolverService.DEFAULT_LOCALE), false)
                 .getOrDefault(post.getContentType().getId(), Map.of());
-
-        return toResponse(post, locale, postTranslations, typeTranslations, false, false);
+        List<AssetResponse> assets = assetService.mapByContentPosts(List.of(post)).getOrDefault(post.getId(), List.of());
+        return toResponse(post, locale, postTranslations, typeTranslations, assets, true, false);
     }
 
     private ContentPost findByIdOrSlug(String idOrSlug) {
@@ -454,6 +462,7 @@ public class ContentPostService {
                                            String requestedLocale,
                                            Map<String, ContentPostTranslation> translations,
                                            Map<String, ContentTypeTranslation> typeTranslations,
+                                           List<AssetResponse> assets,
                                            boolean includeAllTranslations,
                                            boolean includeMissingLocales) {
         TranslationResolver.ResolvedTranslation<ContentPostTranslation> resolvedContent = translationResolver.resolve(translations, requestedLocale);
@@ -484,6 +493,7 @@ public class ContentPostService {
                 .createdAt(post.getCreatedAt())
                 .updatedAt(post.getUpdatedAt())
                 .publishedAt(post.getPublishedAt())
+                .assets(assets == null ? List.of() : assets)
                 .translations(includeAllTranslations ? toLocalizedResponses(translations) : null)
                 .missingLocales(includeMissingLocales
                         ? translationResolver.missingLocales(localeResolverService.getSupportedLocales(), translations)

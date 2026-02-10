@@ -1,4 +1,4 @@
-import { ChangeEvent, MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Autocomplete,
@@ -46,6 +46,9 @@ import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useBlocker } from "react-router";
 import { useAuth } from '../auth/AuthContext'
+import AssetListRenderer, { type UploadQueueItem } from '../components/assets/AssetListRenderer'
+import AssetUploadDropzone from '../components/assets/AssetUploadDropzone'
+import { ALLOWED_UPLOAD_MIME_TYPES, MAX_UPLOAD_SIZE_BYTES, fetchAssetBlob, resolveAssetUrl } from '../api/assets'
 import { ApiError } from '../api/client'
 import {
   NotebookAttachment,
@@ -317,6 +320,7 @@ export default function NotebookPage() {
   const [tradeDetail, setTradeDetail] = useState<TradeResponse | null>(null)
   const [templates, setTemplates] = useState<NotebookTemplate[]>([])
   const [attachments, setAttachments] = useState<NotebookAttachment[]>([])
+  const [attachmentUploads, setAttachmentUploads] = useState<UploadQueueItem[]>([])
   const [templateSelection, setTemplateSelection] = useState('')
   const [lossRecapOpen, setLossRecapOpen] = useState(false)
   const [lossRecapForm, setLossRecapForm] = useState(defaultLossRecap)
@@ -332,7 +336,6 @@ export default function NotebookPage() {
 
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
-  const apiBase = import.meta.env.VITE_API_URL || '/api'
   const isMobile = useMediaQuery('(max-width: 767.98px)')
   const isTabletUp = useMediaQuery('(min-width: 768px)')
   const isDesktop = useMediaQuery('(min-width: 1024px)')
@@ -532,6 +535,10 @@ export default function NotebookPage() {
     }
     loadAttachments()
   }, [handleAuthFailure, selectedNote, refreshToken])
+
+  useEffect(() => {
+    setAttachmentUploads([])
+  }, [selectedNote?.id])
 
   useEffect(() => {
     if (!selectedNote) {
@@ -886,20 +893,87 @@ export default function NotebookPage() {
     }
   }
 
-  const handleUploadAttachment = async (event: ChangeEvent<HTMLInputElement>) => {
-    if (!selectedNote || !event.target.files?.length) return
-    const file = event.target.files[0]
-    try {
-      await uploadNotebookAttachment(selectedNote.id, file)
-      const data = await listNotebookAttachments(selectedNote.id)
-      setAttachments(data)
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure()
+  const updateAttachmentUpload = (id: string, patch: Partial<UploadQueueItem>) => {
+    setAttachmentUploads((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  const handleUploadAttachments = async (files: File[]) => {
+    if (!selectedNote || files.length === 0) return
+    const queueItems: UploadQueueItem[] = files.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      fileName: file.name,
+      sizeBytes: file.size,
+      progress: 2
+    }))
+    setAttachmentUploads((prev) => [...prev, ...queueItems])
+
+    await Promise.all(queueItems.map(async (queueItem, index) => {
+      const file = files[index]
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+        updateAttachmentUpload(queueItem.id, {
+          progress: 0,
+          error: t('assets.errors.tooLarge')
+        })
         return
       }
-      setError(translateApiError(err, t, 'notebook.errors.uploadAttachment'))
+      if (file.type && !ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
+        updateAttachmentUpload(queueItem.id, {
+          progress: 0,
+          error: t('assets.errors.typeNotAllowed')
+        })
+        return
+      }
+
+      try {
+        const uploaded = await uploadNotebookAttachment(selectedNote.id, file, (progress) => {
+          updateAttachmentUpload(queueItem.id, { progress })
+        })
+        setAttachments((prev) => [...prev, uploaded])
+        setAttachmentUploads((prev) => prev.filter((item) => item.id !== queueItem.id))
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          handleAuthFailure()
+          return
+        }
+        updateAttachmentUpload(queueItem.id, {
+          progress: 0,
+          error: translateApiError(err, t, 'notebook.errors.uploadAttachment')
+        })
+      }
+    }))
+
+    try {
+      const data = await listNotebookAttachments(selectedNote.id)
+      setAttachments(data)
+    } catch {
+      // keep optimistic list
     }
+  }
+
+  const handleDownloadAttachment = async (attachment: NotebookAttachment) => {
+    const targetUrl = attachment.downloadUrl || attachment.url || attachment.viewUrl
+    if (!targetUrl) return
+    if (targetUrl.startsWith('/api/')) {
+      try {
+        const blob = await fetchAssetBlob(targetUrl)
+        const objectUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = objectUrl
+        a.download = attachment.fileName
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(objectUrl)
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          handleAuthFailure()
+          return
+        }
+        setError(translateApiError(err, t, 'notebook.errors.downloadAttachment'))
+      }
+      return
+    }
+    window.open(resolveAssetUrl(targetUrl), '_blank', 'noopener,noreferrer')
   }
 
   const handleDeleteAttachment = async (id: string) => {
@@ -1678,38 +1752,48 @@ export default function NotebookPage() {
 
                   <Stack spacing={1}>
                     <Typography variant="subtitle2">{t('notebook.sections.attachments')}</Typography>
-                    <Button component="label" variant="outlined" fullWidth={isMobile}>
-                      {t('notebook.actions.uploadAttachment')}
-                      <input hidden type="file" onChange={handleUploadAttachment} />
-                    </Button>
-                    {attachments.length === 0 && (
-                      <Typography variant="body2" color="text.secondary">{t('notebook.empty.noAttachments')}</Typography>
-                    )}
-                    {attachments.map((item) => {
-                      const downloadUrl = item.downloadUrl ? `${apiBase}${item.downloadUrl}` : '#'
-                      return (
-                        <Stack key={item.id} direction="row" spacing={1} alignItems="center">
-                          <Button
-                            href={downloadUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            sx={{
-                              textTransform: 'none',
-                              maxWidth: '100%',
-                              justifyContent: 'flex-start',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              whiteSpace: 'nowrap'
-                            }}
-                          >
-                            {item.fileName}
-                          </Button>
-                          <IconButton size="small" onClick={() => handleDeleteAttachment(item.id)}>
-                            <DeleteIcon fontSize="small" />
-                          </IconButton>
-                        </Stack>
-                      )
-                    })}
+                    <AssetUploadDropzone
+                      title={t('notebook.upload.dropTitle')}
+                      hint={t('notebook.upload.dropHint')}
+                      buttonLabel={t('notebook.actions.uploadAttachment')}
+                      onFilesSelected={handleUploadAttachments}
+                      disabled={!selectedNote || saveState === 'saving'}
+                      multiple
+                    />
+                    <AssetListRenderer
+                      assets={attachments.map((item) => ({
+                        id: item.id,
+                        scope: 'NOTEBOOK',
+                        noteId: item.noteId,
+                        originalFileName: item.fileName,
+                        contentType: item.mimeType,
+                        sizeBytes: item.sizeBytes,
+                        url: item.url,
+                        downloadUrl: item.downloadUrl,
+                        viewUrl: item.viewUrl,
+                        thumbnailUrl: item.thumbnailUrl,
+                        image: item.image,
+                        createdAt: item.createdAt
+                      }))}
+                      uploads={attachmentUploads}
+                      emptyText={t('notebook.empty.noAttachments')}
+                      onDownload={(item) => handleDownloadAttachment({
+                        id: item.id,
+                        noteId: item.noteId || '',
+                        fileName: item.originalFileName,
+                        mimeType: item.contentType || undefined,
+                        sizeBytes: item.sizeBytes ?? undefined,
+                        url: item.url || undefined,
+                        downloadUrl: item.downloadUrl || undefined,
+                        viewUrl: item.viewUrl || undefined,
+                        thumbnailUrl: item.thumbnailUrl || undefined,
+                        image: item.image,
+                        createdAt: item.createdAt || undefined
+                      })}
+                      onRemove={(item) => handleDeleteAttachment(item.id)}
+                      downloadLabel={t('common.download')}
+                      removeLabel={t('common.delete')}
+                    />
                   </Stack>
                 </Stack>
               )}

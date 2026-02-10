@@ -38,7 +38,7 @@ const parseCsv = (value: string) => value
 const normalize = (value: string) => value.trim().toLowerCase()
 
 export default function InsightsPage() {
-  const { t } = useI18n()
+  const { t, language } = useI18n()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
 
@@ -104,17 +104,30 @@ export default function InsightsPage() {
   }, [activeTypeKey, search])
 
   const filteredItems = useMemo(() => {
+    const localizedItems = items.map((item) => {
+      const translation = item.translations?.[language]
+      const matchingType = types.find((type) => type.id === item.contentTypeId)
+      const localizedType = matchingType?.translations?.[language]?.displayName
+      return {
+        ...item,
+        title: translation?.title || item.title,
+        summary: translation?.summary ?? item.summary,
+        body: translation?.body || item.body,
+        contentTypeDisplayName: localizedType || matchingType?.displayName || item.contentTypeDisplayName || item.contentTypeKey
+      }
+    })
+
     const tagTokens = parseCsv(tagFilter).map(normalize)
     const symbolTokens = parseCsv(symbolFilter).map(normalize)
 
-    return items.filter((item) => {
+    return localizedItems.filter((item) => {
       const tags = (item.tags || []).map(normalize)
       const symbols = (item.symbols || []).map(normalize)
       const tagMatch = tagTokens.length === 0 || tagTokens.every((token) => tags.includes(token))
       const symbolMatch = symbolTokens.length === 0 || symbolTokens.every((token) => symbols.includes(token))
       return tagMatch && symbolMatch
     })
-  }, [items, tagFilter, symbolFilter])
+  }, [items, language, tagFilter, symbolFilter, types])
 
   const emptyTitle = activeTypeKey === 'STRATEGY'
     ? t('insights.empty.strategiesTitle')
@@ -215,7 +228,10 @@ export default function InsightsPage() {
                 }}
               >
                 {types.map((item) => (
-                  <Tab key={item.id} label={item.displayName} />
+                  <Tab
+                    key={item.id}
+                    label={item.translations?.[language]?.displayName || item.displayName}
+                  />
                 ))}
               </Tabs>
             </Box>

@@ -1,6 +1,5 @@
-import { ApiError, apiDelete, apiGet, apiPatch, apiPost, clearAuthToken } from './client'
-
-const API_URL = import.meta.env.VITE_API_URL || '/api'
+import { apiDelete, apiGet, apiPatch, apiPost } from './client'
+import { deleteAsset, listNotebookAssets, uploadAsset, type AssetItem } from './assets'
 
 export type NotebookFolder = {
   id: string
@@ -50,7 +49,11 @@ export type NotebookAttachment = {
   fileName: string
   mimeType?: string
   sizeBytes?: number
+  url?: string
   downloadUrl?: string
+  viewUrl?: string
+  thumbnailUrl?: string
+  image?: boolean
   createdAt?: string
 }
 
@@ -154,33 +157,22 @@ export async function deleteNotebookTag(id: string): Promise<void> {
 }
 
 export async function listNotebookAttachments(noteId: string): Promise<NotebookAttachment[]> {
-  return apiGet(`/notebook/attachments?noteId=${noteId}`)
+  const assets = await listNotebookAssets(noteId)
+  return assets.map(toNotebookAttachment)
 }
 
-export async function uploadNotebookAttachment(noteId: string, file: File): Promise<NotebookAttachment> {
-  const token = localStorage.getItem('token')
-  const formData = new FormData()
-  formData.append('noteId', noteId)
-  formData.append('file', file)
-  const res = await fetch(`${API_URL}/notebook/attachments`, {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    body: formData
+export async function uploadNotebookAttachment(noteId: string, file: File, onProgress?: (progress: number) => void): Promise<NotebookAttachment> {
+  const asset = await uploadAsset({
+    file,
+    scope: 'NOTEBOOK',
+    noteId,
+    onProgress
   })
-  if (!res.ok) {
-    const text = await res.text()
-    if (res.status === 401 || res.status === 403) {
-      clearAuthToken()
-    }
-    const error = new ApiError(text || 'Failed to upload attachment')
-    error.status = res.status
-    throw error
-  }
-  return res.json()
+  return toNotebookAttachment(asset)
 }
 
 export async function deleteNotebookAttachment(id: string): Promise<void> {
-  return apiDelete(`/notebook/attachments/${id}`)
+  return deleteAsset(id)
 }
 
 export async function listNotebookTemplates(type?: NotebookNoteType): Promise<NotebookTemplate[]> {
@@ -218,3 +210,17 @@ export async function listLosses(from: string, to: string, tz?: string, minLoss?
   if (typeof minLoss === 'number') params.append('minLoss', `${minLoss}`)
   return apiGet(`/trades/losses?${params.toString()}`)
 }
+
+const toNotebookAttachment = (asset: AssetItem): NotebookAttachment => ({
+  id: asset.id,
+  noteId: asset.noteId || '',
+  fileName: asset.originalFileName,
+  mimeType: asset.contentType || undefined,
+  sizeBytes: asset.sizeBytes ?? undefined,
+  url: asset.url || undefined,
+  downloadUrl: asset.downloadUrl || undefined,
+  viewUrl: asset.viewUrl || undefined,
+  thumbnailUrl: asset.thumbnailUrl || undefined,
+  image: Boolean(asset.image),
+  createdAt: asset.createdAt || undefined
+})

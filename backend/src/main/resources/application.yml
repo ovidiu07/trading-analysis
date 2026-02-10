@@ -17,8 +17,8 @@ spring:
     locations: classpath:db/migration
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 12MB
+      max-file-size: 25MB
+      max-request-size: 32MB
   mail:
     host: ${MAIL_HOST:smtppro.zoho.eu}
     port: ${MAIL_PORT:587}
@@ -36,7 +36,6 @@ jwt:
   expiry: ${JWT_EXPIRY:3600000}
 
 app:
-  upload-dir: ${UPLOAD_DIR:uploads}
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   legal:
     terms-version: ${TERMS_VERSION:2024-09-01}
@@ -52,6 +51,24 @@ app:
     support-email: ${MAIL_SUPPORT_EMAIL:no-reply@tradejaudit.com}
     contact-email: ${MAIL_CONTACT_EMAIL:no-reply@tradejaudit.com}
     logo-url: ${MAIL_LOGO_URL:https://tradejaudit.com/branding/tradejaudit-logo-email@2x.png}
+
+storage:
+  provider: ${STORAGE_PROVIDER:s3}
+  s3:
+    bucket: ${STORAGE_S3_BUCKET:tradejaudit}
+    region: ${STORAGE_S3_REGION:eu-central-1}
+    endpoint: ${STORAGE_S3_ENDPOINT:}
+    access-key: ${STORAGE_S3_ACCESS_KEY:AKIA3I6HNKMGCWZLOCVS}
+    secret-key: ${STORAGE_S3_SECRET_KEY:}
+    public-base-url: ${STORAGE_S3_PUBLIC_BASE_URL:}
+    path-style-access: ${STORAGE_S3_PATH_STYLE_ACCESS:false}
+    presign:
+      enabled: ${STORAGE_S3_PRESIGN_ENABLED:false}
+      expiration-minutes: ${STORAGE_S3_PRESIGN_EXPIRATION_MINUTES:60}
+
+uploads:
+  max-file-size-mb: ${UPLOADS_MAX_FILE_SIZE_MB:20}
+  allowed-mime-types: ${UPLOADS_ALLOWED_MIME_TYPES:image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/csv,application/json,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}
 
 logging:
   level:
