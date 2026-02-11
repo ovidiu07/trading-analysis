@@ -2,13 +2,11 @@ package com.tradevault.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
-import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.auth.credentials.AwsCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
 import software.amazon.awssdk.regions.Region;
-import software.amazon.awssdk.regions.providers.DefaultAwsRegionProviderChain;
 import software.amazon.awssdk.services.s3.S3Client;
 import software.amazon.awssdk.services.s3.S3Configuration;
 import software.amazon.awssdk.services.s3.presigner.S3Presigner;
@@ -72,14 +70,7 @@ public class S3ClientConfig {
         if (configuredRegion != null) {
             return Region.of(configuredRegion);
         }
-        try {
-            return new DefaultAwsRegionProviderChain().getRegion();
-        } catch (SdkClientException ex) {
-            throw new IllegalStateException(
-                    "S3 region is not configured. Set storage.s3.region/STORAGE_S3_REGION or AWS_REGION.",
-                    ex
-            );
-        }
+        return Region.of("eu-central-1");
     }
 
     private String trimToNull(String value) {
