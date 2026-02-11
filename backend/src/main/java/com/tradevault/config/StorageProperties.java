@@ -17,7 +17,7 @@ public class StorageProperties {
     @Setter
     public static class S3 {
         private String bucket = "tradejaudit-assets";
-        private String region = "us-east-1";
+        private String region = "eu-central-1";
         private String endpoint;
         private String accessKey = "";
         private String secretKey = "";

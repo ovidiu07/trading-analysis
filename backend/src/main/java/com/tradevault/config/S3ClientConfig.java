@@ -17,7 +17,7 @@ public class S3ClientConfig {
     public S3Client s3Client(StorageProperties storageProperties) {
         StorageProperties.S3 s3 = storageProperties.getS3();
         var builder = S3Client.builder()
-                .region(Region.of(safe(s3.getRegion(), "us-east-1")))
+                .region(Region.of(safe(s3.getRegion(), "eu-central-1")))
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(
                         safe(s3.getAccessKey(), "test"),
                         safe(s3.getSecretKey(), "test")
@@ -37,7 +37,7 @@ public class S3ClientConfig {
     public S3Presigner s3Presigner(StorageProperties storageProperties) {
         StorageProperties.S3 s3 = storageProperties.getS3();
         var builder = S3Presigner.builder()
-                .region(Region.of(safe(s3.getRegion(), "us-east-1")))
+                .region(Region.of(safe(s3.getRegion(), "eu-central-1")))
                 .credentialsProvider(StaticCredentialsProvider.create(AwsBasicCredentials.create(
                         safe(s3.getAccessKey(), "test"),
                         safe(s3.getSecretKey(), "test")

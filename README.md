@@ -141,7 +141,7 @@ GA4 is integrated for the SPA shell and route navigation.
 ### Asset storage (AWS S3 + MinIO compatible)
 - `STORAGE_PROVIDER` – storage provider (`s3`)
 - `STORAGE_S3_BUCKET` – bucket name
-- `STORAGE_S3_REGION` – AWS region (optional for MinIO, defaults `us-east-1`)
+- `STORAGE_S3_REGION` – AWS region (optional for MinIO, defaults `eu-central-1`)
 - `STORAGE_S3_ENDPOINT` – custom endpoint (required for MinIO, optional for AWS)
 - `STORAGE_S3_ACCESS_KEY` – access key
 - `STORAGE_S3_SECRET_KEY` – secret key
