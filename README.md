@@ -140,13 +140,18 @@ GA4 is integrated for the SPA shell and route navigation.
 
 ### Asset storage (AWS S3 + MinIO compatible)
 - `STORAGE_PROVIDER` – storage provider (`s3`)
+- `STORAGE_S3_ENABLED` – enable/disable S3-backed storage (default `true`)
 - `STORAGE_S3_BUCKET` – bucket name
-- `STORAGE_S3_REGION` – AWS region (optional for MinIO, defaults `eu-central-1`)
+- `STORAGE_S3_REGION` / `AWS_REGION` – AWS region
 - `STORAGE_S3_ENDPOINT` – custom endpoint (required for MinIO, optional for AWS)
-- `STORAGE_S3_ACCESS_KEY` – access key
-- `STORAGE_S3_SECRET_KEY` – secret key
+- `STORAGE_S3_ACCESS_KEY` / `AWS_ACCESS_KEY_ID` – access key
+- `STORAGE_S3_SECRET_KEY` / `AWS_SECRET_ACCESS_KEY` – secret key
+- `STORAGE_S3_ACCESS_KEY_FILE`, `STORAGE_S3_SECRET_KEY_FILE` – file-based secrets (Docker secrets style)
 - `STORAGE_S3_PUBLIC_BASE_URL` – optional CDN/public base URL
-- `STORAGE_S3_PATH_STYLE_ACCESS` – `true` for most MinIO setups
+- `STORAGE_S3_PATH_STYLE` / `STORAGE_S3_PATH_STYLE_ACCESS` – `true` for most MinIO setups
+- `STORAGE_S3_FORCE_PATH_STYLE` – force path-style addressing
+- `STORAGE_S3_USE_IAM_ROLE` – use AWS SDK default credential chain (IAM/IRSA/ECS task role)
+- `STORAGE_S3_PROFILE_NAME` – explicit AWS profile name (optional)
 - `STORAGE_S3_PRESIGN_ENABLED` – `true` to return short-lived pre-signed URLs
 - `STORAGE_S3_PRESIGN_EXPIRATION_MINUTES` – pre-signed URL TTL (default `60`)
 - `UPLOADS_MAX_FILE_SIZE_MB` – max upload size per file (default `20`)
@@ -165,6 +170,7 @@ STORAGE_S3_BUCKET=tradejaudit-prod-assets
 STORAGE_S3_REGION=eu-central-1
 STORAGE_S3_ACCESS_KEY=...
 STORAGE_S3_SECRET_KEY=...
+STORAGE_S3_USE_IAM_ROLE=false
 STORAGE_S3_PRESIGN_ENABLED=true
 STORAGE_S3_PRESIGN_EXPIRATION_MINUTES=60
 UPLOADS_MAX_FILE_SIZE_MB=20
@@ -176,7 +182,7 @@ STORAGE_PROVIDER=s3
 STORAGE_S3_BUCKET=tradejaudit-assets
 STORAGE_S3_REGION=us-east-1
 STORAGE_S3_ENDPOINT=http://127.0.0.1:9000
-STORAGE_S3_PATH_STYLE_ACCESS=true
+STORAGE_S3_PATH_STYLE=true
 STORAGE_S3_ACCESS_KEY=minioadmin
 STORAGE_S3_SECRET_KEY=minioadmin
 STORAGE_S3_PRESIGN_ENABLED=true

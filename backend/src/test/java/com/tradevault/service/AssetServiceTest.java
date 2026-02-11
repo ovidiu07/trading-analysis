@@ -1,7 +1,7 @@
 package com.tradevault.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tradevault.config.StorageProperties;
+import com.tradevault.config.StorageS3Properties;
 import com.tradevault.config.UploadProperties;
 import com.tradevault.domain.entity.Asset;
 import com.tradevault.domain.entity.ContentPost;
@@ -46,7 +46,7 @@ class AssetServiceTest {
     private CurrentUserService currentUserService;
     private ObjectStorageService objectStorageService;
     private UploadProperties uploadProperties;
-    private StorageProperties storageProperties;
+    private StorageS3Properties storageS3Properties;
     private AssetService assetService;
 
     @BeforeEach
@@ -63,9 +63,9 @@ class AssetServiceTest {
         uploadProperties.setMaxFileSizeMb(1);
         uploadProperties.setAllowedMimeTypes(List.of("image/png", "application/pdf"));
 
-        storageProperties = new StorageProperties();
-        storageProperties.getS3().setBucket("unit-test");
-        storageProperties.getS3().getPresign().setEnabled(false);
+        storageS3Properties = new StorageS3Properties();
+        storageS3Properties.setBucket("unit-test");
+        storageS3Properties.getPresign().setEnabled(false);
 
         assetService = new AssetService(
                 assetRepository,
@@ -77,7 +77,7 @@ class AssetServiceTest {
                 objectStorageService,
                 new ObjectMapper(),
                 uploadProperties,
-                storageProperties
+                storageS3Properties
         );
 
         User admin = User.builder()

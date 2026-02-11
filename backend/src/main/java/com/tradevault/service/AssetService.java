@@ -2,7 +2,7 @@ package com.tradevault.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.tradevault.config.StorageProperties;
+import com.tradevault.config.StorageS3Properties;
 import com.tradevault.config.UploadProperties;
 import com.tradevault.domain.entity.Asset;
 import com.tradevault.domain.entity.ContentAsset;
@@ -67,7 +67,7 @@ public class AssetService {
     private final ObjectStorageService objectStorageService;
     private final ObjectMapper objectMapper;
     private final UploadProperties uploadProperties;
-    private final StorageProperties storageProperties;
+    private final StorageS3Properties storageS3Properties;
 
     @Transactional
     public AssetResponse upload(MultipartFile file, AssetUploadRequest request) {
@@ -493,7 +493,7 @@ public class AssetService {
     }
 
     private String resolveDirectAssetUrl(Asset asset, boolean inline) {
-        StorageProperties.S3 s3 = storageProperties.getS3();
+        StorageS3Properties s3 = storageS3Properties;
         if (s3.getPresign().isEnabled()) {
             int expirationMinutes = Math.max(1, s3.getPresign().getExpirationMinutes());
             return objectStorageService.presignGetObjectUrl(asset.getS3Key(), Duration.ofMinutes(expirationMinutes));
