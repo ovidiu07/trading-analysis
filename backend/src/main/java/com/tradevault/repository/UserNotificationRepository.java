@@ -36,18 +36,32 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
         WHERE un.user.id = :userId
           AND un.dismissedAt IS NULL
           AND (:unreadOnly = FALSE OR un.readAt IS NULL)
+        ORDER BY un.createdAt DESC, un.id DESC
+        """)
+    List<UserNotification> findForFeedWithoutCursor(@Param("userId") UUID userId,
+                                                    @Param("unreadOnly") boolean unreadOnly,
+                                                    Pageable pageable);
+
+    @Query("""
+        SELECT un
+        FROM UserNotification un
+        JOIN FETCH un.event e
+        JOIN FETCH e.content
+        JOIN FETCH e.category
+        WHERE un.user.id = :userId
+          AND un.dismissedAt IS NULL
+          AND (:unreadOnly = FALSE OR un.readAt IS NULL)
           AND (
-            :cursorCreatedAt IS NULL
-            OR un.createdAt < :cursorCreatedAt
+            un.createdAt < :cursorCreatedAt
             OR (un.createdAt = :cursorCreatedAt AND un.id < :cursorId)
           )
         ORDER BY un.createdAt DESC, un.id DESC
         """)
-    List<UserNotification> findForFeed(@Param("userId") UUID userId,
-                                       @Param("unreadOnly") boolean unreadOnly,
-                                       @Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
-                                       @Param("cursorId") UUID cursorId,
-                                       Pageable pageable);
+    List<UserNotification> findForFeedWithCursor(@Param("userId") UUID userId,
+                                                 @Param("unreadOnly") boolean unreadOnly,
+                                                 @Param("cursorCreatedAt") OffsetDateTime cursorCreatedAt,
+                                                 @Param("cursorId") UUID cursorId,
+                                                 Pageable pageable);
 
     @Query("""
         SELECT un
@@ -117,19 +131,22 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
             OR (
               np.mode = 'SELECTED'
               AND (
-                jsonb_exists(COALESCE(np.categories_json, '[]'::jsonb), e.category_id::text)
+                jsonb_exists(
+                  COALESCE(np.categories_json, CAST('[]' AS jsonb)),
+                  CAST(e.category_id AS text)
+                )
                 OR (
                   np.match_policy = 'CATEGORY_OR_TAGS_OR_SYMBOLS'
                   AND (
                     EXISTS (
                       SELECT 1
-                      FROM jsonb_array_elements_text(COALESCE(np.tags_json, '[]'::jsonb)) AS pref_tag(tag_value)
-                      WHERE jsonb_exists(COALESCE(e.tags, '[]'::jsonb), pref_tag.tag_value)
+                      FROM jsonb_array_elements_text(COALESCE(np.tags_json, CAST('[]' AS jsonb))) AS pref_tag(tag_value)
+                      WHERE jsonb_exists(COALESCE(e.tags, CAST('[]' AS jsonb)), pref_tag.tag_value)
                     )
                     OR EXISTS (
                       SELECT 1
-                      FROM jsonb_array_elements_text(COALESCE(np.symbols_json, '[]'::jsonb)) AS pref_symbol(symbol_value)
-                      WHERE jsonb_exists(COALESCE(e.symbols, '[]'::jsonb), pref_symbol.symbol_value)
+                      FROM jsonb_array_elements_text(COALESCE(np.symbols_json, CAST('[]' AS jsonb))) AS pref_symbol(symbol_value)
+                      WHERE jsonb_exists(COALESCE(e.symbols, CAST('[]' AS jsonb)), pref_symbol.symbol_value)
                     )
                   )
                 )

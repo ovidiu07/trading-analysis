@@ -36,13 +36,19 @@ public class NotificationQueryService {
         int normalizedLimit = Math.max(MIN_LIMIT, Math.min(MAX_LIMIT, limit));
 
         FeedCursor feedCursor = parseCursor(cursor);
-        List<UserNotification> notifications = userNotificationRepository.findForFeed(
-                user.getId(),
-                unreadOnly,
-                feedCursor == null ? null : feedCursor.createdAt(),
-                feedCursor == null ? null : feedCursor.id(),
-                PageRequest.of(0, normalizedLimit + 1)
-        );
+        List<UserNotification> notifications = feedCursor == null
+                ? userNotificationRepository.findForFeedWithoutCursor(
+                        user.getId(),
+                        unreadOnly,
+                        PageRequest.of(0, normalizedLimit + 1)
+                )
+                : userNotificationRepository.findForFeedWithCursor(
+                        user.getId(),
+                        unreadOnly,
+                        feedCursor.createdAt(),
+                        feedCursor.id(),
+                        PageRequest.of(0, normalizedLimit + 1)
+                );
 
         boolean hasMore = notifications.size() > normalizedLimit;
         List<UserNotification> pageItems = hasMore
