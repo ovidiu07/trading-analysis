@@ -24,6 +24,7 @@ import InsightsIcon from '@mui/icons-material/Insights'
 import MenuBookIcon from '@mui/icons-material/MenuBook'
 import SettingsIcon from '@mui/icons-material/Settings'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
+import TodayOutlinedIcon from '@mui/icons-material/TodayOutlined'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
@@ -88,15 +89,16 @@ export default function Layout() {
 
   const navSections = useMemo<NavSection[]>(() => {
     const tradingItems: NavItem[] = [
-      { label: t('nav.dashboard'), path: '/dashboard', icon: <DashboardIcon /> },
-      { label: t('nav.trades'), path: '/trades', icon: <TableChartIcon /> },
+      { label: t('nav.today'), path: '/today', icon: <TodayOutlinedIcon /> },
+      { label: t('nav.insights'), path: '/insights', icon: <MenuBookIcon /> },
+      { label: t('nav.analytics'), path: '/analytics', icon: <InsightsIcon /> },
       { label: t('nav.calendar'), path: '/calendar', icon: <CalendarMonthIcon /> },
+      { label: t('nav.dashboard'), path: '/dashboard', icon: <DashboardIcon /> },
     ]
 
     const journalItems: NavItem[] = [
+      { label: t('nav.trades'), path: '/trades', icon: <TableChartIcon /> },
       { label: t('nav.notebook'), path: '/notebook', icon: <NoteIcon /> },
-      { label: t('nav.insights'), path: '/insights', icon: <MenuBookIcon /> },
-      { label: t('nav.analytics'), path: '/analytics', icon: <InsightsIcon /> },
     ]
 
     const systemItems: NavItem[] = [

@@ -28,6 +28,8 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
+import java.util.Collections;
+import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -235,6 +237,11 @@ public class TradeService {
         trade.setSetup(request.getSetup());
         trade.setStrategyTag(request.getStrategyTag());
         trade.setCatalystTag(request.getCatalystTag());
+        trade.setStrategyId(request.getStrategyId());
+        trade.setSetupGrade(request.getSetupGrade());
+        trade.setSession(request.getSession());
+        trade.setRuleBreaks(normalizeRuleBreaks(request.getRuleBreaks()));
+        trade.setLinkedContentIds(normalizeLinkedContentIds(request.getLinkedContentIds()));
         trade.setNotes(request.getNotes());
         trade.setCreatedAt(OffsetDateTime.now());
         trade.setUpdatedAt(trade.getCreatedAt());
@@ -283,6 +290,19 @@ public class TradeService {
         trade.setSetup(request.getSetup());
         trade.setStrategyTag(request.getStrategyTag());
         trade.setCatalystTag(request.getCatalystTag());
+        trade.setStrategyId(request.getStrategyId());
+        trade.setSetupGrade(request.getSetupGrade());
+        trade.setSession(request.getSession());
+        if (request.getRuleBreaks() != null) {
+            trade.setRuleBreaks(normalizeRuleBreaks(request.getRuleBreaks()));
+        } else if (trade.getRuleBreaks() == null) {
+            trade.setRuleBreaks(new LinkedHashSet<>());
+        }
+        if (request.getLinkedContentIds() != null) {
+            trade.setLinkedContentIds(normalizeLinkedContentIds(request.getLinkedContentIds()));
+        } else if (trade.getLinkedContentIds() == null) {
+            trade.setLinkedContentIds(new LinkedHashSet<>());
+        }
         trade.setNotes(request.getNotes());
         if (request.getAccountId() != null) {
             Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
@@ -400,6 +420,26 @@ public class TradeService {
 
     private BigDecimal defaultZero(BigDecimal value) {
         return value == null ? BigDecimal.ZERO : value;
+    }
+
+    private Set<String> normalizeRuleBreaks(Set<String> values) {
+        if (values == null || values.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        return values.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(token -> !token.isEmpty())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Set<UUID> normalizeLinkedContentIds(Set<UUID> values) {
+        if (values == null || values.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        return values.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private void calculateMetrics(Trade trade) {
@@ -555,6 +595,11 @@ public class TradeService {
                 .setup(trade.getSetup())
                 .strategyTag(trade.getStrategyTag())
                 .catalystTag(trade.getCatalystTag())
+                .strategyId(trade.getStrategyId())
+                .setupGrade(trade.getSetupGrade())
+                .ruleBreaks(trade.getRuleBreaks() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getRuleBreaks()))
+                .session(trade.getSession())
+                .linkedContentIds(trade.getLinkedContentIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedContentIds()))
                 .notes(trade.getNotes())
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())

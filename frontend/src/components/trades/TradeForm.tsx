@@ -35,6 +35,9 @@ export type TradeFormProps = {
   secondaryAction?: ReactNode
   computedValues?: ComputedTradeMetrics
   stickyActions?: boolean
+  strategyOptions?: Array<{ id: string; label: string }>
+  planOptions?: Array<{ id: string; label: string }>
+  ruleBreakOptions?: string[]
 }
 
 export function TradeForm({
@@ -45,7 +48,10 @@ export function TradeForm({
   error,
   secondaryAction,
   computedValues,
-  stickyActions = false
+  stickyActions = false,
+  strategyOptions = [],
+  planOptions = [],
+  ruleBreakOptions = []
 }: TradeFormProps) {
   const { t } = useI18n()
   const {
@@ -300,10 +306,132 @@ export function TradeForm({
                 <TextField label={t('trades.form.setup')} fullWidth {...register('setup')} />
               </Grid>
               <Grid item xs={12} sm={6} md={4}>
+                <Controller
+                  name="strategyId"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.strategy')}
+                      select
+                      fullWidth
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    >
+                      <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                      {strategyOptions.map((option) => (
+                        <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <Controller
+                  name="setupGrade"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.setupGrade')}
+                      select
+                      fullWidth
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    >
+                      <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                      <MenuItem value="A">A</MenuItem>
+                      <MenuItem value="B">B</MenuItem>
+                      <MenuItem value="C">C</MenuItem>
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
                 <TextField label={t('trades.form.strategyTag')} fullWidth {...register('strategyTag')} />
               </Grid>
               <Grid item xs={12} sm={6} md={4}>
                 <TextField label={t('trades.form.catalystTag')} fullWidth {...register('catalystTag')} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <Controller
+                  name="session"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.session')}
+                      select
+                      fullWidth
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    >
+                      <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                      <MenuItem value="ASIA">{t('trades.form.sessions.ASIA')}</MenuItem>
+                      <MenuItem value="LONDON">{t('trades.form.sessions.LONDON')}</MenuItem>
+                      <MenuItem value="NY">{t('trades.form.sessions.NY')}</MenuItem>
+                      <MenuItem value="CUSTOM">{t('trades.form.sessions.CUSTOM')}</MenuItem>
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="linkedContentIds"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.linkedPlans')}
+                      select
+                      fullWidth
+                      value={field.value ?? []}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        field.onChange(typeof value === 'string' ? value.split(',') : value)
+                      }}
+                      SelectProps={{
+                        multiple: true,
+                        renderValue: (selected) => {
+                          const selectedIds = (selected as string[]) || []
+                          const labels = selectedIds
+                            .map((id) => planOptions.find((option) => option.id === id)?.label || id)
+                            .slice(0, 2)
+                          if (selectedIds.length <= 2) {
+                            return labels.join(', ')
+                          }
+                          return `${labels.join(', ')} +${selectedIds.length - 2}`
+                        }
+                      }}
+                    >
+                      {planOptions.map((option) => (
+                        <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="ruleBreaks"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.ruleBreaks')}
+                      select
+                      fullWidth
+                      value={field.value ?? []}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        field.onChange(typeof value === 'string' ? value.split(',') : value)
+                      }}
+                      SelectProps={{
+                        multiple: true,
+                        renderValue: (selected) => (selected as string[]).map((value) => t(`trades.form.ruleBreakOptions.${value}`)).join(', ')
+                      }}
+                    >
+                      {ruleBreakOptions.map((option) => (
+                        <MenuItem key={option} value={option}>{t(`trades.form.ruleBreakOptions.${option}`)}</MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
               </Grid>
               <Grid item xs={12}>
                 <TextField label={t('trades.form.notes')} fullWidth multiline minRows={3} {...register('notes')} />

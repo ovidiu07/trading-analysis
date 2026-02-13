@@ -1,8 +1,9 @@
 package com.tradevault.domain.entity;
 
-import com.tradevault.config.DirectionType;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.TradeGrade;
+import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
 import jakarta.persistence.*;
 import lombok.*;
@@ -12,6 +13,7 @@ import org.hibernate.annotations.JdbcTypeCode;
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 import org.hibernate.type.SqlTypes;
@@ -77,6 +79,18 @@ public class Trade {
     @Column(name = "strategy_tag")
     private String strategyTag;
     private String catalystTag;
+    @Column(name = "strategy_id")
+    private UUID strategyId;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "setup_grade", columnDefinition = "trade_grade")
+    private TradeGrade setupGrade;
+
+    @Enumerated(EnumType.STRING)
+    @JdbcTypeCode(SqlTypes.NAMED_ENUM)
+    @Column(name = "session", columnDefinition = "trade_session")
+    private TradeSession session;
 
     @Column(columnDefinition = "TEXT")
     private String notes;
@@ -89,11 +103,24 @@ public class Trade {
     @Column(name = "demo_seed_id")
     private UUID demoSeedId;
 
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "trade_content_links", joinColumns = @JoinColumn(name = "trade_id"))
+    @Column(name = "content_id")
+    private Set<UUID> linkedContentIds = new LinkedHashSet<>();
+
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "trade_rule_breaks", joinColumns = @JoinColumn(name = "trade_id"))
+    @Column(name = "rule_break")
+    private Set<String> ruleBreaks = new LinkedHashSet<>();
+
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(
             name = "trade_tags",
             joinColumns = @JoinColumn(name = "trade_id"),
             inverseJoinColumns = @JoinColumn(name = "tag_id")
     )
+    @Builder.Default
     private Set<Tag> tags = new HashSet<>();
 }

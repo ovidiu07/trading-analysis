@@ -45,7 +45,7 @@ export default function LoginPage() {
   const publicTermsUrl = `/${language}/terms/`
   const publicPrivacyUrl = `/${language}/privacy/`
 
-  const from = (location.state as { from?: string })?.from || '/trades'
+  const from = (location.state as { from?: string })?.from || '/today'
 
   const onSubmit = async (data: FormValues) => {
     setError('')

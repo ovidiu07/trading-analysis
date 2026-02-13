@@ -2,6 +2,8 @@ package com.tradevault.dto.trade;
 
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.TradeGrade;
+import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
 import lombok.Builder;
 import lombok.Data;
@@ -40,6 +42,11 @@ public class TradeResponse {
     private String setup;
     private String strategyTag;
     private String catalystTag;
+    private UUID strategyId;
+    private TradeGrade setupGrade;
+    private Set<String> ruleBreaks;
+    private TradeSession session;
+    private Set<UUID> linkedContentIds;
     private String notes;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

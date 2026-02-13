@@ -10,6 +10,8 @@ import { I18nProvider } from '../i18n'
 
 const mockFetchAnalyticsSummary = vi.fn()
 const mockFetchAnalyticsCoach = vi.fn()
+const mockUseChecklistTemplateQuery = vi.fn()
+const mockUseSaveChecklistTemplateMutation = vi.fn()
 
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
@@ -40,6 +42,11 @@ vi.mock('../api/analytics', async () => {
     fetchAnalyticsCoach: (...args: unknown[]) => mockFetchAnalyticsCoach(...args)
   }
 })
+
+vi.mock('../hooks/useChecklist', () => ({
+  useChecklistTemplateQuery: (...args: unknown[]) => mockUseChecklistTemplateQuery(...args),
+  useSaveChecklistTemplateMutation: (...args: unknown[]) => mockUseSaveChecklistTemplateMutation(...args)
+}))
 
 const buildResponse = (): AnalyticsResponse => ({
   kpi: {
@@ -184,6 +191,20 @@ describe('AnalyticsPage', () => {
   beforeEach(() => {
     localStorage.setItem('app.language', 'en')
     setViewportWidth(1280)
+    mockUseChecklistTemplateQuery.mockReset()
+    mockUseSaveChecklistTemplateMutation.mockReset()
+    mockUseChecklistTemplateQuery.mockReturnValue({
+      data: [],
+      isLoading: false,
+      isError: false,
+      error: null
+    })
+    mockUseSaveChecklistTemplateMutation.mockReturnValue({
+      mutateAsync: vi.fn(),
+      isLoading: false,
+      isError: false,
+      error: null
+    })
   })
 
   it('requests analytics summary on load and renders KPI', async () => {

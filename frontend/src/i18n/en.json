@@ -38,6 +38,7 @@
     "na": "-"
   },
   "nav": {
+    "today": "Today",
     "dashboard": "Dashboard",
     "trades": "Trades",
     "calendar": "Calendar",
@@ -148,6 +149,7 @@
       "title": "Title",
       "type": "Type",
       "updated": "Updated",
+      "version": "v{{version}}",
       "visibleRange": "Visible range"
     },
     "title": "Admin content",
@@ -195,6 +197,9 @@
       "bodyHint": "Use markdown for headings, lists, and emphasis.",
       "commaSeparated": "comma-separated",
       "notifySubscribersAboutUpdate": "Notify subscribers about this update",
+      "revisionNotes": "Revision notes",
+      "revisionNotesHint": "Optional: describe what changed in this revision.",
+      "revisionNotesHelper": "Shown in content metadata for review context.",
       "slug": "Slug",
       "slugHint": "Optional. If empty, a slug is generated from the title.",
       "summary": "Summary",
@@ -210,16 +215,115 @@
     "newContent": "New content",
     "preview": "Preview",
     "subtitle": "Build strategies and weekly plans for the Insights section.",
+    "template": {
+      "sectionTitle": "Template sections",
+      "previewTitle": "Structured template",
+      "previewEmpty": "Fill the template fields to preview structured guidance.",
+      "context": {
+        "label": "Context",
+        "hint": "Add market context for this plan."
+      },
+      "executionRules": {
+        "label": "Execution rules",
+        "hint": "Define explicit entry, management, and exit rules."
+      },
+      "biasSummary": {
+        "label": "Bias summary",
+        "hint": "One-line directional bias and why."
+      },
+      "keyLevels": {
+        "label": "Key levels",
+        "hint": "PDH/PDL, Asia range, EQH/EQL, and major session levels."
+      },
+      "liquidityNarrative": {
+        "label": "Liquidity narrative",
+        "hint": "Describe likely liquidity sweeps and reaction zones."
+      },
+      "primaryModel": {
+        "label": "Primary model",
+        "hint": "Main setup model (for example, Sweep + MSS + FVG)."
+      },
+      "alternativeScenario": {
+        "label": "Alternative scenario",
+        "hint": "Fallback if the primary setup does not form."
+      },
+      "riskNote": {
+        "label": "Risk note",
+        "hint": "Risk caps and no-trade conditions."
+      },
+      "macroBias": {
+        "label": "Macro bias",
+        "hint": "Weekly directional context for Forex and Indices."
+      },
+      "highProbabilityWindows": {
+        "label": "High probability windows",
+        "hint": "When to focus during the week."
+      },
+      "noTradeRisks": {
+        "label": "No-trade and risk windows",
+        "hint": "News/events or conditions to avoid."
+      },
+      "watchlist": {
+        "label": "Watchlist",
+        "hint": "Symbols and why they are in focus this week."
+      },
+      "weekFocus": {
+        "label": "This week focus",
+        "hint": "One coaching focus for the week."
+      },
+      "what": {
+        "label": "What it is",
+        "hint": "Define the setup in plain language."
+      },
+      "when": {
+        "label": "When to trade",
+        "hint": "Session and market conditions."
+      },
+      "filters": {
+        "label": "A+ filters",
+        "hint": "Checklist filters before execution."
+      },
+      "entryModel": {
+        "label": "Entry model",
+        "hint": "Step-by-step entry sequence."
+      },
+      "invalidation": {
+        "label": "Invalidation",
+        "hint": "What invalidates the idea."
+      },
+      "targets": {
+        "label": "Targets and management",
+        "hint": "TP hierarchy and management rules."
+      },
+      "riskModel": {
+        "label": "Risk model (R)",
+        "hint": "Risk sizing and max loss rules."
+      },
+      "failureModes": {
+        "label": "Common failure modes",
+        "hint": "Typical mistakes and invalid contexts."
+      },
+      "checklist": {
+        "label": "Checklist",
+        "hint": "Checklist to import into session mode."
+      },
+      "items": {
+        "label": "Checklist items",
+        "hint": "One item per line."
+      }
+    },
     "title": {
       "create": "Create content",
       "edit": "Edit content"
     },
     "untitled": "Untitled",
     "updated": "Updated",
+    "versionChip": "Version {{version}}",
     "validation": {
       "bodyRequired": "Body is required.",
       "localeBodyRequired": "Body is required for {{locale}}.",
       "localeTitleRequired": "Title is required for {{locale}}.",
+      "templateFieldRequired": "{{field}} is required.",
       "titleRequired": "Title is required.",
       "typeRequired": "Type is required.",
       "visibleUntilAfterFrom": "Visible until must be after visible from.",
@@ -312,6 +416,32 @@
       "symbol": "Symbol",
       "to": "To"
     },
+    "sessionChecklist": {
+      "title": "Session checklist",
+      "subtitle": "Customize your pre-session checklist. These items appear on Today.",
+      "addLabel": "Add checklist item",
+      "addPlaceholder": "Type an item and press Enter",
+      "addAction": "Add item",
+      "save": "Save checklist",
+      "saving": "Saving...",
+      "saved": "Checklist saved.",
+      "enabled": "Enabled",
+      "moveUp": "Move item up",
+      "moveDown": "Move item down",
+      "delete": "Delete item",
+      "confirmDelete": "Delete this checklist item?",
+      "itemLabel": "Checklist item {{index}}",
+      "emptyTitle": "No checklist items",
+      "emptyBody": "Add your first checklist item to start customizing your session routine.",
+      "limit": "{{count}} / {{max}} items",
+      "loadError": "Could not load checklist settings.",
+      "saveError": "Could not save checklist settings.",
+      "validation": {
+        "blank": "Checklist items cannot be empty.",
+        "tooMany": "Maximum {{max}} checklist items.",
+        "tooLong": "Checklist items must be {{max}} characters or less."
+      }
+    },
     "kpis": {
       "avgLoss": "Avg loss",
       "avgWin": "Avg win",
@@ -339,6 +469,37 @@
       "risk": "Risk",
       "symbolsAndTags": "Symbols & tags",
       "timeEdge": "Time edge"
+    },
+    "coachingSummary": {
+      "title": "Coaching summary",
+      "bestStrategy": "Best strategy",
+      "biggestLeak": "Biggest leak",
+      "nextFocus": "Next focus action",
+      "expectancy": "Expectancy"
+    },
+    "phase4": {
+      "showMore": "More",
+      "showLess": "Less",
+      "strategyTableTitle": "Strategy analytics (Forex vs Indices)",
+      "strategyTableEmptyTitle": "No strategy analytics yet",
+      "strategyTableEmptyBody": "Tag trades with strategies and close a sample to populate this table.",
+      "sessionTitle": "Session analytics",
+      "sessionEmptyTitle": "No session analytics yet",
+      "sessionEmptyBody": "Log session labels (Asia/London/NY) or trade timestamps to populate this panel.",
+      "planAdherenceTitle": "Plan adherence",
+      "planAdherenceLinkedPct": "Trades linked to plans",
+      "planAdherenceLinked": "Planned trades",
+      "planAdherenceUnlinked": "Unplanned trades",
+      "planAdherenceEmptyTitle": "No adherence data yet",
+      "planAdherenceEmptyBody": "Link trades to daily or weekly plans to compare planned vs unplanned performance.",
+      "columns": {
+        "strategy": "Strategy",
+        "market": "Market",
+        "sample": "Sample",
+        "winRate": "Win rate",
+        "expectancy": "Expectancy",
+        "profitFactor": "Profit factor"
+      }
     },
     "overview": {
       "equityCurve": {
@@ -536,6 +697,8 @@
   "dashboard": {
     "title": "Dashboard",
     "subtitle": "Live view of your trading performance, equity growth, and most recent executions.",
+    "goToToday": "Go to Today",
+    "goToTodayHint": "Keep this page for performance review and run your execution loop from Today.",
     "chartError": "Unable to load chart data for this range.",
     "chartTooltip": {
       "tradeCount": "{{count}} trades"
@@ -612,6 +775,82 @@
       "addTrade": "Add trade"
     }
   },
+  "today": {
+    "title": "Plan your session",
+    "subtitle": "Plan, execute, journal, and review from one daily workspace.",
+    "heading": "Plan your session",
+    "subheading": "Daily and weekly focus, coaching prompts, and quick trade access.",
+    "errors": {
+      "load": "Could not load today data. Please try again."
+    },
+    "actions": {
+      "openPlan": "Open plan",
+      "openWeeklyPlan": "Open weekly plan",
+      "openInsights": "Open Insights/Today feed",
+      "startSession": "Start session",
+      "seeWhy": "See why",
+      "logTrade": "Log trade",
+      "viewAll": "View all",
+      "createDailyPlan": "Create daily plan"
+    },
+    "cards": {
+      "daily": {
+        "title": "Today's Plan",
+        "emptyTitle": "No featured daily plan",
+        "emptyBody": "Open Insights to follow today's plan feed.",
+        "noSummary": "No bias summary available yet.",
+        "primaryModel": "Primary model"
+      },
+      "weekly": {
+        "title": "This Week Focus",
+        "emptyTitle": "No featured weekly plan",
+        "emptyBody": "A weekly focus plan will appear once published.",
+        "noSummary": "No weekly focus summary available yet."
+      },
+      "coach": {
+        "title": "Your Focus Metric",
+        "action": "Action",
+        "emptyTitle": "No coaching finding yet",
+        "emptyBody": "Log more closed trades to generate targeted coaching."
+      }
+    },
+    "coachSeverity": {
+      "info": "Info",
+      "warn": "Watch",
+      "critical": "Critical"
+    },
+    "checklist": {
+      "title": "Session checklist",
+      "edit": "Edit checklist",
+      "emptyTitle": "No checklist items enabled",
+      "emptyBody": "Open Analytics to add items or enable existing ones.",
+      "items": {
+        "plan": "Review today's plan and set a bias for your session.",
+        "levels": "Mark key liquidity levels (PDH/PDL, Asia H/L, EQH/EQL).",
+        "risk": "Set max daily risk and max trades before execution.",
+        "windows": "Define your session windows (London/New York).",
+        "journal": "Open quick journal and write invalidation conditions."
+      }
+    },
+    "events": {
+      "title": "Upcoming events",
+      "emptyTitle": "Events feed not connected yet",
+      "emptyBody": "Economic events for Forex and indices will appear here."
+    },
+    "recentTrades": {
+      "title": "Recent trades",
+      "emptyTitle": "No recent trades",
+      "emptyBody": "Log your next execution to start the review loop."
+    },
+    "session": {
+      "title": "Session mode",
+      "subtitle": "Focused execution view with your plan, checklist, and quick notes.",
+      "exit": "Back to Today",
+      "planSummary": "Plan summary",
+      "quickNote": "Quick notepad",
+      "quickNotePlaceholder": "Capture observations, invalidations, and execution notes in real time."
+    }
+  },
   "demo": {
     "banner": {
       "title": "You're viewing demo data",
@@ -665,33 +904,64 @@
     "noAttachments": "No attachments available.",
     "infoAlert": "For journaling and educational purposes only. Not investment advice.",
     "lastUpdated": "Last updated",
+    "revisionNotes": "Revision notes:",
+    "templateFields": "Template fields",
     "errors": {
       "downloadFailed": "Could not download attachment."
     }
   },
   "insights": {
-    "empty": {
-      "defaultBody": "Localized insights will appear here after publication.",
-      "defaultTitle": "No content published yet",
-      "strategiesBody": "Once published, strategies will show up here for everyone.",
-      "strategiesTitle": "No strategies published yet",
-      "weeklyBody": "Weekly plans will appear here after the admin publishes them.",
-      "weeklyTitle": "No weekly plans published yet"
-    },
-    "searchPlaceholder": "Search strategies or weekly plans",
-    "subtitle": "Published strategies and weekly plans from the team, ready for your next session.",
+    "title": "Insights",
+    "subtitle": "Plans, playbooks, and learning",
+    "heading": "Plans, playbooks, and learning",
+    "subheading": "Use tab-based feeds to move from plan to execution with less noise.",
+    "featured": "Featured",
+    "searchPlaceholder": "Search plans, playbooks, and education",
     "symbolsPlaceholder": "Filter by symbols (comma-separated)",
     "tagsPlaceholder": "Filter by tags (comma-separated)",
-    "title": "Insights",
-    "type": {
-      "strategy": "Strategy",
-      "weeklyPlan": "Weekly Plan"
-    },
     "updated": "Updated",
     "weekOf": "Week of",
+    "errors": {
+      "load": "Could not load insights feed.",
+      "follow": "Could not follow this item."
+    },
     "tabs": {
-      "strategies": "Strategies",
-      "weeklyPlans": "Weekly plans"
+      "today": "Today",
+      "week": "This Week",
+      "playbooks": "Playbooks",
+      "learn": "Learn"
+    },
+    "filters": {
+      "secondaryType": "Category",
+      "anySecondary": "All categories in this tab"
+    },
+    "actions": {
+      "save": "Save",
+      "follow": "Follow",
+      "following": "Following",
+      "open": "Open",
+      "openDetails": "Open details",
+      "addToPlaybook": "Add to My Playbook",
+      "tagTrades": "Tag trades with this strategy",
+      "loadMore": "Load more"
+    },
+    "messages": {
+      "followed": "Follow saved. You will receive notifications when matching content is published."
+    },
+    "strategy": {
+      "markets": "Markets",
+      "sessions": "Sessions",
+      "difficulty": "Difficulty"
+    },
+    "empty": {
+      "todayTitle": "No daily plans right now",
+      "todayBody": "Publish or follow a daily plan to see it here.",
+      "weekTitle": "No weekly plans right now",
+      "weekBody": "Publish or follow a weekly plan to see it here.",
+      "playbooksTitle": "No playbooks available",
+      "playbooksBody": "Strategy playbooks will appear here after publication.",
+      "learnTitle": "No learning content available",
+      "learnBody": "Education and recap content will appear here after publication."
     }
   },
   "legal": {
@@ -979,6 +1249,10 @@
       "title": "Create trade",
       "save": "Save trade"
     },
+    "quickLog": {
+      "title": "Quick Log",
+      "submit": "Log trade"
+    },
     "deleteConfirm": "Are you sure you want to delete trade {{symbol}}?",
     "empty": {
       "title": "No trades to display",
@@ -992,7 +1266,11 @@
       "deleteFailed": "Could not delete trade.",
       "importFailed": "Could not import CSV.",
       "createTradeNoteFailed": "Could not create trade note.",
-      "noteMissingId": "Note was created but no note ID was returned. Refresh and open it manually."
+      "noteMissingId": "Note was created but no note ID was returned. Refresh and open it manually.",
+      "loadOptionsFailed": "Could not load strategy and plan options.",
+      "symbolRequired": "Symbol is required.",
+      "openedAtRequired": "Opened at is required.",
+      "exitPriceRequired": "Exit price is required when status is closed."
     },
     "filters": {
       "title": "Filters",
@@ -1079,10 +1357,16 @@
       "capitalUsed": "Capital used",
       "capitalUsedHint": "Optional: used to calculate P&L %",
       "setup": "Setup",
+      "strategy": "Strategy",
       "strategyTag": "Strategy tag",
       "catalystTag": "Catalyst tag",
+      "setupGrade": "Setup grade",
+      "session": "Session",
+      "linkedPlans": "Linked plans",
+      "ruleBreaks": "Rule breaks",
       "notes": "Notes",
       "accountId": "Account ID",
+      "none": "None",
       "computedMetrics": "Computed metrics (read-only)",
       "pnlGross": "Gross P&L",
       "pnlNet": "Net P&L",
@@ -1095,6 +1379,20 @@
         "risk": "Risk",
         "costs": "Costs",
         "context": "Context"
+      },
+      "sessions": {
+        "ASIA": "Asia",
+        "LONDON": "London",
+        "NY": "New York",
+        "CUSTOM": "Custom"
+      },
+      "ruleBreakOptions": {
+        "lateEntry": "Late entry",
+        "earlyExit": "Early exit",
+        "oversizedRisk": "Oversized risk",
+        "ignoredInvalidation": "Ignored invalidation",
+        "newsViolation": "News violation",
+        "outsideSession": "Outside session"
       },
       "validation": {
         "symbolRequired": "Symbol is required"

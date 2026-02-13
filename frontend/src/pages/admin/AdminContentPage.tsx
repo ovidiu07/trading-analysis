@@ -158,6 +158,11 @@ export default function AdminContentPage() {
                   {t('adminContent.badges.roMissing')}
                 </Typography>
               )}
+              {typeof row.contentVersion === 'number' && row.contentVersion > 0 && (
+                <Typography variant="caption" color="text.secondary">
+                  {t('adminContent.table.version', { version: row.contentVersion })}
+                </Typography>
+              )}
             </Stack>
             <Typography variant="caption" color="text.secondary" noWrap>
               {row.summary || t('adminContent.table.noSummary')}

@@ -1,5 +1,8 @@
 import { apiDelete, apiGet, apiPost, apiPostMultipart, apiPut } from './client'
 
+export type TradeSetupGrade = 'A' | 'B' | 'C'
+export type TradeSession = 'ASIA' | 'LONDON' | 'NY' | 'CUSTOM'
+
 export type TradeRequest = {
   symbol: string
   market: 'STOCK' | 'CFD' | 'FOREX' | 'CRYPTO' | 'FUTURES' | 'OPTIONS' | 'OTHER'
@@ -21,6 +24,11 @@ export type TradeRequest = {
   setup?: string
   strategyTag?: string
   catalystTag?: string
+  strategyId?: string
+  setupGrade?: TradeSetupGrade | null
+  ruleBreaks?: string[]
+  session?: TradeSession | null
+  linkedContentIds?: string[]
   notes?: string
   accountId?: string
   tagIds?: string[]
@@ -53,6 +61,11 @@ export type TradeResponse = {
   setup?: string | null
   strategyTag?: string | null
   catalystTag?: string | null
+  strategyId?: string | null
+  setupGrade?: TradeSetupGrade | null
+  ruleBreaks?: string[]
+  session?: TradeSession | null
+  linkedContentIds?: string[]
   notes?: string | null
   createdAt?: string | null
   updatedAt?: string | null

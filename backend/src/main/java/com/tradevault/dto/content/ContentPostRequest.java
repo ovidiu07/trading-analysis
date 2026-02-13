@@ -22,6 +22,8 @@ public class ContentPostRequest {
     private OffsetDateTime visibleUntil;
     private LocalDate weekStart;
     private LocalDate weekEnd;
+    private Map<String, Object> templateFields;
+    private String revisionNotes;
     private Boolean notifySubscribersAboutUpdate;
 
     @NotNull

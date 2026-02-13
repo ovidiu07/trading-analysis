@@ -5,8 +5,10 @@ import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -34,6 +36,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       SELECT DISTINCT t FROM Trade t
       LEFT JOIN FETCH t.account
       LEFT JOIN FETCH t.tags
+      LEFT JOIN FETCH t.linkedContentIds
+      LEFT JOIN FETCH t.ruleBreaks
       WHERE t.id IN :ids
       """)
   List<Trade> findAllByIdInWithTagsAndAccount(@Param("ids") List<UUID> ids);
@@ -43,6 +47,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       FROM Trade t
       LEFT JOIN FETCH t.account
       LEFT JOIN FETCH t.tags
+      LEFT JOIN FETCH t.linkedContentIds
+      LEFT JOIN FETCH t.ruleBreaks
       WHERE t.id = :id
         AND t.user.id = :userId
       """)
@@ -150,6 +156,17 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       OffsetDateTime to);
 
   List<Trade> findByUserId(UUID userId);
+
+  // Plan-adherence only needs a linked/unlinked flag, so fetch ids instead of initializing the full collection.
+  @Query("""
+      SELECT DISTINCT t.id
+      FROM Trade t
+      JOIN t.linkedContentIds linkedContentId
+      WHERE t.user.id = :userId
+        AND t.id IN :tradeIds
+      """)
+  Set<UUID> findTradeIdsWithLinkedContentForUser(@Param("userId") UUID userId,
+      @Param("tradeIds") Collection<UUID> tradeIds);
 
   Optional<Trade> findByIdAndUserId(UUID id, UUID userId);
 

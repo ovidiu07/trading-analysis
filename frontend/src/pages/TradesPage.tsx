@@ -47,6 +47,21 @@ import { translateApiError } from '../i18n/errorMessages'
 import { alpha } from '@mui/material/styles'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import { trackEvent } from '../utils/analytics/ga4'
+import { listPublishedContent } from '../api/content'
+
+type ContentOption = {
+  id: string
+  label: string
+}
+
+const ruleBreakOptions = [
+  'lateEntry',
+  'earlyExit',
+  'oversizedRisk',
+  'ignoredInvalidation',
+  'newsViolation',
+  'outsideSession'
+] as const
 
 const buildDefaultValues = (): TradeFormValues => ({
   symbol: '',
@@ -69,6 +84,11 @@ const buildDefaultValues = (): TradeFormValues => ({
   setup: '',
   strategyTag: '',
   catalystTag: '',
+  strategyId: '',
+  setupGrade: undefined,
+  ruleBreaks: [],
+  session: undefined,
+  linkedContentIds: [],
   notes: '',
   accountId: ''
 })
@@ -121,6 +141,11 @@ const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
     setup: trade.setup ?? '',
     strategyTag: trade.strategyTag ?? '',
     catalystTag: trade.catalystTag ?? '',
+    strategyId: trade.strategyId ?? '',
+    setupGrade: trade.setupGrade ?? undefined,
+    ruleBreaks: trade.ruleBreaks ?? [],
+    session: trade.session ?? undefined,
+    linkedContentIds: trade.linkedContentIds ?? [],
     notes: trade.notes ?? '',
     accountId: trade.accountId ?? ''
   }
@@ -156,10 +181,20 @@ export default function TradesPage() {
   })
   const [expandedTrade, setExpandedTrade] = useState<TradeResponse | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [quickLogDialogOpen, setQuickLogDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<TradeResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TradeResponse | null>(null)
   const [createFormValues, setCreateFormValues] = useState<TradeFormValues>(buildDefaultValues())
+  const [quickLogValues, setQuickLogValues] = useState<TradeFormValues>(() => ({
+    ...buildDefaultValues(),
+    market: 'FOREX',
+    quantity: 1
+  }))
+  const [quickLogError, setQuickLogError] = useState('')
+  const [optionsLoadError, setOptionsLoadError] = useState('')
+  const [strategyOptions, setStrategyOptions] = useState<ContentOption[]>([])
+  const [planOptions, setPlanOptions] = useState<ContentOption[]>([])
   const [importSummary, setImportSummary] = useState<TradeCsvImportSummary | null>(null)
   const [importError, setImportError] = useState('')
   const [importLoading, setImportLoading] = useState(false)
@@ -182,6 +217,26 @@ export default function TradesPage() {
     setDeleteTarget(trade)
     setDeleteError('')
   }, [])
+
+  const strategyNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    strategyOptions.forEach((item) => map.set(item.id, item.label))
+    return map
+  }, [strategyOptions])
+
+  const hydrateStrategyTag = useCallback((values: TradeFormValues): TradeFormValues => {
+    if (values.strategyTag || !values.strategyId) {
+      return values
+    }
+    const strategyLabel = strategyNameById.get(values.strategyId)
+    if (!strategyLabel) {
+      return values
+    }
+    return {
+      ...values,
+      strategyTag: strategyLabel
+    }
+  }, [strategyNameById])
 
   const handleCreateTradeNote = useCallback(async (trade: TradeResponse) => {
     setNoteNavError('')
@@ -409,13 +464,68 @@ export default function TradesPage() {
     }
   }, [fetchTrades, handleAuthFailure, t])
 
+  const fetchContentOptions = useCallback(async () => {
+    try {
+      setOptionsLoadError('')
+      const [strategies, dailyPlans, weeklyPlans] = await Promise.all([
+        listPublishedContent({ type: 'STRATEGY', activeOnly: true }),
+        listPublishedContent({ type: 'DAILY_PLAN', activeOnly: true }),
+        listPublishedContent({ type: 'WEEKLY_PLAN', activeOnly: true })
+      ])
+
+      setStrategyOptions((strategies || []).map((item) => ({
+        id: item.id,
+        label: item.title
+      })))
+
+      const mappedPlans: ContentOption[] = []
+      for (const item of [...(dailyPlans || []), ...(weeklyPlans || [])]) {
+        const typeLabel = item.contentTypeDisplayName || item.contentTypeKey
+        mappedPlans.push({
+          id: item.id,
+          label: `${item.title} (${typeLabel})`
+        })
+      }
+      setPlanOptions(mappedPlans)
+    } catch (err) {
+      const apiErr = err as ApiError
+      setOptionsLoadError(apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.loadOptionsFailed') : t('trades.errors.loadOptionsFailed'))
+    }
+  }, [t])
+
   useEffect(() => {
     fetchTrades()
   }, [fetchTrades])
 
   useEffect(() => {
+    fetchContentOptions()
+  }, [fetchContentOptions])
+
+  useEffect(() => {
     if (!location.search) return
     const params = new URLSearchParams(location.search)
+
+    const shouldOpenQuickLog = params.get('quickLog') === '1'
+    if (shouldOpenQuickLog) {
+      const linkedRaw = params.get('linkedContentIds') || params.get('planId') || ''
+      const linkedContentIds = linkedRaw
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+
+      const openedAt = new Date().toISOString().slice(0, 16)
+      setQuickLogValues((prev) => ({
+        ...prev,
+        symbol: params.get('symbol') || prev.symbol,
+        strategyTag: params.get('strategyTag') || prev.strategyTag,
+        strategyId: params.get('strategyId') || prev.strategyId,
+        linkedContentIds: linkedContentIds.length > 0 ? linkedContentIds : prev.linkedContentIds,
+        openedAt
+      }))
+      setQuickLogError('')
+      setQuickLogDialogOpen(true)
+    }
+
     const tradeId = params.get('tradeId') || ''
     const closedDate = params.get('closedDate') || ''
     const nextFilters = {
@@ -449,7 +559,7 @@ export default function TradesPage() {
     setCreateSuccess('')
     setCreateError('')
     try {
-      const payload = buildTradePayload(values)
+      const payload = buildTradePayload(hydrateStrategyTag(values))
       await createTrade(payload)
       trackEvent('trade_create_submit', {
         method: 'manual_form',
@@ -491,7 +601,7 @@ export default function TradesPage() {
     if (!editTarget) return
     setEditError('')
     try {
-      const payload = buildTradePayload(values)
+      const payload = buildTradePayload(hydrateStrategyTag(values))
       const updated = await updateTrade(editTarget.id, payload)
       setTrades((prev) => prev.map((t) => t.id === updated.id ? updated : t))
       setExpandedTrade((prev) => prev?.id === updated.id ? updated : prev)
@@ -552,6 +662,51 @@ export default function TradesPage() {
   const openCreateDialog = () => {
     setCreateError('')
     setCreateDialogOpen(true)
+  }
+
+  const openQuickLogDialog = () => {
+    setQuickLogError('')
+    setQuickLogDialogOpen(true)
+  }
+
+  const updateQuickLogValue = <K extends keyof TradeFormValues>(key: K, value: TradeFormValues[K]) => {
+    setQuickLogValues((prev) => ({ ...prev, [key]: value }))
+  }
+
+  const submitQuickLog = async () => {
+    setQuickLogError('')
+    if (!quickLogValues.symbol.trim()) {
+      setQuickLogError(t('trades.errors.symbolRequired'))
+      return
+    }
+    if (!quickLogValues.openedAt) {
+      setQuickLogError(t('trades.errors.openedAtRequired'))
+      return
+    }
+    if (quickLogValues.status === 'CLOSED' && (quickLogValues.exitPrice === undefined || Number.isNaN(quickLogValues.exitPrice))) {
+      setQuickLogError(t('trades.errors.exitPriceRequired'))
+      return
+    }
+    try {
+      const payload = buildTradePayload(hydrateStrategyTag(quickLogValues))
+      await createTrade(payload)
+      setQuickLogDialogOpen(false)
+      setQuickLogValues({
+        ...buildDefaultValues(),
+        market: 'FOREX',
+        quantity: 1,
+        openedAt: new Date().toISOString().slice(0, 16)
+      })
+      setCreateSuccess(t('trades.messages.created'))
+      fetchTrades()
+    } catch (err) {
+      const apiErr = err as ApiError
+      if (apiErr.status === 401 || apiErr.status === 403) {
+        handleAuthFailure(apiErr.message)
+        return
+      }
+      setQuickLogError(apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.createFailed') : t('trades.errors.createFailed'))
+    }
   }
 
   const renderTradesTable = () => (
@@ -643,6 +798,17 @@ export default function TradesPage() {
               </Grid>
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {trade.notes || t('common.na')}</Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {trade.strategyId && (
+                <Chip size="small" variant="outlined" label={strategyNameById.get(trade.strategyId) || trade.strategyTag || t('common.na')} />
+              )}
+              {trade.setupGrade && (
+                <Chip size="small" variant="outlined" label={`${t('trades.form.setupGrade')}: ${trade.setupGrade}`} />
+              )}
+              {trade.session && (
+                <Chip size="small" variant="outlined" label={`${t('trades.form.session')}: ${t(`trades.form.sessions.${trade.session}`)}`} />
+              )}
+            </Stack>
             <Stack direction="row" spacing={1}>
               <Button size="small" startIcon={<EditIcon />} onClick={() => handleEditClick(trade)}>{t('common.edit')}</Button>
               <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteClick(trade)}>{t('common.delete')}</Button>
@@ -667,6 +833,13 @@ export default function TradesPage() {
             <Typography variant="h6">{t('trades.list.title')}</Typography>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
               {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>{t('trades.list.searchResults')}</Alert>}
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={openQuickLogDialog}
+              >
+                {t('trades.quickLog.title')}
+              </Button>
               <Button
                 variant="contained"
                 size="small"
@@ -697,6 +870,7 @@ export default function TradesPage() {
           {createSuccess && <Alert severity="success" sx={{ mb: 2 }}>{createSuccess}</Alert>}
           {fetchError && <ErrorBanner message={fetchError} />}
           {noteNavError && <ErrorBanner message={noteNavError} />}
+          {optionsLoadError && <Alert severity="warning" sx={{ mb: 2 }}>{optionsLoadError}</Alert>}
           {importError && <Alert severity="error" sx={{ mb: 2 }}>{importError}</Alert>}
           {importSummary && (
             <Box sx={{ mb: 2 }}>
@@ -761,8 +935,12 @@ export default function TradesPage() {
                 <Grid item xs={12} sm={6} md={4}>
                   <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
                   <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.strategy')}: {(expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
                   <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
                   <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.setupGrade')}: {expandedTrade.setupGrade || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.session')}: {expandedTrade.session ? t(`trades.form.sessions.${expandedTrade.session}`) : t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.linkedPlans')}: {(expandedTrade.linkedContentIds || []).length}</Typography>
                   <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
                 </Grid>
                 <Grid item xs={12}>
@@ -772,7 +950,12 @@ export default function TradesPage() {
                     {(expandedTrade.tags || []).map((tag: string) => (
                       <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
                     ))}
-                    {(expandedTrade.tags?.length || 0) === 0 && <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>}
+                    {(expandedTrade.ruleBreaks || []).map((rule) => (
+                      <Chip key={rule} label={t(`trades.form.ruleBreakOptions.${rule}`)} size="small" color="warning" variant="outlined" />
+                    ))}
+                    {((expandedTrade.tags?.length || 0) + (expandedTrade.ruleBreaks?.length || 0)) === 0 && (
+                      <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>
+                    )}
                   </Stack>
                 </Grid>
               </Grid>
@@ -896,6 +1079,9 @@ export default function TradesPage() {
             onCancel={() => setCreateDialogOpen(false)}
             error={createError}
             stickyActions={isSmallScreen}
+            strategyOptions={strategyOptions}
+            planOptions={planOptions}
+            ruleBreakOptions={[...ruleBreakOptions]}
           />
         </DialogContent>
       </Dialog>
@@ -917,9 +1103,220 @@ export default function TradesPage() {
                 riskPercent: editTarget.riskPercent,
                 rMultiple: editTarget.rMultiple,
               }}
+              strategyOptions={strategyOptions}
+              planOptions={planOptions}
+              ruleBreakOptions={[...ruleBreakOptions]}
             />
           )}
         </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={quickLogDialogOpen}
+        onClose={() => setQuickLogDialogOpen(false)}
+        maxWidth="sm"
+        fullWidth
+        fullScreen={isSmallScreen}
+      >
+        <DialogTitle>{t('trades.quickLog.title')}</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={2}>
+            {quickLogError && <Alert severity="error">{quickLogError}</Alert>}
+            <Grid container spacing={2}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.symbol')}
+                  value={quickLogValues.symbol}
+                  onChange={(event) => updateQuickLogValue('symbol', event.target.value)}
+                  fullWidth
+                  required
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.market')}
+                  select
+                  value={quickLogValues.market}
+                  onChange={(event) => updateQuickLogValue('market', event.target.value as TradeFormValues['market'])}
+                  fullWidth
+                >
+                  <MenuItem value="STOCK">{t('trades.market.STOCK')}</MenuItem>
+                  <MenuItem value="CFD">{t('trades.market.CFD')}</MenuItem>
+                  <MenuItem value="FOREX">{t('trades.market.FOREX')}</MenuItem>
+                  <MenuItem value="CRYPTO">{t('trades.market.CRYPTO')}</MenuItem>
+                  <MenuItem value="FUTURES">{t('trades.market.FUTURES')}</MenuItem>
+                  <MenuItem value="OPTIONS">{t('trades.market.OPTIONS')}</MenuItem>
+                  <MenuItem value="OTHER">{t('trades.market.OTHER')}</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.direction')}
+                  select
+                  value={quickLogValues.direction}
+                  onChange={(event) => updateQuickLogValue('direction', event.target.value as TradeFormValues['direction'])}
+                  fullWidth
+                >
+                  <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
+                  <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.status')}
+                  select
+                  value={quickLogValues.status}
+                  onChange={(event) => updateQuickLogValue('status', event.target.value as TradeFormValues['status'])}
+                  fullWidth
+                >
+                  <MenuItem value="OPEN">{t('trades.status.OPEN')}</MenuItem>
+                  <MenuItem value="CLOSED">{t('trades.status.CLOSED')}</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.openedAt')}
+                  type="datetime-local"
+                  value={quickLogValues.openedAt}
+                  onChange={(event) => updateQuickLogValue('openedAt', event.target.value)}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                  required
+                />
+              </Grid>
+              {quickLogValues.status === 'CLOSED' && (
+                <Grid item xs={12} sm={6}>
+                  <TextField
+                    label={t('trades.form.closedAt')}
+                    type="datetime-local"
+                    value={quickLogValues.closedAt || ''}
+                    onChange={(event) => updateQuickLogValue('closedAt', event.target.value)}
+                    InputLabelProps={{ shrink: true }}
+                    fullWidth
+                  />
+                </Grid>
+              )}
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  label={t('trades.form.quantity')}
+                  type="number"
+                  value={quickLogValues.quantity}
+                  onChange={(event) => updateQuickLogValue('quantity', Number(event.target.value))}
+                  inputProps={{ step: '0.01' }}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12} sm={4}>
+                <TextField
+                  label={t('trades.form.entryPrice')}
+                  type="number"
+                  value={quickLogValues.entryPrice}
+                  onChange={(event) => updateQuickLogValue('entryPrice', Number(event.target.value))}
+                  inputProps={{ step: '0.000001' }}
+                  fullWidth
+                />
+              </Grid>
+              {quickLogValues.status === 'CLOSED' && (
+                <Grid item xs={12} sm={4}>
+                  <TextField
+                    label={t('trades.form.exitPrice')}
+                    type="number"
+                    value={quickLogValues.exitPrice ?? ''}
+                    onChange={(event) => updateQuickLogValue('exitPrice', Number(event.target.value))}
+                    inputProps={{ step: '0.000001' }}
+                    fullWidth
+                  />
+                </Grid>
+              )}
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.strategy')}
+                  select
+                  value={quickLogValues.strategyId || ''}
+                  onChange={(event) => updateQuickLogValue('strategyId', event.target.value)}
+                  fullWidth
+                >
+                  <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                  {strategyOptions.map((option) => (
+                    <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.linkedPlans')}
+                  select
+                  value={quickLogValues.linkedContentIds || []}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    updateQuickLogValue('linkedContentIds', typeof value === 'string' ? value.split(',') : value)
+                  }}
+                  SelectProps={{
+                    multiple: true,
+                    renderValue: (selected) => {
+                      const selectedIds = selected as string[]
+                      if (selectedIds.length === 0) {
+                        return t('trades.form.none')
+                      }
+                      return selectedIds
+                        .map((id) => planOptions.find((option) => option.id === id)?.label || id)
+                        .slice(0, 2)
+                        .join(', ')
+                    }
+                  }}
+                  fullWidth
+                >
+                  {planOptions.map((option) => (
+                    <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.setupGrade')}
+                  select
+                  value={quickLogValues.setupGrade || ''}
+                  onChange={(event) => updateQuickLogValue('setupGrade', (event.target.value || undefined) as TradeFormValues['setupGrade'])}
+                  fullWidth
+                >
+                  <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                  <MenuItem value="A">A</MenuItem>
+                  <MenuItem value="B">B</MenuItem>
+                  <MenuItem value="C">C</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  label={t('trades.form.session')}
+                  select
+                  value={quickLogValues.session || ''}
+                  onChange={(event) => updateQuickLogValue('session', (event.target.value || undefined) as TradeFormValues['session'])}
+                  fullWidth
+                >
+                  <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                  <MenuItem value="ASIA">{t('trades.form.sessions.ASIA')}</MenuItem>
+                  <MenuItem value="LONDON">{t('trades.form.sessions.LONDON')}</MenuItem>
+                  <MenuItem value="NY">{t('trades.form.sessions.NY')}</MenuItem>
+                  <MenuItem value="CUSTOM">{t('trades.form.sessions.CUSTOM')}</MenuItem>
+                </TextField>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  label={t('trades.form.notes')}
+                  value={quickLogValues.notes || ''}
+                  onChange={(event) => updateQuickLogValue('notes', event.target.value)}
+                  multiline
+                  minRows={2}
+                  fullWidth
+                />
+              </Grid>
+            </Grid>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setQuickLogDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={submitQuickLog}>{t('trades.quickLog.submit')}</Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>

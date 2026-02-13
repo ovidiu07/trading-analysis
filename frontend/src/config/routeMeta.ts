@@ -25,8 +25,21 @@ export type ResolvedRouteMeta = {
 
 const matchesExact = (path: string): RouteMatcher => (pathname) => pathname === path
 const matchesPrefix = (path: string): RouteMatcher => (pathname) => pathname === path || pathname.startsWith(`${path}/`)
+const INSIGHTS_TAB_PATHS = new Set(['/insights/today', '/insights/week', '/insights/playbooks', '/insights/learn'])
 
 export const ROUTE_META_DEFINITIONS: RouteMetaDefinition[] = [
+  {
+    id: 'todaySession',
+    match: matchesExact('/today/session'),
+    pageTitleKey: 'today.session.title',
+    pageSubtitleKey: 'today.session.subtitle'
+  },
+  {
+    id: 'today',
+    match: matchesPrefix('/today'),
+    pageTitleKey: 'today.title',
+    pageSubtitleKey: 'today.subtitle'
+  },
   {
     id: 'dashboard',
     match: matchesPrefix('/dashboard'),
@@ -60,14 +73,14 @@ export const ROUTE_META_DEFINITIONS: RouteMetaDefinition[] = [
   },
   {
     id: 'insights',
-    match: matchesExact('/insights'),
+    match: (pathname) => pathname === '/insights' || INSIGHTS_TAB_PATHS.has(pathname),
     pageTitleKey: 'insights.title',
     pageSubtitleKey: 'insights.subtitle',
     showHeader: false
   },
   {
     id: 'insightDetail',
-    match: (pathname) => pathname.startsWith('/insights/'),
+    match: (pathname) => pathname.startsWith('/insights/') && !INSIGHTS_TAB_PATHS.has(pathname),
     pageTitleKey: 'insights.title',
     showHeader: false
   },

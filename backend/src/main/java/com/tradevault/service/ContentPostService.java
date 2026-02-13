@@ -43,7 +43,15 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class ContentPostService {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
+    private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {};
     private static final Pattern LOCALE_PATTERN = Pattern.compile("^[a-z]{2}(-[a-z]{2})?$");
+    private static final Map<String, List<String>> REQUIRED_TEMPLATE_FIELDS = Map.of(
+            "DAILY_PLAN", List.of("biasSummary", "keyLevels", "primaryModel", "executionRules", "riskNote"),
+            "WEEKLY_PLAN", List.of("macroBias", "highProbabilityWindows", "noTradeRisks", "keyLevels", "watchlist"),
+            "STRATEGY", List.of("what", "when", "filters", "entryModel", "invalidation", "targets", "riskModel", "failureModes"),
+            "PLAYBOOK", List.of("what", "when", "filters", "entryModel", "invalidation", "targets", "riskModel", "failureModes"),
+            "CHECKLIST", List.of("items")
+    );
 
     private final ContentPostRepository repository;
     private final ContentPostTranslationRepository contentPostTranslationRepository;
@@ -116,13 +124,13 @@ public class ContentPostService {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
         boolean wasPublished = post.getStatus() == ContentPostStatus.PUBLISHED;
-        MeaningfulContentSnapshot before = wasPublished ? MeaningfulContentSnapshot.from(post, this::readList) : null;
+        MeaningfulContentSnapshot before = wasPublished ? MeaningfulContentSnapshot.from(post, this::readList, this::readTemplateFields) : null;
 
         applyRequest(post, request, false);
 
         boolean meaningfulUpdate = false;
         if (wasPublished) {
-            MeaningfulContentSnapshot after = MeaningfulContentSnapshot.from(post, this::readList);
+            MeaningfulContentSnapshot after = MeaningfulContentSnapshot.from(post, this::readList, this::readTemplateFields);
             meaningfulUpdate = !after.equals(before);
             if (meaningfulUpdate) {
                 post.setContentVersion(Math.max(0, post.getContentVersion()) + 1);
@@ -283,6 +291,10 @@ public class ContentPostService {
 
         post.setTags(writeList(request.getTags()));
         post.setSymbols(writeList(request.getSymbols()));
+        Map<String, Object> normalizedTemplateFields = normalizeTemplateFields(request.getTemplateFields());
+        validateTemplateFieldsIfProvided(contentType, request.getTemplateFields(), normalizedTemplateFields);
+        post.setTemplateFields(writeTemplateFields(normalizedTemplateFields));
+        post.setRevisionNotes(normalizeBlank(request.getRevisionNotes()));
 
         Map<String, DraftTranslation> translations = normalizeTranslations(request.getTranslations());
         upsertPostTranslations(post, translations);
@@ -430,6 +442,115 @@ public class ContentPostService {
         return request.getNotifySubscribersAboutUpdate() == null || request.getNotifySubscribersAboutUpdate();
     }
 
+    private void validateTemplateFieldsIfProvided(ContentType contentType,
+                                                  Map<String, Object> rawTemplateFields,
+                                                  Map<String, Object> normalizedTemplateFields) {
+        if (rawTemplateFields == null || rawTemplateFields.isEmpty()) {
+            return;
+        }
+        String typeKey = normalizeTypeKey(contentType != null ? contentType.getKey() : null);
+        if (typeKey == null) {
+            return;
+        }
+        List<String> requiredFields = REQUIRED_TEMPLATE_FIELDS.getOrDefault(typeKey, List.of());
+        if (requiredFields.isEmpty()) {
+            return;
+        }
+        List<String> missingFields = requiredFields.stream()
+                .filter(required -> !hasTemplateValue(normalizedTemplateFields.get(required)))
+                .toList();
+        if (!missingFields.isEmpty()) {
+            throw new IllegalArgumentException("Missing template fields for " + typeKey + ": " + String.join(", ", missingFields));
+        }
+    }
+
+    private boolean hasTemplateValue(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof String stringValue) {
+            return !stringValue.isBlank();
+        }
+        if (value instanceof Collection<?> collectionValue) {
+            return !collectionValue.isEmpty();
+        }
+        if (value instanceof Map<?, ?> mapValue) {
+            return !mapValue.isEmpty();
+        }
+        return true;
+    }
+
+    private String writeTemplateFields(Map<String, Object> templateFields) {
+        Map<String, Object> normalized = normalizeTemplateFields(templateFields);
+        try {
+            return objectMapper.writeValueAsString(normalized);
+        } catch (Exception ex) {
+            throw new IllegalArgumentException("Invalid template fields payload");
+        }
+    }
+
+    private Map<String, Object> readTemplateFields(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            Map<String, Object> parsed = objectMapper.readValue(json, OBJECT_MAP);
+            return normalizeTemplateFields(parsed);
+        } catch (Exception ex) {
+            return Map.of();
+        }
+    }
+
+    private Map<String, Object> normalizeTemplateFields(Map<String, Object> rawTemplateFields) {
+        if (rawTemplateFields == null || rawTemplateFields.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        for (Map.Entry<String, Object> entry : rawTemplateFields.entrySet()) {
+            String key = normalizeBlank(entry.getKey());
+            if (key == null) {
+                continue;
+            }
+            Object value = normalizeTemplateValue(entry.getValue());
+            if (value != null) {
+                normalized.put(key, value);
+            }
+        }
+        return normalized;
+    }
+
+    private Object normalizeTemplateValue(Object rawValue) {
+        if (rawValue == null) {
+            return null;
+        }
+        if (rawValue instanceof String value) {
+            String normalized = normalizeBlank(value);
+            return normalized == null ? null : normalized;
+        }
+        if (rawValue instanceof Map<?, ?> value) {
+            Map<String, Object> nested = new LinkedHashMap<>();
+            for (Map.Entry<?, ?> entry : value.entrySet()) {
+                String key = normalizeBlank(entry.getKey() == null ? null : String.valueOf(entry.getKey()));
+                if (key == null) {
+                    continue;
+                }
+                Object normalized = normalizeTemplateValue(entry.getValue());
+                if (normalized != null) {
+                    nested.put(key, normalized);
+                }
+            }
+            return nested.isEmpty() ? null : nested;
+        }
+        if (rawValue instanceof Collection<?> value) {
+            List<Object> normalizedItems = value.stream()
+                    .map(this::normalizeTemplateValue)
+                    .filter(item -> item != null)
+                    .toList();
+            return normalizedItems.isEmpty() ? null : normalizedItems;
+        }
+        return rawValue;
+    }
+
     private String writeList(List<String> values) {
         if (values == null || values.isEmpty()) {
             return null;
@@ -520,6 +641,9 @@ public class ContentPostService {
                 .status(post.getStatus())
                 .tags(readList(post.getTags()))
                 .symbols(readList(post.getSymbols()))
+                .templateFields(readTemplateFields(post.getTemplateFields()))
+                .revisionNotes(post.getRevisionNotes())
+                .contentVersion(post.getContentVersion())
                 .visibleFrom(post.getVisibleFrom())
                 .visibleUntil(post.getVisibleUntil())
                 .weekStart(post.getWeekStart())
@@ -569,17 +693,21 @@ public class ContentPostService {
     private record MeaningfulContentSnapshot(UUID contentTypeId,
                                              List<String> normalizedTags,
                                              List<String> normalizedSymbols,
+                                             Map<String, Object> normalizedTemplateFields,
                                              Map<String, ComparableTranslation> translations) {
-        static MeaningfulContentSnapshot from(ContentPost post, java.util.function.Function<String, List<String>> listReader) {
+        static MeaningfulContentSnapshot from(ContentPost post,
+                                              java.util.function.Function<String, List<String>> listReader,
+                                              java.util.function.Function<String, Map<String, Object>> templateFieldsReader) {
             List<String> tags = normalizeTags(listReader.apply(post.getTags()));
             List<String> symbols = normalizeSymbols(listReader.apply(post.getSymbols()));
+            Map<String, Object> templateFields = normalizeTemplateSnapshot(templateFieldsReader.apply(post.getTemplateFields()));
             Map<String, ComparableTranslation> translations = post.getTranslations().stream()
                     .collect(Collectors.toMap(
                             ContentPostTranslation::getLocale,
                             ComparableTranslation::from,
                             (first, second) -> first
                     ));
-            return new MeaningfulContentSnapshot(post.getContentType().getId(), tags, symbols, translations);
+            return new MeaningfulContentSnapshot(post.getContentType().getId(), tags, symbols, templateFields, translations);
         }
     }
 
@@ -609,5 +737,50 @@ public class ContentPostService {
             return "";
         }
         return value.trim();
+    }
+
+    private static Map<String, Object> normalizeTemplateSnapshot(Map<String, Object> raw) {
+        if (raw == null || raw.isEmpty()) {
+            return Map.of();
+        }
+        Map<String, Object> normalized = new LinkedHashMap<>();
+        raw.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .forEach(entry -> {
+                    Object normalizedValue = normalizeTemplateSnapshotValue(entry.getValue());
+                    if (normalizedValue != null) {
+                        normalized.put(entry.getKey(), normalizedValue);
+                    }
+                });
+        return normalized;
+    }
+
+    private static Object normalizeTemplateSnapshotValue(Object raw) {
+        if (raw == null) {
+            return null;
+        }
+        if (raw instanceof String value) {
+            return normalizeText(value);
+        }
+        if (raw instanceof Map<?, ?> value) {
+            Map<String, Object> nested = new LinkedHashMap<>();
+            value.entrySet().stream()
+                    .filter(entry -> entry.getKey() != null)
+                    .sorted((first, second) -> String.valueOf(first.getKey()).compareTo(String.valueOf(second.getKey())))
+                    .forEach(entry -> {
+                        Object normalized = normalizeTemplateSnapshotValue(entry.getValue());
+                        if (normalized != null) {
+                            nested.put(String.valueOf(entry.getKey()), normalized);
+                        }
+                    });
+            return nested;
+        }
+        if (raw instanceof Collection<?> value) {
+            return value.stream()
+                    .map(ContentPostService::normalizeTemplateSnapshotValue)
+                    .filter(item -> item != null)
+                    .toList();
+        }
+        return raw;
     }
 }

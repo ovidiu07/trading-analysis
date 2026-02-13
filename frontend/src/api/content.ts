@@ -48,6 +48,9 @@ export type ContentPost = {
   status: ContentPostStatus
   tags?: string[]
   symbols?: string[]
+  templateFields?: Record<string, unknown>
+  revisionNotes?: string | null
+  contentVersion?: number
   visibleFrom?: string | null
   visibleUntil?: string | null
   weekStart?: string | null
@@ -74,6 +77,8 @@ export type ContentPostRequest = {
   slug?: string | null
   tags?: string[]
   symbols?: string[]
+  templateFields?: Record<string, unknown>
+  revisionNotes?: string | null
   visibleFrom?: string | null
   visibleUntil?: string | null
   weekStart?: string | null

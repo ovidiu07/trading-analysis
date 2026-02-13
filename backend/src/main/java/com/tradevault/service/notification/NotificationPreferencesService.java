@@ -9,6 +9,7 @@ import com.tradevault.dto.notification.NotificationPreferencesResponse;
 import com.tradevault.repository.ContentTypeRepository;
 import com.tradevault.repository.NotificationPreferencesRepository;
 import com.tradevault.service.CurrentUserService;
+import jakarta.persistence.EntityManager;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -26,18 +27,19 @@ public class NotificationPreferencesService {
     private final ContentTypeRepository contentTypeRepository;
     private final CurrentUserService currentUserService;
     private final NotificationJsonHelper notificationJsonHelper;
+    private final EntityManager entityManager;
 
     @Transactional
     public NotificationPreferencesResponse getCurrentUserPreferences() {
         User user = currentUserService.getCurrentUser();
-        NotificationPreferences preferences = getOrCreate(user);
+        NotificationPreferences preferences = getOrCreate(requireUserId(user));
         return toResponse(preferences);
     }
 
     @Transactional
     public NotificationPreferencesResponse updateCurrentUserPreferences(NotificationPreferencesRequest request) {
         User user = currentUserService.getCurrentUser();
-        NotificationPreferences preferences = getOrCreate(user);
+        NotificationPreferences preferences = getOrCreate(requireUserId(user));
 
         NotificationPreferenceMode mode = request.getMode();
         if (mode == null) {
@@ -76,23 +78,30 @@ public class NotificationPreferencesService {
 
     @Transactional
     public NotificationPreferences ensureForUser(User user) {
-        return getOrCreate(user);
+        return getOrCreate(requireUserId(user));
     }
 
-    private NotificationPreferences getOrCreate(User user) {
-        return notificationPreferencesRepository.findById(user.getId())
-                .orElseGet(() -> notificationPreferencesRepository.save(defaultPreferences(user)));
+    private NotificationPreferences getOrCreate(UUID userId) {
+        return notificationPreferencesRepository.findById(userId)
+                .orElseGet(() -> notificationPreferencesRepository.save(defaultPreferences(userId)));
     }
 
-    private NotificationPreferences defaultPreferences(User user) {
+    private NotificationPreferences defaultPreferences(UUID userId) {
         return NotificationPreferences.builder()
-                .user(user)
+                .user(entityManager.getReference(User.class, userId))
                 .enabled(true)
                 .notifyOnNew(true)
                 .notifyOnUpdates(true)
                 .mode(NotificationPreferenceMode.ALL)
                 .matchPolicy(NotificationMatchPolicy.CATEGORY_ONLY)
                 .build();
+    }
+
+    private UUID requireUserId(User user) {
+        if (user == null || user.getId() == null) {
+            throw new IllegalStateException("Authenticated user id is required");
+        }
+        return user.getId();
     }
 
     private NotificationPreferencesResponse toResponse(NotificationPreferences preferences) {

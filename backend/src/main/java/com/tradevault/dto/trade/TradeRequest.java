@@ -2,6 +2,8 @@ package com.tradevault.dto.trade;
 
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.TradeGrade;
+import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -41,6 +43,11 @@ public class TradeRequest {
     private String setup;
     private String strategyTag;
     private String catalystTag;
+    private UUID strategyId;
+    private TradeGrade setupGrade;
+    private Set<String> ruleBreaks;
+    private TradeSession session;
+    private Set<UUID> linkedContentIds;
     private String notes;
     private UUID accountId;
     private Set<UUID> tagIds;

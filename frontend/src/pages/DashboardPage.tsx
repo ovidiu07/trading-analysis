@@ -1,8 +1,11 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
+  Card,
+  CardContent,
   Grid,
   Stack,
+  Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
@@ -210,6 +213,24 @@ export default function DashboardPage() {
           )}
         />
       )}
+
+      <Card>
+        <CardContent sx={{ py: 1.5 }}>
+          <Stack
+            direction={{ xs: 'column', sm: 'row' }}
+            spacing={1}
+            alignItems={{ xs: 'flex-start', sm: 'center' }}
+            justifyContent="space-between"
+          >
+            <Typography variant="body2" color="text.secondary">
+              {t('dashboard.goToTodayHint')}
+            </Typography>
+            <Button variant="contained" size="small" onClick={() => navigate('/today')}>
+              {t('dashboard.goToToday')}
+            </Button>
+          </Stack>
+        </CardContent>
+      </Card>
 
       <Grid container spacing={{ xs: 1.25, sm: 2 }} sx={{ width: '100%', m: 0 }}>
         {kpiCards.map((kpi, idx) => (

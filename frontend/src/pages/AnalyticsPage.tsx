@@ -3,6 +3,7 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Box,
   Button,
   Card,
@@ -17,8 +18,15 @@ import {
   MenuItem,
   Select,
   Skeleton,
+  Snackbar,
   Stack,
   Switch,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   Tab,
   Tabs,
   TextField,
@@ -32,6 +40,10 @@ import {
 import { alpha } from '@mui/material/styles'
 import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
+import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
+import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
+import AddIcon from '@mui/icons-material/Add'
 import {
   Area,
   AreaChart,
@@ -52,14 +64,27 @@ import { useAuth } from '../auth/AuthContext'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import { trackEvent } from '../utils/analytics/ga4'
+import { ChecklistTemplateItemInput } from '../api/checklist'
+import { useChecklistTemplateQuery, useSaveChecklistTemplateMutation } from '../hooks/useChecklist'
 
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
 type KpiCard = { label: string; value: string | number }
+type ChecklistEditorItem = { id?: string; clientKey: string; text: string; enabled: boolean }
+const MAX_CHECKLIST_ITEMS = 30
+const MAX_CHECKLIST_TEXT_LENGTH = 160
+
+const toChecklistEditorItems = (items: { id: string; text: string; enabled: boolean }[]): ChecklistEditorItem[] =>
+  items.map((item) => ({
+    id: item.id,
+    clientKey: item.id,
+    text: item.text,
+    enabled: item.enabled
+  }))
 
 const TabPanel = ({ value, index, children }: { value: number; index: number; children: React.ReactNode }) => {
   if (value !== index) return null
@@ -87,6 +112,7 @@ const countActiveFilterFields = (filters: AnalyticsFilters) =>
 
 export default function AnalyticsPage() {
   const { t } = useI18n()
+  const location = useLocation()
   const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
   const [summary, setSummary] = useState<AnalyticsResponse | null>(null)
   const [coach, setCoach] = useState<CoachResponse | null>(null)
@@ -95,10 +121,17 @@ export default function AnalyticsPage() {
   const [error, setError] = useState('')
   const [coachError, setCoachError] = useState('')
   const [tab, setTab] = useState(0)
+  const [showOverviewMore, setShowOverviewMore] = useState(false)
+  const [checklistItemsDraft, setChecklistItemsDraft] = useState<ChecklistEditorItem[]>([])
+  const [newChecklistItem, setNewChecklistItem] = useState('')
+  const [checklistDirty, setChecklistDirty] = useState(false)
+  const [checklistSavedOpen, setChecklistSavedOpen] = useState(false)
   const { user } = useAuth()
   const { refreshToken } = useDemoData()
   const baseCurrency = user?.baseCurrency || 'USD'
   const navigate = useNavigate()
+  const checklistTemplateQuery = useChecklistTemplateQuery()
+  const saveChecklistTemplateMutation = useSaveChecklistTemplateMutation()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isCompact = useMediaQuery('(max-width:560px)')
@@ -144,6 +177,11 @@ export default function AnalyticsPage() {
     t('analytics.tabs.risk'),
     t('analytics.tabs.dataQuality')
   ]
+  const formatSessionLabel = useCallback((session: string) => {
+    const key = `trades.form.sessions.${session}`
+    const translated = t(key)
+    return translated === key ? session : translated
+  }, [t])
   const chartGridStroke = useMemo(() => alpha(theme.palette.divider, 0.9), [theme.palette.divider])
   const chartTooltipProps = useMemo(() => ({
     contentStyle: {
@@ -202,6 +240,117 @@ export default function AnalyticsPage() {
     loadAnalytics(filters)
     loadCoach(filters)
   }, [filters, loadAnalytics, loadCoach, refreshToken])
+
+  useEffect(() => {
+    const templateItems = checklistTemplateQuery.data || []
+    setChecklistItemsDraft(toChecklistEditorItems(templateItems))
+    setChecklistDirty(false)
+  }, [checklistTemplateQuery.data])
+
+  useEffect(() => {
+    if (location.hash !== '#session-checklist') {
+      return
+    }
+    const section = document.getElementById('session-checklist')
+    if (!section) {
+      return
+    }
+    window.requestAnimationFrame(() => {
+      section.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      if (section instanceof HTMLElement) {
+        section.focus()
+      }
+    })
+  }, [location.hash, checklistTemplateQuery.data])
+
+  const checklistLoadError = checklistTemplateQuery.isError
+    ? translateApiError(checklistTemplateQuery.error as ApiError, t, 'analytics.sessionChecklist.loadError')
+    : ''
+
+  const checklistSaveError = saveChecklistTemplateMutation.isError
+    ? translateApiError(saveChecklistTemplateMutation.error as ApiError, t, 'analytics.sessionChecklist.saveError')
+    : ''
+
+  const checklistValidationError = useMemo(() => {
+    if (checklistItemsDraft.length > MAX_CHECKLIST_ITEMS) {
+      return t('analytics.sessionChecklist.validation.tooMany', { max: MAX_CHECKLIST_ITEMS })
+    }
+    if (checklistItemsDraft.some((item) => item.text.trim().length === 0)) {
+      return t('analytics.sessionChecklist.validation.blank')
+    }
+    if (checklistItemsDraft.some((item) => item.text.trim().length > MAX_CHECKLIST_TEXT_LENGTH)) {
+      return t('analytics.sessionChecklist.validation.tooLong', { max: MAX_CHECKLIST_TEXT_LENGTH })
+    }
+    return ''
+  }, [checklistItemsDraft, t])
+
+  const addChecklistItem = () => {
+    const normalizedText = newChecklistItem.trim()
+    if (!normalizedText) {
+      return
+    }
+    if (checklistItemsDraft.length >= MAX_CHECKLIST_ITEMS) {
+      return
+    }
+
+    setChecklistItemsDraft((prev) => ([
+      ...prev,
+      {
+        clientKey: `new-${Date.now()}-${Math.random()}`,
+        text: normalizedText,
+        enabled: true
+      }
+    ]))
+    setChecklistDirty(true)
+    setNewChecklistItem('')
+  }
+
+  const moveChecklistItem = (index: number, delta: -1 | 1) => {
+    const targetIndex = index + delta
+    if (targetIndex < 0 || targetIndex >= checklistItemsDraft.length) {
+      return
+    }
+    setChecklistItemsDraft((prev) => {
+      const next = [...prev]
+      const [moved] = next.splice(index, 1)
+      next.splice(targetIndex, 0, moved)
+      return next
+    })
+    setChecklistDirty(true)
+  }
+
+  const removeChecklistItem = (clientKey: string) => {
+    if (!window.confirm(t('analytics.sessionChecklist.confirmDelete'))) {
+      return
+    }
+    setChecklistItemsDraft((prev) => prev.filter((item) => item.clientKey !== clientKey))
+    setChecklistDirty(true)
+  }
+
+  const updateChecklistItem = (clientKey: string, updater: (item: ChecklistEditorItem) => ChecklistEditorItem) => {
+    setChecklistItemsDraft((prev) => prev.map((item) => (
+      item.clientKey === clientKey ? updater(item) : item
+    )))
+    setChecklistDirty(true)
+  }
+
+  const saveChecklistTemplate = async () => {
+    if (checklistValidationError) {
+      return
+    }
+    const payload: ChecklistTemplateItemInput[] = checklistItemsDraft.map((item, index) => ({
+      id: item.id,
+      text: item.text.trim(),
+      sortOrder: index,
+      enabled: item.enabled
+    }))
+    try {
+      await saveChecklistTemplateMutation.mutateAsync(payload)
+      setChecklistSavedOpen(true)
+    } catch {
+      // mutation error is surfaced through checklistSaveError
+    }
+  }
 
   const applyFilters = () => {
     trackEvent('filter_apply', {
@@ -285,6 +434,11 @@ export default function AnalyticsPage() {
       return confidenceRank[a.confidence] - confidenceRank[b.confidence]
     })
   }, [coach])
+
+  const coachingSummary = summary?.coachingSummary
+  const strategyPerformanceRows = summary?.strategyPerformance ?? []
+  const sessionPerformanceRows = summary?.sessionPerformance ?? []
+  const planAdherence = summary?.planAdherence
 
   const handleViewTrades = (card: AdviceCard) => {
     const params = new URLSearchParams()
@@ -555,6 +709,140 @@ export default function AnalyticsPage() {
 
       {error && <ErrorBanner message={error} />}
       {coachError && <ErrorBanner message={coachError} />}
+      {checklistLoadError && <ErrorBanner message={checklistLoadError} />}
+      {checklistSaveError && <ErrorBanner message={checklistSaveError} />}
+
+      <Card id="session-checklist" tabIndex={-1} sx={{ scrollMarginTop: { xs: 72, sm: 88 } }}>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+          <Stack spacing={2}>
+            <Box>
+              <Typography variant="h6" fontWeight={700}>{t('analytics.sessionChecklist.title')}</Typography>
+              <Typography variant="body2" color="text.secondary">
+                {t('analytics.sessionChecklist.subtitle')}
+              </Typography>
+            </Box>
+
+            {checklistTemplateQuery.isLoading ? (
+              <Skeleton variant="rectangular" height={180} />
+            ) : (
+              <>
+                <Stack spacing={1}>
+                  {checklistItemsDraft.map((item, index) => (
+                    <Stack
+                      key={item.clientKey}
+                      direction={{ xs: 'column', md: 'row' }}
+                      spacing={1}
+                      alignItems={{ xs: 'stretch', md: 'center' }}
+                    >
+                      <Stack direction="row" spacing={0.5}>
+                        <IconButton
+                          size="small"
+                          aria-label={t('analytics.sessionChecklist.moveUp')}
+                          onClick={() => moveChecklistItem(index, -1)}
+                          disabled={index === 0}
+                        >
+                          <ArrowUpwardIcon fontSize="small" />
+                        </IconButton>
+                        <IconButton
+                          size="small"
+                          aria-label={t('analytics.sessionChecklist.moveDown')}
+                          onClick={() => moveChecklistItem(index, 1)}
+                          disabled={index === checklistItemsDraft.length - 1}
+                        >
+                          <ArrowDownwardIcon fontSize="small" />
+                        </IconButton>
+                      </Stack>
+                      <TextField
+                        size="small"
+                        fullWidth
+                        label={t('analytics.sessionChecklist.itemLabel', { index: index + 1 })}
+                        value={item.text}
+                        onChange={(event) => updateChecklistItem(item.clientKey, (current) => ({
+                          ...current,
+                          text: event.target.value
+                        }))}
+                        inputProps={{ maxLength: MAX_CHECKLIST_TEXT_LENGTH }}
+                      />
+                      <FormControlLabel
+                        control={(
+                          <Switch
+                            checked={item.enabled}
+                            onChange={(event) => updateChecklistItem(item.clientKey, (current) => ({
+                              ...current,
+                              enabled: event.target.checked
+                            }))}
+                          />
+                        )}
+                        label={t('analytics.sessionChecklist.enabled')}
+                        sx={{ whiteSpace: 'nowrap', mr: 0 }}
+                      />
+                      <IconButton
+                        color="error"
+                        aria-label={t('analytics.sessionChecklist.delete')}
+                        onClick={() => removeChecklistItem(item.clientKey)}
+                      >
+                        <DeleteOutlineIcon />
+                      </IconButton>
+                    </Stack>
+                  ))}
+                </Stack>
+
+                {checklistItemsDraft.length === 0 && (
+                  <EmptyState
+                    title={t('analytics.sessionChecklist.emptyTitle')}
+                    description={t('analytics.sessionChecklist.emptyBody')}
+                  />
+                )}
+
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <TextField
+                    size="small"
+                    fullWidth
+                    label={t('analytics.sessionChecklist.addLabel')}
+                    placeholder={t('analytics.sessionChecklist.addPlaceholder')}
+                    value={newChecklistItem}
+                    onChange={(event) => setNewChecklistItem(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') {
+                        event.preventDefault()
+                        addChecklistItem()
+                      }
+                    }}
+                    inputProps={{ maxLength: MAX_CHECKLIST_TEXT_LENGTH }}
+                  />
+                  <Button
+                    variant="outlined"
+                    startIcon={<AddIcon />}
+                    onClick={addChecklistItem}
+                    disabled={checklistItemsDraft.length >= MAX_CHECKLIST_ITEMS}
+                  >
+                    {t('analytics.sessionChecklist.addAction')}
+                  </Button>
+                </Stack>
+
+                {checklistValidationError && (
+                  <Alert severity="warning">{checklistValidationError}</Alert>
+                )}
+
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="caption" color="text.secondary">
+                    {t('analytics.sessionChecklist.limit', { count: checklistItemsDraft.length, max: MAX_CHECKLIST_ITEMS })}
+                  </Typography>
+                  <Button
+                    variant="contained"
+                    onClick={saveChecklistTemplate}
+                    disabled={!checklistDirty || Boolean(checklistValidationError) || saveChecklistTemplateMutation.isLoading}
+                  >
+                    {saveChecklistTemplateMutation.isLoading
+                      ? t('analytics.sessionChecklist.saving')
+                      : t('analytics.sessionChecklist.save')}
+                  </Button>
+                </Stack>
+              </>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
 
       {isMobile ? (
         <FormControl size="small" sx={filterFieldSx}>
@@ -643,38 +931,47 @@ export default function AnalyticsPage() {
             ))}
           </Box>
 
-          <Box
-            sx={{
-              display: 'grid',
-              gap: 2,
-              gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))'
-            }}
-          >
-            {secondaryKpis.map((kpi) => (
-              <Card key={kpi.label}>
-                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
-                    {kpi.label}
-                  </Typography>
-                  <Typography variant="h6" fontWeight={600} className="metric-value" sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
-                    {kpi.value}
-                  </Typography>
-                </CardContent>
-              </Card>
-            ))}
-            {costKpis.map((kpi) => (
-              <Card key={kpi.label}>
-                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
-                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
-                    {kpi.label}
-                  </Typography>
-                  <Typography variant="h6" fontWeight={600} className="metric-value" sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
-                    {kpi.value}
-                  </Typography>
-                </CardContent>
-              </Card>
-            ))}
-          </Box>
+          <Card>
+            <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+              <Stack spacing={1.5}>
+                <Typography variant="h6">{t('analytics.coachingSummary.title')}</Typography>
+                <Box
+                  sx={{
+                    display: 'grid',
+                    gap: 1.5,
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))'
+                  }}
+                >
+                  <Card variant="outlined">
+                    <CardContent sx={{ p: { xs: 1.25, sm: 1.5 } }}>
+                      <Typography variant="caption" color="text.secondary">{t('analytics.coachingSummary.bestStrategy')}</Typography>
+                      <Typography variant="body1" fontWeight={600} sx={{ mt: 0.5 }}>{coachingSummary?.bestStrategy || t('common.na')}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {t('analytics.coachingSummary.expectancy')}: {formatSignedCurrency(coachingSummary?.bestStrategyExpectancy ?? null, baseCurrency)} • N={coachingSummary?.bestStrategyTrades ?? 0}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                  <Card variant="outlined">
+                    <CardContent sx={{ p: { xs: 1.25, sm: 1.5 } }}>
+                      <Typography variant="caption" color="text.secondary">{t('analytics.coachingSummary.biggestLeak')}</Typography>
+                      <Typography variant="body1" fontWeight={600} sx={{ mt: 0.5 }}>{coachingSummary?.biggestLeak || t('common.na')}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {t('analytics.coachingSummary.expectancy')}: {formatSignedCurrency(coachingSummary?.biggestLeakExpectancy ?? null, baseCurrency)}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                  <Card variant="outlined">
+                    <CardContent sx={{ p: { xs: 1.25, sm: 1.5 } }}>
+                      <Typography variant="caption" color="text.secondary">{t('analytics.coachingSummary.nextFocus')}</Typography>
+                      <Typography className="analytics-copy" variant="body1" fontWeight={600} sx={{ mt: 0.5 }}>
+                        {coachingSummary?.nextFocusAction || t('common.na')}
+                      </Typography>
+                    </CardContent>
+                  </Card>
+                </Box>
+              </Stack>
+            </CardContent>
+          </Card>
 
           <Grid container spacing={2}>
             <Grid item xs={12} md={8}>
@@ -749,6 +1046,41 @@ export default function AnalyticsPage() {
             </Grid>
           </Grid>
 
+          {showOverviewMore && (
+            <>
+          <Box
+            sx={{
+              display: 'grid',
+              gap: 2,
+              gridTemplateColumns: 'repeat(auto-fit, minmax(min(220px, 100%), 1fr))'
+            }}
+          >
+            {secondaryKpis.map((kpi) => (
+              <Card key={kpi.label}>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
+                    {kpi.label}
+                  </Typography>
+                  <Typography variant="h6" fontWeight={600} className="metric-value" sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
+                    {kpi.value}
+                  </Typography>
+                </CardContent>
+              </Card>
+            ))}
+            {costKpis.map((kpi) => (
+              <Card key={kpi.label}>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
+                    {kpi.label}
+                  </Typography>
+                  <Typography variant="h6" fontWeight={600} className="metric-value" sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
+                    {kpi.value}
+                  </Typography>
+                </CardContent>
+              </Card>
+            ))}
+          </Box>
+
           <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
               <Card sx={{ height: '100%' }}>
@@ -808,6 +1140,97 @@ export default function AnalyticsPage() {
               </Card>
             </Grid>
           </Grid>
+          <Grid container spacing={2}>
+            <Grid item xs={12} md={7}>
+              <Card>
+                <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                  <Typography variant="h6" gutterBottom>{t('analytics.phase4.strategyTableTitle')}</Typography>
+                  {strategyPerformanceRows.length === 0 ? (
+                    <EmptyState title={t('analytics.phase4.strategyTableEmptyTitle')} description={t('analytics.phase4.strategyTableEmptyBody')} />
+                  ) : (
+                    <TableContainer>
+                      <Table size="small">
+                        <TableHead>
+                          <TableRow>
+                            <TableCell>{t('analytics.phase4.columns.strategy')}</TableCell>
+                            <TableCell>{t('analytics.phase4.columns.market')}</TableCell>
+                            <TableCell align="right">{t('analytics.phase4.columns.sample')}</TableCell>
+                            <TableCell align="right">{t('analytics.phase4.columns.winRate')}</TableCell>
+                            <TableCell align="right">{t('analytics.phase4.columns.expectancy')}</TableCell>
+                            <TableCell align="right">{t('analytics.phase4.columns.profitFactor')}</TableCell>
+                          </TableRow>
+                        </TableHead>
+                        <TableBody>
+                          {strategyPerformanceRows.slice(0, 12).map((row) => (
+                            <TableRow key={`${row.strategy}-${row.market}`}>
+                              <TableCell>
+                                <Stack direction="row" spacing={1} alignItems="center">
+                                  <Typography variant="body2">{row.strategy}</Typography>
+                                  {row.lowSample && <Chip size="small" label={t('analytics.symbols.strategyLeaderboard.lowSample')} />}
+                                </Stack>
+                              </TableCell>
+                              <TableCell>{row.market}</TableCell>
+                              <TableCell align="right">{row.trades}</TableCell>
+                              <TableCell align="right">{formatPercent(row.winRate)}</TableCell>
+                              <TableCell align="right">{formatSignedCurrency(row.expectancy, baseCurrency)}</TableCell>
+                              <TableCell align="right">{row.profitFactor?.toFixed(2) ?? t('common.na')}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </TableContainer>
+                  )}
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid item xs={12} md={5}>
+              <Stack spacing={2}>
+                <Card>
+                  <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                    <Typography variant="h6" gutterBottom>{t('analytics.phase4.sessionTitle')}</Typography>
+                    {sessionPerformanceRows.length === 0 ? (
+                      <EmptyState title={t('analytics.phase4.sessionEmptyTitle')} description={t('analytics.phase4.sessionEmptyBody')} />
+                    ) : (
+                      <Stack spacing={1}>
+                        {sessionPerformanceRows.map((row) => (
+                          <Stack
+                            key={row.session}
+                            direction="row"
+                            justifyContent="space-between"
+                            alignItems="center"
+                            sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1 }}
+                          >
+                            <Typography variant="body2">{formatSessionLabel(row.session)}</Typography>
+                            <Typography variant="body2">{formatSignedCurrency(row.expectancy, baseCurrency)} • {formatPercent(row.winRate)} • N={row.trades}</Typography>
+                          </Stack>
+                        ))}
+                      </Stack>
+                    )}
+                  </CardContent>
+                </Card>
+                <Card>
+                  <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+                    <Typography variant="h6" gutterBottom>{t('analytics.phase4.planAdherenceTitle')}</Typography>
+                    {planAdherence ? (
+                      <Stack spacing={1}>
+                        <Typography variant="body2">{t('analytics.phase4.planAdherenceLinkedPct')}: {formatPercent(planAdherence.linkedPct)}</Typography>
+                        <Typography variant="body2">{t('analytics.phase4.planAdherenceLinked')}: {planAdherence.linkedTrades} ({formatSignedCurrency(planAdherence.linkedNetPnl, baseCurrency)}, {formatPercent(planAdherence.linkedWinRate)})</Typography>
+                        <Typography variant="body2">{t('analytics.phase4.planAdherenceUnlinked')}: {planAdherence.unlinkedTrades} ({formatSignedCurrency(planAdherence.unlinkedNetPnl, baseCurrency)}, {formatPercent(planAdherence.unlinkedWinRate)})</Typography>
+                      </Stack>
+                    ) : (
+                      <EmptyState title={t('analytics.phase4.planAdherenceEmptyTitle')} description={t('analytics.phase4.planAdherenceEmptyBody')} />
+                    )}
+                  </CardContent>
+                </Card>
+              </Stack>
+            </Grid>
+          </Grid>
+            </>
+          )}
+
+          <Button variant="outlined" onClick={() => setShowOverviewMore((prev) => !prev)} sx={{ alignSelf: 'flex-start' }}>
+            {showOverviewMore ? t('analytics.phase4.showLess') : t('analytics.phase4.showMore')}
+          </Button>
         </Stack>
       </TabPanel>
 
@@ -1163,6 +1586,17 @@ export default function AnalyticsPage() {
           </Accordion>
         </CardContent>
       </Card>
+
+      <Snackbar
+        open={checklistSavedOpen}
+        autoHideDuration={2500}
+        onClose={() => setChecklistSavedOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert onClose={() => setChecklistSavedOpen(false)} severity="success" variant="filled">
+          {t('analytics.sessionChecklist.saved')}
+        </Alert>
+      </Snackbar>
     </Stack>
   )
 }
