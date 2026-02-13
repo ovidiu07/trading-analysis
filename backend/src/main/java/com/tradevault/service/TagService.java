@@ -34,7 +34,7 @@ public class TagService {
 
     public void delete(UUID id) {
         var user = currentUserService.getCurrentUser();
-        var tag = tagRepository.findById(id).filter(t -> t.getUser().getId().equals(user.getId())).orElseThrow();
+        var tag = tagRepository.findByIdAndUserId(id, user.getId()).orElseThrow();
         tagRepository.delete(tag);
     }
 
