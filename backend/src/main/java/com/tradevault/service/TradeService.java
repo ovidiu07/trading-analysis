@@ -34,8 +34,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -179,7 +181,22 @@ public class TradeService {
     public Page<TradeResponse> listAll(int page, int size) {
         User user = currentUserService.getCurrentUser();
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
-        return tradeRepository.findByUserIdOrderByOpenedAtDescCreatedAtDesc(user.getId(), pageable).map(this::toResponse);
+        Page<UUID> tradeIdsPage = tradeRepository.findTradeIdsForList(user.getId(), pageable);
+        if (tradeIdsPage.isEmpty()) {
+            return new org.springframework.data.domain.PageImpl<>(List.of(), pageable, tradeIdsPage.getTotalElements());
+        }
+
+        List<UUID> orderedIds = tradeIdsPage.getContent();
+        Map<UUID, Trade> tradesById = tradeRepository.findAllByIdInWithTags(orderedIds).stream()
+                .collect(Collectors.toMap(Trade::getId, Function.identity()));
+
+        List<TradeResponse> responses = orderedIds.stream()
+                .map(tradesById::get)
+                .filter(Objects::nonNull)
+                .map(this::toResponse)
+                .toList();
+
+        return new org.springframework.data.domain.PageImpl<>(responses, pageable, tradeIdsPage.getTotalElements());
     }
 
     public TradeResponse getById(UUID id) {

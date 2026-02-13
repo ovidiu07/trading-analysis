@@ -19,6 +19,23 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
+  @Query(value = """
+      SELECT t.id FROM Trade t
+      WHERE t.user.id = :userId
+      """,
+      countQuery = """
+      SELECT COUNT(t.id) FROM Trade t
+      WHERE t.user.id = :userId
+      """)
+  Page<UUID> findTradeIdsForList(@Param("userId") UUID userId, Pageable pageable);
+
+  @Query("""
+      SELECT DISTINCT t FROM Trade t
+      LEFT JOIN FETCH t.tags
+      WHERE t.id IN :ids
+      """)
+  List<Trade> findAllByIdInWithTags(@Param("ids") List<UUID> ids);
+
   Page<Trade> findByUserIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, Pageable pageable);
 
   @Deprecated(forRemoval = false)
