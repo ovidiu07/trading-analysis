@@ -299,7 +299,7 @@ class NotificationWorkflowIntegrationTest {
                 Thread.currentThread().interrupt();
                 return;
             }
-            notificationDispatchWorker.dispatchEventAsync(event.getId());
+            notificationDispatchWorker.dispatchOne(event.getId());
         };
 
         callers.add(new Thread(caller, "dispatch-caller-1"));
@@ -330,7 +330,7 @@ class NotificationWorkflowIntegrationTest {
         contentPostService.publish(postId, "en");
 
         NotificationEvent event = waitForSingleEvent(postId, NotificationEventType.CONTENT_PUBLISHED, Duration.ofSeconds(5));
-        verify(notificationDispatchWorker, timeout(5000).atLeastOnce()).dispatchEventAsync(eq(event.getId()));
+        verify(notificationDispatchWorker, timeout(5000).atLeastOnce()).dispatchOne(eq(event.getId()));
 
         NotificationEvent dispatched = waitForEventState(event.getId(), NotificationDispatchStatus.SENT, Duration.ofSeconds(5));
         assertThat(dispatched.getDispatchedAt()).isNotNull();

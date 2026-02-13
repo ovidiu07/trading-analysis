@@ -1,7 +1,6 @@
 package com.tradevault.service.notification;
 
 import com.tradevault.domain.entity.NotificationEvent;
-import com.tradevault.domain.enums.NotificationDispatchStatus;
 import com.tradevault.dto.notification.NotificationCreatedStreamPayload;
 import com.tradevault.repository.NotificationEventRepository;
 import com.tradevault.repository.UserNotificationRepository;
@@ -27,16 +26,17 @@ import java.util.UUID;
 @Slf4j
 public class NotificationDispatchWorker {
     private static final int MAX_ERROR_LENGTH = 4_000;
-    private static final int MAX_BACKOFF_MINUTES = 60;
+    private static final int BASE_BACKOFF_SECONDS = 30;
+    private static final int MAX_BACKOFF_SECONDS = 10 * 60;
 
     private final NotificationEventRepository notificationEventRepository;
     private final UserNotificationRepository userNotificationRepository;
     private final NotificationJsonHelper notificationJsonHelper;
     private final NotificationStreamService notificationStreamService;
 
-    @Async("taskExecutor")
+    @Async("notificationExecutor")
     @Transactional(propagation = Propagation.REQUIRES_NEW)
-    public void dispatchEventAsync(UUID eventId) {
+    public void dispatchOne(UUID eventId) {
         OffsetDateTime now = OffsetDateTime.now();
         int claimed = notificationEventRepository.claimEvent(eventId, now);
         if (claimed == 0) {
@@ -46,10 +46,9 @@ public class NotificationDispatchWorker {
 
         NotificationEvent event = notificationEventRepository.findByIdWithContentAndCategory(eventId).orElse(null);
         if (event == null) {
-            OffsetDateTime retryAt = now.plusMinutes(1);
+            OffsetDateTime retryAt = now.plusSeconds(BASE_BACKOFF_SECONDS);
             int failedUpdated = notificationEventRepository.markFailed(
                     eventId,
-                    NotificationDispatchStatus.FAILED,
                     "Notification event disappeared after claim",
                     retryAt
             );
@@ -61,12 +60,24 @@ public class NotificationDispatchWorker {
         }
 
         try {
-            dispatchClaimedEvent(event);
+            int inserted = userNotificationRepository.insertNotificationsForEvent(eventId, now);
+            int sentUpdated = notificationEventRepository.markSent(eventId, OffsetDateTime.now());
+            if (sentUpdated == 0) {
+                throw new IllegalStateException("Notification event was not in PROCESSING state when marking SENT");
+            }
+            streamDispatchResults(event, inserted);
+
+            log.info(
+                    "Notification event dispatched eventId={} articleId={} attempts={} inserted={}",
+                    eventId,
+                    event.getContent().getId(),
+                    event.getAttempts(),
+                    inserted
+            );
         } catch (Exception ex) {
-            OffsetDateTime retryAt = OffsetDateTime.now().plusMinutes(calculateBackoffMinutes(event.getAttempts()));
+            OffsetDateTime retryAt = OffsetDateTime.now().plusSeconds(calculateBackoffSeconds(event.getAttempts()));
             int failedUpdated = notificationEventRepository.markFailed(
                     eventId,
-                    NotificationDispatchStatus.FAILED,
                     truncateError(ex),
                     retryAt
             );
@@ -84,29 +95,8 @@ public class NotificationDispatchWorker {
         }
     }
 
-    private void dispatchClaimedEvent(NotificationEvent event) {
+    private void streamDispatchResults(NotificationEvent event, int inserted) {
         UUID eventId = event.getId();
-        OffsetDateTime notificationCreatedAt = OffsetDateTime.now();
-        int inserted = userNotificationRepository.insertNotificationsForEvent(eventId, notificationCreatedAt);
-
-        int sentUpdated = notificationEventRepository.markSent(
-                eventId,
-                NotificationDispatchStatus.SENT,
-                OffsetDateTime.now()
-        );
-        if (sentUpdated == 0) {
-            throw new IllegalStateException("Notification event was not in PROCESSING state when marking SENT");
-        }
-
-        log.info(
-                "Notification event dispatched eventId={} articleId={} status={} attempts={} inserted={}",
-                eventId,
-                event.getContent().getId(),
-                NotificationDispatchStatus.SENT,
-                event.getAttempts(),
-                inserted
-        );
-
         if (inserted <= 0) {
             return;
         }
@@ -137,15 +127,25 @@ public class NotificationDispatchWorker {
                     .titleRo(payload.titleRo())
                     .createdAt(notification.getCreatedAt())
                     .build();
-            notificationStreamService.sendNotificationCreated(notification.getUserId(), streamPayload);
-            notificationStreamService.sendUnreadCount(notification.getUserId(), unreadByUser.getOrDefault(notification.getUserId(), 0L));
+            try {
+                notificationStreamService.sendNotificationCreated(notification.getUserId(), streamPayload);
+                notificationStreamService.sendUnreadCount(notification.getUserId(), unreadByUser.getOrDefault(notification.getUserId(), 0L));
+            } catch (Exception streamEx) {
+                log.warn(
+                        "Notification stream push failed eventId={} userId={} reason={}",
+                        eventId,
+                        notification.getUserId(),
+                        streamEx.getMessage()
+                );
+            }
         }
     }
 
-    private int calculateBackoffMinutes(int attempts) {
+    private long calculateBackoffSeconds(int attempts) {
         int safeAttempts = Math.max(1, attempts);
-        int exponential = 1 << Math.min(safeAttempts - 1, 10);
-        return Math.min(exponential, MAX_BACKOFF_MINUTES);
+        long exponential = 1L << Math.min(safeAttempts - 1, 20);
+        long delay = BASE_BACKOFF_SECONDS * exponential;
+        return Math.min(delay, MAX_BACKOFF_SECONDS);
     }
 
     private String truncateError(Throwable throwable) {

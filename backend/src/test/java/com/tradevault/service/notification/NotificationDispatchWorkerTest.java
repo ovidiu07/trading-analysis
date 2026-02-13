@@ -47,11 +47,11 @@ class NotificationDispatchWorkerTest {
     }
 
     @Test
-    void dispatchEventAsyncNoOpsWhenClaimIsNotAcquired() {
+    void dispatchOneNoOpsWhenClaimIsNotAcquired() {
         UUID eventId = UUID.randomUUID();
         when(notificationEventRepository.claimEvent(eq(eventId), any(OffsetDateTime.class))).thenReturn(0);
 
-        notificationDispatchWorker.dispatchEventAsync(eventId);
+        notificationDispatchWorker.dispatchOne(eventId);
 
         verify(notificationEventRepository).claimEvent(eq(eventId), any(OffsetDateTime.class));
         verify(notificationEventRepository, never()).findByIdWithContentAndCategory(any(UUID.class));
@@ -60,7 +60,7 @@ class NotificationDispatchWorkerTest {
     }
 
     @Test
-    void dispatchEventAsyncClaimsAndMarksSentAndStreamsOnce() {
+    void dispatchOneClaimsAndMarksSentAndStreamsOnce() {
         UUID eventId = UUID.randomUUID();
         UUID contentId = UUID.randomUUID();
         UUID notificationId = UUID.randomUUID();
@@ -95,18 +95,18 @@ class NotificationDispatchWorkerTest {
         when(notificationEventRepository.claimEvent(eq(eventId), any(OffsetDateTime.class))).thenReturn(1);
         when(notificationEventRepository.findByIdWithContentAndCategory(eventId)).thenReturn(Optional.of(event));
         when(userNotificationRepository.insertNotificationsForEvent(eq(eventId), any(OffsetDateTime.class))).thenReturn(1);
-        when(notificationEventRepository.markSent(eq(eventId), eq(NotificationDispatchStatus.SENT), any(OffsetDateTime.class)))
+        when(notificationEventRepository.markSent(eq(eventId), any(OffsetDateTime.class)))
                 .thenReturn(1);
         when(userNotificationRepository.findDispatchViewsByEventId(eventId)).thenReturn(List.of(dispatchView));
         when(userNotificationRepository.countUnreadByUserIds(anyCollection())).thenReturn(List.of(unreadCountView));
         when(notificationJsonHelper.readPayload(anyString()))
                 .thenReturn(new NotificationEventPayload("btc-breakout", "EN Title", "RO Title", null, null));
 
-        notificationDispatchWorker.dispatchEventAsync(eventId);
+        notificationDispatchWorker.dispatchOne(eventId);
 
-        verify(notificationEventRepository).markSent(eq(eventId), eq(NotificationDispatchStatus.SENT), any(OffsetDateTime.class));
+        verify(notificationEventRepository).markSent(eq(eventId), any(OffsetDateTime.class));
         verify(notificationEventRepository, never())
-                .markFailed(eq(eventId), eq(NotificationDispatchStatus.FAILED), anyString(), any(OffsetDateTime.class));
+                .markFailed(eq(eventId), anyString(), any(OffsetDateTime.class));
         verify(notificationStreamService).sendNotificationCreated(eq(userId), any(NotificationCreatedStreamPayload.class));
         verify(notificationStreamService).sendUnreadCount(userId, 3L);
     }

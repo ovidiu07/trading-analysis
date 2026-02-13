@@ -3,7 +3,16 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/tradevault}
     username: ${DB_USER:tradevault}
     password: ${DB_PASS:tradevault}
+    hikari:
+      maximum-pool-size: ${DB_HIKARI_MAX_POOL_SIZE:10}
+      minimum-idle: ${DB_HIKARI_MIN_IDLE:2}
+      connection-timeout: ${DB_HIKARI_CONNECTION_TIMEOUT_MS:30000}
+      validation-timeout: ${DB_HIKARI_VALIDATION_TIMEOUT_MS:5000}
+      idle-timeout: ${DB_HIKARI_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${DB_HIKARI_MAX_LIFETIME_MS:1800000}
+      leak-detection-threshold: ${DB_HIKARI_LEAK_DETECTION_MS:20000}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     properties:
@@ -11,6 +20,10 @@ spring:
         format_sql: true
         default_schema: tradevault
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
     show-sql: false
   flyway:
     enabled: true
@@ -77,6 +90,17 @@ uploads:
 logging:
   level:
     root: INFO
+    com.zaxxer.hikari: DEBUG
+    org.hibernate.SQL: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
 
 tradecoach:
   min-trades-for-finding: ${TRADECOACH_MIN_TRADES:10}
@@ -92,5 +116,11 @@ tradecoach:
 notifications:
   dispatch:
     fixed-delay-ms: ${NOTIFICATIONS_DISPATCH_INTERVAL_MS:60000}
+    batch-size: ${NOTIFICATIONS_DISPATCH_BATCH_SIZE:50}
+    pg-lock-key: ${NOTIFICATIONS_DISPATCH_PG_LOCK_KEY:92100420260213}
   stream:
     heartbeat-ms: ${NOTIFICATIONS_STREAM_HEARTBEAT_MS:25000}
+
+metrics:
+  hikari:
+    log-interval-ms: ${HIKARI_METRICS_LOG_INTERVAL_MS:30000}

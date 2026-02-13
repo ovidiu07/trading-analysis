@@ -24,22 +24,23 @@ public class NotificationDispatchService {
             TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                 @Override
                 public void afterCommit() {
-                    notificationDispatchWorker.dispatchEventAsync(eventId);
+                    notificationDispatchWorker.dispatchOne(eventId);
                 }
             });
             return;
         }
-        notificationDispatchWorker.dispatchEventAsync(eventId);
+        notificationDispatchWorker.dispatchOne(eventId);
     }
 
-    public void dispatchPendingEvents(int batchSize) {
+    public int dispatchPendingEvents(int batchSize) {
         int safeBatchSize = Math.max(1, batchSize);
         OffsetDateTime now = OffsetDateTime.now();
         List<UUID> dueEventIds = notificationEventRepository.findDueEventIds(now, PageRequest.of(0, safeBatchSize));
         if (dueEventIds.isEmpty()) {
-            return;
+            return 0;
         }
         log.debug("Submitting {} due notification events for async dispatch", dueEventIds.size());
-        dueEventIds.forEach(notificationDispatchWorker::dispatchEventAsync);
+        dueEventIds.forEach(notificationDispatchWorker::dispatchOne);
+        return dueEventIds.size();
     }
 }
