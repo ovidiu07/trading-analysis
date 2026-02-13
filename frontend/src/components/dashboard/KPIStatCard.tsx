@@ -112,11 +112,10 @@ export default function KPIStatCard({
           </Stack>
           <Typography
             variant="h3"
+            className="metric-value"
             sx={{
               color: loading ? 'text.secondary' : toneColor,
               fontWeight: 700,
-              fontVariantNumeric: 'tabular-nums',
-              fontFeatureSettings: '"tnum"',
               lineHeight: 1.2,
               fontSize: { xs: '1.35rem', sm: '1.75rem', md: '2rem' },
               minWidth: 0,

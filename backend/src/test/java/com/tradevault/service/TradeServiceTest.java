@@ -16,8 +16,6 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
-import org.springframework.data.jpa.domain.Specification;
-import org.springframework.data.domain.Pageable;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -328,7 +326,7 @@ public class TradeServiceTest {
         List<Map<String, String>> fieldErrors = (List<Map<String, String>>) details.get("fieldErrors");
         assertEquals("openedAtFrom", fieldErrors.get(0).get("field"));
         assertEquals("openedAtTo", fieldErrors.get(1).get("field"));
-        verify(tradeRepository, never()).findAll(any(Specification.class), any(Pageable.class));
+        verify(tradeRepository, never()).searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     private TradeRequest baseRequest() {

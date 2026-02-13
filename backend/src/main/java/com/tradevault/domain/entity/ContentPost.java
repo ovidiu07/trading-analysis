@@ -74,4 +74,8 @@ public class ContentPost {
     private OffsetDateTime updatedAt;
 
     private OffsetDateTime publishedAt;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private int contentVersion = 0;
 }

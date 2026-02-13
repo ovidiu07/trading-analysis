@@ -1,16 +1,10 @@
 import { Box, Divider, IconButton, Menu, MenuItem, Stack, Tooltip, Typography } from '@mui/material'
 import FormatBoldIcon from '@mui/icons-material/FormatBold'
 import FormatItalicIcon from '@mui/icons-material/FormatItalic'
-import FormatUnderlinedIcon from '@mui/icons-material/FormatUnderlined'
 import FormatListBulletedIcon from '@mui/icons-material/FormatListBulleted'
-import FormatListNumberedIcon from '@mui/icons-material/FormatListNumbered'
 import CheckBoxOutlinedIcon from '@mui/icons-material/CheckBoxOutlined'
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote'
 import CodeIcon from '@mui/icons-material/Code'
-import DataObjectIcon from '@mui/icons-material/DataObject'
-import HorizontalRuleIcon from '@mui/icons-material/HorizontalRule'
-import UndoIcon from '@mui/icons-material/Undo'
-import RedoIcon from '@mui/icons-material/Redo'
 import LinkIcon from '@mui/icons-material/Link'
 import MoreVertIcon from '@mui/icons-material/MoreVert'
 import { useCallback, useEffect, useRef, useState } from 'react'
@@ -149,147 +143,76 @@ export default function RichTextEditor({
             alignItems="center"
             sx={{ overflowX: compactToolbar ? 'auto' : 'visible' }}
           >
-            {compactToolbar ? (
-              <>
-                <Tooltip title={t('editor.bold')}>
-                  <IconButton size="small" onClick={() => exec('bold')} sx={compactButtonSx}>
-                    <FormatBoldIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.italic')}>
-                  <IconButton size="small" onClick={() => exec('italic')} sx={compactButtonSx}>
-                    <FormatItalicIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.bulletList')}>
-                  <IconButton size="small" onClick={() => exec('insertUnorderedList')} sx={compactButtonSx}>
-                    <FormatListBulletedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.numberedList')}>
-                  <IconButton size="small" onClick={() => exec('insertOrderedList')} sx={compactButtonSx}>
-                    <FormatListNumberedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.checklist')}>
-                  <IconButton size="small" onClick={handleChecklist} sx={compactButtonSx}>
-                    <CheckBoxOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.link')}>
-                  <IconButton size="small" onClick={handleLink} sx={compactButtonSx}>
-                    <LinkIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Divider flexItem orientation="vertical" />
-                <Tooltip title={t('editor.more')}>
-                  <IconButton
-                    size="small"
-                    onClick={(event) => setMoreAnchor(event.currentTarget)}
-                    aria-label={t('editor.moreOptions')}
-                    sx={compactButtonSx}
-                  >
-                    <MoreVertIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Menu
-                  anchorEl={moreAnchor}
-                  open={openMore}
-                  onClose={() => setMoreAnchor(null)}
-                >
-                  {[1, 2, 3].map((level) => (
-                    <MenuItem key={level} onClick={() => handleMoreAction(() => handleHeading(level))}>
-                      {t('editor.heading', { level })}
-                    </MenuItem>
-                  ))}
-                  <MenuItem onClick={() => handleMoreAction(() => exec('underline'))}>{t('editor.underline')}</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('formatBlock', 'blockquote'))}>{t('editor.blockquote')}</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHTML', '<code></code>'))}>{t('editor.inlineCode')}</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(handleCodeBlock)}>{t('editor.codeBlock')}</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('insertHorizontalRule'))}>{t('editor.horizontalRule')}</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('undo'))}>{t('editor.undo')}</MenuItem>
-                  <MenuItem onClick={() => handleMoreAction(() => exec('redo'))}>{t('editor.redo')}</MenuItem>
-                </Menu>
-              </>
-            ) : (
-              <>
-                {[1, 2, 3].map((level) => (
-                  <Tooltip key={level} title={t('editor.heading', { level })}>
-                    <IconButton size="small" onClick={() => handleHeading(level)} aria-label={t('editor.heading', { level })}>
-                      <Typography variant="caption" fontWeight={700}>H{level}</Typography>
-                    </IconButton>
-                  </Tooltip>
-                ))}
-                <Tooltip title={t('editor.bold')}>
-                  <IconButton size="small" onClick={() => exec('bold')}>
-                    <FormatBoldIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.italic')}>
-                  <IconButton size="small" onClick={() => exec('italic')}>
-                    <FormatItalicIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.underline')}>
-                  <IconButton size="small" onClick={() => exec('underline')}>
-                    <FormatUnderlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Divider flexItem orientation="vertical" />
-                <Tooltip title={t('editor.bulletList')}>
-                  <IconButton size="small" onClick={() => exec('insertUnorderedList')}>
-                    <FormatListBulletedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.numberedList')}>
-                  <IconButton size="small" onClick={() => exec('insertOrderedList')}>
-                    <FormatListNumberedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.checklist')}>
-                  <IconButton size="small" onClick={handleChecklist}>
-                    <CheckBoxOutlinedIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Divider flexItem orientation="vertical" />
-                <Tooltip title={t('editor.blockquote')}>
-                  <IconButton size="small" onClick={() => exec('formatBlock', 'blockquote')}>
-                    <FormatQuoteIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.inlineCode')}>
-                  <IconButton size="small" onClick={() => exec('insertHTML', '<code></code>')}>
-                    <CodeIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.codeBlock')}>
-                  <IconButton size="small" onClick={handleCodeBlock}>
-                    <DataObjectIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.horizontalRule')}>
-                  <IconButton size="small" onClick={() => exec('insertHorizontalRule')}>
-                    <HorizontalRuleIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.link')}>
-                  <IconButton size="small" onClick={handleLink}>
-                    <LinkIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Divider flexItem orientation="vertical" />
-                <Tooltip title={t('editor.undo')}>
-                  <IconButton size="small" onClick={() => exec('undo')}>
-                    <UndoIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-                <Tooltip title={t('editor.redo')}>
-                  <IconButton size="small" onClick={() => exec('redo')}>
-                    <RedoIcon fontSize="small" />
-                  </IconButton>
-                </Tooltip>
-              </>
-            )}
+            <Tooltip title={t('editor.heading', { level: 1 })}>
+              <IconButton size="small" onClick={() => handleHeading(1)} aria-label={t('editor.heading', { level: 1 })} sx={compactButtonSx}>
+                <Typography variant="caption" fontWeight={700}>H1</Typography>
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('editor.heading', { level: 2 })}>
+              <IconButton size="small" onClick={() => handleHeading(2)} aria-label={t('editor.heading', { level: 2 })} sx={compactButtonSx}>
+                <Typography variant="caption" fontWeight={700}>H2</Typography>
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('editor.bold')}>
+              <IconButton size="small" onClick={() => exec('bold')} sx={compactButtonSx}>
+                <FormatBoldIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('editor.italic')}>
+              <IconButton size="small" onClick={() => exec('italic')} sx={compactButtonSx}>
+                <FormatItalicIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Divider flexItem orientation="vertical" />
+            <Tooltip title={t('editor.bulletList')}>
+              <IconButton size="small" onClick={() => exec('insertUnorderedList')} sx={compactButtonSx}>
+                <FormatListBulletedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('editor.checklist')}>
+              <IconButton size="small" onClick={handleChecklist} sx={compactButtonSx}>
+                <CheckBoxOutlinedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('editor.blockquote')}>
+              <IconButton size="small" onClick={() => exec('formatBlock', 'blockquote')} sx={compactButtonSx}>
+                <FormatQuoteIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('editor.inlineCode')}>
+              <IconButton size="small" onClick={() => exec('insertHTML', '<code></code>')} sx={compactButtonSx}>
+                <CodeIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Tooltip title={t('editor.link')}>
+              <IconButton size="small" onClick={handleLink} sx={compactButtonSx}>
+                <LinkIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Divider flexItem orientation="vertical" />
+            <Tooltip title={t('editor.more')}>
+              <IconButton
+                size="small"
+                onClick={(event) => setMoreAnchor(event.currentTarget)}
+                aria-label={t('editor.moreOptions')}
+                sx={compactButtonSx}
+              >
+                <MoreVertIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+            <Menu
+              anchorEl={moreAnchor}
+              open={openMore}
+              onClose={() => setMoreAnchor(null)}
+            >
+              <MenuItem onClick={() => handleMoreAction(() => handleHeading(3))}>{t('editor.heading', { level: 3 })}</MenuItem>
+              <MenuItem onClick={() => handleMoreAction(() => exec('insertOrderedList'))}>{t('editor.numberedList')}</MenuItem>
+              <MenuItem onClick={() => handleMoreAction(() => exec('underline'))}>{t('editor.underline')}</MenuItem>
+              <MenuItem onClick={() => handleMoreAction(handleCodeBlock)}>{t('editor.codeBlock')}</MenuItem>
+              <MenuItem onClick={() => handleMoreAction(() => exec('insertHorizontalRule'))}>{t('editor.horizontalRule')}</MenuItem>
+              <MenuItem onClick={() => handleMoreAction(() => exec('undo'))}>{t('editor.undo')}</MenuItem>
+              <MenuItem onClick={() => handleMoreAction(() => exec('redo'))}>{t('editor.redo')}</MenuItem>
+            </Menu>
           </Stack>
         </Box>
       )}

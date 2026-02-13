@@ -37,6 +37,14 @@ public class JavaMailSenderMailService implements MailService {
                 }
             }
 
+            String replyTo = message.getReplyTo();
+            if (replyTo == null || replyTo.isBlank()) {
+                replyTo = mailConfig.getReplyToAddress();
+            }
+            if (replyTo != null && !replyTo.isBlank()) {
+                helper.setReplyTo(replyTo);
+            }
+
             if (message.getTextBody() != null && !message.getTextBody().isBlank()) {
                 helper.setText(message.getTextBody(), message.getHtmlBody());
             } else {

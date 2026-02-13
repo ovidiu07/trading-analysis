@@ -1,0 +1,31 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Notebook post trade template preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D1724"/>
+      <stop offset="1" stop-color="#142A44"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="760" rx="36" fill="url(#bg)"/>
+  <rect x="36" y="36" width="1128" height="688" rx="26" fill="#0B1320" stroke="#314A69" stroke-width="2"/>
+  <text x="88" y="118" fill="#EAF4FF" font-size="38" font-weight="700" font-family="Inter, Segoe UI, sans-serif">Notebook review template</text>
+  <text x="88" y="160" fill="#8EA9C9" font-size="24" font-family="Inter, Segoe UI, sans-serif">Post-trade checklist and decision notes</text>
+  <rect x="88" y="200" width="1024" height="460" rx="22" fill="#101F33" stroke="#2F4968"/>
+  <rect x="128" y="248" width="944" height="72" rx="12" fill="#12253B"/>
+  <text x="156" y="292" fill="#DCEBFF" font-size="28" font-weight="600" font-family="Inter, Segoe UI, sans-serif">Session Review - EURUSD</text>
+  <rect x="128" y="344" width="944" height="56" rx="10" fill="#112137"/>
+  <rect x="156" y="362" width="20" height="20" rx="6" fill="#224B6F" stroke="#6DB8F7"/>
+  <path d="M161 372L168 378L176 366" stroke="#A6D9FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="194" y="378" fill="#CFE0F4" font-size="23" font-family="Inter, Segoe UI, sans-serif">Was the risk rule respected?</text>
+  <rect x="128" y="416" width="944" height="56" rx="10" fill="#112137"/>
+  <rect x="156" y="434" width="20" height="20" rx="6" fill="#224B6F" stroke="#6DB8F7"/>
+  <path d="M161 444L168 450L176 438" stroke="#A6D9FF" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <text x="194" y="450" fill="#CFE0F4" font-size="23" font-family="Inter, Segoe UI, sans-serif">Was the entry aligned with the setup criteria?</text>
+  <rect x="128" y="488" width="944" height="56" rx="10" fill="#112137"/>
+  <rect x="156" y="506" width="20" height="20" rx="6" fill="#1C324A" stroke="#577EA4"/>
+  <text x="194" y="522" fill="#CFE0F4" font-size="23" font-family="Inter, Segoe UI, sans-serif">What can be improved next session?</text>
+  <rect x="128" y="568" width="944" height="52" rx="10" fill="#142A42"/>
+  <text x="156" y="600" fill="#8EA9C9" font-size="21" font-family="Inter, Segoe UI, sans-serif">Notes: waited for reclaim, managed stop by plan, no impulsive add.</text>
+  <rect x="948" y="82" width="164" height="78" rx="14" fill="#101F33" stroke="#2F4968"/>
+  <text x="974" y="112" fill="#8EA9C9" font-size="18" font-family="Inter, Segoe UI, sans-serif">Quality grade</text>
+  <text x="974" y="145" fill="#EEF5FF" font-size="30" font-weight="700" font-family="Inter, Segoe UI, sans-serif">A-</text>
+</svg>

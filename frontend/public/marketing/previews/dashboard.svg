@@ -1,0 +1,40 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Dashboard KPI preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0E1726"/>
+      <stop offset="1" stop-color="#162A43"/>
+    </linearGradient>
+    <linearGradient id="kpi" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#49A6FF"/>
+      <stop offset="1" stop-color="#7CC5FF"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="760" rx="36" fill="url(#bg)"/>
+  <rect x="36" y="36" width="1128" height="688" rx="26" fill="#0B1320" stroke="#314A69" stroke-width="2"/>
+  <rect x="72" y="80" width="260" height="150" rx="16" fill="#101F33" stroke="#2F4968"/>
+  <text x="100" y="122" fill="#8EA9C9" font-size="28" font-family="Inter, Segoe UI, sans-serif">Win rate</text>
+  <text x="100" y="186" fill="#EEF5FF" font-size="56" font-weight="700" font-family="Inter, Segoe UI, sans-serif">52.4%</text>
+  <rect x="352" y="80" width="260" height="150" rx="16" fill="#101F33" stroke="#2F4968"/>
+  <text x="380" y="122" fill="#8EA9C9" font-size="28" font-family="Inter, Segoe UI, sans-serif">Profit factor</text>
+  <text x="380" y="186" fill="#EEF5FF" font-size="56" font-weight="700" font-family="Inter, Segoe UI, sans-serif">1.58</text>
+  <rect x="632" y="80" width="260" height="150" rx="16" fill="#101F33" stroke="#2F4968"/>
+  <text x="660" y="122" fill="#8EA9C9" font-size="28" font-family="Inter, Segoe UI, sans-serif">Expectancy</text>
+  <text x="660" y="186" fill="#EEF5FF" font-size="56" font-weight="700" font-family="Inter, Segoe UI, sans-serif">0.22R</text>
+  <rect x="912" y="80" width="216" height="150" rx="16" fill="#101F33" stroke="#2F4968"/>
+  <text x="944" y="122" fill="#8EA9C9" font-size="28" font-family="Inter, Segoe UI, sans-serif">Drawdown</text>
+  <text x="944" y="186" fill="#EEF5FF" font-size="56" font-weight="700" font-family="Inter, Segoe UI, sans-serif">-6.1%</text>
+  <rect x="72" y="264" width="1056" height="420" rx="20" fill="#111D30" stroke="#2F4968"/>
+  <rect x="120" y="604" width="940" height="2" fill="#2A3F59"/>
+  <rect x="180" y="548" width="56" height="56" rx="8" fill="#2A4E77"/>
+  <rect x="260" y="516" width="56" height="88" rx="8" fill="#2F5D8F"/>
+  <rect x="340" y="534" width="56" height="70" rx="8" fill="#3A6DA4"/>
+  <rect x="420" y="482" width="56" height="122" rx="8" fill="#4880BF"/>
+  <rect x="500" y="446" width="56" height="158" rx="8" fill="#5594DA"/>
+  <rect x="580" y="408" width="56" height="196" rx="8" fill="url(#kpi)"/>
+  <rect x="660" y="432" width="56" height="172" rx="8" fill="#66A7EC"/>
+  <rect x="740" y="394" width="56" height="210" rx="8" fill="#78B9F8"/>
+  <rect x="820" y="360" width="56" height="244" rx="8" fill="#67A9EB"/>
+  <rect x="900" y="384" width="56" height="220" rx="8" fill="#5C9CDE"/>
+  <text x="120" y="330" fill="#DCEBFF" font-size="32" font-weight="600" font-family="Inter, Segoe UI, sans-serif">Session KPI snapshot</text>
+  <text x="120" y="368" fill="#8EA9C9" font-size="24" font-family="Inter, Segoe UI, sans-serif">Educational dashboard preview</text>
+</svg>

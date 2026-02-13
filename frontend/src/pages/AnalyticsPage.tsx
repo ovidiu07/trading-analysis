@@ -56,6 +56,7 @@ import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
 type KpiCard = { label: string; value: string | number }
@@ -72,6 +73,17 @@ const formatDuration = (seconds?: number | null) => {
   const hours = Math.round(mins / 60)
   return `${hours}h`
 }
+
+const countActiveFilterFields = (filters: AnalyticsFilters) =>
+  Object.values(filters).reduce((count, value) => {
+    if (Array.isArray(value)) {
+      return count + (value.length > 0 ? 1 : 0)
+    }
+    if (typeof value === 'boolean') {
+      return count + (value ? 1 : 0)
+    }
+    return count + (value ? 1 : 0)
+  }, 0)
 
 export default function AnalyticsPage() {
   const { t } = useI18n()
@@ -96,9 +108,9 @@ export default function AnalyticsPage() {
     small: isCompact ? 180 : isMobile ? 210 : 240
   }
   const compactInputSx = {
-    '& .MuiInputBase-root': { minHeight: 44 },
-    '& .MuiInputBase-input': { py: isCompact ? 1 : 1.1 },
-    '& .MuiSelect-select': { minHeight: 'unset' }
+    '& .MuiInputBase-root': {
+      minHeight: { xs: 44, sm: 40 }
+    }
   }
   const tabSx = {
     minHeight: 44,
@@ -192,6 +204,12 @@ export default function AnalyticsPage() {
   }, [filters, loadAnalytics, loadCoach, refreshToken])
 
   const applyFilters = () => {
+    trackEvent('filter_apply', {
+      method: 'manual_apply',
+      success: true,
+      filter_count: countActiveFilterFields(filters),
+      feature_area: 'analytics'
+    })
     loadAnalytics(filters)
     loadCoach(filters)
   }
@@ -341,8 +359,9 @@ export default function AnalyticsPage() {
         <option value=">4h">&gt;4h</option>
       </TextField>
       <FormControl size="small" sx={multiSelectSx} fullWidth>
-        <InputLabel>{t('analytics.filters.strategy')}</InputLabel>
+        <InputLabel id="analytics-strategy-label">{t('analytics.filters.strategy')}</InputLabel>
         <Select
+          labelId="analytics-strategy-label"
           multiple
           label={t('analytics.filters.strategy')}
           value={filters.strategy ?? []}
@@ -361,8 +380,9 @@ export default function AnalyticsPage() {
         </Select>
       </FormControl>
       <FormControl size="small" sx={multiSelectSx} fullWidth>
-        <InputLabel>{t('analytics.filters.setup')}</InputLabel>
+        <InputLabel id="analytics-setup-label">{t('analytics.filters.setup')}</InputLabel>
         <Select
+          labelId="analytics-setup-label"
           multiple
           label={t('analytics.filters.setup')}
           value={filters.setup ?? []}
@@ -381,8 +401,9 @@ export default function AnalyticsPage() {
         </Select>
       </FormControl>
       <FormControl size="small" sx={multiSelectSx} fullWidth>
-        <InputLabel>{t('analytics.filters.catalyst')}</InputLabel>
+        <InputLabel id="analytics-catalyst-label">{t('analytics.filters.catalyst')}</InputLabel>
         <Select
+          labelId="analytics-catalyst-label"
           multiple
           label={t('analytics.filters.catalyst')}
           value={filters.catalyst ?? []}
@@ -610,6 +631,7 @@ export default function AnalyticsPage() {
                       <Typography
                         variant="h5"
                         fontWeight={700}
+                        className="metric-value"
                         sx={{ fontSize: { xs: '1.3rem', sm: '1.5rem' }, overflowWrap: 'anywhere' }}
                       >
                         {kpi.value}
@@ -634,7 +656,7 @@ export default function AnalyticsPage() {
                   <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
                     {kpi.label}
                   </Typography>
-                  <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
+                  <Typography variant="h6" fontWeight={600} className="metric-value" sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
                     {kpi.value}
                   </Typography>
                 </CardContent>
@@ -646,7 +668,7 @@ export default function AnalyticsPage() {
                   <Typography variant="subtitle2" color="text.secondary" sx={{ fontSize: { xs: '0.75rem', sm: '0.85rem' } }}>
                     {kpi.label}
                   </Typography>
-                  <Typography variant="h6" fontWeight={600} sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
+                  <Typography variant="h6" fontWeight={600} className="metric-value" sx={{ fontSize: { xs: '1rem', sm: '1.2rem' }, overflowWrap: 'anywhere' }}>
                     {kpi.value}
                   </Typography>
                 </CardContent>

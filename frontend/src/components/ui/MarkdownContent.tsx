@@ -69,6 +69,18 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
           '&:hover': {
             color: 'primary.light'
           }
+        },
+        '& img': {
+          display: 'block',
+          width: '100%',
+          maxWidth: '100%',
+          maxHeight: { xs: 320, sm: 420 },
+          objectFit: 'contain',
+          borderRadius: 12,
+          border: '1px solid',
+          borderColor: 'divider',
+          margin: '0.9rem 0',
+          backgroundColor: 'action.hover'
         }
       }}
       dangerouslySetInnerHTML={{ __html: html }}

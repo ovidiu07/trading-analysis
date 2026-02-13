@@ -5,6 +5,7 @@
 - Backend resolves locale from `lang` query param first, then `Accept-Language` header.
 - Supported locales today: `en`, `ro`.
 - Fallback: if requested translation is missing, API returns the `en` translation.
+- Public content payloads (`/api/content`) also include a `translations` map (EN + RO) so the UI can switch language instantly without hard-refreshing the page.
 
 ## How to add a new content type + translations
 1. Open **Admin -> Content -> Manage types** (`/admin/content/types`).

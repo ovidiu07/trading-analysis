@@ -5,9 +5,10 @@ import { resendVerification, verifyEmail } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { trackEvent } from '../utils/analytics/ga4'
 
 export default function VerifyEmailPage() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const location = useLocation()
   const navigate = useNavigate()
   const params = new URLSearchParams(location.search)
@@ -18,6 +19,16 @@ export default function VerifyEmailPage() {
   const [resendMessage, setResendMessage] = useState('')
   const [resendError, setResendError] = useState('')
   const [resending, setResending] = useState(false)
+
+  useEffect(() => {
+    trackEvent('auth_email_confirm_view', {
+      method: 'email',
+      success: true,
+      email_present: Boolean(email),
+      view_context: 'verify_link',
+      feature_area: 'auth'
+    })
+  }, [email])
 
   useEffect(() => {
     const run = async () => {
@@ -49,7 +60,7 @@ export default function VerifyEmailPage() {
     }
     setResending(true)
     try {
-      await resendVerification(email)
+      await resendVerification(email, locale)
       setResendMessage(t('login.success.verificationSent'))
     } catch (err) {
       const apiErr = err as ApiError

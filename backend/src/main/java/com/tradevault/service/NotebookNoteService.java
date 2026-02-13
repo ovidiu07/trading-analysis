@@ -13,6 +13,7 @@ import com.tradevault.dto.notebook.NotebookNoteResponse;
 import com.tradevault.dto.notebook.NotebookNoteSummaryResponse;
 import com.tradevault.repository.NotebookFolderRepository;
 import com.tradevault.repository.NotebookNoteRepository;
+import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookTagLinkRepository;
 import com.tradevault.repository.NotebookTagRepository;
 import com.tradevault.repository.TradeRepository;
@@ -33,6 +34,7 @@ import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Collectors;
 
@@ -51,6 +53,7 @@ public class NotebookNoteService {
 
     private final NotebookNoteRepository noteRepository;
     private final NotebookFolderRepository folderRepository;
+    private final NotebookAttachmentRepository notebookAttachmentRepository;
     private final NotebookTagRepository tagRepository;
     private final NotebookTagLinkRepository tagLinkRepository;
     private final TradeRepository tradeRepository;
@@ -146,8 +149,17 @@ public class NotebookNoteService {
         }
 
         Map<UUID, List<UUID>> noteTags = loadTagIds(notes);
+        Set<UUID> notesWithAttachments = notes.isEmpty()
+                ? Set.of()
+                : notebookAttachmentRepository.findNoteIdsWithAttachments(
+                        notes.stream().map(NotebookNote::getId).toList()
+                ).stream().collect(Collectors.toSet());
         return notes.stream()
-                .map(note -> toResponse(note, noteTags.getOrDefault(note.getId(), List.of())))
+                .map(note -> toResponse(
+                        note,
+                        noteTags.getOrDefault(note.getId(), List.of()),
+                        notesWithAttachments.contains(note.getId())
+                ))
                 .toList();
     }
 
@@ -159,7 +171,8 @@ public class NotebookNoteService {
         List<UUID> tagIds = tagLinkRepository.findByNoteId(note.getId()).stream()
                 .map(link -> link.getTag().getId())
                 .toList();
-        return toResponse(note, tagIds);
+        boolean hasAttachments = notebookAttachmentRepository.existsByNoteId(note.getId());
+        return toResponse(note, tagIds, hasAttachments);
     }
 
     @Transactional
@@ -264,6 +277,8 @@ public class NotebookNoteService {
             if (note.getFolder() == null || !Objects.equals(note.getFolder().getId(), folder.getId())) {
                 note.setFolder(folder);
             }
+        } else if (Boolean.TRUE.equals(request.getClearFolder()) && note.getFolder() != null) {
+            note.setFolder(null);
         }
         if (request.getTitle() != null && !Objects.equals(note.getTitle(), request.getTitle())) {
             note.setTitle(request.getTitle());
@@ -277,8 +292,19 @@ public class NotebookNoteService {
         if (request.getBodyJson() != null && !Objects.equals(note.getBodyJson(), request.getBodyJson())) {
             note.setBodyJson(request.getBodyJson());
         }
-        if (request.getDateKey() != null && !Objects.equals(note.getDateKey(), request.getDateKey())) {
-            note.setDateKey(request.getDateKey());
+        if (request.getReviewJson() != null) {
+            if (!Objects.equals(note.getReviewJson(), request.getReviewJson())) {
+                note.setReviewJson(request.getReviewJson());
+            }
+        } else if (Boolean.TRUE.equals(request.getClearReview()) && note.getReviewJson() != null) {
+            note.setReviewJson(null);
+        }
+        if (request.getDateKey() != null) {
+            if (!Objects.equals(note.getDateKey(), request.getDateKey())) {
+                note.setDateKey(request.getDateKey());
+            }
+        } else if (Boolean.TRUE.equals(request.getClearDateKey()) && note.getDateKey() != null) {
+            note.setDateKey(null);
         }
         if (request.getRelatedTradeId() != null) {
             Trade trade = tradeRepository.findByIdAndUserId(request.getRelatedTradeId(), user.getId())
@@ -286,6 +312,8 @@ public class NotebookNoteService {
             if (note.getRelatedTrade() == null || !Objects.equals(note.getRelatedTrade().getId(), trade.getId())) {
                 note.setRelatedTrade(trade);
             }
+        } else if (Boolean.TRUE.equals(request.getClearRelatedTrade()) && note.getRelatedTrade() != null) {
+            note.setRelatedTrade(null);
         }
         if (request.getIsPinned() != null && request.getIsPinned() != note.isPinned()) {
             note.setPinned(request.getIsPinned());
@@ -326,7 +354,7 @@ public class NotebookNoteService {
                         Collectors.mapping(link -> link.getTag().getId(), Collectors.toList())));
     }
 
-    private NotebookNoteResponse toResponse(NotebookNote note, List<UUID> tagIds) {
+    private NotebookNoteResponse toResponse(NotebookNote note, List<UUID> tagIds, boolean hasAttachments) {
         return NotebookNoteResponse.builder()
                 .id(note.getId())
                 .type(note.getType())
@@ -334,8 +362,10 @@ public class NotebookNoteService {
                 .title(note.getTitle())
                 .body(note.getBody())
                 .bodyJson(note.getBodyJson())
+                .reviewJson(note.getReviewJson())
                 .dateKey(note.getDateKey())
                 .relatedTradeId(note.getRelatedTrade() != null ? note.getRelatedTrade().getId() : null)
+                .hasAttachments(hasAttachments)
                 .isDeleted(note.isDeleted())
                 .deletedAt(note.getDeletedAt())
                 .isPinned(note.isPinned())

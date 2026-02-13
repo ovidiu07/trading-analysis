@@ -14,6 +14,9 @@ import com.tradevault.security.JwtTokenProvider;
 import com.tradevault.service.mail.EmailMessage;
 import com.tradevault.service.mail.MailService;
 import com.tradevault.service.mail.TemplateRenderer;
+import com.tradevault.service.mail.VerificationEmailComposer;
+import com.tradevault.service.mail.VerificationEmailContent;
+import com.tradevault.service.notification.NotificationPreferencesService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
@@ -47,9 +50,11 @@ public class AuthService {
     private final UserTokenService userTokenService;
     private final MailService mailService;
     private final TemplateRenderer templateRenderer;
+    private final VerificationEmailComposer verificationEmailComposer;
     private final MailConfig mailConfig;
     private final CurrentUserService currentUserService;
     private final DemoDataService demoDataService;
+    private final NotificationPreferencesService notificationPreferencesService;
 
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
@@ -67,10 +72,12 @@ public class AuthService {
                 .role(Role.USER)
                 .baseCurrency("USD")
                 .timezone("Europe/Bucharest")
+                .themePreference("SYSTEM")
                 .createdAt(OffsetDateTime.now())
                 .demoEnabled(true)
                 .build();
         userRepository.save(user);
+        notificationPreferencesService.ensureForUser(user);
         demoDataService.generateDemoDataForUser(user.getId(), true);
         legalAcceptanceService.record(
                 user,
@@ -89,7 +96,7 @@ public class AuthService {
                 request.getLocale()
         );
         String token = userTokenService.issue(user, TokenType.EMAIL_VERIFY, VERIFICATION_TTL);
-        sendVerificationEmail(user, token);
+        sendVerificationEmail(user, token, request.getLocale());
         return new RegisterResponse(true, true);
     }
 
@@ -132,7 +139,7 @@ public class AuthService {
             return new SuccessResponse(true);
         }
         String token = userTokenService.issue(user, TokenType.EMAIL_VERIFY, VERIFICATION_TTL);
-        sendVerificationEmail(user, token);
+        sendVerificationEmail(user, token, request.getLocale());
         return new SuccessResponse(true);
     }
 
@@ -180,25 +187,20 @@ public class AuthService {
         return new SuccessResponse(true);
     }
 
-    private void sendVerificationEmail(User user, String token) {
+    private void sendVerificationEmail(User user, String token, String locale) {
         String verifyUrl = buildFrontendUrl("/verify", Map.of("email", user.getEmail(), "token", token));
-        String supportEmail = resolveSupportEmail();
-        String htmlBody = templateRenderer.render("mail/verification.html", Map.of(
-                "appName", "TradeVault",
-                "email", user.getEmail(),
-                "verifyUrl", verifyUrl,
-                "supportEmail", supportEmail,
-                "expiresIn", "24 hours"
-        ));
-        String textBody = "Confirm your TradeVault account\n\n" +
-                "Hi " + user.getEmail() + ",\n\n" +
-                "Verify your email to activate your account:\n" + verifyUrl + "\n\n" +
-                "This link expires in 24 hours.";
+        VerificationEmailContent content = verificationEmailComposer.compose(
+                user.getEmail(),
+                verifyUrl,
+                locale,
+                VERIFICATION_TTL
+        );
         mailService.send(EmailMessage.builder()
                 .to(user.getEmail())
-                .subject("Confirm your TradeVault account")
-                .htmlBody(htmlBody)
-                .textBody(textBody)
+                .replyTo(content.replyTo())
+                .subject(content.subject())
+                .htmlBody(content.htmlBody())
+                .textBody(content.textBody())
                 .build());
     }
 
@@ -206,19 +208,19 @@ public class AuthService {
         String resetUrl = buildFrontendUrl("/reset-password", Map.of("email", user.getEmail(), "token", token));
         String supportEmail = resolveSupportEmail();
         String htmlBody = templateRenderer.render("mail/reset-password.html", Map.of(
-                "appName", "TradeVault",
+                "appName", "TradeJAudit",
                 "email", user.getEmail(),
                 "resetUrl", resetUrl,
                 "supportEmail", supportEmail,
                 "expiresIn", "60 minutes"
         ));
-        String textBody = "Reset your TradeVault password\n\n" +
+        String textBody = "Reset your TradeJAudit password\n\n" +
                 "Hi " + user.getEmail() + ",\n\n" +
                 "Use the link below to reset your password:\n" + resetUrl + "\n\n" +
                 "This link expires in 60 minutes.";
         mailService.send(EmailMessage.builder()
                 .to(user.getEmail())
-                .subject("Reset your TradeVault password")
+                .subject("Reset your TradeJAudit password")
                 .htmlBody(htmlBody)
                 .textBody(textBody)
                 .build());
@@ -242,7 +244,10 @@ public class AuthService {
         if (mailConfig.getSupportEmail() != null && !mailConfig.getSupportEmail().isBlank()) {
             return mailConfig.getSupportEmail();
         }
-        return mailConfig.getFromAddress() == null ? "support@tradevault.local" : mailConfig.getFromAddress();
+        if (mailConfig.getContactEmail() != null && !mailConfig.getContactEmail().isBlank()) {
+            return mailConfig.getContactEmail();
+        }
+        return mailConfig.getFromAddress() == null ? "no-reply@tradejaudit.com" : mailConfig.getFromAddress();
     }
 
     private void validateLegalAcceptance(RegisterRequest request) {

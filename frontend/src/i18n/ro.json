@@ -9,6 +9,12 @@
     "english": "Engleză",
     "romanian": "Română"
   },
+  "theme": {
+    "label": "Temă",
+    "light": "Deschisă",
+    "dark": "Închisă",
+    "system": "Sistem"
+  },
   "common": {
     "loading": "Se încarcă...",
     "save": "Salvează",
@@ -27,6 +33,7 @@
     "all": "Toate",
     "back": "Înapoi",
     "viewDetails": "Vezi detalii",
+    "download": "Descarcă",
     "noData": "Fără date",
     "na": "-"
   },
@@ -72,6 +79,12 @@
     "CAPTCHA_FAILED": "Verificarea captcha a eșuat. Încearcă din nou.",
     "RATE_LIMITED": "Prea multe cereri. Așteaptă și încearcă din nou.",
     "NOT_IMPLEMENTED": "Această funcționalitate nu este disponibilă încă."
+  },
+  "assets": {
+    "errors": {
+      "tooLarge": "Fișierul depășește limita de 20 MB.",
+      "typeNotAllowed": "Tipul fișierului nu este permis."
+    }
   },
   "auth": {
     "hidePassword": "Ascunde parola",
@@ -157,13 +170,31 @@
     },
     "errors": {
       "archiveFailed": "Nu s-a putut arhiva conținutul.",
+      "copyLinkFailed": "Linkul nu a putut fi copiat.",
+      "deleteAssetFailed": "Asset-ul nu a putut fi șters.",
+      "downloadAssetFailed": "Asset-ul nu a putut fi descărcat.",
       "publishFailed": "Nu s-a putut publica conținutul.",
-      "saveFailed": "Nu s-a putut salva ciorna."
+      "saveBeforeUpload": "Salvează ciorna înainte de a încărca asset-uri.",
+      "saveFailed": "Nu s-a putut salva ciorna.",
+      "uploadFailed": "Asset-ul nu a putut fi încărcat."
+    },
+    "assets": {
+      "title": "Asset-uri",
+      "dropTitle": "Glisează fișiere aici sau selectează din dispozitiv",
+      "dropHint": "Imaginile și documentele sunt acceptate. Poți încărca mai multe fișiere simultan.",
+      "saveFirstHint": "Ciorna va fi salvată automat înainte de upload.",
+      "selectFiles": "Selectează fișiere",
+      "empty": "Nu există asset-uri încărcate.",
+      "copyLink": "Copiază linkul",
+      "insertIntoBody": "Inserează în conținut",
+      "remove": "Elimină",
+      "download": "Descarcă"
     },
     "fields": {
       "body": "Conținut",
       "bodyHint": "Folosește markdown pentru titluri, liste și evidențieri.",
       "commaSeparated": "separate prin virgulă",
+      "notifySubscribersAboutUpdate": "Notifică abonații despre această actualizare",
       "slug": "Slug",
       "slugHint": "Opțional. Dacă este gol, slug-ul se generează din titlu.",
       "summary": "Rezumat",
@@ -630,8 +661,13 @@
   },
   "insightDetail": {
     "backToInsights": "Înapoi la Insights",
+    "attachments": "Atașamente",
+    "noAttachments": "Nu există atașamente disponibile.",
     "infoAlert": "Doar pentru jurnal și scop educațional. Nu reprezintă sfat de investiții.",
-    "lastUpdated": "Actualizat la"
+    "lastUpdated": "Actualizat la",
+    "errors": {
+      "downloadFailed": "Atașamentul nu a putut fi descărcat."
+    }
   },
   "insights": {
     "title": "Insights",
@@ -660,6 +696,8 @@
   },
   "legal": {
     "disclaimer": "Versiune de lucru. Acest conținut trebuie revizuit de consultanți juridici calificați pentru jurisdicția aplicabilă.",
+    "tableOfContents": "Pe această pagină",
+    "jumpToSection": "Mergi la secțiune",
     "terms": {
       "title": "Termeni și condiții",
       "sections": {
@@ -874,6 +912,59 @@
       "action": "Șterge contul (în curând)"
     }
   },
+  "notifications": {
+    "title": "Notificări",
+    "untitled": "Insight fără titlu",
+    "tabs": {
+      "unread": "Necitite",
+      "all": "Toate"
+    },
+    "markAllRead": "Marchează tot ca citit",
+    "labels": {
+      "new": "Nou",
+      "updated": "Actualizat"
+    },
+    "empty": {
+      "unread": "Nu există notificări necitite.",
+      "all": "Nu există notificări încă."
+    },
+    "actions": {
+      "loadMore": "Încarcă mai multe"
+    },
+    "errors": {
+      "load": "Notificările nu au putut fi încărcate.",
+      "markAll": "Nu s-au putut marca toate notificările ca citite."
+    },
+    "status": {
+      "polling": "Fluxul live nu este disponibil. Verificăm periodic actualizările."
+    },
+    "settings": {
+      "title": "Setări notificări",
+      "subtitle": "Alege ce insight-uri trebuie să declanșeze notificări în aplicație.",
+      "enable": "Activează notificările",
+      "notifyOnNew": "Notifică pentru conținut nou",
+      "notifyOnUpdates": "Notifică pentru actualizări de conținut",
+      "subscriptionMode": "Mod de abonare",
+      "mode": {
+        "all": "Toate categoriile",
+        "selected": "Doar categoriile selectate"
+      },
+      "selectCategories": "Selectează categoriile",
+      "noCategoriesSelected": "Nicio categorie selectată",
+      "helper": "Actualizările sunt trimise doar pentru conținutul din categoriile selectate.",
+      "actions": {
+        "save": "Salvează setările de notificări"
+      },
+      "messages": {
+        "saved": "Setările de notificări au fost salvate"
+      }
+    },
+    "toast": {
+      "published": "Insight nou publicat: {{title}}",
+      "updated": "Insight actualizat: {{title}}",
+      "view": "Vezi"
+    }
+  },
   "trades": {
     "title": "Tranzacții",
     "subtitle": "Înregistrează tranzacții noi, editează istoricul și analizează detaliile.",
@@ -1083,31 +1174,48 @@
     "title": "Caiet",
     "subtitle": "Capturează notițe de sesiune, jurnale zilnice și reflecții despre tranzacții.",
     "actions": {
+      "add": "Adaugă",
       "addFolder": "Adaugă folder",
       "deleteFolder": "Șterge folder",
       "addTag": "Adaugă etichetă",
       "new": "Nou",
       "newDailyLog": "Jurnal zilnic nou",
+      "newTradeNote": "Notă de tranzacție nouă",
       "newPlan": "Plan nou",
+      "newRecap": "Recapitulare nouă",
       "createLossRecap": "Creează recapitulare pierderi",
       "newNote": "Notă nouă",
       "newGoal": "Obiectiv nou",
+      "fromTemplate": "Din șablon",
       "createDailyLog": "Creează jurnal zilnic",
       "createPlan": "Creează plan",
       "collapseFilters": "Restrânge filtrele",
       "expandFilters": "Extinde filtrele",
+      "collapseList": "Restrânge lista",
+      "expandList": "Extinde lista",
       "pin": "Fixează",
       "unpin": "Anulează fixarea",
       "pinNote": "Fixează nota",
       "unpinNote": "Anulează fixarea notei",
       "restore": "Restaurează",
       "delete": "Șterge",
+      "duplicate": "Duplică",
+      "export": "Exportă",
       "insertDailyLogStructure": "Inserează structura jurnalului zilnic",
       "saveAsTemplate": "Salvează ca șablon",
       "openFolders": "Deschide folderele",
       "uploadAttachment": "Încarcă atașament",
+      "unlinkTrade": "Deconectează tranzacția",
       "undo": "Anulează",
-      "create": "Creează"
+      "create": "Creează",
+      "list": "Listă",
+      "info": "Info",
+      "showInfo": "Arată detaliile",
+      "hideInfo": "Ascunde detaliile"
+    },
+    "upload": {
+      "dropTitle": "Atașează fișiere la această notă",
+      "dropHint": "Poți încărca mai multe fișiere. Imaginile afișează automat previzualizare."
     },
     "aria": {
       "openFilters": "Deschide filtrele",
@@ -1118,15 +1226,36 @@
       "moreActions": "Mai multe acțiuni",
       "readMode": "Mod citire",
       "editMode": "Mod editare",
-      "closeFilters": "Închide filtrele"
+      "closeFilters": "Închide filtrele",
+      "openNavigation": "Deschide navigarea",
+      "folderActions": "Acțiuni folder"
     },
     "sections": {
       "filters": "Filtre",
       "folders": "Foldere",
+      "smartViews": "Vizualizări rapide",
       "tags": "Etichete",
       "notes": "Note",
       "editor": "Editor",
       "attachments": "Atașamente"
+    },
+    "sidebar": {
+      "tradeLink": "Legătură tranzacție",
+      "tagsAndFolder": "Etichete și folder",
+      "templates": "Șabloane",
+      "date": "Dată"
+    },
+    "tabs": {
+      "content": "Conținut",
+      "review": "Review"
+    },
+    "smartViews": {
+      "allNotes": "Toate notele",
+      "dailyLogs": "Jurnale zilnice",
+      "plans": "Planuri",
+      "recaps": "Recapitulări",
+      "pinned": "Fixate",
+      "recentlyDeleted": "Șterse recent"
     },
     "labels": {
       "systemView": "Vizualizare sistem",
@@ -1134,11 +1263,17 @@
       "updatedAt": "Actualizat {{date}}",
       "listCollapsed": "Lista este restrânsă",
       "noFolder": "Fără folder",
-      "notAvailable": "—"
+      "notAvailable": "—",
+      "noActiveFilters": "Nu există filtre active",
+      "linkedTradeShort": "Tranzacție legată",
+      "attachmentsShort": "Atașamente",
+      "tradeLinked": "Tranzacție legată",
+      "copySuffix": "copie"
     },
     "placeholders": {
       "filterByTag": "Filtrează după etichetă",
       "searchNotes": "Caută note...",
+      "searchTrade": "Caută tranzacție după simbol",
       "tradeId": "UUID tranzacție (opțional)"
     },
     "fields": {
@@ -1147,9 +1282,15 @@
       "type": "Tip",
       "folder": "Folder",
       "date": "Dată",
+      "from": "De la",
+      "to": "Până la",
       "linkedTradeId": "ID tranzacție asociată",
+      "linkTrade": "Leagă tranzacție",
+      "linkedTrade": "Tranzacție legată",
+      "hasAttachments": "Are atașamente",
       "tags": "Etichete",
-      "applyTemplate": "Aplică șablonul"
+      "applyTemplate": "Aplică șablonul",
+      "template": "Șablon"
     },
     "sort": {
       "updated": "Ultima actualizare",
@@ -1178,7 +1319,9 @@
     "empty": {
       "noNotesTitle": "Creează prima ta notă",
       "noNotesBody": "Începe jurnalizarea cu o notă, un plan sau un jurnal zilnic.",
-      "noAttachments": "Nu există atașamente încă."
+      "noAttachments": "Nu există atașamente încă.",
+      "noFolders": "Nu există foldere încă.",
+      "emptyPreview": "Nu există previzualizare."
     },
     "saveState": {
       "saving": "Se salvează…",
@@ -1215,6 +1358,7 @@
       "restoreNote": "Nu s-a putut restaura nota.",
       "createTag": "Nu s-a putut crea eticheta.",
       "uploadAttachment": "Nu s-a putut încărca atașamentul.",
+      "downloadAttachment": "Nu s-a putut descărca atașamentul.",
       "deleteAttachment": "Nu s-a putut șterge atașamentul.",
       "createLossRecap": "Nu s-a putut crea nota de recapitulare a pierderilor.",
       "createFolder": "Nu s-a putut crea folderul.",
@@ -1240,6 +1384,26 @@
       "title": "Rezumat tranzacție",
       "openedAt": "Deschisă {{date}}",
       "closedAt": "Închisă {{date}}"
+    },
+    "review": {
+      "title": "Review tranzacție",
+      "setupQuality": "Calitatea setup-ului",
+      "followedPlan": "Ai respectat planul?",
+      "ruleBreaks": "Reguli încălcate",
+      "didWell": "Ce am făcut bine",
+      "improveNext": "Ce voi îmbunătăți data viitoare",
+      "nextRule": "O regulă acționabilă pentru următoarea sesiune",
+      "ruleBreaksOptions": {
+        "early_exit": "Ieșire prea devreme",
+        "oversize": "Poziție supradimensionată",
+        "revenge": "Tranzacție de revenge",
+        "moved_stop_loss": "Stop loss mutat",
+        "chased_entry": "Intrare forțată",
+        "no_entry_criteria": "Fără criterii de intrare",
+        "added_without_setup": "Adăugare fără setup",
+        "ignored_news": "Știri ignorate",
+        "no_risk_plan": "Fără plan de risc"
+      }
     },
     "lossRecap": {
       "dialogTitle": "Creează recapitulare pierderi",

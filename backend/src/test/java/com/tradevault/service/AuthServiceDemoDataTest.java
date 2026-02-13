@@ -9,6 +9,9 @@ import com.tradevault.repository.UserRepository;
 import com.tradevault.security.JwtTokenProvider;
 import com.tradevault.service.mail.MailService;
 import com.tradevault.service.mail.TemplateRenderer;
+import com.tradevault.service.mail.VerificationEmailComposer;
+import com.tradevault.service.mail.VerificationEmailContent;
+import com.tradevault.service.notification.NotificationPreferencesService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -42,9 +45,11 @@ class AuthServiceDemoDataTest {
     private UserTokenService userTokenService;
     private MailService mailService;
     private TemplateRenderer templateRenderer;
+    private VerificationEmailComposer verificationEmailComposer;
     private MailConfig mailConfig;
     private CurrentUserService currentUserService;
     private DemoDataService demoDataService;
+    private NotificationPreferencesService notificationPreferencesService;
     private AuthService authService;
 
     @BeforeEach
@@ -62,9 +67,11 @@ class AuthServiceDemoDataTest {
         userTokenService = mock(UserTokenService.class);
         mailService = mock(MailService.class);
         templateRenderer = mock(TemplateRenderer.class);
+        verificationEmailComposer = mock(VerificationEmailComposer.class);
         mailConfig = mock(MailConfig.class);
         currentUserService = mock(CurrentUserService.class);
         demoDataService = mock(DemoDataService.class);
+        notificationPreferencesService = mock(NotificationPreferencesService.class);
 
         authService = new AuthService(
                 userRepository,
@@ -80,9 +87,11 @@ class AuthServiceDemoDataTest {
                 userTokenService,
                 mailService,
                 templateRenderer,
+                verificationEmailComposer,
                 mailConfig,
                 currentUserService,
-                demoDataService
+                demoDataService,
+                notificationPreferencesService
         );
 
         ReflectionTestUtils.setField(authService, "frontendUrl", "http://localhost:5173");
@@ -92,7 +101,17 @@ class AuthServiceDemoDataTest {
         when(passwordEncoder.encode(anyString())).thenReturn("encoded-pass");
         when(userTokenService.issue(any(User.class), eq(TokenType.EMAIL_VERIFY), any(Duration.class))).thenReturn("verify-token");
         when(templateRenderer.render(anyString(), any(Map.class))).thenReturn("<html></html>");
-        when(mailConfig.getSupportEmail()).thenReturn("support@tradejaudit.com");
+        when(verificationEmailComposer.compose(anyString(), anyString(), anyString(), any(Duration.class)))
+                .thenReturn(new VerificationEmailContent(
+                        "en",
+                        "Verify your TradeJAudit email",
+                        "Preheader",
+                        "<html></html>",
+                        "text",
+                        "no-reply@tradejaudit.com",
+                        "no-reply@tradejaudit.com"
+                ));
+        when(mailConfig.getSupportEmail()).thenReturn("no-reply@tradejaudit.com");
     }
 
     @Test

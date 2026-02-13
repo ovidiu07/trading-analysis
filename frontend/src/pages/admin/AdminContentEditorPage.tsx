@@ -1,15 +1,17 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Button,
   Card,
   CardContent,
+  Checkbox,
   Chip,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
+  FormControlLabel,
   Grid,
   MenuItem,
   Stack,
@@ -20,6 +22,8 @@ import {
   useMediaQuery
 } from '@mui/material'
 import { useNavigate, useParams } from 'react-router-dom'
+import AssetListRenderer, { type UploadQueueItem } from '../../components/assets/AssetListRenderer'
+import AssetUploadDropzone from '../../components/assets/AssetUploadDropzone'
 import LoadingState from '../../components/ui/LoadingState'
 import MarkdownContent from '../../components/ui/MarkdownContent'
 import { ApiError } from '../../api/client'
@@ -35,6 +39,15 @@ import {
   publishContent,
   updateContent
 } from '../../api/content'
+import {
+  ALLOWED_UPLOAD_MIME_TYPES,
+  MAX_UPLOAD_SIZE_BYTES,
+  deleteAsset,
+  fetchAssetBlob,
+  resolveAssetUrl,
+  type AssetItem,
+  uploadAsset
+} from '../../api/assets'
 import { formatDate, formatDateTime } from '../../utils/format'
 import { useI18n } from '../../i18n'
 import { translateApiError } from '../../i18n/errorMessages'
@@ -148,6 +161,10 @@ export default function AdminContentEditorPage() {
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const [showPreview, setShowPreview] = useState(isDesktop)
   const [confirmAction, setConfirmAction] = useState<'publish' | 'archive' | null>(null)
+  const [assets, setAssets] = useState<AssetItem[]>([])
+  const [uploadQueue, setUploadQueue] = useState<UploadQueueItem[]>([])
+  const [notifySubscribersAboutUpdate, setNotifySubscribersAboutUpdate] = useState(true)
+  const bodyInputRef = useRef<HTMLTextAreaElement | null>(null)
 
   useEffect(() => {
     setShowPreview(isDesktop)
@@ -167,10 +184,16 @@ export default function AdminContentEditorPage() {
         if (loadedPost) {
           setPost(loadedPost)
           setStatus(loadedPost.status)
+          setNotifySubscribersAboutUpdate(true)
           setForm(toForm(loadedPost))
+          setAssets(loadedPost.assets || [])
+          setUploadQueue([])
           return
         }
 
+        setAssets([])
+        setUploadQueue([])
+        setNotifySubscribersAboutUpdate(true)
         const firstType = loadedTypes.find((item) => item.active) || loadedTypes[0]
         setForm((prev) => ({
           ...prev,
@@ -197,6 +220,7 @@ export default function AdminContentEditorPage() {
     visibleUntil: form.visibleUntil ? new Date(form.visibleUntil).toISOString() : undefined,
     weekStart: isWeeklyPlan ? (form.weekStart || undefined) : undefined,
     weekEnd: isWeeklyPlan ? (form.weekEnd || undefined) : undefined,
+    notifySubscribersAboutUpdate: status === 'PUBLISHED' ? notifySubscribersAboutUpdate : undefined,
     translations: buildTranslationsPayload(form.translations)
   })
 
@@ -261,6 +285,7 @@ export default function AdminContentEditorPage() {
       setPost(saved)
       setStatus(saved.status)
       setForm(toForm(saved))
+      setAssets(saved.assets || [])
       if (!post) {
         navigate(`/admin/content/${saved.id}`, { replace: true })
       }
@@ -283,6 +308,7 @@ export default function AdminContentEditorPage() {
       setPost(published)
       setStatus(published.status)
       setForm(toForm(published))
+      setAssets(published.assets || [])
     } catch (err) {
       const apiErr = err as ApiError
       setError(translateApiError(apiErr, t, 'adminEditor.errors.publishFailed'))
@@ -299,6 +325,7 @@ export default function AdminContentEditorPage() {
       setPost(archived)
       setStatus(archived.status)
       setForm(toForm(archived))
+      setAssets(archived.assets || [])
     } catch (err) {
       const apiErr = err as ApiError
       setError(translateApiError(apiErr, t, 'adminEditor.errors.archiveFailed'))
@@ -315,6 +342,135 @@ export default function AdminContentEditorPage() {
       await handleArchive()
     }
     setConfirmAction(null)
+  }
+
+  const updateUploadQueueItem = (id: string, patch: Partial<UploadQueueItem>) => {
+    setUploadQueue((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)))
+  }
+
+  const ensurePostForAssets = async () => {
+    if (post) return post
+    const saved = await saveDraft()
+    if (!saved) {
+      setError(t('adminEditor.errors.saveBeforeUpload'))
+      return null
+    }
+    return saved
+  }
+
+  const handleUploadFiles = async (files: File[]) => {
+    if (files.length === 0) return
+    const targetPost = await ensurePostForAssets()
+    if (!targetPost) return
+
+    const queueItems = files.map((file) => ({
+      id: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      fileName: file.name,
+      sizeBytes: file.size,
+      progress: 2
+    }))
+
+    setUploadQueue((prev) => [...prev, ...queueItems])
+
+    await Promise.all(queueItems.map(async (queueItem, index) => {
+      const file = files[index]
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+        updateUploadQueueItem(queueItem.id, {
+          progress: 0,
+          error: t('assets.errors.tooLarge')
+        })
+        return
+      }
+      if (file.type && !ALLOWED_UPLOAD_MIME_TYPES.has(file.type)) {
+        updateUploadQueueItem(queueItem.id, {
+          progress: 0,
+          error: t('assets.errors.typeNotAllowed')
+        })
+        return
+      }
+
+      try {
+        const uploaded = await uploadAsset({
+          file,
+          scope: 'CONTENT',
+          contentId: targetPost.id,
+          onProgress: (progress) => updateUploadQueueItem(queueItem.id, { progress })
+        })
+        setAssets((prev) => [...prev, uploaded])
+        setUploadQueue((prev) => prev.filter((item) => item.id !== queueItem.id))
+      } catch (err) {
+        const apiErr = err as ApiError
+        updateUploadQueueItem(queueItem.id, {
+          progress: 0,
+          error: translateApiError(apiErr, t, 'adminEditor.errors.uploadFailed')
+        })
+      }
+    }))
+  }
+
+  const handleRemoveAsset = async (asset: AssetItem) => {
+    try {
+      await deleteAsset(asset.id)
+      setAssets((prev) => prev.filter((item) => item.id !== asset.id))
+    } catch (err) {
+      const apiErr = err as ApiError
+      setError(translateApiError(apiErr, t, 'adminEditor.errors.deleteAssetFailed'))
+    }
+  }
+
+  const handleCopyAssetLink = async (asset: AssetItem) => {
+    const raw = asset.url || asset.downloadUrl || asset.viewUrl
+    if (!raw) return
+    try {
+      await navigator.clipboard.writeText(resolveAssetUrl(raw))
+    } catch {
+      setError(t('adminEditor.errors.copyLinkFailed'))
+    }
+  }
+
+  const handleInsertAssetIntoBody = (asset: AssetItem) => {
+    const targetUrl = resolveAssetUrl(asset.image ? (asset.viewUrl || asset.url || '') : (asset.downloadUrl || asset.url || ''))
+    if (!targetUrl) return
+    const current = form.translations[activeLocale].body
+    const input = bodyInputRef.current
+    const start = input?.selectionStart ?? current.length
+    const end = input?.selectionEnd ?? current.length
+    const markdown = asset.image
+      ? `![${asset.originalFileName}](${targetUrl})`
+      : `[${asset.originalFileName}](${targetUrl})`
+    const nextValue = `${current.slice(0, start)}${markdown}${current.slice(end)}`
+    setForm((prev) => ({
+      ...prev,
+      translations: updateLocalizedField(prev.translations, activeLocale, { body: nextValue })
+    }))
+    window.setTimeout(() => {
+      const nextPosition = start + markdown.length
+      input?.focus()
+      input?.setSelectionRange(nextPosition, nextPosition)
+    }, 0)
+  }
+
+  const handleDownloadAsset = async (asset: AssetItem) => {
+    const downloadUrl = asset.downloadUrl || asset.url || asset.viewUrl
+    if (!downloadUrl) return
+    if (downloadUrl.startsWith('/api/')) {
+      try {
+        const blob = await fetchAssetBlob(downloadUrl)
+        const objectUrl = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = objectUrl
+        a.download = asset.originalFileName
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        URL.revokeObjectURL(objectUrl)
+      } catch (err) {
+        const apiErr = err as ApiError
+        setError(translateApiError(apiErr, t, 'adminEditor.errors.downloadAssetFailed'))
+      }
+      return
+    }
+    window.open(resolveAssetUrl(downloadUrl), '_blank', 'noopener,noreferrer')
   }
 
   const statusChip = useMemo(() => {
@@ -365,6 +521,18 @@ export default function AdminContentEditorPage() {
           </Button>
         </Stack>
       </Stack>
+
+      {status === 'PUBLISHED' && (
+        <FormControlLabel
+          control={(
+            <Checkbox
+              checked={notifySubscribersAboutUpdate}
+              onChange={(event) => setNotifySubscribersAboutUpdate(event.target.checked)}
+            />
+          )}
+          label={t('adminEditor.fields.notifySubscribersAboutUpdate')}
+        />
+      )}
 
       {error && <Alert severity="error">{error}</Alert>}
 
@@ -456,6 +624,7 @@ export default function AdminContentEditorPage() {
                 <TextField
                   label={`${t('adminEditor.fields.body')} (${activeLocaleUpper})`}
                   value={activeTranslation.body}
+                  inputRef={bodyInputRef}
                   onChange={(event) => setForm((prev) => ({
                     ...prev,
                     translations: updateLocalizedField(prev.translations, activeLocale, { body: event.target.value })
@@ -482,6 +651,32 @@ export default function AdminContentEditorPage() {
                     {t('adminEditor.actions.insertWeeklyTemplate')}
                   </Button>
                 )}
+
+                <Divider />
+                <Stack spacing={1.25}>
+                  <Typography variant="subtitle2">{t('adminEditor.assets.title')}</Typography>
+                  <AssetUploadDropzone
+                    title={t('adminEditor.assets.dropTitle')}
+                    hint={post ? t('adminEditor.assets.dropHint') : t('adminEditor.assets.saveFirstHint')}
+                    buttonLabel={t('adminEditor.assets.selectFiles')}
+                    onFilesSelected={handleUploadFiles}
+                    disabled={saving || Boolean(uploadQueue.some((item) => !item.error && item.progress > 0 && item.progress < 100))}
+                    multiple
+                  />
+                  <AssetListRenderer
+                    assets={assets}
+                    uploads={uploadQueue}
+                    emptyText={t('adminEditor.assets.empty')}
+                    onCopyLink={handleCopyAssetLink}
+                    onInsert={handleInsertAssetIntoBody}
+                    onRemove={handleRemoveAsset}
+                    onDownload={handleDownloadAsset}
+                    copyLabel={t('adminEditor.assets.copyLink')}
+                    insertLabel={t('adminEditor.assets.insertIntoBody')}
+                    removeLabel={t('adminEditor.assets.remove')}
+                    downloadLabel={t('adminEditor.assets.download')}
+                  />
+                </Stack>
 
                 <Divider />
                 <Grid container spacing={2}>

@@ -9,4 +9,6 @@ public class ResendVerificationRequest {
     @Email
     @NotBlank
     private String email;
+
+    private String locale;
 }

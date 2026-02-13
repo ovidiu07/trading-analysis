@@ -8,6 +8,8 @@ import { useState } from 'react'
 import { useAuth } from '../auth/AuthContext'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { ApiError } from '../api/client'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const schema = z.object({
   email: z.string().email(),
@@ -27,6 +29,9 @@ export default function RegisterPage() {
 
   const termsVersion = import.meta.env.VITE_TERMS_VERSION || '2024-09-01'
   const privacyVersion = import.meta.env.VITE_PRIVACY_VERSION || '2024-09-01'
+  const language = locale.startsWith('ro') ? 'ro' : 'en'
+  const publicTermsUrl = `/${language}/terms/`
+  const publicPrivacyUrl = `/${language}/privacy/`
 
   const onSubmit = async (data: FormValues) => {
     setError('')
@@ -41,8 +46,21 @@ export default function RegisterPage() {
         privacyVersion,
         locale
       })
+      trackEvent('auth_sign_up_submit', {
+        method: 'email',
+        success: true,
+        feature_area: 'auth'
+      })
       navigate(`/register/confirm?email=${encodeURIComponent(data.email)}`)
     } catch (err) {
+      const apiErr = err as ApiError
+      trackEvent('auth_sign_up_submit', {
+        method: 'email',
+        success: false,
+        error_code: apiErr.code || (apiErr.status ? `HTTP_${apiErr.status}` : 'UNKNOWN'),
+        error_message: apiErr.rawMessage || apiErr.message,
+        feature_area: 'auth'
+      })
       setError(translateApiError(err, t))
     } finally {
       setSubmitting(false)
@@ -74,8 +92,8 @@ export default function RegisterPage() {
                     control={<Checkbox {...register('legalAccepted')} />}
                     label={(
                       <Typography variant="body2">
-                        {t('register.legalPrefix')} <MuiLink component={Link} to="/terms">{t('register.termsAndConditions')}</MuiLink> {t('register.andAcknowledge')}{' '}
-                        <MuiLink component={Link} to="/privacy">{t('register.privacyPolicy')}</MuiLink>.
+                        {t('register.legalPrefix')} <MuiLink href={publicTermsUrl}>{t('register.termsAndConditions')}</MuiLink> {t('register.andAcknowledge')}{' '}
+                        <MuiLink href={publicPrivacyUrl}>{t('register.privacyPolicy')}</MuiLink>.
                       </Typography>
                     )}
                   />

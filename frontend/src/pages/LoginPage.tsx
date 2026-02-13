@@ -15,6 +15,7 @@ import { resendVerification } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { trackEvent } from '../utils/analytics/ga4'
 
 const schema = z.object({
   email: z.string().email(),
@@ -24,7 +25,7 @@ const schema = z.object({
 type FormValues = z.infer<typeof schema>
 
 export default function LoginPage() {
-  const { t } = useI18n()
+  const { t, language, locale } = useI18n()
   const { register, handleSubmit, formState, watch } = useForm<FormValues>({ resolver: zodResolver(schema) })
   const navigate = useNavigate()
   const location = useLocation()
@@ -41,6 +42,8 @@ export default function LoginPage() {
   const emailValue = watch('email')
   const emailField = register('email')
   const formAnchorId = 'login-form'
+  const publicTermsUrl = `/${language}/terms/`
+  const publicPrivacyUrl = `/${language}/privacy/`
 
   const from = (location.state as { from?: string })?.from || '/trades'
 
@@ -51,9 +54,21 @@ export default function LoginPage() {
     setSubmitting(true)
     try {
       await login(data.email, data.password)
+      trackEvent('auth_login_submit', {
+        method: 'email',
+        success: true,
+        feature_area: 'auth'
+      })
       navigate(from, { replace: true })
     } catch (err) {
       const apiErr = err as ApiError
+      trackEvent('auth_login_submit', {
+        method: 'email',
+        success: false,
+        error_code: apiErr.code || (apiErr.status ? `HTTP_${apiErr.status}` : 'UNKNOWN'),
+        error_message: apiErr.rawMessage || apiErr.message,
+        feature_area: 'auth'
+      })
       setError(translateApiError(apiErr, t, 'errors.unauthorized'))
       setErrorCode(apiErr.code)
     } finally {
@@ -69,7 +84,7 @@ export default function LoginPage() {
     }
     setResending(true)
     try {
-      await resendVerification(emailValue)
+      await resendVerification(emailValue, locale)
       setResendMessage(t('login.success.verificationSent'))
     } catch (err) {
       const apiErr = err as ApiError
@@ -151,7 +166,7 @@ export default function LoginPage() {
               sx={{
                 borderRadius: 3,
                 overflow: 'hidden',
-                background: 'linear-gradient(135deg, rgba(25,118,210,0.08), rgba(10,25,41,0.06))',
+                background: (theme) => `linear-gradient(135deg, ${alpha(theme.palette.primary.main, theme.palette.mode === 'light' ? 0.14 : 0.09)}, ${alpha(theme.palette.background.default, theme.palette.mode === 'light' ? 0.06 : 0.12)})`,
                 border: '1px solid',
                 borderColor: 'divider'
               }}
@@ -255,8 +270,8 @@ export default function LoginPage() {
                       {t('login.actions.createFreeAccount')}
                     </Button>
                     <Typography variant="caption" color="text.secondary" textAlign="center">
-                      {t('login.form.agreePrefix')} <MuiLink component={Link} to="/terms">{t('footer.terms')}</MuiLink> {t('login.form.and')}{' '}
-                      <MuiLink component={Link} to="/privacy">{t('login.form.privacyPolicy')}</MuiLink>.
+                      {t('login.form.agreePrefix')} <MuiLink href={publicTermsUrl}>{t('footer.terms')}</MuiLink> {t('login.form.and')}{' '}
+                      <MuiLink href={publicPrivacyUrl}>{t('login.form.privacyPolicy')}</MuiLink>.
                     </Typography>
                     <Typography variant="caption" color="text.secondary" textAlign="center">
                       {t('login.form.securityNote')}

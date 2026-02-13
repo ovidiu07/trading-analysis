@@ -11,13 +11,11 @@ import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
-import com.tradevault.repository.spec.TradeSpecifications;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
@@ -34,8 +32,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 @Service
@@ -77,18 +77,27 @@ public class TradeService {
         validateDateRange(openedAtFrom, openedAtTo, "openedAtFrom", "openedAtTo");
         validateDateRange(closedAtFrom, closedAtTo, "closedAtFrom", "closedAtTo");
 
-        Specification<Trade> spec = Specification.where(TradeSpecifications.userId(user.getId()))
-                .and(TradeSpecifications.openedAtFrom(openedAtFrom))
-                .and(TradeSpecifications.openedAtTo(openedAtTo))
-                .and(TradeSpecifications.closedAtFrom(closedAtFrom))
-                .and(TradeSpecifications.closedAtTo(closedAtTo))
-                .and(TradeSpecifications.symbolEqualsIgnoreCase(normalizedSymbol))
-                .and(TradeSpecifications.strategyEqualsIgnoreCase(normalizedStrategy))
-                .and(TradeSpecifications.direction(direction))
-                .and(TradeSpecifications.status(status));
+        Page<UUID> idPage = tradeRepository.searchTradeIds(
+                user.getId(),
+                openedAtFrom,
+                openedAtTo,
+                closedAtFrom,
+                closedAtTo,
+                normalizedSymbol,
+                normalizedStrategy,
+                direction,
+                status,
+                pageable
+        );
 
-        var result = tradeRepository.findAll(spec, pageable);
-        return result.map(this::toResponse);
+        if (idPage.isEmpty()) {
+            return new org.springframework.data.domain.PageImpl<>(List.of(), pageable, idPage.getTotalElements());
+        }
+
+        List<TradeResponse> responses = loadTradesInOrderWithTagsAndAccount(idPage.getContent()).stream()
+                .map(this::toResponse)
+                .toList();
+        return new org.springframework.data.domain.PageImpl<>(responses, pageable, idPage.getTotalElements());
     }
 
     private OffsetDateTime parseDateTimeFilter(String rawValue, ZoneId zone, boolean endOfDayForDateOnly, String fieldName) {
@@ -179,12 +188,22 @@ public class TradeService {
     public Page<TradeResponse> listAll(int page, int size) {
         User user = currentUserService.getCurrentUser();
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
-        return tradeRepository.findByUserIdOrderByOpenedAtDescCreatedAtDesc(user.getId(), pageable).map(this::toResponse);
+        Page<UUID> tradeIdsPage = tradeRepository.findTradeIdsForList(user.getId(), pageable);
+        if (tradeIdsPage.isEmpty()) {
+            return new org.springframework.data.domain.PageImpl<>(List.of(), pageable, tradeIdsPage.getTotalElements());
+        }
+
+        List<UUID> orderedIds = tradeIdsPage.getContent();
+        List<TradeResponse> responses = loadTradesInOrderWithTagsAndAccount(orderedIds).stream()
+                .map(this::toResponse)
+                .toList();
+
+        return new org.springframework.data.domain.PageImpl<>(responses, pageable, tradeIdsPage.getTotalElements());
     }
 
     public TradeResponse getById(UUID id) {
         User user = currentUserService.getCurrentUser();
-        Trade trade = tradeRepository.findByIdAndUserId(id, user.getId())
+        Trade trade = tradeRepository.findByIdAndUserIdWithTagsAndAccount(id, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
         return toResponse(trade);
     }
@@ -225,7 +244,8 @@ public class TradeService {
             trade.setAccount(account);
         }
         if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
-            Set<Tag> tags = tagRepository.findAllById(request.getTagIds()).stream().filter(t -> t.getUser().getId().equals(user.getId())).collect(Collectors.toSet());
+            Set<Tag> tags = tagRepository.findByIdInAndUserId(request.getTagIds(), user.getId()).stream()
+                    .collect(Collectors.toSet());
             trade.setTags(tags);
         }
         // Always compute authoritative derived metrics on create
@@ -272,7 +292,8 @@ public class TradeService {
             trade.setAccount(null);
         }
         if (request.getTagIds() != null) {
-            Set<Tag> tags = tagRepository.findAllById(request.getTagIds()).stream().filter(t -> t.getUser().getId().equals(user.getId())).collect(Collectors.toSet());
+            Set<Tag> tags = tagRepository.findByIdInAndUserId(request.getTagIds(), user.getId()).stream()
+                    .collect(Collectors.toSet());
             trade.setTags(tags);
         }
 
@@ -294,7 +315,8 @@ public class TradeService {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
         //log.info("[CALENDAR] listClosedTradesByDate userId={}, date={}, tz={}", user.getId(), date, zone.getId());
-        var trades = tradeRepository.findClosedTradesForLocalDate(user.getId(), date, zone.getId());
+        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId());
+        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         //log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
         return trades
                 .stream()
@@ -305,7 +327,8 @@ public class TradeService {
     public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
-        var trades = tradeRepository.findClosedTradesForLocalDate(user.getId(), date, zone.getId());
+        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId());
+        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         if (trades == null || trades.isEmpty()) {
             return com.tradevault.dto.trade.DailySummaryResponse.builder()
                     .date(date)
@@ -349,11 +372,29 @@ public class TradeService {
         OffsetDateTime fromDateTime = from.atStartOfDay(zone).toOffsetDateTime();
         OffsetDateTime toDateTime = to.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime();
         BigDecimal threshold = minLoss == null ? BigDecimal.ZERO : minLoss;
-        return tradeRepository.findByUserIdAndClosedAtBetweenOrderByClosedAt(user.getId(), fromDateTime, toDateTime)
-                .stream()
-                .filter(trade -> trade.getStatus() == com.tradevault.domain.enums.TradeStatus.CLOSED)
-                .filter(trade -> trade.getPnlNet() != null && trade.getPnlNet().compareTo(threshold.negate()) <= 0)
+        List<UUID> tradeIds = tradeRepository.findLossTradeIdsInRange(
+                user.getId(),
+                fromDateTime,
+                toDateTime,
+                com.tradevault.domain.enums.TradeStatus.CLOSED,
+                threshold.negate()
+        );
+        return loadTradesInOrderWithTagsAndAccount(tradeIds).stream()
                 .map(this::toResponse)
+                .toList();
+    }
+
+    private List<Trade> loadTradesInOrderWithTagsAndAccount(List<UUID> orderedIds) {
+        if (orderedIds == null || orderedIds.isEmpty()) {
+            return List.of();
+        }
+
+        Map<UUID, Trade> tradesById = tradeRepository.findAllByIdInWithTagsAndAccount(orderedIds).stream()
+                .collect(Collectors.toMap(Trade::getId, Function.identity(), (left, right) -> left));
+
+        return orderedIds.stream()
+                .map(tradesById::get)
+                .filter(Objects::nonNull)
                 .toList();
     }
 

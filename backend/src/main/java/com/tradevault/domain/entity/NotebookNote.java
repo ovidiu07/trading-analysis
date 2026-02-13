@@ -48,6 +48,10 @@ public class NotebookNote {
     @Column(columnDefinition = "JSONB")
     private String bodyJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "JSONB")
+    private String reviewJson;
+
     private LocalDate dateKey;
 
     @ManyToOne(fetch = FetchType.LAZY)

@@ -1,0 +1,36 @@
+<svg width="1200" height="760" viewBox="0 0 1200 760" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Analytics equity curve preview">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1200" y2="760" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0D1724"/>
+      <stop offset="1" stop-color="#12263E"/>
+    </linearGradient>
+    <linearGradient id="equityFill" x1="0" y1="252" x2="0" y2="628" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#53B0FF" stop-opacity="0.6"/>
+      <stop offset="1" stop-color="#53B0FF" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="ddFill" x1="0" y1="380" x2="0" y2="628" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FF7A7A" stop-opacity="0.48"/>
+      <stop offset="1" stop-color="#FF7A7A" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <rect width="1200" height="760" rx="36" fill="url(#bg)"/>
+  <rect x="36" y="36" width="1128" height="688" rx="26" fill="#0B1320" stroke="#314A69" stroke-width="2"/>
+  <text x="88" y="116" fill="#EAF4FF" font-size="38" font-weight="700" font-family="Inter, Segoe UI, sans-serif">Analytics overview</text>
+  <text x="88" y="158" fill="#8EA9C9" font-size="24" font-family="Inter, Segoe UI, sans-serif">Equity curve and drawdown context</text>
+  <rect x="88" y="200" width="1024" height="460" rx="22" fill="#101F33" stroke="#2F4968"/>
+  <line x1="136" y1="252" x2="136" y2="628" stroke="#2B4564"/>
+  <line x1="136" y1="628" x2="1070" y2="628" stroke="#2B4564"/>
+  <line x1="136" y1="534" x2="1070" y2="534" stroke="#22364E"/>
+  <line x1="136" y1="440" x2="1070" y2="440" stroke="#22364E"/>
+  <line x1="136" y1="346" x2="1070" y2="346" stroke="#22364E"/>
+  <path d="M136 542L206 518L276 526L346 476L416 492L486 442L556 410L626 430L696 362L766 386L836 316L906 302L976 278L1046 252L1046 628H136V542Z" fill="url(#equityFill)"/>
+  <path d="M136 628L206 608L276 612L346 574L416 588L486 556L556 544L626 548L696 510L766 520L836 486L906 480L976 460L1046 444L1046 628H136Z" fill="url(#ddFill)"/>
+  <path d="M136 542L206 518L276 526L346 476L416 492L486 442L556 410L626 430L696 362L766 386L836 316L906 302L976 278L1046 252" stroke="#74C2FF" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M136 628L206 608L276 612L346 574L416 588L486 556L556 544L626 548L696 510L766 520L836 486L906 480L976 460L1046 444" stroke="#FF8F8F" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="774" y="82" width="160" height="78" rx="14" fill="#101F33" stroke="#2F4968"/>
+  <text x="800" y="112" fill="#8EA9C9" font-size="18" font-family="Inter, Segoe UI, sans-serif">PF</text>
+  <text x="800" y="145" fill="#EEF5FF" font-size="30" font-weight="700" font-family="Inter, Segoe UI, sans-serif">1.63</text>
+  <rect x="952" y="82" width="160" height="78" rx="14" fill="#101F33" stroke="#2F4968"/>
+  <text x="978" y="112" fill="#8EA9C9" font-size="18" font-family="Inter, Segoe UI, sans-serif">DD</text>
+  <text x="978" y="145" fill="#EEF5FF" font-size="30" font-weight="700" font-family="Inter, Segoe UI, sans-serif">-6.1%</text>
+</svg>

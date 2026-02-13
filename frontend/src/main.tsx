@@ -6,8 +6,12 @@ import App from './App'
 import { AuthProvider } from './auth/AuthContext'
 import { I18nProvider } from './i18n'
 import { DemoDataProvider } from './features/demo/DemoDataContext'
+import { initializeAnalytics } from './utils/analytics/ga4'
+import { ThemeModeProvider } from './themeMode'
+import { NotificationsProvider } from './features/notifications/NotificationsContext'
 
 const client = new QueryClient()
+initializeAnalytics()
 
 const router = createBrowserRouter([
   {
@@ -16,7 +20,11 @@ const router = createBrowserRouter([
         <AuthProvider>
           <I18nProvider>
             <DemoDataProvider>
-              <App />
+              <ThemeModeProvider>
+                <NotificationsProvider>
+                  <App />
+                </NotificationsProvider>
+              </ThemeModeProvider>
             </DemoDataProvider>
           </I18nProvider>
         </AuthProvider>

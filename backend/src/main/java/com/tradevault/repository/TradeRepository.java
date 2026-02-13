@@ -15,32 +15,40 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecificationExecutor<Trade> {
+public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecificationExecutor<Trade>,
+    TradeRepositoryCustom {
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
-  Page<Trade> findByUserIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, Pageable pageable);
-
-  @Deprecated(forRemoval = false)
-  @Query("""
-      SELECT t FROM Trade t
+  @Query(value = """
+      SELECT t.id FROM Trade t
       WHERE t.user.id = :userId
-        AND (:openedAtFrom IS NULL OR t.openedAt >= :openedAtFrom)
-        AND (:openedAtTo IS NULL OR t.openedAt <= :openedAtTo)
-        AND (:closedAtFrom IS NULL OR t.closedAt >= :closedAtFrom)
-        AND (:closedAtTo IS NULL OR t.closedAt <= :closedAtTo)
-        AND (:symbol IS NULL OR LOWER(t.symbol) = :symbol)
-        AND (:strategy IS NULL OR LOWER(t.strategyTag) = :strategy)
-        AND (:direction IS NULL OR t.direction = :direction)
-        AND (:status IS NULL OR t.status = :status)
+      """,
+      countQuery = """
+      SELECT COUNT(t.id) FROM Trade t
+      WHERE t.user.id = :userId
       """)
-  Page<Trade> search(@Param("userId") UUID userId,
-      @Param("openedAtFrom") OffsetDateTime openedAtFrom,
-      @Param("openedAtTo") OffsetDateTime openedAtTo,
-      @Param("closedAtFrom") OffsetDateTime closedAtFrom,
-      @Param("closedAtTo") OffsetDateTime closedAtTo, @Param("symbol") String symbol,
-      @Param("strategy") String strategy, @Param("direction") Direction direction,
-      @Param("status") TradeStatus status, Pageable pageable);
+  Page<UUID> findTradeIdsForList(@Param("userId") UUID userId, Pageable pageable);
+
+  @Query("""
+      SELECT DISTINCT t FROM Trade t
+      LEFT JOIN FETCH t.account
+      LEFT JOIN FETCH t.tags
+      WHERE t.id IN :ids
+      """)
+  List<Trade> findAllByIdInWithTagsAndAccount(@Param("ids") List<UUID> ids);
+
+  @Query("""
+      SELECT DISTINCT t
+      FROM Trade t
+      LEFT JOIN FETCH t.account
+      LEFT JOIN FETCH t.tags
+      WHERE t.id = :id
+        AND t.user.id = :userId
+      """)
+  Optional<Trade> findByIdAndUserIdWithTagsAndAccount(@Param("id") UUID id, @Param("userId") UUID userId);
+
+  Page<Trade> findByUserIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, Pageable pageable);
 
   @Query(value = """
       WITH x AS (
@@ -112,15 +120,31 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       @Param("tz") String tz);
 
   @Query(value = """
-      SELECT * FROM trades t
+      SELECT t.id FROM trades t
       WHERE t.user_id = :userId
         AND t.status = 'CLOSED'
         AND t.closed_at IS NOT NULL
         AND CAST((t.closed_at AT TIME ZONE :tz) AS date) = :date
       ORDER BY t.closed_at
       """, nativeQuery = true)
-  List<Trade> findClosedTradesForLocalDate(@Param("userId") UUID userId,
+  List<UUID> findClosedTradeIdsForLocalDate(@Param("userId") UUID userId,
       @Param("date") LocalDate date, @Param("tz") String tz);
+
+  @Query("""
+      SELECT t.id
+      FROM Trade t
+      WHERE t.user.id = :userId
+        AND t.status = :status
+        AND t.closedAt BETWEEN :from AND :to
+        AND t.pnlNet IS NOT NULL
+        AND t.pnlNet <= :maxPnlNet
+      ORDER BY t.closedAt
+      """)
+  List<UUID> findLossTradeIdsInRange(@Param("userId") UUID userId,
+      @Param("from") OffsetDateTime from,
+      @Param("to") OffsetDateTime to,
+      @Param("status") TradeStatus status,
+      @Param("maxPnlNet") java.math.BigDecimal maxPnlNet);
 
   List<Trade> findByUserIdAndClosedAtBetweenOrderByClosedAt(UUID userId, OffsetDateTime from,
       OffsetDateTime to);

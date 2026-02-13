@@ -1,19 +1,30 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Alert, Box, Button, Card, CardContent, Container, Stack, Typography } from '@mui/material'
 import { Link, useLocation } from 'react-router-dom'
 import { resendVerification } from '../api/auth'
 import { ApiError } from '../api/client'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
+import { trackEvent } from '../utils/analytics/ga4'
 
 export default function CheckEmailPage() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const location = useLocation()
   const params = new URLSearchParams(location.search)
   const email = params.get('email') || ''
   const [message, setMessage] = useState('')
   const [error, setError] = useState('')
   const [sending, setSending] = useState(false)
+
+  useEffect(() => {
+    trackEvent('auth_email_confirm_view', {
+      method: 'email',
+      success: true,
+      email_present: Boolean(email),
+      view_context: 'post_signup',
+      feature_area: 'auth'
+    })
+  }, [email])
 
   const handleResend = async () => {
     setMessage('')
@@ -24,7 +35,7 @@ export default function CheckEmailPage() {
     }
     setSending(true)
     try {
-      await resendVerification(email)
+      await resendVerification(email, locale)
       setMessage(t('login.success.verificationSent'))
     } catch (err) {
       const apiErr = err as ApiError

@@ -14,6 +14,10 @@ public class NotebookAttachmentResponse {
     String fileName;
     String mimeType;
     Long sizeBytes;
+    String url;
     String downloadUrl;
+    String viewUrl;
+    String thumbnailUrl;
+    boolean image;
     OffsetDateTime createdAt;
 }

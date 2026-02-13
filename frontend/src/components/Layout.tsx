@@ -35,6 +35,7 @@ import DefinitionsDrawer from './dashboard/DefinitionsDrawer'
 import { buildDashboardSearchParams, DashboardQueryState, readDashboardQueryState } from '../features/dashboard/queryState'
 import { resolveRouteMeta } from '../config/routeMeta'
 import DemoDataBanner from './demo/DemoDataBanner'
+import { ThemePreference, toBackendThemePreference, useThemeMode } from '../themeMode'
 
 const SIDEBAR_WIDTH = 272
 const SIDEBAR_COLLAPSED_WIDTH = 88
@@ -54,8 +55,9 @@ type NavSection = {
 
 export default function Layout() {
   const navigate = useNavigate()
-  const { isAuthenticated, user, logout } = useAuth()
+  const { isAuthenticated, user, logout, updateSettings } = useAuth()
   const { t, language, setLanguage } = useI18n()
+  const { preference: themePreference, setPreference } = useThemeMode()
   const location = useLocation()
   const [searchParams, setSearchParams] = useSearchParams()
   const theme = useTheme()
@@ -71,6 +73,18 @@ export default function Layout() {
     logout()
     navigate('/login')
   }
+
+  const handleThemePreferenceChange = useCallback((nextPreference: ThemePreference) => {
+    setPreference(nextPreference)
+    if (!isAuthenticated || !user) {
+      return
+    }
+    updateSettings({
+      baseCurrency: user.baseCurrency || 'USD',
+      timezone: user.timezone || 'UTC',
+      themePreference: toBackendThemePreference(nextPreference)
+    }).catch(() => {})
+  }, [isAuthenticated, setPreference, updateSettings, user])
 
   const navSections = useMemo<NavSection[]>(() => {
     const tradingItems: NavItem[] = [
@@ -124,6 +138,7 @@ export default function Layout() {
   }, [allNavItems, location.pathname, t, user?.timezone])
 
   const isDashboard = pageMeta.id === 'dashboard'
+  const publicLocaleBase = language === 'ro' ? '/ro' : '/en'
   const dashboardState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
 
   const updateDashboardState = useCallback((patch: Partial<DashboardQueryState>) => {
@@ -266,7 +281,7 @@ export default function Layout() {
   return (
     <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', width: '100%', overflowX: 'clip' }}>
       {isAuthenticated && (
-        <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 } }}>
+        <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 }, minWidth: 0 }}>
           <Drawer
             variant={isMobile ? 'temporary' : 'permanent'}
             open={isMobile ? mobileOpen : true}
@@ -291,7 +306,11 @@ export default function Layout() {
           flexGrow: 1,
           display: 'flex',
           flexDirection: 'column',
-          minHeight: '100vh'
+          minHeight: '100vh',
+          minWidth: 0,
+          width: '100%',
+          maxWidth: '100%',
+          overflowX: 'clip'
         }}
       >
         <TopBar
@@ -304,6 +323,8 @@ export default function Layout() {
           user={user}
           language={language}
           onLanguageChange={(value) => setLanguage(value)}
+          themePreference={themePreference}
+          onThemePreferenceChange={handleThemePreferenceChange}
           isDashboard={isDashboard}
           dashboardState={dashboardState}
           onDashboardStateChange={updateDashboardState}
@@ -339,9 +360,9 @@ export default function Layout() {
                 {t('app.disclaimer')}
               </Typography>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'flex-start', sm: 'center' }}>
-                <Button component={Link} to="/terms" size="small">{t('footer.terms')}</Button>
-                <Button component={Link} to="/privacy" size="small">{t('footer.privacy')}</Button>
-                <Button component={Link} to="/cookies" size="small">{t('footer.cookies')}</Button>
+                <Button component="a" href={`${publicLocaleBase}/terms/`} size="small">{t('footer.terms')}</Button>
+                <Button component="a" href={`${publicLocaleBase}/privacy/`} size="small">{t('footer.privacy')}</Button>
+                <Button component="a" href={`${publicLocaleBase}/cookies/`} size="small">{t('footer.cookies')}</Button>
               </Stack>
             </Stack>
           </Container>

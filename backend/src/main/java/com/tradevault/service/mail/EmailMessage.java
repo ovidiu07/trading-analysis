@@ -10,6 +10,7 @@ import java.util.Map;
 public class EmailMessage {
     private String to;
     private String subject;
+    private String replyTo;
     private String htmlBody;
     private String textBody;
     private Map<String, String> headers;

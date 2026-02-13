@@ -29,13 +29,12 @@ public class NotebookAttachment {
     @JoinColumn(name = "note_id")
     private NotebookNote note;
 
-    private String fileName;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "asset_id", nullable = false)
+    private Asset asset;
 
-    private String mimeType;
-
-    private Long sizeBytes;
-
-    private String storageKey;
+    @Column(name = "sort_order", nullable = false)
+    private Integer sortOrder;
 
     @Column(name = "demo_seed_id")
     private UUID demoSeedId;

@@ -1,6 +1,7 @@
 package com.tradevault.dto.content;
 
 import com.tradevault.domain.enums.ContentPostStatus;
+import com.tradevault.dto.asset.AssetResponse;
 import lombok.Builder;
 import lombok.Value;
 
@@ -34,6 +35,7 @@ public class ContentPostResponse {
     OffsetDateTime createdAt;
     OffsetDateTime updatedAt;
     OffsetDateTime publishedAt;
+    List<AssetResponse> assets;
     Map<String, LocalizedContentResponse> translations;
     List<String> missingLocales;
 }

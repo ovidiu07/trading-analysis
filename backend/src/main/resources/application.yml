@@ -3,7 +3,16 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/tradevault}
     username: ${DB_USER:tradevault}
     password: ${DB_PASS:tradevault}
+    hikari:
+      maximum-pool-size: ${DB_HIKARI_MAX_POOL_SIZE:10}
+      minimum-idle: ${DB_HIKARI_MIN_IDLE:2}
+      connection-timeout: ${DB_HIKARI_CONNECTION_TIMEOUT_MS:30000}
+      validation-timeout: ${DB_HIKARI_VALIDATION_TIMEOUT_MS:5000}
+      idle-timeout: ${DB_HIKARI_IDLE_TIMEOUT_MS:600000}
+      max-lifetime: ${DB_HIKARI_MAX_LIFETIME_MS:1800000}
+      leak-detection-threshold: ${DB_HIKARI_LEAK_DETECTION_MS:20000}
   jpa:
+    open-in-view: false
     hibernate:
       ddl-auto: validate
     properties:
@@ -11,19 +20,23 @@ spring:
         format_sql: true
         default_schema: tradevault
         dialect: org.hibernate.dialect.PostgreSQLDialect
+        jdbc:
+          batch_size: 50
+        order_inserts: true
+        order_updates: true
     show-sql: false
   flyway:
     enabled: true
     locations: classpath:db/migration
   servlet:
     multipart:
-      max-file-size: 10MB
-      max-request-size: 12MB
+      max-file-size: 25MB
+      max-request-size: 32MB
   mail:
     host: ${MAIL_HOST:smtppro.zoho.eu}
     port: ${MAIL_PORT:587}
-    username: ${MAIL_USERNAME:contact@ihomeprosolutions.ro}
-    password: ${MAIL_PASSWORD:Marley01042022$}
+    username: ${MAIL_USERNAME:no-reply@tradejaudit.com}
+    password: ${MAIL_PASSWORD:wm52yqaSQ5FK}
     properties:
       mail:
         smtp:
@@ -36,7 +49,6 @@ jwt:
   expiry: ${JWT_EXPIRY:3600000}
 
 app:
-  upload-dir: ${UPLOAD_DIR:uploads}
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
   legal:
     terms-version: ${TERMS_VERSION:2024-09-01}
@@ -45,14 +57,50 @@ app:
     turnstile-secret: ${TURNSTILE_SECRET_KEY:}
     turnstile-site-key: ${TURNSTILE_SITE_KEY:}
   mail:
-    from-name: ${MAIL_FROM_NAME:TradeVault}
-    from-address: ${MAIL_FROM_ADDRESS:contact@ihomeprosolutions.ro}
+    from-name: ${MAIL_FROM_NAME:TradeJAudit}
+    from-address: ${MAIL_FROM_ADDRESS:no-reply@tradejaudit.com}
+    reply-to-address: ${MAIL_REPLY_TO_ADDRESS:no-reply@tradejaudit.com}
     template-base-url: ${MAIL_TEMPLATE_BASE_URL:}
-    support-email: ${MAIL_SUPPORT_EMAIL:contact@ihomeprosolutions.ro}
+    support-email: ${MAIL_SUPPORT_EMAIL:no-reply@tradejaudit.com}
+    contact-email: ${MAIL_CONTACT_EMAIL:no-reply@tradejaudit.com}
+    logo-url: ${MAIL_LOGO_URL:https://tradejaudit.com/branding/tradejaudit-logo-email@2x.png}
+
+storage:
+  provider: ${STORAGE_PROVIDER:s3}
+  s3:
+    enabled: ${STORAGE_S3_ENABLED:true}
+    bucket: ${STORAGE_S3_BUCKET:tradejaudit}
+    region: ${STORAGE_S3_REGION:${AWS_REGION:}}
+    endpoint: ${STORAGE_S3_ENDPOINT:}
+    access-key: ${STORAGE_S3_ACCESS_KEY:${AWS_ACCESS_KEY_ID:}}
+    secret-key: ${STORAGE_S3_SECRET_KEY:${AWS_SECRET_ACCESS_KEY:}}
+    public-base-url: ${STORAGE_S3_PUBLIC_BASE_URL:}
+    path-style-access: ${STORAGE_S3_PATH_STYLE_ACCESS:${STORAGE_S3_PATH_STYLE:false}}
+    force-path-style: ${STORAGE_S3_FORCE_PATH_STYLE:false}
+    use-iam-role: ${STORAGE_S3_USE_IAM_ROLE:false}
+    profile-name: ${STORAGE_S3_PROFILE_NAME:}
+    presign:
+      enabled: ${STORAGE_S3_PRESIGN_ENABLED:false}
+      expiration-minutes: ${STORAGE_S3_PRESIGN_EXPIRATION_MINUTES:60}
+
+uploads:
+  max-file-size-mb: ${UPLOADS_MAX_FILE_SIZE_MB:20}
+  allowed-mime-types: ${UPLOADS_ALLOWED_MIME_TYPES:image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/csv,application/json,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}
 
 logging:
   level:
     root: INFO
+    com.zaxxer.hikari: DEBUG
+    org.hibernate.SQL: INFO
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: always
 
 tradecoach:
   min-trades-for-finding: ${TRADECOACH_MIN_TRADES:10}
@@ -64,3 +112,15 @@ tradecoach:
   holding-bucket-delta-r: ${TRADECOACH_HOLDING_DELTA_R:0.2}
   critical-expectancy: ${TRADECOACH_CRITICAL_EXPECTANCY:-50.0}
   data-quality-penalty-ratio: ${TRADECOACH_DQ_PENALTY:0.2}
+
+notifications:
+  dispatch:
+    fixed-delay-ms: ${NOTIFICATIONS_DISPATCH_INTERVAL_MS:60000}
+    batch-size: ${NOTIFICATIONS_DISPATCH_BATCH_SIZE:50}
+    pg-lock-key: ${NOTIFICATIONS_DISPATCH_PG_LOCK_KEY:92100420260213}
+  stream:
+    heartbeat-ms: ${NOTIFICATIONS_STREAM_HEARTBEAT_MS:25000}
+
+metrics:
+  hikari:
+    log-interval-ms: ${HIKARI_METRICS_LOG_INTERVAL_MS:30000}
