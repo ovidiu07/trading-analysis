@@ -6,6 +6,7 @@ import com.tradevault.domain.entity.ContentTypeTranslation;
 import com.tradevault.domain.entity.NotificationEvent;
 import com.tradevault.domain.entity.NotificationPreferences;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.NotificationDispatchStatus;
 import com.tradevault.domain.enums.NotificationEventType;
 import com.tradevault.domain.enums.NotificationMatchPolicy;
 import com.tradevault.domain.enums.NotificationPreferenceMode;
@@ -14,6 +15,7 @@ import com.tradevault.dto.content.ContentPostRequest;
 import com.tradevault.dto.content.ContentPostResponse;
 import com.tradevault.dto.content.LocalizedContentRequest;
 import com.tradevault.dto.content.LocalizedContentResponse;
+import com.tradevault.dto.notification.NotificationCreatedStreamPayload;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.ContentTypeRepository;
 import com.tradevault.repository.NotificationEventRepository;
@@ -21,14 +23,18 @@ import com.tradevault.repository.NotificationPreferencesRepository;
 import com.tradevault.repository.UserNotificationRepository;
 import com.tradevault.repository.UserRepository;
 import com.tradevault.service.notification.NotificationDispatchService;
+import com.tradevault.service.notification.NotificationDispatchWorker;
 import com.tradevault.service.notification.NotificationEventService;
+import com.tradevault.service.notification.NotificationEventPayload;
 import com.tradevault.service.notification.NotificationJsonHelper;
 import com.tradevault.service.notification.NotificationPreferencesService;
+import com.tradevault.service.notification.NotificationStreamService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.test.mock.mockito.SpyBean;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -36,13 +42,21 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.timeout;
+import static org.mockito.Mockito.verify;
 
 @SpringBootTest
 @AutoConfigureMockMvc
@@ -95,6 +109,12 @@ class NotificationWorkflowIntegrationTest {
     @Autowired
     private NotificationJsonHelper notificationJsonHelper;
 
+    @SpyBean
+    private NotificationDispatchWorker notificationDispatchWorker;
+
+    @SpyBean
+    private NotificationStreamService notificationStreamService;
+
     @AfterEach
     void cleanUp() {
         userNotificationRepository.deleteAll();
@@ -123,14 +143,13 @@ class NotificationWorkflowIntegrationTest {
         contentPostService.publish(postId, "en");
         notificationDispatchService.dispatchPendingEvents(100);
 
-        List<NotificationEvent> events = notificationEventRepository.findAll();
-        assertThat(events).hasSize(1);
-        NotificationEvent event = events.get(0);
+        NotificationEvent event = waitForSingleEvent(postId, NotificationEventType.CONTENT_PUBLISHED, Duration.ofSeconds(5));
+        NotificationEvent dispatched = waitForEventState(event.getId(), NotificationDispatchStatus.SENT, Duration.ofSeconds(5));
         assertThat(event.getType()).isEqualTo(NotificationEventType.CONTENT_PUBLISHED);
-        assertThat(event.getDispatchedAt()).isNotNull();
+        assertThat(dispatched.getDispatchedAt()).isNotNull();
         assertThat(event.getContentVersion()).isEqualTo(1);
 
-        assertThat(userNotificationRepository.countByUser_Id(allUser.getId())).isEqualTo(1);
+        assertThat(waitForUserNotificationCount(allUser.getId(), 1, Duration.ofSeconds(5))).isEqualTo(1);
         assertThat(userNotificationRepository.countByUser_Id(selectedUser.getId())).isEqualTo(0);
     }
 
@@ -157,9 +176,9 @@ class NotificationWorkflowIntegrationTest {
 
         notificationDispatchService.dispatchPendingEvents(100);
 
-        NotificationEvent dispatched = notificationEventRepository.findById(event.getId()).orElseThrow();
+        NotificationEvent dispatched = waitForEventState(event.getId(), NotificationDispatchStatus.SENT, Duration.ofSeconds(5));
         assertThat(dispatched.getDispatchedAt()).isNotNull();
-        assertThat(userNotificationRepository.countByUser_Id(subscriber.getId())).isEqualTo(1);
+        assertThat(waitForUserNotificationCount(subscriber.getId(), 1, Duration.ofSeconds(5))).isEqualTo(1);
     }
 
     @Test
@@ -185,7 +204,7 @@ class NotificationWorkflowIntegrationTest {
                 NotificationEventType.CONTENT_UPDATED,
                 2
         )).isEqualTo(1);
-        assertThat(userNotificationRepository.countByUser_Id(subscriber.getId())).isEqualTo(2);
+        assertThat(waitForUserNotificationCount(subscriber.getId(), 2, Duration.ofSeconds(5))).isEqualTo(2);
     }
 
     @Test
@@ -211,7 +230,7 @@ class NotificationWorkflowIntegrationTest {
                 NotificationEventType.CONTENT_UPDATED,
                 2
         )).isEqualTo(0);
-        assertThat(userNotificationRepository.countByUser_Id(subscriber.getId())).isEqualTo(1);
+        assertThat(waitForUserNotificationCount(subscriber.getId(), 1, Duration.ofSeconds(5))).isEqualTo(1);
     }
 
     @Test
@@ -236,6 +255,85 @@ class NotificationWorkflowIntegrationTest {
                 NotificationEventType.CONTENT_UPDATED,
                 2
         )).isEqualTo(1);
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = {"ADMIN"})
+    void concurrentAsyncDispatchClaimsSingleOwnerAndDeliversOnce() throws Exception {
+        createUser("admin@example.com", Role.ADMIN);
+        User subscriber = createUser("subscriber@example.com", Role.USER);
+        ContentType strategy = createType("STRATEGY", "Strategy", "Strategie");
+        savePreferences(subscriber, NotificationPreferenceMode.ALL, List.of());
+
+        UUID postId = createDraft(strategy, "Concurrency insight", null);
+        ContentPost post = contentPostRepository.findById(postId).orElseThrow();
+        NotificationEvent event = notificationEventRepository.save(NotificationEvent.builder()
+                .type(NotificationEventType.CONTENT_PUBLISHED)
+                .content(post)
+                .contentVersion(1)
+                .category(post.getContentType())
+                .tags(notificationJsonHelper.writeStringList(List.of("momentum")))
+                .symbols(notificationJsonHelper.writeStringList(List.of("BTCUSD")))
+                .effectiveAt(OffsetDateTime.now().minusMinutes(1))
+                .status(NotificationDispatchStatus.PENDING)
+                .payloadJson(notificationJsonHelper.writePayload(new NotificationEventPayload(
+                        post.getSlug(),
+                        "Concurrency insight",
+                        "Concurenta insight",
+                        null,
+                        null
+                )))
+                .build());
+
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+        List<Thread> callers = new ArrayList<>();
+
+        Runnable caller = () -> {
+            ready.countDown();
+            try {
+                if (!start.await(2, TimeUnit.SECONDS)) {
+                    return;
+                }
+            } catch (InterruptedException ex) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+            notificationDispatchWorker.dispatchEventAsync(event.getId());
+        };
+
+        callers.add(new Thread(caller, "dispatch-caller-1"));
+        callers.add(new Thread(caller, "dispatch-caller-2"));
+        callers.forEach(Thread::start);
+        assertThat(ready.await(2, TimeUnit.SECONDS)).isTrue();
+        start.countDown();
+        for (Thread thread : callers) {
+            thread.join(2000);
+        }
+
+        NotificationEvent dispatched = waitForEventState(event.getId(), NotificationDispatchStatus.SENT, Duration.ofSeconds(5));
+        assertThat(dispatched.getAttempts()).isEqualTo(1);
+        assertThat(userNotificationRepository.countByEvent_Id(event.getId())).isEqualTo(1);
+        verify(notificationStreamService, timeout(5000).times(1))
+                .sendNotificationCreated(eq(subscriber.getId()), any(NotificationCreatedStreamPayload.class));
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = {"ADMIN"})
+    void publishTriggersAfterCommitAsyncDispatchWithEventId() {
+        createUser("admin@example.com", Role.ADMIN);
+        User subscriber = createUser("subscriber@example.com", Role.USER);
+        ContentType strategy = createType("STRATEGY", "Strategy", "Strategie");
+        savePreferences(subscriber, NotificationPreferenceMode.ALL, List.of());
+
+        UUID postId = createDraft(strategy, "After commit insight", null);
+        contentPostService.publish(postId, "en");
+
+        NotificationEvent event = waitForSingleEvent(postId, NotificationEventType.CONTENT_PUBLISHED, Duration.ofSeconds(5));
+        verify(notificationDispatchWorker, timeout(5000).atLeastOnce()).dispatchEventAsync(eq(event.getId()));
+
+        NotificationEvent dispatched = waitForEventState(event.getId(), NotificationDispatchStatus.SENT, Duration.ofSeconds(5));
+        assertThat(dispatched.getDispatchedAt()).isNotNull();
     }
 
     private User createUser(String email, Role role) {
@@ -338,5 +436,50 @@ class NotificationWorkflowIntegrationTest {
         preferences.setSymbolsJson(null);
         preferences.setMatchPolicy(NotificationMatchPolicy.CATEGORY_ONLY);
         notificationPreferencesRepository.save(preferences);
+    }
+
+    private NotificationEvent waitForSingleEvent(UUID contentId, NotificationEventType type, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            List<NotificationEvent> events = notificationEventRepository.findByContent_IdAndType(contentId, type);
+            if (!events.isEmpty()) {
+                return events.get(0);
+            }
+            sleep(75);
+        }
+        throw new AssertionError("Timed out waiting for notification event contentId=" + contentId + " type=" + type);
+    }
+
+    private NotificationEvent waitForEventState(UUID eventId, NotificationDispatchStatus status, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            NotificationEvent event = notificationEventRepository.findById(eventId).orElse(null);
+            if (event != null && event.getStatus() == status) {
+                return event;
+            }
+            sleep(75);
+        }
+        throw new AssertionError("Timed out waiting for event " + eventId + " status " + status);
+    }
+
+    private long waitForUserNotificationCount(UUID userId, long expected, Duration timeout) {
+        long deadline = System.nanoTime() + timeout.toNanos();
+        while (System.nanoTime() < deadline) {
+            long count = userNotificationRepository.countByUser_Id(userId);
+            if (count == expected) {
+                return count;
+            }
+            sleep(75);
+        }
+        throw new AssertionError("Timed out waiting for user " + userId + " notification count " + expected);
+    }
+
+    private void sleep(long millis) {
+        try {
+            Thread.sleep(millis);
+        } catch (InterruptedException ex) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while waiting", ex);
+        }
     }
 }

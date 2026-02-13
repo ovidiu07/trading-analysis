@@ -1,5 +1,6 @@
 package com.tradevault.domain.entity;
 
+import com.tradevault.domain.enums.NotificationDispatchStatus;
 import com.tradevault.domain.enums.NotificationEventType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -67,6 +68,22 @@ public class NotificationEvent {
 
     @Column(nullable = false)
     private OffsetDateTime effectiveAt;
+
+    @Builder.Default
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 32)
+    private NotificationDispatchStatus status = NotificationDispatchStatus.PENDING;
+
+    @Builder.Default
+    @Column(nullable = false)
+    private int attempts = 0;
+
+    private OffsetDateTime lockedAt;
+
+    @Column(columnDefinition = "TEXT")
+    private String lastError;
+
+    private OffsetDateTime nextRetryAt;
 
     private OffsetDateTime dispatchedAt;
 
