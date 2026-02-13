@@ -15,7 +15,8 @@ import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
-public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecificationExecutor<Trade> {
+public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecificationExecutor<Trade>,
+    TradeRepositoryCustom {
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
@@ -37,43 +38,6 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       """)
   List<Trade> findAllByIdInWithTagsAndAccount(@Param("ids") List<UUID> ids);
 
-  @Query(value = """
-      SELECT t.id
-      FROM Trade t
-      WHERE t.user.id = :userId
-        AND (:openedAtFrom IS NULL OR t.openedAt >= :openedAtFrom)
-        AND (:openedAtTo IS NULL OR t.openedAt <= :openedAtTo)
-        AND (:closedAtFrom IS NULL OR t.closedAt >= :closedAtFrom)
-        AND (:closedAtTo IS NULL OR t.closedAt <= :closedAtTo)
-        AND (:symbol IS NULL OR LOWER(t.symbol) = :symbol)
-        AND (:strategy IS NULL OR LOWER(t.strategyTag) = :strategy)
-        AND (:direction IS NULL OR t.direction = :direction)
-        AND (:status IS NULL OR t.status = :status)
-      """,
-      countQuery = """
-      SELECT COUNT(t.id)
-      FROM Trade t
-      WHERE t.user.id = :userId
-        AND (:openedAtFrom IS NULL OR t.openedAt >= :openedAtFrom)
-        AND (:openedAtTo IS NULL OR t.openedAt <= :openedAtTo)
-        AND (:closedAtFrom IS NULL OR t.closedAt >= :closedAtFrom)
-        AND (:closedAtTo IS NULL OR t.closedAt <= :closedAtTo)
-        AND (:symbol IS NULL OR LOWER(t.symbol) = :symbol)
-        AND (:strategy IS NULL OR LOWER(t.strategyTag) = :strategy)
-        AND (:direction IS NULL OR t.direction = :direction)
-        AND (:status IS NULL OR t.status = :status)
-      """)
-  Page<UUID> searchTradeIds(@Param("userId") UUID userId,
-      @Param("openedAtFrom") OffsetDateTime openedAtFrom,
-      @Param("openedAtTo") OffsetDateTime openedAtTo,
-      @Param("closedAtFrom") OffsetDateTime closedAtFrom,
-      @Param("closedAtTo") OffsetDateTime closedAtTo,
-      @Param("symbol") String symbol,
-      @Param("strategy") String strategy,
-      @Param("direction") Direction direction,
-      @Param("status") TradeStatus status,
-      Pageable pageable);
-
   @Query("""
       SELECT DISTINCT t
       FROM Trade t
@@ -85,27 +49,6 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
   Optional<Trade> findByIdAndUserIdWithTagsAndAccount(@Param("id") UUID id, @Param("userId") UUID userId);
 
   Page<Trade> findByUserIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, Pageable pageable);
-
-  @Deprecated(forRemoval = false)
-  @Query("""
-      SELECT t FROM Trade t
-      WHERE t.user.id = :userId
-        AND (:openedAtFrom IS NULL OR t.openedAt >= :openedAtFrom)
-        AND (:openedAtTo IS NULL OR t.openedAt <= :openedAtTo)
-        AND (:closedAtFrom IS NULL OR t.closedAt >= :closedAtFrom)
-        AND (:closedAtTo IS NULL OR t.closedAt <= :closedAtTo)
-        AND (:symbol IS NULL OR LOWER(t.symbol) = :symbol)
-        AND (:strategy IS NULL OR LOWER(t.strategyTag) = :strategy)
-        AND (:direction IS NULL OR t.direction = :direction)
-        AND (:status IS NULL OR t.status = :status)
-      """)
-  Page<Trade> search(@Param("userId") UUID userId,
-      @Param("openedAtFrom") OffsetDateTime openedAtFrom,
-      @Param("openedAtTo") OffsetDateTime openedAtTo,
-      @Param("closedAtFrom") OffsetDateTime closedAtFrom,
-      @Param("closedAtTo") OffsetDateTime closedAtTo, @Param("symbol") String symbol,
-      @Param("strategy") String strategy, @Param("direction") Direction direction,
-      @Param("status") TradeStatus status, Pageable pageable);
 
   @Query(value = """
       WITH x AS (
