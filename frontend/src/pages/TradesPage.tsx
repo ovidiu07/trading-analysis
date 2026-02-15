@@ -189,6 +189,7 @@ export default function TradesPage() {
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
   const isCreateDialogMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isCreateDialogCompact = useMediaQuery(theme.breakpoints.down('md'))
 
   const [viewMode, setViewMode] = useState<'list' | 'search'>('list')
   const [filters, setFilters] = useState(defaultFilters)
@@ -1111,16 +1112,26 @@ export default function TradesPage() {
         }}
         PaperProps={{
           sx: {
-            m: isCreateDialogMobile ? 0 : 4,
-            width: isCreateDialogMobile ? '100%' : undefined,
-            maxWidth: isCreateDialogMobile ? '100vw' : undefined,
+            m: isCreateDialogMobile ? 1 : isCreateDialogCompact ? 2 : 4,
+            width: isCreateDialogCompact
+              ? isCreateDialogMobile
+                ? 'calc(100vw - 16px)'
+                : 'calc(100vw - 32px)'
+              : undefined,
+            maxWidth: isCreateDialogCompact
+              ? isCreateDialogMobile
+                ? 'calc(100vw - 16px)'
+                : 'calc(100vw - 32px)'
+              : undefined,
             height: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
             minHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
             maxHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
-            borderRadius: isCreateDialogMobile ? 0 : 2,
+            borderRadius: 2,
+            boxSizing: 'border-box',
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
+            overflowX: 'hidden',
             '@supports (height: 100dvh)': {
               height: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
               minHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',

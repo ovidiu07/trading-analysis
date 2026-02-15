@@ -119,6 +119,78 @@ const setViewportSize = (width: number, height: number) => {
   }) as unknown as typeof window.matchMedia
 }
 
+const toRect = (x: number, y: number, width: number, height: number): DOMRect =>
+  ({
+    x,
+    y,
+    width,
+    height,
+    top: y,
+    left: x,
+    right: x + width,
+    bottom: y + height,
+    toJSON: () => ({ x, y, width, height, top: y, left: x, right: x + width, bottom: y + height })
+  } as DOMRect)
+
+const applySyntheticHorizontalMetrics = ({
+  viewportWidth,
+  paper,
+  tabsRow,
+  chipsRow,
+  summaryRow,
+  hasOverflowRisk
+}: {
+  viewportWidth: number
+  paper: HTMLElement
+  tabsRow: HTMLElement
+  chipsRow: HTMLElement
+  summaryRow: HTMLElement
+  hasOverflowRisk: boolean
+}) => {
+  const paperStyles = window.getComputedStyle(paper)
+  const margin = Number.parseFloat(paperStyles.marginLeft || '0') || 0
+  const paperX = Math.max(0, margin)
+  const paperWidth = Math.max(0, viewportWidth - margin * 2)
+  const spacingOverflow = hasOverflowRisk ? 20 : 0
+
+  Object.defineProperty(document.documentElement, 'scrollWidth', {
+    configurable: true,
+    get: () => Math.ceil(viewportWidth + spacingOverflow)
+  })
+
+  vi.spyOn(paper, 'getBoundingClientRect').mockReturnValue(toRect(paperX, 24, paperWidth, 760))
+
+  const tabsDirection = window.getComputedStyle(tabsRow).flexDirection
+  const tabsFlexWrap = window.getComputedStyle(tabsRow).flexWrap
+  const tabsWidth = tabsDirection === 'row' && tabsFlexWrap === 'nowrap' ? paperWidth + 8 : paperWidth - 24
+  const chipsWidth = paperWidth - 24
+  const summaryWidth = hasOverflowRisk ? paperWidth + 20 : paperWidth - 24
+
+  vi.spyOn(tabsRow, 'getBoundingClientRect').mockReturnValue(toRect(paperX + 12, 92, tabsWidth, 44))
+  vi.spyOn(chipsRow, 'getBoundingClientRect').mockReturnValue(toRect(paperX + 12, 142, chipsWidth, 28))
+  vi.spyOn(summaryRow, 'getBoundingClientRect').mockReturnValue(toRect(paperX + 12, 218, summaryWidth, 26))
+}
+
+const assertNoHorizontalOverflow = ({
+  paper,
+  rows
+}: {
+  paper: HTMLElement
+  rows: HTMLElement[]
+}) => {
+  expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
+
+  const paperRect = paper.getBoundingClientRect()
+  expect(paperRect.x).toBeGreaterThanOrEqual(0)
+  expect(paperRect.x + paperRect.width).toBeLessThanOrEqual(window.innerWidth)
+
+  rows.forEach((row) => {
+    const rowRect = row.getBoundingClientRect()
+    expect(rowRect.left).toBeGreaterThanOrEqual(paperRect.left)
+    expect(rowRect.right).toBeLessThanOrEqual(paperRect.right)
+  })
+}
+
 describe('TradesPage mobile create dialog', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -199,6 +271,55 @@ describe('TradesPage mobile create dialog', () => {
     await user.click(saveTradeButton)
     await waitFor(() => {
       expect(mockCreateTrade).toHaveBeenCalledTimes(1)
+    })
+  })
+
+  it.each([
+    { width: 599, height: 814, viewport: '599x814' },
+    { width: 881, height: 935, viewport: '881x935' }
+  ])('keeps create modal horizontally responsive at $viewport', async ({ width, height }) => {
+    setViewportSize(width, height)
+
+    render(
+      <MemoryRouter initialEntries={['/trades?quickLog=1']}>
+        <I18nProvider>
+          <TradesPage />
+        </I18nProvider>
+      </MemoryRouter>
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    const paper = document.querySelector('.MuiDialog-paper') as HTMLElement | null
+    expect(paper).not.toBeNull()
+
+    const modeGroup = within(dialog).getByRole('group', { name: 'Quick Log / Advanced' })
+    const tabsRow = modeGroup.parentElement as HTMLElement | null
+    expect(tabsRow).not.toBeNull()
+
+    const chipsRow = tabsRow?.querySelector('.MuiChip-root')?.parentElement as HTMLElement | null
+    expect(chipsRow).not.toBeNull()
+
+    const summaryRow = within(dialog).getByText('Core execution').closest('.MuiStack-root') as HTMLElement | null
+    expect(summaryRow).not.toBeNull()
+
+    const paperMargin = Number.parseFloat(window.getComputedStyle(paper as HTMLElement).marginLeft || '0') || 0
+    const tabsDirection = window.getComputedStyle(tabsRow as HTMLElement).flexDirection
+    const tabsWrap = window.getComputedStyle(tabsRow as HTMLElement).flexWrap
+    const hasUnsafePaperGutter = (width < 600 && paperMargin < 8) || (width >= 600 && width < 900 && paperMargin > 16)
+    const hasOverflowRisk = hasUnsafePaperGutter || (tabsDirection === 'row' && tabsWrap === 'nowrap')
+
+    applySyntheticHorizontalMetrics({
+      viewportWidth: width,
+      paper: paper as HTMLElement,
+      tabsRow: tabsRow as HTMLElement,
+      chipsRow: chipsRow as HTMLElement,
+      summaryRow: summaryRow as HTMLElement,
+      hasOverflowRisk
+    })
+
+    assertNoHorizontalOverflow({
+      paper: paper as HTMLElement,
+      rows: [tabsRow as HTMLElement, chipsRow as HTMLElement, summaryRow as HTMLElement]
     })
   })
 })

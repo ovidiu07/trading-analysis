@@ -132,10 +132,23 @@ const toIsoDateTime = (value: string): string => {
 
 function SectionHeader({ title, summary }: { title: string; summary?: string }) {
   return (
-    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5} width="100%" pr={1}>
-      <Typography variant="subtitle2">{title}</Typography>
+    <Stack
+      direction="row"
+      alignItems="center"
+      justifyContent="space-between"
+      spacing={1.5}
+      width="100%"
+      pr={1}
+      sx={{ minWidth: 0 }}
+    >
+      <Typography variant="subtitle2" sx={{ minWidth: 0 }}>{title}</Typography>
       {summary && (
-        <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '60%' }}>
+        <Typography
+          variant="caption"
+          color="text.secondary"
+          noWrap
+          sx={{ minWidth: 0, maxWidth: { xs: '52%', sm: '60%' }, overflow: 'hidden', textOverflow: 'ellipsis' }}
+        >
           {summary}
         </Typography>
       )}
@@ -888,11 +901,18 @@ export function TradeCreateFormV2({
           </IconButton>
         </Stack>
         <Stack
-          direction={{ xs: 'column', sm: 'row' }}
-          alignItems={{ xs: 'stretch', sm: 'center' }}
+          direction={isMobile ? 'column' : 'row'}
+          alignItems={isMobile ? 'stretch' : 'center'}
           spacing={1}
           px={{ xs: 2, md: 3 }}
           py={1}
+          sx={{
+            minWidth: 0,
+            flexWrap: isMobile ? 'nowrap' : 'wrap',
+            '& > *': {
+              minWidth: 0
+            }
+          }}
         >
           <TradeModeSwitch
             value={mode}
@@ -900,9 +920,31 @@ export function TradeCreateFormV2({
             fullWidth={isMobile}
             ariaLabel={t('trades.form.quickAdvancedSubtitle')}
           />
-          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-            <Chip size="small" variant="outlined" label={baseCurrency} />
-            <Chip size="small" variant="outlined" label={timezone} />
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ minWidth: 0, maxWidth: '100%' }}>
+            <Chip
+              size="small"
+              variant="outlined"
+              label={baseCurrency}
+              sx={{
+                maxWidth: '100%',
+                '& .MuiChip-label': {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }
+              }}
+            />
+            <Chip
+              size="small"
+              variant="outlined"
+              label={timezone}
+              sx={{
+                maxWidth: '100%',
+                '& .MuiChip-label': {
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }
+              }}
+            />
           </Stack>
         </Stack>
       </Box>
@@ -961,13 +1003,13 @@ export function TradeCreateFormV2({
             </Accordion>
           )}
 
-          <Grid container spacing={2.5} alignItems="flex-start" sx={{ minWidth: 0, width: '100%', m: 0 }}>
-            <Grid item xs={12} md={8} sx={{ minWidth: 0 }}>
+          <Grid container spacing={0} alignItems="flex-start" sx={{ minWidth: 0, width: '100%', m: 0 }}>
+            <Grid item xs={12} md={8} sx={{ minWidth: 0, pr: { md: 1.25 }, pb: { xs: 2.5, md: 0 } }}>
               {advancedSections}
             </Grid>
 
             {!isMobile && (
-              <Grid item xs={12} md={4} sx={{ minWidth: 0 }}>
+              <Grid item xs={12} md={4} sx={{ minWidth: 0, pl: { md: 1.25 } }}>
                 <Box sx={{ position: 'sticky', top: 16 }}>
                   <TradeLiveSummary
                     values={watchedValues}

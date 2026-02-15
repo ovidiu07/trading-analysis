@@ -27,10 +27,15 @@ export function TradeModeSwitch({ value, onChange, fullWidth = false, ariaLabel,
       fullWidth={fullWidth}
       aria-label={ariaLabel}
       sx={{
+        width: fullWidth ? '100%' : 'auto',
+        minWidth: 0,
+        maxWidth: '100%',
+        flex: fullWidth ? '1 1 100%' : '1 1 260px',
         '& .MuiToggleButton-root': {
           flex: 1,
           minWidth: 0,
-          whiteSpace: 'nowrap'
+          whiteSpace: 'normal',
+          lineHeight: 1.2
         },
         ...sx
       }}
