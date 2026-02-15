@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { parseLocalizedNumberInput } from './numberInput'
 
 const marketValues = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'] as const
 const directionValues = ['LONG', 'SHORT'] as const
@@ -11,39 +12,21 @@ const toUndefinedIfEmpty = (value: unknown) => {
   return value
 }
 
-const parseNumberInput = (value: unknown) => {
-  if (value === null || value === undefined || value === '') {
-    return undefined
-  }
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : undefined
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().replace(/\s+/g, '').replace(',', '.')
-    if (normalized.length === 0) {
-      return undefined
-    }
-    const parsed = Number(normalized)
-    return Number.isFinite(parsed) ? parsed : undefined
-  }
-  return undefined
-}
-
 const positiveRequiredNumber = (messageKey: string) =>
   z.preprocess(
-    parseNumberInput,
+    parseLocalizedNumberInput,
     z.number(messageKey).gt(0, messageKey)
   )
 
 const positiveOptionalNumber = (messageKey: string) =>
   z.preprocess(
-    parseNumberInput,
+    parseLocalizedNumberInput,
     z.number(messageKey).gt(0, messageKey).optional()
   )
 
 const nonNegativeOptionalNumber = (messageKey: string) =>
   z.preprocess(
-    parseNumberInput,
+    parseLocalizedNumberInput,
     z.number(messageKey).min(0, messageKey).optional()
   )
 

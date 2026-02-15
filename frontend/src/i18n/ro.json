@@ -1389,6 +1389,9 @@
       "quickAdvancedSubtitle": "Quick Log / Avansat",
       "openHelp": "Deschide explicațiile câmpurilor",
       "summaryAccordion": "Sumar",
+      "discardChangesTitle": "Renunți la modificări?",
+      "discardChangesPrompt": "Ai date nesalvate în modul Avansat. Le abandonezi?",
+      "discardButton": "Renunță",
       "quickNotes": "Notă rapidă (opțional)",
       "symbolHelper": "Începe să scrii un simbol (ex: AAPL)",
       "symbolRecent": "Recent",
@@ -1421,6 +1424,8 @@
       "liveSummaryTitle": "Sumar live",
       "liveSummarySubtitle": "Se actualizează în timp real în timp ce completezi",
       "useCalculatedRisk": "Folosește riscul calculat",
+      "viewAllWarnings": "Vezi toate",
+      "showFewerWarnings": "Arată mai puține",
       "modes": {
         "quick": "Quick Log",
         "advanced": "Avansat"
@@ -1432,6 +1437,7 @@
         "riskCapital": "Risc & capital",
         "costs": "Costuri",
         "context": "Context",
+        "plans": "Legare planuri",
         "notes": "Note"
       },
       "summaryWarnings": {

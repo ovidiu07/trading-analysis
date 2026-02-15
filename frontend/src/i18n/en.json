@@ -1389,6 +1389,9 @@
       "quickAdvancedSubtitle": "Quick Log / Advanced",
       "openHelp": "Open trade field help",
       "summaryAccordion": "Summary",
+      "discardChangesTitle": "Discard changes?",
+      "discardChangesPrompt": "You have unsaved input in Advanced mode. Discard it?",
+      "discardButton": "Discard",
       "quickNotes": "Quick note (optional)",
       "symbolHelper": "Start typing a symbol (e.g. AAPL)",
       "symbolRecent": "Recent",
@@ -1421,6 +1424,8 @@
       "liveSummaryTitle": "Live Summary",
       "liveSummarySubtitle": "Updates in real-time while you type",
       "useCalculatedRisk": "Use calculated risk",
+      "viewAllWarnings": "View all",
+      "showFewerWarnings": "Show fewer",
       "modes": {
         "quick": "Quick Log",
         "advanced": "Advanced"
@@ -1432,6 +1437,7 @@
         "riskCapital": "Risk & Capital",
         "costs": "Costs",
         "context": "Context",
+        "plans": "Plans linking",
         "notes": "Notes"
       },
       "summaryWarnings": {

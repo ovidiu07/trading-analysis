@@ -16,6 +16,7 @@ type SymbolAutocompleteProps = {
   required?: boolean
   error?: boolean
   helperText?: string
+  autoFocus?: boolean
 }
 
 type SymbolOption = {
@@ -78,7 +79,8 @@ export function SymbolAutocomplete({
   label,
   required,
   error,
-  helperText
+  helperText,
+  autoFocus
 }: SymbolAutocompleteProps) {
   const { t } = useI18n()
   const [query, setQuery] = useState(value)
@@ -156,6 +158,13 @@ export function SymbolAutocomplete({
         }
         return option.symbol === currentValue.symbol
       }}
+      componentsProps={{
+        paper: {
+          sx: {
+            maxWidth: 'calc(100vw - 32px)'
+          }
+        }
+      }}
       renderOption={(props, option) => (
         <li {...props}>
           <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" width="100%">
@@ -181,6 +190,7 @@ export function SymbolAutocomplete({
           error={error}
           helperText={helperText || t('trades.form.symbolHelper')}
           placeholder="AAPL"
+          autoFocus={autoFocus}
           inputProps={{
             ...params.inputProps,
             autoCapitalize: 'characters',

@@ -1,5 +1,6 @@
-import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import {
   Accordion,
   AccordionDetails,
@@ -20,21 +21,22 @@ import {
   Select,
   Stack,
   TextField,
-  ToggleButton,
-  ToggleButtonGroup,
   Typography,
   useMediaQuery,
   useTheme
 } from '@mui/material'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { TradeRequest } from '../../api/trades'
 import { PlanSource } from '../../api/plans'
 import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
+import { formatCurrency } from '../../utils/format'
+import { parseLocalizedNumberInput } from '../../utils/numberInput'
 import { TradeFormValues } from '../../utils/tradePayload'
 import { tradeValidationSchema } from '../../utils/tradeValidationSchema'
+import { BottomActionBar } from './BottomActionBar'
 import { SessionChips } from './SessionChips'
 import { saveRecentSymbol, SymbolAutocomplete } from './SymbolAutocomplete'
 import { TradeLiveSummary } from './TradeLiveSummary'
@@ -51,6 +53,8 @@ type TradeCreateFormV2Props = {
   submitLabel: string
   onSubmit: (values: TradeFormValues) => Promise<void>
   onCancel?: () => void
+  onDirtyChange?: (dirty: boolean) => void
+  onModeChange?: (mode: TradeEntryMode) => void
   error?: string
   strategyOptions?: ContentOption[]
   planOptions?: ContentOption[]
@@ -69,22 +73,6 @@ const MARKET_OPTIONS: Array<{ value: TradeRequest['market']; short: string }> = 
   { value: 'OPTIONS', short: 'OPT' },
   { value: 'OTHER', short: 'OTR' }
 ]
-
-const parseLocalizedNumber = (value: unknown) => {
-  if (value === undefined || value === null || value === '') {
-    return undefined
-  }
-  if (typeof value === 'number') {
-    return Number.isFinite(value) ? value : undefined
-  }
-  if (typeof value === 'string') {
-    const normalized = value.trim().replace(/\s+/g, '').replace(',', '.')
-    if (!normalized) return undefined
-    const parsed = Number(normalized)
-    return Number.isFinite(parsed) ? parsed : undefined
-  }
-  return undefined
-}
 
 const normalizeDefaults = (values: TradeFormValues): TradeFormValues => ({
   symbol: values.symbol || '',
@@ -142,11 +130,26 @@ const toIsoDateTime = (value: string): string => {
   return new Date(value).toISOString()
 }
 
+function SectionHeader({ title, summary }: { title: string; summary?: string }) {
+  return (
+    <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1.5} width="100%" pr={1}>
+      <Typography variant="subtitle2">{title}</Typography>
+      {summary && (
+        <Typography variant="caption" color="text.secondary" noWrap sx={{ maxWidth: '60%' }}>
+          {summary}
+        </Typography>
+      )}
+    </Stack>
+  )
+}
+
 export function TradeCreateFormV2({
   initialValues,
   submitLabel,
   onSubmit,
   onCancel,
+  onDirtyChange,
+  onModeChange,
   error,
   strategyOptions = [],
   planOptions = [],
@@ -172,7 +175,7 @@ export function TradeCreateFormV2({
     getValues,
     setValue,
     handleSubmit,
-    formState: { errors, isSubmitting, isValid }
+    formState: { errors, isSubmitting, isValid, isDirty }
   } = useForm<TradeFormValues>({
     resolver: zodResolver(tradeValidationSchema as any) as any,
     defaultValues: normalizeDefaults(initialValues),
@@ -182,9 +185,14 @@ export function TradeCreateFormV2({
   useEffect(() => {
     reset(normalizeDefaults(initialValues))
     setMode(defaultMode)
+    onModeChange?.(defaultMode)
     setShowValidationBanner(false)
     lastAutoLinkedRef.current = ''
-  }, [defaultMode, initialValues, reset])
+  }, [defaultMode, initialValues, onModeChange, reset])
+
+  useEffect(() => {
+    onDirtyChange?.(isDirty)
+  }, [isDirty, onDirtyChange])
 
   const status = watch('status')
 
@@ -268,7 +276,9 @@ export function TradeCreateFormV2({
   }
 
   const currencyAdornment = useMemo(() => (
-    <InputAdornment position="start">{baseCurrency}</InputAdornment>
+    <InputAdornment position="end">
+      <Typography variant="caption" color="text.secondary">{baseCurrency}</Typography>
+    </InputAdornment>
   ), [baseCurrency])
 
   const submit = handleSubmit(async (values) => {
@@ -279,6 +289,73 @@ export function TradeCreateFormV2({
   }, () => {
     setShowValidationBanner(true)
   })
+
+  const handleModeChange = (nextMode: TradeEntryMode) => {
+    setMode(nextMode)
+    onModeChange?.(nextMode)
+  }
+
+  const handleUseCalculatedRisk = (riskValue: number) => {
+    if (getValues('riskAmount') === undefined) {
+      setValue('riskAmount', Number(riskValue.toFixed(4)), { shouldValidate: true, shouldDirty: true })
+    }
+  }
+
+  const handleFieldFocus = (event: FocusEvent<HTMLElement>) => {
+    if (!isMobile) return
+    const target = event.target as HTMLElement
+    if (typeof target.scrollIntoView !== 'function') return
+
+    window.setTimeout(() => {
+      target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+    }, 80)
+  }
+
+  const costsSummary = useMemo(() => {
+    const fees = parseLocalizedNumberInput(watchedValues.fees) ?? 0
+    const commission = parseLocalizedNumberInput(watchedValues.commission) ?? 0
+    const slippage = parseLocalizedNumberInput(watchedValues.slippage) ?? 0
+    return formatCurrency(fees + commission + slippage, baseCurrency)
+  }, [baseCurrency, watchedValues.commission, watchedValues.fees, watchedValues.slippage])
+
+  const riskSummary = useMemo(() => {
+    const risk = parseLocalizedNumberInput(watchedValues.riskAmount)
+    const capital = parseLocalizedNumberInput(watchedValues.capitalUsed)
+    if (risk === undefined && capital === undefined) return '—'
+    const parts: string[] = []
+    if (risk !== undefined) parts.push(`${t('trades.form.riskAmount')}: ${formatCurrency(risk, baseCurrency)}`)
+    if (capital !== undefined) parts.push(`${t('trades.form.capitalUsed')}: ${formatCurrency(capital, baseCurrency)}`)
+    return parts.join(' • ')
+  }, [baseCurrency, t, watchedValues.capitalUsed, watchedValues.riskAmount])
+
+  const contextSummary = useMemo(() => {
+    const parts: string[] = []
+    if (watchedValues.setupGrade) parts.push(`Grade ${watchedValues.setupGrade}`)
+    if (watchedValues.session) parts.push(t(`trades.form.sessions.${watchedValues.session}`))
+    if (watchedValues.strategyTag) parts.push(watchedValues.strategyTag)
+    return parts[0] || '—'
+  }, [t, watchedValues.session, watchedValues.setupGrade, watchedValues.strategyTag])
+
+  const plansSummary = useMemo(() => {
+    const linkedCount = watchedValues.linkedPlanIds?.length || 0
+    if (linkedCount === 0) return '—'
+    return `${linkedCount} ${t('trades.form.linkedPlans')}`
+  }, [t, watchedValues.linkedPlanIds])
+
+  const notesSummary = useMemo(() => {
+    const notes = watchedValues.notes?.trim() || ''
+    if (!notes) return '—'
+    return notes.length > 40 ? `${notes.slice(0, 40)}…` : notes
+  }, [watchedValues.notes])
+
+  const executionSummary = useMemo(() => {
+    const parts = [
+      watchedValues.symbol?.trim()?.toUpperCase() || '—',
+      watchedValues.direction ? t(`trades.direction.${watchedValues.direction}`) : '—',
+      watchedValues.status ? t(`trades.status.${watchedValues.status}`) : '—'
+    ]
+    return parts.join(' • ')
+  }, [t, watchedValues.direction, watchedValues.status, watchedValues.symbol])
 
   const executionSection = (
     <Stack spacing={2}>
@@ -293,6 +370,7 @@ export function TradeCreateFormV2({
                 market={watch('market')}
                 onChange={field.onChange}
                 required
+                autoFocus
                 error={!!errors.symbol}
                 helperText={resolveError('symbol')}
               />
@@ -329,37 +407,25 @@ export function TradeCreateFormV2({
             control={control}
             render={({ field }) => (
               <FormControl fullWidth error={!!errors.direction}>
-                <ToggleButtonGroup
+                <ToggleButtonsField
                   value={field.value}
-                  exclusive
-                  onChange={(_, nextValue: TradeRequest['direction'] | null) => {
-                    if (nextValue) field.onChange(nextValue)
-                  }}
-                  fullWidth
-                >
-                  <ToggleButton
-                    value="LONG"
-                    sx={{
-                      '&.Mui-selected': {
-                        color: 'success.main',
-                        backgroundColor: 'success.50'
-                      }
-                    }}
-                  >
-                    {t('trades.direction.LONG')}
-                  </ToggleButton>
-                  <ToggleButton
-                    value="SHORT"
-                    sx={{
-                      '&.Mui-selected': {
-                        color: 'error.main',
-                        backgroundColor: 'error.50'
-                      }
-                    }}
-                  >
-                    {t('trades.direction.SHORT')}
-                  </ToggleButton>
-                </ToggleButtonGroup>
+                  options={[
+                    {
+                      value: 'LONG',
+                      label: t('trades.direction.LONG'),
+                      selectedColor: 'success.main',
+                      selectedBackground: 'success.50'
+                    },
+                    {
+                      value: 'SHORT',
+                      label: t('trades.direction.SHORT'),
+                      selectedColor: 'error.main',
+                      selectedBackground: 'error.50'
+                    }
+                  ]}
+                  ariaLabel={t('trades.form.direction')}
+                  onChange={(nextValue) => field.onChange(nextValue as TradeRequest['direction'])}
+                />
                 <FormHelperText>{resolveError('direction')}</FormHelperText>
               </FormControl>
             )}
@@ -371,17 +437,15 @@ export function TradeCreateFormV2({
             control={control}
             render={({ field }) => (
               <FormControl fullWidth error={!!errors.status}>
-                <ToggleButtonGroup
+                <ToggleButtonsField
                   value={field.value}
-                  exclusive
-                  onChange={(_, nextValue: TradeRequest['status'] | null) => {
-                    if (nextValue) field.onChange(nextValue)
-                  }}
-                  fullWidth
-                >
-                  <ToggleButton value="OPEN">{t('trades.status.OPEN')}</ToggleButton>
-                  <ToggleButton value="CLOSED">{t('trades.status.CLOSED')}</ToggleButton>
-                </ToggleButtonGroup>
+                  options={[
+                    { value: 'OPEN', label: t('trades.status.OPEN') },
+                    { value: 'CLOSED', label: t('trades.status.CLOSED') }
+                  ]}
+                  ariaLabel={t('trades.form.status')}
+                  onChange={(nextValue) => field.onChange(nextValue as TradeRequest['status'])}
+                />
                 <FormHelperText>{resolveError('status')}</FormHelperText>
               </FormControl>
             )}
@@ -424,7 +488,7 @@ export function TradeCreateFormV2({
             error={!!errors.quantity}
             helperText={resolveError('quantity') || t('trades.form.quantityHelper')}
             inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-            {...register('quantity', { setValueAs: parseLocalizedNumber })}
+            {...register('quantity', { setValueAs: parseLocalizedNumberInput })}
           />
         </Grid>
         <Grid item xs={12} md={4}>
@@ -434,8 +498,8 @@ export function TradeCreateFormV2({
             error={!!errors.entryPrice}
             helperText={resolveError('entryPrice') || t('trades.form.priceHelper')}
             inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-            InputProps={{ startAdornment: currencyAdornment }}
-            {...register('entryPrice', { setValueAs: parseLocalizedNumber })}
+            InputProps={{ endAdornment: currencyAdornment }}
+            {...register('entryPrice', { setValueAs: parseLocalizedNumberInput })}
           />
         </Grid>
         {status === 'CLOSED' && (
@@ -446,8 +510,8 @@ export function TradeCreateFormV2({
               error={!!errors.exitPrice}
               helperText={resolveError('exitPrice') || t('trades.form.priceHelper')}
               inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-              InputProps={{ startAdornment: currencyAdornment }}
-              {...register('exitPrice', { setValueAs: parseLocalizedNumber })}
+              InputProps={{ endAdornment: currencyAdornment }}
+              {...register('exitPrice', { setValueAs: parseLocalizedNumberInput })}
             />
           </Grid>
         )}
@@ -461,8 +525,8 @@ export function TradeCreateFormV2({
             error={!!errors.stopLossPrice}
             helperText={resolveError('stopLossPrice') || t('trades.form.priceHelper')}
             inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-            InputProps={{ startAdornment: currencyAdornment }}
-            {...register('stopLossPrice', { setValueAs: parseLocalizedNumber })}
+            InputProps={{ endAdornment: currencyAdornment }}
+            {...register('stopLossPrice', { setValueAs: parseLocalizedNumberInput })}
           />
         </Grid>
         <Grid item xs={12} md={6}>
@@ -472,8 +536,8 @@ export function TradeCreateFormV2({
             error={!!errors.takeProfitPrice}
             helperText={resolveError('takeProfitPrice') || t('trades.form.priceHelper')}
             inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-            InputProps={{ startAdornment: currencyAdornment }}
-            {...register('takeProfitPrice', { setValueAs: parseLocalizedNumber })}
+            InputProps={{ endAdornment: currencyAdornment }}
+            {...register('takeProfitPrice', { setValueAs: parseLocalizedNumberInput })}
           />
         </Grid>
       </Grid>
@@ -481,13 +545,13 @@ export function TradeCreateFormV2({
       {mode === 'quick' && (
         <Accordion disableGutters>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-            <Typography variant="subtitle2">{t('trades.form.quickNotes')}</Typography>
+            <SectionHeader title={t('trades.form.quickNotes')} summary={notesSummary} />
           </AccordionSummary>
           <AccordionDetails>
             <TextField
               label={t('trades.form.notes')}
               fullWidth
-              minRows={1}
+              minRows={4}
               multiline
               {...register('notes')}
             />
@@ -509,14 +573,14 @@ export function TradeCreateFormV2({
     <Stack spacing={1.5}>
       <Accordion defaultExpanded disableGutters>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">{t('trades.form.sections.execution')}</Typography>
+          <SectionHeader title={t('trades.form.sections.execution')} summary={executionSummary} />
         </AccordionSummary>
         <AccordionDetails>{executionSection}</AccordionDetails>
       </Accordion>
 
-      <Accordion disableGutters>
+      <Accordion disableGutters defaultExpanded={!isMobile}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">{t('trades.form.sections.riskCapital')}</Typography>
+          <SectionHeader title={t('trades.form.sections.riskCapital')} summary={riskSummary} />
         </AccordionSummary>
         <AccordionDetails>
           <Grid container spacing={2}>
@@ -527,8 +591,8 @@ export function TradeCreateFormV2({
                 error={!!errors.riskAmount}
                 helperText={resolveError('riskAmount') || t('trades.form.riskAmountHint')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ startAdornment: currencyAdornment }}
-                {...register('riskAmount', { setValueAs: parseLocalizedNumber })}
+                InputProps={{ endAdornment: currencyAdornment }}
+                {...register('riskAmount', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -538,8 +602,8 @@ export function TradeCreateFormV2({
                 error={!!errors.capitalUsed}
                 helperText={resolveError('capitalUsed') || t('trades.form.capitalUsedHint')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ startAdornment: currencyAdornment }}
-                {...register('capitalUsed', { setValueAs: parseLocalizedNumber })}
+                InputProps={{ endAdornment: currencyAdornment }}
+                {...register('capitalUsed', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
             <Grid item xs={12} md={6}>
@@ -555,9 +619,9 @@ export function TradeCreateFormV2({
         </AccordionDetails>
       </Accordion>
 
-      <Accordion disableGutters>
+      <Accordion disableGutters defaultExpanded={!isMobile}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">{t('trades.form.sections.costs')}</Typography>
+          <SectionHeader title={t('trades.form.sections.costs')} summary={costsSummary} />
         </AccordionSummary>
         <AccordionDetails>
           <Grid container spacing={2}>
@@ -568,8 +632,8 @@ export function TradeCreateFormV2({
                 error={!!errors.fees}
                 helperText={resolveError('fees') || t('trades.form.costHelper')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ startAdornment: currencyAdornment }}
-                {...register('fees', { setValueAs: parseLocalizedNumber })}
+                InputProps={{ endAdornment: currencyAdornment }}
+                {...register('fees', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
             <Grid item xs={12} md={4}>
@@ -579,8 +643,8 @@ export function TradeCreateFormV2({
                 error={!!errors.commission}
                 helperText={resolveError('commission') || t('trades.form.costHelper')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ startAdornment: currencyAdornment }}
-                {...register('commission', { setValueAs: parseLocalizedNumber })}
+                InputProps={{ endAdornment: currencyAdornment }}
+                {...register('commission', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
             <Grid item xs={12} md={4}>
@@ -590,17 +654,17 @@ export function TradeCreateFormV2({
                 error={!!errors.slippage}
                 helperText={resolveError('slippage') || t('trades.form.costHelper')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ startAdornment: currencyAdornment }}
-                {...register('slippage', { setValueAs: parseLocalizedNumber })}
+                InputProps={{ endAdornment: currencyAdornment }}
+                {...register('slippage', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
           </Grid>
         </AccordionDetails>
       </Accordion>
 
-      <Accordion disableGutters>
+      <Accordion disableGutters defaultExpanded={!isMobile}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">{t('trades.form.sections.context')}</Typography>
+          <SectionHeader title={t('trades.form.sections.context')} summary={contextSummary} />
         </AccordionSummary>
         <AccordionDetails>
           <Grid container spacing={2}>
@@ -663,6 +727,16 @@ export function TradeCreateFormV2({
                 )}
               />
             </Grid>
+          </Grid>
+        </AccordionDetails>
+      </Accordion>
+
+      <Accordion disableGutters defaultExpanded={!isMobile}>
+        <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+          <SectionHeader title={t('trades.form.sections.plans')} summary={plansSummary} />
+        </AccordionSummary>
+        <AccordionDetails>
+          <Grid container spacing={2}>
             <Grid item xs={12} md={6}>
               <Controller
                 name="linkedPlanIds"
@@ -731,16 +805,21 @@ export function TradeCreateFormV2({
         </AccordionDetails>
       </Accordion>
 
-      <Accordion disableGutters>
+      <Accordion disableGutters defaultExpanded={!isMobile}>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-          <Typography variant="subtitle2">{t('trades.form.sections.notes')}</Typography>
+          <SectionHeader title={t('trades.form.sections.notes')} summary={notesSummary} />
         </AccordionSummary>
         <AccordionDetails>
           <TextField
             label={t('trades.form.notes')}
             fullWidth
             multiline
-            minRows={3}
+            minRows={4}
+            sx={{
+              '& textarea': {
+                resize: 'vertical'
+              }
+            }}
             {...register('notes')}
           />
         </AccordionDetails>
@@ -751,103 +830,117 @@ export function TradeCreateFormV2({
   )
 
   return (
-    <Box component="form" onSubmit={submit}>
-      <Stack spacing={2}>
-        <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={2}>
-          <Box>
-            <Typography variant="h6">{t('trades.create.title')}</Typography>
-            <Typography variant="body2" color="text.secondary">{t('trades.form.quickAdvancedSubtitle')}</Typography>
-            <Typography variant="caption" color="text.secondary">{baseCurrency} | {timezone}</Typography>
-          </Box>
-          <Stack direction="row" spacing={1} alignItems="center">
-            <TradeModeSwitch value={mode} onChange={setMode} />
-            <IconButton onClick={() => setInfoOpen(true)} aria-label={t('trades.form.openHelp')}>
-              <InfoOutlinedIcon fontSize="small" />
-            </IconButton>
+    <Box
+      component="form"
+      onSubmit={submit}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%'
+      }}
+      onFocusCapture={handleFieldFocus}
+    >
+      <Box
+        sx={{
+          position: 'sticky',
+          top: 0,
+          zIndex: 5,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper'
+        }}
+      >
+        <Stack direction="row" alignItems="center" justifyContent="space-between" px={{ xs: 1, md: 2 }} py={1}>
+          <IconButton onClick={onCancel} aria-label={t('common.close')}>
+            <CloseRoundedIcon />
+          </IconButton>
+          <Typography variant="h6">{t('trades.create.title')}</Typography>
+          <IconButton onClick={() => setInfoOpen(true)} aria-label={t('trades.form.openHelp')}>
+            <InfoOutlinedIcon fontSize="small" />
+          </IconButton>
+        </Stack>
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          alignItems={{ xs: 'stretch', sm: 'center' }}
+          spacing={1}
+          px={{ xs: 2, md: 3 }}
+          py={1}
+        >
+          <TradeModeSwitch
+            value={mode}
+            onChange={handleModeChange}
+            fullWidth={isMobile}
+            ariaLabel={t('trades.form.quickAdvancedSubtitle')}
+          />
+          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+            <Chip size="small" variant="outlined" label={baseCurrency} />
+            <Chip size="small" variant="outlined" label={timezone} />
           </Stack>
         </Stack>
+      </Box>
 
-        {showValidationBanner && <Alert severity="error">{t('trades.form.validationBanner')}</Alert>}
-        {!showValidationBanner && !!error && <Alert severity="error">{error}</Alert>}
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          overflowY: 'auto',
+          px: { xs: 2, md: 3 },
+          py: 2
+        }}
+      >
+        <Stack spacing={2}>
+          {showValidationBanner && <Alert severity="error">{t('trades.form.validationBanner')}</Alert>}
+          {!showValidationBanner && !!error && <Alert severity="error">{error}</Alert>}
 
-        <Grid container spacing={2} alignItems="flex-start">
           {isMobile && (
-            <Grid item xs={12}>
-              <Accordion disableGutters>
-                <AccordionSummary expandIcon={<ExpandMoreIcon />}>
-                  <Typography variant="subtitle2">{t('trades.form.summaryAccordion')}</Typography>
-                </AccordionSummary>
-                <AccordionDetails sx={{ pt: 0 }}>
+            <Accordion disableGutters defaultExpanded={false}>
+              <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+                <SectionHeader title={t('trades.form.summaryAccordion')} summary={executionSummary} />
+              </AccordionSummary>
+              <AccordionDetails sx={{ pt: 0 }}>
+                <Box sx={{ maxHeight: '25vh', overflow: 'hidden' }}>
                   <TradeLiveSummary
                     values={watchedValues}
                     baseCurrency={baseCurrency}
-                    onUseCalculatedRisk={(riskValue) => {
-                      if (getValues('riskAmount') === undefined) {
-                        setValue('riskAmount', Number(riskValue.toFixed(4)), { shouldValidate: true, shouldDirty: true })
-                      }
-                    }}
+                    variant="compact"
+                    maxWarnings={2}
+                    onUseCalculatedRisk={handleUseCalculatedRisk}
                   />
-                </AccordionDetails>
-              </Accordion>
-            </Grid>
+                </Box>
+              </AccordionDetails>
+            </Accordion>
           )}
 
-          <Grid item xs={12} md={8}>
-            <Stack spacing={1.5}>
+          <Grid container spacing={2.5} alignItems="flex-start">
+            <Grid item xs={12} md={8}>
               {advancedSections}
-
-              <Box
-                sx={{
-                  position: 'sticky',
-                  bottom: 0,
-                  zIndex: 3,
-                  borderTop: '1px solid',
-                  borderColor: 'divider',
-                  backgroundColor: 'background.paper',
-                  py: 1.5,
-                  mt: 1,
-                  mb: isMobile ? 'calc(env(safe-area-inset-bottom) + 8px)' : 0
-                }}
-              >
-                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5}>
-                  <Button
-                    type="submit"
-                    variant="contained"
-                    disabled={!isValid || isSubmitting}
-                    fullWidth={isMobile}
-                  >
-                    {submitLabel}
-                  </Button>
-                  {onCancel && (
-                    <Button variant="outlined" onClick={onCancel} fullWidth={isMobile}>
-                      {t('common.cancel')}
-                    </Button>
-                  )}
-                </Stack>
-              </Box>
-            </Stack>
-          </Grid>
-
-          {!isMobile && (
-            <Grid item xs={12} md={4}>
-              <Box sx={{ position: 'sticky', top: 12 }}>
-                <TradeLiveSummary
-                  values={watchedValues}
-                  baseCurrency={baseCurrency}
-                  onUseCalculatedRisk={(riskValue) => {
-                    if (getValues('riskAmount') === undefined) {
-                      setValue('riskAmount', Number(riskValue.toFixed(4)), { shouldValidate: true, shouldDirty: true })
-                    }
-                  }}
-                />
-              </Box>
             </Grid>
-          )}
-        </Grid>
-      </Stack>
+
+            {!isMobile && (
+              <Grid item xs={12} md={4}>
+                <Box sx={{ position: 'sticky', top: 16 }}>
+                  <TradeLiveSummary
+                    values={watchedValues}
+                    baseCurrency={baseCurrency}
+                    onUseCalculatedRisk={handleUseCalculatedRisk}
+                  />
+                </Box>
+              </Grid>
+            )}
+          </Grid>
+        </Stack>
+      </Box>
+
+      <BottomActionBar
+        submitLabel={submitLabel}
+        submitDisabled={!isValid}
+        submitting={isSubmitting}
+        onCancel={onCancel}
+        mobileSticky={isMobile}
+      />
 
       <Drawer anchor="right" open={infoOpen} onClose={() => setInfoOpen(false)}>
-        <Box sx={{ width: { xs: '90vw', sm: 420 }, p: 2 }}>
+        <Box sx={{ width: { xs: '92vw', sm: 420 }, p: 2 }}>
           <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
             <Typography variant="h6">{t('trades.help.title')}</Typography>
             <Button size="small" onClick={() => setInfoOpen(false)}>{t('common.close')}</Button>
@@ -874,6 +967,78 @@ export function TradeCreateFormV2({
           </Stack>
         </Box>
       </Drawer>
+    </Box>
+  )
+}
+
+type ToggleButtonsFieldOption = {
+  value: string
+  label: string
+  selectedColor?: string
+  selectedBackground?: string
+}
+
+function ToggleButtonsField({
+  value,
+  options,
+  onChange,
+  ariaLabel
+}: {
+  value?: string
+  options: ToggleButtonsFieldOption[]
+  onChange: (value: string) => void
+  ariaLabel: string
+}) {
+  return (
+    <Box sx={{ width: '100%' }}>
+      <Box
+        role="group"
+        aria-label={ariaLabel}
+        sx={{
+          display: 'flex',
+          flexWrap: 'wrap',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 1,
+          overflow: 'hidden'
+        }}
+      >
+        {options.map((option) => {
+          const selected = value === option.value
+          return (
+            <Button
+              key={option.value}
+              type="button"
+              onClick={() => onChange(option.value)}
+              aria-pressed={selected}
+              sx={{
+                flexBasis: { xs: '100%', sm: `${100 / options.length}%` },
+                flexGrow: 1,
+                borderRadius: 0,
+                borderRight: { sm: '1px solid' },
+                borderBottom: { xs: '1px solid', sm: 'none' },
+                borderColor: 'divider',
+                minWidth: 0,
+                py: 1.1,
+                justifyContent: 'center',
+                color: selected ? option.selectedColor || 'text.primary' : 'text.secondary',
+                bgcolor: selected ? option.selectedBackground || 'action.selected' : 'transparent',
+                textTransform: 'none',
+                '&:last-of-type': {
+                  borderRight: 'none',
+                  borderBottom: 'none'
+                },
+                '&:only-of-type': {
+                  borderRight: 'none',
+                  borderBottom: 'none'
+                }
+              }}
+            >
+              <Typography variant="body2" noWrap>{option.label}</Typography>
+            </Button>
+          )
+        })}
+      </Box>
     </Box>
   )
 }

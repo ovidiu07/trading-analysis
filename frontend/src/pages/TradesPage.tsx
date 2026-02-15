@@ -200,6 +200,8 @@ export default function TradesPage() {
   const [expandedTrade, setExpandedTrade] = useState<TradeResponse | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
   const [createDialogMode, setCreateDialogMode] = useState<TradeEntryMode>('advanced')
+  const [createFormDirty, setCreateFormDirty] = useState(false)
+  const [createDiscardDialogOpen, setCreateDiscardDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<TradeResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TradeResponse | null>(null)
@@ -531,6 +533,8 @@ export default function TradesPage() {
       })
       setCreateDialogMode('quick')
       setCreateError('')
+      setCreateFormDirty(false)
+      setCreateDiscardDialogOpen(false)
       setCreateDialogOpen(true)
     }
 
@@ -577,7 +581,7 @@ export default function TradesPage() {
       setCreateSuccess(t('trades.messages.created'))
       const freshDefaults = buildDefaultValues()
       setCreateFormValues(freshDefaults)
-      setCreateDialogOpen(false)
+      closeCreateDialog()
       fetchTrades()
     } catch (err) {
       const apiErr = err as ApiError
@@ -671,6 +675,8 @@ export default function TradesPage() {
     setCreateFormValues(buildDefaultValues())
     setCreateDialogMode('advanced')
     setCreateError('')
+    setCreateFormDirty(false)
+    setCreateDiscardDialogOpen(false)
     setCreateDialogOpen(true)
   }
 
@@ -678,7 +684,23 @@ export default function TradesPage() {
     setCreateFormValues(buildQuickLogDefaults())
     setCreateDialogMode('quick')
     setCreateError('')
+    setCreateFormDirty(false)
+    setCreateDiscardDialogOpen(false)
     setCreateDialogOpen(true)
+  }
+
+  function closeCreateDialog() {
+    setCreateDialogOpen(false)
+    setCreateFormDirty(false)
+    setCreateDiscardDialogOpen(false)
+  }
+
+  function requestCloseCreateDialog() {
+    if (createFormDirty && createDialogMode === 'advanced') {
+      setCreateDiscardDialogOpen(true)
+      return
+    }
+    closeCreateDialog()
   }
 
   const renderTradesTable = () => (
@@ -1073,18 +1095,36 @@ export default function TradesPage() {
 
       <Dialog
         open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
+        onClose={requestCloseCreateDialog}
         maxWidth="lg"
         fullWidth
         fullScreen={isSmallScreen}
         keepMounted
+        PaperProps={{
+          sx: {
+            minHeight: { xs: '100dvh', md: 'min(92vh, 980px)' },
+            display: 'flex',
+            overflow: 'hidden'
+          }
+        }}
       >
-        <DialogContent sx={{ pt: 2 }}>
+        <DialogContent
+          sx={{
+            p: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden'
+          }}
+        >
           <TradeCreateFormV2
             initialValues={createFormValues}
             submitLabel={createDialogMode === 'quick' ? t('trades.quickLog.submit') : t('trades.create.save')}
             onSubmit={handleCreate}
-            onCancel={() => setCreateDialogOpen(false)}
+            onCancel={requestCloseCreateDialog}
+            onDirtyChange={setCreateFormDirty}
+            onModeChange={setCreateDialogMode}
             error={createError}
             strategyOptions={strategyOptions}
             planOptions={planOptions}
@@ -1094,6 +1134,17 @@ export default function TradesPage() {
             defaultMode={createDialogMode}
           />
         </DialogContent>
+      </Dialog>
+
+      <Dialog open={createDiscardDialogOpen} onClose={() => setCreateDiscardDialogOpen(false)}>
+        <DialogTitle>{t('trades.form.discardChangesTitle')}</DialogTitle>
+        <DialogContent>
+          <Typography>{t('trades.form.discardChangesPrompt')}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDiscardDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button color="error" variant="contained" onClick={closeCreateDialog}>{t('trades.form.discardButton')}</Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
