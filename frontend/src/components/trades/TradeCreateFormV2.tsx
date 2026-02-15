@@ -851,9 +851,11 @@ export function TradeCreateFormV2({
       sx={{
         display: 'flex',
         flexDirection: 'column',
+        width: '100%',
         height: '100%',
         minHeight: 0,
-        overflow: 'hidden'
+        overflow: 'hidden',
+        overflowX: 'hidden'
       }}
       onFocusCapture={handleFieldFocus}
     >
@@ -904,12 +906,16 @@ export function TradeCreateFormV2({
         sx={{
           flex: 1,
           minHeight: 0,
+          overflowX: 'hidden',
           overflowY: 'auto',
           WebkitOverflowScrolling: 'touch',
           overscrollBehaviorY: 'contain',
+          overscrollBehaviorX: 'none',
+          scrollPaddingTop: 16,
+          scrollPaddingBottom: { xs: 'calc(env(safe-area-inset-bottom) + 128px)', md: 24 },
           px: { xs: 2, md: 3 },
           pt: 2,
-          pb: { xs: 'calc(env(safe-area-inset-bottom) + 12px)', md: 2 }
+          pb: { xs: 'calc(env(safe-area-inset-bottom) + 128px)', md: 2 }
         }}
       >
         <Stack spacing={2}>

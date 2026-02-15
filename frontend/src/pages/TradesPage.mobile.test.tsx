@@ -155,6 +155,7 @@ describe('TradesPage mobile create dialog', () => {
     await waitFor(() => {
       const styles = window.getComputedStyle(scrollRegion)
       expect(styles.overflowY).toBe('auto')
+      expect(styles.overflowX).toBe('hidden')
       expect(styles.flexGrow).toBe('1')
       expect(styles.flexShrink).toBe('1')
     })
