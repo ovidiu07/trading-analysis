@@ -392,7 +392,7 @@ export function TradeCreateFormV2({
 
   const executionSection = (
     <Stack spacing={2} sx={{ minWidth: 0 }}>
-      <Grid container spacing={2}>
+      <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
         <Grid item xs={12} md={6}>
           <Controller
             name="symbol"
@@ -433,7 +433,7 @@ export function TradeCreateFormV2({
         </Grid>
       </Grid>
 
-      <Grid container spacing={2}>
+      <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
         <Grid item xs={12} md={6}>
           <Controller
             name="direction"
@@ -486,7 +486,7 @@ export function TradeCreateFormV2({
         </Grid>
       </Grid>
 
-      <Grid container spacing={2}>
+      <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
         <Grid item xs={12} md={6}>
           <TextField
             label={t('trades.form.openedAt')}
@@ -513,7 +513,7 @@ export function TradeCreateFormV2({
         )}
       </Grid>
 
-      <Grid container spacing={2}>
+      <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
         <Grid item xs={12} md={4}>
           <TextField
             label={t('trades.form.quantity')}
@@ -550,7 +550,7 @@ export function TradeCreateFormV2({
         )}
       </Grid>
 
-      <Grid container spacing={2}>
+      <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
         <Grid item xs={12} md={6}>
           <TextField
             label={t('trades.form.stopLossPrice')}
@@ -616,7 +616,7 @@ export function TradeCreateFormV2({
           <SectionHeader title={t('trades.form.sections.riskCapital')} summary={riskSummary} />
         </AccordionSummary>
         <AccordionDetails>
-          <Grid container spacing={2}>
+          <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
             <Grid item xs={12} md={6}>
               <TextField
                 label={t('trades.form.riskAmount')}
@@ -657,7 +657,7 @@ export function TradeCreateFormV2({
           <SectionHeader title={t('trades.form.sections.costs')} summary={costsSummary} />
         </AccordionSummary>
         <AccordionDetails>
-          <Grid container spacing={2}>
+          <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
             <Grid item xs={12} md={4}>
               <TextField
                 label={t('trades.form.fees')}
@@ -700,7 +700,7 @@ export function TradeCreateFormV2({
           <SectionHeader title={t('trades.form.sections.context')} summary={contextSummary} />
         </AccordionSummary>
         <AccordionDetails>
-          <Grid container spacing={2}>
+          <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
             <Grid item xs={12} md={6}>
               <TextField label={t('trades.form.setup')} fullWidth {...register('setup')} />
             </Grid>
@@ -769,7 +769,7 @@ export function TradeCreateFormV2({
           <SectionHeader title={t('trades.form.sections.plans')} summary={plansSummary} />
         </AccordionSummary>
         <AccordionDetails>
-          <Grid container spacing={2}>
+          <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
             <Grid item xs={12} md={6}>
               <Controller
                 name="linkedPlanIds"

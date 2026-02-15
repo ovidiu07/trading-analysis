@@ -275,18 +275,30 @@ describe('TradesPage mobile create dialog', () => {
   })
 
   it.each([
-    { width: 599, height: 814, viewport: '599x814' },
-    { width: 881, height: 935, viewport: '881x935' }
-  ])('keeps create modal horizontally responsive at $viewport', async ({ width, height }) => {
+    { width: 599, height: 814, viewport: '599x814', route: '/trades', entrypoint: 'manual create' },
+    { width: 599, height: 814, viewport: '599x814', route: '/trades?quickLog=1', entrypoint: 'quickLog auto-open' },
+    { width: 881, height: 935, viewport: '881x935', route: '/trades', entrypoint: 'manual create' },
+    { width: 881, height: 935, viewport: '881x935', route: '/trades?quickLog=1', entrypoint: 'quickLog auto-open' }
+  ])('keeps create modal horizontally responsive at $viewport via $entrypoint', async ({ width, height, route }) => {
     setViewportSize(width, height)
+    const user = userEvent.setup()
 
     render(
-      <MemoryRouter initialEntries={['/trades?quickLog=1']}>
+      <MemoryRouter initialEntries={[route]}>
         <I18nProvider>
           <TradesPage />
         </I18nProvider>
       </MemoryRouter>
     )
+
+    if (route === '/trades') {
+      const createTradeCta = (await screen.findAllByRole('button', { name: 'Create trade' }))[0]
+      await user.click(createTradeCta)
+      const quickLogTab = await screen.findByRole('button', { name: 'Quick Log' })
+      await user.click(quickLogTab)
+      const advancedTab = await screen.findByRole('button', { name: 'Advanced' })
+      await user.click(advancedTab)
+    }
 
     const dialog = await screen.findByRole('dialog')
     const paper = document.querySelector('.MuiDialog-paper') as HTMLElement | null
@@ -306,7 +318,12 @@ describe('TradesPage mobile create dialog', () => {
     const tabsDirection = window.getComputedStyle(tabsRow as HTMLElement).flexDirection
     const tabsWrap = window.getComputedStyle(tabsRow as HTMLElement).flexWrap
     const hasUnsafePaperGutter = (width < 600 && paperMargin < 8) || (width >= 600 && width < 900 && paperMargin > 16)
-    const hasOverflowRisk = hasUnsafePaperGutter || (tabsDirection === 'row' && tabsWrap === 'nowrap')
+    const hasUnsafeGridSpacing = Array.from(dialog.querySelectorAll('.MuiGrid-container')).some((node) => {
+      const className = node.getAttribute('class') || ''
+      const spacingClass = className.split(' ').find((token) => token.includes('MuiGrid-spacing-xs-'))
+      return !!spacingClass && !spacingClass.endsWith('-0')
+    })
+    const hasOverflowRisk = hasUnsafePaperGutter || (tabsDirection === 'row' && tabsWrap === 'nowrap') || hasUnsafeGridSpacing
 
     applySyntheticHorizontalMetrics({
       viewportWidth: width,
