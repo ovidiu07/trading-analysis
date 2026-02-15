@@ -1,4 +1,4 @@
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MouseEvent, SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -42,7 +42,6 @@ import AddIcon from '@mui/icons-material/Add'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
-import KeyboardArrowLeftIcon from '@mui/icons-material/KeyboardArrowLeft'
 import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useBlocker } from 'react-router'
@@ -111,15 +110,11 @@ const STORAGE_KEYS = {
 } as const
 
 type NotebookLayoutState = {
-  leftCollapsed: boolean
   listCollapsed: boolean
-  editorCollapsed: boolean
 }
 
 const defaultLayoutState: NotebookLayoutState = {
-  leftCollapsed: false,
-  listCollapsed: false,
-  editorCollapsed: false
+  listCollapsed: false
 }
 
 const defaultFilters: AdvancedNoteFilters = {
@@ -246,9 +241,7 @@ const parseStoredLayout = (): NotebookLayoutState => {
     if (!raw) return defaultLayoutState
     const parsed = JSON.parse(raw) as Partial<NotebookLayoutState>
     const next: NotebookLayoutState = {
-      leftCollapsed: typeof parsed.leftCollapsed === 'boolean' ? parsed.leftCollapsed : defaultLayoutState.leftCollapsed,
-      listCollapsed: typeof parsed.listCollapsed === 'boolean' ? parsed.listCollapsed : defaultLayoutState.listCollapsed,
-      editorCollapsed: typeof parsed.editorCollapsed === 'boolean' ? parsed.editorCollapsed : defaultLayoutState.editorCollapsed
+      listCollapsed: typeof parsed.listCollapsed === 'boolean' ? parsed.listCollapsed : defaultLayoutState.listCollapsed
     }
     return next
   } catch {
@@ -285,6 +278,7 @@ export default function NotebookPage() {
 
   const isMobile = useMediaQuery('(max-width: 899.98px)')
   const isDesktop = useMediaQuery('(min-width: 900px)')
+  const isWideDesktop = useMediaQuery('(min-width: 1200px)')
 
   const [folders, setFolders] = useState<NotebookFolder[]>([])
   const [tags, setTags] = useState<NotebookTag[]>([])
@@ -342,7 +336,7 @@ export default function NotebookPage() {
     onCancel?: () => void
   } | null>(null)
 
-  const { leftCollapsed, listCollapsed, editorCollapsed } = layoutState
+  const { listCollapsed } = layoutState
 
   const urlNoteId = useMemo(() => new URLSearchParams(location.search).get('noteId'), [location.search])
 
@@ -1310,20 +1304,92 @@ export default function NotebookPage() {
     { key: 'RECENTLY_DELETED' as NotebookSmartViewKey, label: t('notebook.smartViews.recentlyDeleted'), icon: <DeleteOutlineIcon fontSize="small" /> }
   ]), [t])
 
-  const leftRailPanel = (
+  const selectedTopNavigation = navigation.kind === 'smart' ? `smart:${navigation.key}` : `folder:${navigation.folderId}`
+
+  const handleTopNavigationChange = (_event: SyntheticEvent, nextValue: string) => {
+    if (nextValue.startsWith('smart:')) {
+      handleSelectSmartView(nextValue.replace('smart:', '') as NotebookSmartViewKey)
+      return
+    }
+    if (nextValue.startsWith('folder:')) {
+      handleSelectFolder(nextValue.replace('folder:', ''))
+    }
+  }
+
+  const topNavigationBar = (
+    <Stack sx={{ minWidth: 0 }}>
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
+        <Typography variant="subtitle2" fontWeight={700}>{t('notebook.sections.smartViews')}</Typography>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Button size="small" startIcon={<AddIcon />} onClick={handleAddFolder}>{t('notebook.actions.addFolder')}</Button>
+          {navigation.kind === 'folder' && (
+            <IconButton
+              size="small"
+              onClick={(event: MouseEvent<HTMLElement>) => {
+                setFolderMenuAnchor(event.currentTarget)
+                setFolderMenuTarget(navigation.folderId)
+              }}
+              aria-label={t('notebook.aria.folderActions')}
+            >
+              <MoreVertIcon fontSize="small" />
+            </IconButton>
+          )}
+        </Stack>
+      </Stack>
+
+      <Tabs
+        value={selectedTopNavigation}
+        onChange={handleTopNavigationChange}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        aria-label={t('notebook.aria.topNavigation')}
+        sx={{
+          px: 1,
+          pb: 1,
+          minHeight: 40,
+          '& .MuiTabs-scroller': { overflowX: 'auto !important' },
+          '& .MuiTabs-flexContainer': { gap: 0.75 },
+          '& .MuiTab-root': {
+            minHeight: 34,
+            minWidth: 0,
+            px: 1.5,
+            py: 0.75,
+            borderRadius: 999,
+            textTransform: 'none',
+            alignItems: 'center'
+          }
+        }}
+      >
+        {smartViews.map((view) => (
+          <Tab
+            key={view.key}
+            value={`smart:${view.key}`}
+            icon={view.icon}
+            iconPosition="start"
+            label={view.label}
+          />
+        ))}
+        {customFolders.map((folder) => (
+          <Tab
+            key={folder.id}
+            value={`folder:${folder.id}`}
+            icon={<FolderOutlinedIcon fontSize="small" />}
+            iconPosition="start"
+            label={folder.name}
+          />
+        ))}
+      </Tabs>
+    </Stack>
+  )
+
+  const mobileNavigationPanel = (
     <Stack sx={{ minHeight: 0, height: '100%' }}>
       <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
           <Typography variant="subtitle2" fontWeight={700}>{t('notebook.sections.smartViews')}</Typography>
           <Stack direction="row" spacing={0.5} alignItems="center">
             <Button size="small" startIcon={<AddIcon />} onClick={handleAddFolder}>{t('notebook.actions.addFolder')}</Button>
-            {isDesktop && (
-              <Tooltip title={t('notebook.actions.collapseLeftPane')}>
-                <IconButton onClick={() => togglePane('leftCollapsed')} aria-label={t('notebook.actions.collapseLeftPane')}>
-                  <KeyboardArrowLeftIcon fontSize="small" />
-                </IconButton>
-              </Tooltip>
-            )}
           </Stack>
         </Stack>
       </Box>
@@ -1449,13 +1515,6 @@ export default function NotebookPage() {
                   <Tooltip title={metaCollapsed ? t('notebook.actions.showInfo') : t('notebook.actions.hideInfo')}>
                     <IconButton onClick={() => setMetaCollapsed((prev) => !prev)}>
                       <InfoOutlinedIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                )}
-                {!isMobile && (
-                  <Tooltip title={t('notebook.actions.collapseEditorPane')}>
-                    <IconButton onClick={() => togglePane('editorCollapsed')} aria-label={t('notebook.actions.collapseEditorPane')}>
-                      <KeyboardArrowRightIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
                 )}
@@ -1698,20 +1757,6 @@ export default function NotebookPage() {
     </Stack>
   )
 
-  const leftCollapsedRail = (
-    <Stack sx={{ minHeight: 0, height: '100%', alignItems: 'center', py: 1 }}>
-      <Tooltip title={t('notebook.actions.expandLeftPane')}>
-        <IconButton onClick={() => togglePane('leftCollapsed')} aria-label={t('notebook.actions.expandLeftPane')}>
-          <KeyboardArrowRightIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Divider flexItem sx={{ my: 1 }} />
-      <Tooltip title={t('notebook.sections.smartViews')}>
-        <MenuBookIcon fontSize="small" />
-      </Tooltip>
-    </Stack>
-  )
-
   const listCollapsedRail = (
     <Stack sx={{ minHeight: 0, height: '100%', alignItems: 'center', py: 1 }}>
       <Tooltip title={t('notebook.actions.expandList')}>
@@ -1722,20 +1767,6 @@ export default function NotebookPage() {
       <Divider flexItem sx={{ my: 1 }} />
       <Tooltip title={t('notebook.sections.notes')}>
         <ViewListIcon fontSize="small" />
-      </Tooltip>
-    </Stack>
-  )
-
-  const editorCollapsedRail = (
-    <Stack sx={{ minHeight: 0, height: '100%', alignItems: 'center', py: 1 }}>
-      <Tooltip title={t('notebook.actions.expandEditorPane')}>
-        <IconButton onClick={() => togglePane('editorCollapsed')} aria-label={t('notebook.actions.expandEditorPane')}>
-          <KeyboardArrowLeftIcon fontSize="small" />
-        </IconButton>
-      </Tooltip>
-      <Divider flexItem sx={{ my: 1 }} />
-      <Tooltip title={t('notebook.sections.editor')}>
-        <EditIcon fontSize="small" />
       </Tooltip>
     </Stack>
   )
@@ -1759,9 +1790,10 @@ export default function NotebookPage() {
       <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
         <NotebookLayout
           isMobile={isMobile}
+          isWideDesktop={isWideDesktop}
           mobilePanel={mobilePanel}
-          leftRail={leftRailPanel}
-          middlePanel={
+          topNavigation={topNavigationBar}
+          listPanel={
             <NoteList
               notes={notes}
               loading={loading}
@@ -1775,8 +1807,8 @@ export default function NotebookPage() {
               onOpenNavigation={isMobile ? () => setNavigationDrawerOpen(true) : undefined}
               onOpenFilters={() => setFiltersDrawerOpen(true)}
               onSelectNote={handleSelectNote}
-              listCollapsed={false}
-              onToggleCollapsed={isDesktop ? () => togglePane('listCollapsed') : undefined}
+              listCollapsed={isWideDesktop && listCollapsed}
+              onToggleCollapsed={isWideDesktop ? () => togglePane('listCollapsed') : undefined}
               newMenu={
                 <NewNoteMenu
                   onCreate={handleCreateNote}
@@ -1786,13 +1818,9 @@ export default function NotebookPage() {
               }
             />
           }
-          rightPanel={rightPanel}
-          leftCollapsed={isDesktop && leftCollapsed}
-          listCollapsed={isDesktop && listCollapsed}
-          editorCollapsed={isDesktop && editorCollapsed}
-          leftCollapsedRail={leftCollapsedRail}
+          editorPanel={rightPanel}
+          listCollapsed={isWideDesktop && listCollapsed}
           listCollapsedRail={listCollapsedRail}
-          editorCollapsedRail={editorCollapsedRail}
         />
       </Box>
 
@@ -1804,7 +1832,7 @@ export default function NotebookPage() {
           ModalProps={{ keepMounted: true }}
           PaperProps={{ sx: { width: 320, maxWidth: '90vw' } }}
         >
-          {leftRailPanel}
+          {mobileNavigationPanel}
         </Drawer>
       )}
 

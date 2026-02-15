@@ -1618,7 +1618,8 @@
       "editMode": "Mod editare",
       "closeFilters": "Închide filtrele",
       "openNavigation": "Deschide navigarea",
-      "folderActions": "Acțiuni folder"
+      "folderActions": "Acțiuni folder",
+      "topNavigation": "Navigare sus notebook"
     },
     "sections": {
       "filters": "Filtre",

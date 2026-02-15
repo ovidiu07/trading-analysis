@@ -142,4 +142,27 @@ class PlanServiceTest {
         assertEquals(mentorPlan.getId(), response.getId());
         assertEquals("Mentor plan", response.getTitle());
     }
+
+    @Test
+    void getMyDailyPlanResolvesLosAngelesDayBoundaries() {
+        when(timezoneService.resolveZone(eq("America/Los_Angeles"), eq(user))).thenReturn(ZoneId.of("America/Los_Angeles"));
+        when(planRepository.findUserActiveByWindow(eq(PlanSource.USER), eq(PlanScope.DAILY), eq(user.getId()), Mockito.any(), Mockito.any()))
+                .thenReturn(List.of());
+
+        planService.getMyDailyPlan(LocalDate.parse("2026-01-01"), "America/Los_Angeles");
+
+        ArgumentCaptor<OffsetDateTime> startCaptor = ArgumentCaptor.forClass(OffsetDateTime.class);
+        ArgumentCaptor<OffsetDateTime> endCaptor = ArgumentCaptor.forClass(OffsetDateTime.class);
+
+        verify(planRepository).findUserActiveByWindow(
+                eq(PlanSource.USER),
+                eq(PlanScope.DAILY),
+                eq(user.getId()),
+                startCaptor.capture(),
+                endCaptor.capture()
+        );
+
+        assertEquals(OffsetDateTime.parse("2026-01-01T00:00:00-08:00"), startCaptor.getValue());
+        assertEquals(OffsetDateTime.parse("2026-01-01T23:59:59.999999999-08:00"), endCaptor.getValue());
+    }
 }

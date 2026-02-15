@@ -13,10 +13,24 @@ const todayMentorPlanQueryKey = (date: string, timezone: string) => ['todayMento
 const todayMyPlanQueryKey = (date: string, timezone: string) => ['todayMyPlan', date, timezone] as const
 const activeTradePlansQueryKey = (openedAt: string, timezone?: string) => ['activeTradePlans', openedAt, timezone || ''] as const
 
+const logTodayPlanQueryError = (queryName: 'mentor-plan' | 'my-plan', date: string, timezone: string, error: unknown) => {
+  console.error(`[today] Failed to load ${queryName}`, {
+    date,
+    timezone,
+    error
+  })
+}
+
 export function useTodayMentorPlanQuery(date: string, timezone: string) {
   return useQuery({
     queryKey: todayMentorPlanQueryKey(date, timezone),
-    queryFn: async () => fetchTodayMentorPlan({ date, tz: timezone }),
+    queryFn: async () => {
+      const plan = await fetchTodayMentorPlan({ date, tz: timezone })
+      return plan ?? null
+    },
+    onError: (error) => {
+      logTodayPlanQueryError('mentor-plan', date, timezone, error)
+    },
     enabled: Boolean(date) && Boolean(timezone)
   })
 }
@@ -24,7 +38,13 @@ export function useTodayMentorPlanQuery(date: string, timezone: string) {
 export function useTodayMyPlanQuery(date: string, timezone: string) {
   return useQuery({
     queryKey: todayMyPlanQueryKey(date, timezone),
-    queryFn: async () => fetchTodayMyPlan({ date, tz: timezone }),
+    queryFn: async () => {
+      const plan = await fetchTodayMyPlan({ date, tz: timezone })
+      return plan ?? null
+    },
+    onError: (error) => {
+      logTodayPlanQueryError('my-plan', date, timezone, error)
+    },
     enabled: Boolean(date) && Boolean(timezone)
   })
 }

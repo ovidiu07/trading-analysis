@@ -189,4 +189,45 @@ class PlanControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
     }
+
+    @Test
+    void myPlanResolvesByTimezoneWindowAcrossUtcBoundary() throws Exception {
+        User owner = userRepository.save(User.builder()
+                .email("owner3@example.com")
+                .passwordHash("hash")
+                .role(Role.USER)
+                .timezone("Europe/Bucharest")
+                .build());
+
+        Plan myPlan = planRepository.save(Plan.builder()
+                .scope(PlanScope.DAILY)
+                .source(PlanSource.USER)
+                .authorUserId(owner.getId())
+                .authorDisplayName("owner3")
+                .title("My Bucharest day plan")
+                .content("Respect the opening range")
+                .activeFrom(OffsetDateTime.parse("2026-02-14T22:00:00Z"))
+                .activeTo(OffsetDateTime.parse("2026-02-15T21:59:59.999999999Z"))
+                .featured(false)
+                .createdAt(OffsetDateTime.now())
+                .updatedAt(OffsetDateTime.now())
+                .build());
+
+        String token = jwtTokenProvider.createToken(owner.getId(), owner.getEmail());
+
+        mockMvc.perform(get("/api/today/my-plan")
+                        .param("date", "2026-02-15")
+                        .param("tz", "Europe/Bucharest")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.id").value(myPlan.getId().toString()))
+                .andExpect(jsonPath("$.title").value("My Bucharest day plan"));
+
+        mockMvc.perform(get("/api/today/my-plan")
+                        .param("date", "2026-02-14")
+                        .param("tz", "Europe/Bucharest")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(content().string(""));
+    }
 }

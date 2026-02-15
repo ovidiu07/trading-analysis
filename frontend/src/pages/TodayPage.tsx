@@ -359,6 +359,39 @@ export default function TodayPage() {
 
   const loadingTopCards = mentorPlanQuery.isLoading || myPlanQuery.isLoading || coachFocusQuery.isLoading
 
+  useEffect(() => {
+    if (!mentorPlanQuery.isError) return
+    console.error('[today] mentor-plan query failed', {
+      date: todayDate,
+      timezone,
+      error: mentorPlanQuery.error
+    })
+  }, [mentorPlanQuery.error, mentorPlanQuery.isError, timezone, todayDate])
+
+  useEffect(() => {
+    if (!myPlanQuery.isError) return
+    console.error('[today] my-plan query failed', {
+      date: todayDate,
+      timezone,
+      error: myPlanQuery.error
+    })
+  }, [myPlanQuery.error, myPlanQuery.isError, timezone, todayDate])
+
+  useEffect(() => {
+    if (!coachFocusQuery.isError) return
+    console.error('[today] coach-focus query failed', {
+      error: coachFocusQuery.error
+    })
+  }, [coachFocusQuery.error, coachFocusQuery.isError])
+
+  useEffect(() => {
+    if (!todayChecklistQuery.isError) return
+    console.error('[today] checklist query failed', {
+      timezone,
+      error: todayChecklistQuery.error
+    })
+  }, [todayChecklistQuery.error, todayChecklistQuery.isError, timezone])
+
   return (
     <Stack spacing={2.5} sx={{ minWidth: 0 }}>
       <PageHero

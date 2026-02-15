@@ -1618,7 +1618,8 @@
       "editMode": "Edit mode",
       "closeFilters": "Close filters",
       "openNavigation": "Open navigation",
-      "folderActions": "Folder actions"
+      "folderActions": "Folder actions",
+      "topNavigation": "Notebook top navigation"
     },
     "sections": {
       "filters": "Filters",
