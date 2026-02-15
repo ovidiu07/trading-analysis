@@ -23,6 +23,7 @@ export function BottomActionBar({
 
   return (
     <Box
+      data-testid="trade-create-action-bar"
       sx={{
         borderTop: '1px solid',
         borderColor: 'divider',
@@ -30,8 +31,10 @@ export function BottomActionBar({
         px: { xs: 2, md: 3 },
         pt: 1.25,
         pb: mobileSticky ? 'calc(env(safe-area-inset-bottom) + 12px)' : 'max(12px, env(safe-area-inset-bottom))',
-        position: 'relative',
-        zIndex: 4,
+        position: mobileSticky ? 'sticky' : 'relative',
+        bottom: mobileSticky ? 0 : 'auto',
+        zIndex: mobileSticky ? 7 : 4,
+        boxShadow: mobileSticky ? '0 -8px 18px rgba(0, 0, 0, 0.08)' : 'none',
         flexShrink: 0
       }}
     >

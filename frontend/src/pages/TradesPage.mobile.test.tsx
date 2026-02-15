@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import TradesPage from './TradesPage'
@@ -9,6 +10,7 @@ const mockListTrades = vi.fn()
 const mockSearchTrades = vi.fn()
 const mockListPublishedContent = vi.fn()
 const mockListMyPlans = vi.fn()
+const mockCreateTrade = vi.fn()
 
 vi.mock('@mui/x-data-grid', () => ({
   DataGrid: () => <div data-testid="trades-grid" />
@@ -20,7 +22,7 @@ vi.mock('../api/trades', async () => {
     ...actual,
     listTrades: (...args: unknown[]) => mockListTrades(...args),
     searchTrades: (...args: unknown[]) => mockSearchTrades(...args),
-    createTrade: vi.fn(),
+    createTrade: (...args: unknown[]) => mockCreateTrade(...args),
     deleteTrade: vi.fn(),
     getTradeById: vi.fn(),
     importTradesCsv: vi.fn(),
@@ -95,8 +97,9 @@ vi.mock('../utils/analytics/ga4', () => ({
   trackEvent: vi.fn()
 }))
 
-const setViewportWidth = (width: number) => {
+const setViewportSize = (width: number, height: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
+  Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: height })
   window.matchMedia = vi.fn().mockImplementation((query: string) => {
     const minMatch = query.match(/\(min-width:\s*(\d+(?:\.\d+)?)px\)/)
     const maxMatch = query.match(/\(max-width:\s*(\d+(?:\.\d+)?)px\)/)
@@ -118,8 +121,8 @@ const setViewportWidth = (width: number) => {
 
 describe('TradesPage mobile create dialog', () => {
   beforeEach(() => {
+    vi.clearAllMocks()
     localStorage.setItem('app.language', 'en')
-    setViewportWidth(390)
     mockListTrades.mockResolvedValue({
       content: [],
       totalElements: 0,
@@ -136,9 +139,16 @@ describe('TradesPage mobile create dialog', () => {
     })
     mockListPublishedContent.mockResolvedValue([])
     mockListMyPlans.mockResolvedValue([])
+    mockCreateTrade.mockResolvedValue(undefined)
   })
 
-  it('opens full-screen and keeps an internal scroll container on mobile', async () => {
+  it.each([
+    { width: 430, height: 932, viewport: '430x932' },
+    { width: 390, height: 844, viewport: '390x844' }
+  ])('keeps create modal mobile-scrollable with sticky actions at $viewport', async ({ width, height }) => {
+    setViewportSize(width, height)
+    const user = userEvent.setup()
+
     render(
       <MemoryRouter initialEntries={['/trades?quickLog=1']}>
         <I18nProvider>
@@ -148,16 +158,47 @@ describe('TradesPage mobile create dialog', () => {
     )
 
     const dialog = await screen.findByRole('dialog')
-    expect(dialog).toHaveClass('MuiDialog-paperFullScreen')
+    expect(dialog).toBeVisible()
+    const dialogStyles = window.getComputedStyle(dialog)
+    expect(dialogStyles.overflow).toBe('hidden')
+
+    const advancedModeButton = await screen.findByRole('button', { name: 'Advanced' })
+    await user.click(advancedModeButton)
+
+    const symbolInput = (await within(dialog).findAllByLabelText('Symbol'))[0]
+    await user.clear(symbolInput)
+    await user.type(symbolInput, 'AAPL')
+    const entryPriceInput = (await within(dialog).findAllByLabelText('Entry price'))[0]
+    await user.clear(entryPriceInput)
+    await user.type(entryPriceInput, '1')
 
     const scrollRegion = await screen.findByTestId('trade-create-scroll-region')
+    Object.defineProperty(scrollRegion, 'scrollHeight', { configurable: true, value: 2400 })
+    Object.defineProperty(scrollRegion, 'clientHeight', { configurable: true, value: 620 })
+    scrollRegion.scrollTop = 0
+    fireEvent.scroll(scrollRegion)
+    scrollRegion.scrollTop = 1700
+    fireEvent.scroll(scrollRegion)
+
+    const saveTradeButton = await screen.findByRole('button', { name: 'Save trade' })
+    const actionBar = await screen.findByTestId('trade-create-action-bar')
 
     await waitFor(() => {
       const styles = window.getComputedStyle(scrollRegion)
+      const actionBarStyles = window.getComputedStyle(actionBar)
       expect(styles.overflowY).toBe('auto')
       expect(styles.overflowX).toBe('hidden')
       expect(styles.flexGrow).toBe('1')
       expect(styles.flexShrink).toBe('1')
+      expect(actionBarStyles.position).toBe('sticky')
+      expect(actionBarStyles.bottom).toBe('0px')
+      expect(saveTradeButton).toBeVisible()
+      expect(saveTradeButton).toBeEnabled()
+    })
+
+    await user.click(saveTradeButton)
+    await waitFor(() => {
+      expect(mockCreateTrade).toHaveBeenCalledTimes(1)
     })
   })
 })

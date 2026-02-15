@@ -321,7 +321,12 @@ export function TradeCreateFormV2({
           scrollContainer.scrollTop +
           (targetRect.top - containerRect.top) -
           containerRect.height * 0.28
-        scrollContainer.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
+        const targetTop = Math.max(0, nextTop)
+        if (typeof scrollContainer.scrollTo === 'function') {
+          scrollContainer.scrollTo({ top: targetTop, behavior: 'smooth' })
+        } else {
+          scrollContainer.scrollTop = targetTop
+        }
       }
     }, 80)
   }
@@ -851,8 +856,10 @@ export function TradeCreateFormV2({
       sx={{
         display: 'flex',
         flexDirection: 'column',
+        flex: '1 1 auto',
         width: '100%',
-        height: '100%',
+        maxWidth: '100%',
+        minWidth: 0,
         minHeight: 0,
         overflow: 'hidden',
         overflowX: 'hidden'
@@ -905,6 +912,9 @@ export function TradeCreateFormV2({
         ref={contentScrollRef}
         sx={{
           flex: 1,
+          width: '100%',
+          maxWidth: '100%',
+          minWidth: 0,
           minHeight: 0,
           overflowX: 'hidden',
           overflowY: 'auto',
@@ -915,7 +925,17 @@ export function TradeCreateFormV2({
           scrollPaddingBottom: { xs: 'calc(env(safe-area-inset-bottom) + 128px)', md: 24 },
           px: { xs: 2, md: 3 },
           pt: 2,
-          pb: { xs: 'calc(env(safe-area-inset-bottom) + 128px)', md: 2 }
+          pb: { xs: 'calc(env(safe-area-inset-bottom) + 128px)', md: 2 },
+          '& > *': {
+            minWidth: 0
+          },
+          '& .MuiGrid-item': {
+            minWidth: 0
+          },
+          '& .MuiAutocomplete-root, & .MuiFormControl-root, & .MuiTextField-root': {
+            minWidth: 0,
+            maxWidth: '100%'
+          }
         }}
       >
         <Stack spacing={2}>
@@ -941,7 +961,7 @@ export function TradeCreateFormV2({
             </Accordion>
           )}
 
-          <Grid container spacing={2.5} alignItems="flex-start" sx={{ minWidth: 0 }}>
+          <Grid container spacing={2.5} alignItems="flex-start" sx={{ minWidth: 0, width: '100%', m: 0 }}>
             <Grid item xs={12} md={8} sx={{ minWidth: 0 }}>
               {advancedSections}
             </Grid>

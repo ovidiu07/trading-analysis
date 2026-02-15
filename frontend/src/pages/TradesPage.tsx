@@ -188,7 +188,7 @@ export default function TradesPage() {
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
-  const isCreateDialogFullScreen = useMediaQuery(theme.breakpoints.down('sm'))
+  const isCreateDialogMobile = useMediaQuery(theme.breakpoints.down('sm'))
 
   const [viewMode, setViewMode] = useState<'list' | 'search'>('list')
   const [filters, setFilters] = useState(defaultFilters)
@@ -1099,23 +1099,32 @@ export default function TradesPage() {
         onClose={requestCloseCreateDialog}
         maxWidth="lg"
         fullWidth
-        fullScreen={isCreateDialogFullScreen}
         scroll="paper"
         keepMounted
         aria-label={createDialogMode === 'quick' ? t('trades.quickLog.title') : t('trades.create.title')}
+        sx={{
+          '& .MuiDialog-container': {
+            alignItems: { xs: 'center', sm: 'center' },
+            justifyContent: 'center',
+            p: 0
+          }
+        }}
         PaperProps={{
           sx: {
-            m: { xs: 0, sm: 4 },
-            height: { xs: '100vh', sm: 'min(92dvh, 980px)' },
-            minHeight: { xs: '100vh', sm: 'min(92dvh, 980px)' },
-            maxHeight: { xs: '100vh', sm: 'min(92dvh, 980px)' },
+            m: isCreateDialogMobile ? 0 : 4,
+            width: isCreateDialogMobile ? '100%' : undefined,
+            maxWidth: isCreateDialogMobile ? '100vw' : undefined,
+            height: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+            minHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+            maxHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+            borderRadius: isCreateDialogMobile ? 0 : 2,
             display: 'flex',
             flexDirection: 'column',
             overflow: 'hidden',
             '@supports (height: 100dvh)': {
-              height: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
-              minHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
-              maxHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' }
+              height: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
+              minHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
+              maxHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)'
             }
           }
         }}
