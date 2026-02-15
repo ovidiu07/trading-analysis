@@ -812,6 +812,9 @@
       "editTitle": "Editează planul meu",
       "contentLabel": "Conținut plan (Markdown)",
       "duplicateFromMentor": "Duplică din planul mentor",
+      "removeAction": "Șterge planul",
+      "removeConfirmTitle": "Șterge planul",
+      "removeConfirmBody": "Ștergi planul? Această acțiune nu poate fi anulată.",
       "emptyTitle": "Nu există plan pentru azi",
       "emptyBody": "Creează planul tău pentru a defini execuția de azi.",
       "emptyContent": "Nu există conținut pentru plan.",
@@ -819,7 +822,8 @@
       "unsavedPrompt": "Ai modificări nesalvate în Planul meu. Salvează sau renunță înainte de închidere.",
       "validationRequired": "Titlul și conținutul sunt obligatorii.",
       "errors": {
-        "save": "Planul nu a putut fi salvat."
+        "save": "Planul nu a putut fi salvat.",
+        "remove": "Planul nu a putut fi șters."
       }
     },
     "cards": {

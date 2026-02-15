@@ -101,6 +101,14 @@ public class PlanService {
         return toResponse(planRepository.save(plan));
     }
 
+    @Transactional
+    public void deleteMyPlan(UUID planId) {
+        User user = currentUserService.getCurrentUser();
+        Plan plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
+        planRepository.delete(plan);
+    }
+
     public List<PlanResponse> listMyPlans(PlanScope scope, OffsetDateTime from, OffsetDateTime to) {
         User user = currentUserService.getCurrentUser();
         return planRepository.searchMyPlans(user.getId(), PlanSource.USER, scope, from, to)

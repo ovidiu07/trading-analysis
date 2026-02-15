@@ -1,4 +1,4 @@
-import { apiGet, apiPost, apiPut } from './client'
+import { apiDelete, apiGet, apiPost, apiPut } from './client'
 
 export type PlanScope = 'DAILY' | 'WEEKLY'
 export type PlanSource = 'MENTOR' | 'USER'
@@ -68,6 +68,10 @@ export async function createMyDailyPlan(payload: MyPlanPayload) {
 
 export async function updateMyPlan(planId: string, payload: MyPlanPayload) {
   return apiPut<Plan>(`/plans/my/${planId}`, payload)
+}
+
+export async function deleteMyPlan(planId: string) {
+  return apiDelete(`/plans/my/${planId}`)
 }
 
 export async function listMyPlans(params: {

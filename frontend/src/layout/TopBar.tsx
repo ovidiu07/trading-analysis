@@ -38,8 +38,6 @@ import type { DashboardQueryState, DashboardStatusFilter } from '../features/das
 import { useI18n } from '../i18n'
 import type { ThemePreference } from '../themeMode'
 import NotificationBell from '../components/layout/NotificationBell'
-import logoLockup from '../assets/brand/logo-lockup.svg'
-import logoMark from '../assets/brand/logo-mark.svg'
 
 const MARKET_OPTIONS = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'] as const
 
@@ -61,11 +59,6 @@ type TopBarProps = {
   onOpenDefinitions: () => void
   onLogout: () => void
 }
-
-const logoFilterByMode = (mode: 'light' | 'dark') =>
-  mode === 'dark'
-    ? 'brightness(0) invert(1) saturate(0.18)'
-    : 'none'
 
 export default function TopBar({
   title,
@@ -290,30 +283,8 @@ export default function TopBar({
                   </IconButton>
                 )}
 
-                <Box
-                  component={Link}
-                  to="/today"
-                  sx={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    minWidth: 0,
-                    textDecoration: 'none'
-                  }}
-                >
-                  <Box
-                    component="img"
-                    src={isXs ? logoMark : logoLockup}
-                    alt="TradeJAudit"
-                    sx={{
-                      width: isXs ? 36 : 158,
-                      height: 'auto',
-                      filter: logoFilterByMode(theme.palette.mode)
-                    }}
-                  />
-                </Box>
-
                 {showTitle && !isNarrow && (
-                  <Stack sx={{ minWidth: 0, pl: 1.25 }}>
+                  <Stack sx={{ minWidth: 0, pl: showMenuToggle ? 0.5 : 0 }}>
                     <Typography variant="subtitle1" noWrap>
                       {title}
                     </Typography>
@@ -428,11 +399,25 @@ export default function TopBar({
                   py: 1
                 }}
               >
-                <Box sx={{ minWidth: 0 }}>
+                <Box
+                  sx={{
+                    flex: 1,
+                    minWidth: 0,
+                    pr: 1,
+                    overflow: 'hidden'
+                  }}
+                >
                   <Typography variant="caption" color="text.secondary">
                     {t('dashboard.topBar.activeFilters')}
                   </Typography>
-                  <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>
+                  <Typography
+                    variant="body2"
+                    sx={{
+                      whiteSpace: 'nowrap',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis'
+                    }}
+                  >
                     {dashboardFilterSummary}
                   </Typography>
                 </Box>
@@ -451,9 +436,10 @@ export default function TopBar({
         </Toolbar>
         <Box
           sx={{
-            height: 1,
+            height: '1px',
             background: (theme) => `linear-gradient(90deg, transparent 0%, ${theme.palette.primary.main} 45%, ${theme.palette.secondary.main} 100%)`,
-            opacity: 0.6
+            opacity: 0.6,
+            pointerEvents: 'none'
           }}
         />
       </AppBar>
@@ -517,47 +503,50 @@ export default function TopBar({
         </MenuItem>
       </Menu>
 
-      <Drawer
-        anchor="bottom"
-        open={dashboardFiltersOpen}
-        onClose={() => setDashboardFiltersOpen(false)}
-        ModalProps={{ keepMounted: false }}
-        sx={{
-          display: { xs: 'block', md: 'none' },
-          '& .MuiDrawer-paper': {
-            width: '100%',
-            maxWidth: '100vw',
-            borderBottomLeftRadius: 0,
-            borderBottomRightRadius: 0,
-            borderTopLeftRadius: 18,
-            borderTopRightRadius: 18,
-            px: 2,
-            pt: 1.5,
-            pb: 'calc(16px + env(safe-area-inset-bottom))',
-            maxHeight: '85dvh',
-            overflowY: 'auto'
-          }
-        }}
-      >
-        <Stack spacing={2}>
-          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
-            <Box sx={{ minWidth: 0 }}>
-              <Typography variant="h6">{t('dashboard.topBar.filters')}</Typography>
-              <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
-                {dashboardFilterSummary}
-              </Typography>
-            </Box>
-            <IconButton
-              onClick={() => setDashboardFiltersOpen(false)}
-              aria-label={t('dashboard.topBar.closeFilters')}
-              sx={{ width: 40, height: 40 }}
-            >
-              <CloseRoundedIcon />
-            </IconButton>
+      {dashboardFiltersOpen && (
+        <Drawer
+          anchor="bottom"
+          open
+          onClose={() => setDashboardFiltersOpen(false)}
+          transitionDuration={{ enter: 180, exit: 0 }}
+          ModalProps={{ keepMounted: false }}
+          sx={{
+            display: { xs: 'block', md: 'none' },
+            '& .MuiDrawer-paper': {
+              width: '100%',
+              maxWidth: '100vw',
+              borderBottomLeftRadius: 0,
+              borderBottomRightRadius: 0,
+              borderTopLeftRadius: 18,
+              borderTopRightRadius: 18,
+              px: 2,
+              pt: 1.5,
+              pb: 'calc(16px + env(safe-area-inset-bottom))',
+              maxHeight: '85dvh',
+              overflowY: 'auto'
+            }
+          }}
+        >
+          <Stack spacing={2}>
+            <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="h6">{t('dashboard.topBar.filters')}</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                  {dashboardFilterSummary}
+                </Typography>
+              </Box>
+              <IconButton
+                onClick={() => setDashboardFiltersOpen(false)}
+                aria-label={t('dashboard.topBar.closeFilters')}
+                sx={{ width: 40, height: 40 }}
+              >
+                <CloseRoundedIcon />
+              </IconButton>
+            </Stack>
+            {dashboardFilters}
           </Stack>
-          {dashboardFilters}
-        </Stack>
-      </Drawer>
+        </Drawer>
+      )}
     </>
   )
 }

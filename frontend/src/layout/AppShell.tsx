@@ -152,7 +152,37 @@ export default function AppShell() {
   const effectiveSidebarWidth = desktopCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH
 
   return (
-    <Box sx={{ display: 'flex', minHeight: '100vh', bgcolor: 'background.default', width: '100%', overflowX: 'clip' }}>
+    <Box
+      sx={{
+        display: 'flex',
+        minHeight: '100vh',
+        bgcolor: 'background.default',
+        width: '100%',
+        overflowX: 'clip',
+        position: 'relative',
+        isolation: 'isolate',
+        '&::before': {
+          content: '""',
+          position: 'fixed',
+          inset: 0,
+          pointerEvents: 'none',
+          zIndex: -2,
+          background: (theme) => theme.palette.mode === 'dark'
+            ? `radial-gradient(900px 420px at -8% -6%, ${theme.palette.primary.main}24 0%, transparent 62%), radial-gradient(820px 380px at 108% -8%, ${theme.palette.secondary.main}22 0%, transparent 58%)`
+            : `radial-gradient(900px 420px at -8% -6%, ${theme.palette.primary.main}20 0%, transparent 62%), radial-gradient(820px 380px at 108% -8%, ${theme.palette.secondary.main}1f 0%, transparent 58%)`
+        },
+        '&::after': {
+          content: '""',
+          position: 'fixed',
+          inset: 0,
+          pointerEvents: 'none',
+          zIndex: -1,
+          opacity: 0.08,
+          backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.65) 1px, transparent 0)',
+          backgroundSize: '3px 3px'
+        }
+      }}
+    >
       {isAuthenticated && (
         <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 }, minWidth: 0 }}>
           <Drawer

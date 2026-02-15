@@ -80,117 +80,117 @@ export type DesignTokens = {
 
 const sharedRadius: RadiusTokens = {
   xs: 8,
-  sm: 12,
-  md: 16,
-  lg: 22,
+  sm: 14,
+  md: 18,
+  lg: 24,
   pill: 999
 }
 
 const lightTokens: DesignTokens = {
   radius: sharedRadius,
   elevation: {
-    card: '0 1px 2px rgba(11, 17, 32, 0.04), 0 16px 40px rgba(11, 17, 32, 0.07)',
-    floating: '0 8px 24px rgba(11, 17, 32, 0.14)'
+    card: '0 1px 2px rgba(9, 20, 38, 0.05), 0 20px 44px rgba(9, 20, 38, 0.1)',
+    floating: '0 12px 28px rgba(9, 20, 38, 0.18)'
   },
   surface: {
-    app: '#f4f7fc',
-    background: '#f8fbff',
-    panel: '#ffffff',
-    panelMuted: '#eef3fb',
-    sidebar: '#fbfdff',
-    header: 'rgba(248, 251, 255, 0.86)'
+    app: '#eef3fb',
+    background: '#f6f9ff',
+    panel: 'rgba(255, 255, 255, 0.92)',
+    panelMuted: '#e9f0fb',
+    sidebar: 'rgba(252, 254, 255, 0.9)',
+    header: 'rgba(246, 250, 255, 0.82)'
   },
   text: {
-    primary: '#0f1728',
-    secondary: '#37455c',
-    muted: '#607089',
-    disabled: '#9aa8be',
+    primary: '#0f1a2f',
+    secondary: '#34445f',
+    muted: '#5f7190',
+    disabled: '#95a7c1',
     inverse: '#f7fbff'
   },
   border: {
-    subtle: 'rgba(33, 57, 98, 0.14)',
-    strong: 'rgba(33, 57, 98, 0.26)',
-    focus: '#2f6df6'
+    subtle: 'rgba(31, 56, 98, 0.18)',
+    strong: 'rgba(31, 56, 98, 0.32)',
+    focus: '#2f73e8'
   },
   brand: {
-    primary: '#2458d5',
-    primaryStrong: '#183f9e',
-    primarySoft: '#dfe9ff',
-    secondary: '#0f8d81',
-    secondarySoft: '#d8f5f2',
-    gradientStart: '#2f6df6',
-    gradientEnd: '#11b9a0'
+    primary: '#1f63dd',
+    primaryStrong: '#1749ad',
+    primarySoft: '#d7e6ff',
+    secondary: '#0d9384',
+    secondarySoft: '#d3f4ef',
+    gradientStart: '#2568e4',
+    gradientEnd: '#13b59e'
   },
   feedback: {
-    success: '#0f8a47',
-    warning: '#b7730f',
-    error: '#c33245',
-    info: '#2d67e6'
+    success: '#0f9050',
+    warning: '#b67610',
+    error: '#c63a4d',
+    info: '#2f6fe9'
   },
   chart: {
-    grid: 'rgba(43, 69, 110, 0.18)',
-    axis: '#4d5f7a',
-    positive: '#0f8a47',
-    negative: '#cc3b4d'
+    grid: 'rgba(41, 66, 105, 0.2)',
+    axis: '#4a5f7f',
+    positive: '#11965a',
+    negative: '#d14758'
   },
   interaction: {
-    hover: 'rgba(36, 88, 213, 0.08)',
-    selected: 'rgba(36, 88, 213, 0.14)',
-    pressed: 'rgba(36, 88, 213, 0.2)'
+    hover: 'rgba(31, 99, 221, 0.09)',
+    selected: 'rgba(31, 99, 221, 0.16)',
+    pressed: 'rgba(31, 99, 221, 0.24)'
   }
 }
 
 const darkTokens: DesignTokens = {
   radius: sharedRadius,
   elevation: {
-    card: '0 1px 1px rgba(0, 0, 0, 0.4), 0 18px 44px rgba(0, 0, 0, 0.5)',
-    floating: '0 16px 38px rgba(0, 0, 0, 0.65)'
+    card: '0 1px 1px rgba(0, 0, 0, 0.45), 0 20px 50px rgba(0, 0, 0, 0.58)',
+    floating: '0 18px 42px rgba(0, 0, 0, 0.7)'
   },
   surface: {
-    app: '#050a14',
-    background: '#0a1220',
-    panel: '#121d31',
-    panelMuted: '#18263f',
-    sidebar: '#0d182a',
-    header: 'rgba(8, 16, 30, 0.84)'
+    app: '#050c18',
+    background: '#091222',
+    panel: 'rgba(16, 29, 48, 0.9)',
+    panelMuted: '#162842',
+    sidebar: 'rgba(9, 21, 35, 0.9)',
+    header: 'rgba(7, 17, 31, 0.8)'
   },
   text: {
-    primary: '#eef4ff',
-    secondary: '#becbdf',
-    muted: '#8da2bf',
-    disabled: '#6f85a5',
+    primary: '#ecf3ff',
+    secondary: '#bccbe0',
+    muted: '#8ca3c2',
+    disabled: '#6f87a9',
     inverse: '#081221'
   },
   border: {
-    subtle: 'rgba(128, 159, 211, 0.24)',
-    strong: 'rgba(128, 159, 211, 0.44)',
-    focus: '#7ab3ff'
+    subtle: 'rgba(132, 164, 214, 0.28)',
+    strong: 'rgba(132, 164, 214, 0.46)',
+    focus: '#8abcfb'
   },
   brand: {
-    primary: '#6ca8ff',
-    primaryStrong: '#3f80e6',
-    primarySoft: 'rgba(108, 168, 255, 0.2)',
-    secondary: '#4fd4bf',
-    secondarySoft: 'rgba(79, 212, 191, 0.2)',
-    gradientStart: '#6ca8ff',
-    gradientEnd: '#4fd4bf'
+    primary: '#74b1ff',
+    primaryStrong: '#4589f0',
+    primarySoft: 'rgba(116, 177, 255, 0.22)',
+    secondary: '#54d8c2',
+    secondarySoft: 'rgba(84, 216, 194, 0.23)',
+    gradientStart: '#71aef8',
+    gradientEnd: '#4fd6bc'
   },
   feedback: {
-    success: '#39c889',
-    warning: '#f2ba59',
-    error: '#f17580',
-    info: '#8cc5ff'
+    success: '#3dca8e',
+    warning: '#efbb5e',
+    error: '#ef7a86',
+    info: '#93c9ff'
   },
   chart: {
-    grid: 'rgba(145, 169, 208, 0.24)',
-    axis: '#aec0db',
-    positive: '#39c889',
-    negative: '#f08a94'
+    grid: 'rgba(148, 173, 213, 0.26)',
+    axis: '#b1c4e0',
+    positive: '#41cc93',
+    negative: '#f08e99'
   },
   interaction: {
-    hover: 'rgba(108, 168, 255, 0.14)',
-    selected: 'rgba(108, 168, 255, 0.24)',
-    pressed: 'rgba(108, 168, 255, 0.32)'
+    hover: 'rgba(116, 177, 255, 0.16)',
+    selected: 'rgba(116, 177, 255, 0.27)',
+    pressed: 'rgba(116, 177, 255, 0.35)'
   }
 }
 

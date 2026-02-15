@@ -9,6 +9,7 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -38,6 +39,12 @@ public class PlanController {
     public ResponseEntity<PlanResponse> updateMyPlan(@PathVariable UUID planId,
                                                      @Valid @RequestBody MyPlanRequest request) {
         return ResponseEntity.ok(planService.updateMyPlan(planId, request));
+    }
+
+    @DeleteMapping("/my/{planId}")
+    public ResponseEntity<Void> deleteMyPlan(@PathVariable UUID planId) {
+        planService.deleteMyPlan(planId);
+        return ResponseEntity.noContent().build();
     }
 
     @GetMapping("/my")

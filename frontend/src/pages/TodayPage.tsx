@@ -36,6 +36,7 @@ import SaveRoundedIcon from '@mui/icons-material/SaveRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import PreviewRoundedIcon from '@mui/icons-material/PreviewRounded'
 import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import EmptyState from '../components/ui/EmptyState'
@@ -51,6 +52,7 @@ import { fetchCoachFocus } from '../api/today'
 import { Plan } from '../api/plans'
 import {
   useCreateMyDailyPlanMutation,
+  useDeleteMyPlanMutation,
   useTodayMentorPlanQuery,
   useTodayMyPlanQuery,
   useUpdateMyPlanMutation
@@ -185,6 +187,7 @@ export default function TodayPage() {
 
   const createMyPlanMutation = useCreateMyDailyPlanMutation(todayDate, timezone)
   const updateMyPlanMutation = useUpdateMyPlanMutation(todayDate, timezone)
+  const deleteMyPlanMutation = useDeleteMyPlanMutation(todayDate, timezone)
 
   const [planEditorOpen, setPlanEditorOpen] = useState(false)
   const [planEditorMode, setPlanEditorMode] = useState<PlanEditorMode>('create')
@@ -193,6 +196,8 @@ export default function TodayPage() {
   const [planEditorSavedSnapshot, setPlanEditorSavedSnapshot] = useState<PlanDraft>({ title: '', content: '' })
   const [planEditorError, setPlanEditorError] = useState('')
   const [closePromptOpen, setClosePromptOpen] = useState(false)
+  const [removePlanConfirmOpen, setRemovePlanConfirmOpen] = useState(false)
+  const [removePlanError, setRemovePlanError] = useState('')
 
   const mentorPlan = mentorPlanQuery.data
   const myPlan = myPlanQuery.data
@@ -207,6 +212,7 @@ export default function TodayPage() {
   )
 
   const isSavingPlan = createMyPlanMutation.isLoading || updateMyPlanMutation.isLoading
+  const isRemovingPlan = deleteMyPlanMutation.isLoading
 
   const openPlanEditor = useCallback((mode: PlanEditorMode, seed?: PlanDraft) => {
     const nextSeed = seed || {
@@ -258,6 +264,17 @@ export default function TodayPage() {
     setPlanEditorError('')
     setClosePromptOpen(false)
   }, [])
+
+  const openRemovePlanConfirm = useCallback(() => {
+    setRemovePlanError('')
+    setRemovePlanConfirmOpen(true)
+  }, [])
+
+  const closeRemovePlanConfirm = useCallback(() => {
+    if (isRemovingPlan) return
+    setRemovePlanError('')
+    setRemovePlanConfirmOpen(false)
+  }, [isRemovingPlan])
 
   const handlePlanEditorRequestClose = useCallback(() => {
     if (isPlanEditorDirty) {
@@ -317,6 +334,17 @@ export default function TodayPage() {
     todayDate,
     updateMyPlanMutation
   ])
+
+  const handleRemoveMyPlan = useCallback(async () => {
+    if (!myPlan?.id) return
+    setRemovePlanError('')
+    try {
+      await deleteMyPlanMutation.mutateAsync(myPlan.id)
+      setRemovePlanConfirmOpen(false)
+    } catch (err) {
+      setRemovePlanError(translateApiError(err, t, 'today.myPlan.errors.remove'))
+    }
+  }, [deleteMyPlanMutation, myPlan?.id, t])
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -478,6 +506,15 @@ export default function TodayPage() {
                         {t('today.myPlan.duplicateFromMentor')}
                       </Button>
                     )}
+                    <Button
+                      variant="text"
+                      color="error"
+                      size="small"
+                      startIcon={<DeleteOutlineRoundedIcon />}
+                      onClick={openRemovePlanConfirm}
+                    >
+                      {t('today.myPlan.removeAction')}
+                    </Button>
                   </Stack>
                 </>
               ) : (
@@ -816,6 +853,30 @@ export default function TodayPage() {
             disabled={!isPlanEditorDirty || isSavingPlan}
           >
             {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={removePlanConfirmOpen}
+        onClose={closeRemovePlanConfirm}
+      >
+        <DialogTitle>{t('today.myPlan.removeConfirmTitle')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ pt: 0.5 }}>
+            <Typography variant="body2">{t('today.myPlan.removeConfirmBody')}</Typography>
+            {removePlanError && <Alert severity="error">{removePlanError}</Alert>}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeRemovePlanConfirm} disabled={isRemovingPlan}>{t('common.cancel')}</Button>
+          <Button
+            color="error"
+            variant="contained"
+            onClick={handleRemoveMyPlan}
+            disabled={isRemovingPlan}
+          >
+            {t('today.myPlan.removeAction')}
           </Button>
         </DialogActions>
       </Dialog>

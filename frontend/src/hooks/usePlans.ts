@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   MyPlanPayload,
   createMyDailyPlan,
+  deleteMyPlan,
   fetchActivePlansForTrade,
   fetchTodayMentorPlan,
   fetchTodayMyPlan,
@@ -53,6 +54,33 @@ export function useUpdateMyPlanMutation(date: string, timezone: string) {
         queryClient.invalidateQueries({ queryKey: ['todayMyPlan'] }),
         queryClient.invalidateQueries({ queryKey: ['activeTradePlans'] }),
         queryClient.invalidateQueries({ queryKey: todayMyPlanQueryKey(date, timezone) })
+      ])
+    }
+  })
+}
+
+export function useDeleteMyPlanMutation(date: string, timezone: string) {
+  const queryClient = useQueryClient()
+  const key = todayMyPlanQueryKey(date, timezone)
+
+  return useMutation({
+    mutationFn: async (planId: string) => deleteMyPlan(planId),
+    onMutate: async () => {
+      await queryClient.cancelQueries({ queryKey: key })
+      const previous = queryClient.getQueryData(key)
+      queryClient.setQueryData(key, null)
+      return { previous }
+    },
+    onError: (_error, _planId, context) => {
+      if (context?.previous !== undefined) {
+        queryClient.setQueryData(key, context.previous)
+      }
+    },
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['todayMyPlan'] }),
+        queryClient.invalidateQueries({ queryKey: ['activeTradePlans'] }),
+        queryClient.invalidateQueries({ queryKey: key })
       ])
     }
   })

@@ -82,30 +82,30 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
       }
     },
     typography: {
-      fontFamily: '"Plus Jakarta Sans", "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
+      fontFamily: '"Manrope", "Plus Jakarta Sans", "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
       fontSize: 15,
       h1: {
-        fontWeight: 700,
-        fontSize: '2.125rem',
-        lineHeight: 1.18,
+        fontWeight: 750,
+        fontSize: '2.2rem',
+        lineHeight: 1.15,
         letterSpacing: '-0.02em'
       },
       h2: {
-        fontWeight: 700,
-        fontSize: '1.75rem',
-        lineHeight: 1.22,
+        fontWeight: 740,
+        fontSize: '1.85rem',
+        lineHeight: 1.18,
         letterSpacing: '-0.02em'
       },
       h3: {
-        fontWeight: 700,
-        fontSize: '1.4rem',
-        lineHeight: 1.25,
+        fontWeight: 730,
+        fontSize: '1.48rem',
+        lineHeight: 1.22,
         letterSpacing: '-0.015em'
       },
       h4: {
         fontWeight: 700,
         fontSize: '1.2rem',
-        lineHeight: 1.3,
+        lineHeight: 1.25,
         letterSpacing: '-0.01em'
       },
       h5: {
@@ -119,23 +119,23 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
         lineHeight: 1.4
       },
       subtitle1: {
-        fontSize: '0.95rem',
+        fontSize: '0.98rem',
         fontWeight: 600,
-        lineHeight: 1.45
+        lineHeight: 1.4
       },
       subtitle2: {
-        fontSize: '0.82rem',
+        fontSize: '0.84rem',
         fontWeight: 600,
-        lineHeight: 1.45,
+        lineHeight: 1.4,
         letterSpacing: '0.015em'
       },
       body1: {
-        fontSize: '0.95rem',
-        lineHeight: 1.6
+        fontSize: '0.96rem',
+        lineHeight: 1.58
       },
       body2: {
-        fontSize: '0.86rem',
-        lineHeight: 1.55
+        fontSize: '0.88rem',
+        lineHeight: 1.52
       },
       caption: {
         fontSize: '0.75rem',
@@ -169,8 +169,9 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             color: tokens.text.primary,
             backgroundColor: tokens.surface.background,
             backgroundImage: isLight
-              ? `radial-gradient(circle at 0% 0%, ${alpha(tokens.brand.primary, 0.18)} 0%, rgba(255,255,255,0) 40%), radial-gradient(circle at 100% 0%, ${alpha(tokens.brand.secondary, 0.14)} 0%, rgba(255,255,255,0) 38%)`
-              : `radial-gradient(circle at 0% 0%, ${alpha(tokens.brand.primary, 0.26)} 0%, rgba(0,0,0,0) 45%), radial-gradient(circle at 100% 0%, ${alpha(tokens.brand.secondary, 0.16)} 0%, rgba(0,0,0,0) 38%)`
+              ? `radial-gradient(1000px 500px at -8% -10%, ${alpha(tokens.brand.primary, 0.19)} 0%, rgba(255,255,255,0) 62%), radial-gradient(880px 420px at 105% -5%, ${alpha(tokens.brand.secondary, 0.16)} 0%, rgba(255,255,255,0) 58%), linear-gradient(180deg, ${tokens.surface.background} 0%, ${tokens.surface.app} 100%)`
+              : `radial-gradient(960px 500px at -10% -8%, ${alpha(tokens.brand.primary, 0.34)} 0%, rgba(0,0,0,0) 64%), radial-gradient(880px 460px at 108% -5%, ${alpha(tokens.brand.secondary, 0.2)} 0%, rgba(0,0,0,0) 58%), linear-gradient(180deg, ${tokens.surface.background} 0%, ${tokens.surface.app} 100%)`,
+            backgroundAttachment: 'fixed'
           },
           '#root': {
             minHeight: '100%',
@@ -192,8 +193,8 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           },
           '.surface-hero': {
             background: isLight
-              ? `linear-gradient(140deg, ${alpha(tokens.brand.primary, 0.13)} 0%, ${alpha(tokens.brand.secondary, 0.08)} 55%, ${alpha(tokens.surface.panel, 0.95)} 100%)`
-              : `linear-gradient(140deg, ${alpha(tokens.brand.primary, 0.3)} 0%, ${alpha(tokens.brand.secondary, 0.15)} 60%, ${alpha(tokens.surface.panel, 0.94)} 100%)`
+              ? `linear-gradient(140deg, ${alpha(tokens.brand.primary, 0.14)} 0%, ${alpha(tokens.brand.secondary, 0.1)} 58%, ${alpha(tokens.surface.panel, 0.96)} 100%)`
+              : `linear-gradient(140deg, ${alpha(tokens.brand.primary, 0.3)} 0%, ${alpha(tokens.brand.secondary, 0.16)} 62%, ${alpha(tokens.surface.panel, 0.94)} 100%)`
           },
           '.interactive-lift': {
             transition: 'transform 180ms ease, box-shadow 180ms ease'
@@ -212,7 +213,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           root: {
             backgroundColor: tokens.surface.header,
             color: tokens.text.primary,
-            backdropFilter: 'blur(16px)',
+            backdropFilter: 'blur(20px) saturate(1.35)',
             borderBottom: `1px solid ${tokens.border.subtle}`,
             boxShadow: 'none'
           }
@@ -232,7 +233,8 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           root: {
             backgroundColor: tokens.surface.panel,
             borderRadius: tokens.radius.md,
-            border: `1px solid ${tokens.border.subtle}`
+            border: `1px solid ${tokens.border.subtle}`,
+            backdropFilter: 'blur(10px) saturate(1.15)'
           }
         }
       },
@@ -268,6 +270,8 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             transition: 'all 150ms ease'
           },
           contained: {
+            backgroundImage: `linear-gradient(135deg, ${tokens.brand.gradientStart} 0%, ${tokens.brand.gradientEnd} 100%)`,
+            color: tokens.text.inverse,
             boxShadow: 'none',
             '&:hover': {
               boxShadow: tokens.elevation.floating,

@@ -812,6 +812,9 @@
       "editTitle": "Edit my plan",
       "contentLabel": "Plan content (Markdown)",
       "duplicateFromMentor": "Duplicate from mentor plan",
+      "removeAction": "Remove plan",
+      "removeConfirmTitle": "Remove plan",
+      "removeConfirmBody": "Remove plan? This cannot be undone.",
       "emptyTitle": "No plan for today",
       "emptyBody": "Create your own plan to define today's execution.",
       "emptyContent": "No plan content yet.",
@@ -819,7 +822,8 @@
       "unsavedPrompt": "You have unsaved changes in My Plan. Save or discard before closing.",
       "validationRequired": "Title and content are required.",
       "errors": {
-        "save": "Could not save your plan."
+        "save": "Could not save your plan.",
+        "remove": "Could not remove your plan."
       }
     },
     "cards": {

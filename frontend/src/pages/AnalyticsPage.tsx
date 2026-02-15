@@ -489,6 +489,7 @@ export default function AnalyticsPage() {
         SelectProps={{ native: true }}
         value={filters.market || ''}
         onChange={(e) => setFilters((prev) => ({ ...prev, market: e.target.value }))}
+        InputLabelProps={{ shrink: true }}
         fullWidth
         sx={filterFieldSx}
       >
@@ -504,6 +505,7 @@ export default function AnalyticsPage() {
         SelectProps={{ native: true }}
         value={filters.holdingBucket || ''}
         onChange={(e) => setFilters((prev) => ({ ...prev, holdingBucket: e.target.value }))}
+        InputLabelProps={{ shrink: true }}
         fullWidth
         sx={filterFieldSx}
       >
@@ -680,6 +682,7 @@ export default function AnalyticsPage() {
                 SelectProps={{ native: true }}
                 value={filters.direction || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value as 'LONG' | 'SHORT' }))}
+                InputLabelProps={{ shrink: true }}
                 fullWidth
                 sx={filterFieldSx}
               >
@@ -694,6 +697,7 @@ export default function AnalyticsPage() {
                 SelectProps={{ native: true }}
                 value={filters.status || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value as 'OPEN' | 'CLOSED' }))}
+                InputLabelProps={{ shrink: true }}
                 fullWidth
                 sx={filterFieldSx}
               >

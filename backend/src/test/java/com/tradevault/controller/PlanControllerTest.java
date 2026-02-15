@@ -23,6 +23,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.OffsetDateTime;
 
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
@@ -152,5 +153,40 @@ class PlanControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(content().string(""));
+    }
+
+    @Test
+    void deleteMyPlanRemovesOwnedPlan() throws Exception {
+        User owner = userRepository.save(User.builder()
+                .email("owner2@example.com")
+                .passwordHash("hash")
+                .role(Role.USER)
+                .timezone("Europe/Bucharest")
+                .build());
+
+        Plan ownersPlan = planRepository.save(Plan.builder()
+                .scope(PlanScope.DAILY)
+                .source(PlanSource.USER)
+                .authorUserId(owner.getId())
+                .authorDisplayName("owner")
+                .title("Owner plan")
+                .content("content")
+                .activeFrom(OffsetDateTime.parse("2026-02-06T00:00:00+02:00"))
+                .activeTo(OffsetDateTime.parse("2026-02-06T23:59:59+02:00"))
+                .featured(false)
+                .createdAt(OffsetDateTime.now())
+                .updatedAt(OffsetDateTime.now())
+                .build());
+
+        String token = jwtTokenProvider.createToken(owner.getId(), owner.getEmail());
+
+        mockMvc.perform(delete("/api/plans/my/{planId}", ownersPlan.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNoContent());
+
+        mockMvc.perform(get("/api/plans/my")
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isOk())
+                .andExpect(content().json("[]"));
     }
 }
