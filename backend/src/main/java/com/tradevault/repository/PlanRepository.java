@@ -12,7 +12,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-public interface PlanRepository extends JpaRepository<Plan, UUID> {
+public interface PlanRepository extends JpaRepository<Plan, UUID>, PlanRepositoryCustom {
 
     @Query("""
         SELECT p
@@ -46,22 +46,6 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
                                       @Param("windowEnd") OffsetDateTime windowEnd);
 
     Optional<Plan> findByIdAndSourceAndAuthorUserId(UUID id, PlanSource source, UUID authorUserId);
-
-    @Query("""
-        SELECT p
-        FROM Plan p
-        WHERE p.source = :source
-          AND p.authorUserId = :authorUserId
-          AND (:scope IS NULL OR p.scope = :scope)
-          AND (:from IS NULL OR p.activeTo >= :from)
-          AND (:to IS NULL OR p.activeFrom <= :to)
-        ORDER BY p.activeFrom DESC, p.updatedAt DESC
-        """)
-    List<Plan> searchMyPlans(@Param("authorUserId") UUID authorUserId,
-                             @Param("source") PlanSource source,
-                             @Param("scope") PlanScope scope,
-                             @Param("from") OffsetDateTime from,
-                             @Param("to") OffsetDateTime to);
 
     @Query("""
         SELECT p
