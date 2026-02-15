@@ -111,6 +111,12 @@ public class Trade {
 
     @Builder.Default
     @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "trade_plans", joinColumns = @JoinColumn(name = "trade_id"))
+    @Column(name = "plan_id")
+    private Set<UUID> linkedPlanIds = new LinkedHashSet<>();
+
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "trade_rule_breaks", joinColumns = @JoinColumn(name = "trade_id"))
     @Column(name = "rule_break")
     private Set<String> ruleBreaks = new LinkedHashSet<>();

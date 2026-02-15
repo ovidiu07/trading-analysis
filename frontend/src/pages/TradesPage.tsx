@@ -55,10 +55,12 @@ import { alpha } from '@mui/material/styles'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import { trackEvent } from '../utils/analytics/ga4'
 import { listPublishedContent } from '../api/content'
+import { listMyPlans } from '../api/plans'
 
 type ContentOption = {
   id: string
   label: string
+  source?: 'MENTOR' | 'USER'
 }
 
 const ruleBreakOptions = [
@@ -96,6 +98,7 @@ const buildDefaultValues = (): TradeFormValues => ({
   ruleBreaks: [],
   session: undefined,
   linkedContentIds: [],
+  linkedPlanIds: [],
   notes: '',
   accountId: ''
 })
@@ -160,6 +163,7 @@ const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
     ruleBreaks: trade.ruleBreaks ?? [],
     session: trade.session ?? undefined,
     linkedContentIds: trade.linkedContentIds ?? [],
+    linkedPlanIds: trade.linkedPlanIds ?? trade.linkedContentIds ?? [],
     notes: trade.notes ?? '',
     accountId: trade.accountId ?? ''
   }
@@ -475,10 +479,9 @@ export default function TradesPage() {
   const fetchContentOptions = useCallback(async () => {
     try {
       setOptionsLoadError('')
-      const [strategies, dailyPlans, weeklyPlans] = await Promise.all([
+      const [strategies, myPlans] = await Promise.all([
         listPublishedContent({ type: 'STRATEGY', activeOnly: true }),
-        listPublishedContent({ type: 'DAILY_PLAN', activeOnly: true }),
-        listPublishedContent({ type: 'WEEKLY_PLAN', activeOnly: true })
+        listMyPlans({ scope: 'DAILY' })
       ])
 
       setStrategyOptions((strategies || []).map((item) => ({
@@ -486,15 +489,11 @@ export default function TradesPage() {
         label: item.title
       })))
 
-      const mappedPlans: ContentOption[] = []
-      for (const item of [...(dailyPlans || []), ...(weeklyPlans || [])]) {
-        const typeLabel = item.contentTypeDisplayName || item.contentTypeKey
-        mappedPlans.push({
-          id: item.id,
-          label: `${item.title} (${typeLabel})`
-        })
-      }
-      setPlanOptions(mappedPlans)
+      setPlanOptions((myPlans || []).map((plan) => ({
+        id: plan.id,
+        source: plan.source,
+        label: `${t('trades.form.myPlanPrefix')}: ${plan.title}`
+      })))
     } catch (err) {
       const apiErr = err as ApiError
       setOptionsLoadError(apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.loadOptionsFailed') : t('trades.errors.loadOptionsFailed'))
@@ -515,7 +514,7 @@ export default function TradesPage() {
 
     const shouldOpenQuickLog = params.get('quickLog') === '1'
     if (shouldOpenQuickLog) {
-      const linkedRaw = params.get('linkedContentIds') || params.get('planId') || ''
+      const linkedRaw = params.get('linkedPlanIds') || params.get('linkedContentIds') || params.get('planId') || ''
       const linkedContentIds = linkedRaw
         .split(',')
         .map((value) => value.trim())
@@ -528,6 +527,7 @@ export default function TradesPage() {
         strategyTag: params.get('strategyTag') || quickDefaults.strategyTag,
         strategyId: params.get('strategyId') || quickDefaults.strategyId,
         linkedContentIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedContentIds,
+        linkedPlanIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedPlanIds,
       })
       setCreateDialogMode('quick')
       setCreateError('')
@@ -812,7 +812,7 @@ export default function TradesPage() {
   return (
     <Stack spacing={2.5} sx={{ pb: { xs: 'calc(84px + env(safe-area-inset-bottom))', md: 0 } }}>
       <PageHero
-        eyebrow={t('trades.title')}
+        eyebrow={t('nav.trades')}
         title={t('trades.list.title')}
         description={t('trades.subtitle')}
         icon={<CandlestickChartRoundedIcon fontSize="small" />}
@@ -944,7 +944,7 @@ export default function TradesPage() {
                   <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
                   <Typography variant="body2">{t('trades.form.setupGrade')}: {expandedTrade.setupGrade || t('common.na')}</Typography>
                   <Typography variant="body2">{t('trades.form.session')}: {expandedTrade.session ? t(`trades.form.sessions.${expandedTrade.session}`) : t('common.na')}</Typography>
-                  <Typography variant="body2">{t('trades.form.linkedPlans')}: {(expandedTrade.linkedContentIds || []).length}</Typography>
+                  <Typography variant="body2">{t('trades.form.linkedPlans')}: {(expandedTrade.linkedPlanIds || expandedTrade.linkedContentIds || []).length}</Typography>
                   <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
                 </Grid>
                 <Grid item xs={12}>

@@ -242,6 +242,7 @@ public class TradeService {
         trade.setSession(request.getSession());
         trade.setRuleBreaks(normalizeRuleBreaks(request.getRuleBreaks()));
         trade.setLinkedContentIds(normalizeLinkedContentIds(request.getLinkedContentIds()));
+        trade.setLinkedPlanIds(normalizeLinkedPlanIds(request.getLinkedPlanIds()));
         trade.setNotes(request.getNotes());
         trade.setCreatedAt(OffsetDateTime.now());
         trade.setUpdatedAt(trade.getCreatedAt());
@@ -302,6 +303,11 @@ public class TradeService {
             trade.setLinkedContentIds(normalizeLinkedContentIds(request.getLinkedContentIds()));
         } else if (trade.getLinkedContentIds() == null) {
             trade.setLinkedContentIds(new LinkedHashSet<>());
+        }
+        if (request.getLinkedPlanIds() != null) {
+            trade.setLinkedPlanIds(normalizeLinkedPlanIds(request.getLinkedPlanIds()));
+        } else if (trade.getLinkedPlanIds() == null) {
+            trade.setLinkedPlanIds(new LinkedHashSet<>());
         }
         trade.setNotes(request.getNotes());
         if (request.getAccountId() != null) {
@@ -434,6 +440,15 @@ public class TradeService {
     }
 
     private Set<UUID> normalizeLinkedContentIds(Set<UUID> values) {
+        if (values == null || values.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        return values.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Set<UUID> normalizeLinkedPlanIds(Set<UUID> values) {
         if (values == null || values.isEmpty()) {
             return new LinkedHashSet<>();
         }
@@ -600,6 +615,7 @@ public class TradeService {
                 .ruleBreaks(trade.getRuleBreaks() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getRuleBreaks()))
                 .session(trade.getSession())
                 .linkedContentIds(trade.getLinkedContentIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedContentIds()))
+                .linkedPlanIds(trade.getLinkedPlanIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedPlanIds()))
                 .notes(trade.getNotes())
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())

@@ -29,6 +29,7 @@ export type TradeRequest = {
   ruleBreaks?: string[]
   session?: TradeSession | null
   linkedContentIds?: string[]
+  linkedPlanIds?: string[]
   notes?: string
   accountId?: string
   tagIds?: string[]
@@ -66,6 +67,7 @@ export type TradeResponse = {
   ruleBreaks?: string[]
   session?: TradeSession | null
   linkedContentIds?: string[]
+  linkedPlanIds?: string[]
   notes?: string | null
   createdAt?: string | null
   updatedAt?: string | null

@@ -48,6 +48,7 @@ public class TradeRequest {
     private Set<String> ruleBreaks;
     private TradeSession session;
     private Set<UUID> linkedContentIds;
+    private Set<UUID> linkedPlanIds;
     private String notes;
     private UUID accountId;
     private Set<UUID> tagIds;

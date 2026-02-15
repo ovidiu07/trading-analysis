@@ -389,6 +389,7 @@
   },
   "analytics": {
     "title": "Analytics",
+    "heading": "Performance diagnostics",
     "subtitle": "Pro-grade diagnostics across performance, consistency, and edge.",
     "mobileTabsLabel": "Analytics view",
     "errors": {
@@ -786,12 +787,40 @@
     "actions": {
       "openPlan": "Open plan",
       "openWeeklyPlan": "Open weekly plan",
+      "openFullPlan": "Open full plan",
       "openInsights": "Open Insights/Today feed",
       "startSession": "Start session",
       "seeWhy": "See why",
       "logTrade": "Log trade",
       "viewAll": "View all",
       "createDailyPlan": "Create daily plan"
+    },
+    "mentor": {
+      "title": "Mentor Focus Plan",
+      "attribution": "Mentor: {{name}}",
+      "defaultName": "Mentor",
+      "publishedAt": "Published: {{date}}",
+      "emptyTitle": "No mentor plan today",
+      "emptyBody": "Open Insights to view the Today feed.",
+      "emptySummary": "No mentor notes available."
+    },
+    "myPlan": {
+      "title": "My Plan",
+      "defaultTitle": "My Plan - {{date}}",
+      "create": "Create my plan",
+      "createTitle": "Create my plan",
+      "editTitle": "Edit my plan",
+      "contentLabel": "Plan content (Markdown)",
+      "duplicateFromMentor": "Duplicate from mentor plan",
+      "emptyTitle": "No plan for today",
+      "emptyBody": "Create your own plan to define today's execution.",
+      "emptyContent": "No plan content yet.",
+      "discard": "Discard changes",
+      "unsavedPrompt": "You have unsaved changes in My Plan. Save or discard before closing.",
+      "validationRequired": "Title and content are required.",
+      "errors": {
+        "save": "Could not save your plan."
+      }
     },
     "cards": {
       "daily": {
@@ -1148,6 +1177,7 @@
   },
   "settings": {
     "title": "Settings",
+    "heading": "Preferences",
     "subtitle": "Update your base currency and timezone. Changes apply across the app.",
     "timezone": "Timezone",
     "timezoneHint": "IANA timezone (e.g., Europe/Bucharest)",
@@ -1373,6 +1403,10 @@
       "setupGrade": "Setup grade",
       "session": "Session",
       "linkedPlans": "Linked plans",
+      "mentorFocusPrefix": "Mentor Focus",
+      "myPlanPrefix": "My Plan",
+      "linkActivePlans": "Link active plans for this trade time",
+      "loadingActivePlans": "Loading active plans...",
       "ruleBreaks": "Rule breaks",
       "notes": "Notes",
       "accountId": "Account ID",
@@ -1552,7 +1586,12 @@
       "list": "List",
       "info": "Info",
       "showInfo": "Show info",
-      "hideInfo": "Hide info"
+      "hideInfo": "Hide info",
+      "discardChanges": "Discard changes",
+      "collapseLeftPane": "Collapse navigation pane",
+      "expandLeftPane": "Expand navigation pane",
+      "collapseEditorPane": "Collapse editor pane",
+      "expandEditorPane": "Expand editor pane"
     },
     "upload": {
       "dropTitle": "Attach files to this note",
@@ -1668,12 +1707,14 @@
       "saving": "Saving…",
       "error": "Save failed",
       "savedAt": "Saved {{date}}",
+      "saved": "Saved",
       "unsaved": "Unsaved changes",
       "allSaved": "All changes saved"
     },
     "prompts": {
       "discardChanges": "You have unsaved changes. Discard them?",
       "discardAndContinue": "You have unsaved changes. Discard them and continue?",
+      "unsavedAction": "You have unsaved changes. Save, discard, or cancel this action.",
       "moveToRecentlyDeleted": "Move this note to Recently deleted?",
       "templateName": "Template name?",
       "newTagName": "New tag name",
@@ -1682,7 +1723,8 @@
     "messages": {
       "noteOutsideFilters": "Note opened outside your current filters. Adjust filters to see it in the list.",
       "noteCreatedOutsideFilters": "Note created outside your current filters. Showing it in All notes.",
-      "noteMovedToRecentlyDeleted": "Note moved to Recently deleted."
+      "noteMovedToRecentlyDeleted": "Note moved to Recently deleted.",
+      "discardedChanges": "Unsaved changes were discarded."
     },
     "validation": {
       "dateRequired": "Date is required",

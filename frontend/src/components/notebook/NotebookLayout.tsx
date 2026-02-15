@@ -1,4 +1,4 @@
-import { Box, Paper, Stack } from '@mui/material'
+import { Box, Paper } from '@mui/material'
 import { ReactNode } from 'react'
 
 type NotebookLayoutProps = {
@@ -7,7 +7,12 @@ type NotebookLayoutProps = {
   leftRail: ReactNode
   middlePanel: ReactNode
   rightPanel: ReactNode
-  listCollapsed?: boolean
+  leftCollapsed: boolean
+  listCollapsed: boolean
+  editorCollapsed: boolean
+  leftCollapsedRail: ReactNode
+  listCollapsedRail: ReactNode
+  editorCollapsedRail: ReactNode
 }
 
 const panelSx = {
@@ -17,8 +22,13 @@ const panelSx = {
   display: 'flex',
   flexDirection: 'column' as const,
   overflow: 'hidden',
-  borderRadius: 3
+  borderRadius: 3,
+  position: 'relative' as const
 }
+
+const leftExpandedWidth = 220
+const listExpandedWidth = 360
+const collapsedRailWidth = 56
 
 export default function NotebookLayout({
   isMobile,
@@ -26,7 +36,12 @@ export default function NotebookLayout({
   leftRail,
   middlePanel,
   rightPanel,
-  listCollapsed = false
+  leftCollapsed,
+  listCollapsed,
+  editorCollapsed,
+  leftCollapsedRail,
+  listCollapsedRail,
+  editorCollapsedRail
 }: NotebookLayoutProps) {
   if (isMobile) {
     if (mobilePanel === 'note') {
@@ -47,22 +62,20 @@ export default function NotebookLayout({
     <Box
       sx={{
         display: 'grid',
-        gridTemplateColumns: listCollapsed
-          ? '220px 84px minmax(0, 1fr)'
-          : '220px minmax(300px, 390px) minmax(0, 1fr)',
+        gridTemplateColumns: `${leftCollapsed ? collapsedRailWidth : leftExpandedWidth}px ${listCollapsed ? collapsedRailWidth : `minmax(280px, ${listExpandedWidth}px)`} ${editorCollapsed ? collapsedRailWidth : 'minmax(0, 1fr)'}`,
         gap: 1.5,
         minHeight: 0,
         height: '100%'
       }}
     >
       <Paper sx={panelSx}>
-        {leftRail}
+        {leftCollapsed ? leftCollapsedRail : leftRail}
       </Paper>
       <Paper sx={panelSx}>
-        {middlePanel}
+        {listCollapsed ? listCollapsedRail : middlePanel}
       </Paper>
       <Paper sx={panelSx}>
-        {rightPanel}
+        {editorCollapsed ? editorCollapsedRail : rightPanel}
       </Paper>
     </Box>
   )

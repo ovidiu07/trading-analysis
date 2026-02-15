@@ -619,8 +619,8 @@ export default function AnalyticsPage() {
       }}
     >
       <PageHero
-        eyebrow={t('analytics.title')}
-        title={t('analytics.title')}
+        eyebrow={t('nav.analytics')}
+        title={t('analytics.heading')}
         description={t('analytics.subtitle')}
         icon={<QueryStatsRoundedIcon fontSize="small" />}
       />

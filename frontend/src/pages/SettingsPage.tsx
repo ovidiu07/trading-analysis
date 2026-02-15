@@ -200,8 +200,8 @@ export default function SettingsPage() {
   return (
     <Stack spacing={2.5}>
       <PageHero
-        eyebrow={t('settings.title')}
-        title={t('settings.title')}
+        eyebrow={t('nav.settings')}
+        title={t('settings.heading')}
         description={t('settings.subtitle')}
         icon={<SettingsRoundedIcon fontSize="small" />}
       />

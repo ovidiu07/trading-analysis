@@ -435,8 +435,8 @@ export default function CalendarPage() {
   return (
     <Stack spacing={isCompact ? 2 : 3}>
       <PageHero
-        eyebrow={t('calendar.title')}
-        title={t('calendar.title')}
+        eyebrow={t('nav.calendar')}
+        title={monthLabel}
         description={t('calendar.subtitle', { timezone })}
         icon={<CalendarMonthRoundedIcon fontSize="small" />}
       />

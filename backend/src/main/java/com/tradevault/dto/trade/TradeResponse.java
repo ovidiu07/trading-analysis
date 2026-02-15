@@ -47,6 +47,7 @@ public class TradeResponse {
     private Set<String> ruleBreaks;
     private TradeSession session;
     private Set<UUID> linkedContentIds;
+    private Set<UUID> linkedPlanIds;
     private String notes;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;

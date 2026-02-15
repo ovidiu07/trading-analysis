@@ -389,6 +389,7 @@
   },
   "analytics": {
     "title": "Analiză",
+    "heading": "Diagnoză de performanță",
     "subtitle": "Diagnoză avansată pentru performanță, consistență și avantaj.",
     "mobileTabsLabel": "Vizualizare analiză",
     "errors": {
@@ -786,12 +787,40 @@
     "actions": {
       "openPlan": "Deschide planul",
       "openWeeklyPlan": "Deschide planul săptămânal",
+      "openFullPlan": "Deschide planul complet",
       "openInsights": "Deschide feed-ul Insights/Astăzi",
       "startSession": "Pornește sesiunea",
       "seeWhy": "Vezi de ce",
       "logTrade": "Loghează tranzacție",
       "viewAll": "Vezi toate",
       "createDailyPlan": "Creează plan zilnic"
+    },
+    "mentor": {
+      "title": "Plan mentor focus",
+      "attribution": "Mentor: {{name}}",
+      "defaultName": "Mentor",
+      "publishedAt": "Publicat: {{date}}",
+      "emptyTitle": "Nu există plan mentor azi",
+      "emptyBody": "Deschide Insights pentru feed-ul Astăzi.",
+      "emptySummary": "Nu există notițe mentor disponibile."
+    },
+    "myPlan": {
+      "title": "Planul meu",
+      "defaultTitle": "Planul meu - {{date}}",
+      "create": "Creează planul meu",
+      "createTitle": "Creează planul meu",
+      "editTitle": "Editează planul meu",
+      "contentLabel": "Conținut plan (Markdown)",
+      "duplicateFromMentor": "Duplică din planul mentor",
+      "emptyTitle": "Nu există plan pentru azi",
+      "emptyBody": "Creează planul tău pentru a defini execuția de azi.",
+      "emptyContent": "Nu există conținut pentru plan.",
+      "discard": "Renunță la modificări",
+      "unsavedPrompt": "Ai modificări nesalvate în Planul meu. Salvează sau renunță înainte de închidere.",
+      "validationRequired": "Titlul și conținutul sunt obligatorii.",
+      "errors": {
+        "save": "Planul nu a putut fi salvat."
+      }
     },
     "cards": {
       "daily": {
@@ -1148,6 +1177,7 @@
   },
   "settings": {
     "title": "Setări",
+    "heading": "Preferințe",
     "subtitle": "Actualizează moneda de bază și fusul orar; modificările se aplică în toată aplicația.",
     "timezone": "Fus orar",
     "timezoneHint": "Fus orar IANA (ex: Europe/Bucharest)",
@@ -1373,6 +1403,10 @@
       "setupGrade": "Calificativ setup",
       "session": "Sesiune",
       "linkedPlans": "Planuri legate",
+      "mentorFocusPrefix": "Focus mentor",
+      "myPlanPrefix": "Planul meu",
+      "linkActivePlans": "Leagă planurile active pentru timpul acestei tranzacții",
+      "loadingActivePlans": "Se încarcă planurile active...",
       "ruleBreaks": "Abateri de la reguli",
       "notes": "Note",
       "accountId": "ID cont",
@@ -1552,7 +1586,12 @@
       "list": "Listă",
       "info": "Info",
       "showInfo": "Arată detaliile",
-      "hideInfo": "Ascunde detaliile"
+      "hideInfo": "Ascunde detaliile",
+      "discardChanges": "Renunță la modificări",
+      "collapseLeftPane": "Restrânge panoul de navigare",
+      "expandLeftPane": "Extinde panoul de navigare",
+      "collapseEditorPane": "Restrânge panoul editorului",
+      "expandEditorPane": "Extinde panoul editorului"
     },
     "upload": {
       "dropTitle": "Atașează fișiere la această notă",
@@ -1668,12 +1707,14 @@
       "saving": "Se salvează…",
       "error": "Salvarea a eșuat",
       "savedAt": "Salvat {{date}}",
+      "saved": "Salvat",
       "unsaved": "Modificări nesalvate",
       "allSaved": "Toate modificările sunt salvate"
     },
     "prompts": {
       "discardChanges": "Ai modificări nesalvate. Le abandonezi?",
       "discardAndContinue": "Ai modificări nesalvate. Le abandonezi și continui?",
+      "unsavedAction": "Ai modificări nesalvate. Salvează, renunță sau anulează această acțiune.",
       "moveToRecentlyDeleted": "Muți această notă în „Șterse recent”?",
       "templateName": "Nume șablon?",
       "newTagName": "Nume etichetă nouă",
@@ -1682,7 +1723,8 @@
     "messages": {
       "noteOutsideFilters": "Nota a fost deschisă în afara filtrelor curente. Ajustează filtrele pentru a o vedea în listă.",
       "noteCreatedOutsideFilters": "Nota a fost creată în afara filtrelor curente. Este afișată în Toate notele.",
-      "noteMovedToRecentlyDeleted": "Nota a fost mutată în „Șterse recent”."
+      "noteMovedToRecentlyDeleted": "Nota a fost mutată în „Șterse recent”.",
+      "discardedChanges": "Modificările nesalvate au fost eliminate."
     },
     "validation": {
       "dateRequired": "Data este obligatorie",

@@ -78,6 +78,7 @@ export const tradeValidationSchema = z
     ruleBreaks: z.array(z.string().trim().min(1)).optional(),
     session: z.preprocess(toUndefinedIfEmpty, z.enum(sessionValues).optional()),
     linkedContentIds: z.array(z.string().trim().min(1)).optional(),
+    linkedPlanIds: z.array(z.string().trim().min(1)).optional(),
     notes: z.preprocess(toUndefinedIfEmpty, z.string().trim().max(2000).optional()),
     accountId: z.preprocess(toUndefinedIfEmpty, z.string().trim().max(120).optional())
   })

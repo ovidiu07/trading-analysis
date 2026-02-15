@@ -5,6 +5,7 @@ import {
   AccordionDetails,
   AccordionSummary,
   Alert,
+  Autocomplete,
   Box,
   Button,
   Chip,
@@ -26,9 +27,11 @@ import {
   useTheme
 } from '@mui/material'
 import { zodResolver } from '@hookform/resolvers/zod'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { TradeRequest } from '../../api/trades'
+import { PlanSource } from '../../api/plans'
+import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
 import { TradeFormValues } from '../../utils/tradePayload'
 import { tradeValidationSchema } from '../../utils/tradeValidationSchema'
@@ -40,6 +43,7 @@ import { TradeModeSwitch, type TradeEntryMode } from './TradeModeSwitch'
 type ContentOption = {
   id: string
   label: string
+  source?: PlanSource
 }
 
 type TradeCreateFormV2Props = {
@@ -108,6 +112,7 @@ const normalizeDefaults = (values: TradeFormValues): TradeFormValues => ({
   ruleBreaks: values.ruleBreaks || [],
   session: values.session || undefined,
   linkedContentIds: values.linkedContentIds || [],
+  linkedPlanIds: values.linkedPlanIds || values.linkedContentIds || [],
   notes: values.notes || undefined,
   accountId: values.accountId || undefined
 })
@@ -121,10 +126,21 @@ const toTradeFormValues = (values: TradeFormValues): TradeFormValues => ({
   commission: values.commission ?? 0,
   slippage: values.slippage ?? 0,
   ruleBreaks: values.ruleBreaks || [],
-  linkedContentIds: values.linkedContentIds || []
+  linkedContentIds: values.linkedContentIds || [],
+  linkedPlanIds: values.linkedPlanIds || values.linkedContentIds || []
 })
 
 const getLocalDateTime = () => new Date().toISOString().slice(0, 16)
+const localDateTimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/
+const timezoneRegex = /(Z|[+-]\d{2}:\d{2})$/i
+
+const toIsoDateTime = (value: string): string => {
+  if (localDateTimeRegex.test(value) && !timezoneRegex.test(value)) {
+    const withSeconds = value.length === 16 ? `${value}:00` : value
+    return new Date(`${withSeconds}Z`).toISOString()
+  }
+  return new Date(value).toISOString()
+}
 
 export function TradeCreateFormV2({
   initialValues,
@@ -146,6 +162,7 @@ export function TradeCreateFormV2({
   const [mode, setMode] = useState<TradeEntryMode>(defaultMode)
   const [showValidationBanner, setShowValidationBanner] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
+  const lastAutoLinkedRef = useRef('')
 
   const {
     register,
@@ -166,6 +183,7 @@ export function TradeCreateFormV2({
     reset(normalizeDefaults(initialValues))
     setMode(defaultMode)
     setShowValidationBanner(false)
+    lastAutoLinkedRef.current = ''
   }, [defaultMode, initialValues, reset])
 
   const status = watch('status')
@@ -189,6 +207,54 @@ export function TradeCreateFormV2({
   }, [isValid])
 
   const watchedValues = watch()
+  const watchedOpenedAt = watch('openedAt')
+  const openedAtIso = useMemo(() => {
+    if (!watchedOpenedAt || !watchedOpenedAt.trim()) return ''
+    try {
+      return toIsoDateTime(watchedOpenedAt)
+    } catch {
+      return ''
+    }
+  }, [watchedOpenedAt])
+
+  const activePlansQuery = useActivePlansForTradeQuery(openedAtIso, timezone, Boolean(openedAtIso))
+
+  const activePlanOptions = useMemo<ContentOption[]>(() => {
+    return (activePlansQuery.data?.plans || []).map((plan) => ({
+      id: plan.id,
+      source: plan.source,
+      label: plan.source === 'MENTOR'
+        ? `${t('trades.form.mentorFocusPrefix')}: ${plan.title}`
+        : `${t('trades.form.myPlanPrefix')}: ${plan.title}`
+    }))
+  }, [activePlansQuery.data?.plans, t])
+
+  const allPlanOptions = useMemo<ContentOption[]>(() => {
+    const map = new Map<string, ContentOption>()
+    ;[...activePlanOptions, ...planOptions].forEach((option) => {
+      if (!map.has(option.id)) {
+        map.set(option.id, option)
+      }
+    })
+    return Array.from(map.values())
+  }, [activePlanOptions, planOptions])
+
+  const planOptionsById = useMemo(() => {
+    const map = new Map<string, ContentOption>()
+    allPlanOptions.forEach((option) => {
+      map.set(option.id, option)
+    })
+    return map
+  }, [allPlanOptions])
+
+  useEffect(() => {
+    if (!openedAtIso || !activePlansQuery.data) return
+    const suggestedPlanIds = activePlansQuery.data.suggestedPlanIds || []
+    const nextMarker = `${openedAtIso}:${suggestedPlanIds.join(',')}`
+    if (lastAutoLinkedRef.current === nextMarker) return
+    lastAutoLinkedRef.current = nextMarker
+    setValue('linkedPlanIds', suggestedPlanIds, { shouldDirty: true, shouldValidate: true })
+  }, [activePlansQuery.data, openedAtIso, setValue])
 
   const resolveError = (key: keyof TradeFormValues) => {
     const message = errors[key]?.message
@@ -599,34 +665,35 @@ export function TradeCreateFormV2({
             </Grid>
             <Grid item xs={12} md={6}>
               <Controller
-                name="linkedContentIds"
+                name="linkedPlanIds"
                 control={control}
                 render={({ field }) => (
-                  <TextField
-                    label={t('trades.form.linkedPlans')}
-                    select
-                    fullWidth
-                    value={field.value ?? []}
-                    onChange={(event) => {
-                      const value = event.target.value
-                      field.onChange(typeof value === 'string' ? value.split(',') : value)
-                    }}
-                    SelectProps={{
-                      multiple: true,
-                      renderValue: (selected) => {
-                        const selectedIds = (selected as string[]) || []
-                        if (selectedIds.length === 0) return t('trades.form.none')
-                        return selectedIds
-                          .map((id) => planOptions.find((option) => option.id === id)?.label || id)
-                          .slice(0, 2)
-                          .join(', ')
-                      }
-                    }}
-                  >
-                    {planOptions.map((option) => (
-                      <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>
-                    ))}
-                  </TextField>
+                  <Autocomplete<ContentOption, true, false, false>
+                    multiple
+                    options={allPlanOptions}
+                    value={(field.value || []).map((id) => planOptionsById.get(id) || { id, label: id })}
+                    onChange={(_, value) => field.onChange(value.map((item) => item.id))}
+                    isOptionEqualToValue={(option, value) => option.id === value.id}
+                    getOptionLabel={(option) => option.label}
+                    renderTags={(value, getTagProps) =>
+                      value.map((option, index) => (
+                        <Chip
+                          {...getTagProps({ index })}
+                          key={option.id}
+                          size="small"
+                          label={option.label}
+                        />
+                      ))
+                    }
+                    noOptionsText={t('trades.form.none')}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label={t('trades.form.linkedPlans')}
+                        helperText={activePlansQuery.isFetching ? t('trades.form.loadingActivePlans') : ''}
+                      />
+                    )}
+                  />
                 )}
               />
             </Grid>

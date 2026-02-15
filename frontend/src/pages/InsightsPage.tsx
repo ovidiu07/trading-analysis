@@ -305,7 +305,7 @@ export default function InsightsPage() {
   return (
     <Stack spacing={2.5} sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
       <PageHero
-        eyebrow={t('insights.title')}
+        eyebrow={t('nav.insights')}
         title={t('insights.heading')}
         description={t('insights.subheading')}
         icon={<AutoStoriesRoundedIcon fontSize="small" />}
