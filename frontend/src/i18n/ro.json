@@ -1356,6 +1356,16 @@
       "riskAmountHint": "Opțional: îmbunătățește calculul P&L % și multiplu R",
       "capitalUsed": "Capital folosit",
       "capitalUsedHint": "Opțional: folosit pentru calculul P&L %",
+      "quickAdvancedSubtitle": "Quick Log / Avansat",
+      "openHelp": "Deschide explicațiile câmpurilor",
+      "summaryAccordion": "Sumar",
+      "quickNotes": "Notă rapidă (opțional)",
+      "symbolHelper": "Începe să scrii un simbol (ex: AAPL)",
+      "symbolRecent": "Recent",
+      "marketHelper": "Selectează piața instrumentului",
+      "quantityHelper": "Exemplu: 1,5",
+      "priceHelper": "Exemplu: 123,45",
+      "costHelper": "Folosește 0 dacă nu există cost",
       "setup": "Setup",
       "strategy": "Strategie",
       "strategyTag": "Etichetă strategie",
@@ -1373,18 +1383,35 @@
       "pnlPercent": "P&L %",
       "riskPercent": "Risc %",
       "rMultiple": "Multiplu R",
+      "costsTotal": "Costuri totale",
+      "liveSummaryTitle": "Sumar live",
+      "liveSummarySubtitle": "Se actualizează în timp real în timp ce completezi",
+      "useCalculatedRisk": "Folosește riscul calculat",
+      "modes": {
+        "quick": "Quick Log",
+        "advanced": "Avansat"
+      },
       "sections": {
         "required": "Bază obligatorie",
         "execution": "Execuție principală",
         "risk": "Risc",
+        "riskCapital": "Risc & capital",
         "costs": "Costuri",
-        "context": "Context"
+        "context": "Context",
+        "notes": "Note"
+      },
+      "summaryWarnings": {
+        "closedWithoutExit": "Tranzacția închisă nu are preț de ieșire.",
+        "stopLossInconsistent": "Stop-loss-ul este inconsistent cu direcția tranzacției.",
+        "quantityNonPositive": "Cantitatea trebuie să fie mai mare decât zero."
       },
       "sessions": {
         "ASIA": "Asia",
         "LONDON": "Londra",
         "NY": "New York",
-        "CUSTOM": "Personalizat"
+        "CUSTOM": "Personalizat",
+        "NY_AM": "NY AM",
+        "NY_PM": "NY PM"
       },
       "ruleBreakOptions": {
         "lateEntry": "Intrare târzie",
@@ -1395,8 +1422,24 @@
         "outsideSession": "În afara sesiunii"
       },
       "validation": {
-        "symbolRequired": "Simbolul este obligatoriu"
-      }
+        "symbolRequired": "Simbolul este obligatoriu.",
+        "symbolTooLong": "Simbolul poate avea maximum 15 caractere.",
+        "marketRequired": "Piața este obligatorie.",
+        "directionRequired": "Direcția este obligatorie.",
+        "statusRequired": "Starea este obligatorie.",
+        "openedAtRequired": "Data de deschidere este obligatorie.",
+        "closedAtRequired": "Data de închidere este obligatorie pentru tranzacțiile închise.",
+        "quantityPositive": "Cantitatea trebuie să fie mai mare decât zero.",
+        "entryPricePositive": "Prețul de intrare trebuie să fie mai mare decât zero.",
+        "exitPricePositive": "Prețul de ieșire trebuie să fie mai mare decât zero.",
+        "exitPriceRequired": "Prețul de ieșire este obligatoriu pentru tranzacțiile închise.",
+        "stopLossPositive": "Stop-loss-ul trebuie să fie mai mare decât zero.",
+        "takeProfitPositive": "Take-profit-ul trebuie să fie mai mare decât zero.",
+        "costNonNegative": "Costurile nu pot fi negative.",
+        "riskAmountPositive": "Suma de risc trebuie să fie mai mare decât zero.",
+        "capitalUsedPositive": "Capitalul folosit trebuie să fie mai mare decât zero."
+      },
+      "validationBanner": "Corectează câmpurile evidențiate înainte de salvare."
     },
     "help": {
       "title": "Explicații câmpuri tranzacție",
