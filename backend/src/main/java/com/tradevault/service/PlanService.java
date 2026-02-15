@@ -103,7 +103,7 @@ public class PlanService {
 
     public List<PlanResponse> listMyPlans(PlanScope scope, OffsetDateTime from, OffsetDateTime to) {
         User user = currentUserService.getCurrentUser();
-        return planRepository.searchMyPlans(user.getId(), scope, from, to)
+        return planRepository.searchMyPlans(user.getId(), PlanSource.USER, scope, from, to)
                 .stream()
                 .map(this::toResponse)
                 .toList();

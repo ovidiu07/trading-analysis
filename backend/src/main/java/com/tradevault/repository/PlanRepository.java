@@ -50,7 +50,7 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
     @Query("""
         SELECT p
         FROM Plan p
-        WHERE p.source = com.tradevault.domain.enums.PlanSource.USER
+        WHERE p.source = :source
           AND p.authorUserId = :authorUserId
           AND (:scope IS NULL OR p.scope = :scope)
           AND (:from IS NULL OR p.activeTo >= :from)
@@ -58,6 +58,7 @@ public interface PlanRepository extends JpaRepository<Plan, UUID> {
         ORDER BY p.activeFrom DESC, p.updatedAt DESC
         """)
     List<Plan> searchMyPlans(@Param("authorUserId") UUID authorUserId,
+                             @Param("source") PlanSource source,
                              @Param("scope") PlanScope scope,
                              @Param("from") OffsetDateTime from,
                              @Param("to") OffsetDateTime to);

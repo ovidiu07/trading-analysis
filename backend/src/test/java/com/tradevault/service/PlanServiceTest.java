@@ -72,6 +72,16 @@ class PlanServiceTest {
     }
 
     @Test
+    void listMyPlansAlwaysUsesUserSourceFilter() {
+        when(planRepository.searchMyPlans(user.getId(), PlanSource.USER, PlanScope.DAILY, null, null))
+                .thenReturn(List.of());
+
+        planService.listMyPlans(PlanScope.DAILY, null, null);
+
+        verify(planRepository).searchMyPlans(user.getId(), PlanSource.USER, PlanScope.DAILY, null, null);
+    }
+
+    @Test
     void activePlanSuggestionsIncludeMentorAndUserInOrder() {
         Plan mentorPlan = Plan.builder()
                 .id(UUID.randomUUID())

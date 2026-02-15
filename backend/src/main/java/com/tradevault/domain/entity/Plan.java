@@ -37,12 +37,12 @@ public class Plan {
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "scope", columnDefinition = "plan_scope", nullable = false)
+    @Column(name = "scope", columnDefinition = "planscope", nullable = false)
     private PlanScope scope;
 
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @Column(name = "source", columnDefinition = "plan_source", nullable = false)
+    @Column(name = "source", columnDefinition = "plansource", nullable = false)
     private PlanSource source;
 
     @Column(name = "author_user_id")
