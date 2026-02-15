@@ -29,10 +29,10 @@ export function BottomActionBar({
         bgcolor: 'background.paper',
         px: { xs: 2, md: 3 },
         pt: 1.25,
-        pb: mobileSticky ? 'calc(env(safe-area-inset-bottom) + 12px)' : 1.5,
-        position: mobileSticky ? 'sticky' : 'static',
-        bottom: 0,
-        zIndex: 4
+        pb: mobileSticky ? 'calc(env(safe-area-inset-bottom) + 12px)' : 'max(12px, env(safe-area-inset-bottom))',
+        position: 'relative',
+        zIndex: 4,
+        flexShrink: 0
       }}
     >
       <Stack spacing={1}>
@@ -60,4 +60,3 @@ export function BottomActionBar({
     </Box>
   )
 }
-

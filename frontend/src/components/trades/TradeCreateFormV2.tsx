@@ -160,12 +160,13 @@ export function TradeCreateFormV2({
 }: TradeCreateFormV2Props) {
   const { t } = useI18n()
   const theme = useTheme()
-  const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+  const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
 
   const [mode, setMode] = useState<TradeEntryMode>(defaultMode)
   const [showValidationBanner, setShowValidationBanner] = useState(false)
   const [infoOpen, setInfoOpen] = useState(false)
   const lastAutoLinkedRef = useRef('')
+  const contentScrollRef = useRef<HTMLDivElement | null>(null)
 
   const {
     register,
@@ -308,6 +309,15 @@ export function TradeCreateFormV2({
 
     window.setTimeout(() => {
       target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
+      const scrollContainer = contentScrollRef.current
+      if (scrollContainer && scrollContainer.contains(target)) {
+        const containerRect = scrollContainer.getBoundingClientRect()
+        const targetRect = target.getBoundingClientRect()
+        if (targetRect.bottom > containerRect.bottom || targetRect.top < containerRect.top) {
+          const nextTop = scrollContainer.scrollTop + (targetRect.top - containerRect.top) - (containerRect.height * 0.3)
+          scrollContainer.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
+        }
+      }
     }, 80)
   }
 
@@ -358,7 +368,7 @@ export function TradeCreateFormV2({
   }, [t, watchedValues.direction, watchedValues.status, watchedValues.symbol])
 
   const executionSection = (
-    <Stack spacing={2}>
+    <Stack spacing={2} sx={{ minWidth: 0 }}>
       <Grid container spacing={2}>
         <Grid item xs={12} md={6}>
           <Controller
@@ -570,7 +580,7 @@ export function TradeCreateFormV2({
   )
 
   const advancedSections = mode === 'advanced' ? (
-    <Stack spacing={1.5}>
+    <Stack spacing={1.5} sx={{ minWidth: 0 }}>
       <Accordion defaultExpanded disableGutters>
         <AccordionSummary expandIcon={<ExpandMoreIcon />}>
           <SectionHeader title={t('trades.form.sections.execution')} summary={executionSummary} />
@@ -836,7 +846,9 @@ export function TradeCreateFormV2({
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        height: '100%'
+        height: '100%',
+        minHeight: 0,
+        overflow: 'hidden'
       }}
       onFocusCapture={handleFieldFocus}
     >
@@ -847,7 +859,8 @@ export function TradeCreateFormV2({
           zIndex: 5,
           borderBottom: '1px solid',
           borderColor: 'divider',
-          bgcolor: 'background.paper'
+          bgcolor: 'background.paper',
+          flexShrink: 0
         }}
       >
         <Stack direction="row" alignItems="center" justifyContent="space-between" px={{ xs: 1, md: 2 }} py={1}>
@@ -880,10 +893,13 @@ export function TradeCreateFormV2({
       </Box>
 
       <Box
+        ref={contentScrollRef}
         sx={{
           flex: 1,
           minHeight: 0,
           overflowY: 'auto',
+          WebkitOverflowScrolling: 'touch',
+          overscrollBehaviorY: 'contain',
           px: { xs: 2, md: 3 },
           py: 2
         }}
@@ -898,7 +914,7 @@ export function TradeCreateFormV2({
                 <SectionHeader title={t('trades.form.summaryAccordion')} summary={executionSummary} />
               </AccordionSummary>
               <AccordionDetails sx={{ pt: 0 }}>
-                <Box sx={{ maxHeight: '25vh', overflow: 'hidden' }}>
+                <Box sx={{ width: '100%', minWidth: 0 }}>
                   <TradeLiveSummary
                     values={watchedValues}
                     baseCurrency={baseCurrency}
@@ -911,13 +927,13 @@ export function TradeCreateFormV2({
             </Accordion>
           )}
 
-          <Grid container spacing={2.5} alignItems="flex-start">
-            <Grid item xs={12} md={8}>
+          <Grid container spacing={2.5} alignItems="flex-start" sx={{ minWidth: 0 }}>
+            <Grid item xs={12} md={8} sx={{ minWidth: 0 }}>
               {advancedSections}
             </Grid>
 
             {!isMobile && (
-              <Grid item xs={12} md={4}>
+              <Grid item xs={12} md={4} sx={{ minWidth: 0 }}>
                 <Box sx={{ position: 'sticky', top: 16 }}>
                   <TradeLiveSummary
                     values={watchedValues}
@@ -996,7 +1012,8 @@ function ToggleButtonsField({
         aria-label={ariaLabel}
         sx={{
           display: 'flex',
-          flexWrap: 'wrap',
+          flexWrap: 'nowrap',
+          width: '100%',
           border: '1px solid',
           borderColor: 'divider',
           borderRadius: 1,
@@ -1012,11 +1029,9 @@ function ToggleButtonsField({
               onClick={() => onChange(option.value)}
               aria-pressed={selected}
               sx={{
-                flexBasis: { xs: '100%', sm: `${100 / options.length}%` },
-                flexGrow: 1,
+                flex: `1 1 ${100 / options.length}%`,
                 borderRadius: 0,
-                borderRight: { sm: '1px solid' },
-                borderBottom: { xs: '1px solid', sm: 'none' },
+                borderRight: '1px solid',
                 borderColor: 'divider',
                 minWidth: 0,
                 py: 1.1,
@@ -1025,16 +1040,14 @@ function ToggleButtonsField({
                 bgcolor: selected ? option.selectedBackground || 'action.selected' : 'transparent',
                 textTransform: 'none',
                 '&:last-of-type': {
-                  borderRight: 'none',
-                  borderBottom: 'none'
+                  borderRight: 'none'
                 },
                 '&:only-of-type': {
-                  borderRight: 'none',
-                  borderBottom: 'none'
+                  borderRight: 'none'
                 }
               }}
             >
-              <Typography variant="body2" noWrap>{option.label}</Typography>
+              <Typography variant="body2" sx={{ lineHeight: 1.2 }}>{option.label}</Typography>
             </Button>
           )
         })}

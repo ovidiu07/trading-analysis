@@ -188,6 +188,7 @@ export default function TradesPage() {
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
+  const isCreateDialogFullScreen = useMediaQuery(theme.breakpoints.down('sm'))
 
   const [viewMode, setViewMode] = useState<'list' | 'search'>('list')
   const [filters, setFilters] = useState(defaultFilters)
@@ -1098,12 +1099,16 @@ export default function TradesPage() {
         onClose={requestCloseCreateDialog}
         maxWidth="lg"
         fullWidth
-        fullScreen={isSmallScreen}
+        fullScreen={isCreateDialogFullScreen}
+        scroll="paper"
         keepMounted
         PaperProps={{
           sx: {
-            minHeight: { xs: '100dvh', md: 'min(92vh, 980px)' },
+            height: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
+            minHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
+            maxHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
             display: 'flex',
+            flexDirection: 'column',
             overflow: 'hidden'
           }
         }}
