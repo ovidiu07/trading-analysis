@@ -1102,18 +1102,26 @@ export default function TradesPage() {
         fullScreen={isCreateDialogFullScreen}
         scroll="paper"
         keepMounted
+        aria-label={createDialogMode === 'quick' ? t('trades.quickLog.title') : t('trades.create.title')}
         PaperProps={{
           sx: {
-            height: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
-            minHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
-            maxHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
+            m: { xs: 0, sm: 4 },
+            height: { xs: '100vh', sm: 'min(92dvh, 980px)' },
+            minHeight: { xs: '100vh', sm: 'min(92dvh, 980px)' },
+            maxHeight: { xs: '100vh', sm: 'min(92dvh, 980px)' },
             display: 'flex',
             flexDirection: 'column',
-            overflow: 'hidden'
+            overflow: 'hidden',
+            '@supports (height: 100dvh)': {
+              height: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
+              minHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' },
+              maxHeight: { xs: '100dvh', sm: 'min(92dvh, 980px)' }
+            }
           }
         }}
       >
         <DialogContent
+          data-testid="trade-create-dialog-content"
           sx={{
             p: 0,
             display: 'flex',

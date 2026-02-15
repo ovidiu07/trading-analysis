@@ -305,18 +305,23 @@ export function TradeCreateFormV2({
   const handleFieldFocus = (event: FocusEvent<HTMLElement>) => {
     if (!isMobile) return
     const target = event.target as HTMLElement
-    if (typeof target.scrollIntoView !== 'function') return
+    const scrollContainer = contentScrollRef.current
+    if (!scrollContainer || !scrollContainer.contains(target)) return
 
     window.setTimeout(() => {
-      target.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'smooth' })
-      const scrollContainer = contentScrollRef.current
-      if (scrollContainer && scrollContainer.contains(target)) {
-        const containerRect = scrollContainer.getBoundingClientRect()
-        const targetRect = target.getBoundingClientRect()
-        if (targetRect.bottom > containerRect.bottom || targetRect.top < containerRect.top) {
-          const nextTop = scrollContainer.scrollTop + (targetRect.top - containerRect.top) - (containerRect.height * 0.3)
-          scrollContainer.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
-        }
+      const containerRect = scrollContainer.getBoundingClientRect()
+      const targetRect = target.getBoundingClientRect()
+      const safeBottom = 88
+      const isOutOfView =
+        targetRect.bottom > containerRect.bottom - safeBottom ||
+        targetRect.top < containerRect.top + 8
+
+      if (isOutOfView) {
+        const nextTop =
+          scrollContainer.scrollTop +
+          (targetRect.top - containerRect.top) -
+          containerRect.height * 0.28
+        scrollContainer.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' })
       }
     }, 80)
   }
@@ -860,6 +865,7 @@ export function TradeCreateFormV2({
           borderBottom: '1px solid',
           borderColor: 'divider',
           bgcolor: 'background.paper',
+          pt: { xs: 'env(safe-area-inset-top)', md: 0 },
           flexShrink: 0
         }}
       >
@@ -893,6 +899,7 @@ export function TradeCreateFormV2({
       </Box>
 
       <Box
+        data-testid="trade-create-scroll-region"
         ref={contentScrollRef}
         sx={{
           flex: 1,
@@ -901,7 +908,8 @@ export function TradeCreateFormV2({
           WebkitOverflowScrolling: 'touch',
           overscrollBehaviorY: 'contain',
           px: { xs: 2, md: 3 },
-          py: 2
+          pt: 2,
+          pb: { xs: 'calc(env(safe-area-inset-bottom) + 12px)', md: 2 }
         }}
       >
         <Stack spacing={2}>
