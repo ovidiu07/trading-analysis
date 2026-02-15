@@ -18,6 +18,7 @@ import {
   TextField,
   Typography
 } from '@mui/material'
+import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import { useAuth } from '../auth/AuthContext'
 import { fetchUserSettings } from '../api/settings'
 import { changePassword } from '../api/auth'
@@ -32,6 +33,7 @@ import {
   getNotificationPreferences,
   updateNotificationPreferences
 } from '../api/notifications'
+import PageHero from '../components/ui/PageHero'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
@@ -196,7 +198,14 @@ export default function SettingsPage() {
   }
 
   return (
-    <Stack spacing={3}>
+    <Stack spacing={2.5}>
+      <PageHero
+        eyebrow={t('settings.title')}
+        title={t('settings.title')}
+        description={t('settings.subtitle')}
+        icon={<SettingsRoundedIcon fontSize="small" />}
+      />
+
       <Card>
         <CardContent>
           {message && <Alert severity="success" sx={{ mb: 2 }}>{message}</Alert>}

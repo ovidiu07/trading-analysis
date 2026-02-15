@@ -79,6 +79,7 @@ import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import EmptyState from '../components/ui/EmptyState'
+import PageHero from '../components/ui/PageHero'
 import NotebookLayout from '../components/notebook/NotebookLayout'
 import NoteList from '../components/notebook/NoteList'
 import NewNoteMenu from '../components/notebook/NewNoteMenu'
@@ -1547,7 +1548,14 @@ export default function NotebookPage() {
   )
 
   return (
-    <Stack spacing={1.5} sx={{ minHeight: 0, height: '100%', overflow: 'hidden' }}>
+    <Stack spacing={1.5} sx={{ minHeight: 0, height: '100%' }}>
+      <PageHero
+        eyebrow={t('notebook.title')}
+        title={t('notebook.title')}
+        description={t('notebook.subtitle')}
+        icon={<MenuBookIcon fontSize="small" />}
+      />
+
       {error && <ErrorBanner message={error} />}
       {infoMessage && (
         <Alert severity="info" onClose={() => setInfoMessage('')}>
@@ -1555,38 +1563,40 @@ export default function NotebookPage() {
         </Alert>
       )}
 
-      <NotebookLayout
-        isMobile={isMobile}
-        mobilePanel={mobilePanel}
-        leftRail={leftRailPanel}
-        middlePanel={
-          <NoteList
-            notes={notes}
-            loading={loading}
-            selectedNoteId={selectedNote?.id}
-            timezone={timezone}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            sortOrder={sortOrder}
-            onSortChange={setSortOrder}
-            appliedFilterChips={appliedFilterChips}
-            onOpenNavigation={isMobile ? () => setNavigationDrawerOpen(true) : undefined}
-            onOpenFilters={() => setFiltersDrawerOpen(true)}
-            onSelectNote={handleSelectNote}
-            listCollapsed={isDesktop ? listCollapsed : false}
-            onToggleCollapsed={isDesktop ? () => setListCollapsed((prev) => !prev) : undefined}
-            newMenu={
-              <NewNoteMenu
-                onCreate={handleCreateNote}
-                onCreateFromTemplate={() => setTemplateDialogOpen(true)}
-                onCreateLossRecap={() => setLossRecapOpen(true)}
-              />
-            }
-          />
-        }
-        rightPanel={rightPanel}
-        listCollapsed={isDesktop && listCollapsed}
-      />
+      <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <NotebookLayout
+          isMobile={isMobile}
+          mobilePanel={mobilePanel}
+          leftRail={leftRailPanel}
+          middlePanel={
+            <NoteList
+              notes={notes}
+              loading={loading}
+              selectedNoteId={selectedNote?.id}
+              timezone={timezone}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              sortOrder={sortOrder}
+              onSortChange={setSortOrder}
+              appliedFilterChips={appliedFilterChips}
+              onOpenNavigation={isMobile ? () => setNavigationDrawerOpen(true) : undefined}
+              onOpenFilters={() => setFiltersDrawerOpen(true)}
+              onSelectNote={handleSelectNote}
+              listCollapsed={isDesktop ? listCollapsed : false}
+              onToggleCollapsed={isDesktop ? () => setListCollapsed((prev) => !prev) : undefined}
+              newMenu={
+                <NewNoteMenu
+                  onCreate={handleCreateNote}
+                  onCreateFromTemplate={() => setTemplateDialogOpen(true)}
+                  onCreateLossRecap={() => setLossRecapOpen(true)}
+                />
+              }
+            />
+          }
+          rightPanel={rightPanel}
+          listCollapsed={isDesktop && listCollapsed}
+        />
+      </Box>
 
       {isMobile && (
         <Drawer

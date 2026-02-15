@@ -10,6 +10,7 @@ import {
   useTheme,
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
+import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { fetchDashboardSummary, fetchRecentTrades } from '../api/dashboard'
 import { AnalyticsResponse } from '../api/analytics'
@@ -28,6 +29,7 @@ import { readDashboardQueryState } from '../features/dashboard/queryState'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import EmptyState from '../components/ui/EmptyState'
 import { useDemoData } from '../features/demo/DemoDataContext'
+import PageHero from '../components/ui/PageHero'
 
 type KpiCard = {
   label: string
@@ -196,6 +198,18 @@ export default function DashboardPage() {
         '& .MuiGrid-item': { minWidth: 0 }
       }}
     >
+      <PageHero
+        eyebrow={t('dashboard.title')}
+        title={t('dashboard.title')}
+        description={t('dashboard.subtitle')}
+        icon={<DashboardRoundedIcon fontSize="small" />}
+        action={(
+          <Button variant="contained" size="small" onClick={() => navigate('/today')}>
+            {t('dashboard.goToToday')}
+          </Button>
+        )}
+      />
+
       {error && <ErrorBanner message={error} />}
       {hasNoTrades && (
         <EmptyState
@@ -213,24 +227,6 @@ export default function DashboardPage() {
           )}
         />
       )}
-
-      <Card>
-        <CardContent sx={{ py: 1.5 }}>
-          <Stack
-            direction={{ xs: 'column', sm: 'row' }}
-            spacing={1}
-            alignItems={{ xs: 'flex-start', sm: 'center' }}
-            justifyContent="space-between"
-          >
-            <Typography variant="body2" color="text.secondary">
-              {t('dashboard.goToTodayHint')}
-            </Typography>
-            <Button variant="contained" size="small" onClick={() => navigate('/today')}>
-              {t('dashboard.goToToday')}
-            </Button>
-          </Stack>
-        </CardContent>
-      </Card>
 
       <Grid container spacing={{ xs: 1.25, sm: 2 }} sx={{ width: '100%', m: 0 }}>
         {kpiCards.map((kpi, idx) => (

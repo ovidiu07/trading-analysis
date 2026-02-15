@@ -44,6 +44,7 @@ import ArrowUpwardIcon from '@mui/icons-material/ArrowUpward'
 import ArrowDownwardIcon from '@mui/icons-material/ArrowDownward'
 import DeleteOutlineIcon from '@mui/icons-material/DeleteOutline'
 import AddIcon from '@mui/icons-material/Add'
+import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded'
 import {
   Area,
   AreaChart,
@@ -64,6 +65,7 @@ import { useAuth } from '../auth/AuthContext'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
+import PageHero from '../components/ui/PageHero'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
@@ -616,6 +618,13 @@ export default function AnalyticsPage() {
         '& .analytics-copy': { overflowWrap: 'anywhere', wordBreak: 'break-word' }
       }}
     >
+      <PageHero
+        eyebrow={t('analytics.title')}
+        title={t('analytics.title')}
+        description={t('analytics.subtitle')}
+        icon={<QueryStatsRoundedIcon fontSize="small" />}
+      />
+
       <Card>
         <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
           <Stack spacing={isCompact ? 1.5 : 2}>

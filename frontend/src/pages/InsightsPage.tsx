@@ -9,11 +9,13 @@ import {
   Tabs,
   Typography
 } from '@mui/material'
+import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded'
 import { useQuery } from '@tanstack/react-query'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
+import PageHero from '../components/ui/PageHero'
 import FilterBar, { FilterTypeOption } from '../components/insights/FilterBar'
 import ContentCard from '../components/insights/ContentCard'
 import StrategyCard from '../components/insights/StrategyCard'
@@ -302,27 +304,12 @@ export default function InsightsPage() {
 
   return (
     <Stack spacing={2.5} sx={{ width: '100%', maxWidth: '100%', minWidth: 0 }}>
-      <Stack spacing={0.75} sx={{ minWidth: 0 }}>
-        <Typography
-          component="h1"
-          variant="h4"
-          sx={{
-            fontWeight: 700,
-            fontSize: { xs: '1.7rem', sm: '2rem' },
-            lineHeight: 1.2,
-            overflowWrap: 'anywhere'
-          }}
-        >
-          {t('insights.heading')}
-        </Typography>
-        <Typography
-          variant="body2"
-          color="text.secondary"
-          sx={{ maxWidth: { xs: '100%', md: '78ch' }, overflowWrap: 'anywhere' }}
-        >
-          {t('insights.subheading')}
-        </Typography>
-      </Stack>
+      <PageHero
+        eyebrow={t('insights.title')}
+        title={t('insights.heading')}
+        description={t('insights.subheading')}
+        icon={<AutoStoriesRoundedIcon fontSize="small" />}
+      />
 
       <Card sx={{ overflow: 'hidden' }}>
         <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>

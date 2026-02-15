@@ -31,7 +31,11 @@ import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
-import UploadFileIcon from '@mui/icons-material/UploadFile'
+import FlashOnRoundedIcon from '@mui/icons-material/FlashOnRounded'
+import FilterAltRoundedIcon from '@mui/icons-material/FilterAltRounded'
+import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
+import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
+import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, getTradeById, importTradesCsv, listTrades, searchTrades, updateTrade } from '../api/trades'
 import { createNotebookNote } from '../api/notebook'
@@ -44,6 +48,7 @@ import { TradeCreateFormV2 } from '../components/trades/TradeCreateFormV2'
 import type { TradeEntryMode } from '../components/trades/TradeModeSwitch'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import PageHero from '../components/ui/PageHero'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { alpha } from '@mui/material/styles'
@@ -677,7 +682,18 @@ export default function TradesPage() {
   }
 
   const renderTradesTable = () => (
-    <Box sx={{ height: 520, width: '100%', position: 'relative', overflowX: 'auto' }}>
+    <Box
+      sx={{
+        height: 560,
+        width: '100%',
+        position: 'relative',
+        overflowX: 'auto',
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'background.paper'
+      }}
+    >
       {loading && (
         <Box
           sx={{
@@ -714,7 +730,8 @@ export default function TradesPage() {
           },
         }}
         sx={{
-          minWidth: 800,
+          minWidth: 860,
+          border: 'none',
           '& .pnl-positive': { color: 'success.main', fontWeight: 600 },
           '& .pnl-negative': { color: 'error.main', fontWeight: 600 },
           '& .trade-row-highlight': {
@@ -736,9 +753,9 @@ export default function TradesPage() {
   )
 
   const renderTradeCards = () => (
-    <Stack spacing={2}>
+    <Stack spacing={1.5}>
       {trades.map((trade) => (
-        <Paper key={trade.id} sx={{ p: 2 }}>
+        <Paper key={trade.id} className="interactive-lift" sx={{ p: 2 }}>
           <Stack spacing={1}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
@@ -793,47 +810,67 @@ export default function TradesPage() {
   )
 
   return (
-    <Stack spacing={3} sx={{ pb: { xs: 'calc(84px + env(safe-area-inset-bottom))', md: 0 } }}>
-      <Card>
-        <CardContent>
-          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} mb={2} spacing={1.25}>
-            <Typography variant="h6">{t('trades.list.title')}</Typography>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-              {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>{t('trades.list.searchResults')}</Alert>}
-              <Button
-                variant="outlined"
-                size="small"
-                onClick={openQuickLogDialog}
-              >
-                {t('trades.quickLog.title')}
-              </Button>
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={openCreateDialog}
-                sx={{ display: { xs: 'none', md: 'inline-flex' } }}
-              >
-                {t('trades.create.title')}
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={importLoading ? <CircularProgress size={16} /> : <UploadFileIcon />}
-                onClick={handleImportClick}
-                disabled={importLoading}
-              >
-                {t('trades.list.importCsv')}
-              </Button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".csv"
-                hidden
-                onChange={handleImportChange}
-              />
+    <Stack spacing={2.5} sx={{ pb: { xs: 'calc(84px + env(safe-area-inset-bottom))', md: 0 } }}>
+      <PageHero
+        eyebrow={t('trades.title')}
+        title={t('trades.list.title')}
+        description={t('trades.subtitle')}
+        icon={<CandlestickChartRoundedIcon fontSize="small" />}
+        action={(
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button
+              variant="outlined"
+              onClick={openQuickLogDialog}
+              startIcon={<FlashOnRoundedIcon />}
+              sx={{ minWidth: { sm: 128 } }}
+            >
+              {t('trades.quickLog.title')}
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddCircleOutlineRoundedIcon />}
+              onClick={openCreateDialog}
+              sx={{ minWidth: { sm: 148 }, display: { xs: 'none', md: 'inline-flex' } }}
+            >
+              {t('trades.create.title')}
+            </Button>
+          </Stack>
+        )}
+      />
+
+      <Card className="interactive-lift">
+        <CardContent sx={{ p: { xs: 1.75, md: 2 } }}>
+          <Stack spacing={1.75} sx={{ mb: 1.5 }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={1.25}>
+              <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
+                <Typography variant="subtitle1">{t('trades.list.title')}</Typography>
+                {viewMode === 'search' && (
+                  <Alert severity="info" sx={{ m: 0, py: 0.2, px: 1.2 }}>
+                    {t('trades.list.searchResults')}
+                  </Alert>
+                )}
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={importLoading ? <CircularProgress size={16} /> : <FileUploadRoundedIcon />}
+                  onClick={handleImportClick}
+                  disabled={importLoading}
+                >
+                  {t('trades.list.importCsv')}
+                </Button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".csv"
+                  hidden
+                  onChange={handleImportChange}
+                />
+              </Stack>
             </Stack>
           </Stack>
+
           {createSuccess && <Alert severity="success" sx={{ mb: 2 }}>{createSuccess}</Alert>}
           {fetchError && <ErrorBanner message={fetchError} />}
           {noteNavError && <ErrorBanner message={noteNavError} />}
@@ -931,10 +968,15 @@ export default function TradesPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <Accordion defaultExpanded={!isSmallScreen}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.filters.title')}</AccordionSummary>
+      <Card className="interactive-lift">
+        <CardContent sx={{ p: { xs: 1.75, md: 2 } }}>
+          <Accordion defaultExpanded={!isSmallScreen} sx={{ boxShadow: 'none', bgcolor: 'transparent' }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <FilterAltRoundedIcon fontSize="small" color="primary" />
+                <Typography variant="subtitle1">{t('trades.filters.title')}</Typography>
+              </Stack>
+            </AccordionSummary>
             <AccordionDetails>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
@@ -974,8 +1016,8 @@ export default function TradesPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
+      <Card className="interactive-lift">
+        <CardContent sx={{ p: { xs: 1.75, md: 2 } }}>
           <Typography variant="h6" gutterBottom>{t('trades.help.title')}</Typography>
           <Accordion defaultExpanded>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.corePricing')}</AccordionSummary>
