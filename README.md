@@ -22,6 +22,22 @@ Services:
 - Frontend: http://localhost:4173
 - Postgres: localhost:5432
 
+### Validate DB outage handling locally
+Use this to verify scheduler backoff/recovery with backend started before DB:
+```bash
+# 1) Start backend without dependencies (DB is intentionally down)
+docker compose up -d --build --no-deps backend
+
+# 2) Observe backend logs for throttled DB-unavailable warnings
+docker compose logs -f backend
+
+# 3) Start PostgreSQL and watch recovery
+docker compose up -d postgres
+
+# 4) Check actuator DB health
+curl -s http://localhost:8080/actuator/health | jq .
+```
+
 ## Backend development
 ```bash
 cd backend
