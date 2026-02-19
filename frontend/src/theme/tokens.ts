@@ -1,4 +1,5 @@
 export type AppThemeMode = 'light' | 'dark' | 'black-shiny'
+export type MuiPaletteMode = 'light' | 'dark'
 
 type ElevationTokens = {
   card: string
@@ -254,3 +255,6 @@ export const getDesignTokens = (mode: AppThemeMode): DesignTokens =>
     : mode === 'black-shiny'
       ? blackShinyTokens
       : darkTokens
+
+export const toMuiPaletteMode = (mode: AppThemeMode): MuiPaletteMode =>
+  mode === 'light' ? 'light' : 'dark'

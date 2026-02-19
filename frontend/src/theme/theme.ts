@@ -1,7 +1,7 @@
 import { alpha, createTheme } from '@mui/material/styles'
 import type { Theme } from '@mui/material/styles'
 import type {} from '@mui/x-data-grid/themeAugmentation'
-import { AppThemeMode, getDesignTokens } from './tokens'
+import { AppThemeMode, getDesignTokens, toMuiPaletteMode } from './tokens'
 
 declare module '@mui/material/styles' {
   interface Palette {
@@ -27,7 +27,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
   const tokens = getDesignTokens(mode)
   const isLight = mode === 'light'
   const isBlackShiny = mode === 'black-shiny'
-  const paletteMode = isLight ? 'light' : 'dark'
+  const paletteMode = toMuiPaletteMode(mode)
 
   return createTheme({
     spacing: 8,
