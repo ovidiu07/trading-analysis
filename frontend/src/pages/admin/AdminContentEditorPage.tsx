@@ -60,6 +60,11 @@ import {
   type TranslationDraft,
   updateLocalizedField
 } from './contentEditorState'
+import {
+  pruneTemplateFields,
+  templateFieldRecordFromContent,
+  templateFieldsForType
+} from './contentTemplateConfig'
 
 const buildWeeklyTemplate = (t: (key: string) => string) => [
   `## ${t('adminEditor.weeklyTemplate.focus')}`,
@@ -109,6 +114,8 @@ type ContentFormState = {
   slug: string
   tagsInput: string
   symbolsInput: string
+  templateFields: Record<string, string>
+  revisionNotes: string
   visibleFrom: string
   visibleUntil: string
   weekStart: string
@@ -121,6 +128,8 @@ const buildDefaultForm = (): ContentFormState => ({
   slug: '',
   tagsInput: '',
   symbolsInput: '',
+  templateFields: {},
+  revisionNotes: '',
   visibleFrom: '',
   visibleUntil: '',
   weekStart: '',
@@ -133,6 +142,8 @@ const toForm = (post: ContentPost): ContentFormState => ({
   slug: post.slug || '',
   tagsInput: joinCsv(post.tags),
   symbolsInput: joinCsv(post.symbols),
+  templateFields: templateFieldRecordFromContent(post.contentTypeKey, post.templateFields),
+  revisionNotes: post.revisionNotes || '',
   visibleFrom: toInputDateTime(post.visibleFrom),
   visibleUntil: toInputDateTime(post.visibleUntil),
   weekStart: post.weekStart || '',
@@ -197,7 +208,10 @@ export default function AdminContentEditorPage() {
         const firstType = loadedTypes.find((item) => item.active) || loadedTypes[0]
         setForm((prev) => ({
           ...prev,
-          contentTypeId: prev.contentTypeId || firstType?.id || ''
+          contentTypeId: prev.contentTypeId || firstType?.id || '',
+          templateFields: firstType?.key
+            ? templateFieldRecordFromContent(firstType.key, prev.templateFields)
+            : {}
         }))
       })
       .catch((err) => {
@@ -209,13 +223,28 @@ export default function AdminContentEditorPage() {
 
   const selectedType = useMemo(() => types.find((type) => type.id === form.contentTypeId) || null, [types, form.contentTypeId])
   const isWeeklyPlan = selectedType?.key === 'WEEKLY_PLAN'
+  const templateDefinitions = useMemo(
+    () => templateFieldsForType(selectedType?.key || post?.contentTypeKey),
+    [post?.contentTypeKey, selectedType?.key]
+  )
   const roMissing = isLocaleMissing(form.translations, 'ro')
+  const templatePreviewEntries = useMemo(
+    () => templateDefinitions
+      .map((templateField) => ({
+        ...templateField,
+        value: form.templateFields[templateField.key]?.trim() || ''
+      }))
+      .filter((templateField) => templateField.value),
+    [form.templateFields, templateDefinitions]
+  )
 
   const buildPayload = (): ContentPostRequest => ({
     contentTypeId: form.contentTypeId,
     slug: form.slug.trim() ? form.slug.trim() : undefined,
     tags: parseCsv(form.tagsInput),
     symbols: parseCsv(form.symbolsInput),
+    templateFields: pruneTemplateFields(form.templateFields),
+    revisionNotes: form.revisionNotes.trim() || undefined,
     visibleFrom: form.visibleFrom ? new Date(form.visibleFrom).toISOString() : undefined,
     visibleUntil: form.visibleUntil ? new Date(form.visibleUntil).toISOString() : undefined,
     weekStart: isWeeklyPlan ? (form.weekStart || undefined) : undefined,
@@ -264,6 +293,18 @@ export default function AdminContentEditorPage() {
         errors.weekEnd = t('adminEditor.validation.weekEndAfterStart')
       }
     }
+
+    templateDefinitions.forEach((field) => {
+      if (!field.required) {
+        return
+      }
+      const value = form.templateFields[field.key] || ''
+      if (!value.trim()) {
+        errors[`template.${field.key}`] = t('adminEditor.validation.templateFieldRequired', {
+          field: t(field.labelKey)
+        })
+      }
+    })
 
     if (form.visibleFrom && form.visibleUntil && form.visibleFrom > form.visibleUntil) {
       errors.visibleUntil = t('adminEditor.validation.visibleUntilAfterFrom')
@@ -545,10 +586,21 @@ export default function AdminContentEditorPage() {
                   <Typography variant="subtitle2" color="text.secondary">
                     {post ? t('adminEditor.title.edit') : t('adminEditor.title.create')}
                   </Typography>
-                  {post?.updatedAt && (
-                    <Typography variant="caption" color="text.secondary">
-                      {t('adminEditor.updated')} {formatDateTime(post.updatedAt)}
-                    </Typography>
+                  {(post?.updatedAt || post?.contentVersion) && (
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      {post?.contentVersion ? (
+                        <Chip
+                          size="small"
+                          label={t('adminEditor.versionChip', { version: post.contentVersion })}
+                          variant="outlined"
+                        />
+                      ) : null}
+                      {post?.updatedAt ? (
+                        <Typography variant="caption" color="text.secondary">
+                          {t('adminEditor.updated')} {formatDateTime(post.updatedAt)}
+                        </Typography>
+                      ) : null}
+                    </Stack>
                   )}
                 </Stack>
 
@@ -556,7 +608,17 @@ export default function AdminContentEditorPage() {
                   select
                   label={t('adminEditor.fields.type')}
                   value={form.contentTypeId}
-                  onChange={(event) => setForm((prev) => ({ ...prev, contentTypeId: event.target.value }))}
+                  onChange={(event) => {
+                    const nextId = event.target.value
+                    const nextType = types.find((item) => item.id === nextId)
+                    setForm((prev) => ({
+                      ...prev,
+                      contentTypeId: nextId,
+                      templateFields: nextType?.key
+                        ? templateFieldRecordFromContent(nextType.key, prev.templateFields)
+                        : {}
+                    }))
+                  }}
                   error={Boolean(fieldErrors.contentTypeId)}
                   helperText={fieldErrors.contentTypeId}
                 >
@@ -650,6 +712,37 @@ export default function AdminContentEditorPage() {
                   >
                     {t('adminEditor.actions.insertWeeklyTemplate')}
                   </Button>
+                )}
+
+                {templateDefinitions.length > 0 && (
+                  <>
+                    <Divider />
+                    <Stack spacing={1.25}>
+                      <Typography variant="subtitle2">
+                        {t('adminEditor.template.sectionTitle')}
+                      </Typography>
+                      {templateDefinitions.map((templateField) => (
+                        <TextField
+                          key={templateField.key}
+                          label={t(templateField.labelKey)}
+                          placeholder={t(templateField.hintKey)}
+                          value={form.templateFields[templateField.key] || ''}
+                          onChange={(event) => setForm((prev) => ({
+                            ...prev,
+                            templateFields: {
+                              ...prev.templateFields,
+                              [templateField.key]: event.target.value
+                            }
+                          }))}
+                          error={Boolean(fieldErrors[`template.${templateField.key}`])}
+                          helperText={fieldErrors[`template.${templateField.key}`] || t(templateField.hintKey)}
+                          required={Boolean(templateField.required)}
+                          multiline
+                          minRows={templateField.minRows || 2}
+                        />
+                      ))}
+                    </Stack>
+                  </>
                 )}
 
                 <Divider />
@@ -748,6 +841,16 @@ export default function AdminContentEditorPage() {
                   </Grid>
                 </Grid>
 
+                <TextField
+                  label={t('adminEditor.fields.revisionNotes')}
+                  placeholder={t('adminEditor.fields.revisionNotesHint')}
+                  value={form.revisionNotes}
+                  onChange={(event) => setForm((prev) => ({ ...prev, revisionNotes: event.target.value }))}
+                  multiline
+                  minRows={2}
+                  helperText={t('adminEditor.fields.revisionNotesHelper')}
+                />
+
                 <Stack direction="row" spacing={1}>
                   <Button size="small" variant="text" onClick={() => navigate('/admin/content')}>
                     {t('adminTypes.actions.backToContent')}
@@ -789,6 +892,25 @@ export default function AdminContentEditorPage() {
                     <Typography variant="body2" color="text.secondary">
                       {t('insights.weekOf')} {formatDate(form.weekStart)} - {formatDate(form.weekEnd)}
                     </Typography>
+                  )}
+                  {templateDefinitions.length > 0 && (
+                    <Stack spacing={1}>
+                      <Typography variant="subtitle2">{t('adminEditor.template.previewTitle')}</Typography>
+                      {templatePreviewEntries.length === 0 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            {t('adminEditor.template.previewEmpty')}
+                          </Typography>
+                        ) : templatePreviewEntries.map((templateField) => (
+                          <Stack key={`preview-${templateField.key}`} spacing={0.25}>
+                            <Typography variant="caption" color="text.secondary">
+                              {t(templateField.labelKey)}
+                            </Typography>
+                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                              {templateField.value}
+                            </Typography>
+                          </Stack>
+                        ))}
+                    </Stack>
                   )}
                   <MarkdownContent content={activeTranslation.body} />
                 </Stack>

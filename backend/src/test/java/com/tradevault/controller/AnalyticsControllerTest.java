@@ -25,6 +25,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.Set;
+import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -79,7 +81,7 @@ class AnalyticsControllerTest {
                 .build());
         Mockito.when(currentUserService.getCurrentUser()).thenReturn(user);
 
-        Trade trade = Trade.builder()
+        Trade linkedTrade = Trade.builder()
                 .user(user)
                 .symbol("AAPL")
                 .direction(Direction.LONG)
@@ -88,12 +90,26 @@ class AnalyticsControllerTest {
                 .closedAt(OffsetDateTime.parse("2026-01-02T10:10:00Z"))
                 .pnlNet(new BigDecimal("125.50"))
                 .pnlGross(new BigDecimal("130.00"))
+                .linkedContentIds(Set.of(UUID.randomUUID()))
                 .build();
-        tradeRepository.save(trade);
+        Trade unlinkedTrade = Trade.builder()
+                .user(user)
+                .symbol("MSFT")
+                .direction(Direction.SHORT)
+                .status(TradeStatus.CLOSED)
+                .openedAt(OffsetDateTime.parse("2026-01-03T11:00:00Z"))
+                .closedAt(OffsetDateTime.parse("2026-01-03T11:20:00Z"))
+                .pnlNet(new BigDecimal("-25.50"))
+                .pnlGross(new BigDecimal("-20.00"))
+                .build();
+        tradeRepository.saveAll(java.util.List.of(linkedTrade, unlinkedTrade));
 
         mockMvc.perform(get("/api/analytics/summary"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.kpi.totalTrades").value(1))
-                .andExpect(jsonPath("$.kpi.totalPnlNet").value(125.50));
+                .andExpect(jsonPath("$.kpi.totalTrades").value(2))
+                .andExpect(jsonPath("$.kpi.totalPnlNet").value(100.00))
+                .andExpect(jsonPath("$.planAdherence.linkedTrades").value(1))
+                .andExpect(jsonPath("$.planAdherence.unlinkedTrades").value(1))
+                .andExpect(jsonPath("$.planAdherence.linkedPct").value(50.0));
     }
 }

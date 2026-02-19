@@ -27,4 +27,8 @@ public class AnalyticsResponse {
     private List<RollingMetricPoint> rolling20;
     private List<RollingMetricPoint> rolling50;
     private Map<String, Double> breakdown;
+    private CoachingSummary coachingSummary;
+    private List<StrategyPerformanceRow> strategyPerformance;
+    private List<SessionPerformanceRow> sessionPerformance;
+    private PlanAdherenceSummary planAdherence;
 }

@@ -31,7 +31,11 @@ import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
-import UploadFileIcon from '@mui/icons-material/UploadFile'
+import FlashOnRoundedIcon from '@mui/icons-material/FlashOnRounded'
+import FilterAltRoundedIcon from '@mui/icons-material/FilterAltRounded'
+import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
+import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
+import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRounded'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, getTradeById, importTradesCsv, listTrades, searchTrades, updateTrade } from '../api/trades'
 import { createNotebookNote } from '../api/notebook'
@@ -40,13 +44,33 @@ import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatDateTime, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
 import { TradeForm } from '../components/trades/TradeForm'
+import { TradeCreateFormV2 } from '../components/trades/TradeCreateFormV2'
+import type { TradeEntryMode } from '../components/trades/TradeModeSwitch'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import PageHero from '../components/ui/PageHero'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { alpha } from '@mui/material/styles'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import { trackEvent } from '../utils/analytics/ga4'
+import { listPublishedContent } from '../api/content'
+import { listMyPlans } from '../api/plans'
+
+type ContentOption = {
+  id: string
+  label: string
+  source?: 'MENTOR' | 'USER'
+}
+
+const ruleBreakOptions = [
+  'lateEntry',
+  'earlyExit',
+  'oversizedRisk',
+  'ignoredInvalidation',
+  'newsViolation',
+  'outsideSession'
+] as const
 
 const buildDefaultValues = (): TradeFormValues => ({
   symbol: '',
@@ -69,8 +93,21 @@ const buildDefaultValues = (): TradeFormValues => ({
   setup: '',
   strategyTag: '',
   catalystTag: '',
+  strategyId: '',
+  setupGrade: undefined,
+  ruleBreaks: [],
+  session: undefined,
+  linkedContentIds: [],
+  linkedPlanIds: [],
   notes: '',
   accountId: ''
+})
+
+const buildQuickLogDefaults = (): TradeFormValues => ({
+  ...buildDefaultValues(),
+  market: 'FOREX',
+  quantity: 1,
+  openedAt: new Date().toISOString().slice(0, 16)
 })
 
 const defaultFilters = {
@@ -121,6 +158,12 @@ const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
     setup: trade.setup ?? '',
     strategyTag: trade.strategyTag ?? '',
     catalystTag: trade.catalystTag ?? '',
+    strategyId: trade.strategyId ?? '',
+    setupGrade: trade.setupGrade ?? undefined,
+    ruleBreaks: trade.ruleBreaks ?? [],
+    session: trade.session ?? undefined,
+    linkedContentIds: trade.linkedContentIds ?? [],
+    linkedPlanIds: trade.linkedPlanIds ?? trade.linkedContentIds ?? [],
     notes: trade.notes ?? '',
     accountId: trade.accountId ?? ''
   }
@@ -145,6 +188,8 @@ export default function TradesPage() {
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
+  const isCreateDialogMobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const isCreateDialogCompact = useMediaQuery(theme.breakpoints.down('md'))
 
   const [viewMode, setViewMode] = useState<'list' | 'search'>('list')
   const [filters, setFilters] = useState(defaultFilters)
@@ -156,10 +201,16 @@ export default function TradesPage() {
   })
   const [expandedTrade, setExpandedTrade] = useState<TradeResponse | null>(null)
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
+  const [createDialogMode, setCreateDialogMode] = useState<TradeEntryMode>('advanced')
+  const [createFormDirty, setCreateFormDirty] = useState(false)
+  const [createDiscardDialogOpen, setCreateDiscardDialogOpen] = useState(false)
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<TradeResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TradeResponse | null>(null)
   const [createFormValues, setCreateFormValues] = useState<TradeFormValues>(buildDefaultValues())
+  const [optionsLoadError, setOptionsLoadError] = useState('')
+  const [strategyOptions, setStrategyOptions] = useState<ContentOption[]>([])
+  const [planOptions, setPlanOptions] = useState<ContentOption[]>([])
   const [importSummary, setImportSummary] = useState<TradeCsvImportSummary | null>(null)
   const [importError, setImportError] = useState('')
   const [importLoading, setImportLoading] = useState(false)
@@ -182,6 +233,26 @@ export default function TradesPage() {
     setDeleteTarget(trade)
     setDeleteError('')
   }, [])
+
+  const strategyNameById = useMemo(() => {
+    const map = new Map<string, string>()
+    strategyOptions.forEach((item) => map.set(item.id, item.label))
+    return map
+  }, [strategyOptions])
+
+  const hydrateStrategyTag = useCallback((values: TradeFormValues): TradeFormValues => {
+    if (values.strategyTag || !values.strategyId) {
+      return values
+    }
+    const strategyLabel = strategyNameById.get(values.strategyId)
+    if (!strategyLabel) {
+      return values
+    }
+    return {
+      ...values,
+      strategyTag: strategyLabel
+    }
+  }, [strategyNameById])
 
   const handleCreateTradeNote = useCallback(async (trade: TradeResponse) => {
     setNoteNavError('')
@@ -409,13 +480,66 @@ export default function TradesPage() {
     }
   }, [fetchTrades, handleAuthFailure, t])
 
+  const fetchContentOptions = useCallback(async () => {
+    try {
+      setOptionsLoadError('')
+      const [strategies, myPlans] = await Promise.all([
+        listPublishedContent({ type: 'STRATEGY', activeOnly: true }),
+        listMyPlans({ scope: 'DAILY' })
+      ])
+
+      setStrategyOptions((strategies || []).map((item) => ({
+        id: item.id,
+        label: item.title
+      })))
+
+      setPlanOptions((myPlans || []).map((plan) => ({
+        id: plan.id,
+        source: plan.source,
+        label: `${t('trades.form.myPlanPrefix')}: ${plan.title}`
+      })))
+    } catch (err) {
+      const apiErr = err as ApiError
+      setOptionsLoadError(apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.loadOptionsFailed') : t('trades.errors.loadOptionsFailed'))
+    }
+  }, [t])
+
   useEffect(() => {
     fetchTrades()
   }, [fetchTrades])
 
   useEffect(() => {
+    fetchContentOptions()
+  }, [fetchContentOptions])
+
+  useEffect(() => {
     if (!location.search) return
     const params = new URLSearchParams(location.search)
+
+    const shouldOpenQuickLog = params.get('quickLog') === '1'
+    if (shouldOpenQuickLog) {
+      const linkedRaw = params.get('linkedPlanIds') || params.get('linkedContentIds') || params.get('planId') || ''
+      const linkedContentIds = linkedRaw
+        .split(',')
+        .map((value) => value.trim())
+        .filter(Boolean)
+
+      const quickDefaults = buildQuickLogDefaults()
+      setCreateFormValues({
+        ...quickDefaults,
+        symbol: params.get('symbol') || quickDefaults.symbol,
+        strategyTag: params.get('strategyTag') || quickDefaults.strategyTag,
+        strategyId: params.get('strategyId') || quickDefaults.strategyId,
+        linkedContentIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedContentIds,
+        linkedPlanIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedPlanIds,
+      })
+      setCreateDialogMode('quick')
+      setCreateError('')
+      setCreateFormDirty(false)
+      setCreateDiscardDialogOpen(false)
+      setCreateDialogOpen(true)
+    }
+
     const tradeId = params.get('tradeId') || ''
     const closedDate = params.get('closedDate') || ''
     const nextFilters = {
@@ -449,7 +573,7 @@ export default function TradesPage() {
     setCreateSuccess('')
     setCreateError('')
     try {
-      const payload = buildTradePayload(values)
+      const payload = buildTradePayload(hydrateStrategyTag(values))
       await createTrade(payload)
       trackEvent('trade_create_submit', {
         method: 'manual_form',
@@ -459,7 +583,7 @@ export default function TradesPage() {
       setCreateSuccess(t('trades.messages.created'))
       const freshDefaults = buildDefaultValues()
       setCreateFormValues(freshDefaults)
-      setCreateDialogOpen(false)
+      closeCreateDialog()
       fetchTrades()
     } catch (err) {
       const apiErr = err as ApiError
@@ -491,7 +615,7 @@ export default function TradesPage() {
     if (!editTarget) return
     setEditError('')
     try {
-      const payload = buildTradePayload(values)
+      const payload = buildTradePayload(hydrateStrategyTag(values))
       const updated = await updateTrade(editTarget.id, payload)
       setTrades((prev) => prev.map((t) => t.id === updated.id ? updated : t))
       setExpandedTrade((prev) => prev?.id === updated.id ? updated : prev)
@@ -550,12 +674,50 @@ export default function TradesPage() {
   }
 
   const openCreateDialog = () => {
+    setCreateFormValues(buildDefaultValues())
+    setCreateDialogMode('advanced')
     setCreateError('')
+    setCreateFormDirty(false)
+    setCreateDiscardDialogOpen(false)
     setCreateDialogOpen(true)
   }
 
+  const openQuickLogDialog = () => {
+    setCreateFormValues(buildQuickLogDefaults())
+    setCreateDialogMode('quick')
+    setCreateError('')
+    setCreateFormDirty(false)
+    setCreateDiscardDialogOpen(false)
+    setCreateDialogOpen(true)
+  }
+
+  function closeCreateDialog() {
+    setCreateDialogOpen(false)
+    setCreateFormDirty(false)
+    setCreateDiscardDialogOpen(false)
+  }
+
+  function requestCloseCreateDialog() {
+    if (createFormDirty && createDialogMode === 'advanced') {
+      setCreateDiscardDialogOpen(true)
+      return
+    }
+    closeCreateDialog()
+  }
+
   const renderTradesTable = () => (
-    <Box sx={{ height: 520, width: '100%', position: 'relative', overflowX: 'auto' }}>
+    <Box
+      sx={{
+        height: 560,
+        width: '100%',
+        position: 'relative',
+        overflowX: 'auto',
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'background.paper'
+      }}
+    >
       {loading && (
         <Box
           sx={{
@@ -592,7 +754,8 @@ export default function TradesPage() {
           },
         }}
         sx={{
-          minWidth: 800,
+          minWidth: 860,
+          border: 'none',
           '& .pnl-positive': { color: 'success.main', fontWeight: 600 },
           '& .pnl-negative': { color: 'error.main', fontWeight: 600 },
           '& .trade-row-highlight': {
@@ -614,9 +777,9 @@ export default function TradesPage() {
   )
 
   const renderTradeCards = () => (
-    <Stack spacing={2}>
+    <Stack spacing={1.5}>
       {trades.map((trade) => (
-        <Paper key={trade.id} sx={{ p: 2 }}>
+        <Paper key={trade.id} className="interactive-lift" sx={{ p: 2 }}>
           <Stack spacing={1}>
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
@@ -643,6 +806,17 @@ export default function TradesPage() {
               </Grid>
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {trade.notes || t('common.na')}</Typography>
+            <Stack direction="row" spacing={1} flexWrap="wrap">
+              {trade.strategyId && (
+                <Chip size="small" variant="outlined" label={strategyNameById.get(trade.strategyId) || trade.strategyTag || t('common.na')} />
+              )}
+              {trade.setupGrade && (
+                <Chip size="small" variant="outlined" label={`${t('trades.form.setupGrade')}: ${trade.setupGrade}`} />
+              )}
+              {trade.session && (
+                <Chip size="small" variant="outlined" label={`${t('trades.form.session')}: ${t(`trades.form.sessions.${trade.session}`)}`} />
+              )}
+            </Stack>
             <Stack direction="row" spacing={1}>
               <Button size="small" startIcon={<EditIcon />} onClick={() => handleEditClick(trade)}>{t('common.edit')}</Button>
               <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteClick(trade)}>{t('common.delete')}</Button>
@@ -660,43 +834,71 @@ export default function TradesPage() {
   )
 
   return (
-    <Stack spacing={3} sx={{ pb: { xs: 'calc(84px + env(safe-area-inset-bottom))', md: 0 } }}>
-      <Card>
-        <CardContent>
-          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} mb={2} spacing={1.25}>
-            <Typography variant="h6">{t('trades.list.title')}</Typography>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-              {viewMode === 'search' && <Alert severity="info" sx={{ m: 0, py: 0.5 }}>{t('trades.list.searchResults')}</Alert>}
-              <Button
-                variant="contained"
-                size="small"
-                startIcon={<AddIcon />}
-                onClick={openCreateDialog}
-                sx={{ display: { xs: 'none', md: 'inline-flex' } }}
-              >
-                {t('trades.create.title')}
-              </Button>
-              <Button
-                variant="outlined"
-                size="small"
-                startIcon={importLoading ? <CircularProgress size={16} /> : <UploadFileIcon />}
-                onClick={handleImportClick}
-                disabled={importLoading}
-              >
-                {t('trades.list.importCsv')}
-              </Button>
-              <input
-                ref={importInputRef}
-                type="file"
-                accept=".csv"
-                hidden
-                onChange={handleImportChange}
-              />
+    <Stack spacing={2.5} sx={{ pb: { xs: 'calc(84px + env(safe-area-inset-bottom))', md: 0 } }}>
+      <PageHero
+        eyebrow={t('nav.trades')}
+        title={t('trades.list.title')}
+        description={t('trades.subtitle')}
+        icon={<CandlestickChartRoundedIcon fontSize="small" />}
+        action={(
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+            <Button
+              variant="outlined"
+              onClick={openQuickLogDialog}
+              startIcon={<FlashOnRoundedIcon />}
+              sx={{ minWidth: { sm: 128 } }}
+            >
+              {t('trades.quickLog.title')}
+            </Button>
+            <Button
+              variant="contained"
+              startIcon={<AddCircleOutlineRoundedIcon />}
+              onClick={openCreateDialog}
+              sx={{ minWidth: { sm: 148 }, display: { xs: 'none', md: 'inline-flex' } }}
+            >
+              {t('trades.create.title')}
+            </Button>
+          </Stack>
+        )}
+      />
+
+      <Card className="interactive-lift">
+        <CardContent sx={{ p: { xs: 1.75, md: 2 } }}>
+          <Stack spacing={1.75} sx={{ mb: 1.5 }}>
+            <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', md: 'center' }} spacing={1.25}>
+              <Stack direction="row" alignItems="center" spacing={1} flexWrap="wrap" useFlexGap>
+                <Typography variant="subtitle1">{t('trades.list.title')}</Typography>
+                {viewMode === 'search' && (
+                  <Alert severity="info" sx={{ m: 0, py: 0.2, px: 1.2 }}>
+                    {t('trades.list.searchResults')}
+                  </Alert>
+                )}
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={importLoading ? <CircularProgress size={16} /> : <FileUploadRoundedIcon />}
+                  onClick={handleImportClick}
+                  disabled={importLoading}
+                >
+                  {t('trades.list.importCsv')}
+                </Button>
+                <input
+                  ref={importInputRef}
+                  type="file"
+                  accept=".csv"
+                  hidden
+                  onChange={handleImportChange}
+                />
+              </Stack>
             </Stack>
           </Stack>
+
           {createSuccess && <Alert severity="success" sx={{ mb: 2 }}>{createSuccess}</Alert>}
           {fetchError && <ErrorBanner message={fetchError} />}
           {noteNavError && <ErrorBanner message={noteNavError} />}
+          {optionsLoadError && <Alert severity="warning" sx={{ mb: 2 }}>{optionsLoadError}</Alert>}
           {importError && <Alert severity="error" sx={{ mb: 2 }}>{importError}</Alert>}
           {importSummary && (
             <Box sx={{ mb: 2 }}>
@@ -761,8 +963,12 @@ export default function TradesPage() {
                 <Grid item xs={12} sm={6} md={4}>
                   <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
                   <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.strategy')}: {(expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
                   <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
                   <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.setupGrade')}: {expandedTrade.setupGrade || t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.session')}: {expandedTrade.session ? t(`trades.form.sessions.${expandedTrade.session}`) : t('common.na')}</Typography>
+                  <Typography variant="body2">{t('trades.form.linkedPlans')}: {(expandedTrade.linkedPlanIds || expandedTrade.linkedContentIds || []).length}</Typography>
                   <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
                 </Grid>
                 <Grid item xs={12}>
@@ -772,7 +978,12 @@ export default function TradesPage() {
                     {(expandedTrade.tags || []).map((tag: string) => (
                       <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
                     ))}
-                    {(expandedTrade.tags?.length || 0) === 0 && <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>}
+                    {(expandedTrade.ruleBreaks || []).map((rule) => (
+                      <Chip key={rule} label={t(`trades.form.ruleBreakOptions.${rule}`)} size="small" color="warning" variant="outlined" />
+                    ))}
+                    {((expandedTrade.tags?.length || 0) + (expandedTrade.ruleBreaks?.length || 0)) === 0 && (
+                      <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>
+                    )}
                   </Stack>
                 </Grid>
               </Grid>
@@ -781,10 +992,15 @@ export default function TradesPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
-          <Accordion defaultExpanded={!isSmallScreen}>
-            <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.filters.title')}</AccordionSummary>
+      <Card className="interactive-lift">
+        <CardContent sx={{ p: { xs: 1.75, md: 2 } }}>
+          <Accordion defaultExpanded={!isSmallScreen} sx={{ boxShadow: 'none', bgcolor: 'transparent' }}>
+            <AccordionSummary expandIcon={<ExpandMoreIcon />}>
+              <Stack direction="row" spacing={1} alignItems="center">
+                <FilterAltRoundedIcon fontSize="small" color="primary" />
+                <Typography variant="subtitle1">{t('trades.filters.title')}</Typography>
+              </Stack>
+            </AccordionSummary>
             <AccordionDetails>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={6}>
@@ -824,8 +1040,8 @@ export default function TradesPage() {
         </CardContent>
       </Card>
 
-      <Card>
-        <CardContent>
+      <Card className="interactive-lift">
+        <CardContent sx={{ p: { xs: 1.75, md: 2 } }}>
           <Typography variant="h6" gutterBottom>{t('trades.help.title')}</Typography>
           <Accordion defaultExpanded>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>{t('trades.help.sections.corePricing')}</AccordionSummary>
@@ -881,23 +1097,87 @@ export default function TradesPage() {
 
       <Dialog
         open={createDialogOpen}
-        onClose={() => setCreateDialogOpen(false)}
+        onClose={requestCloseCreateDialog}
         maxWidth="lg"
         fullWidth
-        fullScreen={isSmallScreen}
+        scroll="paper"
         keepMounted
+        aria-label={createDialogMode === 'quick' ? t('trades.quickLog.title') : t('trades.create.title')}
+        sx={{
+          '& .MuiDialog-container': {
+            alignItems: { xs: 'center', sm: 'center' },
+            justifyContent: 'center',
+            p: 0
+          }
+        }}
+        PaperProps={{
+          sx: {
+            m: isCreateDialogMobile ? 1 : isCreateDialogCompact ? 2 : 4,
+            width: isCreateDialogCompact
+              ? isCreateDialogMobile
+                ? 'calc(100vw - 16px)'
+                : 'calc(100vw - 32px)'
+              : undefined,
+            maxWidth: isCreateDialogCompact
+              ? isCreateDialogMobile
+                ? 'calc(100vw - 16px)'
+                : 'calc(100vw - 32px)'
+              : undefined,
+            height: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+            minHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+            maxHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+            borderRadius: 2,
+            boxSizing: 'border-box',
+            display: 'flex',
+            flexDirection: 'column',
+            overflow: 'hidden',
+            overflowX: 'hidden',
+            '@supports (height: 100dvh)': {
+              height: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
+              minHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
+              maxHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)'
+            }
+          }
+        }}
       >
-        <DialogTitle>{t('trades.create.title')}</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <TradeForm
+        <DialogContent
+          data-testid="trade-create-dialog-content"
+          sx={{
+            p: 0,
+            display: 'flex',
+            flexDirection: 'column',
+            flex: 1,
+            minHeight: 0,
+            overflow: 'hidden'
+          }}
+        >
+          <TradeCreateFormV2
             initialValues={createFormValues}
-            submitLabel={t('trades.create.save')}
+            submitLabel={createDialogMode === 'quick' ? t('trades.quickLog.submit') : t('trades.create.save')}
             onSubmit={handleCreate}
-            onCancel={() => setCreateDialogOpen(false)}
+            onCancel={requestCloseCreateDialog}
+            onDirtyChange={setCreateFormDirty}
+            onModeChange={setCreateDialogMode}
             error={createError}
-            stickyActions={isSmallScreen}
+            strategyOptions={strategyOptions}
+            planOptions={planOptions}
+            ruleBreakOptions={[...ruleBreakOptions]}
+            baseCurrency={baseCurrency}
+            timezone={timezone}
+            defaultMode={createDialogMode}
           />
         </DialogContent>
+      </Dialog>
+
+      <Dialog open={createDiscardDialogOpen} onClose={() => setCreateDiscardDialogOpen(false)}>
+        <DialogTitle>{t('trades.form.discardChangesTitle')}</DialogTitle>
+        <DialogContent>
+          <Typography>{t('trades.form.discardChangesPrompt')}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setCreateDiscardDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button color="error" variant="contained" onClick={closeCreateDialog}>{t('trades.form.discardButton')}</Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
@@ -917,6 +1197,9 @@ export default function TradesPage() {
                 riskPercent: editTarget.riskPercent,
                 rMultiple: editTarget.rMultiple,
               }}
+              strategyOptions={strategyOptions}
+              planOptions={planOptions}
+              ruleBreakOptions={[...ruleBreakOptions]}
             />
           )}
         </DialogContent>

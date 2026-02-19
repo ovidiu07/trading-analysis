@@ -27,6 +27,9 @@ public class ContentPostResponse {
     ContentPostStatus status;
     List<String> tags;
     List<String> symbols;
+    Map<String, Object> templateFields;
+    String revisionNotes;
+    int contentVersion;
     OffsetDateTime visibleFrom;
     OffsetDateTime visibleUntil;
     LocalDate weekStart;

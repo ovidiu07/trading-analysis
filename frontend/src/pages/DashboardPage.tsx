@@ -1,12 +1,16 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   Button,
+  Card,
+  CardContent,
   Grid,
   Stack,
+  Typography,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
+import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded'
 import { Area, AreaChart, Bar, BarChart, CartesianGrid, ReferenceLine, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { fetchDashboardSummary, fetchRecentTrades } from '../api/dashboard'
 import { AnalyticsResponse } from '../api/analytics'
@@ -25,6 +29,7 @@ import { readDashboardQueryState } from '../features/dashboard/queryState'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import EmptyState from '../components/ui/EmptyState'
 import { useDemoData } from '../features/demo/DemoDataContext'
+import PageHero from '../components/ui/PageHero'
 
 type KpiCard = {
   label: string
@@ -193,6 +198,18 @@ export default function DashboardPage() {
         '& .MuiGrid-item': { minWidth: 0 }
       }}
     >
+      <PageHero
+        eyebrow={t('dashboard.title')}
+        title={t('dashboard.title')}
+        description={t('dashboard.subtitle')}
+        icon={<DashboardRoundedIcon fontSize="small" />}
+        action={(
+          <Button variant="contained" size="small" onClick={() => navigate('/today')}>
+            {t('dashboard.goToToday')}
+          </Button>
+        )}
+      />
+
       {error && <ErrorBanner message={error} />}
       {hasNoTrades && (
         <EmptyState

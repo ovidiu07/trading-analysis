@@ -27,6 +27,8 @@ describe('Route title metadata guard', () => {
   it('keeps primary route titles in centralized route metadata', () => {
     const routeIds = ROUTE_META_DEFINITIONS.map((item) => item.id)
     expect(routeIds).toEqual(expect.arrayContaining([
+      'today',
+      'todaySession',
       'dashboard',
       'trades',
       'calendar',

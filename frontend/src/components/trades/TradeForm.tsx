@@ -3,8 +3,10 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Autocomplete,
   Box,
   Button,
+  Chip,
   Grid,
   MenuItem,
   Stack,
@@ -12,8 +14,10 @@ import {
   Typography
 } from '@mui/material'
 import { alpha } from '@mui/material/styles'
-import { ReactNode, useEffect } from 'react'
+import { ReactNode, useEffect, useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
+import { PlanSource } from '../../api/plans'
+import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
 import { formatNumber, formatPercent } from '../../utils/format'
 import { TradeFormValues } from '../../utils/tradePayload'
@@ -35,6 +39,20 @@ export type TradeFormProps = {
   secondaryAction?: ReactNode
   computedValues?: ComputedTradeMetrics
   stickyActions?: boolean
+  strategyOptions?: Array<{ id: string; label: string }>
+  planOptions?: Array<{ id: string; label: string; source?: PlanSource }>
+  ruleBreakOptions?: string[]
+}
+
+const localDateTimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/
+const timezoneRegex = /(Z|[+-]\d{2}:\d{2})$/i
+
+const toIsoDateTime = (value: string): string => {
+  if (localDateTimeRegex.test(value) && !timezoneRegex.test(value)) {
+    const withSeconds = value.length === 16 ? `${value}:00` : value
+    return new Date(`${withSeconds}Z`).toISOString()
+  }
+  return new Date(value).toISOString()
 }
 
 export function TradeForm({
@@ -45,7 +63,10 @@ export function TradeForm({
   error,
   secondaryAction,
   computedValues,
-  stickyActions = false
+  stickyActions = false,
+  strategyOptions = [],
+  planOptions = [],
+  ruleBreakOptions = []
 }: TradeFormProps) {
   const { t } = useI18n()
   const {
@@ -53,6 +74,7 @@ export function TradeForm({
     control,
     handleSubmit,
     reset,
+    setValue,
     watch,
     formState: { errors }
   } = useForm<TradeFormValues>({ defaultValues: initialValues })
@@ -62,7 +84,44 @@ export function TradeForm({
   }, [initialValues, reset])
 
   const statusValue = watch('status')
+  const openedAtValue = watch('openedAt')
   const showClosedFields = statusValue === 'CLOSED'
+
+  const openedAtIso = useMemo(() => {
+    if (!openedAtValue || !openedAtValue.trim()) return ''
+    try {
+      return toIsoDateTime(openedAtValue)
+    } catch {
+      return ''
+    }
+  }, [openedAtValue])
+
+  const activePlansQuery = useActivePlansForTradeQuery(openedAtIso, undefined, Boolean(openedAtIso))
+  const activePlanOptions = useMemo(() => (
+    (activePlansQuery.data?.plans || []).map((plan) => ({
+      id: plan.id,
+      source: plan.source,
+      label: plan.source === 'MENTOR'
+        ? `${t('trades.form.mentorFocusPrefix')}: ${plan.title}`
+        : `${t('trades.form.myPlanPrefix')}: ${plan.title}`
+    }))
+  ), [activePlansQuery.data?.plans, t])
+
+  const allPlanOptions = useMemo(() => {
+    const map = new Map<string, { id: string; label: string; source?: PlanSource }>()
+    ;[...activePlanOptions, ...planOptions].forEach((option) => {
+      if (!map.has(option.id)) {
+        map.set(option.id, option)
+      }
+    })
+    return Array.from(map.values())
+  }, [activePlanOptions, planOptions])
+
+  const planOptionsById = useMemo(() => {
+    const map = new Map<string, { id: string; label: string; source?: PlanSource }>()
+    allPlanOptions.forEach((option) => map.set(option.id, option))
+    return map
+  }, [allPlanOptions])
 
   const submitHandler = async (values: TradeFormValues) => {
     await onSubmit(values)
@@ -300,10 +359,140 @@ export function TradeForm({
                 <TextField label={t('trades.form.setup')} fullWidth {...register('setup')} />
               </Grid>
               <Grid item xs={12} sm={6} md={4}>
+                <Controller
+                  name="strategyId"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.strategy')}
+                      select
+                      fullWidth
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    >
+                      <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                      {strategyOptions.map((option) => (
+                        <MenuItem key={option.id} value={option.id}>{option.label}</MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <Controller
+                  name="setupGrade"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.setupGrade')}
+                      select
+                      fullWidth
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    >
+                      <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                      <MenuItem value="A">A</MenuItem>
+                      <MenuItem value="B">B</MenuItem>
+                      <MenuItem value="C">C</MenuItem>
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
                 <TextField label={t('trades.form.strategyTag')} fullWidth {...register('strategyTag')} />
               </Grid>
               <Grid item xs={12} sm={6} md={4}>
                 <TextField label={t('trades.form.catalystTag')} fullWidth {...register('catalystTag')} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <Controller
+                  name="session"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.session')}
+                      select
+                      fullWidth
+                      value={field.value ?? ''}
+                      onChange={field.onChange}
+                    >
+                      <MenuItem value="">{t('trades.form.none')}</MenuItem>
+                      <MenuItem value="ASIA">{t('trades.form.sessions.ASIA')}</MenuItem>
+                      <MenuItem value="LONDON">{t('trades.form.sessions.LONDON')}</MenuItem>
+                      <MenuItem value="NY">{t('trades.form.sessions.NY')}</MenuItem>
+                      <MenuItem value="CUSTOM">{t('trades.form.sessions.CUSTOM')}</MenuItem>
+                    </TextField>
+                  )}
+                />
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="linkedPlanIds"
+                  control={control}
+                  render={({ field }) => (
+                    <Autocomplete<{ id: string; label: string; source?: PlanSource }, true, false, false>
+                      multiple
+                      options={allPlanOptions}
+                      value={(field.value || []).map((id) => planOptionsById.get(id) || { id, label: id })}
+                      onChange={(_, value) => field.onChange(value.map((item) => item.id))}
+                      isOptionEqualToValue={(option, value) => option.id === value.id}
+                      getOptionLabel={(option) => option.label}
+                      renderTags={(value, getTagProps) =>
+                        value.map((option, index) => (
+                          <Chip
+                            {...getTagProps({ index })}
+                            key={option.id}
+                            size="small"
+                            label={option.label}
+                          />
+                        ))
+                      }
+                      noOptionsText={t('trades.form.none')}
+                      renderInput={(params) => (
+                        <TextField {...params} label={t('trades.form.linkedPlans')} />
+                      )}
+                    />
+                  )}
+                />
+                <Stack direction="row" justifyContent="flex-end" sx={{ mt: 1 }}>
+                  <Button
+                    size="small"
+                    variant="text"
+                    disabled={!activePlansQuery.data || activePlansQuery.isFetching}
+                    onClick={() => {
+                      const suggested = activePlansQuery.data?.suggestedPlanIds || []
+                      setValue('linkedPlanIds', suggested, { shouldDirty: true, shouldValidate: true })
+                    }}
+                  >
+                    {t('trades.form.linkActivePlans')}
+                  </Button>
+                </Stack>
+              </Grid>
+              <Grid item xs={12} md={6}>
+                <Controller
+                  name="ruleBreaks"
+                  control={control}
+                  render={({ field }) => (
+                    <TextField
+                      label={t('trades.form.ruleBreaks')}
+                      select
+                      fullWidth
+                      value={field.value ?? []}
+                      onChange={(event) => {
+                        const value = event.target.value
+                        field.onChange(typeof value === 'string' ? value.split(',') : value)
+                      }}
+                      SelectProps={{
+                        multiple: true,
+                        renderValue: (selected) => (selected as string[]).map((value) => t(`trades.form.ruleBreakOptions.${value}`)).join(', ')
+                      }}
+                    >
+                      {ruleBreakOptions.map((option) => (
+                        <MenuItem key={option} value={option}>{t(`trades.form.ruleBreakOptions.${option}`)}</MenuItem>
+                      ))}
+                    </TextField>
+                  )}
+                />
               </Grid>
               <Grid item xs={12}>
                 <TextField label={t('trades.form.notes')} fullWidth multiline minRows={3} {...register('notes')} />

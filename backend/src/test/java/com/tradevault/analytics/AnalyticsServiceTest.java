@@ -1,7 +1,5 @@
 package com.tradevault.analytics;
 
-import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
@@ -13,12 +11,11 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 
-import java.io.IOException;
-import java.io.InputStream;
 import java.math.BigDecimal;
-import java.time.OffsetDateTime;
 import java.math.RoundingMode;
+import java.time.OffsetDateTime;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -39,11 +36,16 @@ class AnalyticsServiceTest {
         analyticsService = new AnalyticsService(tradeRepository, currentUserService);
         User user = User.builder().id(UUID.randomUUID()).email("test@example.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(tradeRepository.findTradeIdsWithLinkedContentForUser(Mockito.any(), Mockito.anyCollection())).thenReturn(Set.of());
     }
 
     @Test
-    void summarizeComputesCoreMetricsFromFixture() throws IOException {
-        List<Trade> trades = loadFixtureTrades();
+    void summarizeComputesCoreMetricsFromTrades() {
+        List<Trade> trades = List.of(
+                buildTrade(UUID.randomUUID(), "AAPL", Direction.LONG, TradeStatus.CLOSED, "2026-01-02T10:00:00Z", "2026-01-02T10:10:00Z", "125.50"),
+                buildTrade(UUID.randomUUID(), "MSFT", Direction.SHORT, TradeStatus.CLOSED, "2026-01-03T09:00:00Z", "2026-01-03T10:00:00Z", "-20.00"),
+                buildTrade(UUID.randomUUID(), "NVDA", Direction.LONG, TradeStatus.OPEN, "2026-01-04T09:00:00Z", null, null)
+        );
         when(tradeRepository.findByUserId(Mockito.any())).thenReturn(trades);
 
         AnalyticsResponse response = analyticsService.summarize(
@@ -78,25 +80,59 @@ class AnalyticsServiceTest {
         assertNotNull(response.getDistribution().getP50());
     }
 
-    private List<Trade> loadFixtureTrades() throws IOException {
-        ObjectMapper mapper = new ObjectMapper();
-        try (InputStream input = getClass().getClassLoader().getResourceAsStream("trades-database.json")) {
-            assertNotNull(input, "Fixture file trades-database.json is missing");
-            List<FixtureTrade> fixtures = mapper.readValue(input, new TypeReference<>() {});
-            return fixtures.stream().map(this::mapFixture).toList();
-        }
+    @Test
+    void summarizeBuildsPlanAdherenceFromRepositoryLinkedIds() {
+        UUID linkedTradeId = UUID.randomUUID();
+        UUID unlinkedTradeId = UUID.randomUUID();
+
+        Trade linkedTrade = new Trade();
+        linkedTrade.setId(linkedTradeId);
+        linkedTrade.setStatus(TradeStatus.CLOSED);
+        linkedTrade.setClosedAt(OffsetDateTime.parse("2026-01-02T10:10:00Z"));
+        linkedTrade.setPnlNet(new BigDecimal("100.00"));
+        linkedTrade.setLinkedContentIds(null);
+
+        Trade unlinkedTrade = new Trade();
+        unlinkedTrade.setId(unlinkedTradeId);
+        unlinkedTrade.setStatus(TradeStatus.CLOSED);
+        unlinkedTrade.setClosedAt(OffsetDateTime.parse("2026-01-02T11:10:00Z"));
+        unlinkedTrade.setPnlNet(new BigDecimal("-20.00"));
+        unlinkedTrade.setLinkedContentIds(null);
+
+        when(tradeRepository.findByUserId(Mockito.any())).thenReturn(List.of(linkedTrade, unlinkedTrade));
+        when(tradeRepository.findTradeIdsWithLinkedContentForUser(Mockito.any(), Mockito.anyCollection()))
+                .thenReturn(Set.of(linkedTradeId));
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "CLOSE",
+                false,
+                null
+        );
+
+        assertEquals(1, response.getPlanAdherence().getLinkedTrades());
+        assertEquals(1, response.getPlanAdherence().getUnlinkedTrades());
+        assertEquals(0, response.getPlanAdherence().getLinkedNetPnl().compareTo(new BigDecimal("100.00")));
+        assertEquals(0, response.getPlanAdherence().getUnlinkedNetPnl().compareTo(new BigDecimal("-20.00")));
     }
 
-    private Trade mapFixture(FixtureTrade fixture) {
+    private Trade buildTrade(UUID id, String symbol, Direction direction, TradeStatus status, String openedAt, String closedAt, String pnlNet) {
         Trade trade = new Trade();
-        trade.setSymbol(fixture.code);
-        trade.setDirection("sell".equalsIgnoreCase(fixture.direction) ? Direction.SHORT : Direction.LONG);
-        trade.setStatus("closed".equalsIgnoreCase(fixture.eventType) ? TradeStatus.CLOSED : TradeStatus.OPEN);
-        trade.setOpenedAt(parseDate(fixture.openingTime));
-        trade.setClosedAt(parseDate(fixture.time));
-        trade.setPnlNet(parseDecimal(fixture.resultNet));
-        trade.setPnlGross(parseDecimal(fixture.resultGross));
-        trade.setFees(parseDecimal(fixture.fxFee));
+        trade.setId(id);
+        trade.setSymbol(symbol);
+        trade.setDirection(direction);
+        trade.setStatus(status);
+        trade.setOpenedAt(parseDate(openedAt));
+        trade.setClosedAt(parseDate(closedAt));
+        trade.setPnlNet(parseDecimal(pnlNet));
         return trade;
     }
 
@@ -112,16 +148,5 @@ class AnalyticsServiceTest {
             return null;
         }
         return new BigDecimal(value);
-    }
-
-    private static class FixtureTrade {
-        public String direction;
-        public String code;
-        public String resultNet;
-        public String resultGross;
-        public String time;
-        public String openingTime;
-        public String eventType;
-        public String fxFee;
     }
 }

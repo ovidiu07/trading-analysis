@@ -21,6 +21,12 @@ type TradeFormValues = {
   setup?: string
   strategyTag?: string
   catalystTag?: string
+  strategyId?: string
+  setupGrade?: TradeRequest['setupGrade']
+  ruleBreaks?: string[]
+  session?: TradeRequest['session']
+  linkedContentIds?: string[]
+  linkedPlanIds?: string[]
   notes?: string
   accountId?: string
 }
@@ -39,6 +45,8 @@ function toIsoDateTime(value: string): string {
 export function buildTradePayload(values: TradeFormValues): TradeRequest {
   const toNullableNumber = (value?: number) =>
     value !== undefined && !Number.isNaN(value) ? Number(value) : null
+  const toStringArray = (values?: string[]) =>
+    (values || []).map((value) => value.trim()).filter(Boolean)
 
   return {
     symbol: values.symbol,
@@ -61,6 +69,12 @@ export function buildTradePayload(values: TradeFormValues): TradeRequest {
     setup: values.setup || undefined,
     strategyTag: values.strategyTag || undefined,
     catalystTag: values.catalystTag || undefined,
+    strategyId: values.strategyId || undefined,
+    setupGrade: values.setupGrade || undefined,
+    ruleBreaks: toStringArray(values.ruleBreaks),
+    session: values.session || undefined,
+    linkedContentIds: toStringArray(values.linkedContentIds),
+    linkedPlanIds: toStringArray(values.linkedPlanIds),
     notes: values.notes,
     accountId: values.accountId || undefined,
   }

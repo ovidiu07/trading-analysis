@@ -336,6 +336,35 @@ class NotificationWorkflowIntegrationTest {
         assertThat(dispatched.getDispatchedAt()).isNotNull();
     }
 
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = {"ADMIN"})
+    void publishedContentUpdatePersistsTemplateFieldsAndRevisionNotes() {
+        createUser("admin@example.com", Role.ADMIN);
+        ContentType strategy = createType("STRATEGY", "Strategy", "Strategie");
+
+        UUID postId = createDraft(strategy, "Structured strategy", null);
+        contentPostService.publish(postId, "en");
+
+        ContentPostRequest request = buildUpdateRequest(postId, "Structured strategy v2", false);
+        Map<String, Object> templateFields = new LinkedHashMap<>();
+        templateFields.put("what", "Liquidity sweep setup");
+        templateFields.put("when", "London open and NY overlap");
+        templateFields.put("filters", "HTF confluence and MSS confirmation");
+        templateFields.put("entryModel", "Sweep + MSS + FVG");
+        templateFields.put("invalidation", "Break below protected low");
+        templateFields.put("targets", "PDH then external range liquidity");
+        templateFields.put("riskModel", "0.5R risk per attempt");
+        templateFields.put("failureModes", "Late entries during low liquidity");
+        request.setTemplateFields(templateFields);
+        request.setRevisionNotes("Added structured playbook fields.");
+
+        ContentPostResponse updated = contentPostService.update(postId, request, "en");
+
+        assertThat(updated.getTemplateFields()).containsEntry("entryModel", "Sweep + MSS + FVG");
+        assertThat(updated.getRevisionNotes()).isEqualTo("Added structured playbook fields.");
+        assertThat(updated.getContentVersion()).isEqualTo(2);
+    }
+
     private User createUser(String email, Role role) {
         return userRepository.save(User.builder()
                 .email(email)

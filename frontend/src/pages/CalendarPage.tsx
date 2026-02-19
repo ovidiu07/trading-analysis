@@ -22,6 +22,7 @@ import {
 } from '@mui/material'
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
+import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
 import { DailyPnlResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
@@ -29,6 +30,7 @@ import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
 import EmptyState from '../components/ui/EmptyState'
+import PageHero from '../components/ui/PageHero'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
@@ -432,6 +434,13 @@ export default function CalendarPage() {
 
   return (
     <Stack spacing={isCompact ? 2 : 3}>
+      <PageHero
+        eyebrow={t('nav.calendar')}
+        title={monthLabel}
+        description={t('calendar.subtitle', { timezone })}
+        icon={<CalendarMonthRoundedIcon fontSize="small" />}
+      />
+
       <Box
         sx={{
           width: { xs: '100%', md: 'auto' },

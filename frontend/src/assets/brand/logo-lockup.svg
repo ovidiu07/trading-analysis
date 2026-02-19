@@ -1,0 +1,11 @@
+<svg width="270" height="52" viewBox="0 0 270 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <g>
+    <rect x="2" y="2" width="48" height="48" rx="14" fill="currentColor" opacity="0.08"/>
+    <path d="M11 17H28" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <path d="M19.5 17V37" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <path d="M32 17H42V29.5C42 35.2 38.9 38.4 33.3 38.4C31 38.4 28.9 37.7 27.2 36.4" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M11 36L19.5 29.5L25.6 33.2L37.6 21.8" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+    <path d="M33 21.8H37.6V26.4" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+  <text x="64" y="34" fill="currentColor" font-family="'Plus Jakarta Sans', Inter, sans-serif" font-size="29" font-weight="700" letter-spacing="-0.02em">TradeJAudit</text>
+</svg>

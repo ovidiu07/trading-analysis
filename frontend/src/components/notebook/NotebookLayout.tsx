@@ -3,11 +3,13 @@ import { ReactNode } from 'react'
 
 type NotebookLayoutProps = {
   isMobile: boolean
+  isWideDesktop: boolean
   mobilePanel: 'list' | 'note'
-  leftRail: ReactNode
-  middlePanel: ReactNode
-  rightPanel: ReactNode
-  listCollapsed?: boolean
+  topNavigation: ReactNode
+  listPanel: ReactNode
+  editorPanel: ReactNode
+  listCollapsed: boolean
+  listCollapsedRail: ReactNode
 }
 
 const panelSx = {
@@ -17,53 +19,91 @@ const panelSx = {
   display: 'flex',
   flexDirection: 'column' as const,
   overflow: 'hidden',
-  borderRadius: 3
+  borderRadius: 3,
+  position: 'relative' as const
 }
+
+const listExpandedMinWidth = 360
+const listExpandedMaxWidth = 420
+const collapsedRailWidth = 56
+const desktopEditorMinWidth = 640
 
 export default function NotebookLayout({
   isMobile,
+  isWideDesktop,
   mobilePanel,
-  leftRail,
-  middlePanel,
-  rightPanel,
-  listCollapsed = false
+  topNavigation,
+  listPanel,
+  editorPanel,
+  listCollapsed,
+  listCollapsedRail
 }: NotebookLayoutProps) {
   if (isMobile) {
     if (mobilePanel === 'note') {
       return (
         <Paper sx={panelSx}>
-          {rightPanel}
+          {editorPanel}
         </Paper>
       )
     }
     return (
       <Paper sx={panelSx}>
-        {middlePanel}
+        {listPanel}
       </Paper>
     )
   }
 
+  const editorMinWidth = isWideDesktop ? desktopEditorMinWidth : 0
+
   return (
-    <Box
-      sx={{
-        display: 'grid',
-        gridTemplateColumns: listCollapsed
-          ? '220px 84px minmax(0, 1fr)'
-          : '220px minmax(300px, 390px) minmax(0, 1fr)',
-        gap: 1.5,
-        minHeight: 0,
-        height: '100%'
-      }}
-    >
-      <Paper sx={panelSx}>
-        {leftRail}
+    <Stack sx={{ minHeight: 0, height: '100%', gap: 1.5 }}>
+      <Paper
+        data-testid="notebook-top-nav"
+        sx={{
+          ...panelSx,
+          height: 'auto',
+          minHeight: 'auto',
+          borderRadius: 3,
+          position: 'sticky',
+          top: 0,
+          zIndex: 3
+        }}
+      >
+        {topNavigation}
       </Paper>
-      <Paper sx={panelSx}>
-        {middlePanel}
-      </Paper>
-      <Paper sx={panelSx}>
-        {rightPanel}
-      </Paper>
-    </Box>
+
+      <Box
+        data-testid="notebook-layout-desktop"
+        sx={{
+          display: 'grid',
+          gridTemplateColumns: isWideDesktop
+            ? `${listCollapsed ? collapsedRailWidth : `minmax(${listExpandedMinWidth}px, ${listExpandedMaxWidth}px)`} minmax(${editorMinWidth}px, 1fr)`
+            : '1fr',
+          gridTemplateRows: isWideDesktop
+            ? 'minmax(0, 1fr)'
+            : `${listCollapsed ? `${collapsedRailWidth}px` : 'minmax(260px, 38vh)'} minmax(0, 1fr)`,
+          gap: 2,
+          minHeight: 0,
+          height: '100%',
+          minWidth: 0,
+          '& > *': { minWidth: 0 }
+        }}
+      >
+        <Paper data-testid="notebook-list-pane" sx={panelSx}>
+          {listCollapsed ? listCollapsedRail : listPanel}
+        </Paper>
+
+        <Paper
+          data-testid="notebook-editor-pane"
+          data-editor-min-width={editorMinWidth}
+          sx={{
+            ...panelSx,
+            minWidth: editorMinWidth
+          }}
+        >
+          {editorPanel}
+        </Paper>
+      </Box>
+    </Stack>
   )
 }

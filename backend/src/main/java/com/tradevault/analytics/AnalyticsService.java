@@ -3,11 +3,14 @@ package com.tradevault.analytics;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.analytics.*;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -24,6 +27,7 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class AnalyticsService {
+    private static final Logger log = LoggerFactory.getLogger(AnalyticsService.class);
     private final TradeRepository tradeRepository;
     private final CurrentUserService currentUserService;
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Europe/Bucharest");
@@ -70,6 +74,12 @@ public class AnalyticsService {
         RiskSummary risk = buildRisk(closedForMetrics);
         DataQualitySummary dataQuality = buildDataQuality(filtered);
         TraderReadSummary traderRead = buildTraderRead(attribution, timeEdge, drawdownResult, kpi, closedForMetrics.size());
+        List<StrategyPerformanceRow> strategyPerformance = buildStrategyPerformance(closedForMetrics);
+        List<SessionPerformanceRow> sessionPerformance = buildSessionPerformance(closedForMetrics, mode);
+        // Avoid touching Trade.linkedContentIds on detached entities; load only linked trade ids.
+        Set<UUID> linkedTradeIds = resolveLinkedTradeIds(user.getId(), closedForMetrics);
+        PlanAdherenceSummary planAdherence = buildPlanAdherence(closedForMetrics, linkedTradeIds);
+        CoachingSummary coachingSummary = buildCoachingSummary(strategyPerformance, sessionPerformance);
 
         Map<String, Double> breakdown = closedForMetrics.stream().collect(Collectors.groupingBy(
                 t -> Optional.ofNullable(t.getStrategyTag()).filter(s -> !s.isBlank()).orElse("Unspecified"),
@@ -94,6 +104,10 @@ public class AnalyticsService {
                 .rolling20(buildRolling(closedForMetrics, 20))
                 .rolling50(buildRolling(closedForMetrics, 50))
                 .breakdown(breakdown)
+                .coachingSummary(coachingSummary)
+                .strategyPerformance(strategyPerformance)
+                .sessionPerformance(sessionPerformance)
+                .planAdherence(planAdherence)
                 .build();
     }
 
@@ -517,6 +531,219 @@ public class AnalyticsService {
                 .build();
     }
 
+    private List<StrategyPerformanceRow> buildStrategyPerformance(List<Trade> trades) {
+        record StrategyMarketKey(String strategy, String market) {}
+        Map<StrategyMarketKey, List<Trade>> grouped = trades.stream()
+                .collect(Collectors.groupingBy(trade -> new StrategyMarketKey(
+                        Optional.ofNullable(trade.getStrategyTag()).filter(value -> !value.isBlank()).orElse("Unspecified"),
+                        marketBucket(trade)
+                )));
+
+        return grouped.entrySet().stream()
+                .map(entry -> {
+                    PerformanceMetrics metrics = buildPerformanceMetrics(entry.getValue());
+                    return StrategyPerformanceRow.builder()
+                            .strategy(entry.getKey().strategy())
+                            .market(entry.getKey().market())
+                            .trades(entry.getValue().size())
+                            .winRate(metrics.winRate())
+                            .expectancy(metrics.expectancy())
+                            .profitFactor(metrics.profitFactor())
+                            .netPnl(metrics.netPnl())
+                            .lowSample(entry.getValue().size() < LOW_SAMPLE_THRESHOLD)
+                            .build();
+                })
+                .sorted(Comparator
+                        .comparing(StrategyPerformanceRow::getExpectancy, Comparator.nullsLast(Comparator.reverseOrder()))
+                        .thenComparing(StrategyPerformanceRow::getTrades, Comparator.reverseOrder()))
+                .toList();
+    }
+
+    private List<SessionPerformanceRow> buildSessionPerformance(List<Trade> trades, DateMode mode) {
+        List<String> orderedSessions = List.of("ASIA", "LONDON", "NY", "CUSTOM");
+        Map<String, List<Trade>> grouped = new LinkedHashMap<>();
+        orderedSessions.forEach(label -> grouped.put(label, new ArrayList<>()));
+
+        for (Trade trade : trades) {
+            String session = resolveSessionBucket(trade, mode);
+            grouped.computeIfAbsent(session, ignored -> new ArrayList<>()).add(trade);
+        }
+
+        return grouped.entrySet().stream()
+                .filter(entry -> !entry.getValue().isEmpty())
+                .map(entry -> {
+                    PerformanceMetrics metrics = buildPerformanceMetrics(entry.getValue());
+                    return SessionPerformanceRow.builder()
+                            .session(entry.getKey())
+                            .trades(entry.getValue().size())
+                            .winRate(metrics.winRate())
+                            .expectancy(metrics.expectancy())
+                            .profitFactor(metrics.profitFactor())
+                            .netPnl(metrics.netPnl())
+                            .build();
+                })
+                .toList();
+    }
+
+    private Set<UUID> resolveLinkedTradeIds(UUID userId, List<Trade> trades) {
+        if (trades.isEmpty()) {
+            return Set.of();
+        }
+        List<UUID> tradeIds = trades.stream()
+                .map(Trade::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        if (tradeIds.isEmpty()) {
+            return Set.of();
+        }
+        Set<UUID> linkedTradeIds = tradeRepository.findTradeIdsWithLinkedContentForUser(userId, tradeIds);
+        Set<UUID> safeResult = linkedTradeIds == null ? Set.of() : linkedTradeIds;
+        if (log.isDebugEnabled()) {
+            log.debug("Plan adherence linked-content lookup complete: requestedTrades={}, linkedTrades={}",
+                    tradeIds.size(),
+                    safeResult.size());
+        }
+        return safeResult;
+    }
+
+    private PlanAdherenceSummary buildPlanAdherence(List<Trade> trades, Set<UUID> linkedTradeIds) {
+        Set<UUID> linkedIds = linkedTradeIds == null ? Set.of() : linkedTradeIds;
+        List<Trade> linked = trades.stream()
+                .filter(trade -> trade.getId() != null && linkedIds.contains(trade.getId()))
+                .toList();
+        List<Trade> unlinked = trades.stream()
+                .filter(trade -> trade.getId() == null || !linkedIds.contains(trade.getId()))
+                .toList();
+
+        int total = trades.size();
+        double linkedPct = total == 0 ? 0 : (double) linked.size() / total * 100;
+
+        return PlanAdherenceSummary.builder()
+                .linkedTrades(linked.size())
+                .unlinkedTrades(unlinked.size())
+                .linkedPct(linkedPct)
+                .linkedNetPnl(sum(linked, Trade::getPnlNet))
+                .unlinkedNetPnl(sum(unlinked, Trade::getPnlNet))
+                .linkedWinRate(winRate(linked))
+                .unlinkedWinRate(winRate(unlinked))
+                .build();
+    }
+
+    private CoachingSummary buildCoachingSummary(List<StrategyPerformanceRow> strategyRows,
+                                                 List<SessionPerformanceRow> sessionRows) {
+        StrategyPerformanceRow best = strategyRows.stream()
+                .filter(row -> row.getTrades() >= 5)
+                .findFirst()
+                .orElse(strategyRows.stream().findFirst().orElse(null));
+
+        SessionPerformanceRow leak = sessionRows.stream()
+                .filter(row -> row.getTrades() > 0)
+                .min(Comparator.comparing(SessionPerformanceRow::getExpectancy, Comparator.nullsLast(Comparator.naturalOrder())))
+                .orElse(null);
+
+        String nextFocusAction;
+        if (best != null && leak != null) {
+            nextFocusAction = String.format(
+                    "Prioritize %s (%s) setups and reduce %s session exposure until expectancy improves.",
+                    best.getStrategy(),
+                    best.getMarket(),
+                    leak.getSession()
+            );
+        } else if (best != null) {
+            nextFocusAction = String.format(
+                    "Build repetitions on %s (%s) with strict A-grade execution this week.",
+                    best.getStrategy(),
+                    best.getMarket()
+            );
+        } else {
+            nextFocusAction = "Link each trade to a plan and strategy first, then optimize session quality.";
+        }
+
+        return CoachingSummary.builder()
+                .bestStrategy(best == null ? "No strategy edge yet" : String.format("%s (%s)", best.getStrategy(), best.getMarket()))
+                .bestStrategyExpectancy(best == null ? null : best.getExpectancy())
+                .bestStrategyTrades(best == null ? 0 : best.getTrades())
+                .biggestLeak(leak == null ? "No clear leak yet" : String.format("%s session", leak.getSession()))
+                .biggestLeakExpectancy(leak == null ? null : leak.getExpectancy())
+                .nextFocusAction(nextFocusAction)
+                .build();
+    }
+
+    private PerformanceMetrics buildPerformanceMetrics(List<Trade> trades) {
+        List<BigDecimal> pnlValues = trades.stream()
+                .map(trade -> trade.getPnlNet() == null ? BigDecimal.ZERO : trade.getPnlNet())
+                .toList();
+        BigDecimal netPnl = sumValues(pnlValues);
+        long wins = pnlValues.stream().filter(value -> value.compareTo(BigDecimal.ZERO) > 0).count();
+        BigDecimal grossProfit = sumValues(pnlValues.stream().filter(value -> value.compareTo(BigDecimal.ZERO) > 0).toList());
+        BigDecimal grossLoss = sumValues(pnlValues.stream().filter(value -> value.compareTo(BigDecimal.ZERO) < 0).toList()).abs();
+        BigDecimal profitFactor = grossLoss.compareTo(BigDecimal.ZERO) == 0 ? null : grossProfit.divide(grossLoss, 2, RoundingMode.HALF_UP);
+        BigDecimal expectancy = trades.isEmpty()
+                ? BigDecimal.ZERO
+                : netPnl.divide(BigDecimal.valueOf(trades.size()), 2, RoundingMode.HALF_UP);
+        double winRate = trades.isEmpty() ? 0 : (double) wins / trades.size() * 100;
+        return new PerformanceMetrics(winRate, expectancy, profitFactor, netPnl);
+    }
+
+    private double winRate(List<Trade> trades) {
+        if (trades.isEmpty()) {
+            return 0;
+        }
+        long wins = trades.stream()
+                .map(trade -> trade.getPnlNet() == null ? BigDecimal.ZERO : trade.getPnlNet())
+                .filter(value -> value.compareTo(BigDecimal.ZERO) > 0)
+                .count();
+        return (double) wins / trades.size() * 100;
+    }
+
+    private String marketBucket(Trade trade) {
+        if (trade.getMarket() == Market.FOREX) {
+            return "FOREX";
+        }
+        if (trade.getMarket() == Market.CFD || trade.getMarket() == Market.FUTURES || isIndexSymbol(trade.getSymbol())) {
+            return "INDICES";
+        }
+        return "OTHER";
+    }
+
+    private boolean isIndexSymbol(String symbol) {
+        if (symbol == null || symbol.isBlank()) {
+            return false;
+        }
+        String normalized = symbol.trim().toUpperCase(Locale.ROOT);
+        return normalized.contains("US100")
+                || normalized.contains("NAS100")
+                || normalized.contains("GER40")
+                || normalized.contains("UK100")
+                || normalized.contains("SPX")
+                || normalized.contains("DJI")
+                || normalized.contains("DAX")
+                || normalized.contains("FTSE")
+                || normalized.contains("NQ")
+                || normalized.contains("ES");
+    }
+
+    private String resolveSessionBucket(Trade trade, DateMode mode) {
+        if (trade.getSession() != null) {
+            return trade.getSession().name();
+        }
+        OffsetDateTime eventTime = getEventTime(trade, mode);
+        if (eventTime == null) {
+            return "CUSTOM";
+        }
+        int hour = eventTime.atZoneSameInstant(DISPLAY_ZONE).getHour();
+        if (hour < 7) {
+            return "ASIA";
+        }
+        if (hour < 14) {
+            return "LONDON";
+        }
+        if (hour < 21) {
+            return "NY";
+        }
+        return "CUSTOM";
+    }
+
     private RiskSummary buildRisk(List<Trade> trades) {
         List<BigDecimal> rMultiples = trades.stream()
                 .map(Trade::getRMultiple)
@@ -938,6 +1165,11 @@ public class AnalyticsService {
             default -> "Sun";
         };
     }
+
+    private record PerformanceMetrics(double winRate,
+                                      BigDecimal expectancy,
+                                      BigDecimal profitFactor,
+                                      BigDecimal netPnl) {}
 
     private record DrawdownResult(DrawdownSummary summary, List<TimeSeriesPoint> equityCurve, List<TimeSeriesPoint> drawdownSeries) {}
 

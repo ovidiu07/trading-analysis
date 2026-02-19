@@ -152,6 +152,16 @@ public interface UserNotificationRepository extends JpaRepository<UserNotificati
                 )
               )
             )
+            OR EXISTS (
+              SELECT 1
+              FROM follows f
+              WHERE f.user_id = np.user_id
+                AND (
+                  (f.follow_type = 'TAG' AND jsonb_exists(COALESCE(e.tags, CAST('[]' AS jsonb)), f.value))
+                  OR (f.follow_type = 'SYMBOL' AND jsonb_exists(COALESCE(e.symbols, CAST('[]' AS jsonb)), f.value))
+                  OR (f.follow_type = 'STRATEGY' AND f.value = CAST(e.content_id AS text))
+                )
+            )
           )
         ON CONFLICT (user_id, event_id) DO NOTHING
         """, nativeQuery = true)

@@ -1,4 +1,4 @@
-import { MouseEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { MouseEvent, SyntheticEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Alert,
   Box,
@@ -16,6 +16,7 @@ import {
   ListItemText,
   Menu,
   MenuItem,
+  Snackbar,
   Stack,
   Tab,
   Tabs,
@@ -41,6 +42,7 @@ import AddIcon from '@mui/icons-material/Add'
 import PushPinIcon from '@mui/icons-material/PushPin'
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore'
 import ExpandLessIcon from '@mui/icons-material/ExpandLess'
+import KeyboardArrowRightIcon from '@mui/icons-material/KeyboardArrowRight'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useBlocker } from 'react-router'
 import { useAuth } from '../auth/AuthContext'
@@ -79,6 +81,7 @@ import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import EmptyState from '../components/ui/EmptyState'
+import PageHero from '../components/ui/PageHero'
 import NotebookLayout from '../components/notebook/NotebookLayout'
 import NoteList from '../components/notebook/NoteList'
 import NewNoteMenu from '../components/notebook/NewNoteMenu'
@@ -102,9 +105,17 @@ import { UploadQueueItem } from '../components/assets/AssetListRenderer'
 const STORAGE_KEYS = {
   nav: 'tv-notebook-nav-v2',
   filters: 'tv-notebook-filters-v2',
-  listCollapsed: 'tv-notebook-list-collapsed-v2',
+  layout: 'notebook.layout.v1',
   metaCollapsed: 'tv-notebook-meta-collapsed-v2'
 } as const
+
+type NotebookLayoutState = {
+  listCollapsed: boolean
+}
+
+const defaultLayoutState: NotebookLayoutState = {
+  listCollapsed: false
+}
 
 const defaultFilters: AdvancedNoteFilters = {
   folderId: '',
@@ -224,6 +235,20 @@ const parseStoredNavigation = (): NotebookNavigationState => {
   }
 }
 
+const parseStoredLayout = (): NotebookLayoutState => {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEYS.layout)
+    if (!raw) return defaultLayoutState
+    const parsed = JSON.parse(raw) as Partial<NotebookLayoutState>
+    const next: NotebookLayoutState = {
+      listCollapsed: typeof parsed.listCollapsed === 'boolean' ? parsed.listCollapsed : defaultLayoutState.listCollapsed
+    }
+    return next
+  } catch {
+    return defaultLayoutState
+  }
+}
+
 const parseReview = (reviewJson?: string | null): NoteReview => {
   if (!reviewJson) return defaultReview
   try {
@@ -253,6 +278,7 @@ export default function NotebookPage() {
 
   const isMobile = useMediaQuery('(max-width: 899.98px)')
   const isDesktop = useMediaQuery('(min-width: 900px)')
+  const isWideDesktop = useMediaQuery('(min-width: 1200px)')
 
   const [folders, setFolders] = useState<NotebookFolder[]>([])
   const [tags, setTags] = useState<NotebookTag[]>([])
@@ -269,11 +295,12 @@ export default function NotebookPage() {
   const [error, setError] = useState('')
   const [infoMessage, setInfoMessage] = useState('')
   const [saveState, setSaveState] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null)
   const [isDirty, setIsDirty] = useState(false)
+  const [unsavedDialogOpen, setUnsavedDialogOpen] = useState(false)
+  const [saveErrorToastOpen, setSaveErrorToastOpen] = useState(false)
   const [showUndoDelete, setShowUndoDelete] = useState(false)
   const [lastDeletedNote, setLastDeletedNote] = useState<NotebookNote | null>(null)
-  const [listCollapsed, setListCollapsed] = useState(() => localStorage.getItem(STORAGE_KEYS.listCollapsed) === 'true')
+  const [layoutState, setLayoutState] = useState<NotebookLayoutState>(parseStoredLayout)
   const [metaCollapsed, setMetaCollapsed] = useState(() => localStorage.getItem(STORAGE_KEYS.metaCollapsed) === 'true')
   const [mobilePanel, setMobilePanel] = useState<'list' | 'note'>('list')
   const [navigationDrawerOpen, setNavigationDrawerOpen] = useState(false)
@@ -302,7 +329,14 @@ export default function NotebookPage() {
   const [lossRecapForm, setLossRecapForm] = useState<LossRecapForm>(defaultLossRecap)
 
   const persistedFingerprintRef = useRef('')
+  const persistedNoteRef = useRef<NotebookNote | null>(null)
   const isSavingRef = useRef(false)
+  const pendingUnsavedActionRef = useRef<{
+    run: () => void | Promise<void>
+    onCancel?: () => void
+  } | null>(null)
+
+  const { listCollapsed } = layoutState
 
   const urlNoteId = useMemo(() => new URLSearchParams(location.search).get('noteId'), [location.search])
 
@@ -330,21 +364,32 @@ export default function NotebookPage() {
     return smartFolders.get(systemKey)?.id
   }, [filters.folderId, navigation, smartFolders])
 
-  const confirmDiscard = useCallback(() => {
-    if (!isDirty) return true
-    return window.confirm(t('notebook.prompts.discardChanges'))
-  }, [isDirty, t])
+  const togglePane = useCallback((pane: keyof NotebookLayoutState) => {
+    setLayoutState((prev) => ({ ...prev, [pane]: !prev[pane] }))
+  }, [])
+
+  const queueUnsavedAction = useCallback((action: () => void | Promise<void>, onCancel?: () => void) => {
+    pendingUnsavedActionRef.current = {
+      run: action,
+      onCancel
+    }
+    setUnsavedDialogOpen(true)
+  }, [])
+
+  const runWithUnsavedGuard = useCallback((action: () => void | Promise<void>, onCancel?: () => void) => {
+    if (!isDirty) {
+      void action()
+      return
+    }
+    queueUnsavedAction(action, onCancel)
+  }, [isDirty, queueUnsavedAction])
 
   const blocker = useBlocker(isDirty)
 
   useEffect(() => {
     if (blocker.state !== 'blocked') return
-    if (window.confirm(t('notebook.prompts.discardAndContinue'))) {
-      blocker.proceed()
-    } else {
-      blocker.reset()
-    }
-  }, [blocker, t])
+    queueUnsavedAction(() => blocker.proceed(), () => blocker.reset())
+  }, [blocker, queueUnsavedAction])
 
   useEffect(() => {
     const handleBeforeUnload = (event: BeforeUnloadEvent) => {
@@ -365,8 +410,8 @@ export default function NotebookPage() {
   }, [filters])
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEYS.listCollapsed, listCollapsed ? 'true' : 'false')
-  }, [listCollapsed])
+    localStorage.setItem(STORAGE_KEYS.layout, JSON.stringify(layoutState))
+  }, [layoutState])
 
   useEffect(() => {
     localStorage.setItem(STORAGE_KEYS.metaCollapsed, metaCollapsed ? 'true' : 'false')
@@ -539,6 +584,10 @@ export default function NotebookPage() {
     try {
       const data = await getNotebookNote(noteId)
       setSelectedNote(data)
+      persistedFingerprintRef.current = buildNoteFingerprint(data)
+      persistedNoteRef.current = { ...data }
+      setIsDirty(false)
+      setSaveState('idle')
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         handleAuthFailure()
@@ -585,9 +634,9 @@ export default function NotebookPage() {
 
   useEffect(() => {
     persistedFingerprintRef.current = buildNoteFingerprint(selectedNote)
+    persistedNoteRef.current = selectedNote ? { ...selectedNote } : null
     setIsDirty(false)
     setSaveState('idle')
-    setLastSavedAt(selectedNote?.updatedAt ?? null)
     setTemplateSelection('')
     if (selectedNote) {
       setViewMode('read')
@@ -596,7 +645,7 @@ export default function NotebookPage() {
     if (isMobile) {
       setMobilePanel(selectedNote ? 'note' : 'list')
     }
-  }, [isMobile, selectedNote?.id, selectedNote?.updatedAt])
+  }, [isMobile, selectedNote?.id])
 
   const updateDraftNote = useCallback((next: NotebookNote) => {
     setSelectedNote(next)
@@ -612,57 +661,55 @@ export default function NotebookPage() {
     })
   }, [])
 
-  const handleCreateNote = async (type: NotebookNoteType, fromTemplate?: NotebookTemplate | null) => {
-    if (!confirmDiscard()) return
+  const handleCreateNote = (type: NotebookNoteType, fromTemplate?: NotebookTemplate | null) => {
+    runWithUnsavedGuard(async () => {
+      try {
+        const folderId = (() => {
+          if (navigation.kind === 'folder') return navigation.folderId
+          if (filters.folderId) return filters.folderId
+          return undefined
+        })()
 
-    try {
-      const folderId = (() => {
-        if (navigation.kind === 'folder') return navigation.folderId
-        if (filters.folderId) return filters.folderId
-        return undefined
-      })()
+        const dateKey = new Date().toISOString().slice(0, 10)
+        const note = await createNotebookNote({
+          type,
+          title: type === 'DAILY_LOG'
+            ? t('notebook.defaultTitle.dailyLog', { date: formatDate(new Date().toISOString()) })
+            : t('notebook.defaultTitle.untitledNote'),
+          dateKey,
+          folderId,
+          body: fromTemplate?.content ? extractPlainText(fromTemplate.content) : undefined,
+          bodyJson: fromTemplate?.content ? JSON.stringify({ format: 'html', content: fromTemplate.content }) : undefined,
+          isPinned: false
+        })
 
-      const dateKey = new Date().toISOString().slice(0, 10)
-      const note = await createNotebookNote({
-        type,
-        title: type === 'DAILY_LOG'
-          ? t('notebook.defaultTitle.dailyLog', { date: formatDate(new Date().toISOString()) })
-          : t('notebook.defaultTitle.untitledNote'),
-        dateKey,
-        folderId,
-        body: fromTemplate?.content ? extractPlainText(fromTemplate.content) : undefined,
-        bodyJson: fromTemplate?.content ? JSON.stringify({ format: 'html', content: fromTemplate.content }) : undefined,
-        isPinned: false
-      })
+        setSelectedNote(note)
+        setViewMode('edit')
+        setContentTab('content')
+        setSaveState('saved')
+        upsertNote(note)
+        navigate(`/notebook?noteId=${note.id}`, { replace: true })
 
-      setSelectedNote(note)
-      setViewMode('edit')
-      setContentTab('content')
-      setSaveState('saved')
-      setLastSavedAt(note.updatedAt ?? null)
-      upsertNote(note)
-      navigate(`/notebook?noteId=${note.id}`, { replace: true })
-
-      if (isMobile) {
-        setMobilePanel('note')
+        if (isMobile) {
+          setMobilePanel('note')
+        }
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          handleAuthFailure()
+        } else {
+          setError(translateApiError(err, t, 'notebook.errors.createNote'))
+        }
       }
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure()
-      } else {
-        setError(translateApiError(err, t, 'notebook.errors.createNote'))
-      }
-    }
+    })
   }
 
   const handleSaveNote = useCallback(async () => {
-    if (!selectedNote) return
-    if (isSavingRef.current) return
-    if (viewMode !== 'edit') return
+    if (!selectedNote) return false
+    if (isSavingRef.current) return false
 
     if (selectedNote.type === 'DAILY_LOG' && (!selectedNote.dateKey || !selectedNote.dateKey.trim())) {
       setError(t('notebook.validation.dailyLogDateRequired'))
-      return
+      return false
     }
 
     try {
@@ -696,30 +743,80 @@ export default function NotebookPage() {
       })
 
       persistedFingerprintRef.current = buildNoteFingerprint(updated)
+      persistedNoteRef.current = { ...updated }
       setSelectedNote(updated)
       setIsDirty(false)
       setSaveState('saved')
-      setLastSavedAt(updated.updatedAt ?? null)
       upsertNote(updated)
+      setInfoMessage(t('notebook.saveState.saved'))
+      return true
     } catch (err) {
       if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
         handleAuthFailure()
       } else {
         setSaveState('error')
         setError(translateApiError(err, t, 'notebook.errors.saveNote'))
+        setSaveErrorToastOpen(true)
       }
+      return false
     } finally {
       isSavingRef.current = false
     }
-  }, [handleAuthFailure, selectedNote, t, upsertNote, viewMode])
+  }, [handleAuthFailure, selectedNote, t, upsertNote])
+
+  const revertDraftToLastSaved = useCallback(() => {
+    if (persistedNoteRef.current && selectedNote?.id === persistedNoteRef.current.id) {
+      setSelectedNote({ ...persistedNoteRef.current })
+    }
+    setIsDirty(false)
+    setSaveState('idle')
+  }, [selectedNote?.id])
+
+  const runPendingUnsavedAction = useCallback(() => {
+    const pending = pendingUnsavedActionRef.current
+    pendingUnsavedActionRef.current = null
+    setUnsavedDialogOpen(false)
+    if (pending) {
+      void pending.run()
+    }
+  }, [])
+
+  const handleUnsavedCancel = useCallback(() => {
+    const pending = pendingUnsavedActionRef.current
+    pendingUnsavedActionRef.current = null
+    setUnsavedDialogOpen(false)
+    pending?.onCancel?.()
+  }, [])
+
+  const handleUnsavedDiscard = useCallback(() => {
+    revertDraftToLastSaved()
+    runPendingUnsavedAction()
+  }, [revertDraftToLastSaved, runPendingUnsavedAction])
+
+  const handleUnsavedSave = useCallback(async () => {
+    const saved = await handleSaveNote()
+    if (!saved) return
+    runPendingUnsavedAction()
+  }, [handleSaveNote, runPendingUnsavedAction])
+
+  const handleDiscardChanges = useCallback(() => {
+    if (!isDirty) return
+    revertDraftToLastSaved()
+    setInfoMessage(t('notebook.messages.discardedChanges'))
+  }, [isDirty, revertDraftToLastSaved, t])
 
   useEffect(() => {
-    if (!selectedNote || !isDirty || viewMode !== 'edit' || saveState === 'saving') return
-    const timeoutId = window.setTimeout(() => {
+    const handleKeyboardSave = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey)) return
+      if (event.key.toLowerCase() !== 's') return
+      event.preventDefault()
+      if (!selectedNote || !isDirty || isSavingRef.current) return
       void handleSaveNote()
-    }, 1200)
-    return () => window.clearTimeout(timeoutId)
-  }, [handleSaveNote, isDirty, saveState, selectedNote, viewMode])
+    }
+
+    window.addEventListener('keydown', handleKeyboardSave)
+    return () => window.removeEventListener('keydown', handleKeyboardSave)
+  }, [handleSaveNote, isDirty, selectedNote])
 
   const handleDeleteNote = async () => {
     if (!selectedNote) return
@@ -1032,63 +1129,78 @@ export default function NotebookPage() {
     }
   }
 
-  const handleLossRecap = async () => {
-    if (!confirmDiscard()) return
-    try {
-      const losses = await listLosses(lossRecapForm.from, lossRecapForm.to, timezone, lossRecapForm.minLoss)
-      const markdown = buildLossRecapBody(losses as TradeResponse[], t, timezone)
-      const html = convertMarkdownToHtml(markdown)
-      const note = await createNotebookNote({
-        type: 'SESSION_RECAP',
-        title: t('notebook.lossRecap.noteTitle', { from: lossRecapForm.from, to: lossRecapForm.to }),
-        body: extractPlainText(html),
-        bodyJson: JSON.stringify({ format: 'html', content: html })
-      })
-      setSelectedNote(note)
-      upsertNote(note)
-      setLossRecapOpen(false)
-      navigate(`/notebook?noteId=${note.id}`, { replace: true })
-      setViewMode('edit')
-      setContentTab('content')
-    } catch (err) {
-      if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
-        handleAuthFailure()
-      } else {
-        setError(translateApiError(err, t, 'notebook.errors.createLossRecap'))
+  const handleLossRecap = () => {
+    runWithUnsavedGuard(async () => {
+      try {
+        const losses = await listLosses(lossRecapForm.from, lossRecapForm.to, timezone, lossRecapForm.minLoss)
+        const markdown = buildLossRecapBody(losses as TradeResponse[], t, timezone)
+        const html = convertMarkdownToHtml(markdown)
+        const note = await createNotebookNote({
+          type: 'SESSION_RECAP',
+          title: t('notebook.lossRecap.noteTitle', { from: lossRecapForm.from, to: lossRecapForm.to }),
+          body: extractPlainText(html),
+          bodyJson: JSON.stringify({ format: 'html', content: html })
+        })
+        setSelectedNote(note)
+        upsertNote(note)
+        setLossRecapOpen(false)
+        navigate(`/notebook?noteId=${note.id}`, { replace: true })
+        setViewMode('edit')
+        setContentTab('content')
+      } catch (err) {
+        if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          handleAuthFailure()
+        } else {
+          setError(translateApiError(err, t, 'notebook.errors.createLossRecap'))
+        }
       }
-    }
+    })
   }
 
   const handleSelectSmartView = (key: NotebookSmartViewKey) => {
-    if (!confirmDiscard()) return
-    setNavigation({ kind: 'smart', key })
-    setFilters((prev) => ({ ...prev, folderId: '' }))
-    setNavigationDrawerOpen(false)
-    if (isMobile) {
-      setMobilePanel('list')
-    }
+    runWithUnsavedGuard(() => {
+      setNavigation({ kind: 'smart', key })
+      setFilters((prev) => ({ ...prev, folderId: '' }))
+      setNavigationDrawerOpen(false)
+      if (isMobile) {
+        setMobilePanel('list')
+      }
+    })
   }
 
   const handleSelectFolder = (folderId: string) => {
-    if (!confirmDiscard()) return
-    setNavigation({ kind: 'folder', folderId })
-    setNavigationDrawerOpen(false)
-    if (isMobile) {
-      setMobilePanel('list')
-    }
+    runWithUnsavedGuard(() => {
+      setNavigation({ kind: 'folder', folderId })
+      setNavigationDrawerOpen(false)
+      if (isMobile) {
+        setMobilePanel('list')
+      }
+    })
   }
 
   const handleSelectNote = (note: NotebookNote) => {
     if (selectedNote?.id === note.id) return
-    if (!confirmDiscard()) return
-    setSelectedNote(note)
-    setViewMode('read')
-    setContentTab('content')
-    navigate(`/notebook?noteId=${note.id}`)
-    if (isMobile) {
-      setMobilePanel('note')
-    }
+    runWithUnsavedGuard(() => {
+      setSelectedNote(note)
+      setViewMode('read')
+      setContentTab('content')
+      navigate(`/notebook?noteId=${note.id}`)
+      if (isMobile) {
+        setMobilePanel('note')
+      }
+    })
   }
+
+  const handleViewModeChange = useCallback((nextMode: NotePanelMode) => {
+    if (!nextMode || nextMode === viewMode) return
+    if (viewMode === 'edit' && nextMode === 'read' && isDirty) {
+      runWithUnsavedGuard(() => {
+        setViewMode(nextMode)
+      })
+      return
+    }
+    setViewMode(nextMode)
+  }, [isDirty, runWithUnsavedGuard, viewMode])
 
   const handleLinkTrade = (trade: TradeResponse | null) => {
     if (!selectedNote || !trade) return
@@ -1192,12 +1304,93 @@ export default function NotebookPage() {
     { key: 'RECENTLY_DELETED' as NotebookSmartViewKey, label: t('notebook.smartViews.recentlyDeleted'), icon: <DeleteOutlineIcon fontSize="small" /> }
   ]), [t])
 
-  const leftRailPanel = (
+  const selectedTopNavigation = navigation.kind === 'smart' ? `smart:${navigation.key}` : `folder:${navigation.folderId}`
+
+  const handleTopNavigationChange = (_event: SyntheticEvent, nextValue: string) => {
+    if (nextValue.startsWith('smart:')) {
+      handleSelectSmartView(nextValue.replace('smart:', '') as NotebookSmartViewKey)
+      return
+    }
+    if (nextValue.startsWith('folder:')) {
+      handleSelectFolder(nextValue.replace('folder:', ''))
+    }
+  }
+
+  const topNavigationBar = (
+    <Stack sx={{ minWidth: 0 }}>
+      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" sx={{ px: 1.5, pt: 1.25, pb: 0.5 }}>
+        <Typography variant="subtitle2" fontWeight={700}>{t('notebook.sections.smartViews')}</Typography>
+        <Stack direction="row" spacing={0.5} alignItems="center">
+          <Button size="small" startIcon={<AddIcon />} onClick={handleAddFolder}>{t('notebook.actions.addFolder')}</Button>
+          {navigation.kind === 'folder' && (
+            <IconButton
+              size="small"
+              onClick={(event: MouseEvent<HTMLElement>) => {
+                setFolderMenuAnchor(event.currentTarget)
+                setFolderMenuTarget(navigation.folderId)
+              }}
+              aria-label={t('notebook.aria.folderActions')}
+            >
+              <MoreVertIcon fontSize="small" />
+            </IconButton>
+          )}
+        </Stack>
+      </Stack>
+
+      <Tabs
+        value={selectedTopNavigation}
+        onChange={handleTopNavigationChange}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        aria-label={t('notebook.aria.topNavigation')}
+        sx={{
+          px: 1,
+          pb: 1,
+          minHeight: 40,
+          '& .MuiTabs-scroller': { overflowX: 'auto !important' },
+          '& .MuiTabs-flexContainer': { gap: 0.75 },
+          '& .MuiTab-root': {
+            minHeight: 34,
+            minWidth: 0,
+            px: 1.5,
+            py: 0.75,
+            borderRadius: 999,
+            textTransform: 'none',
+            alignItems: 'center'
+          }
+        }}
+      >
+        {smartViews.map((view) => (
+          <Tab
+            key={view.key}
+            value={`smart:${view.key}`}
+            icon={view.icon}
+            iconPosition="start"
+            label={view.label}
+          />
+        ))}
+        {customFolders.map((folder) => (
+          <Tab
+            key={folder.id}
+            value={`folder:${folder.id}`}
+            icon={<FolderOutlinedIcon fontSize="small" />}
+            iconPosition="start"
+            label={folder.name}
+          />
+        ))}
+      </Tabs>
+    </Stack>
+  )
+
+  const mobileNavigationPanel = (
     <Stack sx={{ minHeight: 0, height: '100%' }}>
       <Box sx={{ p: 1.5, borderBottom: '1px solid', borderColor: 'divider' }}>
         <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
           <Typography variant="subtitle2" fontWeight={700}>{t('notebook.sections.smartViews')}</Typography>
-          <Button size="small" startIcon={<AddIcon />} onClick={handleAddFolder}>{t('notebook.actions.addFolder')}</Button>
+          <Stack direction="row" spacing={0.5} alignItems="center">
+            <Button size="small" startIcon={<AddIcon />} onClick={handleAddFolder}>{t('notebook.actions.addFolder')}</Button>
+          </Stack>
         </Stack>
       </Box>
 
@@ -1309,7 +1502,7 @@ export default function NotebookPage() {
                   size="small"
                   value={viewMode}
                   exclusive
-                  onChange={(_, value) => value && setViewMode(value)}
+                  onChange={(_, value) => value && handleViewModeChange(value)}
                 >
                   <ToggleButton value="read" aria-label={t('notebook.aria.readMode')}>
                     <VisibilityIcon fontSize="small" />
@@ -1352,6 +1545,25 @@ export default function NotebookPage() {
               )}
             </Box>
 
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+              <Button
+                variant="contained"
+                size="small"
+                onClick={() => void handleSaveNote()}
+                disabled={!isDirty || saveState === 'saving'}
+              >
+                {t('common.save')}
+              </Button>
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={handleDiscardChanges}
+                disabled={!isDirty || saveState === 'saving'}
+              >
+                {t('notebook.actions.discardChanges')}
+              </Button>
+            </Stack>
+
             <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
               {selectedNote.relatedTradeId ? (
                 <Tabs
@@ -1369,8 +1581,7 @@ export default function NotebookPage() {
               <Typography variant="caption" color="text.secondary">
                 {saveState === 'saving' && t('notebook.saveState.saving')}
                 {saveState === 'error' && t('notebook.saveState.error')}
-                {saveState === 'saved' && lastSavedAt && t('notebook.saveState.savedAt', { date: formatDateTime(lastSavedAt, timezone) })}
-                {saveState === 'idle' && (isDirty ? t('notebook.saveState.unsaved') : t('notebook.saveState.allSaved'))}
+                {saveState !== 'saving' && (isDirty ? t('notebook.saveState.unsaved') : t('notebook.saveState.saved'))}
               </Typography>
             </Stack>
           </Stack>
@@ -1546,8 +1757,29 @@ export default function NotebookPage() {
     </Stack>
   )
 
+  const listCollapsedRail = (
+    <Stack sx={{ minHeight: 0, height: '100%', alignItems: 'center', py: 1 }}>
+      <Tooltip title={t('notebook.actions.expandList')}>
+        <IconButton onClick={() => togglePane('listCollapsed')} aria-label={t('notebook.actions.expandList')}>
+          <KeyboardArrowRightIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      <Divider flexItem sx={{ my: 1 }} />
+      <Tooltip title={t('notebook.sections.notes')}>
+        <ViewListIcon fontSize="small" />
+      </Tooltip>
+    </Stack>
+  )
+
   return (
-    <Stack spacing={1.5} sx={{ minHeight: 0, height: '100%', overflow: 'hidden' }}>
+    <Stack spacing={1.5} sx={{ minHeight: 0, height: '100%' }}>
+      <PageHero
+        eyebrow={t('nav.notebook')}
+        title={t('nav.notebook')}
+        description={t('notebook.subtitle')}
+        icon={<MenuBookIcon fontSize="small" />}
+      />
+
       {error && <ErrorBanner message={error} />}
       {infoMessage && (
         <Alert severity="info" onClose={() => setInfoMessage('')}>
@@ -1555,38 +1787,42 @@ export default function NotebookPage() {
         </Alert>
       )}
 
-      <NotebookLayout
-        isMobile={isMobile}
-        mobilePanel={mobilePanel}
-        leftRail={leftRailPanel}
-        middlePanel={
-          <NoteList
-            notes={notes}
-            loading={loading}
-            selectedNoteId={selectedNote?.id}
-            timezone={timezone}
-            searchQuery={searchQuery}
-            onSearchChange={setSearchQuery}
-            sortOrder={sortOrder}
-            onSortChange={setSortOrder}
-            appliedFilterChips={appliedFilterChips}
-            onOpenNavigation={isMobile ? () => setNavigationDrawerOpen(true) : undefined}
-            onOpenFilters={() => setFiltersDrawerOpen(true)}
-            onSelectNote={handleSelectNote}
-            listCollapsed={isDesktop ? listCollapsed : false}
-            onToggleCollapsed={isDesktop ? () => setListCollapsed((prev) => !prev) : undefined}
-            newMenu={
-              <NewNoteMenu
-                onCreate={handleCreateNote}
-                onCreateFromTemplate={() => setTemplateDialogOpen(true)}
-                onCreateLossRecap={() => setLossRecapOpen(true)}
-              />
-            }
-          />
-        }
-        rightPanel={rightPanel}
-        listCollapsed={isDesktop && listCollapsed}
-      />
+      <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <NotebookLayout
+          isMobile={isMobile}
+          isWideDesktop={isWideDesktop}
+          mobilePanel={mobilePanel}
+          topNavigation={topNavigationBar}
+          listPanel={
+            <NoteList
+              notes={notes}
+              loading={loading}
+              selectedNoteId={selectedNote?.id}
+              timezone={timezone}
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+              sortOrder={sortOrder}
+              onSortChange={setSortOrder}
+              appliedFilterChips={appliedFilterChips}
+              onOpenNavigation={isMobile ? () => setNavigationDrawerOpen(true) : undefined}
+              onOpenFilters={() => setFiltersDrawerOpen(true)}
+              onSelectNote={handleSelectNote}
+              listCollapsed={isWideDesktop && listCollapsed}
+              onToggleCollapsed={isWideDesktop ? () => togglePane('listCollapsed') : undefined}
+              newMenu={
+                <NewNoteMenu
+                  onCreate={handleCreateNote}
+                  onCreateFromTemplate={() => setTemplateDialogOpen(true)}
+                  onCreateLossRecap={() => setLossRecapOpen(true)}
+                />
+              }
+            />
+          }
+          editorPanel={rightPanel}
+          listCollapsed={isWideDesktop && listCollapsed}
+          listCollapsedRail={listCollapsedRail}
+        />
+      </Box>
 
       {isMobile && (
         <Drawer
@@ -1596,7 +1832,7 @@ export default function NotebookPage() {
           ModalProps={{ keepMounted: true }}
           PaperProps={{ sx: { width: 320, maxWidth: '90vw' } }}
         >
-          {leftRailPanel}
+          {mobileNavigationPanel}
         </Drawer>
       )}
 
@@ -1790,6 +2026,39 @@ export default function NotebookPage() {
           <Button variant="contained" onClick={() => void handleLossRecap()}>{t('notebook.actions.create')}</Button>
         </DialogActions>
       </Dialog>
+
+      <Dialog open={unsavedDialogOpen} onClose={handleUnsavedCancel}>
+        <DialogTitle>{t('notebook.saveState.unsaved')}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2">{t('notebook.prompts.unsavedAction')}</Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleUnsavedCancel}>{t('common.cancel')}</Button>
+          <Button onClick={handleUnsavedDiscard}>{t('notebook.actions.discardChanges')}</Button>
+          <Button variant="contained" onClick={() => void handleUnsavedSave()} disabled={saveState === 'saving'}>
+            {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Snackbar
+        open={saveErrorToastOpen}
+        autoHideDuration={6000}
+        onClose={() => setSaveErrorToastOpen(false)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+      >
+        <Alert
+          severity="error"
+          onClose={() => setSaveErrorToastOpen(false)}
+          action={(
+            <Button color="inherit" size="small" onClick={() => void handleSaveNote()}>
+              {t('common.retry')}
+            </Button>
+          )}
+        >
+          {t('notebook.errors.saveNote')}
+        </Alert>
+      </Snackbar>
     </Stack>
   )
 }

@@ -38,6 +38,7 @@
     "na": "-"
   },
   "nav": {
+    "today": "Astăzi",
     "dashboard": "Tablou de bord",
     "trades": "Tranzacții",
     "calendar": "Calendar",
@@ -148,6 +149,7 @@
       "title": "Titlu",
       "type": "Tip",
       "updated": "Actualizat",
+      "version": "v{{version}}",
       "visibleRange": "Interval vizibil"
     },
     "title": "Conținut administrare",
@@ -195,6 +197,9 @@
       "bodyHint": "Folosește markdown pentru titluri, liste și evidențieri.",
       "commaSeparated": "separate prin virgulă",
       "notifySubscribersAboutUpdate": "Notifică abonații despre această actualizare",
+      "revisionNotes": "Note de revizie",
+      "revisionNotesHint": "Opțional: descrie ce s-a schimbat în această revizie.",
+      "revisionNotesHelper": "Afișat în metadatele conținutului pentru context.",
       "slug": "Slug",
       "slugHint": "Opțional. Dacă este gol, slug-ul se generează din titlu.",
       "summary": "Rezumat",
@@ -210,16 +215,115 @@
     "newContent": "Conținut nou",
     "preview": "Previzualizare",
     "subtitle": "Construiește strategii și planuri săptămânale pentru secțiunea Insights.",
+    "template": {
+      "sectionTitle": "Secțiuni de șablon",
+      "previewTitle": "Șablon structurat",
+      "previewEmpty": "Completează câmpurile șablonului pentru previzualizarea structurată.",
+      "context": {
+        "label": "Context",
+        "hint": "Adaugă contextul de piață pentru acest plan."
+      },
+      "executionRules": {
+        "label": "Reguli de execuție",
+        "hint": "Definește reguli clare de intrare, management și ieșire."
+      },
+      "biasSummary": {
+        "label": "Rezumat bias",
+        "hint": "Bias direcțional într-o propoziție și motivul."
+      },
+      "keyLevels": {
+        "label": "Niveluri cheie",
+        "hint": "PDH/PDL, interval Asia, EQH/EQL și niveluri majore de sesiune."
+      },
+      "liquidityNarrative": {
+        "label": "Narațiune lichiditate",
+        "hint": "Descrie sweep-urile probabile de lichiditate și zonele de reacție."
+      },
+      "primaryModel": {
+        "label": "Model principal",
+        "hint": "Modelul principal de setup (ex: Sweep + MSS + FVG)."
+      },
+      "alternativeScenario": {
+        "label": "Scenariu alternativ",
+        "hint": "Plan de rezervă dacă setup-ul principal nu apare."
+      },
+      "riskNote": {
+        "label": "Notă de risc",
+        "hint": "Limite de risc și condiții no-trade."
+      },
+      "macroBias": {
+        "label": "Bias macro",
+        "hint": "Context direcțional săptămânal pentru Forex și indici."
+      },
+      "highProbabilityWindows": {
+        "label": "Ferestre de probabilitate ridicată",
+        "hint": "Când să te concentrezi în săptămâna curentă."
+      },
+      "noTradeRisks": {
+        "label": "Ferestre no-trade și risc",
+        "hint": "Știri/evenimente sau condiții de evitat."
+      },
+      "watchlist": {
+        "label": "Watchlist",
+        "hint": "Simboluri și de ce sunt în focus în această săptămână."
+      },
+      "weekFocus": {
+        "label": "Focusul săptămânii",
+        "hint": "Un focus de coaching pentru săptămâna curentă."
+      },
+      "what": {
+        "label": "Ce este",
+        "hint": "Definește setup-ul într-un limbaj clar."
+      },
+      "when": {
+        "label": "Când se tranzacționează",
+        "hint": "Sesiune și condiții de piață."
+      },
+      "filters": {
+        "label": "Filtre A+",
+        "hint": "Filtre checklist înainte de execuție."
+      },
+      "entryModel": {
+        "label": "Model de intrare",
+        "hint": "Secvență pas cu pas pentru intrare."
+      },
+      "invalidation": {
+        "label": "Invalidare",
+        "hint": "Ce invalidează ideea."
+      },
+      "targets": {
+        "label": "Ținte și management",
+        "hint": "Ierarhie TP și reguli de management."
+      },
+      "riskModel": {
+        "label": "Model de risc (R)",
+        "hint": "Dimensionare risc și reguli de pierdere maximă."
+      },
+      "failureModes": {
+        "label": "Moduri comune de eșec",
+        "hint": "Greșeli tipice și contexte invalide."
+      },
+      "checklist": {
+        "label": "Checklist",
+        "hint": "Checklist care poate fi importat în session mode."
+      },
+      "items": {
+        "label": "Elemente checklist",
+        "hint": "Un element pe linie."
+      }
+    },
     "title": {
       "create": "Creează conținut",
       "edit": "Editează conținut"
     },
     "untitled": "Fără titlu",
     "updated": "Actualizat",
+    "versionChip": "Versiunea {{version}}",
     "validation": {
       "bodyRequired": "Conținutul este obligatoriu.",
       "localeBodyRequired": "Conținutul este obligatoriu pentru {{locale}}.",
       "localeTitleRequired": "Titlul este obligatoriu pentru {{locale}}.",
+      "templateFieldRequired": "{{field}} este obligatoriu.",
       "titleRequired": "Titlul este obligatoriu.",
       "typeRequired": "Tipul este obligatoriu.",
       "visibleUntilAfterFrom": "„Vizibil până la” trebuie să fie după „Vizibil de la”.",
@@ -285,6 +389,7 @@
   },
   "analytics": {
     "title": "Analiză",
+    "heading": "Diagnoză de performanță",
     "subtitle": "Diagnoză avansată pentru performanță, consistență și avantaj.",
     "mobileTabsLabel": "Vizualizare analiză",
     "errors": {
@@ -311,6 +416,32 @@
       "strategy": "Strategie",
       "symbol": "Simbol",
       "to": "Până la"
+    },
+    "sessionChecklist": {
+      "title": "Checklist sesiune",
+      "subtitle": "Personalizează checklist-ul înainte de sesiune. Aceste elemente apar pe pagina Astăzi.",
+      "addLabel": "Adaugă element checklist",
+      "addPlaceholder": "Scrie un element și apasă Enter",
+      "addAction": "Adaugă element",
+      "save": "Salvează checklist-ul",
+      "saving": "Se salvează...",
+      "saved": "Checklist salvat.",
+      "enabled": "Activ",
+      "moveUp": "Mută elementul mai sus",
+      "moveDown": "Mută elementul mai jos",
+      "delete": "Șterge elementul",
+      "confirmDelete": "Ștergi acest element din checklist?",
+      "itemLabel": "Element checklist {{index}}",
+      "emptyTitle": "Nu există elemente checklist",
+      "emptyBody": "Adaugă primul element pentru a-ți personaliza rutina de sesiune.",
+      "limit": "{{count}} / {{max}} elemente",
+      "loadError": "Setările checklist-ului nu au putut fi încărcate.",
+      "saveError": "Setările checklist-ului nu au putut fi salvate.",
+      "validation": {
+        "blank": "Elementele checklist nu pot fi goale.",
+        "tooMany": "Maximum {{max}} elemente checklist.",
+        "tooLong": "Elementele checklist trebuie să aibă cel mult {{max}} caractere."
+      }
     },
     "kpis": {
       "avgLoss": "Pierdere medie",
@@ -339,6 +470,37 @@
       "risk": "Risc",
       "symbolsAndTags": "Simboluri & etichete",
       "timeEdge": "Avantaj temporal"
+    },
+    "coachingSummary": {
+      "title": "Rezumat coaching",
+      "bestStrategy": "Cea mai bună strategie",
+      "biggestLeak": "Cea mai mare scurgere",
+      "nextFocus": "Următoarea acțiune de focus",
+      "expectancy": "Expectanță"
+    },
+    "phase4": {
+      "showMore": "Mai multe",
+      "showLess": "Mai puțin",
+      "strategyTableTitle": "Analiză strategii (Forex vs Indici)",
+      "strategyTableEmptyTitle": "Nu există încă analiză pe strategii",
+      "strategyTableEmptyBody": "Etichetează tranzacțiile cu strategii și închide un eșantion pentru a popula tabelul.",
+      "sessionTitle": "Analiză pe sesiuni",
+      "sessionEmptyTitle": "Nu există încă analiză pe sesiuni",
+      "sessionEmptyBody": "Notează sesiunea (Asia/Londra/NY) sau folosește timestamp-urile tranzacțiilor pentru a popula panoul.",
+      "planAdherenceTitle": "Aderență la plan",
+      "planAdherenceLinkedPct": "Tranzacții legate de planuri",
+      "planAdherenceLinked": "Tranzacții planificate",
+      "planAdherenceUnlinked": "Tranzacții neplanificate",
+      "planAdherenceEmptyTitle": "Nu există încă date de aderență",
+      "planAdherenceEmptyBody": "Leagă tranzacțiile de planuri zilnice sau săptămânale pentru comparația planificat vs neplanificat.",
+      "columns": {
+        "strategy": "Strategie",
+        "market": "Piață",
+        "sample": "Eșantion",
+        "winRate": "Rată de câștig",
+        "expectancy": "Expectanță",
+        "profitFactor": "Factor de profit"
+      }
     },
     "overview": {
       "equityCurve": {
@@ -536,6 +698,8 @@
   "dashboard": {
     "title": "Tablou de bord",
     "subtitle": "Privire live asupra performanței, creșterii equity și celor mai recente execuții.",
+    "goToToday": "Mergi la Astăzi",
+    "goToTodayHint": "Păstrează această pagină pentru review de performanță și rulează bucla zilnică din Astăzi.",
     "chartError": "Datele pentru grafice nu pot fi încărcate pentru acest interval.",
     "chartTooltip": {
       "tradeCount": "{{count}} tranzacții"
@@ -612,6 +776,114 @@
       "addTrade": "Adaugă tranzacție"
     }
   },
+  "today": {
+    "title": "Planifică sesiunea",
+    "subtitle": "Planifică, execută, jurnalizează și revizuiește dintr-un spațiu zilnic unic.",
+    "heading": "Planifică sesiunea",
+    "subheading": "Focus zilnic/săptămânal, recomandări de coaching și acces rapid la tranzacții.",
+    "errors": {
+      "load": "Datele pentru astăzi nu au putut fi încărcate. Încearcă din nou."
+    },
+    "actions": {
+      "openPlan": "Deschide planul",
+      "openWeeklyPlan": "Deschide planul săptămânal",
+      "openFullPlan": "Deschide planul complet",
+      "openInsights": "Deschide feed-ul Insights/Astăzi",
+      "startSession": "Pornește sesiunea",
+      "seeWhy": "Vezi de ce",
+      "logTrade": "Loghează tranzacție",
+      "viewAll": "Vezi toate",
+      "createDailyPlan": "Creează plan zilnic"
+    },
+    "mentor": {
+      "title": "Plan mentor focus",
+      "attribution": "Mentor: {{name}}",
+      "defaultName": "Mentor",
+      "publishedAt": "Publicat: {{date}}",
+      "emptyTitle": "Nu există plan mentor azi",
+      "emptyBody": "Deschide Insights pentru feed-ul Astăzi.",
+      "emptySummary": "Nu există notițe mentor disponibile."
+    },
+    "myPlan": {
+      "title": "Planul meu",
+      "defaultTitle": "Planul meu - {{date}}",
+      "create": "Creează planul meu",
+      "createTitle": "Creează planul meu",
+      "editTitle": "Editează planul meu",
+      "contentLabel": "Conținut plan (Markdown)",
+      "duplicateFromMentor": "Duplică din planul mentor",
+      "removeAction": "Șterge planul",
+      "removeConfirmTitle": "Șterge planul",
+      "removeConfirmBody": "Ștergi planul? Această acțiune nu poate fi anulată.",
+      "emptyTitle": "Nu există plan pentru azi",
+      "emptyBody": "Creează planul tău pentru a defini execuția de azi.",
+      "emptyContent": "Nu există conținut pentru plan.",
+      "discard": "Renunță la modificări",
+      "unsavedPrompt": "Ai modificări nesalvate în Planul meu. Salvează sau renunță înainte de închidere.",
+      "validationRequired": "Titlul și conținutul sunt obligatorii.",
+      "errors": {
+        "save": "Planul nu a putut fi salvat.",
+        "remove": "Planul nu a putut fi șters."
+      }
+    },
+    "cards": {
+      "daily": {
+        "title": "Planul de azi",
+        "emptyTitle": "Nu există plan zilnic evidențiat",
+        "emptyBody": "Deschide Insights pentru feed-ul planului de azi.",
+        "noSummary": "Rezumatul bias-ului nu este disponibil încă.",
+        "primaryModel": "Model principal"
+      },
+      "weekly": {
+        "title": "Focusul săptămânii",
+        "emptyTitle": "Nu există plan săptămânal evidențiat",
+        "emptyBody": "Un plan săptămânal va apărea după publicare.",
+        "noSummary": "Rezumatul săptămânal nu este disponibil încă."
+      },
+      "coach": {
+        "title": "Metrica ta de focus",
+        "action": "Acțiune",
+        "emptyTitle": "Nu există un finding de coaching încă",
+        "emptyBody": "Închide mai multe tranzacții pentru coaching targetat."
+      }
+    },
+    "coachSeverity": {
+      "info": "Info",
+      "warn": "Atenție",
+      "critical": "Critic"
+    },
+    "checklist": {
+      "title": "Checklist sesiune",
+      "edit": "Editează checklist-ul",
+      "emptyTitle": "Nu există elemente checklist active",
+      "emptyBody": "Deschide Analytics pentru a adăuga elemente sau a le activa.",
+      "items": {
+        "plan": "Revizuiește planul de azi și setează bias-ul sesiunii.",
+        "levels": "Marchează nivelurile de lichiditate (PDH/PDL, Asia H/L, EQH/EQL).",
+        "risk": "Setează riscul zilnic maxim și numărul maxim de tranzacții.",
+        "windows": "Definește ferestrele sesiunii (Londra/New York).",
+        "journal": "Deschide jurnalul rapid și notează condițiile de invalidare."
+      }
+    },
+    "events": {
+      "title": "Evenimente viitoare",
+      "emptyTitle": "Feed-ul de evenimente nu este conectat încă",
+      "emptyBody": "Evenimentele economice pentru Forex și indici vor apărea aici."
+    },
+    "recentTrades": {
+      "title": "Tranzacții recente",
+      "emptyTitle": "Nu există tranzacții recente",
+      "emptyBody": "Loghează următoarea execuție pentru a porni bucla de review."
+    },
+    "session": {
+      "title": "Mod sesiune",
+      "subtitle": "Vizualizare focusată cu plan, checklist și notițe rapide.",
+      "exit": "Înapoi la Astăzi",
+      "planSummary": "Rezumat plan",
+      "quickNote": "Notițe rapide",
+      "quickNotePlaceholder": "Notează observații, invalidări și detalii de execuție în timp real."
+    }
+  },
   "demo": {
     "banner": {
       "title": "Vizualizezi date demo",
@@ -665,33 +937,64 @@
     "noAttachments": "Nu există atașamente disponibile.",
     "infoAlert": "Doar pentru jurnal și scop educațional. Nu reprezintă sfat de investiții.",
     "lastUpdated": "Actualizat la",
+    "revisionNotes": "Note de revizie:",
+    "templateFields": "Câmpuri șablon",
     "errors": {
       "downloadFailed": "Atașamentul nu a putut fi descărcat."
     }
   },
   "insights": {
     "title": "Insights",
-    "subtitle": "Strategii și planuri săptămânale publicate de echipă, pregătite pentru următoarea sesiune.",
-    "searchPlaceholder": "Caută strategii sau planuri săptămânale",
+    "subtitle": "Planuri, playbook-uri și învățare",
+    "heading": "Planuri, playbook-uri și învățare",
+    "subheading": "Folosește feed-uri pe tab-uri pentru a trece de la plan la execuție cu mai puțin zgomot.",
+    "featured": "Recomandat",
+    "searchPlaceholder": "Caută planuri, playbook-uri și educație",
     "tagsPlaceholder": "Filtrează după etichete (separate prin virgulă)",
     "symbolsPlaceholder": "Filtrează după simboluri (separate prin virgulă)",
-    "empty": {
-      "defaultTitle": "Nu există conținut publicat încă",
-      "defaultBody": "Conținutul Insights localizat va apărea aici după publicare.",
-      "strategiesTitle": "Nu există strategii publicate încă",
-      "strategiesBody": "După publicare, strategiile vor apărea aici pentru toți utilizatorii.",
-      "weeklyTitle": "Nu există planuri săptămânale publicate încă",
-      "weeklyBody": "Planurile săptămânale vor apărea aici după publicare."
-    },
-    "type": {
-      "strategy": "Strategie",
-      "weeklyPlan": "Plan săptămânal"
-    },
     "updated": "Actualizat",
     "weekOf": "Săptămâna din",
+    "errors": {
+      "load": "Feed-ul Insights nu a putut fi încărcat.",
+      "follow": "Elementul nu a putut fi urmărit."
+    },
     "tabs": {
-      "strategies": "Strategii",
-      "weeklyPlans": "Planuri săptămânale"
+      "today": "Astăzi",
+      "week": "Săptămâna aceasta",
+      "playbooks": "Playbook-uri",
+      "learn": "Învață"
+    },
+    "filters": {
+      "secondaryType": "Categorie",
+      "anySecondary": "Toate categoriile din acest tab"
+    },
+    "actions": {
+      "save": "Salvează",
+      "follow": "Urmărește",
+      "following": "Urmărit",
+      "open": "Deschide",
+      "openDetails": "Deschide detalii",
+      "addToPlaybook": "Adaugă în Playbook-ul meu",
+      "tagTrades": "Etichetează tranzacțiile cu această strategie",
+      "loadMore": "Încarcă mai mult"
+    },
+    "messages": {
+      "followed": "Urmărirea a fost salvată. Vei primi notificări când este publicat conținut relevant."
+    },
+    "strategy": {
+      "markets": "Piețe",
+      "sessions": "Sesiuni",
+      "difficulty": "Dificultate"
+    },
+    "empty": {
+      "todayTitle": "Nu există planuri zilnice momentan",
+      "todayBody": "Publică sau urmărește un plan zilnic ca să apară aici.",
+      "weekTitle": "Nu există planuri săptămânale momentan",
+      "weekBody": "Publică sau urmărește un plan săptămânal ca să apară aici.",
+      "playbooksTitle": "Nu există playbook-uri disponibile",
+      "playbooksBody": "Playbook-urile de strategie vor apărea aici după publicare.",
+      "learnTitle": "Nu există conținut de învățare disponibil",
+      "learnBody": "Conținutul educațional și recap va apărea aici după publicare."
     }
   },
   "legal": {
@@ -878,6 +1181,7 @@
   },
   "settings": {
     "title": "Setări",
+    "heading": "Preferințe",
     "subtitle": "Actualizează moneda de bază și fusul orar; modificările se aplică în toată aplicația.",
     "timezone": "Fus orar",
     "timezoneHint": "Fus orar IANA (ex: Europe/Bucharest)",
@@ -979,6 +1283,10 @@
       "title": "Creează tranzacție",
       "save": "Salvează tranzacția"
     },
+    "quickLog": {
+      "title": "Înregistrare rapidă",
+      "submit": "Înregistrează tranzacția"
+    },
     "deleteConfirm": "Sigur vrei să ștergi tranzacția {{symbol}}?",
     "empty": {
       "title": "Nu există tranzacții de afișat",
@@ -992,7 +1300,11 @@
       "deleteFailed": "Nu s-a putut șterge tranzacția.",
       "importFailed": "Nu s-a putut importa fișierul CSV.",
       "createTradeNoteFailed": "Nu s-a putut crea nota de tranzacție.",
-      "noteMissingId": "Nota a fost creată, dar nu a fost returnat un ID. Reîncarcă pagina și deschide nota manual."
+      "noteMissingId": "Nota a fost creată, dar nu a fost returnat un ID. Reîncarcă pagina și deschide nota manual.",
+      "loadOptionsFailed": "Nu s-au putut încărca opțiunile de strategie și plan.",
+      "symbolRequired": "Simbolul este obligatoriu.",
+      "openedAtRequired": "Data de deschidere este obligatorie.",
+      "exitPriceRequired": "Prețul de ieșire este obligatoriu când starea este închisă."
     },
     "filters": {
       "title": "Filtre",
@@ -1078,27 +1390,100 @@
       "riskAmountHint": "Opțional: îmbunătățește calculul P&L % și multiplu R",
       "capitalUsed": "Capital folosit",
       "capitalUsedHint": "Opțional: folosit pentru calculul P&L %",
+      "quickAdvancedSubtitle": "Quick Log / Avansat",
+      "openHelp": "Deschide explicațiile câmpurilor",
+      "summaryAccordion": "Sumar",
+      "discardChangesTitle": "Renunți la modificări?",
+      "discardChangesPrompt": "Ai date nesalvate în modul Avansat. Le abandonezi?",
+      "discardButton": "Renunță",
+      "quickNotes": "Notă rapidă (opțional)",
+      "symbolHelper": "Începe să scrii un simbol (ex: AAPL)",
+      "symbolRecent": "Recent",
+      "marketHelper": "Selectează piața instrumentului",
+      "quantityHelper": "Exemplu: 1,5",
+      "priceHelper": "Exemplu: 123,45",
+      "costHelper": "Folosește 0 dacă nu există cost",
       "setup": "Setup",
+      "strategy": "Strategie",
       "strategyTag": "Etichetă strategie",
       "catalystTag": "Etichetă catalizator",
+      "setupGrade": "Calificativ setup",
+      "session": "Sesiune",
+      "linkedPlans": "Planuri legate",
+      "mentorFocusPrefix": "Focus mentor",
+      "myPlanPrefix": "Planul meu",
+      "linkActivePlans": "Leagă planurile active pentru timpul acestei tranzacții",
+      "loadingActivePlans": "Se încarcă planurile active...",
+      "ruleBreaks": "Abateri de la reguli",
       "notes": "Note",
       "accountId": "ID cont",
+      "none": "Niciuna",
       "computedMetrics": "Metrici calculate (doar citire)",
       "pnlGross": "P&L brut",
       "pnlNet": "P&L net",
       "pnlPercent": "P&L %",
       "riskPercent": "Risc %",
       "rMultiple": "Multiplu R",
+      "costsTotal": "Costuri totale",
+      "liveSummaryTitle": "Sumar live",
+      "liveSummarySubtitle": "Se actualizează în timp real în timp ce completezi",
+      "useCalculatedRisk": "Folosește riscul calculat",
+      "viewAllWarnings": "Vezi toate",
+      "showFewerWarnings": "Arată mai puține",
+      "modes": {
+        "quick": "Quick Log",
+        "advanced": "Avansat"
+      },
       "sections": {
         "required": "Bază obligatorie",
         "execution": "Execuție principală",
         "risk": "Risc",
+        "riskCapital": "Risc & capital",
         "costs": "Costuri",
-        "context": "Context"
+        "context": "Context",
+        "plans": "Legare planuri",
+        "notes": "Note"
+      },
+      "summaryWarnings": {
+        "closedWithoutExit": "Tranzacția închisă nu are preț de ieșire.",
+        "stopLossInconsistent": "Stop-loss-ul este inconsistent cu direcția tranzacției.",
+        "quantityNonPositive": "Cantitatea trebuie să fie mai mare decât zero."
+      },
+      "sessions": {
+        "ASIA": "Asia",
+        "LONDON": "Londra",
+        "NY": "New York",
+        "CUSTOM": "Personalizat",
+        "NY_AM": "NY AM",
+        "NY_PM": "NY PM"
+      },
+      "ruleBreakOptions": {
+        "lateEntry": "Intrare târzie",
+        "earlyExit": "Ieșire prematură",
+        "oversizedRisk": "Risc supradimensionat",
+        "ignoredInvalidation": "Invalidare ignorată",
+        "newsViolation": "Încălcare pe știri",
+        "outsideSession": "În afara sesiunii"
       },
       "validation": {
-        "symbolRequired": "Simbolul este obligatoriu"
-      }
+        "symbolRequired": "Simbolul este obligatoriu.",
+        "symbolTooLong": "Simbolul poate avea maximum 15 caractere.",
+        "marketRequired": "Piața este obligatorie.",
+        "directionRequired": "Direcția este obligatorie.",
+        "statusRequired": "Starea este obligatorie.",
+        "openedAtRequired": "Data de deschidere este obligatorie.",
+        "closedAtRequired": "Data de închidere este obligatorie pentru tranzacțiile închise.",
+        "quantityPositive": "Cantitatea trebuie să fie mai mare decât zero.",
+        "entryPricePositive": "Prețul de intrare trebuie să fie mai mare decât zero.",
+        "exitPricePositive": "Prețul de ieșire trebuie să fie mai mare decât zero.",
+        "exitPriceRequired": "Prețul de ieșire este obligatoriu pentru tranzacțiile închise.",
+        "stopLossPositive": "Stop-loss-ul trebuie să fie mai mare decât zero.",
+        "takeProfitPositive": "Take-profit-ul trebuie să fie mai mare decât zero.",
+        "costNonNegative": "Costurile nu pot fi negative.",
+        "riskAmountPositive": "Suma de risc trebuie să fie mai mare decât zero.",
+        "capitalUsedPositive": "Capitalul folosit trebuie să fie mai mare decât zero."
+      },
+      "validationBanner": "Corectează câmpurile evidențiate înainte de salvare."
     },
     "help": {
       "title": "Explicații câmpuri tranzacție",
@@ -1211,7 +1596,12 @@
       "list": "Listă",
       "info": "Info",
       "showInfo": "Arată detaliile",
-      "hideInfo": "Ascunde detaliile"
+      "hideInfo": "Ascunde detaliile",
+      "discardChanges": "Renunță la modificări",
+      "collapseLeftPane": "Restrânge panoul de navigare",
+      "expandLeftPane": "Extinde panoul de navigare",
+      "collapseEditorPane": "Restrânge panoul editorului",
+      "expandEditorPane": "Extinde panoul editorului"
     },
     "upload": {
       "dropTitle": "Atașează fișiere la această notă",
@@ -1228,7 +1618,8 @@
       "editMode": "Mod editare",
       "closeFilters": "Închide filtrele",
       "openNavigation": "Deschide navigarea",
-      "folderActions": "Acțiuni folder"
+      "folderActions": "Acțiuni folder",
+      "topNavigation": "Navigare sus notebook"
     },
     "sections": {
       "filters": "Filtre",
@@ -1327,12 +1718,14 @@
       "saving": "Se salvează…",
       "error": "Salvarea a eșuat",
       "savedAt": "Salvat {{date}}",
+      "saved": "Salvat",
       "unsaved": "Modificări nesalvate",
       "allSaved": "Toate modificările sunt salvate"
     },
     "prompts": {
       "discardChanges": "Ai modificări nesalvate. Le abandonezi?",
       "discardAndContinue": "Ai modificări nesalvate. Le abandonezi și continui?",
+      "unsavedAction": "Ai modificări nesalvate. Salvează, renunță sau anulează această acțiune.",
       "moveToRecentlyDeleted": "Muți această notă în „Șterse recent”?",
       "templateName": "Nume șablon?",
       "newTagName": "Nume etichetă nouă",
@@ -1341,7 +1734,8 @@
     "messages": {
       "noteOutsideFilters": "Nota a fost deschisă în afara filtrelor curente. Ajustează filtrele pentru a o vedea în listă.",
       "noteCreatedOutsideFilters": "Nota a fost creată în afara filtrelor curente. Este afișată în Toate notele.",
-      "noteMovedToRecentlyDeleted": "Nota a fost mutată în „Șterse recent”."
+      "noteMovedToRecentlyDeleted": "Nota a fost mutată în „Șterse recent”.",
+      "discardedChanges": "Modificările nesalvate au fost eliminate."
     },
     "validation": {
       "dateRequired": "Data este obligatorie",

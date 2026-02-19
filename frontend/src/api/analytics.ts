@@ -186,6 +186,49 @@ export type AnalyticsResponse = {
   rolling20: RollingMetricPoint[]
   rolling50: RollingMetricPoint[]
   breakdown: Record<string, number>
+  coachingSummary?: CoachingSummary | null
+  strategyPerformance?: StrategyPerformanceRow[]
+  sessionPerformance?: SessionPerformanceRow[]
+  planAdherence?: PlanAdherenceSummary | null
+}
+
+export type CoachingSummary = {
+  bestStrategy: string
+  bestStrategyExpectancy: number | null
+  bestStrategyTrades: number
+  biggestLeak: string
+  biggestLeakExpectancy: number | null
+  nextFocusAction: string
+}
+
+export type StrategyPerformanceRow = {
+  strategy: string
+  market: string
+  trades: number
+  winRate: number
+  expectancy: number
+  profitFactor: number | null
+  netPnl: number
+  lowSample: boolean
+}
+
+export type SessionPerformanceRow = {
+  session: 'ASIA' | 'LONDON' | 'NY' | 'CUSTOM' | string
+  trades: number
+  winRate: number
+  expectancy: number
+  profitFactor: number | null
+  netPnl: number
+}
+
+export type PlanAdherenceSummary = {
+  linkedTrades: number
+  unlinkedTrades: number
+  linkedPct: number
+  linkedNetPnl: number
+  unlinkedNetPnl: number
+  linkedWinRate: number
+  unlinkedWinRate: number
 }
 
 export type AdviceSeverity = 'info' | 'warn' | 'critical'

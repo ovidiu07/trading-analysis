@@ -56,6 +56,13 @@ public class ContentPost {
     @Column(columnDefinition = "JSONB")
     private String symbols;
 
+    @Builder.Default
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(columnDefinition = "JSONB", nullable = false)
+    private String templateFields = "{}";
+
+    private String revisionNotes;
+
     private OffsetDateTime visibleFrom;
     private OffsetDateTime visibleUntil;
 

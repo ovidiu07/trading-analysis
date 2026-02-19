@@ -28,6 +28,11 @@ type ChipItem = {
   color?: ChipProps['color']
 }
 
+const formatTemplateLabel = (key: string) => key
+  .replace(/([a-z])([A-Z])/g, '$1 $2')
+  .replace(/[_-]+/g, ' ')
+  .replace(/^./, (value) => value.toUpperCase())
+
 export default function InsightDetailPage() {
   const { t, language } = useI18n()
   const { idOrSlug } = useParams()
@@ -94,6 +99,31 @@ export default function InsightDetailPage() {
     }
     return [typeChip, ...tagChips, ...symbolChips]
   }, [localizedPost])
+
+  const templateEntries = useMemo(() => {
+    if (!localizedPost?.templateFields) {
+      return []
+    }
+    return Object.entries(localizedPost.templateFields)
+      .map(([key, value]) => {
+        if (typeof value === 'string') {
+          return { key, value: value.trim() }
+        }
+        if (Array.isArray(value)) {
+          const normalized = value.map((item) => String(item)).join(', ').trim()
+          return { key, value: normalized }
+        }
+        if (value && typeof value === 'object') {
+          const normalized = Object.values(value as Record<string, unknown>)
+            .map((item) => String(item))
+            .join(', ')
+            .trim()
+          return { key, value: normalized }
+        }
+        return { key, value: String(value ?? '').trim() }
+      })
+      .filter((entry) => Boolean(entry.value))
+  }, [localizedPost?.templateFields])
 
   const handleAttachmentImageError = () => {
     if (refreshAttempts >= 1 || loading) return
@@ -177,13 +207,35 @@ export default function InsightDetailPage() {
             <Typography variant="body2" color="text.secondary">
               {t('insightDetail.lastUpdated')} {formatDateTime(localizedPost.updatedAt || localizedPost.publishedAt || '')}
             </Typography>
+            {localizedPost.revisionNotes && (
+              <Typography variant="body2" color="text.secondary">
+                {t('insightDetail.revisionNotes')} {localizedPost.revisionNotes}
+              </Typography>
+            )}
           </Stack>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent>
-          <MarkdownContent content={localizedPost.body} />
+          <Stack spacing={2}>
+            {templateEntries.length > 0 && (
+              <Stack spacing={1}>
+                <Typography variant="subtitle2">{t('insightDetail.templateFields')}</Typography>
+                {templateEntries.map((entry) => (
+                  <Stack key={entry.key} spacing={0.25}>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatTemplateLabel(entry.key)}
+                    </Typography>
+                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                      {entry.value}
+                    </Typography>
+                  </Stack>
+                ))}
+              </Stack>
+            )}
+            <MarkdownContent content={localizedPost.body} />
+          </Stack>
         </CardContent>
       </Card>
 
