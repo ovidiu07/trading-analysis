@@ -50,6 +50,7 @@ import {
   deleteAsset,
   fetchAssetBlob,
   resolveAssetUrl,
+  toAssetMarkdownUrl,
   type AssetItem,
   uploadAsset
 } from '../../api/assets'
@@ -553,7 +554,8 @@ export default function AdminContentEditorPage() {
   }
 
   const handleInsertAssetIntoBody = (asset: AssetItem) => {
-    const targetUrl = resolveAssetUrl(asset.image ? (asset.viewUrl || asset.url || '') : (asset.downloadUrl || asset.url || ''))
+    const rawTargetUrl = asset.image ? (asset.viewUrl || asset.url || '') : (asset.downloadUrl || asset.url || '')
+    const targetUrl = toAssetMarkdownUrl(rawTargetUrl) || resolveAssetUrl(rawTargetUrl)
     if (!targetUrl) return
     const current = form.translations[activeLocale].body
     const input = bodyInputRef.current

@@ -1,6 +1,7 @@
 import { Box } from '@mui/material'
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { convertMarkdownToHtml } from '../../utils/markdown'
+import { fetchAssetBlob, isProtectedApiUrl, resolveAssetUrl } from '../../api/assets'
 
 type MarkdownContentProps = {
   content?: string | null
@@ -8,6 +9,69 @@ type MarkdownContentProps = {
 
 export default function MarkdownContent({ content }: MarkdownContentProps) {
   const html = useMemo(() => convertMarkdownToHtml(content || ''), [content])
+  const [renderedHtml, setRenderedHtml] = useState(html)
+
+  useEffect(() => {
+    let cancelled = false
+    const objectUrls: string[] = []
+
+    const resolveImages = async () => {
+      setRenderedHtml(html)
+      if (!html) {
+        return
+      }
+
+      let parsed: Document
+      try {
+        parsed = new DOMParser().parseFromString(html, 'text/html')
+      } catch {
+        return
+      }
+
+      const imageNodes = Array.from(parsed.querySelectorAll('img'))
+      if (imageNodes.length === 0) {
+        return
+      }
+
+      await Promise.all(imageNodes.map(async (node) => {
+        const rawSrc = (node.getAttribute('src') || '').trim()
+        if (!rawSrc) {
+          return
+        }
+
+        const resolvedSrc = resolveAssetUrl(rawSrc) || rawSrc
+        const requiresAuthenticatedFetch = isProtectedApiUrl(rawSrc) || isProtectedApiUrl(resolvedSrc)
+
+        if (!requiresAuthenticatedFetch) {
+          node.setAttribute('src', resolvedSrc)
+          return
+        }
+
+        try {
+          const blob = await fetchAssetBlob(rawSrc)
+          if (cancelled) {
+            return
+          }
+          const objectUrl = URL.createObjectURL(blob)
+          objectUrls.push(objectUrl)
+          node.setAttribute('src', objectUrl)
+        } catch {
+          node.setAttribute('src', resolvedSrc)
+        }
+      }))
+
+      if (!cancelled) {
+        setRenderedHtml(parsed.body.innerHTML || html)
+      }
+    }
+
+    void resolveImages()
+
+    return () => {
+      cancelled = true
+      objectUrls.forEach((objectUrl) => URL.revokeObjectURL(objectUrl))
+    }
+  }, [html])
 
   return (
     <Box
@@ -83,7 +147,7 @@ export default function MarkdownContent({ content }: MarkdownContentProps) {
           backgroundColor: 'action.hover'
         }
       }}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={{ __html: renderedHtml }}
     />
   )
 }

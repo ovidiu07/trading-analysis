@@ -1,16 +1,28 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Grid,
   Stack,
   Typography,
+  useMediaQuery,
   type ChipProps
 } from '@mui/material'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import { Link, useParams } from 'react-router-dom'
 import AssetListRenderer from '../components/assets/AssetListRenderer'
+import TradingViewWidget from '../components/charts/TradingViewWidget'
 import PageHeader from '../components/ui/PageHeader'
 import LoadingState from '../components/ui/LoadingState'
 import ErrorBanner from '../components/ui/ErrorBanner'
@@ -28,18 +40,45 @@ type ChipItem = {
   color?: ChipProps['color']
 }
 
+const toLineItems = (value?: string | null) => {
+  if (!value) return []
+  return value
+    .split(/\r?\n|,/)
+    .map((line) => line.trim())
+    .map((line) => line.replace(/^[-*]\s*/, ''))
+    .filter(Boolean)
+}
+
 const formatTemplateLabel = (key: string) => key
   .replace(/([a-z])([A-Z])/g, '$1 $2')
   .replace(/[_-]+/g, ' ')
   .replace(/^./, (value) => value.toUpperCase())
 
+const normalizeTemplateText = (value: unknown) => {
+  if (typeof value === 'string') {
+    return value.trim()
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) => String(item).trim()).filter(Boolean).join('\n')
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>)
+      .map((item) => String(item).trim())
+      .filter(Boolean)
+      .join('\n')
+  }
+  return String(value ?? '').trim()
+}
+
 export default function InsightDetailPage() {
   const { t, language } = useI18n()
   const { idOrSlug } = useParams()
+  const isCompactViewport = useMediaQuery('(max-width:900px)')
   const [post, setPost] = useState<ContentPost | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [refreshAttempts, setRefreshAttempts] = useState(0)
+  const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false)
   const translateRef = useRef(t)
 
   useEffect(() => {
@@ -173,6 +212,31 @@ export default function InsightDetailPage() {
   }
 
   const attachments = localizedPost.assets || []
+  const isDailyPlan = localizedPost.contentTypeKey === 'DAILY_PLAN'
+
+  const templateFieldValue = (key: string) => normalizeTemplateText(localizedPost.templateFields?.[key])
+  const biasSummary = templateFieldValue('biasSummary') || (localizedPost.summary || '').trim()
+  const keyLevels = toLineItems(templateFieldValue('keyLevels'))
+  const executionRules = toLineItems(templateFieldValue('executionRules'))
+  const riskNote = templateFieldValue('riskNote')
+  const primaryModel = templateFieldValue('primaryModel')
+  const liquidityNarrative = templateFieldValue('liquidityNarrative')
+  const alternativeScenario = templateFieldValue('alternativeScenario')
+  const context = templateFieldValue('context')
+  const hasAdvancedDailyDetails = Boolean(
+    primaryModel ||
+    liquidityNarrative ||
+    alternativeScenario ||
+    context ||
+    localizedPost.body?.trim()
+  )
+
+  const snapshotAsset = (localizedPost.snapshotAssetId
+    ? attachments.find((asset) => asset.id === localizedPost.snapshotAssetId)
+    : null) || null
+  const snapshotUrl = snapshotAsset
+    ? resolveAssetUrl(snapshotAsset.viewUrl || snapshotAsset.url || '')
+    : ''
 
   return (
     <Stack spacing={3}>
@@ -218,24 +282,182 @@ export default function InsightDetailPage() {
 
       <Card>
         <CardContent>
-          <Stack spacing={2}>
-            {templateEntries.length > 0 && (
-              <Stack spacing={1}>
-                <Typography variant="subtitle2">{t('insightDetail.templateFields')}</Typography>
-                {templateEntries.map((entry) => (
-                  <Stack key={entry.key} spacing={0.25}>
+          {isDailyPlan ? (
+            <Stack spacing={1.25}>
+              {snapshotAsset?.image && snapshotUrl && (
+                <Stack spacing={0.75}>
+                  <Typography variant="caption" color="text.secondary">
+                    {t('today.session.mentor.chartSnapshot')}
+                  </Typography>
+                  <Box
+                    component="button"
+                    type="button"
+                    onClick={() => setSnapshotDialogOpen(true)}
+                    sx={{
+                      width: '100%',
+                      p: 0,
+                      border: 'none',
+                      bgcolor: 'transparent',
+                      borderRadius: 2,
+                      overflow: 'hidden',
+                      cursor: 'zoom-in'
+                    }}
+                  >
+                    <Box
+                      component="img"
+                      src={snapshotUrl}
+                      alt={snapshotAsset.originalFileName || localizedPost.title}
+                      sx={{
+                        display: 'block',
+                        width: '100%',
+                        maxHeight: { xs: 300, md: 440 },
+                        objectFit: 'cover',
+                        borderRadius: 2,
+                        border: '1px solid',
+                        borderColor: 'divider'
+                      }}
+                    />
+                  </Box>
+                  {localizedPost.snapshotCaption && (
                     <Typography variant="caption" color="text.secondary">
-                      {formatTemplateLabel(entry.key)}
+                      {localizedPost.snapshotCaption}
                     </Typography>
-                    <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                      {entry.value}
-                    </Typography>
-                  </Stack>
-                ))}
+                  )}
+                </Stack>
+              )}
+
+              <Stack spacing={0.75}>
+                <Typography variant="caption" color="text.secondary">
+                  {t('today.session.mentor.essentials')}
+                </Typography>
+                <Grid container spacing={1.1}>
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                      <Typography variant="caption" color="text.secondary">{t('today.session.mentor.biasSummary')}</Typography>
+                      <Typography variant="body2">{biasSummary || t('today.session.mentor.emptySummary')}</Typography>
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                      <Typography variant="caption" color="text.secondary">{t('today.session.mentor.keyLevels')}</Typography>
+                      {keyLevels.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">{t('today.session.mentor.noKeyLevels')}</Typography>
+                      ) : (
+                        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                          {keyLevels.map((level) => (
+                            <Chip key={level} size="small" label={level} variant="outlined" />
+                          ))}
+                        </Stack>
+                      )}
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                      <Typography variant="caption" color="text.secondary">{t('today.session.mentor.executionRules')}</Typography>
+                      {executionRules.length === 0 ? (
+                        <Typography variant="body2" color="text.secondary">{t('today.session.mentor.noExecutionRules')}</Typography>
+                      ) : (
+                        <Stack spacing={0.35} sx={{ mt: 0.75 }}>
+                          {executionRules.map((item, index) => (
+                            <Typography key={`${item}-${index}`} variant="body2">{index + 1}. {item}</Typography>
+                          ))}
+                        </Stack>
+                      )}
+                    </Box>
+                  </Grid>
+                  <Grid item xs={12} sm={6}>
+                    <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                      <Typography variant="caption" color="text.secondary">{t('today.session.mentor.riskNote')}</Typography>
+                      <Typography variant="body2">
+                        {riskNote || t('today.session.mentor.noRiskNote')}
+                      </Typography>
+                    </Box>
+                  </Grid>
+                </Grid>
               </Stack>
-            )}
-            <MarkdownContent content={localizedPost.body} />
-          </Stack>
+
+              {localizedPost.tradingViewSymbol && (
+                <Accordion disableGutters defaultExpanded={!isCompactViewport}>
+                  <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                    <Typography variant="body2">{t('today.session.mentor.liveChart')}</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <TradingViewWidget
+                      symbol={localizedPost.tradingViewSymbol}
+                      interval={localizedPost.tradingViewInterval}
+                      themePreference={localizedPost.tradingViewTheme || 'SYSTEM'}
+                      hideControls={localizedPost.tradingViewHideControls ?? true}
+                      allowSymbolChange={localizedPost.tradingViewAllowSymbolChange ?? false}
+                      minHeight={isCompactViewport ? 320 : 420}
+                      fallbackMessage={t('today.session.mentor.liveChartFallback')}
+                      fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
+                    />
+                  </AccordionDetails>
+                </Accordion>
+              )}
+
+              {hasAdvancedDailyDetails && (
+                <Accordion disableGutters defaultExpanded={false}>
+                  <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                    <Typography variant="body2">{t('today.session.mentor.advanced')}</Typography>
+                  </AccordionSummary>
+                  <AccordionDetails>
+                    <Stack spacing={1.1}>
+                      {primaryModel && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.primaryModel')}</Typography>
+                          <Typography variant="body2">{primaryModel}</Typography>
+                        </Box>
+                      )}
+                      {liquidityNarrative && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.liquidityNarrative')}</Typography>
+                          <Typography variant="body2">{liquidityNarrative}</Typography>
+                        </Box>
+                      )}
+                      {alternativeScenario && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.alternativeScenario')}</Typography>
+                          <Typography variant="body2">{alternativeScenario}</Typography>
+                        </Box>
+                      )}
+                      {context && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.context')}</Typography>
+                          <Typography variant="body2">{context}</Typography>
+                        </Box>
+                      )}
+                      {localizedPost.body && (
+                        <Box>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.body')}</Typography>
+                          <MarkdownContent content={localizedPost.body} />
+                        </Box>
+                      )}
+                    </Stack>
+                  </AccordionDetails>
+                </Accordion>
+              )}
+            </Stack>
+          ) : (
+            <Stack spacing={2}>
+              {templateEntries.length > 0 && (
+                <Stack spacing={1}>
+                  <Typography variant="subtitle2">{t('insightDetail.templateFields')}</Typography>
+                  {templateEntries.map((entry) => (
+                    <Stack key={entry.key} spacing={0.25}>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatTemplateLabel(entry.key)}
+                      </Typography>
+                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                        {entry.value}
+                      </Typography>
+                    </Stack>
+                  ))}
+                </Stack>
+              )}
+              <MarkdownContent content={localizedPost.body} />
+            </Stack>
+          )}
         </CardContent>
       </Card>
 
@@ -259,6 +481,33 @@ export default function InsightDetailPage() {
       <Alert severity="info">
         {t('insightDetail.infoAlert')}
       </Alert>
+
+      <Dialog
+        open={snapshotDialogOpen && Boolean(snapshotUrl)}
+        onClose={() => setSnapshotDialogOpen(false)}
+        fullWidth
+        maxWidth="lg"
+      >
+        <DialogTitle>{localizedPost.title || t('today.session.mentor.chartSnapshot')}</DialogTitle>
+        <DialogContent dividers>
+          {snapshotUrl && (
+            <Box
+              component="img"
+              src={snapshotUrl}
+              alt={localizedPost.title || t('today.session.mentor.chartSnapshot')}
+              sx={{ width: '100%', maxHeight: '75vh', objectFit: 'contain', display: 'block' }}
+            />
+          )}
+          {localizedPost.snapshotCaption && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {localizedPost.snapshotCaption}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSnapshotDialogOpen(false)}>{t('common.close')}</Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   )
 }

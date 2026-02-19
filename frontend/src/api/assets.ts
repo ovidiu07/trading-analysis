@@ -54,6 +54,16 @@ const authHeader = () => {
 }
 
 const isAbsoluteUrl = (value: string) => /^https?:\/\//i.test(value)
+const API_ORIGIN = (() => {
+  if (!isAbsoluteUrl(API_URL)) {
+    return null
+  }
+  try {
+    return new URL(API_URL).origin
+  } catch {
+    return null
+  }
+})()
 
 export const resolveAssetUrl = (value?: string | null) => {
   if (!value) return ''
@@ -68,10 +78,49 @@ export const resolveAssetUrl = (value?: string | null) => {
   }
 }
 
+export const toAssetMarkdownUrl = (value?: string | null) => {
+  if (!value) return ''
+  if (!isAbsoluteUrl(value)) return value
+
+  try {
+    const parsed = new URL(value)
+    const sameApiOrigin = API_ORIGIN ? parsed.origin === API_ORIGIN : false
+    const sameWindowOrigin = typeof window !== 'undefined' && parsed.origin === window.location.origin
+    if ((sameApiOrigin || sameWindowOrigin) && parsed.pathname.startsWith('/api/assets/')) {
+      return `${parsed.pathname}${parsed.search}${parsed.hash}`
+    }
+  } catch {
+    return value
+  }
+
+  return value
+}
+
 export const isProtectedApiUrl = (value?: string | null) => {
   if (!value) return false
-  if (isAbsoluteUrl(value)) return false
-  return value.startsWith('/api/')
+
+  if (!isAbsoluteUrl(value)) {
+    return value.startsWith('/api/')
+  }
+
+  try {
+    const parsed = new URL(value)
+    if (!parsed.pathname.startsWith('/api/')) {
+      return false
+    }
+
+    if (API_ORIGIN) {
+      return parsed.origin === API_ORIGIN
+    }
+
+    if (typeof window !== 'undefined') {
+      return parsed.origin === window.location.origin
+    }
+  } catch {
+    return false
+  }
+
+  return false
 }
 
 export async function listContentAssets(contentId: string) {
