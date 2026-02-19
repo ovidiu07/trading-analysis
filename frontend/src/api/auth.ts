@@ -6,7 +6,7 @@ export type AuthUser = {
   role?: string
   baseCurrency?: string
   timezone?: string
-  themePreference?: 'LIGHT' | 'DARK' | 'SYSTEM'
+  themePreference?: 'LIGHT' | 'DARK' | 'BLACK_SHINY' | 'SYSTEM'
 }
 
 export type AuthResponse = { token: string, user?: AuthUser }

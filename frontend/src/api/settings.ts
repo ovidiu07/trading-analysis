@@ -4,7 +4,7 @@ import { AuthUser } from './auth'
 export type UserSettingsRequest = {
   baseCurrency: string
   timezone: string
-  themePreference?: 'LIGHT' | 'DARK' | 'SYSTEM'
+  themePreference?: 'LIGHT' | 'DARK' | 'BLACK_SHINY' | 'SYSTEM'
 }
 
 export async function fetchUserSettings() {

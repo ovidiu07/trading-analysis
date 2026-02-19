@@ -13,6 +13,7 @@
     "label": "Theme",
     "light": "Light",
     "dark": "Dark",
+    "blackShiny": "Black Shiny",
     "system": "System"
   },
   "common": {
@@ -45,7 +46,7 @@
     "calendar": "Calendar",
     "notebook": "Notebook",
     "analytics": "Analytics",
-    "insights": "Insights",
+    "insights": "Mentor",
     "settings": "Settings",
     "admin": "Admin",
     "profile": "Profile",
@@ -122,13 +123,13 @@
       "roMissing": "RO missing"
     },
     "dialog": {
-      "archiveBody": "Archive this content? It will be hidden from Insights but kept for records.",
+      "archiveBody": "Archive this content? It will be hidden from Mentor but kept for records.",
       "archiveTitle": "Archive content",
-      "publishBody": "Publish this content to Insights? All users will see it immediately.",
+      "publishBody": "Publish this content to Mentor? All users will see it immediately.",
       "publishTitle": "Publish content"
     },
     "empty": {
-      "body": "Create your first strategy or weekly plan to publish it to Insights.",
+      "body": "Create your first strategy or weekly plan to publish it to Mentor.",
       "title": "No content yet"
     },
     "messages": {
@@ -218,7 +219,7 @@
     },
     "newContent": "New content",
     "preview": "Preview",
-    "subtitle": "Build strategies and weekly plans for the Insights section.",
+    "subtitle": "Build strategies and weekly plans for the Mentor section.",
     "template": {
       "sectionTitle": "Template sections",
       "previewTitle": "Structured template",
@@ -792,7 +793,7 @@
       "openPlan": "Open plan",
       "openWeeklyPlan": "Open weekly plan",
       "openFullPlan": "Open full plan",
-      "openInsights": "Open Insights/Today feed",
+      "openInsights": "Open Mentor/Today feed",
       "startSession": "Start session",
       "seeWhy": "See why",
       "logTrade": "Log trade",
@@ -805,7 +806,7 @@
       "defaultName": "Mentor",
       "publishedAt": "Published: {{date}}",
       "emptyTitle": "No mentor plan today",
-      "emptyBody": "Open Insights to view the Today feed.",
+      "emptyBody": "Open Mentor to view the Today feed.",
       "emptySummary": "No mentor notes available."
     },
     "myPlan": {
@@ -834,7 +835,7 @@
       "daily": {
         "title": "Today's Plan",
         "emptyTitle": "No featured daily plan",
-        "emptyBody": "Open Insights to follow today's plan feed.",
+        "emptyBody": "Open Mentor to follow today's plan feed.",
         "noSummary": "No bias summary available yet.",
         "primaryModel": "Primary model"
       },
@@ -881,11 +882,112 @@
     },
     "session": {
       "title": "Session mode",
-      "subtitle": "Focused execution view with your plan, checklist, and quick notes.",
+      "subtitle": "Focused execution view with checklist, mentor plan, and trade execution.",
       "exit": "Back to Today",
       "planSummary": "Plan summary",
       "quickNote": "Quick notepad",
-      "quickNotePlaceholder": "Capture observations, invalidations, and execution notes in real time."
+      "quickNotePlaceholder": "Capture observations, invalidations, and execution notes in real time.",
+      "config": {
+        "title": "Session configuration",
+        "subtitle": "Set your daily guardrails before you start execution.",
+        "profitTarget": "Profit for today (USD)",
+        "lossLimit": "Loss for today (USD)",
+        "maxTrades": "Max number of trades",
+        "saving": "Saving...",
+        "submit": "Save and open workspace"
+      },
+      "errors": {
+        "startTrade": "Failed to start trade",
+        "closeTrade": "Failed to close trade",
+        "profitTargetRequired": "Profit target is required",
+        "lossLimitRequired": "Loss limit is required",
+        "maxTradesRequired": "Max trades must be greater than zero",
+        "tickerRequired": "Ticker is required",
+        "quantityAndEntryRequired": "Quantity and entry price are required",
+        "exitPriceRequired": "Exit price is required"
+      },
+      "progress": {
+        "title": "Session progress",
+        "realizedPnl": "Realized PnL: {{realized}} / {{target}}",
+        "trades": "Trades: {{closed}}/{{max}}",
+        "pnlGuardrail": "PnL guardrail",
+        "tradeGuardrail": "Trade count guardrail"
+      },
+      "status": {
+        "active": "Active",
+        "completed": "Completed / Locked"
+      },
+      "checklist": {
+        "title": "Session checklist",
+        "progress": "{{completed}}/{{total}}",
+        "saveTemplate": "Save template",
+        "importTemplate": "Import template",
+        "templateName": "Template name",
+        "overwriteTemplate": "Overwrite template",
+        "saveAsNew": "Save as new",
+        "templateSaved": "Template saved",
+        "templateImported": "Template imported",
+        "refresh": "Refresh checklist",
+        "refreshDone": "Checklist refreshed",
+        "importAction": "Import",
+        "confirmImport": "Importing replaces your current session checklist items for today. Continue?",
+        "emptyTitle": "No checklist items",
+        "emptyBody": "Add one from a template or update your defaults."
+      },
+      "templates": {
+        "nameRequired": "Template name is required",
+        "emptyChecklist": "Checklist has no items to save",
+        "selectOverwriteTarget": "Select a template to overwrite"
+      },
+      "mentor": {
+        "title": "Mentor Plan",
+        "select": "Select mentor plan",
+        "updated": "Mentor plan updated (previous plan no longer active)",
+        "emptyTitle": "No mentor plan available right now",
+        "emptyBody": "No mentor plan available right now",
+        "emptySummary": "No bias summary.",
+        "biasSummary": "Bias Summary",
+        "keyLevels": "Key Levels",
+        "noKeyLevels": "No key levels.",
+        "primaryModel": "Primary Model",
+        "executionRules": "Execution Rules",
+        "riskNote": "Risk Note",
+        "narrativeAndScenarios": "Liquidity narrative & scenarios",
+        "liquidityNarrative": "Liquidity Narrative",
+        "alternativeScenario": "Alternative Scenario"
+      },
+      "planner": {
+        "title": "Trade Planner + Execution",
+        "scheduleTrade": "Schedule trade",
+        "scheduleTickerLabel": "Ticker to schedule",
+        "addTicker": "Add",
+        "startTrade": "Start trade",
+        "startingTrade": "Starting...",
+        "stopTrade": "Stop trade",
+        "activeTrade": "Active trade: {{symbol}} {{direction}} at {{price}}",
+        "exitPrice": "Exit price",
+        "postTradeNotes": "Post trade notes",
+        "closingTrade": "Closing...",
+        "confirmCloseTrade": "Close trade"
+      },
+      "form": {
+        "requiredField": "Required",
+        "optionalField": "Optional",
+        "pricesGroup": "Prices",
+        "riskSnapshot": "Risk snapshot: {{risk}} • R est.: {{r}}",
+        "feeling": "How are you feeling?",
+        "myStrategies": "My strategies",
+        "mentorStrategies": "Mentor strategies",
+        "linkedPlan": "Linked plan"
+      },
+      "strategyDetails": {
+        "title": "Strategy details",
+        "entryConditions": "Entry conditions",
+        "invalidation": "Invalidation",
+        "management": "Management",
+        "noTradeRules": "No-trade rules",
+        "sessionSuitability": "Session suitability"
+      }
     }
   },
   "demo": {
@@ -936,7 +1038,7 @@
     "title": "Reset your password"
   },
   "insightDetail": {
-    "backToInsights": "Back to Insights",
+    "backToInsights": "Back to Mentor",
     "attachments": "Attachments",
     "noAttachments": "No attachments available.",
     "infoAlert": "For journaling and educational purposes only. Not investment advice.",
@@ -948,7 +1050,7 @@
     }
   },
   "insights": {
-    "title": "Insights",
+    "title": "Mentor",
     "subtitle": "Plans, playbooks, and learning",
     "heading": "Plans, playbooks, and learning",
     "subheading": "Use tab-based feeds to move from plan to execution with less noise.",
@@ -959,7 +1061,7 @@
     "updated": "Updated",
     "weekOf": "Week of",
     "errors": {
-      "load": "Could not load insights feed.",
+      "load": "Could not load mentor feed.",
       "follow": "Could not follow this item."
     },
     "tabs": {

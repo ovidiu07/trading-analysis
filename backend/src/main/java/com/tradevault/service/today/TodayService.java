@@ -58,7 +58,7 @@ public class TodayService {
         OffsetDateTime cutoff = now.minusDays(Math.max(1, recentDays));
 
         return contentPostService.listPublished("DAILY_PLAN", null, false, locale).stream()
-                .filter(post -> isVisibleNow(post, now) || isRecent(post, cutoff))
+                .filter(post -> isVisibleNow(post, now) || isRecent(post, cutoff, now))
                 .sorted(Comparator
                         .comparing((ContentPostResponse post) -> isVisibleNow(post, now) ? 0 : 1)
                         .thenComparing((ContentPostResponse post) -> post.getVisibleFrom() == null ? OffsetDateTime.MIN : post.getVisibleFrom(), Comparator.reverseOrder())
@@ -183,17 +183,20 @@ public class TodayService {
         return true;
     }
 
-    private boolean isRecent(ContentPostResponse post, OffsetDateTime cutoff) {
+    private boolean isRecent(ContentPostResponse post, OffsetDateTime cutoff, OffsetDateTime now) {
         OffsetDateTime visibleFrom = post.getVisibleFrom();
-        if (visibleFrom != null && !visibleFrom.isBefore(cutoff)) {
+        if (visibleFrom != null && visibleFrom.isAfter(now)) {
+            return false;
+        }
+        if (visibleFrom != null && !visibleFrom.isBefore(cutoff) && !visibleFrom.isAfter(now)) {
             return true;
         }
         OffsetDateTime updatedAt = post.getUpdatedAt();
-        if (updatedAt != null && !updatedAt.isBefore(cutoff)) {
+        if (updatedAt != null && !updatedAt.isBefore(cutoff) && !updatedAt.isAfter(now)) {
             return true;
         }
         OffsetDateTime publishedAt = post.getPublishedAt();
-        return publishedAt != null && !publishedAt.isBefore(cutoff);
+        return publishedAt != null && !publishedAt.isBefore(cutoff) && !publishedAt.isAfter(now);
     }
 
     private DailyPlanResponse toDailyPlanResponse(ContentPostResponse post) {

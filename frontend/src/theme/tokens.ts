@@ -1,4 +1,4 @@
-export type AppThemeMode = 'light' | 'dark'
+export type AppThemeMode = 'light' | 'dark' | 'black-shiny'
 
 type ElevationTokens = {
   card: string
@@ -194,5 +194,63 @@ const darkTokens: DesignTokens = {
   }
 }
 
+const blackShinyTokens: DesignTokens = {
+  radius: sharedRadius,
+  elevation: {
+    card: '0 1px 1px rgba(0, 0, 0, 0.72), 0 24px 54px rgba(0, 0, 0, 0.86)',
+    floating: '0 24px 58px rgba(0, 0, 0, 0.92)'
+  },
+  surface: {
+    app: '#020202',
+    background: '#060606',
+    panel: 'rgba(15, 15, 15, 0.86)',
+    panelMuted: 'rgba(20, 20, 20, 0.92)',
+    sidebar: 'rgba(7, 7, 7, 0.88)',
+    header: 'rgba(6, 6, 6, 0.82)'
+  },
+  text: {
+    primary: '#f5f7fb',
+    secondary: '#c3cada',
+    muted: '#9ca9c5',
+    disabled: '#67718a',
+    inverse: '#050506'
+  },
+  border: {
+    subtle: 'rgba(173, 186, 212, 0.3)',
+    strong: 'rgba(173, 186, 212, 0.46)',
+    focus: '#7dd3ff'
+  },
+  brand: {
+    primary: '#2ed2ff',
+    primaryStrong: '#06b9e9',
+    primarySoft: 'rgba(46, 210, 255, 0.2)',
+    secondary: '#8ca6ff',
+    secondarySoft: 'rgba(140, 166, 255, 0.2)',
+    gradientStart: '#35dcff',
+    gradientEnd: '#7d8dff'
+  },
+  feedback: {
+    success: '#3fd89e',
+    warning: '#f6bf63',
+    error: '#ff8b94',
+    info: '#7dd3ff'
+  },
+  chart: {
+    grid: 'rgba(166, 181, 210, 0.28)',
+    axis: '#b8c5df',
+    positive: '#44d9a2',
+    negative: '#ff98a0'
+  },
+  interaction: {
+    hover: 'rgba(46, 210, 255, 0.18)',
+    selected: 'rgba(46, 210, 255, 0.28)',
+    pressed: 'rgba(46, 210, 255, 0.4)'
+  }
+}
+
 export const getDesignTokens = (mode: AppThemeMode): DesignTokens =>
-  mode === 'light' ? lightTokens : darkTokens
+  mode === 'light'
+    ? lightTokens
+    : mode === 'black-shiny'
+      ? blackShinyTokens
+      : darkTokens

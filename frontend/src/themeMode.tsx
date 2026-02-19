@@ -3,9 +3,9 @@ import { PropsWithChildren, createContext, useCallback, useContext, useEffect, u
 import { useAuth } from './auth/AuthContext'
 import { createAppTheme } from './theme'
 
-export type ThemePreference = 'light' | 'dark' | 'system'
-export type ResolvedThemeMode = 'light' | 'dark'
-export type BackendThemePreference = 'LIGHT' | 'DARK' | 'SYSTEM'
+export type ThemePreference = 'light' | 'dark' | 'black-shiny' | 'system'
+export type ResolvedThemeMode = 'light' | 'dark' | 'black-shiny'
+export type BackendThemePreference = 'LIGHT' | 'DARK' | 'BLACK_SHINY' | 'SYSTEM'
 
 type ThemeModeContextType = {
   preference: ThemePreference
@@ -20,6 +20,7 @@ const ThemeModeContext = createContext<ThemeModeContextType | undefined>(undefin
 const normalizeThemePreference = (value?: string | null): ThemePreference => {
   if (value === 'light' || value === 'LIGHT') return 'light'
   if (value === 'dark' || value === 'DARK') return 'dark'
+  if (value === 'black-shiny' || value === 'BLACK_SHINY' || value === 'BLACK-SHINY') return 'black-shiny'
   return 'system'
 }
 
@@ -27,7 +28,9 @@ const getSystemMode = (): ResolvedThemeMode =>
   window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
 
 export const toBackendThemePreference = (preference: ThemePreference): BackendThemePreference =>
-  preference.toUpperCase() as BackendThemePreference
+  preference === 'black-shiny'
+    ? 'BLACK_SHINY'
+    : preference.toUpperCase() as BackendThemePreference
 
 export const fromBackendThemePreference = (value?: string | null): ThemePreference =>
   normalizeThemePreference(value)
@@ -38,7 +41,7 @@ export function ThemeModeProvider({ children }: PropsWithChildren) {
     const stored = localStorage.getItem(STORAGE_KEY)
     return normalizeThemePreference(stored)
   })
-  const [systemMode, setSystemMode] = useState<ResolvedThemeMode>(getSystemMode)
+  const [systemMode, setSystemMode] = useState<'light' | 'dark'>(getSystemMode)
   const hasManualChange = useRef(false)
   const previousUserId = useRef<string | null>(null)
 
@@ -74,7 +77,7 @@ export function ThemeModeProvider({ children }: PropsWithChildren) {
   const resolvedMode = preference === 'system' ? systemMode : preference
 
   useEffect(() => {
-    document.documentElement.style.colorScheme = resolvedMode
+    document.documentElement.style.colorScheme = resolvedMode === 'light' ? 'light' : 'dark'
     document.documentElement.dataset.theme = resolvedMode
   }, [resolvedMode])
 

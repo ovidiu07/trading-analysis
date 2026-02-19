@@ -26,6 +26,8 @@ declare module '@mui/material/styles' {
 const createFintechTheme = (mode: AppThemeMode): Theme => {
   const tokens = getDesignTokens(mode)
   const isLight = mode === 'light'
+  const isBlackShiny = mode === 'black-shiny'
+  const paletteMode = isLight ? 'light' : 'dark'
 
   return createTheme({
     spacing: 8,
@@ -33,11 +35,11 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
       borderRadius: tokens.radius.md
     },
     palette: {
-      mode,
+      mode: paletteMode,
       primary: {
         main: tokens.brand.primary,
         dark: tokens.brand.primaryStrong,
-        light: isLight ? '#4b7ff1' : '#9bc8ff',
+        light: isLight ? '#4b7ff1' : isBlackShiny ? '#86edff' : '#9bc8ff',
         contrastText: tokens.text.inverse
       },
       secondary: {
@@ -170,7 +172,9 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             backgroundColor: tokens.surface.background,
             backgroundImage: isLight
               ? `radial-gradient(1000px 500px at -8% -10%, ${alpha(tokens.brand.primary, 0.19)} 0%, rgba(255,255,255,0) 62%), radial-gradient(880px 420px at 105% -5%, ${alpha(tokens.brand.secondary, 0.16)} 0%, rgba(255,255,255,0) 58%), linear-gradient(180deg, ${tokens.surface.background} 0%, ${tokens.surface.app} 100%)`
-              : `radial-gradient(960px 500px at -10% -8%, ${alpha(tokens.brand.primary, 0.34)} 0%, rgba(0,0,0,0) 64%), radial-gradient(880px 460px at 108% -5%, ${alpha(tokens.brand.secondary, 0.2)} 0%, rgba(0,0,0,0) 58%), linear-gradient(180deg, ${tokens.surface.background} 0%, ${tokens.surface.app} 100%)`,
+              : isBlackShiny
+                ? `radial-gradient(980px 440px at -12% -10%, ${alpha(tokens.brand.primary, 0.4)} 0%, rgba(0,0,0,0) 62%), radial-gradient(960px 460px at 112% -4%, ${alpha(tokens.brand.secondary, 0.28)} 0%, rgba(0,0,0,0) 58%), linear-gradient(180deg, #030303 0%, ${tokens.surface.background} 42%, ${tokens.surface.app} 100%)`
+                : `radial-gradient(960px 500px at -10% -8%, ${alpha(tokens.brand.primary, 0.34)} 0%, rgba(0,0,0,0) 64%), radial-gradient(880px 460px at 108% -5%, ${alpha(tokens.brand.secondary, 0.2)} 0%, rgba(0,0,0,0) 58%), linear-gradient(180deg, ${tokens.surface.background} 0%, ${tokens.surface.app} 100%)`,
             backgroundAttachment: 'fixed'
           },
           '#root': {
@@ -194,7 +198,9 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           '.surface-hero': {
             background: isLight
               ? `linear-gradient(140deg, ${alpha(tokens.brand.primary, 0.14)} 0%, ${alpha(tokens.brand.secondary, 0.1)} 58%, ${alpha(tokens.surface.panel, 0.96)} 100%)`
-              : `linear-gradient(140deg, ${alpha(tokens.brand.primary, 0.3)} 0%, ${alpha(tokens.brand.secondary, 0.16)} 62%, ${alpha(tokens.surface.panel, 0.94)} 100%)`
+              : isBlackShiny
+                ? `linear-gradient(145deg, ${alpha(tokens.brand.primary, 0.34)} 0%, ${alpha(tokens.brand.secondary, 0.2)} 48%, ${alpha(tokens.surface.panel, 0.96)} 100%)`
+                : `linear-gradient(140deg, ${alpha(tokens.brand.primary, 0.3)} 0%, ${alpha(tokens.brand.secondary, 0.16)} 62%, ${alpha(tokens.surface.panel, 0.94)} 100%)`
           },
           '.interactive-lift': {
             transition: 'transform 180ms ease, box-shadow 180ms ease'
@@ -234,7 +240,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             backgroundColor: tokens.surface.panel,
             borderRadius: tokens.radius.md,
             border: `1px solid ${tokens.border.subtle}`,
-            backdropFilter: 'blur(10px) saturate(1.15)'
+            backdropFilter: isBlackShiny ? 'blur(14px) saturate(1.2)' : 'blur(10px) saturate(1.15)'
           }
         }
       },
@@ -272,7 +278,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           contained: {
             backgroundImage: `linear-gradient(135deg, ${tokens.brand.gradientStart} 0%, ${tokens.brand.gradientEnd} 100%)`,
             color: tokens.text.inverse,
-            boxShadow: 'none',
+            boxShadow: isBlackShiny ? `0 0 0 1px ${alpha(tokens.brand.primary, 0.45)}, 0 10px 24px ${alpha(tokens.brand.primary, 0.18)}` : 'none',
             '&:hover': {
               boxShadow: tokens.elevation.floating,
               transform: 'translateY(-1px)'

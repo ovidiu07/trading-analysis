@@ -10,19 +10,26 @@ import {
   CardContent,
   Checkbox,
   Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Divider,
+  FormControlLabel,
   Grid,
+  IconButton,
   LinearProgress,
-  List,
-  ListItem,
-  ListItemText,
   MenuItem,
+  Radio,
+  RadioGroup,
   Stack,
   TextField,
+  Tooltip,
   Typography
 } from '@mui/material'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
+import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded'
 import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
 import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded'
 import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
@@ -40,15 +47,19 @@ import {
   listChecklistTemplates,
   saveTodaySessionConfig,
   startTradeFromSession,
+  updateChecklistTemplate,
   updateTodaySessionChecklist,
   updateTodaySessionPlannedTickers,
   type SessionChecklistItem,
   type TodaySessionResponse
 } from '../api/session'
+import { fetchChecklistTemplate, type ChecklistTemplateItem } from '../api/checklist'
 import { listDailyPlans, type DailyPlan } from '../api/plans'
 import { listStrategies } from '../api/strategies'
 import { FEELING_OPTIONS, RULE_BREAK_OPTIONS } from '../constants/tradeTaxonomy'
 import { formatCurrency, formatNumber, formatSignedCurrency } from '../utils/format'
+
+const SELECTED_PLAN_STORAGE_KEY = 'today.session.selectedPlanId'
 
 const toBullets = (value?: string | null) => {
   if (!value) return []
@@ -57,6 +68,75 @@ const toBullets = (value?: string | null) => {
     .map((line) => line.trim())
     .map((line) => line.replace(/^[-*]\s*/, ''))
     .filter(Boolean)
+}
+
+const toTimestamp = (value?: string | null) => {
+  if (!value) return null
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? null : date.getTime()
+}
+
+const isPlanEligibleNow = (plan: DailyPlan, nowTs: number) => {
+  const visibleFrom = toTimestamp(plan.visibleFrom)
+  const visibleUntil = toTimestamp(plan.visibleUntil)
+  if (visibleFrom !== null && visibleFrom > nowTs) {
+    return false
+  }
+  if (visibleUntil !== null && nowTs > visibleUntil) {
+    return false
+  }
+  return true
+}
+
+const sortPlansForSession = (plans: DailyPlan[]) => {
+  return [...plans].sort((a, b) => {
+    const aVisibleFrom = toTimestamp(a.visibleFrom) ?? 0
+    const bVisibleFrom = toTimestamp(b.visibleFrom) ?? 0
+    if (aVisibleFrom !== bVisibleFrom) {
+      return bVisibleFrom - aVisibleFrom
+    }
+    const aUpdatedAt = toTimestamp(a.updatedAt) ?? 0
+    const bUpdatedAt = toTimestamp(b.updatedAt) ?? 0
+    return bUpdatedAt - aUpdatedAt
+  })
+}
+
+const normalizeChecklistText = (value?: string | null) => {
+  if (!value) return ''
+  return value.trim().toLowerCase()
+}
+
+const mergeChecklistWithDefinition = (
+  sessionItems: SessionChecklistItem[],
+  definitionItems: ChecklistTemplateItem[]
+): SessionChecklistItem[] => {
+  if (!definitionItems.length) {
+    return sessionItems
+  }
+
+  const completionById = new Map<string, boolean>()
+  const completionByText = new Map<string, boolean>()
+
+  sessionItems.forEach((item) => {
+    completionById.set(item.id, item.completed)
+
+    const textKey = normalizeChecklistText(item.text)
+    if (textKey) {
+      completionByText.set(textKey, Boolean(completionByText.get(textKey)) || item.completed)
+    }
+  })
+
+  return definitionItems
+    .filter((item) => item.enabled)
+    .map((item) => {
+      const idMatch = completionById.get(item.id)
+      const textMatch = completionByText.get(normalizeChecklistText(item.text))
+      return {
+        id: item.id,
+        text: item.text,
+        completed: idMatch ?? textMatch ?? false
+      }
+    })
 }
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
@@ -84,6 +164,8 @@ type StrategyOption = {
   tags: string[]
 }
 
+type TemplateSaveMode = 'new' | 'overwrite'
+
 export default function SessionPage() {
   const { t } = useI18n()
   const { user } = useAuth()
@@ -98,10 +180,13 @@ export default function SessionPage() {
 
   const [scheduleOpen, setScheduleOpen] = useState(false)
   const [tickerDraft, setTickerDraft] = useState('')
-  const [selectedPlanId, setSelectedPlanId] = useState('')
+  const [selectedPlanId, setSelectedPlanId] = useState(() => localStorage.getItem(SELECTED_PLAN_STORAGE_KEY) || '')
   const [selectedTemplateId, setSelectedTemplateId] = useState('')
+  const [saveTemplateDialogOpen, setSaveTemplateDialogOpen] = useState(false)
   const [saveTemplateName, setSaveTemplateName] = useState('')
-  const [saveTemplateOpen, setSaveTemplateOpen] = useState(false)
+  const [templateSaveMode, setTemplateSaveMode] = useState<TemplateSaveMode>('new')
+  const [overwriteTemplateId, setOverwriteTemplateId] = useState('')
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false)
   const [checklistItems, setChecklistItems] = useState<SessionChecklistItem[]>([])
 
   const [planner, setPlanner] = useState({
@@ -126,20 +211,31 @@ export default function SessionPage() {
   })
 
   const [apiError, setApiError] = useState('')
+  const [successMessage, setSuccessMessage] = useState('')
+  const [mentorPlanUpdatedNotice, setMentorPlanUpdatedNotice] = useState(false)
 
   const sessionQuery = useQuery({
     queryKey: ['todaySession'],
-    queryFn: () => getTodaySession()
+    queryFn: () => getTodaySession(),
+    refetchOnWindowFocus: true
+  })
+
+  const checklistDefinitionQuery = useQuery({
+    queryKey: ['checklistTemplate'],
+    queryFn: () => fetchChecklistTemplate(),
+    refetchOnWindowFocus: true
   })
 
   const dailyPlansQuery = useQuery({
     queryKey: ['dailyPlans', 60],
-    queryFn: () => listDailyPlans({ recentDays: 60 })
+    queryFn: () => listDailyPlans({ recentDays: 60 }),
+    refetchOnWindowFocus: true
   })
 
   const templatesQuery = useQuery({
     queryKey: ['checklistTemplates'],
-    queryFn: () => listChecklistTemplates()
+    queryFn: () => listChecklistTemplates(),
+    refetchOnWindowFocus: true
   })
 
   const strategiesQuery = useQuery({
@@ -154,15 +250,17 @@ export default function SessionPage() {
       setChecklistItems([])
       return
     }
-    setChecklistItems(session.checklistItems || [])
-  }, [session])
 
-  useEffect(() => {
-    const plans = dailyPlansQuery.data || []
-    if (!plans.length) return
-    if (selectedPlanId) return
-    setSelectedPlanId(plans[0].id)
-  }, [dailyPlansQuery.data, selectedPlanId])
+    const rawSessionItems = session.checklistItems || []
+    if (session.checklistTemplateId) {
+      setChecklistItems(rawSessionItems)
+      return
+    }
+
+    const definitionItems = checklistDefinitionQuery.data || []
+    const mergedItems = mergeChecklistWithDefinition(rawSessionItems, definitionItems)
+    setChecklistItems(mergedItems)
+  }, [checklistDefinitionQuery.data, session])
 
   useEffect(() => {
     if (!session) return
@@ -170,6 +268,26 @@ export default function SessionPage() {
     if (!session.plannedTickers || session.plannedTickers.length === 0) return
     setPlanner((prev) => ({ ...prev, symbol: session.plannedTickers[0] }))
   }, [planner.symbol, session])
+
+  useEffect(() => {
+    const onVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') return
+      void queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+      void queryClient.invalidateQueries({ queryKey: ['checklistTemplate'] })
+      void queryClient.invalidateQueries({ queryKey: ['dailyPlans'] })
+    }
+
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+  }, [queryClient])
+
+  useEffect(() => {
+    if (selectedPlanId) {
+      localStorage.setItem(SELECTED_PLAN_STORAGE_KEY, selectedPlanId)
+      return
+    }
+    localStorage.removeItem(SELECTED_PLAN_STORAGE_KEY)
+  }, [selectedPlanId])
 
   const saveConfigMutation = useMutation({
     mutationFn: saveTodaySessionConfig,
@@ -190,13 +308,21 @@ export default function SessionPage() {
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['todaySession'] }),
-        queryClient.invalidateQueries({ queryKey: ['checklistTemplates'] })
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplates'] }),
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplate'] })
       ])
     }
   })
 
   const createTemplateMutation = useMutation({
     mutationFn: createChecklistTemplate,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['checklistTemplates'] })
+    }
+  })
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: { name: string; items: string[] } }) => updateChecklistTemplate(id, payload),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['checklistTemplates'] })
     }
@@ -215,7 +341,7 @@ export default function SessionPage() {
       ])
     },
     onError: (error: unknown) => {
-      setApiError((error as Error)?.message || 'Failed to start trade')
+      setApiError((error as Error)?.message || t('today.session.errors.startTrade'))
     }
   })
 
@@ -233,12 +359,43 @@ export default function SessionPage() {
       ])
     },
     onError: (error: unknown) => {
-      setApiError((error as Error)?.message || 'Failed to close trade')
+      setApiError((error as Error)?.message || t('today.session.errors.closeTrade'))
     }
   })
 
   const plans = dailyPlansQuery.data || []
-  const selectedPlan = plans.find((item) => item.id === selectedPlanId) || plans[0] || null
+
+  const eligiblePlans = useMemo(() => {
+    const nowTs = Date.now()
+    return sortPlansForSession(plans.filter((plan) => isPlanEligibleNow(plan, nowTs)))
+  }, [plans])
+
+  useEffect(() => {
+    if (dailyPlansQuery.isLoading) {
+      return
+    }
+
+    if (!eligiblePlans.length) {
+      if (selectedPlanId) {
+        setSelectedPlanId('')
+      }
+      return
+    }
+
+    if (!selectedPlanId) {
+      setSelectedPlanId(eligiblePlans[0].id)
+      return
+    }
+
+    if (eligiblePlans.some((plan) => plan.id === selectedPlanId)) {
+      return
+    }
+
+    setSelectedPlanId(eligiblePlans[0].id)
+    setMentorPlanUpdatedNotice(true)
+  }, [dailyPlansQuery.isLoading, eligiblePlans, selectedPlanId])
+
+  const selectedPlan = eligiblePlans.find((item) => item.id === selectedPlanId) || eligiblePlans[0] || null
 
   const strategyOptions = useMemo<StrategyOption[]>(() => {
     const grouped = strategiesQuery.data
@@ -266,6 +423,49 @@ export default function SessionPage() {
 
   const canStartTrade = Boolean(session && session.status === 'ACTIVE' && !session.activeTrade)
 
+  const checklistCompletedCount = checklistItems.filter((item) => item.completed).length
+
+  const strategyInvalidationBullets = toBullets(selectedStrategy?.invalidationLogic)
+  const strategyManagementBullets = toBullets(selectedStrategy?.tpFramework)
+  const strategyNoTradeBullets = toBullets(selectedStrategy?.noTradeRules)
+
+  const riskSnapshot = useMemo(() => {
+    const quantity = Number(planner.quantity)
+    const entryPrice = Number(planner.entryPrice)
+    const stopLossPrice = Number(planner.stopLossPrice)
+    const takeProfitPrice = Number(planner.takeProfitPrice)
+
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      return { riskAmount: null, rEstimate: null }
+    }
+
+    if (!Number.isFinite(entryPrice) || entryPrice <= 0 || !Number.isFinite(stopLossPrice) || stopLossPrice <= 0) {
+      return { riskAmount: null, rEstimate: null }
+    }
+
+    const riskPerUnit = Math.abs(entryPrice - stopLossPrice)
+    if (riskPerUnit <= 0) {
+      return { riskAmount: null, rEstimate: null }
+    }
+
+    const riskAmount = riskPerUnit * quantity
+
+    if (!Number.isFinite(takeProfitPrice) || takeProfitPrice <= 0) {
+      return { riskAmount, rEstimate: null }
+    }
+
+    const rewardPerUnit = planner.direction === 'LONG'
+      ? takeProfitPrice - entryPrice
+      : entryPrice - takeProfitPrice
+
+    const rEstimate = rewardPerUnit > 0 ? rewardPerUnit / riskPerUnit : null
+
+    return {
+      riskAmount,
+      rEstimate
+    }
+  }, [planner.direction, planner.entryPrice, planner.quantity, planner.stopLossPrice, planner.takeProfitPrice])
+
   const handleSaveConfig = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setApiError('')
@@ -276,20 +476,28 @@ export default function SessionPage() {
       maxTrades: Number(config.maxTrades)
     }
 
-    if (!payload.profitTarget && payload.profitTarget !== 0) {
-      setApiError('Profit target is required')
+    if (!Number.isFinite(payload.profitTarget) || payload.profitTarget < 0) {
+      setApiError(t('today.session.errors.profitTargetRequired'))
       return
     }
-    if (!payload.lossLimit && payload.lossLimit !== 0) {
-      setApiError('Loss limit is required')
+    if (!Number.isFinite(payload.lossLimit) || payload.lossLimit < 0) {
+      setApiError(t('today.session.errors.lossLimitRequired'))
       return
     }
-    if (!payload.maxTrades || payload.maxTrades <= 0) {
-      setApiError('Max trades must be greater than zero')
+    if (!Number.isFinite(payload.maxTrades) || payload.maxTrades <= 0) {
+      setApiError(t('today.session.errors.maxTradesRequired'))
       return
     }
 
     await saveConfigMutation.mutateAsync(payload)
+  }
+
+  const handleRefreshChecklist = async () => {
+    await Promise.all([
+      sessionQuery.refetch(),
+      checklistDefinitionQuery.refetch()
+    ])
+    setSuccessMessage(t('today.session.checklist.refreshDone'))
   }
 
   const handleAddTicker = async () => {
@@ -315,39 +523,79 @@ export default function SessionPage() {
     await patchChecklistMutation.mutateAsync({ items: nextItems })
   }
 
+  const openSaveTemplateDialog = () => {
+    setApiError('')
+    setSaveTemplateName('')
+    setTemplateSaveMode('new')
+    setOverwriteTemplateId('')
+    setSaveTemplateDialogOpen(true)
+  }
+
   const handleSaveChecklistTemplate = async () => {
     const name = saveTemplateName.trim()
     if (!name) {
-      setApiError('Template name is required')
+      setApiError(t('today.session.templates.nameRequired'))
       return
     }
+
     const items = checklistItems.map((item) => item.text)
-    await createTemplateMutation.mutateAsync({ name, items })
-    setSaveTemplateName('')
-    setSaveTemplateOpen(false)
+    if (!items.length) {
+      setApiError(t('today.session.templates.emptyChecklist'))
+      return
+    }
+
+    if (templateSaveMode === 'overwrite') {
+      if (!overwriteTemplateId) {
+        setApiError(t('today.session.templates.selectOverwriteTarget'))
+        return
+      }
+      await updateTemplateMutation.mutateAsync({
+        id: overwriteTemplateId,
+        payload: {
+          name,
+          items
+        }
+      })
+    } else {
+      await createTemplateMutation.mutateAsync({ name, items })
+    }
+
+    setSaveTemplateDialogOpen(false)
+    setSuccessMessage(t('today.session.checklist.templateSaved'))
   }
 
-  const handleImportTemplate = async () => {
+  const handleImportTemplate = () => {
+    if (!selectedTemplateId) return
+    setImportConfirmOpen(true)
+  }
+
+  const handleConfirmImportTemplate = async () => {
     if (!selectedTemplateId) return
     await patchChecklistMutation.mutateAsync({ templateId: selectedTemplateId })
+    setImportConfirmOpen(false)
+    setSuccessMessage(t('today.session.checklist.templateImported'))
   }
 
   const handleStartTrade = async () => {
     if (!session) return
     if (!planner.symbol.trim()) {
-      setApiError('Ticker is required')
+      setApiError(t('today.session.errors.tickerRequired'))
       return
     }
-    if (!planner.entryPrice || !planner.quantity) {
-      setApiError('Quantity and entry price are required')
+
+    const quantity = Number(planner.quantity)
+    const entryPrice = Number(planner.entryPrice)
+
+    if (!Number.isFinite(quantity) || quantity <= 0 || !Number.isFinite(entryPrice) || entryPrice <= 0) {
+      setApiError(t('today.session.errors.quantityAndEntryRequired'))
       return
     }
 
     const payload = {
       symbol: planner.symbol.trim().toUpperCase(),
       direction: planner.direction,
-      quantity: Number(planner.quantity),
-      entryPrice: Number(planner.entryPrice),
+      quantity,
+      entryPrice,
       takeProfitPrice: planner.takeProfitPrice ? Number(planner.takeProfitPrice) : null,
       stopLossPrice: planner.stopLossPrice ? Number(planner.stopLossPrice) : null,
       session: planner.session,
@@ -365,7 +613,7 @@ export default function SessionPage() {
   const handleCloseTrade = async () => {
     if (!session?.activeTrade) return
     if (!closeDraft.exitPrice) {
-      setApiError('Exit price is required')
+      setApiError(t('today.session.errors.exitPriceRequired'))
       return
     }
 
@@ -405,19 +653,24 @@ export default function SessionPage() {
       </Stack>
 
       {apiError && <Alert severity="error">{apiError}</Alert>}
+      {successMessage && (
+        <Alert severity="success" onClose={() => setSuccessMessage('')}>
+          {successMessage}
+        </Alert>
+      )}
 
       {!session ? (
         <Card>
           <CardContent>
             <Stack spacing={2} component="form" onSubmit={handleSaveConfig}>
-              <Typography variant="h6">Session configuration</Typography>
+              <Typography variant="h6">{t('today.session.config.title')}</Typography>
               <Typography variant="body2" color="text.secondary">
-                Set your daily guardrails before you start execution.
+                {t('today.session.config.subtitle')}
               </Typography>
               <Grid container spacing={2}>
                 <Grid item xs={12} md={4}>
                   <TextField
-                    label="Profit for today (USD)"
+                    label={t('today.session.config.profitTarget')}
                     type="number"
                     value={config.profitTarget}
                     onChange={(event) => setConfig((prev) => ({ ...prev, profitTarget: event.target.value }))}
@@ -427,7 +680,7 @@ export default function SessionPage() {
                 </Grid>
                 <Grid item xs={12} md={4}>
                   <TextField
-                    label="Loss for today (USD)"
+                    label={t('today.session.config.lossLimit')}
                     type="number"
                     value={config.lossLimit}
                     onChange={(event) => setConfig((prev) => ({ ...prev, lossLimit: event.target.value }))}
@@ -437,7 +690,7 @@ export default function SessionPage() {
                 </Grid>
                 <Grid item xs={12} md={4}>
                   <TextField
-                    label="Max number of trades"
+                    label={t('today.session.config.maxTrades')}
                     type="number"
                     value={config.maxTrades}
                     onChange={(event) => setConfig((prev) => ({ ...prev, maxTrades: event.target.value }))}
@@ -447,40 +700,160 @@ export default function SessionPage() {
                 </Grid>
               </Grid>
               <Button type="submit" variant="contained" disabled={saveConfigMutation.isLoading}>
-                {saveConfigMutation.isLoading ? 'Saving...' : 'Save and open workspace'}
+                {saveConfigMutation.isLoading ? t('today.session.config.saving') : t('today.session.config.submit')}
               </Button>
             </Stack>
           </CardContent>
         </Card>
       ) : (
         <>
-          <Card sx={{ position: { xs: 'sticky', md: 'static' }, top: { xs: 0, md: 'auto' }, zIndex: 5 }}>
+          <Card sx={{ position: { xs: 'sticky', md: 'static' }, top: { xs: 0, md: 'auto' }, zIndex: 10 }}>
             <CardContent sx={{ py: 1.5 }}>
               <Stack spacing={1.25}>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="space-between">
                   <Stack spacing={0.35}>
-                    <Typography variant="subtitle2">Session progress</Typography>
+                    <Typography variant="subtitle2">{t('today.session.progress.title')}</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Realized PnL: {formatSignedCurrency(session.realizedPnl || 0, baseCurrency)} / {formatCurrency(session.profitTarget || 0, baseCurrency)}
+                      {t('today.session.progress.realizedPnl', {
+                        realized: formatSignedCurrency(session.realizedPnl || 0, baseCurrency),
+                        target: formatCurrency(session.profitTarget || 0, baseCurrency)
+                      })}
                     </Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Trades: {session.closedTradesCount}/{session.maxTrades}
+                      {t('today.session.progress.trades', {
+                        closed: session.closedTradesCount,
+                        max: session.maxTrades
+                      })}
                     </Typography>
                   </Stack>
                   <Chip
                     color={session.status === 'COMPLETED' ? 'error' : 'success'}
-                    label={session.status === 'COMPLETED' ? 'Completed / Locked' : 'Active'}
+                    label={session.status === 'COMPLETED'
+                      ? t('today.session.status.completed')
+                      : t('today.session.status.active')}
                     sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}
                   />
                 </Stack>
                 <Stack spacing={0.75}>
-                  <Typography variant="caption" color="text.secondary">PnL guardrail</Typography>
+                  <Typography variant="caption" color="text.secondary">{t('today.session.progress.pnlGuardrail')}</Typography>
                   <LinearProgress variant="determinate" value={progress.pnlProgress} sx={{ height: 8, borderRadius: 999 }} />
                 </Stack>
                 <Stack spacing={0.75}>
-                  <Typography variant="caption" color="text.secondary">Trade count guardrail</Typography>
+                  <Typography variant="caption" color="text.secondary">{t('today.session.progress.tradeGuardrail')}</Typography>
                   <LinearProgress variant="determinate" value={progress.tradeProgress} sx={{ height: 8, borderRadius: 999 }} />
                 </Stack>
+              </Stack>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardContent>
+              <Stack spacing={1.5}>
+                <Stack
+                  direction={{ xs: 'column', md: 'row' }}
+                  spacing={1}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', md: 'center' }}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center">
+                    <PlaylistAddCheckRoundedIcon color="primary" fontSize="small" />
+                    <Typography variant="subtitle1">{t('today.session.checklist.title')}</Typography>
+                    <Chip
+                      size="small"
+                      variant="outlined"
+                      label={t('today.session.checklist.progress', {
+                        completed: checklistCompletedCount,
+                        total: checklistItems.length
+                      })}
+                    />
+                  </Stack>
+
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', md: 'auto' } }}>
+                    <Tooltip title={t('today.session.checklist.refresh')}>
+                      <IconButton onClick={() => void handleRefreshChecklist()} size="small" aria-label={t('today.session.checklist.refresh')}>
+                        <RefreshRoundedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+
+                    <Button size="small" variant="outlined" onClick={openSaveTemplateDialog}>
+                      {t('today.session.checklist.saveTemplate')}
+                    </Button>
+
+                    <TextField
+                      select
+                      size="small"
+                      label={t('today.session.checklist.importTemplate')}
+                      value={selectedTemplateId}
+                      onChange={(event) => setSelectedTemplateId(event.target.value)}
+                      sx={{ minWidth: { xs: '100%', sm: 220 } }}
+                    >
+                      <MenuItem value="">{t('common.none')}</MenuItem>
+                      {(templatesQuery.data || []).map((template) => (
+                        <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
+                      ))}
+                    </TextField>
+
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      onClick={handleImportTemplate}
+                      disabled={!selectedTemplateId}
+                    >
+                      {t('today.session.checklist.importAction')}
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                {checklistItems.length === 0 ? (
+                  <EmptyState
+                    title={t('today.session.checklist.emptyTitle')}
+                    description={t('today.session.checklist.emptyBody')}
+                  />
+                ) : (
+                  <Box
+                    sx={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 1,
+                      alignItems: 'stretch'
+                    }}
+                  >
+                    {checklistItems.map((item) => (
+                      <Box
+                        key={item.id}
+                        sx={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 0.75,
+                          minHeight: 40,
+                          px: 1.1,
+                          py: 0.4,
+                          border: '1px solid',
+                          borderColor: item.completed ? 'primary.main' : 'divider',
+                          bgcolor: item.completed ? 'action.selected' : 'background.paper',
+                          borderRadius: 999,
+                          maxWidth: '100%'
+                        }}
+                      >
+                        <Checkbox
+                          size="small"
+                          checked={item.completed}
+                          onChange={(event) => void handleToggleChecklistItem(item.id, event.target.checked)}
+                        />
+                        <Typography
+                          variant="body2"
+                          sx={{
+                            overflowWrap: 'anywhere',
+                            textDecoration: item.completed ? 'line-through' : 'none',
+                            color: item.completed ? 'text.secondary' : 'text.primary'
+                          }}
+                        >
+                          {item.text}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+                )}
               </Stack>
             </CardContent>
           </Card>
@@ -488,117 +861,39 @@ export default function SessionPage() {
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: '1fr 1.25fr 1fr' },
+              gridTemplateColumns: { xs: '1fr', xl: 'minmax(0, 0.95fr) minmax(0, 1.05fr)' },
               gap: 2,
               minWidth: 0,
               '& > *': { minWidth: 0 }
             }}
           >
-            <Card sx={{ order: { xs: 3, md: 3, xl: 1 }, gridColumn: { md: '1 / -1', xl: 'auto' } }}>
-              <CardContent>
-                <Stack spacing={1.5}>
-                  <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <PlaylistAddCheckRoundedIcon color="primary" fontSize="small" />
-                      <Typography variant="subtitle1">Session Checklist</Typography>
-                    </Stack>
-                    <Stack direction="row" spacing={1}>
-                      <Button size="small" variant="outlined" onClick={() => setSaveTemplateOpen((prev) => !prev)}>
-                        Save template
-                      </Button>
-                    </Stack>
-                  </Stack>
-
-                  {saveTemplateOpen && (
-                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                      <TextField
-                        size="small"
-                        label="Template name"
-                        value={saveTemplateName}
-                        onChange={(event) => setSaveTemplateName(event.target.value)}
-                        fullWidth
-                      />
-                      <Button variant="contained" size="small" onClick={handleSaveChecklistTemplate}>
-                        Save
-                      </Button>
-                    </Stack>
-                  )}
-
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                    <TextField
-                      select
-                      size="small"
-                      label="Import template"
-                      value={selectedTemplateId}
-                      onChange={(event) => setSelectedTemplateId(event.target.value)}
-                      fullWidth
-                    >
-                      <MenuItem value="">None</MenuItem>
-                      {(templatesQuery.data || []).map((template) => (
-                        <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
-                      ))}
-                    </TextField>
-                    <Button variant="outlined" size="small" onClick={handleImportTemplate} disabled={!selectedTemplateId}>
-                      Import
-                    </Button>
-                  </Stack>
-
-                  {checklistItems.length === 0 ? (
-                    <EmptyState title="No checklist items" description="Add one from a template or update your defaults." />
-                  ) : (
-                    <List disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                      {checklistItems.map((item, index) => (
-                        <ListItem
-                          key={item.id}
-                          disableGutters
-                          secondaryAction={(
-                            <Checkbox
-                              edge="end"
-                              checked={item.completed}
-                              onChange={(event) => void handleToggleChecklistItem(item.id, event.target.checked)}
-                            />
-                          )}
-                          sx={{
-                            px: 1.25,
-                            minHeight: 52,
-                            borderBottom: index < checklistItems.length - 1 ? '1px solid' : 'none',
-                            borderColor: 'divider'
-                          }}
-                        >
-                          <ListItemText
-                            primary={item.text}
-                            primaryTypographyProps={{
-                              sx: {
-                                textDecoration: item.completed ? 'line-through' : 'none',
-                                color: item.completed ? 'text.secondary' : 'text.primary'
-                              }
-                            }}
-                          />
-                        </ListItem>
-                      ))}
-                    </List>
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
-
-            <Card sx={{ order: { xs: 1, md: 1, xl: 2 } }}>
+            <Card>
               <CardContent>
                 <Stack spacing={1.5}>
                   <Stack direction="row" spacing={1} alignItems="center">
                     <AutoStoriesRoundedIcon color="primary" fontSize="small" />
-                    <Typography variant="subtitle1">Mentor Plan</Typography>
+                    <Typography variant="subtitle1">{t('today.session.mentor.title')}</Typography>
                   </Stack>
+
+                  {mentorPlanUpdatedNotice && (
+                    <Alert severity="info">
+                      {t('today.session.mentor.updated')}
+                    </Alert>
+                  )}
 
                   <TextField
                     select
                     size="small"
-                    label="Select daily plan"
+                    label={t('today.session.mentor.select')}
                     value={selectedPlanId || ''}
-                    onChange={(event) => setSelectedPlanId(event.target.value)}
+                    onChange={(event) => {
+                      setSelectedPlanId(event.target.value)
+                      setMentorPlanUpdatedNotice(false)
+                    }}
                     fullWidth
+                    disabled={!eligiblePlans.length}
                   >
-                    {(plans || []).map((plan) => (
+                    {eligiblePlans.map((plan) => (
                       <MenuItem key={plan.id} value={plan.id}>{plan.title}</MenuItem>
                     ))}
                   </TextField>
@@ -606,74 +901,73 @@ export default function SessionPage() {
                   {dailyPlansQuery.isLoading ? (
                     <LoadingState rows={8} height={20} />
                   ) : !selectedPlan ? (
-                    <EmptyState title="No daily plans" description="Publish a daily mentor plan in Admin Content." />
+                    <EmptyState
+                      title={t('today.session.mentor.emptyTitle')}
+                      description={t('today.session.mentor.emptyBody')}
+                    />
                   ) : (
                     <Stack spacing={1.25}>
                       <Typography variant="h6" sx={{ fontSize: 18 }}>{selectedPlan.title}</Typography>
 
                       <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                        <Typography variant="caption" color="text.secondary">Bias Summary</Typography>
-                        <Typography variant="body2">{selectedPlan.biasSummary || selectedPlan.summary || 'No bias summary.'}</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('today.session.mentor.biasSummary')}</Typography>
+                        <Typography variant="body2">{selectedPlan.biasSummary || selectedPlan.summary || t('today.session.mentor.emptySummary')}</Typography>
                       </Box>
 
                       <Box>
-                        <Typography variant="caption" color="text.secondary">Key Levels</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('today.session.mentor.keyLevels')}</Typography>
                         {(selectedPlan.keyLevels || []).length === 0 ? (
-                          <Typography variant="body2" color="text.secondary">No key levels.</Typography>
+                          <Typography variant="body2" color="text.secondary">{t('today.session.mentor.noKeyLevels')}</Typography>
                         ) : (
-                          <List dense disablePadding>
+                          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
                             {(selectedPlan.keyLevels || []).map((level) => (
-                              <ListItem key={level} disableGutters sx={{ py: 0.25 }}>
-                                <ListItemText primary={`• ${level}`} />
-                              </ListItem>
+                              <Chip key={level} size="small" label={level} variant="outlined" />
                             ))}
-                          </List>
+                          </Stack>
                         )}
                       </Box>
 
                       {selectedPlan.primaryModel && (
                         <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Primary Model</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.primaryModel')}</Typography>
                           <Typography variant="body2">{selectedPlan.primaryModel}</Typography>
                         </Box>
                       )}
 
                       {toBullets(selectedPlan.executionRules).length > 0 && (
                         <Box>
-                          <Typography variant="caption" color="text.secondary">Execution Rules</Typography>
-                          <List dense disablePadding>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.executionRules')}</Typography>
+                          <Stack spacing={0.35} sx={{ mt: 0.75 }}>
                             {toBullets(selectedPlan.executionRules).map((item) => (
-                              <ListItem key={item} disableGutters sx={{ py: 0.25 }}>
-                                <ListItemText primary={`• ${item}`} />
-                              </ListItem>
+                              <Typography key={item} variant="body2">• {item}</Typography>
                             ))}
-                          </List>
+                          </Stack>
                         </Box>
                       )}
 
                       {selectedPlan.riskNote && (
                         <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">Risk Note</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.riskNote')}</Typography>
                           <Typography variant="body2">{selectedPlan.riskNote}</Typography>
                         </Box>
                       )}
 
                       {(selectedPlan.liquidityNarrative || selectedPlan.alternativeScenario) && (
-                        <Accordion disableGutters>
+                        <Accordion disableGutters defaultExpanded>
                           <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
-                            <Typography variant="body2">Liquidity narrative & scenarios</Typography>
+                            <Typography variant="body2">{t('today.session.mentor.narrativeAndScenarios')}</Typography>
                           </AccordionSummary>
                           <AccordionDetails>
                             <Stack spacing={1.25}>
                               {selectedPlan.liquidityNarrative && (
                                 <Box>
-                                  <Typography variant="caption" color="text.secondary">Liquidity Narrative</Typography>
+                                  <Typography variant="caption" color="text.secondary">{t('today.session.mentor.liquidityNarrative')}</Typography>
                                   <Typography variant="body2">{selectedPlan.liquidityNarrative}</Typography>
                                 </Box>
                               )}
                               {selectedPlan.alternativeScenario && (
                                 <Box>
-                                  <Typography variant="caption" color="text.secondary">Alternative Scenario</Typography>
+                                  <Typography variant="caption" color="text.secondary">{t('today.session.mentor.alternativeScenario')}</Typography>
                                   <Typography variant="body2">{selectedPlan.alternativeScenario}</Typography>
                                 </Box>
                               )}
@@ -690,7 +984,7 @@ export default function SessionPage() {
                         startIcon={<OpenInNewRoundedIcon />}
                         sx={{ alignSelf: 'flex-start' }}
                       >
-                        Open full article
+                        {t('today.actions.openFullPlan')}
                       </Button>
                     </Stack>
                   )}
@@ -698,231 +992,352 @@ export default function SessionPage() {
               </CardContent>
             </Card>
 
-            <Card sx={{ order: { xs: 2, md: 2, xl: 3 } }}>
+            <Card>
               <CardContent>
                 <Stack spacing={1.5}>
                   <Stack direction="row" alignItems="center" justifyContent="space-between">
                     <Stack direction="row" spacing={1} alignItems="center">
                       <CandlestickChartRoundedIcon color="primary" fontSize="small" />
-                      <Typography variant="subtitle1">Trade Planner + Execution</Typography>
+                      <Typography variant="subtitle1">{t('today.session.planner.title')}</Typography>
                     </Stack>
                   </Stack>
-
-                  <Stack spacing={1}>
-                    <Button
-                      variant="outlined"
-                      size="small"
-                      startIcon={<AddRoundedIcon />}
-                      onClick={() => setScheduleOpen((prev) => !prev)}
-                    >
-                      + Schedule trade
-                    </Button>
-                    {scheduleOpen && (
-                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                        <TextField
-                          size="small"
-                          label="Enter the ticker you want to trade"
-                          value={tickerDraft}
-                          onChange={(event) => setTickerDraft(event.target.value)}
-                          fullWidth
-                        />
-                        <Button size="small" variant="contained" onClick={handleAddTicker}>Add</Button>
-                      </Stack>
-                    )}
-                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                      {(session.plannedTickers || []).map((ticker) => (
-                        <Chip key={ticker} label={ticker} onDelete={() => void handleRemoveTicker(ticker)} size="small" />
-                      ))}
-                    </Stack>
-                  </Stack>
-
-                  <Divider />
 
                   <Grid container spacing={1.5}>
-                    <Grid item xs={12}>
+                    <Grid item xs={12} md={6}>
                       <TextField
-                        label="Ticker"
+                        label={t('trades.form.symbol')}
                         value={planner.symbol}
                         onChange={(event) => setPlanner((prev) => ({ ...prev, symbol: event.target.value }))}
                         fullWidth
                         size="small"
+                        required
+                        helperText={t('today.session.form.requiredField')}
                       />
                     </Grid>
-                    <Grid item xs={6}>
+                    <Grid item xs={12} md={6}>
                       <TextField
                         select
-                        label="Direction"
+                        label={t('trades.form.direction')}
                         value={planner.direction}
                         onChange={(event) => setPlanner((prev) => ({ ...prev, direction: event.target.value as 'LONG' | 'SHORT' }))}
                         fullWidth
                         size="small"
+                        required
+                        helperText={t('today.session.form.requiredField')}
                       >
-                        <MenuItem value="LONG">Long</MenuItem>
-                        <MenuItem value="SHORT">Short</MenuItem>
+                        <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
+                        <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
                       </TextField>
                     </Grid>
-                    <Grid item xs={6}>
+
+                    <Grid item xs={12} md={6}>
                       <TextField
-                        label="Quantity"
+                        label={t('trades.form.quantity')}
                         type="number"
                         value={planner.quantity}
                         onChange={(event) => setPlanner((prev) => ({ ...prev, quantity: event.target.value }))}
                         fullWidth
                         size="small"
+                        required
+                        helperText={t('today.session.form.requiredField')}
                       />
                     </Grid>
-                    <Grid item xs={12}>
-                      <TextField
-                        label="Entry price"
-                        type="number"
-                        value={planner.entryPrice}
-                        onChange={(event) => setPlanner((prev) => ({ ...prev, entryPrice: event.target.value }))}
-                        fullWidth
-                        size="small"
-                      />
-                    </Grid>
-                    <Grid item xs={6}>
-                      <TextField
-                        label="Take profit"
-                        type="number"
-                        value={planner.takeProfitPrice}
-                        onChange={(event) => setPlanner((prev) => ({ ...prev, takeProfitPrice: event.target.value }))}
-                        fullWidth
-                        size="small"
-                      />
-                    </Grid>
-                    <Grid item xs={6}>
-                      <TextField
-                        label="Stop loss"
-                        type="number"
-                        value={planner.stopLossPrice}
-                        onChange={(event) => setPlanner((prev) => ({ ...prev, stopLossPrice: event.target.value }))}
-                        fullWidth
-                        size="small"
-                      />
-                    </Grid>
-                    <Grid item xs={6}>
+                    <Grid item xs={12} md={6}>
                       <TextField
                         select
-                        label="Trade session"
+                        label={t('trades.form.session')}
                         value={planner.session}
                         onChange={(event) => setPlanner((prev) => ({ ...prev, session: event.target.value as 'ASIA' | 'LONDON' | 'NY_AM' | 'NY_PM' }))}
                         fullWidth
                         size="small"
+                        required
+                        helperText={t('today.session.form.requiredField')}
                       >
-                        <MenuItem value="ASIA">Asia</MenuItem>
-                        <MenuItem value="LONDON">London</MenuItem>
-                        <MenuItem value="NY_AM">NY AM</MenuItem>
-                        <MenuItem value="NY_PM">NY PM</MenuItem>
+                        <MenuItem value="ASIA">{t('trades.form.sessions.ASIA')}</MenuItem>
+                        <MenuItem value="LONDON">{t('trades.form.sessions.LONDON')}</MenuItem>
+                        <MenuItem value="NY_AM">{t('trades.form.sessions.NY_AM')}</MenuItem>
+                        <MenuItem value="NY_PM">{t('trades.form.sessions.NY_PM')}</MenuItem>
                       </TextField>
                     </Grid>
-                    <Grid item xs={6}>
-                      <TextField
-                        select
-                        label="How are you feeling?"
-                        value={planner.feeling}
-                        onChange={(event) => setPlanner((prev) => ({ ...prev, feeling: event.target.value }))}
-                        fullWidth
-                        size="small"
-                      >
-                        {FEELING_OPTIONS.map((item) => (
-                          <MenuItem key={item} value={item}>{item}</MenuItem>
-                        ))}
-                      </TextField>
+
+                    <Grid item xs={12}>
+                      <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                        <Typography variant="subtitle2" sx={{ mb: 1 }}>{t('today.session.form.pricesGroup')}</Typography>
+                        <Grid container spacing={1.25}>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              label={t('trades.form.entryPrice')}
+                              type="number"
+                              value={planner.entryPrice}
+                              onChange={(event) => setPlanner((prev) => ({ ...prev, entryPrice: event.target.value }))}
+                              fullWidth
+                              size="small"
+                              required
+                              helperText={t('today.session.form.requiredField')}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              label={t('trades.form.stopLossPrice')}
+                              type="number"
+                              value={planner.stopLossPrice}
+                              onChange={(event) => setPlanner((prev) => ({ ...prev, stopLossPrice: event.target.value }))}
+                              fullWidth
+                              size="small"
+                              required
+                              helperText={t('today.session.form.requiredField')}
+                            />
+                          </Grid>
+                          <Grid item xs={12} md={4}>
+                            <TextField
+                              label={t('trades.form.takeProfitPrice')}
+                              type="number"
+                              value={planner.takeProfitPrice}
+                              onChange={(event) => setPlanner((prev) => ({ ...prev, takeProfitPrice: event.target.value }))}
+                              fullWidth
+                              size="small"
+                              helperText={t('today.session.form.optionalField')}
+                            />
+                          </Grid>
+                        </Grid>
+
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>
+                          {t('today.session.form.riskSnapshot', {
+                            risk: riskSnapshot.riskAmount === null
+                              ? t('common.na')
+                              : formatCurrency(riskSnapshot.riskAmount, baseCurrency),
+                            r: riskSnapshot.rEstimate === null
+                              ? t('common.na')
+                              : formatNumber(riskSnapshot.rEstimate, 2)
+                          })}
+                        </Typography>
+                      </Box>
                     </Grid>
-                    <Grid item xs={6}>
+
+                    <Grid item xs={12} md={6}>
                       <TextField
                         select
-                        label="Setup grade"
+                        label={t('trades.form.setupGrade')}
                         value={planner.setupGrade}
                         onChange={(event) => setPlanner((prev) => ({ ...prev, setupGrade: event.target.value as 'A' | 'B' | 'C' }))}
                         fullWidth
                         size="small"
+                        required
+                        helperText={t('today.session.form.requiredField')}
                       >
                         <MenuItem value="A">A</MenuItem>
                         <MenuItem value="B">B</MenuItem>
                         <MenuItem value="C">C</MenuItem>
                       </TextField>
                     </Grid>
-                    <Grid item xs={6}>
+
+                    <Grid item xs={12} md={6}>
                       <TextField
                         select
-                        label="Strategy"
+                        label={t('today.session.form.feeling')}
+                        value={planner.feeling}
+                        onChange={(event) => setPlanner((prev) => ({ ...prev, feeling: event.target.value }))}
+                        fullWidth
+                        size="small"
+                        helperText={t('today.session.form.optionalField')}
+                      >
+                        {FEELING_OPTIONS.map((item) => (
+                          <MenuItem key={item} value={item}>{item}</MenuItem>
+                        ))}
+                      </TextField>
+                    </Grid>
+
+                    <Grid item xs={12} md={6}>
+                      <TextField
+                        select
+                        label={t('trades.form.strategy')}
                         value={planner.strategyKey}
                         onChange={(event) => setPlanner((prev) => ({ ...prev, strategyKey: event.target.value }))}
                         fullWidth
                         size="small"
+                        helperText={t('today.session.form.optionalField')}
                       >
-                        <MenuItem value="">None</MenuItem>
-                        <MenuItem disabled value="group-my">My strategies</MenuItem>
+                        <MenuItem value="">{t('common.none')}</MenuItem>
+                        <MenuItem disabled value="group-my">{t('today.session.form.myStrategies')}</MenuItem>
                         {strategyOptions.filter((item) => item.source === 'MY').map((item) => (
                           <MenuItem key={`MY:${item.id}`} value={`MY:${item.id}`}>{item.name}</MenuItem>
                         ))}
-                        <MenuItem disabled value="group-mentor">Mentor strategies</MenuItem>
+                        <MenuItem disabled value="group-mentor">{t('today.session.form.mentorStrategies')}</MenuItem>
                         {strategyOptions.filter((item) => item.source === 'MENTOR').map((item) => (
                           <MenuItem key={`MENTOR:${item.id}`} value={`MENTOR:${item.id}`}>{item.name}</MenuItem>
                         ))}
                       </TextField>
                     </Grid>
+
                     <Grid item xs={12}>
                       <TextField
-                        label="Linked plan"
-                        value={selectedPlan?.title || 'None'}
+                        label={t('today.session.form.linkedPlan')}
+                        value={selectedPlan?.title || t('common.none')}
                         fullWidth
                         size="small"
                         InputProps={{ readOnly: true }}
                       />
                     </Grid>
+
                     <Grid item xs={12}>
                       <TextField
-                        label="Notes"
+                        label={t('trades.form.notes')}
                         value={planner.notes}
                         onChange={(event) => setPlanner((prev) => ({ ...prev, notes: event.target.value }))}
                         fullWidth
                         size="small"
                         multiline
                         minRows={2}
+                        helperText={t('today.session.form.optionalField')}
                       />
                     </Grid>
+
+                    {selectedStrategy && (
+                      <Grid item xs={12}>
+                        <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, maxHeight: 400, overflowY: 'auto' }}>
+                          <Typography variant="subtitle2" sx={{ mb: 0.75 }}>
+                            {t('today.session.strategyDetails.title')}
+                          </Typography>
+                          <Typography variant="body1" sx={{ fontWeight: 700 }}>{selectedStrategy.name}</Typography>
+                          <Typography variant="body2" color="text.secondary" sx={{ mb: 1.1 }}>
+                            {selectedStrategy.model}
+                          </Typography>
+
+                          <Accordion disableGutters defaultExpanded>
+                            <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                              <Typography variant="body2">{t('today.session.strategyDetails.entryConditions')}</Typography>
+                            </AccordionSummary>
+                            <AccordionDetails>
+                              <Stack spacing={0.35}>
+                                {(selectedStrategy.entryConditions || []).map((item) => (
+                                  <Typography key={item} variant="body2">• {item}</Typography>
+                                ))}
+                              </Stack>
+                            </AccordionDetails>
+                          </Accordion>
+
+                          {strategyInvalidationBullets.length > 0 && (
+                            <Accordion disableGutters defaultExpanded>
+                              <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                                <Typography variant="body2">{t('today.session.strategyDetails.invalidation')}</Typography>
+                              </AccordionSummary>
+                              <AccordionDetails>
+                                <Stack spacing={0.35}>
+                                  {strategyInvalidationBullets.map((item) => (
+                                    <Typography key={item} variant="body2">• {item}</Typography>
+                                  ))}
+                                </Stack>
+                              </AccordionDetails>
+                            </Accordion>
+                          )}
+
+                          {strategyManagementBullets.length > 0 && (
+                            <Accordion disableGutters defaultExpanded>
+                              <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                                <Typography variant="body2">{t('today.session.strategyDetails.management')}</Typography>
+                              </AccordionSummary>
+                              <AccordionDetails>
+                                <Stack spacing={0.35}>
+                                  {strategyManagementBullets.map((item) => (
+                                    <Typography key={item} variant="body2">• {item}</Typography>
+                                  ))}
+                                </Stack>
+                              </AccordionDetails>
+                            </Accordion>
+                          )}
+
+                          {strategyNoTradeBullets.length > 0 && (
+                            <Accordion disableGutters defaultExpanded>
+                              <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                                <Typography variant="body2">{t('today.session.strategyDetails.noTradeRules')}</Typography>
+                              </AccordionSummary>
+                              <AccordionDetails>
+                                <Stack spacing={0.35}>
+                                  {strategyNoTradeBullets.map((item) => (
+                                    <Typography key={item} variant="body2">• {item}</Typography>
+                                  ))}
+                                </Stack>
+                              </AccordionDetails>
+                            </Accordion>
+                          )}
+
+                          {(selectedStrategy.sessionSuitability || []).length > 0 && (
+                            <Box sx={{ mt: 1 }}>
+                              <Typography variant="caption" color="text.secondary">
+                                {t('today.session.strategyDetails.sessionSuitability')}
+                              </Typography>
+                              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.6 }}>
+                                {(selectedStrategy.sessionSuitability || []).map((item) => (
+                                  <Chip key={item} size="small" label={item} variant="outlined" />
+                                ))}
+                              </Stack>
+                            </Box>
+                          )}
+                        </Box>
+                      </Grid>
+                    )}
                   </Grid>
 
-                  {selectedStrategy && (
-                    <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                      <Typography variant="caption" color="text.secondary">Selected strategy</Typography>
-                      <Typography variant="body2" sx={{ fontWeight: 600 }}>{selectedStrategy.name}</Typography>
-                      <Typography variant="body2" color="text.secondary">{selectedStrategy.model}</Typography>
-                      {selectedStrategy.entryConditions?.length > 0 && (
-                        <List dense disablePadding>
-                          {selectedStrategy.entryConditions.slice(0, 4).map((item) => (
-                            <ListItem key={item} disableGutters sx={{ py: 0.2 }}>
-                              <ListItemText primary={`• ${item}`} />
-                            </ListItem>
-                          ))}
-                        </List>
-                      )}
-                    </Box>
+                  <Divider />
+
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      startIcon={<AddRoundedIcon />}
+                      onClick={() => setScheduleOpen((prev) => !prev)}
+                    >
+                      {t('today.session.planner.scheduleTrade')}
+                    </Button>
+
+                    {!session.activeTrade ? (
+                      <Button
+                        variant="contained"
+                        onClick={handleStartTrade}
+                        disabled={!canStartTrade || startTradeMutation.isLoading}
+                      >
+                        {startTradeMutation.isLoading ? t('today.session.planner.startingTrade') : t('today.session.planner.startTrade')}
+                      </Button>
+                    ) : (
+                      <Button variant="outlined" color="error" onClick={() => setCloseFormOpen((prev) => !prev)}>
+                        {t('today.session.planner.stopTrade')}
+                      </Button>
+                    )}
+                  </Stack>
+
+                  {scheduleOpen && (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <TextField
+                        size="small"
+                        label={t('today.session.planner.scheduleTickerLabel')}
+                        value={tickerDraft}
+                        onChange={(event) => setTickerDraft(event.target.value)}
+                        fullWidth
+                      />
+                      <Button size="small" variant="contained" onClick={handleAddTicker}>{t('today.session.planner.addTicker')}</Button>
+                    </Stack>
                   )}
 
-                  {!session.activeTrade ? (
-                    <Button
-                      variant="contained"
-                      onClick={handleStartTrade}
-                      disabled={!canStartTrade || startTradeMutation.isLoading}
-                    >
-                      {startTradeMutation.isLoading ? 'Starting...' : 'Start trade'}
-                    </Button>
-                  ) : (
+                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                    {(session.plannedTickers || []).map((ticker) => (
+                      <Chip key={ticker} label={ticker} onDelete={() => void handleRemoveTicker(ticker)} size="small" />
+                    ))}
+                  </Stack>
+
+                  {session.activeTrade && (
                     <Stack spacing={1}>
                       <Alert severity="info">
-                        Active trade: {session.activeTrade.symbol} {session.activeTrade.direction} at {formatNumber(session.activeTrade.entryPrice, 4)}
+                        {t('today.session.planner.activeTrade', {
+                          symbol: session.activeTrade.symbol,
+                          direction: session.activeTrade.direction,
+                          price: formatNumber(session.activeTrade.entryPrice, 4)
+                        })}
                       </Alert>
-                      <Button variant="outlined" color="error" onClick={() => setCloseFormOpen((prev) => !prev)}>
-                        Stop trade
-                      </Button>
+
                       {closeFormOpen && (
                         <Stack spacing={1.25} sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                           <TextField
-                            label="Exit price"
+                            label={t('today.session.planner.exitPrice')}
                             type="number"
                             value={closeDraft.exitPrice}
                             onChange={(event) => setCloseDraft((prev) => ({ ...prev, exitPrice: event.target.value }))}
@@ -931,7 +1346,7 @@ export default function SessionPage() {
                           />
                           <TextField
                             select
-                            label="Rule breaks"
+                            label={t('trades.form.ruleBreaks')}
                             value={closeDraft.ruleBreaks}
                             onChange={(event) => {
                               const value = event.target.value
@@ -952,7 +1367,7 @@ export default function SessionPage() {
                             ))}
                           </TextField>
                           <TextField
-                            label="Post trade notes"
+                            label={t('today.session.planner.postTradeNotes')}
                             value={closeDraft.postTradeNotes}
                             onChange={(event) => setCloseDraft((prev) => ({ ...prev, postTradeNotes: event.target.value }))}
                             fullWidth
@@ -966,7 +1381,7 @@ export default function SessionPage() {
                             onClick={handleCloseTrade}
                             disabled={closeTradeMutation.isLoading}
                           >
-                            {closeTradeMutation.isLoading ? 'Closing...' : 'Close trade'}
+                            {closeTradeMutation.isLoading ? t('today.session.planner.closingTrade') : t('today.session.planner.confirmCloseTrade')}
                           </Button>
                         </Stack>
                       )}
@@ -978,6 +1393,69 @@ export default function SessionPage() {
           </Box>
         </>
       )}
+
+      <Dialog open={saveTemplateDialogOpen} onClose={() => setSaveTemplateDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('today.session.checklist.saveTemplate')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={1.5} sx={{ mt: 0.75 }}>
+            <TextField
+              label={t('today.session.checklist.templateName')}
+              value={saveTemplateName}
+              onChange={(event) => setSaveTemplateName(event.target.value)}
+              fullWidth
+              required
+            />
+
+            <RadioGroup
+              value={templateSaveMode}
+              onChange={(event) => setTemplateSaveMode(event.target.value as TemplateSaveMode)}
+            >
+              <FormControlLabel value="new" control={<Radio />} label={t('today.session.checklist.saveAsNew')} />
+              <FormControlLabel value="overwrite" control={<Radio />} label={t('today.session.checklist.overwriteTemplate')} />
+            </RadioGroup>
+
+            {templateSaveMode === 'overwrite' && (
+              <TextField
+                select
+                label={t('today.session.checklist.overwriteTemplate')}
+                value={overwriteTemplateId}
+                onChange={(event) => setOverwriteTemplateId(event.target.value)}
+                fullWidth
+              >
+                <MenuItem value="">{t('common.none')}</MenuItem>
+                {(templatesQuery.data || []).map((template) => (
+                  <MenuItem key={template.id} value={template.id}>{template.name}</MenuItem>
+                ))}
+              </TextField>
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSaveTemplateDialogOpen(false)}>{t('common.cancel')}</Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveChecklistTemplate()}
+            disabled={createTemplateMutation.isLoading || updateTemplateMutation.isLoading}
+          >
+            {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={importConfirmOpen} onClose={() => setImportConfirmOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle>{t('today.session.checklist.importTemplate')}</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            {t('today.session.checklist.confirmImport')}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setImportConfirmOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={() => void handleConfirmImportTemplate()}>
+            {t('today.session.checklist.importAction')}
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Stack>
   )
 }

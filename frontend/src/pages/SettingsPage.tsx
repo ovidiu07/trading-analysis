@@ -246,6 +246,7 @@ export default function SettingsPage() {
             >
               <MenuItem value="light">{t('theme.light')}</MenuItem>
               <MenuItem value="dark">{t('theme.dark')}</MenuItem>
+              <MenuItem value="black-shiny">{t('theme.blackShiny')}</MenuItem>
               <MenuItem value="system">{t('theme.system')}</MenuItem>
             </TextField>
             <Button type="submit" variant="contained" disabled={saving}>{saving ? t('settings.messages.saving') : t('settings.actions.save')}</Button>

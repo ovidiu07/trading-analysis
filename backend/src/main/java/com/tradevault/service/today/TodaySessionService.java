@@ -43,8 +43,11 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
@@ -54,6 +57,7 @@ import java.util.UUID;
 public class TodaySessionService {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final TypeReference<List<SessionChecklistItemDto>> CHECKLIST_LIST = new TypeReference<>() {};
+    private static final TypeReference<List<Map<String, Object>>> CHECKLIST_OBJECT_LIST = new TypeReference<>() {};
     private static final int MAX_CHECKLIST_ITEMS = 30;
     private static final int MAX_TICKERS = 30;
     private static final int MAX_TICKER_LENGTH = 16;
@@ -332,6 +336,11 @@ public class TodaySessionService {
     }
 
     private TodaySessionResponse toResponse(TodaySession session, UUID userId) {
+        List<SessionChecklistItemDto> checklistItems = resolveChecklistItems(session, userId);
+        return toResponse(session, userId, checklistItems);
+    }
+
+    private TodaySessionResponse toResponse(TodaySession session, UUID userId, List<SessionChecklistItemDto> checklistItems) {
         SessionProgress progress = computeProgress(session, userId);
         long remainingTrades = Math.max(0, session.getMaxTrades() - progress.closedTrades());
 
@@ -351,7 +360,7 @@ public class TodaySessionService {
                 .closedTradesCount(progress.closedTrades())
                 .remainingTrades(remainingTrades)
                 .plannedTickers(readStringList(session.getPlannedTickersJson()))
-                .checklistItems(readChecklistItems(session.getChecklistStateJson()))
+                .checklistItems(checklistItems)
                 .checklistTemplateId(session.getChecklistTemplate() == null ? null : session.getChecklistTemplate().getId())
                 .activeTrade(activeTrade)
                 .createdAt(session.getCreatedAt())
@@ -416,6 +425,43 @@ public class TodaySessionService {
             List<SessionChecklistItemDto> items = objectMapper.readValue(json, CHECKLIST_LIST);
             return items == null ? List.of() : items;
         } catch (Exception ignored) {
+            return readChecklistItemsFromObjects(json);
+        }
+    }
+
+    private List<SessionChecklistItemDto> readChecklistItemsFromObjects(String json) {
+        try {
+            List<Map<String, Object>> rows = objectMapper.readValue(json, CHECKLIST_OBJECT_LIST);
+            if (rows == null || rows.isEmpty()) {
+                return List.of();
+            }
+
+            List<SessionChecklistItemDto> items = new ArrayList<>();
+            for (Map<String, Object> row : rows) {
+                if (row == null || row.isEmpty()) {
+                    continue;
+                }
+
+                String text = normalizeOptionalText(row.get("text") == null ? null : String.valueOf(row.get("text")));
+                if (text == null) {
+                    continue;
+                }
+
+                String id = normalizeOptionalText(row.get("id") == null ? null : String.valueOf(row.get("id")));
+                Object completedRaw = row.get("completed");
+                boolean completed = completedRaw instanceof Boolean value
+                        ? value
+                        : completedRaw != null && Boolean.parseBoolean(String.valueOf(completedRaw));
+
+                items.add(SessionChecklistItemDto.builder()
+                        .id(id)
+                        .text(text)
+                        .completed(completed)
+                        .build());
+            }
+
+            return items;
+        } catch (Exception ignored) {
             return List.of();
         }
     }
@@ -439,6 +485,104 @@ public class TodaySessionService {
                     .build());
         }
         return normalized;
+    }
+
+    private List<SessionChecklistItemDto> resolveChecklistItems(TodaySession session, UUID userId) {
+        List<SessionChecklistItemDto> persistedState = readChecklistItems(session.getChecklistStateJson());
+        if (session.getChecklistTemplate() != null && session.getChecklistTemplate().getId() != null) {
+            return mergeWithTemplateEntries(session.getChecklistTemplate().getId(), persistedState);
+        }
+        return mergeWithGlobalChecklistTemplate(userId, persistedState);
+    }
+
+    private List<SessionChecklistItemDto> mergeWithGlobalChecklistTemplate(UUID userId, List<SessionChecklistItemDto> persistedState) {
+        List<ChecklistTemplateItem> templateItems = checklistTemplateItemRepository
+                .findByUser_IdAndIsEnabledTrueOrderBySortOrderAscCreatedAtAsc(userId);
+        if (templateItems.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, Boolean> completedById = buildCompletionById(persistedState);
+        Map<String, Boolean> completedByText = buildCompletionByText(persistedState);
+
+        return templateItems.stream()
+                .limit(MAX_CHECKLIST_ITEMS)
+                .map(item -> {
+                    String id = item.getId().toString();
+                    boolean completed = completedById.containsKey(id)
+                            ? Boolean.TRUE.equals(completedById.get(id))
+                            : Boolean.TRUE.equals(completedByText.get(normalizeChecklistMatchText(item.getText())));
+                    return SessionChecklistItemDto.builder()
+                            .id(id)
+                            .text(item.getText())
+                            .completed(completed)
+                            .build();
+                })
+                .toList();
+    }
+
+    private List<SessionChecklistItemDto> mergeWithTemplateEntries(UUID templateId, List<SessionChecklistItemDto> persistedState) {
+        List<ChecklistTemplateEntry> entries = checklistTemplateEntryRepository.findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(templateId);
+        if (entries.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, Boolean> completedById = buildCompletionById(persistedState);
+        Map<String, Boolean> completedByText = buildCompletionByText(persistedState);
+
+        return entries.stream()
+                .limit(MAX_CHECKLIST_ITEMS)
+                .map(entry -> {
+                    String id = entry.getId().toString();
+                    boolean completed = completedById.containsKey(id)
+                            ? Boolean.TRUE.equals(completedById.get(id))
+                            : Boolean.TRUE.equals(completedByText.get(normalizeChecklistMatchText(entry.getItemText())));
+                    return SessionChecklistItemDto.builder()
+                            .id(id)
+                            .text(entry.getItemText())
+                            .completed(completed)
+                            .build();
+                })
+                .toList();
+    }
+
+    private Map<String, Boolean> buildCompletionById(List<SessionChecklistItemDto> items) {
+        Map<String, Boolean> completionById = new HashMap<>();
+        if (items == null || items.isEmpty()) {
+            return completionById;
+        }
+        for (SessionChecklistItemDto item : items) {
+            String id = normalizeOptionalText(item == null ? null : item.getId());
+            if (id == null) {
+                continue;
+            }
+            completionById.put(id, item != null && item.isCompleted());
+        }
+        return completionById;
+    }
+
+    private Map<String, Boolean> buildCompletionByText(List<SessionChecklistItemDto> items) {
+        Map<String, Boolean> completionByText = new HashMap<>();
+        if (items == null || items.isEmpty()) {
+            return completionByText;
+        }
+        for (SessionChecklistItemDto item : items) {
+            String key = normalizeChecklistMatchText(item == null ? null : item.getText());
+            if (key == null) {
+                continue;
+            }
+            boolean completed = item != null && item.isCompleted();
+            completionByText.merge(key, completed, (current, next) -> Boolean.TRUE.equals(current) || Boolean.TRUE.equals(next));
+        }
+        return completionByText;
+    }
+
+    private String normalizeChecklistMatchText(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            return null;
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private List<SessionChecklistItemDto> defaultChecklistItems(UUID userId) {

@@ -1,6 +1,7 @@
 package com.tradevault.service.today;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tradevault.domain.entity.ChecklistTemplateItem;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
@@ -8,6 +9,7 @@ import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeGrade;
 import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.session.SessionChecklistItemDto;
 import com.tradevault.dto.session.StartSessionTradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.ChecklistTemplateEntryRepository;
@@ -25,6 +27,7 @@ import org.mockito.Mockito;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -45,6 +48,7 @@ class TodaySessionServiceGuardrailsTest {
     private CurrentUserService currentUserService;
     private TradeService tradeService;
     private TodaySessionService todaySessionService;
+    private ObjectMapper objectMapper;
     private User user;
     private TodaySession session;
 
@@ -58,6 +62,7 @@ class TodaySessionServiceGuardrailsTest {
         currentUserService = Mockito.mock(CurrentUserService.class);
         tradeService = Mockito.mock(TradeService.class);
 
+        objectMapper = new ObjectMapper();
         todaySessionService = new TodaySessionService(
                 todaySessionRepository,
                 tradeRepository,
@@ -66,7 +71,7 @@ class TodaySessionServiceGuardrailsTest {
                 checklistTemplateItemRepository,
                 currentUserService,
                 tradeService,
-                new ObjectMapper()
+                objectMapper
         );
 
         user = User.builder()
@@ -153,6 +158,84 @@ class TodaySessionServiceGuardrailsTest {
 
         assertEquals(expected.getId(), response.getId());
         verify(tradeService).create(any());
+    }
+
+    @Test
+    void getTodaySessionSyncsChecklistWithLatestAnalyticsTemplateItems() throws Exception {
+        UUID existingId = UUID.randomUUID();
+        UUID newId = UUID.randomUUID();
+
+        session.setChecklistTemplate(null);
+        session.setChecklistStateJson(objectMapper.writeValueAsString(List.of(
+                SessionChecklistItemDto.builder()
+                        .id(existingId.toString())
+                        .text("Old wording")
+                        .completed(true)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("removed-id")
+                        .text("Removed item")
+                        .completed(true)
+                        .build()
+        )));
+
+        ChecklistTemplateItem existing = ChecklistTemplateItem.builder()
+                .id(existingId)
+                .user(user)
+                .text("Updated wording")
+                .sortOrder(0)
+                .isEnabled(true)
+                .build();
+        ChecklistTemplateItem added = ChecklistTemplateItem.builder()
+                .id(newId)
+                .user(user)
+                .text("New checklist item")
+                .sortOrder(1)
+                .isEnabled(true)
+                .build();
+
+        when(checklistTemplateItemRepository.findByUser_IdAndIsEnabledTrueOrderBySortOrderAscCreatedAtAsc(user.getId()))
+                .thenReturn(List.of(existing, added));
+
+        var response = todaySessionService.getTodaySession();
+
+        assertEquals(2, response.getChecklistItems().size());
+        assertEquals(existingId.toString(), response.getChecklistItems().get(0).getId());
+        assertEquals("Updated wording", response.getChecklistItems().get(0).getText());
+        assertEquals(true, response.getChecklistItems().get(0).isCompleted());
+        assertEquals(newId.toString(), response.getChecklistItems().get(1).getId());
+        assertEquals(false, response.getChecklistItems().get(1).isCompleted());
+    }
+
+    @Test
+    void getTodaySessionKeepsCompletionWhenLegacyChecklistItemsOnlyMatchByText() throws Exception {
+        UUID templateId = UUID.randomUUID();
+
+        session.setChecklistTemplate(null);
+        session.setChecklistStateJson(objectMapper.writeValueAsString(List.of(
+                SessionChecklistItemDto.builder()
+                        .id("item-1")
+                        .text("Review market structure")
+                        .completed(true)
+                        .build()
+        )));
+
+        ChecklistTemplateItem templateItem = ChecklistTemplateItem.builder()
+                .id(templateId)
+                .user(user)
+                .text("Review market structure")
+                .sortOrder(0)
+                .isEnabled(true)
+                .build();
+
+        when(checklistTemplateItemRepository.findByUser_IdAndIsEnabledTrueOrderBySortOrderAscCreatedAtAsc(user.getId()))
+                .thenReturn(List.of(templateItem));
+
+        var response = todaySessionService.getTodaySession();
+
+        assertEquals(1, response.getChecklistItems().size());
+        assertEquals(templateId.toString(), response.getChecklistItems().get(0).getId());
+        assertEquals(true, response.getChecklistItems().get(0).isCompleted());
     }
 
     private void verifySessionMarkedCompleted() {

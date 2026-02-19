@@ -14,7 +14,7 @@ import java.util.Set;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-    private static final Set<String> ALLOWED_THEME_PREFERENCES = Set.of("LIGHT", "DARK", "SYSTEM");
+    private static final Set<String> ALLOWED_THEME_PREFERENCES = Set.of("LIGHT", "DARK", "BLACK_SHINY", "SYSTEM");
 
     private final CurrentUserService currentUserService;
     private final UserRepository userRepository;
@@ -40,7 +40,7 @@ public class UserService {
             themePreference = themePreference.trim().toUpperCase(Locale.ROOT);
         }
         if (!ALLOWED_THEME_PREFERENCES.contains(themePreference)) {
-            throw new IllegalArgumentException("Theme preference must be LIGHT, DARK, or SYSTEM");
+            throw new IllegalArgumentException("Theme preference must be LIGHT, DARK, BLACK_SHINY, or SYSTEM");
         }
         entity.setThemePreference(themePreference);
         userRepository.save(entity);

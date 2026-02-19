@@ -13,6 +13,7 @@
     "label": "Temă",
     "light": "Deschisă",
     "dark": "Închisă",
+    "blackShiny": "Black Shiny",
     "system": "Sistem"
   },
   "common": {
@@ -45,7 +46,7 @@
     "calendar": "Calendar",
     "notebook": "Caiet",
     "analytics": "Analiză",
-    "insights": "Perspective",
+    "insights": "Mentor",
     "settings": "Setări",
     "admin": "Administrare",
     "profile": "Profil",
@@ -122,13 +123,13 @@
       "roMissing": "RO lipsă"
     },
     "dialog": {
-      "archiveBody": "Arhivezi acest conținut? Va fi ascuns din Insights, dar păstrat în istoric.",
+      "archiveBody": "Arhivezi acest conținut? Va fi ascuns din Mentor, dar păstrat în istoric.",
       "archiveTitle": "Arhivează conținutul",
-      "publishBody": "Publici acest conținut în Insights? Toți utilizatorii îl vor vedea imediat.",
+      "publishBody": "Publici acest conținut în Mentor? Toți utilizatorii îl vor vedea imediat.",
       "publishTitle": "Publică conținutul"
     },
     "empty": {
-      "body": "Creează prima strategie sau primul plan săptămânal pentru a-l publica în Insights.",
+      "body": "Creează prima strategie sau primul plan săptămânal pentru a-l publica în Mentor.",
       "title": "Nu există conținut încă"
     },
     "messages": {
@@ -143,7 +144,7 @@
       "draft": "Ciornă",
       "published": "Publicat"
     },
-    "subtitle": "Creează, publică și arhivează conținut Insights localizat.",
+    "subtitle": "Creează, publică și arhivează conținut Mentor localizat.",
     "table": {
       "actions": "Acțiuni",
       "anytime": "Oricând",
@@ -218,7 +219,7 @@
     },
     "newContent": "Conținut nou",
     "preview": "Previzualizare",
-    "subtitle": "Construiește strategii și planuri săptămânale pentru secțiunea Insights.",
+    "subtitle": "Construiește strategii și planuri săptămânale pentru secțiunea Mentor.",
     "template": {
       "sectionTitle": "Secțiuni de șablon",
       "previewTitle": "Șablon structurat",
@@ -792,7 +793,7 @@
       "openPlan": "Deschide planul",
       "openWeeklyPlan": "Deschide planul săptămânal",
       "openFullPlan": "Deschide planul complet",
-      "openInsights": "Deschide feed-ul Insights/Astăzi",
+      "openInsights": "Deschide feed-ul Mentor/Astăzi",
       "startSession": "Pornește sesiunea",
       "seeWhy": "Vezi de ce",
       "logTrade": "Loghează tranzacție",
@@ -805,7 +806,7 @@
       "defaultName": "Mentor",
       "publishedAt": "Publicat: {{date}}",
       "emptyTitle": "Nu există plan mentor azi",
-      "emptyBody": "Deschide Insights pentru feed-ul Astăzi.",
+      "emptyBody": "Deschide Mentor pentru feed-ul Astăzi.",
       "emptySummary": "Nu există notițe mentor disponibile."
     },
     "myPlan": {
@@ -834,7 +835,7 @@
       "daily": {
         "title": "Planul de azi",
         "emptyTitle": "Nu există plan zilnic evidențiat",
-        "emptyBody": "Deschide Insights pentru feed-ul planului de azi.",
+        "emptyBody": "Deschide Mentor pentru feed-ul planului de azi.",
         "noSummary": "Rezumatul bias-ului nu este disponibil încă.",
         "primaryModel": "Model principal"
       },
@@ -881,11 +882,112 @@
     },
     "session": {
       "title": "Mod sesiune",
-      "subtitle": "Vizualizare focusată cu plan, checklist și notițe rapide.",
+      "subtitle": "Vizualizare focusată cu checklist, plan mentor și execuție tranzacții.",
       "exit": "Înapoi la Astăzi",
       "planSummary": "Rezumat plan",
       "quickNote": "Notițe rapide",
-      "quickNotePlaceholder": "Notează observații, invalidări și detalii de execuție în timp real."
+      "quickNotePlaceholder": "Notează observații, invalidări și detalii de execuție în timp real.",
+      "config": {
+        "title": "Configurare sesiune",
+        "subtitle": "Setează limitele zilnice înainte de execuție.",
+        "profitTarget": "Profit pentru azi (USD)",
+        "lossLimit": "Pierdere pentru azi (USD)",
+        "maxTrades": "Număr maxim de tranzacții",
+        "saving": "Se salvează...",
+        "submit": "Salvează și deschide workspace-ul"
+      },
+      "errors": {
+        "startTrade": "Pornirea tranzacției a eșuat",
+        "closeTrade": "Închiderea tranzacției a eșuat",
+        "profitTargetRequired": "Ținta de profit este obligatorie",
+        "lossLimitRequired": "Limita de pierdere este obligatorie",
+        "maxTradesRequired": "Numărul maxim de tranzacții trebuie să fie mai mare decât zero",
+        "tickerRequired": "Ticker-ul este obligatoriu",
+        "quantityAndEntryRequired": "Cantitatea și prețul de intrare sunt obligatorii",
+        "exitPriceRequired": "Prețul de ieșire este obligatoriu"
+      },
+      "progress": {
+        "title": "Progres sesiune",
+        "realizedPnl": "PnL realizat: {{realized}} / {{target}}",
+        "trades": "Tranzacții: {{closed}}/{{max}}",
+        "pnlGuardrail": "Limită PnL",
+        "tradeGuardrail": "Limită număr tranzacții"
+      },
+      "status": {
+        "active": "Activă",
+        "completed": "Completată / Blocată"
+      },
+      "checklist": {
+        "title": "Checklist sesiune",
+        "progress": "{{completed}}/{{total}}",
+        "saveTemplate": "Salvează șablon",
+        "importTemplate": "Importă șablon",
+        "templateName": "Nume șablon",
+        "overwriteTemplate": "Suprascrie șablon",
+        "saveAsNew": "Salvează ca nou",
+        "templateSaved": "Șablon salvat",
+        "templateImported": "Șablon importat",
+        "refresh": "Reîmprospătează lista",
+        "refreshDone": "Checklist actualizat",
+        "importAction": "Importă",
+        "confirmImport": "Importul înlocuiește elementele checklist-ului de sesiune pentru azi. Continui?",
+        "emptyTitle": "Nu există elemente checklist",
+        "emptyBody": "Adaugă dintr-un șablon sau actualizează setările implicite."
+      },
+      "templates": {
+        "nameRequired": "Numele șablonului este obligatoriu",
+        "emptyChecklist": "Checklist-ul nu are elemente de salvat",
+        "selectOverwriteTarget": "Selectează un șablon pentru suprascriere"
+      },
+      "mentor": {
+        "title": "Plan Mentor",
+        "select": "Selectează planul mentor",
+        "updated": "Planul mentorului a fost actualizat (planul anterior nu mai este activ)",
+        "emptyTitle": "Nu există un plan de mentor disponibil acum",
+        "emptyBody": "Nu există un plan de mentor disponibil acum",
+        "emptySummary": "Nu există rezumat de bias.",
+        "biasSummary": "Rezumat Bias",
+        "keyLevels": "Niveluri cheie",
+        "noKeyLevels": "Nu există niveluri cheie.",
+        "primaryModel": "Model principal",
+        "executionRules": "Reguli de execuție",
+        "riskNote": "Notă de risc",
+        "narrativeAndScenarios": "Narațiune lichiditate și scenarii",
+        "liquidityNarrative": "Narațiune lichiditate",
+        "alternativeScenario": "Scenariu alternativ"
+      },
+      "planner": {
+        "title": "Planificator tranzacții + Execuție",
+        "scheduleTrade": "Programează tranzacție",
+        "scheduleTickerLabel": "Ticker de programat",
+        "addTicker": "Adaugă",
+        "startTrade": "Pornește tranzacția",
+        "startingTrade": "Se pornește...",
+        "stopTrade": "Oprește tranzacția",
+        "activeTrade": "Tranzacție activă: {{symbol}} {{direction}} la {{price}}",
+        "exitPrice": "Preț de ieșire",
+        "postTradeNotes": "Notițe post-trade",
+        "closingTrade": "Se închide...",
+        "confirmCloseTrade": "Închide tranzacția"
+      },
+      "form": {
+        "requiredField": "Obligatoriu",
+        "optionalField": "Opțional",
+        "pricesGroup": "Prețuri",
+        "riskSnapshot": "Snapshot risc: {{risk}} • R estimat: {{r}}",
+        "feeling": "Cum te simți?",
+        "myStrategies": "Strategiile mele",
+        "mentorStrategies": "Strategii mentor",
+        "linkedPlan": "Plan legat"
+      },
+      "strategyDetails": {
+        "title": "Detalii strategie",
+        "entryConditions": "Condiții de intrare",
+        "invalidation": "Invalidează",
+        "management": "Management",
+        "noTradeRules": "Reguli de no-trade",
+        "sessionSuitability": "Sesiuni potrivite"
+      }
     }
   },
   "demo": {
@@ -936,7 +1038,7 @@
     "success": "Dacă există un cont pentru acest email, linkul de resetare a fost trimis."
   },
   "insightDetail": {
-    "backToInsights": "Înapoi la Insights",
+    "backToInsights": "Înapoi la Mentor",
     "attachments": "Atașamente",
     "noAttachments": "Nu există atașamente disponibile.",
     "infoAlert": "Doar pentru jurnal și scop educațional. Nu reprezintă sfat de investiții.",
@@ -948,7 +1050,7 @@
     }
   },
   "insights": {
-    "title": "Insights",
+    "title": "Mentor",
     "subtitle": "Planuri, playbook-uri și învățare",
     "heading": "Planuri, playbook-uri și învățare",
     "subheading": "Folosește feed-uri pe tab-uri pentru a trece de la plan la execuție cu mai puțin zgomot.",
@@ -959,7 +1061,7 @@
     "updated": "Actualizat",
     "weekOf": "Săptămâna din",
     "errors": {
-      "load": "Feed-ul Insights nu a putut fi încărcat.",
+      "load": "Feed-ul Mentor nu a putut fi încărcat.",
       "follow": "Elementul nu a putut fi urmărit."
     },
     "tabs": {

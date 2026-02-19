@@ -17,6 +17,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.eq;
@@ -86,6 +87,46 @@ class TodayServiceMentorPlanTest {
         DailyPlanResponse response = todayService.getTodayMentorDailyPlan("en");
 
         assertNull(response);
+    }
+
+    @Test
+    void listDailyPlansPrioritizesVisibleNowAndIgnoresFutureOnlyItems() {
+        ZoneId zone = ZoneId.of(TimezoneService.DEFAULT_TIMEZONE);
+        OffsetDateTime now = OffsetDateTime.now(zone);
+
+        ContentPostResponse visibleNow = plan(
+                UUID.randomUUID(),
+                "Visible now",
+                now.minusHours(2),
+                now.plusHours(6),
+                now.minusMinutes(5)
+        );
+
+        ContentPostResponse recentExpired = plan(
+                UUID.randomUUID(),
+                "Recent expired",
+                now.minusDays(1),
+                now.minusHours(2),
+                now.minusMinutes(10)
+        );
+
+        ContentPostResponse futureOnly = plan(
+                UUID.randomUUID(),
+                "Future plan",
+                now.plusHours(1),
+                now.plusHours(8),
+                now
+        );
+
+        when(contentPostService.listPublished(eq("DAILY_PLAN"), eq(null), eq(false), eq("en")))
+                .thenReturn(List.of(futureOnly, recentExpired, visibleNow));
+
+        List<DailyPlanResponse> response = todayService.listDailyPlans("en", 7);
+
+        assertEquals(2, response.size());
+        assertEquals("Visible now", response.get(0).getTitle());
+        assertEquals("Recent expired", response.get(1).getTitle());
+        assertFalse(response.stream().anyMatch(plan -> "Future plan".equals(plan.getTitle())));
     }
 
     private ContentPostResponse plan(UUID id,

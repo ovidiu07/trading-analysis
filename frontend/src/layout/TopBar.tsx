@@ -6,6 +6,7 @@ import PaletteOutlinedIcon from '@mui/icons-material/PaletteOutlined'
 import MoreVertRoundedIcon from '@mui/icons-material/MoreVertRounded'
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined'
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined'
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded'
 import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
 import {
@@ -98,12 +99,14 @@ export default function TopBar({
   const getThemeLabel = (value: ThemePreference) => {
     if (value === 'light') return t('theme.light')
     if (value === 'dark') return t('theme.dark')
+    if (value === 'black-shiny') return t('theme.blackShiny')
     return t('theme.system')
   }
 
   const getThemeIcon = (value: ThemePreference) => {
     if (value === 'light') return <LightModeOutlinedIcon fontSize="small" />
     if (value === 'dark') return <DarkModeOutlinedIcon fontSize="small" />
+    if (value === 'black-shiny') return <AutoAwesomeRoundedIcon fontSize="small" />
     return <SettingsBrightnessOutlinedIcon fontSize="small" />
   }
 
@@ -238,7 +241,7 @@ export default function TopBar({
       anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
       transformOrigin={{ vertical: 'top', horizontal: 'right' }}
     >
-      {(['system', 'light', 'dark'] as ThemePreference[]).map((item) => (
+      {(['system', 'light', 'dark', 'black-shiny'] as ThemePreference[]).map((item) => (
         <MenuItem
           key={item}
           selected={themePreference === item}

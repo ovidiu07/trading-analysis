@@ -12,6 +12,6 @@ public class UserSettingsRequest {
     @NotBlank(message = "Timezone is required")
     private String timezone;
 
-    @Pattern(regexp = "^(LIGHT|DARK|SYSTEM)$", message = "Theme preference must be LIGHT, DARK, or SYSTEM")
+    @Pattern(regexp = "^(LIGHT|DARK|BLACK_SHINY|SYSTEM)$", message = "Theme preference must be LIGHT, DARK, BLACK_SHINY, or SYSTEM")
     private String themePreference;
 }
