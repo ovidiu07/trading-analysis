@@ -240,6 +240,8 @@ public class TradeService {
         trade.setStrategyId(request.getStrategyId());
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
+        trade.setSessionId(request.getSessionId());
+        trade.setFeeling(normalizeFeeling(request.getFeeling()));
         trade.setRuleBreaks(normalizeRuleBreaks(request.getRuleBreaks()));
         trade.setLinkedContentIds(normalizeLinkedContentIds(request.getLinkedContentIds()));
         trade.setLinkedPlanIds(normalizeLinkedPlanIds(request.getLinkedPlanIds()));
@@ -294,6 +296,8 @@ public class TradeService {
         trade.setStrategyId(request.getStrategyId());
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
+        trade.setSessionId(request.getSessionId());
+        trade.setFeeling(normalizeFeeling(request.getFeeling()));
         if (request.getRuleBreaks() != null) {
             trade.setRuleBreaks(normalizeRuleBreaks(request.getRuleBreaks()));
         } else if (trade.getRuleBreaks() == null) {
@@ -457,6 +461,14 @@ public class TradeService {
                 .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
+    private String normalizeFeeling(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
     private void calculateMetrics(Trade trade) {
         if (trade.getExitPrice() != null) {
             BigDecimal priceDiff = trade.getDirection() == Direction.LONG ?
@@ -614,6 +626,8 @@ public class TradeService {
                 .setupGrade(trade.getSetupGrade())
                 .ruleBreaks(trade.getRuleBreaks() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getRuleBreaks()))
                 .session(trade.getSession())
+                .sessionId(trade.getSessionId())
+                .feeling(trade.getFeeling())
                 .linkedContentIds(trade.getLinkedContentIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedContentIds()))
                 .linkedPlanIds(trade.getLinkedPlanIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedPlanIds()))
                 .notes(trade.getNotes())

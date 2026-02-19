@@ -10,8 +10,8 @@ type SessionChipsProps = {
 const SESSION_OPTIONS: Array<{ value: NonNullable<TradeFormValues['session']>; labelKey: string }> = [
   { value: 'ASIA', labelKey: 'trades.form.sessions.ASIA' },
   { value: 'LONDON', labelKey: 'trades.form.sessions.LONDON' },
-  { value: 'NY', labelKey: 'trades.form.sessions.NY_AM' },
-  { value: 'CUSTOM', labelKey: 'trades.form.sessions.NY_PM' }
+  { value: 'NY_AM', labelKey: 'trades.form.sessions.NY_AM' },
+  { value: 'NY_PM', labelKey: 'trades.form.sessions.NY_PM' }
 ]
 
 export function SessionChips({ value, onChange }: SessionChipsProps) {

@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPostMultipart, apiPut } from './client'
 
 export type TradeSetupGrade = 'A' | 'B' | 'C'
-export type TradeSession = 'ASIA' | 'LONDON' | 'NY' | 'CUSTOM'
+export type TradeSession = 'ASIA' | 'LONDON' | 'NY' | 'CUSTOM' | 'NY_AM' | 'NY_PM'
 
 export type TradeRequest = {
   symbol: string
@@ -28,6 +28,8 @@ export type TradeRequest = {
   setupGrade?: TradeSetupGrade | null
   ruleBreaks?: string[]
   session?: TradeSession | null
+  sessionId?: string | null
+  feeling?: string | null
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
   notes?: string
@@ -66,6 +68,8 @@ export type TradeResponse = {
   setupGrade?: TradeSetupGrade | null
   ruleBreaks?: string[]
   session?: TradeSession | null
+  sessionId?: string | null
+  feeling?: string | null
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
   notes?: string | null

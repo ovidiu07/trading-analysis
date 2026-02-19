@@ -7,9 +7,12 @@ import com.tradevault.dto.trade.DailySummaryResponse;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.dto.trade.TradeCsvImportSummary;
+import com.tradevault.dto.session.CloseSessionTradeRequest;
+import com.tradevault.dto.session.StartSessionTradeRequest;
 import com.tradevault.service.TradeCalendarService;
 import com.tradevault.service.TradeCsvImportService;
 import com.tradevault.service.TradeService;
+import com.tradevault.service.today.TodaySessionService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -33,6 +36,7 @@ public class TradeController {
     private final TradeService tradeService;
     private final TradeCalendarService tradeCalendarService;
     private final TradeCsvImportService tradeCsvImportService;
+    private final TodaySessionService todaySessionService;
 
     @GetMapping
     public Page<TradeResponse> list(@RequestParam(defaultValue = "0") int page,
@@ -71,6 +75,17 @@ public class TradeController {
     @PostMapping
     public ResponseEntity<TradeResponse> create(@Valid @RequestBody TradeRequest request) {
         return ResponseEntity.ok(tradeService.create(request));
+    }
+
+    @PostMapping("/startFromSession")
+    public ResponseEntity<TradeResponse> startFromSession(@Valid @RequestBody StartSessionTradeRequest request) {
+        return ResponseEntity.ok(todaySessionService.startTrade(request));
+    }
+
+    @PostMapping("/{id}/closeFromSession")
+    public ResponseEntity<TradeResponse> closeFromSession(@PathVariable UUID id,
+                                                          @Valid @RequestBody CloseSessionTradeRequest request) {
+        return ResponseEntity.ok(todaySessionService.closeTrade(id, request));
     }
 
     @PostMapping(value = "/import/csv", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

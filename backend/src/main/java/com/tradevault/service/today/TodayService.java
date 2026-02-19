@@ -5,6 +5,7 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.dto.analytics.AdviceCard;
 import com.tradevault.dto.analytics.AdviceConfidence;
 import com.tradevault.dto.analytics.AdviceSeverity;
+import com.tradevault.dto.plan.DailyPlanResponse;
 import com.tradevault.dto.analytics.CoachResponse;
 import com.tradevault.dto.content.ContentPostResponse;
 import com.tradevault.dto.today.CoachFocusResponse;
@@ -35,6 +36,36 @@ public class TodayService {
     private final TradeCoachService tradeCoachService;
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
+
+    public DailyPlanResponse getTodayMentorDailyPlan(String locale) {
+        ZoneId zoneId = ZoneId.of(TimezoneService.DEFAULT_TIMEZONE);
+        OffsetDateTime now = OffsetDateTime.now(zoneId);
+
+        return contentPostService.listPublished("DAILY_PLAN", null, false, locale).stream()
+                .filter(post -> isVisibleNow(post, now))
+                .sorted(Comparator
+                        .comparing((ContentPostResponse post) -> post.getVisibleFrom() == null ? OffsetDateTime.MIN : post.getVisibleFrom())
+                        .reversed()
+                        .thenComparing(post -> post.getUpdatedAt() == null ? OffsetDateTime.MIN : post.getUpdatedAt(), Comparator.reverseOrder()))
+                .map(this::toDailyPlanResponse)
+                .findFirst()
+                .orElse(null);
+    }
+
+    public List<DailyPlanResponse> listDailyPlans(String locale, int recentDays) {
+        ZoneId zoneId = ZoneId.of(TimezoneService.DEFAULT_TIMEZONE);
+        OffsetDateTime now = OffsetDateTime.now(zoneId);
+        OffsetDateTime cutoff = now.minusDays(Math.max(1, recentDays));
+
+        return contentPostService.listPublished("DAILY_PLAN", null, false, locale).stream()
+                .filter(post -> isVisibleNow(post, now) || isRecent(post, cutoff))
+                .sorted(Comparator
+                        .comparing((ContentPostResponse post) -> isVisibleNow(post, now) ? 0 : 1)
+                        .thenComparing((ContentPostResponse post) -> post.getVisibleFrom() == null ? OffsetDateTime.MIN : post.getVisibleFrom(), Comparator.reverseOrder())
+                        .thenComparing((ContentPostResponse post) -> post.getUpdatedAt() == null ? OffsetDateTime.MIN : post.getUpdatedAt(), Comparator.reverseOrder()))
+                .map(this::toDailyPlanResponse)
+                .toList();
+    }
 
     public FeaturedPlanResponse getFeaturedPlan(String requestedType, String locale, String timezone) {
         FeaturedPlanType planType = FeaturedPlanType.from(requestedType);
@@ -142,6 +173,88 @@ public class TodayService {
         return currentlyActive.orElse(candidates.get(0));
     }
 
+    private boolean isVisibleNow(ContentPostResponse post, OffsetDateTime now) {
+        if (post.getVisibleFrom() != null && post.getVisibleFrom().isAfter(now)) {
+            return false;
+        }
+        if (post.getVisibleUntil() != null && post.getVisibleUntil().isBefore(now)) {
+            return false;
+        }
+        return true;
+    }
+
+    private boolean isRecent(ContentPostResponse post, OffsetDateTime cutoff) {
+        OffsetDateTime visibleFrom = post.getVisibleFrom();
+        if (visibleFrom != null && !visibleFrom.isBefore(cutoff)) {
+            return true;
+        }
+        OffsetDateTime updatedAt = post.getUpdatedAt();
+        if (updatedAt != null && !updatedAt.isBefore(cutoff)) {
+            return true;
+        }
+        OffsetDateTime publishedAt = post.getPublishedAt();
+        return publishedAt != null && !publishedAt.isBefore(cutoff);
+    }
+
+    private DailyPlanResponse toDailyPlanResponse(ContentPostResponse post) {
+        String biasSummary = firstNonBlank(
+                normalize(readTemplateText(post, "biasSummary")),
+                normalize(post.getSummary())
+        );
+        return DailyPlanResponse.builder()
+                .id(post.getId())
+                .slug(post.getSlug())
+                .title(post.getTitle())
+                .summary(firstNonBlank(normalize(post.getSummary()), biasSummary))
+                .biasSummary(biasSummary)
+                .keyLevels(resolveTemplateList(post, "keyLevels"))
+                .primaryModel(firstNonBlank(readTemplateText(post, "primaryModel"), ""))
+                .executionRules(firstNonBlank(readTemplateText(post, "executionRules"), ""))
+                .riskNote(firstNonBlank(readTemplateText(post, "riskNote"), ""))
+                .liquidityNarrative(firstNonBlank(readTemplateText(post, "liquidityNarrative"), ""))
+                .alternativeScenario(firstNonBlank(readTemplateText(post, "alternativeScenario"), ""))
+                .visibleFrom(post.getVisibleFrom())
+                .visibleUntil(post.getVisibleUntil())
+                .updatedAt(post.getUpdatedAt())
+                .build();
+    }
+
+    private String readTemplateText(ContentPostResponse post, String key) {
+        if (post.getTemplateFields() == null) {
+            return null;
+        }
+        Object rawValue = post.getTemplateFields().get(key);
+        if (rawValue == null) {
+            return null;
+        }
+        return normalize(String.valueOf(rawValue));
+    }
+
+    private List<String> resolveTemplateList(ContentPostResponse post, String key) {
+        if (post.getTemplateFields() == null) {
+            return List.of();
+        }
+        Object rawValue = post.getTemplateFields().get(key);
+        if (rawValue == null) {
+            return List.of();
+        }
+        if (rawValue instanceof List<?> listValue) {
+            return listValue.stream()
+                    .map(item -> item == null ? null : normalize(String.valueOf(item)))
+                    .filter(item -> item != null)
+                    .toList();
+        }
+        String normalized = normalize(String.valueOf(rawValue));
+        if (normalized == null) {
+            return List.of();
+        }
+        return normalized.lines()
+                .map(String::trim)
+                .map(line -> line.replaceFirst("^[-*]\\s*", ""))
+                .filter(line -> !line.isBlank())
+                .toList();
+    }
+
     private boolean isActiveForDay(ContentPostResponse post, LocalDate today, ZoneId zoneId) {
         LocalDate from = toLocalDate(post.getVisibleFrom(), zoneId);
         LocalDate until = toLocalDate(post.getVisibleUntil(), zoneId);
@@ -245,6 +358,19 @@ public class TodayService {
                 .filter(item -> item != null)
                 .findFirst()
                 .orElse("");
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            String normalized = normalize(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return "";
     }
 
     private int severityRank(AdviceSeverity severity) {

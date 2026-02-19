@@ -5,7 +5,7 @@ const marketValues = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', '
 const directionValues = ['LONG', 'SHORT'] as const
 const statusValues = ['OPEN', 'CLOSED'] as const
 const setupGradeValues = ['A', 'B', 'C'] as const
-const sessionValues = ['ASIA', 'LONDON', 'NY', 'CUSTOM'] as const
+const sessionValues = ['ASIA', 'LONDON', 'NY_AM', 'NY_PM', 'NY', 'CUSTOM'] as const
 
 const toUndefinedIfEmpty = (value: unknown) => {
   if (typeof value === 'string' && value.trim() === '') return undefined

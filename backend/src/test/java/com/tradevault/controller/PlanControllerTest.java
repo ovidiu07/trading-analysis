@@ -1,10 +1,17 @@
 package com.tradevault.controller;
 
+import com.tradevault.domain.entity.ContentPost;
+import com.tradevault.domain.entity.ContentPostTranslation;
+import com.tradevault.domain.entity.ContentType;
+import com.tradevault.domain.entity.ContentTypeTranslation;
 import com.tradevault.domain.entity.Plan;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.ContentPostStatus;
 import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.domain.enums.PlanSource;
 import com.tradevault.domain.enums.Role;
+import com.tradevault.repository.ContentPostRepository;
+import com.tradevault.repository.ContentTypeRepository;
 import com.tradevault.repository.PlanRepository;
 import com.tradevault.repository.UserRepository;
 import com.tradevault.security.JwtTokenProvider;
@@ -22,6 +29,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -60,8 +68,16 @@ class PlanControllerTest {
     @Autowired
     private PlanRepository planRepository;
 
+    @Autowired
+    private ContentPostRepository contentPostRepository;
+
+    @Autowired
+    private ContentTypeRepository contentTypeRepository;
+
     @AfterEach
     void cleanup() {
+        contentPostRepository.deleteAll();
+        contentTypeRepository.deleteAll();
         planRepository.deleteAll();
         userRepository.deleteAll();
     }
@@ -123,36 +139,48 @@ class PlanControllerTest {
                 .timezone("Europe/Bucharest")
                 .build());
 
-        Plan mentorPlan = planRepository.save(Plan.builder()
-                .scope(PlanScope.DAILY)
-                .source(PlanSource.MENTOR)
-                .authorUserId(viewer.getId())
-                .authorDisplayName("Mentor John")
-                .title("Mentor focus")
-                .content("Stay selective")
-                .activeFrom(OffsetDateTime.parse("2026-02-06T00:00:00+02:00"))
-                .activeTo(OffsetDateTime.parse("2026-02-06T23:59:59.999999999+02:00"))
-                .featured(true)
-                .createdAt(OffsetDateTime.now())
-                .updatedAt(OffsetDateTime.now())
+        ContentType dailyType = ContentType.builder()
+                .key("DAILY_PLAN")
+                .active(true)
+                .sortOrder(1)
+                .build();
+        dailyType.getTranslations().add(ContentTypeTranslation.builder()
+                .contentType(dailyType)
+                .locale("en")
+                .displayName("Daily plan")
+                .description(null)
                 .build());
+        contentTypeRepository.save(dailyType);
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneId.of("Europe/Bucharest"));
+        OffsetDateTime start = now.toLocalDate().atStartOfDay(ZoneId.of("Europe/Bucharest")).toOffsetDateTime();
+        OffsetDateTime end = now.toLocalDate().atTime(23, 59).atZone(ZoneId.of("Europe/Bucharest")).toOffsetDateTime();
+
+        ContentPost mentorPlan = ContentPost.builder()
+                .contentType(dailyType)
+                .slug("mentor-focus")
+                .status(ContentPostStatus.PUBLISHED)
+                .visibleFrom(start)
+                .visibleUntil(end)
+                .createdBy(viewer)
+                .updatedAt(now)
+                .build();
+        mentorPlan.getTranslations().add(ContentPostTranslation.builder()
+                .contentPost(mentorPlan)
+                .locale("en")
+                .title("Mentor focus")
+                .summary("Stay selective")
+                .bodyMarkdown("Body")
+                .build());
+        contentPostRepository.save(mentorPlan);
 
         String token = jwtTokenProvider.createToken(viewer.getId(), viewer.getEmail());
 
         mockMvc.perform(get("/api/today/mentor-plan")
-                        .param("date", "2026-02-06")
-                        .param("tz", "Europe/Bucharest")
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.id").value(mentorPlan.getId().toString()))
                 .andExpect(jsonPath("$.title").value("Mentor focus"));
-
-        mockMvc.perform(get("/api/today/mentor-plan")
-                        .param("date", "2026-02-07")
-                        .param("tz", "Europe/Bucharest")
-                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
-                .andExpect(status().isOk())
-                .andExpect(content().string(""));
     }
 
     @Test

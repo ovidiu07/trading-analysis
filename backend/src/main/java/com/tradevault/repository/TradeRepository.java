@@ -3,6 +3,7 @@ package com.tradevault.repository;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.Collection;
@@ -173,6 +174,24 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
   Optional<Trade> findByIdAndUserId(UUID id, UUID userId);
 
   Optional<Trade> findByUserIdAndSymbolAndOpenedAt(UUID userId, String symbol, OffsetDateTime openedAt);
+
+  long countByUser_IdAndSessionIdAndStatus(UUID userId, UUID sessionId, TradeStatus status);
+
+  @Query("""
+      SELECT COALESCE(SUM(t.pnlNet), 0)
+      FROM Trade t
+      WHERE t.user.id = :userId
+        AND t.sessionId = :sessionId
+        AND t.status = :status
+        AND t.pnlNet IS NOT NULL
+      """)
+  BigDecimal sumNetPnlByUserAndSessionAndStatus(@Param("userId") UUID userId,
+                                                @Param("sessionId") UUID sessionId,
+                                                @Param("status") TradeStatus status);
+
+  Optional<Trade> findFirstByUser_IdAndSessionIdAndStatusOrderByOpenedAtDescCreatedAtDesc(UUID userId,
+                                                                                            UUID sessionId,
+                                                                                            TradeStatus status);
 
   boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 

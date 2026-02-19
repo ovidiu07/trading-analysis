@@ -15,6 +15,7 @@ import ProfilePage from './pages/ProfilePage'
 import CalendarPage from './pages/CalendarPage'
 import NotebookPage from './pages/NotebookPage'
 import SessionPage from './pages/SessionPage'
+import StrategiesPage from './pages/StrategiesPage'
 import TermsPage from './pages/TermsPage'
 import PrivacyPage from './pages/PrivacyPage'
 import CookiesPage from './pages/CookiesPage'
@@ -63,6 +64,7 @@ function App() {
             <Route path="/today/session" element={<ProtectedRoute><SessionPage /></ProtectedRoute>} />
             <Route path="/dashboard" element={<ProtectedRoute><DashboardPage /></ProtectedRoute>} />
             <Route path="/trades" element={<ProtectedRoute><TradesPage /></ProtectedRoute>} />
+            <Route path="/strategies" element={<ProtectedRoute><StrategiesPage /></ProtectedRoute>} />
             <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
             <Route path="/notebook" element={<ProtectedRoute><NotebookPage /></ProtectedRoute>} />
             <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />

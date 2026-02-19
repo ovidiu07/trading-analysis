@@ -92,6 +92,12 @@ public class Trade {
     @Column(name = "session", columnDefinition = "trade_session")
     private TradeSession session;
 
+    @Column(name = "session_id")
+    private UUID sessionId;
+
+    @Column(name = "feeling", length = 120)
+    private String feeling;
+
     @Column(columnDefinition = "TEXT")
     private String notes;
 

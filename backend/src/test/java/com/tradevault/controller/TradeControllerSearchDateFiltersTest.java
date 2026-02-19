@@ -4,6 +4,7 @@ import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.service.TradeCalendarService;
 import com.tradevault.service.TradeCsvImportService;
 import com.tradevault.service.TradeService;
+import com.tradevault.service.today.TodaySessionService;
 import com.tradevault.exception.RestExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -38,7 +39,8 @@ class TradeControllerSearchDateFiltersTest {
         TradeController controller = new TradeController(
                 tradeService,
                 Mockito.mock(TradeCalendarService.class),
-                Mockito.mock(TradeCsvImportService.class)
+                Mockito.mock(TradeCsvImportService.class),
+                Mockito.mock(TodaySessionService.class)
         );
 
         mockMvc = MockMvcBuilders.standaloneSetup(controller)

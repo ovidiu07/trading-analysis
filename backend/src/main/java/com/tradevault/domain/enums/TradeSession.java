@@ -4,5 +4,7 @@ public enum TradeSession {
     ASIA,
     LONDON,
     NY,
-    CUSTOM
+    CUSTOM,
+    NY_AM,
+    NY_PM
 }

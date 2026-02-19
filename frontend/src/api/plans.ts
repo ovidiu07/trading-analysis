@@ -30,6 +30,23 @@ export type PlanSummary = {
   activeTo: string
 }
 
+export type DailyPlan = {
+  id: string
+  slug?: string | null
+  title: string
+  summary?: string | null
+  biasSummary?: string | null
+  keyLevels?: string[]
+  primaryModel?: string | null
+  executionRules?: string | null
+  riskNote?: string | null
+  liquidityNarrative?: string | null
+  alternativeScenario?: string | null
+  visibleFrom?: string | null
+  visibleUntil?: string | null
+  updatedAt?: string | null
+}
+
 export type MyPlanPayload = {
   title: string
   content: string
@@ -43,11 +60,11 @@ export type ActivePlanSuggestionResponse = {
   suggestedPlanIds: string[]
 }
 
-const toQuery = (params: Record<string, string | undefined>) => {
+const toQuery = (params: Record<string, string | number | undefined>) => {
   const sp = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
     if (value !== undefined && value !== '') {
-      sp.set(key, value)
+      sp.set(key, String(value))
     }
   })
   const query = sp.toString()
@@ -55,7 +72,7 @@ const toQuery = (params: Record<string, string | undefined>) => {
 }
 
 export async function fetchTodayMentorPlan(params: { date: string; tz: string }) {
-  return apiGet<Plan | null>(`/today/mentor-plan${toQuery(params)}`)
+  return apiGet<DailyPlan | null>(`/today/mentor-plan${toQuery(params)}`)
 }
 
 export async function fetchTodayMyPlan(params: { date: string; tz: string }) {
@@ -88,4 +105,8 @@ export async function listMyPlans(params: {
 
 export async function fetchActivePlansForTrade(params: { openedAt: string; tz?: string }) {
   return apiGet<ActivePlanSuggestionResponse>(`/plans/active${toQuery({ openedAt: params.openedAt, tz: params.tz })}`)
+}
+
+export async function listDailyPlans(params: { recentDays?: number } = {}) {
+  return apiGet<DailyPlan[]>(`/plans/daily${toQuery({ recentDays: params.recentDays })}`)
 }

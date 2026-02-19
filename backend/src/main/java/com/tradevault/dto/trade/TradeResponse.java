@@ -46,6 +46,8 @@ public class TradeResponse {
     private TradeGrade setupGrade;
     private Set<String> ruleBreaks;
     private TradeSession session;
+    private UUID sessionId;
+    private String feeling;
     private Set<UUID> linkedContentIds;
     private Set<UUID> linkedPlanIds;
     private String notes;

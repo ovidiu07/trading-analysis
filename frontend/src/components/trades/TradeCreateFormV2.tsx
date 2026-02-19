@@ -823,12 +823,12 @@ export function TradeCreateFormV2({
                       renderValue: (selected) => {
                         const selectedValues = (selected as string[]) || []
                         if (selectedValues.length === 0) return t('trades.form.none')
-                        return selectedValues.map((value) => t(`trades.form.ruleBreakOptions.${value}`)).join(', ')
+                        return selectedValues.join(', ')
                       }
                     }}
                   >
                     {ruleBreakOptions.map((option) => (
-                      <MenuItem key={option} value={option}>{t(`trades.form.ruleBreakOptions.${option}`)}</MenuItem>
+                      <MenuItem key={option} value={option}>{option}</MenuItem>
                     ))}
                   </TextField>
                 )}

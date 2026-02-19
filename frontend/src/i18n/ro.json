@@ -39,6 +39,7 @@
   },
   "nav": {
     "today": "Astăzi",
+    "strategies": "Strategii",
     "dashboard": "Tablou de bord",
     "trades": "Tranzacții",
     "calendar": "Calendar",
@@ -57,6 +58,9 @@
     "trading": "Tranzacționare",
     "journal": "Jurnal",
     "system": "Sistem"
+  },
+  "strategies": {
+    "subtitle": "Definește și gestionează strategiile tale de execuție."
   },
   "layout": {
     "collapseSidebar": "Restrânge bara laterală",

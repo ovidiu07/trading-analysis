@@ -53,6 +53,12 @@ export const ROUTE_META_DEFINITIONS: RouteMetaDefinition[] = [
     pageSubtitleKey: 'trades.subtitle'
   },
   {
+    id: 'strategies',
+    match: matchesPrefix('/strategies'),
+    pageTitleKey: 'nav.strategies',
+    pageSubtitleKey: 'strategies.subtitle'
+  },
+  {
     id: 'calendar',
     match: matchesPrefix('/calendar'),
     pageTitleKey: 'calendar.title',

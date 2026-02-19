@@ -56,21 +56,13 @@ import { useDemoData } from '../features/demo/DemoDataContext'
 import { trackEvent } from '../utils/analytics/ga4'
 import { listPublishedContent } from '../api/content'
 import { listMyPlans } from '../api/plans'
+import { RULE_BREAK_OPTIONS } from '../constants/tradeTaxonomy'
 
 type ContentOption = {
   id: string
   label: string
   source?: 'MENTOR' | 'USER'
 }
-
-const ruleBreakOptions = [
-  'lateEntry',
-  'earlyExit',
-  'oversizedRisk',
-  'ignoredInvalidation',
-  'newsViolation',
-  'outsideSession'
-] as const
 
 const buildDefaultValues = (): TradeFormValues => ({
   symbol: '',
@@ -979,7 +971,7 @@ export default function TradesPage() {
                       <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
                     ))}
                     {(expandedTrade.ruleBreaks || []).map((rule) => (
-                      <Chip key={rule} label={t(`trades.form.ruleBreakOptions.${rule}`)} size="small" color="warning" variant="outlined" />
+                      <Chip key={rule} label={rule} size="small" color="warning" variant="outlined" />
                     ))}
                     {((expandedTrade.tags?.length || 0) + (expandedTrade.ruleBreaks?.length || 0)) === 0 && (
                       <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>
@@ -1161,7 +1153,7 @@ export default function TradesPage() {
             error={createError}
             strategyOptions={strategyOptions}
             planOptions={planOptions}
-            ruleBreakOptions={[...ruleBreakOptions]}
+            ruleBreakOptions={[...RULE_BREAK_OPTIONS]}
             baseCurrency={baseCurrency}
             timezone={timezone}
             defaultMode={createDialogMode}
@@ -1199,7 +1191,7 @@ export default function TradesPage() {
               }}
               strategyOptions={strategyOptions}
               planOptions={planOptions}
-              ruleBreakOptions={[...ruleBreakOptions]}
+              ruleBreakOptions={[...RULE_BREAK_OPTIONS]}
             />
           )}
         </DialogContent>

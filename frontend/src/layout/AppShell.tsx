@@ -14,6 +14,7 @@ import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
 import SpaceDashboardRoundedIcon from '@mui/icons-material/SpaceDashboardRounded'
 import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
+import AutoAwesomeMotionRoundedIcon from '@mui/icons-material/AutoAwesomeMotionRounded'
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
@@ -66,6 +67,7 @@ export default function AppShell() {
   const navSections = useMemo<SideNavSection[]>(() => {
     const tradingItems = [
       { label: t('nav.today'), path: '/today', icon: <TodayOutlinedIcon fontSize="small" /> },
+      { label: t('nav.strategies'), path: '/strategies', icon: <AutoAwesomeMotionRoundedIcon fontSize="small" /> },
       { label: t('nav.insights'), path: '/insights', icon: <AutoStoriesOutlinedIcon fontSize="small" /> },
       { label: t('nav.analytics'), path: '/analytics', icon: <QueryStatsRoundedIcon fontSize="small" /> },
       { label: t('nav.calendar'), path: '/calendar', icon: <CalendarMonthRoundedIcon fontSize="small" /> },

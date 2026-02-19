@@ -25,6 +25,8 @@ type TradeFormValues = {
   setupGrade?: TradeRequest['setupGrade']
   ruleBreaks?: string[]
   session?: TradeRequest['session']
+  sessionId?: string
+  feeling?: string
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
   notes?: string
@@ -73,6 +75,8 @@ export function buildTradePayload(values: TradeFormValues): TradeRequest {
     setupGrade: values.setupGrade || undefined,
     ruleBreaks: toStringArray(values.ruleBreaks),
     session: values.session || undefined,
+    sessionId: values.sessionId || undefined,
+    feeling: values.feeling || undefined,
     linkedContentIds: toStringArray(values.linkedContentIds),
     linkedPlanIds: toStringArray(values.linkedPlanIds),
     notes: values.notes,

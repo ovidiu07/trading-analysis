@@ -419,6 +419,8 @@ export function TradeForm({
                       <MenuItem value="">{t('trades.form.none')}</MenuItem>
                       <MenuItem value="ASIA">{t('trades.form.sessions.ASIA')}</MenuItem>
                       <MenuItem value="LONDON">{t('trades.form.sessions.LONDON')}</MenuItem>
+                      <MenuItem value="NY_AM">{t('trades.form.sessions.NY_AM')}</MenuItem>
+                      <MenuItem value="NY_PM">{t('trades.form.sessions.NY_PM')}</MenuItem>
                       <MenuItem value="NY">{t('trades.form.sessions.NY')}</MenuItem>
                       <MenuItem value="CUSTOM">{t('trades.form.sessions.CUSTOM')}</MenuItem>
                     </TextField>
@@ -484,11 +486,11 @@ export function TradeForm({
                       }}
                       SelectProps={{
                         multiple: true,
-                        renderValue: (selected) => (selected as string[]).map((value) => t(`trades.form.ruleBreakOptions.${value}`)).join(', ')
+                        renderValue: (selected) => (selected as string[]).join(', ')
                       }}
                     >
                       {ruleBreakOptions.map((option) => (
-                        <MenuItem key={option} value={option}>{t(`trades.form.ruleBreakOptions.${option}`)}</MenuItem>
+                        <MenuItem key={option} value={option}>{option}</MenuItem>
                       ))}
                     </TextField>
                   )}
