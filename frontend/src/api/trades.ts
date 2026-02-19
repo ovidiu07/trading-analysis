@@ -33,6 +33,7 @@ export type TradeRequest = {
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
   notes?: string
+  initialNotes?: string
   accountId?: string
   tagIds?: string[]
 }
@@ -73,6 +74,7 @@ export type TradeResponse = {
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
   notes?: string | null
+  initialNotes?: string | null
   createdAt?: string | null
   updatedAt?: string | null
   accountId?: string | null

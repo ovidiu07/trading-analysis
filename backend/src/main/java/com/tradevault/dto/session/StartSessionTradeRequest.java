@@ -50,5 +50,7 @@ public class StartSessionTradeRequest {
 
     private UUID linkedPlanId;
 
+    private String initialNotes;
+
     private String notes;
 }

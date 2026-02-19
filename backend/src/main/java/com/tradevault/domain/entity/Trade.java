@@ -101,6 +101,9 @@ public class Trade {
     @Column(columnDefinition = "TEXT")
     private String notes;
 
+    @Column(name = "initial_notes", columnDefinition = "TEXT")
+    private String initialNotes;
+
     @Column(updatable = false)
     private OffsetDateTime createdAt;
 

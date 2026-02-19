@@ -265,7 +265,10 @@ class NotificationDispatchHardeningIntegrationTest {
                         "Title EN",
                         "Titlu RO",
                         "Summary EN",
-                        "Rezumat RO"
+                        "Rezumat RO",
+                        post.getContentVersion(),
+                        post.getUpdatedAt(),
+                        null
                 )))
                 .build());
     }

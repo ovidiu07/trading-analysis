@@ -52,6 +52,7 @@ public class TradeRequest {
     private Set<UUID> linkedContentIds;
     private Set<UUID> linkedPlanIds;
     private String notes;
+    private String initialNotes;
     private UUID accountId;
     private Set<UUID> tagIds;
 }

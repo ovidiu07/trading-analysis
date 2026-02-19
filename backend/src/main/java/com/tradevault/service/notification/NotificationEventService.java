@@ -91,7 +91,10 @@ public class NotificationEventService {
                 en != null ? en.getTitle() : null,
                 ro != null ? ro.getTitle() : null,
                 en != null ? en.getSummary() : null,
-                ro != null ? ro.getSummary() : null
+                ro != null ? ro.getSummary() : null,
+                post.getContentVersion(),
+                post.getUpdatedAt(),
+                post.getRevisionNotes()
         );
     }
 }

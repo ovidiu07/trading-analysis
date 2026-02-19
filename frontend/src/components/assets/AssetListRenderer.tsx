@@ -37,6 +37,10 @@ type AssetListRendererProps = {
   removeLabel?: string
   insertLabel?: string
   downloadLabel?: string
+  onSetSnapshot?: (asset: AssetItem) => void
+  snapshotAssetId?: string | null
+  setSnapshotLabel?: string
+  snapshotSelectedLabel?: string
 }
 
 const contentTypeLabel = (asset: AssetItem) => {
@@ -56,7 +60,11 @@ export default function AssetListRenderer({
   copyLabel,
   removeLabel,
   insertLabel,
-  downloadLabel
+  downloadLabel,
+  onSetSnapshot,
+  snapshotAssetId,
+  setSnapshotLabel,
+  snapshotSelectedLabel
 }: AssetListRendererProps) {
   if (uploads.length === 0 && assets.length === 0) {
     return <Typography variant="body2" color="text.secondary">{emptyText}</Typography>
@@ -137,6 +145,15 @@ export default function AssetListRenderer({
                 {onInsert && (
                   <Button size="small" variant="text" startIcon={<NoteAddOutlinedIcon fontSize="small" />} onClick={() => onInsert(asset)}>
                     {insertLabel}
+                  </Button>
+                )}
+                {onSetSnapshot && isImage && (
+                  <Button
+                    size="small"
+                    variant={snapshotAssetId === asset.id ? 'contained' : 'text'}
+                    onClick={() => onSetSnapshot(asset)}
+                  >
+                    {snapshotAssetId === asset.id ? (snapshotSelectedLabel || setSnapshotLabel) : setSnapshotLabel}
                   </Button>
                 )}
                 {onRemove && (

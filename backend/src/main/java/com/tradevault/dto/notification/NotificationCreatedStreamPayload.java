@@ -15,5 +15,8 @@ public class NotificationCreatedStreamPayload {
     String slug;
     String titleEn;
     String titleRo;
+    Integer contentVersion;
+    OffsetDateTime updatedAt;
+    String revisionNotes;
     OffsetDateTime createdAt;
 }

@@ -3,14 +3,17 @@ package com.tradevault.service.today;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.domain.entity.ChecklistTemplateItem;
 import com.tradevault.domain.entity.TodaySession;
+import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeGrade;
 import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.session.CloseSessionTradeRequest;
 import com.tradevault.dto.session.SessionChecklistItemDto;
 import com.tradevault.dto.session.StartSessionTradeRequest;
+import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.ChecklistTemplateEntryRepository;
 import com.tradevault.repository.ChecklistTemplateItemRepository;
@@ -158,6 +161,69 @@ class TodaySessionServiceGuardrailsTest {
 
         assertEquals(expected.getId(), response.getId());
         verify(tradeService).create(any());
+    }
+
+    @Test
+    void startTradeMapsPlannerNotesToInitialNotes() {
+        when(tradeRepository.countByUser_IdAndSessionIdAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
+                .thenReturn(0L);
+        when(tradeRepository.sumNetPnlByUserAndSessionAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
+                .thenReturn(BigDecimal.ZERO);
+        when(tradeService.create(any())).thenReturn(TradeResponse.builder()
+                .id(UUID.randomUUID())
+                .status(TradeStatus.OPEN)
+                .build());
+
+        StartSessionTradeRequest request = validStartRequest();
+        request.setInitialNotes("Wait for MSS confirmation only");
+
+        todaySessionService.startTrade(request);
+
+        ArgumentCaptor<TradeRequest> tradeRequestCaptor = ArgumentCaptor.forClass(TradeRequest.class);
+        verify(tradeService).create(tradeRequestCaptor.capture());
+        assertEquals("Wait for MSS confirmation only", tradeRequestCaptor.getValue().getInitialNotes());
+        assertEquals(null, tradeRequestCaptor.getValue().getNotes());
+    }
+
+    @Test
+    void closeTradePreservesInitialNotesAndStoresPostTradeNotesSeparately() {
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("EURUSD")
+                .direction(Direction.LONG)
+                .status(TradeStatus.OPEN)
+                .sessionId(session.getId())
+                .openedAt(OffsetDateTime.now().minusMinutes(30))
+                .quantity(BigDecimal.ONE)
+                .entryPrice(BigDecimal.valueOf(1.0812))
+                .session(TradeSession.LONDON)
+                .setupGrade(TradeGrade.A)
+                .initialNotes("Initial thesis before entry")
+                .build();
+
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(Optional.of(existing));
+        when(tradeService.update(eq(existing.getId()), any())).thenReturn(TradeResponse.builder()
+                .id(existing.getId())
+                .status(TradeStatus.CLOSED)
+                .initialNotes("Initial thesis before entry")
+                .notes("Closed after target hit")
+                .build());
+        when(tradeRepository.countByUser_IdAndSessionIdAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
+                .thenReturn(1L);
+        when(tradeRepository.sumNetPnlByUserAndSessionAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
+                .thenReturn(BigDecimal.valueOf(50));
+
+        CloseSessionTradeRequest request = new CloseSessionTradeRequest();
+        request.setExitPrice(BigDecimal.valueOf(1.083));
+        request.setPostTradeNotes("Closed after target hit");
+
+        todaySessionService.closeTrade(existing.getId(), request);
+
+        ArgumentCaptor<TradeRequest> updateCaptor = ArgumentCaptor.forClass(TradeRequest.class);
+        verify(tradeService).update(eq(existing.getId()), updateCaptor.capture());
+        assertEquals("Initial thesis before entry", updateCaptor.getValue().getInitialNotes());
+        assertEquals("Closed after target hit", updateCaptor.getValue().getNotes());
     }
 
     @Test

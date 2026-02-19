@@ -25,7 +25,8 @@ import {
   Stack,
   TextField,
   Tooltip,
-  Typography
+  Typography,
+  useMediaQuery
 } from '@mui/material'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
@@ -38,6 +39,8 @@ import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
 import { useI18n } from '../i18n'
+import TradingViewWidget from '../components/charts/TradingViewWidget'
+import MarkdownContent from '../components/ui/MarkdownContent'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import {
@@ -53,6 +56,7 @@ import {
   type SessionChecklistItem,
   type TodaySessionResponse
 } from '../api/session'
+import { resolveAssetUrl } from '../api/assets'
 import { fetchChecklistTemplate, type ChecklistTemplateItem } from '../api/checklist'
 import { listDailyPlans, type DailyPlan } from '../api/plans'
 import { listStrategies } from '../api/strategies'
@@ -171,6 +175,7 @@ export default function SessionPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const baseCurrency = user?.baseCurrency || 'USD'
+  const isCompactViewport = useMediaQuery('(max-width:900px)')
 
   const [config, setConfig] = useState({
     profitTarget: '',
@@ -213,6 +218,7 @@ export default function SessionPage() {
   const [apiError, setApiError] = useState('')
   const [successMessage, setSuccessMessage] = useState('')
   const [mentorPlanUpdatedNotice, setMentorPlanUpdatedNotice] = useState(false)
+  const [snapshotDialogOpen, setSnapshotDialogOpen] = useState(false)
 
   const sessionQuery = useQuery({
     queryKey: ['todaySession'],
@@ -396,6 +402,20 @@ export default function SessionPage() {
   }, [dailyPlansQuery.isLoading, eligiblePlans, selectedPlanId])
 
   const selectedPlan = eligiblePlans.find((item) => item.id === selectedPlanId) || eligiblePlans[0] || null
+  const selectedPlanExecutionBullets = useMemo(
+    () => toBullets(selectedPlan?.executionRules),
+    [selectedPlan?.executionRules]
+  )
+  const selectedPlanHasAdvanced = Boolean(
+    selectedPlan?.primaryModel ||
+    selectedPlan?.liquidityNarrative ||
+    selectedPlan?.alternativeScenario ||
+    selectedPlan?.context ||
+    selectedPlan?.body
+  )
+  const selectedPlanSnapshotUrl = selectedPlan?.snapshotAsset
+    ? resolveAssetUrl(selectedPlan.snapshotAsset.viewUrl || selectedPlan.snapshotAsset.url || '')
+    : ''
 
   const strategyOptions = useMemo<StrategyOption[]>(() => {
     const grouped = strategiesQuery.data
@@ -604,7 +624,7 @@ export default function SessionPage() {
       strategyId: selectedStrategy?.source === 'MENTOR' ? selectedStrategy.id : undefined,
       strategyTag: selectedStrategy ? selectedStrategy.name : undefined,
       linkedPlanId: selectedPlan?.id,
-      notes: planner.notes || undefined
+      initialNotes: planner.notes || undefined
     }
 
     await startTradeMutation.mutateAsync(payload)
@@ -908,57 +928,135 @@ export default function SessionPage() {
                   ) : (
                     <Stack spacing={1.25}>
                       <Typography variant="h6" sx={{ fontSize: 18 }}>{selectedPlan.title}</Typography>
+                      <Typography variant="body2" color="text.secondary">
+                        {selectedPlan.summary || selectedPlan.biasSummary || t('today.session.mentor.emptySummary')}
+                      </Typography>
 
-                      <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                        <Typography variant="caption" color="text.secondary">{t('today.session.mentor.biasSummary')}</Typography>
-                        <Typography variant="body2">{selectedPlan.biasSummary || selectedPlan.summary || t('today.session.mentor.emptySummary')}</Typography>
-                      </Box>
-
-                      <Box>
-                        <Typography variant="caption" color="text.secondary">{t('today.session.mentor.keyLevels')}</Typography>
-                        {(selectedPlan.keyLevels || []).length === 0 ? (
-                          <Typography variant="body2" color="text.secondary">{t('today.session.mentor.noKeyLevels')}</Typography>
-                        ) : (
-                          <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                            {(selectedPlan.keyLevels || []).map((level) => (
-                              <Chip key={level} size="small" label={level} variant="outlined" />
-                            ))}
-                          </Stack>
-                        )}
-                      </Box>
-
-                      {selectedPlan.primaryModel && (
-                        <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.primaryModel')}</Typography>
-                          <Typography variant="body2">{selectedPlan.primaryModel}</Typography>
-                        </Box>
+                      {selectedPlanSnapshotUrl && (
+                        <Stack spacing={0.75}>
+                          <Typography variant="caption" color="text.secondary">
+                            {t('today.session.mentor.chartSnapshot')}
+                          </Typography>
+                          <Box
+                            component="button"
+                            type="button"
+                            onClick={() => setSnapshotDialogOpen(true)}
+                            sx={{
+                              width: '100%',
+                              p: 0,
+                              border: 'none',
+                              bgcolor: 'transparent',
+                              borderRadius: 2,
+                              overflow: 'hidden',
+                              cursor: 'zoom-in'
+                            }}
+                          >
+                            <Box
+                              component="img"
+                              src={selectedPlanSnapshotUrl}
+                              alt={selectedPlan.title}
+                              sx={{
+                                display: 'block',
+                                width: '100%',
+                                maxHeight: { xs: 260, md: 340 },
+                                objectFit: 'cover',
+                                borderRadius: 2,
+                                border: '1px solid',
+                                borderColor: 'divider'
+                              }}
+                            />
+                          </Box>
+                          {selectedPlan.snapshotCaption && (
+                            <Typography variant="caption" color="text.secondary">
+                              {selectedPlan.snapshotCaption}
+                            </Typography>
+                          )}
+                        </Stack>
                       )}
 
-                      {toBullets(selectedPlan.executionRules).length > 0 && (
-                        <Box>
-                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.executionRules')}</Typography>
-                          <Stack spacing={0.35} sx={{ mt: 0.75 }}>
-                            {toBullets(selectedPlan.executionRules).map((item) => (
-                              <Typography key={item} variant="body2">• {item}</Typography>
-                            ))}
-                          </Stack>
-                        </Box>
-                      )}
+                      <Stack spacing={0.75}>
+                        <Typography variant="caption" color="text.secondary">
+                          {t('today.session.mentor.essentials')}
+                        </Typography>
+                        <Grid container spacing={1.1}>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                              <Typography variant="caption" color="text.secondary">{t('today.session.mentor.biasSummary')}</Typography>
+                              <Typography variant="body2">{selectedPlan.biasSummary || selectedPlan.summary || t('today.session.mentor.emptySummary')}</Typography>
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                              <Typography variant="caption" color="text.secondary">{t('today.session.mentor.keyLevels')}</Typography>
+                              {(selectedPlan.keyLevels || []).length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">{t('today.session.mentor.noKeyLevels')}</Typography>
+                              ) : (
+                                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                                  {(selectedPlan.keyLevels || []).map((level) => (
+                                    <Chip key={level} size="small" label={level} variant="outlined" />
+                                  ))}
+                                </Stack>
+                              )}
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                              <Typography variant="caption" color="text.secondary">{t('today.session.mentor.executionRules')}</Typography>
+                              {selectedPlanExecutionBullets.length === 0 ? (
+                                <Typography variant="body2" color="text.secondary">{t('today.session.mentor.noExecutionRules')}</Typography>
+                              ) : (
+                                <Stack spacing={0.35} sx={{ mt: 0.75 }}>
+                                  {selectedPlanExecutionBullets.map((item, index) => (
+                                    <Typography key={`${item}-${index}`} variant="body2">{index + 1}. {item}</Typography>
+                                  ))}
+                                </Stack>
+                              )}
+                            </Box>
+                          </Grid>
+                          <Grid item xs={12} sm={6}>
+                            <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
+                              <Typography variant="caption" color="text.secondary">{t('today.session.mentor.riskNote')}</Typography>
+                              <Typography variant="body2">
+                                {selectedPlan.riskNote || t('today.session.mentor.noRiskNote')}
+                              </Typography>
+                            </Box>
+                          </Grid>
+                        </Grid>
+                      </Stack>
 
-                      {selectedPlan.riskNote && (
-                        <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                          <Typography variant="caption" color="text.secondary">{t('today.session.mentor.riskNote')}</Typography>
-                          <Typography variant="body2">{selectedPlan.riskNote}</Typography>
-                        </Box>
-                      )}
-
-                      {(selectedPlan.liquidityNarrative || selectedPlan.alternativeScenario) && (
-                        <Accordion disableGutters defaultExpanded>
+                      {selectedPlan.tradingViewSymbol && (
+                        <Accordion disableGutters defaultExpanded={!isCompactViewport}>
                           <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
-                            <Typography variant="body2">{t('today.session.mentor.narrativeAndScenarios')}</Typography>
+                            <Typography variant="body2">{t('today.session.mentor.liveChart')}</Typography>
                           </AccordionSummary>
                           <AccordionDetails>
-                            <Stack spacing={1.25}>
+                            <TradingViewWidget
+                              symbol={selectedPlan.tradingViewSymbol}
+                              interval={selectedPlan.tradingViewInterval}
+                              themePreference={selectedPlan.tradingViewTheme || 'SYSTEM'}
+                              hideControls={selectedPlan.tradingViewHideControls ?? true}
+                              allowSymbolChange={selectedPlan.tradingViewAllowSymbolChange ?? false}
+                              minHeight={isCompactViewport ? 320 : 420}
+                              fallbackMessage={t('today.session.mentor.liveChartFallback')}
+                              fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
+                            />
+                          </AccordionDetails>
+                        </Accordion>
+                      )}
+
+                      {selectedPlanHasAdvanced && (
+                        <Accordion disableGutters defaultExpanded={false}>
+                          <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                            <Typography variant="body2">{t('today.session.mentor.advanced')}</Typography>
+                          </AccordionSummary>
+                          <AccordionDetails>
+                            <Stack spacing={1.1}>
+                              {selectedPlan.primaryModel && (
+                                <Box>
+                                  <Typography variant="caption" color="text.secondary">{t('today.session.mentor.primaryModel')}</Typography>
+                                  <Typography variant="body2">{selectedPlan.primaryModel}</Typography>
+                                </Box>
+                              )}
                               {selectedPlan.liquidityNarrative && (
                                 <Box>
                                   <Typography variant="caption" color="text.secondary">{t('today.session.mentor.liquidityNarrative')}</Typography>
@@ -969,6 +1067,18 @@ export default function SessionPage() {
                                 <Box>
                                   <Typography variant="caption" color="text.secondary">{t('today.session.mentor.alternativeScenario')}</Typography>
                                   <Typography variant="body2">{selectedPlan.alternativeScenario}</Typography>
+                                </Box>
+                              )}
+                              {selectedPlan.context && (
+                                <Box>
+                                  <Typography variant="caption" color="text.secondary">{t('today.session.mentor.context')}</Typography>
+                                  <Typography variant="body2">{selectedPlan.context}</Typography>
+                                </Box>
+                              )}
+                              {selectedPlan.body && (
+                                <Box>
+                                  <Typography variant="caption" color="text.secondary">{t('today.session.mentor.body')}</Typography>
+                                  <MarkdownContent content={selectedPlan.body} />
                                 </Box>
                               )}
                             </Stack>
@@ -1454,6 +1564,33 @@ export default function SessionPage() {
           <Button variant="contained" onClick={() => void handleConfirmImportTemplate()}>
             {t('today.session.checklist.importAction')}
           </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
+        open={snapshotDialogOpen && Boolean(selectedPlanSnapshotUrl)}
+        onClose={() => setSnapshotDialogOpen(false)}
+        fullWidth
+        maxWidth="lg"
+      >
+        <DialogTitle>{selectedPlan?.title || t('today.session.mentor.chartSnapshot')}</DialogTitle>
+        <DialogContent dividers>
+          {selectedPlanSnapshotUrl && (
+            <Box
+              component="img"
+              src={selectedPlanSnapshotUrl}
+              alt={selectedPlan?.title || t('today.session.mentor.chartSnapshot')}
+              sx={{ width: '100%', maxHeight: '75vh', objectFit: 'contain', display: 'block' }}
+            />
+          )}
+          {selectedPlan?.snapshotCaption && (
+            <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+              {selectedPlan.snapshotCaption}
+            </Typography>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSnapshotDialogOpen(false)}>{t('common.close')}</Button>
         </DialogActions>
       </Dialog>
     </Stack>

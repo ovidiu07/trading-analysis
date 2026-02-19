@@ -71,12 +71,12 @@ public class NotificationJsonHelper {
 
     public NotificationEventPayload readPayload(String payloadJson) {
         if (payloadJson == null || payloadJson.isBlank()) {
-            return new NotificationEventPayload(null, null, null, null, null);
+            return new NotificationEventPayload(null, null, null, null, null, null, null, null);
         }
         try {
             return objectMapper.readValue(payloadJson, NotificationEventPayload.class);
         } catch (Exception ex) {
-            return new NotificationEventPayload(null, null, null, null, null);
+            return new NotificationEventPayload(null, null, null, null, null, null, null, null);
         }
     }
 

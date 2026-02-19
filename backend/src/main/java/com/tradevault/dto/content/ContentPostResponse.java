@@ -30,6 +30,13 @@ public class ContentPostResponse {
     Map<String, Object> templateFields;
     String revisionNotes;
     int contentVersion;
+    String tradingViewSymbol;
+    String tradingViewInterval;
+    String tradingViewTheme;
+    Boolean tradingViewHideControls;
+    Boolean tradingViewAllowSymbolChange;
+    UUID snapshotAssetId;
+    String snapshotCaption;
     OffsetDateTime visibleFrom;
     OffsetDateTime visibleUntil;
     LocalDate weekStart;

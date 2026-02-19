@@ -100,7 +100,16 @@ class NotificationDispatchWorkerTest {
         when(userNotificationRepository.findDispatchViewsByEventId(eventId)).thenReturn(List.of(dispatchView));
         when(userNotificationRepository.countUnreadByUserIds(anyCollection())).thenReturn(List.of(unreadCountView));
         when(notificationJsonHelper.readPayload(anyString()))
-                .thenReturn(new NotificationEventPayload("btc-breakout", "EN Title", "RO Title", null, null));
+                .thenReturn(new NotificationEventPayload(
+                        "btc-breakout",
+                        "EN Title",
+                        "RO Title",
+                        null,
+                        null,
+                        2,
+                        OffsetDateTime.now(),
+                        "Updated chart snapshot"
+                ));
 
         notificationDispatchWorker.dispatchOne(eventId);
 

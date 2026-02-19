@@ -1,5 +1,6 @@
 package com.tradevault.dto.plan;
 
+import com.tradevault.dto.asset.AssetResponse;
 import lombok.Builder;
 import lombok.Value;
 
@@ -21,6 +22,16 @@ public class DailyPlanResponse {
     String riskNote;
     String liquidityNarrative;
     String alternativeScenario;
+    String context;
+    String body;
+    String tradingViewSymbol;
+    String tradingViewInterval;
+    String tradingViewTheme;
+    Boolean tradingViewHideControls;
+    Boolean tradingViewAllowSymbolChange;
+    UUID snapshotAssetId;
+    String snapshotCaption;
+    AssetResponse snapshotAsset;
     OffsetDateTime visibleFrom;
     OffsetDateTime visibleUntil;
     OffsetDateTime updatedAt;

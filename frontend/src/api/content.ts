@@ -51,6 +51,13 @@ export type ContentPost = {
   templateFields?: Record<string, unknown>
   revisionNotes?: string | null
   contentVersion?: number
+  tradingViewSymbol?: string | null
+  tradingViewInterval?: string | null
+  tradingViewTheme?: 'LIGHT' | 'DARK' | 'SYSTEM' | null
+  tradingViewHideControls?: boolean | null
+  tradingViewAllowSymbolChange?: boolean | null
+  snapshotAssetId?: string | null
+  snapshotCaption?: string | null
   visibleFrom?: string | null
   visibleUntil?: string | null
   weekStart?: string | null
@@ -79,6 +86,13 @@ export type ContentPostRequest = {
   symbols?: string[]
   templateFields?: Record<string, unknown>
   revisionNotes?: string | null
+  tradingViewSymbol?: string | null
+  tradingViewInterval?: string | null
+  tradingViewTheme?: 'LIGHT' | 'DARK' | 'SYSTEM' | null
+  tradingViewHideControls?: boolean
+  tradingViewAllowSymbolChange?: boolean
+  snapshotAssetId?: string | null
+  snapshotCaption?: string | null
   visibleFrom?: string | null
   visibleUntil?: string | null
   weekStart?: string | null

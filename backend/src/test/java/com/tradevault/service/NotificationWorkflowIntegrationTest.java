@@ -1,11 +1,14 @@
 package com.tradevault.service;
 
+import com.tradevault.domain.entity.Asset;
+import com.tradevault.domain.entity.ContentAsset;
 import com.tradevault.domain.entity.ContentPost;
 import com.tradevault.domain.entity.ContentType;
 import com.tradevault.domain.entity.ContentTypeTranslation;
 import com.tradevault.domain.entity.NotificationEvent;
 import com.tradevault.domain.entity.NotificationPreferences;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.AssetScope;
 import com.tradevault.domain.enums.NotificationDispatchStatus;
 import com.tradevault.domain.enums.NotificationEventType;
 import com.tradevault.domain.enums.NotificationMatchPolicy;
@@ -16,6 +19,8 @@ import com.tradevault.dto.content.ContentPostResponse;
 import com.tradevault.dto.content.LocalizedContentRequest;
 import com.tradevault.dto.content.LocalizedContentResponse;
 import com.tradevault.dto.notification.NotificationCreatedStreamPayload;
+import com.tradevault.repository.AssetRepository;
+import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.ContentTypeRepository;
 import com.tradevault.repository.NotificationEventRepository;
@@ -53,6 +58,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.timeout;
@@ -84,6 +90,12 @@ class NotificationWorkflowIntegrationTest {
 
     @Autowired
     private ContentPostRepository contentPostRepository;
+
+    @Autowired
+    private ContentAssetRepository contentAssetRepository;
+
+    @Autowired
+    private AssetRepository assetRepository;
 
     @Autowired
     private NotificationEventRepository notificationEventRepository;
@@ -119,6 +131,8 @@ class NotificationWorkflowIntegrationTest {
     void cleanUp() {
         userNotificationRepository.deleteAll();
         notificationEventRepository.deleteAll();
+        contentAssetRepository.deleteAll();
+        assetRepository.deleteAll();
         contentPostRepository.deleteAll();
         notificationPreferencesRepository.deleteAll();
         contentTypeRepository.deleteAll();
@@ -281,6 +295,9 @@ class NotificationWorkflowIntegrationTest {
                         "Concurrency insight",
                         "Concurenta insight",
                         null,
+                        null,
+                        1,
+                        post.getUpdatedAt(),
                         null
                 )))
                 .build());
@@ -363,6 +380,73 @@ class NotificationWorkflowIntegrationTest {
         assertThat(updated.getTemplateFields()).containsEntry("entryModel", "Sweep + MSS + FVG");
         assertThat(updated.getRevisionNotes()).isEqualTo("Added structured playbook fields.");
         assertThat(updated.getContentVersion()).isEqualTo(2);
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = {"ADMIN"})
+    void publishedDailyPlanChartConfigChangeCreatesMeaningfulUpdateEvent() {
+        User admin = createUser("admin@example.com", Role.ADMIN);
+        ContentType dailyPlan = createType("DAILY_PLAN", "Daily plan", "Plan zilnic");
+
+        UUID postId = createDraft(dailyPlan, "Daily plan v1", null);
+        contentPostService.publish(postId, "en");
+
+        ContentPost post = contentPostRepository.findById(postId).orElseThrow();
+        Asset imageAsset = createImageAsset(admin);
+        contentAssetRepository.save(ContentAsset.builder()
+                .contentPost(post)
+                .asset(imageAsset)
+                .sortOrder(0)
+                .build());
+
+        ContentPostRequest request = buildUpdateRequest(postId, "Daily plan v1", true);
+        request.setTradingViewSymbol("TVC:DAX");
+        request.setTradingViewInterval("15");
+        request.setTradingViewTheme("SYSTEM");
+        request.setTradingViewHideControls(Boolean.TRUE);
+        request.setTradingViewAllowSymbolChange(Boolean.FALSE);
+        request.setSnapshotAssetId(imageAsset.getId());
+        request.setSnapshotCaption("v3 - wait MSS on 15M after sweep");
+        request.setRevisionNotes("Added chart snapshot and TradingView widget config.");
+
+        ContentPostResponse updated = contentPostService.update(postId, request, "en");
+
+        assertThat(updated.getTradingViewSymbol()).isEqualTo("TVC:DAX");
+        assertThat(updated.getTradingViewInterval()).isEqualTo("15");
+        assertThat(updated.getTradingViewTheme()).isEqualTo("SYSTEM");
+        assertThat(updated.getTradingViewHideControls()).isTrue();
+        assertThat(updated.getTradingViewAllowSymbolChange()).isFalse();
+        assertThat(updated.getSnapshotAssetId()).isEqualTo(imageAsset.getId());
+        assertThat(updated.getSnapshotCaption()).isEqualTo("v3 - wait MSS on 15M after sweep");
+        assertThat(updated.getContentVersion()).isEqualTo(2);
+        assertThat(notificationEventRepository.countByContent_IdAndTypeAndContentVersion(
+                postId,
+                NotificationEventType.CONTENT_UPDATED,
+                2
+        )).isEqualTo(1);
+    }
+
+    @Test
+    @WithMockUser(username = "admin@example.com", roles = {"ADMIN"})
+    void dailyPlanUpdateRejectsUnsupportedTradingViewSymbolAndInterval() {
+        createUser("admin@example.com", Role.ADMIN);
+        ContentType dailyPlan = createType("DAILY_PLAN", "Daily plan", "Plan zilnic");
+
+        UUID postId = createDraft(dailyPlan, "Daily plan validation", null);
+        contentPostService.publish(postId, "en");
+
+        ContentPostRequest invalidSymbolRequest = buildUpdateRequest(postId, "Daily plan validation", false);
+        invalidSymbolRequest.setTradingViewSymbol("TVC:DAX<script>");
+        assertThatThrownBy(() -> contentPostService.update(postId, invalidSymbolRequest, "en"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tradingViewSymbol");
+
+        ContentPostRequest invalidIntervalRequest = buildUpdateRequest(postId, "Daily plan validation", false);
+        invalidIntervalRequest.setTradingViewSymbol("TVC:DAX");
+        invalidIntervalRequest.setTradingViewInterval("2");
+        assertThatThrownBy(() -> contentPostService.update(postId, invalidIntervalRequest, "en"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("tradingViewInterval");
     }
 
     private User createUser(String email, Role role) {
@@ -465,6 +549,17 @@ class NotificationWorkflowIntegrationTest {
         preferences.setSymbolsJson(null);
         preferences.setMatchPolicy(NotificationMatchPolicy.CATEGORY_ONLY);
         notificationPreferencesRepository.save(preferences);
+    }
+
+    private Asset createImageAsset(User owner) {
+        return assetRepository.save(Asset.builder()
+                .ownerUser(owner)
+                .scope(AssetScope.CONTENT)
+                .originalFileName("snapshot.png")
+                .contentType("image/png")
+                .sizeBytes(1024L)
+                .s3Key("content/test/" + UUID.randomUUID() + ".png")
+                .build());
     }
 
     private NotificationEvent waitForSingleEvent(UUID contentId, NotificationEventType type, Duration timeout) {

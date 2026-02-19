@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
+import type { AssetItem } from './assets'
 
 export type PlanScope = 'DAILY' | 'WEEKLY'
 export type PlanSource = 'MENTOR' | 'USER'
@@ -42,6 +43,16 @@ export type DailyPlan = {
   riskNote?: string | null
   liquidityNarrative?: string | null
   alternativeScenario?: string | null
+  context?: string | null
+  body?: string | null
+  tradingViewSymbol?: string | null
+  tradingViewInterval?: string | null
+  tradingViewTheme?: 'LIGHT' | 'DARK' | 'SYSTEM' | null
+  tradingViewHideControls?: boolean | null
+  tradingViewAllowSymbolChange?: boolean | null
+  snapshotAssetId?: string | null
+  snapshotCaption?: string | null
+  snapshotAsset?: AssetItem | null
   visibleFrom?: string | null
   visibleUntil?: string | null
   updatedAt?: string | null

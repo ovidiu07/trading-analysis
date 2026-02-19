@@ -125,6 +125,9 @@ public class NotificationDispatchWorker {
                     .slug(payload.slug() != null ? payload.slug() : event.getContent().getSlug())
                     .titleEn(payload.titleEn())
                     .titleRo(payload.titleRo())
+                    .contentVersion(payload.contentVersion())
+                    .updatedAt(payload.updatedAt())
+                    .revisionNotes(payload.revisionNotes())
                     .createdAt(notification.getCreatedAt())
                     .build();
             try {

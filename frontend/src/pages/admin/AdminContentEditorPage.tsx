@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
@@ -21,6 +25,7 @@ import {
   Typography,
   useMediaQuery
 } from '@mui/material'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import { useNavigate, useParams } from 'react-router-dom'
 import AssetListRenderer, { type UploadQueueItem } from '../../components/assets/AssetListRenderer'
 import AssetUploadDropzone from '../../components/assets/AssetUploadDropzone'
@@ -96,6 +101,10 @@ const parseCsv = (value: string) => value
 
 const joinCsv = (values?: string[] | null) => (values && values.length ? values.join(', ') : '')
 
+const DAILY_ESSENTIAL_TEMPLATE_KEYS = new Set(['biasSummary', 'keyLevels', 'executionRules', 'riskNote'])
+const DAILY_ADVANCED_TEMPLATE_KEYS = new Set(['liquidityNarrative', 'primaryModel', 'alternativeScenario', 'context'])
+const TRADING_VIEW_INTERVAL_OPTIONS = ['1', '3', '5', '15', '30', '60', '240', 'D', 'W'] as const
+
 const toInputDateTime = (value?: string | null) => {
   if (!value) return ''
   const d = new Date(value)
@@ -116,6 +125,13 @@ type ContentFormState = {
   symbolsInput: string
   templateFields: Record<string, string>
   revisionNotes: string
+  tradingViewSymbol: string
+  tradingViewInterval: string
+  tradingViewTheme: 'LIGHT' | 'DARK' | 'SYSTEM'
+  tradingViewHideControls: boolean
+  tradingViewAllowSymbolChange: boolean
+  snapshotAssetId: string
+  snapshotCaption: string
   visibleFrom: string
   visibleUntil: string
   weekStart: string
@@ -130,6 +146,13 @@ const buildDefaultForm = (): ContentFormState => ({
   symbolsInput: '',
   templateFields: {},
   revisionNotes: '',
+  tradingViewSymbol: '',
+  tradingViewInterval: '15',
+  tradingViewTheme: 'SYSTEM',
+  tradingViewHideControls: true,
+  tradingViewAllowSymbolChange: false,
+  snapshotAssetId: '',
+  snapshotCaption: '',
   visibleFrom: '',
   visibleUntil: '',
   weekStart: '',
@@ -144,6 +167,13 @@ const toForm = (post: ContentPost): ContentFormState => ({
   symbolsInput: joinCsv(post.symbols),
   templateFields: templateFieldRecordFromContent(post.contentTypeKey, post.templateFields),
   revisionNotes: post.revisionNotes || '',
+  tradingViewSymbol: post.tradingViewSymbol || '',
+  tradingViewInterval: post.tradingViewInterval || '15',
+  tradingViewTheme: (post.tradingViewTheme as 'LIGHT' | 'DARK' | 'SYSTEM' | null) || 'SYSTEM',
+  tradingViewHideControls: post.tradingViewHideControls ?? true,
+  tradingViewAllowSymbolChange: post.tradingViewAllowSymbolChange ?? false,
+  snapshotAssetId: post.snapshotAssetId || '',
+  snapshotCaption: post.snapshotCaption || '',
   visibleFrom: toInputDateTime(post.visibleFrom),
   visibleUntil: toInputDateTime(post.visibleUntil),
   weekStart: post.weekStart || '',
@@ -223,20 +253,46 @@ export default function AdminContentEditorPage() {
 
   const selectedType = useMemo(() => types.find((type) => type.id === form.contentTypeId) || null, [types, form.contentTypeId])
   const isWeeklyPlan = selectedType?.key === 'WEEKLY_PLAN'
+  const isDailyPlan = selectedType?.key === 'DAILY_PLAN'
   const templateDefinitions = useMemo(
     () => templateFieldsForType(selectedType?.key || post?.contentTypeKey),
     [post?.contentTypeKey, selectedType?.key]
   )
+  const dailyEssentialDefinitions = useMemo(
+    () => templateDefinitions.filter((item) => DAILY_ESSENTIAL_TEMPLATE_KEYS.has(item.key)),
+    [templateDefinitions]
+  )
+  const dailyAdvancedDefinitions = useMemo(
+    () => templateDefinitions.filter((item) => DAILY_ADVANCED_TEMPLATE_KEYS.has(item.key)),
+    [templateDefinitions]
+  )
   const roMissing = isLocaleMissing(form.translations, 'ro')
+  const snapshotAsset = useMemo(
+    () => assets.find((asset) => asset.id === form.snapshotAssetId) || null,
+    [assets, form.snapshotAssetId]
+  )
   const templatePreviewEntries = useMemo(
-    () => templateDefinitions
+    () => (isDailyPlan ? dailyEssentialDefinitions : templateDefinitions)
       .map((templateField) => ({
         ...templateField,
         value: form.templateFields[templateField.key]?.trim() || ''
       }))
       .filter((templateField) => templateField.value),
-    [form.templateFields, templateDefinitions]
+    [dailyEssentialDefinitions, form.templateFields, isDailyPlan, templateDefinitions]
   )
+
+  useEffect(() => {
+    if (!isDailyPlan || form.tradingViewSymbol.trim()) {
+      return
+    }
+    const firstSymbol = parseCsv(form.symbolsInput)[0]
+    if (!firstSymbol) {
+      return
+    }
+    setForm((prev) => (prev.tradingViewSymbol.trim()
+      ? prev
+      : { ...prev, tradingViewSymbol: firstSymbol.toUpperCase() }))
+  }, [form.symbolsInput, form.tradingViewSymbol, isDailyPlan])
 
   const buildPayload = (): ContentPostRequest => ({
     contentTypeId: form.contentTypeId,
@@ -245,6 +301,13 @@ export default function AdminContentEditorPage() {
     symbols: parseCsv(form.symbolsInput),
     templateFields: pruneTemplateFields(form.templateFields),
     revisionNotes: form.revisionNotes.trim() || undefined,
+    tradingViewSymbol: form.tradingViewSymbol.trim() || undefined,
+    tradingViewInterval: form.tradingViewSymbol.trim() ? form.tradingViewInterval : undefined,
+    tradingViewTheme: form.tradingViewSymbol.trim() ? form.tradingViewTheme : undefined,
+    tradingViewHideControls: form.tradingViewSymbol.trim() ? form.tradingViewHideControls : undefined,
+    tradingViewAllowSymbolChange: form.tradingViewSymbol.trim() ? form.tradingViewAllowSymbolChange : undefined,
+    snapshotAssetId: form.snapshotAssetId || undefined,
+    snapshotCaption: form.snapshotAssetId ? (form.snapshotCaption.trim() || undefined) : undefined,
     visibleFrom: form.visibleFrom ? new Date(form.visibleFrom).toISOString() : undefined,
     visibleUntil: form.visibleUntil ? new Date(form.visibleUntil).toISOString() : undefined,
     weekStart: isWeeklyPlan ? (form.weekStart || undefined) : undefined,
@@ -264,7 +327,7 @@ export default function AdminContentEditorPage() {
       errors.enTitle = t('adminEditor.validation.titleRequired')
     }
 
-    if (!form.translations.en.body.trim()) {
+    if (!isDailyPlan && !form.translations.en.body.trim()) {
       errors.enBody = t('adminEditor.validation.bodyRequired')
     }
 
@@ -278,7 +341,7 @@ export default function AdminContentEditorPage() {
       errors.roTitle = t('adminEditor.validation.localeTitleRequired', { locale: 'RO' })
     }
 
-    if (roHasAnyContent && !form.translations.ro.body.trim()) {
+    if (!isDailyPlan && roHasAnyContent && !form.translations.ro.body.trim()) {
       errors.roBody = t('adminEditor.validation.localeBodyRequired', { locale: 'RO' })
     }
 
@@ -308,6 +371,14 @@ export default function AdminContentEditorPage() {
 
     if (form.visibleFrom && form.visibleUntil && form.visibleFrom > form.visibleUntil) {
       errors.visibleUntil = t('adminEditor.validation.visibleUntilAfterFrom')
+    }
+
+    if (form.tradingViewSymbol.trim() && !/^[A-Za-z0-9:._-]+$/.test(form.tradingViewSymbol.trim())) {
+      errors.tradingViewSymbol = t('adminEditor.validation.tradingViewSymbol')
+    }
+
+    if (form.tradingViewSymbol.trim() && !TRADING_VIEW_INTERVAL_OPTIONS.includes(form.tradingViewInterval as (typeof TRADING_VIEW_INTERVAL_OPTIONS)[number])) {
+      errors.tradingViewInterval = t('adminEditor.validation.tradingViewInterval')
     }
 
     setFieldErrors(errors)
@@ -453,10 +524,22 @@ export default function AdminContentEditorPage() {
     try {
       await deleteAsset(asset.id)
       setAssets((prev) => prev.filter((item) => item.id !== asset.id))
+      setForm((prev) => (prev.snapshotAssetId === asset.id
+        ? { ...prev, snapshotAssetId: '', snapshotCaption: '' }
+        : prev))
     } catch (err) {
       const apiErr = err as ApiError
       setError(translateApiError(apiErr, t, 'adminEditor.errors.deleteAssetFailed'))
     }
+  }
+
+  const handleSetSnapshot = (asset: AssetItem) => {
+    if (!asset.image) return
+    setForm((prev) => ({
+      ...prev,
+      snapshotAssetId: prev.snapshotAssetId === asset.id ? '' : asset.id,
+      snapshotCaption: prev.snapshotAssetId === asset.id ? '' : prev.snapshotCaption
+    }))
   }
 
   const handleCopyAssetLink = async (asset: AssetItem) => {
@@ -683,20 +766,22 @@ export default function AdminContentEditorPage() {
                   minRows={2}
                 />
 
-                <TextField
-                  label={`${t('adminEditor.fields.body')} (${activeLocaleUpper})`}
-                  value={activeTranslation.body}
-                  inputRef={bodyInputRef}
-                  onChange={(event) => setForm((prev) => ({
-                    ...prev,
-                    translations: updateLocalizedField(prev.translations, activeLocale, { body: event.target.value })
-                  }))}
-                  multiline
-                  minRows={10}
-                  error={Boolean(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody)}
-                  helperText={(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody) || t('adminEditor.fields.bodyHint')}
-                  required={activeLocale === 'en'}
-                />
+                {!isDailyPlan && (
+                  <TextField
+                    label={`${t('adminEditor.fields.body')} (${activeLocaleUpper})`}
+                    value={activeTranslation.body}
+                    inputRef={bodyInputRef}
+                    onChange={(event) => setForm((prev) => ({
+                      ...prev,
+                      translations: updateLocalizedField(prev.translations, activeLocale, { body: event.target.value })
+                    }))}
+                    multiline
+                    minRows={10}
+                    error={Boolean(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody)}
+                    helperText={(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody) || t('adminEditor.fields.bodyHint')}
+                    required={activeLocale === 'en'}
+                  />
+                )}
 
                 {isWeeklyPlan && (
                   <Button
@@ -714,35 +799,212 @@ export default function AdminContentEditorPage() {
                   </Button>
                 )}
 
-                {templateDefinitions.length > 0 && (
+                {isDailyPlan ? (
                   <>
+                    {dailyEssentialDefinitions.length > 0 && (
+                      <>
+                        <Divider />
+                        <Stack spacing={1.25}>
+                          <Typography variant="subtitle2">{t('adminEditor.sections.essentials')}</Typography>
+                          {dailyEssentialDefinitions.map((templateField) => (
+                            <TextField
+                              key={templateField.key}
+                              label={t(templateField.labelKey)}
+                              placeholder={t(templateField.hintKey)}
+                              value={form.templateFields[templateField.key] || ''}
+                              onChange={(event) => setForm((prev) => ({
+                                ...prev,
+                                templateFields: {
+                                  ...prev.templateFields,
+                                  [templateField.key]: event.target.value
+                                }
+                              }))}
+                              error={Boolean(fieldErrors[`template.${templateField.key}`])}
+                              helperText={fieldErrors[`template.${templateField.key}`] || t(templateField.hintKey)}
+                              required={Boolean(templateField.required)}
+                              multiline
+                              minRows={templateField.minRows || 2}
+                            />
+                          ))}
+                        </Stack>
+                      </>
+                    )}
+
                     <Divider />
                     <Stack spacing={1.25}>
-                      <Typography variant="subtitle2">
-                        {t('adminEditor.template.sectionTitle')}
-                      </Typography>
-                      {templateDefinitions.map((templateField) => (
+                      <Typography variant="subtitle2">{t('adminEditor.sections.chart')}</Typography>
+                      <TextField
+                        label={t('adminEditor.fields.tradingViewSymbol')}
+                        value={form.tradingViewSymbol}
+                        onChange={(event) => setForm((prev) => ({ ...prev, tradingViewSymbol: event.target.value }))}
+                        error={Boolean(fieldErrors.tradingViewSymbol)}
+                        helperText={fieldErrors.tradingViewSymbol || t('adminEditor.fields.tradingViewSymbolHint')}
+                      />
+                      <Grid container spacing={1.5}>
+                        <Grid item xs={12} md={4}>
+                          <TextField
+                            select
+                            fullWidth
+                            label={t('adminEditor.fields.tradingViewInterval')}
+                            value={form.tradingViewInterval}
+                            onChange={(event) => setForm((prev) => ({ ...prev, tradingViewInterval: event.target.value }))}
+                            error={Boolean(fieldErrors.tradingViewInterval)}
+                            helperText={fieldErrors.tradingViewInterval}
+                          >
+                            {TRADING_VIEW_INTERVAL_OPTIONS.map((interval) => (
+                              <MenuItem key={interval} value={interval}>{interval}</MenuItem>
+                            ))}
+                          </TextField>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <TextField
+                            select
+                            fullWidth
+                            label={t('adminEditor.fields.tradingViewTheme')}
+                            value={form.tradingViewTheme}
+                            onChange={(event) => setForm((prev) => ({
+                              ...prev,
+                              tradingViewTheme: event.target.value as 'LIGHT' | 'DARK' | 'SYSTEM'
+                            }))}
+                          >
+                            <MenuItem value="SYSTEM">{t('adminEditor.fields.themeSystem')}</MenuItem>
+                            <MenuItem value="LIGHT">{t('adminEditor.fields.themeLight')}</MenuItem>
+                            <MenuItem value="DARK">{t('adminEditor.fields.themeDark')}</MenuItem>
+                          </TextField>
+                        </Grid>
+                        <Grid item xs={12} md={4}>
+                          <Stack spacing={0.25} sx={{ pt: { xs: 0, md: 0.5 } }}>
+                            <FormControlLabel
+                              control={(
+                                <Checkbox
+                                  checked={form.tradingViewHideControls}
+                                  onChange={(event) => setForm((prev) => ({ ...prev, tradingViewHideControls: event.target.checked }))}
+                                />
+                              )}
+                              label={t('adminEditor.fields.tradingViewHideControls')}
+                            />
+                            <FormControlLabel
+                              control={(
+                                <Checkbox
+                                  checked={form.tradingViewAllowSymbolChange}
+                                  onChange={(event) => setForm((prev) => ({ ...prev, tradingViewAllowSymbolChange: event.target.checked }))}
+                                />
+                              )}
+                              label={t('adminEditor.fields.tradingViewAllowSymbolChange')}
+                            />
+                          </Stack>
+                        </Grid>
+                      </Grid>
+
+                      {form.snapshotAssetId && (
                         <TextField
-                          key={templateField.key}
-                          label={t(templateField.labelKey)}
-                          placeholder={t(templateField.hintKey)}
-                          value={form.templateFields[templateField.key] || ''}
-                          onChange={(event) => setForm((prev) => ({
-                            ...prev,
-                            templateFields: {
-                              ...prev.templateFields,
-                              [templateField.key]: event.target.value
-                            }
-                          }))}
-                          error={Boolean(fieldErrors[`template.${templateField.key}`])}
-                          helperText={fieldErrors[`template.${templateField.key}`] || t(templateField.hintKey)}
-                          required={Boolean(templateField.required)}
+                          label={t('adminEditor.fields.snapshotCaption')}
+                          value={form.snapshotCaption}
+                          onChange={(event) => setForm((prev) => ({ ...prev, snapshotCaption: event.target.value }))}
+                          placeholder={t('adminEditor.fields.snapshotCaptionHint')}
                           multiline
-                          minRows={templateField.minRows || 2}
+                          minRows={2}
                         />
-                      ))}
+                      )}
+
+                      {snapshotAsset?.image && (
+                        <Box
+                          sx={{
+                            border: '1px solid',
+                            borderColor: 'divider',
+                            borderRadius: 2,
+                            p: 1.25,
+                            bgcolor: 'background.default'
+                          }}
+                        >
+                          <Typography variant="caption" color="text.secondary">
+                            {t('adminEditor.previewSnapshot')}
+                          </Typography>
+                          <Box
+                            component="img"
+                            src={resolveAssetUrl(snapshotAsset.viewUrl || snapshotAsset.url || '')}
+                            alt={snapshotAsset.originalFileName}
+                            sx={{ display: 'block', width: '100%', maxHeight: 300, objectFit: 'contain', borderRadius: 1.5, mt: 0.75 }}
+                          />
+                        </Box>
+                      )}
                     </Stack>
+
+                    <Accordion disableGutters sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, bgcolor: 'background.default' }}>
+                      <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                        <Typography variant="subtitle2">{t('adminEditor.sections.advanced')}</Typography>
+                      </AccordionSummary>
+                      <AccordionDetails>
+                        <Stack spacing={1.25}>
+                          {dailyAdvancedDefinitions.map((templateField) => (
+                            <TextField
+                              key={templateField.key}
+                              label={t(templateField.labelKey)}
+                              placeholder={t(templateField.hintKey)}
+                              value={form.templateFields[templateField.key] || ''}
+                              onChange={(event) => setForm((prev) => ({
+                                ...prev,
+                                templateFields: {
+                                  ...prev.templateFields,
+                                  [templateField.key]: event.target.value
+                                }
+                              }))}
+                              error={Boolean(fieldErrors[`template.${templateField.key}`])}
+                              helperText={fieldErrors[`template.${templateField.key}`] || t(templateField.hintKey)}
+                              required={Boolean(templateField.required)}
+                              multiline
+                              minRows={templateField.minRows || 2}
+                            />
+                          ))}
+
+                          <TextField
+                            label={`${t('adminEditor.fields.body')} (${activeLocaleUpper})`}
+                            value={activeTranslation.body}
+                            inputRef={bodyInputRef}
+                            onChange={(event) => setForm((prev) => ({
+                              ...prev,
+                              translations: updateLocalizedField(prev.translations, activeLocale, { body: event.target.value })
+                            }))}
+                            multiline
+                            minRows={8}
+                            error={Boolean(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody)}
+                            helperText={(activeLocale === 'en' ? fieldErrors.enBody : fieldErrors.roBody) || t('adminEditor.fields.bodyHint')}
+                          />
+                        </Stack>
+                      </AccordionDetails>
+                    </Accordion>
                   </>
+                ) : (
+                  templateDefinitions.length > 0 && (
+                    <>
+                      <Divider />
+                      <Stack spacing={1.25}>
+                        <Typography variant="subtitle2">
+                          {t('adminEditor.template.sectionTitle')}
+                        </Typography>
+                        {templateDefinitions.map((templateField) => (
+                          <TextField
+                            key={templateField.key}
+                            label={t(templateField.labelKey)}
+                            placeholder={t(templateField.hintKey)}
+                            value={form.templateFields[templateField.key] || ''}
+                            onChange={(event) => setForm((prev) => ({
+                              ...prev,
+                              templateFields: {
+                                ...prev.templateFields,
+                                [templateField.key]: event.target.value
+                              }
+                            }))}
+                            error={Boolean(fieldErrors[`template.${templateField.key}`])}
+                            helperText={fieldErrors[`template.${templateField.key}`] || t(templateField.hintKey)}
+                            required={Boolean(templateField.required)}
+                            multiline
+                            minRows={templateField.minRows || 2}
+                          />
+                        ))}
+                      </Stack>
+                    </>
+                  )
                 )}
 
                 <Divider />
@@ -762,10 +1024,14 @@ export default function AdminContentEditorPage() {
                     emptyText={t('adminEditor.assets.empty')}
                     onCopyLink={handleCopyAssetLink}
                     onInsert={handleInsertAssetIntoBody}
+                    onSetSnapshot={isDailyPlan ? handleSetSnapshot : undefined}
                     onRemove={handleRemoveAsset}
                     onDownload={handleDownloadAsset}
                     copyLabel={t('adminEditor.assets.copyLink')}
                     insertLabel={t('adminEditor.assets.insertIntoBody')}
+                    setSnapshotLabel={t('adminEditor.assets.setSnapshot')}
+                    snapshotSelectedLabel={t('adminEditor.assets.snapshotSelected')}
+                    snapshotAssetId={form.snapshotAssetId}
                     removeLabel={t('adminEditor.assets.remove')}
                     downloadLabel={t('adminEditor.assets.download')}
                   />
@@ -895,23 +1161,52 @@ export default function AdminContentEditorPage() {
                   )}
                   {templateDefinitions.length > 0 && (
                     <Stack spacing={1}>
-                      <Typography variant="subtitle2">{t('adminEditor.template.previewTitle')}</Typography>
+                      <Typography variant="subtitle2">
+                        {isDailyPlan ? t('adminEditor.sections.essentials') : t('adminEditor.template.previewTitle')}
+                      </Typography>
                       {templatePreviewEntries.length === 0 ? (
-                          <Typography variant="body2" color="text.secondary">
-                            {t('adminEditor.template.previewEmpty')}
+                        <Typography variant="body2" color="text.secondary">
+                          {t('adminEditor.template.previewEmpty')}
+                        </Typography>
+                      ) : templatePreviewEntries.map((templateField) => (
+                        <Stack key={`preview-${templateField.key}`} spacing={0.25}>
+                          <Typography variant="caption" color="text.secondary">
+                            {t(templateField.labelKey)}
                           </Typography>
-                        ) : templatePreviewEntries.map((templateField) => (
-                          <Stack key={`preview-${templateField.key}`} spacing={0.25}>
-                            <Typography variant="caption" color="text.secondary">
-                              {t(templateField.labelKey)}
-                            </Typography>
-                            <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
-                              {templateField.value}
-                            </Typography>
-                          </Stack>
-                        ))}
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                            {templateField.value}
+                          </Typography>
+                        </Stack>
+                      ))}
                     </Stack>
                   )}
+
+                  {isDailyPlan && snapshotAsset?.image && (
+                    <Box>
+                      <Typography variant="subtitle2" sx={{ mb: 0.75 }}>{t('adminEditor.previewSnapshot')}</Typography>
+                      <Box
+                        component="img"
+                        src={resolveAssetUrl(snapshotAsset.viewUrl || snapshotAsset.url || '')}
+                        alt={snapshotAsset.originalFileName}
+                        sx={{ display: 'block', width: '100%', maxHeight: 260, objectFit: 'contain', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}
+                      />
+                      {form.snapshotCaption.trim() && (
+                        <Typography variant="caption" color="text.secondary" sx={{ mt: 0.5, display: 'block' }}>
+                          {form.snapshotCaption.trim()}
+                        </Typography>
+                      )}
+                    </Box>
+                  )}
+
+                  {isDailyPlan && form.tradingViewSymbol.trim() && (
+                    <Box sx={{ p: 1.25, border: '1px dashed', borderColor: 'divider', borderRadius: 2 }}>
+                      <Typography variant="subtitle2">{t('adminEditor.previewWidgetTitle')}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        {form.tradingViewSymbol.trim()} • {form.tradingViewInterval} • {form.tradingViewTheme}
+                      </Typography>
+                    </Box>
+                  )}
+
                   <MarkdownContent content={activeTranslation.body} />
                 </Stack>
               </CardContent>

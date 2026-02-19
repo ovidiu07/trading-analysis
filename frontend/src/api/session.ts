@@ -49,6 +49,7 @@ export type StartSessionTradeRequest = {
   strategyId?: string | null
   strategyTag?: string | null
   linkedPlanId?: string | null
+  initialNotes?: string | null
   notes?: string | null
 }
 

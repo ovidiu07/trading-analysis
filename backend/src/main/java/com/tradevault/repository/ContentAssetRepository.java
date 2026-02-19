@@ -15,5 +15,7 @@ public interface ContentAssetRepository extends JpaRepository<ContentAsset, UUID
 
     boolean existsByAssetId(UUID assetId);
 
+    boolean existsByContentPost_IdAndAsset_Id(UUID contentPostId, UUID assetId);
+
     long deleteByAssetId(UUID assetId);
 }

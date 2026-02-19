@@ -315,4 +315,41 @@ describe('SessionPage', () => {
     expect(await screen.findByText(/Partial at 1R/i)).toBeInTheDocument()
     expect(await screen.findByText(/Skip during high-impact news/i)).toBeInTheDocument()
   })
+
+  it('sends planner notes as initialNotes when starting a trade', async () => {
+    sessionApiMock.getTodaySession.mockResolvedValue({
+      id: 'session-1',
+      sessionDate: '2026-02-19',
+      profitTarget: 200,
+      lossLimit: 100,
+      maxTrades: 3,
+      status: 'ACTIVE',
+      realizedPnl: 0,
+      closedTradesCount: 0,
+      remainingTrades: 3,
+      plannedTickers: ['eurusd'],
+      checklistItems: [
+        { id: '1', text: 'Review plan', completed: false }
+      ],
+      activeTrade: null
+    })
+    plansApiMock.listDailyPlans.mockResolvedValue([])
+
+    const user = userEvent.setup()
+    renderSessionPage()
+
+    expect(await screen.findByText('Trade Planner + Execution')).toBeInTheDocument()
+
+    await user.type(screen.getByRole('spinbutton', { name: /entry price/i }), '1.25')
+    await user.type(screen.getByRole('textbox', { name: /^Notes$/i }), 'Opening notes from start phase')
+    await user.click(screen.getByRole('button', { name: 'Start trade' }))
+
+    await waitFor(() => {
+      expect(sessionApiMock.startTradeFromSession).toHaveBeenCalledWith(expect.objectContaining({
+        symbol: 'EURUSD',
+        entryPrice: 1.25,
+        initialNotes: 'Opening notes from start phase'
+      }))
+    })
+  })
 })

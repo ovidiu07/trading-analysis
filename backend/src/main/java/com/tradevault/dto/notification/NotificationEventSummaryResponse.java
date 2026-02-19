@@ -19,4 +19,7 @@ public class NotificationEventSummaryResponse {
     String titleRo;
     String summaryEn;
     String summaryRo;
+    Integer contentVersion;
+    OffsetDateTime updatedAt;
+    String revisionNotes;
 }

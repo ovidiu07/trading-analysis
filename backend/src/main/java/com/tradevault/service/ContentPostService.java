@@ -14,6 +14,8 @@ import com.tradevault.dto.content.ContentPostRequest;
 import com.tradevault.dto.content.ContentPostResponse;
 import com.tradevault.dto.content.LocalizedContentRequest;
 import com.tradevault.dto.content.LocalizedContentResponse;
+import com.tradevault.repository.AssetRepository;
+import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.ContentPostTranslationRepository;
 import com.tradevault.repository.ContentTypeRepository;
@@ -45,8 +47,11 @@ public class ContentPostService {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final TypeReference<Map<String, Object>> OBJECT_MAP = new TypeReference<>() {};
     private static final Pattern LOCALE_PATTERN = Pattern.compile("^[a-z]{2}(-[a-z]{2})?$");
+    private static final Pattern TRADING_VIEW_SYMBOL_PATTERN = Pattern.compile("^[A-Za-z0-9:._-]{1,64}$");
+    private static final Set<String> ALLOWED_TRADING_VIEW_INTERVALS = Set.of("1", "3", "5", "15", "30", "60", "240", "D", "W");
+    private static final Set<String> ALLOWED_TRADING_VIEW_THEMES = Set.of("LIGHT", "DARK", "SYSTEM");
     private static final Map<String, List<String>> REQUIRED_TEMPLATE_FIELDS = Map.of(
-            "DAILY_PLAN", List.of("biasSummary", "keyLevels", "primaryModel", "executionRules", "riskNote"),
+            "DAILY_PLAN", List.of("biasSummary", "keyLevels", "executionRules", "riskNote"),
             "WEEKLY_PLAN", List.of("macroBias", "highProbabilityWindows", "noTradeRisks", "keyLevels", "watchlist"),
             "STRATEGY", List.of("what", "when", "filters", "entryModel", "invalidation", "targets", "riskModel", "failureModes"),
             "PLAYBOOK", List.of("what", "when", "filters", "entryModel", "invalidation", "targets", "riskModel", "failureModes"),
@@ -57,6 +62,8 @@ public class ContentPostService {
     private final ContentPostTranslationRepository contentPostTranslationRepository;
     private final ContentTypeRepository contentTypeRepository;
     private final ContentTypeTranslationRepository contentTypeTranslationRepository;
+    private final ContentAssetRepository contentAssetRepository;
+    private final AssetRepository assetRepository;
     private final CurrentUserService currentUserService;
     private final ObjectMapper objectMapper;
     private final TranslationResolver translationResolver;
@@ -295,8 +302,9 @@ public class ContentPostService {
         validateTemplateFieldsIfProvided(contentType, request.getTemplateFields(), normalizedTemplateFields);
         post.setTemplateFields(writeTemplateFields(normalizedTemplateFields));
         post.setRevisionNotes(normalizeBlank(request.getRevisionNotes()));
+        applyTradingViewAndSnapshot(post, request, isCreate);
 
-        Map<String, DraftTranslation> translations = normalizeTranslations(request.getTranslations());
+        Map<String, DraftTranslation> translations = normalizeTranslations(contentType, request.getTranslations());
         upsertPostTranslations(post, translations);
 
         String requestedSlug = normalizeBlank(request.getSlug());
@@ -322,6 +330,10 @@ public class ContentPostService {
         return contentType != null && "WEEKLY_PLAN".equalsIgnoreCase(contentType.getKey());
     }
 
+    private boolean isDailyPlan(ContentType contentType) {
+        return contentType != null && "DAILY_PLAN".equalsIgnoreCase(contentType.getKey());
+    }
+
     private String resolveSlugSourceTitle(Map<String, DraftTranslation> translations) {
         DraftTranslation english = translations.get(LocaleResolverService.DEFAULT_LOCALE);
         if (english != null) {
@@ -333,10 +345,92 @@ public class ContentPostService {
                 .orElse("content");
     }
 
-    private Map<String, DraftTranslation> normalizeTranslations(Map<String, LocalizedContentRequest> translations) {
+    private void applyTradingViewAndSnapshot(ContentPost post, ContentPostRequest request, boolean isCreate) {
+        String tradingViewSymbol = normalizeTradingViewSymbol(request.getTradingViewSymbol());
+        String tradingViewInterval = normalizeTradingViewInterval(request.getTradingViewInterval());
+        String tradingViewTheme = normalizeTradingViewTheme(request.getTradingViewTheme());
+        Boolean hideControls = request.getTradingViewHideControls();
+        Boolean allowSymbolChange = request.getTradingViewAllowSymbolChange();
+
+        if (tradingViewSymbol == null) {
+            tradingViewInterval = null;
+            tradingViewTheme = null;
+            hideControls = null;
+            allowSymbolChange = null;
+        }
+
+        post.setTradingViewSymbol(tradingViewSymbol);
+        post.setTradingViewInterval(tradingViewInterval);
+        post.setTradingViewTheme(tradingViewTheme);
+        post.setTradingViewHideControls(hideControls);
+        post.setTradingViewAllowSymbolChange(allowSymbolChange);
+
+        UUID snapshotAssetId = request.getSnapshotAssetId();
+        if (snapshotAssetId != null) {
+            validateSnapshotAsset(post, snapshotAssetId, isCreate);
+        }
+        post.setSnapshotAssetId(snapshotAssetId);
+        post.setSnapshotCaption(snapshotAssetId == null ? null : normalizeBlank(request.getSnapshotCaption()));
+    }
+
+    private String normalizeTradingViewSymbol(String value) {
+        String normalized = normalizeBlank(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (!TRADING_VIEW_SYMBOL_PATTERN.matcher(normalized).matches()) {
+            throw new IllegalArgumentException("tradingViewSymbol contains unsupported characters");
+        }
+        return normalized;
+    }
+
+    private String normalizeTradingViewInterval(String value) {
+        String normalized = normalizeBlank(value);
+        if (normalized == null) {
+            return null;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        if (!ALLOWED_TRADING_VIEW_INTERVALS.contains(upper)) {
+            throw new IllegalArgumentException("tradingViewInterval is not supported");
+        }
+        return upper;
+    }
+
+    private String normalizeTradingViewTheme(String value) {
+        String normalized = normalizeBlank(value);
+        if (normalized == null) {
+            return null;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        if (!ALLOWED_TRADING_VIEW_THEMES.contains(upper)) {
+            throw new IllegalArgumentException("tradingViewTheme is not supported");
+        }
+        return upper;
+    }
+
+    private void validateSnapshotAsset(ContentPost post, UUID snapshotAssetId, boolean isCreate) {
+        UUID contentId = post.getId();
+        if (contentId == null || isCreate) {
+            throw new IllegalArgumentException("snapshotAssetId can be set only after the content draft is created");
+        }
+        boolean linked = contentAssetRepository.existsByContentPost_IdAndAsset_Id(contentId, snapshotAssetId);
+        if (!linked) {
+            throw new IllegalArgumentException("snapshotAssetId must reference an asset linked to this content");
+        }
+        String contentType = assetRepository.findById(snapshotAssetId)
+                .map(asset -> asset.getContentType() == null ? "" : asset.getContentType().toLowerCase(Locale.ROOT))
+                .orElse("");
+        if (!contentType.startsWith("image/")) {
+            throw new IllegalArgumentException("snapshotAssetId must reference an image asset");
+        }
+    }
+
+    private Map<String, DraftTranslation> normalizeTranslations(ContentType contentType,
+                                                                Map<String, LocalizedContentRequest> translations) {
         if (translations == null || translations.isEmpty()) {
             throw new IllegalArgumentException("At least one translation is required");
         }
+        boolean allowBlankBody = isDailyPlan(contentType);
 
         Map<String, DraftTranslation> normalized = new LinkedHashMap<>();
         for (Map.Entry<String, LocalizedContentRequest> entry : translations.entrySet()) {
@@ -346,7 +440,7 @@ public class ContentPostService {
                 throw new IllegalArgumentException("Invalid translation payload for locale: " + locale);
             }
             String title = requireText(payload.getTitle(), "title", locale);
-            String body = requireText(payload.getBody(), "body", locale);
+            String body = allowBlankBody ? normalizeTextOrEmpty(payload.getBody()) : requireText(payload.getBody(), "body", locale);
             normalized.put(locale, new DraftTranslation(title, normalizeBlank(payload.getSummary()), body));
         }
 
@@ -355,6 +449,10 @@ public class ContentPostService {
         }
 
         return normalized;
+    }
+
+    private String normalizeTextOrEmpty(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private String normalizeTranslationLocale(String rawLocale) {
@@ -644,6 +742,13 @@ public class ContentPostService {
                 .templateFields(readTemplateFields(post.getTemplateFields()))
                 .revisionNotes(post.getRevisionNotes())
                 .contentVersion(post.getContentVersion())
+                .tradingViewSymbol(post.getTradingViewSymbol())
+                .tradingViewInterval(post.getTradingViewInterval())
+                .tradingViewTheme(post.getTradingViewTheme())
+                .tradingViewHideControls(post.getTradingViewHideControls())
+                .tradingViewAllowSymbolChange(post.getTradingViewAllowSymbolChange())
+                .snapshotAssetId(post.getSnapshotAssetId())
+                .snapshotCaption(post.getSnapshotCaption())
                 .visibleFrom(post.getVisibleFrom())
                 .visibleUntil(post.getVisibleUntil())
                 .weekStart(post.getWeekStart())
@@ -694,6 +799,13 @@ public class ContentPostService {
                                              List<String> normalizedTags,
                                              List<String> normalizedSymbols,
                                              Map<String, Object> normalizedTemplateFields,
+                                             String tradingViewSymbol,
+                                             String tradingViewInterval,
+                                             String tradingViewTheme,
+                                             Boolean tradingViewHideControls,
+                                             Boolean tradingViewAllowSymbolChange,
+                                             UUID snapshotAssetId,
+                                             String snapshotCaption,
                                              Map<String, ComparableTranslation> translations) {
         static MeaningfulContentSnapshot from(ContentPost post,
                                               java.util.function.Function<String, List<String>> listReader,
@@ -707,7 +819,20 @@ public class ContentPostService {
                             ComparableTranslation::from,
                             (first, second) -> first
                     ));
-            return new MeaningfulContentSnapshot(post.getContentType().getId(), tags, symbols, templateFields, translations);
+            return new MeaningfulContentSnapshot(
+                    post.getContentType().getId(),
+                    tags,
+                    symbols,
+                    templateFields,
+                    normalizeText(post.getTradingViewSymbol()),
+                    normalizeText(post.getTradingViewInterval()),
+                    normalizeText(post.getTradingViewTheme()),
+                    post.getTradingViewHideControls(),
+                    post.getTradingViewAllowSymbolChange(),
+                    post.getSnapshotAssetId(),
+                    normalizeText(post.getSnapshotCaption()),
+                    translations
+            );
         }
     }
 

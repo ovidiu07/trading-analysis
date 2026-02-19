@@ -10,6 +10,5 @@ public class LocalizedContentRequest {
 
     private String summary;
 
-    @NotBlank
     private String body;
 }

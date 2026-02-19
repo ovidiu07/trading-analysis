@@ -85,4 +85,25 @@ public class ContentPost {
     @Builder.Default
     @Column(nullable = false)
     private int contentVersion = 0;
+
+    @Column(name = "trading_view_symbol")
+    private String tradingViewSymbol;
+
+    @Column(name = "trading_view_interval")
+    private String tradingViewInterval;
+
+    @Column(name = "trading_view_theme")
+    private String tradingViewTheme;
+
+    @Column(name = "trading_view_hide_controls")
+    private Boolean tradingViewHideControls;
+
+    @Column(name = "trading_view_allow_symbol_change")
+    private Boolean tradingViewAllowSymbolChange;
+
+    @Column(name = "snapshot_asset_id")
+    private UUID snapshotAssetId;
+
+    @Column(name = "snapshot_caption")
+    private String snapshotCaption;
 }

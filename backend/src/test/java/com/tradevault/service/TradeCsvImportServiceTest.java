@@ -94,7 +94,7 @@ class TradeCsvImportServiceTest {
         assertEquals(TradeStatus.CLOSED, metrics.status());
         assertEquals(sellTime, metrics.closedAt());
         assertEquals(new BigDecimal("110.0000000000"), metrics.exitPrice());
-        assertEquals(new BigDecimal("100"), metrics.pnlGross());
+        assertEquals(0, new BigDecimal("100").compareTo(metrics.pnlGross()));
     }
 
     @Test

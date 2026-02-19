@@ -47,7 +47,6 @@ const TEMPLATE_FIELDS_BY_TYPE: Record<string, TemplateFieldDefinition[]> = {
       key: 'primaryModel',
       labelKey: 'adminEditor.template.primaryModel.label',
       hintKey: 'adminEditor.template.primaryModel.hint',
-      required: true,
       minRows: 3
     },
     {

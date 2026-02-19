@@ -107,6 +107,9 @@ public class NotificationQueryService {
                 .titleRo(payload.titleRo())
                 .summaryEn(payload.summaryEn())
                 .summaryRo(payload.summaryRo())
+                .contentVersion(payload.contentVersion())
+                .updatedAt(payload.updatedAt())
+                .revisionNotes(payload.revisionNotes())
                 .build();
 
         return UserNotificationResponse.builder()

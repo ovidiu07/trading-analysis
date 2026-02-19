@@ -51,6 +51,7 @@ public class TradeResponse {
     private Set<UUID> linkedContentIds;
     private Set<UUID> linkedPlanIds;
     private String notes;
+    private String initialNotes;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
     private UUID accountId;

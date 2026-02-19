@@ -2,6 +2,7 @@ package com.tradevault.service.today;
 
 import com.tradevault.analytics.TradeCoachService;
 import com.tradevault.domain.entity.User;
+import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.analytics.AdviceCard;
 import com.tradevault.dto.analytics.AdviceConfidence;
 import com.tradevault.dto.analytics.AdviceSeverity;
@@ -204,6 +205,7 @@ public class TodayService {
                 normalize(readTemplateText(post, "biasSummary")),
                 normalize(post.getSummary())
         );
+        AssetResponse snapshotAsset = resolveSnapshotAsset(post);
         return DailyPlanResponse.builder()
                 .id(post.getId())
                 .slug(post.getSlug())
@@ -216,10 +218,30 @@ public class TodayService {
                 .riskNote(firstNonBlank(readTemplateText(post, "riskNote"), ""))
                 .liquidityNarrative(firstNonBlank(readTemplateText(post, "liquidityNarrative"), ""))
                 .alternativeScenario(firstNonBlank(readTemplateText(post, "alternativeScenario"), ""))
+                .context(firstNonBlank(readTemplateText(post, "context"), ""))
+                .body(firstNonBlank(post.getBody(), ""))
+                .tradingViewSymbol(post.getTradingViewSymbol())
+                .tradingViewInterval(post.getTradingViewInterval())
+                .tradingViewTheme(post.getTradingViewTheme())
+                .tradingViewHideControls(post.getTradingViewHideControls())
+                .tradingViewAllowSymbolChange(post.getTradingViewAllowSymbolChange())
+                .snapshotAssetId(post.getSnapshotAssetId())
+                .snapshotCaption(post.getSnapshotCaption())
+                .snapshotAsset(snapshotAsset)
                 .visibleFrom(post.getVisibleFrom())
                 .visibleUntil(post.getVisibleUntil())
                 .updatedAt(post.getUpdatedAt())
                 .build();
+    }
+
+    private AssetResponse resolveSnapshotAsset(ContentPostResponse post) {
+        if (post.getSnapshotAssetId() == null || post.getAssets() == null || post.getAssets().isEmpty()) {
+            return null;
+        }
+        return post.getAssets().stream()
+                .filter(asset -> post.getSnapshotAssetId().equals(asset.getId()))
+                .findFirst()
+                .orElse(null);
     }
 
     private String readTemplateText(ContentPostResponse post, String key) {

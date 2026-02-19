@@ -246,6 +246,7 @@ public class TradeService {
         trade.setLinkedContentIds(normalizeLinkedContentIds(request.getLinkedContentIds()));
         trade.setLinkedPlanIds(normalizeLinkedPlanIds(request.getLinkedPlanIds()));
         trade.setNotes(request.getNotes());
+        trade.setInitialNotes(request.getInitialNotes());
         trade.setCreatedAt(OffsetDateTime.now());
         trade.setUpdatedAt(trade.getCreatedAt());
         if (request.getAccountId() != null) {
@@ -314,6 +315,9 @@ public class TradeService {
             trade.setLinkedPlanIds(new LinkedHashSet<>());
         }
         trade.setNotes(request.getNotes());
+        if (request.getInitialNotes() != null) {
+            trade.setInitialNotes(request.getInitialNotes());
+        }
         if (request.getAccountId() != null) {
             Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Account not found"));
@@ -631,6 +635,7 @@ public class TradeService {
                 .linkedContentIds(trade.getLinkedContentIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedContentIds()))
                 .linkedPlanIds(trade.getLinkedPlanIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedPlanIds()))
                 .notes(trade.getNotes())
+                .initialNotes(trade.getInitialNotes())
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
                 .accountId(trade.getAccount() != null ? trade.getAccount().getId() : null)

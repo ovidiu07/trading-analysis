@@ -798,6 +798,9 @@ export default function TradesPage() {
               </Grid>
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {trade.notes || t('common.na')}</Typography>
+            {trade.initialNotes && (
+              <Typography variant="body2" color="text.secondary">{t('trades.details.initialNotes')}: {trade.initialNotes}</Typography>
+            )}
             <Stack direction="row" spacing={1} flexWrap="wrap">
               {trade.strategyId && (
                 <Chip size="small" variant="outlined" label={strategyNameById.get(trade.strategyId) || trade.strategyTag || t('common.na')} />
@@ -965,6 +968,9 @@ export default function TradesPage() {
                 </Grid>
                 <Grid item xs={12}>
                   <Typography variant="subtitle2" gutterBottom>{t('trades.details.notesAndTags')}</Typography>
+                  <Typography variant="body2" sx={{ mb: 1 }}>
+                    <strong>{t('trades.details.initialNotes')}:</strong> {expandedTrade.initialNotes || t('common.na')}
+                  </Typography>
                   <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || t('common.na')}</Typography>
                   <Stack direction="row" spacing={1} flexWrap="wrap">
                     {(expandedTrade.tags || []).map((tag: string) => (

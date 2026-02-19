@@ -217,7 +217,8 @@ public class TodaySessionService {
         tradeRequest.setRuleBreaks(Set.of());
         tradeRequest.setSessionId(session.getId());
         tradeRequest.setFeeling(normalizeOptionalText(request.getFeeling()));
-        tradeRequest.setNotes(normalizeOptionalText(request.getNotes()));
+        tradeRequest.setInitialNotes(normalizeOptionalText(firstNonBlank(request.getInitialNotes(), request.getNotes())));
+        tradeRequest.setNotes(null);
 
         UUID linkedPlanId = request.getLinkedPlanId();
         if (linkedPlanId != null) {
@@ -289,6 +290,7 @@ public class TodaySessionService {
         request.setLinkedPlanIds(trade.getLinkedPlanIds());
         request.setRuleBreaks(trade.getRuleBreaks());
         request.setNotes(trade.getNotes());
+        request.setInitialNotes(trade.getInitialNotes());
         request.setAccountId(trade.getAccount() == null ? null : trade.getAccount().getId());
         return request;
     }
@@ -583,6 +585,19 @@ public class TodaySessionService {
             return null;
         }
         return normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = normalizeOptionalText(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
     }
 
     private List<SessionChecklistItemDto> defaultChecklistItems(UUID userId) {
