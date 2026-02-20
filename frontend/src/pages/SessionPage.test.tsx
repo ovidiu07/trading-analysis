@@ -82,6 +82,7 @@ describe('SessionPage', () => {
   beforeEach(() => {
     localStorage.setItem('app.language', 'en')
     localStorage.removeItem('today.session.selectedPlanId')
+    localStorage.removeItem('sessionMode.layoutState')
     sessionApiMock.listChecklistTemplates.mockResolvedValue([])
     plansApiMock.listDailyPlans.mockResolvedValue([])
     checklistApiMock.fetchChecklistTemplate.mockResolvedValue([])
@@ -314,6 +315,98 @@ describe('SessionPage', () => {
     expect(await screen.findByText(/Break BOS on 5m/i)).toBeInTheDocument()
     expect(await screen.findByText(/Partial at 1R/i)).toBeInTheDocument()
     expect(await screen.findByText(/Skip during high-impact news/i)).toBeInTheDocument()
+  })
+
+  it('renders mentor chart snapshot from protected asset URLs', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch').mockResolvedValue(
+      new Response(new Blob(['img'], { type: 'image/png' }), { status: 200 })
+    )
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: vi.fn(() => 'blob:snapshot'),
+      writable: true,
+      configurable: true
+    })
+    Object.defineProperty(URL, 'revokeObjectURL', {
+      value: vi.fn(),
+      writable: true,
+      configurable: true
+    })
+
+    sessionApiMock.getTodaySession.mockResolvedValue({
+      id: 'session-1',
+      sessionDate: '2026-02-19',
+      profitTarget: 200,
+      lossLimit: 100,
+      maxTrades: 3,
+      status: 'ACTIVE',
+      realizedPnl: 0,
+      closedTradesCount: 0,
+      remainingTrades: 3,
+      plannedTickers: [],
+      checklistItems: [
+        { id: '1', text: 'Review plan', completed: false }
+      ],
+      activeTrade: null
+    })
+    plansApiMock.listDailyPlans.mockResolvedValue([{
+      id: 'plan-1',
+      title: 'Plan A',
+      summary: 'Summary',
+      snapshotAssetId: 'asset-1',
+      snapshotAsset: {
+        id: 'asset-1',
+        originalFileName: 'snapshot.png',
+        url: '/api/assets/asset-1/view',
+        viewUrl: '/api/assets/asset-1/view',
+        image: true
+      }
+    }])
+
+    renderSessionPage()
+
+    expect(await screen.findByText('Chart snapshot')).toBeInTheDocument()
+    await waitFor(() => {
+      expect(fetchSpy).toHaveBeenCalled()
+      expect(screen.getByAltText('Plan A')).toBeInTheDocument()
+    })
+
+    fetchSpy.mockRestore()
+  })
+
+  it('persists panel collapse/maximize state in localStorage', async () => {
+    sessionApiMock.getTodaySession.mockResolvedValue({
+      id: 'session-1',
+      sessionDate: '2026-02-19',
+      profitTarget: 200,
+      lossLimit: 100,
+      maxTrades: 3,
+      status: 'ACTIVE',
+      realizedPnl: 0,
+      closedTradesCount: 0,
+      remainingTrades: 3,
+      plannedTickers: [],
+      checklistItems: [
+        { id: '1', text: 'Review plan', completed: false }
+      ],
+      activeTrade: null
+    })
+    plansApiMock.listDailyPlans.mockResolvedValue([{ id: 'plan-1', title: 'Plan A', summary: 'Summary' }])
+
+    const user = userEvent.setup()
+    renderSessionPage()
+
+    const mentorHeading = await screen.findByText('Mentor Plan')
+    const mentorCard = mentorHeading.closest('.MuiCard-root')
+    expect(mentorCard).toBeTruthy()
+
+    await user.click(within(mentorCard as HTMLElement).getByLabelText('Collapse panel'))
+    await user.click(within(mentorCard as HTMLElement).getByLabelText('Maximize panel'))
+
+    const layoutStateRaw = localStorage.getItem('sessionMode.layoutState')
+    expect(layoutStateRaw).toBeTruthy()
+    const layoutState = JSON.parse(layoutStateRaw as string)
+    expect(layoutState.collapsed.mentor).toBe(true)
+    expect(layoutState.maximized).toBe('mentor')
   })
 
   it('sends planner notes as initialNotes when starting a trade', async () => {

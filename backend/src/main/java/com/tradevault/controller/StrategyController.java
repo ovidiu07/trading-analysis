@@ -53,4 +53,27 @@ public class StrategyController {
         strategyService.archiveMyStrategy(id);
         return ResponseEntity.noContent().build();
     }
+
+    @PostMapping("/{id}/assets/{assetId}")
+    public ResponseEntity<StrategyResponse> attachAsset(@PathVariable UUID id,
+                                                        @PathVariable UUID assetId) {
+        return ResponseEntity.ok(strategyService.attachAsset(id, assetId));
+    }
+
+    @DeleteMapping("/{id}/assets/{assetId}")
+    public ResponseEntity<StrategyResponse> removeAsset(@PathVariable UUID id,
+                                                        @PathVariable UUID assetId) {
+        return ResponseEntity.ok(strategyService.removeAsset(id, assetId));
+    }
+
+    @PutMapping("/{id}/snapshot/{assetId}")
+    public ResponseEntity<StrategyResponse> setSnapshot(@PathVariable UUID id,
+                                                        @PathVariable UUID assetId) {
+        return ResponseEntity.ok(strategyService.setSnapshotAsset(id, assetId));
+    }
+
+    @DeleteMapping("/{id}/snapshot")
+    public ResponseEntity<StrategyResponse> clearSnapshot(@PathVariable UUID id) {
+        return ResponseEntity.ok(strategyService.clearSnapshotAsset(id));
+    }
 }

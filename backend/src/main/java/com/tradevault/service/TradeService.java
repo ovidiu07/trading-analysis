@@ -22,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.OffsetDateTime;
@@ -47,6 +48,9 @@ public class TradeService {
     private static final DateTimeFormatter DATE_ONLY_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final DateTimeFormatter OFFSET_DATE_TIME_FORMATTER = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
     private static final DateTimeFormatter LOCAL_DATE_TIME_FORMATTER = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    private static final String DEFAULT_CURRENCY = "USD";
+    private static final String FX_SOURCE_IDENTITY = "IDENTITY";
+    private static final String FX_SOURCE_MANUAL = "MANUAL";
     private final TradeRepository tradeRepository;
     private final AccountRepository accountRepository;
     private final TagRepository tagRepository;
@@ -230,6 +234,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
+        trade.setFeesProfileCurrency(defaultZero(request.getFeesProfileCurrency()));
         // Do NOT trust client-provided PnL values on create; compute authoritatively below
         trade.setRiskAmount(request.getRiskAmount());
         trade.setCapitalUsed(request.getCapitalUsed());
@@ -249,6 +254,7 @@ public class TradeService {
         trade.setInitialNotes(request.getInitialNotes());
         trade.setCreatedAt(OffsetDateTime.now());
         trade.setUpdatedAt(trade.getCreatedAt());
+        applyCurrencyContextForCreate(trade, request, user);
         if (request.getAccountId() != null) {
             Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Account not found"));
@@ -262,6 +268,7 @@ public class TradeService {
         // Always compute authoritative derived metrics on create
         recalculateRiskPercent(trade);
         recalculateAndApplyPnl(trade);
+        recalculateProfileCurrencyAmounts(trade);
         return toResponse(tradeRepository.save(trade));
     }
 
@@ -287,6 +294,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
+        trade.setFeesProfileCurrency(defaultZero(request.getFeesProfileCurrency()));
         // Never accept client PnL fields on update; we'll recompute if needed
         trade.setRiskAmount(request.getRiskAmount());
         trade.setCapitalUsed(request.getCapitalUsed());
@@ -318,6 +326,7 @@ public class TradeService {
         if (request.getInitialNotes() != null) {
             trade.setInitialNotes(request.getInitialNotes());
         }
+        applyCurrencyContextForUpdate(trade, request, user);
         if (request.getAccountId() != null) {
             Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Account not found"));
@@ -335,6 +344,7 @@ public class TradeService {
         if (shouldRecalculate) {
             recalculateAndApplyPnl(trade);
         }
+        recalculateProfileCurrencyAmounts(trade);
         trade.setUpdatedAt(OffsetDateTime.now());
         return toResponse(tradeRepository.save(trade));
     }
@@ -592,6 +602,139 @@ public class TradeService {
         }
     }
 
+    private void applyCurrencyContextForCreate(Trade trade, TradeRequest request, User user) {
+        String profileCurrency = resolveProfileCurrency(request.getProfileCurrency(), user.getBaseCurrency(), null);
+        String tradeCurrency = resolveTradeCurrency(request.getTradeCurrency(), profileCurrency, null);
+        BigDecimal fxRate = resolveFxRate(request.getFxRateTradeToProfile(), tradeCurrency, profileCurrency, null);
+        trade.setProfileCurrency(profileCurrency);
+        trade.setTradeCurrency(tradeCurrency);
+        trade.setFxRateTradeToProfile(fxRate);
+        trade.setFxRateTimestamp(resolveFxTimestamp(request.getFxRateTimestamp(), tradeCurrency, profileCurrency, null));
+        trade.setFxRateSource(resolveFxSource(request.getFxRateSource(), tradeCurrency, profileCurrency, null));
+    }
+
+    private void applyCurrencyContextForUpdate(Trade trade, TradeRequest request, User user) {
+        String profileCurrency = resolveProfileCurrency(request.getProfileCurrency(), user.getBaseCurrency(), trade.getProfileCurrency());
+        String tradeCurrency = resolveTradeCurrency(request.getTradeCurrency(), profileCurrency, trade.getTradeCurrency());
+        BigDecimal fxRate = resolveFxRate(request.getFxRateTradeToProfile(), tradeCurrency, profileCurrency, trade.getFxRateTradeToProfile());
+        trade.setProfileCurrency(profileCurrency);
+        trade.setTradeCurrency(tradeCurrency);
+        trade.setFxRateTradeToProfile(fxRate);
+        trade.setFxRateTimestamp(resolveFxTimestamp(request.getFxRateTimestamp(), tradeCurrency, profileCurrency, trade.getFxRateTimestamp()));
+        trade.setFxRateSource(resolveFxSource(request.getFxRateSource(), tradeCurrency, profileCurrency, trade.getFxRateSource()));
+    }
+
+    private String resolveProfileCurrency(String requestProfileCurrency, String userBaseCurrency, String existingProfileCurrency) {
+        return normalizeCurrency(firstNonBlank(requestProfileCurrency, existingProfileCurrency, userBaseCurrency, DEFAULT_CURRENCY));
+    }
+
+    private String resolveTradeCurrency(String requestTradeCurrency, String profileCurrency, String existingTradeCurrency) {
+        return normalizeCurrency(firstNonBlank(requestTradeCurrency, existingTradeCurrency, profileCurrency, DEFAULT_CURRENCY));
+    }
+
+    private BigDecimal resolveFxRate(BigDecimal requestRate, String tradeCurrency, String profileCurrency, BigDecimal existingRate) {
+        if (isSameCurrency(tradeCurrency, profileCurrency)) {
+            return BigDecimal.ONE;
+        }
+        BigDecimal candidate = requestRate;
+        if (candidate == null || candidate.compareTo(BigDecimal.ZERO) <= 0) {
+            candidate = existingRate;
+        }
+        if (candidate == null || candidate.compareTo(BigDecimal.ZERO) <= 0) {
+            candidate = BigDecimal.ONE;
+        }
+        return scaleRate(candidate);
+    }
+
+    private OffsetDateTime resolveFxTimestamp(OffsetDateTime requestTimestamp,
+                                              String tradeCurrency,
+                                              String profileCurrency,
+                                              OffsetDateTime existingTimestamp) {
+        if (isSameCurrency(tradeCurrency, profileCurrency)) {
+            return requestTimestamp != null ? requestTimestamp : OffsetDateTime.now();
+        }
+        if (requestTimestamp != null) {
+            return requestTimestamp;
+        }
+        return existingTimestamp != null ? existingTimestamp : OffsetDateTime.now();
+    }
+
+    private String resolveFxSource(String requestSource,
+                                   String tradeCurrency,
+                                   String profileCurrency,
+                                   String existingSource) {
+        if (isSameCurrency(tradeCurrency, profileCurrency)) {
+            return FX_SOURCE_IDENTITY;
+        }
+        String normalizedRequest = normalizeOptionalText(requestSource);
+        if (normalizedRequest != null) {
+            return normalizedRequest.toUpperCase(Locale.ROOT);
+        }
+        String normalizedExisting = normalizeOptionalText(existingSource);
+        if (normalizedExisting != null) {
+            return normalizedExisting.toUpperCase(Locale.ROOT);
+        }
+        return FX_SOURCE_MANUAL;
+    }
+
+    private void recalculateProfileCurrencyAmounts(Trade trade) {
+        BigDecimal fxRate = resolveFxRate(trade.getFxRateTradeToProfile(), trade.getTradeCurrency(), trade.getProfileCurrency(), trade.getFxRateTradeToProfile());
+        trade.setFxRateTradeToProfile(fxRate);
+        trade.setFeesProfileCurrency(scaleMoney(defaultZero(trade.getFees()).multiply(fxRate)));
+        if (trade.getPnlNet() == null) {
+            trade.setPnlProfileCurrency(null);
+            return;
+        }
+        trade.setPnlProfileCurrency(scaleMoney(trade.getPnlNet().multiply(fxRate)));
+    }
+
+    private String normalizeCurrency(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            return DEFAULT_CURRENCY;
+        }
+        return normalized.toUpperCase(Locale.ROOT);
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return null;
+        }
+        for (String value : values) {
+            String normalized = normalizeOptionalText(value);
+            if (normalized != null) {
+                return normalized;
+            }
+        }
+        return null;
+    }
+
+    private boolean isSameCurrency(String tradeCurrency, String profileCurrency) {
+        return normalizeCurrency(tradeCurrency).equals(normalizeCurrency(profileCurrency));
+    }
+
+    private BigDecimal scaleMoney(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        return value.setScale(4, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal scaleRate(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        return value.setScale(8, RoundingMode.HALF_UP);
+    }
+
     private void validateClosedTrade(TradeRequest request) {
         if (request.getStatus() == com.tradevault.domain.enums.TradeStatus.CLOSED && request.getExitPrice() == null) {
             throw new IllegalArgumentException("Exit price is required when status is CLOSED");
@@ -613,10 +756,17 @@ public class TradeService {
                 .stopLossPrice(trade.getStopLossPrice())
                 .takeProfitPrice(trade.getTakeProfitPrice())
                 .fees(trade.getFees())
+                .feesProfileCurrency(trade.getFeesProfileCurrency())
                 .commission(trade.getCommission())
                 .slippage(trade.getSlippage())
                 .pnlGross(trade.getPnlGross())
                 .pnlNet(trade.getPnlNet())
+                .pnlProfileCurrency(trade.getPnlProfileCurrency())
+                .tradeCurrency(trade.getTradeCurrency())
+                .profileCurrency(trade.getProfileCurrency())
+                .fxRateTradeToProfile(trade.getFxRateTradeToProfile())
+                .fxRateTimestamp(trade.getFxRateTimestamp())
+                .fxRateSource(trade.getFxRateSource())
                 .pnlPercent(trade.getPnlPercent())
                 .rMultiple(trade.getRMultiple())
                 .riskAmount(trade.getRiskAmount())

@@ -78,8 +78,14 @@ const buildDefaultValues = (): TradeFormValues => ({
   stopLossPrice: undefined,
   takeProfitPrice: undefined,
   fees: 0,
+  feesProfileCurrency: undefined,
   commission: 0,
   slippage: 0,
+  tradeCurrency: '',
+  profileCurrency: '',
+  fxRateTradeToProfile: undefined,
+  fxRateSource: '',
+  pnlProfileCurrency: undefined,
   riskAmount: undefined,
   capitalUsed: undefined,
   setup: '',
@@ -143,8 +149,14 @@ const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
     stopLossPrice: trade.stopLossPrice ?? undefined,
     takeProfitPrice: trade.takeProfitPrice ?? undefined,
     fees: trade.fees ?? 0,
+    feesProfileCurrency: trade.feesProfileCurrency ?? undefined,
     commission: trade.commission ?? 0,
     slippage: trade.slippage ?? 0,
+    tradeCurrency: trade.tradeCurrency ?? '',
+    profileCurrency: trade.profileCurrency ?? '',
+    fxRateTradeToProfile: trade.fxRateTradeToProfile ?? undefined,
+    fxRateSource: trade.fxRateSource ?? '',
+    pnlProfileCurrency: trade.pnlProfileCurrency ?? undefined,
     riskAmount: trade.riskAmount ?? undefined,
     capitalUsed: trade.capitalUsed ?? undefined,
     setup: trade.setup ?? '',
@@ -312,14 +324,61 @@ export default function TradesPage() {
       )
     },
     { field: 'quantity', headerName: t('trades.table.qty'), flex: 0.9, valueFormatter: (params) => formatNumber(params.value, 2) },
-    { field: 'entryPrice', headerName: t('trades.table.entry'), flex: 1, valueFormatter: (params) => formatCurrency(params.value, baseCurrency) },
-    { field: 'exitPrice', headerName: t('trades.table.exit'), flex: 1, valueFormatter: (params) => formatCurrency(params.value, baseCurrency) },
+    {
+      field: 'entryPrice',
+      headerName: t('trades.table.entry'),
+      flex: 1,
+      renderCell: (params) => {
+        const row = params.row as TradeResponse
+        const tradeCurrency = row.tradeCurrency || row.profileCurrency || baseCurrency
+        return (
+          <Typography variant="body2">
+            {formatCurrency(params.value, tradeCurrency)}
+          </Typography>
+        )
+      }
+    },
+    {
+      field: 'exitPrice',
+      headerName: t('trades.table.exit'),
+      flex: 1,
+      renderCell: (params) => {
+        const row = params.row as TradeResponse
+        const tradeCurrency = row.tradeCurrency || row.profileCurrency || baseCurrency
+        return (
+          <Typography variant="body2">
+            {formatCurrency(params.value, tradeCurrency)}
+          </Typography>
+        )
+      }
+    },
     {
       field: 'pnlNet',
       headerName: t('trades.table.pnlNet'),
       flex: 1,
-      valueFormatter: (params) => formatSignedCurrency(params.value, baseCurrency),
-      cellClassName: (params) => (params.value || 0) >= 0 ? 'pnl-positive' : 'pnl-negative'
+      renderCell: (params) => {
+        const row = params.row as TradeResponse
+        const profileCurrency = row.profileCurrency || baseCurrency
+        const tradeCurrency = row.tradeCurrency || profileCurrency
+        const pnlProfileCurrency = row.pnlProfileCurrency ?? row.pnlNet
+        return (
+          <Stack spacing={0.1} sx={{ minWidth: 0 }}>
+            <Typography variant="body2" sx={{ fontWeight: 600 }}>
+              {formatSignedCurrency(pnlProfileCurrency, profileCurrency)}
+            </Typography>
+            {tradeCurrency !== profileCurrency && (
+              <Typography variant="caption" color="text.secondary">
+                {formatSignedCurrency(row.pnlNet, tradeCurrency)}
+              </Typography>
+            )}
+          </Stack>
+        )
+      },
+      cellClassName: (params) => {
+        const row = params.row as TradeResponse
+        const value = row.pnlProfileCurrency ?? row.pnlNet ?? 0
+        return value >= 0 ? 'pnl-positive' : 'pnl-negative'
+      }
     },
     { field: 'pnlPercent', headerName: t('trades.table.pnlPercent'), flex: 0.9, valueFormatter: (params) => formatPercent(params.value) },
     { field: 'rMultiple', headerName: t('trades.table.rMultiple'), flex: 0.9, valueFormatter: (params) => formatNumber(params.value, 2) },
@@ -785,16 +844,34 @@ export default function TradesPage() {
             </Stack>
             <Grid container spacing={1}>
               <Grid item xs={6}>
-                <Typography variant="body2">{t('trades.card.entry')}: {formatCurrency(trade.entryPrice, baseCurrency)}</Typography>
+                <Typography variant="body2">
+                  {t('trades.card.entry')}: {formatCurrency(trade.entryPrice, trade.tradeCurrency || trade.profileCurrency || baseCurrency)}
+                </Typography>
               </Grid>
               <Grid item xs={6}>
-                <Typography variant="body2">{t('trades.card.exit')}: {formatCurrency(trade.exitPrice, baseCurrency)}</Typography>
+                <Typography variant="body2">
+                  {t('trades.card.exit')}: {formatCurrency(trade.exitPrice, trade.tradeCurrency || trade.profileCurrency || baseCurrency)}
+                </Typography>
               </Grid>
               <Grid item xs={6}>
-                <Typography variant="body2">{t('trades.card.pnl')}: {formatSignedCurrency(trade.pnlNet, baseCurrency)}</Typography>
+                <Stack spacing={0.1}>
+                  <Typography variant="body2">
+                    {t('trades.card.pnl')}: {formatSignedCurrency(trade.pnlProfileCurrency ?? trade.pnlNet, trade.profileCurrency || baseCurrency)}
+                  </Typography>
+                  {(trade.tradeCurrency || trade.profileCurrency || baseCurrency) !== (trade.profileCurrency || baseCurrency) && (
+                    <Typography variant="caption" color="text.secondary">
+                      {formatSignedCurrency(trade.pnlNet, trade.tradeCurrency || trade.profileCurrency || baseCurrency)}
+                    </Typography>
+                  )}
+                </Stack>
               </Grid>
               <Grid item xs={6}>
                 <Typography variant="body2">{t('trades.card.pnlPercent')}: {formatPercent(trade.pnlPercent)}</Typography>
+              </Grid>
+              <Grid item xs={12}>
+                <Typography variant="caption" color="text.secondary">
+                  {t('trades.details.fxRate')}: {formatNumber(trade.fxRateTradeToProfile ?? 1, 6)} • {t('trades.details.fxSource')}: {trade.fxRateSource || t('common.na')}
+                </Typography>
               </Grid>
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {trade.notes || t('common.na')}</Typography>
@@ -940,51 +1017,69 @@ export default function TradesPage() {
           {expandedTrade && !isSmallScreen && (
             <Box sx={{ mt: 2, bgcolor: 'background.default', borderRadius: 2, border: '1px solid', borderColor: 'divider', p: 2 }}>
               <Typography variant="subtitle1" gutterBottom>{t('trades.details.title')}</Typography>
-              <Grid container spacing={2}>
-                <Grid item xs={12} sm={6} md={4}>
-                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.stopsAndTargets')}</Typography>
-                  <Typography variant="body2">{t('trades.details.stopLoss')}: {formatCurrency(expandedTrade.stopLossPrice, baseCurrency)}</Typography>
-                  <Typography variant="body2">{t('trades.details.takeProfit')}: {formatCurrency(expandedTrade.takeProfitPrice, baseCurrency)}</Typography>
-                  <Typography variant="body2">{t('trades.details.timeframe')}: {expandedTrade.timeframe || t('common.na')}</Typography>
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.costsAndRisk')}</Typography>
-                  <Typography variant="body2">{t('trades.form.fees')}: {formatCurrency(expandedTrade.fees, baseCurrency)}</Typography>
-                  <Typography variant="body2">{t('trades.form.commission')}: {formatCurrency(expandedTrade.commission, baseCurrency)}</Typography>
-                  <Typography variant="body2">{t('trades.form.slippage')}: {formatCurrency(expandedTrade.slippage, baseCurrency)}</Typography>
-                  <Typography variant="body2">{t('trades.details.risk')}: {formatCurrency(expandedTrade.riskAmount, baseCurrency)} ({formatPercent(expandedTrade.riskPercent)})</Typography>
-                  <Typography variant="body2">{t('trades.form.rMultiple')}: {formatNumber(expandedTrade.rMultiple)}</Typography>
-                </Grid>
-                <Grid item xs={12} sm={6} md={4}>
-                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
-                  <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
-                  <Typography variant="body2">{t('trades.form.strategy')}: {(expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
-                  <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
-                  <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
-                  <Typography variant="body2">{t('trades.form.setupGrade')}: {expandedTrade.setupGrade || t('common.na')}</Typography>
-                  <Typography variant="body2">{t('trades.form.session')}: {expandedTrade.session ? t(`trades.form.sessions.${expandedTrade.session}`) : t('common.na')}</Typography>
-                  <Typography variant="body2">{t('trades.form.linkedPlans')}: {(expandedTrade.linkedPlanIds || expandedTrade.linkedContentIds || []).length}</Typography>
-                  <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, baseCurrency)}</Typography>
-                </Grid>
-                <Grid item xs={12}>
-                  <Typography variant="subtitle2" gutterBottom>{t('trades.details.notesAndTags')}</Typography>
-                  <Typography variant="body2" sx={{ mb: 1 }}>
-                    <strong>{t('trades.details.initialNotes')}:</strong> {expandedTrade.initialNotes || t('common.na')}
-                  </Typography>
-                  <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || t('common.na')}</Typography>
-                  <Stack direction="row" spacing={1} flexWrap="wrap">
-                    {(expandedTrade.tags || []).map((tag: string) => (
-                      <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
-                    ))}
-                    {(expandedTrade.ruleBreaks || []).map((rule) => (
-                      <Chip key={rule} label={rule} size="small" color="warning" variant="outlined" />
-                    ))}
-                    {((expandedTrade.tags?.length || 0) + (expandedTrade.ruleBreaks?.length || 0)) === 0 && (
-                      <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>
-                    )}
-                  </Stack>
-                </Grid>
-              </Grid>
+              {(() => {
+                const profileCurrency = expandedTrade.profileCurrency || baseCurrency
+                const tradeCurrency = expandedTrade.tradeCurrency || profileCurrency
+                const pnlProfileCurrency = expandedTrade.pnlProfileCurrency ?? expandedTrade.pnlNet
+                return (
+                  <Grid container spacing={2}>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Typography variant="subtitle2" gutterBottom>{t('trades.details.stopsAndTargets')}</Typography>
+                      <Typography variant="body2">{t('trades.details.stopLoss')}: {formatCurrency(expandedTrade.stopLossPrice, tradeCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.details.takeProfit')}: {formatCurrency(expandedTrade.takeProfitPrice, tradeCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.details.timeframe')}: {expandedTrade.timeframe || t('common.na')}</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Typography variant="subtitle2" gutterBottom>{t('trades.details.costsAndRisk')}</Typography>
+                      <Typography variant="body2">{t('trades.form.fees')}: {formatCurrency(expandedTrade.fees, tradeCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.details.feesProfile')}: {formatCurrency(expandedTrade.feesProfileCurrency, profileCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.form.commission')}: {formatCurrency(expandedTrade.commission, tradeCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.form.slippage')}: {formatCurrency(expandedTrade.slippage, tradeCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.details.risk')}: {formatCurrency(expandedTrade.riskAmount, tradeCurrency)} ({formatPercent(expandedTrade.riskPercent)})</Typography>
+                      <Typography variant="body2">{t('trades.form.rMultiple')}: {formatNumber(expandedTrade.rMultiple)}</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Typography variant="subtitle2" gutterBottom>{t('trades.details.currency')}</Typography>
+                      <Typography variant="body2">{t('trades.form.profileCurrency')}: {profileCurrency}</Typography>
+                      <Typography variant="body2">{t('trades.form.tradeCurrency')}: {tradeCurrency}</Typography>
+                      <Typography variant="body2">{t('trades.details.pnlProfile')}: {formatSignedCurrency(pnlProfileCurrency, profileCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.details.pnlTrade')}: {formatSignedCurrency(expandedTrade.pnlNet, tradeCurrency)}</Typography>
+                      <Typography variant="body2">{t('trades.details.fxRate')}: {formatNumber(expandedTrade.fxRateTradeToProfile ?? 1, 6)}</Typography>
+                      <Typography variant="body2">{t('trades.details.fxSource')}: {expandedTrade.fxRateSource || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.details.fxTimestamp')}: {expandedTrade.fxRateTimestamp ? formatDateTime(expandedTrade.fxRateTimestamp) : t('common.na')}</Typography>
+                    </Grid>
+                    <Grid item xs={12} sm={6} md={4}>
+                      <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
+                      <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.form.strategy')}: {(expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.form.setupGrade')}: {expandedTrade.setupGrade || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.form.session')}: {expandedTrade.session ? t(`trades.form.sessions.${expandedTrade.session}`) : t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.form.linkedPlans')}: {(expandedTrade.linkedPlanIds || expandedTrade.linkedContentIds || []).length}</Typography>
+                      <Typography variant="body2">{t('trades.form.capitalUsed')}: {formatCurrency(expandedTrade.capitalUsed, tradeCurrency)}</Typography>
+                    </Grid>
+                    <Grid item xs={12}>
+                      <Typography variant="subtitle2" gutterBottom>{t('trades.details.notesAndTags')}</Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>
+                        <strong>{t('trades.details.initialNotes')}:</strong> {expandedTrade.initialNotes || t('common.na')}
+                      </Typography>
+                      <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || t('common.na')}</Typography>
+                      <Stack direction="row" spacing={1} flexWrap="wrap">
+                        {(expandedTrade.tags || []).map((tag: string) => (
+                          <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
+                        ))}
+                        {(expandedTrade.ruleBreaks || []).map((rule) => (
+                          <Chip key={rule} label={rule} size="small" color="warning" variant="outlined" />
+                        ))}
+                        {((expandedTrade.tags?.length || 0) + (expandedTrade.ruleBreaks?.length || 0)) === 0 && (
+                          <Typography variant="body2" color="text.secondary">{t('trades.details.noTags')}</Typography>
+                        )}
+                      </Stack>
+                    </Grid>
+                  </Grid>
+                )
+              })()}
             </Box>
           )}
         </CardContent>

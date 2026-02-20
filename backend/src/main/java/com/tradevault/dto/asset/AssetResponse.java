@@ -15,6 +15,7 @@ public class AssetResponse {
     AssetScope scope;
     UUID contentId;
     UUID noteId;
+    UUID strategyId;
     String originalFileName;
     String contentType;
     Long sizeBytes;

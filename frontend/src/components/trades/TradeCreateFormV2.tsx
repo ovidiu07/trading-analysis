@@ -88,8 +88,14 @@ const normalizeDefaults = (values: TradeFormValues): TradeFormValues => ({
   stopLossPrice: values.stopLossPrice,
   takeProfitPrice: values.takeProfitPrice,
   fees: values.fees ?? 0,
+  feesProfileCurrency: values.feesProfileCurrency,
   commission: values.commission ?? 0,
   slippage: values.slippage ?? 0,
+  tradeCurrency: values.tradeCurrency || undefined,
+  profileCurrency: values.profileCurrency || undefined,
+  fxRateTradeToProfile: values.fxRateTradeToProfile,
+  fxRateSource: values.fxRateSource || undefined,
+  pnlProfileCurrency: values.pnlProfileCurrency,
   riskAmount: values.riskAmount,
   capitalUsed: values.capitalUsed,
   setup: values.setup || undefined,
@@ -111,8 +117,14 @@ const toTradeFormValues = (values: TradeFormValues): TradeFormValues => ({
   closedAt: values.status === 'CLOSED' ? values.closedAt : undefined,
   exitPrice: values.status === 'CLOSED' ? values.exitPrice : undefined,
   fees: values.fees ?? 0,
+  feesProfileCurrency: values.feesProfileCurrency,
   commission: values.commission ?? 0,
   slippage: values.slippage ?? 0,
+  tradeCurrency: values.tradeCurrency || undefined,
+  profileCurrency: values.profileCurrency || undefined,
+  fxRateTradeToProfile: values.fxRateTradeToProfile,
+  fxRateSource: values.fxRateSource || undefined,
+  pnlProfileCurrency: values.pnlProfileCurrency,
   ruleBreaks: values.ruleBreaks || [],
   linkedContentIds: values.linkedContentIds || [],
   linkedPlanIds: values.linkedPlanIds || values.linkedContentIds || []
@@ -230,6 +242,10 @@ export function TradeCreateFormV2({
 
   const watchedValues = watch()
   const watchedOpenedAt = watch('openedAt')
+  const watchedTradeCurrency = ((watch('tradeCurrency') || baseCurrency).trim().toUpperCase() || baseCurrency).toUpperCase()
+  const watchedProfileCurrency = ((watch('profileCurrency') || baseCurrency).trim().toUpperCase() || baseCurrency).toUpperCase()
+  const watchedFxSource = watch('fxRateSource')
+  const isCrossCurrency = watchedTradeCurrency !== watchedProfileCurrency
   const openedAtIso = useMemo(() => {
     if (!watchedOpenedAt || !watchedOpenedAt.trim()) return ''
     try {
@@ -240,6 +256,32 @@ export function TradeCreateFormV2({
   }, [watchedOpenedAt])
 
   const activePlansQuery = useActivePlansForTradeQuery(openedAtIso, timezone, Boolean(openedAtIso))
+
+  useEffect(() => {
+    const profileCurrency = ((getValues('profileCurrency') || '').trim().toUpperCase() || baseCurrency).toUpperCase()
+    const tradeCurrency = ((getValues('tradeCurrency') || '').trim().toUpperCase() || baseCurrency).toUpperCase()
+    if (getValues('profileCurrency') !== profileCurrency) {
+      setValue('profileCurrency', profileCurrency, { shouldValidate: true })
+    }
+    if (getValues('tradeCurrency') !== tradeCurrency) {
+      setValue('tradeCurrency', tradeCurrency, { shouldValidate: true })
+    }
+  }, [baseCurrency, getValues, setValue])
+
+  useEffect(() => {
+    if (watchedTradeCurrency === watchedProfileCurrency) {
+      if (getValues('fxRateTradeToProfile') !== 1) {
+        setValue('fxRateTradeToProfile', 1, { shouldValidate: true })
+      }
+      if (watchedFxSource !== 'IDENTITY') {
+        setValue('fxRateSource', 'IDENTITY', { shouldValidate: true })
+      }
+      return
+    }
+    if (!watchedFxSource || watchedFxSource === 'IDENTITY') {
+      setValue('fxRateSource', 'MANUAL', { shouldValidate: true })
+    }
+  }, [getValues, setValue, watchedFxSource, watchedProfileCurrency, watchedTradeCurrency])
 
   const activePlanOptions = useMemo<ContentOption[]>(() => {
     return (activePlansQuery.data?.plans || []).map((plan) => ({
@@ -289,14 +331,42 @@ export function TradeCreateFormV2({
     pattern: '^[0-9]*[.,]?[0-9]*$'
   }
 
-  const currencyAdornment = useMemo(() => (
+  const tradeCurrencyAdornment = useMemo(() => (
     <InputAdornment position="end">
-      <Typography variant="caption" color="text.secondary">{baseCurrency}</Typography>
+      <Typography variant="caption" color="text.secondary">{watchedTradeCurrency}</Typography>
     </InputAdornment>
-  ), [baseCurrency])
+  ), [watchedTradeCurrency])
+
+  const profileCurrencyAdornment = useMemo(() => (
+    <InputAdornment position="end">
+      <Typography variant="caption" color="text.secondary">{watchedProfileCurrency}</Typography>
+    </InputAdornment>
+  ), [watchedProfileCurrency])
 
   const submit = handleSubmit(async (values) => {
-    const payload = toTradeFormValues(values)
+    const tradeCurrency = (values.tradeCurrency || baseCurrency).trim().toUpperCase()
+    const profileCurrency = (values.profileCurrency || baseCurrency).trim().toUpperCase()
+    const fxRate = tradeCurrency === profileCurrency ? 1 : (values.fxRateTradeToProfile || 1)
+    const totalCosts = (values.fees || 0) + (values.commission || 0) + (values.slippage || 0)
+
+    let pnlProfileCurrency: number | undefined = values.pnlProfileCurrency
+    if (values.exitPrice !== undefined && values.entryPrice !== undefined && values.quantity !== undefined) {
+      const gross = values.direction === 'LONG'
+        ? (values.exitPrice - values.entryPrice) * values.quantity
+        : (values.entryPrice - values.exitPrice) * values.quantity
+      const pnlNet = gross - totalCosts
+      pnlProfileCurrency = pnlNet * fxRate
+    }
+
+    const payload = toTradeFormValues({
+      ...values,
+      tradeCurrency,
+      profileCurrency,
+      fxRateTradeToProfile: fxRate,
+      fxRateSource: tradeCurrency === profileCurrency ? 'IDENTITY' : (values.fxRateSource || 'MANUAL'),
+      feesProfileCurrency: totalCosts * fxRate,
+      pnlProfileCurrency
+    })
     await onSubmit(payload)
     saveRecentSymbol(payload.symbol)
     setShowValidationBanner(false)
@@ -348,18 +418,18 @@ export function TradeCreateFormV2({
     const fees = parseLocalizedNumberInput(watchedValues.fees) ?? 0
     const commission = parseLocalizedNumberInput(watchedValues.commission) ?? 0
     const slippage = parseLocalizedNumberInput(watchedValues.slippage) ?? 0
-    return formatCurrency(fees + commission + slippage, baseCurrency)
-  }, [baseCurrency, watchedValues.commission, watchedValues.fees, watchedValues.slippage])
+    return formatCurrency(fees + commission + slippage, watchedTradeCurrency)
+  }, [watchedTradeCurrency, watchedValues.commission, watchedValues.fees, watchedValues.slippage])
 
   const riskSummary = useMemo(() => {
     const risk = parseLocalizedNumberInput(watchedValues.riskAmount)
     const capital = parseLocalizedNumberInput(watchedValues.capitalUsed)
     if (risk === undefined && capital === undefined) return '—'
     const parts: string[] = []
-    if (risk !== undefined) parts.push(`${t('trades.form.riskAmount')}: ${formatCurrency(risk, baseCurrency)}`)
-    if (capital !== undefined) parts.push(`${t('trades.form.capitalUsed')}: ${formatCurrency(capital, baseCurrency)}`)
+    if (risk !== undefined) parts.push(`${t('trades.form.riskAmount')}: ${formatCurrency(risk, watchedTradeCurrency)}`)
+    if (capital !== undefined) parts.push(`${t('trades.form.capitalUsed')}: ${formatCurrency(capital, watchedTradeCurrency)}`)
     return parts.join(' • ')
-  }, [baseCurrency, t, watchedValues.capitalUsed, watchedValues.riskAmount])
+  }, [t, watchedTradeCurrency, watchedValues.capitalUsed, watchedValues.riskAmount])
 
   const contextSummary = useMemo(() => {
     const parts: string[] = []
@@ -531,7 +601,7 @@ export function TradeCreateFormV2({
             error={!!errors.entryPrice}
             helperText={resolveError('entryPrice') || t('trades.form.priceHelper')}
             inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-            InputProps={{ endAdornment: currencyAdornment }}
+            InputProps={{ endAdornment: tradeCurrencyAdornment }}
             {...register('entryPrice', { setValueAs: parseLocalizedNumberInput })}
           />
         </Grid>
@@ -543,7 +613,7 @@ export function TradeCreateFormV2({
               error={!!errors.exitPrice}
               helperText={resolveError('exitPrice') || t('trades.form.priceHelper')}
               inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-              InputProps={{ endAdornment: currencyAdornment }}
+              InputProps={{ endAdornment: tradeCurrencyAdornment }}
               {...register('exitPrice', { setValueAs: parseLocalizedNumberInput })}
             />
           </Grid>
@@ -558,7 +628,7 @@ export function TradeCreateFormV2({
             error={!!errors.stopLossPrice}
             helperText={resolveError('stopLossPrice') || t('trades.form.priceHelper')}
             inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-            InputProps={{ endAdornment: currencyAdornment }}
+            InputProps={{ endAdornment: tradeCurrencyAdornment }}
             {...register('stopLossPrice', { setValueAs: parseLocalizedNumberInput })}
           />
         </Grid>
@@ -569,8 +639,70 @@ export function TradeCreateFormV2({
             error={!!errors.takeProfitPrice}
             helperText={resolveError('takeProfitPrice') || t('trades.form.priceHelper')}
             inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
-            InputProps={{ endAdornment: currencyAdornment }}
+            InputProps={{ endAdornment: tradeCurrencyAdornment }}
             {...register('takeProfitPrice', { setValueAs: parseLocalizedNumberInput })}
+          />
+        </Grid>
+      </Grid>
+
+      <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
+        <Grid item xs={12} md={4}>
+          <Controller
+            name="tradeCurrency"
+            control={control}
+            render={({ field }) => (
+              <TextField
+                select
+                label={t('trades.form.tradeCurrency')}
+                fullWidth
+                value={(field.value || watchedTradeCurrency).toUpperCase()}
+                onChange={(event) => {
+                  const nextCurrency = event.target.value.toUpperCase()
+                  field.onChange(nextCurrency)
+                  if (nextCurrency === watchedProfileCurrency) {
+                    setValue('fxRateTradeToProfile', 1, { shouldValidate: true, shouldDirty: true })
+                    setValue('fxRateSource', 'IDENTITY', { shouldValidate: true, shouldDirty: true })
+                  }
+                }}
+                error={!!errors.tradeCurrency}
+                helperText={resolveError('tradeCurrency')}
+              >
+                <MenuItem value="USD">USD</MenuItem>
+                <MenuItem value="EUR">EUR</MenuItem>
+              </TextField>
+            )}
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <TextField
+            label={t('trades.form.profileCurrency')}
+            fullWidth
+            value={watchedProfileCurrency}
+            InputProps={{ readOnly: true }}
+          />
+        </Grid>
+        <Grid item xs={12} md={4}>
+          <TextField
+            label={t('trades.form.fxRate')}
+            fullWidth
+            disabled={!isCrossCurrency}
+            error={!!errors.fxRateTradeToProfile}
+            helperText={isCrossCurrency
+              ? (resolveError('fxRateTradeToProfile') || t('trades.form.fxRateHint', {
+                  tradeCurrency: watchedTradeCurrency,
+                  profileCurrency: watchedProfileCurrency
+                }))
+              : t('trades.form.fxIdentity')}
+            inputProps={{ ...decimalInputProps, step: '0.0001', min: 0 }}
+            InputProps={{ endAdornment: profileCurrencyAdornment }}
+            {...register('fxRateTradeToProfile', {
+              setValueAs: parseLocalizedNumberInput,
+              onChange: () => {
+                if (isCrossCurrency) {
+                  setValue('fxRateSource', 'MANUAL', { shouldValidate: true, shouldDirty: true })
+                }
+              }
+            })}
           />
         </Grid>
       </Grid>
@@ -624,7 +756,7 @@ export function TradeCreateFormV2({
                 error={!!errors.riskAmount}
                 helperText={resolveError('riskAmount') || t('trades.form.riskAmountHint')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ endAdornment: currencyAdornment }}
+                InputProps={{ endAdornment: tradeCurrencyAdornment }}
                 {...register('riskAmount', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
@@ -635,7 +767,7 @@ export function TradeCreateFormV2({
                 error={!!errors.capitalUsed}
                 helperText={resolveError('capitalUsed') || t('trades.form.capitalUsedHint')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ endAdornment: currencyAdornment }}
+                InputProps={{ endAdornment: tradeCurrencyAdornment }}
                 {...register('capitalUsed', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
@@ -665,7 +797,7 @@ export function TradeCreateFormV2({
                 error={!!errors.fees}
                 helperText={resolveError('fees') || t('trades.form.costHelper')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ endAdornment: currencyAdornment }}
+                InputProps={{ endAdornment: tradeCurrencyAdornment }}
                 {...register('fees', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
@@ -676,7 +808,7 @@ export function TradeCreateFormV2({
                 error={!!errors.commission}
                 helperText={resolveError('commission') || t('trades.form.costHelper')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ endAdornment: currencyAdornment }}
+                InputProps={{ endAdornment: tradeCurrencyAdornment }}
                 {...register('commission', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>
@@ -687,7 +819,7 @@ export function TradeCreateFormV2({
                 error={!!errors.slippage}
                 helperText={resolveError('slippage') || t('trades.form.costHelper')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
-                InputProps={{ endAdornment: currencyAdornment }}
+                InputProps={{ endAdornment: tradeCurrencyAdornment }}
                 {...register('slippage', { setValueAs: parseLocalizedNumberInput })}
               />
             </Grid>

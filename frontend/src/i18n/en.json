@@ -61,7 +61,70 @@
     "system": "System"
   },
   "strategies": {
-    "subtitle": "Define and manage your execution strategies."
+    "subtitle": "Define and manage your execution strategies.",
+    "my": {
+      "title": "My strategies",
+      "emptyTitle": "No strategies yet",
+      "emptyBody": "Create your first strategy below."
+    },
+    "mentor": {
+      "title": "Mentor strategies",
+      "emptyTitle": "No mentor strategies",
+      "emptyBody": "Publish STRATEGY content in Admin."
+    },
+    "form": {
+      "create": "Create strategy",
+      "edit": "Edit strategy",
+      "createAction": "Create strategy",
+      "name": "Name",
+      "model": "Model",
+      "entryConditions": "Entry conditions",
+      "entryConditionsPlaceholder": "Describe your trigger checklist and execution sequence.",
+      "entryPreset": "One item per line preset",
+      "entryPresetHint": "Paste newline-separated rules, then convert to bullets.",
+      "convertPreset": "Convert lines to bullets",
+      "invalidation": "Invalidation / SL logic",
+      "tpFramework": "TP framework",
+      "noTradeRules": "No-trade rules",
+      "sessionSuitability": "Session suitability",
+      "tags": "Tags",
+      "tagsHint": "Comma or newline separated"
+    },
+    "assets": {
+      "title": "Strategy screenshots",
+      "saveFirst": "Save the strategy first, then upload screenshots.",
+      "dropTitle": "Drop screenshots or choose files",
+      "dropHint": "Images and docs are supported.",
+      "selectFiles": "Select files",
+      "empty": "No strategy assets uploaded.",
+      "setSnapshot": "Set as strategy snapshot",
+      "snapshotSelected": "Strategy snapshot"
+    },
+    "preview": {
+      "title": "Preview",
+      "emptyTitle": "No strategy selected",
+      "emptyBody": "Select or create a strategy to preview it.",
+      "untitled": "Untitled strategy",
+      "invalidation": "Invalidation",
+      "targets": "Targets",
+      "noTradeRules": "No-trade rules"
+    },
+    "messages": {
+      "required": "Name, model, invalidation logic, and TP framework are required.",
+      "created": "Strategy created.",
+      "updated": "Strategy updated.",
+      "archived": "Strategy archived.",
+      "createFailed": "Could not create strategy",
+      "updateFailed": "Could not update strategy",
+      "archiveFailed": "Could not archive strategy",
+      "saveBeforeUpload": "Save the strategy first, then upload screenshots.",
+      "uploadFailed": "Could not upload strategy asset",
+      "snapshotFailed": "Could not set strategy snapshot",
+      "removeAssetFailed": "Could not remove strategy asset",
+      "linkCopied": "Asset link copied.",
+      "copyLinkFailed": "Could not copy asset link",
+      "downloadFailed": "Could not download asset"
+    }
   },
   "layout": {
     "collapseSidebar": "Collapse sidebar",
@@ -926,7 +989,9 @@
         "maxTradesRequired": "Max trades must be greater than zero",
         "tickerRequired": "Ticker is required",
         "quantityAndEntryRequired": "Quantity and entry price are required",
-        "exitPriceRequired": "Exit price is required"
+        "exitPriceRequired": "Exit price is required",
+        "fxRateRequired": "FX rate is required when trade and profile currencies differ.",
+        "fxAutofillFailed": "Could not auto-fill FX rate. Enter it manually."
       },
       "progress": {
         "title": "Session progress",
@@ -988,6 +1053,13 @@
         "context": "Context",
         "body": "Full plan body"
       },
+      "layout": {
+        "liveChart": "Live chart",
+        "collapse": "Collapse panel",
+        "expand": "Expand panel",
+        "maximize": "Maximize panel",
+        "restore": "Restore layout"
+      },
       "planner": {
         "title": "Trade Planner + Execution",
         "scheduleTrade": "Schedule trade",
@@ -1005,8 +1077,15 @@
       "form": {
         "requiredField": "Required",
         "optionalField": "Optional",
+        "tradeCurrency": "Trade currency",
+        "profileCurrency": "Profile currency",
+        "fxRate": "FX rate (trade → profile)",
+        "fxRateHint": "Rate from {{tradeCurrency}} to {{profileCurrency}}",
+        "fxRateLoading": "Loading rate...",
+        "fxRateAutoFill": "Auto-fill",
         "pricesGroup": "Prices",
         "riskSnapshot": "Risk snapshot: {{risk}} • R est.: {{r}}",
+        "riskSnapshotConverted": "Risk in profile currency: {{risk}}",
         "feeling": "How are you feeling?",
         "myStrategies": "My strategies",
         "mentorStrategies": "Mentor strategies",
@@ -1014,11 +1093,14 @@
       },
       "strategyDetails": {
         "title": "Strategy details",
+        "showMore": "Show more",
+        "showLess": "Show less",
         "entryConditions": "Entry conditions",
         "invalidation": "Invalidation",
         "management": "Management",
         "noTradeRules": "No-trade rules",
-        "sessionSuitability": "Session suitability"
+        "sessionSuitability": "Session suitability",
+        "tags": "Tags"
       }
     }
   },
@@ -1503,6 +1585,13 @@
       "takeProfit": "Take profit",
       "timeframe": "Timeframe",
       "costsAndRisk": "Costs & risk",
+      "currency": "Currency conversion",
+      "pnlProfile": "P&L (profile currency)",
+      "pnlTrade": "P&L (trade currency)",
+      "feesProfile": "Fees (profile currency)",
+      "fxRate": "FX rate",
+      "fxSource": "FX source",
+      "fxTimestamp": "FX timestamp",
       "risk": "Risk",
       "setup": "Setup",
       "notesAndTags": "Notes & tags",
@@ -1525,6 +1614,11 @@
       "fees": "Fees",
       "commission": "Commission",
       "slippage": "Slippage",
+      "tradeCurrency": "Trade currency",
+      "profileCurrency": "Profile currency",
+      "fxRate": "FX rate",
+      "fxRateHint": "Rate from {{tradeCurrency}} to {{profileCurrency}}",
+      "fxIdentity": "Identity rate (1.0000)",
       "riskAmount": "Risk amount",
       "riskAmountHint": "Optional: improves P&L % and R multiple",
       "capitalUsed": "Capital used",
@@ -1604,11 +1698,11 @@
         "newsViolation": "News violation",
         "outsideSession": "Outside session"
       },
-      "validation": {
-        "symbolRequired": "Symbol is required.",
-        "symbolTooLong": "Symbol must be at most 15 characters.",
-        "marketRequired": "Market is required.",
-        "directionRequired": "Direction is required.",
+    "validation": {
+      "symbolRequired": "Symbol is required.",
+      "symbolTooLong": "Symbol must be at most 15 characters.",
+      "marketRequired": "Market is required.",
+      "directionRequired": "Direction is required.",
         "statusRequired": "Status is required.",
         "openedAtRequired": "Opened time is required.",
         "closedAtRequired": "Closed time is required for closed trades.",
@@ -1617,11 +1711,14 @@
         "exitPricePositive": "Exit price must be greater than zero.",
         "exitPriceRequired": "Exit price is required for closed trades.",
         "stopLossPositive": "Stop-loss must be greater than zero.",
-        "takeProfitPositive": "Take-profit must be greater than zero.",
-        "costNonNegative": "Costs cannot be negative.",
-        "riskAmountPositive": "Risk amount must be greater than zero.",
-        "capitalUsedPositive": "Capital used must be greater than zero."
-      },
+      "takeProfitPositive": "Take-profit must be greater than zero.",
+      "costNonNegative": "Costs cannot be negative.",
+      "currencyCode": "Currency must be a valid 3-letter ISO code.",
+      "fxRatePositive": "FX rate must be greater than zero.",
+      "pnlProfileNumber": "Profile-currency P&L must be numeric.",
+      "riskAmountPositive": "Risk amount must be greater than zero.",
+      "capitalUsedPositive": "Capital used must be greater than zero."
+    },
       "validationBanner": "Please fix the highlighted fields before saving."
     },
     "help": {

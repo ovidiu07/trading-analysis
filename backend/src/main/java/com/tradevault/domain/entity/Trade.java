@@ -66,10 +66,24 @@ public class Trade {
     private BigDecimal stopLossPrice;
     private BigDecimal takeProfitPrice;
     private BigDecimal fees;
+    @Column(name = "fees_profile_currency")
+    private BigDecimal feesProfileCurrency;
     private BigDecimal commission;
     private BigDecimal slippage;
     private BigDecimal pnlGross;
     private BigDecimal pnlNet;
+    @Column(name = "pnl_profile_currency")
+    private BigDecimal pnlProfileCurrency;
+    @Column(name = "trade_currency")
+    private String tradeCurrency;
+    @Column(name = "profile_currency")
+    private String profileCurrency;
+    @Column(name = "fx_rate_trade_to_profile")
+    private BigDecimal fxRateTradeToProfile;
+    @Column(name = "fx_rate_timestamp")
+    private OffsetDateTime fxRateTimestamp;
+    @Column(name = "fx_rate_source")
+    private String fxRateSource;
     private BigDecimal pnlPercent;
     private BigDecimal riskAmount;
     private BigDecimal riskPercent;

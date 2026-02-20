@@ -29,10 +29,17 @@ public class TradeResponse {
     private BigDecimal stopLossPrice;
     private BigDecimal takeProfitPrice;
     private BigDecimal fees;
+    private BigDecimal feesProfileCurrency;
     private BigDecimal commission;
     private BigDecimal slippage;
     private BigDecimal pnlNet;
     private BigDecimal pnlGross;
+    private BigDecimal pnlProfileCurrency;
+    private String tradeCurrency;
+    private String profileCurrency;
+    private BigDecimal fxRateTradeToProfile;
+    private OffsetDateTime fxRateTimestamp;
+    private String fxRateSource;
     private BigDecimal pnlPercent;
     private BigDecimal rMultiple;
     private BigDecimal riskAmount;

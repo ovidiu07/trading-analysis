@@ -43,6 +43,9 @@ export type StartSessionTradeRequest = {
   entryPrice: number
   takeProfitPrice?: number | null
   stopLossPrice?: number | null
+  tradeCurrency?: string | null
+  fxRateTradeToProfile?: number | null
+  fxRateSource?: string | null
   session: TradeRequest['session']
   feeling?: string | null
   setupGrade: NonNullable<TradeRequest['setupGrade']>

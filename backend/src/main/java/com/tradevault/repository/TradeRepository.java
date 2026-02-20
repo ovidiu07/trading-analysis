@@ -178,12 +178,12 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
   long countByUser_IdAndSessionIdAndStatus(UUID userId, UUID sessionId, TradeStatus status);
 
   @Query("""
-      SELECT COALESCE(SUM(t.pnlNet), 0)
+      SELECT COALESCE(SUM(COALESCE(t.pnlProfileCurrency, t.pnlNet)), 0)
       FROM Trade t
       WHERE t.user.id = :userId
         AND t.sessionId = :sessionId
         AND t.status = :status
-        AND t.pnlNet IS NOT NULL
+        AND (t.pnlProfileCurrency IS NOT NULL OR t.pnlNet IS NOT NULL)
       """)
   BigDecimal sumNetPnlByUserAndSessionAndStatus(@Param("userId") UUID userId,
                                                 @Param("sessionId") UUID sessionId,

@@ -2,6 +2,7 @@ package com.tradevault.service.today;
 
 import com.tradevault.dto.content.ContentPostResponse;
 import com.tradevault.dto.plan.DailyPlanResponse;
+import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.service.ContentPostService;
 import com.tradevault.service.CurrentUserService;
 import com.tradevault.service.TimezoneService;
@@ -127,6 +128,43 @@ class TodayServiceMentorPlanTest {
         assertEquals("Visible now", response.get(0).getTitle());
         assertEquals("Recent expired", response.get(1).getTitle());
         assertFalse(response.stream().anyMatch(plan -> "Future plan".equals(plan.getTitle())));
+    }
+
+    @Test
+    void mentorPlanIncludesSnapshotAssetWhenConfigured() {
+        ZoneId zone = ZoneId.of(TimezoneService.DEFAULT_TIMEZONE);
+        OffsetDateTime now = OffsetDateTime.now(zone);
+        UUID snapshotId = UUID.randomUUID();
+        AssetResponse snapshot = AssetResponse.builder()
+                .id(snapshotId)
+                .originalFileName("snapshot.png")
+                .url("/api/assets/%s/view".formatted(snapshotId))
+                .viewUrl("/api/assets/%s/view".formatted(snapshotId))
+                .image(true)
+                .build();
+
+        ContentPostResponse withSnapshot = ContentPostResponse.builder()
+                .id(UUID.randomUUID())
+                .title("Snapshot plan")
+                .summary("summary")
+                .visibleFrom(now.minusHours(1))
+                .visibleUntil(now.plusHours(1))
+                .updatedAt(now)
+                .snapshotAssetId(snapshotId)
+                .snapshotCaption("Bias context")
+                .assets(List.of(snapshot))
+                .build();
+
+        when(contentPostService.listPublished(eq("DAILY_PLAN"), eq(null), eq(false), eq("en")))
+                .thenReturn(List.of(withSnapshot));
+
+        DailyPlanResponse response = todayService.getTodayMentorDailyPlan("en");
+
+        assertNotNull(response);
+        assertEquals(snapshotId, response.getSnapshotAssetId());
+        assertEquals("Bias context", response.getSnapshotCaption());
+        assertNotNull(response.getSnapshotAsset());
+        assertEquals(snapshotId, response.getSnapshotAsset().getId());
     }
 
     private ContentPostResponse plan(UUID id,

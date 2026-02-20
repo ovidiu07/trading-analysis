@@ -12,5 +12,6 @@ public class AssetUploadRequest {
     private AssetScope scope;
     private UUID contentId;
     private UUID noteId;
+    private UUID strategyId;
     private Integer sortOrder;
 }

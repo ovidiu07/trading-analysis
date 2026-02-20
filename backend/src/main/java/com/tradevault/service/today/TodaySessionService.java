@@ -210,6 +210,10 @@ public class TodaySessionService {
         tradeRequest.setEntryPrice(request.getEntryPrice());
         tradeRequest.setTakeProfitPrice(request.getTakeProfitPrice());
         tradeRequest.setStopLossPrice(request.getStopLossPrice());
+        tradeRequest.setTradeCurrency(normalizeOptionalText(request.getTradeCurrency()));
+        tradeRequest.setProfileCurrency(normalizeOptionalText(user.getBaseCurrency()));
+        tradeRequest.setFxRateTradeToProfile(request.getFxRateTradeToProfile());
+        tradeRequest.setFxRateSource(normalizeOptionalText(request.getFxRateSource()));
         tradeRequest.setSession(request.getSession());
         tradeRequest.setSetupGrade(request.getSetupGrade());
         tradeRequest.setStrategyId(request.getStrategyId());
@@ -273,8 +277,15 @@ public class TodaySessionService {
         request.setStopLossPrice(trade.getStopLossPrice());
         request.setTakeProfitPrice(trade.getTakeProfitPrice());
         request.setFees(trade.getFees());
+        request.setFeesProfileCurrency(trade.getFeesProfileCurrency());
         request.setCommission(trade.getCommission());
         request.setSlippage(trade.getSlippage());
+        request.setTradeCurrency(trade.getTradeCurrency());
+        request.setProfileCurrency(trade.getProfileCurrency());
+        request.setFxRateTradeToProfile(trade.getFxRateTradeToProfile());
+        request.setFxRateTimestamp(trade.getFxRateTimestamp());
+        request.setFxRateSource(trade.getFxRateSource());
+        request.setPnlProfileCurrency(trade.getPnlProfileCurrency());
         request.setRiskAmount(trade.getRiskAmount());
         request.setCapitalUsed(trade.getCapitalUsed());
         request.setTimeframe(trade.getTimeframe());

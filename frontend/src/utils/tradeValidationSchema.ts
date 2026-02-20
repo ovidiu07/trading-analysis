@@ -12,6 +12,15 @@ const toUndefinedIfEmpty = (value: unknown) => {
   return value
 }
 
+const optionalCurrencyCode = z.preprocess(
+  (value) => {
+    if (typeof value !== 'string') return toUndefinedIfEmpty(value)
+    const normalized = value.trim().toUpperCase()
+    return normalized || undefined
+  },
+  z.string().regex(/^[A-Z]{3}$/, 'trades.form.validation.currencyCode').optional()
+)
+
 const positiveRequiredNumber = (messageKey: string) =>
   z.preprocess(
     parseLocalizedNumberInput,
@@ -49,8 +58,17 @@ export const tradeValidationSchema = z
     stopLossPrice: positiveOptionalNumber('trades.form.validation.stopLossPositive'),
     takeProfitPrice: positiveOptionalNumber('trades.form.validation.takeProfitPositive'),
     fees: nonNegativeOptionalNumber('trades.form.validation.costNonNegative'),
+    feesProfileCurrency: nonNegativeOptionalNumber('trades.form.validation.costNonNegative'),
     commission: nonNegativeOptionalNumber('trades.form.validation.costNonNegative'),
     slippage: nonNegativeOptionalNumber('trades.form.validation.costNonNegative'),
+    tradeCurrency: optionalCurrencyCode,
+    profileCurrency: optionalCurrencyCode,
+    fxRateTradeToProfile: positiveOptionalNumber('trades.form.validation.fxRatePositive'),
+    fxRateSource: z.preprocess(toUndefinedIfEmpty, z.string().trim().max(64).optional()),
+    pnlProfileCurrency: z.preprocess(
+      parseLocalizedNumberInput,
+      z.number('trades.form.validation.pnlProfileNumber').optional()
+    ),
     riskAmount: positiveOptionalNumber('trades.form.validation.riskAmountPositive'),
     capitalUsed: positiveOptionalNumber('trades.form.validation.capitalUsedPositive'),
     setup: z.preprocess(toUndefinedIfEmpty, z.string().trim().max(120).optional()),

@@ -14,8 +14,14 @@ type TradeFormValues = {
   stopLossPrice?: number
   takeProfitPrice?: number
   fees?: number
+  feesProfileCurrency?: number
   commission?: number
   slippage?: number
+  tradeCurrency?: string
+  profileCurrency?: string
+  fxRateTradeToProfile?: number
+  fxRateSource?: string
+  pnlProfileCurrency?: number
   riskAmount?: number
   capitalUsed?: number
   setup?: string
@@ -63,8 +69,14 @@ export function buildTradePayload(values: TradeFormValues): TradeRequest {
     stopLossPrice: toNullableNumber(values.stopLossPrice),
     takeProfitPrice: toNullableNumber(values.takeProfitPrice),
     fees: toNullableNumber(values.fees) ?? undefined,
+    feesProfileCurrency: toNullableNumber(values.feesProfileCurrency) ?? undefined,
     commission: toNullableNumber(values.commission) ?? undefined,
     slippage: toNullableNumber(values.slippage) ?? undefined,
+    tradeCurrency: values.tradeCurrency || undefined,
+    profileCurrency: values.profileCurrency || undefined,
+    fxRateTradeToProfile: toNullableNumber(values.fxRateTradeToProfile) ?? undefined,
+    fxRateSource: values.fxRateSource || undefined,
+    pnlProfileCurrency: toNullableNumber(values.pnlProfileCurrency) ?? undefined,
     riskAmount: toNullableNumber(values.riskAmount) ?? undefined,
     capitalUsed: toNullableNumber(values.capitalUsed) ?? undefined,
     timeframe: values.timeframe || undefined,

@@ -14,6 +14,8 @@ import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookNoteRepository;
+import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -43,6 +45,8 @@ class AssetServiceTest {
     private NotebookAttachmentRepository notebookAttachmentRepository;
     private ContentPostRepository contentPostRepository;
     private NotebookNoteRepository notebookNoteRepository;
+    private UserStrategyRepository userStrategyRepository;
+    private StrategyAssetRepository strategyAssetRepository;
     private CurrentUserService currentUserService;
     private ObjectStorageService objectStorageService;
     private UploadProperties uploadProperties;
@@ -56,6 +60,8 @@ class AssetServiceTest {
         notebookAttachmentRepository = mock(NotebookAttachmentRepository.class);
         contentPostRepository = mock(ContentPostRepository.class);
         notebookNoteRepository = mock(NotebookNoteRepository.class);
+        userStrategyRepository = mock(UserStrategyRepository.class);
+        strategyAssetRepository = mock(StrategyAssetRepository.class);
         currentUserService = mock(CurrentUserService.class);
         objectStorageService = mock(ObjectStorageService.class);
 
@@ -73,6 +79,8 @@ class AssetServiceTest {
                 notebookAttachmentRepository,
                 contentPostRepository,
                 notebookNoteRepository,
+                userStrategyRepository,
+                strategyAssetRepository,
                 currentUserService,
                 objectStorageService,
                 new ObjectMapper(),

@@ -46,6 +46,9 @@ public class UserStrategy {
     @Column(name = "entry_conditions", nullable = false, columnDefinition = "TEXT")
     private String entryConditionsJson;
 
+    @Column(name = "entry_conditions_rich", nullable = false, columnDefinition = "TEXT")
+    private String entryConditionsRich;
+
     @Column(name = "invalidation_logic", nullable = false, columnDefinition = "TEXT")
     private String invalidationLogic;
 
@@ -60,6 +63,9 @@ public class UserStrategy {
 
     @Column(name = "tags", columnDefinition = "TEXT")
     private String tagsJson;
+
+    @Column(name = "snapshot_asset_id")
+    private UUID snapshotAssetId;
 
     @Builder.Default
     @Column(name = "archived", nullable = false)

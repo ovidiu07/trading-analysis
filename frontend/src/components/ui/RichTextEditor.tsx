@@ -22,7 +22,7 @@ const sanitizeHtml = (html: string) => {
   const doc = new DOMParser().parseFromString(html, 'text/html')
   const allowedTags = new Set([
     'P', 'BR', 'B', 'STRONG', 'I', 'EM', 'U', 'UL', 'OL', 'LI', 'BLOCKQUOTE',
-    'PRE', 'CODE', 'H1', 'H2', 'H3', 'HR', 'A', 'SPAN', 'DIV', 'LABEL', 'INPUT'
+    'PRE', 'CODE', 'H1', 'H2', 'H3', 'H4', 'HR', 'A', 'SPAN', 'DIV', 'LABEL', 'INPUT'
   ])
   const allowedAttrs: Record<string, string[]> = {
     A: ['href', 'target', 'rel'],
@@ -206,6 +206,7 @@ export default function RichTextEditor({
               onClose={() => setMoreAnchor(null)}
             >
               <MenuItem onClick={() => handleMoreAction(() => handleHeading(3))}>{t('editor.heading', { level: 3 })}</MenuItem>
+              <MenuItem onClick={() => handleMoreAction(() => handleHeading(4))}>{t('editor.heading', { level: 4 })}</MenuItem>
               <MenuItem onClick={() => handleMoreAction(() => exec('insertOrderedList'))}>{t('editor.numberedList')}</MenuItem>
               <MenuItem onClick={() => handleMoreAction(() => exec('underline'))}>{t('editor.underline')}</MenuItem>
               <MenuItem onClick={() => handleMoreAction(handleCodeBlock)}>{t('editor.codeBlock')}</MenuItem>
@@ -241,6 +242,11 @@ export default function RichTextEditor({
           },
           '& h3': {
             fontSize: '1.1rem',
+            fontWeight: 700,
+            marginTop: '1rem'
+          },
+          '& h4': {
+            fontSize: '1rem',
             fontWeight: 700,
             marginTop: '1rem'
           },

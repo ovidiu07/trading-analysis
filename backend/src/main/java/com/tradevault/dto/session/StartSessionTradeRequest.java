@@ -36,6 +36,13 @@ public class StartSessionTradeRequest {
     @DecimalMin("0.0000001")
     private BigDecimal stopLossPrice;
 
+    private String tradeCurrency;
+
+    @DecimalMin("0.0000001")
+    private BigDecimal fxRateTradeToProfile;
+
+    private String fxRateSource;
+
     @NotNull
     private TradeSession session;
 

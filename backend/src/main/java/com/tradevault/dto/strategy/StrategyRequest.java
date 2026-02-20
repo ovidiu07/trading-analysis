@@ -4,6 +4,7 @@ import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
 import java.util.List;
+import java.util.UUID;
 
 @Data
 public class StrategyRequest {
@@ -12,6 +13,8 @@ public class StrategyRequest {
 
     @NotBlank
     private String model;
+
+    private String entryConditionsRich;
 
     private List<String> entryConditions;
 
@@ -26,6 +29,10 @@ public class StrategyRequest {
     private List<String> sessionSuitability;
 
     private List<String> tags;
+
+    private UUID snapshotAssetId;
+
+    private List<UUID> assetIds;
 
     private Boolean archived;
 }

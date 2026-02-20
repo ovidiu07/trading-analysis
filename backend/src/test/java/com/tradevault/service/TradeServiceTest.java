@@ -271,6 +271,105 @@ public class TradeServiceTest {
     }
 
     @Test
+    void createAppliesFxRateToProfileCurrencyFields() {
+        TradeRequest request = baseRequest();
+        request.setDirection(Direction.LONG);
+        request.setExitPrice(new BigDecimal("110"));
+        request.setFees(new BigDecimal("2"));
+        request.setCommission(new BigDecimal("3"));
+        request.setTradeCurrency("EUR");
+        request.setProfileCurrency("USD");
+        request.setFxRateTradeToProfile(new BigDecimal("1.1000"));
+        request.setFxRateSource("MANUAL");
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertEquals("EUR", response.getTradeCurrency());
+        assertEquals("USD", response.getProfileCurrency());
+        assertEquals(new BigDecimal("1.10000000"), response.getFxRateTradeToProfile());
+        assertEquals(new BigDecimal("1094.5000"), response.getPnlProfileCurrency());
+        assertEquals(new BigDecimal("2.2000"), response.getFeesProfileCurrency());
+    }
+
+    @Test
+    void createUsesIdentityRateWhenCurrenciesMatch() {
+        TradeRequest request = baseRequest();
+        request.setExitPrice(new BigDecimal("120"));
+        request.setTradeCurrency("USD");
+        request.setProfileCurrency("USD");
+        request.setFxRateTradeToProfile(new BigDecimal("1.2500"));
+        request.setFxRateSource("MANUAL");
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertEquals(new BigDecimal("1"), response.getFxRateTradeToProfile());
+        assertEquals("IDENTITY", response.getFxRateSource());
+        assertEquals(0, response.getPnlNet().compareTo(response.getPnlProfileCurrency()));
+    }
+
+    @Test
+    void updateRecalculatesProfileCurrencyWhenOnlyFxRateChanges() {
+        OffsetDateTime opened = OffsetDateTime.now().minusDays(2);
+        OffsetDateTime closed = OffsetDateTime.now().minusDays(1);
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("AAPL")
+                .market(Market.STOCK)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(opened)
+                .closedAt(closed)
+                .quantity(new BigDecimal("100"))
+                .entryPrice(new BigDecimal("100"))
+                .exitPrice(new BigDecimal("120"))
+                .fees(new BigDecimal("2"))
+                .commission(new BigDecimal("3"))
+                .slippage(BigDecimal.ZERO)
+                .pnlGross(new BigDecimal("2000"))
+                .pnlNet(new BigDecimal("1995"))
+                .tradeCurrency("EUR")
+                .profileCurrency("USD")
+                .fxRateTradeToProfile(new BigDecimal("1.10000000"))
+                .fxRateSource("MANUAL")
+                .pnlProfileCurrency(new BigDecimal("2194.5000"))
+                .feesProfileCurrency(new BigDecimal("2.2000"))
+                .build();
+
+        TradeRequest updateRequest = new TradeRequest();
+        updateRequest.setSymbol("AAPL");
+        updateRequest.setMarket(Market.STOCK);
+        updateRequest.setDirection(Direction.LONG);
+        updateRequest.setStatus(TradeStatus.CLOSED);
+        updateRequest.setOpenedAt(opened);
+        updateRequest.setClosedAt(closed);
+        updateRequest.setQuantity(new BigDecimal("100"));
+        updateRequest.setEntryPrice(new BigDecimal("100"));
+        updateRequest.setExitPrice(new BigDecimal("120"));
+        updateRequest.setFees(new BigDecimal("2"));
+        updateRequest.setCommission(new BigDecimal("3"));
+        updateRequest.setSlippage(BigDecimal.ZERO);
+        updateRequest.setTradeCurrency("EUR");
+        updateRequest.setProfileCurrency("USD");
+        updateRequest.setFxRateTradeToProfile(new BigDecimal("1.2000"));
+        updateRequest.setFxRateSource("MANUAL");
+
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.update(existing.getId(), updateRequest);
+
+        assertEquals(new BigDecimal("1995"), response.getPnlNet());
+        assertEquals(new BigDecimal("2394.0000"), response.getPnlProfileCurrency());
+        assertEquals(new BigDecimal("2.4000"), response.getFeesProfileCurrency());
+        assertEquals(new BigDecimal("1.20000000"), response.getFxRateTradeToProfile());
+    }
+
+    @Test
     void deletesTradeForUser() {
         UUID tradeId = UUID.randomUUID();
         Trade trade = Trade.builder().id(tradeId).user(user).build();

@@ -17,8 +17,15 @@ export type TradeRequest = {
   stopLossPrice?: number | null
   takeProfitPrice?: number | null
   fees?: number
+  feesProfileCurrency?: number
   commission?: number
   slippage?: number
+  tradeCurrency?: string
+  profileCurrency?: string
+  fxRateTradeToProfile?: number
+  fxRateTimestamp?: string | null
+  fxRateSource?: string
+  pnlProfileCurrency?: number
   riskAmount?: number
   capitalUsed?: number
   setup?: string
@@ -52,10 +59,17 @@ export type TradeResponse = {
   stopLossPrice?: number | null
   takeProfitPrice?: number | null
   fees?: number | null
+  feesProfileCurrency?: number | null
   commission?: number | null
   slippage?: number | null
   pnlGross?: number | null
   pnlNet?: number | null
+  pnlProfileCurrency?: number | null
+  tradeCurrency?: string | null
+  profileCurrency?: string | null
+  fxRateTradeToProfile?: number | null
+  fxRateTimestamp?: string | null
+  fxRateSource?: string | null
   pnlPercent?: number | null
   riskAmount?: number | null
   riskPercent?: number | null

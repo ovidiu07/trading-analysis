@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
+import type { AssetItem } from './assets'
 
 export type StrategySource = 'MY' | 'MENTOR'
 
@@ -7,12 +8,16 @@ export type StrategyResponse = {
   source: StrategySource
   name: string
   model: string
+  entryConditionsRich?: string | null
   entryConditions: string[]
   invalidationLogic: string
   tpFramework: string
   noTradeRules?: string | null
   sessionSuitability: string[]
   tags: string[]
+  snapshotAssetId?: string | null
+  snapshotAsset?: AssetItem | null
+  assets?: AssetItem[]
   archived: boolean
   slug?: string | null
   updatedAt?: string | null
@@ -26,12 +31,15 @@ export type StrategyListResponse = {
 export type StrategyRequest = {
   name: string
   model: string
-  entryConditions: string[]
+  entryConditionsRich?: string | null
+  entryConditions?: string[]
   invalidationLogic: string
   tpFramework: string
   noTradeRules?: string | null
   sessionSuitability: string[]
   tags: string[]
+  snapshotAssetId?: string | null
+  assetIds?: string[]
   archived?: boolean
 }
 
@@ -60,4 +68,20 @@ export async function updateStrategy(id: string, payload: StrategyRequest) {
 
 export async function archiveStrategy(id: string) {
   return apiDelete(`/strategies/${id}`)
+}
+
+export async function attachStrategyAsset(strategyId: string, assetId: string) {
+  return apiPost<StrategyResponse>(`/strategies/${strategyId}/assets/${assetId}`, {})
+}
+
+export async function removeStrategyAsset(strategyId: string, assetId: string) {
+  return apiDelete(`/strategies/${strategyId}/assets/${assetId}`)
+}
+
+export async function setStrategySnapshot(strategyId: string, assetId: string) {
+  return apiPut<StrategyResponse>(`/strategies/${strategyId}/snapshot/${assetId}`, {})
+}
+
+export async function clearStrategySnapshot(strategyId: string) {
+  return apiDelete(`/strategies/${strategyId}/snapshot`)
 }

@@ -61,7 +61,70 @@
     "system": "Sistem"
   },
   "strategies": {
-    "subtitle": "Definește și gestionează strategiile tale de execuție."
+    "subtitle": "Definește și gestionează strategiile tale de execuție.",
+    "my": {
+      "title": "Strategiile mele",
+      "emptyTitle": "Nu există strategii",
+      "emptyBody": "Creează prima ta strategie mai jos."
+    },
+    "mentor": {
+      "title": "Strategii mentor",
+      "emptyTitle": "Nu există strategii mentor",
+      "emptyBody": "Publică conținut de tip STRATEGY din Admin."
+    },
+    "form": {
+      "create": "Creează strategie",
+      "edit": "Editează strategie",
+      "createAction": "Creează strategie",
+      "name": "Nume",
+      "model": "Model",
+      "entryConditions": "Condiții de intrare",
+      "entryConditionsPlaceholder": "Descrie checklist-ul de trigger și secvența de execuție.",
+      "entryPreset": "Preset un element pe linie",
+      "entryPresetHint": "Lipește reguli separate prin rând nou, apoi convertește în bullets.",
+      "convertPreset": "Convertește liniile în bullets",
+      "invalidation": "Logică invalidare / SL",
+      "tpFramework": "Framework TP",
+      "noTradeRules": "Reguli no-trade",
+      "sessionSuitability": "Sesiuni potrivite",
+      "tags": "Tag-uri",
+      "tagsHint": "Separate prin virgulă sau rând nou"
+    },
+    "assets": {
+      "title": "Screenshot-uri strategie",
+      "saveFirst": "Salvează strategia mai întâi, apoi încarcă screenshot-uri.",
+      "dropTitle": "Glisează screenshot-uri sau selectează fișiere",
+      "dropHint": "Imaginile și documentele sunt acceptate.",
+      "selectFiles": "Selectează fișiere",
+      "empty": "Nu există asset-uri pentru strategie.",
+      "setSnapshot": "Setează ca snapshot strategie",
+      "snapshotSelected": "Snapshot strategie"
+    },
+    "preview": {
+      "title": "Previzualizare",
+      "emptyTitle": "Nu este selectată nicio strategie",
+      "emptyBody": "Selectează sau creează o strategie pentru previzualizare.",
+      "untitled": "Strategie fără titlu",
+      "invalidation": "Invalidare",
+      "targets": "Ținte",
+      "noTradeRules": "Reguli no-trade"
+    },
+    "messages": {
+      "required": "Numele, modelul, logica de invalidare și framework-ul TP sunt obligatorii.",
+      "created": "Strategia a fost creată.",
+      "updated": "Strategia a fost actualizată.",
+      "archived": "Strategia a fost arhivată.",
+      "createFailed": "Strategia nu a putut fi creată",
+      "updateFailed": "Strategia nu a putut fi actualizată",
+      "archiveFailed": "Strategia nu a putut fi arhivată",
+      "saveBeforeUpload": "Salvează strategia mai întâi, apoi încarcă screenshot-uri.",
+      "uploadFailed": "Asset-ul strategiei nu a putut fi încărcat",
+      "snapshotFailed": "Snapshot-ul strategiei nu a putut fi setat",
+      "removeAssetFailed": "Asset-ul strategiei nu a putut fi eliminat",
+      "linkCopied": "Link-ul asset-ului a fost copiat.",
+      "copyLinkFailed": "Link-ul asset-ului nu a putut fi copiat",
+      "downloadFailed": "Asset-ul nu a putut fi descărcat"
+    }
   },
   "layout": {
     "collapseSidebar": "Restrânge bara laterală",
@@ -926,7 +989,9 @@
         "maxTradesRequired": "Numărul maxim de tranzacții trebuie să fie mai mare decât zero",
         "tickerRequired": "Ticker-ul este obligatoriu",
         "quantityAndEntryRequired": "Cantitatea și prețul de intrare sunt obligatorii",
-        "exitPriceRequired": "Prețul de ieșire este obligatoriu"
+        "exitPriceRequired": "Prețul de ieșire este obligatoriu",
+        "fxRateRequired": "Rata FX este obligatorie când moneda tranzacției diferă de moneda profilului.",
+        "fxAutofillFailed": "Nu s-a putut prelua automat rata FX. Introdu-o manual."
       },
       "progress": {
         "title": "Progres sesiune",
@@ -988,6 +1053,13 @@
         "context": "Context",
         "body": "Conținut plan complet"
       },
+      "layout": {
+        "liveChart": "Chart live",
+        "collapse": "Restrânge panoul",
+        "expand": "Extinde panoul",
+        "maximize": "Mărește panoul",
+        "restore": "Restaurează layout-ul"
+      },
       "planner": {
         "title": "Planificator tranzacții + Execuție",
         "scheduleTrade": "Programează tranzacție",
@@ -1005,8 +1077,15 @@
       "form": {
         "requiredField": "Obligatoriu",
         "optionalField": "Opțional",
+        "tradeCurrency": "Moneda tranzacției",
+        "profileCurrency": "Moneda profilului",
+        "fxRate": "Rată FX (tranzacție → profil)",
+        "fxRateHint": "Rată din {{tradeCurrency}} în {{profileCurrency}}",
+        "fxRateLoading": "Se încarcă rata...",
+        "fxRateAutoFill": "Completare automată",
         "pricesGroup": "Prețuri",
         "riskSnapshot": "Snapshot risc: {{risk}} • R estimat: {{r}}",
+        "riskSnapshotConverted": "Risc în moneda profilului: {{risk}}",
         "feeling": "Cum te simți?",
         "myStrategies": "Strategiile mele",
         "mentorStrategies": "Strategii mentor",
@@ -1014,11 +1093,14 @@
       },
       "strategyDetails": {
         "title": "Detalii strategie",
+        "showMore": "Afișează mai mult",
+        "showLess": "Afișează mai puțin",
         "entryConditions": "Condiții de intrare",
         "invalidation": "Invalidează",
         "management": "Management",
         "noTradeRules": "Reguli de no-trade",
-        "sessionSuitability": "Sesiuni potrivite"
+        "sessionSuitability": "Sesiuni potrivite",
+        "tags": "Tag-uri"
       }
     }
   },
@@ -1503,6 +1585,13 @@
       "takeProfit": "Take profit",
       "timeframe": "Timeframe",
       "costsAndRisk": "Costuri & risc",
+      "currency": "Conversie valutară",
+      "pnlProfile": "P&L (moneda profilului)",
+      "pnlTrade": "P&L (moneda tranzacției)",
+      "feesProfile": "Taxe (moneda profilului)",
+      "fxRate": "Rată FX",
+      "fxSource": "Sursă FX",
+      "fxTimestamp": "Moment rată FX",
       "risk": "Risc",
       "setup": "Setup",
       "notesAndTags": "Note & etichete",
@@ -1525,6 +1614,11 @@
       "fees": "Taxe",
       "commission": "Comision",
       "slippage": "Slippage",
+      "tradeCurrency": "Moneda tranzacției",
+      "profileCurrency": "Moneda profilului",
+      "fxRate": "Rată FX",
+      "fxRateHint": "Rată din {{tradeCurrency}} în {{profileCurrency}}",
+      "fxIdentity": "Rată identitate (1,0000)",
       "riskAmount": "Sumă risc",
       "riskAmountHint": "Opțional: îmbunătățește calculul P&L % și multiplu R",
       "capitalUsed": "Capital folosit",
@@ -1604,11 +1698,11 @@
         "newsViolation": "Încălcare pe știri",
         "outsideSession": "În afara sesiunii"
       },
-      "validation": {
-        "symbolRequired": "Simbolul este obligatoriu.",
-        "symbolTooLong": "Simbolul poate avea maximum 15 caractere.",
-        "marketRequired": "Piața este obligatorie.",
-        "directionRequired": "Direcția este obligatorie.",
+    "validation": {
+      "symbolRequired": "Simbolul este obligatoriu.",
+      "symbolTooLong": "Simbolul poate avea maximum 15 caractere.",
+      "marketRequired": "Piața este obligatorie.",
+      "directionRequired": "Direcția este obligatorie.",
         "statusRequired": "Starea este obligatorie.",
         "openedAtRequired": "Data de deschidere este obligatorie.",
         "closedAtRequired": "Data de închidere este obligatorie pentru tranzacțiile închise.",
@@ -1617,11 +1711,14 @@
         "exitPricePositive": "Prețul de ieșire trebuie să fie mai mare decât zero.",
         "exitPriceRequired": "Prețul de ieșire este obligatoriu pentru tranzacțiile închise.",
         "stopLossPositive": "Stop-loss-ul trebuie să fie mai mare decât zero.",
-        "takeProfitPositive": "Take-profit-ul trebuie să fie mai mare decât zero.",
-        "costNonNegative": "Costurile nu pot fi negative.",
-        "riskAmountPositive": "Suma de risc trebuie să fie mai mare decât zero.",
-        "capitalUsedPositive": "Capitalul folosit trebuie să fie mai mare decât zero."
-      },
+      "takeProfitPositive": "Take-profit-ul trebuie să fie mai mare decât zero.",
+      "costNonNegative": "Costurile nu pot fi negative.",
+      "currencyCode": "Moneda trebuie să fie un cod ISO din 3 litere.",
+      "fxRatePositive": "Rata FX trebuie să fie mai mare decât zero.",
+      "pnlProfileNumber": "P&L-ul în moneda profilului trebuie să fie numeric.",
+      "riskAmountPositive": "Suma de risc trebuie să fie mai mare decât zero.",
+      "capitalUsedPositive": "Capitalul folosit trebuie să fie mai mare decât zero."
+    },
       "validationBanner": "Corectează câmpurile evidențiate înainte de salvare."
     },
     "help": {

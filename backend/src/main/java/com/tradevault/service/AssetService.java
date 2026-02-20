@@ -9,7 +9,9 @@ import com.tradevault.domain.entity.ContentAsset;
 import com.tradevault.domain.entity.ContentPost;
 import com.tradevault.domain.entity.NotebookAttachment;
 import com.tradevault.domain.entity.NotebookNote;
+import com.tradevault.domain.entity.StrategyAsset;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.AssetScope;
 import com.tradevault.domain.enums.ContentPostStatus;
 import com.tradevault.domain.enums.Role;
@@ -20,6 +22,8 @@ import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookNoteRepository;
+import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -63,6 +67,8 @@ public class AssetService {
     private final NotebookAttachmentRepository notebookAttachmentRepository;
     private final ContentPostRepository contentPostRepository;
     private final NotebookNoteRepository notebookNoteRepository;
+    private final UserStrategyRepository userStrategyRepository;
+    private final StrategyAssetRepository strategyAssetRepository;
     private final CurrentUserService currentUserService;
     private final ObjectStorageService objectStorageService;
     private final ObjectMapper objectMapper;
@@ -92,9 +98,11 @@ public class AssetService {
 
         UUID contentId = null;
         UUID noteId = null;
+        UUID strategyId = null;
         int sortOrder = request.getSortOrder() != null ? request.getSortOrder() : 0;
         ContentPost post = null;
         NotebookNote note = null;
+        UserStrategy strategy = null;
 
         if (request.getScope() == AssetScope.CONTENT) {
             requireAdmin(user);
@@ -104,6 +112,10 @@ public class AssetService {
         } else if (request.getScope() == AssetScope.NOTEBOOK) {
             noteId = requireField(request.getNoteId(), "noteId is required for NOTEBOOK assets");
             note = resolveNotebookNoteForWrite(noteId, user);
+        } else if (request.getScope() == AssetScope.STRATEGY) {
+            strategyId = requireField(request.getStrategyId(), "strategyId is required for STRATEGY assets");
+            strategy = userStrategyRepository.findByIdAndUser_Id(strategyId, user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Strategy not found"));
         } else {
             throw new IllegalArgumentException("Unsupported asset scope");
         }
@@ -112,7 +124,7 @@ public class AssetService {
 
         try {
             Asset asset = Asset.builder()
-                    .ownerUser(note != null ? note.getUser() : (isAdmin(user) ? user : null))
+                    .ownerUser(note != null ? note.getUser() : (strategy != null ? strategy.getUser() : (isAdmin(user) ? user : user)))
                     .scope(request.getScope())
                     .originalFileName(originalName)
                     .contentType(detectedContentType)
@@ -137,9 +149,16 @@ public class AssetService {
                         .sortOrder(sortOrder)
                         .build();
                 notebookAttachmentRepository.save(relation);
+            } else if (request.getScope() == AssetScope.STRATEGY) {
+                StrategyAsset relation = StrategyAsset.builder()
+                        .strategy(strategy)
+                        .asset(saved)
+                        .sortOrder(sortOrder)
+                        .build();
+                strategyAssetRepository.save(relation);
             }
 
-            return toResponse(saved, contentId, noteId);
+            return toResponse(saved, contentId, noteId, strategyId);
         } catch (RuntimeException ex) {
             safeDeleteFromStorage(s3Key);
             throw ex;
@@ -155,7 +174,7 @@ public class AssetService {
             throw new EntityNotFoundException("Content not found");
         }
         return contentAssetRepository.findByContentPostIdOrderBySortOrderAscCreatedAtAsc(contentId).stream()
-                .map(relation -> toResponse(relation.getAsset(), relation.getContentPost().getId(), null))
+                .map(relation -> toResponse(relation.getAsset(), relation.getContentPost().getId(), null, null))
                 .toList();
     }
 
@@ -164,7 +183,17 @@ public class AssetService {
         User user = currentUserService.getCurrentUser();
         NotebookNote note = resolveNotebookNoteForRead(noteId, user);
         return notebookAttachmentRepository.findByNoteIdOrderBySortOrderAscCreatedAtAsc(note.getId()).stream()
-                .map(relation -> toResponse(relation.getAsset(), null, relation.getNote().getId()))
+                .map(relation -> toResponse(relation.getAsset(), null, relation.getNote().getId(), null))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssetResponse> listByStrategy(UUID strategyId) {
+        User user = currentUserService.getCurrentUser();
+        UserStrategy strategy = userStrategyRepository.findByIdAndUser_Id(strategyId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Strategy not found"));
+        return strategyAssetRepository.findByStrategy_IdOrderBySortOrderAscCreatedAtAsc(strategy.getId()).stream()
+                .map(relation -> toResponse(relation.getAsset(), null, null, relation.getStrategy().getId()))
                 .toList();
     }
 
@@ -178,9 +207,24 @@ public class AssetService {
         Map<UUID, List<AssetResponse>> byContent = new LinkedHashMap<>();
         for (ContentAsset row : rows) {
             byContent.computeIfAbsent(row.getContentPost().getId(), ignored -> new ArrayList<>())
-                    .add(toResponse(row.getAsset(), row.getContentPost().getId(), null));
+                    .add(toResponse(row.getAsset(), row.getContentPost().getId(), null, null));
         }
         return byContent;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<UUID, List<AssetResponse>> mapByStrategies(Collection<UserStrategy> strategies) {
+        List<UUID> ids = strategies.stream().map(UserStrategy::getId).distinct().toList();
+        if (ids.isEmpty()) {
+            return Map.of();
+        }
+        List<StrategyAsset> rows = strategyAssetRepository.findByStrategy_IdInOrderBySortOrderAscCreatedAtAsc(ids);
+        Map<UUID, List<AssetResponse>> byStrategy = new LinkedHashMap<>();
+        for (StrategyAsset row : rows) {
+            byStrategy.computeIfAbsent(row.getStrategy().getId(), ignored -> new ArrayList<>())
+                    .add(toResponse(row.getAsset(), null, null, row.getStrategy().getId()));
+        }
+        return byStrategy;
     }
 
     @Transactional
@@ -192,6 +236,7 @@ public class AssetService {
 
         contentAssetRepository.deleteByAssetId(assetId);
         notebookAttachmentRepository.deleteByAssetId(assetId);
+        strategyAssetRepository.deleteByAsset_Id(assetId);
         assetRepository.delete(asset);
         objectStorageService.deleteObject(asset.getS3Key());
     }
@@ -199,6 +244,16 @@ public class AssetService {
     @Transactional
     public void deleteAssetsForContent(UUID contentId) {
         List<UUID> assetIds = contentAssetRepository.findByContentPostIdOrderBySortOrderAscCreatedAtAsc(contentId).stream()
+                .map(relation -> relation.getAsset().getId())
+                .toList();
+        for (UUID assetId : assetIds) {
+            deleteAsset(assetId);
+        }
+    }
+
+    @Transactional
+    public void deleteAssetsForStrategy(UUID strategyId) {
+        List<UUID> assetIds = strategyAssetRepository.findByStrategy_IdOrderBySortOrderAscCreatedAtAsc(strategyId).stream()
                 .map(relation -> relation.getAsset().getId())
                 .toList();
         for (UUID assetId : assetIds) {
@@ -269,6 +324,18 @@ public class AssetService {
             }
             return;
         }
+        if (asset.getScope() == AssetScope.STRATEGY) {
+            if (isAdmin(user)) {
+                return;
+            }
+            StrategyAsset relation = strategyAssetRepository.findByAsset_Id(asset.getId()).stream()
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+            if (!Objects.equals(relation.getStrategy().getUser().getId(), user.getId())) {
+                throw new ResponseStatusException(FORBIDDEN, "Forbidden");
+            }
+            return;
+        }
         throw new ResponseStatusException(FORBIDDEN, "Forbidden");
     }
 
@@ -294,6 +361,19 @@ public class AssetService {
             NotebookAttachment relation = notebookAttachmentRepository.findByAssetId(asset.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
             if (!Objects.equals(relation.getUser().getId(), user.getId())) {
+                throw new EntityNotFoundException("Asset not found");
+            }
+            return;
+        }
+
+        if (asset.getScope() == AssetScope.STRATEGY) {
+            if (isAdmin(user)) {
+                return;
+            }
+            StrategyAsset relation = strategyAssetRepository.findByAsset_Id(asset.getId()).stream()
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+            if (!Objects.equals(relation.getStrategy().getUser().getId(), user.getId())) {
                 throw new EntityNotFoundException("Asset not found");
             }
             return;
@@ -442,7 +522,7 @@ public class AssetService {
         }
     }
 
-    private AssetResponse toResponse(Asset asset, UUID contentId, UUID noteId) {
+    private AssetResponse toResponse(Asset asset, UUID contentId, UUID noteId, UUID strategyId) {
         boolean image = asset.getContentType() != null && asset.getContentType().startsWith("image/");
         String viewUrl = resolveViewUrl(asset);
         String downloadUrl = resolveDownloadUrl(asset);
@@ -452,6 +532,7 @@ public class AssetService {
                 .scope(asset.getScope())
                 .contentId(contentId)
                 .noteId(noteId)
+                .strategyId(strategyId)
                 .originalFileName(asset.getOriginalFileName())
                 .contentType(asset.getContentType())
                 .sizeBytes(asset.getSizeBytes())

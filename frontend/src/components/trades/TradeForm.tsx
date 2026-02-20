@@ -85,6 +85,8 @@ export function TradeForm({
 
   const statusValue = watch('status')
   const openedAtValue = watch('openedAt')
+  const tradeCurrencyValue = watch('tradeCurrency')
+  const profileCurrencyValue = watch('profileCurrency')
   const showClosedFields = statusValue === 'CLOSED'
 
   const openedAtIso = useMemo(() => {
@@ -256,6 +258,33 @@ export function TradeForm({
               )}
               <Grid item xs={12} sm={6} md={4}>
                 <TextField label={t('trades.form.timeframe')} fullWidth {...register('timeframe')} />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label={t('trades.form.tradeCurrency')}
+                  fullWidth
+                  inputProps={{ maxLength: 3 }}
+                  value={(tradeCurrencyValue || '').toUpperCase()}
+                  onChange={(event) => setValue('tradeCurrency', event.target.value.toUpperCase())}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label={t('trades.form.profileCurrency')}
+                  fullWidth
+                  inputProps={{ maxLength: 3 }}
+                  value={(profileCurrencyValue || '').toUpperCase()}
+                  onChange={(event) => setValue('profileCurrency', event.target.value.toUpperCase())}
+                />
+              </Grid>
+              <Grid item xs={12} sm={6} md={4}>
+                <TextField
+                  label={t('trades.form.fxRate')}
+                  type="number"
+                  inputProps={{ step: '0.0001', min: 0 }}
+                  fullWidth
+                  {...register('fxRateTradeToProfile', { valueAsNumber: true })}
+                />
               </Grid>
             </Grid>
           </AccordionDetails>

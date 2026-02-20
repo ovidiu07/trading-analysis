@@ -35,8 +35,15 @@ public class TradeRequest {
     private BigDecimal stopLossPrice;
     private BigDecimal takeProfitPrice;
     private BigDecimal fees = BigDecimal.ZERO;
+    private BigDecimal feesProfileCurrency;
     private BigDecimal commission = BigDecimal.ZERO;
     private BigDecimal slippage = BigDecimal.ZERO;
+    private String tradeCurrency;
+    private String profileCurrency;
+    private BigDecimal fxRateTradeToProfile;
+    private OffsetDateTime fxRateTimestamp;
+    private String fxRateSource;
+    private BigDecimal pnlProfileCurrency;
     private BigDecimal riskAmount;
     private BigDecimal capitalUsed;
     private String timeframe;
