@@ -992,7 +992,8 @@ export default function SessionPage() {
           <Box
             sx={{
               display: 'grid',
-              gridTemplateColumns: layoutState.maximized ? '1fr' : { xs: '1fr', lg: 'minmax(280px, 0.85fr) minmax(0, 1.15fr)' },
+              gridTemplateColumns: '1fr',
+              gridTemplateRows: 'auto auto auto',
               gap: 2,
               minWidth: 0,
               '& > *': { minWidth: 0 }
@@ -1111,57 +1112,55 @@ export default function SessionPage() {
               </Card>
             )}
 
-            {(isPanelVisible('chart') || isPanelVisible('mentor') || isPanelVisible('planner')) && (
-              <Box sx={{ display: 'grid', gridTemplateRows: 'auto auto', gap: 2, minWidth: 0 }}>
-                {isPanelVisible('chart') && (
+            {isPanelVisible('chart') && (
+              <Card sx={{ minHeight: { xs: 320, md: 360 } }}>
+                <CardContent>
+                  <Stack spacing={1.25}>
+                    <Stack direction="row" alignItems="center" justifyContent="space-between">
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <CandlestickChartRoundedIcon color="primary" fontSize="small" />
+                        <Typography variant="subtitle1">{t('today.session.layout.liveChart')}</Typography>
+                      </Stack>
+                      {renderPanelControls('chart')}
+                    </Stack>
+                    {!isPanelCollapsed('chart') && (
+                      <TradingViewWidget
+                        symbol={chartSymbol}
+                        interval={chartInterval}
+                        themePreference={chartTheme}
+                        hideControls={chartHideControls}
+                        allowSymbolChange={chartAllowSymbolChange}
+                        minHeight={isCompactViewport ? 300 : 340}
+                        fallbackMessage={t('today.session.mentor.liveChartFallback')}
+                        fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
+                      />
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+            )}
+
+            {(isPanelVisible('mentor') || isPanelVisible('planner')) && (
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: layoutState.maximized ? '1fr' : { xs: '1fr', sm: 'minmax(0, 0.95fr) minmax(0, 1.05fr)' },
+                  gap: 2,
+                  minWidth: 0,
+                  '& > *': { minWidth: 0 }
+                }}
+              >
+                {isPanelVisible('mentor') && (
                   <Card>
                     <CardContent>
-                      <Stack spacing={1.25}>
+                      <Stack spacing={1.5}>
                         <Stack direction="row" alignItems="center" justifyContent="space-between">
                           <Stack direction="row" spacing={1} alignItems="center">
-                            <CandlestickChartRoundedIcon color="primary" fontSize="small" />
-                            <Typography variant="subtitle1">{t('today.session.layout.liveChart')}</Typography>
+                            <AutoStoriesRoundedIcon color="primary" fontSize="small" />
+                            <Typography variant="subtitle1">{t('today.session.mentor.title')}</Typography>
                           </Stack>
-                          {renderPanelControls('chart')}
+                          {renderPanelControls('mentor')}
                         </Stack>
-                        {!isPanelCollapsed('chart') && (
-                          <TradingViewWidget
-                            symbol={chartSymbol}
-                            interval={chartInterval}
-                            themePreference={chartTheme}
-                            hideControls={chartHideControls}
-                            allowSymbolChange={chartAllowSymbolChange}
-                            minHeight={isCompactViewport ? 320 : 380}
-                            fallbackMessage={t('today.session.mentor.liveChartFallback')}
-                            fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
-                          />
-                        )}
-                      </Stack>
-                    </CardContent>
-                  </Card>
-                )}
-
-                {(isPanelVisible('mentor') || isPanelVisible('planner')) && (
-                  <Box
-                    sx={{
-                      display: 'grid',
-                      gridTemplateColumns: layoutState.maximized ? '1fr' : { xs: '1fr', xl: 'minmax(0, 0.95fr) minmax(0, 1.05fr)' },
-                      gap: 2,
-                      minWidth: 0,
-                      '& > *': { minWidth: 0 }
-                    }}
-                  >
-                    {isPanelVisible('mentor') && (
-                      <Card>
-                        <CardContent>
-                          <Stack spacing={1.5}>
-                            <Stack direction="row" alignItems="center" justifyContent="space-between">
-                              <Stack direction="row" spacing={1} alignItems="center">
-                                <AutoStoriesRoundedIcon color="primary" fontSize="small" />
-                                <Typography variant="subtitle1">{t('today.session.mentor.title')}</Typography>
-                              </Stack>
-                              {renderPanelControls('mentor')}
-                            </Stack>
 
                             {!isPanelCollapsed('mentor') && (
                               <>
@@ -1352,7 +1351,7 @@ export default function SessionPage() {
                           </Stack>
                         </CardContent>
                       </Card>
-                    )}
+                )}
 
                     {isPanelVisible('planner') && (
                       <Card>
@@ -1885,8 +1884,6 @@ export default function SessionPage() {
                         </CardContent>
                       </Card>
                     )}
-                  </Box>
-                )}
               </Box>
             )}
           </Box>

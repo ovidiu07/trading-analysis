@@ -143,6 +143,43 @@ describe('SessionPage', () => {
     expect(sessionApiMock.updateTodaySessionPlannedTickers).toHaveBeenCalled()
   })
 
+  it('renders session panels in execution order', async () => {
+    sessionApiMock.getTodaySession.mockResolvedValue({
+      id: 'session-1',
+      sessionDate: '2026-02-19',
+      profitTarget: 200,
+      lossLimit: 100,
+      maxTrades: 3,
+      status: 'ACTIVE',
+      realizedPnl: 0,
+      closedTradesCount: 0,
+      remainingTrades: 3,
+      plannedTickers: [],
+      checklistItems: [
+        { id: '1', text: 'Review plan', completed: false }
+      ],
+      activeTrade: null
+    })
+    plansApiMock.listDailyPlans.mockResolvedValue([{ id: 'plan-1', title: 'Plan A', summary: 'Summary' }])
+
+    renderSessionPage()
+
+    const progressHeading = await screen.findByText('Session progress')
+    const checklistHeading = screen.getByText('Session checklist')
+    const chartHeading = screen.getByText('Live chart')
+    const mentorHeading = screen.getByText('Mentor Plan')
+    const plannerHeading = screen.getByText('Trade Planner + Execution')
+
+    const comesBefore = (first: HTMLElement, second: HTMLElement) => (
+      Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING)
+    )
+
+    expect(comesBefore(progressHeading, checklistHeading)).toBe(true)
+    expect(comesBefore(checklistHeading, chartHeading)).toBe(true)
+    expect(comesBefore(chartHeading, mentorHeading)).toBe(true)
+    expect(comesBefore(chartHeading, plannerHeading)).toBe(true)
+  })
+
   it('renders translated labels in Romanian', async () => {
     sessionApiMock.getTodaySession.mockResolvedValue({
       id: 'session-1',
