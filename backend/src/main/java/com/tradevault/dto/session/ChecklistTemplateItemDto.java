@@ -6,18 +6,15 @@ import lombok.Value;
 
 @Value
 @Builder
-public class SessionChecklistItemDto {
+public class ChecklistTemplateItemDto {
     String id;
     String text;
     Integer order;
     boolean required;
     boolean hasNote;
     String notePlaceholder;
-    String note;
     boolean hasValue;
     String valueLabel;
     ChecklistValueType valueType;
-    String value;
     boolean defaultChecked;
-    boolean completed;
 }

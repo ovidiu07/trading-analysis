@@ -1,5 +1,6 @@
 package com.tradevault.dto.session;
 
+import com.tradevault.domain.enums.ChecklistTemplateType;
 import lombok.Builder;
 import lombok.Value;
 
@@ -12,7 +13,9 @@ import java.util.UUID;
 public class ChecklistTemplateResponse {
     UUID id;
     String name;
-    List<String> items;
+    ChecklistTemplateType type;
+    boolean isDefault;
+    List<ChecklistTemplateItemDto> items;
     OffsetDateTime createdAt;
     OffsetDateTime updatedAt;
 }

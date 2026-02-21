@@ -1,6 +1,7 @@
 package com.tradevault.repository;
 
 import com.tradevault.domain.entity.ChecklistTemplate;
+import com.tradevault.domain.enums.ChecklistTemplateType;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
@@ -9,6 +10,10 @@ import java.util.UUID;
 
 public interface ChecklistTemplateRepository extends JpaRepository<ChecklistTemplate, UUID> {
     List<ChecklistTemplate> findByUser_IdOrderByUpdatedAtDesc(UUID userId);
+
+    List<ChecklistTemplate> findByUser_IdAndTypeOrderByUpdatedAtDesc(UUID userId, ChecklistTemplateType type);
+
+    Optional<ChecklistTemplate> findFirstByUser_IdAndTypeAndIsDefaultTrue(UUID userId, ChecklistTemplateType type);
 
     Optional<ChecklistTemplate> findByIdAndUser_Id(UUID id, UUID userId);
 }

@@ -187,6 +187,16 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             maxWidth: '100%',
             height: 'auto'
           },
+          'textarea[aria-hidden="true"]': {
+            // Keep MUI TextareaAutosize measurement nodes hidden to avoid ghost "x" mirrors.
+            visibility: 'hidden !important',
+            position: 'absolute !important',
+            overflow: 'hidden !important',
+            height: '0 !important',
+            top: 0,
+            left: 0,
+            pointerEvents: 'none'
+          },
           a: {
             color: tokens.brand.primary
           },

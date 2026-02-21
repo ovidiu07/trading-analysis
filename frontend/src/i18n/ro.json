@@ -968,6 +968,16 @@
     "session": {
       "title": "Mod sesiune",
       "subtitle": "Vizualizare focusată cu checklist, plan mentor și execuție tranzacții.",
+      "actions": {
+        "executionFocus": "Focus execuție",
+        "studyFocus": "Focus studiu"
+      },
+      "steps": {
+        "lockIn": "1. Lock-in",
+        "checklist": "2. Checklist",
+        "chart": "3. Chart",
+        "execute": "4. Execuție"
+      },
       "exit": "Înapoi la Astăzi",
       "planSummary": "Rezumat plan",
       "quickNote": "Notițe rapide",
@@ -989,12 +999,16 @@
         "maxTradesRequired": "Numărul maxim de tranzacții trebuie să fie mai mare decât zero",
         "tickerRequired": "Ticker-ul este obligatoriu",
         "quantityAndEntryRequired": "Cantitatea și prețul de intrare sunt obligatorii",
+        "invalidationRequired": "Invalidarea este obligatorie înainte de start",
+        "entryJournalRequired": "Textul jurnalului de intrare este obligatoriu",
+        "entryInvalidationRequired": "Invalidarea jurnalului de intrare este obligatorie",
         "exitPriceRequired": "Prețul de ieșire este obligatoriu",
         "fxRateRequired": "Rata FX este obligatorie când moneda tranzacției diferă de moneda profilului.",
         "fxAutofillFailed": "Nu s-a putut prelua automat rata FX. Introdu-o manual."
       },
       "progress": {
         "title": "Progres sesiune",
+        "subtitle": "Urmărește limitele și guardrail-urile",
         "realizedPnl": "PnL realizat: {{realized}} / {{target}}",
         "trades": "Tranzacții: {{closed}}/{{max}}",
         "pnlGuardrail": "Limită PnL",
@@ -1006,9 +1020,37 @@
       },
       "checklist": {
         "title": "Checklist sesiune",
+        "prereqsTitle": "Prerechizite pre-trade",
+        "triggersTitle": "Triggere setup",
+        "generic": "generic",
+        "editPrereqs": "Editează prerechizite",
+        "editTriggers": "Editează triggere",
         "progress": "{{completed}}/{{total}}",
+        "progressSummary": "Prerechizite {{prereqs}} • Triggere {{triggers}}",
         "saveTemplate": "Salvează șablon",
         "importTemplate": "Importă șablon",
+        "saveChanges": "Salvează modificările",
+        "addItem": "Adaugă element",
+        "itemLabel": "Element checklist",
+        "required": "Obligatoriu",
+        "hasNote": "Are notiță",
+        "hasValue": "Are valoare",
+        "note": "Notiță",
+        "notePlaceholder": "Placeholder notiță",
+        "value": "Valoare",
+        "valueLabel": "Etichetă valoare",
+        "valueType": "Tip valoare",
+        "valueTypes": {
+          "TEXT": "Text",
+          "NUMBER": "Număr",
+          "TIME": "Oră"
+        },
+        "setDefault": "Setează implicit",
+        "defaultTemplate": "Implicit",
+        "defaultTemplateSet": "Șablonul implicit a fost actualizat",
+        "strategyHint": "Selectează o strategie pentru checklist-ul de triggere. Setul generic este activ.",
+        "goToInvalidation": "Mergi la câmpul de invalidare",
+        "rrRule": "Regula RR îndeplinită",
         "templateName": "Nume șablon",
         "overwriteTemplate": "Suprascrie șablon",
         "saveAsNew": "Salvează ca nou",
@@ -1021,10 +1063,113 @@
         "emptyTitle": "Nu există elemente checklist",
         "emptyBody": "Adaugă dintr-un șablon sau actualizează setările implicite."
       },
+      "lockIn": {
+        "title": "Lock-In sesiune",
+        "locked": "Blocat",
+        "notLocked": "Neblocat",
+        "editSettings": "Editează setările",
+        "reset": "Resetează",
+        "save": "Salvează lock-in",
+        "saved": "Lock-in salvat",
+        "settingsSaved": "Setările sesiunii au fost salvate",
+        "sessionLabel": "Sesiune",
+        "selectSession": "Selectează sesiunea",
+        "dailyMaxLoss": "Pierdere maximă zilnică",
+        "maxTrades": "Tranzacții maxime",
+        "objectiveAPlus": "Doar A+",
+        "objectiveOne": "Maxim 1 trade",
+        "objectiveTwo": "Maxim 2 trade-uri",
+        "biasLabel": "Bias",
+        "selectBias": "Selectează bias",
+        "neutral": "Neutru",
+        "biasReason": "Motiv bias"
+      },
+      "hints": {
+        "lockIn": {
+          "short": "Setează limitele sesiunii și bias-ul o singură dată.",
+          "long": "Asta previne overtrading-ul și păstrează deciziile consistente."
+        },
+        "checklist": {
+          "short": "Completează prerechizitele și triggerele înainte de execuție."
+        },
+        "chart": {
+          "short": "Folosește nivelele și contextul chart-ului pentru validarea secvenței."
+        },
+        "execute": {
+          "short": "Completează mai întâi riscul și invalidarea, apoi prețurile și notițele."
+        },
+        "prereqsEditor": "Personalizează această listă pentru procesul tău. Salvează șabloane pentru piețe/sesiuni diferite.",
+        "triggersEditor": "Construiește secvența de triggere ca checklist. Salvează/importă șabloane pentru modelele tale."
+      },
       "templates": {
         "nameRequired": "Numele șablonului este obligatoriu",
         "emptyChecklist": "Checklist-ul nu are elemente de salvat",
         "selectOverwriteTarget": "Selectează un șablon pentru suprascriere"
+      },
+      "levels": {
+        "add": "Adaugă nivel",
+        "edit": "Editează nivel",
+        "delete": "Șterge nivel",
+        "label": "Etichetă",
+        "customLabel": "Etichetă custom",
+        "price": "Preț",
+        "category": "Categorie",
+        "notes": "Notițe",
+        "categories": {
+          "LIQUIDITY": "Lichiditate",
+          "TARGET": "Țintă",
+          "INVALIDATION": "Invalidare",
+          "OTHER": "Altul"
+        },
+        "empty": "Nu există nivele încă.",
+        "setSweep": "Setează ca nivel sweep",
+        "selectSweep": "Selectează nivelul sweep",
+        "selectedSweep": "Sweep: {{label}}",
+        "noSweep": "Niciun nivel sweep selectat",
+        "useAsEntry": "Folosește ca Entry",
+        "useAsSl": "Folosește ca SL",
+        "useAsTp": "Folosește ca TP",
+        "markSwept": "Marchează ca swept",
+        "unmarkSwept": "Demarchează swept",
+        "swept": "Swept",
+        "pickFromLevels": "Alege din nivele",
+        "promptPrice": "Nivelul nu are preț. Introdu un preț pentru utilizare:",
+        "suggestFromPlan": "Sugerează nivele din plan",
+        "suggested": "Nivelele sugerate au fost adăugate.",
+        "autoCheckSweepPrompt": "Marchez și \"Liquidity sweep confirmed\" ca finalizat?"
+      },
+      "chart": {
+        "bias": "Bias",
+        "session": "Sesiune",
+        "local": "Local",
+        "newsSafe": "Știri: sigur",
+        "newsCaution": "Știri: atenție",
+        "attachScreenshot": "Atașează screenshot la trade",
+        "openMentor": "Deschide planul mentor complet",
+        "more": "mai mult"
+      },
+      "screenshots": {
+        "title": "Atașează screenshot",
+        "subtitle": "Încarcă PNG/JPG sau lipește direct din clipboard.",
+        "choose": "Alege fișiere",
+        "uploading": "Se încarcă…",
+        "pasteLabel": "Lipește screenshot",
+        "pasteHint": "Lipește screenshot aici (Ctrl/Cmd+V)",
+        "empty": "Nu există screenshot-uri atașate încă.",
+        "attach": "Atașează screenshot",
+        "onlyImages": "Selectează sau lipește doar imagini PNG/JPG.",
+        "uploadError": "Screenshot-ul nu a putut fi încărcat."
+      },
+      "entryJournal": {
+        "title": "Jurnal intrare",
+        "whatSaw": "Ce ai văzut?",
+        "invalidation": "Confirmare invalidare",
+        "emotion": "Emoție",
+        "save": "Salvează jurnalul",
+        "saving": "Se salvează…",
+        "saved": "Jurnalul de intrare a fost salvat.",
+        "saveError": "Jurnalul de intrare nu a putut fi salvat.",
+        "defaultText": "Raționamentul de intrare a fost capturat la start."
       },
       "mentor": {
         "title": "Plan Mentor",
@@ -1072,7 +1217,25 @@
         "exitPrice": "Preț de ieșire",
         "postTradeNotes": "Notițe post-trade",
         "closingTrade": "Se închide...",
-        "confirmCloseTrade": "Închide tranzacția"
+        "confirmCloseTrade": "Închide tranzacția",
+        "riskAmount": "Sumă risc",
+        "riskExceeds": "Riscul depășește pierderea maximă lock-in.",
+        "invalidation": "Greșesc dacă...",
+        "rrBlocked": "RR este sub {{rr}}R. Startul este blocat până RR atinge pragul.",
+        "setupQuality": "Scor calitate setup: {{score}}% ({{grade}})",
+        "autoGradeHint": "Inputuri pentru auto-grade: lock-in, prerechizite, triggere, RR, siguranță știri",
+        "completeHint": "Completează: Lock-in + elementele lipsă din checklist + invalidare"
+      },
+      "requirements": {
+        "title": "Cerințe execuție",
+        "prereqs": "2) Prerechizite checklist",
+        "triggers": "3) Triggere setup",
+        "complete": "Complet",
+        "lockInSessionSelection": "Selectare sesiune",
+        "lockInDailyMaxLoss": "Pierdere maximă zilnică",
+        "lockInMaxTrades": "Număr maxim de tranzacții",
+        "lockInBias": "Bias",
+        "lockInBiasReason": "Motiv bias"
       },
       "form": {
         "requiredField": "Obligatoriu",

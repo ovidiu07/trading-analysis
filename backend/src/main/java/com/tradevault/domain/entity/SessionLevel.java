@@ -1,6 +1,6 @@
 package com.tradevault.domain.entity;
 
-import com.tradevault.domain.enums.ChecklistValueType;
+import com.tradevault.domain.enums.SessionLevelCategory;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -20,6 +20,7 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.GenericGenerator;
 import org.hibernate.annotations.UpdateTimestamp;
 
+import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -29,46 +30,37 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "checklist_template_entries")
-public class ChecklistTemplateEntry {
+@Table(name = "session_levels")
+public class SessionLevel {
     @Id
     @GeneratedValue(generator = "UUID")
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
     private UUID id;
 
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "template_id", nullable = false)
-    private ChecklistTemplate template;
+    @JoinColumn(name = "today_session_id", nullable = false)
+    private TodaySession todaySession;
 
-    @Column(name = "item_text", nullable = false, length = 160)
-    private String itemText;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    @JoinColumn(name = "user_id", nullable = false)
+    private User user;
 
-    @Column(name = "sort_order", nullable = false)
-    private Integer sortOrder;
+    @Column(name = "label", nullable = false, length = 64)
+    private String label;
 
-    @Column(name = "has_note", nullable = false)
-    private boolean hasNote;
-
-    @Column(name = "note_placeholder", length = 160)
-    private String notePlaceholder;
-
-    @Column(name = "has_value", nullable = false)
-    private boolean hasValue;
-
-    @Column(name = "value_label", length = 80)
-    private String valueLabel;
+    @Column(name = "price", precision = 18, scale = 8)
+    private BigDecimal price;
 
     @Enumerated(EnumType.STRING)
-    @Column(name = "value_type", nullable = false, length = 16)
+    @Column(name = "category", nullable = false, length = 24)
     @Builder.Default
-    private ChecklistValueType valueType = ChecklistValueType.TEXT;
+    private SessionLevelCategory category = SessionLevelCategory.OTHER;
 
-    @Column(name = "required", nullable = false)
-    @Builder.Default
-    private boolean required = true;
+    @Column(name = "notes", length = 280)
+    private String notes;
 
-    @Column(name = "default_checked", nullable = false)
-    private boolean defaultChecked;
+    @Column(name = "swept_at")
+    private OffsetDateTime sweptAt;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

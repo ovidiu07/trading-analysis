@@ -5,19 +5,28 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.domain.entity.ChecklistTemplate;
 import com.tradevault.domain.entity.ChecklistTemplateEntry;
 import com.tradevault.domain.entity.ChecklistTemplateItem;
+import com.tradevault.domain.entity.SessionLevel;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.ChecklistTemplateType;
+import com.tradevault.domain.enums.ChecklistValueType;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.SessionLevelCategory;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.session.ChecklistTemplateItemDto;
 import com.tradevault.dto.session.ChecklistTemplateRequest;
 import com.tradevault.dto.session.ChecklistTemplateResponse;
 import com.tradevault.dto.session.CloseSessionTradeRequest;
 import com.tradevault.dto.session.SessionChecklistItemDto;
+import com.tradevault.dto.session.SessionLevelDto;
+import com.tradevault.dto.session.SessionLevelRequest;
 import com.tradevault.dto.session.StartSessionTradeRequest;
+import com.tradevault.dto.session.TodaySessionActiveSweepLevelRequest;
 import com.tradevault.dto.session.TodaySessionChecklistUpdateRequest;
 import com.tradevault.dto.session.TodaySessionConfigRequest;
+import com.tradevault.dto.session.TodaySessionLockInRequest;
 import com.tradevault.dto.session.TodaySessionPlannedTickersRequest;
 import com.tradevault.dto.session.TodaySessionResponse;
 import com.tradevault.dto.trade.TradeRequest;
@@ -25,6 +34,7 @@ import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.ChecklistTemplateEntryRepository;
 import com.tradevault.repository.ChecklistTemplateItemRepository;
 import com.tradevault.repository.ChecklistTemplateRepository;
+import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
@@ -44,11 +54,14 @@ import java.time.ZoneId;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
@@ -58,15 +71,24 @@ public class TodaySessionService {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final TypeReference<List<SessionChecklistItemDto>> CHECKLIST_LIST = new TypeReference<>() {};
     private static final TypeReference<List<Map<String, Object>>> CHECKLIST_OBJECT_LIST = new TypeReference<>() {};
+
     private static final int MAX_CHECKLIST_ITEMS = 30;
     private static final int MAX_TICKERS = 30;
     private static final int MAX_TICKER_LENGTH = 16;
+    private static final int MAX_TEMPLATE_NAME_LENGTH = 120;
+    private static final int MAX_CHECKLIST_TEXT_LENGTH = 160;
+    private static final int MAX_LEVEL_LABEL_LENGTH = 64;
+
+    private static final Set<String> LOCK_IN_SESSIONS = Set.of("ASIA", "LONDON", "NY_AM", "NY_PM");
+    private static final Set<String> LOCK_IN_OBJECTIVES = Set.of("A_PLUS_ONLY", "ONE_TRADE_MAX", "TWO_TRADES_MAX");
+    private static final Set<String> LOCK_IN_BIAS = Set.of("LONG", "SHORT", "NEUTRAL");
 
     private final TodaySessionRepository todaySessionRepository;
     private final TradeRepository tradeRepository;
     private final ChecklistTemplateRepository checklistTemplateRepository;
     private final ChecklistTemplateEntryRepository checklistTemplateEntryRepository;
     private final ChecklistTemplateItemRepository checklistTemplateItemRepository;
+    private final SessionLevelRepository sessionLevelRepository;
     private final CurrentUserService currentUserService;
     private final TradeService tradeService;
     private final ObjectMapper objectMapper;
@@ -100,9 +122,33 @@ public class TodaySessionService {
         if (session.getStatus() == null) {
             session.setStatus(TodaySessionStatus.ACTIVE);
         }
-        if (session.getChecklistStateJson() == null || session.getChecklistStateJson().isBlank()) {
-            session.setChecklistStateJson(writeChecklistItems(defaultChecklistItems(user.getId())));
+
+        hydrateLegacyChecklistState(session);
+
+        if (isBlank(session.getPrereqsStateJson())) {
+            Optional<ChecklistTemplate> defaultTemplate = checklistTemplateRepository
+                    .findFirstByUser_IdAndTypeAndIsDefaultTrue(user.getId(), ChecklistTemplateType.PREREQS);
+            session.setPrereqsTemplate(defaultTemplate.orElse(null));
+            List<SessionChecklistItemDto> seeded = defaultTemplate
+                    .map(template -> mergeWithTemplateEntries(template.getId(), List.of()))
+                    .orElseGet(() -> mergeWithGlobalChecklistTemplate(user.getId(), List.of()));
+            if (seeded.isEmpty()) {
+                seeded = fallbackPrereqsTemplateItems();
+            }
+            session.setPrereqsStateJson(writeChecklistItems(seeded));
         }
+
+        if (isBlank(session.getTriggersStateJson())) {
+            Optional<ChecklistTemplate> defaultTemplate = checklistTemplateRepository
+                    .findFirstByUser_IdAndTypeAndIsDefaultTrue(user.getId(), ChecklistTemplateType.TRIGGERS);
+            session.setTriggersTemplate(defaultTemplate.orElse(null));
+            List<SessionChecklistItemDto> seeded = defaultTemplate
+                    .map(template -> mergeWithTemplateEntries(template.getId(), List.of()))
+                    .orElseGet(this::fallbackTriggerTemplateItems);
+            session.setTriggersStateJson(writeChecklistItems(seeded));
+        }
+
+        syncLegacyChecklistFields(session);
 
         TodaySession saved = todaySessionRepository.save(session);
         refreshSessionStatus(saved, user.getId());
@@ -124,14 +170,50 @@ public class TodaySessionService {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireTodaySession(user);
 
+        ChecklistTemplateType type = request != null && request.getType() != null
+                ? request.getType()
+                : ChecklistTemplateType.PREREQS;
+
+        List<SessionChecklistItemDto> current = resolveChecklistItems(session, user.getId(), type);
+
         if (request != null && request.getTemplateId() != null) {
             ChecklistTemplate template = checklistTemplateRepository.findByIdAndUser_Id(request.getTemplateId(), user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Checklist template not found"));
-            session.setChecklistTemplate(template);
-            session.setChecklistStateJson(writeChecklistItems(entriesToChecklistItems(template.getId())));
+            if (template.getType() != type) {
+                throw new IllegalArgumentException("Template type does not match checklist type");
+            }
+            List<SessionChecklistItemDto> merged = mergeWithTemplateEntries(template.getId(), current);
+            applyChecklistTypeState(session, type, template, merged);
+        } else if (request != null && request.getItems() != null) {
+            List<SessionChecklistItemDto> items = normalizeChecklistItems(request.getItems());
+            applyChecklistTypeState(session, type, getTemplateForType(session, type), items);
+        }
+
+        if (request != null && request.getActiveSweepLevelId() != null) {
+            applyActiveSweepLevel(session, user.getId(), request.getActiveSweepLevelId());
+        }
+
+        syncLegacyChecklistFields(session);
+        TodaySession saved = todaySessionRepository.save(session);
+        return toResponse(saved, user.getId());
+    }
+
+    @Transactional
+    public TodaySessionResponse updateLockIn(TodaySessionLockInRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireTodaySession(user);
+
+        session.setLockInSession(normalizeLockInSession(request == null ? null : request.getSession()));
+        session.setLockInObjective(normalizeLockInObjective(request == null ? null : request.getObjective()));
+        session.setLockInBias(normalizeLockInBias(request == null ? null : request.getBias()));
+        session.setLockInBiasReason(normalizeLockInBiasReason(request == null ? null : request.getBiasReason()));
+
+        if (isLockInComplete(session)) {
+            if (session.getLockInAt() == null) {
+                session.setLockInAt(OffsetDateTime.now(ZoneOffset.UTC));
+            }
         } else {
-            List<SessionChecklistItemDto> items = normalizeChecklistItems(request == null ? null : request.getItems());
-            session.setChecklistStateJson(writeChecklistItems(items));
+            session.setLockInAt(null);
         }
 
         TodaySession saved = todaySessionRepository.save(session);
@@ -139,23 +221,115 @@ public class TodaySessionService {
     }
 
     @Transactional(readOnly = true)
-    public List<ChecklistTemplateResponse> listChecklistTemplates() {
+    public List<SessionLevelDto> listSessionLevels() {
         User user = currentUserService.getCurrentUser();
-        return checklistTemplateRepository.findByUser_IdOrderByUpdatedAtDesc(user.getId()).stream()
-                .map(this::toChecklistTemplateResponse)
+        TodaySession session = requireTodaySession(user);
+        return sessionLevelRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtAsc(session.getId(), user.getId())
+                .stream()
+                .map(this::toSessionLevelDto)
                 .toList();
+    }
+
+    @Transactional
+    public TodaySessionResponse createSessionLevel(SessionLevelRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireTodaySession(user);
+
+        SessionLevel level = SessionLevel.builder()
+                .todaySession(session)
+                .user(user)
+                .label(normalizeLevelLabel(request == null ? null : request.getLabel()))
+                .price(normalizeLevelPrice(request == null ? null : request.getPrice()))
+                .category(normalizeLevelCategory(request == null ? null : request.getCategory()))
+                .notes(normalizeLevelNotes(request == null ? null : request.getNotes()))
+                .sweptAt(Boolean.TRUE.equals(request == null ? null : request.getSwept()) ? OffsetDateTime.now(ZoneOffset.UTC) : null)
+                .build();
+
+        sessionLevelRepository.save(level);
+        return toResponse(session, user.getId());
+    }
+
+    @Transactional
+    public TodaySessionResponse updateSessionLevel(UUID levelId, SessionLevelRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireTodaySession(user);
+
+        SessionLevel level = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Session level not found"));
+
+        if (request != null && request.getLabel() != null) {
+            level.setLabel(normalizeLevelLabel(request.getLabel()));
+        }
+        if (request != null) {
+            level.setPrice(normalizeLevelPrice(request.getPrice()));
+            level.setCategory(normalizeLevelCategory(request.getCategory()));
+            level.setNotes(normalizeLevelNotes(request.getNotes()));
+            if (request.getSwept() != null) {
+                level.setSweptAt(Boolean.TRUE.equals(request.getSwept()) ? OffsetDateTime.now(ZoneOffset.UTC) : null);
+            }
+        }
+
+        sessionLevelRepository.save(level);
+        return toResponse(session, user.getId());
+    }
+
+    @Transactional
+    public void deleteSessionLevel(UUID levelId) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireTodaySession(user);
+
+        sessionLevelRepository.deleteByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), user.getId());
+        if (Objects.equals(session.getActiveSweepLevelId(), levelId)) {
+            session.setActiveSweepLevelId(null);
+            todaySessionRepository.save(session);
+        }
+    }
+
+    @Transactional
+    public TodaySessionResponse setActiveSweepLevel(TodaySessionActiveSweepLevelRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireTodaySession(user);
+
+        UUID levelId = request == null ? null : request.getLevelId();
+        if (levelId == null) {
+            session.setActiveSweepLevelId(null);
+        } else {
+            applyActiveSweepLevel(session, user.getId(), levelId);
+        }
+
+        TodaySession saved = todaySessionRepository.save(session);
+        return toResponse(saved, user.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public List<ChecklistTemplateResponse> listChecklistTemplates(ChecklistTemplateType type) {
+        User user = currentUserService.getCurrentUser();
+        List<ChecklistTemplate> templates = type == null
+                ? checklistTemplateRepository.findByUser_IdOrderByUpdatedAtDesc(user.getId())
+                : checklistTemplateRepository.findByUser_IdAndTypeOrderByUpdatedAtDesc(user.getId(), type);
+        return templates.stream().map(this::toChecklistTemplateResponse).toList();
     }
 
     @Transactional
     public ChecklistTemplateResponse createChecklistTemplate(ChecklistTemplateRequest request) {
         User user = currentUserService.getCurrentUser();
-        String name = normalizeTemplateName(request.getName());
-        List<String> items = normalizeTemplateItems(request.getItems());
+        ChecklistTemplateType type = request == null || request.getType() == null
+                ? ChecklistTemplateType.PREREQS
+                : request.getType();
+        String name = normalizeTemplateName(request == null ? null : request.getName());
+        List<ChecklistTemplateItemDto> items = normalizeTemplateItems(request == null ? null : request.getItems());
 
-        ChecklistTemplate template = checklistTemplateRepository.save(ChecklistTemplate.builder()
+        ChecklistTemplate template = ChecklistTemplate.builder()
                 .user(user)
                 .name(name)
-                .build());
+                .type(type)
+                .isDefault(request != null && request.isDefault())
+                .build();
+        checklistTemplateRepository.save(template);
+
+        if (template.isDefault()) {
+            clearOtherDefaults(user.getId(), type, template.getId());
+        }
 
         saveTemplateEntries(template, items);
         return toChecklistTemplateResponse(template);
@@ -167,11 +341,20 @@ public class TodaySessionService {
         ChecklistTemplate template = checklistTemplateRepository.findByIdAndUser_Id(templateId, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Checklist template not found"));
 
-        template.setName(normalizeTemplateName(request.getName()));
-        checklistTemplateRepository.save(template);
-        checklistTemplateEntryRepository.deleteByTemplate_Id(templateId);
-        saveTemplateEntries(template, normalizeTemplateItems(request.getItems()));
+        ChecklistTemplateType targetType = request != null && request.getType() != null
+                ? request.getType()
+                : template.getType();
 
+        template.setName(normalizeTemplateName(request == null ? null : request.getName()));
+        template.setType(targetType);
+        template.setDefault(request != null && request.isDefault());
+        checklistTemplateRepository.save(template);
+
+        if (template.isDefault()) {
+            clearOtherDefaults(user.getId(), targetType, template.getId());
+        }
+
+        saveTemplateEntries(template, normalizeTemplateItems(request == null ? null : request.getItems()));
         return toChecklistTemplateResponse(template);
     }
 
@@ -267,6 +450,87 @@ public class TodaySessionService {
         return updated;
     }
 
+    private void applyChecklistTypeState(TodaySession session,
+                                         ChecklistTemplateType type,
+                                         ChecklistTemplate template,
+                                         List<SessionChecklistItemDto> items) {
+        if (type == ChecklistTemplateType.TRIGGERS) {
+            session.setTriggersTemplate(template);
+            session.setTriggersStateJson(writeChecklistItems(items));
+            return;
+        }
+        session.setPrereqsTemplate(template);
+        session.setPrereqsStateJson(writeChecklistItems(items));
+    }
+
+    private ChecklistTemplate getTemplateForType(TodaySession session, ChecklistTemplateType type) {
+        return type == ChecklistTemplateType.TRIGGERS ? session.getTriggersTemplate() : session.getPrereqsTemplate();
+    }
+
+    private void applyActiveSweepLevel(TodaySession session, UUID userId, UUID levelId) {
+        boolean exists = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), userId).isPresent();
+        if (!exists) {
+            throw new EntityNotFoundException("Sweep level not found");
+        }
+        session.setActiveSweepLevelId(levelId);
+    }
+
+    private void clearOtherDefaults(UUID userId, ChecklistTemplateType type, UUID keepId) {
+        List<ChecklistTemplate> templates = checklistTemplateRepository.findByUser_IdAndTypeOrderByUpdatedAtDesc(userId, type);
+        List<ChecklistTemplate> changed = templates.stream()
+                .filter(ChecklistTemplate::isDefault)
+                .filter(item -> !Objects.equals(item.getId(), keepId))
+                .peek(item -> item.setDefault(false))
+                .toList();
+        if (!changed.isEmpty()) {
+            checklistTemplateRepository.saveAll(changed);
+        }
+    }
+
+    private void saveTemplateEntries(ChecklistTemplate template, List<ChecklistTemplateItemDto> items) {
+        List<ChecklistTemplateEntry> existing = checklistTemplateEntryRepository
+                .findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(template.getId());
+        Map<UUID, ChecklistTemplateEntry> byId = new HashMap<>();
+        for (ChecklistTemplateEntry entry : existing) {
+            byId.put(entry.getId(), entry);
+        }
+
+        Set<UUID> keepIds = new HashSet<>();
+        for (int index = 0; index < items.size(); index++) {
+            ChecklistTemplateItemDto item = items.get(index);
+            ChecklistTemplateEntry entry = null;
+            UUID itemId = parseUuid(normalizeOptionalText(item.getId()));
+            if (itemId != null) {
+                entry = byId.get(itemId);
+            }
+            if (entry == null) {
+                entry = ChecklistTemplateEntry.builder()
+                        .template(template)
+                        .build();
+            }
+
+            entry.setTemplate(template);
+            entry.setItemText(item.getText());
+            entry.setSortOrder(item.getOrder() == null ? index : Math.max(0, item.getOrder()));
+            entry.setRequired(item.isRequired());
+            entry.setHasNote(item.isHasNote());
+            entry.setNotePlaceholder(item.isHasNote() ? normalizeNotePlaceholder(item.getNotePlaceholder()) : null);
+            entry.setHasValue(item.isHasValue());
+            entry.setValueLabel(item.isHasValue() ? normalizeValueLabel(item.getValueLabel()) : null);
+            entry.setValueType(item.isHasValue() ? normalizeValueType(item.getValueType()) : ChecklistValueType.TEXT);
+            entry.setDefaultChecked(item.isDefaultChecked());
+
+            ChecklistTemplateEntry saved = checklistTemplateEntryRepository.save(entry);
+            keepIds.add(saved.getId());
+        }
+
+        for (ChecklistTemplateEntry entry : existing) {
+            if (!keepIds.contains(entry.getId())) {
+                checklistTemplateEntryRepository.delete(entry);
+            }
+        }
+    }
+
     private TradeRequest toTradeUpdateRequest(Trade trade) {
         TradeRequest request = new TradeRequest();
         request.setSymbol(trade.getSymbol());
@@ -356,11 +620,16 @@ public class TodaySessionService {
     }
 
     private TodaySessionResponse toResponse(TodaySession session, UUID userId) {
-        List<SessionChecklistItemDto> checklistItems = resolveChecklistItems(session, userId);
-        return toResponse(session, userId, checklistItems);
+        List<SessionChecklistItemDto> prereqs = resolveChecklistItems(session, userId, ChecklistTemplateType.PREREQS);
+        List<SessionChecklistItemDto> triggers = resolveChecklistItems(session, userId, ChecklistTemplateType.TRIGGERS);
+
+        return toResponse(session, userId, prereqs, triggers);
     }
 
-    private TodaySessionResponse toResponse(TodaySession session, UUID userId, List<SessionChecklistItemDto> checklistItems) {
+    private TodaySessionResponse toResponse(TodaySession session,
+                                            UUID userId,
+                                            List<SessionChecklistItemDto> prereqs,
+                                            List<SessionChecklistItemDto> triggers) {
         SessionProgress progress = computeProgress(session, userId);
         long remainingTrades = Math.max(0, session.getMaxTrades() - progress.closedTrades());
 
@@ -368,6 +637,12 @@ public class TodaySessionService {
                 .findFirstByUser_IdAndSessionIdAndStatusOrderByOpenedAtDescCreatedAtDesc(userId, session.getId(), TradeStatus.OPEN)
                 .map(trade -> tradeService.getById(trade.getId()))
                 .orElse(null);
+
+        List<SessionLevelDto> levels = sessionLevelRepository
+                .findByTodaySession_IdAndUser_IdOrderByCreatedAtAsc(session.getId(), userId)
+                .stream()
+                .map(this::toSessionLevelDto)
+                .toList();
 
         return TodaySessionResponse.builder()
                 .id(session.getId())
@@ -380,11 +655,35 @@ public class TodaySessionService {
                 .closedTradesCount(progress.closedTrades())
                 .remainingTrades(remainingTrades)
                 .plannedTickers(readStringList(session.getPlannedTickersJson()))
-                .checklistItems(checklistItems)
-                .checklistTemplateId(session.getChecklistTemplate() == null ? null : session.getChecklistTemplate().getId())
+                .checklistItems(prereqs)
+                .checklistTemplateId(session.getPrereqsTemplate() == null ? null : session.getPrereqsTemplate().getId())
+                .prereqsChecklistItems(prereqs)
+                .triggerChecklistItems(triggers)
+                .prereqsTemplateId(session.getPrereqsTemplate() == null ? null : session.getPrereqsTemplate().getId())
+                .triggerTemplateId(session.getTriggersTemplate() == null ? null : session.getTriggersTemplate().getId())
+                .lockInSession(session.getLockInSession())
+                .lockInObjective(session.getLockInObjective())
+                .lockInBias(session.getLockInBias())
+                .lockInBiasReason(session.getLockInBiasReason())
+                .lockInAt(session.getLockInAt())
+                .activeSweepLevelId(session.getActiveSweepLevelId())
+                .levels(levels)
                 .activeTrade(activeTrade)
                 .createdAt(session.getCreatedAt())
                 .updatedAt(session.getUpdatedAt())
+                .build();
+    }
+
+    private SessionLevelDto toSessionLevelDto(SessionLevel level) {
+        return SessionLevelDto.builder()
+                .id(level.getId())
+                .label(level.getLabel())
+                .price(level.getPrice())
+                .category(level.getCategory())
+                .notes(level.getNotes())
+                .sweptAt(level.getSweptAt())
+                .createdAt(level.getCreatedAt())
+                .updatedAt(level.getUpdatedAt())
                 .build();
     }
 
@@ -397,6 +696,24 @@ public class TodaySessionService {
     private LocalDate resolveSessionDate() {
         ZoneId zone = ZoneId.of(TimezoneService.DEFAULT_TIMEZONE);
         return LocalDate.now(zone);
+    }
+
+    private void hydrateLegacyChecklistState(TodaySession session) {
+        if (isBlank(session.getPrereqsStateJson()) && !isBlank(session.getChecklistStateJson())) {
+            session.setPrereqsStateJson(session.getChecklistStateJson());
+        }
+        if (session.getPrereqsTemplate() == null && session.getChecklistTemplate() != null) {
+            session.setPrereqsTemplate(session.getChecklistTemplate());
+        }
+    }
+
+    private void syncLegacyChecklistFields(TodaySession session) {
+        if (!isBlank(session.getPrereqsStateJson())) {
+            session.setChecklistStateJson(session.getPrereqsStateJson());
+        }
+        if (session.getPrereqsTemplate() != null) {
+            session.setChecklistTemplate(session.getPrereqsTemplate());
+        }
     }
 
     private String writeStringList(List<String> values) {
@@ -457,27 +774,29 @@ public class TodaySessionService {
             }
 
             List<SessionChecklistItemDto> items = new ArrayList<>();
+            int index = 0;
             for (Map<String, Object> row : rows) {
                 if (row == null || row.isEmpty()) {
                     continue;
                 }
 
-                String text = normalizeOptionalText(row.get("text") == null ? null : String.valueOf(row.get("text")));
+                String text = normalizeOptionalText(stringValue(row.get("text")));
                 if (text == null) {
                     continue;
                 }
 
-                String id = normalizeOptionalText(row.get("id") == null ? null : String.valueOf(row.get("id")));
-                Object completedRaw = row.get("completed");
-                boolean completed = completedRaw instanceof Boolean value
-                        ? value
-                        : completedRaw != null && Boolean.parseBoolean(String.valueOf(completedRaw));
+                String id = normalizeOptionalText(stringValue(row.get("id")));
+                boolean completed = booleanValue(row.get("completed"));
 
                 items.add(SessionChecklistItemDto.builder()
-                        .id(id)
+                        .id(id == null ? "item-" + (index + 1) : id)
                         .text(text)
+                        .order(index)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
                         .completed(completed)
                         .build());
+                index++;
             }
 
             return items;
@@ -493,26 +812,113 @@ public class TodaySessionService {
         if (items.size() > MAX_CHECKLIST_ITEMS) {
             throw new IllegalArgumentException("Checklist cannot contain more than " + MAX_CHECKLIST_ITEMS + " items");
         }
+
         List<SessionChecklistItemDto> normalized = new ArrayList<>();
+        Set<String> seenIds = new HashSet<>();
+
         for (int index = 0; index < items.size(); index++) {
             SessionChecklistItemDto item = items.get(index);
             String text = normalizeChecklistText(item == null ? null : item.getText());
-            String id = normalizeOptionalText(item == null ? null : item.getId());
+            String requestedId = normalizeOptionalText(item == null ? null : item.getId());
+            String id = requestedId == null ? "item-" + (index + 1) : requestedId;
+            if (!seenIds.add(id)) {
+                id = id + "-" + (index + 1);
+                seenIds.add(id);
+            }
+
+            boolean hasNote = item != null && item.isHasNote();
+            boolean hasValue = item != null && item.isHasValue();
+
             normalized.add(SessionChecklistItemDto.builder()
-                    .id(id == null ? ("item-" + (index + 1)) : id)
+                    .id(id)
                     .text(text)
+                    .order(item == null || item.getOrder() == null ? index : Math.max(0, item.getOrder()))
+                    .required(item == null || item.isRequired())
+                    .hasNote(hasNote)
+                    .notePlaceholder(hasNote ? normalizeNotePlaceholder(item.getNotePlaceholder()) : null)
+                    .note(hasNote ? normalizeNoteValue(item.getNote()) : null)
+                    .hasValue(hasValue)
+                    .valueLabel(hasValue ? normalizeValueLabel(item.getValueLabel()) : null)
+                    .valueType(hasValue ? normalizeValueType(item.getValueType()) : ChecklistValueType.TEXT)
+                    .value(hasValue ? normalizeValue(item.getValue()) : null)
+                    .defaultChecked(item != null && item.isDefaultChecked())
                     .completed(item != null && item.isCompleted())
                     .build());
         }
+
         return normalized;
     }
 
-    private List<SessionChecklistItemDto> resolveChecklistItems(TodaySession session, UUID userId) {
-        List<SessionChecklistItemDto> persistedState = readChecklistItems(session.getChecklistStateJson());
-        if (session.getChecklistTemplate() != null && session.getChecklistTemplate().getId() != null) {
-            return mergeWithTemplateEntries(session.getChecklistTemplate().getId(), persistedState);
+    private List<ChecklistTemplateItemDto> normalizeTemplateItems(List<ChecklistTemplateItemDto> items) {
+        if (items == null || items.isEmpty()) {
+            throw new IllegalArgumentException("Template items are required");
         }
-        return mergeWithGlobalChecklistTemplate(userId, persistedState);
+        if (items.size() > MAX_CHECKLIST_ITEMS) {
+            throw new IllegalArgumentException("Template cannot contain more than " + MAX_CHECKLIST_ITEMS + " items");
+        }
+
+        List<ChecklistTemplateItemDto> normalized = new ArrayList<>();
+        for (int index = 0; index < items.size(); index++) {
+            ChecklistTemplateItemDto item = items.get(index);
+            String text = normalizeChecklistText(item == null ? null : item.getText());
+            boolean hasNote = item != null && item.isHasNote();
+            boolean hasValue = item != null && item.isHasValue();
+
+            normalized.add(ChecklistTemplateItemDto.builder()
+                    .id(normalizeOptionalText(item == null ? null : item.getId()))
+                    .text(text)
+                    .order(item == null || item.getOrder() == null ? index : Math.max(0, item.getOrder()))
+                    .required(item == null || item.isRequired())
+                    .hasNote(hasNote)
+                    .notePlaceholder(hasNote ? normalizeNotePlaceholder(item.getNotePlaceholder()) : null)
+                    .hasValue(hasValue)
+                    .valueLabel(hasValue ? normalizeValueLabel(item.getValueLabel()) : null)
+                    .valueType(hasValue ? normalizeValueType(item.getValueType()) : ChecklistValueType.TEXT)
+                    .defaultChecked(item != null && item.isDefaultChecked())
+                    .build());
+        }
+
+        return normalized;
+    }
+
+    private List<SessionChecklistItemDto> resolveChecklistItems(TodaySession session,
+                                                                UUID userId,
+                                                                ChecklistTemplateType type) {
+        List<SessionChecklistItemDto> persistedState = readChecklistItems(getChecklistStateJson(session, type));
+        ChecklistTemplate template = getTemplateForType(session, type);
+        if (template != null && template.getId() != null) {
+            return mergeWithTemplateEntries(template.getId(), persistedState);
+        }
+
+        if (type == ChecklistTemplateType.PREREQS) {
+            if (!isBlank(session.getChecklistStateJson())) {
+                return mergeWithGlobalChecklistTemplate(userId, persistedState);
+            }
+            Optional<ChecklistTemplate> defaultTemplate = checklistTemplateRepository
+                    .findFirstByUser_IdAndTypeAndIsDefaultTrue(userId, ChecklistTemplateType.PREREQS);
+            if (defaultTemplate.isPresent()) {
+                return mergeWithTemplateEntries(defaultTemplate.get().getId(), persistedState);
+            }
+            List<SessionChecklistItemDto> merged = mergeWithGlobalChecklistTemplate(userId, persistedState);
+            if (!merged.isEmpty()) {
+                return merged;
+            }
+            return mergeTemplateRows(fallbackPrereqsTemplateItems(), persistedState);
+        }
+
+        Optional<ChecklistTemplate> defaultTemplate = checklistTemplateRepository
+                .findFirstByUser_IdAndTypeAndIsDefaultTrue(userId, ChecklistTemplateType.TRIGGERS);
+        if (defaultTemplate.isPresent()) {
+            return mergeWithTemplateEntries(defaultTemplate.get().getId(), persistedState);
+        }
+        return mergeTemplateRows(fallbackTriggerTemplateItems(), persistedState);
+    }
+
+    private String getChecklistStateJson(TodaySession session, ChecklistTemplateType type) {
+        if (type == ChecklistTemplateType.TRIGGERS) {
+            return firstNonBlank(session.getTriggersStateJson());
+        }
+        return firstNonBlank(session.getPrereqsStateJson(), session.getChecklistStateJson());
     }
 
     private List<SessionChecklistItemDto> mergeWithGlobalChecklistTemplate(UUID userId, List<SessionChecklistItemDto> persistedState) {
@@ -522,79 +928,203 @@ public class TodaySessionService {
             return List.of();
         }
 
-        Map<String, Boolean> completedById = buildCompletionById(persistedState);
-        Map<String, Boolean> completedByText = buildCompletionByText(persistedState);
-
-        return templateItems.stream()
+        List<SessionChecklistItemDto> rows = templateItems.stream()
                 .limit(MAX_CHECKLIST_ITEMS)
-                .map(item -> {
-                    String id = item.getId().toString();
-                    boolean completed = completedById.containsKey(id)
-                            ? Boolean.TRUE.equals(completedById.get(id))
-                            : Boolean.TRUE.equals(completedByText.get(normalizeChecklistMatchText(item.getText())));
-                    return SessionChecklistItemDto.builder()
-                            .id(id)
-                            .text(item.getText())
-                            .completed(completed)
-                            .build();
-                })
+                .map(item -> SessionChecklistItemDto.builder()
+                        .id(item.getId().toString())
+                        .text(item.getText())
+                        .order(item.getSortOrder())
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .defaultChecked(false)
+                        .completed(false)
+                        .build())
                 .toList();
+
+        return mergeTemplateRows(rows, persistedState);
     }
 
-    private List<SessionChecklistItemDto> mergeWithTemplateEntries(UUID templateId, List<SessionChecklistItemDto> persistedState) {
-        List<ChecklistTemplateEntry> entries = checklistTemplateEntryRepository.findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(templateId);
+    private List<SessionChecklistItemDto> mergeWithTemplateEntries(UUID templateId,
+                                                                    List<SessionChecklistItemDto> persistedState) {
+        List<ChecklistTemplateEntry> entries = checklistTemplateEntryRepository
+                .findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(templateId);
         if (entries.isEmpty()) {
             return List.of();
         }
 
-        Map<String, Boolean> completedById = buildCompletionById(persistedState);
-        Map<String, Boolean> completedByText = buildCompletionByText(persistedState);
-
-        return entries.stream()
+        List<SessionChecklistItemDto> rows = entries.stream()
                 .limit(MAX_CHECKLIST_ITEMS)
-                .map(entry -> {
-                    String id = entry.getId().toString();
-                    boolean completed = completedById.containsKey(id)
-                            ? Boolean.TRUE.equals(completedById.get(id))
-                            : Boolean.TRUE.equals(completedByText.get(normalizeChecklistMatchText(entry.getItemText())));
-                    return SessionChecklistItemDto.builder()
-                            .id(id)
-                            .text(entry.getItemText())
-                            .completed(completed)
-                            .build();
-                })
+                .map(entry -> SessionChecklistItemDto.builder()
+                        .id(entry.getId().toString())
+                        .text(entry.getItemText())
+                        .order(entry.getSortOrder())
+                        .required(entry.isRequired())
+                        .hasNote(entry.isHasNote())
+                        .notePlaceholder(entry.getNotePlaceholder())
+                        .hasValue(entry.isHasValue())
+                        .valueLabel(entry.getValueLabel())
+                        .valueType(entry.getValueType() == null ? ChecklistValueType.TEXT : entry.getValueType())
+                        .defaultChecked(entry.isDefaultChecked())
+                        .completed(entry.isDefaultChecked())
+                        .build())
                 .toList();
+
+        return mergeTemplateRows(rows, persistedState);
     }
 
-    private Map<String, Boolean> buildCompletionById(List<SessionChecklistItemDto> items) {
-        Map<String, Boolean> completionById = new HashMap<>();
-        if (items == null || items.isEmpty()) {
-            return completionById;
+    private List<SessionChecklistItemDto> mergeTemplateRows(List<SessionChecklistItemDto> templateRows,
+                                                            List<SessionChecklistItemDto> persistedState) {
+        if (templateRows.isEmpty()) {
+            return List.of();
         }
-        for (SessionChecklistItemDto item : items) {
-            String id = normalizeOptionalText(item == null ? null : item.getId());
-            if (id == null) {
-                continue;
+
+        ChecklistStateMaps maps = buildStateMaps(persistedState);
+        List<SessionChecklistItemDto> merged = new ArrayList<>();
+
+        for (int index = 0; index < templateRows.size() && index < MAX_CHECKLIST_ITEMS; index++) {
+            SessionChecklistItemDto template = templateRows.get(index);
+            SessionChecklistItemDto state = null;
+            if (template.getId() != null) {
+                state = maps.byId().get(template.getId());
             }
-            completionById.put(id, item != null && item.isCompleted());
+            if (state == null) {
+                state = maps.byText().get(normalizeChecklistMatchText(template.getText()));
+            }
+
+            merged.add(SessionChecklistItemDto.builder()
+                    .id(template.getId())
+                    .text(template.getText())
+                    .order(template.getOrder() == null ? index : template.getOrder())
+                    .required(template.isRequired())
+                    .hasNote(template.isHasNote())
+                    .notePlaceholder(template.getNotePlaceholder())
+                    .note(template.isHasNote() ? normalizeNoteValue(state == null ? null : state.getNote()) : null)
+                    .hasValue(template.isHasValue())
+                    .valueLabel(template.getValueLabel())
+                    .valueType(template.getValueType() == null ? ChecklistValueType.TEXT : template.getValueType())
+                    .value(template.isHasValue() ? normalizeValue(state == null ? null : state.getValue()) : null)
+                    .defaultChecked(template.isDefaultChecked())
+                    .completed(state == null ? template.isDefaultChecked() : state.isCompleted())
+                    .build());
         }
-        return completionById;
+
+        return merged;
     }
 
-    private Map<String, Boolean> buildCompletionByText(List<SessionChecklistItemDto> items) {
-        Map<String, Boolean> completionByText = new HashMap<>();
+    private ChecklistStateMaps buildStateMaps(List<SessionChecklistItemDto> items) {
+        Map<String, SessionChecklistItemDto> byId = new LinkedHashMap<>();
+        Map<String, SessionChecklistItemDto> byText = new LinkedHashMap<>();
         if (items == null || items.isEmpty()) {
-            return completionByText;
+            return new ChecklistStateMaps(byId, byText);
         }
         for (SessionChecklistItemDto item : items) {
-            String key = normalizeChecklistMatchText(item == null ? null : item.getText());
-            if (key == null) {
-                continue;
+            if (item == null) continue;
+            String id = normalizeOptionalText(item.getId());
+            if (id != null) {
+                byId.put(id, item);
             }
-            boolean completed = item != null && item.isCompleted();
-            completionByText.merge(key, completed, (current, next) -> Boolean.TRUE.equals(current) || Boolean.TRUE.equals(next));
+            String key = normalizeChecklistMatchText(item.getText());
+            if (key != null) {
+                byText.putIfAbsent(key, item);
+            }
         }
-        return completionByText;
+        return new ChecklistStateMaps(byId, byText);
+    }
+
+    private List<SessionChecklistItemDto> fallbackPrereqsTemplateItems() {
+        return List.of(
+                SessionChecklistItemDto.builder()
+                        .id("pr-news")
+                        .text("News check done")
+                        .order(0)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("pr-red-news")
+                        .text("Red news window")
+                        .order(1)
+                        .required(false)
+                        .hasValue(true)
+                        .valueLabel("Time")
+                        .valueType(ChecklistValueType.TIME)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("pr-levels")
+                        .text("Key levels marked")
+                        .order(2)
+                        .required(true)
+                        .hasNote(true)
+                        .notePlaceholder("Quick notes")
+                        .valueType(ChecklistValueType.TEXT)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("pr-risk")
+                        .text("Risk and max trades confirmed")
+                        .order(3)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .defaultChecked(true)
+                        .completed(true)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("pr-invalidation")
+                        .text("Invalidation written")
+                        .order(4)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .build()
+        );
+    }
+
+    private List<SessionChecklistItemDto> fallbackTriggerTemplateItems() {
+        return List.of(
+                SessionChecklistItemDto.builder()
+                        .id("tr-sweep")
+                        .text("Liquidity sweep confirmed")
+                        .order(0)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("tr-displacement")
+                        .text("Displacement close (M5) away from sweep")
+                        .order(1)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("tr-mss")
+                        .text("MSS confirmed on close")
+                        .order(2)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("tr-entry-zone")
+                        .text("Entry zone identified")
+                        .order(3)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("tr-rr")
+                        .text("RR threshold met")
+                        .order(4)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .build()
+        );
+    }
+
+    private boolean isLockInComplete(TodaySession session) {
+        return session.getLossLimit() != null
+                && session.getLossLimit().compareTo(BigDecimal.ZERO) > 0
+                && session.getMaxTrades() != null
+                && session.getMaxTrades() > 0
+                && normalizeOptionalText(session.getLockInSession()) != null
+                && normalizeOptionalText(session.getLockInBias()) != null
+                && normalizeOptionalText(session.getLockInBiasReason()) != null;
     }
 
     private String normalizeChecklistMatchText(String value) {
@@ -618,29 +1148,13 @@ public class TodaySessionService {
         return null;
     }
 
-    private List<SessionChecklistItemDto> defaultChecklistItems(UUID userId) {
-        List<ChecklistTemplateItem> items = checklistTemplateItemRepository
-                .findByUser_IdAndIsEnabledTrueOrderBySortOrderAscCreatedAtAsc(userId);
-        if (items.isEmpty()) {
-            return List.of();
-        }
-        return items.stream()
-                .limit(MAX_CHECKLIST_ITEMS)
-                .map(item -> SessionChecklistItemDto.builder()
-                        .id(item.getId().toString())
-                        .text(item.getText())
-                        .completed(false)
-                        .build())
-                .toList();
-    }
-
     private String normalizeChecklistText(String value) {
         String normalized = normalizeOptionalText(value);
         if (normalized == null) {
             throw new IllegalArgumentException("Checklist item text is required");
         }
-        if (normalized.length() > 160) {
-            throw new IllegalArgumentException("Checklist item text cannot exceed 160 characters");
+        if (normalized.length() > MAX_CHECKLIST_TEXT_LENGTH) {
+            throw new IllegalArgumentException("Checklist item text cannot exceed " + MAX_CHECKLIST_TEXT_LENGTH + " characters");
         }
         return normalized;
     }
@@ -650,63 +1164,126 @@ public class TodaySessionService {
         if (normalized == null) {
             throw new IllegalArgumentException("Template name is required");
         }
-        if (normalized.length() > 120) {
-            throw new IllegalArgumentException("Template name cannot exceed 120 characters");
+        if (normalized.length() > MAX_TEMPLATE_NAME_LENGTH) {
+            throw new IllegalArgumentException("Template name cannot exceed " + MAX_TEMPLATE_NAME_LENGTH + " characters");
         }
         return normalized;
     }
 
-    private List<String> normalizeTemplateItems(List<String> values) {
-        if (values == null || values.isEmpty()) {
-            throw new IllegalArgumentException("Template items are required");
-        }
-        if (values.size() > MAX_CHECKLIST_ITEMS) {
-            throw new IllegalArgumentException("Template cannot contain more than " + MAX_CHECKLIST_ITEMS + " items");
-        }
-        List<String> normalized = values.stream()
-                .filter(Objects::nonNull)
-                .map(String::trim)
-                .filter(item -> !item.isEmpty())
-                .distinct()
-                .toList();
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException("Template items are required");
+    private String normalizeNotePlaceholder(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > 160) {
+            throw new IllegalArgumentException("Note placeholder cannot exceed 160 characters");
         }
         return normalized;
     }
 
-    private void saveTemplateEntries(ChecklistTemplate template, List<String> items) {
-        for (int index = 0; index < items.size(); index++) {
-            checklistTemplateEntryRepository.save(ChecklistTemplateEntry.builder()
-                    .template(template)
-                    .itemText(items.get(index))
-                    .sortOrder(index)
-                    .build());
+    private String normalizeNoteValue(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > 280) {
+            throw new IllegalArgumentException("Checklist note cannot exceed 280 characters");
         }
+        return normalized;
     }
 
-    private List<SessionChecklistItemDto> entriesToChecklistItems(UUID templateId) {
-        List<ChecklistTemplateEntry> entries = checklistTemplateEntryRepository.findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(templateId);
-        return entries.stream()
-                .map(entry -> SessionChecklistItemDto.builder()
-                        .id(entry.getId().toString())
-                        .text(entry.getItemText())
-                        .completed(false)
-                        .build())
-                .toList();
+    private String normalizeValueLabel(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > 80) {
+            throw new IllegalArgumentException("Value label cannot exceed 80 characters");
+        }
+        return normalized;
     }
 
-    private ChecklistTemplateResponse toChecklistTemplateResponse(ChecklistTemplate template) {
-        List<String> items = checklistTemplateEntryRepository.findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(template.getId()).stream()
-                .map(ChecklistTemplateEntry::getItemText)
-                .toList();
-        return ChecklistTemplateResponse.builder()
-                .id(template.getId())
-                .name(template.getName())
-                .items(items)
-                .createdAt(template.getCreatedAt())
-                .updatedAt(template.getUpdatedAt())
-                .build();
+    private String normalizeValue(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > 120) {
+            throw new IllegalArgumentException("Checklist value cannot exceed 120 characters");
+        }
+        return normalized;
+    }
+
+    private ChecklistValueType normalizeValueType(ChecklistValueType valueType) {
+        return valueType == null ? ChecklistValueType.TEXT : valueType;
+    }
+
+    private String normalizeLevelLabel(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            throw new IllegalArgumentException("Level label is required");
+        }
+        if (normalized.length() > MAX_LEVEL_LABEL_LENGTH) {
+            throw new IllegalArgumentException("Level label cannot exceed " + MAX_LEVEL_LABEL_LENGTH + " characters");
+        }
+        return normalized;
+    }
+
+    private BigDecimal normalizeLevelPrice(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Level price must be greater than zero");
+        }
+        return value.setScale(8, RoundingMode.HALF_UP);
+    }
+
+    private SessionLevelCategory normalizeLevelCategory(SessionLevelCategory value) {
+        return value == null ? SessionLevelCategory.OTHER : value;
+    }
+
+    private String normalizeLevelNotes(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > 280) {
+            throw new IllegalArgumentException("Level notes cannot exceed 280 characters");
+        }
+        return normalized;
+    }
+
+    private String normalizeLockInSession(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            return null;
+        }
+        String token = normalized.toUpperCase(Locale.ROOT);
+        if (!LOCK_IN_SESSIONS.contains(token)) {
+            throw new IllegalArgumentException("Invalid lock-in session");
+        }
+        return token;
+    }
+
+    private String normalizeLockInObjective(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            return null;
+        }
+        String token = normalized.toUpperCase(Locale.ROOT);
+        if (!LOCK_IN_OBJECTIVES.contains(token)) {
+            throw new IllegalArgumentException("Invalid lock-in objective");
+        }
+        return token;
+    }
+
+    private String normalizeLockInBias(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            return null;
+        }
+        String token = normalized.toUpperCase(Locale.ROOT);
+        if (!LOCK_IN_BIAS.contains(token)) {
+            throw new IllegalArgumentException("Invalid lock-in bias");
+        }
+        return token;
+    }
+
+    private String normalizeLockInBiasReason(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            return null;
+        }
+        if (normalized.length() > 140) {
+            throw new IllegalArgumentException("Lock-in bias reason cannot exceed 140 characters");
+        }
+        return normalized;
     }
 
     private List<String> normalizeTickers(List<String> tickers) {
@@ -777,6 +1354,68 @@ public class TodaySessionService {
             normalized.add(token);
         }
         return normalized;
+    }
+
+    private boolean isBlank(String value) {
+        return value == null || value.isBlank();
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private boolean booleanValue(Object value) {
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        if (value == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private UUID parseUuid(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
+    }
+
+    private ChecklistTemplateResponse toChecklistTemplateResponse(ChecklistTemplate template) {
+        List<ChecklistTemplateItemDto> items = checklistTemplateEntryRepository
+                .findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(template.getId())
+                .stream()
+                .map(entry -> ChecklistTemplateItemDto.builder()
+                        .id(entry.getId().toString())
+                        .text(entry.getItemText())
+                        .order(entry.getSortOrder())
+                        .required(entry.isRequired())
+                        .hasNote(entry.isHasNote())
+                        .notePlaceholder(entry.getNotePlaceholder())
+                        .hasValue(entry.isHasValue())
+                        .valueLabel(entry.getValueLabel())
+                        .valueType(entry.getValueType() == null ? ChecklistValueType.TEXT : entry.getValueType())
+                        .defaultChecked(entry.isDefaultChecked())
+                        .build())
+                .toList();
+
+        return ChecklistTemplateResponse.builder()
+                .id(template.getId())
+                .name(template.getName())
+                .type(template.getType())
+                .isDefault(template.isDefault())
+                .items(items)
+                .createdAt(template.getCreatedAt())
+                .updatedAt(template.getUpdatedAt())
+                .build();
+    }
+
+    private record ChecklistStateMaps(Map<String, SessionChecklistItemDto> byId,
+                                      Map<String, SessionChecklistItemDto> byText) {
     }
 
     private record SessionProgress(long closedTrades, BigDecimal realizedPnl) {

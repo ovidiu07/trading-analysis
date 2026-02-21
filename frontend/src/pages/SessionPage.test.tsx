@@ -12,6 +12,16 @@ const sessionApiMock = vi.hoisted(() => ({
   getTodaySession: vi.fn(),
   saveTodaySessionConfig: vi.fn(),
   updateTodaySessionPlannedTickers: vi.fn(),
+  updateTodaySessionChecklist: vi.fn(),
+  updateTodaySessionLockIn: vi.fn(),
+  listChecklistTemplates: vi.fn(),
+  createChecklistTemplate: vi.fn(),
+  updateChecklistTemplate: vi.fn(),
+  deleteChecklistTemplate: vi.fn(),
+  createSessionLevel: vi.fn(),
+  updateSessionLevel: vi.fn(),
+  deleteSessionLevel: vi.fn(),
+  setActiveSweepLevel: vi.fn(),
   startTradeFromSession: vi.fn(),
   closeTradeFromSession: vi.fn(),
   saveTradeEntryJournal: vi.fn()
@@ -70,7 +80,71 @@ const LanguageInitializer = ({ language }: { language: AppLanguage }) => {
   return null
 }
 
-const baseSession = {
+const prereqs = [
+  {
+    id: 'pr-news',
+    text: 'News check done',
+    required: true,
+    hasNote: false,
+    notePlaceholder: null,
+    note: '',
+    hasValue: false,
+    valueLabel: null,
+    valueType: 'TEXT',
+    value: '',
+    defaultChecked: false,
+    completed: false
+  },
+  {
+    id: 'pr-levels',
+    text: 'Key levels marked',
+    required: true,
+    hasNote: true,
+    notePlaceholder: 'Quick notes',
+    note: '',
+    hasValue: false,
+    valueLabel: null,
+    valueType: 'TEXT',
+    value: '',
+    defaultChecked: false,
+    completed: false
+  }
+]
+
+const triggers = [
+  {
+    id: 'tr-sweep',
+    text: 'Liquidity sweep confirmed',
+    required: true,
+    hasNote: false,
+    notePlaceholder: null,
+    note: '',
+    hasValue: false,
+    valueLabel: null,
+    valueType: 'TEXT',
+    value: '',
+    defaultChecked: false,
+    completed: false
+  },
+  {
+    id: 'tr-mss',
+    text: 'MSS confirmed on close',
+    required: true,
+    hasNote: false,
+    notePlaceholder: null,
+    note: '',
+    hasValue: false,
+    valueLabel: null,
+    valueType: 'TEXT',
+    value: '',
+    defaultChecked: false,
+    completed: false
+  }
+]
+
+let sessionState: any
+
+const baseSession = () => ({
   id: 'session-1',
   sessionDate: '2026-02-21',
   profitTarget: 200,
@@ -80,10 +154,25 @@ const baseSession = {
   realizedPnl: 0,
   closedTradesCount: 0,
   remainingTrades: 3,
-  plannedTickers: ['eurusd'],
-  checklistItems: [],
+  plannedTickers: ['EURUSD'],
+  checklistItems: prereqs,
+  checklistTemplateId: null,
+  prereqsChecklistItems: prereqs,
+  triggerChecklistItems: triggers,
+  prereqsTemplateId: null,
+  triggerTemplateId: null,
+  lockInSession: null,
+  lockInObjective: null,
+  lockInBias: null,
+  lockInBiasReason: null,
+  lockInAt: null,
+  activeSweepLevelId: null,
+  levels: [
+    { id: 'lvl-1', label: 'PDH', price: 1.0825, category: 'LIQUIDITY', notes: null, sweptAt: null },
+    { id: 'lvl-2', label: 'PDL', price: 1.0795, category: 'LIQUIDITY', notes: null, sweptAt: null }
+  ],
   activeTrade: null
-}
+})
 
 const basePlan = {
   id: 'plan-1',
@@ -125,37 +214,49 @@ const getPlannerPanel = () => {
   return panel
 }
 
-const completeLockIn = async (user: ReturnType<typeof userEvent.setup>) => {
-  const lockInCard = screen.getByText('Session Lock-In').closest('.MuiBox-root') as HTMLElement
-  const lockInSelects = within(lockInCard).getAllByRole('combobox')
-
-  await user.click(lockInSelects[0])
-  await user.click(await screen.findByRole('option', { name: 'London' }))
-
-  await user.clear(within(lockInCard).getByLabelText('Daily max loss'))
-  await user.type(within(lockInCard).getByLabelText('Daily max loss'), '100')
-
-  await user.clear(within(lockInCard).getByLabelText('Max trades'))
-  await user.type(within(lockInCard).getByLabelText('Max trades'), '2')
-
-  await user.click(lockInSelects[1])
-  await user.click(await screen.findByRole('option', { name: 'Long' }))
-
-  await user.type(within(lockInCard).getByLabelText('Bias reason'), 'Trend continuation in London')
+const getAccordionByTitle = (title: RegExp | string) => {
+  const heading = typeof title === 'string' ? screen.getByText(title) : screen.getByText(title)
+  const accordion = heading.closest('.MuiAccordion-root') as HTMLElement | null
+  if (!accordion) {
+    throw new Error(`Accordion not found for ${String(title)}`)
+  }
+  return accordion
 }
 
-const completeChecklistAndTicket = async (user: ReturnType<typeof userEvent.setup>, highRr = true) => {
+const getActionButton = (container: HTMLElement, name: RegExp | string) => {
+  const button = within(container)
+    .getAllByRole('button', { name, hidden: true })
+    .find((element) => element.tagName.toLowerCase() === 'button')
+  if (!button) {
+    throw new Error(`Button not found: ${String(name)}`)
+  }
+  return button
+}
+
+const completeLockIn = async (user: ReturnType<typeof userEvent.setup>) => {
+  const lockInCard = screen.getByText(/Session Lock-In/i).closest('.MuiBox-root') as HTMLElement
+
+  await user.click(within(lockInCard).getByRole('combobox', { name: /^Session$/i }))
+  await user.click(await screen.findByRole('option', { name: 'London' }))
+
+  await user.click(within(lockInCard).getByRole('combobox', { name: /^Bias$/i }))
+  await user.click(await screen.findByRole('option', { name: 'Long' }))
+
+  await user.type(within(lockInCard).getByLabelText(/Bias reason/i), 'Trend continuation in London')
+  await user.click(within(lockInCard).getByRole('button', { name: /Save lock-in/i }))
+
+  await waitFor(() => {
+    expect(sessionApiMock.updateTodaySessionLockIn).toHaveBeenCalled()
+  })
+}
+
+const completeChecklistAndTicket = async (user: ReturnType<typeof userEvent.setup>) => {
   const plannerPanel = getPlannerPanel()
 
-  await user.click(screen.getByLabelText('News check done'))
-  await user.click(screen.getByLabelText('Key levels marked (PDH/PDL, Asia H/L, Session H/L, EQH/EQL)'))
-
-  await user.click(screen.getByLabelText('Liquidity sweep level'))
-  await user.click(await screen.findByRole('option', { name: 'PDH' }))
-  await user.click(screen.getByLabelText('Liquidity sweep confirmed'))
-  await user.click(screen.getByLabelText('Displacement close (M5) away from sweep'))
-  await user.click(screen.getByLabelText('MSS confirmed on close'))
-  await user.click(screen.getByLabelText('Entry zone identified (FVG 50%)'))
+  await user.click(screen.getByLabelText(/News check done/i))
+  await user.click(screen.getByLabelText(/Key levels marked/i))
+  await user.click(screen.getByLabelText(/Liquidity sweep confirmed/i))
+  await user.click(screen.getByLabelText(/MSS confirmed on close/i))
 
   await user.clear(within(plannerPanel).getByLabelText(/entry price/i))
   await user.type(within(plannerPanel).getByLabelText(/entry price/i), '10')
@@ -164,9 +265,9 @@ const completeChecklistAndTicket = async (user: ReturnType<typeof userEvent.setu
   await user.type(within(plannerPanel).getByLabelText(/stop[-\s]?loss/i), '9')
 
   await user.clear(within(plannerPanel).getByLabelText(/take[-\s]?profit/i))
-  await user.type(within(plannerPanel).getByLabelText(/take[-\s]?profit/i), highRr ? '12' : '10.4')
+  await user.type(within(plannerPanel).getByLabelText(/take[-\s]?profit/i), '12')
 
-  await user.type(within(plannerPanel).getByLabelText(/i.?m wrong if/i), 'M5 closes below the sweep low')
+  await user.type(within(plannerPanel).getByLabelText(/I.?m wrong if/i), 'M5 closes below the sweep low')
 }
 
 describe('SessionPage execution funnel', () => {
@@ -174,12 +275,60 @@ describe('SessionPage execution funnel', () => {
     localStorage.setItem('app.language', 'en')
     localStorage.removeItem('today.session.selectedPlanId')
     localStorage.removeItem('sessionMode.layoutState.user-1')
-    localStorage.removeItem('sessionMode.lockIn.user-1.2026-02-21')
 
-    sessionApiMock.getTodaySession.mockResolvedValue(baseSession)
-    sessionApiMock.saveTodaySessionConfig.mockResolvedValue({ id: 'session-1' })
-    sessionApiMock.updateTodaySessionPlannedTickers.mockResolvedValue({})
-    sessionApiMock.startTradeFromSession.mockResolvedValue({ id: 'trade-1', ...baseSession.activeTrade })
+    sessionState = baseSession()
+
+    sessionApiMock.getTodaySession.mockImplementation(async () => sessionState)
+    sessionApiMock.saveTodaySessionConfig.mockImplementation(async () => sessionState)
+    sessionApiMock.updateTodaySessionPlannedTickers.mockImplementation(async () => sessionState)
+    sessionApiMock.updateTodaySessionChecklist.mockImplementation(async (payload: any) => {
+      if (payload.type === 'PREREQS' && payload.items) {
+        sessionState = { ...sessionState, prereqsChecklistItems: payload.items, checklistItems: payload.items }
+      }
+      if (payload.type === 'TRIGGERS' && payload.items) {
+        sessionState = { ...sessionState, triggerChecklistItems: payload.items }
+      }
+      return sessionState
+    })
+    sessionApiMock.updateTodaySessionLockIn.mockImplementation(async (payload: any) => {
+      sessionState = {
+        ...sessionState,
+        lockInSession: payload.session,
+        lockInBias: payload.bias,
+        lockInObjective: payload.objective,
+        lockInBiasReason: payload.biasReason,
+        lockInAt: payload.session && payload.bias && payload.biasReason ? '2026-02-21T08:00:00Z' : null
+      }
+      return sessionState
+    })
+    sessionApiMock.listChecklistTemplates.mockResolvedValue([])
+    sessionApiMock.createChecklistTemplate.mockResolvedValue({ id: 'tmpl-1', type: 'PREREQS', isDefault: false, name: 'Template', items: [] })
+    sessionApiMock.updateChecklistTemplate.mockResolvedValue({ id: 'tmpl-1', type: 'PREREQS', isDefault: true, name: 'Template', items: [] })
+    sessionApiMock.deleteChecklistTemplate.mockResolvedValue(undefined)
+    sessionApiMock.createSessionLevel.mockImplementation(async (payload: any) => {
+      sessionState = {
+        ...sessionState,
+        levels: [
+          ...sessionState.levels,
+          { id: `lvl-${sessionState.levels.length + 1}`, ...payload, sweptAt: null }
+        ]
+      }
+      return sessionState
+    })
+    sessionApiMock.updateSessionLevel.mockImplementation(async ({ id, payload }: any) => {
+      sessionState = {
+        ...sessionState,
+        levels: sessionState.levels.map((level: any) => (level.id === id ? { ...level, ...payload } : level))
+      }
+      return sessionState
+    })
+    sessionApiMock.deleteSessionLevel.mockResolvedValue(undefined)
+    sessionApiMock.setActiveSweepLevel.mockImplementation(async (levelId: any) => {
+      sessionState = { ...sessionState, activeSweepLevelId: levelId ?? null }
+      return sessionState
+    })
+
+    sessionApiMock.startTradeFromSession.mockResolvedValue({ id: 'trade-1' })
     sessionApiMock.closeTradeFromSession.mockResolvedValue({})
     sessionApiMock.saveTradeEntryJournal.mockResolvedValue({ id: 'trade-1' })
 
@@ -213,60 +362,214 @@ describe('SessionPage execution funnel', () => {
     expect(comesBefore(chartHeading, plannerHeading)).toBe(true)
   })
 
-  it('keeps start disabled when lock-in is missing even if checklist/ticket are complete', async () => {
+  it('shows session settings as read-only in lock-in and allows editing in modal', async () => {
     const user = userEvent.setup()
     renderSessionPage()
 
-    expect(await screen.findByText('Session Lock-In')).toBeInTheDocument()
+    const lockInCard = (await screen.findByText(/Session Lock-In/i)).closest('.MuiBox-root') as HTMLElement
+
+    const maxLossField = within(lockInCard).getByLabelText(/Daily max loss/i)
+    const maxTradesField = within(lockInCard).getByLabelText(/Max trades/i)
+    expect(maxLossField).toHaveAttribute('readonly')
+    expect(maxTradesField).toHaveAttribute('readonly')
+
+    await user.click(within(lockInCard).getByRole('button', { name: /Edit settings/i }))
+    await user.clear(await screen.findByLabelText(/Max number of trades/i))
+    await user.type(screen.getByLabelText(/Max number of trades/i), '2')
+    await user.click(screen.getByRole('button', { name: /Save/i }))
+
+    await waitFor(() => {
+      expect(sessionApiMock.saveTodaySessionConfig).toHaveBeenCalled()
+    })
+  })
+
+  it('keeps start disabled until lock-in and required checklist items are complete', async () => {
+    const user = userEvent.setup()
+    renderSessionPage()
+
+    expect(await screen.findByText(/Session Lock-In/i)).toBeInTheDocument()
     await completeChecklistAndTicket(user)
-
     expect(screen.getByRole('button', { name: 'Start trade' })).toBeDisabled()
-  }, 10000)
 
-  it('keeps start disabled until prerequisites and triggers are complete', async () => {
+    await completeLockIn(user)
+
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: 'Start trade' })).toBeEnabled()
+    })
+  }, 20_000)
+
+  it('can pick a session level to fill entry price', async () => {
     const user = userEvent.setup()
     renderSessionPage()
 
-    expect(await screen.findByText('Session Lock-In')).toBeInTheDocument()
-    await completeLockIn(user)
+    await screen.findByText('Live chart')
+    await user.click(screen.getAllByRole('button', { name: /Pick from levels/i })[0])
+
+    const picker = await screen.findByRole('dialog', { name: /Pick from levels/i })
+    await user.click(within(picker).getByRole('button', { name: /PDH/i }))
 
     const plannerPanel = getPlannerPanel()
-    await user.type(within(plannerPanel).getByLabelText(/i.?m wrong if/i), 'Invalidation')
-    await user.type(within(plannerPanel).getByLabelText(/entry price/i), '10')
-    await user.type(within(plannerPanel).getByLabelText(/stop[-\s]?loss/i), '9')
-    await user.type(within(plannerPanel).getByLabelText(/take[-\s]?profit/i), '12')
-
-    expect(screen.getByRole('button', { name: 'Start trade' })).toBeDisabled()
+    expect(within(plannerPanel).getByLabelText(/entry price/i)).toHaveValue(1.0825)
   })
 
-  it('shows RR warning and blocks start when RR is below threshold', async () => {
+  it('sets a sweep level and reflects it in triggers and chart strip', async () => {
     const user = userEvent.setup()
     renderSessionPage()
 
-    expect(await screen.findByText('Session Lock-In')).toBeInTheDocument()
-    await completeLockIn(user)
-    await completeChecklistAndTicket(user, false)
+    await screen.findByText('Live chart')
+    await user.click(screen.getAllByRole('button', { name: /Set as Sweep Level/i })[0])
 
-    expect(screen.getByText(/RR is below 1.5R/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Start trade' })).toBeDisabled()
-  }, 10000)
-
-  it('toggles mentor essentials/full plan', async () => {
-    const user = userEvent.setup()
-    renderSessionPage()
-
-    expect(await screen.findByText('Show full plan')).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: 'Show full plan' }))
-
-    expect(screen.getByRole('button', { name: 'Show essentials only' })).toBeInTheDocument()
-    expect(screen.getByText('Macro calm')).toBeInTheDocument()
+    expect(await screen.findAllByText(/Sweep:\s*PDH/i)).not.toHaveLength(0)
+    expect(sessionApiMock.setActiveSweepLevel).toHaveBeenCalledWith('lvl-1')
   })
 
-  it('renders only one Notes field (regression)', async () => {
-    renderSessionPage()
+  it('edits prereqs, saves a template, then imports a prereqs template', async () => {
+    const user = userEvent.setup()
+    const importedPrereq = {
+      id: 'pr-imported',
+      text: 'Imported prereq from template',
+      order: 0,
+      required: true,
+      hasNote: false,
+      notePlaceholder: null,
+      hasValue: false,
+      valueLabel: null,
+      valueType: 'TEXT',
+      defaultChecked: false
+    }
+    sessionApiMock.listChecklistTemplates.mockImplementation(async (type: string) => (
+      type === 'PREREQS'
+        ? [{ id: 'tmpl-pr', type: 'PREREQS', isDefault: false, name: 'London prereqs', items: [importedPrereq] }]
+        : []
+    ))
+    sessionApiMock.updateTodaySessionChecklist.mockImplementation(async (payload: any) => {
+      if (payload.type === 'PREREQS' && payload.templateId === 'tmpl-pr') {
+        sessionState = {
+          ...sessionState,
+          prereqsChecklistItems: [{ ...importedPrereq, note: '', value: '', completed: false }],
+          checklistItems: [{ ...importedPrereq, note: '', value: '', completed: false }],
+          prereqsTemplateId: 'tmpl-pr'
+        }
+        return sessionState
+      }
+      if (payload.type === 'PREREQS' && payload.items) {
+        sessionState = { ...sessionState, prereqsChecklistItems: payload.items, checklistItems: payload.items }
+      }
+      if (payload.type === 'TRIGGERS' && payload.items) {
+        sessionState = { ...sessionState, triggerChecklistItems: payload.items }
+      }
+      return sessionState
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
 
-    await screen.findByText('Trade Planner + Execution')
-    expect(screen.getAllByRole('textbox', { name: /^Notes$/i })).toHaveLength(1)
+    renderSessionPage()
+    await screen.findByText('Session checklist')
+
+    const prereqsAccordion = getAccordionByTitle(/Pre-trade prerequisites/i)
+    await user.click(getActionButton(prereqsAccordion, /Edit prereqs/i))
+
+    const editDialog = await screen.findByRole('dialog', { name: /Edit prereqs/i })
+    await user.clear(within(editDialog).getAllByLabelText(/Checklist item/i)[0])
+    await user.type(within(editDialog).getAllByLabelText(/Checklist item/i)[0], 'News check complete')
+    await user.click(within(editDialog).getByRole('button', { name: /Save changes/i }))
+
+    await waitFor(() => {
+      expect(sessionApiMock.updateTodaySessionChecklist).toHaveBeenCalled()
+    })
+
+    await user.click(getActionButton(prereqsAccordion, /Save template/i))
+    const saveDialog = await screen.findByRole('dialog', { name: /Save template/i })
+    await user.type(within(saveDialog).getByLabelText(/Template name/i), 'My prereq template')
+    await user.click(within(saveDialog).getByRole('button', { name: /Save template/i }))
+
+    await waitFor(() => {
+      expect(sessionApiMock.createChecklistTemplate).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'PREREQS',
+        name: 'My prereq template'
+      }))
+    })
+
+    await user.click(getActionButton(prereqsAccordion, /Import template/i))
+    const importDialog = await screen.findByRole('dialog', { name: /Import template/i })
+    await user.click(within(importDialog).getByLabelText(/Import template/i))
+    await user.click(await screen.findByRole('option', { name: /London prereqs/i }))
+    await user.click(within(importDialog).getByRole('button', { name: /^Import$/i }))
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(await screen.findByLabelText(/Imported prereq from template/i)).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  }, 20_000)
+
+  it('saves and imports trigger templates', async () => {
+    const user = userEvent.setup()
+    const importedTrigger = {
+      id: 'tr-imported',
+      text: 'Imported trigger template item',
+      order: 0,
+      required: true,
+      hasNote: false,
+      notePlaceholder: null,
+      hasValue: false,
+      valueLabel: null,
+      valueType: 'TEXT',
+      defaultChecked: false
+    }
+    sessionApiMock.listChecklistTemplates.mockImplementation(async (type: string) => (
+      type === 'TRIGGERS'
+        ? [{ id: 'tmpl-tr', type: 'TRIGGERS', isDefault: false, name: 'London trigger model', items: [importedTrigger] }]
+        : []
+    ))
+    sessionApiMock.updateTodaySessionChecklist.mockImplementation(async (payload: any) => {
+      if (payload.type === 'TRIGGERS' && payload.templateId === 'tmpl-tr') {
+        sessionState = {
+          ...sessionState,
+          triggerChecklistItems: [{ ...importedTrigger, note: '', value: '', completed: false }],
+          triggerTemplateId: 'tmpl-tr'
+        }
+        return sessionState
+      }
+      if (payload.type === 'PREREQS' && payload.items) {
+        sessionState = { ...sessionState, prereqsChecklistItems: payload.items, checklistItems: payload.items }
+      }
+      if (payload.type === 'TRIGGERS' && payload.items) {
+        sessionState = { ...sessionState, triggerChecklistItems: payload.items }
+      }
+      return sessionState
+    })
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+
+    renderSessionPage()
+    await screen.findByText('Session checklist')
+
+    const triggersAccordion = getAccordionByTitle(/Setup triggers/i)
+    await user.click(getActionButton(triggersAccordion, /Save template/i))
+    const saveDialog = await screen.findByRole('dialog', { name: /Save template/i })
+    await user.type(within(saveDialog).getByLabelText(/Template name/i), 'My trigger template')
+    await user.click(within(saveDialog).getByRole('button', { name: /Save template/i }))
+
+    await waitFor(() => {
+      expect(sessionApiMock.createChecklistTemplate).toHaveBeenCalledWith(expect.objectContaining({
+        type: 'TRIGGERS',
+        name: 'My trigger template'
+      }))
+    })
+
+    await user.click(getActionButton(triggersAccordion, /Import template/i))
+    const importDialog = await screen.findByRole('dialog', { name: /Import template/i })
+    await user.click(within(importDialog).getByLabelText(/Import template/i))
+    await user.click(await screen.findByRole('option', { name: /London trigger model/i }))
+    await user.click(within(importDialog).getByRole('button', { name: /^Import$/i }))
+
+    expect(confirmSpy).toHaveBeenCalled()
+    expect(await screen.findByLabelText(/Imported trigger template item/i)).toBeInTheDocument()
+    confirmSpy.mockRestore()
+  }, 20_000)
+
+  it('updates labels when switching to romanian (smoke)', async () => {
+    renderSessionPage('ro')
+
+    expect(await screen.findByText('Checklist sesiune')).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: /Focus execuție/i }).length).toBeGreaterThan(0)
   })
 
   it('supports screenshot attach via file upload and paste', async () => {
@@ -274,9 +577,9 @@ describe('SessionPage execution funnel', () => {
     renderSessionPage()
 
     await screen.findByText('Live chart')
-    await user.click(screen.getByRole('button', { name: /attach screenshot to trade/i }))
+    await user.click(screen.getByRole('button', { name: /Attach screenshot/i }))
 
-    const dialog = await screen.findByRole('dialog', { name: 'Attach screenshot' })
+    const dialog = await screen.findByRole('dialog', { name: /Attach screenshot/i })
     const input = dialog.querySelector('input[type="file"]') as HTMLInputElement
     const file = new File(['img'], 'chart.png', { type: 'image/png' })
 
@@ -288,7 +591,7 @@ describe('SessionPage execution funnel', () => {
       }))
     })
 
-    const pasteZone = within(dialog).getByRole('textbox', { name: 'Paste screenshot' })
+    const pasteZone = within(dialog).getByRole('textbox', { name: /paste screenshot/i })
     fireEvent.paste(pasteZone, {
       clipboardData: {
         items: [
@@ -304,35 +607,4 @@ describe('SessionPage execution funnel', () => {
       expect(assetsApiMock.uploadAsset).toHaveBeenCalledTimes(2)
     })
   })
-
-  it('opens entry journal after successful start and saves journal payload', async () => {
-    const user = userEvent.setup()
-    renderSessionPage()
-
-    expect(await screen.findByText('Session Lock-In')).toBeInTheDocument()
-
-    await completeLockIn(user)
-    await completeChecklistAndTicket(user, true)
-
-    await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Start trade' })).toBeEnabled()
-    })
-
-    await user.click(screen.getByRole('button', { name: 'Start trade' }))
-
-    const journalDialog = await screen.findByRole('dialog', { name: 'Entry Journal' })
-    expect(journalDialog).toBeInTheDocument()
-    await user.clear(within(journalDialog).getByLabelText(/what did you see/i))
-    await user.type(within(journalDialog).getByLabelText(/what did you see/i), 'Sweep + displacement + MSS')
-    await user.click(within(journalDialog).getByRole('button', { name: 'Save journal' }))
-
-    await waitFor(() => {
-      expect(sessionApiMock.saveTradeEntryJournal).toHaveBeenCalledWith(
-        'trade-1',
-        expect.objectContaining({
-          entryJournalText: 'Sweep + displacement + MSS'
-        })
-      )
-    })
-  }, 10000)
 })

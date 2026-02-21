@@ -26,6 +26,17 @@ public class TodaySessionResponse {
     List<String> plannedTickers;
     List<SessionChecklistItemDto> checklistItems;
     UUID checklistTemplateId;
+    List<SessionChecklistItemDto> prereqsChecklistItems;
+    List<SessionChecklistItemDto> triggerChecklistItems;
+    UUID prereqsTemplateId;
+    UUID triggerTemplateId;
+    String lockInSession;
+    String lockInObjective;
+    String lockInBias;
+    String lockInBiasReason;
+    OffsetDateTime lockInAt;
+    UUID activeSweepLevelId;
+    List<SessionLevelDto> levels;
     TradeResponse activeTrade;
     OffsetDateTime createdAt;
     OffsetDateTime updatedAt;

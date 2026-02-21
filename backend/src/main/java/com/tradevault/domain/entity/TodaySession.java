@@ -68,6 +68,38 @@ public class TodaySession {
     @JoinColumn(name = "checklist_template_id")
     private ChecklistTemplate checklistTemplate;
 
+    @Column(name = "prereqs_state", columnDefinition = "TEXT")
+    private String prereqsStateJson;
+
+    @Column(name = "triggers_state", columnDefinition = "TEXT")
+    private String triggersStateJson;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "prereqs_template_id")
+    private ChecklistTemplate prereqsTemplate;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "triggers_template_id")
+    private ChecklistTemplate triggersTemplate;
+
+    @Column(name = "active_sweep_level_id")
+    private UUID activeSweepLevelId;
+
+    @Column(name = "lock_in_session", length = 24)
+    private String lockInSession;
+
+    @Column(name = "lock_in_objective", length = 32)
+    private String lockInObjective;
+
+    @Column(name = "lock_in_bias", length = 16)
+    private String lockInBias;
+
+    @Column(name = "lock_in_bias_reason", length = 140)
+    private String lockInBiasReason;
+
+    @Column(name = "lock_in_at")
+    private OffsetDateTime lockInAt;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

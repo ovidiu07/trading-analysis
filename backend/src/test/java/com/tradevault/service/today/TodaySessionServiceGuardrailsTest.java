@@ -18,6 +18,7 @@ import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.ChecklistTemplateEntryRepository;
 import com.tradevault.repository.ChecklistTemplateItemRepository;
 import com.tradevault.repository.ChecklistTemplateRepository;
+import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
@@ -49,6 +50,7 @@ class TodaySessionServiceGuardrailsTest {
     private ChecklistTemplateRepository checklistTemplateRepository;
     private ChecklistTemplateEntryRepository checklistTemplateEntryRepository;
     private ChecklistTemplateItemRepository checklistTemplateItemRepository;
+    private SessionLevelRepository sessionLevelRepository;
     private CurrentUserService currentUserService;
     private TradeService tradeService;
     private TodaySessionService todaySessionService;
@@ -63,6 +65,7 @@ class TodaySessionServiceGuardrailsTest {
         checklistTemplateRepository = Mockito.mock(ChecklistTemplateRepository.class);
         checklistTemplateEntryRepository = Mockito.mock(ChecklistTemplateEntryRepository.class);
         checklistTemplateItemRepository = Mockito.mock(ChecklistTemplateItemRepository.class);
+        sessionLevelRepository = Mockito.mock(SessionLevelRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         tradeService = Mockito.mock(TradeService.class);
 
@@ -73,6 +76,7 @@ class TodaySessionServiceGuardrailsTest {
                 checklistTemplateRepository,
                 checklistTemplateEntryRepository,
                 checklistTemplateItemRepository,
+                sessionLevelRepository,
                 currentUserService,
                 tradeService,
                 objectMapper

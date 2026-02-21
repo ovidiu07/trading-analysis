@@ -18,6 +18,7 @@ import {
   FormControlLabel,
   Grid,
   IconButton,
+  InputAdornment,
   LinearProgress,
   MenuItem,
   Stack,
@@ -41,6 +42,10 @@ import SchoolRoundedIcon from '@mui/icons-material/SchoolRounded'
 import PhotoCameraBackRoundedIcon from '@mui/icons-material/PhotoCameraBackRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
 import ErrorOutlineRoundedIcon from '@mui/icons-material/ErrorOutlineRounded'
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded'
+import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded'
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
@@ -52,12 +57,28 @@ import SecureAssetImage from '../components/assets/SecureAssetImage'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import {
+  createChecklistTemplate,
+  createSessionLevel,
   closeTradeFromSession,
+  deleteChecklistTemplate,
+  deleteSessionLevel,
   getTodaySession,
+  listChecklistTemplates,
   saveTodaySessionConfig,
   saveTradeEntryJournal,
+  setActiveSweepLevel,
   startTradeFromSession,
+  updateChecklistTemplate,
+  updateSessionLevel,
+  updateTodaySessionChecklist,
+  updateTodaySessionLockIn,
   updateTodaySessionPlannedTickers,
+  type ChecklistTemplateResponse,
+  type ChecklistTemplateType,
+  type ChecklistValueType,
+  type SessionChecklistItem,
+  type SessionLevel,
+  type SessionLevelCategory,
   type TodaySessionResponse
 } from '../api/session'
 import { uploadAsset, type AssetItem } from '../api/assets'
@@ -72,37 +93,17 @@ const SESSION_CHART_SYMBOL_KEY = 'sessionMode.chartSymbol'
 const SESSION_CHART_INTERVAL_KEY = 'sessionMode.chartInterval'
 const RR_THRESHOLD = 1.5
 
-const LOCK_IN_SESSION_OPTIONS = [
-  { value: 'LONDON', label: 'London' },
-  { value: 'NY_AM', label: 'NY AM' }
-] as const
+const LOCK_IN_SESSION_OPTIONS = ['LONDON', 'NY_AM'] as const
 
-type LockInSession = (typeof LOCK_IN_SESSION_OPTIONS)[number]['value']
+type LockInSession = (typeof LOCK_IN_SESSION_OPTIONS)[number]
 type LockInBias = 'LONG' | 'SHORT' | 'NEUTRAL' | ''
 type LockInObjective = 'A_PLUS_ONLY' | 'ONE_TRADE_MAX' | 'TWO_TRADES_MAX' | ''
 
 type LockInState = {
   session: LockInSession | ''
-  dailyMaxLoss: string
-  maxTrades: string
   objective: LockInObjective
   bias: LockInBias
   biasReason: string
-}
-
-type PrerequisitesState = {
-  newsChecked: boolean
-  redNewsWindow: string
-  keyLevelsMarked: boolean
-  keyLevelsNotes: string
-}
-
-type TriggerState = {
-  sweepLevel: string
-  sweepConfirmed: boolean
-  displacementConfirmed: boolean
-  mssConfirmed: boolean
-  entryZoneConfirmed: boolean
 }
 
 type StrategyOption = {
@@ -149,26 +150,31 @@ const DEFAULT_LAYOUT_STATE: SessionLayoutState = {
 
 const DEFAULT_LOCK_IN_STATE: LockInState = {
   session: '',
-  dailyMaxLoss: '',
-  maxTrades: '',
   objective: '',
   bias: '',
   biasReason: ''
 }
 
-const DEFAULT_PREREQS: PrerequisitesState = {
-  newsChecked: false,
-  redNewsWindow: '',
-  keyLevelsMarked: false,
-  keyLevelsNotes: ''
+type ChecklistEditDialogState = {
+  open: boolean
+  type: ChecklistTemplateType
+  items: SessionChecklistItem[]
 }
 
-const DEFAULT_TRIGGERS: TriggerState = {
-  sweepLevel: '',
-  sweepConfirmed: false,
-  displacementConfirmed: false,
-  mssConfirmed: false,
-  entryZoneConfirmed: false
+type TemplateDialogState = {
+  open: boolean
+  mode: 'import' | 'save'
+  type: ChecklistTemplateType
+}
+
+type LevelDialogState = {
+  open: boolean
+  editId: string | null
+  label: string
+  customLabel: string
+  price: string
+  category: SessionLevelCategory
+  notes: string
 }
 
 const toBullets = (value?: string | null) => {
@@ -248,6 +254,96 @@ const readSessionLayoutState = (storageKey: string): SessionLayoutState => {
 
 const normalizeLevel = (value: string) => value.trim().toUpperCase()
 
+const LEVEL_LABEL_OPTIONS = ['PDH', 'PDL', 'AsiaH', 'AsiaL', 'EQH', 'EQL', 'Custom'] as const
+
+const LEVEL_CATEGORY_OPTIONS: SessionLevelCategory[] = ['LIQUIDITY', 'TARGET', 'INVALIDATION', 'OTHER']
+
+const CHECKLIST_VALUE_TYPES: ChecklistValueType[] = ['TEXT', 'NUMBER', 'TIME']
+
+const emptyChecklistItem = (index: number): SessionChecklistItem => ({
+  id: `item-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+  text: '',
+  order: index,
+  required: true,
+  hasNote: false,
+  notePlaceholder: '',
+  note: '',
+  hasValue: false,
+  valueLabel: '',
+  valueType: 'TEXT',
+  value: '',
+  defaultChecked: false,
+  completed: false
+})
+
+const reorderItems = (items: SessionChecklistItem[], index: number, direction: -1 | 1) => {
+  const nextIndex = index + direction
+  if (nextIndex < 0 || nextIndex >= items.length) return items
+  const next = [...items]
+  const [item] = next.splice(index, 1)
+  next.splice(nextIndex, 0, item)
+  return next.map((entry, order) => ({ ...entry, order }))
+}
+
+const toChecklistTemplateItems = (items: SessionChecklistItem[]) => {
+  return items.map((item, index) => ({
+    id: item.id,
+    text: item.text,
+    order: item.order ?? index,
+    required: item.required,
+    hasNote: item.hasNote,
+    notePlaceholder: item.notePlaceholder || null,
+    hasValue: item.hasValue,
+    valueLabel: item.valueLabel || null,
+    valueType: item.valueType,
+    defaultChecked: item.defaultChecked
+  }))
+}
+
+const normalizeChecklistItems = (items: SessionChecklistItem[]) => {
+  return items.map((item, index) => ({
+    ...item,
+    text: item.text.trim(),
+    order: index,
+    note: item.hasNote ? (item.note || '') : '',
+    value: item.hasValue ? (item.value || '') : '',
+    valueType: item.hasValue ? item.valueType : 'TEXT',
+    notePlaceholder: item.hasNote ? (item.notePlaceholder || '') : '',
+    valueLabel: item.hasValue ? (item.valueLabel || '') : '',
+    required: item.required
+  }))
+}
+
+const findSweepChecklistItemIndex = (items: SessionChecklistItem[]) => {
+  return items.findIndex((item) => item.text.toLowerCase().includes('sweep'))
+}
+
+const parsePlanLevelSuggestions = (plan: DailyPlan | null | undefined) => {
+  const tokens = new Set<string>()
+  if (!plan) return [] as string[]
+  ;(plan.keyLevels || []).forEach((value) => {
+    const token = value.trim()
+    if (token) tokens.add(token)
+  })
+  const text = `${plan.summary || ''} ${plan.biasSummary || ''} ${plan.executionRules || ''}`
+  ;['PDH', 'PDL', 'ASIAH', 'ASIAL', 'EQH', 'EQL'].forEach((token) => {
+    if (new RegExp(`\\b${token}\\b`, 'i').test(text)) {
+      tokens.add(token)
+    }
+  })
+  return Array.from(tokens)
+}
+
+const getChecklistCompletion = (items: SessionChecklistItem[]) => {
+  const requiredItems = items.filter((item) => item.required)
+  const completedRequired = requiredItems.filter((item) => item.completed).length
+  return {
+    requiredTotal: requiredItems.length,
+    completedRequired,
+    isComplete: requiredItems.length === 0 || completedRequired === requiredItems.length
+  }
+}
+
 export default function SessionPage() {
   const { t } = useI18n()
   const { user } = useAuth()
@@ -290,10 +386,35 @@ export default function SessionPage() {
   })
 
   const [lockIn, setLockIn] = useState<LockInState>(DEFAULT_LOCK_IN_STATE)
-  const [prereqs, setPrereqs] = useState<PrerequisitesState>(DEFAULT_PREREQS)
-  const [triggers, setTriggers] = useState<TriggerState>(DEFAULT_TRIGGERS)
-  const [decisionLevels, setDecisionLevels] = useState<string[]>(['PDH', 'PDL', 'ASIA H', 'ASIA L', 'EQH', 'EQL'])
-  const [decisionLevelDraft, setDecisionLevelDraft] = useState('')
+  const [prereqChecklist, setPrereqChecklist] = useState<SessionChecklistItem[]>([])
+  const [triggerChecklist, setTriggerChecklist] = useState<SessionChecklistItem[]>([])
+  const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([])
+  const [activeSweepLevelId, setActiveSweepLevelId] = useState<string | null>(null)
+
+  const [checklistEditDialog, setChecklistEditDialog] = useState<ChecklistEditDialogState>({
+    open: false,
+    type: 'PREREQS',
+    items: []
+  })
+  const [templateDialog, setTemplateDialog] = useState<TemplateDialogState>({
+    open: false,
+    mode: 'import',
+    type: 'PREREQS'
+  })
+  const [templateNameDraft, setTemplateNameDraft] = useState('')
+  const [templateDefaultDraft, setTemplateDefaultDraft] = useState(false)
+  const [selectedImportTemplateId, setSelectedImportTemplateId] = useState('')
+  const [levelDialog, setLevelDialog] = useState<LevelDialogState>({
+    open: false,
+    editId: null,
+    label: 'PDH',
+    customLabel: '',
+    price: '',
+    category: 'LIQUIDITY',
+    notes: ''
+  })
+  const [pricePickerTarget, setPricePickerTarget] = useState<'entry' | 'sl' | 'tp' | 'sweep' | null>(null)
+  const [settingsEditOpen, setSettingsEditOpen] = useState(false)
 
   const [closeFormOpen, setCloseFormOpen] = useState(false)
   const [closeDraft, setCloseDraft] = useState({
@@ -347,7 +468,20 @@ export default function SessionPage() {
     queryFn: () => listStrategies({ includeArchived: false })
   })
 
+  const prereqTemplatesQuery = useQuery({
+    queryKey: ['checklistTemplates', 'PREREQS'],
+    queryFn: () => listChecklistTemplates('PREREQS')
+  })
+
+  const triggerTemplatesQuery = useQuery({
+    queryKey: ['checklistTemplates', 'TRIGGERS'],
+    queryFn: () => listChecklistTemplates('TRIGGERS')
+  })
+
   const session = sessionQuery.data || null
+  const prereqTemplates = prereqTemplatesQuery.data || []
+  const triggerTemplates = triggerTemplatesQuery.data || []
+  const activeTemplates = templateDialog.type === 'PREREQS' ? prereqTemplates : triggerTemplates
 
   useEffect(() => {
     setLayoutState(readSessionLayoutState(layoutStorageKey))
@@ -404,37 +538,26 @@ export default function SessionPage() {
 
   useEffect(() => {
     if (!session) return
-    const sessionDate = session.sessionDate || new Date().toISOString().slice(0, 10)
-    const key = `sessionMode.lockIn.${user?.id || 'anon'}.${sessionDate}`
-    const defaults: LockInState = {
-      ...DEFAULT_LOCK_IN_STATE,
-      session: 'LONDON',
-      dailyMaxLoss: session.lossLimit > 0 ? String(session.lossLimit) : '',
-      maxTrades: session.maxTrades > 0 ? String(session.maxTrades) : ''
-    }
-    try {
-      const raw = localStorage.getItem(key)
-      if (!raw) {
-        setLockIn(defaults)
-        return
-      }
-      const parsed = JSON.parse(raw) as Partial<LockInState>
-      setLockIn({
-        ...defaults,
-        ...parsed,
-        biasReason: (parsed.biasReason || '').slice(0, 140)
-      })
-    } catch {
-      setLockIn(defaults)
-    }
-  }, [session, user?.id])
+    setLockIn({
+      session: ((session.lockInSession || '') as LockInSession | '') || '',
+      objective: ((session.lockInObjective || '') as LockInObjective | '') || '',
+      bias: ((session.lockInBias || '') as LockInBias | '') || '',
+      biasReason: session.lockInBiasReason || ''
+    })
+    setPrereqChecklist(normalizeChecklistItems(session.prereqsChecklistItems || []))
+    setTriggerChecklist(normalizeChecklistItems(session.triggerChecklistItems || []))
+    setSessionLevels(session.levels || [])
+    setActiveSweepLevelId(session.activeSweepLevelId || null)
+  }, [session])
 
   useEffect(() => {
     if (!session) return
-    const sessionDate = session.sessionDate || new Date().toISOString().slice(0, 10)
-    const key = `sessionMode.lockIn.${user?.id || 'anon'}.${sessionDate}`
-    localStorage.setItem(key, JSON.stringify(lockIn))
-  }, [lockIn, session, user?.id])
+    setConfig({
+      profitTarget: String(session.profitTarget ?? ''),
+      lossLimit: String(session.lossLimit ?? ''),
+      maxTrades: String(session.maxTrades ?? '')
+    })
+  }, [session?.id, session?.profitTarget, session?.lossLimit, session?.maxTrades])
 
   const saveConfigMutation = useMutation({
     mutationFn: saveTodaySessionConfig,
@@ -450,6 +573,85 @@ export default function SessionPage() {
     }
   })
 
+  const checklistMutation = useMutation({
+    mutationFn: updateTodaySessionChecklist,
+    onSuccess: async (nextSession) => {
+      queryClient.setQueryData(['todaySession'], nextSession)
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const lockInMutation = useMutation({
+    mutationFn: updateTodaySessionLockIn,
+    onSuccess: async (nextSession) => {
+      queryClient.setQueryData(['todaySession'], nextSession)
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const createTemplateMutation = useMutation({
+    mutationFn: createChecklistTemplate,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplates', 'PREREQS'] }),
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplates', 'TRIGGERS'] })
+      ])
+    }
+  })
+
+  const updateTemplateMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateChecklistTemplate>[1] }) =>
+      updateChecklistTemplate(id, payload),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplates', 'PREREQS'] }),
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplates', 'TRIGGERS'] })
+      ])
+    }
+  })
+
+  const deleteTemplateMutation = useMutation({
+    mutationFn: deleteChecklistTemplate,
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplates', 'PREREQS'] }),
+        queryClient.invalidateQueries({ queryKey: ['checklistTemplates', 'TRIGGERS'] })
+      ])
+    }
+  })
+
+  const createLevelMutation = useMutation({
+    mutationFn: createSessionLevel,
+    onSuccess: async (nextSession) => {
+      queryClient.setQueryData(['todaySession'], nextSession)
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const updateLevelMutation = useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateSessionLevel>[1] }) =>
+      updateSessionLevel(id, payload),
+    onSuccess: async (nextSession) => {
+      queryClient.setQueryData(['todaySession'], nextSession)
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const deleteLevelMutation = useMutation({
+    mutationFn: deleteSessionLevel,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const setSweepLevelMutation = useMutation({
+    mutationFn: (levelId?: string | null) => setActiveSweepLevel(levelId),
+    onSuccess: async (nextSession) => {
+      queryClient.setQueryData(['todaySession'], nextSession)
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
   const startTradeMutation = useMutation({
     mutationFn: startTradeFromSession,
     onSuccess: async (trade) => {
@@ -458,7 +660,7 @@ export default function SessionPage() {
       setCloseDraft({ exitPrice: '', ruleBreaks: [], postTradeNotes: '' })
       setEntryJournalTradeId(trade.id)
       setEntryJournalDraft({
-        text: planner.notes.trim() || 'Entry rationale captured at start.',
+        text: planner.notes.trim() || t('today.session.entryJournal.defaultText'),
         invalidation: planner.invalidation.trim(),
         emotion: planner.feeling
       })
@@ -479,11 +681,11 @@ export default function SessionPage() {
       saveTradeEntryJournal(tradeId, payload),
     onSuccess: async () => {
       setEntryJournalOpen(false)
-      setSuccessMessage('Entry journal saved.')
+      setSuccessMessage(t('today.session.entryJournal.saved'))
       await queryClient.invalidateQueries({ queryKey: ['trades'] })
     },
     onError: (error: unknown) => {
-      setApiError((error as Error)?.message || 'Could not save entry journal.')
+      setApiError((error as Error)?.message || t('today.session.entryJournal.saveError'))
     }
   })
 
@@ -539,16 +741,6 @@ export default function SessionPage() {
 
   const selectedPlan = eligiblePlans.find((item) => item.id === selectedPlanId) || eligiblePlans[0] || null
 
-  useEffect(() => {
-    if (!selectedPlan?.keyLevels?.length) return
-    setDecisionLevels((prev) => {
-      if (prev.length > 0 && prev.join('|') !== 'PDH|PDL|ASIA H|ASIA L|EQH|EQL') {
-        return prev
-      }
-      return selectedPlan.keyLevels as string[]
-    })
-  }, [selectedPlan?.keyLevels])
-
   const selectedPlanExecutionBullets = useMemo(
     () => toBullets(selectedPlan?.executionRules),
     [selectedPlan?.executionRules]
@@ -600,10 +792,6 @@ export default function SessionPage() {
   )
 
   const selectedStrategySnapshotUrl = selectedStrategy?.snapshotAsset?.viewUrl || selectedStrategy?.snapshotAsset?.url || ''
-
-  useEffect(() => {
-    setTriggers(DEFAULT_TRIGGERS)
-  }, [planner.strategyKey])
 
   const progress = session ? toSessionProgress(session) : { pnlProgress: 0, tradeProgress: 0 }
 
@@ -683,11 +871,16 @@ export default function SessionPage() {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : null
   }, [planner.riskAmount])
 
+  const selectedSweepLevel = useMemo(
+    () => sessionLevels.find((item) => item.id === activeSweepLevelId) || null,
+    [activeSweepLevelId, sessionLevels]
+  )
+
   const effectiveRiskInProfile = manualRisk ?? convertedRiskSnapshot ?? riskSnapshot.riskAmount
 
   const lockInComplete = useMemo(() => {
-    const dailyMaxLoss = Number(lockIn.dailyMaxLoss)
-    const maxTrades = Number(lockIn.maxTrades)
+    const dailyMaxLoss = Number(session?.lossLimit ?? 0)
+    const maxTrades = Number(session?.maxTrades ?? 0)
     return Boolean(
       lockIn.session
       && Number.isFinite(dailyMaxLoss)
@@ -697,64 +890,48 @@ export default function SessionPage() {
       && lockIn.bias
       && lockIn.biasReason.trim().length > 0
     )
-  }, [lockIn])
+  }, [lockIn, session?.lossLimit, session?.maxTrades])
 
   const invalidationWritten = planner.invalidation.trim().length > 0
   const rrMet = (riskSnapshot.rEstimate ?? 0) >= RR_THRESHOLD
-  const newsSafe = prereqs.newsChecked && prereqs.redNewsWindow.trim().length === 0
+  const prereqStatus = getChecklistCompletion(prereqChecklist)
+  const triggerStatus = getChecklistCompletion(triggerChecklist)
+  const prerequisitesComplete = prereqStatus.isComplete
+  const triggersComplete = triggerStatus.isComplete
+  const prerequisiteCount = prereqStatus.completedRequired
+  const triggerCount = triggerStatus.completedRequired
 
-  const prerequisiteChecks = {
-    news: prereqs.newsChecked,
-    keyLevels: prereqs.keyLevelsMarked,
-    riskConfirmed: lockInComplete,
-    invalidation: invalidationWritten
-  }
-
-  const prerequisiteCount = Object.values(prerequisiteChecks).filter(Boolean).length
-  const prerequisitesComplete = prerequisiteCount === 4
-
-  const triggerChecks = {
-    sweep: triggers.sweepConfirmed && Boolean(triggers.sweepLevel),
-    displacement: triggers.displacementConfirmed,
-    mss: triggers.mssConfirmed,
-    entryZone: triggers.entryZoneConfirmed,
-    rr: rrMet
-  }
-
-  const triggerCount = Object.values(triggerChecks).filter(Boolean).length
-  const triggersComplete = triggerCount === 5
+  const newsCheckItem = prereqChecklist.find((item) => item.text.toLowerCase().includes('news check'))
+  const redNewsItem = prereqChecklist.find((item) => item.text.toLowerCase().includes('red news'))
+  const newsSafe = !newsCheckItem || (newsCheckItem.completed && !(redNewsItem?.value || '').trim())
 
   const setupQualityChecks = [lockInComplete, prerequisitesComplete, triggersComplete, rrMet, newsSafe]
   const setupQualityScore = Math.round((setupQualityChecks.filter(Boolean).length / setupQualityChecks.length) * 100)
   const suggestedSetupGrade = setupQualityScore >= 95 ? 'A+' : (setupQualityScore >= 75 ? 'A' : 'B')
 
-  const canMeetExecutionGate = lockInComplete && prerequisitesComplete && triggersComplete && invalidationWritten
+  const canMeetExecutionGate = lockInComplete && prerequisitesComplete && triggersComplete && invalidationWritten && rrMet
   const canSessionTrade = Boolean(session && session.status === 'ACTIVE' && !session.activeTrade)
   const canStartTrade = canSessionTrade && canMeetExecutionGate
   const canScheduleTrade = canSessionTrade && canMeetExecutionGate
 
   const missingLockInItems = [
-    !lockIn.session ? 'Session selection' : null,
-    !lockIn.dailyMaxLoss || Number(lockIn.dailyMaxLoss) <= 0 ? 'Daily max loss' : null,
-    !lockIn.maxTrades || Number(lockIn.maxTrades) <= 0 ? 'Max trades' : null,
-    !lockIn.bias ? 'Bias' : null,
-    !lockIn.biasReason.trim() ? 'Bias reason' : null
+    !lockIn.session ? t('today.session.requirements.lockInSessionSelection') : null,
+    !session?.lossLimit || Number(session.lossLimit) <= 0 ? t('today.session.requirements.lockInDailyMaxLoss') : null,
+    !session?.maxTrades || Number(session.maxTrades) <= 0 ? t('today.session.requirements.lockInMaxTrades') : null,
+    !lockIn.bias ? t('today.session.requirements.lockInBias') : null,
+    !lockIn.biasReason.trim() ? t('today.session.requirements.lockInBiasReason') : null
   ].filter(Boolean) as string[]
 
-  const missingPrereqs = [
-    !prerequisiteChecks.news ? 'News check done' : null,
-    !prerequisiteChecks.keyLevels ? 'Key levels marked' : null,
-    !prerequisiteChecks.riskConfirmed ? 'Risk & max trades confirmed' : null,
-    !prerequisiteChecks.invalidation ? 'Invalidation written' : null
-  ].filter(Boolean) as string[]
+  const missingPrereqs = prereqChecklist
+    .filter((item) => item.required && !item.completed)
+    .map((item) => item.text)
 
   const missingTriggers = [
-    !triggerChecks.sweep ? 'Liquidity sweep confirmed' : null,
-    !triggerChecks.displacement ? 'Displacement close confirmed' : null,
-    !triggerChecks.mss ? 'MSS confirmed' : null,
-    !triggerChecks.entryZone ? 'Entry zone identified' : null,
-    !triggerChecks.rr ? `RR >= ${RR_THRESHOLD.toFixed(1)}R` : null
-  ].filter(Boolean) as string[]
+    ...triggerChecklist
+      .filter((item) => item.required && !item.completed)
+      .map((item) => item.text),
+    ...(!rrMet ? [`RR >= ${RR_THRESHOLD.toFixed(1)}R`] : [])
+  ]
 
   const mentorInvalidation = useMemo(() => {
     const fromRiskNote = selectedPlan?.riskNote?.trim()
@@ -883,6 +1060,33 @@ export default function SessionPage() {
     await saveConfigMutation.mutateAsync(payload)
   }
 
+  const handleSaveSessionSettings = async () => {
+    setApiError('')
+
+    const payload = {
+      profitTarget: Number(config.profitTarget),
+      lossLimit: Number(config.lossLimit),
+      maxTrades: Number(config.maxTrades)
+    }
+
+    if (!Number.isFinite(payload.profitTarget) || payload.profitTarget < 0) {
+      setApiError(t('today.session.errors.profitTargetRequired'))
+      return
+    }
+    if (!Number.isFinite(payload.lossLimit) || payload.lossLimit < 0) {
+      setApiError(t('today.session.errors.lossLimitRequired'))
+      return
+    }
+    if (!Number.isFinite(payload.maxTrades) || payload.maxTrades <= 0) {
+      setApiError(t('today.session.errors.maxTradesRequired'))
+      return
+    }
+
+    await saveConfigMutation.mutateAsync(payload)
+    setSettingsEditOpen(false)
+    setSuccessMessage(t('today.session.lockIn.settingsSaved'))
+  }
+
   const handleAutoFillFxRate = async () => {
     if (!isCrossCurrency) {
       setPlanner((prev) => ({
@@ -927,7 +1131,7 @@ export default function SessionPage() {
   const uploadScreenshotFiles = async (files: File[]) => {
     const candidates = files.filter((file) => file.type.startsWith('image/'))
     if (!candidates.length) {
-      setApiError('Please select or paste PNG/JPG image files only.')
+      setApiError(t('today.session.screenshots.onlyImages'))
       return
     }
 
@@ -947,7 +1151,7 @@ export default function SessionPage() {
       })
       setApiError('')
     } catch (error) {
-      setApiError((error as Error)?.message || 'Could not upload screenshot.')
+      setApiError((error as Error)?.message || t('today.session.screenshots.uploadError'))
     } finally {
       setUploadingScreenshot(false)
     }
@@ -964,11 +1168,221 @@ export default function SessionPage() {
     await uploadScreenshotFiles(items)
   }
 
-  const handleAddDecisionLevel = () => {
-    const normalized = normalizeLevel(decisionLevelDraft)
-    if (!normalized) return
-    setDecisionLevels((prev) => prev.includes(normalized) ? prev : [...prev, normalized])
-    setDecisionLevelDraft('')
+  const persistChecklist = async (type: ChecklistTemplateType, items: SessionChecklistItem[]) => {
+    const normalized = normalizeChecklistItems(items)
+    if (type === 'PREREQS') {
+      setPrereqChecklist(normalized)
+    } else {
+      setTriggerChecklist(normalized)
+    }
+    await checklistMutation.mutateAsync({ type, items: normalized, activeSweepLevelId: activeSweepLevelId || undefined })
+  }
+
+  const handleChecklistFieldChange = (
+    type: ChecklistTemplateType,
+    itemId: string,
+    patch: Partial<SessionChecklistItem>,
+    persist = false
+  ) => {
+    const source = type === 'PREREQS' ? prereqChecklist : triggerChecklist
+    const next = source.map((item) => (item.id === itemId ? { ...item, ...patch } : item))
+    if (type === 'PREREQS') {
+      setPrereqChecklist(next)
+    } else {
+      setTriggerChecklist(next)
+    }
+    if (persist) {
+      void persistChecklist(type, next)
+    }
+  }
+
+  const handleOpenChecklistEditor = (type: ChecklistTemplateType) => {
+    setChecklistEditDialog({
+      open: true,
+      type,
+      items: normalizeChecklistItems(type === 'PREREQS' ? prereqChecklist : triggerChecklist)
+    })
+  }
+
+  const handleSaveChecklistEditor = async () => {
+    const items = normalizeChecklistItems(checklistEditDialog.items)
+    if (items.some((item) => !item.text.trim())) {
+      setApiError(t('today.session.templates.emptyChecklist'))
+      return
+    }
+    await persistChecklist(checklistEditDialog.type, items)
+    setChecklistEditDialog((prev) => ({ ...prev, open: false }))
+    setSuccessMessage(t('today.session.checklist.refreshDone'))
+  }
+
+  const handleOpenTemplateDialog = (mode: 'import' | 'save', type: ChecklistTemplateType) => {
+    setTemplateDialog({ open: true, mode, type })
+    setSelectedImportTemplateId('')
+    setTemplateNameDraft('')
+    setTemplateDefaultDraft(false)
+    setApiError('')
+  }
+
+  const handleImportTemplate = async () => {
+    if (!selectedImportTemplateId) return
+    if (!window.confirm(t('today.session.checklist.confirmImport'))) return
+    await checklistMutation.mutateAsync({
+      type: templateDialog.type,
+      templateId: selectedImportTemplateId,
+      activeSweepLevelId: activeSweepLevelId || undefined
+    })
+    setTemplateDialog((prev) => ({ ...prev, open: false }))
+    setSuccessMessage(t('today.session.checklist.templateImported'))
+  }
+
+  const handleSaveTemplate = async () => {
+    const targetItems = templateDialog.type === 'PREREQS' ? prereqChecklist : triggerChecklist
+    if (!templateNameDraft.trim()) {
+      setApiError(t('today.session.templates.nameRequired'))
+      return
+    }
+    if (targetItems.length === 0) {
+      setApiError(t('today.session.templates.emptyChecklist'))
+      return
+    }
+    await createTemplateMutation.mutateAsync({
+      name: templateNameDraft.trim(),
+      type: templateDialog.type,
+      isDefault: templateDefaultDraft,
+      items: toChecklistTemplateItems(targetItems)
+    })
+    setTemplateDialog((prev) => ({ ...prev, open: false }))
+    setSuccessMessage(t('today.session.checklist.templateSaved'))
+  }
+
+  const handleSetTemplateDefault = async (template: ChecklistTemplateResponse) => {
+    await updateTemplateMutation.mutateAsync({
+      id: template.id,
+      payload: {
+        name: template.name,
+        type: template.type,
+        isDefault: true,
+        items: template.items
+      }
+    })
+    setSuccessMessage(t('today.session.checklist.defaultTemplateSet'))
+  }
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    await deleteTemplateMutation.mutateAsync(templateId)
+  }
+
+  const openLevelDialog = (level?: SessionLevel) => {
+    if (!level) {
+      setLevelDialog({
+        open: true,
+        editId: null,
+        label: 'PDH',
+        customLabel: '',
+        price: '',
+        category: 'LIQUIDITY',
+        notes: ''
+      })
+      return
+    }
+
+    const normalizedLabel = normalizeLevel(level.label)
+    const matchedOption = LEVEL_LABEL_OPTIONS.find((option) => normalizeLevel(option) === normalizedLabel)
+    setLevelDialog({
+      open: true,
+      editId: level.id,
+      label: matchedOption || 'Custom',
+      customLabel: matchedOption ? '' : level.label,
+      price: level.price == null ? '' : String(level.price),
+      category: level.category,
+      notes: level.notes || ''
+    })
+  }
+
+  const handleSaveLevel = async () => {
+    const rawLabel = levelDialog.label === 'Custom' ? levelDialog.customLabel : levelDialog.label
+    const label = rawLabel.trim()
+    if (!label) return
+    const payload = {
+      label,
+      price: levelDialog.price ? Number(levelDialog.price) : null,
+      category: levelDialog.category,
+      notes: levelDialog.notes || null
+    }
+    if (levelDialog.editId) {
+      await updateLevelMutation.mutateAsync({ id: levelDialog.editId, payload })
+    } else {
+      await createLevelMutation.mutateAsync(payload)
+    }
+    setLevelDialog((prev) => ({ ...prev, open: false }))
+  }
+
+  const handleDeleteLevel = async (levelId: string) => {
+    await deleteLevelMutation.mutateAsync(levelId)
+  }
+
+  const handleSetSweepLevel = async (levelId?: string | null) => {
+    await setSweepLevelMutation.mutateAsync(levelId)
+    setActiveSweepLevelId(levelId || null)
+  }
+
+  const handleMarkLevelSwept = async (level: SessionLevel, swept: boolean) => {
+    await updateLevelMutation.mutateAsync({
+      id: level.id,
+      payload: {
+        label: level.label,
+        price: level.price ?? null,
+        category: level.category,
+        notes: level.notes ?? null,
+        swept
+      }
+    })
+  }
+
+  const handleUseLevelPrice = async (target: 'entry' | 'sl' | 'tp', level: SessionLevel) => {
+    let nextPrice = level.price ?? null
+    if (nextPrice == null) {
+      const input = window.prompt(t('today.session.levels.promptPrice'), '')
+      if (!input) return
+      const parsed = Number(input)
+      if (!Number.isFinite(parsed) || parsed <= 0) return
+      nextPrice = parsed
+      await updateLevelMutation.mutateAsync({
+        id: level.id,
+        payload: {
+          label: level.label,
+          price: parsed,
+          category: level.category,
+          notes: level.notes ?? null
+        }
+      })
+    }
+
+    if (target === 'entry') {
+      setPlanner((prev) => ({ ...prev, entryPrice: String(nextPrice) }))
+      return
+    }
+    if (target === 'sl') {
+      setPlanner((prev) => ({ ...prev, stopLossPrice: String(nextPrice) }))
+      return
+    }
+    setPlanner((prev) => ({ ...prev, takeProfitPrice: String(nextPrice) }))
+  }
+
+  const handleSuggestLevelsFromPlan = async () => {
+    const suggestions = parsePlanLevelSuggestions(selectedPlan)
+    if (!suggestions.length) return
+    const existing = new Set(sessionLevels.map((level) => normalizeLevel(level.label)))
+    const missing = suggestions.filter((item) => !existing.has(normalizeLevel(item)))
+    if (!missing.length) return
+    await Promise.all(
+      missing.map((label) => createLevelMutation.mutateAsync({
+        label,
+        category: 'LIQUIDITY',
+        notes: null
+      }))
+    )
+    setSuccessMessage(t('today.session.levels.suggested'))
   }
 
   const handleStartTrade = async () => {
@@ -996,7 +1410,7 @@ export default function SessionPage() {
       || !Number.isFinite(stopLossPrice)
       || stopLossPrice <= 0
     ) {
-      setApiError('Quantity, entry price, and stop-loss are required.')
+      setApiError(t('today.session.errors.quantityAndEntryRequired'))
       return
     }
 
@@ -1006,7 +1420,7 @@ export default function SessionPage() {
     }
 
     if (!planner.invalidation.trim()) {
-      setApiError('Invalidation is required before start.')
+      setApiError(t('today.session.errors.invalidationRequired'))
       invalidationFieldRef.current?.focus()
       return
     }
@@ -1029,7 +1443,7 @@ export default function SessionPage() {
       linkedPlanId: selectedPlan?.id,
       riskAmount: manualRisk ?? undefined,
       initialNotes: planner.notes || undefined,
-      entryJournalText: planner.notes.trim() || 'Entry rationale captured at start.',
+      entryJournalText: planner.notes.trim() || t('today.session.entryJournal.defaultText'),
       entryInvalidation: planner.invalidation.trim(),
       entryScreenshotAssetIds: attachedScreenshots.map((asset) => asset.id)
     }
@@ -1060,11 +1474,11 @@ export default function SessionPage() {
       return
     }
     if (!entryJournalDraft.text.trim()) {
-      setApiError('Entry journal text is required.')
+      setApiError(t('today.session.errors.entryJournalRequired'))
       return
     }
     if (!entryJournalDraft.invalidation.trim()) {
-      setApiError('Entry invalidation is required.')
+      setApiError(t('today.session.errors.entryInvalidationRequired'))
       return
     }
 
@@ -1079,16 +1493,24 @@ export default function SessionPage() {
     })
   }
 
-  const handleResetLockIn = () => {
-    if (!session) {
-      setLockIn(DEFAULT_LOCK_IN_STATE)
-      return
+  const handleSaveLockIn = async () => {
+    const payload = {
+      session: lockIn.session || null,
+      objective: lockIn.objective || null,
+      bias: lockIn.bias || null,
+      biasReason: lockIn.biasReason.trim() || null
     }
-    setLockIn({
-      ...DEFAULT_LOCK_IN_STATE,
-      session: 'LONDON',
-      dailyMaxLoss: String(session.lossLimit || ''),
-      maxTrades: String(session.maxTrades || '')
+    await lockInMutation.mutateAsync(payload)
+    setSuccessMessage(t('today.session.lockIn.saved'))
+  }
+
+  const handleResetLockIn = async () => {
+    setLockIn(DEFAULT_LOCK_IN_STATE)
+    await lockInMutation.mutateAsync({
+      session: null,
+      objective: null,
+      bias: null,
+      biasReason: null
     })
   }
 
@@ -1109,8 +1531,9 @@ export default function SessionPage() {
     return <LoadingState rows={8} height={26} />
   }
 
-  const visibleKeyLevels = isMobileViewport ? decisionLevels.slice(0, 3) : decisionLevels
-  const hiddenKeyLevelsCount = Math.max(0, decisionLevels.length - visibleKeyLevels.length)
+  const levelLabels = sessionLevels.map((item) => item.price == null ? item.label : `${item.label} ${formatNumber(item.price, 4)}`)
+  const visibleKeyLevels = isMobileViewport ? levelLabels.slice(0, 3) : levelLabels
+  const hiddenKeyLevelsCount = Math.max(0, levelLabels.length - visibleKeyLevels.length)
 
   return (
     <Stack spacing={2.5} sx={{ minWidth: 0, overflowX: 'clip', pb: 'max(8px, env(safe-area-inset-bottom))' }}>
@@ -1135,7 +1558,7 @@ export default function SessionPage() {
             onClick={() => applyPreset('execution')}
             size="small"
           >
-            Execution Focus
+            {t('today.session.actions.executionFocus')}
           </Button>
           <Button
             variant={layoutState.preset === 'study' ? 'contained' : 'outlined'}
@@ -1143,7 +1566,7 @@ export default function SessionPage() {
             onClick={() => applyPreset('study')}
             size="small"
           >
-            Study Focus
+            {t('today.session.actions.studyFocus')}
           </Button>
           <Button component={Link} to="/today" variant="outlined">
             {t('today.session.exit')}
@@ -1155,10 +1578,10 @@ export default function SessionPage() {
         <CardContent sx={{ py: 1.5 }}>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
             {[
-              { id: 1, label: '1. Lock-in' },
-              { id: 2, label: '2. Checklist' },
-              { id: 3, label: '3. Chart' },
-              { id: 4, label: '4. Execute' }
+              { id: 1, label: t('today.session.steps.lockIn') },
+              { id: 2, label: t('today.session.steps.checklist') },
+              { id: 3, label: t('today.session.steps.chart') },
+              { id: 4, label: t('today.session.steps.execute') }
             ].map((step) => (
               <Chip
                 key={step.id}
@@ -1233,7 +1656,7 @@ export default function SessionPage() {
                   <Stack direction="row" justifyContent="space-between" alignItems="center">
                     <Box>
                       <Typography variant="subtitle2">{t('today.session.progress.title')}</Typography>
-                      <Typography variant="caption" color="text.secondary">Track guardrails and limits</Typography>
+                      <Typography variant="caption" color="text.secondary">{t('today.session.progress.subtitle')}</Typography>
                     </Box>
                     {renderPanelControls('progress')}
                   </Stack>
@@ -1295,12 +1718,15 @@ export default function SessionPage() {
                         <PlaylistAddCheckRoundedIcon color="primary" fontSize="small" />
                         <Box>
                           <Typography variant="subtitle1">{t('today.session.checklist.title')}</Typography>
-                          <Typography variant="caption" color="text.secondary">Complete prerequisites before executing</Typography>
+                          <Typography variant="caption" color="text.secondary">{t('today.session.hints.checklist.short')}</Typography>
                         </Box>
                         <Chip
                           size="small"
                           variant="outlined"
-                          label={`Prereqs ${prerequisiteCount}/4 • Triggers ${triggerCount}/5`}
+                          label={t('today.session.checklist.progressSummary', {
+                            prereqs: `${prerequisiteCount}/${prereqStatus.requiredTotal}`,
+                            triggers: `${triggerCount}/${triggerStatus.requiredTotal}`
+                          })}
                         />
                       </Stack>
                       {renderPanelControls('checklist')}
@@ -1311,19 +1737,35 @@ export default function SessionPage() {
                         <Box sx={{ p: 1.25, border: '1px solid', borderColor: lockInComplete ? 'success.light' : 'warning.light', borderRadius: 2 }}>
                           <Stack spacing={1.25}>
                             <Stack direction="row" justifyContent="space-between" alignItems="center">
-                              <Typography variant="subtitle2">Session Lock-In</Typography>
-                              <Stack direction="row" spacing={1}>
-                                <Chip size="small" color={lockInComplete ? 'success' : 'warning'} label={lockInComplete ? 'Complete' : 'Incomplete'} />
-                                <Button size="small" variant="text" startIcon={<RestartAltRoundedIcon />} onClick={handleResetLockIn}>Reset lock-in</Button>
+                              <Stack direction="row" spacing={0.75} alignItems="center">
+                                <Typography variant="subtitle2">{t('today.session.lockIn.title')}</Typography>
+                                <Tooltip title={t('today.session.hints.lockIn.short')}>
+                                  <InfoOutlinedIcon fontSize="small" color="action" />
+                                </Tooltip>
+                              </Stack>
+                              <Stack direction="row" spacing={1} alignItems="center">
+                                <Chip
+                                  size="small"
+                                  color={lockInComplete ? 'success' : 'warning'}
+                                  label={lockInComplete ? t('today.session.lockIn.locked') : t('today.session.lockIn.notLocked')}
+                                />
+                                <Button size="small" variant="text" onClick={() => setSettingsEditOpen(true)}>
+                                  {t('today.session.lockIn.editSettings')}
+                                </Button>
+                                <Button size="small" variant="text" startIcon={<RestartAltRoundedIcon />} onClick={handleResetLockIn}>
+                                  {t('today.session.lockIn.reset')}
+                                </Button>
                               </Stack>
                             </Stack>
+                            <Typography variant="caption" color="text.secondary">{t('today.session.hints.lockIn.short')}</Typography>
+                            <Typography variant="caption" color="text.secondary">{t('today.session.hints.lockIn.long')}</Typography>
 
                             <Grid container spacing={1}>
                               <Grid item xs={12} sm={6} md={3}>
                                 <TextField
                                   select
                                   size="small"
-                                  label="Session"
+                                  label={t('today.session.lockIn.sessionLabel')}
                                   value={lockIn.session}
                                   onChange={(event) => {
                                     const sessionValue = event.target.value as LockInSession
@@ -1332,48 +1774,60 @@ export default function SessionPage() {
                                   }}
                                   fullWidth
                                 >
-                                  <MenuItem value="">Select session</MenuItem>
-                                  {LOCK_IN_SESSION_OPTIONS.map((item) => (
-                                    <MenuItem key={item.value} value={item.value}>{item.label}</MenuItem>
+                                  <MenuItem value="">{t('today.session.lockIn.selectSession')}</MenuItem>
+                                  {LOCK_IN_SESSION_OPTIONS.map((sessionValue) => (
+                                    <MenuItem key={sessionValue} value={sessionValue}>
+                                      {t(`trades.form.sessions.${sessionValue}`)}
+                                    </MenuItem>
                                   ))}
                                 </TextField>
                               </Grid>
                               <Grid item xs={12} sm={6} md={3}>
                                 <TextField
                                   size="small"
-                                  type="number"
-                                  label="Daily max loss"
-                                  value={lockIn.dailyMaxLoss}
-                                  onChange={(event) => setLockIn((prev) => ({ ...prev, dailyMaxLoss: event.target.value }))}
+                                  label={t('today.session.lockIn.dailyMaxLoss')}
+                                  value={formatCurrency(Number(session.lossLimit || 0), profileCurrency)}
+                                  InputProps={{ readOnly: true }}
                                   fullWidth
                                 />
                               </Grid>
                               <Grid item xs={12} sm={6} md={3}>
                                 <TextField
                                   size="small"
-                                  type="number"
-                                  label="Max trades"
-                                  value={lockIn.maxTrades}
-                                  onChange={(event) => setLockIn((prev) => ({ ...prev, maxTrades: event.target.value }))}
+                                  label={t('today.session.lockIn.maxTrades')}
+                                  value={String(session.maxTrades || 0)}
+                                  InputProps={{ readOnly: true }}
                                   fullWidth
                                 />
                               </Grid>
                               <Grid item xs={12} sm={6} md={3}>
                                 <Stack direction="row" spacing={0.75} sx={{ flexWrap: 'wrap' }}>
-                                  <Button size="small" variant={lockIn.objective === 'A_PLUS_ONLY' ? 'contained' : 'outlined'} onClick={() => setLockIn((prev) => ({ ...prev, objective: 'A_PLUS_ONLY' }))}>A+ only</Button>
+                                  <Button
+                                    size="small"
+                                    variant={lockIn.objective === 'A_PLUS_ONLY' ? 'contained' : 'outlined'}
+                                    onClick={() => setLockIn((prev) => ({ ...prev, objective: 'A_PLUS_ONLY' }))}
+                                  >
+                                    {t('today.session.lockIn.objectiveAPlus')}
+                                  </Button>
                                   <Button
                                     size="small"
                                     variant={lockIn.objective === 'ONE_TRADE_MAX' ? 'contained' : 'outlined'}
-                                    onClick={() => setLockIn((prev) => ({ ...prev, objective: 'ONE_TRADE_MAX', maxTrades: '1' }))}
+                                    onClick={() => {
+                                      setLockIn((prev) => ({ ...prev, objective: 'ONE_TRADE_MAX' }))
+                                      setConfig((prev) => ({ ...prev, maxTrades: '1' }))
+                                    }}
                                   >
-                                    1 trade max
+                                    {t('today.session.lockIn.objectiveOne')}
                                   </Button>
                                   <Button
                                     size="small"
                                     variant={lockIn.objective === 'TWO_TRADES_MAX' ? 'contained' : 'outlined'}
-                                    onClick={() => setLockIn((prev) => ({ ...prev, objective: 'TWO_TRADES_MAX', maxTrades: '2' }))}
+                                    onClick={() => {
+                                      setLockIn((prev) => ({ ...prev, objective: 'TWO_TRADES_MAX' }))
+                                      setConfig((prev) => ({ ...prev, maxTrades: '2' }))
+                                    }}
                                   >
-                                    2 trades max
+                                    {t('today.session.lockIn.objectiveTwo')}
                                   </Button>
                                 </Stack>
                               </Grid>
@@ -1381,26 +1835,31 @@ export default function SessionPage() {
                                 <TextField
                                   select
                                   size="small"
-                                  label="Bias"
+                                  label={t('today.session.lockIn.biasLabel')}
                                   value={lockIn.bias}
                                   onChange={(event) => setLockIn((prev) => ({ ...prev, bias: event.target.value as LockInBias }))}
                                   fullWidth
                                 >
-                                  <MenuItem value="">Select bias</MenuItem>
-                                  <MenuItem value="LONG">Long</MenuItem>
-                                  <MenuItem value="SHORT">Short</MenuItem>
-                                  <MenuItem value="NEUTRAL">Neutral</MenuItem>
+                                  <MenuItem value="">{t('today.session.lockIn.selectBias')}</MenuItem>
+                                  <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
+                                  <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
+                                  <MenuItem value="NEUTRAL">{t('today.session.lockIn.neutral')}</MenuItem>
                                 </TextField>
                               </Grid>
                               <Grid item xs={12} sm={6}>
                                 <TextField
                                   size="small"
-                                  label="Bias reason"
+                                  label={t('today.session.lockIn.biasReason')}
                                   value={lockIn.biasReason}
                                   onChange={(event) => setLockIn((prev) => ({ ...prev, biasReason: event.target.value.slice(0, 140) }))}
                                   fullWidth
                                   helperText={`${lockIn.biasReason.length}/140`}
                                 />
+                              </Grid>
+                              <Grid item xs={12}>
+                                <Button size="small" variant="contained" onClick={() => void handleSaveLockIn()} disabled={lockInMutation.isLoading}>
+                                  {t('today.session.lockIn.save')}
+                                </Button>
                               </Grid>
                             </Grid>
                           </Stack>
@@ -1408,43 +1867,61 @@ export default function SessionPage() {
 
                         <Accordion defaultExpanded>
                           <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
-                            <Typography variant="body2">Pre-trade prerequisites</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%', pr: 1 }}>
+                              <Typography variant="body2">{t('today.session.checklist.prereqsTitle')}</Typography>
+                              <Chip size="small" variant="outlined" label={`${prerequisiteCount}/${prereqStatus.requiredTotal}`} />
+                              <Box sx={{ flex: 1 }} />
+                              <Button size="small" variant="text" onClick={(event) => { event.stopPropagation(); handleOpenChecklistEditor('PREREQS') }}>
+                                {t('today.session.checklist.editPrereqs')}
+                              </Button>
+                              <Button size="small" variant="text" onClick={(event) => { event.stopPropagation(); handleOpenTemplateDialog('save', 'PREREQS') }}>
+                                {t('today.session.checklist.saveTemplate')}
+                              </Button>
+                              <Button size="small" variant="text" onClick={(event) => { event.stopPropagation(); handleOpenTemplateDialog('import', 'PREREQS') }}>
+                                {t('today.session.checklist.importTemplate')}
+                              </Button>
+                            </Stack>
                           </AccordionSummary>
                           <AccordionDetails>
-                            <Stack spacing={1}>
-                              <FormControlLabel
-                                control={<Checkbox checked={prereqs.newsChecked} onChange={(event) => setPrereqs((prev) => ({ ...prev, newsChecked: event.target.checked }))} />}
-                                label="News check done"
-                              />
-                              <TextField
-                                size="small"
-                                label="Red news within ±10m (optional time)"
-                                value={prereqs.redNewsWindow}
-                                onChange={(event) => setPrereqs((prev) => ({ ...prev, redNewsWindow: event.target.value }))}
-                                fullWidth
-                              />
-                              <FormControlLabel
-                                control={<Checkbox checked={prereqs.keyLevelsMarked} onChange={(event) => setPrereqs((prev) => ({ ...prev, keyLevelsMarked: event.target.checked }))} />}
-                                label="Key levels marked (PDH/PDL, Asia H/L, Session H/L, EQH/EQL)"
-                              />
-                              <TextField
-                                size="small"
-                                label="Key levels quick notes (optional)"
-                                value={prereqs.keyLevelsNotes}
-                                onChange={(event) => setPrereqs((prev) => ({ ...prev, keyLevelsNotes: event.target.value }))}
-                                fullWidth
-                              />
-                              <FormControlLabel
-                                control={<Checkbox checked={lockInComplete} disabled />}
-                                label="Risk & max trades confirmed (auto from lock-in)"
-                              />
-                              <FormControlLabel
-                                control={<Checkbox checked={invalidationWritten} disabled />}
-                                label="Invalidation written"
-                              />
+                            <Stack spacing={1.2}>
+                              <Typography variant="caption" color="text.secondary">{t('today.session.hints.prereqsEditor')}</Typography>
+                              {prereqChecklist.map((item) => (
+                                <Box key={item.id} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
+                                  <FormControlLabel
+                                    control={(
+                                      <Checkbox
+                                        checked={item.completed}
+                                        onChange={(event) => handleChecklistFieldChange('PREREQS', item.id, { completed: event.target.checked }, true)}
+                                      />
+                                    )}
+                                    label={`${item.text}${item.required ? ' *' : ''}`}
+                                  />
+                                  {item.hasValue && (
+                                    <TextField
+                                      size="small"
+                                      type={item.valueType === 'NUMBER' ? 'number' : (item.valueType === 'TIME' ? 'time' : 'text')}
+                                      label={item.valueLabel || t('today.session.checklist.value')}
+                                      value={item.value || ''}
+                                      onChange={(event) => handleChecklistFieldChange('PREREQS', item.id, { value: event.target.value }, true)}
+                                      fullWidth
+                                      sx={{ mt: 0.5 }}
+                                    />
+                                  )}
+                                  {item.hasNote && (
+                                    <TextField
+                                      size="small"
+                                      label={item.notePlaceholder || t('today.session.checklist.note')}
+                                      value={item.note || ''}
+                                      onChange={(event) => handleChecklistFieldChange('PREREQS', item.id, { note: event.target.value }, true)}
+                                      fullWidth
+                                      sx={{ mt: 0.5 }}
+                                    />
+                                  )}
+                                </Box>
+                              ))}
                               {!invalidationWritten && (
                                 <Button size="small" variant="outlined" sx={{ alignSelf: 'flex-start' }} onClick={() => invalidationFieldRef.current?.focus()}>
-                                  Go to invalidation field
+                                  {t('today.session.checklist.goToInvalidation')}
                                 </Button>
                               )}
                             </Stack>
@@ -1453,50 +1930,76 @@ export default function SessionPage() {
 
                         <Accordion defaultExpanded={Boolean(selectedStrategy) || !isMobileViewport}>
                           <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
-                            <Typography variant="body2">Setup triggers {selectedStrategy ? `(${selectedStrategy.name})` : '(generic)'}</Typography>
+                            <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%', pr: 1 }}>
+                              <Typography variant="body2">
+                                {t('today.session.checklist.triggersTitle')} {selectedStrategy ? `(${selectedStrategy.name})` : `(${t('today.session.checklist.generic')})`}
+                              </Typography>
+                              <Chip size="small" variant="outlined" label={`${triggerCount}/${triggerStatus.requiredTotal}`} />
+                              <Box sx={{ flex: 1 }} />
+                              <Button size="small" variant="text" onClick={(event) => { event.stopPropagation(); handleOpenChecklistEditor('TRIGGERS') }}>
+                                {t('today.session.checklist.editTriggers')}
+                              </Button>
+                              <Button size="small" variant="text" onClick={(event) => { event.stopPropagation(); handleOpenTemplateDialog('save', 'TRIGGERS') }}>
+                                {t('today.session.checklist.saveTemplate')}
+                              </Button>
+                              <Button size="small" variant="text" onClick={(event) => { event.stopPropagation(); handleOpenTemplateDialog('import', 'TRIGGERS') }}>
+                                {t('today.session.checklist.importTemplate')}
+                              </Button>
+                            </Stack>
                           </AccordionSummary>
                           <AccordionDetails>
-                            <Stack spacing={1}>
+                            <Stack spacing={1.2}>
+                              <Typography variant="caption" color="text.secondary">{t('today.session.hints.triggersEditor')}</Typography>
                               {!selectedStrategy && (
                                 <Alert severity="info" sx={{ mb: 1 }}>
-                                  Select strategy to load trigger checklist. Generic trigger set is active.
+                                  {t('today.session.checklist.strategyHint')}
                                 </Alert>
                               )}
-                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-                                <TextField
-                                  select
-                                  size="small"
-                                  label="Liquidity sweep level"
-                                  value={triggers.sweepLevel}
-                                  onChange={(event) => setTriggers((prev) => ({ ...prev, sweepLevel: event.target.value }))}
-                                  sx={{ minWidth: { xs: '100%', sm: 220 } }}
-                                >
-                                  <MenuItem value="">Select level</MenuItem>
-                                  {['PDH', 'PDL', 'ASIA_H', 'ASIA_L', 'SESSION_H', 'SESSION_L', 'EQH', 'EQL'].map((item) => (
-                                    <MenuItem key={item} value={item}>{item}</MenuItem>
-                                  ))}
-                                </TextField>
-                                <FormControlLabel
-                                  control={<Checkbox checked={triggers.sweepConfirmed} onChange={(event) => setTriggers((prev) => ({ ...prev, sweepConfirmed: event.target.checked }))} />}
-                                  label="Liquidity sweep confirmed"
-                                />
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                                <Button size="small" variant="outlined" onClick={() => setPricePickerTarget('sweep')}>
+                                  {t('today.session.levels.selectSweep')}
+                                </Button>
+                                <Typography variant="caption" color="text.secondary">
+                                  {selectedSweepLevel ? t('today.session.levels.selectedSweep', { label: selectedSweepLevel.label }) : t('today.session.levels.noSweep')}
+                                </Typography>
                               </Stack>
-
-                              <FormControlLabel
-                                control={<Checkbox checked={triggers.displacementConfirmed} onChange={(event) => setTriggers((prev) => ({ ...prev, displacementConfirmed: event.target.checked }))} />}
-                                label="Displacement close (M5) away from sweep"
-                              />
-                              <FormControlLabel
-                                control={<Checkbox checked={triggers.mssConfirmed} onChange={(event) => setTriggers((prev) => ({ ...prev, mssConfirmed: event.target.checked }))} />}
-                                label="MSS confirmed on close"
-                              />
-                              <FormControlLabel
-                                control={<Checkbox checked={triggers.entryZoneConfirmed} onChange={(event) => setTriggers((prev) => ({ ...prev, entryZoneConfirmed: event.target.checked }))} />}
-                                label="Entry zone identified (FVG 50%)"
-                              />
+                              {triggerChecklist.map((item) => (
+                                <Box key={item.id} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
+                                  <FormControlLabel
+                                    control={(
+                                      <Checkbox
+                                        checked={item.completed}
+                                        onChange={(event) => handleChecklistFieldChange('TRIGGERS', item.id, { completed: event.target.checked }, true)}
+                                      />
+                                    )}
+                                    label={`${item.text}${item.required ? ' *' : ''}`}
+                                  />
+                                  {item.hasValue && (
+                                    <TextField
+                                      size="small"
+                                      type={item.valueType === 'NUMBER' ? 'number' : (item.valueType === 'TIME' ? 'time' : 'text')}
+                                      label={item.valueLabel || t('today.session.checklist.value')}
+                                      value={item.value || ''}
+                                      onChange={(event) => handleChecklistFieldChange('TRIGGERS', item.id, { value: event.target.value }, true)}
+                                      fullWidth
+                                      sx={{ mt: 0.5 }}
+                                    />
+                                  )}
+                                  {item.hasNote && (
+                                    <TextField
+                                      size="small"
+                                      label={item.notePlaceholder || t('today.session.checklist.note')}
+                                      value={item.note || ''}
+                                      onChange={(event) => handleChecklistFieldChange('TRIGGERS', item.id, { note: event.target.value }, true)}
+                                      fullWidth
+                                      sx={{ mt: 0.5 }}
+                                    />
+                                  )}
+                                </Box>
+                              ))}
                               <FormControlLabel
                                 control={<Checkbox checked={rrMet} disabled />}
-                                label={`RR rule met (>= ${RR_THRESHOLD}R)`}
+                                label={`${t('today.session.checklist.rrRule')} (>= ${RR_THRESHOLD}R)`}
                               />
                             </Stack>
                           </AccordionDetails>
@@ -1509,14 +2012,14 @@ export default function SessionPage() {
             )}
 
             {isPanelVisible('chart') && (
-              <Card sx={{ minHeight: 'clamp(260px, 42vh, 420px)' }}>
+              <Card sx={{ minHeight: { xs: 'clamp(320px, 48vh, 420px)', md: 'clamp(420px, 48vh, 560px)' } }}>
                 <CardContent sx={{ display: 'grid', gap: 1.25 }}>
                   <Stack direction="row" alignItems="center" justifyContent="space-between">
                     <Stack direction="row" spacing={1} alignItems="center">
                       <CandlestickChartRoundedIcon color="primary" fontSize="small" />
                       <Box>
                         <Typography variant="subtitle1">{t('today.session.layout.liveChart')}</Typography>
-                        <Typography variant="caption" color="text.secondary">Confirm setup triggers and entry zone</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('today.session.hints.chart.short')}</Typography>
                       </Box>
                     </Stack>
                     {renderPanelControls('chart')}
@@ -1527,37 +2030,99 @@ export default function SessionPage() {
                       <Box sx={{ p: 1.1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                         <Stack spacing={1}>
                           <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.75} alignItems={{ md: 'center' }}>
-                            <Chip size="small" label={`Bias: ${lockIn.bias || 'Unset'}`} />
-                            <Chip size="small" label={`Session: ${lockIn.session || 'Unset'}`} />
-                            <Chip size="small" label={`Local: ${localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
-                            <Chip size="small" color={newsSafe ? 'success' : 'warning'} label={newsSafe ? 'News: safe' : 'News: caution'} />
+                            <Chip size="small" label={`${t('today.session.chart.bias')}: ${lockIn.bias || t('common.na')}`} />
+                            <Chip size="small" label={`${t('today.session.chart.session')}: ${lockIn.session || t('common.na')}`} />
+                            <Chip size="small" label={`${t('today.session.chart.local')}: ${localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
+                            <Chip size="small" color={newsSafe ? 'success' : 'warning'} label={newsSafe ? t('today.session.chart.newsSafe') : t('today.session.chart.newsCaution')} />
+                            {selectedSweepLevel && (
+                              <Chip
+                                size="small"
+                                color="info"
+                                label={t('today.session.levels.selectedSweep', { label: selectedSweepLevel.label })}
+                              />
+                            )}
                           </Stack>
 
                           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                             {visibleKeyLevels.map((level) => (
-                              <Chip key={level} label={level} size="small" onDelete={() => setDecisionLevels((prev) => prev.filter((item) => item !== level))} />
+                              <Chip key={level} label={level} size="small" />
                             ))}
                             {hiddenKeyLevelsCount > 0 && (
-                              <Chip size="small" variant="outlined" label={`+${hiddenKeyLevelsCount} more`} />
+                              <Chip size="small" variant="outlined" label={`+${hiddenKeyLevelsCount} ${t('today.session.chart.more')}`} />
                             )}
                           </Stack>
 
                           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
-                            <TextField
-                              size="small"
-                              label="Add level"
-                              value={decisionLevelDraft}
-                              onChange={(event) => setDecisionLevelDraft(event.target.value)}
-                              sx={{ minWidth: { xs: '100%', sm: 180 } }}
-                            />
-                            <Button size="small" variant="outlined" onClick={handleAddDecisionLevel}>Add</Button>
+                            <Button size="small" variant="outlined" onClick={() => openLevelDialog()}>
+                              {t('today.session.levels.add')}
+                            </Button>
+                            <Button size="small" variant="outlined" onClick={() => void handleSuggestLevelsFromPlan()}>
+                              {t('today.session.levels.suggestFromPlan')}
+                            </Button>
                             <Button size="small" variant="outlined" startIcon={<PhotoCameraBackRoundedIcon />} onClick={() => setScreenshotDialogOpen(true)}>
-                              Attach screenshot to trade
+                              {t('today.session.chart.attachScreenshot')}
                             </Button>
-                            <Button size="small" variant="outlined" onClick={focusMentorPanel}>Open full mentor plan</Button>
+                            <Button size="small" variant="outlined" onClick={focusMentorPanel}>{t('today.session.chart.openMentor')}</Button>
                             <Button size="small" variant="outlined" startIcon={<CenterFocusStrongRoundedIcon />} onClick={() => applyPreset('execution')}>
-                              Execution focus mode
+                              {t('today.session.actions.executionFocus')}
                             </Button>
+                          </Stack>
+
+                          <Stack spacing={0.75}>
+                            {sessionLevels.length === 0 ? (
+                              <Typography variant="caption" color="text.secondary">{t('today.session.levels.empty')}</Typography>
+                            ) : (
+                              sessionLevels.map((level) => (
+                                <Box
+                                  key={level.id}
+                                  sx={{ p: 0.9, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}
+                                >
+                                  <Stack spacing={0.8}>
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }} justifyContent="space-between">
+                                      <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                                        <Chip size="small" label={level.label} />
+                                        {level.price != null && (
+                                          <Chip size="small" variant="outlined" label={formatNumber(level.price, 4)} />
+                                        )}
+                                        <Chip size="small" variant="outlined" label={t(`today.session.levels.categories.${level.category}`)} />
+                                        {level.sweptAt && (
+                                          <Chip size="small" color="success" label={t('today.session.levels.swept')} />
+                                        )}
+                                      </Stack>
+                                      <Stack direction="row" spacing={0.5}>
+                                        <Tooltip title={t('today.session.levels.edit')}>
+                                          <IconButton size="small" onClick={() => openLevelDialog(level)}>
+                                            <InfoOutlinedIcon fontSize="small" />
+                                          </IconButton>
+                                        </Tooltip>
+                                        <Tooltip title={t('today.session.levels.delete')}>
+                                          <IconButton size="small" onClick={() => void handleDeleteLevel(level.id)}>
+                                            <DeleteOutlineRoundedIcon fontSize="small" />
+                                          </IconButton>
+                                        </Tooltip>
+                                      </Stack>
+                                    </Stack>
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} flexWrap="wrap" useFlexGap>
+                                      <Button size="small" variant="text" onClick={() => void handleSetSweepLevel(level.id)}>
+                                        {t('today.session.levels.setSweep')}
+                                      </Button>
+                                      <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('entry', level)}>
+                                        {t('today.session.levels.useAsEntry')}
+                                      </Button>
+                                      <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('sl', level)}>
+                                        {t('today.session.levels.useAsSl')}
+                                      </Button>
+                                      <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('tp', level)}>
+                                        {t('today.session.levels.useAsTp')}
+                                      </Button>
+                                      <Button size="small" variant="text" onClick={() => void handleMarkLevelSwept(level, !level.sweptAt)}>
+                                        {level.sweptAt ? t('today.session.levels.unmarkSwept') : t('today.session.levels.markSwept')}
+                                      </Button>
+                                    </Stack>
+                                  </Stack>
+                                </Box>
+                              ))
+                            )}
                           </Stack>
                         </Stack>
                       </Box>
@@ -1568,7 +2133,7 @@ export default function SessionPage() {
                         themePreference={chartTheme}
                         hideControls={chartHideControls}
                         allowSymbolChange={chartAllowSymbolChange}
-                        minHeight={isCompactViewport ? 260 : 360}
+                        minHeight={isCompactViewport ? 320 : 440}
                         fallbackMessage={t('today.session.mentor.liveChartFallback')}
                         fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
                       />
@@ -1645,13 +2210,13 @@ export default function SessionPage() {
                                 <Grid container spacing={1}>
                                   <Grid item xs={12} sm={6}>
                                     <Box sx={{ p: 1.15, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
-                                      <Typography variant="caption" color="text.secondary">Bias summary</Typography>
+                                      <Typography variant="caption" color="text.secondary">{t('today.session.mentor.biasSummary')}</Typography>
                                       <Typography variant="body2">{selectedPlan.biasSummary || selectedPlan.summary || t('today.session.mentor.emptySummary')}</Typography>
                                     </Box>
                                   </Grid>
                                   <Grid item xs={12} sm={6}>
                                     <Box sx={{ p: 1.15, border: '1px solid', borderColor: 'divider', borderRadius: 2, height: '100%' }}>
-                                      <Typography variant="caption" color="text.secondary">Key levels</Typography>
+                                      <Typography variant="caption" color="text.secondary">{t('today.session.mentor.keyLevels')}</Typography>
                                       {(selectedPlan.keyLevels || []).length === 0 ? (
                                         <Typography variant="body2" color="text.secondary">{t('today.session.mentor.noKeyLevels')}</Typography>
                                       ) : (
@@ -1811,7 +2376,7 @@ export default function SessionPage() {
                             <CandlestickChartRoundedIcon color="primary" fontSize="small" />
                             <Box>
                               <Typography variant="subtitle1">{t('today.session.planner.title')}</Typography>
-                              <Typography variant="caption" color="text.secondary">Fill risk + invalidation before start</Typography>
+                              <Typography variant="caption" color="text.secondary">{t('today.session.hints.execute.short')}</Typography>
                             </Box>
                           </Stack>
                           {renderPanelControls('planner')}
@@ -1907,7 +2472,7 @@ export default function SessionPage() {
                                 </Grid>
                                 <Grid item xs={12} md={4}>
                                   <TextField
-                                    label="Risk $"
+                                    label={t('today.session.planner.riskAmount')}
                                     type="number"
                                     value={planner.riskAmount}
                                     onChange={(event) => setPlanner((prev) => ({ ...prev, riskAmount: event.target.value }))}
@@ -1979,15 +2544,18 @@ export default function SessionPage() {
                                   {t('today.session.form.riskSnapshotConverted', { risk: formatCurrency(convertedRiskSnapshot, profileCurrency) })}
                                 </Typography>
                               )}
-                              {effectiveRiskInProfile !== null && Number(lockIn.dailyMaxLoss || 0) > 0 && effectiveRiskInProfile > Number(lockIn.dailyMaxLoss) && (
+                              {effectiveRiskInProfile !== null && Number(session.lossLimit || 0) > 0 && effectiveRiskInProfile > Number(session.lossLimit) && (
                                 <Alert severity="warning" sx={{ mt: 1 }}>
-                                  Risk exceeds lock-in daily max loss.
+                                  {t('today.session.planner.riskExceeds')}
                                 </Alert>
                               )}
                             </Box>
 
                             <Box sx={{ p: 1.2, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                               <Typography variant="subtitle2" sx={{ mb: 1 }}>C) Prices</Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                                {t('today.session.hints.execute.short')}
+                              </Typography>
                               <Grid container spacing={1}>
                                 <Grid item xs={12} md={4}>
                                   <TextField
@@ -1998,6 +2566,15 @@ export default function SessionPage() {
                                     fullWidth
                                     size="small"
                                     required
+                                    InputProps={{
+                                      endAdornment: (
+                                        <InputAdornment position="end">
+                                          <Button size="small" onClick={() => setPricePickerTarget('entry')}>
+                                            {t('today.session.levels.pickFromLevels')}
+                                          </Button>
+                                        </InputAdornment>
+                                      )
+                                    }}
                                   />
                                 </Grid>
                                 <Grid item xs={12} md={4}>
@@ -2009,6 +2586,15 @@ export default function SessionPage() {
                                     fullWidth
                                     size="small"
                                     required
+                                    InputProps={{
+                                      endAdornment: (
+                                        <InputAdornment position="end">
+                                          <Button size="small" onClick={() => setPricePickerTarget('sl')}>
+                                            {t('today.session.levels.pickFromLevels')}
+                                          </Button>
+                                        </InputAdornment>
+                                      )
+                                    }}
                                   />
                                 </Grid>
                                 <Grid item xs={12} md={4}>
@@ -2019,12 +2605,21 @@ export default function SessionPage() {
                                     onChange={(event) => setPlanner((prev) => ({ ...prev, takeProfitPrice: event.target.value }))}
                                     fullWidth
                                     size="small"
+                                    InputProps={{
+                                      endAdornment: (
+                                        <InputAdornment position="end">
+                                          <Button size="small" onClick={() => setPricePickerTarget('tp')}>
+                                            {t('today.session.levels.pickFromLevels')}
+                                          </Button>
+                                        </InputAdornment>
+                                      )
+                                    }}
                                   />
                                 </Grid>
 
                                 <Grid item xs={12}>
                                   <TextField
-                                    label="I'm wrong if..."
+                                    label={t('today.session.planner.invalidation')}
                                     value={planner.invalidation}
                                     onChange={(event) => setPlanner((prev) => ({ ...prev, invalidation: event.target.value.slice(0, 200) }))}
                                     fullWidth
@@ -2050,16 +2645,16 @@ export default function SessionPage() {
 
                               {!rrMet && (
                                 <Alert severity="warning" sx={{ mt: 1 }}>
-                                  RR is below {RR_THRESHOLD.toFixed(1)}R. Start is blocked until RR meets threshold.
+                                  {t('today.session.planner.rrBlocked', { rr: RR_THRESHOLD.toFixed(1) })}
                                 </Alert>
                               )}
                             </Box>
 
                             <Box sx={{ p: 1.1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                               <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
-                                <Typography variant="body2">Setup quality score: <strong>{setupQualityScore}%</strong> ({suggestedSetupGrade})</Typography>
+                                <Typography variant="body2">{t('today.session.planner.setupQuality', { score: setupQualityScore, grade: suggestedSetupGrade })}</Typography>
                                 <Typography variant="caption" color="text.secondary">
-                                  Auto-grade inputs: lock-in, prerequisites, triggers, RR, news safe
+                                  {t('today.session.planner.autoGradeHint')}
                                 </Typography>
                               </Stack>
                             </Box>
@@ -2154,7 +2749,7 @@ export default function SessionPage() {
 
                             {!canMeetExecutionGate && (
                               <Typography variant="caption" color="warning.main">
-                                Complete: Lock-in + missing checklist items + invalidation
+                                {t('today.session.planner.completeHint')}
                               </Typography>
                             )}
 
@@ -2252,14 +2847,351 @@ export default function SessionPage() {
         </>
       )}
 
+      <Dialog open={settingsEditOpen} onClose={() => setSettingsEditOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('today.session.lockIn.editSettings')}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1.2}>
+            <TextField
+              label={t('today.session.config.profitTarget')}
+              type="number"
+              value={config.profitTarget}
+              onChange={(event) => setConfig((prev) => ({ ...prev, profitTarget: event.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label={t('today.session.config.lossLimit')}
+              type="number"
+              value={config.lossLimit}
+              onChange={(event) => setConfig((prev) => ({ ...prev, lossLimit: event.target.value }))}
+              fullWidth
+            />
+            <TextField
+              label={t('today.session.config.maxTrades')}
+              type="number"
+              value={config.maxTrades}
+              onChange={(event) => setConfig((prev) => ({ ...prev, maxTrades: event.target.value }))}
+              fullWidth
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSettingsEditOpen(false)}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={() => void handleSaveSessionSettings()}>
+            {t('common.save')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={checklistEditDialog.open} onClose={() => setChecklistEditDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="md">
+        <DialogTitle>
+          {checklistEditDialog.type === 'PREREQS'
+            ? t('today.session.checklist.editPrereqs')
+            : t('today.session.checklist.editTriggers')}
+        </DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            {checklistEditDialog.items.map((item, index) => (
+              <Box key={item.id} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
+                <Stack spacing={1}>
+                  <TextField
+                    size="small"
+                    label={t('today.session.checklist.itemLabel')}
+                    value={item.text}
+                    onChange={(event) => {
+                      const next = [...checklistEditDialog.items]
+                      next[index] = { ...next[index], text: event.target.value }
+                      setChecklistEditDialog((prev) => ({ ...prev, items: next }))
+                    }}
+                    fullWidth
+                  />
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                    <FormControlLabel
+                      control={(
+                        <Checkbox
+                          checked={item.required}
+                          onChange={(event) => {
+                            const next = [...checklistEditDialog.items]
+                            next[index] = { ...next[index], required: event.target.checked }
+                            setChecklistEditDialog((prev) => ({ ...prev, items: next }))
+                          }}
+                        />
+                      )}
+                      label={t('today.session.checklist.required')}
+                    />
+                    <FormControlLabel
+                      control={(
+                        <Checkbox
+                          checked={item.hasNote}
+                          onChange={(event) => {
+                            const next = [...checklistEditDialog.items]
+                            next[index] = { ...next[index], hasNote: event.target.checked }
+                            setChecklistEditDialog((prev) => ({ ...prev, items: next }))
+                          }}
+                        />
+                      )}
+                      label={t('today.session.checklist.hasNote')}
+                    />
+                    <FormControlLabel
+                      control={(
+                        <Checkbox
+                          checked={item.hasValue}
+                          onChange={(event) => {
+                            const next = [...checklistEditDialog.items]
+                            next[index] = { ...next[index], hasValue: event.target.checked }
+                            setChecklistEditDialog((prev) => ({ ...prev, items: next }))
+                          }}
+                        />
+                      )}
+                      label={t('today.session.checklist.hasValue')}
+                    />
+                  </Stack>
+                  {item.hasNote && (
+                    <TextField
+                      size="small"
+                      label={t('today.session.checklist.notePlaceholder')}
+                      value={item.notePlaceholder || ''}
+                      onChange={(event) => {
+                        const next = [...checklistEditDialog.items]
+                        next[index] = { ...next[index], notePlaceholder: event.target.value }
+                        setChecklistEditDialog((prev) => ({ ...prev, items: next }))
+                      }}
+                      fullWidth
+                    />
+                  )}
+                  {item.hasValue && (
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                      <TextField
+                        size="small"
+                        label={t('today.session.checklist.valueLabel')}
+                        value={item.valueLabel || ''}
+                        onChange={(event) => {
+                          const next = [...checklistEditDialog.items]
+                          next[index] = { ...next[index], valueLabel: event.target.value }
+                          setChecklistEditDialog((prev) => ({ ...prev, items: next }))
+                        }}
+                        sx={{ flex: 1 }}
+                      />
+                      <TextField
+                        select
+                        size="small"
+                        label={t('today.session.checklist.valueType')}
+                        value={item.valueType}
+                        onChange={(event) => {
+                          const next = [...checklistEditDialog.items]
+                          next[index] = { ...next[index], valueType: event.target.value as ChecklistValueType }
+                          setChecklistEditDialog((prev) => ({ ...prev, items: next }))
+                        }}
+                        sx={{ minWidth: 140 }}
+                      >
+                        {CHECKLIST_VALUE_TYPES.map((valueType) => (
+                          <MenuItem key={valueType} value={valueType}>{t(`today.session.checklist.valueTypes.${valueType}`)}</MenuItem>
+                        ))}
+                      </TextField>
+                    </Stack>
+                  )}
+                  <Stack direction="row" spacing={0.5}>
+                    <IconButton size="small" onClick={() => setChecklistEditDialog((prev) => ({ ...prev, items: reorderItems(prev.items, index, -1) }))}>
+                      <ArrowUpwardRoundedIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton size="small" onClick={() => setChecklistEditDialog((prev) => ({ ...prev, items: reorderItems(prev.items, index, 1) }))}>
+                      <ArrowDownwardRoundedIcon fontSize="small" />
+                    </IconButton>
+                    <IconButton
+                      size="small"
+                      onClick={() => setChecklistEditDialog((prev) => ({ ...prev, items: prev.items.filter((_, i) => i !== index) }))}
+                    >
+                      <DeleteOutlineRoundedIcon fontSize="small" />
+                    </IconButton>
+                  </Stack>
+                </Stack>
+              </Box>
+            ))}
+            <Button
+              size="small"
+              variant="outlined"
+              onClick={() => setChecklistEditDialog((prev) => ({ ...prev, items: [...prev.items, emptyChecklistItem(prev.items.length)] }))}
+            >
+              {t('today.session.checklist.addItem')}
+            </Button>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setChecklistEditDialog((prev) => ({ ...prev, open: false }))}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={() => void handleSaveChecklistEditor()}>{t('today.session.checklist.saveChanges')}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={templateDialog.open} onClose={() => setTemplateDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="sm">
+        <DialogTitle>
+          {templateDialog.mode === 'save'
+            ? t('today.session.checklist.saveTemplate')
+            : t('today.session.checklist.importTemplate')}
+        </DialogTitle>
+        <DialogContent dividers>
+          {templateDialog.mode === 'save' ? (
+            <Stack spacing={1}>
+              <TextField
+                size="small"
+                label={t('today.session.checklist.templateName')}
+                value={templateNameDraft}
+                onChange={(event) => setTemplateNameDraft(event.target.value)}
+                fullWidth
+              />
+              <FormControlLabel
+                control={<Checkbox checked={templateDefaultDraft} onChange={(event) => setTemplateDefaultDraft(event.target.checked)} />}
+                label={t('today.session.checklist.setDefault')}
+              />
+            </Stack>
+          ) : (
+            <Stack spacing={1}>
+              <TextField
+                select
+                size="small"
+                label={t('today.session.checklist.importTemplate')}
+                value={selectedImportTemplateId}
+                onChange={(event) => setSelectedImportTemplateId(event.target.value)}
+                fullWidth
+              >
+                {activeTemplates.map((template) => (
+                  <MenuItem key={template.id} value={template.id}>
+                    {template.name}{template.isDefault ? ` (${t('today.session.checklist.defaultTemplate')})` : ''}
+                  </MenuItem>
+                ))}
+              </TextField>
+              {activeTemplates.map((template) => (
+                <Stack key={`${template.id}-actions`} direction="row" spacing={1} alignItems="center" justifyContent="space-between">
+                  <Typography variant="caption" color="text.secondary">{template.name}</Typography>
+                  <Stack direction="row" spacing={0.5}>
+                    <Button size="small" variant="text" onClick={() => void handleSetTemplateDefault(template)}>
+                      {t('today.session.checklist.setDefault')}
+                    </Button>
+                    <Button size="small" color="error" variant="text" onClick={() => void handleDeleteTemplate(template.id)}>
+                      {t('common.delete')}
+                    </Button>
+                  </Stack>
+                </Stack>
+              ))}
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setTemplateDialog((prev) => ({ ...prev, open: false }))}>{t('common.cancel')}</Button>
+          {templateDialog.mode === 'save' ? (
+            <Button variant="contained" onClick={() => void handleSaveTemplate()}>{t('today.session.checklist.saveTemplate')}</Button>
+          ) : (
+            <Button variant="contained" onClick={() => void handleImportTemplate()}>{t('today.session.checklist.importAction')}</Button>
+          )}
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={levelDialog.open} onClose={() => setLevelDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="sm" fullScreen={isMobileViewport}>
+        <DialogTitle>{levelDialog.editId ? t('today.session.levels.edit') : t('today.session.levels.add')}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            <TextField
+              select
+              size="small"
+              label={t('today.session.levels.label')}
+              value={levelDialog.label}
+              onChange={(event) => setLevelDialog((prev) => ({ ...prev, label: event.target.value }))}
+              fullWidth
+            >
+              {LEVEL_LABEL_OPTIONS.map((label) => (
+                <MenuItem key={label} value={label}>{label}</MenuItem>
+              ))}
+            </TextField>
+            {levelDialog.label === 'Custom' && (
+              <TextField
+                size="small"
+                label={t('today.session.levels.customLabel')}
+                value={levelDialog.customLabel}
+                onChange={(event) => setLevelDialog((prev) => ({ ...prev, customLabel: event.target.value }))}
+                fullWidth
+              />
+            )}
+            <TextField
+              size="small"
+              type="number"
+              label={t('today.session.levels.price')}
+              value={levelDialog.price}
+              onChange={(event) => setLevelDialog((prev) => ({ ...prev, price: event.target.value }))}
+              fullWidth
+            />
+            <TextField
+              select
+              size="small"
+              label={t('today.session.levels.category')}
+              value={levelDialog.category}
+              onChange={(event) => setLevelDialog((prev) => ({ ...prev, category: event.target.value as SessionLevelCategory }))}
+              fullWidth
+            >
+              {LEVEL_CATEGORY_OPTIONS.map((category) => (
+                <MenuItem key={category} value={category}>{t(`today.session.levels.categories.${category}`)}</MenuItem>
+              ))}
+            </TextField>
+            <TextField
+              size="small"
+              label={t('today.session.levels.notes')}
+              value={levelDialog.notes}
+              onChange={(event) => setLevelDialog((prev) => ({ ...prev, notes: event.target.value }))}
+              fullWidth
+              multiline
+              minRows={2}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setLevelDialog((prev) => ({ ...prev, open: false }))}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={() => void handleSaveLevel()}>{t('common.save')}</Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(pricePickerTarget)} onClose={() => setPricePickerTarget(null)} fullWidth maxWidth="sm" fullScreen={isMobileViewport}>
+        <DialogTitle>{t('today.session.levels.pickFromLevels')}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            {sessionLevels.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">{t('today.session.levels.empty')}</Typography>
+            ) : (
+              sessionLevels.map((level) => (
+                <Button
+                  key={`${pricePickerTarget || 'none'}-${level.id}`}
+                  variant="outlined"
+                  onClick={async () => {
+                    if (pricePickerTarget === 'sweep') {
+                      await handleSetSweepLevel(level.id)
+                      const sweepIndex = findSweepChecklistItemIndex(triggerChecklist)
+                      if (sweepIndex >= 0 && !triggerChecklist[sweepIndex].completed && window.confirm(t('today.session.levels.autoCheckSweepPrompt'))) {
+                        const next = triggerChecklist.map((item, index) => index === sweepIndex ? { ...item, completed: true } : item)
+                        await persistChecklist('TRIGGERS', next)
+                      }
+                    } else if (pricePickerTarget) {
+                      await handleUseLevelPrice(pricePickerTarget, level)
+                    }
+                    setPricePickerTarget(null)
+                  }}
+                  sx={{ justifyContent: 'space-between' }}
+                >
+                  <span>{level.label}</span>
+                  <span>{level.price == null ? t('common.na') : formatNumber(level.price, 4)}</span>
+                </Button>
+              ))
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPricePickerTarget(null)}>{t('common.close')}</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={missingModalOpen} onClose={() => setMissingModalOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Execution requirements</DialogTitle>
+        <DialogTitle>{t('today.session.requirements.title')}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1.5}>
             <Box>
-              <Typography variant="subtitle2">1) Lock-in</Typography>
+              <Typography variant="subtitle2">{t('today.session.steps.lockIn')}</Typography>
               {missingLockInItems.length === 0 ? (
-                <Typography variant="body2" color="success.main">Complete</Typography>
+                <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (
                 <Stack spacing={0.4} sx={{ mt: 0.6 }}>
                   {missingLockInItems.map((item) => (
@@ -2269,9 +3201,9 @@ export default function SessionPage() {
               )}
             </Box>
             <Box>
-              <Typography variant="subtitle2">2) Checklist prerequisites</Typography>
+              <Typography variant="subtitle2">{t('today.session.requirements.prereqs')}</Typography>
               {missingPrereqs.length === 0 ? (
-                <Typography variant="body2" color="success.main">Complete</Typography>
+                <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (
                 <Stack spacing={0.4} sx={{ mt: 0.6 }}>
                   {missingPrereqs.map((item) => (
@@ -2281,9 +3213,9 @@ export default function SessionPage() {
               )}
             </Box>
             <Box>
-              <Typography variant="subtitle2">3) Setup triggers</Typography>
+              <Typography variant="subtitle2">{t('today.session.requirements.triggers')}</Typography>
               {missingTriggers.length === 0 ? (
-                <Typography variant="body2" color="success.main">Complete</Typography>
+                <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (
                 <Stack spacing={0.4} sx={{ mt: 0.6 }}>
                   {missingTriggers.map((item) => (
@@ -2300,12 +3232,12 @@ export default function SessionPage() {
       </Dialog>
 
       <Dialog open={screenshotDialogOpen} onClose={() => setScreenshotDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Attach screenshot</DialogTitle>
+        <DialogTitle>{t('today.session.screenshots.title')}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1}>
-            <Typography variant="body2" color="text.secondary">Upload PNG/JPG or paste directly from clipboard.</Typography>
+            <Typography variant="body2" color="text.secondary">{t('today.session.screenshots.subtitle')}</Typography>
             <Button variant="outlined" component="label" disabled={uploadingScreenshot}>
-              {uploadingScreenshot ? 'Uploading…' : 'Choose files'}
+              {uploadingScreenshot ? t('today.session.screenshots.uploading') : t('today.session.screenshots.choose')}
               <input
                 hidden
                 type="file"
@@ -2320,16 +3252,16 @@ export default function SessionPage() {
             </Button>
             <Box
               role="textbox"
-              aria-label="Paste screenshot"
+              aria-label={t('today.session.screenshots.pasteLabel')}
               tabIndex={0}
               onPaste={(event) => void handlePasteScreenshots(event)}
               sx={{ p: 1.25, border: '1px dashed', borderColor: 'divider', borderRadius: 2, minHeight: 80 }}
             >
-              <Typography variant="caption" color="text.secondary">Paste screenshot here (Ctrl/Cmd+V)</Typography>
+              <Typography variant="caption" color="text.secondary">{t('today.session.screenshots.pasteHint')}</Typography>
             </Box>
             <Stack spacing={0.75}>
               {attachedScreenshots.length === 0 ? (
-                <Typography variant="body2" color="text.secondary">No screenshots attached yet.</Typography>
+                <Typography variant="body2" color="text.secondary">{t('today.session.screenshots.empty')}</Typography>
               ) : (
                 attachedScreenshots.map((asset) => (
                   <Chip
@@ -2349,11 +3281,11 @@ export default function SessionPage() {
       </Dialog>
 
       <Dialog open={entryJournalOpen} onClose={() => setEntryJournalOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Entry Journal</DialogTitle>
+        <DialogTitle>{t('today.session.entryJournal.title')}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1.2}>
             <TextField
-              label="What did you see?"
+              label={t('today.session.entryJournal.whatSaw')}
               value={entryJournalDraft.text}
               onChange={(event) => setEntryJournalDraft((prev) => ({ ...prev, text: event.target.value.slice(0, 280) }))}
               fullWidth
@@ -2362,7 +3294,7 @@ export default function SessionPage() {
               required
             />
             <TextField
-              label="Invalidation confirmation"
+              label={t('today.session.entryJournal.invalidation')}
               value={entryJournalDraft.invalidation}
               onChange={(event) => setEntryJournalDraft((prev) => ({ ...prev, invalidation: event.target.value.slice(0, 200) }))}
               fullWidth
@@ -2370,7 +3302,7 @@ export default function SessionPage() {
             />
             <TextField
               select
-              label="Emotion"
+              label={t('today.session.entryJournal.emotion')}
               value={entryJournalDraft.emotion}
               onChange={(event) => setEntryJournalDraft((prev) => ({ ...prev, emotion: event.target.value }))}
               fullWidth
@@ -2380,7 +3312,7 @@ export default function SessionPage() {
               ))}
             </TextField>
             <Button variant="outlined" startIcon={<PhotoCameraBackRoundedIcon />} onClick={() => setScreenshotDialogOpen(true)}>
-              Attach screenshot
+              {t('today.session.screenshots.attach')}
             </Button>
             <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
               {attachedScreenshots.map((asset) => (
@@ -2392,7 +3324,7 @@ export default function SessionPage() {
         <DialogActions>
           <Button onClick={() => setEntryJournalOpen(false)}>{t('common.close')}</Button>
           <Button variant="contained" onClick={handleSaveEntryJournal} disabled={saveEntryJournalMutation.isLoading}>
-            {saveEntryJournalMutation.isLoading ? 'Saving…' : 'Save journal'}
+            {saveEntryJournalMutation.isLoading ? t('today.session.entryJournal.saving') : t('today.session.entryJournal.save')}
           </Button>
         </DialogActions>
       </Dialog>

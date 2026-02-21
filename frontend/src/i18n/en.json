@@ -968,6 +968,16 @@
     "session": {
       "title": "Session mode",
       "subtitle": "Focused execution view with checklist, mentor plan, and trade execution.",
+      "actions": {
+        "executionFocus": "Execution Focus",
+        "studyFocus": "Study Focus"
+      },
+      "steps": {
+        "lockIn": "1. Lock-in",
+        "checklist": "2. Checklist",
+        "chart": "3. Chart",
+        "execute": "4. Execute"
+      },
       "exit": "Back to Today",
       "planSummary": "Plan summary",
       "quickNote": "Quick notepad",
@@ -989,12 +999,16 @@
         "maxTradesRequired": "Max trades must be greater than zero",
         "tickerRequired": "Ticker is required",
         "quantityAndEntryRequired": "Quantity and entry price are required",
+        "invalidationRequired": "Invalidation is required before start",
+        "entryJournalRequired": "Entry journal text is required",
+        "entryInvalidationRequired": "Entry invalidation is required",
         "exitPriceRequired": "Exit price is required",
         "fxRateRequired": "FX rate is required when trade and profile currencies differ.",
         "fxAutofillFailed": "Could not auto-fill FX rate. Enter it manually."
       },
       "progress": {
         "title": "Session progress",
+        "subtitle": "Track guardrails and limits",
         "realizedPnl": "Realized PnL: {{realized}} / {{target}}",
         "trades": "Trades: {{closed}}/{{max}}",
         "pnlGuardrail": "PnL guardrail",
@@ -1006,9 +1020,37 @@
       },
       "checklist": {
         "title": "Session checklist",
+        "prereqsTitle": "Pre-trade prerequisites",
+        "triggersTitle": "Setup triggers",
+        "generic": "generic",
+        "editPrereqs": "Edit prereqs",
+        "editTriggers": "Edit triggers",
         "progress": "{{completed}}/{{total}}",
+        "progressSummary": "Prereqs {{prereqs}} • Triggers {{triggers}}",
         "saveTemplate": "Save template",
         "importTemplate": "Import template",
+        "saveChanges": "Save changes",
+        "addItem": "Add item",
+        "itemLabel": "Checklist item",
+        "required": "Required",
+        "hasNote": "Has note",
+        "hasValue": "Has value",
+        "note": "Note",
+        "notePlaceholder": "Note placeholder",
+        "value": "Value",
+        "valueLabel": "Value label",
+        "valueType": "Value type",
+        "valueTypes": {
+          "TEXT": "Text",
+          "NUMBER": "Number",
+          "TIME": "Time"
+        },
+        "setDefault": "Set default",
+        "defaultTemplate": "Default",
+        "defaultTemplateSet": "Default template updated",
+        "strategyHint": "Select strategy to load trigger checklist. Generic trigger set is active.",
+        "goToInvalidation": "Go to invalidation field",
+        "rrRule": "RR rule met",
         "templateName": "Template name",
         "overwriteTemplate": "Overwrite template",
         "saveAsNew": "Save as new",
@@ -1021,10 +1063,113 @@
         "emptyTitle": "No checklist items",
         "emptyBody": "Add one from a template or update your defaults."
       },
+      "lockIn": {
+        "title": "Session Lock-In",
+        "locked": "Locked in",
+        "notLocked": "Not locked in",
+        "editSettings": "Edit settings",
+        "reset": "Reset",
+        "save": "Save lock-in",
+        "saved": "Lock-in saved",
+        "settingsSaved": "Session settings saved",
+        "sessionLabel": "Session",
+        "selectSession": "Select session",
+        "dailyMaxLoss": "Daily max loss",
+        "maxTrades": "Max trades",
+        "objectiveAPlus": "A+ only",
+        "objectiveOne": "1 trade max",
+        "objectiveTwo": "2 trades max",
+        "biasLabel": "Bias",
+        "selectBias": "Select bias",
+        "neutral": "Neutral",
+        "biasReason": "Bias reason"
+      },
+      "hints": {
+        "lockIn": {
+          "short": "Set your session limits and bias once.",
+          "long": "This prevents overtrading and keeps decisions consistent."
+        },
+        "checklist": {
+          "short": "Complete prerequisites and triggers before execution."
+        },
+        "chart": {
+          "short": "Use levels and chart context to validate the sequence."
+        },
+        "execute": {
+          "short": "Fill risk and invalidation first, then prices and notes."
+        },
+        "prereqsEditor": "Customize this list to match your process. Save templates for different markets/sessions.",
+        "triggersEditor": "Build your trigger sequence as a checklist. Save/import templates for your models."
+      },
       "templates": {
         "nameRequired": "Template name is required",
         "emptyChecklist": "Checklist has no items to save",
         "selectOverwriteTarget": "Select a template to overwrite"
+      },
+      "levels": {
+        "add": "Add level",
+        "edit": "Edit level",
+        "delete": "Delete level",
+        "label": "Label",
+        "customLabel": "Custom label",
+        "price": "Price",
+        "category": "Category",
+        "notes": "Notes",
+        "categories": {
+          "LIQUIDITY": "Liquidity",
+          "TARGET": "Target",
+          "INVALIDATION": "Invalidation",
+          "OTHER": "Other"
+        },
+        "empty": "No levels yet.",
+        "setSweep": "Set as Sweep Level",
+        "selectSweep": "Select sweep level",
+        "selectedSweep": "Sweep: {{label}}",
+        "noSweep": "No sweep level selected",
+        "useAsEntry": "Use as Entry",
+        "useAsSl": "Use as SL",
+        "useAsTp": "Use as TP",
+        "markSwept": "Mark as swept",
+        "unmarkSwept": "Unmark swept",
+        "swept": "Swept",
+        "pickFromLevels": "Pick from levels",
+        "promptPrice": "This level has no price. Enter a price to use it:",
+        "suggestFromPlan": "Suggest levels from plan",
+        "suggested": "Suggested levels added.",
+        "autoCheckSweepPrompt": "Mark \"Liquidity sweep confirmed\" as completed too?"
+      },
+      "chart": {
+        "bias": "Bias",
+        "session": "Session",
+        "local": "Local",
+        "newsSafe": "News: safe",
+        "newsCaution": "News: caution",
+        "attachScreenshot": "Attach screenshot to trade",
+        "openMentor": "Open full mentor plan",
+        "more": "more"
+      },
+      "screenshots": {
+        "title": "Attach screenshot",
+        "subtitle": "Upload PNG/JPG or paste directly from clipboard.",
+        "choose": "Choose files",
+        "uploading": "Uploading…",
+        "pasteLabel": "Paste screenshot",
+        "pasteHint": "Paste screenshot here (Ctrl/Cmd+V)",
+        "empty": "No screenshots attached yet.",
+        "attach": "Attach screenshot",
+        "onlyImages": "Please select or paste PNG/JPG image files only.",
+        "uploadError": "Could not upload screenshot."
+      },
+      "entryJournal": {
+        "title": "Entry Journal",
+        "whatSaw": "What did you see?",
+        "invalidation": "Invalidation confirmation",
+        "emotion": "Emotion",
+        "save": "Save journal",
+        "saving": "Saving…",
+        "saved": "Entry journal saved.",
+        "saveError": "Could not save entry journal.",
+        "defaultText": "Entry rationale captured at start."
       },
       "mentor": {
         "title": "Mentor Plan",
@@ -1072,7 +1217,25 @@
         "exitPrice": "Exit price",
         "postTradeNotes": "Post trade notes",
         "closingTrade": "Closing...",
-        "confirmCloseTrade": "Close trade"
+        "confirmCloseTrade": "Close trade",
+        "riskAmount": "Risk amount",
+        "riskExceeds": "Risk exceeds lock-in daily max loss.",
+        "invalidation": "I'm wrong if...",
+        "rrBlocked": "RR is below {{rr}}R. Start is blocked until RR meets threshold.",
+        "setupQuality": "Setup quality score: {{score}}% ({{grade}})",
+        "autoGradeHint": "Auto-grade inputs: lock-in, prerequisites, triggers, RR, news safe",
+        "completeHint": "Complete: Lock-in + missing checklist items + invalidation"
+      },
+      "requirements": {
+        "title": "Execution requirements",
+        "prereqs": "2) Checklist prerequisites",
+        "triggers": "3) Setup triggers",
+        "complete": "Complete",
+        "lockInSessionSelection": "Session selection",
+        "lockInDailyMaxLoss": "Daily max loss",
+        "lockInMaxTrades": "Max trades",
+        "lockInBias": "Bias",
+        "lockInBiasReason": "Bias reason"
       },
       "form": {
         "requiredField": "Required",
