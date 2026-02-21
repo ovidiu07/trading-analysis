@@ -4,6 +4,7 @@ import com.tradevault.domain.enums.PnlBasis;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.trade.DailyPnlResponse;
 import com.tradevault.dto.trade.DailySummaryResponse;
+import com.tradevault.dto.trade.TradeEntryJournalRequest;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.dto.trade.TradeCsvImportSummary;
@@ -129,6 +130,18 @@ public class TradeController {
     @PutMapping("/{id}")
     public ResponseEntity<TradeResponse> update(@PathVariable UUID id, @Valid @RequestBody TradeRequest request) {
         return ResponseEntity.ok(tradeService.update(id, request));
+    }
+
+    @PostMapping("/{id}/entry-journal")
+    public ResponseEntity<TradeResponse> saveEntryJournal(@PathVariable UUID id,
+                                                          @Valid @RequestBody TradeEntryJournalRequest request) {
+        return ResponseEntity.ok(tradeService.updateEntryJournal(
+                id,
+                request.getEntryJournalText(),
+                request.getEntryInvalidation(),
+                request.getFeeling(),
+                request.getEntryScreenshotAssetIds()
+        ));
     }
 
     @DeleteMapping("/{id}")

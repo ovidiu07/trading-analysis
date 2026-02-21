@@ -118,6 +118,12 @@ public class Trade {
     @Column(name = "initial_notes", columnDefinition = "TEXT")
     private String initialNotes;
 
+    @Column(name = "entry_journal_text", columnDefinition = "TEXT")
+    private String entryJournalText;
+
+    @Column(name = "entry_invalidation", columnDefinition = "TEXT")
+    private String entryInvalidation;
+
     @Column(updatable = false)
     private OffsetDateTime createdAt;
 
@@ -143,6 +149,12 @@ public class Trade {
     @CollectionTable(name = "trade_rule_breaks", joinColumns = @JoinColumn(name = "trade_id"))
     @Column(name = "rule_break")
     private Set<String> ruleBreaks = new LinkedHashSet<>();
+
+    @Builder.Default
+    @ElementCollection(fetch = FetchType.LAZY)
+    @CollectionTable(name = "trade_entry_screenshot_assets", joinColumns = @JoinColumn(name = "trade_id"))
+    @Column(name = "asset_id")
+    private Set<UUID> entryScreenshotAssetIds = new LinkedHashSet<>();
 
     @ManyToMany(fetch = FetchType.LAZY)
     @JoinTable(

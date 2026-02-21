@@ -60,6 +60,9 @@ public class TradeRequest {
     private Set<UUID> linkedPlanIds;
     private String notes;
     private String initialNotes;
+    private String entryJournalText;
+    private String entryInvalidation;
+    private Set<UUID> entryScreenshotAssetIds;
     private UUID accountId;
     private Set<UUID> tagIds;
 }

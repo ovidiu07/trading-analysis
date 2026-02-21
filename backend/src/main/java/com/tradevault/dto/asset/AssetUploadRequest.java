@@ -13,5 +13,6 @@ public class AssetUploadRequest {
     private UUID contentId;
     private UUID noteId;
     private UUID strategyId;
+    private UUID tradeId;
     private Integer sortOrder;
 }

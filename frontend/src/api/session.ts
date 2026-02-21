@@ -43,6 +43,7 @@ export type StartSessionTradeRequest = {
   entryPrice: number
   takeProfitPrice?: number | null
   stopLossPrice?: number | null
+  riskAmount?: number | null
   tradeCurrency?: string | null
   fxRateTradeToProfile?: number | null
   fxRateSource?: string | null
@@ -54,6 +55,16 @@ export type StartSessionTradeRequest = {
   linkedPlanId?: string | null
   initialNotes?: string | null
   notes?: string | null
+  entryJournalText?: string | null
+  entryInvalidation?: string | null
+  entryScreenshotAssetIds?: string[]
+}
+
+export type TradeEntryJournalRequest = {
+  entryJournalText?: string | null
+  entryInvalidation?: string | null
+  feeling?: string | null
+  entryScreenshotAssetIds?: string[]
 }
 
 export type CloseSessionTradeRequest = {
@@ -107,4 +118,8 @@ export async function startTradeFromSession(payload: StartSessionTradeRequest) {
 
 export async function closeTradeFromSession(tradeId: string, payload: CloseSessionTradeRequest) {
   return apiPost<TradeResponse>(`/trades/${tradeId}/closeFromSession`, payload)
+}
+
+export async function saveTradeEntryJournal(tradeId: string, payload: TradeEntryJournalRequest) {
+  return apiPost<TradeResponse>(`/trades/${tradeId}/entry-journal`, payload)
 }

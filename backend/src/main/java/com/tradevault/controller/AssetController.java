@@ -31,12 +31,14 @@ public class AssetController {
                                                 @RequestParam(value = "contentId", required = false) UUID contentId,
                                                 @RequestParam(value = "noteId", required = false) UUID noteId,
                                                 @RequestParam(value = "strategyId", required = false) UUID strategyId,
+                                                @RequestParam(value = "tradeId", required = false) UUID tradeId,
                                                 @RequestParam(value = "sortOrder", required = false) Integer sortOrder) {
         AssetUploadRequest request = new AssetUploadRequest();
         request.setScope(scope);
         request.setContentId(contentId);
         request.setNoteId(noteId);
         request.setStrategyId(strategyId);
+        request.setTradeId(tradeId);
         request.setSortOrder(sortOrder);
         return ResponseEntity.ok(assetService.upload(file, request));
     }
@@ -54,6 +56,11 @@ public class AssetController {
     @GetMapping("/strategy/{strategyId}")
     public List<AssetResponse> listStrategyAssets(@PathVariable UUID strategyId) {
         return assetService.listByStrategy(strategyId);
+    }
+
+    @GetMapping("/trade/{tradeId}")
+    public List<AssetResponse> listTradeAssets(@PathVariable UUID tradeId) {
+        return assetService.listByTrade(tradeId);
     }
 
     @DeleteMapping("/{assetId}")

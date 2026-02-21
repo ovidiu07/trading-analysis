@@ -15,6 +15,7 @@ import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,7 @@ class AssetServiceTest {
     private NotebookNoteRepository notebookNoteRepository;
     private UserStrategyRepository userStrategyRepository;
     private StrategyAssetRepository strategyAssetRepository;
+    private TradeRepository tradeRepository;
     private CurrentUserService currentUserService;
     private ObjectStorageService objectStorageService;
     private UploadProperties uploadProperties;
@@ -62,6 +64,7 @@ class AssetServiceTest {
         notebookNoteRepository = mock(NotebookNoteRepository.class);
         userStrategyRepository = mock(UserStrategyRepository.class);
         strategyAssetRepository = mock(StrategyAssetRepository.class);
+        tradeRepository = mock(TradeRepository.class);
         currentUserService = mock(CurrentUserService.class);
         objectStorageService = mock(ObjectStorageService.class);
 
@@ -81,6 +84,7 @@ class AssetServiceTest {
                 notebookNoteRepository,
                 userStrategyRepository,
                 strategyAssetRepository,
+                tradeRepository,
                 currentUserService,
                 objectStorageService,
                 new ObjectMapper(),
@@ -156,5 +160,25 @@ class AssetServiceTest {
         String prefix = "notebook/%d/%02d/".formatted(now.getYear(), now.getMonthValue());
         assertTrue(key.startsWith(prefix));
         assertTrue(key.endsWith("-note.png"));
+    }
+
+    @Test
+    void uploadsTradeScopedAssetWithoutLinkedTrade() {
+        when(assetRepository.save(any())).thenAnswer(invocation -> {
+            Asset input = invocation.getArgument(0, Asset.class);
+            input.setId(UUID.randomUUID());
+            input.setCreatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+            return input;
+        });
+
+        MockMultipartFile file = new MockMultipartFile("file", "entry.png", "image/png", "png".getBytes());
+        AssetUploadRequest request = new AssetUploadRequest();
+        request.setScope(AssetScope.TRADE);
+
+        var response = assetService.upload(file, request);
+
+        verify(objectStorageService).putObject(anyString(), any(), anyString());
+        assertEquals(AssetScope.TRADE, response.getScope());
+        assertEquals(null, response.getTradeId());
     }
 }

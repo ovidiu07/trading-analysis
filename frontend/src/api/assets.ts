@@ -3,7 +3,7 @@ import { getCurrentLanguage } from '../i18n'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 
-export type AssetScope = 'CONTENT' | 'NOTEBOOK' | 'STRATEGY'
+export type AssetScope = 'CONTENT' | 'NOTEBOOK' | 'STRATEGY' | 'TRADE'
 
 export const MAX_UPLOAD_SIZE_MB = 20
 export const MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -28,6 +28,7 @@ export type AssetItem = {
   contentId?: string | null
   noteId?: string | null
   strategyId?: string | null
+  tradeId?: string | null
   originalFileName: string
   contentType?: string | null
   sizeBytes?: number | null
@@ -46,6 +47,7 @@ type UploadAssetParams = {
   contentId?: string
   noteId?: string
   strategyId?: string
+  tradeId?: string
   sortOrder?: number
   onProgress?: (progress: number) => void
 }
@@ -137,12 +139,16 @@ export async function listStrategyAssets(strategyId: string) {
   return apiGet<AssetItem[]>(`/assets/strategy/${strategyId}`)
 }
 
+export async function listTradeAssets(tradeId: string) {
+  return apiGet<AssetItem[]>(`/assets/trade/${tradeId}`)
+}
+
 export async function deleteAsset(assetId: string) {
   return apiDelete(`/assets/${assetId}`)
 }
 
 export function uploadAsset(params: UploadAssetParams): Promise<AssetItem> {
-  const { file, scope, contentId, noteId, strategyId, sortOrder, onProgress } = params
+  const { file, scope, contentId, noteId, strategyId, tradeId, sortOrder, onProgress } = params
 
   return new Promise((resolve, reject) => {
     const formData = new FormData()
@@ -151,6 +157,7 @@ export function uploadAsset(params: UploadAssetParams): Promise<AssetItem> {
     if (contentId) formData.append('contentId', contentId)
     if (noteId) formData.append('noteId', noteId)
     if (strategyId) formData.append('strategyId', strategyId)
+    if (tradeId) formData.append('tradeId', tradeId)
     if (typeof sortOrder === 'number') formData.append('sortOrder', `${sortOrder}`)
 
     const xhr = new XMLHttpRequest()

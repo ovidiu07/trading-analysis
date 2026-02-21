@@ -10,6 +10,7 @@ import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.Set;
 import java.util.UUID;
 
 @Data
@@ -43,6 +44,9 @@ public class StartSessionTradeRequest {
 
     private String fxRateSource;
 
+    @DecimalMin("0.0001")
+    private BigDecimal riskAmount;
+
     @NotNull
     private TradeSession session;
 
@@ -60,4 +64,10 @@ public class StartSessionTradeRequest {
     private String initialNotes;
 
     private String notes;
+
+    private String entryJournalText;
+
+    private String entryInvalidation;
+
+    private Set<UUID> entryScreenshotAssetIds;
 }

@@ -10,6 +10,7 @@ import com.tradevault.domain.entity.ContentPost;
 import com.tradevault.domain.entity.NotebookAttachment;
 import com.tradevault.domain.entity.NotebookNote;
 import com.tradevault.domain.entity.StrategyAsset;
+import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.AssetScope;
@@ -23,6 +24,7 @@ import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
 import jakarta.persistence.EntityNotFoundException;
@@ -69,6 +71,7 @@ public class AssetService {
     private final NotebookNoteRepository notebookNoteRepository;
     private final UserStrategyRepository userStrategyRepository;
     private final StrategyAssetRepository strategyAssetRepository;
+    private final TradeRepository tradeRepository;
     private final CurrentUserService currentUserService;
     private final ObjectStorageService objectStorageService;
     private final ObjectMapper objectMapper;
@@ -99,10 +102,12 @@ public class AssetService {
         UUID contentId = null;
         UUID noteId = null;
         UUID strategyId = null;
+        UUID tradeId = null;
         int sortOrder = request.getSortOrder() != null ? request.getSortOrder() : 0;
         ContentPost post = null;
         NotebookNote note = null;
         UserStrategy strategy = null;
+        Trade trade = null;
 
         if (request.getScope() == AssetScope.CONTENT) {
             requireAdmin(user);
@@ -116,6 +121,15 @@ public class AssetService {
             strategyId = requireField(request.getStrategyId(), "strategyId is required for STRATEGY assets");
             strategy = userStrategyRepository.findByIdAndUser_Id(strategyId, user.getId())
                     .orElseThrow(() -> new EntityNotFoundException("Strategy not found"));
+        } else if (request.getScope() == AssetScope.TRADE) {
+            tradeId = request.getTradeId();
+            if (tradeId != null) {
+                trade = isAdmin(user)
+                        ? tradeRepository.findById(tradeId)
+                        .orElseThrow(() -> new EntityNotFoundException("Trade not found"))
+                        : tradeRepository.findByIdAndUserId(tradeId, user.getId())
+                        .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+            }
         } else {
             throw new IllegalArgumentException("Unsupported asset scope");
         }
@@ -124,7 +138,11 @@ public class AssetService {
 
         try {
             Asset asset = Asset.builder()
-                    .ownerUser(note != null ? note.getUser() : (strategy != null ? strategy.getUser() : (isAdmin(user) ? user : user)))
+                    .ownerUser(note != null
+                            ? note.getUser()
+                            : (strategy != null
+                            ? strategy.getUser()
+                            : (trade != null ? trade.getUser() : user)))
                     .scope(request.getScope())
                     .originalFileName(originalName)
                     .contentType(detectedContentType)
@@ -158,7 +176,7 @@ public class AssetService {
                 strategyAssetRepository.save(relation);
             }
 
-            return toResponse(saved, contentId, noteId, strategyId);
+            return toResponse(saved, contentId, noteId, strategyId, tradeId);
         } catch (RuntimeException ex) {
             safeDeleteFromStorage(s3Key);
             throw ex;
@@ -174,7 +192,7 @@ public class AssetService {
             throw new EntityNotFoundException("Content not found");
         }
         return contentAssetRepository.findByContentPostIdOrderBySortOrderAscCreatedAtAsc(contentId).stream()
-                .map(relation -> toResponse(relation.getAsset(), relation.getContentPost().getId(), null, null))
+                .map(relation -> toResponse(relation.getAsset(), relation.getContentPost().getId(), null, null, null))
                 .toList();
     }
 
@@ -183,7 +201,7 @@ public class AssetService {
         User user = currentUserService.getCurrentUser();
         NotebookNote note = resolveNotebookNoteForRead(noteId, user);
         return notebookAttachmentRepository.findByNoteIdOrderBySortOrderAscCreatedAtAsc(note.getId()).stream()
-                .map(relation -> toResponse(relation.getAsset(), null, relation.getNote().getId(), null))
+                .map(relation -> toResponse(relation.getAsset(), null, relation.getNote().getId(), null, null))
                 .toList();
     }
 
@@ -193,7 +211,26 @@ public class AssetService {
         UserStrategy strategy = userStrategyRepository.findByIdAndUser_Id(strategyId, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Strategy not found"));
         return strategyAssetRepository.findByStrategy_IdOrderBySortOrderAscCreatedAtAsc(strategy.getId()).stream()
-                .map(relation -> toResponse(relation.getAsset(), null, null, relation.getStrategy().getId()))
+                .map(relation -> toResponse(relation.getAsset(), null, null, relation.getStrategy().getId(), null))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssetResponse> listByTrade(UUID tradeId) {
+        User user = currentUserService.getCurrentUser();
+        Trade trade = isAdmin(user)
+                ? tradeRepository.findById(tradeId).orElseThrow(() -> new EntityNotFoundException("Trade not found"))
+                : tradeRepository.findByIdAndUserId(tradeId, user.getId()).orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+        List<UUID> assetIds = trade.getEntryScreenshotAssetIds() == null ? List.of() : new ArrayList<>(trade.getEntryScreenshotAssetIds());
+        if (assetIds.isEmpty()) {
+            return List.of();
+        }
+        Map<UUID, Asset> assetsById = assetRepository.findByIdIn(assetIds).stream()
+                .collect(java.util.stream.Collectors.toMap(Asset::getId, value -> value, (left, right) -> left));
+        return assetIds.stream()
+                .map(assetsById::get)
+                .filter(Objects::nonNull)
+                .map(asset -> toResponse(asset, null, null, null, trade.getId()))
                 .toList();
     }
 
@@ -207,7 +244,7 @@ public class AssetService {
         Map<UUID, List<AssetResponse>> byContent = new LinkedHashMap<>();
         for (ContentAsset row : rows) {
             byContent.computeIfAbsent(row.getContentPost().getId(), ignored -> new ArrayList<>())
-                    .add(toResponse(row.getAsset(), row.getContentPost().getId(), null, null));
+                    .add(toResponse(row.getAsset(), row.getContentPost().getId(), null, null, null));
         }
         return byContent;
     }
@@ -222,7 +259,7 @@ public class AssetService {
         Map<UUID, List<AssetResponse>> byStrategy = new LinkedHashMap<>();
         for (StrategyAsset row : rows) {
             byStrategy.computeIfAbsent(row.getStrategy().getId(), ignored -> new ArrayList<>())
-                    .add(toResponse(row.getAsset(), null, null, row.getStrategy().getId()));
+                    .add(toResponse(row.getAsset(), null, null, row.getStrategy().getId(), null));
         }
         return byStrategy;
     }
@@ -336,6 +373,16 @@ public class AssetService {
             }
             return;
         }
+        if (asset.getScope() == AssetScope.TRADE) {
+            if (isAdmin(user)) {
+                return;
+            }
+            UUID ownerId = asset.getOwnerUser() == null ? null : asset.getOwnerUser().getId();
+            if (!Objects.equals(ownerId, user.getId())) {
+                throw new ResponseStatusException(FORBIDDEN, "Forbidden");
+            }
+            return;
+        }
         throw new ResponseStatusException(FORBIDDEN, "Forbidden");
     }
 
@@ -374,6 +421,16 @@ public class AssetService {
                     .findFirst()
                     .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
             if (!Objects.equals(relation.getStrategy().getUser().getId(), user.getId())) {
+                throw new EntityNotFoundException("Asset not found");
+            }
+            return;
+        }
+        if (asset.getScope() == AssetScope.TRADE) {
+            if (isAdmin(user)) {
+                return;
+            }
+            UUID ownerId = asset.getOwnerUser() == null ? null : asset.getOwnerUser().getId();
+            if (!Objects.equals(ownerId, user.getId())) {
                 throw new EntityNotFoundException("Asset not found");
             }
             return;
@@ -522,7 +579,7 @@ public class AssetService {
         }
     }
 
-    private AssetResponse toResponse(Asset asset, UUID contentId, UUID noteId, UUID strategyId) {
+    private AssetResponse toResponse(Asset asset, UUID contentId, UUID noteId, UUID strategyId, UUID tradeId) {
         boolean image = asset.getContentType() != null && asset.getContentType().startsWith("image/");
         String viewUrl = resolveViewUrl(asset);
         String downloadUrl = resolveDownloadUrl(asset);
@@ -533,6 +590,7 @@ public class AssetService {
                 .contentId(contentId)
                 .noteId(noteId)
                 .strategyId(strategyId)
+                .tradeId(tradeId)
                 .originalFileName(asset.getOriginalFileName())
                 .contentType(asset.getContentType())
                 .sizeBytes(asset.getSizeBytes())

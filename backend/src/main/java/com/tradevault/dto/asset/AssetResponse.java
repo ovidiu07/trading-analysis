@@ -16,6 +16,7 @@ public class AssetResponse {
     UUID contentId;
     UUID noteId;
     UUID strategyId;
+    UUID tradeId;
     String originalFileName;
     String contentType;
     Long sizeBytes;

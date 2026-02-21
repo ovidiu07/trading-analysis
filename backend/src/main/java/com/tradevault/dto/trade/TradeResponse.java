@@ -59,6 +59,9 @@ public class TradeResponse {
     private Set<UUID> linkedPlanIds;
     private String notes;
     private String initialNotes;
+    private String entryJournalText;
+    private String entryInvalidation;
+    private Set<UUID> entryScreenshotAssetIds;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
     private UUID accountId;

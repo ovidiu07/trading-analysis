@@ -252,6 +252,9 @@ public class TradeService {
         trade.setLinkedPlanIds(normalizeLinkedPlanIds(request.getLinkedPlanIds()));
         trade.setNotes(request.getNotes());
         trade.setInitialNotes(request.getInitialNotes());
+        trade.setEntryJournalText(normalizeOptionalText(request.getEntryJournalText()));
+        trade.setEntryInvalidation(normalizeOptionalText(request.getEntryInvalidation()));
+        trade.setEntryScreenshotAssetIds(normalizeLinkedAssetIds(request.getEntryScreenshotAssetIds()));
         trade.setCreatedAt(OffsetDateTime.now());
         trade.setUpdatedAt(trade.getCreatedAt());
         applyCurrencyContextForCreate(trade, request, user);
@@ -326,6 +329,17 @@ public class TradeService {
         if (request.getInitialNotes() != null) {
             trade.setInitialNotes(request.getInitialNotes());
         }
+        if (request.getEntryJournalText() != null) {
+            trade.setEntryJournalText(normalizeOptionalText(request.getEntryJournalText()));
+        }
+        if (request.getEntryInvalidation() != null) {
+            trade.setEntryInvalidation(normalizeOptionalText(request.getEntryInvalidation()));
+        }
+        if (request.getEntryScreenshotAssetIds() != null) {
+            trade.setEntryScreenshotAssetIds(normalizeLinkedAssetIds(request.getEntryScreenshotAssetIds()));
+        } else if (trade.getEntryScreenshotAssetIds() == null) {
+            trade.setEntryScreenshotAssetIds(new LinkedHashSet<>());
+        }
         applyCurrencyContextForUpdate(trade, request, user);
         if (request.getAccountId() != null) {
             Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
@@ -345,6 +359,23 @@ public class TradeService {
             recalculateAndApplyPnl(trade);
         }
         recalculateProfileCurrencyAmounts(trade);
+        trade.setUpdatedAt(OffsetDateTime.now());
+        return toResponse(tradeRepository.save(trade));
+    }
+
+    @Transactional
+    public TradeResponse updateEntryJournal(UUID id,
+                                            String entryJournalText,
+                                            String entryInvalidation,
+                                            String feeling,
+                                            Set<UUID> entryScreenshotAssetIds) {
+        User user = currentUserService.getCurrentUser();
+        Trade trade = tradeRepository.findByIdAndUserId(id, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+        trade.setEntryJournalText(normalizeOptionalText(entryJournalText));
+        trade.setEntryInvalidation(normalizeOptionalText(entryInvalidation));
+        trade.setFeeling(normalizeFeeling(feeling));
+        trade.setEntryScreenshotAssetIds(normalizeLinkedAssetIds(entryScreenshotAssetIds));
         trade.setUpdatedAt(OffsetDateTime.now());
         return toResponse(tradeRepository.save(trade));
     }
@@ -467,6 +498,15 @@ public class TradeService {
     }
 
     private Set<UUID> normalizeLinkedPlanIds(Set<UUID> values) {
+        if (values == null || values.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        return values.stream()
+                .filter(Objects::nonNull)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private Set<UUID> normalizeLinkedAssetIds(Set<UUID> values) {
         if (values == null || values.isEmpty()) {
             return new LinkedHashSet<>();
         }
@@ -786,6 +826,9 @@ public class TradeService {
                 .linkedPlanIds(trade.getLinkedPlanIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedPlanIds()))
                 .notes(trade.getNotes())
                 .initialNotes(trade.getInitialNotes())
+                .entryJournalText(trade.getEntryJournalText())
+                .entryInvalidation(trade.getEntryInvalidation())
+                .entryScreenshotAssetIds(trade.getEntryScreenshotAssetIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getEntryScreenshotAssetIds()))
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
                 .accountId(trade.getAccount() != null ? trade.getAccount().getId() : null)

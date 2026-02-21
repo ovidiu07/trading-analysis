@@ -41,6 +41,9 @@ export type TradeRequest = {
   linkedPlanIds?: string[]
   notes?: string
   initialNotes?: string
+  entryJournalText?: string
+  entryInvalidation?: string
+  entryScreenshotAssetIds?: string[]
   accountId?: string
   tagIds?: string[]
 }
@@ -89,6 +92,9 @@ export type TradeResponse = {
   linkedPlanIds?: string[]
   notes?: string | null
   initialNotes?: string | null
+  entryJournalText?: string | null
+  entryInvalidation?: string | null
+  entryScreenshotAssetIds?: string[]
   createdAt?: string | null
   updatedAt?: string | null
   accountId?: string | null

@@ -40,6 +40,7 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       LEFT JOIN FETCH t.linkedContentIds
       LEFT JOIN FETCH t.linkedPlanIds
       LEFT JOIN FETCH t.ruleBreaks
+      LEFT JOIN FETCH t.entryScreenshotAssetIds
       WHERE t.id IN :ids
       """)
   List<Trade> findAllByIdInWithTagsAndAccount(@Param("ids") List<UUID> ids);
@@ -52,6 +53,7 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       LEFT JOIN FETCH t.linkedContentIds
       LEFT JOIN FETCH t.linkedPlanIds
       LEFT JOIN FETCH t.ruleBreaks
+      LEFT JOIN FETCH t.entryScreenshotAssetIds
       WHERE t.id = :id
         AND t.user.id = :userId
       """)

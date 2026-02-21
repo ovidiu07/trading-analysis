@@ -22,6 +22,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -426,6 +427,38 @@ public class TradeServiceTest {
         assertEquals("openedAtFrom", fieldErrors.get(0).get("field"));
         assertEquals("openedAtTo", fieldErrors.get(1).get("field"));
         verify(tradeRepository, never()).searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void updateEntryJournalPersistsJournalFieldsAndScreenshotAssetIds() {
+        UUID tradeId = UUID.randomUUID();
+        Trade existing = Trade.builder()
+                .id(tradeId)
+                .user(user)
+                .symbol("EURUSD")
+                .market(Market.FOREX)
+                .direction(Direction.LONG)
+                .status(TradeStatus.OPEN)
+                .openedAt(OffsetDateTime.now().minusMinutes(15))
+                .quantity(new BigDecimal("1"))
+                .entryPrice(new BigDecimal("1.08"))
+                .build();
+        when(tradeRepository.findByIdAndUserId(tradeId, user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        UUID assetId = UUID.randomUUID();
+        var response = tradeService.updateEntryJournal(
+                tradeId,
+                "Sweep + displacement close on M5",
+                "I'm wrong if price closes below the sweep origin.",
+                "Focused",
+                Set.of(assetId)
+        );
+
+        assertEquals("Sweep + displacement close on M5", response.getEntryJournalText());
+        assertEquals("I'm wrong if price closes below the sweep origin.", response.getEntryInvalidation());
+        assertEquals(Set.of(assetId), response.getEntryScreenshotAssetIds());
+        assertEquals("Focused", response.getFeeling());
     }
 
     private TradeRequest baseRequest() {

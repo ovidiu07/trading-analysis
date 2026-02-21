@@ -32,6 +32,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -183,6 +184,33 @@ class TodaySessionServiceGuardrailsTest {
         verify(tradeService).create(tradeRequestCaptor.capture());
         assertEquals("Wait for MSS confirmation only", tradeRequestCaptor.getValue().getInitialNotes());
         assertEquals(null, tradeRequestCaptor.getValue().getNotes());
+    }
+
+    @Test
+    void startTradeMapsEntryJournalFieldsAndScreenshotAssetIds() {
+        when(tradeRepository.countByUser_IdAndSessionIdAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
+                .thenReturn(0L);
+        when(tradeRepository.sumNetPnlByUserAndSessionAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
+                .thenReturn(BigDecimal.ZERO);
+        when(tradeService.create(any())).thenReturn(TradeResponse.builder()
+                .id(UUID.randomUUID())
+                .status(TradeStatus.OPEN)
+                .build());
+
+        UUID assetA = UUID.randomUUID();
+        UUID assetB = UUID.randomUUID();
+        StartSessionTradeRequest request = validStartRequest();
+        request.setEntryJournalText("M5 displacement after sweep");
+        request.setEntryInvalidation("I'm wrong if M5 closes below sweep origin.");
+        request.setEntryScreenshotAssetIds(Set.of(assetA, assetB));
+
+        todaySessionService.startTrade(request);
+
+        ArgumentCaptor<TradeRequest> tradeRequestCaptor = ArgumentCaptor.forClass(TradeRequest.class);
+        verify(tradeService).create(tradeRequestCaptor.capture());
+        assertEquals("M5 displacement after sweep", tradeRequestCaptor.getValue().getEntryJournalText());
+        assertEquals("I'm wrong if M5 closes below sweep origin.", tradeRequestCaptor.getValue().getEntryInvalidation());
+        assertEquals(Set.of(assetA, assetB), tradeRequestCaptor.getValue().getEntryScreenshotAssetIds());
     }
 
     @Test

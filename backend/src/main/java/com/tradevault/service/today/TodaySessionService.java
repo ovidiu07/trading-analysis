@@ -210,6 +210,7 @@ public class TodaySessionService {
         tradeRequest.setEntryPrice(request.getEntryPrice());
         tradeRequest.setTakeProfitPrice(request.getTakeProfitPrice());
         tradeRequest.setStopLossPrice(request.getStopLossPrice());
+        tradeRequest.setRiskAmount(request.getRiskAmount());
         tradeRequest.setTradeCurrency(normalizeOptionalText(request.getTradeCurrency()));
         tradeRequest.setProfileCurrency(normalizeOptionalText(user.getBaseCurrency()));
         tradeRequest.setFxRateTradeToProfile(request.getFxRateTradeToProfile());
@@ -223,6 +224,9 @@ public class TodaySessionService {
         tradeRequest.setFeeling(normalizeOptionalText(request.getFeeling()));
         tradeRequest.setInitialNotes(normalizeOptionalText(firstNonBlank(request.getInitialNotes(), request.getNotes())));
         tradeRequest.setNotes(null);
+        tradeRequest.setEntryJournalText(normalizeOptionalText(request.getEntryJournalText()));
+        tradeRequest.setEntryInvalidation(normalizeOptionalText(request.getEntryInvalidation()));
+        tradeRequest.setEntryScreenshotAssetIds(request.getEntryScreenshotAssetIds());
 
         UUID linkedPlanId = request.getLinkedPlanId();
         if (linkedPlanId != null) {
@@ -302,6 +306,9 @@ public class TodaySessionService {
         request.setRuleBreaks(trade.getRuleBreaks());
         request.setNotes(trade.getNotes());
         request.setInitialNotes(trade.getInitialNotes());
+        request.setEntryJournalText(trade.getEntryJournalText());
+        request.setEntryInvalidation(trade.getEntryInvalidation());
+        request.setEntryScreenshotAssetIds(trade.getEntryScreenshotAssetIds());
         request.setAccountId(trade.getAccount() == null ? null : trade.getAccount().getId());
         return request;
     }
