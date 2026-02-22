@@ -2,6 +2,7 @@ import type { BacktestCandle } from '../../api/backtest'
 
 type BacktestCandleLike = Partial<BacktestCandle> & {
   timestamp?: string | number | Date
+  epochSec?: number
   open?: unknown
   high?: unknown
   low?: unknown
@@ -58,7 +59,8 @@ const toTimestampMs = (value: unknown) => {
 }
 
 export const toSeriesPoint = (dto: BacktestCandleLike): ReplaySeriesPoint | null => {
-  const time = toTimestampMs(dto.timestamp)
+  const rawTime = dto.epochSec ?? dto.timestamp
+  const time = toTimestampMs(rawTime)
   const open = toFiniteNumber(dto.open)
   const high = toFiniteNumber(dto.high)
   const low = toFiniteNumber(dto.low)

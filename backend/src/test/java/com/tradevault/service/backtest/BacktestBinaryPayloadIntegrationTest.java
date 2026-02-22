@@ -202,10 +202,11 @@ class BacktestBinaryPayloadIntegrationTest {
         assertThat(metadata.path("dataToUtc").asText()).isNotBlank();
         assertThat(metadata.path("defaultFromUtc").asText()).isNotBlank();
         assertThat(metadata.path("defaultToUtc").asText()).isNotBlank();
+        assertThat(metadata.path("recommendedDefaultFromUtc").asText()).isNotBlank();
+        assertThat(metadata.path("recommendedDefaultToUtc").asText()).isNotBlank();
         assertThat(metadata.path("candleCount").asLong()).isGreaterThan(100L);
 
         MvcResult candlesResult = mockMvc.perform(get("/api/backtest/candles")
-                        .param("provider", "DEMO")
                         .param("datasetId", datasetId))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -301,11 +302,28 @@ class BacktestBinaryPayloadIntegrationTest {
         User user = createUser("csv-candles-default@example.com");
         mockCurrentUser(user);
 
-        byte[] csvPayload = (
-                "time,open,high,low,close,volume\n"
-                        + "2026-02-01T00:00:00Z,1.1000,1.1010,1.0990,1.1005,100\n"
-                        + "2026-02-01T00:05:00Z,1.1005,1.1015,1.0995,1.1010,120\n"
-        ).getBytes(StandardCharsets.UTF_8);
+        StringBuilder csvBuilder = new StringBuilder("time,open,high,low,close,volume\n");
+        long baseEpochSec = 1762725600L; // 2025-11-09T22:00:00Z
+        for (int i = 0; i < 12; i++) {
+            long ts = baseEpochSec + (i * 300L);
+            BigDecimal open = new BigDecimal("1.1000").add(new BigDecimal("0.0001").multiply(BigDecimal.valueOf(i)));
+            BigDecimal high = open.add(new BigDecimal("0.0007"));
+            BigDecimal low = open.subtract(new BigDecimal("0.0005"));
+            BigDecimal close = open.add(new BigDecimal("0.0002"));
+            csvBuilder.append(ts)
+                    .append(',')
+                    .append(open)
+                    .append(',')
+                    .append(high)
+                    .append(',')
+                    .append(low)
+                    .append(',')
+                    .append(close)
+                    .append(',')
+                    .append(100 + i)
+                    .append('\n');
+        }
+        byte[] csvPayload = csvBuilder.toString().getBytes(StandardCharsets.UTF_8);
 
         MockMultipartFile file = new MockMultipartFile(
                 "file",
@@ -339,14 +357,15 @@ class BacktestBinaryPayloadIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode summaryJson = objectMapper.readTree(summaryResult.getResponse().getContentAsString());
-        assertThat(summaryJson.path("dataFromUtc").asText()).startsWith("2026-02-01T00:00");
-        assertThat(summaryJson.path("dataToUtc").asText()).startsWith("2026-02-01T00:05");
+        assertThat(summaryJson.path("dataFromUtc").asText()).startsWith("2025-11-09T22:00");
+        assertThat(summaryJson.path("dataToUtc").asText()).startsWith("2025-11-09T22:55");
         assertThat(summaryJson.path("defaultFromUtc").asText()).isNotBlank();
         assertThat(summaryJson.path("defaultToUtc").asText()).isNotBlank();
+        assertThat(summaryJson.path("recommendedDefaultFromUtc").asText()).isNotBlank();
+        assertThat(summaryJson.path("recommendedDefaultToUtc").asText()).isNotBlank();
         assertThat(summaryJson.path("candleCount").asLong()).isGreaterThan(0L);
 
         MvcResult candlesResult = mockMvc.perform(get("/api/backtest/candles")
-                        .param("provider", "CSV")
                         .param("datasetId", datasetId))
                 .andExpect(status().isOk())
                 .andReturn();
@@ -358,6 +377,71 @@ class BacktestBinaryPayloadIntegrationTest {
         assertThat(candlesJson.path("count").asInt()).isGreaterThan(0);
         assertThat(candlesJson.path("effectiveFromUtc").asText()).isNotBlank();
         assertThat(candlesJson.path("effectiveToUtc").asText()).isNotBlank();
+
+        MvcResult rangedResult = mockMvc.perform(get("/api/backtest/candles")
+                        .param("datasetId", datasetId)
+                        .param("fromUtc", "2026-02-01")
+                        .param("toUtc", "2026-02-01"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode rangedJson = objectMapper.readTree(rangedResult.getResponse().getContentAsString());
+        assertThat(rangedJson.path("count").asInt()).isGreaterThan(0);
+        assertThat(rangedJson.path("candles").size()).isGreaterThan(0);
+    }
+
+    @Test
+    void csvCandlesRangeQueryUsesChunkOverlapSemantics() throws Exception {
+        User user = createUser("csv-overlap@example.com");
+        mockCurrentUser(user);
+
+        byte[] csvPayload = (
+                "time,open,high,low,close,volume\n"
+                        + "1762646400,1.1000,1.1010,1.0990,1.1005,100\n"
+                        + "1762646700,1.1005,1.1015,1.0995,1.1010,120\n"
+                        + "1762732800,1.1010,1.1020,1.1000,1.1015,130\n"
+                        + "1762733100,1.1015,1.1025,1.1005,1.1020,150\n"
+        ).getBytes(StandardCharsets.UTF_8);
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "overlap.csv",
+                "text/csv",
+                csvPayload
+        );
+
+        MvcResult uploadResult = mockMvc.perform(multipart("/api/backtest/csv/upload").file(file))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode uploadJson = objectMapper.readTree(uploadResult.getResponse().getContentAsString());
+        String fileId = uploadJson.path("fileId").asText();
+
+        String ingestPayload = objectMapper.createObjectNode()
+                .put("symbol", "EURUSD")
+                .put("timeframe", "M5")
+                .put("datasetName", "CSV Overlap")
+                .toString();
+
+        MvcResult ingestResult = mockMvc.perform(post("/api/backtest/csv/ingest")
+                        .param("fileId", fileId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestPayload))
+                .andExpect(status().isOk())
+                .andReturn();
+        String datasetId = objectMapper.readTree(ingestResult.getResponse().getContentAsString())
+                .path("dataset")
+                .path("id")
+                .asText();
+
+        MvcResult overlappedResult = mockMvc.perform(get("/api/backtest/candles")
+                        .param("datasetId", datasetId)
+                        .param("fromUtc", "2025-11-10T00:04:00Z")
+                        .param("toUtc", "2025-11-10T00:06:00Z"))
+                .andExpect(status().isOk())
+                .andReturn();
+
+        JsonNode overlappedJson = objectMapper.readTree(overlappedResult.getResponse().getContentAsString());
+        assertThat(overlappedJson.path("count").asInt()).isGreaterThan(0);
+        assertThat(overlappedJson.path("candles").size()).isGreaterThan(0);
     }
 
     private User createUser(String email) {

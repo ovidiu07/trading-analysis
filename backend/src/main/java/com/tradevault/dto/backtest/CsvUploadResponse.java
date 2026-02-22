@@ -17,6 +17,7 @@ public class CsvUploadResponse {
     CsvColumnMappingRequest suggestedMapping;
     String detectedSymbol;
     String detectedTimeframe;
+    String detectedTimeFormat;
     OffsetDateTime dataFrom;
     OffsetDateTime dataTo;
     List<String> warnings;

@@ -1224,8 +1224,20 @@
         "emptyRange": "Nu s-au găsit lumânări pentru intervalul selectat.",
         "useDefaultRange": "Folosește intervalul implicit",
         "availableDataInline": "Date disponibile: {{from}} \u2192 {{to}} ({{timeframe}})",
+        "loadedRangeInline": "Interval încărcat: {{from}} \u2192 {{to}} ({{count}} lumânări)",
         "defaultWindowInline": "Fereastră implicită replay: ultimele {{days}} zile",
         "presetLastDays": "Ultimele {{days}}z",
+        "preview": {
+          "detectedColumns": "Coloane detectate",
+          "mappingUsed": "Mapare",
+          "sampleRows": "Rânduri preview parse"
+        },
+        "loadedStats": {
+          "title": "Statistici lumânări încărcate",
+          "firstCandle": "Timp prima lumânare",
+          "lastCandle": "Timp ultima lumânare",
+          "count": "Număr"
+        },
         "summaryTitle": "Sumar backtest",
         "result": "Rezultat",
         "tradesCount": "Tranzacții",

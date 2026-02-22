@@ -109,4 +109,22 @@ describe('ReplayCandlestickChart', () => {
       expect(svg).toHaveAttribute('height', '300')
     })
   })
+
+  it('keeps chart height positive on mobile-sized viewport', async () => {
+    measuredWidth = 390
+    measuredHeight = 180
+
+    render(
+      <ReplayCandlestickChart candles={candles} cursorIndex={1} minHeight={220} loading={false} />
+    )
+
+    const container = screen.getByTestId('backtest-replay-chart-container')
+    expect(container).toBeInTheDocument()
+
+    const svg = await screen.findByTestId('backtest-replay-chart-svg')
+    await waitFor(() => {
+      expect(Number(svg.getAttribute('width'))).toBeGreaterThan(0)
+      expect(Number(svg.getAttribute('height'))).toBeGreaterThanOrEqual(220)
+    })
+  })
 })

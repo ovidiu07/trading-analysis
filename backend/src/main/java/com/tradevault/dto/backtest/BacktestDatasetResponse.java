@@ -1,5 +1,6 @@
 package com.tradevault.dto.backtest;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.Builder;
 import lombok.Value;
 
@@ -20,5 +21,8 @@ public class BacktestDatasetResponse {
     OffsetDateTime dataFrom;
     OffsetDateTime dataTo;
     int rowCount;
+    String originalFileName;
+    JsonNode detectedMappingJson;
+    OffsetDateTime createdAt;
     List<String> warnings;
 }

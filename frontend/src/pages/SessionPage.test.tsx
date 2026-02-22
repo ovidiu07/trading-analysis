@@ -904,8 +904,8 @@ describe('SessionPage execution funnel', () => {
       expect(backtestApiMock.createBacktestRun).toHaveBeenCalled()
     })
     const candleRequest = backtestApiMock.getBacktestCandles.mock.calls.at(-1)?.[0] as Record<string, string | undefined>
-    expect(candleRequest.from).toMatch(/T00:00:00/)
-    expect(candleRequest.to).toMatch(/T23:59:59/)
+    expect(candleRequest.fromUtc).toMatch(/T00:00:00/)
+    expect(candleRequest.toUtc).toMatch(/T23:59:59\.999/)
     expect(screen.getByTestId('mock-replay-chart')).toHaveTextContent('replay:3:0')
     expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: READY')
     expect(screen.getByRole('button', { name: /^Play$/i })).toBeEnabled()
@@ -1013,17 +1013,22 @@ describe('SessionPage execution funnel', () => {
       expect(backtestApiMock.ingestBacktestCsv).toHaveBeenCalled()
     })
 
-    await user.click(screen.getByRole('button', { name: /Load data/i }))
     await waitFor(() => {
       expect(backtestApiMock.getBacktestCandles).toHaveBeenCalledWith(expect.objectContaining({
-        dataSource: 'CSV',
-        datasetId: 'dataset-csv-1'
+        datasetId: 'dataset-csv-1',
+        fromUtc: expect.stringMatching(/T00:00:00/),
+        toUtc: expect.stringMatching(/T23:59:59\.999/)
       }))
       expect(backtestApiMock.createBacktestRun).toHaveBeenCalledWith(expect.objectContaining({
         dataSource: 'CSV',
         datasetId: 'dataset-csv-1'
       }))
     })
+    expect((screen.getByLabelText(/^From$/i) as HTMLInputElement).value).not.toBe('')
+    expect((screen.getByLabelText(/^To$/i) as HTMLInputElement).value).not.toBe('')
+    expect(screen.getByTestId('mock-replay-chart')).not.toHaveTextContent('replay:0:0')
+    expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: READY')
+    expect(screen.getByRole('table', { name: /Loaded candle stats/i })).toBeInTheDocument()
   }, 30_000)
 
   it('autofills backtest date inputs from dataset summary defaults', async () => {
@@ -1073,6 +1078,65 @@ describe('SessionPage execution funnel', () => {
 
     expect((screen.getByLabelText(/^From$/i) as HTMLInputElement).value).toBe('2026-02-10')
     expect((screen.getByLabelText(/^To$/i) as HTMLInputElement).value).toBe('2026-02-17')
+  })
+
+  it('applies Last 7d preset and auto-reloads candles', async () => {
+    const user = userEvent.setup()
+    const csvDataset = {
+      id: 'dataset-csv-1',
+      provider: 'CSV',
+      sourceId: 'csv-source-1',
+      name: 'tv.csv',
+      symbolCanonical: 'EURUSD',
+      symbolDisplay: 'EURUSD',
+      timeframe: 'M5',
+      dataFrom: '2026-02-01T00:00:00Z',
+      dataTo: '2026-02-28T23:59:59Z',
+      rowCount: 3000,
+      warnings: []
+    }
+    backtestApiMock.listBacktestDatasets.mockResolvedValue([csvDataset])
+    backtestApiMock.getBacktestDatasetSummary.mockResolvedValue({
+      datasetId: 'dataset-csv-1',
+      provider: 'CSV',
+      symbolDisplay: 'EURUSD',
+      symbolCanonical: 'EURUSD',
+      timeframe: 'M5',
+      dataFromUtc: '2026-02-01T00:00:00Z',
+      dataToUtc: '2026-02-28T23:59:59Z',
+      defaultFromUtc: '2026-02-22T00:00:00Z',
+      defaultToUtc: '2026-02-28T23:59:59Z',
+      defaultWindowDays: 7,
+      candleCount: 3000,
+      timezoneHint: 'UTC'
+    })
+
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+    await user.click(screen.getByRole('combobox', { name: /Data source/i }))
+    await user.click(await screen.findByRole('option', { name: /CSV upload/i }))
+    await user.click(screen.getByRole('combobox', { name: /Dataset/i }))
+    await user.click(await screen.findByRole('option', { name: /tv.csv/i }))
+
+    await waitFor(() => {
+      expect(backtestApiMock.getBacktestDatasetSummary).toHaveBeenCalledWith('dataset-csv-1')
+    })
+
+    await user.click(screen.getByRole('button', { name: /Last 7d/i }))
+    const fromAfterPreset = (screen.getByLabelText(/^From$/i) as HTMLInputElement).value
+    const toAfterPreset = (screen.getByLabelText(/^To$/i) as HTMLInputElement).value
+    expect(fromAfterPreset).not.toBe('')
+    expect(toAfterPreset).not.toBe('')
+    await waitFor(() => {
+      expect(backtestApiMock.getBacktestCandles).toHaveBeenCalledWith(expect.objectContaining({
+        datasetId: 'dataset-csv-1',
+        fromUtc: expect.stringMatching(/T00:00:00/),
+        toUtc: expect.stringMatching(/T23:59:59\.999/)
+      }))
+    })
+    expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: READY')
   })
 
   it('transitions to EMPTY and clears replay data when candles response is empty', async () => {

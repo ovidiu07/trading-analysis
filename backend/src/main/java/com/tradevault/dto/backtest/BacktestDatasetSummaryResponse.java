@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Value;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Value
@@ -20,5 +21,8 @@ public class BacktestDatasetSummaryResponse {
     String timezoneHint;
     OffsetDateTime defaultFromUtc;
     OffsetDateTime defaultToUtc;
+    OffsetDateTime recommendedDefaultFromUtc;
+    OffsetDateTime recommendedDefaultToUtc;
     Integer defaultWindowDays;
+    List<String> warnings;
 }

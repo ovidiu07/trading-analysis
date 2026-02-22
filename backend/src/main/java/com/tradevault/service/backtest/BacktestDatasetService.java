@@ -2,6 +2,7 @@ package com.tradevault.service.backtest;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.BacktestDataset;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.BacktestCandleSource;
@@ -78,6 +79,7 @@ public class BacktestDatasetService {
                 to,
                 rowCount,
                 warnings,
+                null,
                 null
         );
     }
@@ -95,6 +97,37 @@ public class BacktestDatasetService {
                                          int rowCount,
                                          List<String> warnings,
                                          UUID preferredDatasetId) {
+        return upsertDataset(
+                user,
+                source,
+                sourceId,
+                name,
+                symbolCanonical,
+                symbolDisplay,
+                timeframe,
+                from,
+                to,
+                rowCount,
+                warnings,
+                preferredDatasetId,
+                null
+        );
+    }
+
+    @Transactional
+    public BacktestDataset upsertDataset(User user,
+                                         BacktestCandleSource source,
+                                         String sourceId,
+                                         String name,
+                                         String symbolCanonical,
+                                         String symbolDisplay,
+                                         BacktestTimeframe timeframe,
+                                         OffsetDateTime from,
+                                         OffsetDateTime to,
+                                         int rowCount,
+                                         List<String> warnings,
+                                         UUID preferredDatasetId,
+                                         JsonNode metadata) {
         String normalizedSourceId = normalizeSourceId(sourceId);
         BacktestDataset dataset = backtestDatasetRepository
                 .findFirstByUser_IdAndProviderAndSourceIdOrderByCreatedAtDesc(user.getId(), source, normalizedSourceId)
@@ -113,10 +146,7 @@ public class BacktestDatasetService {
         dataset.setDataFrom(from);
         dataset.setDataTo(to);
         dataset.setRowCount(rowCount);
-
-        JsonNode metadata = objectMapper.createObjectNode()
-                .putPOJO("warnings", warnings == null ? List.of() : warnings);
-        dataset.setMetadataJson(metadata);
+        dataset.setMetadataJson(mergeMetadata(metadata, warnings));
 
         return backtestDatasetRepository.save(dataset);
     }
@@ -148,6 +178,7 @@ public class BacktestDatasetService {
         long count = dataset.getRowCount() == null || dataset.getRowCount() <= 0
                 ? coverage.candleCount()
                 : dataset.getRowCount();
+        List<String> warnings = readWarnings(dataset.getMetadataJson());
 
         return BacktestDatasetSummaryResponse.builder()
                 .datasetId(dataset.getId())
@@ -161,7 +192,10 @@ public class BacktestDatasetService {
                 .timezoneHint(readTimezoneHint(dataset.getMetadataJson()))
                 .defaultFromUtc(defaultRange.fromUtc())
                 .defaultToUtc(defaultRange.toUtc())
+                .recommendedDefaultFromUtc(defaultRange.fromUtc())
+                .recommendedDefaultToUtc(defaultRange.toUtc())
                 .defaultWindowDays(BacktestRangeResolver.defaultWindowDays(timeframe))
+                .warnings(warnings)
                 .build();
     }
 
@@ -184,8 +218,20 @@ public class BacktestDatasetService {
                 .dataFrom(dataset.getDataFrom())
                 .dataTo(dataset.getDataTo())
                 .rowCount(dataset.getRowCount() == null ? 0 : dataset.getRowCount())
+                .originalFileName(readOriginalFileName(dataset.getMetadataJson()))
+                .detectedMappingJson(readDetectedMapping(dataset.getMetadataJson()))
+                .createdAt(dataset.getCreatedAt())
                 .warnings(readWarnings(dataset.getMetadataJson()))
                 .build();
+    }
+
+    private JsonNode mergeMetadata(JsonNode metadata, List<String> warnings) {
+        ObjectNode node = objectMapper.createObjectNode();
+        if (metadata != null && metadata.isObject()) {
+            node.setAll((ObjectNode) metadata);
+        }
+        node.putPOJO("warnings", warnings == null ? List.of() : warnings);
+        return node;
     }
 
     private List<String> readWarnings(JsonNode metadata) {
@@ -218,6 +264,28 @@ public class BacktestDatasetService {
             return timezone.asText();
         }
         return "UTC";
+    }
+
+    private String readOriginalFileName(JsonNode metadata) {
+        if (metadata == null || metadata.isNull()) {
+            return null;
+        }
+        JsonNode fileName = metadata.get("originalFileName");
+        if (fileName == null || !fileName.isTextual() || fileName.asText().isBlank()) {
+            return null;
+        }
+        return fileName.asText();
+    }
+
+    private JsonNode readDetectedMapping(JsonNode metadata) {
+        if (metadata == null || metadata.isNull()) {
+            return null;
+        }
+        JsonNode detected = metadata.get("detectedMappingJson");
+        if (detected == null || detected.isNull()) {
+            return null;
+        }
+        return detected;
     }
 
     private String normalizeDatasetName(String requested,

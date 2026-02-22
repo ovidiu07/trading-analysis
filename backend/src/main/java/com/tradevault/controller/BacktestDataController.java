@@ -89,23 +89,29 @@ public class BacktestDataController {
             @RequestParam(name = "sourceId", required = false) String sourceId,
             @RequestParam(name = "symbol", required = false) String symbol,
             @RequestParam(name = "timeframe", required = false) String timeframe,
+            @RequestParam(name = "fromUtc", required = false) String fromUtc,
+            @RequestParam(name = "toUtc", required = false) String toUtc,
             @RequestParam(name = "from", required = false) String from,
             @RequestParam(name = "to", required = false) String to,
             @RequestParam(name = "sessionWindow", required = false) String sessionWindow,
+            @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "refresh", required = false, defaultValue = "false") boolean refresh
     ) {
         String resolvedSource = dataSource != null ? dataSource : provider;
-        OffsetDateTime fromUtc = parseRangeBoundary(from, false);
-        OffsetDateTime toUtc = parseRangeBoundary(to, true);
+        String fromRaw = (fromUtc != null && !fromUtc.isBlank()) ? fromUtc : from;
+        String toRaw = (toUtc != null && !toUtc.isBlank()) ? toUtc : to;
+        OffsetDateTime parsedFromUtc = parseRangeBoundary(fromRaw, false);
+        OffsetDateTime parsedToUtc = parseRangeBoundary(toRaw, true);
         return ResponseEntity.ok(backtestService.loadCandles(
                 resolvedSource,
                 datasetId,
                 sourceId,
                 symbol,
                 timeframe,
-                fromUtc,
-                toUtc,
+                parsedFromUtc,
+                parsedToUtc,
                 sessionWindow,
+                limit,
                 refresh
         ));
     }
@@ -171,7 +177,7 @@ public class BacktestDataController {
         }
         try {
             LocalDate parsedDate = LocalDate.parse(value);
-            LocalTime boundary = endOfDay ? LocalTime.of(23, 59, 59) : LocalTime.MIN;
+            LocalTime boundary = endOfDay ? LocalTime.of(23, 59, 59, 999_000_000) : LocalTime.MIN;
             return parsedDate.atTime(boundary).atOffset(ZoneOffset.UTC);
         } catch (DateTimeParseException ex) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid date value: " + value);

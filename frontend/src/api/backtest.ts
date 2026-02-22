@@ -1,7 +1,8 @@
 import { apiDelete, apiGet, apiPost, apiPostMultipart } from './client'
 
 export type BacktestCandle = {
-  timestamp: string
+  timestamp?: string | number
+  epochSec?: number
   open: number
   high: number
   low: number
@@ -50,6 +51,7 @@ export type CsvUploadResponse = {
   suggestedMapping?: CsvColumnMapping
   detectedSymbol?: string
   detectedTimeframe?: string
+  detectedTimeFormat?: string
   dataFrom?: string
   dataTo?: string
   warnings: string[]
@@ -66,6 +68,9 @@ export type BacktestDataset = {
   dataFrom: string
   dataTo: string
   rowCount: number
+  originalFileName?: string
+  detectedMappingJson?: Record<string, unknown> | null
+  createdAt?: string
   warnings: string[]
 }
 
@@ -81,7 +86,10 @@ export type BacktestDatasetSummary = {
   timezoneHint?: string
   defaultFromUtc?: string
   defaultToUtc?: string
+  recommendedDefaultFromUtc?: string
+  recommendedDefaultToUtc?: string
   defaultWindowDays?: number
+  warnings?: string[]
 }
 
 export type CsvIngestResponse = {
@@ -231,9 +239,12 @@ export async function getBacktestCandles(params: {
   sourceId?: string
   symbol?: string
   timeframe?: string
+  fromUtc?: string
+  toUtc?: string
   from?: string
   to?: string
   sessionWindow?: string
+  limit?: number
   refresh?: boolean
 }) {
   const query = new URLSearchParams()
@@ -243,9 +254,14 @@ export async function getBacktestCandles(params: {
   if (params.sourceId) query.set('sourceId', params.sourceId)
   if (params.symbol) query.set('symbol', params.symbol)
   if (params.timeframe) query.set('timeframe', params.timeframe)
+  if (params.fromUtc) query.set('fromUtc', params.fromUtc)
+  if (params.toUtc) query.set('toUtc', params.toUtc)
   if (params.from) query.set('from', params.from)
   if (params.to) query.set('to', params.to)
   if (params.sessionWindow) query.set('sessionWindow', params.sessionWindow)
+  if (typeof params.limit === 'number' && Number.isFinite(params.limit) && params.limit > 0) {
+    query.set('limit', String(Math.trunc(params.limit)))
+  }
   if (params.refresh) query.set('refresh', 'true')
   const qs = query.toString()
   return apiGet<BacktestCandlesResponse>(`/backtest/candles${qs ? `?${qs}` : ''}`)

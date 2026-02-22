@@ -189,8 +189,9 @@ class BacktestServiceTest {
         ));
 
         BacktestCandlesResponse response = backtestService.loadCandles(
-                "CSV",
+                null,
                 datasetId,
+                null,
                 null,
                 null,
                 null,
@@ -229,6 +230,7 @@ class BacktestServiceTest {
                 null,
                 OffsetDateTime.parse("2025-02-01T00:00:00Z"),
                 OffsetDateTime.parse("2025-02-10T00:00:00Z"),
+                null,
                 null,
                 false
         );
@@ -284,6 +286,7 @@ class BacktestServiceTest {
                 null,
                 null,
                 expectedTo,
+                null,
                 null,
                 false
         );

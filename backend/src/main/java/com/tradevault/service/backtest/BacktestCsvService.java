@@ -22,6 +22,8 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -56,6 +58,7 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class BacktestCsvService {
+    private static final Logger log = LoggerFactory.getLogger(BacktestCsvService.class);
     private static final List<String> TIME_HEADERS = List.of("time", "timestamp", "date", "datetime", "utc");
     private static final List<String> OPEN_HEADERS = List.of("open", "o");
     private static final List<String> HIGH_HEADERS = List.of("high", "h");
@@ -186,6 +189,7 @@ public class BacktestCsvService {
         );
 
         String datasetName = request == null ? null : request.getDatasetName();
+        JsonNode datasetMetadata = buildDatasetMetadata(upload, parsed, mappingToSave, request);
         BacktestDataset dataset = datasetService.upsertDataset(
                 user,
                 BacktestCandleSource.CSV,
@@ -198,8 +202,26 @@ public class BacktestCsvService {
                 parsed.to(),
                 canonical.size(),
                 parsed.warnings(),
-                datasetId
+                datasetId,
+                datasetMetadata
         );
+
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "CSV ingest complete fileId={} datasetId={} sourceId={} symbolCanonical={} symbolDisplay={} timeframe={} rows={} from={} to={} mappingRequired={} detectedTimeFormat={}",
+                    fileId,
+                    dataset.getId(),
+                    sourceId,
+                    symbolCanonical,
+                    symbolDisplay,
+                    timeframe,
+                    canonical.size(),
+                    parsed.from(),
+                    parsed.to(),
+                    parsed.mappingRequired(),
+                    parsed.detectedTimeFormat()
+            );
+        }
 
         return CsvIngestResponse.builder()
                 .dataset(datasetService.toResponse(dataset))
@@ -293,6 +315,7 @@ public class BacktestCsvService {
             List<CandleRow> candles = new ArrayList<>();
             List<String> warnings = new ArrayList<>();
             String detectedSymbol = null;
+            String detectedTimeFormat = null;
             OffsetDateTime previousTs = null;
             boolean unsorted = false;
             int skippedRows = 0;
@@ -300,6 +323,9 @@ public class BacktestCsvService {
             for (CSVRecord row : parser) {
                 if (mapping == null) {
                     break;
+                }
+                if (detectedTimeFormat == null) {
+                    detectedTimeFormat = detectTimestampFormat(row.get(mapping.getTimeColumn()));
                 }
                 CandleRow parsed = parseRow(row, mapping, timezoneOverride);
                 if (parsed == null) {
@@ -355,6 +381,7 @@ public class BacktestCsvService {
                     mappingRequired,
                     mapping,
                     symbol,
+                    detectedTimeFormat,
                     inferredTimeframe,
                     from,
                     to,
@@ -506,6 +533,32 @@ public class BacktestCsvService {
         } catch (DateTimeParseException ignored) {
             return null;
         }
+    }
+
+    private String detectTimestampFormat(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.trim();
+        if (value.matches("^-?\\d{13,17}$")) {
+            return "epochMs";
+        }
+        if (value.matches("^-?\\d{10,12}$")) {
+            return "epochSec";
+        }
+        try {
+            OffsetDateTime.parse(value);
+            return "iso";
+        } catch (Exception ignored) {
+            // continue
+        }
+        try {
+            LocalDateTime.parse(value, DateTimeFormatter.ISO_LOCAL_DATE_TIME);
+            return "localDateTime";
+        } catch (Exception ignored) {
+            // continue
+        }
+        return "unknown";
     }
 
     private ZoneId resolveZone(String timezoneRaw) {
@@ -800,6 +853,7 @@ public class BacktestCsvService {
             node.set("mapping", objectMapper.valueToTree(parsed.mapping()));
         }
         node.put("detectedSymbol", parsed.detectedSymbol());
+        node.put("detectedTimeFormat", parsed.detectedTimeFormat());
         node.put("detectedTimeframe", parsed.timeframe() == null ? null : parsed.timeframe().name());
         node.put("dataFrom", parsed.from() == null ? null : parsed.from().toString());
         node.put("dataTo", parsed.to() == null ? null : parsed.to().toString());
@@ -817,10 +871,33 @@ public class BacktestCsvService {
                 .suggestedMapping(parsed.mapping())
                 .detectedSymbol(parsed.detectedSymbol())
                 .detectedTimeframe(parsed.timeframe() == null ? null : parsed.timeframe().name())
+                .detectedTimeFormat(parsed.detectedTimeFormat())
                 .dataFrom(parsed.from())
                 .dataTo(parsed.to())
                 .warnings(parsed.warnings())
                 .build();
+    }
+
+    private JsonNode buildDatasetMetadata(BacktestCsvUpload upload,
+                                          ParseResult parsed,
+                                          CsvColumnMappingRequest mapping,
+                                          CsvIngestRequest request) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("originalFileName", upload.getOriginalFileName());
+        if (upload.getHeaderSignature() != null && !upload.getHeaderSignature().isBlank()) {
+            node.put("headerSignature", upload.getHeaderSignature());
+        }
+        if (request != null && request.getTimezone() != null && !request.getTimezone().isBlank()) {
+            node.put("timezoneHint", request.getTimezone().trim());
+        } else if (mapping != null && mapping.getTimezone() != null && !mapping.getTimezone().isBlank()) {
+            node.put("timezoneHint", mapping.getTimezone().trim());
+        }
+        node.set("detectedMappingJson", writeDetected(parsed));
+        node.putPOJO("warnings", parsed.warnings() == null ? List.of() : parsed.warnings());
+        if (mapping != null) {
+            node.set("mapping", objectMapper.valueToTree(mapping));
+        }
+        return node;
     }
 
     private String resolveFileName(MultipartFile file) {
@@ -847,6 +924,7 @@ public class BacktestCsvService {
             boolean mappingRequired,
             CsvColumnMappingRequest mapping,
             String detectedSymbol,
+            String detectedTimeFormat,
             BacktestTimeframe timeframe,
             OffsetDateTime from,
             OffsetDateTime to,

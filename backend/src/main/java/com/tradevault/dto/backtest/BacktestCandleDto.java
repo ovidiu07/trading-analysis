@@ -10,6 +10,7 @@ import java.time.OffsetDateTime;
 @Builder
 public class BacktestCandleDto {
     OffsetDateTime timestamp;
+    Long epochSec;
     BigDecimal open;
     BigDecimal high;
     BigDecimal low;

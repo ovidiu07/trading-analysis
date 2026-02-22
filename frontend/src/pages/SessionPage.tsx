@@ -25,6 +25,12 @@ import {
   MenuItem,
   Select,
   Stack,
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
   TextField,
   Tooltip,
   Typography,
@@ -83,6 +89,14 @@ import {
   uploadBacktestCsv
 } from '../api/backtest'
 import { normalizeBacktestCandlesWithDiagnostics } from '../features/backtest/candleConverter'
+import {
+  isCsvMappingComplete,
+  parseCsvPreview,
+  resolveColumnKeyFromHeader,
+  resolveHeaderFromColumnKey,
+  type CsvPreviewColumn,
+  type CsvPreviewResult
+} from '../features/backtest/csvPreview'
 import {
   createChartProfile,
   deleteChartProfile,
@@ -235,6 +249,7 @@ type BacktestReplayState = 'IDLE' | 'LOADING' | 'READY' | 'EMPTY' | 'ERROR'
 
 type CsvUploadItem = CsvUploadResponse & {
   mappingDraft: CsvColumnMapping
+  preview: CsvPreviewResult | null
 }
 
 const toBullets = (value?: string | null) => {
@@ -436,20 +451,68 @@ const emptyCsvMapping = (): CsvColumnMapping => ({
   timezone: ''
 })
 
-const mappingFromUpload = (upload: CsvUploadResponse): CsvColumnMapping => {
+const mappingFromUpload = (upload: CsvUploadResponse, preview: CsvPreviewResult | null): CsvColumnMapping => {
+  const previewMapping = preview?.mapping
+  if (previewMapping && isCsvMappingComplete(previewMapping)) {
+    return {
+      timeColumn: previewMapping.timeColumn || '',
+      openColumn: previewMapping.openColumn || '',
+      highColumn: previewMapping.highColumn || '',
+      lowColumn: previewMapping.lowColumn || '',
+      closeColumn: previewMapping.closeColumn || '',
+      volumeColumn: previewMapping.volumeColumn || '',
+      timezone: previewMapping.timezone || ''
+    }
+  }
+
   const suggested = upload.suggestedMapping
   if (suggested) {
+    const columns = preview?.columns
     return {
-      timeColumn: suggested.timeColumn || '',
-      openColumn: suggested.openColumn || '',
-      highColumn: suggested.highColumn || '',
-      lowColumn: suggested.lowColumn || '',
-      closeColumn: suggested.closeColumn || '',
-      volumeColumn: suggested.volumeColumn || '',
+      timeColumn: resolveColumnKeyFromHeader(columns, suggested.timeColumn || ''),
+      openColumn: resolveColumnKeyFromHeader(columns, suggested.openColumn || ''),
+      highColumn: resolveColumnKeyFromHeader(columns, suggested.highColumn || ''),
+      lowColumn: resolveColumnKeyFromHeader(columns, suggested.lowColumn || ''),
+      closeColumn: resolveColumnKeyFromHeader(columns, suggested.closeColumn || ''),
+      volumeColumn: resolveColumnKeyFromHeader(columns, suggested.volumeColumn || ''),
       timezone: suggested.timezone || ''
     }
   }
   return emptyCsvMapping()
+}
+
+const mappingToIngestPayload = (upload: CsvUploadItem): CsvColumnMapping => {
+  const columns = upload.preview?.columns
+  return {
+    timeColumn: resolveHeaderFromColumnKey(columns, upload.mappingDraft.timeColumn),
+    openColumn: resolveHeaderFromColumnKey(columns, upload.mappingDraft.openColumn),
+    highColumn: resolveHeaderFromColumnKey(columns, upload.mappingDraft.highColumn),
+    lowColumn: resolveHeaderFromColumnKey(columns, upload.mappingDraft.lowColumn),
+    closeColumn: resolveHeaderFromColumnKey(columns, upload.mappingDraft.closeColumn),
+    volumeColumn: resolveHeaderFromColumnKey(columns, upload.mappingDraft.volumeColumn),
+    timezone: upload.mappingDraft.timezone
+  }
+}
+
+const uploadPreviewColumns = (upload: CsvUploadItem): CsvPreviewColumn[] => {
+  if (upload.preview?.columns?.length) {
+    return upload.preview.columns
+  }
+
+  const occurrences = new Map<string, number>()
+  return (upload.headers || []).map((header, index) => {
+    const keyBase = header.trim().toLowerCase().replace(/[^a-z0-9]+/g, '') || `column${index + 1}`
+    const occurrence = (occurrences.get(keyBase) || 0) + 1
+    occurrences.set(keyBase, occurrence)
+    const display = header || `Column ${index + 1}`
+    return {
+      key: `c${index}`,
+      header,
+      index,
+      occurrence,
+      displayName: occurrence > 1 ? `${display} (${occurrence})` : display
+    }
+  })
 }
 
 const toDateInputFromIso = (iso?: string) => {
@@ -457,6 +520,23 @@ const toDateInputFromIso = (iso?: string) => {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
   return date.toISOString().slice(0, 10)
+}
+
+const toIsoFromUnknownTimestamp = (value?: string | number) => {
+  if (value === undefined || value === null) return ''
+  if (typeof value === 'number') {
+    const ms = value < 10_000_000_000 ? value * 1000 : value
+    const date = new Date(ms)
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+  }
+  const parsedNumber = Number(value)
+  if (Number.isFinite(parsedNumber)) {
+    const ms = parsedNumber < 10_000_000_000 ? parsedNumber * 1000 : parsedNumber
+    const date = new Date(ms)
+    return Number.isNaN(date.getTime()) ? '' : date.toISOString()
+  }
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString()
 }
 
 const resolveTimeframeWindowDays = (timeframeRaw?: string) => {
@@ -481,9 +561,13 @@ const resolveDatasetDateRangeDefaults = (dataset: {
   timeframe?: string
   defaultFromUtc?: string
   defaultToUtc?: string
+  recommendedDefaultFromUtc?: string
+  recommendedDefaultToUtc?: string
 }) => {
-  const defaultFrom = dataset.defaultFromUtc ? new Date(dataset.defaultFromUtc) : null
-  const defaultTo = dataset.defaultToUtc ? new Date(dataset.defaultToUtc) : null
+  const defaultFromIso = dataset.recommendedDefaultFromUtc || dataset.defaultFromUtc
+  const defaultToIso = dataset.recommendedDefaultToUtc || dataset.defaultToUtc
+  const defaultFrom = defaultFromIso ? new Date(defaultFromIso) : null
+  const defaultTo = defaultToIso ? new Date(defaultToIso) : null
   if (defaultFrom && defaultTo && !Number.isNaN(defaultFrom.getTime()) && !Number.isNaN(defaultTo.getTime())) {
     return {
       from: toDateInputValue(defaultFrom),
@@ -509,7 +593,7 @@ const resolveDatasetDateRangeDefaults = (dataset: {
 
 const toDateRangeIso = (value: string, edge: 'start' | 'end') => {
   if (!value) return undefined
-  const parsed = new Date(edge === 'start' ? `${value}T00:00:00Z` : `${value}T23:59:59Z`)
+  const parsed = new Date(edge === 'start' ? `${value}T00:00:00.000Z` : `${value}T23:59:59.999Z`)
   if (Number.isNaN(parsed.getTime())) return undefined
   return parsed.toISOString()
 }
@@ -1782,7 +1866,9 @@ export default function SessionPage() {
       dataTo: summary?.dataToUtc || dataset.dataTo,
       timeframe: summary?.timeframe || dataset.timeframe,
       defaultFromUtc: summary?.defaultFromUtc,
-      defaultToUtc: summary?.defaultToUtc
+      defaultToUtc: summary?.defaultToUtc,
+      recommendedDefaultFromUtc: summary?.recommendedDefaultFromUtc,
+      recommendedDefaultToUtc: summary?.recommendedDefaultToUtc
     })
     setBacktestSetup((prev) => ({
       ...prev,
@@ -1790,8 +1876,8 @@ export default function SessionPage() {
       sourceId: dataset.sourceId,
       symbol: summary?.symbolDisplay || dataset.symbolDisplay || prev.symbol,
       timeframe: ((summary?.timeframe || dataset.timeframe) as BacktestSetupState['timeframe']) || prev.timeframe,
-      from: range.from || prev.from,
-      to: range.to || prev.to
+      from: range.from,
+      to: range.to
     }))
     resetBacktestReplay()
   }
@@ -1888,26 +1974,36 @@ export default function SessionPage() {
   const selectedDatasetToIso = backtestDatasetSummary?.dataToUtc || selectedBacktestDataset?.dataTo
   const selectedDatasetTimeframe = backtestDatasetSummary?.timeframe || selectedBacktestDataset?.timeframe || backtestSetup.timeframe
   const selectedDatasetPresetDays = resolveTimeframePresetDays(selectedDatasetTimeframe)
+  const loadedRangeFromIso = backtestRun?.from || toIsoFromUnknownTimestamp(backtestCandles[0]?.timestamp)
+  const loadedRangeToIso = backtestRun?.to || toIsoFromUnknownTimestamp(backtestCandles[backtestCandles.length - 1]?.timestamp)
 
-  const applyDefaultBacktestRange = () => {
+  const applyDefaultBacktestRange = async (autoLoad = false) => {
     const range = resolveDatasetDateRangeDefaults({
       dataFrom: selectedDatasetFromIso,
       dataTo: selectedDatasetToIso,
       timeframe: selectedDatasetTimeframe,
       defaultFromUtc: backtestDatasetSummary?.defaultFromUtc,
-      defaultToUtc: backtestDatasetSummary?.defaultToUtc
+      defaultToUtc: backtestDatasetSummary?.defaultToUtc,
+      recommendedDefaultFromUtc: backtestDatasetSummary?.recommendedDefaultFromUtc,
+      recommendedDefaultToUtc: backtestDatasetSummary?.recommendedDefaultToUtc
     })
     if (!range.from || !range.to) return
-    setBacktestSetup((prev) => ({
-      ...prev,
+    const overrides: Partial<BacktestSetupState> = {
       from: range.from,
       to: range.to
+    }
+    setBacktestSetup((prev) => ({
+      ...prev,
+      ...overrides
     }))
-    setBacktestReplayState('IDLE')
-    setBacktestReplayMessage('')
+    if (autoLoad) {
+      await loadBacktestData(overrides)
+      return
+    }
+    resetBacktestReplay()
   }
 
-  const applyBacktestPreset = (days: number) => {
+  const applyBacktestPreset = async (days: number) => {
     if (!selectedDatasetToIso) return
     const toDate = new Date(selectedDatasetToIso)
     if (Number.isNaN(toDate.getTime())) return
@@ -1916,13 +2012,15 @@ export default function SessionPage() {
     const clampedFrom = minDate && !Number.isNaN(minDate.getTime()) && fromDate.getTime() < minDate.getTime()
       ? minDate
       : fromDate
-    setBacktestSetup((prev) => ({
-      ...prev,
+    const overrides: Partial<BacktestSetupState> = {
       from: toDateInputValue(clampedFrom),
       to: toDateInputValue(toDate)
+    }
+    setBacktestSetup((prev) => ({
+      ...prev,
+      ...overrides
     }))
-    setBacktestReplayState('IDLE')
-    setBacktestReplayMessage('')
+    await loadBacktestData(overrides)
   }
 
   const handleBacktestSourceChange = (source: BacktestDataSource) => {
@@ -1961,10 +2059,20 @@ export default function SessionPage() {
     const nextUploads: CsvUploadItem[] = []
     for (const file of Array.from(files)) {
       try {
+        const preview = await parseCsvPreview(file)
         const upload = await uploadBacktestCsv(file)
+        const mappingDraft = mappingFromUpload(upload, preview)
+        const mergedWarnings = Array.from(new Set([...(upload.warnings || []), ...(preview.warnings || [])]))
         nextUploads.push({
           ...upload,
-          mappingDraft: mappingFromUpload(upload)
+          mappingRequired: upload.mappingRequired || !isCsvMappingComplete(mappingDraft),
+          detectedTimeFormat: upload.detectedTimeFormat || preview.detectedTimeFormat,
+          detectedTimeframe: upload.detectedTimeframe || preview.detectedTimeframe,
+          dataFrom: upload.dataFrom || preview.dataFrom,
+          dataTo: upload.dataTo || preview.dataTo,
+          warnings: mergedWarnings,
+          mappingDraft,
+          preview
         })
       } catch (error) {
         const apiErr = error as ApiError
@@ -2030,16 +2138,21 @@ export default function SessionPage() {
         ? backtestDatasets.find((dataset) => dataset.id === effectiveSetup.datasetId)
         : null
 
-      const candlesResponse = await getBacktestCandles({
-        provider: effectiveSetup.dataSource,
-        dataSource: effectiveSetup.dataSource,
-        datasetId: selectedDataset?.id || effectiveSetup.datasetId || undefined,
-        sourceId: selectedDataset?.sourceId || effectiveSetup.sourceId || undefined,
-        symbol: selectedDataset?.symbolDisplay || effectiveSetup.symbol || undefined,
-        timeframe: selectedDataset?.timeframe || effectiveSetup.timeframe,
-        from: fromIso,
-        to: toIso
-      })
+      const candlesResponse = requiresDataset
+        ? await getBacktestCandles({
+          datasetId: selectedDataset?.id || effectiveSetup.datasetId || undefined,
+          fromUtc: fromIso,
+          toUtc: toIso
+        })
+        : await getBacktestCandles({
+          provider: effectiveSetup.dataSource,
+          dataSource: effectiveSetup.dataSource,
+          sourceId: selectedDataset?.sourceId || effectiveSetup.sourceId || undefined,
+          symbol: selectedDataset?.symbolDisplay || effectiveSetup.symbol || undefined,
+          timeframe: selectedDataset?.timeframe || effectiveSetup.timeframe,
+          fromUtc: fromIso,
+          toUtc: toIso
+        })
       const candleNormalization = normalizeBacktestCandlesWithDiagnostics(candlesResponse.candles || [])
       const normalizedCandles = candleNormalization.candles
 
@@ -2111,7 +2224,7 @@ export default function SessionPage() {
     setCsvIngestingFileId(upload.fileId)
     setApiError('')
     try {
-      const mappingPayload = upload.mappingRequired ? upload.mappingDraft : undefined
+      const mappingPayload = upload.mappingRequired ? mappingToIngestPayload(upload) : undefined
       const ingest = await ingestBacktestCsv(upload.fileId, {
         mapping: mappingPayload,
         symbol: upload.detectedSymbol || undefined,
@@ -2136,7 +2249,9 @@ export default function SessionPage() {
           dataTo: summary?.dataToUtc || datasetForReplay.dataTo,
           timeframe: summary?.timeframe || datasetForReplay.timeframe,
           defaultFromUtc: summary?.defaultFromUtc,
-          defaultToUtc: summary?.defaultToUtc
+          defaultToUtc: summary?.defaultToUtc,
+          recommendedDefaultFromUtc: summary?.recommendedDefaultFromUtc,
+          recommendedDefaultToUtc: summary?.recommendedDefaultToUtc
         })
         const setupOverrides: Partial<BacktestSetupState> = {
           dataSource: 'CSV',
@@ -2144,8 +2259,8 @@ export default function SessionPage() {
           sourceId: datasetForReplay.sourceId,
           symbol: summary?.symbolDisplay || datasetForReplay.symbolDisplay,
           timeframe: ((summary?.timeframe || datasetForReplay.timeframe) as BacktestSetupState['timeframe']) || backtestSetup.timeframe,
-          from: defaults.from || backtestSetup.from,
-          to: defaults.to || backtestSetup.to
+          from: defaults.from,
+          to: defaults.to
         }
         setBacktestSetup((prev) => ({ ...prev, ...setupOverrides }))
         await loadBacktestData(setupOverrides)
@@ -2181,11 +2296,16 @@ export default function SessionPage() {
   const handleJumpReplay = () => {
     if (!backtestCandles.length) return
     setBacktestIsPlaying(false)
-    const input = window.prompt(t('today.session.backtest.jumpPrompt'), backtestCandles[backtestCursor]?.timestamp || '')
+    const cursorTimestampIso = toIsoFromUnknownTimestamp(backtestCandles[backtestCursor]?.timestamp)
+    const input = window.prompt(t('today.session.backtest.jumpPrompt'), cursorTimestampIso || '')
     if (!input) return
     const target = new Date(input).getTime()
     if (!Number.isFinite(target)) return
-    const index = backtestCandles.findIndex((candle) => new Date(candle.timestamp).getTime() >= target)
+    const index = backtestCandles.findIndex((candle) => {
+      const candleIso = toIsoFromUnknownTimestamp(candle.timestamp)
+      if (!candleIso) return false
+      return new Date(candleIso).getTime() >= target
+    })
     if (index >= 0) {
       setBacktestCursor(index)
     }
@@ -2237,7 +2357,7 @@ export default function SessionPage() {
         return
       }
 
-      const replayCursorTime = backtestCandles[backtestCursor]?.timestamp
+      const replayCursorTime = toIsoFromUnknownTimestamp(backtestCandles[backtestCursor]?.timestamp)
       if (!replayCursorTime) {
         setApiError(t('today.session.backtest.errors.loadDataFirst'))
         return
@@ -3201,18 +3321,27 @@ export default function SessionPage() {
                                             days: backtestDatasetSummary?.defaultWindowDays || resolveTimeframeWindowDays(selectedDatasetTimeframe)
                                           })}
                                         </Typography>
+                                        {(loadedRangeFromIso || loadedRangeToIso) && (
+                                          <Typography variant="caption" color="text.secondary">
+                                            {t('today.session.backtest.loadedRangeInline', {
+                                              from: toDateInputFromIso(loadedRangeFromIso) || t('common.na'),
+                                              to: toDateInputFromIso(loadedRangeToIso) || t('common.na'),
+                                              count: backtestCandles.length
+                                            })}
+                                          </Typography>
+                                        )}
                                         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
                                           {selectedDatasetPresetDays.map((days) => (
                                             <Button
                                               key={days}
                                               size="small"
                                               variant="text"
-                                              onClick={() => applyBacktestPreset(days)}
+                                              onClick={() => void applyBacktestPreset(days)}
                                             >
                                               {t('today.session.backtest.presetLastDays', { days })}
                                             </Button>
                                           ))}
-                                          <Button size="small" variant="outlined" onClick={applyDefaultBacktestRange}>
+                                          <Button size="small" variant="outlined" onClick={() => void applyDefaultBacktestRange()}>
                                             {t('today.session.backtest.useDefaultRange')}
                                           </Button>
                                         </Stack>
@@ -3297,95 +3426,162 @@ export default function SessionPage() {
                                       </Typography>
                                     </Stack>
 
-                                    {csvUploads.map((upload) => (
-                                      <Box key={upload.fileId} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
-                                        <Stack spacing={0.75}>
-                                          <Typography variant="body2" fontWeight={600}>{upload.fileName}</Typography>
-                                          <Typography variant="caption" color="text.secondary">
-                                            {upload.detectedSymbol || t('common.na')} • {upload.detectedTimeframe || t('common.na')} • {upload.dataFrom ? new Date(upload.dataFrom).toLocaleDateString() : t('common.na')} - {upload.dataTo ? new Date(upload.dataTo).toLocaleDateString() : t('common.na')}
-                                          </Typography>
-                                          {upload.warnings?.length > 0 && (
-                                            <Typography variant="caption" color="warning.main">
-                                              {upload.warnings.join(' ')}
+                                    {csvUploads.map((upload) => {
+                                      const columnOptions = uploadPreviewColumns(upload)
+                                      const mappingUsed = mappingToIngestPayload(upload)
+                                      const previewColumns = columnOptions.slice(0, 6)
+                                      const previewRows = (upload.preview?.rows || []).slice(0, 5)
+                                      return (
+                                        <Box key={upload.fileId} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
+                                          <Stack spacing={0.75}>
+                                            <Typography variant="body2" fontWeight={600}>{upload.fileName}</Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                              {upload.detectedSymbol || t('common.na')} • {upload.detectedTimeframe || t('common.na')} • {upload.detectedTimeFormat || t('common.na')} • {upload.dataFrom ? new Date(upload.dataFrom).toLocaleDateString() : t('common.na')} - {upload.dataTo ? new Date(upload.dataTo).toLocaleDateString() : t('common.na')}
                                             </Typography>
-                                          )}
-                                          {upload.mappingRequired && (
-                                            <Grid container spacing={0.75}>
-                                              <Grid item xs={6} md={4}>
-                                                <FormControl fullWidth size="small">
-                                                  <InputLabel>{t('today.session.backtest.mapping.time')}</InputLabel>
-                                                  <Select
-                                                    label={t('today.session.backtest.mapping.time')}
-                                                    value={upload.mappingDraft.timeColumn}
-                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'timeColumn', event.target.value)}
-                                                  >
-                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
-                                                  </Select>
-                                                </FormControl>
+                                            <Typography variant="caption" color="text.secondary">
+                                              {t('today.session.backtest.preview.detectedColumns')}: {columnOptions.map((column) => column.displayName).join(', ') || t('common.na')}
+                                            </Typography>
+                                            <Typography variant="caption" color="text.secondary">
+                                              {t('today.session.backtest.preview.mappingUsed')}: {mappingUsed.timeColumn || t('common.na')} / {mappingUsed.openColumn || t('common.na')} / {mappingUsed.highColumn || t('common.na')} / {mappingUsed.lowColumn || t('common.na')} / {mappingUsed.closeColumn || t('common.na')}
+                                            </Typography>
+                                            {upload.warnings?.length > 0 && (
+                                              <Typography variant="caption" color="warning.main">
+                                                {upload.warnings.join(' ')}
+                                              </Typography>
+                                            )}
+                                            {previewRows.length > 0 && (
+                                              <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                                <Table size="small" aria-label={t('today.session.backtest.preview.sampleRows')}>
+                                                  <TableHead>
+                                                    <TableRow>
+                                                      {previewColumns.map((column) => (
+                                                        <TableCell key={`${upload.fileId}-${column.key}`}>{column.displayName}</TableCell>
+                                                      ))}
+                                                    </TableRow>
+                                                  </TableHead>
+                                                  <TableBody>
+                                                    {previewRows.map((row) => (
+                                                      <TableRow key={`${upload.fileId}-row-${row.rowNumber}`}>
+                                                        {previewColumns.map((column) => (
+                                                          <TableCell key={`${upload.fileId}-row-${row.rowNumber}-${column.key}`}>
+                                                            {row.values[column.index] || ''}
+                                                          </TableCell>
+                                                        ))}
+                                                      </TableRow>
+                                                    ))}
+                                                  </TableBody>
+                                                </Table>
+                                              </TableContainer>
+                                            )}
+                                            {upload.mappingRequired && (
+                                              <Grid container spacing={0.75}>
+                                                <Grid item xs={6} md={4}>
+                                                  <FormControl fullWidth size="small">
+                                                    <InputLabel>{t('today.session.backtest.mapping.time')}</InputLabel>
+                                                    <Select
+                                                      label={t('today.session.backtest.mapping.time')}
+                                                      value={upload.mappingDraft.timeColumn}
+                                                      onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'timeColumn', event.target.value)}
+                                                    >
+                                                      {columnOptions.map((column) => (
+                                                        <MenuItem key={`${upload.fileId}-time-${column.key}`} value={column.key}>{column.displayName}</MenuItem>
+                                                      ))}
+                                                    </Select>
+                                                  </FormControl>
+                                                </Grid>
+                                                <Grid item xs={6} md={4}>
+                                                  <FormControl fullWidth size="small">
+                                                    <InputLabel>{t('today.session.backtest.mapping.open')}</InputLabel>
+                                                    <Select
+                                                      label={t('today.session.backtest.mapping.open')}
+                                                      value={upload.mappingDraft.openColumn}
+                                                      onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'openColumn', event.target.value)}
+                                                    >
+                                                      {columnOptions.map((column) => (
+                                                        <MenuItem key={`${upload.fileId}-open-${column.key}`} value={column.key}>{column.displayName}</MenuItem>
+                                                      ))}
+                                                    </Select>
+                                                  </FormControl>
+                                                </Grid>
+                                                <Grid item xs={6} md={4}>
+                                                  <FormControl fullWidth size="small">
+                                                    <InputLabel>{t('today.session.backtest.mapping.high')}</InputLabel>
+                                                    <Select
+                                                      label={t('today.session.backtest.mapping.high')}
+                                                      value={upload.mappingDraft.highColumn}
+                                                      onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'highColumn', event.target.value)}
+                                                    >
+                                                      {columnOptions.map((column) => (
+                                                        <MenuItem key={`${upload.fileId}-high-${column.key}`} value={column.key}>{column.displayName}</MenuItem>
+                                                      ))}
+                                                    </Select>
+                                                  </FormControl>
+                                                </Grid>
+                                                <Grid item xs={6} md={4}>
+                                                  <FormControl fullWidth size="small">
+                                                    <InputLabel>{t('today.session.backtest.mapping.low')}</InputLabel>
+                                                    <Select
+                                                      label={t('today.session.backtest.mapping.low')}
+                                                      value={upload.mappingDraft.lowColumn}
+                                                      onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'lowColumn', event.target.value)}
+                                                    >
+                                                      {columnOptions.map((column) => (
+                                                        <MenuItem key={`${upload.fileId}-low-${column.key}`} value={column.key}>{column.displayName}</MenuItem>
+                                                      ))}
+                                                    </Select>
+                                                  </FormControl>
+                                                </Grid>
+                                                <Grid item xs={6} md={4}>
+                                                  <FormControl fullWidth size="small">
+                                                    <InputLabel>{t('today.session.backtest.mapping.close')}</InputLabel>
+                                                    <Select
+                                                      label={t('today.session.backtest.mapping.close')}
+                                                      value={upload.mappingDraft.closeColumn}
+                                                      onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'closeColumn', event.target.value)}
+                                                    >
+                                                      {columnOptions.map((column) => (
+                                                        <MenuItem key={`${upload.fileId}-close-${column.key}`} value={column.key}>{column.displayName}</MenuItem>
+                                                      ))}
+                                                    </Select>
+                                                  </FormControl>
+                                                </Grid>
                                               </Grid>
-                                              <Grid item xs={6} md={4}>
-                                                <FormControl fullWidth size="small">
-                                                  <InputLabel>{t('today.session.backtest.mapping.open')}</InputLabel>
-                                                  <Select
-                                                    label={t('today.session.backtest.mapping.open')}
-                                                    value={upload.mappingDraft.openColumn}
-                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'openColumn', event.target.value)}
-                                                  >
-                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
-                                                  </Select>
-                                                </FormControl>
-                                              </Grid>
-                                              <Grid item xs={6} md={4}>
-                                                <FormControl fullWidth size="small">
-                                                  <InputLabel>{t('today.session.backtest.mapping.high')}</InputLabel>
-                                                  <Select
-                                                    label={t('today.session.backtest.mapping.high')}
-                                                    value={upload.mappingDraft.highColumn}
-                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'highColumn', event.target.value)}
-                                                  >
-                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
-                                                  </Select>
-                                                </FormControl>
-                                              </Grid>
-                                              <Grid item xs={6} md={4}>
-                                                <FormControl fullWidth size="small">
-                                                  <InputLabel>{t('today.session.backtest.mapping.low')}</InputLabel>
-                                                  <Select
-                                                    label={t('today.session.backtest.mapping.low')}
-                                                    value={upload.mappingDraft.lowColumn}
-                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'lowColumn', event.target.value)}
-                                                  >
-                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
-                                                  </Select>
-                                                </FormControl>
-                                              </Grid>
-                                              <Grid item xs={6} md={4}>
-                                                <FormControl fullWidth size="small">
-                                                  <InputLabel>{t('today.session.backtest.mapping.close')}</InputLabel>
-                                                  <Select
-                                                    label={t('today.session.backtest.mapping.close')}
-                                                    value={upload.mappingDraft.closeColumn}
-                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'closeColumn', event.target.value)}
-                                                  >
-                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
-                                                  </Select>
-                                                </FormControl>
-                                              </Grid>
-                                            </Grid>
-                                          )}
-                                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
-                                            <Button
-                                              size="small"
-                                              variant="contained"
-                                              onClick={() => void handleIngestCsvUpload(upload)}
-                                              disabled={csvIngestingFileId === upload.fileId}
-                                            >
-                                              {csvIngestingFileId === upload.fileId ? t('today.session.backtest.ingesting') : t('today.session.backtest.ingest')}
-                                            </Button>
+                                            )}
+                                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                                              <Button
+                                                size="small"
+                                                variant="contained"
+                                                onClick={() => void handleIngestCsvUpload(upload)}
+                                                disabled={csvIngestingFileId === upload.fileId}
+                                              >
+                                                {csvIngestingFileId === upload.fileId ? t('today.session.backtest.ingesting') : t('today.session.backtest.ingest')}
+                                              </Button>
+                                            </Stack>
                                           </Stack>
-                                        </Stack>
-                                      </Box>
-                                    ))}
+                                        </Box>
+                                      )
+                                    })}
+
+                                    {backtestCandles.length > 0 && (
+                                      <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                        <Table size="small" aria-label={t('today.session.backtest.loadedStats.title')}>
+                                          <TableHead>
+                                            <TableRow>
+                                              <TableCell>{t('today.session.backtest.loadedStats.firstCandle')}</TableCell>
+                                              <TableCell>{t('today.session.backtest.loadedStats.lastCandle')}</TableCell>
+                                              <TableCell>{t('today.session.backtest.loadedStats.count')}</TableCell>
+                                            </TableRow>
+                                          </TableHead>
+                                          <TableBody>
+                                            <TableRow>
+                                              <TableCell>{loadedRangeFromIso ? new Date(loadedRangeFromIso).toLocaleString() : t('common.na')}</TableCell>
+                                              <TableCell>{loadedRangeToIso ? new Date(loadedRangeToIso).toLocaleString() : t('common.na')}</TableCell>
+                                              <TableCell>{backtestCandles.length}</TableCell>
+                                            </TableRow>
+                                          </TableBody>
+                                        </Table>
+                                      </TableContainer>
+                                    )}
                                   </Stack>
                                 )}
                               </Stack>
@@ -3419,7 +3615,7 @@ export default function SessionPage() {
                                     <Button
                                       size="small"
                                       variant="outlined"
-                                      onClick={applyDefaultBacktestRange}
+                                      onClick={() => void applyDefaultBacktestRange(true)}
                                     >
                                       {t('today.session.backtest.useDefaultRange')}
                                     </Button>
@@ -3473,7 +3669,7 @@ export default function SessionPage() {
                                 size="small"
                                 variant="outlined"
                                 sx={{ minWidth: 230 }}
-                                label={`${t('today.session.backtest.cursor')}: ${backtestCandles[backtestCursor]?.timestamp ? new Date(backtestCandles[backtestCursor].timestamp).toLocaleString() : t('common.na')}`}
+                                label={`${t('today.session.backtest.cursor')}: ${toIsoFromUnknownTimestamp(backtestCandles[backtestCursor]?.timestamp) ? new Date(toIsoFromUnknownTimestamp(backtestCandles[backtestCursor]?.timestamp)).toLocaleString() : t('common.na')}`}
                               />
                               <Chip
                                 size="small"

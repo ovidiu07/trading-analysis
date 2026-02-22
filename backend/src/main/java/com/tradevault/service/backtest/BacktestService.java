@@ -28,6 +28,8 @@ import com.tradevault.service.ContextSnapshotService;
 import com.tradevault.service.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.http.HttpStatus;
@@ -45,6 +47,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class BacktestService {
+    private static final Logger log = LoggerFactory.getLogger(BacktestService.class);
+
     private final BacktestRunRepository backtestRunRepository;
     private final BacktestTradeRepository backtestTradeRepository;
     private final CandleDataService candleDataService;
@@ -109,8 +113,12 @@ public class BacktestService {
                                                OffsetDateTime from,
                                                OffsetDateTime to,
                                                String sessionWindow,
+                                               Integer limit,
                                                boolean refresh) {
         User user = currentUserService.getCurrentUser();
+        if (sessionWindow != null && !sessionWindow.isBlank() && log.isDebugEnabled()) {
+            log.debug("Ignoring server-side sessionWindow filter for candle loading. datasetId={} sessionWindow={}", datasetId, sessionWindow);
+        }
         ResolvedCandleRequest resolved = resolveCandleRequest(
                 user,
                 sourceRaw,
@@ -122,7 +130,7 @@ public class BacktestService {
                 to
         );
 
-        List<BacktestCandle> candles = resolved.rangeEmpty()
+        List<BacktestCandle> fetchedCandles = resolved.rangeEmpty()
                 ? List.of()
                 : candleDataService.getCandles(
                 user.getId(),
@@ -134,7 +142,25 @@ public class BacktestService {
                 resolved.rangeTo(),
                 refresh
         );
+        List<BacktestCandle> candles = applyLimit(fetchedCandles, limit);
         String message = candles.isEmpty() ? "No candles for selected range." : null;
+
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Loaded backtest candles userId={} source={} datasetId={} sourceId={} symbol={} timeframe={} from={} to={} requestedLimit={} fetchedCount={} returnedCount={}",
+                    user.getId(),
+                    resolved.source(),
+                    resolved.datasetId(),
+                    resolved.sourceId(),
+                    resolved.symbol(),
+                    resolved.timeframe(),
+                    resolved.rangeFrom(),
+                    resolved.rangeTo(),
+                    limit,
+                    fetchedCandles.size(),
+                    candles.size()
+            );
+        }
 
         return BacktestCandlesResponse.builder()
                 .provider(resolved.source().name())
@@ -332,7 +358,8 @@ public class BacktestService {
                                                        String timeframeRaw,
                                                        OffsetDateTime fromRaw,
                                                        OffsetDateTime toRaw) {
-        BacktestCandleSource source = normalizeSource(sourceRaw);
+        BacktestCandleSource requestedSource = normalizeSource(sourceRaw);
+        boolean sourceProvided = sourceRaw != null && !sourceRaw.isBlank();
         String sourceId = normalizeOptionalText(sourceIdRaw);
         String symbol = normalizeOptionalText(symbolRaw);
         String timeframe = normalizeTimeframe(timeframeRaw);
@@ -340,17 +367,11 @@ public class BacktestService {
         OffsetDateTime rangeFrom = fromRaw;
         OffsetDateTime rangeTo = toRaw;
         boolean rangeEmpty = false;
+        BacktestCandleSource source = requestedSource;
 
-        if (source == BacktestCandleSource.CSV || source == BacktestCandleSource.DEMO) {
-            if (datasetId == null) {
-                throw new BacktestDomainException(
-                        BacktestErrorCodes.DATASET_NOT_FOUND,
-                        "Dataset is required for the selected source",
-                        "Choose an ingested dataset before loading backtest candles.",
-                        HttpStatus.BAD_REQUEST
-                );
-            }
+        if (datasetId != null) {
             BacktestDataset dataset = backtestDatasetService.requireDataset(user.getId(), datasetId);
+            source = sourceProvided ? requestedSource : dataset.getProvider();
             if (dataset.getProvider() != source) {
                 throw new BacktestDomainException(
                         BacktestErrorCodes.DATASET_NOT_FOUND,
@@ -359,6 +380,7 @@ public class BacktestService {
                         HttpStatus.BAD_REQUEST
                 );
             }
+
             sourceId = dataset.getSourceId();
             symbol = normalizeSymbol(dataset.getSymbolDisplay());
             timeframe = dataset.getTimeframe().name();
@@ -376,6 +398,13 @@ public class BacktestService {
             rangeFrom = range.fromUtc();
             rangeTo = range.toUtc();
             rangeEmpty = range.empty();
+        } else if (source == BacktestCandleSource.CSV || source == BacktestCandleSource.DEMO) {
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.DATASET_NOT_FOUND,
+                    "Dataset is required for the selected source",
+                    "Choose an ingested dataset before loading backtest candles.",
+                    HttpStatus.BAD_REQUEST
+            );
         } else {
             symbol = normalizeSymbol(symbolRaw);
             if (source == BacktestCandleSource.OANDA && sourceId == null) {
@@ -583,6 +612,7 @@ public class BacktestService {
                 .sorted(Comparator.comparing(BacktestCandle::timestamp))
                 .map(item -> BacktestCandleDto.builder()
                         .timestamp(item.timestamp())
+                        .epochSec(item.timestamp() == null ? null : item.timestamp().toEpochSecond())
                         .open(item.open())
                         .high(item.high())
                         .low(item.low())
@@ -673,6 +703,17 @@ public class BacktestService {
         if (from.isAfter(to)) {
             throw new IllegalArgumentException("from must be before to");
         }
+    }
+
+    private List<BacktestCandle> applyLimit(List<BacktestCandle> candles, Integer limit) {
+        if (candles == null || candles.isEmpty()) {
+            return List.of();
+        }
+        if (limit == null || limit <= 0 || candles.size() <= limit) {
+            return candles;
+        }
+        int fromIndex = Math.max(0, candles.size() - limit);
+        return candles.subList(fromIndex, candles.size());
     }
 
     private String normalizeOptionalText(String value) {
