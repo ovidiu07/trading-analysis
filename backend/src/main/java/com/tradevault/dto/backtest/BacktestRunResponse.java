@@ -21,6 +21,9 @@ public class BacktestRunResponse {
     BigDecimal spread;
     BigDecimal slippage;
     String provider;
+    String dataSource;
+    String sourceId;
+    UUID datasetId;
     BacktestRunStatus status;
     int candleCount;
     OffsetDateTime createdAt;

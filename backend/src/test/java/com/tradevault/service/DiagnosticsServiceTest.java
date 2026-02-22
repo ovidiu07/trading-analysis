@@ -120,7 +120,7 @@ class DiagnosticsServiceTest {
                 ids != null && StreamSupport.stream(ids.spliterator(), false).count() == 2)))
                 .thenReturn(List.of(winSnapshot, lossSnapshot));
 
-        var response = diagnosticsService.getStrategyDetail(strategyId, "LIVE", null, null, null, null);
+        var response = diagnosticsService.getStrategyDetail(strategyId, "LIVE", null, null, null, null, null);
 
         assertThat(response.getCoreMetrics().getSampleSize()).isEqualTo(2);
         assertThat(response.getCoreMetrics().getWinRate()).isEqualByComparingTo("50.0000");

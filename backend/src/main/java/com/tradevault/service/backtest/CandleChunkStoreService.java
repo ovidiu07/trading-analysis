@@ -1,0 +1,215 @@
+package com.tradevault.service.backtest;
+
+import com.tradevault.domain.entity.CandleChunk;
+import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.BacktestCandleSource;
+import com.tradevault.domain.enums.BacktestTimeframe;
+import com.tradevault.domain.enums.CandleChunkFormat;
+import com.tradevault.repository.CandleChunkRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Duration;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class CandleChunkStoreService {
+    private final CandleChunkRepository candleChunkRepository;
+    private final CandleChunkCodec candleChunkCodec;
+
+    @Transactional
+    public void saveCandles(UUID userId,
+                            BacktestCandleSource provider,
+                            String sourceId,
+                            String symbolCanonical,
+                            String symbolDisplay,
+                            BacktestTimeframe timeframe,
+                            List<CanonicalCandle> candles) {
+        if (candles == null || candles.isEmpty()) {
+            return;
+        }
+
+        Map<OffsetDateTime, List<CanonicalCandle>> byChunk = new LinkedHashMap<>();
+        for (CanonicalCandle candle : candles) {
+            OffsetDateTime ts = candle.tsUtc();
+            if (ts == null) {
+                continue;
+            }
+            OffsetDateTime chunkStart = toChunkStart(ts.withOffsetSameInstant(ZoneOffset.UTC), timeframe);
+            byChunk.computeIfAbsent(chunkStart, ignored -> new ArrayList<>()).add(candle);
+        }
+
+        for (Map.Entry<OffsetDateTime, List<CanonicalCandle>> entry : byChunk.entrySet()) {
+            OffsetDateTime chunkStart = entry.getKey();
+            List<CanonicalCandle> incoming = entry.getValue();
+
+            CandleChunk chunk = candleChunkRepository
+                    .findByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframeAndChunkStartUtc(
+                            userId,
+                            provider,
+                            sourceId,
+                            symbolCanonical,
+                            timeframe,
+                            chunkStart
+                    )
+                    .orElseGet(() -> CandleChunk.builder()
+                            .user(User.builder().id(userId).build())
+                            .provider(provider)
+                            .sourceId(sourceId)
+                            .symbolCanonical(symbolCanonical)
+                            .symbolDisplay(symbolDisplay)
+                            .timeframe(timeframe)
+                            .chunkStartUtc(chunkStart)
+                            .format(CandleChunkFormat.JSON_GZIP)
+                            .build());
+
+            List<CanonicalCandle> merged = mergeCandles(
+                    candleChunkCodec.decode(chunk.getPayload(), provider, sourceId, symbolCanonical, symbolDisplay, timeframe),
+                    incoming
+            );
+            if (merged.isEmpty()) {
+                continue;
+            }
+
+            chunk.setSymbolDisplay(symbolDisplay);
+            chunk.setChunkEndUtc(merged.get(merged.size() - 1).tsUtc());
+            chunk.setPayload(candleChunkCodec.encode(merged));
+            chunk.setFormat(CandleChunkFormat.JSON_GZIP);
+            candleChunkRepository.save(chunk);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<CanonicalCandle> loadCandles(UUID userId,
+                                             BacktestCandleSource provider,
+                                             String sourceId,
+                                             String symbolCanonical,
+                                             BacktestTimeframe timeframe,
+                                             OffsetDateTime from,
+                                             OffsetDateTime to) {
+        List<CandleChunk> chunks = candleChunkRepository
+                .findByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframeAndChunkEndUtcGreaterThanEqualAndChunkStartUtcLessThanEqualOrderByChunkStartUtcAsc(
+                        userId,
+                        provider,
+                        sourceId,
+                        symbolCanonical,
+                        timeframe,
+                        from,
+                        to
+                );
+
+        List<CanonicalCandle> candles = new ArrayList<>();
+        for (CandleChunk chunk : chunks) {
+            candles.addAll(candleChunkCodec.decode(
+                    chunk.getPayload(),
+                    chunk.getProvider(),
+                    chunk.getSourceId(),
+                    chunk.getSymbolCanonical(),
+                    chunk.getSymbolDisplay(),
+                    chunk.getTimeframe()
+            ));
+        }
+
+        return candles.stream()
+                .filter(item -> item.tsUtc() != null)
+                .filter(item -> !item.tsUtc().isBefore(from) && !item.tsUtc().isAfter(to))
+                .sorted(Comparator.comparing(CanonicalCandle::tsUtc))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public boolean hasFreshCoverage(UUID userId,
+                                    BacktestCandleSource provider,
+                                    String sourceId,
+                                    String symbolCanonical,
+                                    BacktestTimeframe timeframe,
+                                    OffsetDateTime from,
+                                    OffsetDateTime to,
+                                    Duration ttl) {
+        if (ttl == null || ttl.isNegative() || ttl.isZero()) {
+            return false;
+        }
+
+        OffsetDateTime firstChunkStart = toChunkStart(from.withOffsetSameInstant(ZoneOffset.UTC), timeframe);
+        OffsetDateTime lastChunkStart = toChunkStart(to.withOffsetSameInstant(ZoneOffset.UTC), timeframe);
+
+        List<CandleChunk> stored = candleChunkRepository
+                .findByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframeAndChunkStartUtcBetweenOrderByChunkStartUtcAsc(
+                        userId,
+                        provider,
+                        sourceId,
+                        symbolCanonical,
+                        timeframe,
+                        firstChunkStart,
+                        lastChunkStart
+                );
+
+        Map<OffsetDateTime, CandleChunk> byChunkStart = new LinkedHashMap<>();
+        for (CandleChunk chunk : stored) {
+            byChunkStart.put(chunk.getChunkStartUtc(), chunk);
+        }
+
+        OffsetDateTime cursor = firstChunkStart;
+        OffsetDateTime staleCutoff = OffsetDateTime.now(ZoneOffset.UTC).minus(ttl);
+        while (!cursor.isAfter(lastChunkStart)) {
+            CandleChunk chunk = byChunkStart.get(cursor);
+            OffsetDateTime freshness = chunk == null ? null : (chunk.getUpdatedAt() != null ? chunk.getUpdatedAt() : chunk.getCreatedAt());
+            if (chunk == null || freshness == null || freshness.isBefore(staleCutoff)) {
+                return false;
+            }
+            cursor = advanceChunk(cursor, timeframe);
+        }
+
+        return true;
+    }
+
+    @Transactional
+    public long deleteSource(UUID userId, BacktestCandleSource provider, String sourceId) {
+        return candleChunkRepository.deleteByUser_IdAndProviderAndSourceId(userId, provider, sourceId);
+    }
+
+    private List<CanonicalCandle> mergeCandles(List<CanonicalCandle> existing, List<CanonicalCandle> incoming) {
+        Map<OffsetDateTime, CanonicalCandle> byTs = new LinkedHashMap<>();
+        for (CanonicalCandle candle : existing) {
+            if (candle.tsUtc() != null) {
+                byTs.put(candle.tsUtc(), candle);
+            }
+        }
+        for (CanonicalCandle candle : incoming) {
+            if (candle.tsUtc() != null) {
+                byTs.put(candle.tsUtc(), candle);
+            }
+        }
+        return byTs.values().stream()
+                .sorted(Comparator.comparing(CanonicalCandle::tsUtc))
+                .toList();
+    }
+
+    private OffsetDateTime toChunkStart(OffsetDateTime tsUtc, BacktestTimeframe timeframe) {
+        OffsetDateTime normalized = tsUtc.withOffsetSameInstant(ZoneOffset.UTC)
+                .withHour(0)
+                .withMinute(0)
+                .withSecond(0)
+                .withNano(0);
+        if (timeframe.isIntradayFineGrain()) {
+            return normalized;
+        }
+        return normalized.withDayOfMonth(1);
+    }
+
+    private OffsetDateTime advanceChunk(OffsetDateTime start, BacktestTimeframe timeframe) {
+        if (timeframe.isIntradayFineGrain()) {
+            return start.plusDays(1);
+        }
+        return start.plusMonths(1);
+    }
+}

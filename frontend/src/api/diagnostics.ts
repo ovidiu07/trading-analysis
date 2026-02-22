@@ -97,6 +97,7 @@ export async function listDiagnosticsStrategies() {
 
 export async function getDiagnosticsStrategyDetail(strategyId: string, params: {
   mode?: 'LIVE' | 'BACKTEST' | 'BOTH'
+  backtestSource?: 'CSV' | 'OANDA' | 'DEMO'
   from?: string
   to?: string
   symbol?: string

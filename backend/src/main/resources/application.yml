@@ -144,3 +144,14 @@ database:
     probe-initial-delay-ms: ${DB_CONNECTIVITY_PROBE_INITIAL_DELAY_MS:15000}
     probe-query-timeout-seconds: ${DB_CONNECTIVITY_PROBE_QUERY_TIMEOUT_SECONDS:3}
     failure-log-window-ms: ${DB_CONNECTIVITY_FAILURE_LOG_WINDOW_MS:120000}
+
+backtest:
+  token-encryption-key: ${BACKTEST_TOKEN_ENCRYPTION_KEY:}
+  csv:
+    max-upload-mb: ${BACKTEST_CSV_MAX_UPLOAD_MB:25}
+  provider:
+    cache-ttl-days: ${BACKTEST_PROVIDER_CACHE_TTL_DAYS:14}
+    rate-limit:
+      max-requests-per-minute: ${BACKTEST_PROVIDER_RATE_LIMIT_MAX_PER_MINUTE:30}
+  oanda:
+    base-url: ${BACKTEST_OANDA_BASE_URL:https://api-fxpractice.oanda.com/v3}

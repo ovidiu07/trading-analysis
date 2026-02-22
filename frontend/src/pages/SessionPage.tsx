@@ -52,7 +52,9 @@ import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined'
 import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
+import { ApiError } from '../api/client'
 import { useI18n } from '../i18n'
+import { translateApiError } from '../i18n/errorMessages'
 import TradingViewWidget from '../components/charts/TradingViewWidget'
 import ReplayCandlestickChart from '../components/charts/ReplayCandlestickChart'
 import MarkdownContent from '../components/ui/MarkdownContent'
@@ -61,11 +63,20 @@ import SecureAssetImage from '../components/assets/SecureAssetImage'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import {
+  type BacktestDataSource,
+  type BacktestDataset,
   type BacktestRun,
   type BacktestTrade,
+  type CsvColumnMapping,
+  type CsvUploadResponse,
   createBacktestRun,
+  ingestBacktestCsv,
+  getOandaProviderStatus,
+  listBacktestDatasets,
   listBacktestTrades,
-  simulateBacktestTrade
+  loadDemoBacktestDatasets,
+  simulateBacktestTrade,
+  uploadBacktestCsv
 } from '../api/backtest'
 import {
   createChartProfile,
@@ -203,13 +214,20 @@ type LevelDialogState = {
 type SessionChartMode = 'LIVE' | 'BACKTEST'
 
 type BacktestSetupState = {
+  dataSource: BacktestDataSource
+  datasetId: string
+  sourceId: string
   symbol: string
-  timeframe: 'M1' | 'M5' | 'M15'
+  timeframe: 'M1' | 'M5' | 'M15' | 'H1' | 'D1'
   from: string
   to: string
   sessionWindow: string
   spread: string
   slippage: string
+}
+
+type CsvUploadItem = CsvUploadResponse & {
+  mappingDraft: CsvColumnMapping
 }
 
 const toBullets = (value?: string | null) => {
@@ -388,6 +406,9 @@ const defaultBacktestSetup = (): BacktestSetupState => {
   const now = new Date()
   const from = new Date(now.getTime() - (1000 * 60 * 60 * 24 * 14))
   return {
+    dataSource: 'OANDA',
+    datasetId: '',
+    sourceId: '',
     symbol: 'OANDA:EURUSD',
     timeframe: 'M1',
     from: toDateInputValue(from),
@@ -396,6 +417,39 @@ const defaultBacktestSetup = (): BacktestSetupState => {
     spread: '',
     slippage: ''
   }
+}
+
+const emptyCsvMapping = (): CsvColumnMapping => ({
+  timeColumn: '',
+  openColumn: '',
+  highColumn: '',
+  lowColumn: '',
+  closeColumn: '',
+  volumeColumn: '',
+  timezone: ''
+})
+
+const mappingFromUpload = (upload: CsvUploadResponse): CsvColumnMapping => {
+  const suggested = upload.suggestedMapping
+  if (suggested) {
+    return {
+      timeColumn: suggested.timeColumn || '',
+      openColumn: suggested.openColumn || '',
+      highColumn: suggested.highColumn || '',
+      lowColumn: suggested.lowColumn || '',
+      closeColumn: suggested.closeColumn || '',
+      volumeColumn: suggested.volumeColumn || '',
+      timezone: suggested.timezone || ''
+    }
+  }
+  return emptyCsvMapping()
+}
+
+const toDateInputFromIso = (iso?: string) => {
+  if (!iso) return ''
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return ''
+  return date.toISOString().slice(0, 10)
 }
 
 export default function SessionPage() {
@@ -506,6 +560,11 @@ export default function SessionPage() {
   const [latestBacktestTrade, setLatestBacktestTrade] = useState<BacktestTrade | null>(null)
   const [backtestTrades, setBacktestTrades] = useState<BacktestTrade[]>([])
   const [backtestLoading, setBacktestLoading] = useState(false)
+  const [backtestDatasets, setBacktestDatasets] = useState<BacktestDataset[]>([])
+  const [backtestDatasetsLoading, setBacktestDatasetsLoading] = useState(false)
+  const [csvUploads, setCsvUploads] = useState<CsvUploadItem[]>([])
+  const [csvIngestingFileId, setCsvIngestingFileId] = useState<string | null>(null)
+  const [oandaConnected, setOandaConnected] = useState<boolean | null>(null)
 
   const [missingModalOpen, setMissingModalOpen] = useState(false)
   const [screenshotDialogOpen, setScreenshotDialogOpen] = useState(false)
@@ -524,6 +583,7 @@ export default function SessionPage() {
 
   const invalidationFieldRef = useRef<HTMLInputElement | null>(null)
   const mentorPanelRef = useRef<HTMLDivElement | null>(null)
+  const csvUploadInputRef = useRef<HTMLInputElement | null>(null)
 
   const sessionQuery = useQuery({
     queryKey: ['todaySession'],
@@ -1633,23 +1693,208 @@ export default function SessionPage() {
     setSuccessMessage(t('today.session.chartProfiles.defaultSet'))
   }
 
+  const refreshBacktestDatasets = async () => {
+    setBacktestDatasetsLoading(true)
+    try {
+      const datasets = await listBacktestDatasets()
+      setBacktestDatasets(datasets || [])
+    } catch (error) {
+      const apiErr = error as ApiError
+      setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.loadDatasets'))
+    } finally {
+      setBacktestDatasetsLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (chartMode !== 'BACKTEST') {
+      return
+    }
+    void refreshBacktestDatasets()
+  }, [chartMode])
+
+  useEffect(() => {
+    if (chartMode !== 'BACKTEST' || backtestSetup.dataSource !== 'OANDA') {
+      return
+    }
+    let mounted = true
+    getOandaProviderStatus()
+      .then((status) => {
+        if (!mounted) return
+        setOandaConnected(Boolean(status?.connected))
+      })
+      .catch(() => {
+        if (!mounted) return
+        setOandaConnected(null)
+      })
+    return () => {
+      mounted = false
+    }
+  }, [chartMode, backtestSetup.dataSource])
+
+  const backtestDatasetsForSource = useMemo(() => {
+    return backtestDatasets.filter((dataset) => dataset.provider === backtestSetup.dataSource)
+  }, [backtestDatasets, backtestSetup.dataSource])
+
+  const selectedBacktestDataset = useMemo(() => {
+    if (!backtestSetup.datasetId) return null
+    return backtestDatasetsForSource.find((dataset) => dataset.id === backtestSetup.datasetId) || null
+  }, [backtestDatasetsForSource, backtestSetup.datasetId])
+
+  useEffect(() => {
+    if (!selectedBacktestDataset) return
+    setBacktestSetup((prev) => {
+      const nextFrom = toDateInputFromIso(selectedBacktestDataset.dataFrom)
+      const nextTo = toDateInputFromIso(selectedBacktestDataset.dataTo)
+      const next = {
+        ...prev,
+        sourceId: selectedBacktestDataset.sourceId,
+        symbol: selectedBacktestDataset.symbolDisplay || prev.symbol,
+        timeframe: (selectedBacktestDataset.timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
+        from: prev.from || nextFrom,
+        to: prev.to || nextTo
+      }
+      return next
+    })
+  }, [selectedBacktestDataset])
+
+  const handleBacktestSourceChange = (source: BacktestDataSource) => {
+    setBacktestSetup((prev) => ({
+      ...prev,
+      dataSource: source,
+      datasetId: '',
+      sourceId: source === 'DEMO' ? 'DEMO' : ''
+    }))
+    setCsvUploads([])
+    if (source === 'DEMO') {
+      setBacktestDatasetsLoading(true)
+      loadDemoBacktestDatasets()
+        .then((rows) => {
+          setBacktestDatasets(rows || [])
+          if ((rows || []).length > 0) {
+            setBacktestSetup((prev) => ({
+              ...prev,
+              datasetId: rows[0].id,
+              sourceId: rows[0].sourceId,
+              symbol: rows[0].symbolDisplay || prev.symbol,
+              timeframe: (rows[0].timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
+              from: toDateInputFromIso(rows[0].dataFrom) || prev.from,
+              to: toDateInputFromIso(rows[0].dataTo) || prev.to
+            }))
+          }
+        })
+        .catch((error) => {
+          const apiErr = error as ApiError
+          setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.loadDemo'))
+        })
+        .finally(() => {
+          setBacktestDatasetsLoading(false)
+        })
+    }
+  }
+
+  const handleCsvFilesSelected = async (files: FileList | null) => {
+    if (!files?.length) return
+    const nextUploads: CsvUploadItem[] = []
+    for (const file of Array.from(files)) {
+      try {
+        const upload = await uploadBacktestCsv(file)
+        nextUploads.push({
+          ...upload,
+          mappingDraft: mappingFromUpload(upload)
+        })
+      } catch (error) {
+        const apiErr = error as ApiError
+        setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.uploadFailed'))
+      }
+    }
+    if (nextUploads.length > 0) {
+      setCsvUploads((prev) => [...nextUploads, ...prev])
+      setSuccessMessage(t('today.session.backtest.uploaded'))
+    }
+    if (csvUploadInputRef.current) {
+      csvUploadInputRef.current.value = ''
+    }
+  }
+
+  const handleCsvMappingDraftChange = (fileId: string, field: keyof CsvColumnMapping, value: string) => {
+    setCsvUploads((prev) => prev.map((item) => {
+      if (item.fileId !== fileId) return item
+      return {
+        ...item,
+        mappingDraft: {
+          ...item.mappingDraft,
+          [field]: value
+        }
+      }
+    }))
+  }
+
+  const handleIngestCsvUpload = async (upload: CsvUploadItem) => {
+    setCsvIngestingFileId(upload.fileId)
+    setApiError('')
+    try {
+      const mappingPayload = upload.mappingRequired ? upload.mappingDraft : undefined
+      const ingest = await ingestBacktestCsv(upload.fileId, {
+        mapping: mappingPayload,
+        symbol: upload.detectedSymbol || undefined,
+        timeframe: upload.detectedTimeframe || undefined,
+        datasetName: upload.fileName
+      })
+      await refreshBacktestDatasets()
+      const datasetId = ingest.dataset?.id
+      if (datasetId) {
+        setBacktestSetup((prev) => ({
+          ...prev,
+          datasetId,
+          sourceId: ingest.dataset.sourceId,
+          symbol: ingest.dataset.symbolDisplay || prev.symbol,
+          timeframe: (ingest.dataset.timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
+          from: toDateInputFromIso(ingest.dataset.dataFrom) || prev.from,
+          to: toDateInputFromIso(ingest.dataset.dataTo) || prev.to
+        }))
+      }
+      setCsvUploads((prev) => prev.filter((item) => item.fileId !== upload.fileId))
+      setSuccessMessage(t('today.session.backtest.ingested'))
+    } catch (error) {
+      const apiErr = error as ApiError
+      setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.ingestFailed'))
+    } finally {
+      setCsvIngestingFileId(null)
+    }
+  }
+
   const handleLoadBacktestData = async () => {
-    if (!backtestSetup.symbol.trim() || !backtestSetup.from || !backtestSetup.to) {
+    const requiresDataset = backtestSetup.dataSource === 'CSV' || backtestSetup.dataSource === 'DEMO'
+    if ((!requiresDataset && !backtestSetup.symbol.trim()) || !backtestSetup.from || !backtestSetup.to) {
       setApiError(t('today.session.backtest.errors.setupRequired'))
       return
     }
+    if (requiresDataset && !backtestSetup.datasetId) {
+      setApiError(t('today.session.backtest.errors.datasetRequired'))
+      return
+    }
+
     const fromIso = new Date(`${backtestSetup.from}T00:00:00Z`).toISOString()
     const toIso = new Date(`${backtestSetup.to}T23:59:59Z`).toISOString()
     setBacktestLoading(true)
+    setApiError('')
     try {
+      const selectedDataset = requiresDataset
+        ? backtestDatasets.find((dataset) => dataset.id === backtestSetup.datasetId)
+        : null
       const run = await createBacktestRun({
-        symbol: backtestSetup.symbol.trim().toUpperCase(),
+        symbol: (selectedDataset?.symbolDisplay || backtestSetup.symbol).trim().toUpperCase(),
         timeframe: backtestSetup.timeframe,
         from: fromIso,
         to: toIso,
         sessionWindow: backtestSetup.sessionWindow || undefined,
         spread: backtestSetup.spread ? Number(backtestSetup.spread) : undefined,
-        slippage: backtestSetup.slippage ? Number(backtestSetup.slippage) : undefined
+        slippage: backtestSetup.slippage ? Number(backtestSetup.slippage) : undefined,
+        dataSource: backtestSetup.dataSource,
+        provider: backtestSetup.dataSource,
+        sourceId: (selectedDataset?.sourceId || backtestSetup.sourceId || undefined),
+        datasetId: selectedDataset?.id || backtestSetup.datasetId || undefined
       })
       setBacktestRun(run)
       setBacktestCursor(0)
@@ -1660,6 +1905,9 @@ export default function SessionPage() {
         setLatestBacktestTrade(trades[0])
       }
       setSuccessMessage(t('today.session.backtest.loaded'))
+    } catch (error) {
+      const apiErr = error as ApiError
+      setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.loadFailed'))
     } finally {
       setBacktestLoading(false)
     }
@@ -2553,91 +2801,299 @@ export default function SessionPage() {
                               </Box>
                             </AccordionSummary>
                             <AccordionDetails>
-                              <Grid container spacing={1}>
-                                <Grid item xs={12} sm={6} md={3}>
-                                  <TextField
-                                    size="small"
-                                    fullWidth
-                                    label={t('trades.form.symbol')}
-                                    value={backtestSetup.symbol}
-                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, symbol: event.target.value.toUpperCase() }))}
-                                  />
+                              <Stack spacing={1}>
+                                <Grid container spacing={1}>
+                                  <Grid item xs={12} sm={6} md={3}>
+                                    <FormControl fullWidth size="small">
+                                      <InputLabel id="backtest-data-source">{t('today.session.backtest.dataSource')}</InputLabel>
+                                      <Select
+                                        labelId="backtest-data-source"
+                                        label={t('today.session.backtest.dataSource')}
+                                        value={backtestSetup.dataSource}
+                                        onChange={(event) => handleBacktestSourceChange(event.target.value as BacktestDataSource)}
+                                      >
+                                        <MenuItem value="CSV">{t('today.session.backtest.sources.csv')}</MenuItem>
+                                        <MenuItem value="OANDA">{t('today.session.backtest.sources.oanda')}</MenuItem>
+                                        <MenuItem value="DEMO">{t('today.session.backtest.sources.demo')}</MenuItem>
+                                      </Select>
+                                    </FormControl>
+                                  </Grid>
+
+                                  {backtestSetup.dataSource !== 'OANDA' && (
+                                    <Grid item xs={12} sm={6} md={4}>
+                                      <FormControl fullWidth size="small">
+                                        <InputLabel id="backtest-dataset-id">{t('today.session.backtest.dataset')}</InputLabel>
+                                        <Select
+                                          labelId="backtest-dataset-id"
+                                          label={t('today.session.backtest.dataset')}
+                                          value={backtestSetup.datasetId}
+                                          onChange={(event) => setBacktestSetup((prev) => ({ ...prev, datasetId: event.target.value }))}
+                                          disabled={backtestDatasetsLoading || backtestDatasetsForSource.length === 0}
+                                        >
+                                          {backtestDatasetsForSource.map((dataset) => (
+                                            <MenuItem key={dataset.id} value={dataset.id}>
+                                              {dataset.name}
+                                            </MenuItem>
+                                          ))}
+                                        </Select>
+                                      </FormControl>
+                                    </Grid>
+                                  )}
+
+                                  {backtestSetup.dataSource === 'OANDA' && (
+                                    <>
+                                      <Grid item xs={12} sm={6} md={3}>
+                                        <TextField
+                                          size="small"
+                                          fullWidth
+                                          label={t('trades.form.symbol')}
+                                          value={backtestSetup.symbol}
+                                          onChange={(event) => setBacktestSetup((prev) => ({ ...prev, symbol: event.target.value.toUpperCase() }))}
+                                        />
+                                      </Grid>
+                                      <Grid item xs={6} sm={3} md={2}>
+                                        <FormControl fullWidth size="small">
+                                          <InputLabel id="backtest-timeframe">{t('today.session.backtest.timeframe')}</InputLabel>
+                                          <Select
+                                            labelId="backtest-timeframe"
+                                            label={t('today.session.backtest.timeframe')}
+                                            value={backtestSetup.timeframe}
+                                            onChange={(event) => setBacktestSetup((prev) => ({ ...prev, timeframe: event.target.value as BacktestSetupState['timeframe'] }))}
+                                          >
+                                            <MenuItem value="M1">M1</MenuItem>
+                                            <MenuItem value="M5">M5</MenuItem>
+                                            <MenuItem value="M15">M15</MenuItem>
+                                            <MenuItem value="H1">H1</MenuItem>
+                                            <MenuItem value="D1">D1</MenuItem>
+                                          </Select>
+                                        </FormControl>
+                                      </Grid>
+                                    </>
+                                  )}
+
+                                  {backtestSetup.dataSource !== 'OANDA' && (
+                                    <>
+                                      <Grid item xs={12} sm={6} md={3}>
+                                        <TextField
+                                          size="small"
+                                          fullWidth
+                                          label={t('trades.form.symbol')}
+                                          value={backtestSetup.symbol}
+                                          onChange={(event) => setBacktestSetup((prev) => ({ ...prev, symbol: event.target.value.toUpperCase() }))}
+                                        />
+                                      </Grid>
+                                      <Grid item xs={6} sm={3} md={2}>
+                                        <TextField
+                                          size="small"
+                                          fullWidth
+                                          label={t('today.session.backtest.timeframe')}
+                                          value={backtestSetup.timeframe}
+                                          disabled
+                                        />
+                                      </Grid>
+                                    </>
+                                  )}
+
+                                  <Grid item xs={6} sm={3} md={2}>
+                                    <TextField
+                                      size="small"
+                                      fullWidth
+                                      type="date"
+                                      label={t('today.session.backtest.from')}
+                                      InputLabelProps={{ shrink: true }}
+                                      value={backtestSetup.from}
+                                      inputProps={{
+                                        min: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataFrom) : undefined,
+                                        max: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataTo) : undefined
+                                      }}
+                                      onChange={(event) => setBacktestSetup((prev) => ({ ...prev, from: event.target.value }))}
+                                    />
+                                  </Grid>
+                                  <Grid item xs={6} sm={3} md={2}>
+                                    <TextField
+                                      size="small"
+                                      fullWidth
+                                      type="date"
+                                      label={t('today.session.backtest.to')}
+                                      InputLabelProps={{ shrink: true }}
+                                      value={backtestSetup.to}
+                                      inputProps={{
+                                        min: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataFrom) : undefined,
+                                        max: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataTo) : undefined
+                                      }}
+                                      onChange={(event) => setBacktestSetup((prev) => ({ ...prev, to: event.target.value }))}
+                                    />
+                                  </Grid>
+                                  <Grid item xs={6} sm={3} md={2}>
+                                    <TextField
+                                      size="small"
+                                      fullWidth
+                                      label={t('today.session.backtest.sessionWindow')}
+                                      value={backtestSetup.sessionWindow}
+                                      onChange={(event) => setBacktestSetup((prev) => ({ ...prev, sessionWindow: event.target.value.toUpperCase() }))}
+                                    />
+                                  </Grid>
+                                  <Grid item xs={6} sm={3} md={2}>
+                                    <TextField
+                                      size="small"
+                                      fullWidth
+                                      label={t('today.session.backtest.spread')}
+                                      value={backtestSetup.spread}
+                                      onChange={(event) => setBacktestSetup((prev) => ({ ...prev, spread: event.target.value }))}
+                                    />
+                                  </Grid>
+                                  <Grid item xs={6} sm={3} md={2}>
+                                    <TextField
+                                      size="small"
+                                      fullWidth
+                                      label={t('today.session.backtest.slippage')}
+                                      value={backtestSetup.slippage}
+                                      onChange={(event) => setBacktestSetup((prev) => ({ ...prev, slippage: event.target.value }))}
+                                    />
+                                  </Grid>
+                                  <Grid item xs={12} md={4}>
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                                      <Button size="small" variant="contained" onClick={() => void handleLoadBacktestData()} disabled={backtestLoading}>
+                                        {t('today.session.backtest.loadData')}
+                                      </Button>
+                                      <Button size="small" variant="outlined" onClick={handleResetBacktestReplay}>
+                                        {t('today.session.backtest.reset')}
+                                      </Button>
+                                    </Stack>
+                                  </Grid>
                                 </Grid>
-                                <Grid item xs={6} sm={3} md={2}>
-                                  <FormControl fullWidth size="small">
-                                    <InputLabel id="backtest-timeframe">{t('today.session.backtest.timeframe')}</InputLabel>
-                                    <Select
-                                      labelId="backtest-timeframe"
-                                      label={t('today.session.backtest.timeframe')}
-                                      value={backtestSetup.timeframe}
-                                      onChange={(event) => setBacktestSetup((prev) => ({ ...prev, timeframe: event.target.value as BacktestSetupState['timeframe'] }))}
-                                    >
-                                      <MenuItem value="M1">M1</MenuItem>
-                                      <MenuItem value="M5">M5</MenuItem>
-                                      <MenuItem value="M15">M15</MenuItem>
-                                    </Select>
-                                  </FormControl>
-                                </Grid>
-                                <Grid item xs={6} sm={3} md={2}>
-                                  <TextField
-                                    size="small"
-                                    fullWidth
-                                    type="date"
-                                    label={t('today.session.backtest.from')}
-                                    InputLabelProps={{ shrink: true }}
-                                    value={backtestSetup.from}
-                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, from: event.target.value }))}
-                                  />
-                                </Grid>
-                                <Grid item xs={6} sm={3} md={2}>
-                                  <TextField
-                                    size="small"
-                                    fullWidth
-                                    type="date"
-                                    label={t('today.session.backtest.to')}
-                                    InputLabelProps={{ shrink: true }}
-                                    value={backtestSetup.to}
-                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, to: event.target.value }))}
-                                  />
-                                </Grid>
-                                <Grid item xs={6} sm={3} md={2}>
-                                  <TextField
-                                    size="small"
-                                    fullWidth
-                                    label={t('today.session.backtest.sessionWindow')}
-                                    value={backtestSetup.sessionWindow}
-                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, sessionWindow: event.target.value.toUpperCase() }))}
-                                  />
-                                </Grid>
-                                <Grid item xs={6} sm={3} md={2}>
-                                  <TextField
-                                    size="small"
-                                    fullWidth
-                                    label={t('today.session.backtest.spread')}
-                                    value={backtestSetup.spread}
-                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, spread: event.target.value }))}
-                                  />
-                                </Grid>
-                                <Grid item xs={6} sm={3} md={2}>
-                                  <TextField
-                                    size="small"
-                                    fullWidth
-                                    label={t('today.session.backtest.slippage')}
-                                    value={backtestSetup.slippage}
-                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, slippage: event.target.value }))}
-                                  />
-                                </Grid>
-                                <Grid item xs={12} md={4}>
+
+                                {backtestSetup.dataSource === 'OANDA' && oandaConnected === false && (
+                                  <Alert severity="warning">
+                                    <Typography variant="body2">
+                                      {t('today.session.backtest.providerNotConnected')}{' '}
+                                      <Link to="/settings">{t('today.session.backtest.openSettings')}</Link>
+                                    </Typography>
+                                  </Alert>
+                                )}
+
+                                {backtestSetup.dataSource === 'DEMO' && (
                                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
-                                    <Button size="small" variant="contained" onClick={() => void handleLoadBacktestData()} disabled={backtestLoading}>
-                                      {t('today.session.backtest.loadData')}
+                                    <Button size="small" variant="outlined" onClick={() => handleBacktestSourceChange('DEMO')} disabled={backtestDatasetsLoading}>
+                                      {t('today.session.backtest.loadDemo')}
                                     </Button>
-                                    <Button size="small" variant="outlined" onClick={handleResetBacktestReplay}>
-                                      {t('today.session.backtest.reset')}
-                                    </Button>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {t('today.session.backtest.demoHint')}
+                                    </Typography>
                                   </Stack>
-                                </Grid>
-                              </Grid>
+                                )}
+
+                                {backtestSetup.dataSource === 'CSV' && (
+                                  <Stack spacing={1}>
+                                    <input
+                                      ref={csvUploadInputRef}
+                                      type="file"
+                                      accept=".csv,text/csv"
+                                      multiple
+                                      hidden
+                                      onChange={(event) => void handleCsvFilesSelected(event.target.files)}
+                                    />
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }}>
+                                      <Button size="small" variant="outlined" onClick={() => csvUploadInputRef.current?.click()}>
+                                        {t('today.session.backtest.uploadCsv')}
+                                      </Button>
+                                      <Typography variant="caption" color="text.secondary">
+                                        {t('today.session.backtest.uploadHint')}
+                                      </Typography>
+                                    </Stack>
+
+                                    {csvUploads.map((upload) => (
+                                      <Box key={upload.fileId} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
+                                        <Stack spacing={0.75}>
+                                          <Typography variant="body2" fontWeight={600}>{upload.fileName}</Typography>
+                                          <Typography variant="caption" color="text.secondary">
+                                            {upload.detectedSymbol || t('common.na')} • {upload.detectedTimeframe || t('common.na')} • {upload.dataFrom ? new Date(upload.dataFrom).toLocaleDateString() : t('common.na')} - {upload.dataTo ? new Date(upload.dataTo).toLocaleDateString() : t('common.na')}
+                                          </Typography>
+                                          {upload.warnings?.length > 0 && (
+                                            <Typography variant="caption" color="warning.main">
+                                              {upload.warnings.join(' ')}
+                                            </Typography>
+                                          )}
+                                          {upload.mappingRequired && (
+                                            <Grid container spacing={0.75}>
+                                              <Grid item xs={6} md={4}>
+                                                <FormControl fullWidth size="small">
+                                                  <InputLabel>{t('today.session.backtest.mapping.time')}</InputLabel>
+                                                  <Select
+                                                    label={t('today.session.backtest.mapping.time')}
+                                                    value={upload.mappingDraft.timeColumn}
+                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'timeColumn', event.target.value)}
+                                                  >
+                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
+                                                  </Select>
+                                                </FormControl>
+                                              </Grid>
+                                              <Grid item xs={6} md={4}>
+                                                <FormControl fullWidth size="small">
+                                                  <InputLabel>{t('today.session.backtest.mapping.open')}</InputLabel>
+                                                  <Select
+                                                    label={t('today.session.backtest.mapping.open')}
+                                                    value={upload.mappingDraft.openColumn}
+                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'openColumn', event.target.value)}
+                                                  >
+                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
+                                                  </Select>
+                                                </FormControl>
+                                              </Grid>
+                                              <Grid item xs={6} md={4}>
+                                                <FormControl fullWidth size="small">
+                                                  <InputLabel>{t('today.session.backtest.mapping.high')}</InputLabel>
+                                                  <Select
+                                                    label={t('today.session.backtest.mapping.high')}
+                                                    value={upload.mappingDraft.highColumn}
+                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'highColumn', event.target.value)}
+                                                  >
+                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
+                                                  </Select>
+                                                </FormControl>
+                                              </Grid>
+                                              <Grid item xs={6} md={4}>
+                                                <FormControl fullWidth size="small">
+                                                  <InputLabel>{t('today.session.backtest.mapping.low')}</InputLabel>
+                                                  <Select
+                                                    label={t('today.session.backtest.mapping.low')}
+                                                    value={upload.mappingDraft.lowColumn}
+                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'lowColumn', event.target.value)}
+                                                  >
+                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
+                                                  </Select>
+                                                </FormControl>
+                                              </Grid>
+                                              <Grid item xs={6} md={4}>
+                                                <FormControl fullWidth size="small">
+                                                  <InputLabel>{t('today.session.backtest.mapping.close')}</InputLabel>
+                                                  <Select
+                                                    label={t('today.session.backtest.mapping.close')}
+                                                    value={upload.mappingDraft.closeColumn}
+                                                    onChange={(event) => handleCsvMappingDraftChange(upload.fileId, 'closeColumn', event.target.value)}
+                                                  >
+                                                    {upload.headers.map((header) => <MenuItem key={header} value={header}>{header}</MenuItem>)}
+                                                  </Select>
+                                                </FormControl>
+                                              </Grid>
+                                            </Grid>
+                                          )}
+                                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                                            <Button
+                                              size="small"
+                                              variant="contained"
+                                              onClick={() => void handleIngestCsvUpload(upload)}
+                                              disabled={csvIngestingFileId === upload.fileId}
+                                            >
+                                              {csvIngestingFileId === upload.fileId ? t('today.session.backtest.ingesting') : t('today.session.backtest.ingest')}
+                                            </Button>
+                                          </Stack>
+                                        </Stack>
+                                      </Box>
+                                    ))}
+                                  </Stack>
+                                )}
+                              </Stack>
                             </AccordionDetails>
                           </Accordion>
 

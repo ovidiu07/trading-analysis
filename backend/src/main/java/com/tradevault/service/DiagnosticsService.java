@@ -60,7 +60,7 @@ public class DiagnosticsService {
         UUID userId = user.getId();
         Map<UUID, String> strategyNames = mapStrategyNames(userId);
 
-        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.BOTH, null, null, null, null, null)
+        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.BOTH, null, null, null, null, null, null)
                 .stream()
                 .filter(sample -> sample.strategyId() != null)
                 .toList();
@@ -97,13 +97,14 @@ public class DiagnosticsService {
                                                                LocalDate from,
                                                                LocalDate to,
                                                                String symbol,
-                                                               String sessionWindow) {
+                                                               String sessionWindow,
+                                                               String backtestSource) {
         User user = currentUserService.getCurrentUser();
         UUID userId = user.getId();
         DiagnosticsMode mode = DiagnosticsMode.from(modeRaw);
         Map<UUID, String> strategyNames = mapStrategyNames(userId);
 
-        List<TradeSample> samples = loadSamples(userId, mode, from, to, symbol, sessionWindow, strategyId);
+        List<TradeSample> samples = loadSamples(userId, mode, from, to, symbol, sessionWindow, backtestSource, strategyId);
 
         DiagnosticsCoreMetrics coreMetrics = buildCoreMetrics(samples);
         List<DiagnosticsBreakdownRow> bySession = buildBreakdown(samples, TradeSample::sessionLabel);
@@ -155,11 +156,13 @@ public class DiagnosticsService {
                                           LocalDate to,
                                           String symbol,
                                           String sessionWindow,
+                                          String backtestSource,
                                           UUID strategyFilter) {
         OffsetDateTime fromTs = from == null ? null : from.atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
         OffsetDateTime toTs = to == null ? null : to.plusDays(1).atStartOfDay().atOffset(java.time.ZoneOffset.UTC).minusNanos(1);
         String normalizedSymbol = normalizeOptionalText(symbol);
         String normalizedSession = normalizeOptionalText(sessionWindow);
+        String normalizedBacktestSource = normalizeOptionalText(backtestSource);
 
         List<TradeSample> rows = new ArrayList<>();
 
@@ -241,6 +244,12 @@ public class DiagnosticsService {
                 String session = run == null ? "N/A" : (normalizeOptionalText(run.getSessionWindow()) == null ? "N/A" : run.getSessionWindow());
                 if (normalizedSession != null && !equalsIgnoreCase(session, normalizedSession)) {
                     continue;
+                }
+                if (normalizedBacktestSource != null) {
+                    String runSource = run == null ? null : normalizeOptionalText(run.getProvider());
+                    if (!equalsIgnoreCase(runSource, normalizedBacktestSource)) {
+                        continue;
+                    }
                 }
 
                 rows.add(new TradeSample(

@@ -22,10 +22,16 @@ const REQUIRED_KEYS = [
   'today.session.chartProfiles.followPlanSymbol',
   'today.session.backtest.setupTitle',
   'today.session.backtest.setupHint',
+  'today.session.backtest.dataSource',
+  'today.session.backtest.sources.csv',
+  'today.session.backtest.dataset',
   'today.session.backtest.loadData',
   'today.session.backtest.summaryTitle',
   'today.session.backtest.errors.setupRequired',
   'today.session.backtest.errors.loadDataFirst',
+  'settings.providers.title',
+  'diagnostics.filters.source',
+  'errors.BACKTEST_PROVIDER_NOT_CONNECTED',
   'nav.diagnostics'
 ]
 
@@ -41,4 +47,3 @@ describe('session enhancements i18n', () => {
     expect((roValue as string).trim().length).toBeGreaterThan(0)
   })
 })
-

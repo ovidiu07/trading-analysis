@@ -85,6 +85,17 @@ public class RestExceptionHandler {
         return ResponseEntity.badRequest().body(response);
     }
 
+    @ExceptionHandler(BacktestDomainException.class)
+    public ResponseEntity<ApiErrorResponse> handleBacktestDomain(BacktestDomainException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error(ex.getCode())
+                .message(ex.getMessage())
+                .hint(ex.getHint())
+                .details(ex.getDetails())
+                .build();
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
     @ExceptionHandler(TradeSearchValidationException.class)
     public ResponseEntity<ApiErrorResponse> handleTradeSearchValidation(TradeSearchValidationException ex) {
         ApiErrorResponse response = ApiErrorResponse.builder()

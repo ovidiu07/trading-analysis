@@ -149,7 +149,13 @@
     "EMAIL_IN_USE": "An account with this email already exists.",
     "CAPTCHA_FAILED": "Captcha verification failed. Please try again.",
     "RATE_LIMITED": "Too many requests. Please wait and try again.",
-    "NOT_IMPLEMENTED": "This feature is not available yet."
+    "NOT_IMPLEMENTED": "This feature is not available yet.",
+    "BACKTEST_PROVIDER_NOT_CONNECTED": "Provider is not connected. Go to Settings and connect your account.",
+    "BACKTEST_PROVIDER_NOT_CONFIGURED": "Backtest provider is not configured on the server.",
+    "CSV_PARSE_ERROR": "CSV parsing failed. Check the file format and required columns.",
+    "CSV_MAPPING_REQUIRED": "CSV column mapping is required before ingesting the file.",
+    "DATASET_NOT_FOUND": "Selected backtest dataset was not found.",
+    "UNSUPPORTED_SYMBOL_TIMEFRAME": "Unsupported symbol or timeframe."
   },
   "assets": {
     "errors": {
@@ -1176,12 +1182,36 @@
       "backtest": {
         "setupTitle": "Backtest setup",
         "setupHint": "Load deterministic candles, then replay the market and simulate trades with your rules.",
+        "dataSource": "Data source",
+        "dataset": "Dataset",
+        "sources": {
+          "csv": "CSV upload",
+          "oanda": "Provider (OANDA)",
+          "demo": "Demo dataset"
+        },
         "timeframe": "Timeframe",
         "from": "From",
         "to": "To",
         "sessionWindow": "Session window",
         "spread": "Spread (optional)",
         "slippage": "Slippage (optional)",
+        "uploadCsv": "Upload CSV",
+        "uploadHint": "Supports TradingView export and generic OHLC files.",
+        "uploaded": "CSV file uploaded.",
+        "ingest": "Ingest dataset",
+        "ingesting": "Ingesting...",
+        "ingested": "Dataset ingested and ready for replay.",
+        "loadDemo": "Load demo dataset",
+        "demoHint": "Demo data is deterministic and suitable for onboarding/testing.",
+        "providerNotConnected": "OANDA is not connected.",
+        "openSettings": "Open Settings",
+        "mapping": {
+          "time": "Time column",
+          "open": "Open column",
+          "high": "High column",
+          "low": "Low column",
+          "close": "Close column"
+        },
         "loadData": "Load data",
         "loaded": "Backtest candles loaded.",
         "reset": "Reset replay",
@@ -1198,7 +1228,13 @@
         "tradeSimulated": "Backtest trade simulated.",
         "errors": {
           "setupRequired": "Symbol and date range are required before loading backtest data.",
-          "loadDataFirst": "Load replay data first."
+          "datasetRequired": "Select a dataset first.",
+          "loadDataFirst": "Load replay data first.",
+          "loadFailed": "Could not load backtest candles.",
+          "loadDatasets": "Could not load backtest datasets.",
+          "loadDemo": "Could not load demo dataset.",
+          "uploadFailed": "Could not upload CSV file.",
+          "ingestFailed": "Could not ingest CSV dataset."
         }
       },
       "screenshots": {
@@ -1629,6 +1665,34 @@
     "messages": {
       "saving": "Saving...",
       "saved": "Settings saved and synced across the app"
+    },
+    "providers": {
+      "title": "Data providers",
+      "subtitle": "Connect your own provider keys for backtesting. Tokens are encrypted at rest and never returned to the UI.",
+      "oandaPractice": "OANDA (Practice)",
+      "token": "Practice API token",
+      "tokenHint": "Paste token once to test/save. The token is not shown after saving.",
+      "accountId": "Account",
+      "status": {
+        "connected": "Connected",
+        "notConnected": "Not connected"
+      },
+      "actions": {
+        "test": "Test connection",
+        "testing": "Testing...",
+        "connect": "Save connection",
+        "connecting": "Saving...",
+        "disconnect": "Disconnect",
+        "disconnecting": "Disconnecting..."
+      },
+      "errors": {
+        "tokenRequired": "Token is required."
+      },
+      "messages": {
+        "testSuccess": "Connection test succeeded.",
+        "connected": "Provider connected successfully.",
+        "disconnected": "Provider disconnected."
+      }
     },
     "password": {
       "title": "Change password",
@@ -2304,6 +2368,11 @@
       "modeBoth": "Both",
       "modeLive": "Live",
       "modeBacktest": "Backtest",
+      "source": "Source",
+      "sourceAll": "All",
+      "sourceCsv": "CSV",
+      "sourceOanda": "OANDA",
+      "sourceDemo": "Demo",
       "from": "From",
       "to": "To",
       "symbol": "Symbol",

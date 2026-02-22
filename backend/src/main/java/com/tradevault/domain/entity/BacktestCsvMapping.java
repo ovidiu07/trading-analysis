@@ -1,10 +1,7 @@
 package com.tradevault.domain.entity;
 
-import com.tradevault.domain.enums.BacktestRunStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
@@ -20,7 +17,6 @@ import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.GenericGenerator;
 import org.hibernate.annotations.UpdateTimestamp;
 
-import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.UUID;
 
@@ -30,8 +26,8 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "backtest_runs")
-public class BacktestRun {
+@Table(name = "backtest_csv_mappings")
+public class BacktestCsvMapping {
     @Id
     @GeneratedValue(generator = "UUID")
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
@@ -41,42 +37,29 @@ public class BacktestRun {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(nullable = false, length = 64)
-    private String symbol;
+    @Column(name = "header_signature", nullable = false, length = 256)
+    private String headerSignature;
 
-    @Column(nullable = false, length = 16)
-    private String timeframe;
+    @Column(name = "time_column", nullable = false, length = 128)
+    private String timeColumn;
 
-    @Column(name = "range_from", nullable = false)
-    private OffsetDateTime rangeFrom;
+    @Column(name = "open_column", nullable = false, length = 128)
+    private String openColumn;
 
-    @Column(name = "range_to", nullable = false)
-    private OffsetDateTime rangeTo;
+    @Column(name = "high_column", nullable = false, length = 128)
+    private String highColumn;
 
-    @Column(name = "session_window", length = 64)
-    private String sessionWindow;
+    @Column(name = "low_column", nullable = false, length = 128)
+    private String lowColumn;
 
-    @Column(precision = 18, scale = 8)
-    private BigDecimal spread;
+    @Column(name = "close_column", nullable = false, length = 128)
+    private String closeColumn;
 
-    @Column(precision = 18, scale = 8)
-    private BigDecimal slippage;
+    @Column(name = "volume_column", length = 128)
+    private String volumeColumn;
 
-    @Column(nullable = false, length = 32)
-    private String provider;
-
-    @Column(name = "source_id", length = 128)
-    private String sourceId;
-
-    @Column(name = "dataset_id")
-    private UUID datasetId;
-
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 24)
-    private BacktestRunStatus status;
-
-    @Column(name = "candle_count", nullable = false)
-    private Integer candleCount;
+    @Column(name = "timezone", length = 64)
+    private String timezone;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

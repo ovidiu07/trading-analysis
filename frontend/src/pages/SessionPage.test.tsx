@@ -53,6 +53,14 @@ const chartProfilesApiMock = vi.hoisted(() => ({
 
 const backtestApiMock = vi.hoisted(() => ({
   createBacktestRun: vi.fn(),
+  uploadBacktestCsv: vi.fn(),
+  ingestBacktestCsv: vi.fn(),
+  listBacktestDatasets: vi.fn(),
+  loadDemoBacktestDatasets: vi.fn(),
+  getOandaProviderStatus: vi.fn(),
+  connectOandaProvider: vi.fn(),
+  disconnectOandaProvider: vi.fn(),
+  testOandaProvider: vi.fn(),
   listBacktestRuns: vi.fn(),
   getBacktestRun: vi.fn(),
   listBacktestTrades: vi.fn(),
@@ -410,6 +418,47 @@ describe('SessionPage execution funnel', () => {
         { timestamp: '2026-02-14T08:01:00Z', open: 1.1005, high: 1.1015, low: 1.0995, close: 1.101, volume: 120 },
         { timestamp: '2026-02-14T08:02:00Z', open: 1.101, high: 1.102, low: 1.1, close: 1.1018, volume: 130 }
       ]
+    })
+    backtestApiMock.uploadBacktestCsv.mockResolvedValue({
+      fileId: 'upload-1',
+      fileName: 'tv.csv',
+      headers: ['time', 'open', 'high', 'low', 'close', 'volume'],
+      mappingRequired: false,
+      suggestedMapping: {
+        timeColumn: 'time',
+        openColumn: 'open',
+        highColumn: 'high',
+        lowColumn: 'low',
+        closeColumn: 'close',
+        volumeColumn: 'volume'
+      },
+      detectedSymbol: 'EURUSD',
+      detectedTimeframe: 'M1',
+      dataFrom: '2026-02-01T00:00:00Z',
+      dataTo: '2026-02-01T01:00:00Z',
+      warnings: []
+    })
+    backtestApiMock.ingestBacktestCsv.mockResolvedValue({
+      dataset: {
+        id: 'dataset-1',
+        provider: 'CSV',
+        sourceId: 'source-1',
+        name: 'tv.csv',
+        symbolCanonical: 'EURUSD',
+        symbolDisplay: 'EURUSD',
+        timeframe: 'M1',
+        dataFrom: '2026-02-01T00:00:00Z',
+        dataTo: '2026-02-01T01:00:00Z',
+        rowCount: 61,
+        warnings: []
+      },
+      warnings: []
+    })
+    backtestApiMock.listBacktestDatasets.mockResolvedValue([])
+    backtestApiMock.loadDemoBacktestDatasets.mockResolvedValue([])
+    backtestApiMock.getOandaProviderStatus.mockResolvedValue({
+      provider: 'OANDA',
+      connected: true
     })
     backtestApiMock.listBacktestRuns.mockResolvedValue([])
     backtestApiMock.getBacktestRun.mockResolvedValue(null)
@@ -792,5 +841,72 @@ describe('SessionPage execution funnel', () => {
       )
     })
     expect(await screen.findByText(/Result:\s*TP/i)).toBeInTheDocument()
+  }, 30_000)
+
+  it('shows provider guidance when OANDA is not connected', async () => {
+    const user = userEvent.setup()
+    backtestApiMock.getOandaProviderStatus.mockResolvedValue({ provider: 'OANDA', connected: false })
+
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+
+    expect(await screen.findByText(/OANDA is not connected/i)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Open Settings/i })).toHaveAttribute('href', '/settings')
+  })
+
+  it('uploads and ingests CSV in backtest setup', async () => {
+    const user = userEvent.setup()
+    const csvDataset = {
+      id: 'dataset-csv-1',
+      provider: 'CSV',
+      sourceId: 'csv-source-1',
+      name: 'tv.csv',
+      symbolCanonical: 'EURUSD',
+      symbolDisplay: 'EURUSD',
+      timeframe: 'M1',
+      dataFrom: '2026-02-01T00:00:00Z',
+      dataTo: '2026-02-01T01:00:00Z',
+      rowCount: 61,
+      warnings: []
+    }
+    let datasets: any[] = []
+    backtestApiMock.listBacktestDatasets.mockImplementation(async () => datasets)
+    backtestApiMock.ingestBacktestCsv.mockImplementation(async () => {
+      datasets = [csvDataset]
+      return { dataset: csvDataset, warnings: [] }
+    })
+
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+
+    await user.click(screen.getByRole('combobox', { name: /Data source/i }))
+    await user.click(await screen.findByRole('option', { name: /CSV upload/i }))
+
+    const fileInput = document.querySelector('input[type=\"file\"][accept=\".csv,text/csv\"]') as HTMLInputElement
+    const file = new File(['time,open,high,low,close,volume\\n2026-02-01T00:00:00Z,1,2,0.5,1.5,100'], 'tv.csv', { type: 'text/csv' })
+    fireEvent.change(fileInput, { target: { files: [file] } })
+
+    await waitFor(() => {
+      expect(backtestApiMock.uploadBacktestCsv).toHaveBeenCalledWith(file)
+    })
+
+    await user.click(await screen.findByRole('button', { name: /Ingest dataset/i }))
+    await waitFor(() => {
+      expect(backtestApiMock.ingestBacktestCsv).toHaveBeenCalled()
+    })
+
+    await user.click(screen.getByRole('button', { name: /Load data/i }))
+    await waitFor(() => {
+      expect(backtestApiMock.createBacktestRun).toHaveBeenCalledWith(expect.objectContaining({
+        dataSource: 'CSV',
+        datasetId: 'dataset-csv-1'
+      }))
+    })
   }, 30_000)
 })

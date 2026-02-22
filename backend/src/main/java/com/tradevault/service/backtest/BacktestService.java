@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.BacktestRun;
 import com.tradevault.domain.entity.BacktestTrade;
+import com.tradevault.domain.entity.BacktestDataset;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.BacktestCandleSource;
 import com.tradevault.domain.enums.BacktestExitReason;
 import com.tradevault.domain.enums.BacktestOrderType;
 import com.tradevault.domain.enums.BacktestRunStatus;
@@ -16,6 +18,8 @@ import com.tradevault.dto.backtest.BacktestRunRequest;
 import com.tradevault.dto.backtest.BacktestRunResponse;
 import com.tradevault.dto.backtest.BacktestTradeResponse;
 import com.tradevault.dto.backtest.BacktestTradeSimulateRequest;
+import com.tradevault.exception.BacktestDomainException;
+import com.tradevault.exception.BacktestErrorCodes;
 import com.tradevault.repository.BacktestRunRepository;
 import com.tradevault.repository.BacktestTradeRepository;
 import com.tradevault.service.ContextSnapshotService;
@@ -24,6 +28,7 @@ import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.http.HttpStatus;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -41,6 +46,7 @@ public class BacktestService {
     private final BacktestRunRepository backtestRunRepository;
     private final BacktestTradeRepository backtestTradeRepository;
     private final CandleDataService candleDataService;
+    private final BacktestDatasetService backtestDatasetService;
     private final CurrentUserService currentUserService;
     private final ContextSnapshotService contextSnapshotService;
     private final ObjectMapper objectMapper;
@@ -50,16 +56,54 @@ public class BacktestService {
         User user = currentUserService.getCurrentUser();
         validateDateRange(request.getFrom(), request.getTo());
 
+        BacktestCandleSource source = normalizeSource(request.getDataSource() == null ? request.getProvider() : request.getDataSource());
         String symbol = normalizeSymbol(request.getSymbol());
         String timeframe = normalizeTimeframe(request.getTimeframe());
-        String provider = normalizeProvider(request.getProvider());
+        String sourceId = normalizeOptionalText(request.getSourceId());
+        java.util.UUID datasetId = request.getDatasetId();
+        OffsetDateTime rangeFrom = request.getFrom();
+        OffsetDateTime rangeTo = request.getTo();
+
+        if (source == BacktestCandleSource.CSV || source == BacktestCandleSource.DEMO) {
+            if (datasetId == null) {
+                throw new BacktestDomainException(
+                        BacktestErrorCodes.DATASET_NOT_FOUND,
+                        "Dataset is required for the selected source",
+                        "Choose an ingested dataset before loading backtest candles.",
+                        HttpStatus.BAD_REQUEST
+                );
+            }
+            BacktestDataset dataset = backtestDatasetService.requireDataset(user.getId(), datasetId);
+            if (dataset.getProvider() != source) {
+                throw new BacktestDomainException(
+                        BacktestErrorCodes.DATASET_NOT_FOUND,
+                        "Dataset provider mismatch",
+                        "Select a dataset that matches the selected data source.",
+                        HttpStatus.BAD_REQUEST
+                );
+            }
+            sourceId = dataset.getSourceId();
+            symbol = normalizeSymbol(dataset.getSymbolDisplay());
+            timeframe = dataset.getTimeframe().name();
+            if (dataset.getDataFrom() != null && rangeFrom.isBefore(dataset.getDataFrom())) {
+                rangeFrom = dataset.getDataFrom();
+            }
+            if (dataset.getDataTo() != null && rangeTo.isAfter(dataset.getDataTo())) {
+                rangeTo = dataset.getDataTo();
+            }
+            validateDateRange(rangeFrom, rangeTo);
+        } else if (source == BacktestCandleSource.OANDA && sourceId == null) {
+            sourceId = user.getId().toString();
+        }
 
         List<BacktestCandle> candles = candleDataService.getCandles(
-                provider,
+                user.getId(),
+                source.name(),
+                sourceId,
                 symbol,
                 timeframe,
-                request.getFrom(),
-                request.getTo(),
+                rangeFrom,
+                rangeTo,
                 request.isRefresh()
         );
         candles = filterBySessionWindow(candles, request.getSessionWindow());
@@ -68,12 +112,14 @@ public class BacktestService {
                 .user(user)
                 .symbol(symbol)
                 .timeframe(timeframe)
-                .rangeFrom(request.getFrom())
-                .rangeTo(request.getTo())
+                .rangeFrom(rangeFrom)
+                .rangeTo(rangeTo)
                 .sessionWindow(normalizeOptionalText(request.getSessionWindow()))
                 .spread(request.getSpread())
                 .slippage(request.getSlippage())
-                .provider(provider)
+                .provider(source.name())
+                .sourceId(sourceId)
+                .datasetId(datasetId)
                 .status(BacktestRunStatus.READY)
                 .candleCount(candles.size())
                 .build();
@@ -156,7 +202,13 @@ public class BacktestService {
                     fallbackArray(request.getLevelsSnapshotJson()),
                     fallbackObject(request.getLockInSnapshotJson()),
                     computeRr(request.getDirection(), fill.entryPrice(), request.getStopLossPrice(), request.getTakeProfitPrice()),
-                    fallbackObject(request.getQualityScoreInputsJson())
+                    fallbackObject(request.getQualityScoreInputsJson()),
+                    run.getProvider(),
+                    run.getSourceId(),
+                    run.getDatasetId(),
+                    run.getSymbol(),
+                    run.getTimeframe(),
+                    request.getReplayCursorTime()
             );
             trade.setContextSnapshotId(snapshot.getId());
             trade.setStrategyVersionId(snapshot.getStrategyVersionId());
@@ -216,7 +268,13 @@ public class BacktestService {
                 fallbackArray(request.getLevelsSnapshotJson()),
                 fallbackObject(request.getLockInSnapshotJson()),
                 computeRr(request.getDirection(), fill.entryPrice(), request.getStopLossPrice(), request.getTakeProfitPrice()),
-                fallbackObject(request.getQualityScoreInputsJson())
+                fallbackObject(request.getQualityScoreInputsJson()),
+                run.getProvider(),
+                run.getSourceId(),
+                run.getDatasetId(),
+                run.getSymbol(),
+                run.getTimeframe(),
+                request.getReplayCursorTime()
         );
         trade.setContextSnapshotId(snapshot.getId());
         trade.setStrategyVersionId(snapshot.getStrategyVersionId());
@@ -230,7 +288,9 @@ public class BacktestService {
 
     private List<BacktestCandle> loadRunCandles(BacktestRun run) {
         List<BacktestCandle> candles = candleDataService.getCandles(
+                run.getUser().getId(),
                 run.getProvider(),
+                run.getSourceId(),
                 run.getSymbol(),
                 run.getTimeframe(),
                 run.getRangeFrom(),
@@ -442,6 +502,9 @@ public class BacktestService {
                 .spread(run.getSpread())
                 .slippage(run.getSlippage())
                 .provider(run.getProvider())
+                .dataSource(run.getProvider())
+                .sourceId(run.getSourceId())
+                .datasetId(run.getDatasetId())
                 .status(run.getStatus())
                 .candleCount(run.getCandleCount() == null ? 0 : run.getCandleCount())
                 .createdAt(run.getCreatedAt())
@@ -500,11 +563,20 @@ public class BacktestService {
                 .build();
     }
 
-    private String normalizeProvider(String provider) {
+    private BacktestCandleSource normalizeSource(String provider) {
         if (provider == null || provider.isBlank()) {
-            return "OANDA";
+            return BacktestCandleSource.OANDA;
         }
-        return provider.trim().toUpperCase(Locale.ROOT);
+        try {
+            return BacktestCandleSource.valueOf(provider.trim().toUpperCase(Locale.ROOT));
+        } catch (Exception ex) {
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.UNSUPPORTED_SYMBOL_TIMEFRAME,
+                    "Unsupported backtest source: " + provider,
+                    "Supported sources are CSV, OANDA, and DEMO.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
     }
 
     private String normalizeSymbol(String symbol) {

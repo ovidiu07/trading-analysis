@@ -36,6 +36,47 @@ public class ContextSnapshotService {
                                           JsonNode lockInSnapshot,
                                           BigDecimal rrAtEntry,
                                           JsonNode qualityInputs) {
+        return createSnapshot(
+                user,
+                mode,
+                strategyId,
+                prereqsTemplateId,
+                prereqsStateJson,
+                triggersTemplateId,
+                triggersStateJson,
+                selectedSweepLevelId,
+                levelsSnapshot,
+                lockInSnapshot,
+                rrAtEntry,
+                qualityInputs,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null
+        );
+    }
+
+    @Transactional
+    public ContextSnapshot createSnapshot(User user,
+                                          ContextSnapshotMode mode,
+                                          UUID strategyId,
+                                          UUID prereqsTemplateId,
+                                          String prereqsStateJson,
+                                          UUID triggersTemplateId,
+                                          String triggersStateJson,
+                                          UUID selectedSweepLevelId,
+                                          JsonNode levelsSnapshot,
+                                          JsonNode lockInSnapshot,
+                                          BigDecimal rrAtEntry,
+                                          JsonNode qualityInputs,
+                                          String backtestSource,
+                                          String backtestSourceId,
+                                          UUID backtestDatasetId,
+                                          String backtestSymbol,
+                                          String backtestTimeframe,
+                                          java.time.OffsetDateTime backtestReplayCursorTime) {
         JsonNode prereqsStates = parseJsonArrayOrFallback(prereqsStateJson);
         JsonNode triggersStates = parseJsonArrayOrFallback(triggersStateJson);
 
@@ -73,6 +114,12 @@ public class ContextSnapshotService {
                 .lockInSnapshotJson(normalizeObjectOrArray(lockInSnapshot, false))
                 .rrAtEntry(rrAtEntry)
                 .qualityScoreInputsJson(normalizeObjectOrArray(qualityInputs, false))
+                .backtestSource(normalizeOptionalText(backtestSource))
+                .backtestSourceId(normalizeOptionalText(backtestSourceId))
+                .backtestDatasetId(backtestDatasetId)
+                .backtestSymbol(normalizeOptionalText(backtestSymbol))
+                .backtestTimeframe(normalizeOptionalText(backtestTimeframe))
+                .backtestReplayCursorTime(backtestReplayCursorTime)
                 .build();
         return contextSnapshotRepository.save(snapshot);
     }
@@ -94,5 +141,13 @@ public class ContextSnapshotService {
         } catch (Exception ex) {
             return objectMapper.createArrayNode();
         }
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }

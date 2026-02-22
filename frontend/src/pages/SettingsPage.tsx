@@ -5,6 +5,7 @@ import {
   Card,
   CardContent,
   Checkbox,
+  Chip,
   FormControl,
   FormControlLabel,
   FormGroup,
@@ -34,6 +35,13 @@ import {
   updateNotificationPreferences
 } from '../api/notifications'
 import PageHero from '../components/ui/PageHero'
+import {
+  connectOandaProvider,
+  disconnectOandaProvider,
+  getOandaProviderStatus,
+  testOandaProvider,
+  type ProviderConnectionStatus
+} from '../api/backtest'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
@@ -57,6 +65,14 @@ export default function SettingsPage() {
   const [notificationSaving, setNotificationSaving] = useState(false)
   const [notificationMessage, setNotificationMessage] = useState('')
   const [notificationError, setNotificationError] = useState('')
+  const [oandaTokenDraft, setOandaTokenDraft] = useState('')
+  const [providerStatus, setProviderStatus] = useState<ProviderConnectionStatus | null>(null)
+  const [providerLoading, setProviderLoading] = useState(false)
+  const [providerTesting, setProviderTesting] = useState(false)
+  const [providerSaving, setProviderSaving] = useState(false)
+  const [providerDisconnecting, setProviderDisconnecting] = useState(false)
+  const [providerMessage, setProviderMessage] = useState('')
+  const [providerError, setProviderError] = useState('')
 
   useEffect(() => {
     setForm({
@@ -101,6 +117,30 @@ export default function SettingsPage() {
       })
       .finally(() => setNotificationLoading(false))
   }, [language, t])
+
+  useEffect(() => {
+    let mounted = true
+    setProviderLoading(true)
+    getOandaProviderStatus()
+      .then((status) => {
+        if (!mounted) return
+        setProviderStatus(status)
+      })
+      .catch((err) => {
+        if (!mounted) return
+        const apiErr = err as ApiError
+        setProviderError(translateApiError(apiErr, t))
+      })
+      .finally(() => {
+        if (mounted) {
+          setProviderLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [t])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -197,6 +237,68 @@ export default function SettingsPage() {
     }
   }
 
+  const refreshProviderStatus = async () => {
+    const status = await getOandaProviderStatus()
+    setProviderStatus(status)
+  }
+
+  const handleTestProvider = async () => {
+    if (!oandaTokenDraft.trim()) {
+      setProviderError(t('settings.providers.errors.tokenRequired'))
+      return
+    }
+    setProviderTesting(true)
+    setProviderMessage('')
+    setProviderError('')
+    try {
+      const status = await testOandaProvider(oandaTokenDraft.trim())
+      setProviderStatus((prev) => ({ ...prev, ...status }))
+      setProviderMessage(t('settings.providers.messages.testSuccess'))
+    } catch (err) {
+      const apiErr = err as ApiError
+      setProviderError(translateApiError(apiErr, t))
+    } finally {
+      setProviderTesting(false)
+    }
+  }
+
+  const handleSaveProvider = async () => {
+    if (!oandaTokenDraft.trim()) {
+      setProviderError(t('settings.providers.errors.tokenRequired'))
+      return
+    }
+    setProviderSaving(true)
+    setProviderMessage('')
+    setProviderError('')
+    try {
+      const status = await connectOandaProvider(oandaTokenDraft.trim())
+      setProviderStatus(status)
+      setOandaTokenDraft('')
+      setProviderMessage(t('settings.providers.messages.connected'))
+    } catch (err) {
+      const apiErr = err as ApiError
+      setProviderError(translateApiError(apiErr, t))
+    } finally {
+      setProviderSaving(false)
+    }
+  }
+
+  const handleDisconnectProvider = async () => {
+    setProviderDisconnecting(true)
+    setProviderMessage('')
+    setProviderError('')
+    try {
+      await disconnectOandaProvider()
+      await refreshProviderStatus()
+      setProviderMessage(t('settings.providers.messages.disconnected'))
+    } catch (err) {
+      const apiErr = err as ApiError
+      setProviderError(translateApiError(apiErr, t))
+    } finally {
+      setProviderDisconnecting(false)
+    }
+  }
+
   return (
     <Stack spacing={2.5}>
       <PageHero
@@ -253,6 +355,60 @@ export default function SettingsPage() {
           </Stack>
         </CardContent>
       </Card>
+
+      <Card>
+        <CardContent>
+          <Stack spacing={1.5} maxWidth={680}>
+            <Typography variant="h6">{t('settings.providers.title')}</Typography>
+            <Typography variant="body2" color="text.secondary">
+              {t('settings.providers.subtitle')}
+            </Typography>
+            {providerMessage && <Alert severity="success">{providerMessage}</Alert>}
+            {providerError && <Alert severity="error">{providerError}</Alert>}
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} flexWrap="wrap">
+              <Typography variant="body2">{t('settings.providers.oandaPractice')}</Typography>
+              <Chip
+                size="small"
+                color={providerStatus?.connected ? 'success' : 'default'}
+                label={providerStatus?.connected ? t('settings.providers.status.connected') : t('settings.providers.status.notConnected')}
+              />
+              {providerStatus?.accountId && (
+                <Typography variant="caption" color="text.secondary">
+                  {t('settings.providers.accountId')}: {providerStatus.accountId}
+                </Typography>
+              )}
+            </Stack>
+
+            <TextField
+              type="password"
+              label={t('settings.providers.token')}
+              value={oandaTokenDraft}
+              onChange={(event) => setOandaTokenDraft(event.target.value)}
+              helperText={t('settings.providers.tokenHint')}
+              placeholder="xxxxxxxxxxxxxxxxxxxx"
+            />
+
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap">
+              <Button variant="outlined" onClick={() => void handleTestProvider()} disabled={providerTesting || providerSaving || providerLoading}>
+                {providerTesting ? t('settings.providers.actions.testing') : t('settings.providers.actions.test')}
+              </Button>
+              <Button variant="contained" onClick={() => void handleSaveProvider()} disabled={providerSaving || providerLoading}>
+                {providerSaving ? t('settings.providers.actions.connecting') : t('settings.providers.actions.connect')}
+              </Button>
+              <Button
+                variant="text"
+                color="inherit"
+                onClick={() => void handleDisconnectProvider()}
+                disabled={providerDisconnecting || providerLoading || !providerStatus?.connected}
+              >
+                {providerDisconnecting ? t('settings.providers.actions.disconnecting') : t('settings.providers.actions.disconnect')}
+              </Button>
+            </Stack>
+          </Stack>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardContent>
           <Stack spacing={2} maxWidth={640}>

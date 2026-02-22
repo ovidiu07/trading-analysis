@@ -91,6 +91,24 @@ public class ContextSnapshot {
     @Column(name = "quality_score_inputs_json", nullable = false, columnDefinition = "jsonb")
     private JsonNode qualityScoreInputsJson;
 
+    @Column(name = "backtest_source", length = 16)
+    private String backtestSource;
+
+    @Column(name = "backtest_source_id", length = 128)
+    private String backtestSourceId;
+
+    @Column(name = "backtest_dataset_id")
+    private UUID backtestDatasetId;
+
+    @Column(name = "backtest_symbol", length = 64)
+    private String backtestSymbol;
+
+    @Column(name = "backtest_timeframe", length = 16)
+    private String backtestTimeframe;
+
+    @Column(name = "backtest_replay_cursor_time")
+    private OffsetDateTime backtestReplayCursorTime;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;

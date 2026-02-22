@@ -149,7 +149,13 @@
     "EMAIL_IN_USE": "Există deja un cont cu acest email.",
     "CAPTCHA_FAILED": "Verificarea captcha a eșuat. Încearcă din nou.",
     "RATE_LIMITED": "Prea multe cereri. Așteaptă și încearcă din nou.",
-    "NOT_IMPLEMENTED": "Această funcționalitate nu este disponibilă încă."
+    "NOT_IMPLEMENTED": "Această funcționalitate nu este disponibilă încă.",
+    "BACKTEST_PROVIDER_NOT_CONNECTED": "Providerul nu este conectat. Mergi în Setări și conectează contul.",
+    "BACKTEST_PROVIDER_NOT_CONFIGURED": "Providerul de backtest nu este configurat pe server.",
+    "CSV_PARSE_ERROR": "Parsarea CSV a eșuat. Verifică formatul fișierului și coloanele necesare.",
+    "CSV_MAPPING_REQUIRED": "Maparea coloanelor CSV este necesară înainte de ingestie.",
+    "DATASET_NOT_FOUND": "Setul de date backtest selectat nu a fost găsit.",
+    "UNSUPPORTED_SYMBOL_TIMEFRAME": "Simbol sau timeframe nesuportat."
   },
   "assets": {
     "errors": {
@@ -1176,12 +1182,36 @@
       "backtest": {
         "setupTitle": "Setare backtest",
         "setupHint": "Încarcă lumânări deterministe, apoi rulează replay și simulează tranzacții după reguli.",
+        "dataSource": "Sursă date",
+        "dataset": "Set de date",
+        "sources": {
+          "csv": "Upload CSV",
+          "oanda": "Provider (OANDA)",
+          "demo": "Set demo"
+        },
         "timeframe": "Timeframe",
         "from": "De la",
         "to": "Până la",
         "sessionWindow": "Fereastră sesiune",
         "spread": "Spread (opțional)",
         "slippage": "Slippage (opțional)",
+        "uploadCsv": "Încarcă CSV",
+        "uploadHint": "Suportă export TradingView și fișiere OHLC generice.",
+        "uploaded": "Fișierul CSV a fost încărcat.",
+        "ingest": "Ingestie set date",
+        "ingesting": "Se face ingestia...",
+        "ingested": "Setul de date a fost ingestat și este gata pentru replay.",
+        "loadDemo": "Încarcă set demo",
+        "demoHint": "Datele demo sunt deterministe și utile pentru onboarding/testing.",
+        "providerNotConnected": "OANDA nu este conectat.",
+        "openSettings": "Deschide Setări",
+        "mapping": {
+          "time": "Coloană timp",
+          "open": "Coloană open",
+          "high": "Coloană high",
+          "low": "Coloană low",
+          "close": "Coloană close"
+        },
         "loadData": "Încarcă date",
         "loaded": "Lumânările de backtest au fost încărcate.",
         "reset": "Resetează replay",
@@ -1198,7 +1228,13 @@
         "tradeSimulated": "Tranzacția de backtest a fost simulată.",
         "errors": {
           "setupRequired": "Simbolul și intervalul de date sunt obligatorii înainte de încărcarea datelor.",
-          "loadDataFirst": "Încarcă mai întâi datele de replay."
+          "datasetRequired": "Selectează mai întâi un set de date.",
+          "loadDataFirst": "Încarcă mai întâi datele de replay.",
+          "loadFailed": "Datele de backtest nu au putut fi încărcate.",
+          "loadDatasets": "Seturile de date backtest nu au putut fi încărcate.",
+          "loadDemo": "Setul demo nu a putut fi încărcat.",
+          "uploadFailed": "Fișierul CSV nu a putut fi încărcat.",
+          "ingestFailed": "Setul CSV nu a putut fi ingestat."
         }
       },
       "screenshots": {
@@ -1629,6 +1665,34 @@
     "messages": {
       "saving": "Se salvează...",
       "saved": "Setările au fost salvate și sincronizate"
+    },
+    "providers": {
+      "title": "Provideri de date",
+      "subtitle": "Conectează cheile tale pentru backtesting. Token-urile sunt criptate în repaus și nu sunt returnate în UI.",
+      "oandaPractice": "OANDA (Practice)",
+      "token": "Token API Practice",
+      "tokenHint": "Lipește token-ul pentru test/salvare. După salvare token-ul nu mai este afișat.",
+      "accountId": "Cont",
+      "status": {
+        "connected": "Conectat",
+        "notConnected": "Neconectat"
+      },
+      "actions": {
+        "test": "Testează conexiunea",
+        "testing": "Se testează...",
+        "connect": "Salvează conexiunea",
+        "connecting": "Se salvează...",
+        "disconnect": "Deconectează",
+        "disconnecting": "Se deconectează..."
+      },
+      "errors": {
+        "tokenRequired": "Token-ul este obligatoriu."
+      },
+      "messages": {
+        "testSuccess": "Testul conexiunii a reușit.",
+        "connected": "Provider conectat cu succes.",
+        "disconnected": "Provider deconectat."
+      }
     },
     "password": {
       "title": "Schimbă parola",
@@ -2304,6 +2368,11 @@
       "modeBoth": "Ambele",
       "modeLive": "Live",
       "modeBacktest": "Backtest",
+      "source": "Sursă",
+      "sourceAll": "Toate",
+      "sourceCsv": "CSV",
+      "sourceOanda": "OANDA",
+      "sourceDemo": "Demo",
       "from": "De la",
       "to": "Până la",
       "symbol": "Simbol",

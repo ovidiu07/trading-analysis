@@ -55,6 +55,7 @@ export default function DiagnosticsPage() {
   const [strategies, setStrategies] = useState<DiagnosticsStrategiesResponse['strategies']>([])
   const [strategyId, setStrategyId] = useState('')
   const [mode, setMode] = useState<'LIVE' | 'BACKTEST' | 'BOTH'>('BOTH')
+  const [backtestSource, setBacktestSource] = useState<'' | 'CSV' | 'OANDA' | 'DEMO'>('')
   const [activeTab, setActiveTab] = useState<'OVERVIEW' | 'DETAILS' | 'RUNS'>('OVERVIEW')
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
@@ -104,6 +105,7 @@ export default function DiagnosticsPage() {
 
     getDiagnosticsStrategyDetail(strategyId, {
       mode,
+      backtestSource: backtestSource || undefined,
       from: from || undefined,
       to: to || undefined,
       symbol: symbol || undefined,
@@ -127,7 +129,7 @@ export default function DiagnosticsPage() {
     return () => {
       mounted = false
     }
-  }, [strategyId, mode, from, to, symbol, sessionWindow, t])
+  }, [strategyId, mode, backtestSource, from, to, symbol, sessionWindow, t])
 
   const kpiItems = useMemo(() => {
     if (!detail) return []
@@ -164,7 +166,7 @@ export default function DiagnosticsPage() {
             <Typography variant="body2" color="text.secondary">{t('diagnostics.subtitle')}</Typography>
             <Typography variant="caption" color="text.secondary">{t('diagnostics.hints.filters')}</Typography>
             <Grid container spacing={1.25}>
-              <Grid item xs={12} sm={6} md={4}>
+              <Grid item xs={12} sm={6} md={3}>
                 <FormControl fullWidth size="small">
                   <InputLabel id="diag-strategy-label">{t('diagnostics.filters.strategy')}</InputLabel>
                   <Select
@@ -194,7 +196,23 @@ export default function DiagnosticsPage() {
                   </Select>
                 </FormControl>
               </Grid>
-              <Grid item xs={6} sm={6} md={2}>
+              <Grid item xs={12} sm={6} md={2}>
+                <FormControl fullWidth size="small" disabled={mode === 'LIVE'}>
+                  <InputLabel id="diag-source-label">{t('diagnostics.filters.source')}</InputLabel>
+                  <Select
+                    labelId="diag-source-label"
+                    label={t('diagnostics.filters.source')}
+                    value={backtestSource}
+                    onChange={(event) => setBacktestSource(event.target.value as '' | 'CSV' | 'OANDA' | 'DEMO')}
+                  >
+                    <MenuItem value="">{t('diagnostics.filters.sourceAll')}</MenuItem>
+                    <MenuItem value="CSV">{t('diagnostics.filters.sourceCsv')}</MenuItem>
+                    <MenuItem value="OANDA">{t('diagnostics.filters.sourceOanda')}</MenuItem>
+                    <MenuItem value="DEMO">{t('diagnostics.filters.sourceDemo')}</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid item xs={6} sm={6} md={1}>
                 <TextField
                   size="small"
                   fullWidth
@@ -205,7 +223,7 @@ export default function DiagnosticsPage() {
                   onChange={(event) => setFrom(event.target.value)}
                 />
               </Grid>
-              <Grid item xs={6} sm={6} md={2}>
+              <Grid item xs={6} sm={6} md={1}>
                 <TextField
                   size="small"
                   fullWidth

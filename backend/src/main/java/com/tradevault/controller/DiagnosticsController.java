@@ -32,8 +32,9 @@ public class DiagnosticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String symbol,
-            @RequestParam(name = "sessionWindow", required = false) String sessionWindow
+            @RequestParam(name = "sessionWindow", required = false) String sessionWindow,
+            @RequestParam(name = "backtestSource", required = false) String backtestSource
     ) {
-        return diagnosticsService.getStrategyDetail(id, mode, from, to, symbol, sessionWindow);
+        return diagnosticsService.getStrategyDetail(id, mode, from, to, symbol, sessionWindow, backtestSource);
     }
 }

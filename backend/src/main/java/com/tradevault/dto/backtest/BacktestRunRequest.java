@@ -6,6 +6,7 @@ import lombok.Data;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.UUID;
 
 @Data
 public class BacktestRunRequest {
@@ -28,6 +29,12 @@ public class BacktestRunRequest {
     private BigDecimal slippage;
 
     private String provider;
+
+    private String dataSource;
+
+    private String sourceId;
+
+    private UUID datasetId;
 
     private boolean refresh;
 }

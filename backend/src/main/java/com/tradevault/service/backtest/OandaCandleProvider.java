@@ -2,6 +2,10 @@ package com.tradevault.service.backtest;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tradevault.domain.enums.BacktestCandleSource;
+import com.tradevault.domain.enums.BacktestTimeframe;
+import com.tradevault.exception.BacktestDomainException;
+import com.tradevault.exception.BacktestErrorCodes;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
@@ -10,21 +14,31 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestClientException;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.util.UriComponentsBuilder;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 @Service
 @RequiredArgsConstructor
-public class OandaCandleProvider implements CandleProvider {
+public class OandaCandleProvider {
     private static final DateTimeFormatter ISO = DateTimeFormatter.ISO_OFFSET_DATE_TIME;
+    private static final Map<String, String> INDEX_SYMBOL_MAP = Map.of(
+            "GER40", "DE30_EUR",
+            "DE40", "DE30_EUR",
+            "NAS100", "NAS100_USD",
+            "US30", "US30_USD"
+    );
 
     private final ObjectMapper objectMapper;
     private final RestTemplate restTemplate = new RestTemplate();
@@ -32,20 +46,39 @@ public class OandaCandleProvider implements CandleProvider {
     @Value("${backtest.oanda.base-url:https://api-fxpractice.oanda.com/v3}")
     private String baseUrl;
 
-    @Value("${backtest.oanda.api-key:}")
-    private String apiKey;
+    public OandaConnectionResult testConnection(String token) {
+        String url = UriComponentsBuilder
+                .fromHttpUrl(baseUrl)
+                .path("/accounts")
+                .toUriString();
+        String payload = executeGet(url, token);
 
-    @Override
-    public String providerKey() {
-        return "OANDA";
+        try {
+            JsonNode root = objectMapper.readTree(payload == null ? "{}" : payload);
+            JsonNode accounts = root.path("accounts");
+            String accountId = null;
+            if (accounts.isArray() && !accounts.isEmpty()) {
+                accountId = trimToNull(accounts.get(0).path("id").asText(null));
+            }
+            return new OandaConnectionResult(true, accountId);
+        } catch (Exception ex) {
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                    "Could not parse OANDA connection response",
+                    "Verify that your OANDA token is valid for a practice account.",
+                    org.springframework.http.HttpStatus.BAD_REQUEST
+            );
+        }
     }
 
-    @Override
-    public List<BacktestCandle> getCandles(String symbol, String timeframe, OffsetDateTime from, OffsetDateTime to) {
-        if (apiKey == null || apiKey.isBlank()) {
-            throw new IllegalStateException("OANDA API key is missing. Set backtest.oanda.api-key to load candles.");
-        }
-        String instrument = mapSymbol(symbol);
+    public List<CanonicalCandle> getCandles(String token,
+                                            String sourceId,
+                                            String symbolCanonical,
+                                            String symbolDisplay,
+                                            BacktestTimeframe timeframe,
+                                            OffsetDateTime from,
+                                            OffsetDateTime to) {
+        String instrument = mapSymbol(symbolCanonical);
         String granularity = mapTimeframe(timeframe);
 
         String url = UriComponentsBuilder
@@ -53,16 +86,13 @@ public class OandaCandleProvider implements CandleProvider {
                 .path("/instruments/{instrument}/candles")
                 .queryParam("price", "M")
                 .queryParam("granularity", granularity)
-                .queryParam("from", ISO.format(from))
-                .queryParam("to", ISO.format(to))
+                .queryParam("from", ISO.format(from.withOffsetSameInstant(ZoneOffset.UTC)))
+                .queryParam("to", ISO.format(to.withOffsetSameInstant(ZoneOffset.UTC)))
+                .queryParam("alignmentTimezone", "UTC")
                 .buildAndExpand(instrument)
                 .toUriString();
 
-        HttpHeaders headers = new HttpHeaders();
-        headers.setBearerAuth(apiKey.trim());
-        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
-        ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
-        String payload = response.getBody();
+        String payload = executeGet(url, token);
         if (payload == null || payload.isBlank()) {
             return List.of();
         }
@@ -73,9 +103,10 @@ public class OandaCandleProvider implements CandleProvider {
             if (!candles.isArray()) {
                 return List.of();
             }
-            List<BacktestCandle> rows = new ArrayList<>();
+
+            List<CanonicalCandle> rows = new ArrayList<>();
             for (JsonNode item : candles) {
-                if (!item.path("complete").asBoolean(false)) {
+                if (!item.path("complete").asBoolean(true)) {
                     continue;
                 }
                 OffsetDateTime timestamp = parseTime(item.path("time").asText(null));
@@ -84,26 +115,105 @@ public class OandaCandleProvider implements CandleProvider {
                 BigDecimal high = parseDecimal(mid.path("h").asText(null));
                 BigDecimal low = parseDecimal(mid.path("l").asText(null));
                 BigDecimal close = parseDecimal(mid.path("c").asText(null));
-                long volume = item.path("volume").asLong(0L);
+                BigDecimal volume = parseDecimal(item.path("volume").asText(null));
                 if (timestamp == null || open == null || high == null || low == null || close == null) {
                     continue;
                 }
-                rows.add(new BacktestCandle(timestamp, open, high, low, close, volume));
+                rows.add(new CanonicalCandle(
+                        BacktestCandleSource.OANDA,
+                        sourceId,
+                        symbolCanonical,
+                        symbolDisplay,
+                        timeframe,
+                        timestamp,
+                        open,
+                        high,
+                        low,
+                        close,
+                        volume
+                ));
             }
-            rows.sort(Comparator.comparing(BacktestCandle::timestamp));
+            rows.sort(Comparator.comparing(CanonicalCandle::tsUtc));
             return rows;
+        } catch (BacktestDomainException ex) {
+            throw ex;
         } catch (Exception ex) {
-            throw new IllegalStateException("Could not parse OANDA candles payload", ex);
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                    "Could not parse OANDA candles payload",
+                    "Try again in a moment or verify symbol/timeframe compatibility.",
+                    org.springframework.http.HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    private String executeGet(String url, String token) {
+        if (token == null || token.isBlank()) {
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                    "OANDA token is not connected",
+                    "Connect OANDA from Settings -> Data Providers.",
+                    org.springframework.http.HttpStatus.FORBIDDEN
+            );
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setBearerAuth(token.trim());
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+
+        try {
+            ResponseEntity<String> response = restTemplate.exchange(url, HttpMethod.GET, new HttpEntity<>(headers), String.class);
+            return response.getBody();
+        } catch (HttpStatusCodeException ex) {
+            org.springframework.http.HttpStatusCode statusCode = ex.getStatusCode();
+            if (statusCode.value() == 401 || statusCode.value() == 403) {
+                throw new BacktestDomainException(
+                        BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                        "OANDA rejected the provided token",
+                        "Reconnect your OANDA practice token from Settings -> Data Providers.",
+                        org.springframework.http.HttpStatus.FORBIDDEN
+                );
+            }
+            if (statusCode.value() == 429) {
+                throw new BacktestDomainException(
+                        "RATE_LIMITED",
+                        "OANDA rate limit reached",
+                        "Wait a bit before requesting another backtest range.",
+                        org.springframework.http.HttpStatus.TOO_MANY_REQUESTS
+                );
+            }
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                    "Could not query OANDA candles",
+                    "Check token permissions and retry.",
+                    org.springframework.http.HttpStatus.BAD_REQUEST
+            );
+        } catch (RestClientException ex) {
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                    "Could not reach OANDA service",
+                    "Check network connectivity or retry shortly.",
+                    org.springframework.http.HttpStatus.BAD_GATEWAY
+            );
         }
     }
 
     private String mapSymbol(String symbol) {
         if (symbol == null || symbol.isBlank()) {
-            throw new IllegalArgumentException("Symbol is required");
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.UNSUPPORTED_SYMBOL_TIMEFRAME,
+                    "Symbol is required",
+                    "Enter a symbol like EURUSD, OANDA:EURUSD, or GER40.",
+                    org.springframework.http.HttpStatus.BAD_REQUEST
+            );
         }
         String normalized = symbol.trim().toUpperCase(Locale.ROOT);
         if (normalized.contains(":")) {
             normalized = normalized.substring(normalized.indexOf(':') + 1);
+        }
+        String mappedIndex = INDEX_SYMBOL_MAP.get(normalized);
+        if (mappedIndex != null) {
+            return mappedIndex;
         }
         if (normalized.contains("_")) {
             return normalized;
@@ -114,16 +224,13 @@ public class OandaCandleProvider implements CandleProvider {
         return normalized;
     }
 
-    private String mapTimeframe(String timeframe) {
-        if (timeframe == null || timeframe.isBlank()) {
-            return "M1";
-        }
-        String normalized = timeframe.trim().toUpperCase(Locale.ROOT);
-        return switch (normalized) {
-            case "1", "M1" -> "M1";
-            case "5", "M5" -> "M5";
-            case "15", "M15" -> "M15";
-            default -> throw new IllegalArgumentException("Unsupported timeframe for OANDA provider: " + timeframe);
+    private String mapTimeframe(BacktestTimeframe timeframe) {
+        return switch (timeframe) {
+            case M1 -> "M1";
+            case M5 -> "M5";
+            case M15 -> "M15";
+            case H1 -> "H1";
+            case D1 -> "D";
         };
     }
 
@@ -132,7 +239,7 @@ public class OandaCandleProvider implements CandleProvider {
             return null;
         }
         try {
-            return OffsetDateTime.parse(value);
+            return OffsetDateTime.parse(value).withOffsetSameInstant(ZoneOffset.UTC);
         } catch (Exception ex) {
             return null;
         }
@@ -147,5 +254,16 @@ public class OandaCandleProvider implements CandleProvider {
         } catch (Exception ex) {
             return null;
         }
+    }
+
+    private String trimToNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    public record OandaConnectionResult(boolean connected, String accountId) {
     }
 }

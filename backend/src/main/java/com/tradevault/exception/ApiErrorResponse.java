@@ -10,5 +10,6 @@ import java.util.List;
 public class ApiErrorResponse {
     private String error;
     private String message;
+    private String hint;
     private Object details;
 }
