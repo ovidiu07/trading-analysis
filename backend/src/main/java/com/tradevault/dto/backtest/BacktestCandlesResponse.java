@@ -15,6 +15,9 @@ public class BacktestCandlesResponse {
     UUID datasetId;
     String symbol;
     String timeframe;
+    OffsetDateTime effectiveFromUtc;
+    OffsetDateTime effectiveToUtc;
+    int count;
     OffsetDateTime from;
     OffsetDateTime to;
     int candleCount;

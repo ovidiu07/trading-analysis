@@ -40,5 +40,37 @@ public interface CandleChunkRepository extends JpaRepository<CandleChunk, UUID> 
             OffsetDateTime to
     );
 
+    List<CandleChunk> findByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframeOrderByChunkStartUtcAsc(
+            UUID userId,
+            BacktestCandleSource provider,
+            String sourceId,
+            String symbolCanonical,
+            BacktestTimeframe timeframe
+    );
+
+    Optional<CandleChunk> findFirstByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframeOrderByChunkStartUtcAsc(
+            UUID userId,
+            BacktestCandleSource provider,
+            String sourceId,
+            String symbolCanonical,
+            BacktestTimeframe timeframe
+    );
+
+    Optional<CandleChunk> findFirstByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframeOrderByChunkEndUtcDesc(
+            UUID userId,
+            BacktestCandleSource provider,
+            String sourceId,
+            String symbolCanonical,
+            BacktestTimeframe timeframe
+    );
+
+    long countByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframe(
+            UUID userId,
+            BacktestCandleSource provider,
+            String sourceId,
+            String symbolCanonical,
+            BacktestTimeframe timeframe
+    );
+
     long deleteByUser_IdAndProviderAndSourceId(UUID userId, BacktestCandleSource provider, String sourceId);
 }

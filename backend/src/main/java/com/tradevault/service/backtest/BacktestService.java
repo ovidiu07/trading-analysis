@@ -11,6 +11,7 @@ import com.tradevault.domain.enums.BacktestCandleSource;
 import com.tradevault.domain.enums.BacktestExitReason;
 import com.tradevault.domain.enums.BacktestOrderType;
 import com.tradevault.domain.enums.BacktestRunStatus;
+import com.tradevault.domain.enums.BacktestTimeframe;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.dto.backtest.BacktestCandlesResponse;
@@ -34,7 +35,6 @@ import org.springframework.http.HttpStatus;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
-import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Comparator;
@@ -79,7 +79,6 @@ public class BacktestService {
                 resolved.rangeTo(),
                 request.isRefresh()
         );
-        candles = filterBySessionWindow(candles, request.getSessionWindow());
 
         BacktestRun run = BacktestRun.builder()
                 .user(user)
@@ -135,8 +134,7 @@ public class BacktestService {
                 resolved.rangeTo(),
                 refresh
         );
-        List<BacktestCandle> filtered = filterBySessionWindow(candles, sessionWindow);
-        String message = filtered.isEmpty() ? "No candles for range" : null;
+        String message = candles.isEmpty() ? "No candles for selected range." : null;
 
         return BacktestCandlesResponse.builder()
                 .provider(resolved.source().name())
@@ -144,11 +142,14 @@ public class BacktestService {
                 .datasetId(resolved.datasetId())
                 .symbol(resolved.symbol())
                 .timeframe(resolved.timeframe())
+                .effectiveFromUtc(resolved.rangeFrom())
+                .effectiveToUtc(resolved.rangeTo())
+                .count(candles.size())
                 .from(resolved.rangeFrom())
                 .to(resolved.rangeTo())
-                .candleCount(filtered.size())
+                .candleCount(candles.size())
                 .message(message)
-                .candles(toCandleDto(filtered))
+                .candles(toCandleDto(candles))
                 .build();
     }
 
@@ -311,7 +312,7 @@ public class BacktestService {
     }
 
     private List<BacktestCandle> loadRunCandles(BacktestRun run) {
-        List<BacktestCandle> candles = candleDataService.getCandles(
+        return candleDataService.getCandles(
                 run.getUser().getId(),
                 run.getProvider(),
                 run.getSourceId(),
@@ -321,7 +322,6 @@ public class BacktestService {
                 run.getRangeTo(),
                 false
         );
-        return filterBySessionWindow(candles, run.getSessionWindow());
     }
 
     private ResolvedCandleRequest resolveCandleRequest(User user,
@@ -336,6 +336,7 @@ public class BacktestService {
         String sourceId = normalizeOptionalText(sourceIdRaw);
         String symbol = normalizeOptionalText(symbolRaw);
         String timeframe = normalizeTimeframe(timeframeRaw);
+        BacktestTimeframe resolvedTimeframe = parseTimeframeSafe(timeframe);
         OffsetDateTime rangeFrom = fromRaw;
         OffsetDateTime rangeTo = toRaw;
         boolean rangeEmpty = false;
@@ -361,10 +362,19 @@ public class BacktestService {
             sourceId = dataset.getSourceId();
             symbol = normalizeSymbol(dataset.getSymbolDisplay());
             timeframe = dataset.getTimeframe().name();
+            resolvedTimeframe = dataset.getTimeframe();
 
-            DatasetRange range = resolveDatasetRange(dataset, rangeFrom, rangeTo);
-            rangeFrom = range.from();
-            rangeTo = range.to();
+            BacktestRangeResolver.EffectiveRange range = BacktestRangeResolver.resolveDatasetRange(
+                    dataset.getProvider(),
+                    resolvedTimeframe,
+                    dataset.getDataFrom(),
+                    dataset.getDataTo(),
+                    rangeFrom,
+                    rangeTo,
+                    OffsetDateTime.now(ZoneOffset.UTC)
+            );
+            rangeFrom = range.fromUtc();
+            rangeTo = range.toUtc();
             rangeEmpty = range.empty();
         } else {
             symbol = normalizeSymbol(symbolRaw);
@@ -377,11 +387,13 @@ public class BacktestService {
                 rangeTo = nowUtc;
             }
             if (rangeFrom == null) {
-                rangeFrom = rangeTo.minusDays(90);
+                rangeFrom = rangeTo.minus(BacktestRangeResolver.defaultWindow(resolvedTimeframe));
             }
         }
 
-        validateDateRange(rangeFrom, rangeTo);
+        if (!rangeEmpty) {
+            validateDateRange(rangeFrom, rangeTo);
+        }
 
         return new ResolvedCandleRequest(
                 source,
@@ -393,42 +405,6 @@ public class BacktestService {
                 rangeTo,
                 rangeEmpty
         );
-    }
-
-    private DatasetRange resolveDatasetRange(BacktestDataset dataset, OffsetDateTime fromRaw, OffsetDateTime toRaw) {
-        OffsetDateTime datasetFrom = dataset.getDataFrom();
-        OffsetDateTime datasetTo = dataset.getDataTo();
-
-        OffsetDateTime to = toRaw;
-        if (to == null) {
-            to = datasetTo;
-        }
-        if (to == null) {
-            to = OffsetDateTime.now(ZoneOffset.UTC);
-        }
-
-        OffsetDateTime from = fromRaw;
-        if (from == null) {
-            OffsetDateTime defaultFrom = to.minusDays(30);
-            if (datasetFrom != null && defaultFrom.isBefore(datasetFrom)) {
-                defaultFrom = datasetFrom;
-            }
-            from = defaultFrom;
-        }
-
-        if (fromRaw == null && datasetFrom != null && from.isBefore(datasetFrom)) {
-            from = datasetFrom;
-        }
-        if (toRaw == null && datasetTo != null && to.isAfter(datasetTo)) {
-            to = datasetTo;
-        }
-
-        if (datasetFrom != null && datasetTo != null) {
-            if (to.isBefore(datasetFrom) || from.isAfter(datasetTo)) {
-                return new DatasetRange(from, to, true);
-            }
-        }
-        return new DatasetRange(from, to, false);
     }
 
     private int findCursorIndex(List<BacktestCandle> candles, OffsetDateTime replayCursorTime) {
@@ -580,48 +556,6 @@ public class BacktestService {
         return candle.low().compareTo(price) <= 0 && candle.high().compareTo(price) >= 0;
     }
 
-    private List<BacktestCandle> filterBySessionWindow(List<BacktestCandle> candles, String sessionWindow) {
-        String normalized = normalizeOptionalText(sessionWindow);
-        if (normalized == null || "ALL".equalsIgnoreCase(normalized)) {
-            return candles;
-        }
-
-        String upper = normalized.toUpperCase(Locale.ROOT);
-        if ("LONDON".equals(upper)) {
-            return candles.stream()
-                    .filter(c -> {
-                        int hour = c.timestamp().getHour();
-                        return hour >= 7 && hour < 12;
-                    })
-                    .toList();
-        }
-        if ("NY".equals(upper) || "NEW_YORK".equals(upper)) {
-            return candles.stream()
-                    .filter(c -> {
-                        int hour = c.timestamp().getHour();
-                        return hour >= 13 && hour < 17;
-                    })
-                    .toList();
-        }
-
-        String[] parts = normalized.split("-");
-        if (parts.length == 2) {
-            try {
-                LocalTime from = LocalTime.parse(parts[0].trim());
-                LocalTime to = LocalTime.parse(parts[1].trim());
-                return candles.stream()
-                        .filter(c -> {
-                            LocalTime time = c.timestamp().toLocalTime();
-                            return !time.isBefore(from) && !time.isAfter(to);
-                        })
-                        .toList();
-            } catch (Exception ignored) {
-                return candles;
-            }
-        }
-        return candles;
-    }
-
     private BacktestRunResponse toRunResponse(BacktestRun run, List<BacktestCandleDto> candles) {
         return BacktestRunResponse.builder()
                 .id(run.getId())
@@ -724,6 +658,14 @@ public class BacktestService {
         return timeframe.trim().toUpperCase(Locale.ROOT);
     }
 
+    private BacktestTimeframe parseTimeframeSafe(String timeframe) {
+        try {
+            return BacktestTimeframe.from(timeframe);
+        } catch (Exception ex) {
+            return BacktestTimeframe.M1;
+        }
+    }
+
     private void validateDateRange(OffsetDateTime from, OffsetDateTime to) {
         if (from == null || to == null) {
             throw new IllegalArgumentException("from and to are required");
@@ -778,8 +720,6 @@ public class BacktestService {
     private record FillOutcome(boolean filled, Integer candleIndex, OffsetDateTime entryTime, BigDecimal entryPrice) {}
 
     private record ExitOutcome(Integer exitIndex, OffsetDateTime exitTime, BigDecimal exitPrice, BacktestExitReason exitReason) {}
-
-    private record DatasetRange(OffsetDateTime from, OffsetDateTime to, boolean empty) {}
 
     private record ResolvedCandleRequest(
             BacktestCandleSource source,

@@ -198,6 +198,56 @@ public class CandleChunkStoreService {
         return candleChunkRepository.deleteByUser_IdAndProviderAndSourceId(userId, provider, sourceId);
     }
 
+    @Transactional(readOnly = true)
+    public SourceCoverage summarizeSource(UUID userId,
+                                          BacktestCandleSource provider,
+                                          String sourceId,
+                                          String symbolCanonical,
+                                          BacktestTimeframe timeframe) {
+        List<CandleChunk> chunks = candleChunkRepository
+                .findByUser_IdAndProviderAndSourceIdAndSymbolCanonicalAndTimeframeOrderByChunkStartUtcAsc(
+                        userId,
+                        provider,
+                        sourceId,
+                        symbolCanonical,
+                        timeframe
+                );
+        if (chunks.isEmpty()) {
+            return new SourceCoverage(null, null, 0);
+        }
+
+        long candleCount = 0L;
+        OffsetDateTime firstTs = null;
+        OffsetDateTime lastTs = null;
+        for (CandleChunk chunk : chunks) {
+            List<CanonicalCandle> decoded = candleChunkCodec.decode(
+                    chunk.getPayload(),
+                    chunk.getProvider(),
+                    chunk.getSourceId(),
+                    chunk.getSymbolCanonical(),
+                    chunk.getSymbolDisplay(),
+                    chunk.getTimeframe()
+            );
+            if (decoded.isEmpty()) {
+                continue;
+            }
+            if (firstTs == null) {
+                firstTs = decoded.get(0).tsUtc();
+            }
+            lastTs = decoded.get(decoded.size() - 1).tsUtc();
+            candleCount += decoded.size();
+        }
+
+        if (firstTs == null) {
+            firstTs = chunks.get(0).getChunkStartUtc();
+        }
+        if (lastTs == null) {
+            lastTs = chunks.get(chunks.size() - 1).getChunkEndUtc();
+        }
+
+        return new SourceCoverage(firstTs, lastTs, candleCount);
+    }
+
     private List<CanonicalCandle> mergeCandles(List<CanonicalCandle> existing, List<CanonicalCandle> incoming) {
         Map<OffsetDateTime, CanonicalCandle> byTs = new LinkedHashMap<>();
         for (CanonicalCandle candle : existing) {
@@ -254,5 +304,8 @@ public class CandleChunkStoreService {
                             .formatted(provider, sourceId, symbolCanonical, timeframe, chunkStartUtc)
             );
         }
+    }
+
+    public record SourceCoverage(OffsetDateTime dataFromUtc, OffsetDateTime dataToUtc, long candleCount) {
     }
 }

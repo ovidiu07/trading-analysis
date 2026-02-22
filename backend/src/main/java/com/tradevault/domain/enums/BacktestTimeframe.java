@@ -24,7 +24,15 @@ public enum BacktestTimeframe {
         if (value == null || value.isBlank()) {
             return M1;
         }
-        return BacktestTimeframe.valueOf(value.trim().toUpperCase(Locale.ROOT));
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "1", "M1", "1M", "MIN1", "MINUTE", "MIN" -> M1;
+            case "5", "M5", "5M" -> M5;
+            case "15", "M15", "15M" -> M15;
+            case "60", "H1", "1H", "H60" -> H1;
+            case "D", "D1", "1D", "DAY", "DAILY", "24H", "1440" -> D1;
+            default -> BacktestTimeframe.valueOf(normalized);
+        };
     }
 
     public boolean isIntradayFineGrain() {

@@ -69,6 +69,21 @@ export type BacktestDataset = {
   warnings: string[]
 }
 
+export type BacktestDatasetSummary = {
+  datasetId: string
+  provider: BacktestDataSource
+  symbolDisplay: string
+  symbolCanonical: string
+  timeframe: string
+  dataFromUtc?: string
+  dataToUtc?: string
+  candleCount?: number
+  timezoneHint?: string
+  defaultFromUtc?: string
+  defaultToUtc?: string
+  defaultWindowDays?: number
+}
+
 export type CsvIngestResponse = {
   dataset: BacktestDataset
   warnings: string[]
@@ -80,6 +95,9 @@ export type BacktestCandlesResponse = {
   datasetId?: string
   symbol: string
   timeframe: string
+  effectiveFromUtc?: string
+  effectiveToUtc?: string
+  count?: number
   from: string
   to: string
   candleCount: number
@@ -200,6 +218,10 @@ export async function listBacktestDatasets() {
 
 export async function getBacktestDataset(id: string) {
   return apiGet<BacktestDataset>(`/backtest/datasets/${encodeURIComponent(id)}`)
+}
+
+export async function getBacktestDatasetSummary(id: string) {
+  return apiGet<BacktestDatasetSummary>(`/backtest/datasets/${encodeURIComponent(id)}/summary`)
 }
 
 export async function getBacktestCandles(params: {

@@ -1,6 +1,7 @@
 package com.tradevault.controller;
 
 import com.tradevault.dto.backtest.BacktestDatasetResponse;
+import com.tradevault.dto.backtest.BacktestDatasetSummaryResponse;
 import com.tradevault.dto.backtest.BacktestCandlesResponse;
 import com.tradevault.dto.backtest.CsvIngestRequest;
 import com.tradevault.dto.backtest.CsvIngestResponse;
@@ -16,7 +17,7 @@ import com.tradevault.service.backtest.BacktestProviderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
-import org.springframework.format.annotation.DateTimeFormat;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -25,9 +26,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.UUID;
 
@@ -68,6 +75,12 @@ public class BacktestDataController {
         return ResponseEntity.ok(backtestDatasetService.getDataset(userId, id));
     }
 
+    @GetMapping("/datasets/{id}/summary")
+    public ResponseEntity<BacktestDatasetSummaryResponse> getDatasetSummary(@PathVariable UUID id) {
+        UUID userId = currentUserService.getCurrentUser().getId();
+        return ResponseEntity.ok(backtestDatasetService.getDatasetSummary(userId, id));
+    }
+
     @GetMapping("/candles")
     public ResponseEntity<BacktestCandlesResponse> getCandles(
             @RequestParam(name = "datasetId", required = false) UUID datasetId,
@@ -76,20 +89,22 @@ public class BacktestDataController {
             @RequestParam(name = "sourceId", required = false) String sourceId,
             @RequestParam(name = "symbol", required = false) String symbol,
             @RequestParam(name = "timeframe", required = false) String timeframe,
-            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
-            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+            @RequestParam(name = "from", required = false) String from,
+            @RequestParam(name = "to", required = false) String to,
             @RequestParam(name = "sessionWindow", required = false) String sessionWindow,
             @RequestParam(name = "refresh", required = false, defaultValue = "false") boolean refresh
     ) {
         String resolvedSource = dataSource != null ? dataSource : provider;
+        OffsetDateTime fromUtc = parseRangeBoundary(from, false);
+        OffsetDateTime toUtc = parseRangeBoundary(to, true);
         return ResponseEntity.ok(backtestService.loadCandles(
                 resolvedSource,
                 datasetId,
                 sourceId,
                 symbol,
                 timeframe,
-                from,
-                to,
+                fromUtc,
+                toUtc,
                 sessionWindow,
                 refresh
         ));
@@ -137,5 +152,29 @@ public class BacktestDataController {
         UUID userId = currentUserService.getCurrentUser().getId();
         backtestDemoService.resetDemo(userId);
         return ResponseEntity.noContent().build();
+    }
+
+    private OffsetDateTime parseRangeBoundary(String raw, boolean endOfDay) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String value = raw.trim();
+        try {
+            return OffsetDateTime.parse(value).withOffsetSameInstant(ZoneOffset.UTC);
+        } catch (DateTimeParseException ignored) {
+            // continue
+        }
+        try {
+            return LocalDateTime.parse(value).atOffset(ZoneOffset.UTC);
+        } catch (DateTimeParseException ignored) {
+            // continue
+        }
+        try {
+            LocalDate parsedDate = LocalDate.parse(value);
+            LocalTime boundary = endOfDay ? LocalTime.of(23, 59, 59) : LocalTime.MIN;
+            return parsedDate.atTime(boundary).atOffset(ZoneOffset.UTC);
+        } catch (DateTimeParseException ex) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid date value: " + value);
+        }
     }
 }

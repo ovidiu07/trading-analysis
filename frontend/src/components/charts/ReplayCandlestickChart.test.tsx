@@ -86,7 +86,7 @@ describe('ReplayCandlestickChart', () => {
 
     const svg = await screen.findByTestId('backtest-replay-chart-svg')
     await waitFor(() => expect(svg).toHaveAttribute('width', '680'))
-    expect(screen.getAllByTestId('replay-candle')).toHaveLength(3)
+    expect(screen.getAllByTestId('replay-candle')).toHaveLength(4)
     expect(screen.getByTestId('replay-cursor-line')).toBeInTheDocument()
   })
 

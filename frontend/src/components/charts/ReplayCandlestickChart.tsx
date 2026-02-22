@@ -62,8 +62,8 @@ export default function ReplayCandlestickChart({
   const width = size.width
 
   const visibleCandles = useMemo(
-    () => candles.slice(0, clamp(cursorIndex + 1, 0, candles.length)),
-    [candles, cursorIndex]
+    () => candles,
+    [candles]
   )
 
   const chartHeight = Math.max(minHeight, size.height || minHeight)

@@ -65,6 +65,7 @@ import LoadingState from '../components/ui/LoadingState'
 import {
   type BacktestDataSource,
   type BacktestDataset,
+  type BacktestDatasetSummary,
   type BacktestRun,
   type BacktestTrade,
   type CsvColumnMapping,
@@ -72,6 +73,7 @@ import {
   createBacktestRun,
   getBacktestCandles,
   getBacktestDataset,
+  getBacktestDatasetSummary,
   ingestBacktestCsv,
   getOandaProviderStatus,
   listBacktestDatasets,
@@ -229,7 +231,7 @@ type BacktestSetupState = {
   slippage: string
 }
 
-type BacktestReplayState = 'IDLE' | 'LOADING' | 'READY' | 'PLAYING' | 'PAUSED' | 'ERROR'
+type BacktestReplayState = 'IDLE' | 'LOADING' | 'READY' | 'EMPTY' | 'ERROR'
 
 type CsvUploadItem = CsvUploadResponse & {
   mappingDraft: CsvColumnMapping
@@ -457,15 +459,46 @@ const toDateInputFromIso = (iso?: string) => {
   return date.toISOString().slice(0, 10)
 }
 
-const resolveDatasetDateRangeDefaults = (dataset: Pick<BacktestDataset, 'dataFrom' | 'dataTo'>) => {
+const resolveTimeframeWindowDays = (timeframeRaw?: string) => {
+  const timeframe = (timeframeRaw || '').trim().toUpperCase()
+  if (timeframe === 'M1' || timeframe === 'M5') return 7
+  if (timeframe === 'M15' || timeframe === 'H1') return 30
+  if (timeframe === 'D1') return 180
+  return 30
+}
+
+const resolveTimeframePresetDays = (timeframeRaw?: string) => {
+  const timeframe = (timeframeRaw || '').trim().toUpperCase()
+  if (timeframe === 'M1' || timeframe === 'M5') return [1, 3, 7]
+  if (timeframe === 'M15' || timeframe === 'H1') return [3, 7, 30]
+  if (timeframe === 'D1') return [30]
+  return [1, 3, 7]
+}
+
+const resolveDatasetDateRangeDefaults = (dataset: {
+  dataFrom?: string
+  dataTo?: string
+  timeframe?: string
+  defaultFromUtc?: string
+  defaultToUtc?: string
+}) => {
+  const defaultFrom = dataset.defaultFromUtc ? new Date(dataset.defaultFromUtc) : null
+  const defaultTo = dataset.defaultToUtc ? new Date(dataset.defaultToUtc) : null
+  if (defaultFrom && defaultTo && !Number.isNaN(defaultFrom.getTime()) && !Number.isNaN(defaultTo.getTime())) {
+    return {
+      from: toDateInputValue(defaultFrom),
+      to: toDateInputValue(defaultTo)
+    }
+  }
+
   const dataFrom = dataset.dataFrom ? new Date(dataset.dataFrom) : null
   const dataTo = dataset.dataTo ? new Date(dataset.dataTo) : null
   if (!dataFrom || !dataTo || Number.isNaN(dataFrom.getTime()) || Number.isNaN(dataTo.getTime())) {
     return { from: '', to: '' }
   }
 
-  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000
-  const preferredFrom = new Date(dataTo.getTime() - thirtyDaysMs)
+  const windowMs = resolveTimeframeWindowDays(dataset.timeframe) * 24 * 60 * 60 * 1000
+  const preferredFrom = new Date(dataTo.getTime() - windowMs)
   const fromDate = dataFrom.getTime() > preferredFrom.getTime() ? dataFrom : preferredFrom
 
   return {
@@ -586,6 +619,7 @@ export default function SessionPage() {
   const [backtestCandles, setBacktestCandles] = useState<BacktestRun['candles']>([])
   const [backtestCursor, setBacktestCursor] = useState(0)
   const [backtestReplayState, setBacktestReplayState] = useState<BacktestReplayState>('IDLE')
+  const [backtestIsPlaying, setBacktestIsPlaying] = useState(false)
   const [backtestReplayMessage, setBacktestReplayMessage] = useState('')
   const [backtestSpeed, setBacktestSpeed] = useState(1)
   const [latestBacktestTrade, setLatestBacktestTrade] = useState<BacktestTrade | null>(null)
@@ -593,6 +627,7 @@ export default function SessionPage() {
   const [backtestLoading, setBacktestLoading] = useState(false)
   const [backtestDatasets, setBacktestDatasets] = useState<BacktestDataset[]>([])
   const [backtestDatasetsLoading, setBacktestDatasetsLoading] = useState(false)
+  const [backtestDatasetSummary, setBacktestDatasetSummary] = useState<BacktestDatasetSummary | null>(null)
   const [csvUploads, setCsvUploads] = useState<CsvUploadItem[]>([])
   const [csvIngestingFileId, setCsvIngestingFileId] = useState<string | null>(null)
   const [oandaConnected, setOandaConnected] = useState<boolean | null>(null)
@@ -744,20 +779,20 @@ export default function SessionPage() {
   }, [chartProfileStorageKey, selectedChartProfileId])
 
   useEffect(() => {
-    if (backtestReplayState !== 'PLAYING' || backtestCandles.length === 0) return undefined
+    if (!backtestIsPlaying || backtestReplayState !== 'READY' || backtestCandles.length === 0) return undefined
     const intervalMs = Math.max(120, Math.round(850 / Math.max(backtestSpeed, 1)))
     const timer = window.setInterval(() => {
       setBacktestCursor((prev) => {
         const next = prev + 1
         if (next >= backtestCandles.length - 1) {
-          setBacktestReplayState('PAUSED')
+          setBacktestIsPlaying(false)
           return Math.max(backtestCandles.length - 1, 0)
         }
         return next
       })
     }, intervalMs)
     return () => window.clearInterval(timer)
-  }, [backtestReplayState, backtestCandles, backtestSpeed])
+  }, [backtestIsPlaying, backtestReplayState, backtestCandles, backtestSpeed])
 
   useEffect(() => {
     setPlanner((prev) => prev.tradeCurrency
@@ -1047,9 +1082,8 @@ export default function SessionPage() {
   const chartProfileEmbedConfig = (selectedChartProfile?.embedConfigJson || {}) as ChartEmbedConfig
   const chartProfilePrefs = selectedChartProfile?.tjaPrefsJson || {}
   const chartModeLabel = chartMode === 'LIVE' ? t('today.session.chart.modeLive') : t('today.session.chart.modeBacktest')
-  const canReplayPlay = backtestReplayState === 'READY' || backtestReplayState === 'PAUSED'
-  const canReplayStep = (backtestReplayState === 'READY' || backtestReplayState === 'PAUSED' || backtestReplayState === 'PLAYING')
-    && backtestCandles.length > 0
+  const canReplayPlay = backtestReplayState === 'READY' && backtestCandles.length > 0
+  const canReplayStep = backtestReplayState === 'READY' && backtestCandles.length > 0
 
   const chartSymbol = (() => {
     const planSymbol = selectedPlan?.tradingViewSymbol?.trim()
@@ -1729,6 +1763,7 @@ export default function SessionPage() {
 
   const resetBacktestReplay = (nextState: BacktestReplayState = 'IDLE', message = '') => {
     setBacktestLoading(false)
+    setBacktestIsPlaying(false)
     setBacktestReplayState(nextState)
     setBacktestReplayMessage(message)
     setBacktestRun(null)
@@ -1738,18 +1773,42 @@ export default function SessionPage() {
     setBacktestTrades([])
   }
 
-  const applyDatasetDefaults = (dataset: BacktestDataset) => {
-    const range = resolveDatasetDateRangeDefaults(dataset)
+  const applyDatasetDefaults = (
+    dataset: Pick<BacktestDataset, 'id' | 'sourceId' | 'symbolDisplay' | 'timeframe' | 'dataFrom' | 'dataTo'>,
+    summary?: BacktestDatasetSummary | null
+  ) => {
+    const range = resolveDatasetDateRangeDefaults({
+      dataFrom: summary?.dataFromUtc || dataset.dataFrom,
+      dataTo: summary?.dataToUtc || dataset.dataTo,
+      timeframe: summary?.timeframe || dataset.timeframe,
+      defaultFromUtc: summary?.defaultFromUtc,
+      defaultToUtc: summary?.defaultToUtc
+    })
     setBacktestSetup((prev) => ({
       ...prev,
       datasetId: dataset.id,
       sourceId: dataset.sourceId,
-      symbol: dataset.symbolDisplay || prev.symbol,
-      timeframe: (dataset.timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
+      symbol: summary?.symbolDisplay || dataset.symbolDisplay || prev.symbol,
+      timeframe: ((summary?.timeframe || dataset.timeframe) as BacktestSetupState['timeframe']) || prev.timeframe,
       from: range.from || prev.from,
       to: range.to || prev.to
     }))
     resetBacktestReplay()
+  }
+
+  const loadBacktestDatasetSummary = async (
+    dataset: Pick<BacktestDataset, 'id' | 'sourceId' | 'symbolDisplay' | 'timeframe' | 'dataFrom' | 'dataTo'>
+  ) => {
+    try {
+      const summary = await getBacktestDatasetSummary(dataset.id)
+      setBacktestDatasetSummary(summary)
+      applyDatasetDefaults(dataset, summary)
+      return summary
+    } catch {
+      setBacktestDatasetSummary(null)
+      applyDatasetDefaults(dataset, null)
+      return null
+    }
   }
 
   const refreshBacktestDatasets = async () => {
@@ -1801,17 +1860,23 @@ export default function SessionPage() {
   }, [backtestDatasetsForSource, backtestSetup.datasetId])
 
   useEffect(() => {
+    if (!selectedBacktestDataset) {
+      setBacktestDatasetSummary(null)
+    }
+  }, [selectedBacktestDataset?.id])
+
+  useEffect(() => {
     if (!selectedBacktestDataset) return
 
     let active = true
     getBacktestDataset(selectedBacktestDataset.id)
-      .then((dataset) => {
+      .then(async (dataset) => {
         if (!active) return
-        applyDatasetDefaults(dataset)
+        await loadBacktestDatasetSummary(dataset)
       })
       .catch(() => {
         if (!active) return
-        applyDatasetDefaults(selectedBacktestDataset)
+        void loadBacktestDatasetSummary(selectedBacktestDataset)
       })
 
     return () => {
@@ -1819,8 +1884,50 @@ export default function SessionPage() {
     }
   }, [selectedBacktestDataset?.id])
 
+  const selectedDatasetFromIso = backtestDatasetSummary?.dataFromUtc || selectedBacktestDataset?.dataFrom
+  const selectedDatasetToIso = backtestDatasetSummary?.dataToUtc || selectedBacktestDataset?.dataTo
+  const selectedDatasetTimeframe = backtestDatasetSummary?.timeframe || selectedBacktestDataset?.timeframe || backtestSetup.timeframe
+  const selectedDatasetPresetDays = resolveTimeframePresetDays(selectedDatasetTimeframe)
+
+  const applyDefaultBacktestRange = () => {
+    const range = resolveDatasetDateRangeDefaults({
+      dataFrom: selectedDatasetFromIso,
+      dataTo: selectedDatasetToIso,
+      timeframe: selectedDatasetTimeframe,
+      defaultFromUtc: backtestDatasetSummary?.defaultFromUtc,
+      defaultToUtc: backtestDatasetSummary?.defaultToUtc
+    })
+    if (!range.from || !range.to) return
+    setBacktestSetup((prev) => ({
+      ...prev,
+      from: range.from,
+      to: range.to
+    }))
+    setBacktestReplayState('IDLE')
+    setBacktestReplayMessage('')
+  }
+
+  const applyBacktestPreset = (days: number) => {
+    if (!selectedDatasetToIso) return
+    const toDate = new Date(selectedDatasetToIso)
+    if (Number.isNaN(toDate.getTime())) return
+    const fromDate = new Date(toDate.getTime() - days * 24 * 60 * 60 * 1000)
+    const minDate = selectedDatasetFromIso ? new Date(selectedDatasetFromIso) : null
+    const clampedFrom = minDate && !Number.isNaN(minDate.getTime()) && fromDate.getTime() < minDate.getTime()
+      ? minDate
+      : fromDate
+    setBacktestSetup((prev) => ({
+      ...prev,
+      from: toDateInputValue(clampedFrom),
+      to: toDateInputValue(toDate)
+    }))
+    setBacktestReplayState('IDLE')
+    setBacktestReplayMessage('')
+  }
+
   const handleBacktestSourceChange = (source: BacktestDataSource) => {
     resetBacktestReplay()
+    setBacktestDatasetSummary(null)
     setBacktestSetup((prev) => ({
       ...prev,
       dataSource: source,
@@ -1836,7 +1943,7 @@ export default function SessionPage() {
         .then((rows) => {
           setBacktestDatasets(rows || [])
           if ((rows || []).length > 0) {
-            applyDatasetDefaults(rows[0])
+            void loadBacktestDatasetSummary(rows[0])
           }
         })
         .catch((error) => {
@@ -1886,52 +1993,30 @@ export default function SessionPage() {
     }))
   }
 
-  const handleIngestCsvUpload = async (upload: CsvUploadItem) => {
-    setCsvIngestingFileId(upload.fileId)
-    setApiError('')
-    try {
-      const mappingPayload = upload.mappingRequired ? upload.mappingDraft : undefined
-      const ingest = await ingestBacktestCsv(upload.fileId, {
-        mapping: mappingPayload,
-        symbol: upload.detectedSymbol || undefined,
-        timeframe: upload.detectedTimeframe || undefined,
-        datasetName: upload.fileName
-      })
-      await refreshBacktestDatasets()
-      const datasetId = ingest.dataset?.id
-      if (datasetId) {
-        setBacktestSetup((prev) => ({ ...prev, datasetId }))
-        try {
-          const dataset = await getBacktestDataset(datasetId)
-          applyDatasetDefaults(dataset)
-        } catch {
-          applyDatasetDefaults(ingest.dataset)
-        }
-      }
-      setCsvUploads((prev) => prev.filter((item) => item.fileId !== upload.fileId))
-      setSuccessMessage(t('today.session.backtest.ingested'))
-    } catch (error) {
-      const apiErr = error as ApiError
-      setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.ingestFailed'))
-    } finally {
-      setCsvIngestingFileId(null)
+  const loadBacktestData = async (setupOverrides: Partial<BacktestSetupState> = {}) => {
+    const effectiveSetup: BacktestSetupState = {
+      ...backtestSetup,
+      ...setupOverrides
     }
-  }
-
-  const handleLoadBacktestData = async () => {
-    const requiresDataset = backtestSetup.dataSource === 'CSV' || backtestSetup.dataSource === 'DEMO'
-    if (!requiresDataset && !backtestSetup.symbol.trim()) {
+    const requiresDataset = effectiveSetup.dataSource === 'CSV' || effectiveSetup.dataSource === 'DEMO'
+    if (!requiresDataset && !effectiveSetup.symbol.trim()) {
       setApiError(t('today.session.backtest.errors.setupRequired'))
-      return
+      return false
     }
-    if (requiresDataset && !backtestSetup.datasetId) {
+    if (requiresDataset && !effectiveSetup.datasetId) {
       setApiError(t('today.session.backtest.errors.datasetRequired'))
-      return
+      return false
     }
 
-    const fromIso = toDateRangeIso(backtestSetup.from, 'start')
-    const toIso = toDateRangeIso(backtestSetup.to, 'end')
+    const fromIso = toDateRangeIso(effectiveSetup.from, 'start')
+    const toIso = toDateRangeIso(effectiveSetup.to, 'end')
+    if (!fromIso || !toIso) {
+      setApiError(t('today.session.backtest.errors.dateRangeRequired'))
+      return false
+    }
+
     setBacktestLoading(true)
+    setBacktestIsPlaying(false)
     setBacktestReplayState('LOADING')
     setBacktestReplayMessage('')
     setBacktestCandles([])
@@ -1942,30 +2027,30 @@ export default function SessionPage() {
     setApiError('')
     try {
       const selectedDataset = requiresDataset
-        ? backtestDatasets.find((dataset) => dataset.id === backtestSetup.datasetId)
+        ? backtestDatasets.find((dataset) => dataset.id === effectiveSetup.datasetId)
         : null
 
       const candlesResponse = await getBacktestCandles({
-        provider: backtestSetup.dataSource,
-        dataSource: backtestSetup.dataSource,
-        datasetId: selectedDataset?.id || backtestSetup.datasetId || undefined,
-        sourceId: selectedDataset?.sourceId || backtestSetup.sourceId || undefined,
-        symbol: selectedDataset?.symbolDisplay || backtestSetup.symbol || undefined,
-        timeframe: selectedDataset?.timeframe || backtestSetup.timeframe,
+        provider: effectiveSetup.dataSource,
+        dataSource: effectiveSetup.dataSource,
+        datasetId: selectedDataset?.id || effectiveSetup.datasetId || undefined,
+        sourceId: selectedDataset?.sourceId || effectiveSetup.sourceId || undefined,
+        symbol: selectedDataset?.symbolDisplay || effectiveSetup.symbol || undefined,
+        timeframe: selectedDataset?.timeframe || effectiveSetup.timeframe,
         from: fromIso,
-        to: toIso,
-        sessionWindow: backtestSetup.sessionWindow || undefined
+        to: toIso
       })
       const candleNormalization = normalizeBacktestCandlesWithDiagnostics(candlesResponse.candles || [])
       const normalizedCandles = candleNormalization.candles
 
-      if (candlesResponse.from || candlesResponse.to) {
-        setBacktestSetup((prev) => ({
-          ...prev,
-          from: toDateInputFromIso(candlesResponse.from) || prev.from,
-          to: toDateInputFromIso(candlesResponse.to) || prev.to
-        }))
-      }
+      const effectiveFrom = candlesResponse.effectiveFromUtc || candlesResponse.from || fromIso
+      const effectiveTo = candlesResponse.effectiveToUtc || candlesResponse.to || toIso
+      setBacktestSetup((prev) => ({
+        ...prev,
+        ...setupOverrides,
+        from: toDateInputFromIso(effectiveFrom) || prev.from,
+        to: toDateInputFromIso(effectiveTo) || prev.to
+      }))
 
       if (candleNormalization.invalidRows > 0) {
         setBacktestReplayState('ERROR')
@@ -1975,27 +2060,27 @@ export default function SessionPage() {
             ? `Candle data invalid for chart rendering. Check CSV format/timezone. ${details}`
             : 'Candle data invalid for chart rendering. Check CSV format/timezone.'
         )
-        return
+        return false
       }
 
       if (!normalizedCandles.length) {
-        setBacktestReplayState('ERROR')
-        setBacktestReplayMessage(candlesResponse.message || 'No candles returned for selected range. Adjust From/To.')
-        return
+        setBacktestReplayState('EMPTY')
+        setBacktestReplayMessage(candlesResponse.message || t('today.session.backtest.emptyRange'))
+        return false
       }
 
       const run = await createBacktestRun({
-        symbol: (selectedDataset?.symbolDisplay || backtestSetup.symbol).trim().toUpperCase(),
-        timeframe: selectedDataset?.timeframe || backtestSetup.timeframe,
-        from: candlesResponse.from || fromIso,
-        to: candlesResponse.to || toIso,
-        sessionWindow: backtestSetup.sessionWindow || undefined,
-        spread: backtestSetup.spread ? Number(backtestSetup.spread) : undefined,
-        slippage: backtestSetup.slippage ? Number(backtestSetup.slippage) : undefined,
-        dataSource: backtestSetup.dataSource,
-        provider: backtestSetup.dataSource,
-        sourceId: (selectedDataset?.sourceId || backtestSetup.sourceId || undefined),
-        datasetId: selectedDataset?.id || backtestSetup.datasetId || undefined
+        symbol: (selectedDataset?.symbolDisplay || effectiveSetup.symbol).trim().toUpperCase(),
+        timeframe: selectedDataset?.timeframe || effectiveSetup.timeframe,
+        from: effectiveFrom,
+        to: effectiveTo,
+        sessionWindow: effectiveSetup.sessionWindow || undefined,
+        spread: effectiveSetup.spread ? Number(effectiveSetup.spread) : undefined,
+        slippage: effectiveSetup.slippage ? Number(effectiveSetup.slippage) : undefined,
+        dataSource: effectiveSetup.dataSource,
+        provider: effectiveSetup.dataSource,
+        sourceId: (selectedDataset?.sourceId || effectiveSetup.sourceId || undefined),
+        datasetId: selectedDataset?.id || effectiveSetup.datasetId || undefined
       })
       setBacktestRun(run)
       setBacktestCandles(normalizedCandles)
@@ -2010,14 +2095,74 @@ export default function SessionPage() {
         setLatestBacktestTrade(trades[0])
       }
       setSuccessMessage(t('today.session.backtest.loaded'))
+      return true
     } catch (error) {
       setBacktestReplayState('ERROR')
       setBacktestReplayMessage('')
       const apiErr = error as ApiError
       setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.loadFailed'))
+      return false
     } finally {
       setBacktestLoading(false)
     }
+  }
+
+  const handleIngestCsvUpload = async (upload: CsvUploadItem) => {
+    setCsvIngestingFileId(upload.fileId)
+    setApiError('')
+    try {
+      const mappingPayload = upload.mappingRequired ? upload.mappingDraft : undefined
+      const ingest = await ingestBacktestCsv(upload.fileId, {
+        mapping: mappingPayload,
+        symbol: upload.detectedSymbol || undefined,
+        timeframe: upload.detectedTimeframe || undefined,
+        datasetName: upload.fileName
+      })
+      await refreshBacktestDatasets()
+      let datasetForReplay: BacktestDataset | null = ingest.dataset || null
+      const datasetId = ingest.dataset?.id
+      if (datasetId) {
+        try {
+          datasetForReplay = await getBacktestDataset(datasetId)
+        } catch {
+          datasetForReplay = ingest.dataset
+        }
+      }
+
+      if (datasetForReplay) {
+        const summary = await loadBacktestDatasetSummary(datasetForReplay)
+        const defaults = resolveDatasetDateRangeDefaults({
+          dataFrom: summary?.dataFromUtc || datasetForReplay.dataFrom,
+          dataTo: summary?.dataToUtc || datasetForReplay.dataTo,
+          timeframe: summary?.timeframe || datasetForReplay.timeframe,
+          defaultFromUtc: summary?.defaultFromUtc,
+          defaultToUtc: summary?.defaultToUtc
+        })
+        const setupOverrides: Partial<BacktestSetupState> = {
+          dataSource: 'CSV',
+          datasetId: datasetForReplay.id,
+          sourceId: datasetForReplay.sourceId,
+          symbol: summary?.symbolDisplay || datasetForReplay.symbolDisplay,
+          timeframe: ((summary?.timeframe || datasetForReplay.timeframe) as BacktestSetupState['timeframe']) || backtestSetup.timeframe,
+          from: defaults.from || backtestSetup.from,
+          to: defaults.to || backtestSetup.to
+        }
+        setBacktestSetup((prev) => ({ ...prev, ...setupOverrides }))
+        await loadBacktestData(setupOverrides)
+      }
+
+      setCsvUploads((prev) => prev.filter((item) => item.fileId !== upload.fileId))
+      setSuccessMessage(t('today.session.backtest.ingested'))
+    } catch (error) {
+      const apiErr = error as ApiError
+      setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.ingestFailed'))
+    } finally {
+      setCsvIngestingFileId(null)
+    }
+  }
+
+  const handleLoadBacktestData = async () => {
+    await loadBacktestData()
   }
 
   const handleResetBacktestReplay = () => {
@@ -2026,6 +2171,7 @@ export default function SessionPage() {
 
   const handleStepReplay = (step: number) => {
     if (!backtestCandles.length) return
+    setBacktestIsPlaying(false)
     setBacktestCursor((prev) => {
       const max = Math.max(backtestCandles.length - 1, 0)
       return Math.min(Math.max(prev + step, 0), max)
@@ -2034,6 +2180,7 @@ export default function SessionPage() {
 
   const handleJumpReplay = () => {
     if (!backtestCandles.length) return
+    setBacktestIsPlaying(false)
     const input = window.prompt(t('today.session.backtest.jumpPrompt'), backtestCandles[backtestCursor]?.timestamp || '')
     if (!input) return
     const target = new Date(input).getTime()
@@ -2745,8 +2892,8 @@ export default function SessionPage() {
                                     setChartMode(nextMode)
                                     if (nextMode !== 'BACKTEST') {
                                       resetBacktestReplay()
-                                    } else if (backtestReplayState === 'PLAYING') {
-                                      setBacktestReplayState('PAUSED')
+                                    } else {
+                                      setBacktestIsPlaying(false)
                                     }
                                   }}
                                 >
@@ -2939,6 +3086,7 @@ export default function SessionPage() {
                                           label={t('today.session.backtest.dataset')}
                                           value={backtestSetup.datasetId}
                                           onChange={(event) => {
+                                            setBacktestDatasetSummary(null)
                                             setBacktestSetup((prev) => ({ ...prev, datasetId: event.target.value }))
                                             resetBacktestReplay()
                                           }}
@@ -3017,8 +3165,8 @@ export default function SessionPage() {
                                       InputLabelProps={{ shrink: true }}
                                       value={backtestSetup.from}
                                       inputProps={{
-                                        min: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataFrom) : undefined,
-                                        max: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataTo) : undefined
+                                        min: selectedDatasetFromIso ? toDateInputFromIso(selectedDatasetFromIso) : undefined,
+                                        max: selectedDatasetToIso ? toDateInputFromIso(selectedDatasetToIso) : undefined
                                       }}
                                       onChange={(event) => setBacktestSetup((prev) => ({ ...prev, from: event.target.value }))}
                                     />
@@ -3032,12 +3180,45 @@ export default function SessionPage() {
                                       InputLabelProps={{ shrink: true }}
                                       value={backtestSetup.to}
                                       inputProps={{
-                                        min: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataFrom) : undefined,
-                                        max: selectedBacktestDataset ? toDateInputFromIso(selectedBacktestDataset.dataTo) : undefined
+                                        min: selectedDatasetFromIso ? toDateInputFromIso(selectedDatasetFromIso) : undefined,
+                                        max: selectedDatasetToIso ? toDateInputFromIso(selectedDatasetToIso) : undefined
                                       }}
                                       onChange={(event) => setBacktestSetup((prev) => ({ ...prev, to: event.target.value }))}
                                     />
                                   </Grid>
+                                  {backtestSetup.dataSource !== 'OANDA' && selectedDatasetFromIso && selectedDatasetToIso && (
+                                    <Grid item xs={12}>
+                                      <Stack spacing={0.75}>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {t('today.session.backtest.availableDataInline', {
+                                            from: toDateInputFromIso(selectedDatasetFromIso) || t('common.na'),
+                                            to: toDateInputFromIso(selectedDatasetToIso) || t('common.na'),
+                                            timeframe: selectedDatasetTimeframe
+                                          })}
+                                        </Typography>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {t('today.session.backtest.defaultWindowInline', {
+                                            days: backtestDatasetSummary?.defaultWindowDays || resolveTimeframeWindowDays(selectedDatasetTimeframe)
+                                          })}
+                                        </Typography>
+                                        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                                          {selectedDatasetPresetDays.map((days) => (
+                                            <Button
+                                              key={days}
+                                              size="small"
+                                              variant="text"
+                                              onClick={() => applyBacktestPreset(days)}
+                                            >
+                                              {t('today.session.backtest.presetLastDays', { days })}
+                                            </Button>
+                                          ))}
+                                          <Button size="small" variant="outlined" onClick={applyDefaultBacktestRange}>
+                                            {t('today.session.backtest.useDefaultRange')}
+                                          </Button>
+                                        </Stack>
+                                      </Stack>
+                                    </Grid>
+                                  )}
                                   <Grid item xs={6} sm={3} md={2}>
                                     <TextField
                                       size="small"
@@ -3221,10 +3402,30 @@ export default function SessionPage() {
 
                           {backtestReplayState === 'LOADING' && <LinearProgress />}
                           {backtestReplayMessage && (
-                            <Alert severity={backtestReplayState === 'ERROR' ? 'warning' : 'info'}>
-                              {backtestReplayMessage === 'No candles for range'
-                                ? 'No candles returned for selected range. Adjust From/To.'
-                                : backtestReplayMessage}
+                            <Alert severity={backtestReplayState === 'ERROR' ? 'warning' : (backtestReplayState === 'EMPTY' ? 'info' : 'success')}>
+                              <Stack spacing={0.5}>
+                                <Typography variant="body2">{backtestReplayMessage}</Typography>
+                                {backtestReplayState === 'EMPTY' && (backtestDatasetSummary?.dataFromUtc || selectedBacktestDataset?.dataFrom) && (backtestDatasetSummary?.dataToUtc || selectedBacktestDataset?.dataTo) && (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {t('today.session.backtest.availableDataInline', {
+                                      from: toDateInputFromIso(backtestDatasetSummary?.dataFromUtc || selectedBacktestDataset?.dataFrom) || t('common.na'),
+                                      to: toDateInputFromIso(backtestDatasetSummary?.dataToUtc || selectedBacktestDataset?.dataTo) || t('common.na'),
+                                      timeframe: backtestDatasetSummary?.timeframe || selectedBacktestDataset?.timeframe || backtestSetup.timeframe
+                                    })}
+                                  </Typography>
+                                )}
+                                {backtestReplayState === 'EMPTY' && (
+                                  <Box>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      onClick={applyDefaultBacktestRange}
+                                    >
+                                      {t('today.session.backtest.useDefaultRange')}
+                                    </Button>
+                                  </Box>
+                                )}
+                              </Stack>
                             </Alert>
                           )}
 
@@ -3234,17 +3435,17 @@ export default function SessionPage() {
                                 size="small"
                                 variant="outlined"
                                 onClick={() => {
-                                  if (backtestReplayState === 'PLAYING') {
-                                    setBacktestReplayState('PAUSED')
+                                  if (backtestIsPlaying) {
+                                    setBacktestIsPlaying(false)
                                     return
                                   }
                                   if (canReplayPlay) {
-                                    setBacktestReplayState('PLAYING')
+                                    setBacktestIsPlaying(true)
                                   }
                                 }}
-                                disabled={backtestReplayState !== 'PLAYING' && !canReplayPlay}
+                                disabled={!backtestIsPlaying && !canReplayPlay}
                               >
-                                {backtestReplayState === 'PLAYING' ? t('today.session.backtest.pause') : t('today.session.backtest.play')}
+                                {backtestIsPlaying ? t('today.session.backtest.pause') : t('today.session.backtest.play')}
                               </Button>
                               <Button size="small" variant="outlined" onClick={() => handleStepReplay(-5)} disabled={!canReplayStep}>-5</Button>
                               <Button size="small" variant="outlined" onClick={() => handleStepReplay(-1)} disabled={!canReplayStep}>-1</Button>
@@ -3271,6 +3472,7 @@ export default function SessionPage() {
                               <Chip
                                 size="small"
                                 variant="outlined"
+                                sx={{ minWidth: 230 }}
                                 label={`${t('today.session.backtest.cursor')}: ${backtestCandles[backtestCursor]?.timestamp ? new Date(backtestCandles[backtestCursor].timestamp).toLocaleString() : t('common.na')}`}
                               />
                               <Chip

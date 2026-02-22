@@ -193,13 +193,16 @@ class BacktestBinaryPayloadIntegrationTest {
         JsonNode datasets = objectMapper.readTree(datasetsResult.getResponse().getContentAsString());
         String datasetId = datasets.get(0).path("id").asText();
 
-        MvcResult metadataResult = mockMvc.perform(get("/api/backtest/datasets/{id}", datasetId))
+        MvcResult metadataResult = mockMvc.perform(get("/api/backtest/datasets/{id}/summary", datasetId))
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode metadata = objectMapper.readTree(metadataResult.getResponse().getContentAsString());
         assertThat(metadata.path("timeframe").asText()).isNotBlank();
-        assertThat(metadata.path("dataFrom").asText()).isNotBlank();
-        assertThat(metadata.path("dataTo").asText()).isNotBlank();
+        assertThat(metadata.path("dataFromUtc").asText()).isNotBlank();
+        assertThat(metadata.path("dataToUtc").asText()).isNotBlank();
+        assertThat(metadata.path("defaultFromUtc").asText()).isNotBlank();
+        assertThat(metadata.path("defaultToUtc").asText()).isNotBlank();
+        assertThat(metadata.path("candleCount").asLong()).isGreaterThan(100L);
 
         MvcResult candlesResult = mockMvc.perform(get("/api/backtest/candles")
                         .param("provider", "DEMO")
@@ -210,7 +213,10 @@ class BacktestBinaryPayloadIntegrationTest {
 
         assertThat(candlesJson.path("provider").asText()).isEqualTo("DEMO");
         assertThat(candlesJson.path("candles").isArray()).isTrue();
-        assertThat(candlesJson.path("candles").size()).isGreaterThan(0);
+        assertThat(candlesJson.path("candles").size()).isGreaterThan(100);
+        assertThat(candlesJson.path("count").asInt()).isGreaterThan(100);
+        assertThat(candlesJson.path("effectiveFromUtc").asText()).isNotBlank();
+        assertThat(candlesJson.path("effectiveToUtc").asText()).isNotBlank();
         JsonNode candles = candlesJson.path("candles");
         OffsetDateTime previous = null;
         for (JsonNode candle : candles) {
@@ -327,10 +333,21 @@ class BacktestBinaryPayloadIntegrationTest {
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode ingestJson = objectMapper.readTree(ingestResult.getResponse().getContentAsString());
+        String datasetId = ingestJson.path("dataset").path("id").asText();
+
+        MvcResult summaryResult = mockMvc.perform(get("/api/backtest/datasets/{id}/summary", datasetId))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode summaryJson = objectMapper.readTree(summaryResult.getResponse().getContentAsString());
+        assertThat(summaryJson.path("dataFromUtc").asText()).startsWith("2026-02-01T00:00");
+        assertThat(summaryJson.path("dataToUtc").asText()).startsWith("2026-02-01T00:05");
+        assertThat(summaryJson.path("defaultFromUtc").asText()).isNotBlank();
+        assertThat(summaryJson.path("defaultToUtc").asText()).isNotBlank();
+        assertThat(summaryJson.path("candleCount").asLong()).isGreaterThan(0L);
 
         MvcResult candlesResult = mockMvc.perform(get("/api/backtest/candles")
                         .param("provider", "CSV")
-                        .param("datasetId", ingestJson.path("dataset").path("id").asText()))
+                        .param("datasetId", datasetId))
                 .andExpect(status().isOk())
                 .andReturn();
         JsonNode candlesJson = objectMapper.readTree(candlesResult.getResponse().getContentAsString());
@@ -338,6 +355,9 @@ class BacktestBinaryPayloadIntegrationTest {
         assertThat(candlesJson.path("provider").asText()).isEqualTo("CSV");
         assertThat(candlesJson.path("candles").isArray()).isTrue();
         assertThat(candlesJson.path("candles").size()).isGreaterThan(0);
+        assertThat(candlesJson.path("count").asInt()).isGreaterThan(0);
+        assertThat(candlesJson.path("effectiveFromUtc").asText()).isNotBlank();
+        assertThat(candlesJson.path("effectiveToUtc").asText()).isNotBlank();
     }
 
     private User createUser(String email) {

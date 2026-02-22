@@ -7,6 +7,7 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.BacktestCandleSource;
 import com.tradevault.domain.enums.BacktestTimeframe;
 import com.tradevault.dto.backtest.BacktestDatasetResponse;
+import com.tradevault.dto.backtest.BacktestDatasetSummaryResponse;
 import com.tradevault.exception.BacktestDomainException;
 import com.tradevault.exception.BacktestErrorCodes;
 import com.tradevault.repository.BacktestDatasetRepository;
@@ -16,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -64,11 +66,41 @@ public class BacktestDatasetService {
                                          OffsetDateTime to,
                                          int rowCount,
                                          List<String> warnings) {
+        return upsertDataset(
+                user,
+                source,
+                sourceId,
+                name,
+                symbolCanonical,
+                symbolDisplay,
+                timeframe,
+                from,
+                to,
+                rowCount,
+                warnings,
+                null
+        );
+    }
+
+    @Transactional
+    public BacktestDataset upsertDataset(User user,
+                                         BacktestCandleSource source,
+                                         String sourceId,
+                                         String name,
+                                         String symbolCanonical,
+                                         String symbolDisplay,
+                                         BacktestTimeframe timeframe,
+                                         OffsetDateTime from,
+                                         OffsetDateTime to,
+                                         int rowCount,
+                                         List<String> warnings,
+                                         UUID preferredDatasetId) {
         String normalizedSourceId = normalizeSourceId(sourceId);
         BacktestDataset dataset = backtestDatasetRepository
                 .findFirstByUser_IdAndProviderAndSourceIdOrderByCreatedAtDesc(user.getId(), source, normalizedSourceId)
                 .filter(item -> item.getTimeframe() == timeframe && item.getSymbolCanonical().equalsIgnoreCase(symbolCanonical))
                 .orElseGet(() -> BacktestDataset.builder()
+                        .id(preferredDatasetId)
                         .user(user)
                         .provider(source)
                         .sourceId(normalizedSourceId)
@@ -87,6 +119,50 @@ public class BacktestDatasetService {
         dataset.setMetadataJson(metadata);
 
         return backtestDatasetRepository.save(dataset);
+    }
+
+    @Transactional(readOnly = true)
+    public BacktestDatasetSummaryResponse getDatasetSummary(UUID userId, UUID datasetId) {
+        BacktestDataset dataset = requireDataset(userId, datasetId);
+        BacktestTimeframe timeframe = dataset.getTimeframe() == null ? BacktestTimeframe.M1 : dataset.getTimeframe();
+        CandleChunkStoreService.SourceCoverage coverage = candleChunkStoreService.summarizeSource(
+                userId,
+                dataset.getProvider(),
+                dataset.getSourceId(),
+                dataset.getSymbolCanonical(),
+                timeframe
+        );
+
+        OffsetDateTime dataFrom = dataset.getDataFrom() != null ? dataset.getDataFrom() : coverage.dataFromUtc();
+        OffsetDateTime dataTo = dataset.getDataTo() != null ? dataset.getDataTo() : coverage.dataToUtc();
+        BacktestRangeResolver.EffectiveRange defaultRange = BacktestRangeResolver.resolveDatasetRange(
+                dataset.getProvider(),
+                timeframe,
+                dataFrom,
+                dataTo,
+                null,
+                null,
+                OffsetDateTime.now(ZoneOffset.UTC)
+        );
+
+        long count = dataset.getRowCount() == null || dataset.getRowCount() <= 0
+                ? coverage.candleCount()
+                : dataset.getRowCount();
+
+        return BacktestDatasetSummaryResponse.builder()
+                .datasetId(dataset.getId())
+                .provider(dataset.getProvider().name())
+                .symbolDisplay(dataset.getSymbolDisplay())
+                .symbolCanonical(dataset.getSymbolCanonical())
+                .timeframe(timeframe.name())
+                .dataFromUtc(dataFrom)
+                .dataToUtc(dataTo)
+                .candleCount(count)
+                .timezoneHint(readTimezoneHint(dataset.getMetadataJson()))
+                .defaultFromUtc(defaultRange.fromUtc())
+                .defaultToUtc(defaultRange.toUtc())
+                .defaultWindowDays(BacktestRangeResolver.defaultWindowDays(timeframe))
+                .build();
     }
 
     @Transactional
@@ -127,6 +203,21 @@ public class BacktestDatasetService {
             }
         }
         return rows;
+    }
+
+    private String readTimezoneHint(JsonNode metadata) {
+        if (metadata == null || metadata.isNull()) {
+            return "UTC";
+        }
+        JsonNode timezoneHint = metadata.get("timezoneHint");
+        if (timezoneHint != null && timezoneHint.isTextual() && !timezoneHint.asText().isBlank()) {
+            return timezoneHint.asText();
+        }
+        JsonNode timezone = metadata.get("timezone");
+        if (timezone != null && timezone.isTextual() && !timezone.asText().isBlank()) {
+            return timezone.asText();
+        }
+        return "UTC";
     }
 
     private String normalizeDatasetName(String requested,

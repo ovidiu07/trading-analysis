@@ -156,7 +156,8 @@ public class BacktestCsvService {
                 upload.getOriginalFileName()
         );
         String symbolCanonical = canonicalizeSymbol(symbolDisplay);
-        String sourceId = UUID.randomUUID().toString();
+        UUID datasetId = UUID.randomUUID();
+        String sourceId = datasetId.toString();
 
         List<CanonicalCandle> canonical = parsed.candles().stream()
                 .map(item -> new CanonicalCandle(
@@ -196,7 +197,8 @@ public class BacktestCsvService {
                 parsed.from(),
                 parsed.to(),
                 canonical.size(),
-                parsed.warnings()
+                parsed.warnings(),
+                datasetId
         );
 
         return CsvIngestResponse.builder()

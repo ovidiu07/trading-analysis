@@ -55,6 +55,7 @@ const backtestApiMock = vi.hoisted(() => ({
   createBacktestRun: vi.fn(),
   getBacktestCandles: vi.fn(),
   getBacktestDataset: vi.fn(),
+  getBacktestDatasetSummary: vi.fn(),
   uploadBacktestCsv: vi.fn(),
   ingestBacktestCsv: vi.fn(),
   listBacktestDatasets: vi.fn(),
@@ -481,6 +482,38 @@ describe('SessionPage execution funnel', () => {
         warnings: []
       }
     })
+    backtestApiMock.getBacktestDatasetSummary.mockImplementation(async (id: string) => {
+      if (id === 'dataset-1' || id === 'dataset-csv-1') {
+        return {
+          datasetId: id,
+          provider: 'CSV',
+          symbolDisplay: 'EURUSD',
+          symbolCanonical: 'EURUSD',
+          timeframe: 'M1',
+          dataFromUtc: '2026-02-01T00:00:00Z',
+          dataToUtc: '2026-02-01T01:00:00Z',
+          defaultFromUtc: '2026-02-01T00:00:00Z',
+          defaultToUtc: '2026-02-01T01:00:00Z',
+          defaultWindowDays: 7,
+          candleCount: 61,
+          timezoneHint: 'UTC'
+        }
+      }
+      return {
+        datasetId: id,
+        provider: 'DEMO',
+        symbolDisplay: 'DEMO:EURUSD',
+        symbolCanonical: 'EURUSD',
+        timeframe: 'M5',
+        dataFromUtc: '2025-11-01T00:00:00Z',
+        dataToUtc: '2025-12-31T23:55:00Z',
+        defaultFromUtc: '2025-12-24T23:55:00Z',
+        defaultToUtc: '2025-12-31T23:55:00Z',
+        defaultWindowDays: 7,
+        candleCount: 1000,
+        timezoneHint: 'UTC'
+      }
+    })
     backtestApiMock.ingestBacktestCsv.mockResolvedValue({
       dataset: {
         id: 'dataset-1',
@@ -870,6 +903,9 @@ describe('SessionPage execution funnel', () => {
       expect(backtestApiMock.getBacktestCandles).toHaveBeenCalled()
       expect(backtestApiMock.createBacktestRun).toHaveBeenCalled()
     })
+    const candleRequest = backtestApiMock.getBacktestCandles.mock.calls.at(-1)?.[0] as Record<string, string | undefined>
+    expect(candleRequest.from).toMatch(/T00:00:00/)
+    expect(candleRequest.to).toMatch(/T23:59:59/)
     expect(screen.getByTestId('mock-replay-chart')).toHaveTextContent('replay:3:0')
     expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: READY')
     expect(screen.getByRole('button', { name: /^Play$/i })).toBeEnabled()
@@ -987,6 +1023,115 @@ describe('SessionPage execution funnel', () => {
         dataSource: 'CSV',
         datasetId: 'dataset-csv-1'
       }))
+    })
+  }, 30_000)
+
+  it('autofills backtest date inputs from dataset summary defaults', async () => {
+    const user = userEvent.setup()
+    const csvDataset = {
+      id: 'dataset-csv-1',
+      provider: 'CSV',
+      sourceId: 'csv-source-1',
+      name: 'tv.csv',
+      symbolCanonical: 'EURUSD',
+      symbolDisplay: 'EURUSD',
+      timeframe: 'M1',
+      dataFrom: '2026-02-01T00:00:00Z',
+      dataTo: '2026-02-28T23:59:59Z',
+      rowCount: 3000,
+      warnings: []
+    }
+    backtestApiMock.listBacktestDatasets.mockResolvedValue([csvDataset])
+    backtestApiMock.getBacktestDatasetSummary.mockResolvedValue({
+      datasetId: 'dataset-csv-1',
+      provider: 'CSV',
+      symbolDisplay: 'EURUSD',
+      symbolCanonical: 'EURUSD',
+      timeframe: 'M1',
+      dataFromUtc: '2026-02-01T00:00:00Z',
+      dataToUtc: '2026-02-28T23:59:59Z',
+      defaultFromUtc: '2026-02-10T00:00:00Z',
+      defaultToUtc: '2026-02-17T23:59:59Z',
+      defaultWindowDays: 7,
+      candleCount: 3000,
+      timezoneHint: 'UTC'
+    })
+
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+    await user.click(screen.getByRole('combobox', { name: /Data source/i }))
+    await user.click(await screen.findByRole('option', { name: /CSV upload/i }))
+    await user.click(screen.getByRole('combobox', { name: /Dataset/i }))
+    await user.click(await screen.findByRole('option', { name: /tv.csv/i }))
+
+    await waitFor(() => {
+      expect(backtestApiMock.getBacktestDatasetSummary).toHaveBeenCalledWith('dataset-csv-1')
+    })
+
+    expect((screen.getByLabelText(/^From$/i) as HTMLInputElement).value).toBe('2026-02-10')
+    expect((screen.getByLabelText(/^To$/i) as HTMLInputElement).value).toBe('2026-02-17')
+  })
+
+  it('transitions to EMPTY and clears replay data when candles response is empty', async () => {
+    const user = userEvent.setup()
+    backtestApiMock.getBacktestCandles.mockResolvedValueOnce({
+      provider: 'OANDA',
+      sourceId: 'source-1',
+      symbol: 'OANDA:EURUSD',
+      timeframe: 'M1',
+      from: '2026-02-01T00:00:00Z',
+      to: '2026-02-14T23:59:59Z',
+      candleCount: 0,
+      count: 0,
+      effectiveFromUtc: '2026-02-01T00:00:00Z',
+      effectiveToUtc: '2026-02-14T23:59:59Z',
+      message: 'No candles returned for selected range.',
+      candles: []
+    })
+
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+    await user.click(screen.getByRole('button', { name: /Load data/i }))
+
+    await waitFor(() => {
+      expect(backtestApiMock.getBacktestCandles).toHaveBeenCalled()
+    })
+
+    expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: EMPTY')
+    expect(screen.getByTestId('mock-replay-chart')).toHaveTextContent('replay:0:0')
+  })
+
+  it('does not call scrollIntoView while replay is playing', async () => {
+    const user = userEvent.setup()
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+    await user.click(screen.getByRole('button', { name: /Load data/i }))
+    await waitFor(() => {
+      expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: READY')
+    })
+
+    const originalScrollIntoView = Element.prototype.scrollIntoView
+    const scrollSpy = vi.fn()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      value: scrollSpy,
+      configurable: true
+    })
+    await user.click(screen.getByRole('button', { name: /^Play$/i }))
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-replay-chart')).toHaveTextContent('replay:3:1')
+    }, { timeout: 2500 })
+    expect(scrollSpy).not.toHaveBeenCalled()
+    Object.defineProperty(Element.prototype, 'scrollIntoView', {
+      value: originalScrollIntoView,
+      configurable: true
     })
   }, 30_000)
 })
