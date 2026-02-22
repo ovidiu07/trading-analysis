@@ -11,7 +11,6 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -21,7 +20,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.GenericGenerator;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -70,8 +71,8 @@ public class CandleChunk {
     @Column(nullable = false, length = 16)
     private CandleChunkFormat format;
 
-    @Lob
-    @Column(columnDefinition = "BYTEA")
+    @JdbcTypeCode(SqlTypes.VARBINARY)
+    @Column(name = "payload", columnDefinition = "BYTEA")
     private byte[] payload;
 
     @Column(name = "object_key", length = 512)

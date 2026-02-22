@@ -85,6 +85,7 @@ public class BacktestCsvService {
     @Transactional
     public CsvUploadResponse upload(User user, MultipartFile file) {
         byte[] payload = readAndValidate(file);
+        assertBinaryPayload(payload, "CSV upload payload");
         ParseResult preview = parseCsv(
                 payload,
                 resolveFileName(file),
@@ -119,6 +120,7 @@ public class BacktestCsvService {
                 ));
 
         CsvColumnMappingRequest requestMapping = request == null ? null : request.getMapping();
+        assertBinaryPayload(upload.getFilePayload(), "Stored CSV payload");
         CsvColumnMappingRequest savedMapping = findSavedMapping(user.getId(), upload.getFilePayload());
         ParseResult parsed = parseCsv(
                 upload.getFilePayload(),
@@ -237,6 +239,17 @@ public class BacktestCsvService {
                     BacktestErrorCodes.CSV_PARSE_ERROR,
                     "Could not read CSV file",
                     "Retry the upload and ensure the file is accessible.",
+                    HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    private void assertBinaryPayload(byte[] payload, String fieldLabel) {
+        if (payload == null || payload.length == 0) {
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.CSV_PARSE_ERROR,
+                    "%s is empty".formatted(fieldLabel),
+                    "Upload the CSV again and retry ingesting.",
                     HttpStatus.BAD_REQUEST
             );
         }

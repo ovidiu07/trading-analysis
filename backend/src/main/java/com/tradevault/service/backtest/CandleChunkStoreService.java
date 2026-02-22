@@ -7,6 +7,8 @@ import com.tradevault.domain.enums.BacktestTimeframe;
 import com.tradevault.domain.enums.CandleChunkFormat;
 import com.tradevault.repository.CandleChunkRepository;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +25,8 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class CandleChunkStoreService {
+    private static final Logger log = LoggerFactory.getLogger(CandleChunkStoreService.class);
+
     private final CandleChunkRepository candleChunkRepository;
     private final CandleChunkCodec candleChunkCodec;
 
@@ -82,8 +86,25 @@ public class CandleChunkStoreService {
 
             chunk.setSymbolDisplay(symbolDisplay);
             chunk.setChunkEndUtc(merged.get(merged.size() - 1).tsUtc());
-            chunk.setPayload(candleChunkCodec.encode(merged));
+            byte[] payload = candleChunkCodec.encode(merged);
+            assertStorageReference(payload, chunk.getObjectKey(), provider, sourceId, symbolCanonical, timeframe, chunkStart);
+            chunk.setPayload(payload);
+            chunk.setObjectKey(null);
             chunk.setFormat(CandleChunkFormat.JSON_GZIP);
+
+            if (log.isDebugEnabled()) {
+                log.debug(
+                        "Persisting candle chunk provider={} sourceId={} symbol={} timeframe={} chunkStart={} chunkEnd={} payloadLength={}",
+                        provider,
+                        sourceId,
+                        symbolCanonical,
+                        timeframe,
+                        chunkStart,
+                        chunk.getChunkEndUtc(),
+                        payload.length
+                );
+            }
+
             candleChunkRepository.save(chunk);
         }
     }
@@ -211,5 +232,27 @@ public class CandleChunkStoreService {
             return start.plusDays(1);
         }
         return start.plusMonths(1);
+    }
+
+    private void assertStorageReference(byte[] payload,
+                                        String objectKey,
+                                        BacktestCandleSource provider,
+                                        String sourceId,
+                                        String symbolCanonical,
+                                        BacktestTimeframe timeframe,
+                                        OffsetDateTime chunkStartUtc) {
+        boolean hasObjectKey = objectKey != null && !objectKey.isBlank();
+        if (!hasObjectKey && (payload == null || payload.length == 0)) {
+            throw new IllegalStateException(
+                    "Chunk payload is required when object key is missing for %s/%s/%s/%s at %s"
+                            .formatted(provider, sourceId, symbolCanonical, timeframe, chunkStartUtc)
+            );
+        }
+        if (payload != null && payload.length == 0) {
+            throw new IllegalStateException(
+                    "Chunk payload must not be empty for %s/%s/%s/%s at %s"
+                            .formatted(provider, sourceId, symbolCanonical, timeframe, chunkStartUtc)
+            );
+        }
     }
 }

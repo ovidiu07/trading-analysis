@@ -7,7 +7,6 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
-import jakarta.persistence.Lob;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -49,7 +48,7 @@ public class BacktestCsvUpload {
     @Column(name = "file_size_bytes", nullable = false)
     private long fileSizeBytes;
 
-    @Lob
+    @JdbcTypeCode(SqlTypes.VARBINARY)
     @Column(name = "file_payload", nullable = false, columnDefinition = "BYTEA")
     private byte[] filePayload;
 
