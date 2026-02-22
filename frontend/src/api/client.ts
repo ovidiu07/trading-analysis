@@ -1,5 +1,7 @@
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 import { getCurrentLanguage } from '../i18n'
+const SKIP_AUTH_REFRESH_HEADER = 'X-Skip-Auth-Refresh'
+let refreshInFlight: Promise<boolean> | null = null
 
 export class ApiError extends Error {
   status?: number
@@ -15,6 +17,60 @@ function authHeader() {
 
 function localeHeader() {
   return { 'Accept-Language': getCurrentLanguage() }
+}
+
+function toHeadersObject(headers?: HeadersInit): Record<string, string> {
+  if (!headers) return {}
+  if (headers instanceof Headers) {
+    return Object.fromEntries(headers.entries())
+  }
+  if (Array.isArray(headers)) {
+    return Object.fromEntries(headers)
+  }
+  return { ...headers }
+}
+
+const isAuthPath = (path: string) => path.startsWith('/auth/')
+
+async function tryRefreshAccessToken(): Promise<boolean> {
+  if (refreshInFlight) {
+    return refreshInFlight
+  }
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${API_URL}/auth/refresh`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...localeHeader(),
+          [SKIP_AUTH_REFRESH_HEADER]: '1'
+        },
+        credentials: 'include'
+      })
+      if (!res.ok) {
+        return false
+      }
+      const text = await readResponseText(res)
+      if (!text) {
+        return false
+      }
+      const data = JSON.parse(text) as { token?: string }
+      if (!data?.token) {
+        return false
+      }
+      setAuthToken(data.token)
+      return true
+    } catch {
+      return false
+    }
+  })()
+
+  try {
+    return await refreshInFlight
+  } finally {
+    refreshInFlight = null
+  }
 }
 
 async function readResponseText(res: Response): Promise<string> {
@@ -39,6 +95,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
   const url = `${API_URL}${path}`
   let res: Response
   const { headers: customHeaders, ...rest } = options
+  const requestHeaders = toHeadersObject(customHeaders as HeadersInit | undefined)
   const isFormData = rest.body instanceof FormData
 
   try {
@@ -47,7 +104,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
         ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
         ...authHeader(),
         ...localeHeader(),
-        ...(customHeaders || {})
+        ...requestHeaders
       },
       credentials: 'include',
       ...rest
@@ -80,6 +137,23 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
     }
 
     if (res.status === 401 || res.status === 403) {
+      const shouldAttemptRefresh = (
+        !isAuthPath(path)
+        && requestHeaders[SKIP_AUTH_REFRESH_HEADER] !== '1'
+        && errorCode !== 'EMAIL_NOT_VERIFIED'
+      )
+      if (shouldAttemptRefresh) {
+        const refreshed = await tryRefreshAccessToken()
+        if (refreshed) {
+          return apiRequest<T>(path, {
+            ...options,
+            headers: {
+              ...requestHeaders,
+              [SKIP_AUTH_REFRESH_HEADER]: '1'
+            }
+          })
+        }
+      }
       if (errorCode !== 'EMAIL_NOT_VERIFIED') {
         errorCode = 'UNAUTHORIZED'
         message = 'Unauthorized or expired session. Please log in again.'

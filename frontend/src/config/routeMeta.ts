@@ -78,6 +78,12 @@ export const ROUTE_META_DEFINITIONS: RouteMetaDefinition[] = [
     pageSubtitleKey: 'analytics.subtitle'
   },
   {
+    id: 'diagnostics',
+    match: matchesPrefix('/diagnostics'),
+    pageTitleKey: 'diagnostics.title',
+    pageSubtitleKey: 'diagnostics.subtitle'
+  },
+  {
     id: 'insights',
     match: (pathname) => pathname === '/insights' || INSIGHTS_TAB_PATHS.has(pathname),
     pageTitleKey: 'insights.title',

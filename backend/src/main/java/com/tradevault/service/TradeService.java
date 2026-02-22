@@ -243,6 +243,8 @@ public class TradeService {
         trade.setStrategyTag(request.getStrategyTag());
         trade.setCatalystTag(request.getCatalystTag());
         trade.setStrategyId(request.getStrategyId());
+        trade.setStrategyVersionId(request.getStrategyVersionId());
+        trade.setContextSnapshotId(request.getContextSnapshotId());
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
         trade.setSessionId(request.getSessionId());
@@ -306,6 +308,8 @@ public class TradeService {
         trade.setStrategyTag(request.getStrategyTag());
         trade.setCatalystTag(request.getCatalystTag());
         trade.setStrategyId(request.getStrategyId());
+        trade.setStrategyVersionId(request.getStrategyVersionId());
+        trade.setContextSnapshotId(request.getContextSnapshotId());
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
         trade.setSessionId(request.getSessionId());
@@ -817,6 +821,8 @@ public class TradeService {
                 .strategyTag(trade.getStrategyTag())
                 .catalystTag(trade.getCatalystTag())
                 .strategyId(trade.getStrategyId())
+                .strategyVersionId(trade.getStrategyVersionId())
+                .contextSnapshotId(trade.getContextSnapshotId())
                 .setupGrade(trade.getSetupGrade())
                 .ruleBreaks(trade.getRuleBreaks() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getRuleBreaks()))
                 .session(trade.getSession())

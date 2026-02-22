@@ -65,6 +65,7 @@ const renderShell = (route: string) => {
             <Route path="/" element={<AppShell />}>
               <Route path="dashboard" element={<div>Dashboard content</div>} />
               <Route path="analytics" element={<div>Analytics content</div>} />
+              <Route path="diagnostics" element={<div>Diagnostics content</div>} />
               <Route path="trades" element={<div>Trades content</div>} />
               <Route path="today" element={<div>Today content</div>} />
             </Route>
@@ -135,4 +136,20 @@ describe('AppShell dashboard filters and logo placement', () => {
       expect(screen.getAllByAltText('TradeJAudit')).toHaveLength(1)
     }
   )
+
+  it('orders trading nav with dashboard directly under today and diagnostics before calendar', () => {
+    setViewportWidth(1280)
+    renderShell('/today')
+
+    const nav = screen.getByRole('navigation')
+    const expectedOrder = ['Today', 'Dashboard', 'Strategies', 'Mentor', 'Analytics', 'Diagnostics', 'Calendar']
+    const nodes = expectedOrder.map((label) => within(nav).getByText(label))
+
+    for (let index = 0; index < nodes.length - 1; index += 1) {
+      const first = nodes[index]
+      const second = nodes[index + 1]
+      const relation = first.compareDocumentPosition(second)
+      expect(Boolean(relation & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
+    }
+  })
 })

@@ -11,6 +11,8 @@ import java.util.UUID;
 public interface UserTokenRepository extends JpaRepository<UserToken, UUID> {
     Optional<UserToken> findByUserIdAndTypeAndTokenHashAndUsedAtIsNull(UUID userId, TokenType type, String tokenHash);
 
+    Optional<UserToken> findByTypeAndTokenHashAndUsedAtIsNull(TokenType type, String tokenHash);
+
     Optional<UserToken> findFirstByUserIdAndTypeAndUsedAtIsNullOrderByCreatedAtDesc(UUID userId, TokenType type);
 
     List<UserToken> findAllByUserIdAndTypeAndUsedAtIsNull(UUID userId, TokenType type);

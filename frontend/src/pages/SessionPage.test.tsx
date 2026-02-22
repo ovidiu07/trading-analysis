@@ -43,6 +43,22 @@ const assetsApiMock = vi.hoisted(() => ({
   uploadAsset: vi.fn()
 }))
 
+const chartProfilesApiMock = vi.hoisted(() => ({
+  listChartProfiles: vi.fn(),
+  createChartProfile: vi.fn(),
+  updateChartProfile: vi.fn(),
+  deleteChartProfile: vi.fn(),
+  setDefaultChartProfile: vi.fn()
+}))
+
+const backtestApiMock = vi.hoisted(() => ({
+  createBacktestRun: vi.fn(),
+  listBacktestRuns: vi.fn(),
+  getBacktestRun: vi.fn(),
+  listBacktestTrades: vi.fn(),
+  simulateBacktestTrade: vi.fn()
+}))
+
 vi.mock('../auth/AuthContext', () => ({
   useAuth: () => ({
     user: {
@@ -58,6 +74,8 @@ vi.mock('../api/session', () => sessionApiMock)
 vi.mock('../api/plans', () => plansApiMock)
 vi.mock('../api/strategies', () => strategiesApiMock)
 vi.mock('../api/fx', () => fxApiMock)
+vi.mock('../api/chartProfiles', () => chartProfilesApiMock)
+vi.mock('../api/backtest', () => backtestApiMock)
 vi.mock('../api/assets', async () => {
   const actual = await vi.importActual('../api/assets')
   return {
@@ -67,7 +85,15 @@ vi.mock('../api/assets', async () => {
 })
 
 vi.mock('../components/charts/TradingViewWidget', () => ({
-  default: () => <div data-testid="mock-chart">chart</div>
+  default: ({ symbol, interval }: { symbol?: string; interval?: string }) => (
+    <div data-testid="mock-chart">{`chart:${symbol || 'na'}:${interval || 'na'}`}</div>
+  )
+}))
+
+vi.mock('../components/charts/ReplayCandlestickChart', () => ({
+  default: ({ candles, cursorIndex }: { candles: unknown[]; cursorIndex: number }) => (
+    <div data-testid="mock-replay-chart">{`replay:${candles.length}:${cursorIndex}`}</div>
+  )
 }))
 
 const LanguageInitializer = ({ language }: { language: AppLanguage }) => {
@@ -341,6 +367,73 @@ describe('SessionPage execution funnel', () => {
       originalFileName: 'chart.png',
       url: '/api/assets/asset-1/view'
     })
+    chartProfilesApiMock.listChartProfiles.mockResolvedValue([])
+    chartProfilesApiMock.createChartProfile.mockResolvedValue({
+      id: 'profile-new',
+      name: 'New profile',
+      isDefault: false,
+      scope: 'SESSION_MODE',
+      embedConfigJson: {},
+      tjaPrefsJson: {}
+    })
+    chartProfilesApiMock.updateChartProfile.mockResolvedValue({
+      id: 'profile-1',
+      name: 'London profile',
+      isDefault: true,
+      scope: 'SESSION_MODE',
+      embedConfigJson: { symbol: 'OANDA:GBPUSD', interval: '5' },
+      tjaPrefsJson: { followPlanSymbol: false }
+    })
+    chartProfilesApiMock.deleteChartProfile.mockResolvedValue(undefined)
+    chartProfilesApiMock.setDefaultChartProfile.mockResolvedValue({
+      id: 'profile-1',
+      name: 'London profile',
+      isDefault: true,
+      scope: 'SESSION_MODE',
+      embedConfigJson: { symbol: 'OANDA:GBPUSD', interval: '5' },
+      tjaPrefsJson: { followPlanSymbol: false }
+    })
+    backtestApiMock.createBacktestRun.mockResolvedValue({
+      id: 'run-1',
+      symbol: 'OANDA:EURUSD',
+      timeframe: 'M1',
+      from: '2026-02-01T00:00:00Z',
+      to: '2026-02-14T23:59:59Z',
+      sessionWindow: 'LONDON',
+      spread: 0,
+      slippage: 0,
+      provider: 'OANDA',
+      status: 'READY',
+      candleCount: 3,
+      candles: [
+        { timestamp: '2026-02-14T08:00:00Z', open: 1.1, high: 1.101, low: 1.099, close: 1.1005, volume: 100 },
+        { timestamp: '2026-02-14T08:01:00Z', open: 1.1005, high: 1.1015, low: 1.0995, close: 1.101, volume: 120 },
+        { timestamp: '2026-02-14T08:02:00Z', open: 1.101, high: 1.102, low: 1.1, close: 1.1018, volume: 130 }
+      ]
+    })
+    backtestApiMock.listBacktestRuns.mockResolvedValue([])
+    backtestApiMock.getBacktestRun.mockResolvedValue(null)
+    backtestApiMock.listBacktestTrades.mockResolvedValue([])
+    backtestApiMock.simulateBacktestTrade.mockResolvedValue({
+      id: 'bt-1',
+      runId: 'run-1',
+      symbol: 'OANDA:EURUSD',
+      direction: 'LONG',
+      orderType: 'MARKET',
+      entryPrice: 1.1005,
+      stopLossPrice: 1.099,
+      takeProfitPrice: 1.102,
+      requestedAt: '2026-02-14T08:00:30Z',
+      entryTime: '2026-02-14T08:01:00Z',
+      exitTime: '2026-02-14T08:02:00Z',
+      filled: true,
+      exitReason: 'TP',
+      win: true,
+      breakEven: false,
+      rMultiple: 1.0,
+      maeR: 0.2,
+      mfeR: 1.1
+    })
   })
 
   it('renders panels in execution order', async () => {
@@ -607,4 +700,97 @@ describe('SessionPage execution funnel', () => {
       expect(assetsApiMock.uploadAsset).toHaveBeenCalledTimes(2)
     })
   })
+
+  it('applies default chart profile to live embed and saves profile config', async () => {
+    const user = userEvent.setup()
+    chartProfilesApiMock.listChartProfiles.mockResolvedValue([
+      {
+        id: 'profile-1',
+        name: 'London profile',
+        isDefault: true,
+        scope: 'SESSION_MODE',
+        embedConfigJson: { symbol: 'OANDA:GBPUSD', interval: '5' },
+        tjaPrefsJson: { followPlanSymbol: false }
+      }
+    ])
+
+    renderSessionPage()
+
+    await waitFor(() => {
+      expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:OANDA:GBPUSD:5')
+    })
+
+    const chartPanel = screen.getByText('Live chart').closest('.MuiCard-root') as HTMLElement
+    await user.click(within(chartPanel).getByRole('button', { name: /^Save$/i }))
+
+    await waitFor(() => {
+      expect(chartProfilesApiMock.updateChartProfile).toHaveBeenCalledWith(
+        'profile-1',
+        expect.objectContaining({
+          embedConfigJson: expect.objectContaining({
+            symbol: 'OANDA:GBPUSD',
+            interval: '5'
+          })
+        })
+      )
+    })
+  })
+
+  it('switches to backtest mode, loads replay data, and simulates a backtest trade', async () => {
+    const user = userEvent.setup()
+    backtestApiMock.listBacktestTrades
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: 'bt-1',
+          runId: 'run-1',
+          symbol: 'OANDA:EURUSD',
+          direction: 'LONG',
+          orderType: 'MARKET',
+          entryPrice: 1.1005,
+          stopLossPrice: 1.099,
+          takeProfitPrice: 1.102,
+          requestedAt: '2026-02-14T08:00:30Z',
+          entryTime: '2026-02-14T08:01:00Z',
+          exitTime: '2026-02-14T08:02:00Z',
+          filled: true,
+          exitReason: 'TP',
+          win: true,
+          breakEven: false,
+          rMultiple: 1.0,
+          maeR: 0.2,
+          mfeR: 1.1
+        }
+      ])
+
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+
+    await completeChecklistAndTicket(user)
+    await completeLockIn(user)
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+
+    await user.click(screen.getByRole('button', { name: /Load data/i }))
+
+    await waitFor(() => {
+      expect(backtestApiMock.createBacktestRun).toHaveBeenCalled()
+    })
+    expect(screen.getByTestId('mock-replay-chart')).toHaveTextContent('replay:3:0')
+
+    const plannerPanel = getPlannerPanel()
+    await user.click(within(plannerPanel).getByRole('button', { name: 'Start trade' }))
+
+    await waitFor(() => {
+      expect(backtestApiMock.simulateBacktestTrade).toHaveBeenCalledWith(
+        'run-1',
+        expect.objectContaining({
+          direction: 'LONG',
+          replayCursorTime: '2026-02-14T08:00:00Z'
+        })
+      )
+    })
+    expect(await screen.findByText(/Result:\s*TP/i)).toBeInTheDocument()
+  }, 30_000)
 })

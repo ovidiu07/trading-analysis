@@ -2,8 +2,10 @@ package com.tradevault.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.Asset;
 import com.tradevault.domain.entity.ContentPost;
+import com.tradevault.domain.entity.StrategyVersion;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.AssetScope;
@@ -15,6 +17,7 @@ import com.tradevault.dto.strategy.StrategyResponse;
 import com.tradevault.repository.AssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.StrategyVersionRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -53,6 +56,7 @@ public class StrategyService {
     private final ContentPostRepository contentPostRepository;
     private final CurrentUserService currentUserService;
     private final ObjectMapper objectMapper;
+    private final StrategyVersionRepository strategyVersionRepository;
 
     @Transactional(readOnly = true)
     public StrategyListResponse listStrategies(boolean includeArchived, String locale) {
@@ -103,6 +107,7 @@ public class StrategyService {
             saved.setSnapshotAssetId(validateSnapshotAsset(saved.getId(), request.getSnapshotAssetId(), user));
             saved = userStrategyRepository.save(saved);
         }
+        createStrategyVersion(saved, user);
         return toMyResponse(saved, assetService.listByStrategy(saved.getId()));
     }
 
@@ -137,6 +142,7 @@ public class StrategyService {
         }
 
         UserStrategy saved = userStrategyRepository.save(strategy);
+        createStrategyVersion(saved, user);
         return toMyResponse(saved, assetService.listByStrategy(saved.getId()));
     }
 
@@ -328,6 +334,33 @@ public class StrategyService {
             }
         }
         return "";
+    }
+
+    private void createStrategyVersion(UserStrategy strategy, User user) {
+        int nextVersion = strategyVersionRepository.findFirstByStrategy_IdOrderByVersionNumberDesc(strategy.getId())
+                .map(item -> item.getVersionNumber() + 1)
+                .orElse(1);
+        ObjectNode snapshot = objectMapper.createObjectNode();
+        snapshot.put("name", strategy.getName());
+        snapshot.put("model", strategy.getModel());
+        snapshot.put("entryConditionsJson", strategy.getEntryConditionsJson());
+        snapshot.put("entryConditionsRich", strategy.getEntryConditionsRich());
+        snapshot.put("invalidationLogic", strategy.getInvalidationLogic());
+        snapshot.put("tpFramework", strategy.getTpFramework());
+        snapshot.put("noTradeRules", strategy.getNoTradeRules());
+        snapshot.put("sessionSuitabilityJson", strategy.getSessionSuitabilityJson());
+        snapshot.put("tagsJson", strategy.getTagsJson());
+        if (strategy.getSnapshotAssetId() != null) {
+            snapshot.put("snapshotAssetId", strategy.getSnapshotAssetId().toString());
+        }
+
+        StrategyVersion version = StrategyVersion.builder()
+                .strategy(strategy)
+                .user(user)
+                .versionNumber(nextVersion)
+                .snapshotJson(snapshot)
+                .build();
+        strategyVersionRepository.save(version);
     }
 
     private List<String> normalizeList(Collection<String> values) {

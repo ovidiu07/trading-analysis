@@ -1,5 +1,5 @@
 import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from 'react'
-import { AuthResponse, AuthUser, RegisterPayload, RegisterResponse, getCurrentUser, login as apiLogin, register as apiRegister } from '../api/auth'
+import { AuthResponse, AuthUser, RegisterPayload, RegisterResponse, getCurrentUser, login as apiLogin, logout as apiLogout, register as apiRegister } from '../api/auth'
 import { ApiError, clearAuthToken } from '../api/client'
 import { UserSettingsRequest, updateUserSettings } from '../api/settings'
 
@@ -93,7 +93,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }
 
   const logout = () => {
-    resetAuth()
+    apiLogout().catch(() => {}).finally(() => resetAuth())
   }
 
   const value = useMemo<AuthContextType>(() => ({

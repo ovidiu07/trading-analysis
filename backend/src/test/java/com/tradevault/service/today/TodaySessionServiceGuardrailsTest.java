@@ -2,9 +2,11 @@ package com.tradevault.service.today;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.domain.entity.ChecklistTemplateItem;
+import com.tradevault.domain.entity.ContextSnapshot;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeGrade;
@@ -18,9 +20,11 @@ import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.ChecklistTemplateEntryRepository;
 import com.tradevault.repository.ChecklistTemplateItemRepository;
 import com.tradevault.repository.ChecklistTemplateRepository;
+import com.tradevault.repository.ChecklistTemplateVersionRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.service.ContextSnapshotService;
 import com.tradevault.service.CurrentUserService;
 import com.tradevault.service.TradeService;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,9 +54,11 @@ class TodaySessionServiceGuardrailsTest {
     private ChecklistTemplateRepository checklistTemplateRepository;
     private ChecklistTemplateEntryRepository checklistTemplateEntryRepository;
     private ChecklistTemplateItemRepository checklistTemplateItemRepository;
+    private ChecklistTemplateVersionRepository checklistTemplateVersionRepository;
     private SessionLevelRepository sessionLevelRepository;
     private CurrentUserService currentUserService;
     private TradeService tradeService;
+    private ContextSnapshotService contextSnapshotService;
     private TodaySessionService todaySessionService;
     private ObjectMapper objectMapper;
     private User user;
@@ -65,9 +71,11 @@ class TodaySessionServiceGuardrailsTest {
         checklistTemplateRepository = Mockito.mock(ChecklistTemplateRepository.class);
         checklistTemplateEntryRepository = Mockito.mock(ChecklistTemplateEntryRepository.class);
         checklistTemplateItemRepository = Mockito.mock(ChecklistTemplateItemRepository.class);
+        checklistTemplateVersionRepository = Mockito.mock(ChecklistTemplateVersionRepository.class);
         sessionLevelRepository = Mockito.mock(SessionLevelRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         tradeService = Mockito.mock(TradeService.class);
+        contextSnapshotService = Mockito.mock(ContextSnapshotService.class);
 
         objectMapper = new ObjectMapper();
         todaySessionService = new TodaySessionService(
@@ -76,9 +84,11 @@ class TodaySessionServiceGuardrailsTest {
                 checklistTemplateRepository,
                 checklistTemplateEntryRepository,
                 checklistTemplateItemRepository,
+                checklistTemplateVersionRepository,
                 sessionLevelRepository,
                 currentUserService,
                 tradeService,
+                contextSnapshotService,
                 objectMapper
         );
 
@@ -105,6 +115,22 @@ class TodaySessionServiceGuardrailsTest {
         when(tradeRepository.findFirstByUser_IdAndSessionIdAndStatusOrderByOpenedAtDescCreatedAtDesc(
                 eq(user.getId()), eq(session.getId()), eq(TradeStatus.OPEN)))
                 .thenReturn(Optional.empty());
+        when(contextSnapshotService.createSnapshot(
+                eq(user),
+                eq(ContextSnapshotMode.LIVE),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        )).thenReturn(ContextSnapshot.builder()
+                .id(UUID.randomUUID())
+                .build());
     }
 
     @Test

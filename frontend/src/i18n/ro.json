@@ -21,6 +21,7 @@
     "save": "Salvează",
     "cancel": "Anulează",
     "delete": "Șterge",
+    "rename": "Redenumește",
     "edit": "Editează",
     "confirm": "Confirmă",
     "close": "Închide",
@@ -46,6 +47,7 @@
     "calendar": "Calendar",
     "notebook": "Caiet",
     "analytics": "Analiză",
+    "diagnostics": "Diagnoză strategii",
     "insights": "Mentor",
     "settings": "Setări",
     "admin": "Administrare",
@@ -1141,12 +1143,63 @@
       "chart": {
         "bias": "Bias",
         "session": "Sesiune",
+        "modeLabel": "Mod",
+        "modeLive": "Live",
+        "modeBacktest": "Backtest",
         "local": "Local",
         "newsSafe": "Știri: sigur",
         "newsCaution": "Știri: atenție",
         "attachScreenshot": "Atașează screenshot la trade",
         "openMentor": "Deschide planul mentor complet",
         "more": "mai mult"
+      },
+      "chartProfiles": {
+        "label": "Profil chart",
+        "defaultPlaceholder": "Implicit",
+        "defaultTag": "Implicit",
+        "save": "Salvează",
+        "saveAs": "Salvează ca...",
+        "manage": "Administrează",
+        "manageTitle": "Administrare profiluri chart",
+        "manageHint": "Profilurile salvează configurația embed și preferințele chart din TradeJAudit.",
+        "empty": "Nu există profiluri chart salvate încă.",
+        "newProfile": "Profil nou",
+        "promptName": "Nume profil",
+        "promptRename": "Redenumește profilul",
+        "confirmDelete": "Ștergi profilul chart \"{{name}}\"?",
+        "saved": "Profilul chart a fost actualizat.",
+        "savedAs": "Profilul chart a fost salvat.",
+        "defaultSet": "Profilul chart implicit a fost actualizat.",
+        "setDefault": "Setează implicit",
+        "followPlanSymbol": "Urmărește simbolul din plan (dezactivează pentru simbolul din profil)"
+      },
+      "backtest": {
+        "setupTitle": "Setare backtest",
+        "setupHint": "Încarcă lumânări deterministe, apoi rulează replay și simulează tranzacții după reguli.",
+        "timeframe": "Timeframe",
+        "from": "De la",
+        "to": "Până la",
+        "sessionWindow": "Fereastră sesiune",
+        "spread": "Spread (opțional)",
+        "slippage": "Slippage (opțional)",
+        "loadData": "Încarcă date",
+        "loaded": "Lumânările de backtest au fost încărcate.",
+        "reset": "Resetează replay",
+        "play": "Play",
+        "pause": "Pause",
+        "jump": "Salt",
+        "jumpPrompt": "Sari la data/ora (format ISO)",
+        "speed": "Viteză",
+        "cursor": "Cursor",
+        "summaryTitle": "Sumar backtest",
+        "result": "Rezultat",
+        "tradesCount": "Tranzacții",
+        "noTradesYet": "Nu există tranzacții simulate încă.",
+        "tradeSimulated": "Tranzacția de backtest a fost simulată.",
+        "errors": {
+          "setupRequired": "Simbolul și intervalul de date sunt obligatorii înainte de încărcarea datelor.",
+          "loadDataFirst": "Încarcă mai întâi datele de replay."
+        }
       },
       "screenshots": {
         "title": "Atașează screenshot",
@@ -1861,11 +1914,11 @@
         "newsViolation": "Încălcare pe știri",
         "outsideSession": "În afara sesiunii"
       },
-    "validation": {
-      "symbolRequired": "Simbolul este obligatoriu.",
-      "symbolTooLong": "Simbolul poate avea maximum 15 caractere.",
-      "marketRequired": "Piața este obligatorie.",
-      "directionRequired": "Direcția este obligatorie.",
+      "validation": {
+        "symbolRequired": "Simbolul este obligatoriu.",
+        "symbolTooLong": "Simbolul poate avea maximum 15 caractere.",
+        "marketRequired": "Piața este obligatorie.",
+        "directionRequired": "Direcția este obligatorie.",
         "statusRequired": "Starea este obligatorie.",
         "openedAtRequired": "Data de deschidere este obligatorie.",
         "closedAtRequired": "Data de închidere este obligatorie pentru tranzacțiile închise.",
@@ -1874,14 +1927,14 @@
         "exitPricePositive": "Prețul de ieșire trebuie să fie mai mare decât zero.",
         "exitPriceRequired": "Prețul de ieșire este obligatoriu pentru tranzacțiile închise.",
         "stopLossPositive": "Stop-loss-ul trebuie să fie mai mare decât zero.",
-      "takeProfitPositive": "Take-profit-ul trebuie să fie mai mare decât zero.",
-      "costNonNegative": "Costurile nu pot fi negative.",
-      "currencyCode": "Moneda trebuie să fie un cod ISO din 3 litere.",
-      "fxRatePositive": "Rata FX trebuie să fie mai mare decât zero.",
-      "pnlProfileNumber": "P&L-ul în moneda profilului trebuie să fie numeric.",
-      "riskAmountPositive": "Suma de risc trebuie să fie mai mare decât zero.",
-      "capitalUsedPositive": "Capitalul folosit trebuie să fie mai mare decât zero."
-    },
+        "takeProfitPositive": "Take-profit-ul trebuie să fie mai mare decât zero.",
+        "costNonNegative": "Costurile nu pot fi negative.",
+        "currencyCode": "Moneda trebuie să fie un cod ISO din 3 litere.",
+        "fxRatePositive": "Rata FX trebuie să fie mai mare decât zero.",
+        "pnlProfileNumber": "P&L-ul în moneda profilului trebuie să fie numeric.",
+        "riskAmountPositive": "Suma de risc trebuie să fie mai mare decât zero.",
+        "capitalUsedPositive": "Capitalul folosit trebuie să fie mai mare decât zero."
+      },
       "validationBanner": "Corectează câmpurile evidențiate înainte de salvare."
     },
     "help": {
@@ -2217,6 +2270,65 @@
       "promptMistake": "Care a fost greșeala?",
       "promptRule": "Ce regulă a fost încălcată?",
       "promptFix": "Care este corecția?"
+    }
+  },
+  "diagnostics": {
+    "title": "Diagnoză strategii",
+    "subtitle": "Diagnoză detaliată pentru ce funcționează, ce eșuează și ce trebuie ajustat.",
+    "tabs": {
+      "overview": "Sumar",
+      "strategyDetails": "Detalii strategie",
+      "backtestRuns": "Runde backtest"
+    },
+    "errors": {
+      "loadStrategies": "Lista de diagnoză a strategiilor nu a putut fi încărcată.",
+      "loadDetail": "Detaliile de diagnoză pentru strategie nu au putut fi încărcate."
+    },
+    "hints": {
+      "filters": "Filtrează după mod, interval, simbol și sesiune pentru a izola calitatea edge-ului.",
+      "rDistribution": "Distribuția rezultatelor în R pentru strategia și filtrele selectate.",
+      "suggestions": "Acțiuni bazate pe reguli, generate din impactul triggerelor și clusterele de eșec.",
+      "triggerImpact": "Delta de expectancy când fiecare prerechizită/trigger este bifat vs nebifat."
+    },
+    "kpis": {
+      "expectancy": "Expectancy",
+      "winRate": "Rată de câștig",
+      "profitFactor": "Profit factor",
+      "sampleSize": "Mărime eșantion",
+      "avgMae": "MAE mediu",
+      "avgMfe": "MFE mediu"
+    },
+    "filters": {
+      "strategy": "Strategie",
+      "mode": "Mod",
+      "modeBoth": "Ambele",
+      "modeLive": "Live",
+      "modeBacktest": "Backtest",
+      "from": "De la",
+      "to": "Până la",
+      "symbol": "Simbol",
+      "sessionWindow": "Sesiune"
+    },
+    "panels": {
+      "rDistribution": "Distribuție R",
+      "suggestions": "Ce să schimbi",
+      "triggerImpact": "Impact trigger",
+      "failureModes": "Moduri de eșec",
+      "backtestRuns": "Runde backtest"
+    },
+    "table": {
+      "trigger": "Trigger",
+      "checkedExpectancy": "Expectancy bifat",
+      "uncheckedExpectancy": "Expectancy nebifat",
+      "delta": "Delta",
+      "samples": "Eșantioane"
+    },
+    "empty": {
+      "title": "Nu există date de diagnoză încă",
+      "body": "Înregistrează tranzacții live sau backtest cu strategie asociată pentru a activa diagnoza.",
+      "noSuggestions": "Nu există sugestii pentru filtrele curente.",
+      "noFailureModes": "Nu există clustere de eșec pentru filtrele curente.",
+      "noBacktestRuns": "Nu există runde de backtest asociate acestei strategii în intervalul selectat."
     }
   }
 }

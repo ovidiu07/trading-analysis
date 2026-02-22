@@ -50,6 +50,8 @@ public class TradeResponse {
     private String strategyTag;
     private String catalystTag;
     private UUID strategyId;
+    private UUID strategyVersionId;
+    private UUID contextSnapshotId;
     private TradeGrade setupGrade;
     private Set<String> ruleBreaks;
     private TradeSession session;

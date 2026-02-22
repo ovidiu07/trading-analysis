@@ -58,6 +58,40 @@ public class UserTokenService {
     }
 
     @Transactional
+    public UserToken consume(TokenType type, String rawToken) {
+        if (rawToken == null || rawToken.isBlank()) {
+            throw new IllegalArgumentException("Token is required");
+        }
+        String tokenHash = hashToken(rawToken);
+        UserToken token = userTokenRepository.findByTypeAndTokenHashAndUsedAtIsNull(type, tokenHash)
+                .orElseThrow(() -> new IllegalArgumentException("Invalid or expired token"));
+        OffsetDateTime now = OffsetDateTime.now();
+        if (token.isExpired(now)) {
+            throw new IllegalArgumentException("Token has expired");
+        }
+        token.setUsedAt(now);
+        return userTokenRepository.save(token);
+    }
+
+    @Transactional
+    public String rotate(TokenType type, String rawToken, Duration ttl) {
+        UserToken consumed = consume(type, rawToken);
+        return issue(consumed.getUser(), type, ttl);
+    }
+
+    @Transactional
+    public void revoke(TokenType type, String rawToken) {
+        if (rawToken == null || rawToken.isBlank()) {
+            return;
+        }
+        String tokenHash = hashToken(rawToken);
+        userTokenRepository.findByTypeAndTokenHashAndUsedAtIsNull(type, tokenHash).ifPresent(token -> {
+            token.setUsedAt(OffsetDateTime.now());
+            userTokenRepository.save(token);
+        });
+    }
+
+    @Transactional
     public void invalidateActiveTokens(User user, TokenType type) {
         OffsetDateTime now = OffsetDateTime.now();
         userTokenRepository.findAllByUserIdAndTypeAndUsedAtIsNull(user.getId(), type)

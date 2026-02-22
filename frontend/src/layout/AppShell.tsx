@@ -18,6 +18,7 @@ import AutoAwesomeMotionRoundedIcon from '@mui/icons-material/AutoAwesomeMotionR
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
+import TroubleshootRoundedIcon from '@mui/icons-material/TroubleshootRounded'
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useCallback, useEffect, useMemo, useState } from 'react'
@@ -67,11 +68,12 @@ export default function AppShell() {
   const navSections = useMemo<SideNavSection[]>(() => {
     const tradingItems = [
       { label: t('nav.today'), path: '/today', icon: <TodayOutlinedIcon fontSize="small" /> },
+      { label: t('nav.dashboard'), path: '/dashboard', icon: <SpaceDashboardRoundedIcon fontSize="small" /> },
       { label: t('nav.strategies'), path: '/strategies', icon: <AutoAwesomeMotionRoundedIcon fontSize="small" /> },
       { label: t('nav.insights'), path: '/insights', icon: <AutoStoriesOutlinedIcon fontSize="small" /> },
       { label: t('nav.analytics'), path: '/analytics', icon: <QueryStatsRoundedIcon fontSize="small" /> },
+      { label: t('nav.diagnostics'), path: '/diagnostics', icon: <TroubleshootRoundedIcon fontSize="small" /> },
       { label: t('nav.calendar'), path: '/calendar', icon: <CalendarMonthRoundedIcon fontSize="small" /> },
-      { label: t('nav.dashboard'), path: '/dashboard', icon: <SpaceDashboardRoundedIcon fontSize="small" /> },
     ]
 
     const journalItems = [

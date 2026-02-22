@@ -58,3 +58,13 @@ export async function changePassword(currentPassword: string, newPassword: strin
 export async function getCurrentUser() {
   return apiGet<AuthUser>('/users/me')
 }
+
+export async function refreshSession() {
+  const response = await apiPost<AuthResponse>('/auth/refresh', {})
+  setAuthToken(response.token)
+  return response
+}
+
+export async function logout() {
+  return apiPost<SuccessResponse>('/auth/logout', {})
+}

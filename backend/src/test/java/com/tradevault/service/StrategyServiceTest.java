@@ -10,6 +10,7 @@ import com.tradevault.dto.strategy.StrategyRequest;
 import com.tradevault.repository.AssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.StrategyVersionRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -35,6 +36,7 @@ class StrategyServiceTest {
     private ContentPostService contentPostService;
     private ContentPostRepository contentPostRepository;
     private CurrentUserService currentUserService;
+    private StrategyVersionRepository strategyVersionRepository;
     private StrategyService strategyService;
 
     private User currentUser;
@@ -48,6 +50,7 @@ class StrategyServiceTest {
         contentPostService = Mockito.mock(ContentPostService.class);
         contentPostRepository = Mockito.mock(ContentPostRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
+        strategyVersionRepository = Mockito.mock(StrategyVersionRepository.class);
 
         currentUser = User.builder()
                 .id(UUID.randomUUID())
@@ -63,7 +66,8 @@ class StrategyServiceTest {
                 contentPostService,
                 contentPostRepository,
                 currentUserService,
-                new ObjectMapper()
+                new ObjectMapper(),
+                strategyVersionRepository
         );
     }
 

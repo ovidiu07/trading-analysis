@@ -3,7 +3,10 @@ package com.tradevault.service;
 import com.tradevault.config.LegalConfig;
 import com.tradevault.config.MailConfig;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.entity.UserToken;
 import com.tradevault.domain.enums.TokenType;
+import com.tradevault.dto.auth.AuthSessionResult;
+import com.tradevault.dto.auth.LoginRequest;
 import com.tradevault.dto.auth.RegisterRequest;
 import com.tradevault.repository.UserRepository;
 import com.tradevault.security.JwtTokenProvider;
@@ -16,6 +19,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -27,6 +32,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.*;
 
@@ -138,5 +144,72 @@ class AuthServiceDemoDataTest {
         verify(userRepository).save(userCaptor.capture());
         assertThat(userCaptor.getValue().isDemoEnabled()).isTrue();
         verify(demoDataService).generateDemoDataForUser(UUID.fromString("11111111-1111-1111-1111-111111111111"), true);
+    }
+
+    @Test
+    void loginReturnsAccessAndRefreshTokensWithConfiguredTtl() {
+        ReflectionTestUtils.setField(authService, "refreshTokenValidityMs", 86_400_000L);
+
+        User saved = User.builder()
+                .id(UUID.fromString("22222222-2222-2222-2222-222222222222"))
+                .email("login@example.com")
+                .passwordHash("hash")
+                .emailVerifiedAt(java.time.OffsetDateTime.now())
+                .build();
+        when(authenticationManager.authenticate(any())).thenReturn(
+                new UsernamePasswordAuthenticationToken(
+                        new org.springframework.security.core.userdetails.User(
+                                saved.getEmail(),
+                                "hash",
+                                java.util.List.of(new SimpleGrantedAuthority("ROLE_USER"))
+                        ),
+                        null
+                )
+        );
+        when(userRepository.findByEmail(saved.getEmail())).thenReturn(Optional.of(saved));
+        when(userRepository.save(any(User.class))).thenAnswer(invocation -> invocation.getArgument(0, User.class));
+        when(jwtTokenProvider.createAccessToken(saved.getId(), saved.getEmail())).thenReturn("access-token");
+        when(userTokenService.issue(eq(saved), eq(TokenType.REFRESH_TOKEN), any(Duration.class))).thenReturn("refresh-token");
+
+        LoginRequest request = new LoginRequest();
+        request.setEmail(saved.getEmail());
+        request.setPassword("Password1!");
+        AuthSessionResult sessionResult = authService.login(request);
+
+        assertThat(sessionResult.getAuth().getToken()).isEqualTo("access-token");
+        assertThat(sessionResult.getRefreshToken()).isEqualTo("refresh-token");
+        verify(userTokenService).issue(
+                eq(saved),
+                eq(TokenType.REFRESH_TOKEN),
+                argThat(ttl -> ttl != null && ttl.toHours() == 24)
+        );
+    }
+
+    @Test
+    void refreshRotatesRefreshTokenAndReturnsNewAccessToken() {
+        ReflectionTestUtils.setField(authService, "refreshTokenValidityMs", 86_400_000L);
+
+        User saved = User.builder()
+                .id(UUID.fromString("33333333-3333-3333-3333-333333333333"))
+                .email("refresh@example.com")
+                .passwordHash("hash")
+                .emailVerifiedAt(java.time.OffsetDateTime.now())
+                .build();
+
+        when(userTokenService.consume(TokenType.REFRESH_TOKEN, "old-refresh"))
+                .thenReturn(UserToken.builder().user(saved).build());
+        when(userRepository.findById(saved.getId())).thenReturn(Optional.of(saved));
+        when(jwtTokenProvider.createAccessToken(saved.getId(), saved.getEmail())).thenReturn("new-access");
+        when(userTokenService.issue(eq(saved), eq(TokenType.REFRESH_TOKEN), any(Duration.class))).thenReturn("new-refresh");
+
+        AuthSessionResult refreshed = authService.refresh("old-refresh");
+
+        assertThat(refreshed.getAuth().getToken()).isEqualTo("new-access");
+        assertThat(refreshed.getRefreshToken()).isEqualTo("new-refresh");
+        verify(userTokenService).issue(
+                eq(saved),
+                eq(TokenType.REFRESH_TOKEN),
+                argThat(ttl -> ttl != null && ttl.toHours() == 24)
+        );
     }
 }

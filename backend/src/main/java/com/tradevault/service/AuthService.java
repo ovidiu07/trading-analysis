@@ -59,6 +59,9 @@ public class AuthService {
     @Value("${app.frontend-url:http://localhost:5173}")
     private String frontendUrl;
 
+    @Value("${jwt.refresh-expiry:86400000}")
+    private long refreshTokenValidityMs;
+
     @Transactional
     public RegisterResponse register(RegisterRequest request, String ipAddress, String userAgent) {
         registrationRateLimiter.assertAllowed(ipAddress);
@@ -100,7 +103,8 @@ public class AuthService {
         return new RegisterResponse(true, true);
     }
 
-    public AuthResponse login(LoginRequest request) {
+    @Transactional
+    public AuthSessionResult login(LoginRequest request) {
         Authentication auth = authenticationManager.authenticate(new UsernamePasswordAuthenticationToken(request.getEmail(), request.getPassword()));
         var user = ((org.springframework.security.core.userdetails.UserDetails) auth.getPrincipal());
         var saved = userRepository.findByEmail(user.getUsername()).orElseThrow();
@@ -110,8 +114,32 @@ public class AuthService {
         demoDataService.ensureDemoDataForLogin(saved.getId());
         saved.setLastLoginAt(OffsetDateTime.now());
         userRepository.save(saved);
-        String token = jwtTokenProvider.createToken(saved.getId(), saved.getEmail());
-        return new AuthResponse(token, UserDto.from(saved));
+        String accessToken = jwtTokenProvider.createAccessToken(saved.getId(), saved.getEmail());
+        String refreshToken = userTokenService.issue(saved, TokenType.REFRESH_TOKEN, refreshTokenTtl());
+        return new AuthSessionResult(new AuthResponse(accessToken, UserDto.from(saved)), refreshToken);
+    }
+
+    @Transactional
+    public AuthSessionResult refresh(String refreshToken) {
+        var consumed = userTokenService.consume(TokenType.REFRESH_TOKEN, refreshToken);
+        User user = userRepository.findById(consumed.getUser().getId())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+        if (!user.isVerified()) {
+            throw new IllegalArgumentException("Email not verified");
+        }
+        String nextAccessToken = jwtTokenProvider.createAccessToken(user.getId(), user.getEmail());
+        String nextRefreshToken = userTokenService.issue(user, TokenType.REFRESH_TOKEN, refreshTokenTtl());
+        return new AuthSessionResult(new AuthResponse(nextAccessToken, UserDto.from(user)), nextRefreshToken);
+    }
+
+    @Transactional
+    public void logout(String refreshToken) {
+        userTokenService.revoke(TokenType.REFRESH_TOKEN, refreshToken);
+    }
+
+    public Duration refreshTokenTtl() {
+        long safeValue = Math.max(refreshTokenValidityMs, 60_000L);
+        return Duration.ofMillis(safeValue);
     }
 
     @Transactional
@@ -154,6 +182,7 @@ public class AuthService {
         }
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
+        userTokenService.invalidateActiveTokens(user, TokenType.REFRESH_TOKEN);
         return new SuccessResponse(true);
     }
 
@@ -184,6 +213,7 @@ public class AuthService {
         user.setPasswordHash(passwordEncoder.encode(request.getNewPassword()));
         userRepository.save(user);
         userTokenService.invalidateActiveTokens(user, TokenType.PASSWORD_RESET);
+        userTokenService.invalidateActiveTokens(user, TokenType.REFRESH_TOKEN);
         return new SuccessResponse(true);
     }
 

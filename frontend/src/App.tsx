@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage'
 import TodayPage from './pages/TodayPage'
 import TradesPage from './pages/TradesPage'
 import AnalyticsPage from './pages/AnalyticsPage'
+import DiagnosticsPage from './pages/DiagnosticsPage'
 import SettingsPage from './pages/SettingsPage'
 import ProfilePage from './pages/ProfilePage'
 import CalendarPage from './pages/CalendarPage'
@@ -68,6 +69,7 @@ function App() {
             <Route path="/calendar" element={<ProtectedRoute><CalendarPage /></ProtectedRoute>} />
             <Route path="/notebook" element={<ProtectedRoute><NotebookPage /></ProtectedRoute>} />
             <Route path="/analytics" element={<ProtectedRoute><AnalyticsPage /></ProtectedRoute>} />
+            <Route path="/diagnostics" element={<ProtectedRoute><DiagnosticsPage /></ProtectedRoute>} />
             <Route path="/insights" element={<ProtectedRoute><Navigate to="/insights/today" replace /></ProtectedRoute>} />
             <Route path="/insights/today" element={<ProtectedRoute><InsightsPage /></ProtectedRoute>} />
             <Route path="/insights/week" element={<ProtectedRoute><InsightsPage /></ProtectedRoute>} />

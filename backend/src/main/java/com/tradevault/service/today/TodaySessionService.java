@@ -2,15 +2,19 @@ package com.tradevault.service.today;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.ChecklistTemplate;
 import com.tradevault.domain.entity.ChecklistTemplateEntry;
 import com.tradevault.domain.entity.ChecklistTemplateItem;
+import com.tradevault.domain.entity.ChecklistTemplateVersion;
 import com.tradevault.domain.entity.SessionLevel;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.ChecklistTemplateType;
 import com.tradevault.domain.enums.ChecklistValueType;
+import com.tradevault.domain.enums.ContextSnapshotMode;
+import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.SessionLevelCategory;
 import com.tradevault.domain.enums.TodaySessionStatus;
@@ -34,10 +38,12 @@ import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.ChecklistTemplateEntryRepository;
 import com.tradevault.repository.ChecklistTemplateItemRepository;
 import com.tradevault.repository.ChecklistTemplateRepository;
+import com.tradevault.repository.ChecklistTemplateVersionRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.ContextSnapshotService;
 import com.tradevault.service.TimezoneService;
 import com.tradevault.service.TradeService;
 import com.tradevault.service.TradeTaxonomy;
@@ -88,9 +94,11 @@ public class TodaySessionService {
     private final ChecklistTemplateRepository checklistTemplateRepository;
     private final ChecklistTemplateEntryRepository checklistTemplateEntryRepository;
     private final ChecklistTemplateItemRepository checklistTemplateItemRepository;
+    private final ChecklistTemplateVersionRepository checklistTemplateVersionRepository;
     private final SessionLevelRepository sessionLevelRepository;
     private final CurrentUserService currentUserService;
     private final TradeService tradeService;
+    private final ContextSnapshotService contextSnapshotService;
     private final ObjectMapper objectMapper;
 
     @Transactional(readOnly = true)
@@ -332,6 +340,7 @@ public class TodaySessionService {
         }
 
         saveTemplateEntries(template, items);
+        createChecklistTemplateVersion(template, user, items);
         return toChecklistTemplateResponse(template);
     }
 
@@ -354,7 +363,9 @@ public class TodaySessionService {
             clearOtherDefaults(user.getId(), targetType, template.getId());
         }
 
-        saveTemplateEntries(template, normalizeTemplateItems(request == null ? null : request.getItems()));
+        List<ChecklistTemplateItemDto> normalizedItems = normalizeTemplateItems(request == null ? null : request.getItems());
+        saveTemplateEntries(template, normalizedItems);
+        createChecklistTemplateVersion(template, user, normalizedItems);
         return toChecklistTemplateResponse(template);
     }
 
@@ -410,6 +421,58 @@ public class TodaySessionService {
         tradeRequest.setEntryJournalText(normalizeOptionalText(request.getEntryJournalText()));
         tradeRequest.setEntryInvalidation(normalizeOptionalText(request.getEntryInvalidation()));
         tradeRequest.setEntryScreenshotAssetIds(request.getEntryScreenshotAssetIds());
+
+        List<SessionChecklistItemDto> prereqsState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.PREREQS);
+        List<SessionChecklistItemDto> triggersState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.TRIGGERS);
+        List<SessionLevelDto> levelsSnapshot = sessionLevelRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtAsc(session.getId(), user.getId())
+                .stream()
+                .map(this::toSessionLevelDto)
+                .toList();
+        BigDecimal rrAtEntry = computeRrAtEntry(
+                request.getDirection(),
+                request.getEntryPrice(),
+                request.getStopLossPrice(),
+                request.getTakeProfitPrice()
+        );
+
+        ObjectNode qualityInputs = objectMapper.createObjectNode();
+        qualityInputs.put("prereqsComplete", isChecklistComplete(prereqsState));
+        qualityInputs.put("triggersComplete", isChecklistComplete(triggersState));
+        qualityInputs.put("prereqsCompletedCount", countCompleted(prereqsState));
+        qualityInputs.put("triggersCompletedCount", countCompleted(triggersState));
+        qualityInputs.put("rrAvailable", rrAtEntry != null);
+
+        ObjectNode lockInSnapshot = objectMapper.createObjectNode();
+        lockInSnapshot.put("session", session.getLockInSession());
+        lockInSnapshot.put("objective", session.getLockInObjective());
+        lockInSnapshot.put("bias", session.getLockInBias());
+        lockInSnapshot.put("biasReason", session.getLockInBiasReason());
+        if (session.getProfitTarget() != null) {
+            lockInSnapshot.put("profitTarget", session.getProfitTarget());
+        }
+        if (session.getLossLimit() != null) {
+            lockInSnapshot.put("lossLimit", session.getLossLimit());
+        }
+        if (session.getMaxTrades() != null) {
+            lockInSnapshot.put("maxTrades", session.getMaxTrades());
+        }
+
+        var snapshot = contextSnapshotService.createSnapshot(
+                user,
+                ContextSnapshotMode.LIVE,
+                request.getStrategyId(),
+                session.getPrereqsTemplate() == null ? null : session.getPrereqsTemplate().getId(),
+                session.getPrereqsStateJson(),
+                session.getTriggersTemplate() == null ? null : session.getTriggersTemplate().getId(),
+                session.getTriggersStateJson(),
+                session.getActiveSweepLevelId(),
+                objectMapper.valueToTree(levelsSnapshot),
+                lockInSnapshot,
+                rrAtEntry,
+                qualityInputs
+        );
+        tradeRequest.setContextSnapshotId(snapshot.getId());
+        tradeRequest.setStrategyVersionId(snapshot.getStrategyVersionId());
 
         UUID linkedPlanId = request.getLinkedPlanId();
         if (linkedPlanId != null) {
@@ -531,6 +594,21 @@ public class TodaySessionService {
         }
     }
 
+    private void createChecklistTemplateVersion(ChecklistTemplate template,
+                                                User user,
+                                                List<ChecklistTemplateItemDto> items) {
+        int nextVersion = checklistTemplateVersionRepository.findFirstByTemplate_IdOrderByVersionNumberDesc(template.getId())
+                .map(item -> item.getVersionNumber() + 1)
+                .orElse(1);
+        ChecklistTemplateVersion version = ChecklistTemplateVersion.builder()
+                .template(template)
+                .user(user)
+                .versionNumber(nextVersion)
+                .itemsJson(objectMapper.valueToTree(items == null ? List.of() : items))
+                .build();
+        checklistTemplateVersionRepository.save(version);
+    }
+
     private TradeRequest toTradeUpdateRequest(Trade trade) {
         TradeRequest request = new TradeRequest();
         request.setSymbol(trade.getSymbol());
@@ -561,6 +639,8 @@ public class TodaySessionService {
         request.setStrategyTag(trade.getStrategyTag());
         request.setCatalystTag(trade.getCatalystTag());
         request.setStrategyId(trade.getStrategyId());
+        request.setStrategyVersionId(trade.getStrategyVersionId());
+        request.setContextSnapshotId(trade.getContextSnapshotId());
         request.setSetupGrade(trade.getSetupGrade());
         request.setSession(trade.getSession());
         request.setSessionId(trade.getSessionId());
@@ -617,6 +697,37 @@ public class TodaySessionService {
         }
         BigDecimal negativeLossLimit = session.getLossLimit().negate();
         return progress.realizedPnl().compareTo(negativeLossLimit) <= 0;
+    }
+
+    private BigDecimal computeRrAtEntry(Direction direction,
+                                        BigDecimal entryPrice,
+                                        BigDecimal stopLossPrice,
+                                        BigDecimal takeProfitPrice) {
+        if (direction == null || entryPrice == null || stopLossPrice == null || takeProfitPrice == null) {
+            return null;
+        }
+        BigDecimal riskDistance = entryPrice.subtract(stopLossPrice).abs();
+        if (riskDistance.compareTo(BigDecimal.ZERO) == 0) {
+            return null;
+        }
+        BigDecimal rewardDistance = takeProfitPrice.subtract(entryPrice).abs();
+        return rewardDistance.divide(riskDistance, 4, RoundingMode.HALF_UP);
+    }
+
+    private boolean isChecklistComplete(List<SessionChecklistItemDto> items) {
+        if (items == null || items.isEmpty()) {
+            return false;
+        }
+        return items.stream()
+                .filter(SessionChecklistItemDto::isRequired)
+                .allMatch(SessionChecklistItemDto::isCompleted);
+    }
+
+    private long countCompleted(List<SessionChecklistItemDto> items) {
+        if (items == null || items.isEmpty()) {
+            return 0;
+        }
+        return items.stream().filter(SessionChecklistItemDto::isCompleted).count();
     }
 
     private TodaySessionResponse toResponse(TodaySession session, UUID userId) {

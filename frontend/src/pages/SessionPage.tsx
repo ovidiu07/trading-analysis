@@ -15,12 +15,15 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  FormControl,
   FormControlLabel,
   Grid,
   IconButton,
+  InputLabel,
   InputAdornment,
   LinearProgress,
   MenuItem,
+  Select,
   Stack,
   TextField,
   Tooltip,
@@ -51,11 +54,28 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../auth/AuthContext'
 import { useI18n } from '../i18n'
 import TradingViewWidget from '../components/charts/TradingViewWidget'
+import ReplayCandlestickChart from '../components/charts/ReplayCandlestickChart'
 import MarkdownContent from '../components/ui/MarkdownContent'
 import RichTextContent from '../components/ui/RichTextContent'
 import SecureAssetImage from '../components/assets/SecureAssetImage'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
+import {
+  type BacktestRun,
+  type BacktestTrade,
+  createBacktestRun,
+  listBacktestTrades,
+  simulateBacktestTrade
+} from '../api/backtest'
+import {
+  createChartProfile,
+  deleteChartProfile,
+  listChartProfiles,
+  setDefaultChartProfile,
+  updateChartProfile,
+  type ChartEmbedConfig,
+  type ChartProfile
+} from '../api/chartProfiles'
 import {
   createChecklistTemplate,
   createSessionLevel,
@@ -91,6 +111,9 @@ import { formatCurrency, formatNumber, formatSignedCurrency } from '../utils/for
 const SELECTED_PLAN_STORAGE_KEY = 'today.session.selectedPlanId'
 const SESSION_CHART_SYMBOL_KEY = 'sessionMode.chartSymbol'
 const SESSION_CHART_INTERVAL_KEY = 'sessionMode.chartInterval'
+const SESSION_CHART_PROFILE_KEY = 'sessionMode.chartProfile'
+const SESSION_FOLLOW_PLAN_SYMBOL_KEY = 'sessionMode.followPlanSymbol'
+const SESSION_CHART_MODE_KEY = 'sessionMode.chartMode'
 const RR_THRESHOLD = 1.5
 
 const LOCK_IN_SESSION_OPTIONS = ['LONDON', 'NY_AM'] as const
@@ -177,6 +200,18 @@ type LevelDialogState = {
   notes: string
 }
 
+type SessionChartMode = 'LIVE' | 'BACKTEST'
+
+type BacktestSetupState = {
+  symbol: string
+  timeframe: 'M1' | 'M5' | 'M15'
+  from: string
+  to: string
+  sessionWindow: string
+  spread: string
+  slippage: string
+}
+
 const toBullets = (value?: string | null) => {
   if (!value) return []
   return value
@@ -230,6 +265,9 @@ const toSessionProgress = (session: TodaySessionResponse) => {
 }
 
 const buildLayoutStorageKey = (userId?: string | null) => `sessionMode.layoutState.${userId || 'anon'}`
+const buildChartProfileStorageKey = (userId?: string | null) => `${SESSION_CHART_PROFILE_KEY}.${userId || 'anon'}`
+const buildFollowPlanSymbolStorageKey = (userId?: string | null) => `${SESSION_FOLLOW_PLAN_SYMBOL_KEY}.${userId || 'anon'}`
+const buildChartModeStorageKey = (userId?: string | null) => `${SESSION_CHART_MODE_KEY}.${userId || 'anon'}`
 
 const readSessionLayoutState = (storageKey: string): SessionLayoutState => {
   try {
@@ -344,6 +382,22 @@ const getChecklistCompletion = (items: SessionChecklistItem[]) => {
   }
 }
 
+const toDateInputValue = (date: Date) => date.toISOString().slice(0, 10)
+
+const defaultBacktestSetup = (): BacktestSetupState => {
+  const now = new Date()
+  const from = new Date(now.getTime() - (1000 * 60 * 60 * 24 * 14))
+  return {
+    symbol: 'OANDA:EURUSD',
+    timeframe: 'M1',
+    from: toDateInputValue(from),
+    to: toDateInputValue(now),
+    sessionWindow: 'LONDON',
+    spread: '',
+    slippage: ''
+  }
+}
+
 export default function SessionPage() {
   const { t } = useI18n()
   const { user } = useAuth()
@@ -355,6 +409,9 @@ export default function SessionPage() {
   const isTinyViewport = useMediaQuery('(max-width:480px)')
 
   const layoutStorageKey = useMemo(() => buildLayoutStorageKey(user?.id), [user?.id])
+  const chartProfileStorageKey = useMemo(() => buildChartProfileStorageKey(user?.id), [user?.id])
+  const followPlanSymbolStorageKey = useMemo(() => buildFollowPlanSymbolStorageKey(user?.id), [user?.id])
+  const chartModeStorageKey = useMemo(() => buildChartModeStorageKey(user?.id), [user?.id])
 
   const [config, setConfig] = useState({
     profitTarget: '',
@@ -432,6 +489,23 @@ export default function SessionPage() {
   const [layoutState, setLayoutState] = useState<SessionLayoutState>(DEFAULT_LAYOUT_STATE)
   const [chartSymbolMemory, setChartSymbolMemory] = useState(() => localStorage.getItem(SESSION_CHART_SYMBOL_KEY) || '')
   const [chartIntervalMemory, setChartIntervalMemory] = useState(() => localStorage.getItem(SESSION_CHART_INTERVAL_KEY) || '15')
+  const [chartMode, setChartMode] = useState<SessionChartMode>(() => {
+    const saved = localStorage.getItem(chartModeStorageKey)
+    return saved === 'BACKTEST' ? 'BACKTEST' : 'LIVE'
+  })
+  const [followPlanSymbol, setFollowPlanSymbol] = useState(() => localStorage.getItem(followPlanSymbolStorageKey) !== 'false')
+  const [selectedChartProfileId, setSelectedChartProfileId] = useState(() => localStorage.getItem(chartProfileStorageKey) || '')
+  const [chartProfiles, setChartProfiles] = useState<ChartProfile[]>([])
+  const [chartProfilesLoading, setChartProfilesLoading] = useState(false)
+  const [chartProfileManageOpen, setChartProfileManageOpen] = useState(false)
+  const [backtestSetup, setBacktestSetup] = useState<BacktestSetupState>(defaultBacktestSetup)
+  const [backtestRun, setBacktestRun] = useState<BacktestRun | null>(null)
+  const [backtestCursor, setBacktestCursor] = useState(0)
+  const [backtestPlaying, setBacktestPlaying] = useState(false)
+  const [backtestSpeed, setBacktestSpeed] = useState(1)
+  const [latestBacktestTrade, setLatestBacktestTrade] = useState<BacktestTrade | null>(null)
+  const [backtestTrades, setBacktestTrades] = useState<BacktestTrade[]>([])
+  const [backtestLoading, setBacktestLoading] = useState(false)
 
   const [missingModalOpen, setMissingModalOpen] = useState(false)
   const [screenshotDialogOpen, setScreenshotDialogOpen] = useState(false)
@@ -526,6 +600,73 @@ export default function SessionPage() {
     }
     localStorage.setItem(SESSION_CHART_INTERVAL_KEY, chartIntervalMemory)
   }, [chartIntervalMemory])
+
+  useEffect(() => {
+    const savedMode = localStorage.getItem(chartModeStorageKey)
+    setChartMode(savedMode === 'BACKTEST' ? 'BACKTEST' : 'LIVE')
+    setFollowPlanSymbol(localStorage.getItem(followPlanSymbolStorageKey) !== 'false')
+    setSelectedChartProfileId(localStorage.getItem(chartProfileStorageKey) || '')
+  }, [chartModeStorageKey, chartProfileStorageKey, followPlanSymbolStorageKey])
+
+  useEffect(() => {
+    localStorage.setItem(chartModeStorageKey, chartMode)
+  }, [chartMode, chartModeStorageKey])
+
+  useEffect(() => {
+    localStorage.setItem(followPlanSymbolStorageKey, String(followPlanSymbol))
+  }, [followPlanSymbol, followPlanSymbolStorageKey])
+
+  useEffect(() => {
+    if (!selectedChartProfileId) {
+      localStorage.removeItem(chartProfileStorageKey)
+      return
+    }
+    localStorage.setItem(chartProfileStorageKey, selectedChartProfileId)
+  }, [chartProfileStorageKey, selectedChartProfileId])
+
+  useEffect(() => {
+    let mounted = true
+    setChartProfilesLoading(true)
+    listChartProfiles('SESSION_MODE')
+      .then((profiles) => {
+        if (!mounted) return
+        setChartProfiles(profiles || [])
+        if (selectedChartProfileId && !(profiles || []).some((item) => item.id === selectedChartProfileId)) {
+          setSelectedChartProfileId('')
+        }
+        if (!selectedChartProfileId) {
+          const defaultProfile = (profiles || []).find((item) => item.isDefault)
+          if (defaultProfile) {
+            setSelectedChartProfileId(defaultProfile.id)
+          }
+        }
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (mounted) {
+          setChartProfilesLoading(false)
+        }
+      })
+    return () => {
+      mounted = false
+    }
+  }, [chartProfileStorageKey, selectedChartProfileId])
+
+  useEffect(() => {
+    if (!backtestPlaying || !backtestRun?.candles?.length) return undefined
+    const intervalMs = Math.max(120, Math.round(850 / Math.max(backtestSpeed, 1)))
+    const timer = window.setInterval(() => {
+      setBacktestCursor((prev) => {
+        const next = prev + 1
+        if (next >= backtestRun.candles.length - 1) {
+          setBacktestPlaying(false)
+          return Math.max(backtestRun.candles.length - 1, 0)
+        }
+        return next
+      })
+    }, intervalMs)
+    return () => window.clearInterval(timer)
+  }, [backtestPlaying, backtestRun?.candles, backtestSpeed])
 
   useEffect(() => {
     setPlanner((prev) => prev.tradeCurrency
@@ -807,14 +948,33 @@ export default function SessionPage() {
       })()
     : 1
 
-  const chartSymbol = (selectedPlan?.tradingViewSymbol
-    || (planner.symbol.trim() ? planner.symbol.trim().toUpperCase() : '')
-    || chartSymbolMemory
-    || 'TVC:DXY')
-  const chartInterval = selectedPlan?.tradingViewInterval || chartIntervalMemory || '15'
-  const chartAllowSymbolChange = selectedPlan?.tradingViewAllowSymbolChange ?? true
-  const chartTheme = selectedPlan?.tradingViewTheme || 'SYSTEM'
-  const chartHideControls = selectedPlan?.tradingViewHideControls ?? false
+  const selectedChartProfile = useMemo(
+    () => chartProfiles.find((item) => item.id === selectedChartProfileId) || null,
+    [chartProfiles, selectedChartProfileId]
+  )
+
+  const chartProfileEmbedConfig = (selectedChartProfile?.embedConfigJson || {}) as ChartEmbedConfig
+  const chartProfilePrefs = selectedChartProfile?.tjaPrefsJson || {}
+  const chartModeLabel = chartMode === 'LIVE' ? t('today.session.chart.modeLive') : t('today.session.chart.modeBacktest')
+
+  const chartSymbol = (() => {
+    const planSymbol = selectedPlan?.tradingViewSymbol?.trim()
+    if (followPlanSymbol && planSymbol) {
+      return planSymbol
+    }
+    return (chartProfileEmbedConfig.symbol
+      || (planner.symbol.trim() ? planner.symbol.trim().toUpperCase() : '')
+      || chartSymbolMemory
+      || 'TVC:DXY')
+  })()
+  const chartInterval = (chartProfileEmbedConfig.interval
+    || selectedPlan?.tradingViewInterval
+    || chartIntervalMemory
+    || '15')
+  const chartAllowSymbolChange = chartProfileEmbedConfig.allowSymbolChange ?? (selectedPlan?.tradingViewAllowSymbolChange ?? true)
+  const chartTheme = chartProfileEmbedConfig.theme || selectedPlan?.tradingViewTheme || 'SYSTEM'
+  const chartHideControls = chartProfileEmbedConfig.hideControls ?? (selectedPlan?.tradingViewHideControls ?? false)
+  const chartHeightPreference = chartProfileEmbedConfig.chartHeightPref
 
   useEffect(() => {
     if (chartSymbol) {
@@ -824,6 +984,14 @@ export default function SessionPage() {
       setChartIntervalMemory(chartInterval)
     }
   }, [chartInterval, chartSymbol])
+
+  useEffect(() => {
+    if (!selectedChartProfile) return
+    const nextFollowPlan = selectedChartProfile.tjaPrefsJson?.followPlanSymbol
+    if (typeof nextFollowPlan === 'boolean') {
+      setFollowPlanSymbol(nextFollowPlan)
+    }
+  }, [selectedChartProfile])
 
   const riskSnapshot = useMemo(() => {
     const quantity = Number(planner.quantity)
@@ -1385,6 +1553,143 @@ export default function SessionPage() {
     setSuccessMessage(t('today.session.levels.suggested'))
   }
 
+  const reloadChartProfiles = async (preferredId?: string) => {
+    setChartProfilesLoading(true)
+    try {
+      const profiles = await listChartProfiles('SESSION_MODE')
+      setChartProfiles(profiles || [])
+      if (preferredId && (profiles || []).some((item) => item.id === preferredId)) {
+        setSelectedChartProfileId(preferredId)
+        return
+      }
+      if (selectedChartProfileId && (profiles || []).some((item) => item.id === selectedChartProfileId)) {
+        return
+      }
+      const defaultProfile = (profiles || []).find((item) => item.isDefault)
+      setSelectedChartProfileId(defaultProfile?.id || '')
+    } finally {
+      setChartProfilesLoading(false)
+    }
+  }
+
+  const buildCurrentChartEmbedConfig = (): ChartEmbedConfig => ({
+    symbol: chartSymbol,
+    interval: chartInterval,
+    theme: chartTheme as 'LIGHT' | 'DARK' | 'SYSTEM',
+    allowSymbolChange: chartAllowSymbolChange,
+    hideControls: chartHideControls,
+    timezone: user?.timezone || 'Europe/Bucharest',
+    chartHeightPref: chartHeightPreference || (isCompactViewport ? 320 : 440)
+  })
+
+  const buildCurrentChartPrefs = () => ({
+    showLevels: chartProfilePrefs.showLevels ?? true,
+    followPlanSymbol
+  })
+
+  const handleSaveChartProfile = async () => {
+    if (!selectedChartProfile) {
+      await handleSaveAsChartProfile()
+      return
+    }
+    const updated = await updateChartProfile(selectedChartProfile.id, {
+      embedConfigJson: buildCurrentChartEmbedConfig(),
+      tjaPrefsJson: buildCurrentChartPrefs()
+    })
+    await reloadChartProfiles(updated.id)
+    setSuccessMessage(t('today.session.chartProfiles.saved'))
+  }
+
+  const handleSaveAsChartProfile = async () => {
+    const suggested = selectedChartProfile?.name || t('today.session.chartProfiles.newProfile')
+    const name = window.prompt(t('today.session.chartProfiles.promptName'), suggested)
+    if (!name || !name.trim()) return
+    const created = await createChartProfile({
+      name: name.trim(),
+      scope: 'SESSION_MODE',
+      embedConfigJson: buildCurrentChartEmbedConfig(),
+      tjaPrefsJson: buildCurrentChartPrefs()
+    })
+    await reloadChartProfiles(created.id)
+    setSuccessMessage(t('today.session.chartProfiles.savedAs'))
+  }
+
+  const handleRenameChartProfile = async (profile: ChartProfile) => {
+    const name = window.prompt(t('today.session.chartProfiles.promptRename'), profile.name)
+    if (!name || !name.trim()) return
+    await updateChartProfile(profile.id, { name: name.trim() })
+    await reloadChartProfiles(profile.id)
+  }
+
+  const handleDeleteChartProfile = async (profile: ChartProfile) => {
+    if (!window.confirm(t('today.session.chartProfiles.confirmDelete', { name: profile.name }))) return
+    await deleteChartProfile(profile.id)
+    await reloadChartProfiles(profile.id === selectedChartProfileId ? undefined : selectedChartProfileId)
+  }
+
+  const handleSetDefaultChartProfile = async (profile: ChartProfile) => {
+    await setDefaultChartProfile(profile.id)
+    await reloadChartProfiles(profile.id)
+    setSuccessMessage(t('today.session.chartProfiles.defaultSet'))
+  }
+
+  const handleLoadBacktestData = async () => {
+    if (!backtestSetup.symbol.trim() || !backtestSetup.from || !backtestSetup.to) {
+      setApiError(t('today.session.backtest.errors.setupRequired'))
+      return
+    }
+    const fromIso = new Date(`${backtestSetup.from}T00:00:00Z`).toISOString()
+    const toIso = new Date(`${backtestSetup.to}T23:59:59Z`).toISOString()
+    setBacktestLoading(true)
+    try {
+      const run = await createBacktestRun({
+        symbol: backtestSetup.symbol.trim().toUpperCase(),
+        timeframe: backtestSetup.timeframe,
+        from: fromIso,
+        to: toIso,
+        sessionWindow: backtestSetup.sessionWindow || undefined,
+        spread: backtestSetup.spread ? Number(backtestSetup.spread) : undefined,
+        slippage: backtestSetup.slippage ? Number(backtestSetup.slippage) : undefined
+      })
+      setBacktestRun(run)
+      setBacktestCursor(0)
+      setLatestBacktestTrade(null)
+      const trades = await listBacktestTrades(run.id)
+      setBacktestTrades(trades || [])
+      if (trades?.length) {
+        setLatestBacktestTrade(trades[0])
+      }
+      setSuccessMessage(t('today.session.backtest.loaded'))
+    } finally {
+      setBacktestLoading(false)
+    }
+  }
+
+  const handleResetBacktestReplay = () => {
+    setBacktestPlaying(false)
+    setBacktestCursor(0)
+  }
+
+  const handleStepReplay = (step: number) => {
+    if (!backtestRun?.candles?.length) return
+    setBacktestCursor((prev) => {
+      const max = Math.max(backtestRun.candles.length - 1, 0)
+      return Math.min(Math.max(prev + step, 0), max)
+    })
+  }
+
+  const handleJumpReplay = () => {
+    if (!backtestRun?.candles?.length) return
+    const input = window.prompt(t('today.session.backtest.jumpPrompt'), backtestRun.candles[backtestCursor]?.timestamp || '')
+    if (!input) return
+    const target = new Date(input).getTime()
+    if (!Number.isFinite(target)) return
+    const index = backtestRun.candles.findIndex((candle) => new Date(candle.timestamp).getTime() >= target)
+    if (index >= 0) {
+      setBacktestCursor(index)
+    }
+  }
+
   const handleStartTrade = async () => {
     if (!session) return
 
@@ -1422,6 +1727,50 @@ export default function SessionPage() {
     if (!planner.invalidation.trim()) {
       setApiError(t('today.session.errors.invalidationRequired'))
       invalidationFieldRef.current?.focus()
+      return
+    }
+
+    if (chartMode === 'BACKTEST') {
+      if (!backtestRun) {
+        setApiError(t('today.session.backtest.errors.loadDataFirst'))
+        return
+      }
+
+      const replayCursorTime = backtestRun.candles[backtestCursor]?.timestamp
+      if (!replayCursorTime) {
+        setApiError(t('today.session.backtest.errors.loadDataFirst'))
+        return
+      }
+
+      const trade = await simulateBacktestTrade(backtestRun.id, {
+        direction: planner.direction,
+        orderType: 'MARKET',
+        stopLossPrice,
+        takeProfitPrice: planner.takeProfitPrice ? Number(planner.takeProfitPrice) : undefined,
+        riskAmount: manualRisk ?? undefined,
+        invalidationText: planner.invalidation.trim(),
+        replayCursorTime,
+        conservativeSameBar: true,
+        strategyId: selectedStrategy?.id,
+        prereqsTemplateId: session.prereqsTemplateId || undefined,
+        triggersTemplateId: session.triggerTemplateId || undefined,
+        selectedSweepLevelId: activeSweepLevelId || undefined,
+        prereqsStatesJson: prereqChecklist,
+        triggersStatesJson: triggerChecklist,
+        levelsSnapshotJson: sessionLevels,
+        lockInSnapshotJson: lockIn,
+        qualityScoreInputsJson: {
+          setupQualityScore,
+          prerequisitesComplete,
+          triggersComplete,
+          rrMet,
+          newsSafe
+        }
+      })
+      setLatestBacktestTrade(trade)
+      const nextTrades = await listBacktestTrades(backtestRun.id)
+      setBacktestTrades(nextTrades || [])
+      setSuccessMessage(t('today.session.backtest.tradeSimulated'))
       return
     }
 
@@ -2029,9 +2378,65 @@ export default function SessionPage() {
                     <>
                       <Box sx={{ p: 1.1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                         <Stack spacing={1}>
+                          <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.75} alignItems={{ md: 'center' }} justifyContent="space-between">
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} sx={{ minWidth: 0 }}>
+                              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 160 } }}>
+                                <InputLabel id="session-mode-select">{t('today.session.chart.modeLabel')}</InputLabel>
+                                <Select
+                                  labelId="session-mode-select"
+                                  label={t('today.session.chart.modeLabel')}
+                                  value={chartMode}
+                                  onChange={(event) => {
+                                    setChartMode(event.target.value as SessionChartMode)
+                                    setBacktestPlaying(false)
+                                  }}
+                                >
+                                  <MenuItem value="LIVE">{t('today.session.chart.modeLive')}</MenuItem>
+                                  <MenuItem value="BACKTEST">{t('today.session.chart.modeBacktest')}</MenuItem>
+                                </Select>
+                              </FormControl>
+
+                              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
+                                <InputLabel id="chart-profile-select">{t('today.session.chartProfiles.label')}</InputLabel>
+                                <Select
+                                  labelId="chart-profile-select"
+                                  label={t('today.session.chartProfiles.label')}
+                                  value={selectedChartProfileId}
+                                  onChange={(event) => setSelectedChartProfileId(event.target.value)}
+                                  displayEmpty
+                                >
+                                  <MenuItem value="">{t('today.session.chartProfiles.defaultPlaceholder')}</MenuItem>
+                                  {chartProfiles.map((profile) => (
+                                    <MenuItem key={profile.id} value={profile.id}>
+                                      {profile.name}{profile.isDefault ? ` (${t('today.session.chartProfiles.defaultTag')})` : ''}
+                                    </MenuItem>
+                                  ))}
+                                </Select>
+                              </FormControl>
+                            </Stack>
+
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                              <Button size="small" variant="outlined" onClick={() => void handleSaveChartProfile()} disabled={chartProfilesLoading}>
+                                {t('today.session.chartProfiles.save')}
+                              </Button>
+                              <Button size="small" variant="outlined" onClick={() => void handleSaveAsChartProfile()} disabled={chartProfilesLoading}>
+                                {t('today.session.chartProfiles.saveAs')}
+                              </Button>
+                              <Button size="small" variant="outlined" onClick={() => setChartProfileManageOpen(true)} disabled={chartProfilesLoading}>
+                                {t('today.session.chartProfiles.manage')}
+                              </Button>
+                            </Stack>
+                          </Stack>
+
+                          <FormControlLabel
+                            control={<Checkbox checked={followPlanSymbol} onChange={(event) => setFollowPlanSymbol(event.target.checked)} />}
+                            label={t('today.session.chartProfiles.followPlanSymbol')}
+                          />
+
                           <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.75} alignItems={{ md: 'center' }}>
                             <Chip size="small" label={`${t('today.session.chart.bias')}: ${lockIn.bias || t('common.na')}`} />
                             <Chip size="small" label={`${t('today.session.chart.session')}: ${lockIn.session || t('common.na')}`} />
+                            <Chip size="small" variant="outlined" label={`${t('today.session.chart.modeLabel')}: ${chartModeLabel}`} />
                             <Chip size="small" label={`${t('today.session.chart.local')}: ${localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
                             <Chip size="small" color={newsSafe ? 'success' : 'warning'} label={newsSafe ? t('today.session.chart.newsSafe') : t('today.session.chart.newsCaution')} />
                             {selectedSweepLevel && (
@@ -2127,16 +2532,172 @@ export default function SessionPage() {
                         </Stack>
                       </Box>
 
-                      <TradingViewWidget
-                        symbol={chartSymbol}
-                        interval={chartInterval}
-                        themePreference={chartTheme}
-                        hideControls={chartHideControls}
-                        allowSymbolChange={chartAllowSymbolChange}
-                        minHeight={isCompactViewport ? 320 : 440}
-                        fallbackMessage={t('today.session.mentor.liveChartFallback')}
-                        fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
-                      />
+                      {chartMode === 'LIVE' ? (
+                        <TradingViewWidget
+                          symbol={chartSymbol}
+                          interval={chartInterval}
+                          themePreference={chartTheme}
+                          hideControls={chartHideControls}
+                          allowSymbolChange={chartAllowSymbolChange}
+                          minHeight={chartHeightPreference || (isCompactViewport ? 320 : 440)}
+                          fallbackMessage={t('today.session.mentor.liveChartFallback')}
+                          fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
+                        />
+                      ) : (
+                        <Stack spacing={1}>
+                          <Accordion defaultExpanded={!isMobileViewport}>
+                            <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                              <Box>
+                                <Typography variant="subtitle2">{t('today.session.backtest.setupTitle')}</Typography>
+                                <Typography variant="caption" color="text.secondary">{t('today.session.backtest.setupHint')}</Typography>
+                              </Box>
+                            </AccordionSummary>
+                            <AccordionDetails>
+                              <Grid container spacing={1}>
+                                <Grid item xs={12} sm={6} md={3}>
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    label={t('trades.form.symbol')}
+                                    value={backtestSetup.symbol}
+                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, symbol: event.target.value.toUpperCase() }))}
+                                  />
+                                </Grid>
+                                <Grid item xs={6} sm={3} md={2}>
+                                  <FormControl fullWidth size="small">
+                                    <InputLabel id="backtest-timeframe">{t('today.session.backtest.timeframe')}</InputLabel>
+                                    <Select
+                                      labelId="backtest-timeframe"
+                                      label={t('today.session.backtest.timeframe')}
+                                      value={backtestSetup.timeframe}
+                                      onChange={(event) => setBacktestSetup((prev) => ({ ...prev, timeframe: event.target.value as BacktestSetupState['timeframe'] }))}
+                                    >
+                                      <MenuItem value="M1">M1</MenuItem>
+                                      <MenuItem value="M5">M5</MenuItem>
+                                      <MenuItem value="M15">M15</MenuItem>
+                                    </Select>
+                                  </FormControl>
+                                </Grid>
+                                <Grid item xs={6} sm={3} md={2}>
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    type="date"
+                                    label={t('today.session.backtest.from')}
+                                    InputLabelProps={{ shrink: true }}
+                                    value={backtestSetup.from}
+                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, from: event.target.value }))}
+                                  />
+                                </Grid>
+                                <Grid item xs={6} sm={3} md={2}>
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    type="date"
+                                    label={t('today.session.backtest.to')}
+                                    InputLabelProps={{ shrink: true }}
+                                    value={backtestSetup.to}
+                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, to: event.target.value }))}
+                                  />
+                                </Grid>
+                                <Grid item xs={6} sm={3} md={2}>
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    label={t('today.session.backtest.sessionWindow')}
+                                    value={backtestSetup.sessionWindow}
+                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, sessionWindow: event.target.value.toUpperCase() }))}
+                                  />
+                                </Grid>
+                                <Grid item xs={6} sm={3} md={2}>
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    label={t('today.session.backtest.spread')}
+                                    value={backtestSetup.spread}
+                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, spread: event.target.value }))}
+                                  />
+                                </Grid>
+                                <Grid item xs={6} sm={3} md={2}>
+                                  <TextField
+                                    size="small"
+                                    fullWidth
+                                    label={t('today.session.backtest.slippage')}
+                                    value={backtestSetup.slippage}
+                                    onChange={(event) => setBacktestSetup((prev) => ({ ...prev, slippage: event.target.value }))}
+                                  />
+                                </Grid>
+                                <Grid item xs={12} md={4}>
+                                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                                    <Button size="small" variant="contained" onClick={() => void handleLoadBacktestData()} disabled={backtestLoading}>
+                                      {t('today.session.backtest.loadData')}
+                                    </Button>
+                                    <Button size="small" variant="outlined" onClick={handleResetBacktestReplay}>
+                                      {t('today.session.backtest.reset')}
+                                    </Button>
+                                  </Stack>
+                                </Grid>
+                              </Grid>
+                            </AccordionDetails>
+                          </Accordion>
+
+                          <ReplayCandlestickChart
+                            candles={backtestRun?.candles || []}
+                            cursorIndex={backtestCursor}
+                            minHeight={isCompactViewport ? 320 : 440}
+                          />
+
+                          <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.75} alignItems={{ md: 'center' }} justifyContent="space-between">
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                              <Button size="small" variant="outlined" onClick={() => setBacktestPlaying((prev) => !prev)} disabled={!backtestRun?.candles?.length}>
+                                {backtestPlaying ? t('today.session.backtest.pause') : t('today.session.backtest.play')}
+                              </Button>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(-5)} disabled={!backtestRun?.candles?.length}>-5</Button>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(-1)} disabled={!backtestRun?.candles?.length}>-1</Button>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(1)} disabled={!backtestRun?.candles?.length}>+1</Button>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(5)} disabled={!backtestRun?.candles?.length}>+5</Button>
+                              <Button size="small" variant="outlined" onClick={handleJumpReplay} disabled={!backtestRun?.candles?.length}>
+                                {t('today.session.backtest.jump')}
+                              </Button>
+                            </Stack>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }}>
+                              <FormControl size="small" sx={{ minWidth: 120 }}>
+                                <InputLabel id="backtest-speed">{t('today.session.backtest.speed')}</InputLabel>
+                                <Select
+                                  labelId="backtest-speed"
+                                  label={t('today.session.backtest.speed')}
+                                  value={String(backtestSpeed)}
+                                  onChange={(event) => setBacktestSpeed(Number(event.target.value))}
+                                >
+                                  <MenuItem value="1">1x</MenuItem>
+                                  <MenuItem value="2">2x</MenuItem>
+                                  <MenuItem value="5">5x</MenuItem>
+                                </Select>
+                              </FormControl>
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={`${t('today.session.backtest.cursor')}: ${backtestRun?.candles?.[backtestCursor]?.timestamp ? new Date(backtestRun.candles[backtestCursor].timestamp).toLocaleString() : t('common.na')}`}
+                              />
+                            </Stack>
+                          </Stack>
+
+                          <Box sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                            <Typography variant="subtitle2" gutterBottom>{t('today.session.backtest.summaryTitle')}</Typography>
+                            {latestBacktestTrade ? (
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} useFlexGap flexWrap="wrap">
+                                <Chip size="small" label={`${t('today.session.backtest.result')}: ${latestBacktestTrade.exitReason || 'OPEN'}`} />
+                                <Chip size="small" label={`R: ${latestBacktestTrade.rMultiple != null ? Number(latestBacktestTrade.rMultiple).toFixed(2) : t('common.na')}`} />
+                                <Chip size="small" label={`MAE: ${latestBacktestTrade.maeR != null ? Number(latestBacktestTrade.maeR).toFixed(2) : t('common.na')}`} />
+                                <Chip size="small" label={`MFE: ${latestBacktestTrade.mfeR != null ? Number(latestBacktestTrade.mfeR).toFixed(2) : t('common.na')}`} />
+                                <Chip size="small" label={`${t('today.session.backtest.tradesCount')}: ${backtestTrades.length}`} />
+                              </Stack>
+                            ) : (
+                              <Typography variant="caption" color="text.secondary">{t('today.session.backtest.noTradesYet')}</Typography>
+                            )}
+                          </Box>
+                        </Stack>
+                      )}
                     </>
                   )}
                 </CardContent>
@@ -3081,6 +3642,61 @@ export default function SessionPage() {
           ) : (
             <Button variant="contained" onClick={() => void handleImportTemplate()}>{t('today.session.checklist.importAction')}</Button>
           )}
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={chartProfileManageOpen} onClose={() => setChartProfileManageOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('today.session.chartProfiles.manageTitle')}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            <Typography variant="caption" color="text.secondary">{t('today.session.chartProfiles.manageHint')}</Typography>
+            {chartProfiles.length === 0 ? (
+              <Typography variant="body2" color="text.secondary">{t('today.session.chartProfiles.empty')}</Typography>
+            ) : (
+              chartProfiles.map((profile) => (
+                <Box key={profile.id} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
+                  <Stack spacing={0.75}>
+                    <Stack direction="row" spacing={0.75} alignItems="center" justifyContent="space-between">
+                      <Typography variant="subtitle2">
+                        {profile.name}
+                      </Typography>
+                      {profile.isDefault && (
+                        <Chip size="small" color="primary" label={t('today.session.chartProfiles.defaultTag')} />
+                      )}
+                    </Stack>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => void handleRenameChartProfile(profile)}
+                      >
+                        {t('common.rename')}
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => void handleSetDefaultChartProfile(profile)}
+                        disabled={profile.isDefault}
+                      >
+                        {t('today.session.chartProfiles.setDefault')}
+                      </Button>
+                      <Button
+                        size="small"
+                        color="error"
+                        variant="outlined"
+                        onClick={() => void handleDeleteChartProfile(profile)}
+                      >
+                        {t('common.delete')}
+                      </Button>
+                    </Stack>
+                  </Stack>
+                </Box>
+              ))
+            )}
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setChartProfileManageOpen(false)}>{t('common.close')}</Button>
         </DialogActions>
       </Dialog>
 

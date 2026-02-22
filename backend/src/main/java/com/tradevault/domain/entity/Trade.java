@@ -96,6 +96,12 @@ public class Trade {
     @Column(name = "strategy_id")
     private UUID strategyId;
 
+    @Column(name = "strategy_version_id")
+    private UUID strategyVersionId;
+
+    @Column(name = "context_snapshot_id")
+    private UUID contextSnapshotId;
+
     @Enumerated(EnumType.STRING)
     @JdbcTypeCode(SqlTypes.NAMED_ENUM)
     @Column(name = "setup_grade", columnDefinition = "trade_grade")
