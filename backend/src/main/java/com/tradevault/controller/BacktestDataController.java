@@ -1,12 +1,14 @@
 package com.tradevault.controller;
 
 import com.tradevault.dto.backtest.BacktestDatasetResponse;
+import com.tradevault.dto.backtest.BacktestCandlesResponse;
 import com.tradevault.dto.backtest.CsvIngestRequest;
 import com.tradevault.dto.backtest.CsvIngestResponse;
 import com.tradevault.dto.backtest.CsvUploadResponse;
 import com.tradevault.dto.backtest.OandaConnectRequest;
 import com.tradevault.dto.backtest.ProviderConnectionStatusResponse;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.backtest.BacktestService;
 import com.tradevault.service.backtest.BacktestCsvService;
 import com.tradevault.service.backtest.BacktestDatasetService;
 import com.tradevault.service.backtest.BacktestDemoService;
@@ -14,6 +16,7 @@ import com.tradevault.service.backtest.BacktestProviderService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -24,6 +27,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.UUID;
 
@@ -36,6 +40,7 @@ public class BacktestDataController {
     private final BacktestDatasetService backtestDatasetService;
     private final BacktestProviderService backtestProviderService;
     private final BacktestDemoService backtestDemoService;
+    private final BacktestService backtestService;
 
     @PostMapping("/csv/upload")
     public ResponseEntity<CsvUploadResponse> uploadCsv(@RequestParam("file") MultipartFile file) {
@@ -55,6 +60,39 @@ public class BacktestDataController {
     public ResponseEntity<List<BacktestDatasetResponse>> listDatasets() {
         UUID userId = currentUserService.getCurrentUser().getId();
         return ResponseEntity.ok(backtestDatasetService.listDatasets(userId));
+    }
+
+    @GetMapping("/datasets/{id}")
+    public ResponseEntity<BacktestDatasetResponse> getDataset(@PathVariable UUID id) {
+        UUID userId = currentUserService.getCurrentUser().getId();
+        return ResponseEntity.ok(backtestDatasetService.getDataset(userId, id));
+    }
+
+    @GetMapping("/candles")
+    public ResponseEntity<BacktestCandlesResponse> getCandles(
+            @RequestParam(name = "datasetId", required = false) UUID datasetId,
+            @RequestParam(name = "provider", required = false) String provider,
+            @RequestParam(name = "dataSource", required = false) String dataSource,
+            @RequestParam(name = "sourceId", required = false) String sourceId,
+            @RequestParam(name = "symbol", required = false) String symbol,
+            @RequestParam(name = "timeframe", required = false) String timeframe,
+            @RequestParam(name = "from", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime from,
+            @RequestParam(name = "to", required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE_TIME) OffsetDateTime to,
+            @RequestParam(name = "sessionWindow", required = false) String sessionWindow,
+            @RequestParam(name = "refresh", required = false, defaultValue = "false") boolean refresh
+    ) {
+        String resolvedSource = dataSource != null ? dataSource : provider;
+        return ResponseEntity.ok(backtestService.loadCandles(
+                resolvedSource,
+                datasetId,
+                sourceId,
+                symbol,
+                timeframe,
+                from,
+                to,
+                sessionWindow,
+                refresh
+        ));
     }
 
     @DeleteMapping("/datasets/{id}")

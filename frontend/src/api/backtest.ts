@@ -74,6 +74,19 @@ export type CsvIngestResponse = {
   warnings: string[]
 }
 
+export type BacktestCandlesResponse = {
+  provider: BacktestDataSource
+  sourceId?: string
+  datasetId?: string
+  symbol: string
+  timeframe: string
+  from: string
+  to: string
+  candleCount: number
+  message?: string | null
+  candles: BacktestCandle[]
+}
+
 export type ProviderConnectionStatus = {
   provider: 'OANDA'
   connected: boolean
@@ -116,8 +129,8 @@ export type BacktestTrade = {
 export async function createBacktestRun(payload: {
   symbol: string
   timeframe: string
-  from: string
-  to: string
+  from?: string
+  to?: string
   sessionWindow?: string
   spread?: number
   slippage?: number
@@ -183,6 +196,37 @@ export async function ingestBacktestCsv(fileId: string, payload: {
 
 export async function listBacktestDatasets() {
   return apiGet<BacktestDataset[]>('/backtest/datasets')
+}
+
+export async function getBacktestDataset(id: string) {
+  return apiGet<BacktestDataset>(`/backtest/datasets/${encodeURIComponent(id)}`)
+}
+
+export async function getBacktestCandles(params: {
+  datasetId?: string
+  provider?: BacktestDataSource
+  dataSource?: BacktestDataSource
+  sourceId?: string
+  symbol?: string
+  timeframe?: string
+  from?: string
+  to?: string
+  sessionWindow?: string
+  refresh?: boolean
+}) {
+  const query = new URLSearchParams()
+  if (params.datasetId) query.set('datasetId', params.datasetId)
+  if (params.provider) query.set('provider', params.provider)
+  if (params.dataSource) query.set('dataSource', params.dataSource)
+  if (params.sourceId) query.set('sourceId', params.sourceId)
+  if (params.symbol) query.set('symbol', params.symbol)
+  if (params.timeframe) query.set('timeframe', params.timeframe)
+  if (params.from) query.set('from', params.from)
+  if (params.to) query.set('to', params.to)
+  if (params.sessionWindow) query.set('sessionWindow', params.sessionWindow)
+  if (params.refresh) query.set('refresh', 'true')
+  const qs = query.toString()
+  return apiGet<BacktestCandlesResponse>(`/backtest/candles${qs ? `?${qs}` : ''}`)
 }
 
 export async function deleteBacktestDataset(id: string) {

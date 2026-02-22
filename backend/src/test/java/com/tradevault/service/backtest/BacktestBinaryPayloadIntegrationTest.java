@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -178,6 +179,41 @@ class BacktestBinaryPayloadIntegrationTest {
     }
 
     @Test
+    void demoDatasetCanBeReadThroughCandlesEndpointWithDefaultRange() throws Exception {
+        User user = createUser("demo-candles-default@example.com");
+        mockCurrentUser(user);
+
+        mockMvc.perform(post("/api/backtest/demo/load")
+                        .contentType(MediaType.APPLICATION_JSON))
+                .andExpect(status().isOk());
+
+        MvcResult datasetsResult = mockMvc.perform(get("/api/backtest/datasets"))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode datasets = objectMapper.readTree(datasetsResult.getResponse().getContentAsString());
+        String datasetId = datasets.get(0).path("id").asText();
+
+        MvcResult metadataResult = mockMvc.perform(get("/api/backtest/datasets/{id}", datasetId))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode metadata = objectMapper.readTree(metadataResult.getResponse().getContentAsString());
+        assertThat(metadata.path("timeframe").asText()).isNotBlank();
+        assertThat(metadata.path("dataFrom").asText()).isNotBlank();
+        assertThat(metadata.path("dataTo").asText()).isNotBlank();
+
+        MvcResult candlesResult = mockMvc.perform(get("/api/backtest/candles")
+                        .param("provider", "DEMO")
+                        .param("datasetId", datasetId))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode candlesJson = objectMapper.readTree(candlesResult.getResponse().getContentAsString());
+
+        assertThat(candlesJson.path("provider").asText()).isEqualTo("DEMO");
+        assertThat(candlesJson.path("candles").isArray()).isTrue();
+        assertThat(candlesJson.path("candles").size()).isGreaterThan(0);
+    }
+
+    @Test
     void csvUploadAndIngestStoreBinaryPayloads() throws Exception {
         User user = createUser("csv-binary@example.com");
         mockCurrentUser(user);
@@ -243,6 +279,56 @@ class BacktestBinaryPayloadIntegrationTest {
                 firstChunk.getTimeframe()
         );
         assertThat(decoded).isNotEmpty();
+    }
+
+    @Test
+    void csvDatasetCanBeReadThroughCandlesEndpoint() throws Exception {
+        User user = createUser("csv-candles-default@example.com");
+        mockCurrentUser(user);
+
+        byte[] csvPayload = (
+                "time,open,high,low,close,volume\n"
+                        + "2026-02-01T00:00:00Z,1.1000,1.1010,1.0990,1.1005,100\n"
+                        + "2026-02-01T00:05:00Z,1.1005,1.1015,1.0995,1.1010,120\n"
+        ).getBytes(StandardCharsets.UTF_8);
+
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "sample.csv",
+                "text/csv",
+                csvPayload
+        );
+
+        MvcResult uploadResult = mockMvc.perform(multipart("/api/backtest/csv/upload").file(file))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode uploadJson = objectMapper.readTree(uploadResult.getResponse().getContentAsString());
+        UUID fileId = UUID.fromString(uploadJson.path("fileId").asText());
+
+        String ingestPayload = objectMapper.createObjectNode()
+                .put("symbol", "EURUSD")
+                .put("timeframe", "M5")
+                .put("datasetName", "CSV Read")
+                .toString();
+
+        MvcResult ingestResult = mockMvc.perform(post("/api/backtest/csv/ingest")
+                        .param("fileId", fileId.toString())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(ingestPayload))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode ingestJson = objectMapper.readTree(ingestResult.getResponse().getContentAsString());
+
+        MvcResult candlesResult = mockMvc.perform(get("/api/backtest/candles")
+                        .param("provider", "CSV")
+                        .param("datasetId", ingestJson.path("dataset").path("id").asText()))
+                .andExpect(status().isOk())
+                .andReturn();
+        JsonNode candlesJson = objectMapper.readTree(candlesResult.getResponse().getContentAsString());
+
+        assertThat(candlesJson.path("provider").asText()).isEqualTo("CSV");
+        assertThat(candlesJson.path("candles").isArray()).isTrue();
+        assertThat(candlesJson.path("candles").size()).isGreaterThan(0);
     }
 
     private User createUser(String email) {

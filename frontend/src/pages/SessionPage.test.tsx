@@ -53,6 +53,8 @@ const chartProfilesApiMock = vi.hoisted(() => ({
 
 const backtestApiMock = vi.hoisted(() => ({
   createBacktestRun: vi.fn(),
+  getBacktestCandles: vi.fn(),
+  getBacktestDataset: vi.fn(),
   uploadBacktestCsv: vi.fn(),
   ingestBacktestCsv: vi.fn(),
   listBacktestDatasets: vi.fn(),
@@ -413,6 +415,17 @@ describe('SessionPage execution funnel', () => {
       provider: 'OANDA',
       status: 'READY',
       candleCount: 3,
+      candles: []
+    })
+    backtestApiMock.getBacktestCandles.mockResolvedValue({
+      provider: 'OANDA',
+      sourceId: 'source-1',
+      symbol: 'OANDA:EURUSD',
+      timeframe: 'M1',
+      from: '2026-02-01T00:00:00Z',
+      to: '2026-02-14T23:59:59Z',
+      candleCount: 3,
+      message: null,
       candles: [
         { timestamp: '2026-02-14T08:00:00Z', open: 1.1, high: 1.101, low: 1.099, close: 1.1005, volume: 100 },
         { timestamp: '2026-02-14T08:01:00Z', open: 1.1005, high: 1.1015, low: 1.0995, close: 1.101, volume: 120 },
@@ -437,6 +450,36 @@ describe('SessionPage execution funnel', () => {
       dataFrom: '2026-02-01T00:00:00Z',
       dataTo: '2026-02-01T01:00:00Z',
       warnings: []
+    })
+    backtestApiMock.getBacktestDataset.mockImplementation(async (id: string) => {
+      if (id === 'dataset-1' || id === 'dataset-csv-1') {
+        return {
+          id,
+          provider: 'CSV',
+          sourceId: id === 'dataset-csv-1' ? 'csv-source-1' : 'source-1',
+          name: 'tv.csv',
+          symbolCanonical: 'EURUSD',
+          symbolDisplay: 'EURUSD',
+          timeframe: 'M1',
+          dataFrom: '2026-02-01T00:00:00Z',
+          dataTo: '2026-02-01T01:00:00Z',
+          rowCount: 61,
+          warnings: []
+        }
+      }
+      return {
+        id,
+        provider: 'DEMO',
+        sourceId: 'DEMO',
+        name: 'Demo',
+        symbolCanonical: 'EURUSD',
+        symbolDisplay: 'DEMO:EURUSD',
+        timeframe: 'M5',
+        dataFrom: '2025-11-01T00:00:00Z',
+        dataTo: '2025-12-31T23:55:00Z',
+        rowCount: 1000,
+        warnings: []
+      }
     })
     backtestApiMock.ingestBacktestCsv.mockResolvedValue({
       dataset: {
@@ -824,9 +867,12 @@ describe('SessionPage execution funnel', () => {
     await user.click(screen.getByRole('button', { name: /Load data/i }))
 
     await waitFor(() => {
+      expect(backtestApiMock.getBacktestCandles).toHaveBeenCalled()
       expect(backtestApiMock.createBacktestRun).toHaveBeenCalled()
     })
     expect(screen.getByTestId('mock-replay-chart')).toHaveTextContent('replay:3:0')
+    expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: READY')
+    expect(screen.getByRole('button', { name: /^Play$/i })).toBeEnabled()
 
     const plannerPanel = getPlannerPanel()
     await user.click(within(plannerPanel).getByRole('button', { name: 'Start trade' }))
@@ -836,7 +882,7 @@ describe('SessionPage execution funnel', () => {
         'run-1',
         expect.objectContaining({
           direction: 'LONG',
-          replayCursorTime: '2026-02-14T08:00:00Z'
+          replayCursorTime: expect.stringMatching(/^2026-02-14T08:00:00(?:\.000)?Z$/)
         })
       )
     })
@@ -903,6 +949,10 @@ describe('SessionPage execution funnel', () => {
 
     await user.click(screen.getByRole('button', { name: /Load data/i }))
     await waitFor(() => {
+      expect(backtestApiMock.getBacktestCandles).toHaveBeenCalledWith(expect.objectContaining({
+        dataSource: 'CSV',
+        datasetId: 'dataset-csv-1'
+      }))
       expect(backtestApiMock.createBacktestRun).toHaveBeenCalledWith(expect.objectContaining({
         dataSource: 'CSV',
         datasetId: 'dataset-csv-1'

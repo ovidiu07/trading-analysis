@@ -3,11 +3,15 @@ package com.tradevault.service.backtest;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.domain.entity.BacktestRun;
 import com.tradevault.domain.entity.ContextSnapshot;
+import com.tradevault.domain.entity.BacktestDataset;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.BacktestCandleSource;
 import com.tradevault.domain.enums.BacktestOrderType;
 import com.tradevault.domain.enums.BacktestRunStatus;
+import com.tradevault.domain.enums.BacktestTimeframe;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.dto.backtest.BacktestCandlesResponse;
 import com.tradevault.dto.backtest.BacktestTradeResponse;
 import com.tradevault.dto.backtest.BacktestTradeSimulateRequest;
 import com.tradevault.repository.BacktestRunRepository;
@@ -153,6 +157,140 @@ class BacktestServiceTest {
         assertThat(response.getRMultiple()).isEqualByComparingTo("1.0000");
         assertThat(response.getDurationBars()).isEqualTo(2);
         assertThat(response.getWin()).isTrue();
+    }
+
+    @Test
+    void loadCandlesDefaultsRangeForDatasetWhenDatesAreMissing() {
+        UUID datasetId = UUID.randomUUID();
+        BacktestDataset dataset = BacktestDataset.builder()
+                .id(datasetId)
+                .provider(BacktestCandleSource.CSV)
+                .sourceId("CSV-SOURCE")
+                .symbolDisplay("EURUSD")
+                .timeframe(BacktestTimeframe.M5)
+                .dataFrom(OffsetDateTime.parse("2025-01-01T00:00:00Z"))
+                .dataTo(OffsetDateTime.parse("2026-02-01T00:00:00Z"))
+                .build();
+        OffsetDateTime expectedFrom = OffsetDateTime.parse("2025-11-03T00:00:00Z");
+        OffsetDateTime expectedTo = OffsetDateTime.parse("2026-02-01T00:00:00Z");
+
+        when(backtestDatasetService.requireDataset(user.getId(), datasetId)).thenReturn(dataset);
+        when(candleDataService.getCandles(
+                user.getId(),
+                "CSV",
+                "CSV-SOURCE",
+                "EURUSD",
+                "M5",
+                expectedFrom,
+                expectedTo,
+                false
+        )).thenReturn(List.of(
+                new BacktestCandle(expectedFrom, new BigDecimal("1.1000"), new BigDecimal("1.1010"), new BigDecimal("1.0990"), new BigDecimal("1.1005"), 100L)
+        ));
+
+        BacktestCandlesResponse response = backtestService.loadCandles(
+                "CSV",
+                datasetId,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                false
+        );
+
+        assertThat(response.getFrom()).isEqualTo(expectedFrom);
+        assertThat(response.getTo()).isEqualTo(expectedTo);
+        assertThat(response.getCandles()).hasSize(1);
+        assertThat(response.getMessage()).isNull();
+    }
+
+    @Test
+    void loadCandlesReturnsEmptyMessageWhenRequestedRangeIsOutsideDataset() {
+        UUID datasetId = UUID.randomUUID();
+        BacktestDataset dataset = BacktestDataset.builder()
+                .id(datasetId)
+                .provider(BacktestCandleSource.CSV)
+                .sourceId("CSV-SOURCE")
+                .symbolDisplay("EURUSD")
+                .timeframe(BacktestTimeframe.M5)
+                .dataFrom(OffsetDateTime.parse("2025-01-01T00:00:00Z"))
+                .dataTo(OffsetDateTime.parse("2025-01-02T00:00:00Z"))
+                .build();
+
+        when(backtestDatasetService.requireDataset(user.getId(), datasetId)).thenReturn(dataset);
+
+        BacktestCandlesResponse response = backtestService.loadCandles(
+                "CSV",
+                datasetId,
+                null,
+                null,
+                null,
+                OffsetDateTime.parse("2025-02-01T00:00:00Z"),
+                OffsetDateTime.parse("2025-02-10T00:00:00Z"),
+                null,
+                false
+        );
+
+        assertThat(response.getCandles()).isEmpty();
+        assertThat(response.getMessage()).isEqualTo("No candles for range");
+        verify(candleDataService, never()).getCandles(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyBoolean()
+        );
+    }
+
+    @Test
+    void loadCandlesUsesProvidedToWhenDatasetHasNoDataTo() {
+        UUID datasetId = UUID.randomUUID();
+        BacktestDataset dataset = BacktestDataset.builder()
+                .id(datasetId)
+                .provider(BacktestCandleSource.CSV)
+                .sourceId("CSV-SOURCE")
+                .symbolDisplay("EURUSD")
+                .timeframe(BacktestTimeframe.M5)
+                .dataFrom(OffsetDateTime.parse("2025-01-01T00:00:00Z"))
+                .dataTo(null)
+                .build();
+        OffsetDateTime expectedTo = OffsetDateTime.parse("2025-01-20T00:00:00Z");
+        OffsetDateTime expectedFrom = OffsetDateTime.parse("2025-01-01T00:00:00Z");
+
+        when(backtestDatasetService.requireDataset(user.getId(), datasetId)).thenReturn(dataset);
+        when(candleDataService.getCandles(
+                user.getId(),
+                "CSV",
+                "CSV-SOURCE",
+                "EURUSD",
+                "M5",
+                expectedFrom,
+                expectedTo,
+                false
+        )).thenReturn(List.of(
+                new BacktestCandle(expectedFrom, new BigDecimal("1.1000"), new BigDecimal("1.1010"), new BigDecimal("1.0990"), new BigDecimal("1.1005"), 100L)
+        ));
+
+        BacktestCandlesResponse response = backtestService.loadCandles(
+                "CSV",
+                datasetId,
+                null,
+                null,
+                null,
+                null,
+                expectedTo,
+                null,
+                false
+        );
+
+        assertThat(response.getFrom()).isEqualTo(expectedFrom);
+        assertThat(response.getTo()).isEqualTo(expectedTo);
+        assertThat(response.getCandles()).hasSize(1);
     }
 
     private BacktestCandle candle(String ts, String open, String high, String low, String close) {

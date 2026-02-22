@@ -70,6 +70,8 @@ import {
   type CsvColumnMapping,
   type CsvUploadResponse,
   createBacktestRun,
+  getBacktestCandles,
+  getBacktestDataset,
   ingestBacktestCsv,
   getOandaProviderStatus,
   listBacktestDatasets,
@@ -78,6 +80,7 @@ import {
   simulateBacktestTrade,
   uploadBacktestCsv
 } from '../api/backtest'
+import { normalizeBacktestCandles } from '../features/backtest/candleConverter'
 import {
   createChartProfile,
   deleteChartProfile,
@@ -225,6 +228,8 @@ type BacktestSetupState = {
   spread: string
   slippage: string
 }
+
+type BacktestReplayState = 'IDLE' | 'LOADING' | 'READY' | 'PLAYING' | 'PAUSED' | 'ERROR'
 
 type CsvUploadItem = CsvUploadResponse & {
   mappingDraft: CsvColumnMapping
@@ -452,6 +457,30 @@ const toDateInputFromIso = (iso?: string) => {
   return date.toISOString().slice(0, 10)
 }
 
+const resolveDatasetDateRangeDefaults = (dataset: Pick<BacktestDataset, 'dataFrom' | 'dataTo'>) => {
+  const dataFrom = dataset.dataFrom ? new Date(dataset.dataFrom) : null
+  const dataTo = dataset.dataTo ? new Date(dataset.dataTo) : null
+  if (!dataFrom || !dataTo || Number.isNaN(dataFrom.getTime()) || Number.isNaN(dataTo.getTime())) {
+    return { from: '', to: '' }
+  }
+
+  const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000
+  const preferredFrom = new Date(dataTo.getTime() - ninetyDaysMs)
+  const fromDate = dataFrom.getTime() > preferredFrom.getTime() ? dataFrom : preferredFrom
+
+  return {
+    from: toDateInputValue(fromDate),
+    to: toDateInputValue(dataTo)
+  }
+}
+
+const toDateRangeIso = (value: string, edge: 'start' | 'end') => {
+  if (!value) return undefined
+  const parsed = new Date(edge === 'start' ? `${value}T00:00:00Z` : `${value}T23:59:59Z`)
+  if (Number.isNaN(parsed.getTime())) return undefined
+  return parsed.toISOString()
+}
+
 export default function SessionPage() {
   const { t } = useI18n()
   const { user } = useAuth()
@@ -554,8 +583,10 @@ export default function SessionPage() {
   const [chartProfileManageOpen, setChartProfileManageOpen] = useState(false)
   const [backtestSetup, setBacktestSetup] = useState<BacktestSetupState>(defaultBacktestSetup)
   const [backtestRun, setBacktestRun] = useState<BacktestRun | null>(null)
+  const [backtestCandles, setBacktestCandles] = useState(() => normalizeBacktestCandles([]))
   const [backtestCursor, setBacktestCursor] = useState(0)
-  const [backtestPlaying, setBacktestPlaying] = useState(false)
+  const [backtestReplayState, setBacktestReplayState] = useState<BacktestReplayState>('IDLE')
+  const [backtestReplayMessage, setBacktestReplayMessage] = useState('')
   const [backtestSpeed, setBacktestSpeed] = useState(1)
   const [latestBacktestTrade, setLatestBacktestTrade] = useState<BacktestTrade | null>(null)
   const [backtestTrades, setBacktestTrades] = useState<BacktestTrade[]>([])
@@ -713,20 +744,20 @@ export default function SessionPage() {
   }, [chartProfileStorageKey, selectedChartProfileId])
 
   useEffect(() => {
-    if (!backtestPlaying || !backtestRun?.candles?.length) return undefined
+    if (backtestReplayState !== 'PLAYING' || backtestCandles.length === 0) return undefined
     const intervalMs = Math.max(120, Math.round(850 / Math.max(backtestSpeed, 1)))
     const timer = window.setInterval(() => {
       setBacktestCursor((prev) => {
         const next = prev + 1
-        if (next >= backtestRun.candles.length - 1) {
-          setBacktestPlaying(false)
-          return Math.max(backtestRun.candles.length - 1, 0)
+        if (next >= backtestCandles.length - 1) {
+          setBacktestReplayState('PAUSED')
+          return Math.max(backtestCandles.length - 1, 0)
         }
         return next
       })
     }, intervalMs)
     return () => window.clearInterval(timer)
-  }, [backtestPlaying, backtestRun?.candles, backtestSpeed])
+  }, [backtestReplayState, backtestCandles, backtestSpeed])
 
   useEffect(() => {
     setPlanner((prev) => prev.tradeCurrency
@@ -1016,6 +1047,9 @@ export default function SessionPage() {
   const chartProfileEmbedConfig = (selectedChartProfile?.embedConfigJson || {}) as ChartEmbedConfig
   const chartProfilePrefs = selectedChartProfile?.tjaPrefsJson || {}
   const chartModeLabel = chartMode === 'LIVE' ? t('today.session.chart.modeLive') : t('today.session.chart.modeBacktest')
+  const canReplayPlay = backtestReplayState === 'READY' || backtestReplayState === 'PAUSED'
+  const canReplayStep = (backtestReplayState === 'READY' || backtestReplayState === 'PAUSED' || backtestReplayState === 'PLAYING')
+    && backtestCandles.length > 0
 
   const chartSymbol = (() => {
     const planSymbol = selectedPlan?.tradingViewSymbol?.trim()
@@ -1693,6 +1727,31 @@ export default function SessionPage() {
     setSuccessMessage(t('today.session.chartProfiles.defaultSet'))
   }
 
+  const resetBacktestReplay = (nextState: BacktestReplayState = 'IDLE', message = '') => {
+    setBacktestLoading(false)
+    setBacktestReplayState(nextState)
+    setBacktestReplayMessage(message)
+    setBacktestRun(null)
+    setBacktestCandles([])
+    setBacktestCursor(0)
+    setLatestBacktestTrade(null)
+    setBacktestTrades([])
+  }
+
+  const applyDatasetDefaults = (dataset: BacktestDataset) => {
+    const range = resolveDatasetDateRangeDefaults(dataset)
+    setBacktestSetup((prev) => ({
+      ...prev,
+      datasetId: dataset.id,
+      sourceId: dataset.sourceId,
+      symbol: dataset.symbolDisplay || prev.symbol,
+      timeframe: (dataset.timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
+      from: range.from || prev.from,
+      to: range.to || prev.to
+    }))
+    resetBacktestReplay()
+  }
+
   const refreshBacktestDatasets = async () => {
     setBacktestDatasetsLoading(true)
     try {
@@ -1743,27 +1802,32 @@ export default function SessionPage() {
 
   useEffect(() => {
     if (!selectedBacktestDataset) return
-    setBacktestSetup((prev) => {
-      const nextFrom = toDateInputFromIso(selectedBacktestDataset.dataFrom)
-      const nextTo = toDateInputFromIso(selectedBacktestDataset.dataTo)
-      const next = {
-        ...prev,
-        sourceId: selectedBacktestDataset.sourceId,
-        symbol: selectedBacktestDataset.symbolDisplay || prev.symbol,
-        timeframe: (selectedBacktestDataset.timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
-        from: prev.from || nextFrom,
-        to: prev.to || nextTo
-      }
-      return next
-    })
-  }, [selectedBacktestDataset])
+
+    let active = true
+    getBacktestDataset(selectedBacktestDataset.id)
+      .then((dataset) => {
+        if (!active) return
+        applyDatasetDefaults(dataset)
+      })
+      .catch(() => {
+        if (!active) return
+        applyDatasetDefaults(selectedBacktestDataset)
+      })
+
+    return () => {
+      active = false
+    }
+  }, [selectedBacktestDataset?.id])
 
   const handleBacktestSourceChange = (source: BacktestDataSource) => {
+    resetBacktestReplay()
     setBacktestSetup((prev) => ({
       ...prev,
       dataSource: source,
       datasetId: '',
-      sourceId: source === 'DEMO' ? 'DEMO' : ''
+      sourceId: source === 'DEMO' ? 'DEMO' : '',
+      from: source === 'OANDA' ? prev.from : '',
+      to: source === 'OANDA' ? prev.to : ''
     }))
     setCsvUploads([])
     if (source === 'DEMO') {
@@ -1772,15 +1836,7 @@ export default function SessionPage() {
         .then((rows) => {
           setBacktestDatasets(rows || [])
           if ((rows || []).length > 0) {
-            setBacktestSetup((prev) => ({
-              ...prev,
-              datasetId: rows[0].id,
-              sourceId: rows[0].sourceId,
-              symbol: rows[0].symbolDisplay || prev.symbol,
-              timeframe: (rows[0].timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
-              from: toDateInputFromIso(rows[0].dataFrom) || prev.from,
-              to: toDateInputFromIso(rows[0].dataTo) || prev.to
-            }))
+            applyDatasetDefaults(rows[0])
           }
         })
         .catch((error) => {
@@ -1844,15 +1900,13 @@ export default function SessionPage() {
       await refreshBacktestDatasets()
       const datasetId = ingest.dataset?.id
       if (datasetId) {
-        setBacktestSetup((prev) => ({
-          ...prev,
-          datasetId,
-          sourceId: ingest.dataset.sourceId,
-          symbol: ingest.dataset.symbolDisplay || prev.symbol,
-          timeframe: (ingest.dataset.timeframe as BacktestSetupState['timeframe']) || prev.timeframe,
-          from: toDateInputFromIso(ingest.dataset.dataFrom) || prev.from,
-          to: toDateInputFromIso(ingest.dataset.dataTo) || prev.to
-        }))
+        setBacktestSetup((prev) => ({ ...prev, datasetId }))
+        try {
+          const dataset = await getBacktestDataset(datasetId)
+          applyDatasetDefaults(dataset)
+        } catch {
+          applyDatasetDefaults(ingest.dataset)
+        }
       }
       setCsvUploads((prev) => prev.filter((item) => item.fileId !== upload.fileId))
       setSuccessMessage(t('today.session.backtest.ingested'))
@@ -1866,7 +1920,7 @@ export default function SessionPage() {
 
   const handleLoadBacktestData = async () => {
     const requiresDataset = backtestSetup.dataSource === 'CSV' || backtestSetup.dataSource === 'DEMO'
-    if ((!requiresDataset && !backtestSetup.symbol.trim()) || !backtestSetup.from || !backtestSetup.to) {
+    if (!requiresDataset && !backtestSetup.symbol.trim()) {
       setApiError(t('today.session.backtest.errors.setupRequired'))
       return
     }
@@ -1875,19 +1929,54 @@ export default function SessionPage() {
       return
     }
 
-    const fromIso = new Date(`${backtestSetup.from}T00:00:00Z`).toISOString()
-    const toIso = new Date(`${backtestSetup.to}T23:59:59Z`).toISOString()
+    const fromIso = toDateRangeIso(backtestSetup.from, 'start')
+    const toIso = toDateRangeIso(backtestSetup.to, 'end')
     setBacktestLoading(true)
+    setBacktestReplayState('LOADING')
+    setBacktestReplayMessage('')
+    setBacktestCandles([])
+    setBacktestCursor(0)
+    setBacktestRun(null)
+    setBacktestTrades([])
+    setLatestBacktestTrade(null)
     setApiError('')
     try {
       const selectedDataset = requiresDataset
         ? backtestDatasets.find((dataset) => dataset.id === backtestSetup.datasetId)
         : null
-      const run = await createBacktestRun({
-        symbol: (selectedDataset?.symbolDisplay || backtestSetup.symbol).trim().toUpperCase(),
-        timeframe: backtestSetup.timeframe,
+
+      const candlesResponse = await getBacktestCandles({
+        provider: backtestSetup.dataSource,
+        dataSource: backtestSetup.dataSource,
+        datasetId: selectedDataset?.id || backtestSetup.datasetId || undefined,
+        sourceId: selectedDataset?.sourceId || backtestSetup.sourceId || undefined,
+        symbol: selectedDataset?.symbolDisplay || backtestSetup.symbol || undefined,
+        timeframe: selectedDataset?.timeframe || backtestSetup.timeframe,
         from: fromIso,
         to: toIso,
+        sessionWindow: backtestSetup.sessionWindow || undefined
+      })
+      const normalizedCandles = normalizeBacktestCandles(candlesResponse.candles || [])
+
+      if (candlesResponse.from || candlesResponse.to) {
+        setBacktestSetup((prev) => ({
+          ...prev,
+          from: toDateInputFromIso(candlesResponse.from) || prev.from,
+          to: toDateInputFromIso(candlesResponse.to) || prev.to
+        }))
+      }
+
+      if (!normalizedCandles.length) {
+        setBacktestReplayState('ERROR')
+        setBacktestReplayMessage(candlesResponse.message || 'No candles returned for selected range. Adjust From/To.')
+        return
+      }
+
+      const run = await createBacktestRun({
+        symbol: (selectedDataset?.symbolDisplay || backtestSetup.symbol).trim().toUpperCase(),
+        timeframe: selectedDataset?.timeframe || backtestSetup.timeframe,
+        from: candlesResponse.from || fromIso,
+        to: candlesResponse.to || toIso,
         sessionWindow: backtestSetup.sessionWindow || undefined,
         spread: backtestSetup.spread ? Number(backtestSetup.spread) : undefined,
         slippage: backtestSetup.slippage ? Number(backtestSetup.slippage) : undefined,
@@ -1897,8 +1986,9 @@ export default function SessionPage() {
         datasetId: selectedDataset?.id || backtestSetup.datasetId || undefined
       })
       setBacktestRun(run)
+      setBacktestCandles(normalizedCandles)
       setBacktestCursor(0)
-      setLatestBacktestTrade(null)
+      setBacktestReplayState('READY')
       const trades = await listBacktestTrades(run.id)
       setBacktestTrades(trades || [])
       if (trades?.length) {
@@ -1906,6 +1996,8 @@ export default function SessionPage() {
       }
       setSuccessMessage(t('today.session.backtest.loaded'))
     } catch (error) {
+      setBacktestReplayState('ERROR')
+      setBacktestReplayMessage('')
       const apiErr = error as ApiError
       setApiError(translateApiError(apiErr, t, 'today.session.backtest.errors.loadFailed'))
     } finally {
@@ -1914,25 +2006,24 @@ export default function SessionPage() {
   }
 
   const handleResetBacktestReplay = () => {
-    setBacktestPlaying(false)
-    setBacktestCursor(0)
+    resetBacktestReplay()
   }
 
   const handleStepReplay = (step: number) => {
-    if (!backtestRun?.candles?.length) return
+    if (!backtestCandles.length) return
     setBacktestCursor((prev) => {
-      const max = Math.max(backtestRun.candles.length - 1, 0)
+      const max = Math.max(backtestCandles.length - 1, 0)
       return Math.min(Math.max(prev + step, 0), max)
     })
   }
 
   const handleJumpReplay = () => {
-    if (!backtestRun?.candles?.length) return
-    const input = window.prompt(t('today.session.backtest.jumpPrompt'), backtestRun.candles[backtestCursor]?.timestamp || '')
+    if (!backtestCandles.length) return
+    const input = window.prompt(t('today.session.backtest.jumpPrompt'), backtestCandles[backtestCursor]?.timestamp || '')
     if (!input) return
     const target = new Date(input).getTime()
     if (!Number.isFinite(target)) return
-    const index = backtestRun.candles.findIndex((candle) => new Date(candle.timestamp).getTime() >= target)
+    const index = backtestCandles.findIndex((candle) => new Date(candle.timestamp).getTime() >= target)
     if (index >= 0) {
       setBacktestCursor(index)
     }
@@ -1984,7 +2075,7 @@ export default function SessionPage() {
         return
       }
 
-      const replayCursorTime = backtestRun.candles[backtestCursor]?.timestamp
+      const replayCursorTime = backtestCandles[backtestCursor]?.timestamp
       if (!replayCursorTime) {
         setApiError(t('today.session.backtest.errors.loadDataFirst'))
         return
@@ -2635,8 +2726,13 @@ export default function SessionPage() {
                                   label={t('today.session.chart.modeLabel')}
                                   value={chartMode}
                                   onChange={(event) => {
-                                    setChartMode(event.target.value as SessionChartMode)
-                                    setBacktestPlaying(false)
+                                    const nextMode = event.target.value as SessionChartMode
+                                    setChartMode(nextMode)
+                                    if (nextMode !== 'BACKTEST') {
+                                      resetBacktestReplay()
+                                    } else if (backtestReplayState === 'PLAYING') {
+                                      setBacktestReplayState('PAUSED')
+                                    }
                                   }}
                                 >
                                   <MenuItem value="LIVE">{t('today.session.chart.modeLive')}</MenuItem>
@@ -2827,7 +2923,10 @@ export default function SessionPage() {
                                           labelId="backtest-dataset-id"
                                           label={t('today.session.backtest.dataset')}
                                           value={backtestSetup.datasetId}
-                                          onChange={(event) => setBacktestSetup((prev) => ({ ...prev, datasetId: event.target.value }))}
+                                          onChange={(event) => {
+                                            setBacktestSetup((prev) => ({ ...prev, datasetId: event.target.value }))
+                                            resetBacktestReplay()
+                                          }}
                                           disabled={backtestDatasetsLoading || backtestDatasetsForSource.length === 0}
                                         >
                                           {backtestDatasetsForSource.map((dataset) => (
@@ -3098,21 +3197,45 @@ export default function SessionPage() {
                           </Accordion>
 
                           <ReplayCandlestickChart
-                            candles={backtestRun?.candles || []}
+                            candles={backtestCandles}
                             cursorIndex={backtestCursor}
-                            minHeight={isCompactViewport ? 320 : 440}
+                            minHeight={isCompactViewport ? 300 : 320}
+                            height={isCompactViewport ? 'clamp(300px, 40vh, 480px)' : 'clamp(320px, 45vh, 600px)'}
+                            loading={backtestReplayState === 'LOADING'}
                           />
+
+                          {backtestReplayState === 'LOADING' && <LinearProgress />}
+                          {backtestReplayMessage && (
+                            <Alert severity={backtestReplayState === 'ERROR' ? 'warning' : 'info'}>
+                              {backtestReplayMessage === 'No candles for range'
+                                ? 'No candles returned for selected range. Adjust From/To.'
+                                : backtestReplayMessage}
+                            </Alert>
+                          )}
 
                           <Stack direction={{ xs: 'column', md: 'row' }} spacing={0.75} alignItems={{ md: 'center' }} justifyContent="space-between">
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
-                              <Button size="small" variant="outlined" onClick={() => setBacktestPlaying((prev) => !prev)} disabled={!backtestRun?.candles?.length}>
-                                {backtestPlaying ? t('today.session.backtest.pause') : t('today.session.backtest.play')}
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => {
+                                  if (backtestReplayState === 'PLAYING') {
+                                    setBacktestReplayState('PAUSED')
+                                    return
+                                  }
+                                  if (canReplayPlay) {
+                                    setBacktestReplayState('PLAYING')
+                                  }
+                                }}
+                                disabled={backtestReplayState !== 'PLAYING' && !canReplayPlay}
+                              >
+                                {backtestReplayState === 'PLAYING' ? t('today.session.backtest.pause') : t('today.session.backtest.play')}
                               </Button>
-                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(-5)} disabled={!backtestRun?.candles?.length}>-5</Button>
-                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(-1)} disabled={!backtestRun?.candles?.length}>-1</Button>
-                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(1)} disabled={!backtestRun?.candles?.length}>+1</Button>
-                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(5)} disabled={!backtestRun?.candles?.length}>+5</Button>
-                              <Button size="small" variant="outlined" onClick={handleJumpReplay} disabled={!backtestRun?.candles?.length}>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(-5)} disabled={!canReplayStep}>-5</Button>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(-1)} disabled={!canReplayStep}>-1</Button>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(1)} disabled={!canReplayStep}>+1</Button>
+                              <Button size="small" variant="outlined" onClick={() => handleStepReplay(5)} disabled={!canReplayStep}>+5</Button>
+                              <Button size="small" variant="outlined" onClick={handleJumpReplay} disabled={!canReplayStep}>
                                 {t('today.session.backtest.jump')}
                               </Button>
                             </Stack>
@@ -3133,7 +3256,13 @@ export default function SessionPage() {
                               <Chip
                                 size="small"
                                 variant="outlined"
-                                label={`${t('today.session.backtest.cursor')}: ${backtestRun?.candles?.[backtestCursor]?.timestamp ? new Date(backtestRun.candles[backtestCursor].timestamp).toLocaleString() : t('common.na')}`}
+                                label={`${t('today.session.backtest.cursor')}: ${backtestCandles[backtestCursor]?.timestamp ? new Date(backtestCandles[backtestCursor].timestamp).toLocaleString() : t('common.na')}`}
+                              />
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                data-testid="backtest-replay-state"
+                                label={`State: ${backtestReplayState}`}
                               />
                             </Stack>
                           </Stack>

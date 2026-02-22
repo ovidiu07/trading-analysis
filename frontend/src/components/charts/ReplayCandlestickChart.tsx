@@ -6,6 +6,8 @@ type ReplayCandlestickChartProps = {
   candles: BacktestCandle[]
   cursorIndex: number
   minHeight?: number
+  height?: number | string
+  loading?: boolean
 }
 
 type HoverState = {
@@ -16,10 +18,16 @@ type HoverState = {
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max)
 
-export default function ReplayCandlestickChart({ candles, cursorIndex, minHeight = 300 }: ReplayCandlestickChartProps) {
+export default function ReplayCandlestickChart({
+  candles,
+  cursorIndex,
+  minHeight = 300,
+  height,
+  loading = false
+}: ReplayCandlestickChartProps) {
   const theme = useTheme()
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const [width, setWidth] = useState(0)
+  const [size, setSize] = useState({ width: 0, height: minHeight })
   const [hover, setHover] = useState<HoverState>(null)
 
   useEffect(() => {
@@ -27,7 +35,10 @@ export default function ReplayCandlestickChart({ candles, cursorIndex, minHeight
     if (!element) return
 
     const measure = () => {
-      setWidth(Math.max(1, Math.floor(element.clientWidth)))
+      setSize({
+        width: Math.max(1, Math.floor(element.clientWidth)),
+        height: Math.max(minHeight, Math.floor(element.clientHeight || minHeight))
+      })
     }
     measure()
 
@@ -37,7 +48,9 @@ export default function ReplayCandlestickChart({ candles, cursorIndex, minHeight
     return () => {
       observer.disconnect()
     }
-  }, [])
+  }, [height, minHeight])
+
+  const width = size.width
 
   const visibleCandles = useMemo(
     () => candles.slice(0, clamp(cursorIndex + 1, 0, candles.length)),
@@ -46,8 +59,20 @@ export default function ReplayCandlestickChart({ candles, cursorIndex, minHeight
 
   if (!visibleCandles.length) {
     return (
-      <Box sx={{ minHeight, display: 'grid', placeItems: 'center', border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-        <Typography variant="body2" color="text.secondary">No replay data</Typography>
+      <Box
+        sx={{
+          minHeight,
+          height: height || minHeight,
+          display: 'grid',
+          placeItems: 'center',
+          border: '1px solid',
+          borderColor: 'divider',
+          borderRadius: 2
+        }}
+      >
+        <Typography variant="body2" color="text.secondary">
+          {loading ? 'Loading replay data...' : 'No replay data'}
+        </Typography>
       </Box>
     )
   }
@@ -57,7 +82,7 @@ export default function ReplayCandlestickChart({ candles, cursorIndex, minHeight
   const maxHigh = Math.max(...highs)
   const minLow = Math.min(...lows)
   const range = Math.max(maxHigh - minLow, Number.EPSILON)
-  const chartHeight = minHeight
+  const chartHeight = Math.max(minHeight, size.height || minHeight)
   const paddingTop = 12
   const paddingBottom = 18
   const candleAreaHeight = chartHeight - paddingTop - paddingBottom
@@ -81,7 +106,9 @@ export default function ReplayCandlestickChart({ candles, cursorIndex, minHeight
         borderColor: 'divider',
         borderRadius: 2,
         overflow: 'hidden',
-        backgroundColor: 'background.paper'
+        backgroundColor: 'background.paper',
+        minHeight,
+        height: height || minHeight
       }}
     >
       <svg

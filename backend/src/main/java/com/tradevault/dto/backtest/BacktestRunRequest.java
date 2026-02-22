@@ -1,7 +1,6 @@
 package com.tradevault.dto.backtest;
 
 import jakarta.validation.constraints.NotBlank;
-import jakarta.validation.constraints.NotNull;
 import lombok.Data;
 
 import java.math.BigDecimal;
@@ -16,10 +15,8 @@ public class BacktestRunRequest {
     @NotBlank
     private String timeframe;
 
-    @NotNull
     private OffsetDateTime from;
 
-    @NotNull
     private OffsetDateTime to;
 
     private String sessionWindow;

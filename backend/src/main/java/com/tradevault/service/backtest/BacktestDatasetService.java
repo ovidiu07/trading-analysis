@@ -47,6 +47,11 @@ public class BacktestDatasetService {
                 ));
     }
 
+    @Transactional(readOnly = true)
+    public BacktestDatasetResponse getDataset(UUID userId, UUID datasetId) {
+        return toResponse(requireDataset(userId, datasetId));
+    }
+
     @Transactional
     public BacktestDataset upsertDataset(User user,
                                          BacktestCandleSource source,

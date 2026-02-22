@@ -13,6 +13,7 @@ import com.tradevault.domain.enums.BacktestOrderType;
 import com.tradevault.domain.enums.BacktestRunStatus;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.dto.backtest.BacktestCandlesResponse;
 import com.tradevault.dto.backtest.BacktestCandleDto;
 import com.tradevault.dto.backtest.BacktestRunRequest;
 import com.tradevault.dto.backtest.BacktestRunResponse;
@@ -35,6 +36,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.LocalTime;
 import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
@@ -54,78 +56,100 @@ public class BacktestService {
     @Transactional
     public BacktestRunResponse createRun(BacktestRunRequest request) {
         User user = currentUserService.getCurrentUser();
-        validateDateRange(request.getFrom(), request.getTo());
+        ResolvedCandleRequest resolved = resolveCandleRequest(
+                user,
+                request.getDataSource() == null ? request.getProvider() : request.getDataSource(),
+                request.getDatasetId(),
+                request.getSourceId(),
+                request.getSymbol(),
+                request.getTimeframe(),
+                request.getFrom(),
+                request.getTo()
+        );
 
-        BacktestCandleSource source = normalizeSource(request.getDataSource() == null ? request.getProvider() : request.getDataSource());
-        String symbol = normalizeSymbol(request.getSymbol());
-        String timeframe = normalizeTimeframe(request.getTimeframe());
-        String sourceId = normalizeOptionalText(request.getSourceId());
-        java.util.UUID datasetId = request.getDatasetId();
-        OffsetDateTime rangeFrom = request.getFrom();
-        OffsetDateTime rangeTo = request.getTo();
-
-        if (source == BacktestCandleSource.CSV || source == BacktestCandleSource.DEMO) {
-            if (datasetId == null) {
-                throw new BacktestDomainException(
-                        BacktestErrorCodes.DATASET_NOT_FOUND,
-                        "Dataset is required for the selected source",
-                        "Choose an ingested dataset before loading backtest candles.",
-                        HttpStatus.BAD_REQUEST
-                );
-            }
-            BacktestDataset dataset = backtestDatasetService.requireDataset(user.getId(), datasetId);
-            if (dataset.getProvider() != source) {
-                throw new BacktestDomainException(
-                        BacktestErrorCodes.DATASET_NOT_FOUND,
-                        "Dataset provider mismatch",
-                        "Select a dataset that matches the selected data source.",
-                        HttpStatus.BAD_REQUEST
-                );
-            }
-            sourceId = dataset.getSourceId();
-            symbol = normalizeSymbol(dataset.getSymbolDisplay());
-            timeframe = dataset.getTimeframe().name();
-            if (dataset.getDataFrom() != null && rangeFrom.isBefore(dataset.getDataFrom())) {
-                rangeFrom = dataset.getDataFrom();
-            }
-            if (dataset.getDataTo() != null && rangeTo.isAfter(dataset.getDataTo())) {
-                rangeTo = dataset.getDataTo();
-            }
-            validateDateRange(rangeFrom, rangeTo);
-        } else if (source == BacktestCandleSource.OANDA && sourceId == null) {
-            sourceId = user.getId().toString();
-        }
-
-        List<BacktestCandle> candles = candleDataService.getCandles(
+        List<BacktestCandle> candles = resolved.rangeEmpty()
+                ? List.of()
+                : candleDataService.getCandles(
                 user.getId(),
-                source.name(),
-                sourceId,
-                symbol,
-                timeframe,
-                rangeFrom,
-                rangeTo,
+                resolved.source().name(),
+                resolved.sourceId(),
+                resolved.symbol(),
+                resolved.timeframe(),
+                resolved.rangeFrom(),
+                resolved.rangeTo(),
                 request.isRefresh()
         );
         candles = filterBySessionWindow(candles, request.getSessionWindow());
 
         BacktestRun run = BacktestRun.builder()
                 .user(user)
-                .symbol(symbol)
-                .timeframe(timeframe)
-                .rangeFrom(rangeFrom)
-                .rangeTo(rangeTo)
+                .symbol(resolved.symbol())
+                .timeframe(resolved.timeframe())
+                .rangeFrom(resolved.rangeFrom())
+                .rangeTo(resolved.rangeTo())
                 .sessionWindow(normalizeOptionalText(request.getSessionWindow()))
                 .spread(request.getSpread())
                 .slippage(request.getSlippage())
-                .provider(source.name())
-                .sourceId(sourceId)
-                .datasetId(datasetId)
+                .provider(resolved.source().name())
+                .sourceId(resolved.sourceId())
+                .datasetId(resolved.datasetId())
                 .status(BacktestRunStatus.READY)
                 .candleCount(candles.size())
                 .build();
 
         BacktestRun saved = backtestRunRepository.save(run);
         return toRunResponse(saved, toCandleDto(candles));
+    }
+
+    @Transactional(readOnly = true)
+    public BacktestCandlesResponse loadCandles(String sourceRaw,
+                                               UUID datasetId,
+                                               String sourceIdRaw,
+                                               String symbolRaw,
+                                               String timeframeRaw,
+                                               OffsetDateTime from,
+                                               OffsetDateTime to,
+                                               String sessionWindow,
+                                               boolean refresh) {
+        User user = currentUserService.getCurrentUser();
+        ResolvedCandleRequest resolved = resolveCandleRequest(
+                user,
+                sourceRaw,
+                datasetId,
+                sourceIdRaw,
+                symbolRaw,
+                timeframeRaw,
+                from,
+                to
+        );
+
+        List<BacktestCandle> candles = resolved.rangeEmpty()
+                ? List.of()
+                : candleDataService.getCandles(
+                user.getId(),
+                resolved.source().name(),
+                resolved.sourceId(),
+                resolved.symbol(),
+                resolved.timeframe(),
+                resolved.rangeFrom(),
+                resolved.rangeTo(),
+                refresh
+        );
+        List<BacktestCandle> filtered = filterBySessionWindow(candles, sessionWindow);
+        String message = filtered.isEmpty() ? "No candles for range" : null;
+
+        return BacktestCandlesResponse.builder()
+                .provider(resolved.source().name())
+                .sourceId(resolved.sourceId())
+                .datasetId(resolved.datasetId())
+                .symbol(resolved.symbol())
+                .timeframe(resolved.timeframe())
+                .from(resolved.rangeFrom())
+                .to(resolved.rangeTo())
+                .candleCount(filtered.size())
+                .message(message)
+                .candles(toCandleDto(filtered))
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -298,6 +322,113 @@ public class BacktestService {
                 false
         );
         return filterBySessionWindow(candles, run.getSessionWindow());
+    }
+
+    private ResolvedCandleRequest resolveCandleRequest(User user,
+                                                       String sourceRaw,
+                                                       UUID datasetId,
+                                                       String sourceIdRaw,
+                                                       String symbolRaw,
+                                                       String timeframeRaw,
+                                                       OffsetDateTime fromRaw,
+                                                       OffsetDateTime toRaw) {
+        BacktestCandleSource source = normalizeSource(sourceRaw);
+        String sourceId = normalizeOptionalText(sourceIdRaw);
+        String symbol = normalizeOptionalText(symbolRaw);
+        String timeframe = normalizeTimeframe(timeframeRaw);
+        OffsetDateTime rangeFrom = fromRaw;
+        OffsetDateTime rangeTo = toRaw;
+        boolean rangeEmpty = false;
+
+        if (source == BacktestCandleSource.CSV || source == BacktestCandleSource.DEMO) {
+            if (datasetId == null) {
+                throw new BacktestDomainException(
+                        BacktestErrorCodes.DATASET_NOT_FOUND,
+                        "Dataset is required for the selected source",
+                        "Choose an ingested dataset before loading backtest candles.",
+                        HttpStatus.BAD_REQUEST
+                );
+            }
+            BacktestDataset dataset = backtestDatasetService.requireDataset(user.getId(), datasetId);
+            if (dataset.getProvider() != source) {
+                throw new BacktestDomainException(
+                        BacktestErrorCodes.DATASET_NOT_FOUND,
+                        "Dataset provider mismatch",
+                        "Select a dataset that matches the selected data source.",
+                        HttpStatus.BAD_REQUEST
+                );
+            }
+            sourceId = dataset.getSourceId();
+            symbol = normalizeSymbol(dataset.getSymbolDisplay());
+            timeframe = dataset.getTimeframe().name();
+
+            DatasetRange range = resolveDatasetRange(dataset, rangeFrom, rangeTo);
+            rangeFrom = range.from();
+            rangeTo = range.to();
+            rangeEmpty = range.empty();
+        } else {
+            symbol = normalizeSymbol(symbolRaw);
+            if (source == BacktestCandleSource.OANDA && sourceId == null) {
+                sourceId = user.getId().toString();
+            }
+
+            OffsetDateTime nowUtc = OffsetDateTime.now(ZoneOffset.UTC);
+            if (rangeTo == null) {
+                rangeTo = nowUtc;
+            }
+            if (rangeFrom == null) {
+                rangeFrom = rangeTo.minusDays(90);
+            }
+        }
+
+        validateDateRange(rangeFrom, rangeTo);
+
+        return new ResolvedCandleRequest(
+                source,
+                sourceId,
+                symbol,
+                timeframe,
+                datasetId,
+                rangeFrom,
+                rangeTo,
+                rangeEmpty
+        );
+    }
+
+    private DatasetRange resolveDatasetRange(BacktestDataset dataset, OffsetDateTime fromRaw, OffsetDateTime toRaw) {
+        OffsetDateTime datasetFrom = dataset.getDataFrom();
+        OffsetDateTime datasetTo = dataset.getDataTo();
+
+        OffsetDateTime to = toRaw;
+        if (to == null) {
+            to = datasetTo;
+        }
+        if (to == null) {
+            to = OffsetDateTime.now(ZoneOffset.UTC);
+        }
+
+        OffsetDateTime from = fromRaw;
+        if (from == null) {
+            OffsetDateTime defaultFrom = to.minusDays(90);
+            if (datasetFrom != null && defaultFrom.isBefore(datasetFrom)) {
+                defaultFrom = datasetFrom;
+            }
+            from = defaultFrom;
+        }
+
+        if (fromRaw == null && datasetFrom != null && from.isBefore(datasetFrom)) {
+            from = datasetFrom;
+        }
+        if (toRaw == null && datasetTo != null && to.isAfter(datasetTo)) {
+            to = datasetTo;
+        }
+
+        if (datasetFrom != null && datasetTo != null) {
+            if (to.isBefore(datasetFrom) || from.isAfter(datasetTo)) {
+                return new DatasetRange(from, to, true);
+            }
+        }
+        return new DatasetRange(from, to, false);
     }
 
     private int findCursorIndex(List<BacktestCandle> candles, OffsetDateTime replayCursorTime) {
@@ -647,6 +778,19 @@ public class BacktestService {
     private record FillOutcome(boolean filled, Integer candleIndex, OffsetDateTime entryTime, BigDecimal entryPrice) {}
 
     private record ExitOutcome(Integer exitIndex, OffsetDateTime exitTime, BigDecimal exitPrice, BacktestExitReason exitReason) {}
+
+    private record DatasetRange(OffsetDateTime from, OffsetDateTime to, boolean empty) {}
+
+    private record ResolvedCandleRequest(
+            BacktestCandleSource source,
+            String sourceId,
+            String symbol,
+            String timeframe,
+            UUID datasetId,
+            OffsetDateTime rangeFrom,
+            OffsetDateTime rangeTo,
+            boolean rangeEmpty
+    ) {}
 
     private record Excursion(
             BigDecimal maePrice,

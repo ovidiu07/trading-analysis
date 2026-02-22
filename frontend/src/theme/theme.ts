@@ -187,7 +187,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             maxWidth: '100%',
             height: 'auto'
           },
-          'textarea[aria-hidden="true"]': {
+          'textarea[aria-hidden="true"], textarea[readonly][tabindex="-1"]': {
             // Keep MUI TextareaAutosize measurement nodes hidden to avoid ghost "x" mirrors.
             visibility: 'hidden !important',
             position: 'absolute !important',
