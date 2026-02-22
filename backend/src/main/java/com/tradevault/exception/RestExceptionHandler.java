@@ -139,4 +139,13 @@ public class RestExceptionHandler {
                 .build();
         return ResponseEntity.status(HttpStatus.NOT_IMPLEMENTED).body(response);
     }
+
+    @ExceptionHandler(TokenIssuanceException.class)
+    public ResponseEntity<ApiErrorResponse> handleTokenIssuance(TokenIssuanceException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("TOKEN_ISSUANCE_FAILED")
+                .message("Token issuance failed, please retry")
+                .build();
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
+    }
 }

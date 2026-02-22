@@ -3,8 +3,11 @@ package com.tradevault.service;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserToken;
 import com.tradevault.domain.enums.TokenType;
+import com.tradevault.exception.TokenIssuanceException;
+import com.tradevault.repository.UserRepository;
 import com.tradevault.repository.UserTokenRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,23 +24,32 @@ import java.util.HexFormat;
 public class UserTokenService {
     private static final int TOKEN_BYTES = 32;
 
+    private final UserRepository userRepository;
     private final UserTokenRepository userTokenRepository;
     private final SecureRandom secureRandom = new SecureRandom();
 
     @Transactional
     public String issue(User user, TokenType type, Duration ttl) {
-        invalidateActiveTokens(user, type);
+        User lockedUser = userRepository.findByIdForUpdate(user.getId())
+                .orElseThrow(() -> new IllegalArgumentException("User not found"));
+
+        OffsetDateTime now = OffsetDateTime.now();
+        userTokenRepository.revokeActiveTokens(user.getId(), type, now);
+
         String rawToken = generateToken();
         String tokenHash = hashToken(rawToken);
-        OffsetDateTime now = OffsetDateTime.now();
         UserToken token = UserToken.builder()
-                .user(user)
+                .user(lockedUser)
                 .type(type)
                 .tokenHash(tokenHash)
                 .expiresAt(now.plus(ttl))
                 .createdAt(now)
                 .build();
-        userTokenRepository.save(token);
+        try {
+            userTokenRepository.saveAndFlush(token);
+        } catch (DataIntegrityViolationException ex) {
+            throw new TokenIssuanceException("Token issuance failed, please retry", ex);
+        }
         return rawToken;
     }
 
@@ -63,11 +75,17 @@ public class UserTokenService {
             throw new IllegalArgumentException("Token is required");
         }
         String tokenHash = hashToken(rawToken);
-        UserToken token = userTokenRepository.findByTypeAndTokenHashAndUsedAtIsNull(type, tokenHash)
+        UserToken token = userTokenRepository.findByTypeAndTokenHashForUpdate(type, tokenHash)
                 .orElseThrow(() -> new IllegalArgumentException("Invalid or expired token"));
         OffsetDateTime now = OffsetDateTime.now();
         if (token.isExpired(now)) {
             throw new IllegalArgumentException("Token has expired");
+        }
+        if (token.isUsed()) {
+            if (type == TokenType.REFRESH_TOKEN) {
+                userTokenRepository.revokeActiveTokens(token.getUser().getId(), type, now);
+            }
+            throw new IllegalArgumentException("Invalid or expired token");
         }
         token.setUsedAt(now);
         return userTokenRepository.save(token);
@@ -93,9 +111,7 @@ public class UserTokenService {
 
     @Transactional
     public void invalidateActiveTokens(User user, TokenType type) {
-        OffsetDateTime now = OffsetDateTime.now();
-        userTokenRepository.findAllByUserIdAndTypeAndUsedAtIsNull(user.getId(), type)
-                .forEach(token -> token.setUsedAt(now));
+        userTokenRepository.revokeActiveTokens(user.getId(), type, OffsetDateTime.now());
     }
 
     private String generateToken() {
