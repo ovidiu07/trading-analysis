@@ -9,6 +9,23 @@ type BacktestCandleLike = Partial<BacktestCandle> & {
   volume?: unknown
 }
 
+export type ReplaySeriesPoint = {
+  time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number
+}
+
+export type BacktestCandleNormalizationResult = {
+  candles: BacktestCandle[]
+  series: ReplaySeriesPoint[]
+  invalidRows: number
+  invalidReasons: string[]
+  warnings: string[]
+}
+
 const toFiniteNumber = (value: unknown) => {
   const parsed = typeof value === 'number' ? value : Number(value)
   return Number.isFinite(parsed) ? parsed : null
@@ -40,41 +57,83 @@ const toTimestampMs = (value: unknown) => {
   return null
 }
 
-export const normalizeBacktestCandles = (candles: BacktestCandleLike[]): BacktestCandle[] => {
-  const byTimestamp = new Map<number, BacktestCandle>()
+export const toSeriesPoint = (dto: BacktestCandleLike): ReplaySeriesPoint | null => {
+  const time = toTimestampMs(dto.timestamp)
+  const open = toFiniteNumber(dto.open)
+  const high = toFiniteNumber(dto.high)
+  const low = toFiniteNumber(dto.low)
+  const close = toFiniteNumber(dto.close)
+  const volume = toFiniteNumber(dto.volume ?? 0)
 
-  for (const candle of candles || []) {
-    const timestampMs = toTimestampMs(candle.timestamp)
-    const open = toFiniteNumber(candle.open)
-    const high = toFiniteNumber(candle.high)
-    const low = toFiniteNumber(candle.low)
-    const close = toFiniteNumber(candle.close)
-    const volume = toFiniteNumber(candle.volume ?? 0)
+  if (
+    time === null
+    || open === null
+    || high === null
+    || low === null
+    || close === null
+    || volume === null
+  ) {
+    return null
+  }
 
-    if (
-      timestampMs === null
-      || open === null
-      || high === null
-      || low === null
-      || close === null
-      || volume === null
-      || high < low
-    ) {
+  return {
+    time,
+    open,
+    high,
+    low,
+    close,
+    volume
+  }
+}
+
+export const normalizeBacktestCandlesWithDiagnostics = (candles: BacktestCandleLike[]): BacktestCandleNormalizationResult => {
+  const byTimestamp = new Map<number, ReplaySeriesPoint>()
+  const invalidReasons: string[] = []
+  const warnings: string[] = []
+  let invalidRows = 0
+
+  for (const [index, candle] of (candles || []).entries()) {
+    const seriesPoint = toSeriesPoint(candle)
+    if (!seriesPoint) {
+      invalidRows += 1
+      if (invalidReasons.length < 3) {
+        invalidReasons.push(`Row ${index + 1}: invalid timestamp or OHLC/volume value.`)
+      }
       continue
     }
 
-    byTimestamp.set(timestampMs, {
-      timestamp: new Date(timestampMs).toISOString(),
-      open,
-      high,
-      low,
-      close,
-      volume
+    const adjustedHigh = Math.max(seriesPoint.high, seriesPoint.open, seriesPoint.close)
+    const adjustedLow = Math.min(seriesPoint.low, seriesPoint.open, seriesPoint.close)
+    if (adjustedHigh !== seriesPoint.high || adjustedLow !== seriesPoint.low) {
+      warnings.push(`Row ${index + 1}: high/low adjusted to include open/close.`)
+    }
+
+    byTimestamp.set(seriesPoint.time, {
+      ...seriesPoint,
+      high: adjustedHigh,
+      low: adjustedLow
     })
   }
 
-  return Array.from(byTimestamp.entries())
-    .sort((a, b) => a[0] - b[0])
-    .map((entry) => entry[1])
+  const series = Array.from(byTimestamp.values()).sort((a, b) => a.time - b.time)
+  const normalizedCandles = series.map((item) => ({
+    timestamp: new Date(item.time).toISOString(),
+    open: item.open,
+    high: item.high,
+    low: item.low,
+    close: item.close,
+    volume: item.volume
+  }))
+
+  return {
+    candles: normalizedCandles,
+    series,
+    invalidRows,
+    invalidReasons,
+    warnings
+  }
 }
 
+export const normalizeBacktestCandles = (candles: BacktestCandleLike[]): BacktestCandle[] => {
+  return normalizeBacktestCandlesWithDiagnostics(candles).candles
+}

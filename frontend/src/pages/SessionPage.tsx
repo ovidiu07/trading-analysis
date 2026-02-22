@@ -80,7 +80,7 @@ import {
   simulateBacktestTrade,
   uploadBacktestCsv
 } from '../api/backtest'
-import { normalizeBacktestCandles } from '../features/backtest/candleConverter'
+import { normalizeBacktestCandlesWithDiagnostics } from '../features/backtest/candleConverter'
 import {
   createChartProfile,
   deleteChartProfile,
@@ -464,8 +464,8 @@ const resolveDatasetDateRangeDefaults = (dataset: Pick<BacktestDataset, 'dataFro
     return { from: '', to: '' }
   }
 
-  const ninetyDaysMs = 90 * 24 * 60 * 60 * 1000
-  const preferredFrom = new Date(dataTo.getTime() - ninetyDaysMs)
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000
+  const preferredFrom = new Date(dataTo.getTime() - thirtyDaysMs)
   const fromDate = dataFrom.getTime() > preferredFrom.getTime() ? dataFrom : preferredFrom
 
   return {
@@ -583,7 +583,7 @@ export default function SessionPage() {
   const [chartProfileManageOpen, setChartProfileManageOpen] = useState(false)
   const [backtestSetup, setBacktestSetup] = useState<BacktestSetupState>(defaultBacktestSetup)
   const [backtestRun, setBacktestRun] = useState<BacktestRun | null>(null)
-  const [backtestCandles, setBacktestCandles] = useState(() => normalizeBacktestCandles([]))
+  const [backtestCandles, setBacktestCandles] = useState<BacktestRun['candles']>([])
   const [backtestCursor, setBacktestCursor] = useState(0)
   const [backtestReplayState, setBacktestReplayState] = useState<BacktestReplayState>('IDLE')
   const [backtestReplayMessage, setBacktestReplayMessage] = useState('')
@@ -1956,7 +1956,8 @@ export default function SessionPage() {
         to: toIso,
         sessionWindow: backtestSetup.sessionWindow || undefined
       })
-      const normalizedCandles = normalizeBacktestCandles(candlesResponse.candles || [])
+      const candleNormalization = normalizeBacktestCandlesWithDiagnostics(candlesResponse.candles || [])
+      const normalizedCandles = candleNormalization.candles
 
       if (candlesResponse.from || candlesResponse.to) {
         setBacktestSetup((prev) => ({
@@ -1964,6 +1965,17 @@ export default function SessionPage() {
           from: toDateInputFromIso(candlesResponse.from) || prev.from,
           to: toDateInputFromIso(candlesResponse.to) || prev.to
         }))
+      }
+
+      if (candleNormalization.invalidRows > 0) {
+        setBacktestReplayState('ERROR')
+        const details = candleNormalization.invalidReasons.join(' ')
+        setBacktestReplayMessage(
+          details
+            ? `Candle data invalid for chart rendering. Check CSV format/timezone. ${details}`
+            : 'Candle data invalid for chart rendering. Check CSV format/timezone.'
+        )
+        return
       }
 
       if (!normalizedCandles.length) {
@@ -1989,6 +2001,9 @@ export default function SessionPage() {
       setBacktestCandles(normalizedCandles)
       setBacktestCursor(0)
       setBacktestReplayState('READY')
+      if (candleNormalization.warnings.length > 0) {
+        setBacktestReplayMessage(`Loaded with warnings. ${candleNormalization.warnings[0]}`)
+      }
       const trades = await listBacktestTrades(run.id)
       setBacktestTrades(trades || [])
       if (trades?.length) {
@@ -3199,8 +3214,8 @@ export default function SessionPage() {
                           <ReplayCandlestickChart
                             candles={backtestCandles}
                             cursorIndex={backtestCursor}
-                            minHeight={isCompactViewport ? 300 : 320}
-                            height={isCompactViewport ? 'clamp(300px, 40vh, 480px)' : 'clamp(320px, 45vh, 600px)'}
+                            minHeight={isCompactViewport ? 300 : 360}
+                            height={isCompactViewport ? 'clamp(300px, 40vh, 480px)' : 'clamp(360px, 45vh, 640px)'}
                             loading={backtestReplayState === 'LOADING'}
                           />
 

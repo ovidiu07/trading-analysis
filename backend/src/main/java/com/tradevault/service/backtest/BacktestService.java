@@ -409,7 +409,7 @@ public class BacktestService {
 
         OffsetDateTime from = fromRaw;
         if (from == null) {
-            OffsetDateTime defaultFrom = to.minusDays(90);
+            OffsetDateTime defaultFrom = to.minusDays(30);
             if (datasetFrom != null && defaultFrom.isBefore(datasetFrom)) {
                 defaultFrom = datasetFrom;
             }

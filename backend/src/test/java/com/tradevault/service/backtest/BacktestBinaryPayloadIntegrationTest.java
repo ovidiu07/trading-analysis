@@ -211,6 +211,15 @@ class BacktestBinaryPayloadIntegrationTest {
         assertThat(candlesJson.path("provider").asText()).isEqualTo("DEMO");
         assertThat(candlesJson.path("candles").isArray()).isTrue();
         assertThat(candlesJson.path("candles").size()).isGreaterThan(0);
+        JsonNode candles = candlesJson.path("candles");
+        OffsetDateTime previous = null;
+        for (JsonNode candle : candles) {
+            OffsetDateTime current = OffsetDateTime.parse(candle.path("timestamp").asText());
+            if (previous != null) {
+                assertThat(current).isAfterOrEqualTo(previous);
+            }
+            previous = current;
+        }
     }
 
     @Test

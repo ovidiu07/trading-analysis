@@ -889,6 +889,36 @@ describe('SessionPage execution funnel', () => {
     expect(await screen.findByText(/Result:\s*TP/i)).toBeInTheDocument()
   }, 30_000)
 
+  it('keeps replay in ERROR when candle conversion fails', async () => {
+    const user = userEvent.setup()
+    const createRunCallsBefore = backtestApiMock.createBacktestRun.mock.calls.length
+    backtestApiMock.getBacktestCandles.mockResolvedValueOnce({
+      provider: 'OANDA',
+      sourceId: 'source-1',
+      symbol: 'OANDA:EURUSD',
+      timeframe: 'M1',
+      from: '2026-02-01T00:00:00Z',
+      to: '2026-02-14T23:59:59Z',
+      candleCount: 2,
+      message: null,
+      candles: [
+        { timestamp: '2026-02-14T08:00:00Z', open: 1.1, high: 1.101, low: 1.099, close: 1.1005, volume: 100 },
+        { timestamp: 'invalid-ts', open: 1.1005, high: 1.1015, low: 1.0995, close: 1.101, volume: 120 }
+      ]
+    })
+
+    renderSessionPage()
+    await screen.findByText('Session Lock-In')
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+    await user.click(screen.getByRole('button', { name: /Load data/i }))
+
+    expect(await screen.findByText(/Candle data invalid for chart rendering/i)).toBeInTheDocument()
+    expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: ERROR')
+    expect(backtestApiMock.createBacktestRun.mock.calls).toHaveLength(createRunCallsBefore)
+  })
+
   it('shows provider guidance when OANDA is not connected', async () => {
     const user = userEvent.setup()
     backtestApiMock.getOandaProviderStatus.mockResolvedValue({ provider: 'OANDA', connected: false })

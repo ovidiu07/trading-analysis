@@ -171,7 +171,7 @@ class BacktestServiceTest {
                 .dataFrom(OffsetDateTime.parse("2025-01-01T00:00:00Z"))
                 .dataTo(OffsetDateTime.parse("2026-02-01T00:00:00Z"))
                 .build();
-        OffsetDateTime expectedFrom = OffsetDateTime.parse("2025-11-03T00:00:00Z");
+        OffsetDateTime expectedFrom = OffsetDateTime.parse("2026-01-02T00:00:00Z");
         OffsetDateTime expectedTo = OffsetDateTime.parse("2026-02-01T00:00:00Z");
 
         when(backtestDatasetService.requireDataset(user.getId(), datasetId)).thenReturn(dataset);
