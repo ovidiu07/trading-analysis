@@ -1,5 +1,6 @@
 package com.tradevault.service;
 
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.NotebookFolder;
 import com.tradevault.domain.entity.NotebookNote;
@@ -280,6 +281,8 @@ public class DemoDataService {
                     .account(account)
                     .symbol(profile.symbol())
                     .market(profile.market())
+                    .tradeCurrency(account.getAccountCurrency())
+                    .profileCurrency(account.getAccountCurrency())
                     .direction(direction)
                     .status(status)
                     .openedAt(openedAt)
@@ -291,10 +294,12 @@ public class DemoDataService {
                     .stopLossPrice(stopLossPrice.setScale(profile.scale(), RoundingMode.HALF_UP))
                     .takeProfitPrice(takeProfitPrice.setScale(profile.scale(), RoundingMode.HALF_UP))
                     .fees(fees)
+                    .feesProfileCurrency(fees)
                     .commission(commission)
                     .slippage(slippage)
                     .pnlGross(pnlGross)
                     .pnlNet(pnlNet)
+                    .pnlProfileCurrency(pnlNet)
                     .pnlPercent(pnlPercent)
                     .riskAmount(riskAmount)
                     .riskPercent(riskPercent)
@@ -303,6 +308,7 @@ public class DemoDataService {
                     .setup(SETUPS.get(i % SETUPS.size()))
                     .strategyTag(STRATEGIES.get(i % STRATEGIES.size()))
                     .catalystTag(CATALYSTS.get(i % CATALYSTS.size()))
+                    .narrativeSnapshotJson(JsonNodeFactory.instance.objectNode())
                     .notes("Demo trade #" + (i + 1) + " generated for onboarding.")
                     .createdAt(openedAt.minusMinutes(8))
                     .updatedAt((status == TradeStatus.CLOSED && closedAt != null) ? closedAt.plusMinutes(3) : openedAt.plusMinutes(20))

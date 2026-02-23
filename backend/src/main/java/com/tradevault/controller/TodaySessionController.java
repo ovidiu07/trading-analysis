@@ -4,6 +4,12 @@ import com.tradevault.dto.session.ChecklistTemplateRequest;
 import com.tradevault.dto.session.ChecklistTemplateResponse;
 import com.tradevault.dto.session.SessionLevelDto;
 import com.tradevault.dto.session.SessionLevelRequest;
+import com.tradevault.dto.session.SessionLevelSuggestionDto;
+import com.tradevault.dto.session.SessionNarrativeDto;
+import com.tradevault.dto.session.SessionNarrativeRequest;
+import com.tradevault.dto.session.SessionPoolDto;
+import com.tradevault.dto.session.SessionPoolRequest;
+import com.tradevault.dto.session.SessionRoleSelectionRequest;
 import com.tradevault.dto.session.TodaySessionActiveSweepLevelRequest;
 import com.tradevault.dto.session.TodaySessionChecklistUpdateRequest;
 import com.tradevault.dto.session.TodaySessionConfigRequest;
@@ -79,6 +85,81 @@ public class TodaySessionController {
     public ResponseEntity<Void> deleteSessionLevel(@PathVariable UUID id) {
         todaySessionService.deleteSessionLevel(id);
         return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/session/{sessionId}/levels")
+    public List<SessionLevelDto> listSessionLevelsBySession(@PathVariable UUID sessionId,
+                                                            @RequestParam(name = "symbol", required = false) String symbol) {
+        return todaySessionService.listSessionLevels(sessionId, symbol);
+    }
+
+    @PostMapping("/session/{sessionId}/levels")
+    public TodaySessionResponse createSessionLevelBySession(@PathVariable UUID sessionId,
+                                                            @RequestBody SessionLevelRequest request) {
+        return todaySessionService.createSessionLevel(sessionId, request);
+    }
+
+    @PutMapping("/session/{sessionId}/levels/{levelId}")
+    public TodaySessionResponse updateSessionLevelBySession(@PathVariable UUID sessionId,
+                                                            @PathVariable UUID levelId,
+                                                            @RequestBody SessionLevelRequest request) {
+        return todaySessionService.updateSessionLevel(sessionId, levelId, request);
+    }
+
+    @DeleteMapping("/session/{sessionId}/levels/{levelId}")
+    public ResponseEntity<Void> deleteSessionLevelBySession(@PathVariable UUID sessionId,
+                                                            @PathVariable UUID levelId) {
+        todaySessionService.deleteSessionLevel(sessionId, levelId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/session/{sessionId}/levels/suggest")
+    public List<SessionLevelSuggestionDto> suggestSessionLevels(@PathVariable UUID sessionId,
+                                                                @RequestParam(name = "symbol", required = false) String symbol) {
+        return todaySessionService.suggestSessionLevels(sessionId, symbol);
+    }
+
+    @GetMapping("/session/{sessionId}/pools")
+    public List<SessionPoolDto> listSessionPools(@PathVariable UUID sessionId,
+                                                 @RequestParam(name = "symbol", required = false) String symbol) {
+        return todaySessionService.listSessionPools(sessionId, symbol);
+    }
+
+    @PostMapping("/session/{sessionId}/pools")
+    public SessionPoolDto createSessionPool(@PathVariable UUID sessionId,
+                                            @RequestBody SessionPoolRequest request) {
+        return todaySessionService.createSessionPool(sessionId, request);
+    }
+
+    @PutMapping("/session/{sessionId}/pools/{poolId}")
+    public SessionPoolDto updateSessionPool(@PathVariable UUID sessionId,
+                                            @PathVariable UUID poolId,
+                                            @RequestBody SessionPoolRequest request) {
+        return todaySessionService.updateSessionPool(sessionId, poolId, request);
+    }
+
+    @DeleteMapping("/session/{sessionId}/pools/{poolId}")
+    public ResponseEntity<Void> deleteSessionPool(@PathVariable UUID sessionId,
+                                                  @PathVariable UUID poolId) {
+        todaySessionService.deleteSessionPool(sessionId, poolId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @GetMapping("/session/{sessionId}/narrative")
+    public SessionNarrativeDto getSessionNarrative(@PathVariable UUID sessionId) {
+        return todaySessionService.getSessionNarrative(sessionId);
+    }
+
+    @PutMapping("/session/{sessionId}/narrative")
+    public SessionNarrativeDto updateSessionNarrative(@PathVariable UUID sessionId,
+                                                      @RequestBody SessionNarrativeRequest request) {
+        return todaySessionService.upsertSessionNarrative(sessionId, request);
+    }
+
+    @PutMapping("/session/{sessionId}/roles")
+    public TodaySessionResponse setSessionRoles(@PathVariable UUID sessionId,
+                                                @RequestBody SessionRoleSelectionRequest request) {
+        return todaySessionService.setSessionRoles(sessionId, request);
     }
 
     @PatchMapping("/sessions/today/activeSweepLevel")

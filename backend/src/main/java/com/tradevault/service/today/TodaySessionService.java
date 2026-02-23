@@ -7,7 +7,9 @@ import com.tradevault.domain.entity.ChecklistTemplate;
 import com.tradevault.domain.entity.ChecklistTemplateEntry;
 import com.tradevault.domain.entity.ChecklistTemplateItem;
 import com.tradevault.domain.entity.ChecklistTemplateVersion;
+import com.tradevault.domain.entity.LiquidityPool;
 import com.tradevault.domain.entity.SessionLevel;
+import com.tradevault.domain.entity.SessionNarrative;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
@@ -15,6 +17,14 @@ import com.tradevault.domain.enums.ChecklistTemplateType;
 import com.tradevault.domain.enums.ChecklistValueType;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.LevelCreatedBy;
+import com.tradevault.domain.enums.LevelStatus;
+import com.tradevault.domain.enums.LevelTimeframe;
+import com.tradevault.domain.enums.LevelType;
+import com.tradevault.domain.enums.NarrativeConfirmationModel;
+import com.tradevault.domain.enums.NarrativeDeliveryModel;
+import com.tradevault.domain.enums.NarrativeHtfDraw;
+import com.tradevault.domain.enums.NarrativeManipulation;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.SessionLevelCategory;
 import com.tradevault.domain.enums.TodaySessionStatus;
@@ -26,6 +36,12 @@ import com.tradevault.dto.session.CloseSessionTradeRequest;
 import com.tradevault.dto.session.SessionChecklistItemDto;
 import com.tradevault.dto.session.SessionLevelDto;
 import com.tradevault.dto.session.SessionLevelRequest;
+import com.tradevault.dto.session.SessionLevelSuggestionDto;
+import com.tradevault.dto.session.SessionNarrativeDto;
+import com.tradevault.dto.session.SessionNarrativeRequest;
+import com.tradevault.dto.session.SessionPoolDto;
+import com.tradevault.dto.session.SessionPoolRequest;
+import com.tradevault.dto.session.SessionRoleSelectionRequest;
 import com.tradevault.dto.session.StartSessionTradeRequest;
 import com.tradevault.dto.session.TodaySessionActiveSweepLevelRequest;
 import com.tradevault.dto.session.TodaySessionChecklistUpdateRequest;
@@ -39,7 +55,9 @@ import com.tradevault.repository.ChecklistTemplateEntryRepository;
 import com.tradevault.repository.ChecklistTemplateItemRepository;
 import com.tradevault.repository.ChecklistTemplateRepository;
 import com.tradevault.repository.ChecklistTemplateVersionRepository;
+import com.tradevault.repository.LiquidityPoolRepository;
 import com.tradevault.repository.SessionLevelRepository;
+import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
@@ -54,6 +72,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Duration;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -84,6 +103,10 @@ public class TodaySessionService {
     private static final int MAX_TEMPLATE_NAME_LENGTH = 120;
     private static final int MAX_CHECKLIST_TEXT_LENGTH = 160;
     private static final int MAX_LEVEL_LABEL_LENGTH = 64;
+    private static final int MAX_LEVEL_ORIGIN_RULE_LENGTH = 400;
+    private static final int MAX_LEVEL_EXPECTATION_LENGTH = 48;
+    private static final int MAX_POOL_NAME_LENGTH = 120;
+    private static final int MAX_NARRATIVE_NOTES_LENGTH = 400;
 
     private static final Set<String> LOCK_IN_SESSIONS = Set.of("ASIA", "LONDON", "NY_AM", "NY_PM");
     private static final Set<String> LOCK_IN_OBJECTIVES = Set.of("A_PLUS_ONLY", "ONE_TRADE_MAX", "TWO_TRADES_MAX");
@@ -96,6 +119,8 @@ public class TodaySessionService {
     private final ChecklistTemplateItemRepository checklistTemplateItemRepository;
     private final ChecklistTemplateVersionRepository checklistTemplateVersionRepository;
     private final SessionLevelRepository sessionLevelRepository;
+    private final LiquidityPoolRepository liquidityPoolRepository;
+    private final SessionNarrativeRepository sessionNarrativeRepository;
     private final CurrentUserService currentUserService;
     private final TradeService tradeService;
     private final ContextSnapshotService contextSnapshotService;
@@ -232,8 +257,14 @@ public class TodaySessionService {
     public List<SessionLevelDto> listSessionLevels() {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireTodaySession(user);
-        return sessionLevelRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtAsc(session.getId(), user.getId())
-                .stream()
+        return listSessionLevels(session.getId(), null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SessionLevelDto> listSessionLevels(UUID sessionId, String symbol) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        return findSessionLevels(session.getId(), user.getId(), symbol).stream()
                 .map(this::toSessionLevelDto)
                 .toList();
     }
@@ -242,18 +273,47 @@ public class TodaySessionService {
     public TodaySessionResponse createSessionLevel(SessionLevelRequest request) {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireTodaySession(user);
+        return createSessionLevel(session.getId(), request);
+    }
+
+    @Transactional
+    public TodaySessionResponse createSessionLevel(UUID sessionId, SessionLevelRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        String symbol = normalizeOptionalTicker(request == null ? null : request.getSymbol());
+        boolean swept = Boolean.TRUE.equals(request == null ? null : request.getSwept());
+        OffsetDateTime sweptAt = swept ? OffsetDateTime.now(ZoneOffset.UTC) : null;
 
         SessionLevel level = SessionLevel.builder()
                 .todaySession(session)
                 .user(user)
                 .label(normalizeLevelLabel(request == null ? null : request.getLabel()))
                 .price(normalizeLevelPrice(request == null ? null : request.getPrice()))
+                .symbol(symbol)
+                .levelType(normalizeLevelType(request == null ? null : request.getType()))
+                .timeframe(normalizeLevelTimeframe(request == null ? null : request.getTimeframe()))
+                .zoneLow(normalizeLevelZonePrice(request == null ? null : request.getZoneLow(), "zoneLow"))
+                .zoneHigh(normalizeLevelZonePrice(request == null ? null : request.getZoneHigh(), "zoneHigh"))
+                .originRule(normalizeLevelOriginRule(request == null ? null : request.getOriginRule()))
+                .strengthScore(normalizeStrengthScore(request == null ? null : request.getStrengthScore()))
+                .status(swept ? LevelStatus.SWEPT : normalizeLevelStatus(request == null ? null : request.getStatus()))
+                .touchedCount(swept ? 1 : 0)
+                .lastTouchedAtUtc(sweptAt)
+                .createdBy(LevelCreatedBy.USER)
+                .expectation(normalizeLevelExpectation(request == null ? null : request.getExpectation()))
+                .sweepRole(Boolean.TRUE.equals(request == null ? null : request.getSweepRole()))
+                .entryRole(Boolean.TRUE.equals(request == null ? null : request.getEntryRole()))
+                .slRole(Boolean.TRUE.equals(request == null ? null : request.getSlRole()))
+                .tpRole(Boolean.TRUE.equals(request == null ? null : request.getTpRole()))
                 .category(normalizeLevelCategory(request == null ? null : request.getCategory()))
                 .notes(normalizeLevelNotes(request == null ? null : request.getNotes()))
-                .sweptAt(Boolean.TRUE.equals(request == null ? null : request.getSwept()) ? OffsetDateTime.now(ZoneOffset.UTC) : null)
+                .sweptAt(sweptAt)
                 .build();
 
+        ensureValidZone(level.getZoneLow(), level.getZoneHigh());
         sessionLevelRepository.save(level);
+        normalizeRolesAfterLevelUpdate(session, user.getId(), symbol, level.getId());
+        syncLegacySweepSelection(session, user.getId(), symbol);
         return toResponse(session, user.getId());
     }
 
@@ -261,6 +321,13 @@ public class TodaySessionService {
     public TodaySessionResponse updateSessionLevel(UUID levelId, SessionLevelRequest request) {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireTodaySession(user);
+        return updateSessionLevel(session.getId(), levelId, request);
+    }
+
+    @Transactional
+    public TodaySessionResponse updateSessionLevel(UUID sessionId, UUID levelId, SessionLevelRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
 
         SessionLevel level = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Session level not found"));
@@ -270,14 +337,65 @@ public class TodaySessionService {
         }
         if (request != null) {
             level.setPrice(normalizeLevelPrice(request.getPrice()));
+            if (request.getSymbol() != null) {
+                level.setSymbol(normalizeOptionalTicker(request.getSymbol()));
+            }
+            if (request.getType() != null) {
+                level.setLevelType(normalizeLevelType(request.getType()));
+            }
+            if (request.getTimeframe() != null) {
+                level.setTimeframe(normalizeLevelTimeframe(request.getTimeframe()));
+            }
+            if (request.getZoneLow() != null || request.getZoneHigh() != null) {
+                level.setZoneLow(normalizeLevelZonePrice(request.getZoneLow(), "zoneLow"));
+                level.setZoneHigh(normalizeLevelZonePrice(request.getZoneHigh(), "zoneHigh"));
+            }
+            if (request.getOriginRule() != null) {
+                level.setOriginRule(normalizeLevelOriginRule(request.getOriginRule()));
+            }
+            if (request.getStrengthScore() != null) {
+                level.setStrengthScore(normalizeStrengthScore(request.getStrengthScore()));
+            }
+            if (request.getStatus() != null) {
+                level.setStatus(normalizeLevelStatus(request.getStatus()));
+            }
+            if (request.getExpectation() != null) {
+                level.setExpectation(normalizeLevelExpectation(request.getExpectation()));
+            }
+            if (request.getSweepRole() != null) {
+                level.setSweepRole(request.getSweepRole());
+            }
+            if (request.getEntryRole() != null) {
+                level.setEntryRole(request.getEntryRole());
+            }
+            if (request.getSlRole() != null) {
+                level.setSlRole(request.getSlRole());
+            }
+            if (request.getTpRole() != null) {
+                level.setTpRole(request.getTpRole());
+            }
             level.setCategory(normalizeLevelCategory(request.getCategory()));
             level.setNotes(normalizeLevelNotes(request.getNotes()));
             if (request.getSwept() != null) {
-                level.setSweptAt(Boolean.TRUE.equals(request.getSwept()) ? OffsetDateTime.now(ZoneOffset.UTC) : null);
+                if (Boolean.TRUE.equals(request.getSwept())) {
+                    OffsetDateTime touchedAt = OffsetDateTime.now(ZoneOffset.UTC);
+                    level.setSweptAt(touchedAt);
+                    level.setStatus(LevelStatus.SWEPT);
+                    level.setTouchedCount((level.getTouchedCount() == null ? 0 : level.getTouchedCount()) + 1);
+                    level.setLastTouchedAtUtc(touchedAt);
+                } else {
+                    level.setSweptAt(null);
+                    if (level.getStatus() == LevelStatus.SWEPT) {
+                        level.setStatus(LevelStatus.FRESH);
+                    }
+                }
             }
         }
 
+        ensureValidZone(level.getZoneLow(), level.getZoneHigh());
         sessionLevelRepository.save(level);
+        normalizeRolesAfterLevelUpdate(session, user.getId(), level.getSymbol(), level.getId());
+        syncLegacySweepSelection(session, user.getId(), level.getSymbol());
         return toResponse(session, user.getId());
     }
 
@@ -285,28 +403,278 @@ public class TodaySessionService {
     public void deleteSessionLevel(UUID levelId) {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireTodaySession(user);
+        deleteSessionLevel(session.getId(), levelId);
+    }
 
+    @Transactional
+    public void deleteSessionLevel(UUID sessionId, UUID levelId) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
         sessionLevelRepository.deleteByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), user.getId());
         if (Objects.equals(session.getActiveSweepLevelId(), levelId)) {
             session.setActiveSweepLevelId(null);
-            todaySessionRepository.save(session);
         }
+        if (Objects.equals(session.getActiveEntryLevelId(), levelId)) {
+            session.setActiveEntryLevelId(null);
+        }
+        if (Objects.equals(session.getActiveSlLevelId(), levelId)) {
+            session.setActiveSlLevelId(null);
+        }
+        if (Objects.equals(session.getActiveTpLevelId(), levelId)) {
+            session.setActiveTpLevelId(null);
+        }
+        todaySessionRepository.save(session);
     }
 
     @Transactional
     public TodaySessionResponse setActiveSweepLevel(TodaySessionActiveSweepLevelRequest request) {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireTodaySession(user);
+        SessionRoleSelectionRequest roleRequest = new SessionRoleSelectionRequest();
+        roleRequest.setSweepLevelId(request == null ? null : request.getLevelId());
+        return setSessionRoles(session.getId(), roleRequest);
+    }
 
-        UUID levelId = request == null ? null : request.getLevelId();
-        if (levelId == null) {
+    @Transactional
+    public TodaySessionResponse setSessionRoles(UUID sessionId, SessionRoleSelectionRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        String symbol = normalizeOptionalTicker(request == null ? null : request.getSymbol());
+
+        if (request == null) {
+            TodaySession saved = todaySessionRepository.save(session);
+            return toResponse(saved, user.getId());
+        }
+
+        if (request.getSweepPoolId() != null) {
+            LiquidityPool pool = liquidityPoolRepository.findByIdAndTodaySession_IdAndUser_Id(request.getSweepPoolId(), session.getId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Sweep pool not found"));
+            symbol = normalizeOptionalTicker(firstNonBlank(symbol, pool.getSymbol()));
+            clearSweepPoolRoleForSymbol(session.getId(), user.getId(), symbol, pool.getId());
+            pool.setSweepRole(true);
+            liquidityPoolRepository.save(pool);
+            session.setActiveSweepPoolId(pool.getId());
             session.setActiveSweepLevelId(null);
-        } else {
-            applyActiveSweepLevel(session, user.getId(), levelId);
+        } else if (request.getSweepLevelId() != null) {
+            SessionLevel sweepLevel = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(request.getSweepLevelId(), session.getId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Sweep level not found"));
+            symbol = normalizeOptionalTicker(firstNonBlank(symbol, sweepLevel.getSymbol()));
+            clearLevelRoleForSymbol(session.getId(), user.getId(), symbol, RoleSelector.SWEEP, sweepLevel.getId());
+            sweepLevel.setSweepRole(true);
+            sessionLevelRepository.save(sweepLevel);
+            session.setActiveSweepLevelId(sweepLevel.getId());
+            session.setActiveSweepPoolId(null);
+        } else if (request.getEntryLevelId() == null && request.getSlLevelId() == null && request.getTpLevelId() == null) {
+            clearLevelRoleForSymbol(session.getId(), user.getId(), symbol, RoleSelector.SWEEP, null);
+            clearSweepPoolRoleForSymbol(session.getId(), user.getId(), symbol, null);
+            session.setActiveSweepLevelId(null);
+            session.setActiveSweepPoolId(null);
+        }
+
+        if (request.getEntryLevelId() != null) {
+            SessionLevel entryLevel = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(request.getEntryLevelId(), session.getId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Entry level not found"));
+            symbol = normalizeOptionalTicker(firstNonBlank(symbol, entryLevel.getSymbol()));
+            clearLevelRoleForSymbol(session.getId(), user.getId(), symbol, RoleSelector.ENTRY, entryLevel.getId());
+            entryLevel.setEntryRole(true);
+            sessionLevelRepository.save(entryLevel);
+            session.setActiveEntryLevelId(entryLevel.getId());
+        }
+
+        if (request.getSlLevelId() != null) {
+            SessionLevel slLevel = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(request.getSlLevelId(), session.getId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("SL level not found"));
+            symbol = normalizeOptionalTicker(firstNonBlank(symbol, slLevel.getSymbol()));
+            clearLevelRoleForSymbol(session.getId(), user.getId(), symbol, RoleSelector.SL, slLevel.getId());
+            slLevel.setSlRole(true);
+            sessionLevelRepository.save(slLevel);
+            session.setActiveSlLevelId(slLevel.getId());
+        }
+
+        if (request.getTpLevelId() != null) {
+            SessionLevel tpLevel = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(request.getTpLevelId(), session.getId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("TP level not found"));
+            symbol = normalizeOptionalTicker(firstNonBlank(symbol, tpLevel.getSymbol()));
+            clearLevelRoleForSymbol(session.getId(), user.getId(), symbol, RoleSelector.TP, tpLevel.getId());
+            tpLevel.setTpRole(true);
+            sessionLevelRepository.save(tpLevel);
+            session.setActiveTpLevelId(tpLevel.getId());
         }
 
         TodaySession saved = todaySessionRepository.save(session);
         return toResponse(saved, user.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public List<SessionPoolDto> listSessionPools(UUID sessionId, String symbol) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        List<LiquidityPool> pools = isBlank(symbol)
+                ? liquidityPoolRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtUtcAsc(session.getId(), user.getId())
+                : liquidityPoolRepository.findByTodaySession_IdAndUser_IdAndSymbolIgnoreCaseOrderByCreatedAtUtcAsc(
+                session.getId(),
+                user.getId(),
+                normalizeOptionalTicker(symbol)
+        );
+        return pools.stream().map(this::toSessionPoolDto).toList();
+    }
+
+    @Transactional
+    public SessionPoolDto createSessionPool(UUID sessionId, SessionPoolRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        String symbol = normalizeRequiredTicker(request == null ? null : request.getSymbol(), "Pool symbol is required");
+
+        BigDecimal zoneLow = normalizeLevelZonePrice(request == null ? null : request.getZoneLow(), "zoneLow");
+        BigDecimal zoneHigh = normalizeLevelZonePrice(request == null ? null : request.getZoneHigh(), "zoneHigh");
+        ensureValidZone(zoneLow, zoneHigh);
+
+        LiquidityPool pool = LiquidityPool.builder()
+                .todaySession(session)
+                .user(user)
+                .symbol(symbol)
+                .poolName(normalizePoolName(request == null ? null : request.getPoolName()))
+                .type(normalizeLevelType(request == null ? null : request.getType()))
+                .timeframe(normalizeLevelTimeframe(request == null ? null : request.getTimeframe()))
+                .zoneLow(zoneLow)
+                .zoneHigh(zoneHigh)
+                .cleanlinessScore(normalizeCleanlinessScore(request == null ? null : request.getCleanlinessScore()))
+                .status(normalizePoolStatus(request == null ? null : request.getStatus()))
+                .sweepRole(Boolean.TRUE.equals(request == null ? null : request.getSweepRole()))
+                .levels(resolvePoolLevels(session, user.getId(), request == null ? null : request.getLevelIds()))
+                .build();
+
+        LiquidityPool saved = liquidityPoolRepository.save(pool);
+        if (saved.isSweepRole()) {
+            clearSweepPoolRoleForSymbol(session.getId(), user.getId(), symbol, saved.getId());
+            saved.setSweepRole(true);
+            liquidityPoolRepository.save(saved);
+            clearLevelRoleForSymbol(session.getId(), user.getId(), symbol, RoleSelector.SWEEP, null);
+            session.setActiveSweepPoolId(saved.getId());
+            session.setActiveSweepLevelId(null);
+            todaySessionRepository.save(session);
+        }
+        return toSessionPoolDto(saved);
+    }
+
+    @Transactional
+    public SessionPoolDto updateSessionPool(UUID sessionId, UUID poolId, SessionPoolRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        LiquidityPool pool = liquidityPoolRepository.findByIdAndTodaySession_IdAndUser_Id(poolId, session.getId(), user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Liquidity pool not found"));
+
+        String symbol = normalizeRequiredTicker(firstNonBlank(
+                request == null ? null : request.getSymbol(),
+                pool.getSymbol()
+        ), "Pool symbol is required");
+        pool.setSymbol(symbol);
+
+        if (request != null && request.getPoolName() != null) {
+            pool.setPoolName(normalizePoolName(request.getPoolName()));
+        }
+        if (request != null && request.getType() != null) {
+            pool.setType(normalizeLevelType(request.getType()));
+        }
+        if (request != null && request.getTimeframe() != null) {
+            pool.setTimeframe(normalizeLevelTimeframe(request.getTimeframe()));
+        }
+        if (request != null && request.getZoneLow() != null) {
+            pool.setZoneLow(normalizeLevelZonePrice(request.getZoneLow(), "zoneLow"));
+        }
+        if (request != null && request.getZoneHigh() != null) {
+            pool.setZoneHigh(normalizeLevelZonePrice(request.getZoneHigh(), "zoneHigh"));
+        }
+        ensureValidZone(pool.getZoneLow(), pool.getZoneHigh());
+        if (request != null && request.getCleanlinessScore() != null) {
+            pool.setCleanlinessScore(normalizeCleanlinessScore(request.getCleanlinessScore()));
+        }
+        if (request != null && request.getStatus() != null) {
+            pool.setStatus(normalizePoolStatus(request.getStatus()));
+        }
+        if (request != null && request.getSweepRole() != null) {
+            pool.setSweepRole(request.getSweepRole());
+        }
+        if (request != null && request.getLevelIds() != null) {
+            pool.setLevels(resolvePoolLevels(session, user.getId(), request.getLevelIds()));
+        }
+
+        LiquidityPool saved = liquidityPoolRepository.save(pool);
+        if (saved.isSweepRole()) {
+            clearSweepPoolRoleForSymbol(session.getId(), user.getId(), symbol, saved.getId());
+            saved.setSweepRole(true);
+            liquidityPoolRepository.save(saved);
+            clearLevelRoleForSymbol(session.getId(), user.getId(), symbol, RoleSelector.SWEEP, null);
+            session.setActiveSweepPoolId(saved.getId());
+            session.setActiveSweepLevelId(null);
+        } else if (Objects.equals(session.getActiveSweepPoolId(), saved.getId())) {
+            session.setActiveSweepPoolId(null);
+        }
+        todaySessionRepository.save(session);
+        return toSessionPoolDto(saved);
+    }
+
+    @Transactional
+    public void deleteSessionPool(UUID sessionId, UUID poolId) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        liquidityPoolRepository.deleteByIdAndTodaySession_IdAndUser_Id(poolId, session.getId(), user.getId());
+        if (Objects.equals(session.getActiveSweepPoolId(), poolId)) {
+            session.setActiveSweepPoolId(null);
+            todaySessionRepository.save(session);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public SessionNarrativeDto getSessionNarrative(UUID sessionId) {
+        User user = currentUserService.getCurrentUser();
+        requireSessionById(user, sessionId);
+        return sessionNarrativeRepository.findBySessionIdAndUser_Id(sessionId, user.getId())
+                .map(this::toSessionNarrativeDto)
+                .orElse(null);
+    }
+
+    @Transactional
+    public SessionNarrativeDto upsertSessionNarrative(UUID sessionId, SessionNarrativeRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        SessionNarrative narrative = sessionNarrativeRepository.findBySessionIdAndUser_Id(session.getId(), user.getId())
+                .orElseGet(() -> SessionNarrative.builder()
+                        .sessionId(session.getId())
+                        .todaySession(session)
+                        .user(user)
+                        .build());
+
+        narrative.setHtfDraw(request == null ? null : request.getHtfDraw());
+        narrative.setExpectedManipulation(request == null ? null : request.getExpectedManipulation());
+        narrative.setDeliveryModel(request == null ? null : request.getDeliveryModel());
+        narrative.setConfirmationModel(request == null ? null : request.getConfirmationModel());
+        narrative.setNotes(normalizeNarrativeNotes(request == null ? null : request.getNotes()));
+        SessionNarrative saved = sessionNarrativeRepository.save(narrative);
+        return toSessionNarrativeDto(saved);
+    }
+
+    @Transactional(readOnly = true)
+    public List<SessionLevelSuggestionDto> suggestSessionLevels(UUID sessionId, String symbol) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        List<SessionLevel> levels = findSessionLevels(session.getId(), user.getId(), normalizedSymbol);
+        Set<LevelType> existingTypes = new HashSet<>();
+        for (SessionLevel level : levels) {
+            existingTypes.add(level.getLevelType() == null ? LevelType.OTHER : level.getLevelType());
+        }
+
+        List<SessionLevelSuggestionDto> suggestions = new ArrayList<>();
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.PDH, LevelTimeframe.D1, "Prior daily high is a common liquidity draw", 0.72);
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.PDL, LevelTimeframe.D1, "Prior daily low is a common liquidity draw", 0.72);
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.ASIA_H, LevelTimeframe.H1, "Asia high often anchors London manipulation", 0.68);
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.ASIA_L, LevelTimeframe.H1, "Asia low often anchors London manipulation", 0.68);
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.HTF_SWING_HIGH, LevelTimeframe.H1, "Recent H1 swing highs can frame external liquidity", 0.61);
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.HTF_SWING_LOW, LevelTimeframe.H1, "Recent H1 swing lows can frame external liquidity", 0.61);
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.EQH, LevelTimeframe.M15, "Equal highs cluster stop liquidity", 0.59);
+        addDefaultSuggestion(suggestions, existingTypes, LevelType.EQL, LevelTimeframe.M15, "Equal lows cluster stop liquidity", 0.59);
+        return suggestions;
     }
 
     @Transactional(readOnly = true)
@@ -394,8 +762,66 @@ public class TodaySessionService {
             throw new IllegalArgumentException("Invalid feeling selection");
         }
 
+        String tradeSymbol = normalizeTicker(request.getSymbol());
+        List<SessionChecklistItemDto> prereqsState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.PREREQS);
+        List<SessionChecklistItemDto> triggersState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.TRIGGERS);
+        BigDecimal rrAtEntry = computeRrAtEntry(
+                request.getDirection(),
+                request.getEntryPrice(),
+                request.getStopLossPrice(),
+                request.getTakeProfitPrice()
+        );
+
+        SessionNarrative narrative = sessionNarrativeRepository.findBySessionIdAndUser_Id(session.getId(), user.getId()).orElse(null);
+        UUID sweepPoolId = firstNonNull(request.getSweepPoolId(), session.getActiveSweepPoolId());
+        if (sweepPoolId != null) {
+            LiquidityPool sweepPool = liquidityPoolRepository
+                    .findByIdAndTodaySession_IdAndUser_Id(sweepPoolId, session.getId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Sweep pool not found"));
+            if (!Objects.equals(normalizeOptionalTicker(sweepPool.getSymbol()), tradeSymbol)) {
+                throw new IllegalArgumentException("Selected sweep pool does not match trade symbol");
+            }
+        }
+        SessionLevel sweepLevel = resolveRoleLevel(session, user.getId(), tradeSymbol, firstNonNull(request.getSweepLevelId(), session.getActiveSweepLevelId()));
+        SessionLevel entryLevel = resolveRoleLevel(session, user.getId(), tradeSymbol, firstNonNull(request.getEntryLevelId(), session.getActiveEntryLevelId()));
+        SessionLevel slLevel = resolveRoleLevel(session, user.getId(), tradeSymbol, firstNonNull(request.getSlLevelId(), session.getActiveSlLevelId()));
+        SessionLevel tpLevel = resolveRoleLevel(session, user.getId(), tradeSymbol, firstNonNull(request.getTpLevelId(), session.getActiveTpLevelId()));
+
+        List<String> missingItems = new ArrayList<>();
+        if (!isLockInComplete(session)) {
+            missingItems.add("lock-in");
+        }
+        if (!isChecklistComplete(prereqsState)) {
+            missingItems.add("prerequisites checklist");
+        }
+        if (!isChecklistComplete(triggersState)) {
+            missingItems.add("triggers checklist");
+        }
+        if (rrAtEntry == null || rrAtEntry.compareTo(BigDecimal.valueOf(1.5)) < 0) {
+            missingItems.add("RR >= 1.5R");
+        }
+        if (!isNarrativeComplete(narrative)) {
+            missingItems.add("narrative (draw/manipulation/confirmation)");
+        }
+        if (sweepLevel == null && sweepPoolId == null) {
+            missingItems.add("sweep role");
+        }
+        if (entryLevel == null) {
+            missingItems.add("entry role");
+        }
+        if (slLevel == null) {
+            missingItems.add("SL role");
+        }
+        if (!missingItems.isEmpty()) {
+            throw new IllegalArgumentException("Cannot start trade. Missing: " + String.join(", ", missingItems));
+        }
+
+        List<SessionLevelDto> levelsSnapshot = findSessionLevels(session.getId(), user.getId(), null).stream()
+                .map(this::toSessionLevelDto)
+                .toList();
+
         TradeRequest tradeRequest = new TradeRequest();
-        tradeRequest.setSymbol(normalizeTicker(request.getSymbol()));
+        tradeRequest.setSymbol(tradeSymbol);
         tradeRequest.setMarket(request.getMarket() == null ? Market.FOREX : request.getMarket());
         tradeRequest.setDirection(request.getDirection());
         tradeRequest.setStatus(TradeStatus.OPEN);
@@ -421,19 +847,17 @@ public class TodaySessionService {
         tradeRequest.setEntryJournalText(normalizeOptionalText(request.getEntryJournalText()));
         tradeRequest.setEntryInvalidation(normalizeOptionalText(request.getEntryInvalidation()));
         tradeRequest.setEntryScreenshotAssetIds(request.getEntryScreenshotAssetIds());
-
-        List<SessionChecklistItemDto> prereqsState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.PREREQS);
-        List<SessionChecklistItemDto> triggersState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.TRIGGERS);
-        List<SessionLevelDto> levelsSnapshot = sessionLevelRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtAsc(session.getId(), user.getId())
-                .stream()
-                .map(this::toSessionLevelDto)
-                .toList();
-        BigDecimal rrAtEntry = computeRrAtEntry(
-                request.getDirection(),
-                request.getEntryPrice(),
-                request.getStopLossPrice(),
-                request.getTakeProfitPrice()
-        );
+        tradeRequest.setSweepLevelId(sweepLevel == null ? null : sweepLevel.getId());
+        tradeRequest.setSweepPoolId(sweepPoolId);
+        tradeRequest.setEntryLevelId(entryLevel == null ? null : entryLevel.getId());
+        tradeRequest.setSlLevelId(slLevel == null ? null : slLevel.getId());
+        tradeRequest.setTpLevelId(tpLevel == null ? null : tpLevel.getId());
+        tradeRequest.setNarrativeSnapshotJson(objectMapper.valueToTree(toSessionNarrativeDto(narrative)));
+        tradeRequest.setSweepConfirmed(isTriggerCompleted(triggersState, "sweep"));
+        tradeRequest.setDisplacementConfirmed(isTriggerCompleted(triggersState, "displacement"));
+        tradeRequest.setMssConfirmed(isTriggerCompleted(triggersState, "mss"));
+        tradeRequest.setLevelExpectation(entryLevel == null ? null : entryLevel.getExpectation());
+        tradeRequest.setTimeSweepToEntrySeconds(computeSweepToEntrySeconds(sweepLevel, tradeRequest.getOpenedAt()));
 
         ObjectNode qualityInputs = objectMapper.createObjectNode();
         qualityInputs.put("prereqsComplete", isChecklistComplete(prereqsState));
@@ -441,6 +865,9 @@ public class TodaySessionService {
         qualityInputs.put("prereqsCompletedCount", countCompleted(prereqsState));
         qualityInputs.put("triggersCompletedCount", countCompleted(triggersState));
         qualityInputs.put("rrAvailable", rrAtEntry != null);
+        qualityInputs.put("rrThresholdMet", rrAtEntry != null && rrAtEntry.compareTo(BigDecimal.valueOf(1.5)) >= 0);
+        qualityInputs.put("narrativeComplete", isNarrativeComplete(narrative));
+        qualityInputs.put("rolesComplete", sweepLevel != null || sweepPoolId != null);
 
         ObjectNode lockInSnapshot = objectMapper.createObjectNode();
         lockInSnapshot.put("session", session.getLockInSession());
@@ -456,6 +883,7 @@ public class TodaySessionService {
         if (session.getMaxTrades() != null) {
             lockInSnapshot.put("maxTrades", session.getMaxTrades());
         }
+        lockInSnapshot.set("narrative", objectMapper.valueToTree(toSessionNarrativeDto(narrative)));
 
         var snapshot = contextSnapshotService.createSnapshot(
                 user,
@@ -465,7 +893,7 @@ public class TodaySessionService {
                 session.getPrereqsStateJson(),
                 session.getTriggersTemplate() == null ? null : session.getTriggersTemplate().getId(),
                 session.getTriggersStateJson(),
-                session.getActiveSweepLevelId(),
+                sweepLevel == null ? null : sweepLevel.getId(),
                 objectMapper.valueToTree(levelsSnapshot),
                 lockInSnapshot,
                 rrAtEntry,
@@ -501,12 +929,26 @@ public class TodaySessionService {
         Set<String> normalizedRuleBreaks = normalizeRuleBreaks(request.getRuleBreaks());
         String postTradeNotes = normalizeOptionalText(request.getPostTradeNotes());
 
+        BigDecimal exitPrice = request.getExitPrice();
+        BigDecimal directionalMove = computeDirectionalPointMove(existing, exitPrice);
+        BigDecimal mfePoints = directionalMove == null
+                ? null
+                : directionalMove.max(BigDecimal.ZERO).setScale(8, RoundingMode.HALF_UP);
+        BigDecimal maePoints = directionalMove == null
+                ? null
+                : directionalMove.negate().max(BigDecimal.ZERO).setScale(8, RoundingMode.HALF_UP);
+
         TradeRequest update = toTradeUpdateRequest(existing);
         update.setStatus(TradeStatus.CLOSED);
         update.setClosedAt(OffsetDateTime.now(ZoneOffset.UTC));
-        update.setExitPrice(request.getExitPrice());
+        update.setExitPrice(exitPrice);
         update.setRuleBreaks(normalizedRuleBreaks);
         update.setNotes(postTradeNotes);
+        update.setMfePoints(mfePoints);
+        update.setMaePoints(maePoints);
+        update.setSweepDepthPoints(null);
+        update.setDisplacementSizePoints(null);
+        update.setLevelExpectationMet(resolveExpectationOutcome(existing, exitPrice));
 
         TradeResponse updated = tradeService.update(existing.getId(), update);
         refreshSessionStatus(session, user.getId());
@@ -531,11 +973,17 @@ public class TodaySessionService {
     }
 
     private void applyActiveSweepLevel(TodaySession session, UUID userId, UUID levelId) {
-        boolean exists = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), userId).isPresent();
-        if (!exists) {
+        SessionLevel level = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), userId).orElse(null);
+        if (level == null) {
             throw new EntityNotFoundException("Sweep level not found");
         }
+        String symbol = normalizeOptionalTicker(level.getSymbol());
+        clearSweepPoolRoleForSymbol(session.getId(), userId, symbol, null);
+        clearLevelRoleForSymbol(session.getId(), userId, symbol, RoleSelector.SWEEP, levelId);
+        level.setSweepRole(true);
+        sessionLevelRepository.save(level);
         session.setActiveSweepLevelId(levelId);
+        session.setActiveSweepPoolId(null);
     }
 
     private void clearOtherDefaults(UUID userId, ChecklistTemplateType type, UUID keepId) {
@@ -644,6 +1092,22 @@ public class TodaySessionService {
         request.setSetupGrade(trade.getSetupGrade());
         request.setSession(trade.getSession());
         request.setSessionId(trade.getSessionId());
+        request.setSweepLevelId(trade.getSweepLevelId());
+        request.setSweepPoolId(trade.getSweepPoolId());
+        request.setEntryLevelId(trade.getEntryLevelId());
+        request.setSlLevelId(trade.getSlLevelId());
+        request.setTpLevelId(trade.getTpLevelId());
+        request.setNarrativeSnapshotJson(trade.getNarrativeSnapshotJson());
+        request.setSweepConfirmed(trade.getSweepConfirmed());
+        request.setDisplacementConfirmed(trade.getDisplacementConfirmed());
+        request.setMssConfirmed(trade.getMssConfirmed());
+        request.setSweepDepthPoints(trade.getSweepDepthPoints());
+        request.setDisplacementSizePoints(trade.getDisplacementSizePoints());
+        request.setTimeSweepToEntrySeconds(trade.getTimeSweepToEntrySeconds());
+        request.setMfePoints(trade.getMfePoints());
+        request.setMaePoints(trade.getMaePoints());
+        request.setLevelExpectationMet(trade.getLevelExpectationMet());
+        request.setLevelExpectation(trade.getLevelExpectation());
         request.setFeeling(trade.getFeeling());
         request.setLinkedContentIds(trade.getLinkedContentIds());
         request.setLinkedPlanIds(trade.getLinkedPlanIds());
@@ -754,6 +1218,15 @@ public class TodaySessionService {
                 .stream()
                 .map(this::toSessionLevelDto)
                 .toList();
+        List<SessionPoolDto> pools = liquidityPoolRepository
+                .findByTodaySession_IdAndUser_IdOrderByCreatedAtUtcAsc(session.getId(), userId)
+                .stream()
+                .map(this::toSessionPoolDto)
+                .toList();
+        SessionNarrativeDto narrative = sessionNarrativeRepository
+                .findBySessionIdAndUser_Id(session.getId(), userId)
+                .map(this::toSessionNarrativeDto)
+                .orElse(null);
 
         return TodaySessionResponse.builder()
                 .id(session.getId())
@@ -778,7 +1251,13 @@ public class TodaySessionService {
                 .lockInBiasReason(session.getLockInBiasReason())
                 .lockInAt(session.getLockInAt())
                 .activeSweepLevelId(session.getActiveSweepLevelId())
+                .activeEntryLevelId(session.getActiveEntryLevelId())
+                .activeSlLevelId(session.getActiveSlLevelId())
+                .activeTpLevelId(session.getActiveTpLevelId())
+                .activeSweepPoolId(session.getActiveSweepPoolId())
                 .levels(levels)
+                .pools(pools)
+                .narrative(narrative)
                 .activeTrade(activeTrade)
                 .createdAt(session.getCreatedAt())
                 .updatedAt(session.getUpdatedAt())
@@ -790,6 +1269,22 @@ public class TodaySessionService {
                 .id(level.getId())
                 .label(level.getLabel())
                 .price(level.getPrice())
+                .symbol(level.getSymbol())
+                .type(level.getLevelType())
+                .timeframe(level.getTimeframe())
+                .zoneLow(level.getZoneLow())
+                .zoneHigh(level.getZoneHigh())
+                .originRule(level.getOriginRule())
+                .strengthScore(level.getStrengthScore())
+                .status(level.getStatus())
+                .touchedCount(level.getTouchedCount())
+                .lastTouchedAtUtc(level.getLastTouchedAtUtc())
+                .createdBy(level.getCreatedBy())
+                .expectation(level.getExpectation())
+                .sweepRole(level.isSweepRole())
+                .entryRole(level.isEntryRole())
+                .slRole(level.isSlRole())
+                .tpRole(level.isTpRole())
                 .category(level.getCategory())
                 .notes(level.getNotes())
                 .sweptAt(level.getSweptAt())
@@ -1348,6 +1843,519 @@ public class TodaySessionService {
             throw new IllegalArgumentException("Level notes cannot exceed 280 characters");
         }
         return normalized;
+    }
+
+    private TodaySession requireSessionById(User user, UUID sessionId) {
+        if (sessionId == null) {
+            throw new IllegalArgumentException("Session id is required");
+        }
+        return todaySessionRepository.findByIdAndUser_Id(sessionId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Session not found"));
+    }
+
+    private List<SessionLevel> findSessionLevels(UUID sessionId, UUID userId, String symbol) {
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        if (normalizedSymbol == null) {
+            return sessionLevelRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtAsc(sessionId, userId);
+        }
+        return sessionLevelRepository.findByTodaySession_IdAndUser_IdAndSymbolIgnoreCaseOrderByCreatedAtAsc(
+                sessionId,
+                userId,
+                normalizedSymbol
+        );
+    }
+
+    private String normalizeOptionalTicker(String ticker) {
+        return normalizeTicker(ticker);
+    }
+
+    private String normalizeRequiredTicker(String ticker, String message) {
+        String normalized = normalizeOptionalTicker(ticker);
+        if (normalized == null) {
+            throw new IllegalArgumentException(message);
+        }
+        return normalized;
+    }
+
+    private LevelType normalizeLevelType(LevelType value) {
+        return value == null ? LevelType.OTHER : value;
+    }
+
+    private LevelTimeframe normalizeLevelTimeframe(LevelTimeframe value) {
+        return value == null ? LevelTimeframe.M15 : value;
+    }
+
+    private BigDecimal normalizeLevelZonePrice(BigDecimal value, String fieldName) {
+        if (value == null) {
+            return null;
+        }
+        if (value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException(fieldName + " must be greater than zero");
+        }
+        return value.setScale(8, RoundingMode.HALF_UP);
+    }
+
+    private String normalizeLevelOriginRule(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > MAX_LEVEL_ORIGIN_RULE_LENGTH) {
+            throw new IllegalArgumentException("Level origin rule cannot exceed " + MAX_LEVEL_ORIGIN_RULE_LENGTH + " characters");
+        }
+        return normalized;
+    }
+
+    private Short normalizeStrengthScore(Short value) {
+        short normalized = value == null ? 3 : value;
+        if (normalized < 0 || normalized > 5) {
+            throw new IllegalArgumentException("Strength score must be between 0 and 5");
+        }
+        return normalized;
+    }
+
+    private LevelStatus normalizeLevelStatus(LevelStatus status) {
+        return status == null ? LevelStatus.FRESH : status;
+    }
+
+    private String normalizeLevelExpectation(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > MAX_LEVEL_EXPECTATION_LENGTH) {
+            throw new IllegalArgumentException("Level expectation cannot exceed " + MAX_LEVEL_EXPECTATION_LENGTH + " characters");
+        }
+        return normalized;
+    }
+
+    private void ensureValidZone(BigDecimal zoneLow, BigDecimal zoneHigh) {
+        if (zoneLow == null && zoneHigh == null) {
+            return;
+        }
+        if (zoneLow == null || zoneHigh == null) {
+            throw new IllegalArgumentException("Both zoneLow and zoneHigh are required for zone levels");
+        }
+        if (zoneHigh.compareTo(zoneLow) < 0) {
+            throw new IllegalArgumentException("zoneHigh must be greater than or equal to zoneLow");
+        }
+    }
+
+    private void normalizeRolesAfterLevelUpdate(TodaySession session, UUID userId, String symbol, UUID preferredLevelId) {
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        if (normalizedSymbol == null && preferredLevelId != null) {
+            normalizedSymbol = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(preferredLevelId, session.getId(), userId)
+                    .map(SessionLevel::getSymbol)
+                    .map(this::normalizeOptionalTicker)
+                    .orElse(null);
+        }
+
+        List<SessionLevel> levels = findSessionLevels(session.getId(), userId, normalizedSymbol);
+        UUID sweepId = normalizeSingleRole(levels, RoleSelector.SWEEP, preferredLevelId);
+        UUID entryId = normalizeSingleRole(levels, RoleSelector.ENTRY, preferredLevelId);
+        UUID slId = normalizeSingleRole(levels, RoleSelector.SL, preferredLevelId);
+        UUID tpId = normalizeSingleRole(levels, RoleSelector.TP, preferredLevelId);
+
+        if (sweepId != null) {
+            clearSweepPoolRoleForSymbol(session.getId(), userId, normalizedSymbol, null);
+            session.setActiveSweepPoolId(null);
+            session.setActiveSweepLevelId(sweepId);
+        } else if (isLevelForSymbol(session.getId(), userId, session.getActiveSweepLevelId(), normalizedSymbol)) {
+            session.setActiveSweepLevelId(null);
+        }
+
+        if (entryId != null) {
+            session.setActiveEntryLevelId(entryId);
+        } else if (isLevelForSymbol(session.getId(), userId, session.getActiveEntryLevelId(), normalizedSymbol)) {
+            session.setActiveEntryLevelId(null);
+        }
+
+        if (slId != null) {
+            session.setActiveSlLevelId(slId);
+        } else if (isLevelForSymbol(session.getId(), userId, session.getActiveSlLevelId(), normalizedSymbol)) {
+            session.setActiveSlLevelId(null);
+        }
+
+        if (tpId != null) {
+            session.setActiveTpLevelId(tpId);
+        } else if (isLevelForSymbol(session.getId(), userId, session.getActiveTpLevelId(), normalizedSymbol)) {
+            session.setActiveTpLevelId(null);
+        }
+
+        todaySessionRepository.save(session);
+    }
+
+    private UUID normalizeSingleRole(List<SessionLevel> levels, RoleSelector selector, UUID preferredLevelId) {
+        if (levels == null || levels.isEmpty()) {
+            return null;
+        }
+
+        SessionLevel preferred = preferredLevelId == null
+                ? null
+                : levels.stream().filter(item -> Objects.equals(item.getId(), preferredLevelId)).findFirst().orElse(null);
+        SessionLevel selected = preferred != null && selector.read(preferred) ? preferred : null;
+
+        List<SessionLevel> changed = new ArrayList<>();
+        for (SessionLevel level : levels) {
+            if (!selector.read(level)) {
+                continue;
+            }
+            if (selected == null) {
+                selected = level;
+                continue;
+            }
+            if (!Objects.equals(selected.getId(), level.getId())) {
+                selector.write(level, false);
+                changed.add(level);
+            }
+        }
+
+        if (!changed.isEmpty()) {
+            sessionLevelRepository.saveAll(changed);
+        }
+        return selected == null ? null : selected.getId();
+    }
+
+    private boolean isLevelForSymbol(UUID sessionId, UUID userId, UUID levelId, String symbol) {
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        if (levelId == null || normalizedSymbol == null) {
+            return false;
+        }
+        return sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, sessionId, userId)
+                .map(SessionLevel::getSymbol)
+                .map(this::normalizeOptionalTicker)
+                .map(normalizedSymbol::equals)
+                .orElse(false);
+    }
+
+    private void syncLegacySweepSelection(TodaySession session, UUID userId, String symbol) {
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        if (normalizedSymbol == null) {
+            return;
+        }
+
+        LiquidityPool activeSweepPool = session.getActiveSweepPoolId() == null
+                ? null
+                : liquidityPoolRepository.findByIdAndTodaySession_IdAndUser_Id(session.getActiveSweepPoolId(), session.getId(), userId).orElse(null);
+        if (activeSweepPool != null && activeSweepPool.isSweepRole()
+                && normalizedSymbol.equals(normalizeOptionalTicker(activeSweepPool.getSymbol()))) {
+            session.setActiveSweepLevelId(null);
+            todaySessionRepository.save(session);
+            return;
+        }
+
+        SessionLevel sweepLevel = sessionLevelRepository
+                .findByTodaySession_IdAndUser_IdAndSymbolIgnoreCaseAndSweepRoleTrue(session.getId(), userId, normalizedSymbol)
+                .orElse(null);
+        if (sweepLevel != null) {
+            session.setActiveSweepLevelId(sweepLevel.getId());
+            if (isPoolForSymbol(session.getId(), userId, session.getActiveSweepPoolId(), normalizedSymbol)) {
+                session.setActiveSweepPoolId(null);
+            }
+        } else if (isLevelForSymbol(session.getId(), userId, session.getActiveSweepLevelId(), normalizedSymbol)) {
+            session.setActiveSweepLevelId(null);
+        }
+        todaySessionRepository.save(session);
+    }
+
+    private boolean isPoolForSymbol(UUID sessionId, UUID userId, UUID poolId, String symbol) {
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        if (poolId == null || normalizedSymbol == null) {
+            return false;
+        }
+        return liquidityPoolRepository.findByIdAndTodaySession_IdAndUser_Id(poolId, sessionId, userId)
+                .map(LiquidityPool::getSymbol)
+                .map(this::normalizeOptionalTicker)
+                .map(normalizedSymbol::equals)
+                .orElse(false);
+    }
+
+    private void clearSweepPoolRoleForSymbol(UUID sessionId, UUID userId, String symbol, UUID keepId) {
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        List<LiquidityPool> pools = normalizedSymbol == null
+                ? liquidityPoolRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtUtcAsc(sessionId, userId)
+                : liquidityPoolRepository.findByTodaySession_IdAndUser_IdAndSymbolIgnoreCaseOrderByCreatedAtUtcAsc(sessionId, userId, normalizedSymbol);
+        List<LiquidityPool> changed = new ArrayList<>();
+        for (LiquidityPool pool : pools) {
+            if (!pool.isSweepRole()) {
+                continue;
+            }
+            if (keepId != null && Objects.equals(pool.getId(), keepId)) {
+                continue;
+            }
+            pool.setSweepRole(false);
+            changed.add(pool);
+        }
+        if (!changed.isEmpty()) {
+            liquidityPoolRepository.saveAll(changed);
+        }
+    }
+
+    private void clearLevelRoleForSymbol(UUID sessionId,
+                                         UUID userId,
+                                         String symbol,
+                                         RoleSelector roleSelector,
+                                         UUID keepId) {
+        List<SessionLevel> levels = findSessionLevels(sessionId, userId, symbol);
+        List<SessionLevel> changed = new ArrayList<>();
+        for (SessionLevel level : levels) {
+            if (!roleSelector.read(level)) {
+                continue;
+            }
+            if (keepId != null && Objects.equals(level.getId(), keepId)) {
+                continue;
+            }
+            roleSelector.write(level, false);
+            changed.add(level);
+        }
+        if (!changed.isEmpty()) {
+            sessionLevelRepository.saveAll(changed);
+        }
+    }
+
+    private Set<SessionLevel> resolvePoolLevels(TodaySession session, UUID userId, List<UUID> levelIds) {
+        if (levelIds == null || levelIds.isEmpty()) {
+            return new LinkedHashSet<>();
+        }
+        LinkedHashSet<SessionLevel> resolved = new LinkedHashSet<>();
+        for (UUID levelId : new LinkedHashSet<>(levelIds)) {
+            SessionLevel level = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), userId)
+                    .orElseThrow(() -> new EntityNotFoundException("Session level not found: " + levelId));
+            resolved.add(level);
+        }
+        return resolved;
+    }
+
+    private String normalizePoolName(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized == null) {
+            throw new IllegalArgumentException("Pool name is required");
+        }
+        if (normalized.length() > MAX_POOL_NAME_LENGTH) {
+            throw new IllegalArgumentException("Pool name cannot exceed " + MAX_POOL_NAME_LENGTH + " characters");
+        }
+        return normalized;
+    }
+
+    private Short normalizeCleanlinessScore(Short value) {
+        short normalized = value == null ? 3 : value;
+        if (normalized < 0 || normalized > 5) {
+            throw new IllegalArgumentException("Cleanliness score must be between 0 and 5");
+        }
+        return normalized;
+    }
+
+    private LevelStatus normalizePoolStatus(LevelStatus value) {
+        LevelStatus normalized = value == null ? LevelStatus.FRESH : value;
+        if (normalized == LevelStatus.RECLAIMED) {
+            return LevelStatus.TAPPED;
+        }
+        return normalized;
+    }
+
+    private SessionPoolDto toSessionPoolDto(LiquidityPool pool) {
+        List<UUID> levelIds = pool.getLevels() == null
+                ? List.of()
+                : pool.getLevels().stream().map(SessionLevel::getId).toList();
+        return SessionPoolDto.builder()
+                .id(pool.getId())
+                .symbol(pool.getSymbol())
+                .poolName(pool.getPoolName())
+                .type(pool.getType())
+                .timeframe(pool.getTimeframe())
+                .zoneLow(pool.getZoneLow())
+                .zoneHigh(pool.getZoneHigh())
+                .cleanlinessScore(pool.getCleanlinessScore())
+                .status(pool.getStatus())
+                .sweepRole(pool.isSweepRole())
+                .levelIds(levelIds)
+                .createdAtUtc(pool.getCreatedAtUtc())
+                .updatedAtUtc(pool.getUpdatedAtUtc())
+                .build();
+    }
+
+    private SessionNarrativeDto toSessionNarrativeDto(SessionNarrative narrative) {
+        if (narrative == null) {
+            return null;
+        }
+        return SessionNarrativeDto.builder()
+                .sessionId(narrative.getSessionId())
+                .htfDraw(narrative.getHtfDraw())
+                .expectedManipulation(narrative.getExpectedManipulation())
+                .deliveryModel(narrative.getDeliveryModel())
+                .confirmationModel(narrative.getConfirmationModel())
+                .notes(narrative.getNotes())
+                .createdAtUtc(narrative.getCreatedAtUtc())
+                .updatedAtUtc(narrative.getUpdatedAtUtc())
+                .build();
+    }
+
+    private String normalizeNarrativeNotes(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > MAX_NARRATIVE_NOTES_LENGTH) {
+            throw new IllegalArgumentException("Narrative notes cannot exceed " + MAX_NARRATIVE_NOTES_LENGTH + " characters");
+        }
+        return normalized;
+    }
+
+    private void addDefaultSuggestion(List<SessionLevelSuggestionDto> suggestions,
+                                      Set<LevelType> existingTypes,
+                                      LevelType type,
+                                      LevelTimeframe timeframe,
+                                      String reason,
+                                      double confidence) {
+        if (existingTypes.contains(type)) {
+            return;
+        }
+        suggestions.add(SessionLevelSuggestionDto.builder()
+                .type(type)
+                .timeframe(timeframe)
+                .reason(reason)
+                .confidence(confidence)
+                .untouchedSinceUtc(null)
+                .confluences(List.of("SMC"))
+                .build());
+        existingTypes.add(type);
+    }
+
+    private SessionLevel resolveRoleLevel(TodaySession session, UUID userId, String symbol, UUID levelId) {
+        if (levelId == null) {
+            return null;
+        }
+        SessionLevel level = sessionLevelRepository.findByIdAndTodaySession_IdAndUser_Id(levelId, session.getId(), userId)
+                .orElseThrow(() -> new EntityNotFoundException("Session level not found"));
+        String normalizedSymbol = normalizeOptionalTicker(symbol);
+        if (normalizedSymbol != null && !Objects.equals(normalizedSymbol, normalizeOptionalTicker(level.getSymbol()))) {
+            throw new IllegalArgumentException("Selected level role does not match trade symbol");
+        }
+        return level;
+    }
+
+    private boolean isNarrativeComplete(SessionNarrative narrative) {
+        return narrative != null
+                && narrative.getHtfDraw() != null
+                && narrative.getExpectedManipulation() != null
+                && narrative.getConfirmationModel() != null;
+    }
+
+    private boolean isTriggerCompleted(List<SessionChecklistItemDto> triggers, String token) {
+        if (triggers == null || triggers.isEmpty()) {
+            return false;
+        }
+        String needle = normalizeOptionalText(token);
+        if (needle == null) {
+            return false;
+        }
+        String loweredNeedle = needle.toLowerCase(Locale.ROOT);
+        return triggers.stream()
+                .filter(Objects::nonNull)
+                .anyMatch(item -> item.isCompleted()
+                        && normalizeOptionalText(item.getText()) != null
+                        && item.getText().toLowerCase(Locale.ROOT).contains(loweredNeedle));
+    }
+
+    private Integer computeSweepToEntrySeconds(SessionLevel sweepLevel, OffsetDateTime openedAt) {
+        if (sweepLevel == null || openedAt == null) {
+            return null;
+        }
+        OffsetDateTime touchedAt = firstNonNull(sweepLevel.getLastTouchedAtUtc(), sweepLevel.getSweptAt());
+        if (touchedAt == null) {
+            return null;
+        }
+        long seconds = Duration.between(touchedAt, openedAt).getSeconds();
+        if (seconds < 0 || seconds > Integer.MAX_VALUE) {
+            return null;
+        }
+        return (int) seconds;
+    }
+
+    private Boolean resolveExpectationOutcome(Trade trade, BigDecimal exitPrice) {
+        String expectation = normalizeOptionalText(trade.getLevelExpectation());
+        if (expectation == null || exitPrice == null) {
+            return null;
+        }
+
+        BigDecimal directionalMove = computeDirectionalPointMove(trade, exitPrice);
+        if (directionalMove == null) {
+            return null;
+        }
+        String token = expectation.toUpperCase(Locale.ROOT);
+        if (token.contains("TARGET") || token.contains("MAGNET")) {
+            if (trade.getTakeProfitPrice() != null) {
+                if (trade.getDirection() == Direction.LONG) {
+                    return exitPrice.compareTo(trade.getTakeProfitPrice()) >= 0;
+                }
+                return exitPrice.compareTo(trade.getTakeProfitPrice()) <= 0;
+            }
+            return directionalMove.compareTo(BigDecimal.ZERO) > 0;
+        }
+        if (token.contains("HOLD")) {
+            return directionalMove.compareTo(BigDecimal.ZERO) >= 0;
+        }
+        if (token.contains("SWEEP") || token.contains("DISPLACE")) {
+            return directionalMove.compareTo(BigDecimal.ZERO) > 0;
+        }
+        return directionalMove.compareTo(BigDecimal.ZERO) > 0;
+    }
+
+    private BigDecimal computeDirectionalPointMove(Trade trade, BigDecimal exitPrice) {
+        if (trade == null || exitPrice == null || trade.getEntryPrice() == null || trade.getDirection() == null) {
+            return null;
+        }
+        BigDecimal rawMove = exitPrice.subtract(trade.getEntryPrice());
+        if (trade.getDirection() == Direction.SHORT) {
+            rawMove = rawMove.negate();
+        }
+        return rawMove.setScale(8, RoundingMode.HALF_UP);
+    }
+
+    private <T> T firstNonNull(T first, T second) {
+        return first != null ? first : second;
+    }
+
+    private enum RoleSelector {
+        SWEEP {
+            @Override
+            boolean read(SessionLevel level) {
+                return level.isSweepRole();
+            }
+
+            @Override
+            void write(SessionLevel level, boolean value) {
+                level.setSweepRole(value);
+            }
+        },
+        ENTRY {
+            @Override
+            boolean read(SessionLevel level) {
+                return level.isEntryRole();
+            }
+
+            @Override
+            void write(SessionLevel level, boolean value) {
+                level.setEntryRole(value);
+            }
+        },
+        SL {
+            @Override
+            boolean read(SessionLevel level) {
+                return level.isSlRole();
+            }
+
+            @Override
+            void write(SessionLevel level, boolean value) {
+                level.setSlRole(value);
+            }
+        },
+        TP {
+            @Override
+            boolean read(SessionLevel level) {
+                return level.isTpRole();
+            }
+
+            @Override
+            void write(SessionLevel level, boolean value) {
+                level.setTpRole(value);
+            }
+        };
+
+        abstract boolean read(SessionLevel level);
+
+        abstract void write(SessionLevel level, boolean value);
     }
 
     private String normalizeLockInSession(String value) {

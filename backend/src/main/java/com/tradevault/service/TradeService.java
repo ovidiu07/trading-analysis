@@ -248,6 +248,22 @@ public class TradeService {
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
         trade.setSessionId(request.getSessionId());
+        trade.setSweepLevelId(request.getSweepLevelId());
+        trade.setSweepPoolId(request.getSweepPoolId());
+        trade.setEntryLevelId(request.getEntryLevelId());
+        trade.setSlLevelId(request.getSlLevelId());
+        trade.setTpLevelId(request.getTpLevelId());
+        trade.setNarrativeSnapshotJson(request.getNarrativeSnapshotJson());
+        trade.setSweepConfirmed(request.getSweepConfirmed());
+        trade.setDisplacementConfirmed(request.getDisplacementConfirmed());
+        trade.setMssConfirmed(request.getMssConfirmed());
+        trade.setSweepDepthPoints(request.getSweepDepthPoints());
+        trade.setDisplacementSizePoints(request.getDisplacementSizePoints());
+        trade.setTimeSweepToEntrySeconds(request.getTimeSweepToEntrySeconds());
+        trade.setMfePoints(request.getMfePoints());
+        trade.setMaePoints(request.getMaePoints());
+        trade.setLevelExpectationMet(request.getLevelExpectationMet());
+        trade.setLevelExpectation(normalizeOptionalText(request.getLevelExpectation()));
         trade.setFeeling(normalizeFeeling(request.getFeeling()));
         trade.setRuleBreaks(normalizeRuleBreaks(request.getRuleBreaks()));
         trade.setLinkedContentIds(normalizeLinkedContentIds(request.getLinkedContentIds()));
@@ -313,6 +329,22 @@ public class TradeService {
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
         trade.setSessionId(request.getSessionId());
+        trade.setSweepLevelId(request.getSweepLevelId());
+        trade.setSweepPoolId(request.getSweepPoolId());
+        trade.setEntryLevelId(request.getEntryLevelId());
+        trade.setSlLevelId(request.getSlLevelId());
+        trade.setTpLevelId(request.getTpLevelId());
+        trade.setNarrativeSnapshotJson(request.getNarrativeSnapshotJson());
+        trade.setSweepConfirmed(request.getSweepConfirmed());
+        trade.setDisplacementConfirmed(request.getDisplacementConfirmed());
+        trade.setMssConfirmed(request.getMssConfirmed());
+        trade.setSweepDepthPoints(request.getSweepDepthPoints());
+        trade.setDisplacementSizePoints(request.getDisplacementSizePoints());
+        trade.setTimeSweepToEntrySeconds(request.getTimeSweepToEntrySeconds());
+        trade.setMfePoints(request.getMfePoints());
+        trade.setMaePoints(request.getMaePoints());
+        trade.setLevelExpectationMet(request.getLevelExpectationMet());
+        trade.setLevelExpectation(normalizeOptionalText(request.getLevelExpectation()));
         trade.setFeeling(normalizeFeeling(request.getFeeling()));
         if (request.getRuleBreaks() != null) {
             trade.setRuleBreaks(normalizeRuleBreaks(request.getRuleBreaks()));
@@ -827,6 +859,22 @@ public class TradeService {
                 .ruleBreaks(trade.getRuleBreaks() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getRuleBreaks()))
                 .session(trade.getSession())
                 .sessionId(trade.getSessionId())
+                .sweepLevelId(trade.getSweepLevelId())
+                .sweepPoolId(trade.getSweepPoolId())
+                .entryLevelId(trade.getEntryLevelId())
+                .slLevelId(trade.getSlLevelId())
+                .tpLevelId(trade.getTpLevelId())
+                .narrativeSnapshotJson(trade.getNarrativeSnapshotJson())
+                .sweepConfirmed(trade.getSweepConfirmed())
+                .displacementConfirmed(trade.getDisplacementConfirmed())
+                .mssConfirmed(trade.getMssConfirmed())
+                .sweepDepthPoints(trade.getSweepDepthPoints())
+                .displacementSizePoints(trade.getDisplacementSizePoints())
+                .timeSweepToEntrySeconds(trade.getTimeSweepToEntrySeconds())
+                .mfePoints(trade.getMfePoints())
+                .maePoints(trade.getMaePoints())
+                .levelExpectationMet(trade.getLevelExpectationMet())
+                .levelExpectation(trade.getLevelExpectation())
                 .feeling(trade.getFeeling())
                 .linkedContentIds(trade.getLinkedContentIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedContentIds()))
                 .linkedPlanIds(trade.getLinkedPlanIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedPlanIds()))

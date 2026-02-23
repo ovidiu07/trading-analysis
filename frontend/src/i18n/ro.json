@@ -1119,10 +1119,27 @@
         "edit": "Editează nivel",
         "delete": "Șterge nivel",
         "label": "Etichetă",
+        "type": "Tip",
+        "timeframe": "Timeframe",
+        "status": "Status",
         "customLabel": "Etichetă custom",
         "price": "Preț",
         "category": "Categorie",
         "notes": "Notițe",
+        "strength": "Putere",
+        "expectation": "Așteptare",
+        "groups": {
+          "htfDraws": "Draw-uri HTF",
+          "sessionRange": "Range sesiune",
+          "liquidityPools": "Pool-uri de lichiditate",
+          "other": "Alte nivele"
+        },
+        "expectations": {
+          "MAGNET": "Magnet",
+          "SWEEP_THEN_DISPLACE": "Sweep apoi displacement",
+          "HOLD": "Hold",
+          "TARGET_ONLY": "Doar țintă"
+        },
         "categories": {
           "LIQUIDITY": "Lichiditate",
           "TARGET": "Țintă",
@@ -1145,6 +1162,69 @@
         "suggestFromPlan": "Sugerează nivele din plan",
         "suggested": "Nivelele sugerate au fost adăugate.",
         "autoCheckSweepPrompt": "Marchez și \"Liquidity sweep confirmed\" ca finalizat?"
+      },
+      "narrative": {
+        "title": "Narațiune lichiditate",
+        "draw": "Draw",
+        "manipulation": "Manipulare",
+        "confirmation": "Model confirmare",
+        "delivery": "Model livrare",
+        "notes": "Notițe narațiune",
+        "save": "Salvează narațiunea",
+        "saved": "Salvat",
+        "pending": "În așteptare",
+        "complete": "Narațiune completă",
+        "incomplete": "Narațiune incompletă"
+      },
+      "roles": {
+        "sweep": "Sweep",
+        "entry": "Entry",
+        "sl": "SL",
+        "tp": "TP"
+      },
+      "pools": {
+        "title": "Pool-uri de lichiditate",
+        "create": "Creează pool",
+        "edit": "Editează pool",
+        "empty": "Nu există pool-uri încă.",
+        "name": "Nume pool",
+        "zoneLow": "Zonă minimă",
+        "zoneHigh": "Zonă maximă",
+        "cleanliness": "Curățenie",
+        "setSweep": "Setează ca sweep pool",
+        "levels": "Nivele din pool"
+      },
+      "mobile": {
+        "viewMissing": "Vezi elementele lipsă"
+      },
+      "enums": {
+        "htfDraw": {
+          "PDH": "PDH",
+          "PDL": "PDL",
+          "WEEKLY_H": "Maxim săptămânal",
+          "WEEKLY_L": "Minim săptămânal",
+          "DAILY_SWING_HIGH": "Swing high zilnic",
+          "DAILY_SWING_LOW": "Swing low zilnic",
+          "OTHER": "Altul"
+        },
+        "manipulation": {
+          "RAID_UP": "Raid în sus",
+          "RAID_DOWN": "Raid în jos",
+          "NONE": "Fără"
+        },
+        "confirmation": {
+          "DISPLACEMENT_M5_MSS_M5": "Displacement M5 + MSS M5",
+          "DISPLACEMENT_M1_MSS_M1": "Displacement M1 + MSS M1",
+          "DISPLACEMENT_M15_MSS_M5": "Displacement M15 + MSS M5",
+          "OTHER": "Altul"
+        },
+        "delivery": {
+          "ASIA_RAID_LONDON_REVERSAL": "Raid Asia + reversare Londra",
+          "ASIA_RAID_LONDON_CONTINUATION": "Raid Asia + continuare Londra",
+          "LONDON_RAID_NY_REVERSAL": "Raid Londra + reversare NY",
+          "TREND_DAY": "Trend day",
+          "OTHER": "Altul"
+        }
       },
       "chart": {
         "bias": "Bias",
@@ -1330,13 +1410,15 @@
         "invalidation": "Greșesc dacă...",
         "rrBlocked": "RR este sub {{rr}}R. Startul este blocat până RR atinge pragul.",
         "setupQuality": "Scor calitate setup: {{score}}% ({{grade}})",
-        "autoGradeHint": "Inputuri pentru auto-grade: lock-in, prerechizite, triggere, RR, siguranță știri",
-        "completeHint": "Completează: Lock-in + elementele lipsă din checklist + invalidare"
+        "autoGradeHint": "Inputuri pentru auto-grade: lock-in, prerechizite, triggere, narațiune, roluri, RR, siguranță știri",
+        "completeHint": "Completează: lock-in + checklist-uri + narațiune + roluri + invalidare"
       },
       "requirements": {
         "title": "Cerințe execuție",
         "prereqs": "2) Prerechizite checklist",
         "triggers": "3) Triggere setup",
+        "narrative": "4) Narațiune lichiditate",
+        "roles": "5) Roluri nivele",
         "complete": "Complet",
         "lockInSessionSelection": "Selectare sesiune",
         "lockInDailyMaxLoss": "Pierdere maximă zilnică",

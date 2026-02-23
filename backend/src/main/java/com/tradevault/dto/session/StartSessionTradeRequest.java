@@ -70,4 +70,14 @@ public class StartSessionTradeRequest {
     private String entryInvalidation;
 
     private Set<UUID> entryScreenshotAssetIds;
+
+    private UUID sweepLevelId;
+
+    private UUID sweepPoolId;
+
+    private UUID entryLevelId;
+
+    private UUID slLevelId;
+
+    private UUID tpLevelId;
 }

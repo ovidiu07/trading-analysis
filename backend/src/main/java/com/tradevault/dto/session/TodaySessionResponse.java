@@ -36,7 +36,13 @@ public class TodaySessionResponse {
     String lockInBiasReason;
     OffsetDateTime lockInAt;
     UUID activeSweepLevelId;
+    UUID activeEntryLevelId;
+    UUID activeSlLevelId;
+    UUID activeTpLevelId;
+    UUID activeSweepPoolId;
     List<SessionLevelDto> levels;
+    List<SessionPoolDto> pools;
+    SessionNarrativeDto narrative;
     TradeResponse activeTrade;
     OffsetDateTime createdAt;
     OffsetDateTime updatedAt;

@@ -1,5 +1,6 @@
 package com.tradevault.dto.trade;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeGrade;
@@ -57,6 +58,22 @@ public class TradeRequest {
     private Set<String> ruleBreaks;
     private TradeSession session;
     private UUID sessionId;
+    private UUID sweepLevelId;
+    private UUID sweepPoolId;
+    private UUID entryLevelId;
+    private UUID slLevelId;
+    private UUID tpLevelId;
+    private JsonNode narrativeSnapshotJson;
+    private Boolean sweepConfirmed;
+    private Boolean displacementConfirmed;
+    private Boolean mssConfirmed;
+    private BigDecimal sweepDepthPoints;
+    private BigDecimal displacementSizePoints;
+    private Integer timeSweepToEntrySeconds;
+    private BigDecimal mfePoints;
+    private BigDecimal maePoints;
+    private Boolean levelExpectationMet;
+    private String levelExpectation;
     private String feeling;
     private Set<UUID> linkedContentIds;
     private Set<UUID> linkedPlanIds;

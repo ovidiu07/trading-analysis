@@ -112,23 +112,35 @@ import {
   closeTradeFromSession,
   deleteChecklistTemplate,
   deleteSessionLevel,
+  deleteSessionPool,
+  createSessionPool,
   getTodaySession,
+  getSessionNarrative,
   listChecklistTemplates,
+  listSessionPools,
   saveTodaySessionConfig,
   saveTradeEntryJournal,
-  setActiveSweepLevel,
+  setSessionRoles,
+  suggestSessionLevels,
   startTradeFromSession,
+  updateSessionNarrative,
+  updateSessionPool,
   updateChecklistTemplate,
   updateSessionLevel,
   updateTodaySessionChecklist,
   updateTodaySessionLockIn,
   updateTodaySessionPlannedTickers,
+  type LevelStatus,
+  type LevelTimeframe,
+  type LevelType,
   type ChecklistTemplateResponse,
   type ChecklistTemplateType,
   type ChecklistValueType,
   type SessionChecklistItem,
   type SessionLevel,
   type SessionLevelCategory,
+  type SessionNarrative,
+  type SessionPool,
   type TodaySessionResponse
 } from '../api/session'
 import { uploadAsset, type AssetItem } from '../api/assets'
@@ -228,6 +240,21 @@ type LevelDialogState = {
   price: string
   category: SessionLevelCategory
   notes: string
+}
+
+type PoolDialogState = {
+  open: boolean
+  editId: string | null
+  poolName: string
+  symbol: string
+  type: LevelType
+  timeframe: LevelTimeframe
+  zoneLow: string
+  zoneHigh: string
+  cleanlinessScore: string
+  status: LevelStatus
+  levelIds: string[]
+  sweepRole: boolean
 }
 
 type SessionChartMode = 'LIVE' | 'BACKTEST'
@@ -332,9 +359,51 @@ const readSessionLayoutState = (storageKey: string): SessionLayoutState => {
 
 const normalizeLevel = (value: string) => value.trim().toUpperCase()
 
+const inferLevelType = (label: string): LevelType => {
+  const normalized = normalizeLevel(label)
+  if (normalized === 'PDH') return 'PDH'
+  if (normalized === 'PDL') return 'PDL'
+  if (normalized === 'ASIAH' || normalized === 'ASIA_H') return 'ASIA_H'
+  if (normalized === 'ASIAL' || normalized === 'ASIA_L') return 'ASIA_L'
+  if (normalized === 'EQH') return 'EQH'
+  if (normalized === 'EQL') return 'EQL'
+  if (normalized === 'LONDONH' || normalized === 'LONDON_H') return 'LONDON_H'
+  if (normalized === 'LONDONL' || normalized === 'LONDON_L') return 'LONDON_L'
+  if (normalized === 'NYH' || normalized === 'NY_H') return 'NY_H'
+  if (normalized === 'NYL' || normalized === 'NY_L') return 'NY_L'
+  return 'OTHER'
+}
+
 const LEVEL_LABEL_OPTIONS = ['PDH', 'PDL', 'AsiaH', 'AsiaL', 'EQH', 'EQL', 'Custom'] as const
 
 const LEVEL_CATEGORY_OPTIONS: SessionLevelCategory[] = ['LIQUIDITY', 'TARGET', 'INVALIDATION', 'OTHER']
+const LEVEL_TYPE_OPTIONS: LevelType[] = [
+  'PDH',
+  'PDL',
+  'ASIA_H',
+  'ASIA_L',
+  'LONDON_H',
+  'LONDON_L',
+  'NY_H',
+  'NY_L',
+  'SESSION_H',
+  'SESSION_L',
+  'EQH',
+  'EQL',
+  'HTF_SWING_HIGH',
+  'HTF_SWING_LOW',
+  'OB_HIGH',
+  'OB_LOW',
+  'FVG_MID',
+  'OTHER'
+]
+const LEVEL_TIMEFRAME_OPTIONS: LevelTimeframe[] = ['W1', 'D1', 'H4', 'H1', 'M15', 'M5', 'M1']
+const LEVEL_STATUS_OPTIONS: LevelStatus[] = ['FRESH', 'TAPPED', 'SWEPT', 'RECLAIMED', 'INVALID']
+const LEVEL_EXPECTATION_OPTIONS = ['MAGNET', 'SWEEP_THEN_DISPLACE', 'HOLD', 'TARGET_ONLY'] as const
+const NARRATIVE_HTF_OPTIONS: SessionNarrative['htfDraw'][] = ['PDH', 'PDL', 'WEEKLY_H', 'WEEKLY_L', 'DAILY_SWING_HIGH', 'DAILY_SWING_LOW', 'OTHER']
+const NARRATIVE_MANIPULATION_OPTIONS: SessionNarrative['expectedManipulation'][] = ['RAID_UP', 'RAID_DOWN', 'NONE']
+const NARRATIVE_CONFIRMATION_OPTIONS: SessionNarrative['confirmationModel'][] = ['DISPLACEMENT_M5_MSS_M5', 'DISPLACEMENT_M1_MSS_M1', 'DISPLACEMENT_M15_MSS_M5', 'OTHER']
+const NARRATIVE_DELIVERY_OPTIONS: SessionNarrative['deliveryModel'][] = ['ASIA_RAID_LONDON_REVERSAL', 'ASIA_RAID_LONDON_CONTINUATION', 'LONDON_RAID_NY_REVERSAL', 'TREND_DAY', 'OTHER']
 
 const CHECKLIST_VALUE_TYPES: ChecklistValueType[] = ['TEXT', 'NUMBER', 'TIME']
 
@@ -606,7 +675,7 @@ export default function SessionPage() {
 
   const isCompactViewport = useMediaQuery('(max-width:900px)')
   const isMobileViewport = useMediaQuery('(max-width:600px)')
-  const isTinyViewport = useMediaQuery('(max-width:480px)')
+  const isTinyViewport = useMediaQuery('(max-width:430px)')
 
   const layoutStorageKey = useMemo(() => buildLayoutStorageKey(user?.id), [user?.id])
   const chartProfileStorageKey = useMemo(() => buildChartProfileStorageKey(user?.id), [user?.id])
@@ -646,7 +715,21 @@ export default function SessionPage() {
   const [prereqChecklist, setPrereqChecklist] = useState<SessionChecklistItem[]>([])
   const [triggerChecklist, setTriggerChecklist] = useState<SessionChecklistItem[]>([])
   const [sessionLevels, setSessionLevels] = useState<SessionLevel[]>([])
+  const [sessionPools, setSessionPools] = useState<SessionPool[]>([])
+  const [narrative, setNarrative] = useState<SessionNarrative>({
+    sessionId: '',
+    htfDraw: null,
+    expectedManipulation: null,
+    deliveryModel: null,
+    confirmationModel: 'DISPLACEMENT_M5_MSS_M5',
+    notes: ''
+  })
+  const [narrativeSaved, setNarrativeSaved] = useState(false)
   const [activeSweepLevelId, setActiveSweepLevelId] = useState<string | null>(null)
+  const [activeEntryLevelId, setActiveEntryLevelId] = useState<string | null>(null)
+  const [activeSlLevelId, setActiveSlLevelId] = useState<string | null>(null)
+  const [activeTpLevelId, setActiveTpLevelId] = useState<string | null>(null)
+  const [activeSweepPoolId, setActiveSweepPoolId] = useState<string | null>(null)
 
   const [checklistEditDialog, setChecklistEditDialog] = useState<ChecklistEditDialogState>({
     open: false,
@@ -669,6 +752,20 @@ export default function SessionPage() {
     price: '',
     category: 'LIQUIDITY',
     notes: ''
+  })
+  const [poolDialog, setPoolDialog] = useState<PoolDialogState>({
+    open: false,
+    editId: null,
+    poolName: '',
+    symbol: '',
+    type: 'OTHER',
+    timeframe: 'M15',
+    zoneLow: '',
+    zoneHigh: '',
+    cleanlinessScore: '3',
+    status: 'FRESH',
+    levelIds: [],
+    sweepRole: false
   })
   const [pricePickerTarget, setPricePickerTarget] = useState<'entry' | 'sl' | 'tp' | 'sweep' | null>(null)
   const [settingsEditOpen, setSettingsEditOpen] = useState(false)
@@ -898,8 +995,62 @@ export default function SessionPage() {
     setPrereqChecklist(normalizeChecklistItems(session.prereqsChecklistItems || []))
     setTriggerChecklist(normalizeChecklistItems(session.triggerChecklistItems || []))
     setSessionLevels(session.levels || [])
+    setSessionPools(session.pools || [])
     setActiveSweepLevelId(session.activeSweepLevelId || null)
+    setActiveEntryLevelId(session.activeEntryLevelId || null)
+    setActiveSlLevelId(session.activeSlLevelId || null)
+    setActiveTpLevelId(session.activeTpLevelId || null)
+    setActiveSweepPoolId(session.activeSweepPoolId || null)
+    setNarrative({
+      sessionId: session.id,
+      htfDraw: session.narrative?.htfDraw || null,
+      expectedManipulation: session.narrative?.expectedManipulation || null,
+      deliveryModel: session.narrative?.deliveryModel || null,
+      confirmationModel: session.narrative?.confirmationModel || 'DISPLACEMENT_M5_MSS_M5',
+      notes: session.narrative?.notes || ''
+    })
+    setNarrativeSaved(Boolean(session.narrative))
   }, [session])
+
+  useEffect(() => {
+    if (!session?.id) return
+    let cancelled = false
+    if (session.pools && session.narrative) return
+    void Promise.all([
+      listSessionPools(session.id),
+      getSessionNarrative(session.id)
+    ]).then(([pools, narrativeData]) => {
+      if (cancelled) return
+      if (!session.pools) {
+        setSessionPools(pools || [])
+      }
+      if (!session.narrative && narrativeData) {
+        setNarrative({
+          sessionId: session.id,
+          htfDraw: narrativeData.htfDraw || null,
+          expectedManipulation: narrativeData.expectedManipulation || null,
+          deliveryModel: narrativeData.deliveryModel || null,
+          confirmationModel: narrativeData.confirmationModel || 'DISPLACEMENT_M5_MSS_M5',
+          notes: narrativeData.notes || ''
+        })
+        setNarrativeSaved(true)
+      }
+    }).catch(() => undefined)
+    return () => {
+      cancelled = true
+    }
+  }, [session?.id, session?.narrative, session?.pools])
+
+  useEffect(() => {
+    if (!isMobileViewport) return
+    setLayoutState((prev) => ({
+      ...prev,
+      collapsed: {
+        ...prev.collapsed,
+        progress: true
+      }
+    }))
+  }, [isMobileViewport])
 
   useEffect(() => {
     if (!session) return
@@ -995,10 +1146,89 @@ export default function SessionPage() {
     }
   })
 
-  const setSweepLevelMutation = useMutation({
-    mutationFn: (levelId?: string | null) => setActiveSweepLevel(levelId),
+  const setRolesMutation = useMutation({
+    mutationFn: async (payload: Parameters<typeof setSessionRoles>[1]) => {
+      if (!session?.id) {
+        throw new Error('Session not available')
+      }
+      return setSessionRoles(session.id, payload)
+    },
     onSuccess: async (nextSession) => {
       queryClient.setQueryData(['todaySession'], nextSession)
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const narrativeMutation = useMutation({
+    mutationFn: async (payload: Parameters<typeof updateSessionNarrative>[1]) => {
+      if (!session?.id) {
+        throw new Error('Session not available')
+      }
+      return updateSessionNarrative(session.id, payload)
+    },
+    onSuccess: async () => {
+      setNarrativeSaved(true)
+      if (session?.id) {
+        const [freshNarrative, freshPools] = await Promise.all([
+          getSessionNarrative(session.id),
+          listSessionPools(session.id)
+        ])
+        setNarrative((prev) => ({
+          ...prev,
+          sessionId: session.id,
+          htfDraw: freshNarrative?.htfDraw || prev.htfDraw,
+          expectedManipulation: freshNarrative?.expectedManipulation || prev.expectedManipulation,
+          deliveryModel: freshNarrative?.deliveryModel || prev.deliveryModel,
+          confirmationModel: freshNarrative?.confirmationModel || prev.confirmationModel,
+          notes: freshNarrative?.notes || prev.notes
+        }))
+        setSessionPools(freshPools || [])
+      }
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const createPoolMutation = useMutation({
+    mutationFn: async (payload: Parameters<typeof createSessionPool>[1]) => {
+      if (!session?.id) {
+        throw new Error('Session not available')
+      }
+      return createSessionPool(session.id, payload)
+    },
+    onSuccess: async () => {
+      if (session?.id) {
+        setSessionPools(await listSessionPools(session.id))
+      }
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const updatePoolMutation = useMutation({
+    mutationFn: async ({ id, payload }: { id: string; payload: Parameters<typeof updateSessionPool>[2] }) => {
+      if (!session?.id) {
+        throw new Error('Session not available')
+      }
+      return updateSessionPool(session.id, id, payload)
+    },
+    onSuccess: async () => {
+      if (session?.id) {
+        setSessionPools(await listSessionPools(session.id))
+      }
+      await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
+    }
+  })
+
+  const deletePoolMutation = useMutation({
+    mutationFn: async (poolId: string) => {
+      if (!session?.id) {
+        throw new Error('Session not available')
+      }
+      return deleteSessionPool(session.id, poolId)
+    },
+    onSuccess: async () => {
+      if (session?.id) {
+        setSessionPools(await listSessionPools(session.id))
+      }
       await queryClient.invalidateQueries({ queryKey: ['todaySession'] })
     }
   })
@@ -1255,6 +1485,24 @@ export default function SessionPage() {
     () => sessionLevels.find((item) => item.id === activeSweepLevelId) || null,
     [activeSweepLevelId, sessionLevels]
   )
+  const selectedEntryLevel = useMemo(
+    () => sessionLevels.find((item) => item.id === activeEntryLevelId) || null,
+    [activeEntryLevelId, sessionLevels]
+  )
+  const selectedSlLevel = useMemo(
+    () => sessionLevels.find((item) => item.id === activeSlLevelId) || null,
+    [activeSlLevelId, sessionLevels]
+  )
+  const selectedTpLevel = useMemo(
+    () => sessionLevels.find((item) => item.id === activeTpLevelId) || null,
+    [activeTpLevelId, sessionLevels]
+  )
+  const selectedSweepPool = useMemo(
+    () => sessionPools.find((item) => item.id === activeSweepPoolId) || null,
+    [activeSweepPoolId, sessionPools]
+  )
+  const narrativeComplete = Boolean(narrative.htfDraw && narrative.expectedManipulation && narrative.confirmationModel)
+  const rolesComplete = Boolean((selectedSweepLevel || selectedSweepPool) && selectedEntryLevel && selectedSlLevel)
 
   const effectiveRiskInProfile = manualRisk ?? convertedRiskSnapshot ?? riskSnapshot.riskAmount
 
@@ -1285,11 +1533,17 @@ export default function SessionPage() {
   const redNewsItem = prereqChecklist.find((item) => item.text.toLowerCase().includes('red news'))
   const newsSafe = !newsCheckItem || (newsCheckItem.completed && !(redNewsItem?.value || '').trim())
 
-  const setupQualityChecks = [lockInComplete, prerequisitesComplete, triggersComplete, rrMet, newsSafe]
+  const setupQualityChecks = [lockInComplete, prerequisitesComplete, triggersComplete, narrativeComplete, rolesComplete, rrMet, newsSafe]
   const setupQualityScore = Math.round((setupQualityChecks.filter(Boolean).length / setupQualityChecks.length) * 100)
   const suggestedSetupGrade = setupQualityScore >= 95 ? 'A+' : (setupQualityScore >= 75 ? 'A' : 'B')
 
-  const canMeetExecutionGate = lockInComplete && prerequisitesComplete && triggersComplete && invalidationWritten && rrMet
+  const canMeetExecutionGate = lockInComplete
+    && prerequisitesComplete
+    && triggersComplete
+    && narrativeComplete
+    && rolesComplete
+    && invalidationWritten
+    && rrMet
   const canSessionTrade = Boolean(session && session.status === 'ACTIVE' && !session.activeTrade)
   const canStartTrade = canSessionTrade && canMeetExecutionGate
   const canScheduleTrade = canSessionTrade && canMeetExecutionGate
@@ -1312,6 +1566,34 @@ export default function SessionPage() {
       .map((item) => item.text),
     ...(!rrMet ? [`RR >= ${RR_THRESHOLD.toFixed(1)}R`] : [])
   ]
+
+  const missingNarrative = [
+    !narrative.htfDraw ? t('today.session.narrative.draw') : null,
+    !narrative.expectedManipulation ? t('today.session.narrative.manipulation') : null,
+    !narrative.confirmationModel ? t('today.session.narrative.confirmation') : null
+  ].filter(Boolean) as string[]
+
+  const missingRoles = [
+    !(selectedSweepLevel || selectedSweepPool) ? t('today.session.roles.sweep') : null,
+    !selectedEntryLevel ? t('today.session.roles.entry') : null,
+    !selectedSlLevel ? t('today.session.roles.sl') : null
+  ].filter(Boolean) as string[]
+
+  const groupedLevels = useMemo(() => {
+    const htfDrawTypes = new Set<LevelType>(['PDH', 'PDL', 'HTF_SWING_HIGH', 'HTF_SWING_LOW'])
+    const sessionRangeTypes = new Set<LevelType>(['ASIA_H', 'ASIA_L', 'LONDON_H', 'LONDON_L', 'NY_H', 'NY_L', 'SESSION_H', 'SESSION_L'])
+    const poolTypes = new Set<LevelType>(['EQH', 'EQL', 'OB_HIGH', 'OB_LOW', 'FVG_MID'])
+
+    return {
+      htf: sessionLevels.filter((level) => htfDrawTypes.has(level.type || inferLevelType(level.label))),
+      sessionRange: sessionLevels.filter((level) => sessionRangeTypes.has(level.type || inferLevelType(level.label))),
+      pool: sessionLevels.filter((level) => poolTypes.has(level.type || inferLevelType(level.label))),
+      other: sessionLevels.filter((level) => {
+        const type = level.type || inferLevelType(level.label)
+        return !htfDrawTypes.has(type) && !sessionRangeTypes.has(type) && !poolTypes.has(type)
+      })
+    }
+  }, [sessionLevels])
 
   const mentorInvalidation = useMemo(() => {
     const fromRiskNote = selectedPlan?.riskNote?.trim()
@@ -1683,9 +1965,16 @@ export default function SessionPage() {
     const rawLabel = levelDialog.label === 'Custom' ? levelDialog.customLabel : levelDialog.label
     const label = rawLabel.trim()
     if (!label) return
+    const symbol = planner.symbol.trim() ? planner.symbol.trim().toUpperCase() : null
+    const inferredType = inferLevelType(label)
     const payload = {
       label,
       price: levelDialog.price ? Number(levelDialog.price) : null,
+      symbol,
+      type: inferredType,
+      timeframe: 'M15' as LevelTimeframe,
+      status: 'FRESH' as LevelStatus,
+      strengthScore: 3,
       category: levelDialog.category,
       notes: levelDialog.notes || null
     }
@@ -1702,8 +1991,28 @@ export default function SessionPage() {
   }
 
   const handleSetSweepLevel = async (levelId?: string | null) => {
-    await setSweepLevelMutation.mutateAsync(levelId)
-    setActiveSweepLevelId(levelId || null)
+    const level = levelId ? sessionLevels.find((item) => item.id === levelId) : null
+    const symbol = level?.symbol || planner.symbol.trim().toUpperCase() || undefined
+    const nextSession = await setRolesMutation.mutateAsync({
+      symbol,
+      sweepLevelId: levelId ?? null
+    })
+    setActiveSweepLevelId(nextSession.activeSweepLevelId || null)
+    setActiveSweepPoolId(nextSession.activeSweepPoolId || null)
+  }
+
+  const handleAssignExecutionRole = async (target: 'entry' | 'sl' | 'tp', level: SessionLevel) => {
+    const symbol = level.symbol || planner.symbol.trim().toUpperCase() || undefined
+    const payload = {
+      symbol,
+      entryLevelId: target === 'entry' ? level.id : undefined,
+      slLevelId: target === 'sl' ? level.id : undefined,
+      tpLevelId: target === 'tp' ? level.id : undefined
+    }
+    const nextSession = await setRolesMutation.mutateAsync(payload)
+    setActiveEntryLevelId(nextSession.activeEntryLevelId || null)
+    setActiveSlLevelId(nextSession.activeSlLevelId || null)
+    setActiveTpLevelId(nextSession.activeTpLevelId || null)
   }
 
   const handleMarkLevelSwept = async (level: SessionLevel, swept: boolean) => {
@@ -1740,28 +2049,156 @@ export default function SessionPage() {
 
     if (target === 'entry') {
       setPlanner((prev) => ({ ...prev, entryPrice: String(nextPrice) }))
+      await handleAssignExecutionRole('entry', level)
       return
     }
     if (target === 'sl') {
       setPlanner((prev) => ({ ...prev, stopLossPrice: String(nextPrice) }))
+      await handleAssignExecutionRole('sl', level)
       return
     }
     setPlanner((prev) => ({ ...prev, takeProfitPrice: String(nextPrice) }))
+    await handleAssignExecutionRole('tp', level)
+  }
+
+  const handleSaveNarrative = async () => {
+    if (!session) return
+    await narrativeMutation.mutateAsync({
+      htfDraw: narrative.htfDraw || null,
+      expectedManipulation: narrative.expectedManipulation || null,
+      deliveryModel: narrative.deliveryModel || null,
+      confirmationModel: narrative.confirmationModel || null,
+      notes: narrative.notes?.trim() || null
+    })
+    setSuccessMessage(t('today.session.narrative.saved'))
+  }
+
+  const openPoolDialog = (pool?: SessionPool) => {
+    if (!pool) {
+      setPoolDialog({
+        open: true,
+        editId: null,
+        poolName: '',
+        symbol: planner.symbol.trim().toUpperCase() || '',
+        type: 'OTHER',
+        timeframe: 'M15',
+        zoneLow: '',
+        zoneHigh: '',
+        cleanlinessScore: '3',
+        status: 'FRESH',
+        levelIds: sessionLevels.slice(0, 2).map((item) => item.id),
+        sweepRole: false
+      })
+      return
+    }
+    setPoolDialog({
+      open: true,
+      editId: pool.id,
+      poolName: pool.poolName,
+      symbol: pool.symbol || planner.symbol.trim().toUpperCase() || '',
+      type: pool.type,
+      timeframe: pool.timeframe,
+      zoneLow: String(pool.zoneLow),
+      zoneHigh: String(pool.zoneHigh),
+      cleanlinessScore: String(pool.cleanlinessScore ?? 3),
+      status: pool.status,
+      levelIds: pool.levelIds || [],
+      sweepRole: Boolean(pool.sweepRole)
+    })
+  }
+
+  const handleSavePool = async () => {
+    if (!session?.id) return
+    const zoneLow = Number(poolDialog.zoneLow)
+    const zoneHigh = Number(poolDialog.zoneHigh)
+    if (!poolDialog.poolName.trim() || !poolDialog.symbol.trim() || !Number.isFinite(zoneLow) || !Number.isFinite(zoneHigh)) {
+      return
+    }
+    const payload = {
+      poolName: poolDialog.poolName.trim(),
+      symbol: poolDialog.symbol.trim().toUpperCase(),
+      type: poolDialog.type,
+      timeframe: poolDialog.timeframe,
+      zoneLow,
+      zoneHigh,
+      cleanlinessScore: Number(poolDialog.cleanlinessScore) || 3,
+      status: poolDialog.status,
+      sweepRole: poolDialog.sweepRole,
+      levelIds: poolDialog.levelIds
+    }
+
+    if (poolDialog.editId) {
+      await updatePoolMutation.mutateAsync({ id: poolDialog.editId, payload })
+    } else {
+      await createPoolMutation.mutateAsync(payload)
+    }
+    setPoolDialog((prev) => ({ ...prev, open: false }))
+  }
+
+  const handleDeletePool = async (poolId: string) => {
+    await deletePoolMutation.mutateAsync(poolId)
+  }
+
+  const handleSetSweepPool = async (pool: SessionPool) => {
+    if (!session?.id) return
+    const nextSession = await setRolesMutation.mutateAsync({
+      symbol: pool.symbol,
+      sweepPoolId: pool.id
+    })
+    setActiveSweepPoolId(nextSession.activeSweepPoolId || null)
+    setActiveSweepLevelId(nextSession.activeSweepLevelId || null)
   }
 
   const handleSuggestLevelsFromPlan = async () => {
-    const suggestions = parsePlanLevelSuggestions(selectedPlan)
-    if (!suggestions.length) return
-    const existing = new Set(sessionLevels.map((level) => normalizeLevel(level.label)))
-    const missing = suggestions.filter((item) => !existing.has(normalizeLevel(item)))
-    if (!missing.length) return
-    await Promise.all(
-      missing.map((label) => createLevelMutation.mutateAsync({
-        label,
-        category: 'LIQUIDITY',
-        notes: null
-      }))
-    )
+    if (!session?.id) return
+    const symbol = planner.symbol.trim().toUpperCase() || selectedPlan?.tradingViewSymbol || undefined
+    const backendSuggestions = await suggestSessionLevels(session.id, symbol)
+    const planSuggestions = parsePlanLevelSuggestions(selectedPlan).map((label) => ({
+      label,
+      type: inferLevelType(label),
+      timeframe: 'M15' as LevelTimeframe,
+      reason: 'Mentor plan level',
+      confidence: 0.5
+    }))
+
+    const existing = new Set(sessionLevels.map((level) => `${level.type || inferLevelType(level.label)}:${level.price ?? ''}:${level.zoneLow ?? ''}:${level.zoneHigh ?? ''}`))
+    const merged = [
+      ...backendSuggestions.map((item) => ({
+        label: item.type,
+        type: item.type,
+        timeframe: item.timeframe,
+        price: item.price ?? null,
+        zoneLow: item.zoneLow ?? null,
+        zoneHigh: item.zoneHigh ?? null,
+        reason: item.reason,
+        confidence: item.confidence
+      })),
+      ...planSuggestions
+    ]
+
+    const accepted = merged
+      .filter((item) => item.confidence >= 0.55 || item.reason === 'Mentor plan level')
+      .filter((item) => !existing.has(`${item.type}:${item.price ?? ''}:${item.zoneLow ?? ''}:${item.zoneHigh ?? ''}`))
+      .slice(0, 6)
+
+    if (!accepted.length) return
+
+    await Promise.all(accepted.map((item) => createLevelMutation.mutateAsync({
+      label: item.label,
+      symbol: symbol || null,
+      type: item.type,
+      timeframe: item.timeframe,
+      price: item.price ?? null,
+      zoneLow: item.zoneLow ?? null,
+      zoneHigh: item.zoneHigh ?? null,
+      originRule: item.reason,
+      strengthScore: Math.max(1, Math.min(5, Math.round((item.confidence || 0.5) * 5))),
+      status: 'FRESH',
+      expectation: 'MAGNET',
+      category: 'LIQUIDITY',
+      notes: null
+    })))
+
     setSuccessMessage(t('today.session.levels.suggested'))
   }
 
@@ -2384,6 +2821,8 @@ export default function SessionPage() {
           setupQualityScore,
           prerequisitesComplete,
           triggersComplete,
+          narrativeComplete,
+          rolesComplete,
           rrMet,
           newsSafe
         }
@@ -2415,7 +2854,12 @@ export default function SessionPage() {
       initialNotes: planner.notes || undefined,
       entryJournalText: planner.notes.trim() || t('today.session.entryJournal.defaultText'),
       entryInvalidation: planner.invalidation.trim(),
-      entryScreenshotAssetIds: attachedScreenshots.map((asset) => asset.id)
+      entryScreenshotAssetIds: attachedScreenshots.map((asset) => asset.id),
+      sweepLevelId: activeSweepLevelId || undefined,
+      sweepPoolId: activeSweepPoolId || undefined,
+      entryLevelId: activeEntryLevelId || undefined,
+      slLevelId: activeSlLevelId || undefined,
+      tpLevelId: activeTpLevelId || undefined
     }
 
     await startTradeMutation.mutateAsync(payload)
@@ -2506,7 +2950,16 @@ export default function SessionPage() {
   const hiddenKeyLevelsCount = Math.max(0, levelLabels.length - visibleKeyLevels.length)
 
   return (
-    <Stack spacing={2.5} sx={{ minWidth: 0, overflowX: 'clip', pb: 'max(8px, env(safe-area-inset-bottom))' }}>
+    <Stack
+      spacing={2.5}
+      sx={{
+        minWidth: 0,
+        overflowX: 'clip',
+        pb: isMobileViewport
+          ? 'max(96px, calc(72px + env(safe-area-inset-bottom)))'
+          : 'max(8px, env(safe-area-inset-bottom))'
+      }}
+    >
       <Stack
         direction={{ xs: 'column', md: 'row' }}
         spacing={1.5}
@@ -2521,7 +2974,7 @@ export default function SessionPage() {
             {t('today.session.subtitle')}
           </Typography>
         </Box>
-        <Stack direction="row" spacing={1}>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
           <Button
             variant={layoutState.preset === 'execution' ? 'contained' : 'outlined'}
             startIcon={<CenterFocusStrongRoundedIcon />}
@@ -2546,7 +2999,7 @@ export default function SessionPage() {
 
       <Card>
         <CardContent sx={{ py: 1.5 }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
             {[
               { id: 1, label: t('today.session.steps.lockIn') },
               { id: 2, label: t('today.session.steps.checklist') },
@@ -2930,7 +3383,11 @@ export default function SessionPage() {
                                   {t('today.session.levels.selectSweep')}
                                 </Button>
                                 <Typography variant="caption" color="text.secondary">
-                                  {selectedSweepLevel ? t('today.session.levels.selectedSweep', { label: selectedSweepLevel.label }) : t('today.session.levels.noSweep')}
+                                  {selectedSweepLevel
+                                    ? t('today.session.levels.selectedSweep', { label: selectedSweepLevel.label })
+                                    : selectedSweepPool
+                                      ? t('today.session.levels.selectedSweep', { label: selectedSweepPool.poolName })
+                                      : t('today.session.levels.noSweep')}
                                 </Typography>
                               </Stack>
                               {triggerChecklist.map((item) => (
@@ -3065,14 +3522,134 @@ export default function SessionPage() {
                             <Chip size="small" variant="outlined" label={`${t('today.session.chart.modeLabel')}: ${chartModeLabel}`} />
                             <Chip size="small" label={`${t('today.session.chart.local')}: ${localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
                             <Chip size="small" color={newsSafe ? 'success' : 'warning'} label={newsSafe ? t('today.session.chart.newsSafe') : t('today.session.chart.newsCaution')} />
-                            {selectedSweepLevel && (
+                            {(selectedSweepLevel || selectedSweepPool) && (
                               <Chip
                                 size="small"
                                 color="info"
-                                label={t('today.session.levels.selectedSweep', { label: selectedSweepLevel.label })}
+                                label={t('today.session.levels.selectedSweep', { label: selectedSweepLevel?.label || selectedSweepPool?.poolName || '' })}
                               />
                             )}
                           </Stack>
+
+                          <Box sx={{ p: 1, border: '1px solid', borderColor: narrativeComplete ? 'success.light' : 'divider', borderRadius: 1.5 }}>
+                            <Stack spacing={1}>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap>
+                                <Typography variant="subtitle2">{t('today.session.narrative.title')}</Typography>
+                                <Chip
+                                  size="small"
+                                  color={narrativeSaved ? 'success' : 'default'}
+                                  label={narrativeSaved ? t('today.session.narrative.saved') : t('today.session.narrative.pending')}
+                                />
+                              </Stack>
+                              <Grid container spacing={1}>
+                                <Grid item xs={12} sm={6} md={3}>
+                                  <TextField
+                                    select
+                                    size="small"
+                                    label={t('today.session.narrative.draw')}
+                                    value={narrative.htfDraw || ''}
+                                    onChange={(event) => {
+                                      setNarrative((prev) => ({ ...prev, htfDraw: (event.target.value || null) as SessionNarrative['htfDraw'] }))
+                                      setNarrativeSaved(false)
+                                    }}
+                                    fullWidth
+                                  >
+                                    <MenuItem value="">{t('common.none')}</MenuItem>
+                                    {NARRATIVE_HTF_OPTIONS.map((option) => (
+                                      <MenuItem key={option} value={option}>{t(`today.session.enums.htfDraw.${option}`)}</MenuItem>
+                                    ))}
+                                  </TextField>
+                                </Grid>
+                                <Grid item xs={12} sm={6} md={3}>
+                                  <TextField
+                                    select
+                                    size="small"
+                                    label={t('today.session.narrative.manipulation')}
+                                    value={narrative.expectedManipulation || ''}
+                                    onChange={(event) => {
+                                      setNarrative((prev) => ({ ...prev, expectedManipulation: (event.target.value || null) as SessionNarrative['expectedManipulation'] }))
+                                      setNarrativeSaved(false)
+                                    }}
+                                    fullWidth
+                                  >
+                                    <MenuItem value="">{t('common.none')}</MenuItem>
+                                    {NARRATIVE_MANIPULATION_OPTIONS.map((option) => (
+                                      <MenuItem key={option} value={option}>{t(`today.session.enums.manipulation.${option}`)}</MenuItem>
+                                    ))}
+                                  </TextField>
+                                </Grid>
+                                <Grid item xs={12} sm={6} md={3}>
+                                  <TextField
+                                    select
+                                    size="small"
+                                    label={t('today.session.narrative.confirmation')}
+                                    value={narrative.confirmationModel || 'DISPLACEMENT_M5_MSS_M5'}
+                                    onChange={(event) => {
+                                      setNarrative((prev) => ({ ...prev, confirmationModel: (event.target.value || null) as SessionNarrative['confirmationModel'] }))
+                                      setNarrativeSaved(false)
+                                    }}
+                                    fullWidth
+                                  >
+                                    {NARRATIVE_CONFIRMATION_OPTIONS.map((option) => (
+                                      <MenuItem key={option} value={option}>{t(`today.session.enums.confirmation.${option}`)}</MenuItem>
+                                    ))}
+                                  </TextField>
+                                </Grid>
+                                <Grid item xs={12} sm={6} md={3}>
+                                  <TextField
+                                    select
+                                    size="small"
+                                    label={t('today.session.narrative.delivery')}
+                                    value={narrative.deliveryModel || ''}
+                                    onChange={(event) => {
+                                      setNarrative((prev) => ({ ...prev, deliveryModel: (event.target.value || null) as SessionNarrative['deliveryModel'] }))
+                                      setNarrativeSaved(false)
+                                    }}
+                                    fullWidth
+                                  >
+                                    <MenuItem value="">{t('common.none')}</MenuItem>
+                                    {NARRATIVE_DELIVERY_OPTIONS.map((option) => (
+                                      <MenuItem key={option} value={option}>{t(`today.session.enums.delivery.${option}`)}</MenuItem>
+                                    ))}
+                                  </TextField>
+                                </Grid>
+                                <Grid item xs={12}>
+                                  <TextField
+                                    size="small"
+                                    label={t('today.session.narrative.notes')}
+                                    value={narrative.notes || ''}
+                                    onChange={(event) => {
+                                      setNarrative((prev) => ({ ...prev, notes: event.target.value.slice(0, 400) }))
+                                      setNarrativeSaved(false)
+                                    }}
+                                    fullWidth
+                                  />
+                                </Grid>
+                              </Grid>
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} justifyContent="space-between" alignItems={{ sm: 'center' }}>
+                                <Typography variant="caption" color={narrativeComplete ? 'success.main' : 'text.secondary'}>
+                                  {narrativeComplete ? t('today.session.narrative.complete') : t('today.session.narrative.incomplete')}
+                                </Typography>
+                                <Button
+                                  size="small"
+                                  variant="contained"
+                                  onClick={() => void handleSaveNarrative()}
+                                  disabled={narrativeMutation.isLoading}
+                                >
+                                  {narrativeMutation.isLoading ? t('today.session.config.saving') : t('today.session.narrative.save')}
+                                </Button>
+                              </Stack>
+                            </Stack>
+                          </Box>
+
+                          <Box sx={{ p: 1, border: '1px solid', borderColor: rolesComplete ? 'success.light' : 'divider', borderRadius: 1.5 }}>
+                            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} flexWrap="wrap" useFlexGap>
+                              <Chip size="small" color={selectedSweepLevel || selectedSweepPool ? 'info' : 'default'} label={`${t('today.session.roles.sweep')}: ${(selectedSweepLevel?.label || selectedSweepPool?.poolName || t('common.none'))}`} />
+                              <Chip size="small" color={selectedEntryLevel ? 'success' : 'default'} label={`${t('today.session.roles.entry')}: ${(selectedEntryLevel?.label || t('common.none'))}`} />
+                              <Chip size="small" color={selectedSlLevel ? 'warning' : 'default'} label={`${t('today.session.roles.sl')}: ${(selectedSlLevel?.label || t('common.none'))}`} />
+                              <Chip size="small" color={selectedTpLevel ? 'secondary' : 'default'} label={`${t('today.session.roles.tp')}: ${(selectedTpLevel?.label || t('common.none'))}`} />
+                            </Stack>
+                          </Box>
 
                           <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                             {visibleKeyLevels.map((level) => (
@@ -3090,6 +3667,9 @@ export default function SessionPage() {
                             <Button size="small" variant="outlined" onClick={() => void handleSuggestLevelsFromPlan()}>
                               {t('today.session.levels.suggestFromPlan')}
                             </Button>
+                            <Button size="small" variant="outlined" onClick={() => openPoolDialog()}>
+                              {t('today.session.pools.create')}
+                            </Button>
                             <Button size="small" variant="outlined" startIcon={<PhotoCameraBackRoundedIcon />} onClick={() => setScreenshotDialogOpen(true)}>
                               {t('today.session.chart.attachScreenshot')}
                             </Button>
@@ -3103,52 +3683,135 @@ export default function SessionPage() {
                             {sessionLevels.length === 0 ? (
                               <Typography variant="caption" color="text.secondary">{t('today.session.levels.empty')}</Typography>
                             ) : (
-                              sessionLevels.map((level) => (
-                                <Box
-                                  key={level.id}
-                                  sx={{ p: 0.9, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}
-                                >
-                                  <Stack spacing={0.8}>
-                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }} justifyContent="space-between">
-                                      <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                                        <Chip size="small" label={level.label} />
-                                        {level.price != null && (
-                                          <Chip size="small" variant="outlined" label={formatNumber(level.price, 4)} />
-                                        )}
-                                        <Chip size="small" variant="outlined" label={t(`today.session.levels.categories.${level.category}`)} />
-                                        {level.sweptAt && (
-                                          <Chip size="small" color="success" label={t('today.session.levels.swept')} />
-                                        )}
+                              ([
+                                ['htf', t('today.session.levels.groups.htfDraws')],
+                                ['sessionRange', t('today.session.levels.groups.sessionRange')],
+                                ['pool', t('today.session.levels.groups.liquidityPools')],
+                                ['other', t('today.session.levels.groups.other')]
+                              ] as const).map(([key, groupLabel]) => {
+                                const levels = groupedLevels[key]
+                                if (!levels.length) return null
+                                return (
+                                  <Accordion key={key} disableGutters sx={{ bgcolor: 'transparent' }} defaultExpanded={!isMobileViewport}>
+                                    <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
+                                      <Stack direction="row" spacing={1} alignItems="center">
+                                        <Typography variant="body2">{groupLabel}</Typography>
+                                        <Chip size="small" variant="outlined" label={levels.length} />
+                                      </Stack>
+                                    </AccordionSummary>
+                                    <AccordionDetails>
+                                      <Stack spacing={0.75}>
+                                        {levels.map((level) => (
+                                          <Box
+                                            key={level.id}
+                                            sx={{ p: 0.9, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}
+                                          >
+                                            <Stack spacing={0.8}>
+                                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }} justifyContent="space-between">
+                                                <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap sx={{ minWidth: 0 }}>
+                                                  <Chip size="small" label={level.label} sx={{ maxWidth: '100%' }} />
+                                                  <Chip size="small" variant="outlined" label={level.type || inferLevelType(level.label)} />
+                                                  <Chip size="small" variant="outlined" label={level.timeframe || 'M15'} />
+                                                  <Chip size="small" variant="outlined" label={level.status || (level.sweptAt ? 'SWEPT' : 'FRESH')} />
+                                                  {level.price != null && (
+                                                    <Chip size="small" variant="outlined" label={formatNumber(level.price, 4)} />
+                                                  )}
+                                                </Stack>
+                                                <Stack direction="row" spacing={0.5}>
+                                                  <Tooltip title={t('today.session.levels.edit')}>
+                                                    <IconButton size="small" onClick={() => openLevelDialog(level)}>
+                                                      <InfoOutlinedIcon fontSize="small" />
+                                                    </IconButton>
+                                                  </Tooltip>
+                                                  <Tooltip title={t('today.session.levels.delete')}>
+                                                    <IconButton size="small" onClick={() => void handleDeleteLevel(level.id)}>
+                                                      <DeleteOutlineRoundedIcon fontSize="small" />
+                                                    </IconButton>
+                                                  </Tooltip>
+                                                </Stack>
+                                              </Stack>
+                                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} alignItems={{ sm: 'center' }} flexWrap="wrap" useFlexGap>
+                                                <Typography variant="caption" color="text.secondary">
+                                                  {t('today.session.levels.strength')}: {level.strengthScore ?? 3}/5
+                                                </Typography>
+                                                {level.originRule && (
+                                                  <Typography variant="caption" color="text.secondary" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                                    {level.originRule}
+                                                  </Typography>
+                                                )}
+                                              </Stack>
+                                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} flexWrap="wrap" useFlexGap>
+                                                <Button size="small" variant="text" onClick={() => void handleSetSweepLevel(level.id)}>
+                                                  {t('today.session.levels.setSweep')}
+                                                </Button>
+                                                <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('entry', level)}>
+                                                  {t('today.session.levels.useAsEntry')}
+                                                </Button>
+                                                <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('sl', level)}>
+                                                  {t('today.session.levels.useAsSl')}
+                                                </Button>
+                                                <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('tp', level)}>
+                                                  {t('today.session.levels.useAsTp')}
+                                                </Button>
+                                                <Button size="small" variant="text" onClick={() => void handleMarkLevelSwept(level, !level.sweptAt)}>
+                                                  {level.sweptAt ? t('today.session.levels.unmarkSwept') : t('today.session.levels.markSwept')}
+                                                </Button>
+                                                <FormControl size="small" sx={{ minWidth: 160 }}>
+                                                  <InputLabel>{t('today.session.levels.expectation')}</InputLabel>
+                                                  <Select
+                                                    label={t('today.session.levels.expectation')}
+                                                    value={level.expectation || ''}
+                                                    onChange={(event) => {
+                                                      void updateLevelMutation.mutateAsync({
+                                                        id: level.id,
+                                                        payload: {
+                                                          label: level.label,
+                                                          price: level.price ?? null,
+                                                          category: level.category,
+                                                          notes: level.notes ?? null,
+                                                          expectation: event.target.value || null
+                                                        }
+                                                      })
+                                                    }}
+                                                  >
+                                                    <MenuItem value="">{t('common.none')}</MenuItem>
+                                                    {LEVEL_EXPECTATION_OPTIONS.map((option) => (
+                                                      <MenuItem key={option} value={option}>{t(`today.session.levels.expectations.${option}`)}</MenuItem>
+                                                    ))}
+                                                  </Select>
+                                                </FormControl>
+                                              </Stack>
+                                            </Stack>
+                                          </Box>
+                                        ))}
+                                      </Stack>
+                                    </AccordionDetails>
+                                  </Accordion>
+                                )
+                              })
+                            )}
+                          </Stack>
+
+                          <Stack spacing={0.75}>
+                            <Typography variant="subtitle2">{t('today.session.pools.title')}</Typography>
+                            {sessionPools.length === 0 ? (
+                              <Typography variant="caption" color="text.secondary">{t('today.session.pools.empty')}</Typography>
+                            ) : (
+                              sessionPools.map((pool) => (
+                                <Box key={pool.id} sx={{ p: 0.9, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}>
+                                  <Stack spacing={0.75}>
+                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} justifyContent="space-between" alignItems={{ sm: 'center' }}>
+                                      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                                        <Chip size="small" label={pool.poolName} />
+                                        <Chip size="small" variant="outlined" label={`${formatNumber(pool.zoneLow, 4)} - ${formatNumber(pool.zoneHigh, 4)}`} />
+                                        <Chip size="small" variant="outlined" label={pool.status} />
+                                        <Chip size="small" variant="outlined" label={`${t('today.session.pools.cleanliness')}: ${pool.cleanlinessScore}/5`} />
                                       </Stack>
                                       <Stack direction="row" spacing={0.5}>
-                                        <Tooltip title={t('today.session.levels.edit')}>
-                                          <IconButton size="small" onClick={() => openLevelDialog(level)}>
-                                            <InfoOutlinedIcon fontSize="small" />
-                                          </IconButton>
-                                        </Tooltip>
-                                        <Tooltip title={t('today.session.levels.delete')}>
-                                          <IconButton size="small" onClick={() => void handleDeleteLevel(level.id)}>
-                                            <DeleteOutlineRoundedIcon fontSize="small" />
-                                          </IconButton>
-                                        </Tooltip>
+                                        <Button size="small" variant="text" onClick={() => void handleSetSweepPool(pool)}>{t('today.session.pools.setSweep')}</Button>
+                                        <Button size="small" variant="text" onClick={() => openPoolDialog(pool)}>{t('today.session.levels.edit')}</Button>
+                                        <Button size="small" color="error" variant="text" onClick={() => void handleDeletePool(pool.id)}>{t('today.session.levels.delete')}</Button>
                                       </Stack>
-                                    </Stack>
-                                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.5} flexWrap="wrap" useFlexGap>
-                                      <Button size="small" variant="text" onClick={() => void handleSetSweepLevel(level.id)}>
-                                        {t('today.session.levels.setSweep')}
-                                      </Button>
-                                      <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('entry', level)}>
-                                        {t('today.session.levels.useAsEntry')}
-                                      </Button>
-                                      <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('sl', level)}>
-                                        {t('today.session.levels.useAsSl')}
-                                      </Button>
-                                      <Button size="small" variant="text" onClick={() => void handleUseLevelPrice('tp', level)}>
-                                        {t('today.session.levels.useAsTp')}
-                                      </Button>
-                                      <Button size="small" variant="text" onClick={() => void handleMarkLevelSwept(level, !level.sweptAt)}>
-                                        {level.sweptAt ? t('today.session.levels.unmarkSwept') : t('today.session.levels.markSwept')}
-                                      </Button>
                                     </Stack>
                                   </Stack>
                                 </Box>
@@ -4125,10 +4788,16 @@ export default function SessionPage() {
                                     fullWidth
                                     size="small"
                                     required
+                                    InputLabelProps={{ shrink: true }}
                                     InputProps={{
                                       endAdornment: (
-                                        <InputAdornment position="end">
-                                          <Button size="small" onClick={() => setPricePickerTarget('entry')}>
+                                        <InputAdornment position="end" data-testid="entry-price-adornment">
+                                          <Button
+                                            size="small"
+                                            variant="text"
+                                            onClick={() => setPricePickerTarget('entry')}
+                                            sx={{ minWidth: 0, px: 0.75, whiteSpace: 'nowrap' }}
+                                          >
                                             {t('today.session.levels.pickFromLevels')}
                                           </Button>
                                         </InputAdornment>
@@ -4145,10 +4814,16 @@ export default function SessionPage() {
                                     fullWidth
                                     size="small"
                                     required
+                                    InputLabelProps={{ shrink: true }}
                                     InputProps={{
                                       endAdornment: (
-                                        <InputAdornment position="end">
-                                          <Button size="small" onClick={() => setPricePickerTarget('sl')}>
+                                        <InputAdornment position="end" data-testid="sl-price-adornment">
+                                          <Button
+                                            size="small"
+                                            variant="text"
+                                            onClick={() => setPricePickerTarget('sl')}
+                                            sx={{ minWidth: 0, px: 0.75, whiteSpace: 'nowrap' }}
+                                          >
                                             {t('today.session.levels.pickFromLevels')}
                                           </Button>
                                         </InputAdornment>
@@ -4164,10 +4839,16 @@ export default function SessionPage() {
                                     onChange={(event) => setPlanner((prev) => ({ ...prev, takeProfitPrice: event.target.value }))}
                                     fullWidth
                                     size="small"
+                                    InputLabelProps={{ shrink: true }}
                                     InputProps={{
                                       endAdornment: (
-                                        <InputAdornment position="end">
-                                          <Button size="small" onClick={() => setPricePickerTarget('tp')}>
+                                        <InputAdornment position="end" data-testid="tp-price-adornment">
+                                          <Button
+                                            size="small"
+                                            variant="text"
+                                            onClick={() => setPricePickerTarget('tp')}
+                                            sx={{ minWidth: 0, px: 0.75, whiteSpace: 'nowrap' }}
+                                          >
                                             {t('today.session.levels.pickFromLevels')}
                                           </Button>
                                         </InputAdornment>
@@ -4404,6 +5085,49 @@ export default function SessionPage() {
             )}
           </Box>
         </>
+      )}
+
+      {session && isMobileViewport && (
+        <Box
+          sx={{
+            position: 'fixed',
+            left: 0,
+            right: 0,
+            bottom: 0,
+            zIndex: 1300,
+            px: 1,
+            py: 1,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.paper'
+          }}
+        >
+          <Stack direction="row" spacing={1}>
+            <Button
+              variant="outlined"
+              size="small"
+              fullWidth
+              onClick={() => setMissingModalOpen(true)}
+            >
+              {t('today.session.mobile.viewMissing')}
+            </Button>
+            {!session.activeTrade ? (
+              <Button
+                variant="contained"
+                size="small"
+                fullWidth
+                onClick={handleStartTrade}
+                disabled={!canStartTrade || startTradeMutation.isLoading}
+              >
+                {startTradeMutation.isLoading ? t('today.session.planner.startingTrade') : t('today.session.planner.startTrade')}
+              </Button>
+            ) : (
+              <Button variant="outlined" color="error" size="small" fullWidth onClick={() => setCloseFormOpen((prev) => !prev)}>
+                {t('today.session.planner.stopTrade')}
+              </Button>
+            )}
+          </Stack>
+        </Box>
       )}
 
       <Dialog open={settingsEditOpen} onClose={() => setSettingsEditOpen(false)} fullWidth maxWidth="sm">
@@ -4760,6 +5484,127 @@ export default function SessionPage() {
         </DialogActions>
       </Dialog>
 
+      <Dialog open={poolDialog.open} onClose={() => setPoolDialog((prev) => ({ ...prev, open: false }))} fullWidth maxWidth="sm" fullScreen={isMobileViewport}>
+        <DialogTitle>{poolDialog.editId ? t('today.session.pools.edit') : t('today.session.pools.create')}</DialogTitle>
+        <DialogContent dividers>
+          <Stack spacing={1}>
+            <TextField
+              size="small"
+              label={t('today.session.pools.name')}
+              value={poolDialog.poolName}
+              onChange={(event) => setPoolDialog((prev) => ({ ...prev, poolName: event.target.value }))}
+              fullWidth
+            />
+            <TextField
+              size="small"
+              label={t('trades.form.symbol')}
+              value={poolDialog.symbol}
+              onChange={(event) => setPoolDialog((prev) => ({ ...prev, symbol: event.target.value }))}
+              fullWidth
+            />
+            <Grid container spacing={1}>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  select
+                  size="small"
+                  label={t('today.session.levels.type')}
+                  value={poolDialog.type}
+                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, type: event.target.value as LevelType }))}
+                  fullWidth
+                >
+                  {LEVEL_TYPE_OPTIONS.map((option) => (
+                    <MenuItem key={option} value={option}>{option}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  select
+                  size="small"
+                  label={t('today.session.levels.timeframe')}
+                  value={poolDialog.timeframe}
+                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, timeframe: event.target.value as LevelTimeframe }))}
+                  fullWidth
+                >
+                  {LEVEL_TIMEFRAME_OPTIONS.map((option) => (
+                    <MenuItem key={option} value={option}>{option}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  size="small"
+                  type="number"
+                  label={t('today.session.pools.zoneLow')}
+                  value={poolDialog.zoneLow}
+                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, zoneLow: event.target.value }))}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  size="small"
+                  type="number"
+                  label={t('today.session.pools.zoneHigh')}
+                  value={poolDialog.zoneHigh}
+                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, zoneHigh: event.target.value }))}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  size="small"
+                  type="number"
+                  label={t('today.session.pools.cleanliness')}
+                  value={poolDialog.cleanlinessScore}
+                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, cleanlinessScore: event.target.value }))}
+                  fullWidth
+                />
+              </Grid>
+              <Grid item xs={12} sm={6}>
+                <TextField
+                  select
+                  size="small"
+                  label={t('today.session.levels.status')}
+                  value={poolDialog.status}
+                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, status: event.target.value as LevelStatus }))}
+                  fullWidth
+                >
+                  {LEVEL_STATUS_OPTIONS.map((option) => (
+                    <MenuItem key={option} value={option}>{option}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+              <Grid item xs={12}>
+                <TextField
+                  select
+                  size="small"
+                  label={t('today.session.pools.levels')}
+                  value={poolDialog.levelIds}
+                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, levelIds: event.target.value as string[] }))}
+                  SelectProps={{ multiple: true }}
+                  fullWidth
+                >
+                  {sessionLevels.map((level) => (
+                    <MenuItem key={level.id} value={level.id}>
+                      {level.label} {level.price != null ? `(${formatNumber(level.price, 4)})` : ''}
+                    </MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+            </Grid>
+            <FormControlLabel
+              control={<Checkbox checked={poolDialog.sweepRole} onChange={(event) => setPoolDialog((prev) => ({ ...prev, sweepRole: event.target.checked }))} />}
+              label={t('today.session.pools.setSweep')}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setPoolDialog((prev) => ({ ...prev, open: false }))}>{t('common.cancel')}</Button>
+          <Button variant="contained" onClick={() => void handleSavePool()}>{t('common.save')}</Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={Boolean(pricePickerTarget)} onClose={() => setPricePickerTarget(null)} fullWidth maxWidth="sm" fullScreen={isMobileViewport}>
         <DialogTitle>{t('today.session.levels.pickFromLevels')}</DialogTitle>
         <DialogContent dividers>
@@ -4833,6 +5678,30 @@ export default function SessionPage() {
               ) : (
                 <Stack spacing={0.4} sx={{ mt: 0.6 }}>
                   {missingTriggers.map((item) => (
+                    <Typography key={item} variant="body2">• {item}</Typography>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+            <Box>
+              <Typography variant="subtitle2">{t('today.session.requirements.narrative')}</Typography>
+              {missingNarrative.length === 0 ? (
+                <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
+              ) : (
+                <Stack spacing={0.4} sx={{ mt: 0.6 }}>
+                  {missingNarrative.map((item) => (
+                    <Typography key={item} variant="body2">• {item}</Typography>
+                  ))}
+                </Stack>
+              )}
+            </Box>
+            <Box>
+              <Typography variant="subtitle2">{t('today.session.requirements.roles')}</Typography>
+              {missingRoles.length === 0 ? (
+                <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
+              ) : (
+                <Stack spacing={0.4} sx={{ mt: 0.6 }}>
+                  {missingRoles.map((item) => (
                     <Typography key={item} variant="body2">• {item}</Typography>
                   ))}
                 </Stack>

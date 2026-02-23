@@ -85,6 +85,18 @@ public class TodaySession {
     @Column(name = "active_sweep_level_id")
     private UUID activeSweepLevelId;
 
+    @Column(name = "active_entry_level_id")
+    private UUID activeEntryLevelId;
+
+    @Column(name = "active_sl_level_id")
+    private UUID activeSlLevelId;
+
+    @Column(name = "active_tp_level_id")
+    private UUID activeTpLevelId;
+
+    @Column(name = "active_sweep_pool_id")
+    private UUID activeSweepPoolId;
+
     @Column(name = "lock_in_session", length = 24)
     private String lockInSession;
 

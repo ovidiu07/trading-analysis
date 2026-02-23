@@ -3,29 +3,22 @@ package com.tradevault.dto.session;
 import com.tradevault.domain.enums.LevelStatus;
 import com.tradevault.domain.enums.LevelTimeframe;
 import com.tradevault.domain.enums.LevelType;
-import com.tradevault.domain.enums.SessionLevelCategory;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
+import java.util.UUID;
 
 @Data
-public class SessionLevelRequest {
-    private String label;
-    private BigDecimal price;
+public class SessionPoolRequest {
     private String symbol;
+    private String poolName;
     private LevelType type;
     private LevelTimeframe timeframe;
     private BigDecimal zoneLow;
     private BigDecimal zoneHigh;
-    private String originRule;
-    private Short strengthScore;
+    private Short cleanlinessScore;
     private LevelStatus status;
-    private String expectation;
     private Boolean sweepRole;
-    private Boolean entryRole;
-    private Boolean slRole;
-    private Boolean tpRole;
-    private SessionLevelCategory category;
-    private String notes;
-    private Boolean swept;
+    private List<UUID> levelIds;
 }

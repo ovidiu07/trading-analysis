@@ -21,7 +21,14 @@ const sessionApiMock = vi.hoisted(() => ({
   createSessionLevel: vi.fn(),
   updateSessionLevel: vi.fn(),
   deleteSessionLevel: vi.fn(),
-  setActiveSweepLevel: vi.fn(),
+  setSessionRoles: vi.fn(),
+  suggestSessionLevels: vi.fn(),
+  listSessionPools: vi.fn(),
+  createSessionPool: vi.fn(),
+  updateSessionPool: vi.fn(),
+  deleteSessionPool: vi.fn(),
+  getSessionNarrative: vi.fn(),
+  updateSessionNarrative: vi.fn(),
   startTradeFromSession: vi.fn(),
   closeTradeFromSession: vi.fn(),
   saveTradeEntryJournal: vi.fn()
@@ -203,11 +210,56 @@ const baseSession = () => ({
   lockInBias: null,
   lockInBiasReason: null,
   lockInAt: null,
-  activeSweepLevelId: null,
+  activeSweepLevelId: 'lvl-1',
+  activeEntryLevelId: 'lvl-1',
+  activeSlLevelId: 'lvl-2',
+  activeTpLevelId: 'lvl-1',
+  activeSweepPoolId: null,
   levels: [
-    { id: 'lvl-1', label: 'PDH', price: 1.0825, category: 'LIQUIDITY', notes: null, sweptAt: null },
-    { id: 'lvl-2', label: 'PDL', price: 1.0795, category: 'LIQUIDITY', notes: null, sweptAt: null }
+    {
+      id: 'lvl-1',
+      label: 'PDH',
+      symbol: 'EURUSD',
+      type: 'PDH',
+      timeframe: 'M15',
+      price: 1.0825,
+      category: 'LIQUIDITY',
+      notes: null,
+      sweptAt: null,
+      status: 'FRESH',
+      strengthScore: 3,
+      sweepRole: true,
+      entryRole: true,
+      slRole: false,
+      tpRole: true
+    },
+    {
+      id: 'lvl-2',
+      label: 'PDL',
+      symbol: 'EURUSD',
+      type: 'PDL',
+      timeframe: 'M15',
+      price: 1.0795,
+      category: 'LIQUIDITY',
+      notes: null,
+      sweptAt: null,
+      status: 'FRESH',
+      strengthScore: 3,
+      sweepRole: false,
+      entryRole: false,
+      slRole: true,
+      tpRole: false
+    }
   ],
+  pools: [],
+  narrative: {
+    sessionId: 'session-1',
+    htfDraw: 'PDH',
+    expectedManipulation: 'RAID_UP',
+    deliveryModel: null,
+    confirmationModel: 'DISPLACEMENT_M5_MSS_M5',
+    notes: ''
+  },
   activeTrade: null
 })
 
@@ -360,9 +412,26 @@ describe('SessionPage execution funnel', () => {
       return sessionState
     })
     sessionApiMock.deleteSessionLevel.mockResolvedValue(undefined)
-    sessionApiMock.setActiveSweepLevel.mockImplementation(async (levelId: any) => {
-      sessionState = { ...sessionState, activeSweepLevelId: levelId ?? null }
+    sessionApiMock.setSessionRoles.mockImplementation(async (_sessionId: any, payload: any) => {
+      sessionState = {
+        ...sessionState,
+        activeSweepLevelId: payload?.sweepLevelId ?? sessionState.activeSweepLevelId,
+        activeSweepPoolId: payload?.sweepPoolId ?? sessionState.activeSweepPoolId,
+        activeEntryLevelId: payload?.entryLevelId ?? sessionState.activeEntryLevelId,
+        activeSlLevelId: payload?.slLevelId ?? sessionState.activeSlLevelId,
+        activeTpLevelId: payload?.tpLevelId ?? sessionState.activeTpLevelId
+      }
       return sessionState
+    })
+    sessionApiMock.suggestSessionLevels.mockResolvedValue([])
+    sessionApiMock.listSessionPools.mockResolvedValue([])
+    sessionApiMock.createSessionPool.mockResolvedValue({})
+    sessionApiMock.updateSessionPool.mockResolvedValue({})
+    sessionApiMock.deleteSessionPool.mockResolvedValue(undefined)
+    sessionApiMock.getSessionNarrative.mockResolvedValue(sessionState.narrative)
+    sessionApiMock.updateSessionNarrative.mockImplementation(async (_sessionId: any, payload: any) => {
+      sessionState = { ...sessionState, narrative: { ...sessionState.narrative, ...payload } }
+      return sessionState.narrative
     })
 
     sessionApiMock.startTradeFromSession.mockResolvedValue({ id: 'trade-1' })
@@ -630,6 +699,15 @@ describe('SessionPage execution funnel', () => {
     expect(within(plannerPanel).getByLabelText(/entry price/i)).toHaveValue(1.0825)
   })
 
+  it('renders pick-from-levels controls as input adornments', async () => {
+    renderSessionPage()
+    await screen.findByText('Trade Planner + Execution')
+
+    expect(screen.getByTestId('entry-price-adornment')).toBeInTheDocument()
+    expect(screen.getByTestId('sl-price-adornment')).toBeInTheDocument()
+    expect(screen.getByTestId('tp-price-adornment')).toBeInTheDocument()
+  })
+
   it('sets a sweep level and reflects it in triggers and chart strip', async () => {
     const user = userEvent.setup()
     renderSessionPage()
@@ -638,7 +716,7 @@ describe('SessionPage execution funnel', () => {
     await user.click(screen.getAllByRole('button', { name: /Set as Sweep Level/i })[0])
 
     expect(await screen.findAllByText(/Sweep:\s*PDH/i)).not.toHaveLength(0)
-    expect(sessionApiMock.setActiveSweepLevel).toHaveBeenCalledWith('lvl-1')
+    expect(sessionApiMock.setSessionRoles).toHaveBeenCalledWith('session-1', expect.objectContaining({ sweepLevelId: 'lvl-1' }))
   })
 
   it('edits prereqs, saves a template, then imports a prereqs template', async () => {

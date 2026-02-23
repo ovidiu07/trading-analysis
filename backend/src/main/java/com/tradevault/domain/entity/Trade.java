@@ -115,6 +115,55 @@ public class Trade {
     @Column(name = "session_id")
     private UUID sessionId;
 
+    @Column(name = "sweep_level_id")
+    private UUID sweepLevelId;
+
+    @Column(name = "sweep_pool_id")
+    private UUID sweepPoolId;
+
+    @Column(name = "entry_level_id")
+    private UUID entryLevelId;
+
+    @Column(name = "sl_level_id")
+    private UUID slLevelId;
+
+    @Column(name = "tp_level_id")
+    private UUID tpLevelId;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "narrative_snapshot_json", columnDefinition = "jsonb")
+    private com.fasterxml.jackson.databind.JsonNode narrativeSnapshotJson;
+
+    @Column(name = "sweep_confirmed")
+    private Boolean sweepConfirmed;
+
+    @Column(name = "displacement_confirmed")
+    private Boolean displacementConfirmed;
+
+    @Column(name = "mss_confirmed")
+    private Boolean mssConfirmed;
+
+    @Column(name = "sweep_depth_points")
+    private BigDecimal sweepDepthPoints;
+
+    @Column(name = "displacement_size_points")
+    private BigDecimal displacementSizePoints;
+
+    @Column(name = "time_sweep_to_entry_seconds")
+    private Integer timeSweepToEntrySeconds;
+
+    @Column(name = "mfe_points")
+    private BigDecimal mfePoints;
+
+    @Column(name = "mae_points")
+    private BigDecimal maePoints;
+
+    @Column(name = "level_expectation_met")
+    private Boolean levelExpectationMet;
+
+    @Column(name = "level_expectation", length = 48)
+    private String levelExpectation;
+
     @Column(name = "feeling", length = 120)
     private String feeling;
 

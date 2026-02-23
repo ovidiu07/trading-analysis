@@ -1119,10 +1119,27 @@
         "edit": "Edit level",
         "delete": "Delete level",
         "label": "Label",
+        "type": "Type",
+        "timeframe": "Timeframe",
+        "status": "Status",
         "customLabel": "Custom label",
         "price": "Price",
         "category": "Category",
         "notes": "Notes",
+        "strength": "Strength",
+        "expectation": "Expectation",
+        "groups": {
+          "htfDraws": "HTF Draws",
+          "sessionRange": "Session Range",
+          "liquidityPools": "Liquidity Pools",
+          "other": "Other Levels"
+        },
+        "expectations": {
+          "MAGNET": "Magnet",
+          "SWEEP_THEN_DISPLACE": "Sweep then displace",
+          "HOLD": "Hold",
+          "TARGET_ONLY": "Target only"
+        },
         "categories": {
           "LIQUIDITY": "Liquidity",
           "TARGET": "Target",
@@ -1145,6 +1162,69 @@
         "suggestFromPlan": "Suggest levels from plan",
         "suggested": "Suggested levels added.",
         "autoCheckSweepPrompt": "Mark \"Liquidity sweep confirmed\" as completed too?"
+      },
+      "narrative": {
+        "title": "Liquidity Narrative",
+        "draw": "Draw",
+        "manipulation": "Manipulation",
+        "confirmation": "Confirmation model",
+        "delivery": "Delivery model",
+        "notes": "Narrative notes",
+        "save": "Save narrative",
+        "saved": "Saved",
+        "pending": "Pending",
+        "complete": "Narrative complete",
+        "incomplete": "Narrative incomplete"
+      },
+      "roles": {
+        "sweep": "Sweep",
+        "entry": "Entry",
+        "sl": "SL",
+        "tp": "TP"
+      },
+      "pools": {
+        "title": "Liquidity Pools",
+        "create": "Create pool",
+        "edit": "Edit pool",
+        "empty": "No pools yet.",
+        "name": "Pool name",
+        "zoneLow": "Zone low",
+        "zoneHigh": "Zone high",
+        "cleanliness": "Cleanliness",
+        "setSweep": "Set as sweep pool",
+        "levels": "Levels in pool"
+      },
+      "mobile": {
+        "viewMissing": "View missing items"
+      },
+      "enums": {
+        "htfDraw": {
+          "PDH": "PDH",
+          "PDL": "PDL",
+          "WEEKLY_H": "Weekly High",
+          "WEEKLY_L": "Weekly Low",
+          "DAILY_SWING_HIGH": "Daily Swing High",
+          "DAILY_SWING_LOW": "Daily Swing Low",
+          "OTHER": "Other"
+        },
+        "manipulation": {
+          "RAID_UP": "Raid up",
+          "RAID_DOWN": "Raid down",
+          "NONE": "None"
+        },
+        "confirmation": {
+          "DISPLACEMENT_M5_MSS_M5": "M5 displacement + M5 MSS",
+          "DISPLACEMENT_M1_MSS_M1": "M1 displacement + M1 MSS",
+          "DISPLACEMENT_M15_MSS_M5": "M15 displacement + M5 MSS",
+          "OTHER": "Other"
+        },
+        "delivery": {
+          "ASIA_RAID_LONDON_REVERSAL": "Asia raid London reversal",
+          "ASIA_RAID_LONDON_CONTINUATION": "Asia raid London continuation",
+          "LONDON_RAID_NY_REVERSAL": "London raid NY reversal",
+          "TREND_DAY": "Trend day",
+          "OTHER": "Other"
+        }
       },
       "chart": {
         "bias": "Bias",
@@ -1330,13 +1410,15 @@
         "invalidation": "I'm wrong if...",
         "rrBlocked": "RR is below {{rr}}R. Start is blocked until RR meets threshold.",
         "setupQuality": "Setup quality score: {{score}}% ({{grade}})",
-        "autoGradeHint": "Auto-grade inputs: lock-in, prerequisites, triggers, RR, news safe",
-        "completeHint": "Complete: Lock-in + missing checklist items + invalidation"
+        "autoGradeHint": "Auto-grade inputs: lock-in, prerequisites, triggers, narrative, roles, RR, news safe",
+        "completeHint": "Complete: lock-in + checklists + narrative + roles + invalidation"
       },
       "requirements": {
         "title": "Execution requirements",
         "prereqs": "2) Checklist prerequisites",
         "triggers": "3) Setup triggers",
+        "narrative": "4) Liquidity narrative",
+        "roles": "5) Level roles",
         "complete": "Complete",
         "lockInSessionSelection": "Session selection",
         "lockInDailyMaxLoss": "Daily max loss",

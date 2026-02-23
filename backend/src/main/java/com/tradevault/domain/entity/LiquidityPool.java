@@ -1,10 +1,8 @@
 package com.tradevault.domain.entity;
 
-import com.tradevault.domain.enums.LevelCreatedBy;
 import com.tradevault.domain.enums.LevelStatus;
 import com.tradevault.domain.enums.LevelTimeframe;
 import com.tradevault.domain.enums.LevelType;
-import com.tradevault.domain.enums.SessionLevelCategory;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -13,6 +11,8 @@ import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
+import jakarta.persistence.JoinTable;
+import jakarta.persistence.ManyToMany;
 import jakarta.persistence.ManyToOne;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
@@ -26,6 +26,8 @@ import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
+import java.util.LinkedHashSet;
+import java.util.Set;
 import java.util.UUID;
 
 @Getter
@@ -34,8 +36,8 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "session_levels")
-public class SessionLevel {
+@Table(name = "liquidity_pools")
+public class LiquidityPool {
     @Id
     @GeneratedValue(generator = "UUID")
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
@@ -49,90 +51,55 @@ public class SessionLevel {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @Column(name = "label", nullable = false, length = 64)
-    private String label;
-
-    @Column(name = "price", precision = 18, scale = 8)
-    private BigDecimal price;
-
-    @Column(name = "symbol", length = 64)
+    @Column(name = "symbol", nullable = false, length = 64)
     private String symbol;
 
+    @Column(name = "pool_name", nullable = false, length = 120)
+    private String poolName;
+
     @Enumerated(EnumType.STRING)
-    @Column(name = "level_type", nullable = false, length = 32)
+    @Column(name = "type", nullable = false, length = 32)
     @Builder.Default
-    private LevelType levelType = LevelType.OTHER;
+    private LevelType type = LevelType.OTHER;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "timeframe", nullable = false, length = 8)
     @Builder.Default
     private LevelTimeframe timeframe = LevelTimeframe.M15;
 
-    @Column(name = "zone_low", precision = 18, scale = 8)
+    @Column(name = "zone_low", precision = 18, scale = 8, nullable = false)
     private BigDecimal zoneLow;
 
-    @Column(name = "zone_high", precision = 18, scale = 8)
+    @Column(name = "zone_high", precision = 18, scale = 8, nullable = false)
     private BigDecimal zoneHigh;
 
-    @Column(name = "origin_rule", length = 400)
-    private String originRule;
-
-    @Column(name = "strength_score", nullable = false)
+    @Column(name = "cleanliness_score", nullable = false)
     @Builder.Default
-    private Short strengthScore = 3;
+    private Short cleanlinessScore = 3;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 16)
     @Builder.Default
     private LevelStatus status = LevelStatus.FRESH;
 
-    @Column(name = "touched_count", nullable = false)
-    @Builder.Default
-    private Integer touchedCount = 0;
-
-    @Column(name = "last_touched_at_utc")
-    private OffsetDateTime lastTouchedAtUtc;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "created_by", nullable = false, length = 16)
-    @Builder.Default
-    private LevelCreatedBy createdBy = LevelCreatedBy.USER;
-
-    @Column(name = "expectation", length = 48)
-    private String expectation;
-
     @Column(name = "is_sweep_role", nullable = false)
     @Builder.Default
     private boolean sweepRole = false;
 
-    @Column(name = "is_entry_role", nullable = false)
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+            name = "pool_levels",
+            joinColumns = @JoinColumn(name = "pool_id"),
+            inverseJoinColumns = @JoinColumn(name = "level_id")
+    )
     @Builder.Default
-    private boolean entryRole = false;
-
-    @Column(name = "is_sl_role", nullable = false)
-    @Builder.Default
-    private boolean slRole = false;
-
-    @Column(name = "is_tp_role", nullable = false)
-    @Builder.Default
-    private boolean tpRole = false;
-
-    @Enumerated(EnumType.STRING)
-    @Column(name = "category", nullable = false, length = 24)
-    @Builder.Default
-    private SessionLevelCategory category = SessionLevelCategory.OTHER;
-
-    @Column(name = "notes", length = 280)
-    private String notes;
-
-    @Column(name = "swept_at")
-    private OffsetDateTime sweptAt;
+    private Set<SessionLevel> levels = new LinkedHashSet<>();
 
     @CreationTimestamp
-    @Column(name = "created_at", nullable = false, updatable = false)
-    private OffsetDateTime createdAt;
+    @Column(name = "created_at_utc", nullable = false, updatable = false)
+    private OffsetDateTime createdAtUtc;
 
     @UpdateTimestamp
-    @Column(name = "updated_at", nullable = false)
-    private OffsetDateTime updatedAt;
+    @Column(name = "updated_at_utc", nullable = false)
+    private OffsetDateTime updatedAtUtc;
 }
