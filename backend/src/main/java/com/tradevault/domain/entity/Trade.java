@@ -1,5 +1,7 @@
 package com.tradevault.domain.entity;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeGrade;
@@ -131,8 +133,8 @@ public class Trade {
     private UUID tpLevelId;
 
     @JdbcTypeCode(SqlTypes.JSON)
-    @Column(name = "narrative_snapshot_json", columnDefinition = "jsonb")
-    private com.fasterxml.jackson.databind.JsonNode narrativeSnapshotJson;
+    @Column(name = "narrative_snapshot_json", columnDefinition = "jsonb", nullable = false)
+    private JsonNode narrativeSnapshotJson;
 
     @Column(name = "sweep_confirmed")
     private Boolean sweepConfirmed;
@@ -219,4 +221,12 @@ public class Trade {
     )
     @Builder.Default
     private Set<Tag> tags = new HashSet<>();
+
+    @PrePersist
+    @PreUpdate
+    void ensureNarrativeSnapshotJson() {
+        if (narrativeSnapshotJson == null || narrativeSnapshotJson.isNull()) {
+            narrativeSnapshotJson = JsonNodeFactory.instance.objectNode();
+        }
+    }
 }

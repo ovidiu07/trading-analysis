@@ -1,5 +1,7 @@
 package com.tradevault.service;
 
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
@@ -292,6 +294,73 @@ public class TradeServiceTest {
         assertEquals(new BigDecimal("1.10000000"), response.getFxRateTradeToProfile());
         assertEquals(new BigDecimal("1094.5000"), response.getPnlProfileCurrency());
         assertEquals(new BigDecimal("2.2000"), response.getFeesProfileCurrency());
+    }
+
+    @Test
+    void createDefaultsNarrativeSnapshotToEmptyObjectWhenRequestOmitsIt() {
+        TradeRequest request = baseRequest();
+        request.setStatus(TradeStatus.OPEN);
+        request.setClosedAt(null);
+        request.setExitPrice(null);
+        request.setNarrativeSnapshotJson(null);
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertNotNull(response.getNarrativeSnapshotJson());
+        assertTrue(response.getNarrativeSnapshotJson().isObject());
+        assertEquals(0, response.getNarrativeSnapshotJson().size());
+
+        ArgumentCaptor<Trade> captor = ArgumentCaptor.forClass(Trade.class);
+        verify(tradeRepository).save(captor.capture());
+        assertNotNull(captor.getValue().getNarrativeSnapshotJson());
+    }
+
+    @Test
+    void updatePreservesNarrativeSnapshotWhenRequestOmitsIt() {
+        ObjectNode existingNarrative = JsonNodeFactory.instance.objectNode().put("source", "session");
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("AAPL")
+                .market(Market.STOCK)
+                .direction(Direction.LONG)
+                .status(TradeStatus.OPEN)
+                .openedAt(OffsetDateTime.now().minusDays(2))
+                .quantity(new BigDecimal("50"))
+                .entryPrice(new BigDecimal("10"))
+                .fees(BigDecimal.ZERO)
+                .commission(BigDecimal.ZERO)
+                .slippage(BigDecimal.ZERO)
+                .narrativeSnapshotJson(existingNarrative)
+                .build();
+
+        TradeRequest updateRequest = new TradeRequest();
+        updateRequest.setSymbol(existing.getSymbol());
+        updateRequest.setMarket(existing.getMarket());
+        updateRequest.setDirection(existing.getDirection());
+        updateRequest.setStatus(existing.getStatus());
+        updateRequest.setOpenedAt(existing.getOpenedAt());
+        updateRequest.setClosedAt(existing.getClosedAt());
+        updateRequest.setQuantity(existing.getQuantity());
+        updateRequest.setEntryPrice(existing.getEntryPrice());
+        updateRequest.setExitPrice(existing.getExitPrice());
+        updateRequest.setFees(BigDecimal.ZERO);
+        updateRequest.setCommission(BigDecimal.ZERO);
+        updateRequest.setSlippage(BigDecimal.ZERO);
+        updateRequest.setNarrativeSnapshotJson(null);
+
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.update(existing.getId(), updateRequest);
+
+        assertEquals(existingNarrative, response.getNarrativeSnapshotJson());
+
+        ArgumentCaptor<Trade> captor = ArgumentCaptor.forClass(Trade.class);
+        verify(tradeRepository).save(captor.capture());
+        assertEquals(existingNarrative, captor.getValue().getNarrativeSnapshotJson());
     }
 
     @Test

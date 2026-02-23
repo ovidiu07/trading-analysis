@@ -1,5 +1,7 @@
 package com.tradevault.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.Tag;
 import com.tradevault.domain.entity.Trade;
@@ -253,7 +255,7 @@ public class TradeService {
         trade.setEntryLevelId(request.getEntryLevelId());
         trade.setSlLevelId(request.getSlLevelId());
         trade.setTpLevelId(request.getTpLevelId());
-        trade.setNarrativeSnapshotJson(request.getNarrativeSnapshotJson());
+        trade.setNarrativeSnapshotJson(resolveNarrativeSnapshot(request.getNarrativeSnapshotJson(), null));
         trade.setSweepConfirmed(request.getSweepConfirmed());
         trade.setDisplacementConfirmed(request.getDisplacementConfirmed());
         trade.setMssConfirmed(request.getMssConfirmed());
@@ -290,6 +292,7 @@ public class TradeService {
         recalculateRiskPercent(trade);
         recalculateAndApplyPnl(trade);
         recalculateProfileCurrencyAmounts(trade);
+        logNarrativeSnapshotState("create", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), null, trade.getNarrativeSnapshotJson());
         return toResponse(tradeRepository.save(trade));
     }
 
@@ -334,7 +337,8 @@ public class TradeService {
         trade.setEntryLevelId(request.getEntryLevelId());
         trade.setSlLevelId(request.getSlLevelId());
         trade.setTpLevelId(request.getTpLevelId());
-        trade.setNarrativeSnapshotJson(request.getNarrativeSnapshotJson());
+        JsonNode previousNarrativeSnapshot = trade.getNarrativeSnapshotJson();
+        trade.setNarrativeSnapshotJson(resolveNarrativeSnapshot(request.getNarrativeSnapshotJson(), previousNarrativeSnapshot));
         trade.setSweepConfirmed(request.getSweepConfirmed());
         trade.setDisplacementConfirmed(request.getDisplacementConfirmed());
         trade.setMssConfirmed(request.getMssConfirmed());
@@ -396,6 +400,7 @@ public class TradeService {
         }
         recalculateProfileCurrencyAmounts(trade);
         trade.setUpdatedAt(OffsetDateTime.now());
+        logNarrativeSnapshotState("update", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), previousNarrativeSnapshot, trade.getNarrativeSnapshotJson());
         return toResponse(tradeRepository.save(trade));
     }
 
@@ -549,6 +554,36 @@ public class TradeService {
         return values.stream()
                 .filter(Objects::nonNull)
                 .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private JsonNode resolveNarrativeSnapshot(JsonNode requestedSnapshot, JsonNode existingSnapshot) {
+        if (requestedSnapshot != null && !requestedSnapshot.isNull()) {
+            return requestedSnapshot;
+        }
+        if (existingSnapshot != null && !existingSnapshot.isNull()) {
+            return existingSnapshot;
+        }
+        return JsonNodeFactory.instance.objectNode();
+    }
+
+    private void logNarrativeSnapshotState(String operation,
+                                           UUID tradeId,
+                                           com.tradevault.domain.enums.TradeStatus status,
+                                           JsonNode requestedSnapshot,
+                                           JsonNode previousSnapshot,
+                                           JsonNode finalSnapshot) {
+        if (!log.isDebugEnabled()) {
+            return;
+        }
+        log.debug(
+                "[TradeWrite] op={}, tradeId={}, status={}, requestNarrativeNull={}, previousNarrativeNull={}, finalNarrativeNull={}",
+                operation,
+                tradeId,
+                status,
+                requestedSnapshot == null || requestedSnapshot.isNull(),
+                previousSnapshot == null || previousSnapshot.isNull(),
+                finalSnapshot == null || finalSnapshot.isNull()
+        );
     }
 
     private String normalizeFeeling(String value) {
