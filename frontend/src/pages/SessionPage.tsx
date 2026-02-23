@@ -36,6 +36,7 @@ import {
   Typography,
   useMediaQuery
 } from '@mui/material'
+import type { SelectChangeEvent } from '@mui/material/Select'
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
 import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import PlaylistAddCheckRoundedIcon from '@mui/icons-material/PlaylistAddCheckRounded'
@@ -139,6 +140,8 @@ import {
   type SessionChecklistItem,
   type SessionLevel,
   type SessionLevelCategory,
+  type SessionLevelRequest,
+  type SessionLevelSuggestion,
   type SessionNarrative,
   type SessionPool,
   type TodaySessionResponse
@@ -257,6 +260,31 @@ type PoolDialogState = {
   sweepRole: boolean
 }
 
+type SuggestedLevelItemBase = {
+  label: string
+  type: LevelType
+  timeframe: LevelTimeframe
+  reason: string
+  confidence: number
+}
+
+type SuggestedPriceLevelItem = SuggestedLevelItemBase & {
+  kind: 'PRICE'
+  price: number
+}
+
+type SuggestedZoneLevelItem = SuggestedLevelItemBase & {
+  kind: 'ZONE'
+  zoneLow: number
+  zoneHigh: number
+}
+
+type SuggestedReferenceLevelItem = SuggestedLevelItemBase & {
+  kind: 'REFERENCE'
+}
+
+type SuggestedLevelItem = SuggestedPriceLevelItem | SuggestedZoneLevelItem | SuggestedReferenceLevelItem
+
 type SessionChartMode = 'LIVE' | 'BACKTEST'
 
 type BacktestSetupState = {
@@ -372,6 +400,83 @@ const inferLevelType = (label: string): LevelType => {
   if (normalized === 'NYH' || normalized === 'NY_H') return 'NY_H'
   if (normalized === 'NYL' || normalized === 'NY_L') return 'NY_L'
   return 'OTHER'
+}
+
+const isFiniteLevelValue = (value: number | null | undefined): value is number =>
+  typeof value === 'number' && Number.isFinite(value)
+
+const toSuggestedLevelDedupKey = (item: SuggestedLevelItem) => {
+  if (item.kind === 'PRICE') {
+    return `${item.type}:PRICE:${item.price}`
+  }
+  if (item.kind === 'ZONE') {
+    return `${item.type}:ZONE:${item.zoneLow}:${item.zoneHigh}`
+  }
+  return `${item.type}:REFERENCE`
+}
+
+const toSessionLevelDedupKey = (level: Pick<SessionLevel, 'label' | 'type' | 'price' | 'zoneLow' | 'zoneHigh'>) => {
+  const type = level.type || inferLevelType(level.label)
+  if (isFiniteLevelValue(level.zoneLow) && isFiniteLevelValue(level.zoneHigh)) {
+    return `${type}:ZONE:${level.zoneLow}:${level.zoneHigh}`
+  }
+  if (isFiniteLevelValue(level.price)) {
+    return `${type}:PRICE:${level.price}`
+  }
+  return `${type}:REFERENCE`
+}
+
+const toSuggestedLevelItem = (item: SessionLevelSuggestion): SuggestedLevelItem => {
+  const base = {
+    label: item.type,
+    type: item.type,
+    timeframe: item.timeframe,
+    reason: item.reason,
+    confidence: item.confidence
+  }
+
+  if (isFiniteLevelValue(item.zoneLow) && isFiniteLevelValue(item.zoneHigh)) {
+    return {
+      ...base,
+      kind: 'ZONE',
+      zoneLow: item.zoneLow,
+      zoneHigh: item.zoneHigh
+    }
+  }
+
+  if (isFiniteLevelValue(item.price)) {
+    return {
+      ...base,
+      kind: 'PRICE',
+      price: item.price
+    }
+  }
+
+  return {
+    ...base,
+    kind: 'REFERENCE'
+  }
+}
+
+const toPlanSuggestedLevelItem = (label: string): SuggestedReferenceLevelItem => ({
+  kind: 'REFERENCE',
+  label,
+  type: inferLevelType(label),
+  timeframe: 'M15',
+  reason: 'Mentor plan level',
+  confidence: 0.5
+})
+
+const toSuggestedLevelGeometryPayload = (
+  item: SuggestedLevelItem
+): Pick<SessionLevelRequest, 'price' | 'zoneLow' | 'zoneHigh'> => {
+  if (item.kind === 'PRICE') {
+    return { price: item.price, zoneLow: null, zoneHigh: null }
+  }
+  if (item.kind === 'ZONE') {
+    return { price: null, zoneLow: item.zoneLow, zoneHigh: item.zoneHigh }
+  }
+  return { price: null, zoneLow: null, zoneHigh: null }
 }
 
 const LEVEL_LABEL_OPTIONS = ['PDH', 'PDL', 'AsiaH', 'AsiaL', 'EQH', 'EQL', 'Custom'] as const
@@ -2153,32 +2258,25 @@ export default function SessionPage() {
     if (!session?.id) return
     const symbol = planner.symbol.trim().toUpperCase() || selectedPlan?.tradingViewSymbol || undefined
     const backendSuggestions = await suggestSessionLevels(session.id, symbol)
-    const planSuggestions = parsePlanLevelSuggestions(selectedPlan).map((label) => ({
-      label,
-      type: inferLevelType(label),
-      timeframe: 'M15' as LevelTimeframe,
-      reason: 'Mentor plan level',
-      confidence: 0.5
-    }))
+    const planSuggestions = parsePlanLevelSuggestions(selectedPlan).map(toPlanSuggestedLevelItem)
 
-    const existing = new Set(sessionLevels.map((level) => `${level.type || inferLevelType(level.label)}:${level.price ?? ''}:${level.zoneLow ?? ''}:${level.zoneHigh ?? ''}`))
+    const existing = new Set(sessionLevels.map(toSessionLevelDedupKey))
     const merged = [
-      ...backendSuggestions.map((item) => ({
-        label: item.type,
-        type: item.type,
-        timeframe: item.timeframe,
-        price: item.price ?? null,
-        zoneLow: item.zoneLow ?? null,
-        zoneHigh: item.zoneHigh ?? null,
-        reason: item.reason,
-        confidence: item.confidence
-      })),
+      ...backendSuggestions.map(toSuggestedLevelItem),
       ...planSuggestions
     ]
 
+    const seen = new Set<string>()
     const accepted = merged
       .filter((item) => item.confidence >= 0.55 || item.reason === 'Mentor plan level')
-      .filter((item) => !existing.has(`${item.type}:${item.price ?? ''}:${item.zoneLow ?? ''}:${item.zoneHigh ?? ''}`))
+      .filter((item) => {
+        const key = toSuggestedLevelDedupKey(item)
+        if (existing.has(key) || seen.has(key)) {
+          return false
+        }
+        seen.add(key)
+        return true
+      })
       .slice(0, 6)
 
     if (!accepted.length) return
@@ -2188,9 +2286,7 @@ export default function SessionPage() {
       symbol: symbol || null,
       type: item.type,
       timeframe: item.timeframe,
-      price: item.price ?? null,
-      zoneLow: item.zoneLow ?? null,
-      zoneHigh: item.zoneHigh ?? null,
+      ...toSuggestedLevelGeometryPayload(item),
       originRule: item.reason,
       strengthScore: Math.max(1, Math.min(5, Math.round((item.confidence || 0.5) * 5))),
       status: 'FRESH',
@@ -5576,21 +5672,26 @@ export default function SessionPage() {
                 </TextField>
               </Grid>
               <Grid item xs={12}>
-                <TextField
-                  select
-                  size="small"
-                  label={t('today.session.pools.levels')}
-                  value={poolDialog.levelIds}
-                  onChange={(event) => setPoolDialog((prev) => ({ ...prev, levelIds: event.target.value as string[] }))}
-                  SelectProps={{ multiple: true }}
-                  fullWidth
-                >
-                  {sessionLevels.map((level) => (
-                    <MenuItem key={level.id} value={level.id}>
-                      {level.label} {level.price != null ? `(${formatNumber(level.price, 4)})` : ''}
-                    </MenuItem>
-                  ))}
-                </TextField>
+                <FormControl size="small" fullWidth>
+                  <InputLabel id="session-pool-levels-label">{t('today.session.pools.levels')}</InputLabel>
+                  <Select<string[]>
+                    labelId="session-pool-levels-label"
+                    multiple
+                    label={t('today.session.pools.levels')}
+                    value={poolDialog.levelIds}
+                    onChange={(event: SelectChangeEvent<string[]>) => {
+                      const value = event.target.value
+                      const levelIds = typeof value === 'string' ? value.split(',') : value
+                      setPoolDialog((prev) => ({ ...prev, levelIds }))
+                    }}
+                  >
+                    {sessionLevels.map((level) => (
+                      <MenuItem key={level.id} value={level.id}>
+                        {level.label} {level.price != null ? `(${formatNumber(level.price, 4)})` : ''}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Grid>
             </Grid>
             <FormControlLabel
