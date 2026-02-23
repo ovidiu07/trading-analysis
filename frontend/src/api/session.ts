@@ -5,6 +5,17 @@ export type TodaySessionStatus = 'ACTIVE' | 'COMPLETED'
 
 export type ChecklistTemplateType = 'PREREQS' | 'TRIGGERS'
 export type ChecklistValueType = 'TEXT' | 'NUMBER' | 'TIME'
+export type AutoTradeEventType =
+  | 'ARMED'
+  | 'DISARMED'
+  | 'ENTRY_FILLED'
+  | 'SL_HIT'
+  | 'TP_HIT'
+  | 'TIMEOUT'
+  | 'ERROR'
+  | 'MANUAL_CLOSE'
+  | 'KEEP_ALIVE'
+export type QuoteSide = 'BID' | 'ASK'
 export type LevelType =
   | 'PDH'
   | 'PDL'
@@ -268,6 +279,17 @@ export type SessionRolesRequest = {
   tpLevelId?: string | null
 }
 
+export type SessionAutoTradeEvent = {
+  id: string
+  sessionId: string
+  tradeId?: string | null
+  type: AutoTradeEventType
+  side?: QuoteSide | null
+  price?: number | null
+  note?: string | null
+  tsUtc: string
+}
+
 export async function getTodaySession() {
   return apiGet<TodaySessionResponse | null>('/sessions/today')
 }
@@ -371,6 +393,20 @@ export async function getSessionNarrative(sessionId: string) {
 
 export async function updateSessionNarrative(sessionId: string, payload: SessionNarrativeRequest) {
   return apiPut<SessionNarrative>(`/session/${sessionId}/narrative`, payload)
+}
+
+export async function listSessionAutoTradeEvents(sessionId: string) {
+  return apiGet<SessionAutoTradeEvent[]>(`/session/${sessionId}/auto-trade/events`)
+}
+
+export async function logSessionAutoTradeEvent(sessionId: string, payload: {
+  type: AutoTradeEventType
+  side?: QuoteSide | null
+  price?: number | null
+  tradeId?: string | null
+  note?: string | null
+}) {
+  return apiPost<SessionAutoTradeEvent>(`/session/${sessionId}/auto-trade/events`, payload)
 }
 
 export async function listChecklistTemplates(type?: ChecklistTemplateType) {

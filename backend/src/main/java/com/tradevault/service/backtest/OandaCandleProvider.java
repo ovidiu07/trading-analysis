@@ -147,6 +147,93 @@ public class OandaCandleProvider {
         }
     }
 
+    public OandaQuote getQuote(String token, String sourceId, String symbolCanonical) {
+        String accountId = resolveAccountId(token, sourceId);
+        String instrument = mapSymbol(symbolCanonical);
+
+        String url = UriComponentsBuilder
+                .fromHttpUrl(baseUrl)
+                .path("/accounts/{accountId}/pricing")
+                .queryParam("instruments", instrument)
+                .buildAndExpand(accountId)
+                .toUriString();
+
+        String payload = executeGet(url, token);
+        if (payload == null || payload.isBlank()) {
+            return null;
+        }
+
+        try {
+            JsonNode root = objectMapper.readTree(payload);
+            JsonNode prices = root.path("prices");
+            if (!prices.isArray() || prices.isEmpty()) {
+                return null;
+            }
+            JsonNode quote = prices.get(0);
+
+            BigDecimal bid = null;
+            JsonNode bids = quote.path("bids");
+            if (bids.isArray() && !bids.isEmpty()) {
+                bid = parseDecimal(bids.get(0).path("price").asText(null));
+            }
+
+            BigDecimal ask = null;
+            JsonNode asks = quote.path("asks");
+            if (asks.isArray() && !asks.isEmpty()) {
+                ask = parseDecimal(asks.get(0).path("price").asText(null));
+            }
+
+            OffsetDateTime ts = parseTime(quote.path("time").asText(null));
+            if (bid == null || ask == null) {
+                return null;
+            }
+
+            return new OandaQuote(
+                    instrument,
+                    bid,
+                    ask,
+                    ts == null ? OffsetDateTime.now(ZoneOffset.UTC) : ts
+            );
+        } catch (Exception ex) {
+            throw new BacktestDomainException(
+                    BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                    "Could not parse OANDA quote payload",
+                    "Try again in a moment or verify symbol compatibility.",
+                    org.springframework.http.HttpStatus.BAD_REQUEST
+            );
+        }
+    }
+
+    private String resolveAccountId(String token, String sourceId) {
+        String normalizedSourceId = trimToNull(sourceId);
+        if (normalizedSourceId != null) {
+            return normalizedSourceId;
+        }
+        String url = UriComponentsBuilder
+                .fromHttpUrl(baseUrl)
+                .path("/accounts")
+                .toUriString();
+        String payload = executeGet(url, token);
+        try {
+            JsonNode root = objectMapper.readTree(payload == null ? "{}" : payload);
+            JsonNode accounts = root.path("accounts");
+            if (accounts.isArray() && !accounts.isEmpty()) {
+                String accountId = trimToNull(accounts.get(0).path("id").asText(null));
+                if (accountId != null) {
+                    return accountId;
+                }
+            }
+        } catch (Exception ignored) {
+            // fall through
+        }
+        throw new BacktestDomainException(
+                BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
+                "OANDA account id could not be resolved",
+                "Reconnect OANDA from Settings -> Data Providers.",
+                org.springframework.http.HttpStatus.FORBIDDEN
+        );
+    }
+
     private String executeGet(String url, String token) {
         if (token == null || token.isBlank()) {
             throw new BacktestDomainException(
@@ -265,5 +352,8 @@ public class OandaCandleProvider {
     }
 
     public record OandaConnectionResult(boolean connected, String accountId) {
+    }
+
+    public record OandaQuote(String instrument, BigDecimal bid, BigDecimal ask, OffsetDateTime tsUtc) {
     }
 }

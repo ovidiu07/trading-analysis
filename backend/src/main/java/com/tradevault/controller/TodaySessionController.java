@@ -2,6 +2,8 @@ package com.tradevault.controller;
 
 import com.tradevault.dto.session.ChecklistTemplateRequest;
 import com.tradevault.dto.session.ChecklistTemplateResponse;
+import com.tradevault.dto.session.SessionAutoTradeEventDto;
+import com.tradevault.dto.session.SessionAutoTradeEventRequest;
 import com.tradevault.dto.session.SessionLevelDto;
 import com.tradevault.dto.session.SessionLevelRequest;
 import com.tradevault.dto.session.SessionLevelSuggestionDto;
@@ -154,6 +156,17 @@ public class TodaySessionController {
     public SessionNarrativeDto updateSessionNarrative(@PathVariable UUID sessionId,
                                                       @RequestBody SessionNarrativeRequest request) {
         return todaySessionService.upsertSessionNarrative(sessionId, request);
+    }
+
+    @GetMapping("/session/{sessionId}/auto-trade/events")
+    public List<SessionAutoTradeEventDto> listAutoTradeEvents(@PathVariable UUID sessionId) {
+        return todaySessionService.listAutoTradeEvents(sessionId);
+    }
+
+    @PostMapping("/session/{sessionId}/auto-trade/events")
+    public SessionAutoTradeEventDto logAutoTradeEvent(@PathVariable UUID sessionId,
+                                                      @RequestBody SessionAutoTradeEventRequest request) {
+        return todaySessionService.logAutoTradeEvent(sessionId, request);
     }
 
     @PutMapping("/session/{sessionId}/roles")

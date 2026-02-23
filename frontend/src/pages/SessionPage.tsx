@@ -1,4 +1,4 @@
-import { ClipboardEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react'
+import { ClipboardEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Accordion,
   AccordionDetails,
@@ -108,6 +108,9 @@ import {
   type ChartProfile
 } from '../api/chartProfiles'
 import {
+  type AutoTradeEventType,
+  type QuoteSide,
+  type SessionAutoTradeEvent,
   createChecklistTemplate,
   createSessionLevel,
   closeTradeFromSession,
@@ -118,7 +121,9 @@ import {
   getTodaySession,
   getSessionNarrative,
   listChecklistTemplates,
+  listSessionAutoTradeEvents,
   listSessionPools,
+  logSessionAutoTradeEvent,
   saveTodaySessionConfig,
   saveTradeEntryJournal,
   setSessionRoles,
@@ -146,6 +151,7 @@ import {
   type SessionPool,
   type TodaySessionResponse
 } from '../api/session'
+import { fetchLiveQuote, type LiveQuoteResponse } from '../api/quotes'
 import { uploadAsset, type AssetItem } from '../api/assets'
 import { listDailyPlans, type DailyPlan } from '../api/plans'
 import { listStrategies } from '../api/strategies'
@@ -159,6 +165,7 @@ const SESSION_CHART_INTERVAL_KEY = 'sessionMode.chartInterval'
 const SESSION_CHART_PROFILE_KEY = 'sessionMode.chartProfile'
 const SESSION_FOLLOW_PLAN_SYMBOL_KEY = 'sessionMode.followPlanSymbol'
 const SESSION_CHART_MODE_KEY = 'sessionMode.chartMode'
+const SESSION_AUTO_TRADE_KEY = 'sessionMode.autoTrade'
 const RR_THRESHOLD = 1.5
 
 const LOCK_IN_SESSION_OPTIONS = ['LONDON', 'NY_AM'] as const
@@ -227,6 +234,7 @@ type ChecklistEditDialogState = {
   open: boolean
   type: ChecklistTemplateType
   items: SessionChecklistItem[]
+  initialSignature: string
 }
 
 type TemplateDialogState = {
@@ -301,6 +309,12 @@ type BacktestSetupState = {
 }
 
 type BacktestReplayState = 'IDLE' | 'LOADING' | 'READY' | 'EMPTY' | 'ERROR'
+
+type AutoTradeLifecycleStatus = 'DISARMED' | 'ARMED' | 'ACTIVE' | 'CLOSED'
+
+type AutoTradeUiEvent = SessionAutoTradeEvent & {
+  localKey: string
+}
 
 type CsvUploadItem = CsvUploadResponse & {
   mappingDraft: CsvColumnMapping
@@ -566,6 +580,10 @@ const normalizeChecklistItems = (items: SessionChecklistItem[]) => {
   }))
 }
 
+const checklistStructureSignature = (items: SessionChecklistItem[]) => {
+  return JSON.stringify(toChecklistTemplateItems(normalizeChecklistItems(items)))
+}
+
 const findSweepChecklistItemIndex = (items: SessionChecklistItem[]) => {
   return items.findIndex((item) => item.text.toLowerCase().includes('sweep'))
 }
@@ -713,6 +731,52 @@ const toIsoFromUnknownTimestamp = (value?: string | number) => {
   return Number.isNaN(date.getTime()) ? '' : date.toISOString()
 }
 
+const inferPipSize = (symbolRaw: string) => {
+  const symbol = symbolRaw.trim().toUpperCase()
+  if (symbol.includes('JPY')) return 0.01
+  if (symbol.includes('XAU') || symbol.includes('XAG')) return 0.1
+  return 0.0001
+}
+
+const isEntryTouched = (
+  direction: 'LONG' | 'SHORT',
+  quote: LiveQuoteResponse,
+  entryPrice: number,
+  tolerancePoints: number
+) => {
+  if (quote.bid == null || quote.ask == null) return false
+  if (direction === 'LONG') {
+    return quote.ask >= (entryPrice - tolerancePoints)
+  }
+  return quote.bid <= (entryPrice + tolerancePoints)
+}
+
+const isStopLossTouched = (
+  direction: 'LONG' | 'SHORT',
+  quote: LiveQuoteResponse,
+  stopLossPrice: number,
+  tolerancePoints: number
+) => {
+  if (quote.bid == null || quote.ask == null) return false
+  if (direction === 'LONG') {
+    return quote.bid <= (stopLossPrice + tolerancePoints)
+  }
+  return quote.ask >= (stopLossPrice - tolerancePoints)
+}
+
+const isTakeProfitTouched = (
+  direction: 'LONG' | 'SHORT',
+  quote: LiveQuoteResponse,
+  takeProfitPrice: number,
+  tolerancePoints: number
+) => {
+  if (quote.bid == null || quote.ask == null) return false
+  if (direction === 'LONG') {
+    return quote.bid >= (takeProfitPrice - tolerancePoints)
+  }
+  return quote.ask <= (takeProfitPrice + tolerancePoints)
+}
+
 const resolveTimeframeWindowDays = (timeframeRaw?: string) => {
   const timeframe = (timeframeRaw || '').trim().toUpperCase()
   if (timeframe === 'M1' || timeframe === 'M5') return 7
@@ -777,6 +841,7 @@ export default function SessionPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const baseCurrency = user?.baseCurrency || 'USD'
+  const isTestMode = import.meta.env.MODE === 'test'
 
   const isCompactViewport = useMediaQuery('(max-width:900px)')
   const isMobileViewport = useMediaQuery('(max-width:600px)')
@@ -839,7 +904,8 @@ export default function SessionPage() {
   const [checklistEditDialog, setChecklistEditDialog] = useState<ChecklistEditDialogState>({
     open: false,
     type: 'PREREQS',
-    items: []
+    items: [],
+    initialSignature: ''
   })
   const [templateDialog, setTemplateDialog] = useState<TemplateDialogState>({
     open: false,
@@ -932,6 +998,15 @@ export default function SessionPage() {
   })
 
   const [localNow, setLocalNow] = useState(() => new Date())
+  const [liveQuote, setLiveQuote] = useState<LiveQuoteResponse | null>(null)
+  const [autoTradeStatus, setAutoTradeStatus] = useState<AutoTradeLifecycleStatus>('DISARMED')
+  const [autoTradeTolerancePips, setAutoTradeTolerancePips] = useState('0')
+  const [autoTradeTimeoutMinutes, setAutoTradeTimeoutMinutes] = useState('30')
+  const [autoTradeArmedAt, setAutoTradeArmedAt] = useState<string | null>(null)
+  const [autoTradeEvents, setAutoTradeEvents] = useState<AutoTradeUiEvent[]>([])
+  const [autoTradeBusy, setAutoTradeBusy] = useState(false)
+  const [autoTradeLogOpen, setAutoTradeLogOpen] = useState(true)
+  const [autoTradeTimeoutPrompting, setAutoTradeTimeoutPrompting] = useState(false)
 
   const invalidationFieldRef = useRef<HTMLInputElement | null>(null)
   const mentorPanelRef = useRef<HTMLDivElement | null>(null)
@@ -968,6 +1043,48 @@ export default function SessionPage() {
   const prereqTemplates = prereqTemplatesQuery.data || []
   const triggerTemplates = triggerTemplatesQuery.data || []
   const activeTemplates = templateDialog.type === 'PREREQS' ? prereqTemplates : triggerTemplates
+  const autoTradeStorageKey = useMemo(
+    () => (session?.id ? `${SESSION_AUTO_TRADE_KEY}.${user?.id || 'anonymous'}.${session.id}` : ''),
+    [session?.id, user?.id]
+  )
+
+  const pushAutoTradeEvent = useCallback(async (payload: {
+    type: AutoTradeEventType
+    side?: QuoteSide
+    price?: number
+    note?: string
+    tradeId?: string | null
+  }) => {
+    if (!session?.id) return
+    const localKey = `local-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+    const optimistic: AutoTradeUiEvent = {
+      id: localKey,
+      sessionId: session.id,
+      type: payload.type,
+      side: payload.side ?? null,
+      price: payload.price ?? null,
+      note: payload.note ?? null,
+      tradeId: payload.tradeId ?? null,
+      tsUtc: new Date().toISOString(),
+      localKey
+    }
+    setAutoTradeEvents((prev) => [optimistic, ...prev].slice(0, 50))
+    try {
+      const saved = await logSessionAutoTradeEvent(session.id, {
+        type: payload.type,
+        side: payload.side ?? null,
+        price: payload.price ?? null,
+        tradeId: payload.tradeId ?? null,
+        note: payload.note ?? null
+      })
+      setAutoTradeEvents((prev) => {
+        const withoutOptimistic = prev.filter((item) => item.localKey !== localKey)
+        return [{ ...saved, localKey: saved.id }, ...withoutOptimistic].slice(0, 50)
+      })
+    } catch {
+      // keep optimistic row so user still has a visible log even if sync fails
+    }
+  }, [session?.id])
 
   useEffect(() => {
     setLayoutState(readSessionLayoutState(layoutStorageKey))
@@ -981,6 +1098,71 @@ export default function SessionPage() {
     const timer = window.setInterval(() => setLocalNow(new Date()), 60_000)
     return () => window.clearInterval(timer)
   }, [])
+
+  useEffect(() => {
+    if (!session?.id) return
+    setAutoTradeLogOpen(!isTinyViewport)
+    setAutoTradeBusy(false)
+    setAutoTradeTimeoutPrompting(false)
+
+    let nextStatus: AutoTradeLifecycleStatus = session.activeTrade ? 'ACTIVE' : 'DISARMED'
+    let nextArmedAt: string | null = null
+    let nextTolerance = '0'
+    let nextTimeoutMinutes = '30'
+
+    if (autoTradeStorageKey) {
+      try {
+        const raw = localStorage.getItem(autoTradeStorageKey)
+        if (raw) {
+          const parsed = JSON.parse(raw) as {
+            status?: AutoTradeLifecycleStatus
+            armedAt?: string | null
+            tolerancePips?: string
+            timeoutMinutes?: string
+          }
+          const persistedStatus = parsed.status || nextStatus
+          nextStatus = session.activeTrade
+            ? 'ACTIVE'
+            : (persistedStatus === 'ACTIVE' ? 'DISARMED' : persistedStatus)
+          nextArmedAt = parsed.armedAt || null
+          nextTolerance = parsed.tolerancePips || nextTolerance
+          nextTimeoutMinutes = parsed.timeoutMinutes || nextTimeoutMinutes
+        }
+      } catch {
+        // ignore malformed local storage payload
+      }
+    }
+
+    setAutoTradeStatus(nextStatus)
+    setAutoTradeArmedAt(nextArmedAt)
+    setAutoTradeTolerancePips(nextTolerance)
+    setAutoTradeTimeoutMinutes(nextTimeoutMinutes)
+
+    let cancelled = false
+    void listSessionAutoTradeEvents(session.id)
+      .then((rows) => {
+        if (cancelled) return
+        setAutoTradeEvents((rows || []).map((row) => ({ ...row, localKey: row.id })))
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setAutoTradeEvents([])
+        }
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [autoTradeStorageKey, isTinyViewport, session?.activeTrade, session?.id])
+
+  useEffect(() => {
+    if (!autoTradeStorageKey) return
+    localStorage.setItem(autoTradeStorageKey, JSON.stringify({
+      status: autoTradeStatus,
+      armedAt: autoTradeArmedAt,
+      tolerancePips: autoTradeTolerancePips,
+      timeoutMinutes: autoTradeTimeoutMinutes
+    }))
+  }, [autoTradeArmedAt, autoTradeStatus, autoTradeStorageKey, autoTradeTimeoutMinutes, autoTradeTolerancePips])
 
   useEffect(() => {
     if (!session) return
@@ -1540,6 +1722,246 @@ export default function SessionPage() {
     }
   }, [selectedChartProfile])
 
+  const buildLiveStartTradePayload = (entryPriceOverride?: number) => {
+    const quantity = Number(planner.quantity)
+    const entryPrice = entryPriceOverride ?? Number(planner.entryPrice)
+    const stopLossPrice = Number(planner.stopLossPrice)
+    return {
+      symbol: planner.symbol.trim().toUpperCase(),
+      direction: planner.direction,
+      quantity,
+      entryPrice,
+      takeProfitPrice: planner.takeProfitPrice ? Number(planner.takeProfitPrice) : null,
+      stopLossPrice,
+      tradeCurrency,
+      fxRateTradeToProfile: fxRateForProfile ?? undefined,
+      fxRateSource: isCrossCurrency ? (planner.fxRateSource || 'MANUAL') : 'IDENTITY',
+      session: planner.session,
+      feeling: planner.feeling,
+      setupGrade: planner.setupGrade,
+      strategyId: selectedStrategy?.id,
+      strategyTag: selectedStrategy ? selectedStrategy.name : undefined,
+      linkedPlanId: selectedPlan?.id,
+      riskAmount: manualRisk ?? undefined,
+      initialNotes: planner.notes || undefined,
+      entryJournalText: planner.notes.trim() || t('today.session.entryJournal.defaultText'),
+      entryInvalidation: planner.invalidation.trim(),
+      entryScreenshotAssetIds: attachedScreenshots.map((asset) => asset.id),
+      sweepLevelId: activeSweepLevelId || undefined,
+      sweepPoolId: activeSweepPoolId || undefined,
+      entryLevelId: activeEntryLevelId || undefined,
+      slLevelId: activeSlLevelId || undefined,
+      tpLevelId: activeTpLevelId || undefined
+    }
+  }
+
+  useEffect(() => {
+    if (chartMode !== 'LIVE') {
+      setLiveQuote(null)
+      return
+    }
+
+    const symbol = chartSymbol.trim()
+    if (!symbol) {
+      setLiveQuote(null)
+      return
+    }
+
+    let cancelled = false
+    const loadQuote = async () => {
+      try {
+        const quote = await fetchLiveQuote(symbol)
+        if (!cancelled) {
+          setLiveQuote(quote)
+        }
+      } catch {
+        if (!cancelled) {
+          setLiveQuote({
+            symbol,
+            available: false,
+            reason: t('today.session.autoTrade.quoteUnavailable')
+          })
+        }
+      }
+    }
+
+    void loadQuote()
+    if (isTestMode) {
+      return () => {
+        cancelled = true
+      }
+    }
+    const timer = window.setInterval(() => {
+      void loadQuote()
+    }, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [chartMode, chartSymbol, isTestMode, t])
+
+  useEffect(() => {
+    if (autoTradeStatus !== 'ARMED' || !autoTradeArmedAt) return
+    const timeoutMinutes = Number(autoTradeTimeoutMinutes)
+    if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) return
+
+    const timeoutMs = timeoutMinutes * 60 * 1000
+    const timer = window.setInterval(() => {
+      if (autoTradeTimeoutPrompting) return
+      const armedAtMs = new Date(autoTradeArmedAt).getTime()
+      if (!Number.isFinite(armedAtMs)) return
+      if ((Date.now() - armedAtMs) < timeoutMs) return
+
+      setAutoTradeTimeoutPrompting(true)
+      const keepArmed = window.confirm(t('today.session.autoTrade.timeoutPrompt', { minutes: timeoutMinutes }))
+      if (keepArmed) {
+        setAutoTradeArmedAt(new Date().toISOString())
+        void pushAutoTradeEvent({
+          type: 'KEEP_ALIVE',
+          note: t('today.session.autoTrade.keepAlive')
+        })
+      } else {
+        setAutoTradeStatus('DISARMED')
+        setAutoTradeArmedAt(null)
+        void pushAutoTradeEvent({
+          type: 'TIMEOUT',
+          note: t('today.session.autoTrade.timeoutDisarmed')
+        })
+      }
+      setAutoTradeTimeoutPrompting(false)
+    }, 10_000)
+
+    return () => {
+      window.clearInterval(timer)
+    }
+  }, [autoTradeArmedAt, autoTradeStatus, autoTradeTimeoutMinutes, autoTradeTimeoutPrompting, pushAutoTradeEvent, t])
+
+  useEffect(() => {
+    if (chartMode !== 'LIVE') return
+    if (autoTradeStatus !== 'ARMED' && autoTradeStatus !== 'ACTIVE') return
+    if (!liveQuote?.available) return
+    if (liveQuote.bid == null || liveQuote.ask == null) return
+    if (autoTradeBusy) return
+
+    const symbol = planner.symbol.trim()
+    if (!symbol) return
+
+    const direction = planner.direction
+    const entryPrice = Number(planner.entryPrice)
+    const stopLossPrice = Number(planner.stopLossPrice)
+    const takeProfitPrice = Number(planner.takeProfitPrice)
+    const tolerancePips = Number(autoTradeTolerancePips)
+    const tolerancePoints = (Number.isFinite(tolerancePips) && tolerancePips > 0)
+      ? tolerancePips * inferPipSize(symbol)
+      : 0
+
+    if (
+      !Number.isFinite(entryPrice)
+      || entryPrice <= 0
+      || !Number.isFinite(stopLossPrice)
+      || stopLossPrice <= 0
+      || !Number.isFinite(takeProfitPrice)
+      || takeProfitPrice <= 0
+    ) {
+      return
+    }
+
+    if (autoTradeStatus === 'ARMED' && !session?.activeTrade) {
+      if (!canMeetExecutionGate) return
+      if (!isEntryTouched(direction, liveQuote, entryPrice, tolerancePoints)) return
+
+      const fillSide: QuoteSide = direction === 'LONG' ? 'ASK' : 'BID'
+      const fillPrice = fillSide === 'ASK' ? liveQuote.ask : liveQuote.bid
+      setAutoTradeBusy(true)
+      void pushAutoTradeEvent({
+        type: 'ENTRY_FILLED',
+        side: fillSide,
+        price: fillPrice,
+        note: t('today.session.autoTrade.entryTouched')
+      })
+      void (async () => {
+        try {
+          await startTradeMutation.mutateAsync(buildLiveStartTradePayload(fillPrice))
+          setAutoTradeStatus('ACTIVE')
+        } catch (error) {
+          setAutoTradeStatus('DISARMED')
+          setAutoTradeArmedAt(null)
+          void pushAutoTradeEvent({
+            type: 'ERROR',
+            note: (error as Error)?.message || t('today.session.autoTrade.entryStartFailed')
+          })
+        } finally {
+          setAutoTradeBusy(false)
+        }
+      })()
+      return
+    }
+
+    const activeTrade = session?.activeTrade
+    if (!activeTrade) return
+
+    const slTouched = isStopLossTouched(direction, liveQuote, stopLossPrice, tolerancePoints)
+    const tpTouched = isTakeProfitTouched(direction, liveQuote, takeProfitPrice, tolerancePoints)
+    if (!slTouched && !tpTouched) return
+
+    const bothTouched = slTouched && tpTouched
+    const outcome: AutoTradeEventType = (slTouched || bothTouched) ? 'SL_HIT' : 'TP_HIT'
+    const closeSide: QuoteSide = direction === 'LONG' ? 'BID' : 'ASK'
+    const closePrice = closeSide === 'ASK' ? liveQuote.ask : liveQuote.bid
+
+    setAutoTradeBusy(true)
+    void pushAutoTradeEvent({
+      type: outcome,
+      side: closeSide,
+      price: closePrice,
+      tradeId: activeTrade.id,
+      note: bothTouched
+        ? t('today.session.autoTrade.gapAmbiguous')
+        : (outcome === 'SL_HIT' ? t('today.session.autoTrade.slTouched') : t('today.session.autoTrade.tpTouched'))
+    })
+    void (async () => {
+      try {
+        await closeTradeMutation.mutateAsync({
+          tradeId: activeTrade.id,
+          payload: {
+            exitPrice: closePrice,
+            ruleBreaks: [],
+            postTradeNotes: outcome === 'SL_HIT'
+              ? t('today.session.autoTrade.autoCloseSl')
+              : t('today.session.autoTrade.autoCloseTp')
+          }
+        })
+        setAutoTradeStatus('CLOSED')
+        setAutoTradeArmedAt(null)
+      } catch (error) {
+        void pushAutoTradeEvent({
+          type: 'ERROR',
+          tradeId: activeTrade.id,
+          note: (error as Error)?.message || t('today.session.autoTrade.closeFailed')
+        })
+      } finally {
+        setAutoTradeBusy(false)
+      }
+    })()
+  }, [
+    autoTradeBusy,
+    autoTradeStatus,
+    autoTradeTolerancePips,
+    buildLiveStartTradePayload,
+    chartMode,
+    closeTradeMutation,
+    liveQuote,
+    planner.direction,
+    planner.entryPrice,
+    planner.stopLossPrice,
+    planner.symbol,
+    planner.takeProfitPrice,
+    pushAutoTradeEvent,
+    session?.activeTrade,
+    startTradeMutation,
+    t
+  ])
+
   const riskSnapshot = useMemo(() => {
     const quantity = Number(planner.quantity)
     const entryPrice = Number(planner.entryPrice)
@@ -1964,12 +2386,19 @@ export default function SessionPage() {
   }
 
   const handleOpenChecklistEditor = (type: ChecklistTemplateType) => {
+    const currentItems = normalizeChecklistItems(type === 'PREREQS' ? prereqChecklist : triggerChecklist)
     setChecklistEditDialog({
       open: true,
       type,
-      items: normalizeChecklistItems(type === 'PREREQS' ? prereqChecklist : triggerChecklist)
+      items: currentItems,
+      initialSignature: checklistStructureSignature(currentItems)
     })
   }
+
+  const checklistEditorHasChanges = useMemo(() => {
+    if (!checklistEditDialog.open) return false
+    return checklistStructureSignature(checklistEditDialog.items) !== checklistEditDialog.initialSignature
+  }, [checklistEditDialog.initialSignature, checklistEditDialog.items, checklistEditDialog.open])
 
   const handleSaveChecklistEditor = async () => {
     const items = normalizeChecklistItems(checklistEditDialog.items)
@@ -2930,35 +3359,7 @@ export default function SessionPage() {
       return
     }
 
-    const payload = {
-      symbol: planner.symbol.trim().toUpperCase(),
-      direction: planner.direction,
-      quantity,
-      entryPrice,
-      takeProfitPrice: planner.takeProfitPrice ? Number(planner.takeProfitPrice) : null,
-      stopLossPrice,
-      tradeCurrency,
-      fxRateTradeToProfile: fxRateForProfile ?? undefined,
-      fxRateSource: isCrossCurrency ? (planner.fxRateSource || 'MANUAL') : 'IDENTITY',
-      session: planner.session,
-      feeling: planner.feeling,
-      setupGrade: planner.setupGrade,
-      strategyId: selectedStrategy?.id,
-      strategyTag: selectedStrategy ? selectedStrategy.name : undefined,
-      linkedPlanId: selectedPlan?.id,
-      riskAmount: manualRisk ?? undefined,
-      initialNotes: planner.notes || undefined,
-      entryJournalText: planner.notes.trim() || t('today.session.entryJournal.defaultText'),
-      entryInvalidation: planner.invalidation.trim(),
-      entryScreenshotAssetIds: attachedScreenshots.map((asset) => asset.id),
-      sweepLevelId: activeSweepLevelId || undefined,
-      sweepPoolId: activeSweepPoolId || undefined,
-      entryLevelId: activeEntryLevelId || undefined,
-      slLevelId: activeSlLevelId || undefined,
-      tpLevelId: activeTpLevelId || undefined
-    }
-
-    await startTradeMutation.mutateAsync(payload)
+    await startTradeMutation.mutateAsync(buildLiveStartTradePayload())
   }
 
   const handleCloseTrade = async () => {
@@ -2976,6 +3377,92 @@ export default function SessionPage() {
         postTradeNotes: closeDraft.postTradeNotes
       }
     })
+  }
+
+  const handleToggleAutoTrade = () => {
+    if (autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE') {
+      setAutoTradeStatus('DISARMED')
+      setAutoTradeArmedAt(null)
+      void pushAutoTradeEvent({
+        type: 'DISARMED',
+        tradeId: session?.activeTrade?.id || null,
+        note: t('today.session.autoTrade.disarmed')
+      })
+      return
+    }
+
+    if (chartMode !== 'LIVE') {
+      setApiError(t('today.session.autoTrade.liveOnly'))
+      return
+    }
+    if (!planner.symbol.trim()) {
+      setApiError(t('today.session.autoTrade.symbolRequired'))
+      return
+    }
+
+    const entryPrice = Number(planner.entryPrice)
+    const stopLossPrice = Number(planner.stopLossPrice)
+    const takeProfitPrice = Number(planner.takeProfitPrice)
+    if (
+      !Number.isFinite(entryPrice)
+      || entryPrice <= 0
+      || !Number.isFinite(stopLossPrice)
+      || stopLossPrice <= 0
+      || !Number.isFinite(takeProfitPrice)
+      || takeProfitPrice <= 0
+    ) {
+      setApiError(t('today.session.autoTrade.levelsRequired'))
+      return
+    }
+    if (!liveQuote?.available || liveQuote.bid == null || liveQuote.ask == null) {
+      setApiError(t('today.session.autoTrade.quoteUnavailable'))
+      return
+    }
+
+    const nowIso = new Date().toISOString()
+    setAutoTradeArmedAt(nowIso)
+    setAutoTradeStatus(session?.activeTrade ? 'ACTIVE' : 'ARMED')
+    setApiError('')
+    void pushAutoTradeEvent({
+      type: 'ARMED',
+      tradeId: session?.activeTrade?.id || null,
+      note: session?.activeTrade
+        ? t('today.session.autoTrade.armedForClose')
+        : t('today.session.autoTrade.armed')
+    })
+  }
+
+  const handleAutoTradeCloseNow = async () => {
+    if (!session?.activeTrade || autoTradeBusy) return
+    if (!liveQuote?.available || liveQuote.bid == null || liveQuote.ask == null) {
+      setApiError(t('today.session.autoTrade.quoteUnavailable'))
+      return
+    }
+    const closeSide: QuoteSide = planner.direction === 'LONG' ? 'BID' : 'ASK'
+    const closePrice = closeSide === 'ASK' ? liveQuote.ask : liveQuote.bid
+
+    setAutoTradeBusy(true)
+    void pushAutoTradeEvent({
+      type: 'MANUAL_CLOSE',
+      side: closeSide,
+      price: closePrice,
+      tradeId: session.activeTrade.id,
+      note: t('today.session.autoTrade.manualClose')
+    })
+    try {
+      await closeTradeMutation.mutateAsync({
+        tradeId: session.activeTrade.id,
+        payload: {
+          exitPrice: closePrice,
+          ruleBreaks: [],
+          postTradeNotes: t('today.session.autoTrade.manualClose')
+        }
+      })
+      setAutoTradeStatus('CLOSED')
+      setAutoTradeArmedAt(null)
+    } finally {
+      setAutoTradeBusy(false)
+    }
   }
 
   const handleSaveEntryJournal = async () => {
@@ -3576,7 +4063,7 @@ export default function SessionPage() {
                               </FormControl>
 
                               <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 220 } }}>
-                                <InputLabel id="chart-profile-select">{t('today.session.chartProfiles.label')}</InputLabel>
+                                <InputLabel id="chart-profile-select" shrink>{t('today.session.chartProfiles.label')}</InputLabel>
                                 <Select
                                   labelId="chart-profile-select"
                                   label={t('today.session.chartProfiles.label')}
@@ -3617,6 +4104,35 @@ export default function SessionPage() {
                             <Chip size="small" label={`${t('today.session.chart.session')}: ${lockIn.session || t('common.na')}`} />
                             <Chip size="small" variant="outlined" label={`${t('today.session.chart.modeLabel')}: ${chartModeLabel}`} />
                             <Chip size="small" label={`${t('today.session.chart.local')}: ${localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
+                            {chartMode === 'LIVE' && (
+                              liveQuote?.available && liveQuote.bid != null && liveQuote.ask != null && liveQuote.spread != null ? (
+                                <Chip
+                                  size="small"
+                                  color="info"
+                                  label={t('today.session.autoTrade.quoteChip', {
+                                    bid: formatNumber(liveQuote.bid, 5),
+                                    ask: formatNumber(liveQuote.ask, 5),
+                                    spread: formatNumber(liveQuote.spread, 5)
+                                  })}
+                                />
+                              ) : (
+                                <Chip
+                                  size="small"
+                                  variant="outlined"
+                                  color="warning"
+                                  label={t('today.session.autoTrade.quoteUnavailable')}
+                                />
+                              )
+                            )}
+                            {chartMode === 'LIVE' && liveQuote?.available && liveQuote.tsUtc && (
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={t('today.session.autoTrade.quoteTs', {
+                                  time: new Date(liveQuote.tsUtc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                                })}
+                              />
+                            )}
                             <Chip size="small" color={newsSafe ? 'success' : 'warning'} label={newsSafe ? t('today.session.chart.newsSafe') : t('today.session.chart.newsCaution')} />
                             {(selectedSweepLevel || selectedSweepPool) && (
                               <Chip
@@ -3626,6 +4142,121 @@ export default function SessionPage() {
                               />
                             )}
                           </Stack>
+
+                          <Box sx={{ p: 1, border: '1px solid', borderColor: autoTradeStatus === 'DISARMED' ? 'divider' : 'info.light', borderRadius: 1.5 }}>
+                            <Stack spacing={1}>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap>
+                                <Typography variant="subtitle2">{t('today.session.autoTrade.title')}</Typography>
+                                <Chip
+                                  size="small"
+                                  color={autoTradeStatus === 'ACTIVE' ? 'success' : (autoTradeStatus === 'ARMED' ? 'warning' : 'default')}
+                                  label={`${t('today.session.autoTrade.statusLabel')}: ${t(`today.session.autoTrade.status.${autoTradeStatus}`)}`}
+                                />
+                              </Stack>
+                              <Alert severity="info">{t('today.session.autoTrade.journalOnly')}</Alert>
+                              <Typography variant="caption" color="text.secondary">
+                                {t('today.session.autoTrade.tabWarning')}
+                              </Typography>
+                              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  label={t('today.session.autoTrade.tolerancePips')}
+                                  value={autoTradeTolerancePips}
+                                  onChange={(event) => setAutoTradeTolerancePips(event.target.value)}
+                                  sx={{ minWidth: { sm: 140 } }}
+                                />
+                                <TextField
+                                  size="small"
+                                  type="number"
+                                  label={t('today.session.autoTrade.timeoutMinutes')}
+                                  value={autoTradeTimeoutMinutes}
+                                  onChange={(event) => setAutoTradeTimeoutMinutes(event.target.value)}
+                                  sx={{ minWidth: { sm: 140 } }}
+                                />
+                                <Button
+                                  size="small"
+                                  variant={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'outlined' : 'contained'}
+                                  color={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'warning' : 'primary'}
+                                  onClick={handleToggleAutoTrade}
+                                  disabled={autoTradeBusy}
+                                >
+                                  {autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE'
+                                    ? t('today.session.autoTrade.disarm')
+                                    : t('today.session.autoTrade.arm')}
+                                </Button>
+                                {autoTradeStatus === 'ARMED' && (
+                                  <Button
+                                    size="small"
+                                    variant="text"
+                                    onClick={() => {
+                                      setAutoTradeStatus('DISARMED')
+                                      setAutoTradeArmedAt(null)
+                                      void pushAutoTradeEvent({
+                                        type: 'DISARMED',
+                                        note: t('today.session.autoTrade.notFilled')
+                                      })
+                                    }}
+                                  >
+                                    {t('today.session.autoTrade.notFilledAction')}
+                                  </Button>
+                                )}
+                                {session.activeTrade && (
+                                  <Button
+                                    size="small"
+                                    variant="outlined"
+                                    color="error"
+                                    onClick={() => void handleAutoTradeCloseNow()}
+                                    disabled={autoTradeBusy}
+                                  >
+                                    {t('today.session.autoTrade.closeNow')}
+                                  </Button>
+                                )}
+                              </Stack>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap>
+                                {autoTradeArmedAt ? (
+                                  <Typography variant="caption" color="text.secondary">
+                                    {t('today.session.autoTrade.armedAt', {
+                                      time: new Date(autoTradeArmedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+                                    })}
+                                  </Typography>
+                                ) : (
+                                  <span />
+                                )}
+                                <Button size="small" variant="text" onClick={() => setAutoTradeLogOpen((prev) => !prev)}>
+                                  {autoTradeLogOpen ? t('today.session.autoTrade.hideLog') : t('today.session.autoTrade.showLog')}
+                                </Button>
+                              </Stack>
+                              {autoTradeLogOpen && (
+                                <Stack spacing={0.5} sx={{ maxHeight: 180, overflowY: 'auto', pr: 0.25 }}>
+                                  {autoTradeEvents.length === 0 ? (
+                                    <Typography variant="caption" color="text.secondary">{t('today.session.autoTrade.logEmpty')}</Typography>
+                                  ) : (
+                                    autoTradeEvents.slice(0, 14).map((event) => (
+                                      <Box key={event.localKey} sx={{ p: 0.75, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+                                        <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                          <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                            {t(`today.session.autoTrade.event.${event.type}`)}
+                                          </Typography>
+                                          <Typography variant="caption" color="text.secondary">
+                                            {new Date(event.tsUtc).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                                          </Typography>
+                                        </Stack>
+                                        <Typography variant="caption" color="text.secondary">
+                                          {event.price != null ? `${formatNumber(event.price, 5)} ${event.side ? `(${event.side})` : ''}` : t('common.na')}
+                                        </Typography>
+                                        {event.note && (
+                                          <Typography variant="caption" color="text.secondary">
+                                            {event.note}
+                                          </Typography>
+                                        )}
+                                      </Box>
+                                    ))
+                                  )}
+                                </Stack>
+                              )}
+                            </Stack>
+                          </Box>
 
                           <Box sx={{ p: 1, border: '1px solid', borderColor: narrativeComplete ? 'success.light' : 'divider', borderRadius: 1.5 }}>
                             <Stack spacing={1}>
@@ -5396,7 +6027,13 @@ export default function SessionPage() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setChecklistEditDialog((prev) => ({ ...prev, open: false }))}>{t('common.cancel')}</Button>
-          <Button variant="contained" onClick={() => void handleSaveChecklistEditor()}>{t('today.session.checklist.saveChanges')}</Button>
+          <Button
+            variant="contained"
+            onClick={() => void handleSaveChecklistEditor()}
+            disabled={!checklistEditorHasChanges}
+          >
+            {t('today.session.checklist.saveChanges')}
+          </Button>
         </DialogActions>
       </Dialog>
 

@@ -29,6 +29,8 @@ const sessionApiMock = vi.hoisted(() => ({
   deleteSessionPool: vi.fn(),
   getSessionNarrative: vi.fn(),
   updateSessionNarrative: vi.fn(),
+  listSessionAutoTradeEvents: vi.fn(),
+  logSessionAutoTradeEvent: vi.fn(),
   startTradeFromSession: vi.fn(),
   closeTradeFromSession: vi.fn(),
   saveTradeEntryJournal: vi.fn()
@@ -44,6 +46,10 @@ const strategiesApiMock = vi.hoisted(() => ({
 
 const fxApiMock = vi.hoisted(() => ({
   fetchFxRate: vi.fn()
+}))
+
+const quotesApiMock = vi.hoisted(() => ({
+  fetchLiveQuote: vi.fn()
 }))
 
 const assetsApiMock = vi.hoisted(() => ({
@@ -92,6 +98,7 @@ vi.mock('../api/session', () => sessionApiMock)
 vi.mock('../api/plans', () => plansApiMock)
 vi.mock('../api/strategies', () => strategiesApiMock)
 vi.mock('../api/fx', () => fxApiMock)
+vi.mock('../api/quotes', () => quotesApiMock)
 vi.mock('../api/chartProfiles', () => chartProfilesApiMock)
 vi.mock('../api/backtest', () => backtestApiMock)
 vi.mock('../api/assets', async () => {
@@ -433,6 +440,17 @@ describe('SessionPage execution funnel', () => {
       sessionState = { ...sessionState, narrative: { ...sessionState.narrative, ...payload } }
       return sessionState.narrative
     })
+    sessionApiMock.listSessionAutoTradeEvents.mockResolvedValue([])
+    sessionApiMock.logSessionAutoTradeEvent.mockImplementation(async (_sessionId: any, payload: any) => ({
+      id: `event-${Date.now()}`,
+      sessionId: sessionState.id,
+      tradeId: payload.tradeId ?? null,
+      type: payload.type,
+      side: payload.side ?? null,
+      price: payload.price ?? null,
+      note: payload.note ?? null,
+      tsUtc: new Date().toISOString()
+    }))
 
     sessionApiMock.startTradeFromSession.mockResolvedValue({ id: 'trade-1' })
     sessionApiMock.closeTradeFromSession.mockResolvedValue({})
@@ -441,6 +459,16 @@ describe('SessionPage execution funnel', () => {
     plansApiMock.listDailyPlans.mockResolvedValue([basePlan])
     strategiesApiMock.listStrategies.mockResolvedValue({ myStrategies: [], mentorStrategies: [] })
     fxApiMock.fetchFxRate.mockResolvedValue({ rate: 1, source: 'AUTO' })
+    quotesApiMock.fetchLiveQuote.mockResolvedValue({
+      symbol: 'OANDA:EURUSD',
+      bid: 1.0824,
+      ask: 1.08252,
+      mid: 1.08246,
+      spread: 0.00012,
+      tsUtc: '2026-02-21T08:16:03Z',
+      available: true,
+      reason: null
+    })
     assetsApiMock.uploadAsset.mockResolvedValue({
       id: 'asset-1',
       scope: 'TRADE',
@@ -937,6 +965,56 @@ describe('SessionPage execution funnel', () => {
         })
       )
     })
+  })
+
+  it('keeps chart profile label shrunk to avoid overlap', async () => {
+    renderSessionPage()
+    await screen.findByText('Live chart')
+
+    const labels = screen.getAllByText('Chart profile')
+    expect(labels[0]).toHaveClass('MuiInputLabel-shrink')
+  })
+
+  it('renders live bid/ask/spread chip and arms auto journal controls', async () => {
+    const user = userEvent.setup()
+    renderSessionPage()
+    await screen.findByText('Live chart')
+
+    await waitFor(() => {
+      expect(screen.getByText(/Bid/i)).toBeInTheDocument()
+      expect(screen.getByText(/Spread/i)).toBeInTheDocument()
+    })
+
+    const plannerPanel = getPlannerPanel()
+    await user.clear(within(plannerPanel).getByLabelText(/entry price/i))
+    await user.type(within(plannerPanel).getByLabelText(/entry price/i), '1.0825')
+    await user.clear(within(plannerPanel).getByLabelText(/stop[-\s]?loss/i))
+    await user.type(within(plannerPanel).getByLabelText(/stop[-\s]?loss/i), '1.0810')
+    await user.clear(within(plannerPanel).getByLabelText(/take[-\s]?profit/i))
+    await user.type(within(plannerPanel).getByLabelText(/take[-\s]?profit/i), '1.0850')
+
+    await user.click(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i }))
+
+    await waitFor(() => {
+      expect(sessionApiMock.logSessionAutoTradeEvent).toHaveBeenCalledWith(
+        'session-1',
+        expect.objectContaining({ type: 'ARMED' })
+      )
+    })
+    expect(screen.getByRole('button', { name: /Disarm auto-start\/auto-stop/i })).toBeInTheDocument()
+  })
+
+  it('shows spread-unavailable chip when quotes are unavailable', async () => {
+    quotesApiMock.fetchLiveQuote.mockResolvedValue({
+      symbol: 'OANDA:EURUSD',
+      available: false,
+      reason: 'Spread unavailable for this symbol'
+    })
+
+    renderSessionPage()
+    await screen.findByText('Live chart')
+
+    expect(await screen.findByText(/Spread unavailable for this symbol/i)).toBeInTheDocument()
   })
 
   it('switches to backtest mode, loads replay data, and simulates a backtest trade', async () => {

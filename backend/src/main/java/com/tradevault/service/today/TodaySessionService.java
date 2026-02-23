@@ -8,11 +8,13 @@ import com.tradevault.domain.entity.ChecklistTemplateEntry;
 import com.tradevault.domain.entity.ChecklistTemplateItem;
 import com.tradevault.domain.entity.ChecklistTemplateVersion;
 import com.tradevault.domain.entity.LiquidityPool;
+import com.tradevault.domain.entity.SessionAutoTradeEvent;
 import com.tradevault.domain.entity.SessionLevel;
 import com.tradevault.domain.entity.SessionNarrative;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.AutoTradeEventType;
 import com.tradevault.domain.enums.ChecklistTemplateType;
 import com.tradevault.domain.enums.ChecklistValueType;
 import com.tradevault.domain.enums.ContextSnapshotMode;
@@ -26,6 +28,7 @@ import com.tradevault.domain.enums.NarrativeDeliveryModel;
 import com.tradevault.domain.enums.NarrativeHtfDraw;
 import com.tradevault.domain.enums.NarrativeManipulation;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.QuoteSide;
 import com.tradevault.domain.enums.SessionLevelCategory;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeStatus;
@@ -37,6 +40,8 @@ import com.tradevault.dto.session.SessionChecklistItemDto;
 import com.tradevault.dto.session.SessionLevelDto;
 import com.tradevault.dto.session.SessionLevelRequest;
 import com.tradevault.dto.session.SessionLevelSuggestionDto;
+import com.tradevault.dto.session.SessionAutoTradeEventDto;
+import com.tradevault.dto.session.SessionAutoTradeEventRequest;
 import com.tradevault.dto.session.SessionNarrativeDto;
 import com.tradevault.dto.session.SessionNarrativeRequest;
 import com.tradevault.dto.session.SessionPoolDto;
@@ -56,6 +61,7 @@ import com.tradevault.repository.ChecklistTemplateItemRepository;
 import com.tradevault.repository.ChecklistTemplateRepository;
 import com.tradevault.repository.ChecklistTemplateVersionRepository;
 import com.tradevault.repository.LiquidityPoolRepository;
+import com.tradevault.repository.SessionAutoTradeEventRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.TodaySessionRepository;
@@ -109,6 +115,7 @@ public class TodaySessionService {
     private static final int MAX_LEVEL_EXPECTATION_LENGTH = 48;
     private static final int MAX_POOL_NAME_LENGTH = 120;
     private static final int MAX_NARRATIVE_NOTES_LENGTH = 400;
+    private static final int MAX_AUTO_TRADE_NOTE_LENGTH = 280;
 
     private static final Set<String> LOCK_IN_SESSIONS = Set.of("ASIA", "LONDON", "NY_AM", "NY_PM");
     private static final Set<String> LOCK_IN_OBJECTIVES = Set.of("A_PLUS_ONLY", "ONE_TRADE_MAX", "TWO_TRADES_MAX");
@@ -122,6 +129,7 @@ public class TodaySessionService {
     private final ChecklistTemplateVersionRepository checklistTemplateVersionRepository;
     private final SessionLevelRepository sessionLevelRepository;
     private final LiquidityPoolRepository liquidityPoolRepository;
+    private final SessionAutoTradeEventRepository sessionAutoTradeEventRepository;
     private final SessionNarrativeRepository sessionNarrativeRepository;
     private final CurrentUserService currentUserService;
     private final TradeService tradeService;
@@ -221,7 +229,18 @@ public class TodaySessionService {
             applyChecklistTypeState(session, type, template, merged);
         } else if (request != null && request.getItems() != null) {
             List<SessionChecklistItemDto> items = normalizeChecklistItems(request.getItems());
-            applyChecklistTypeState(session, type, getTemplateForType(session, type), items);
+            ChecklistTemplate activeTemplate = getTemplateForType(session, type);
+            if (activeTemplate != null && activeTemplate.getId() != null) {
+                List<SessionChecklistItemDto> templateRows = loadTemplateRows(activeTemplate.getId());
+                // If structure changed in session editor, detach from template and keep session-specific rows.
+                if (hasCustomChecklistStructure(items, templateRows)) {
+                    applyChecklistTypeState(session, type, null, items);
+                } else {
+                    applyChecklistTypeState(session, type, activeTemplate, items);
+                }
+            } else {
+                applyChecklistTypeState(session, type, null, items);
+            }
         }
 
         if (request != null && request.getActiveSweepLevelId() != null) {
@@ -253,6 +272,45 @@ public class TodaySessionService {
 
         TodaySession saved = todaySessionRepository.save(session);
         return toResponse(saved, user.getId());
+    }
+
+    @Transactional(readOnly = true)
+    public List<SessionAutoTradeEventDto> listAutoTradeEvents(UUID sessionId) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+        return sessionAutoTradeEventRepository
+                .findByTodaySession_IdAndUser_IdOrderByCreatedAtUtcDesc(session.getId(), user.getId())
+                .stream()
+                .map(this::toAutoTradeEventDto)
+                .toList();
+    }
+
+    @Transactional
+    public SessionAutoTradeEventDto logAutoTradeEvent(UUID sessionId, SessionAutoTradeEventRequest request) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSessionById(user, sessionId);
+
+        Trade linkedTrade = null;
+        UUID tradeId = request == null ? null : request.getTradeId();
+        if (tradeId != null) {
+            linkedTrade = tradeRepository.findByIdAndUserId(tradeId, user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
+            if (!Objects.equals(linkedTrade.getSessionId(), session.getId())) {
+                throw new IllegalArgumentException("Trade is not linked to this session");
+            }
+        }
+
+        SessionAutoTradeEvent event = SessionAutoTradeEvent.builder()
+                .todaySession(session)
+                .user(user)
+                .trade(linkedTrade)
+                .eventType(normalizeAutoTradeEventType(request == null ? null : request.getType()))
+                .priceSide(normalizeAutoTradePriceSide(request == null ? null : request.getSide()))
+                .price(normalizeAutoTradeEventPrice(request == null ? null : request.getPrice()))
+                .note(normalizeAutoTradeEventNote(request == null ? null : request.getNote()))
+                .build();
+        SessionAutoTradeEvent saved = sessionAutoTradeEventRepository.save(event);
+        return toAutoTradeEventDto(saved);
     }
 
     @Transactional(readOnly = true)
@@ -1502,7 +1560,20 @@ public class TodaySessionService {
         List<SessionChecklistItemDto> persistedState = readChecklistItems(getChecklistStateJson(session, type));
         ChecklistTemplate template = getTemplateForType(session, type);
         if (template != null && template.getId() != null) {
+            List<SessionChecklistItemDto> templateRows = loadTemplateRows(template.getId());
+            if (hasCustomChecklistStructure(persistedState, templateRows)) {
+                return normalizeChecklistItems(persistedState);
+            }
             return mergeWithTemplateEntries(template.getId(), persistedState);
+        }
+
+        // Explicit session-scoped checklist rows should remain authoritative once detached from templates.
+        if (type == ChecklistTemplateType.TRIGGERS && !isBlank(session.getTriggersStateJson()) && !persistedState.isEmpty()) {
+            return normalizeChecklistItems(persistedState);
+        }
+        // For prereqs keep legacy checklist migration path unless dedicated prereqs JSON exists.
+        if (type == ChecklistTemplateType.PREREQS && !isBlank(session.getPrereqsStateJson()) && !persistedState.isEmpty()) {
+            return normalizeChecklistItems(persistedState);
         }
 
         if (type == ChecklistTemplateType.PREREQS) {
@@ -1561,30 +1632,11 @@ public class TodaySessionService {
 
     private List<SessionChecklistItemDto> mergeWithTemplateEntries(UUID templateId,
                                                                     List<SessionChecklistItemDto> persistedState) {
-        List<ChecklistTemplateEntry> entries = checklistTemplateEntryRepository
-                .findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(templateId);
-        if (entries.isEmpty()) {
+        List<SessionChecklistItemDto> templateRows = loadTemplateRows(templateId);
+        if (templateRows.isEmpty()) {
             return List.of();
         }
-
-        List<SessionChecklistItemDto> rows = entries.stream()
-                .limit(MAX_CHECKLIST_ITEMS)
-                .map(entry -> SessionChecklistItemDto.builder()
-                        .id(entry.getId().toString())
-                        .text(entry.getItemText())
-                        .order(entry.getSortOrder())
-                        .required(entry.isRequired())
-                        .hasNote(entry.isHasNote())
-                        .notePlaceholder(entry.getNotePlaceholder())
-                        .hasValue(entry.isHasValue())
-                        .valueLabel(entry.getValueLabel())
-                        .valueType(entry.getValueType() == null ? ChecklistValueType.TEXT : entry.getValueType())
-                        .defaultChecked(entry.isDefaultChecked())
-                        .completed(entry.isDefaultChecked())
-                        .build())
-                .toList();
-
-        return mergeTemplateRows(rows, persistedState);
+        return mergeTemplateRows(templateRows, persistedState);
     }
 
     private List<SessionChecklistItemDto> mergeTemplateRows(List<SessionChecklistItemDto> templateRows,
@@ -1624,6 +1676,96 @@ public class TodaySessionService {
         }
 
         return merged;
+    }
+
+    private List<SessionChecklistItemDto> loadTemplateRows(UUID templateId) {
+        List<ChecklistTemplateEntry> entries = checklistTemplateEntryRepository
+                .findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(templateId);
+        if (entries.isEmpty()) {
+            return List.of();
+        }
+
+        return entries.stream()
+                .limit(MAX_CHECKLIST_ITEMS)
+                .map(entry -> SessionChecklistItemDto.builder()
+                        .id(entry.getId().toString())
+                        .text(entry.getItemText())
+                        .order(entry.getSortOrder())
+                        .required(entry.isRequired())
+                        .hasNote(entry.isHasNote())
+                        .notePlaceholder(entry.getNotePlaceholder())
+                        .hasValue(entry.isHasValue())
+                        .valueLabel(entry.getValueLabel())
+                        .valueType(entry.getValueType() == null ? ChecklistValueType.TEXT : entry.getValueType())
+                        .defaultChecked(entry.isDefaultChecked())
+                        .completed(entry.isDefaultChecked())
+                        .build())
+                .toList();
+    }
+
+    private boolean hasCustomChecklistStructure(List<SessionChecklistItemDto> stateItems,
+                                                List<SessionChecklistItemDto> templateRows) {
+        if (stateItems == null || stateItems.isEmpty()) {
+            return false;
+        }
+        if (templateRows == null || templateRows.isEmpty()) {
+            return true;
+        }
+        if (stateItems.size() != templateRows.size()) {
+            return true;
+        }
+
+        Map<String, SessionChecklistItemDto> byId = new HashMap<>();
+        for (SessionChecklistItemDto templateRow : templateRows) {
+            String id = normalizeOptionalText(templateRow.getId());
+            if (id != null) {
+                byId.put(id, templateRow);
+            }
+        }
+
+        for (int index = 0; index < stateItems.size(); index++) {
+            SessionChecklistItemDto state = stateItems.get(index);
+            if (state == null) {
+                return true;
+            }
+            String id = normalizeOptionalText(state.getId());
+            SessionChecklistItemDto template = id == null ? null : byId.get(id);
+            if (template == null) {
+                return true;
+            }
+
+            int stateOrder = state.getOrder() == null ? index : Math.max(0, state.getOrder());
+            int templateOrder = template.getOrder() == null ? index : Math.max(0, template.getOrder());
+            if (stateOrder != templateOrder) {
+                return true;
+            }
+            if (!Objects.equals(normalizeOptionalText(state.getText()), normalizeOptionalText(template.getText()))) {
+                return true;
+            }
+            if (state.isRequired() != template.isRequired()) {
+                return true;
+            }
+            if (state.isHasNote() != template.isHasNote()) {
+                return true;
+            }
+            if (!Objects.equals(normalizeOptionalText(state.getNotePlaceholder()), normalizeOptionalText(template.getNotePlaceholder()))) {
+                return true;
+            }
+            if (state.isHasValue() != template.isHasValue()) {
+                return true;
+            }
+            if (!Objects.equals(normalizeOptionalText(state.getValueLabel()), normalizeOptionalText(template.getValueLabel()))) {
+                return true;
+            }
+            if (normalizeValueType(state.getValueType()) != normalizeValueType(template.getValueType())) {
+                return true;
+            }
+            if (state.isDefaultChecked() != template.isDefaultChecked()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private ChecklistStateMaps buildStateMaps(List<SessionChecklistItemDto> items) {
@@ -2318,6 +2460,48 @@ public class TodaySessionService {
             rawMove = rawMove.negate();
         }
         return rawMove.setScale(8, RoundingMode.HALF_UP);
+    }
+
+    private SessionAutoTradeEventDto toAutoTradeEventDto(SessionAutoTradeEvent event) {
+        return SessionAutoTradeEventDto.builder()
+                .id(event.getId())
+                .sessionId(event.getTodaySession() == null ? null : event.getTodaySession().getId())
+                .tradeId(event.getTrade() == null ? null : event.getTrade().getId())
+                .type(event.getEventType())
+                .side(event.getPriceSide())
+                .price(event.getPrice())
+                .note(event.getNote())
+                .tsUtc(event.getCreatedAtUtc())
+                .build();
+    }
+
+    private AutoTradeEventType normalizeAutoTradeEventType(AutoTradeEventType value) {
+        if (value == null) {
+            throw new IllegalArgumentException("Auto-trade event type is required");
+        }
+        return value;
+    }
+
+    private QuoteSide normalizeAutoTradePriceSide(QuoteSide value) {
+        return value;
+    }
+
+    private BigDecimal normalizeAutoTradeEventPrice(BigDecimal value) {
+        if (value == null) {
+            return null;
+        }
+        if (value.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Auto-trade event price must be greater than zero");
+        }
+        return value.setScale(8, RoundingMode.HALF_UP);
+    }
+
+    private String normalizeAutoTradeEventNote(String value) {
+        String normalized = normalizeOptionalText(value);
+        if (normalized != null && normalized.length() > MAX_AUTO_TRADE_NOTE_LENGTH) {
+            throw new IllegalArgumentException("Auto-trade note cannot exceed " + MAX_AUTO_TRADE_NOTE_LENGTH + " characters");
+        }
+        return normalized;
     }
 
     private <T> T firstNonNull(T first, T second) {

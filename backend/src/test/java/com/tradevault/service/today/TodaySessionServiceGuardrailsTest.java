@@ -6,14 +6,17 @@ import com.tradevault.domain.entity.ChecklistTemplate;
 import com.tradevault.domain.entity.ChecklistTemplateEntry;
 import com.tradevault.domain.entity.ContextSnapshot;
 import com.tradevault.domain.entity.LiquidityPool;
+import com.tradevault.domain.entity.SessionAutoTradeEvent;
 import com.tradevault.domain.entity.SessionLevel;
 import com.tradevault.domain.entity.SessionNarrative;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.ContextSnapshotMode;
+import com.tradevault.domain.enums.AutoTradeEventType;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.ChecklistTemplateType;
+import com.tradevault.domain.enums.ChecklistValueType;
 import com.tradevault.domain.enums.LevelCreatedBy;
 import com.tradevault.domain.enums.LevelStatus;
 import com.tradevault.domain.enums.LevelTimeframe;
@@ -21,6 +24,7 @@ import com.tradevault.domain.enums.LevelType;
 import com.tradevault.domain.enums.NarrativeConfirmationModel;
 import com.tradevault.domain.enums.NarrativeHtfDraw;
 import com.tradevault.domain.enums.NarrativeManipulation;
+import com.tradevault.domain.enums.QuoteSide;
 import com.tradevault.domain.enums.SessionLevelCategory;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeGrade;
@@ -28,9 +32,11 @@ import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.session.CloseSessionTradeRequest;
 import com.tradevault.dto.session.SessionChecklistItemDto;
+import com.tradevault.dto.session.SessionAutoTradeEventRequest;
 import com.tradevault.dto.session.SessionLevelRequest;
 import com.tradevault.dto.session.SessionNarrativeRequest;
 import com.tradevault.dto.session.StartSessionTradeRequest;
+import com.tradevault.dto.session.TodaySessionChecklistUpdateRequest;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.ChecklistTemplateEntryRepository;
@@ -38,6 +44,7 @@ import com.tradevault.repository.ChecklistTemplateItemRepository;
 import com.tradevault.repository.ChecklistTemplateRepository;
 import com.tradevault.repository.ChecklistTemplateVersionRepository;
 import com.tradevault.repository.LiquidityPoolRepository;
+import com.tradevault.repository.SessionAutoTradeEventRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.TodaySessionRepository;
@@ -80,6 +87,7 @@ class TodaySessionServiceGuardrailsTest {
     private ChecklistTemplateVersionRepository checklistTemplateVersionRepository;
     private SessionLevelRepository sessionLevelRepository;
     private LiquidityPoolRepository liquidityPoolRepository;
+    private SessionAutoTradeEventRepository sessionAutoTradeEventRepository;
     private SessionNarrativeRepository sessionNarrativeRepository;
     private CurrentUserService currentUserService;
     private TradeService tradeService;
@@ -109,6 +117,7 @@ class TodaySessionServiceGuardrailsTest {
         checklistTemplateVersionRepository = Mockito.mock(ChecklistTemplateVersionRepository.class);
         sessionLevelRepository = Mockito.mock(SessionLevelRepository.class);
         liquidityPoolRepository = Mockito.mock(LiquidityPoolRepository.class);
+        sessionAutoTradeEventRepository = Mockito.mock(SessionAutoTradeEventRepository.class);
         sessionNarrativeRepository = Mockito.mock(SessionNarrativeRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         tradeService = Mockito.mock(TradeService.class);
@@ -124,6 +133,7 @@ class TodaySessionServiceGuardrailsTest {
                 checklistTemplateVersionRepository,
                 sessionLevelRepository,
                 liquidityPoolRepository,
+                sessionAutoTradeEventRepository,
                 sessionNarrativeRepository,
                 currentUserService,
                 tradeService,
@@ -495,6 +505,166 @@ class TodaySessionServiceGuardrailsTest {
         assertEquals(BigDecimal.ZERO.setScale(8), updateCaptor.getValue().getMaePoints());
         assertEquals(null, updateCaptor.getValue().getSweepDepthPoints());
         assertEquals(null, updateCaptor.getValue().getDisplacementSizePoints());
+    }
+
+    @Test
+    void updateChecklistDetachesTriggerTemplateWhenStructureChanges() {
+        TodaySessionChecklistUpdateRequest request = new TodaySessionChecklistUpdateRequest();
+        request.setType(ChecklistTemplateType.TRIGGERS);
+        request.setItems(List.of(
+                SessionChecklistItemDto.builder()
+                        .id("00000000-0000-0000-0000-000000000021")
+                        .text("Liquidity sweep confirmed")
+                        .order(0)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .completed(true)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("custom-structure-1")
+                        .text("Wait for reclaim candle")
+                        .order(1)
+                        .required(true)
+                        .hasNote(true)
+                        .notePlaceholder("Evidence")
+                        .valueType(ChecklistValueType.TEXT)
+                        .completed(false)
+                        .build()
+        ));
+
+        var response = todaySessionService.updateChecklist(request);
+
+        assertEquals(null, response.getTriggerTemplateId());
+        assertEquals(2, response.getTriggerChecklistItems().size());
+        assertEquals("Wait for reclaim candle", response.getTriggerChecklistItems().get(1).getText());
+        assertEquals(null, session.getTriggersTemplate());
+    }
+
+    @Test
+    void updateChecklistKeepsTriggerTemplateForCompletionUpdates() {
+        UUID activeTemplateId = session.getTriggersTemplate().getId();
+
+        TodaySessionChecklistUpdateRequest request = new TodaySessionChecklistUpdateRequest();
+        request.setType(ChecklistTemplateType.TRIGGERS);
+        request.setItems(List.of(
+                SessionChecklistItemDto.builder()
+                        .id("00000000-0000-0000-0000-000000000021")
+                        .text("Liquidity sweep confirmed")
+                        .order(0)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .completed(true)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("00000000-0000-0000-0000-000000000022")
+                        .text("Displacement close (M5) away from sweep")
+                        .order(1)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .completed(false)
+                        .build(),
+                SessionChecklistItemDto.builder()
+                        .id("00000000-0000-0000-0000-000000000023")
+                        .text("MSS confirmed on close")
+                        .order(2)
+                        .required(true)
+                        .valueType(ChecklistValueType.TEXT)
+                        .completed(false)
+                        .build()
+        ));
+
+        var response = todaySessionService.updateChecklist(request);
+
+        assertEquals(activeTemplateId, response.getTriggerTemplateId());
+        assertTrue(response.getTriggerChecklistItems().get(0).isCompleted());
+    }
+
+    @Test
+    void updateChecklistAppliesTriggerTemplateAndReplacesRows() {
+        UUID importedTemplateId = UUID.randomUUID();
+        ChecklistTemplate importedTemplate = ChecklistTemplate.builder()
+                .id(importedTemplateId)
+                .user(user)
+                .name("Imported trigger template")
+                .type(ChecklistTemplateType.TRIGGERS)
+                .build();
+        when(checklistTemplateRepository.findByIdAndUser_Id(importedTemplateId, user.getId()))
+                .thenReturn(Optional.of(importedTemplate));
+        when(checklistTemplateEntryRepository.findByTemplate_IdOrderBySortOrderAscCreatedAtAsc(importedTemplateId))
+                .thenReturn(List.of(
+                        ChecklistTemplateEntry.builder()
+                                .id(UUID.fromString("00000000-0000-0000-0000-000000000031"))
+                                .template(importedTemplate)
+                                .itemText("Imported trigger condition")
+                                .sortOrder(0)
+                                .required(true)
+                                .build()
+                ));
+
+        TodaySessionChecklistUpdateRequest request = new TodaySessionChecklistUpdateRequest();
+        request.setType(ChecklistTemplateType.TRIGGERS);
+        request.setTemplateId(importedTemplateId);
+
+        var response = todaySessionService.updateChecklist(request);
+
+        assertEquals(importedTemplateId, response.getTriggerTemplateId());
+        assertEquals(1, response.getTriggerChecklistItems().size());
+        assertEquals("Imported trigger condition", response.getTriggerChecklistItems().get(0).getText());
+    }
+
+    @Test
+    void logAutoTradeEventPersistsForSession() {
+        SessionAutoTradeEventRequest request = new SessionAutoTradeEventRequest();
+        request.setType(AutoTradeEventType.ENTRY_FILLED);
+        request.setSide(QuoteSide.ASK);
+        request.setPrice(BigDecimal.valueOf(1.08321));
+        request.setNote("Entry touched by ask");
+
+        when(sessionAutoTradeEventRepository.save(any(SessionAutoTradeEvent.class)))
+                .thenAnswer(invocation -> {
+                    SessionAutoTradeEvent event = invocation.getArgument(0);
+                    event.setId(UUID.randomUUID());
+                    event.setCreatedAtUtc(OffsetDateTime.now());
+                    return event;
+                });
+
+        var response = todaySessionService.logAutoTradeEvent(session.getId(), request);
+
+        assertEquals(AutoTradeEventType.ENTRY_FILLED, response.getType());
+        assertEquals(QuoteSide.ASK, response.getSide());
+        assertEquals(BigDecimal.valueOf(1.08321000).setScale(8), response.getPrice());
+        assertEquals("Entry touched by ask", response.getNote());
+        assertEquals(session.getId(), response.getSessionId());
+    }
+
+    @Test
+    void listAutoTradeEventsReturnsNewestFirst() {
+        OffsetDateTime now = OffsetDateTime.now();
+        SessionAutoTradeEvent newer = SessionAutoTradeEvent.builder()
+                .id(UUID.randomUUID())
+                .todaySession(session)
+                .user(user)
+                .eventType(AutoTradeEventType.TP_HIT)
+                .priceSide(QuoteSide.BID)
+                .price(BigDecimal.valueOf(1.086))
+                .note("TP touched")
+                .createdAtUtc(now)
+                .build();
+        SessionAutoTradeEvent older = SessionAutoTradeEvent.builder()
+                .id(UUID.randomUUID())
+                .todaySession(session)
+                .user(user)
+                .eventType(AutoTradeEventType.ARMED)
+                .createdAtUtc(now.minusMinutes(5))
+                .build();
+        when(sessionAutoTradeEventRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtUtcDesc(session.getId(), user.getId()))
+                .thenReturn(List.of(newer, older));
+
+        var response = todaySessionService.listAutoTradeEvents(session.getId());
+
+        assertEquals(2, response.size());
+        assertEquals(AutoTradeEventType.TP_HIT, response.get(0).getType());
+        assertEquals(AutoTradeEventType.ARMED, response.get(1).getType());
     }
 
     @Test
