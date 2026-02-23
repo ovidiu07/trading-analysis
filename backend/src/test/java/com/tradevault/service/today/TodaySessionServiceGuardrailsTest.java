@@ -428,6 +428,32 @@ class TodaySessionServiceGuardrailsTest {
     }
 
     @Test
+    void narrativeCreatePathUsesMapsIdFlowWithoutPresetIdentifier() {
+        narrativeStore = null;
+
+        SessionNarrativeRequest request = new SessionNarrativeRequest();
+        request.setHtfDraw(NarrativeHtfDraw.WEEKLY_H);
+        request.setExpectedManipulation(NarrativeManipulation.RAID_DOWN);
+        request.setNotes("Create path");
+
+        when(sessionNarrativeRepository.saveAndFlush(any(SessionNarrative.class))).thenAnswer(invocation -> {
+            SessionNarrative toPersist = invocation.getArgument(0);
+            assertEquals(null, toPersist.getSessionId());
+            assertEquals(session, toPersist.getTodaySession());
+            assertEquals(session.getUser(), toPersist.getUser());
+            toPersist.setSessionId(session.getId());
+            narrativeStore = toPersist;
+            return toPersist;
+        });
+
+        var saved = todaySessionService.upsertSessionNarrative(session.getId(), request);
+
+        assertEquals(session.getId(), saved.getSessionId());
+        assertEquals(session.getId(), narrativeStore.getSessionId());
+        verify(sessionNarrativeRepository).saveAndFlush(any(SessionNarrative.class));
+    }
+
+    @Test
     void closeTradeComputesMfeMaeAndKeepsNullableCandleMetricsSafe() {
         Trade existing = Trade.builder()
                 .id(UUID.randomUUID())
@@ -706,6 +732,13 @@ class TodaySessionServiceGuardrailsTest {
             narrativeStore = invocation.getArgument(0);
             if (narrativeStore.getSessionId() == null) {
                 narrativeStore.setSessionId(session.getId());
+            }
+            return narrativeStore;
+        });
+        when(sessionNarrativeRepository.saveAndFlush(any(SessionNarrative.class))).thenAnswer(invocation -> {
+            narrativeStore = invocation.getArgument(0);
+            if (narrativeStore.getSessionId() == null && narrativeStore.getTodaySession() != null) {
+                narrativeStore.setSessionId(narrativeStore.getTodaySession().getId());
             }
             return narrativeStore;
         });

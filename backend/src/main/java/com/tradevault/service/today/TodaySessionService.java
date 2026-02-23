@@ -67,6 +67,7 @@ import com.tradevault.service.TradeService;
 import com.tradevault.service.TradeTaxonomy;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -92,6 +93,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class TodaySessionService {
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final TypeReference<List<SessionChecklistItemDto>> CHECKLIST_LIST = new TypeReference<>() {};
@@ -638,19 +640,26 @@ public class TodaySessionService {
     public SessionNarrativeDto upsertSessionNarrative(UUID sessionId, SessionNarrativeRequest request) {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireSessionById(user, sessionId);
-        SessionNarrative narrative = sessionNarrativeRepository.findBySessionIdAndUser_Id(session.getId(), user.getId())
-                .orElseGet(() -> SessionNarrative.builder()
-                        .sessionId(session.getId())
-                        .todaySession(session)
-                        .user(user)
-                        .build());
 
-        narrative.setHtfDraw(request == null ? null : request.getHtfDraw());
-        narrative.setExpectedManipulation(request == null ? null : request.getExpectedManipulation());
-        narrative.setDeliveryModel(request == null ? null : request.getDeliveryModel());
-        narrative.setConfirmationModel(request == null ? null : request.getConfirmationModel());
-        narrative.setNotes(normalizeNarrativeNotes(request == null ? null : request.getNotes()));
-        SessionNarrative saved = sessionNarrativeRepository.save(narrative);
+        Optional<SessionNarrative> existing = sessionNarrativeRepository
+                .findBySessionIdAndUser_Id(session.getId(), user.getId());
+
+        if (existing.isPresent()) {
+            SessionNarrative narrative = existing.get();
+            applyNarrativeRequest(narrative, request);
+            sessionNarrativeRepository.flush();
+            log.debug("Updated session narrative [sessionId={}, narrativeId={}]", session.getId(), narrative.getSessionId());
+            return toSessionNarrativeDto(narrative);
+        }
+
+        SessionNarrative narrative = SessionNarrative.builder()
+                .todaySession(session)
+                .user(session.getUser())
+                .build();
+        applyNarrativeRequest(narrative, request);
+        log.debug("Creating session narrative [sessionId={}, narrativeId={}]", session.getId(), narrative.getSessionId());
+        SessionNarrative saved = sessionNarrativeRepository.saveAndFlush(narrative);
+        log.debug("Created session narrative [sessionId={}, narrativeId={}]", session.getId(), saved.getSessionId());
         return toSessionNarrativeDto(saved);
     }
 
@@ -2190,6 +2199,14 @@ public class TodaySessionService {
             throw new IllegalArgumentException("Narrative notes cannot exceed " + MAX_NARRATIVE_NOTES_LENGTH + " characters");
         }
         return normalized;
+    }
+
+    private void applyNarrativeRequest(SessionNarrative narrative, SessionNarrativeRequest request) {
+        narrative.setHtfDraw(request == null ? null : request.getHtfDraw());
+        narrative.setExpectedManipulation(request == null ? null : request.getExpectedManipulation());
+        narrative.setDeliveryModel(request == null ? null : request.getDeliveryModel());
+        narrative.setConfirmationModel(request == null ? null : request.getConfirmationModel());
+        narrative.setNotes(normalizeNarrativeNotes(request == null ? null : request.getNotes()));
     }
 
     private void addDefaultSuggestion(List<SessionLevelSuggestionDto> suggestions,
