@@ -2,6 +2,7 @@ package com.tradevault.controller;
 
 import com.tradevault.dto.diagnostics.DiagnosticsStrategiesResponse;
 import com.tradevault.dto.diagnostics.DiagnosticsStrategyDetailResponse;
+import com.tradevault.dto.diagnostics.DiagnosticsReportsResponse;
 import com.tradevault.service.DiagnosticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -36,5 +37,15 @@ public class DiagnosticsController {
             @RequestParam(name = "backtestSource", required = false) String backtestSource
     ) {
         return diagnosticsService.getStrategyDetail(id, mode, from, to, symbol, sessionWindow, backtestSource);
+    }
+
+    @GetMapping("/reports")
+    public DiagnosticsReportsResponse listReports(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String instrument,
+            @RequestParam(required = false) String strategyName
+    ) {
+        return diagnosticsService.listReports(from, to, instrument, strategyName);
     }
 }

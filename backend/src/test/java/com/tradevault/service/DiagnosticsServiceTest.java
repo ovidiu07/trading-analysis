@@ -8,6 +8,7 @@ import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.repository.BacktestRunRepository;
+import com.tradevault.repository.BacktestRunReportRepository;
 import com.tradevault.repository.BacktestTradeRepository;
 import com.tradevault.repository.ContextSnapshotRepository;
 import com.tradevault.repository.TradeRepository;
@@ -31,6 +32,7 @@ class DiagnosticsServiceTest {
     private TradeRepository tradeRepository;
     private BacktestTradeRepository backtestTradeRepository;
     private BacktestRunRepository backtestRunRepository;
+    private BacktestRunReportRepository backtestRunReportRepository;
     private UserStrategyRepository userStrategyRepository;
     private ContextSnapshotRepository contextSnapshotRepository;
     private DiagnosticsService diagnosticsService;
@@ -43,6 +45,7 @@ class DiagnosticsServiceTest {
         tradeRepository = mock(TradeRepository.class);
         backtestTradeRepository = mock(BacktestTradeRepository.class);
         backtestRunRepository = mock(BacktestRunRepository.class);
+        backtestRunReportRepository = mock(BacktestRunReportRepository.class);
         userStrategyRepository = mock(UserStrategyRepository.class);
         contextSnapshotRepository = mock(ContextSnapshotRepository.class);
         diagnosticsService = new DiagnosticsService(
@@ -50,6 +53,7 @@ class DiagnosticsServiceTest {
                 tradeRepository,
                 backtestTradeRepository,
                 backtestRunRepository,
+                backtestRunReportRepository,
                 userStrategyRepository,
                 contextSnapshotRepository
         );

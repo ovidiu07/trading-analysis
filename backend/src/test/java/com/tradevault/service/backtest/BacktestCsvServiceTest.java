@@ -141,4 +141,48 @@ class BacktestCsvServiceTest {
         assertThat(response.getDataset().getProvider()).isEqualTo("CSV");
         verify(chunkStoreService).saveCandles(eq(userId), eq(BacktestCandleSource.CSV), any(), eq("EURUSD"), eq("EURUSD"), eq(BacktestTimeframe.M5), any());
     }
+
+    @Test
+    void uploadParsesEpochMillisAndIgnoresDuplicateExtraHeaders() {
+        User user = User.builder().id(UUID.randomUUID()).email("csv@test.com").build();
+        String csv = "time,open,high,low,close,Plot,Plot,Plot\n"
+                + "1762725600000,1.1000,1.1010,1.0990,1.1005,1,2,3\n"
+                + "1762725900000,1.1005,1.1015,1.0995,1.1010,1,2,3\n";
+
+        MockMultipartFile file = new MockMultipartFile("file", "dup-headers.csv", "text/csv", csv.getBytes());
+        when(mappingRepository.findByUser_IdAndHeaderSignature(any(), any())).thenReturn(Optional.empty());
+        when(uploadRepository.save(any())).thenAnswer(invocation -> {
+            BacktestCsvUpload upload = invocation.getArgument(0);
+            upload.setId(UUID.randomUUID());
+            return upload;
+        });
+
+        CsvUploadResponse response = csvService.upload(user, file);
+
+        assertThat(response.isMappingRequired()).isFalse();
+        assertThat(response.getDetectedTimeFormat()).isEqualTo("epochMs");
+        assertThat(response.getDetectedTimeframe()).isEqualTo("M5");
+        assertThat(response.getWarnings()).noneMatch(msg -> msg.toLowerCase().contains("parse"));
+    }
+
+    @Test
+    void uploadDetectsH4TimeframeFromMedianDelta() {
+        User user = User.builder().id(UUID.randomUUID()).email("csv@test.com").build();
+        String csv = "time,open,high,low,close\n"
+                + "2026-02-01T00:00:00Z,1.1,1.11,1.09,1.105\n"
+                + "2026-02-01T04:00:00Z,1.105,1.112,1.101,1.11\n"
+                + "2026-02-01T08:00:00Z,1.11,1.114,1.108,1.112\n";
+
+        MockMultipartFile file = new MockMultipartFile("file", "h4.csv", "text/csv", csv.getBytes());
+        when(mappingRepository.findByUser_IdAndHeaderSignature(any(), any())).thenReturn(Optional.empty());
+        when(uploadRepository.save(any())).thenAnswer(invocation -> {
+            BacktestCsvUpload upload = invocation.getArgument(0);
+            upload.setId(UUID.randomUUID());
+            return upload;
+        });
+
+        CsvUploadResponse response = csvService.upload(user, file);
+
+        assertThat(response.getDetectedTimeframe()).isEqualTo("H4");
+    }
 }

@@ -1,6 +1,7 @@
 package com.tradevault.domain.entity;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.enums.BacktestExitReason;
 import com.tradevault.domain.enums.BacktestOrderType;
 import com.tradevault.domain.enums.Direction;
@@ -13,6 +14,7 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -49,6 +51,10 @@ public class BacktestTrade {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "setup_id")
+    private BacktestSetup setup;
 
     @Column(name = "strategy_id")
     private UUID strategyId;
@@ -97,6 +103,9 @@ public class BacktestTrade {
     @Column(nullable = false)
     private boolean filled;
 
+    @Column(name = "fill_status", length = 16)
+    private String fillStatus;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "exit_reason", length = 16)
     private BacktestExitReason exitReason;
@@ -127,6 +136,9 @@ public class BacktestTrade {
     @Column(name = "duration_bars")
     private Integer durationBars;
 
+    @Column(name = "duration_sec")
+    private Integer durationSec;
+
     @Column(name = "time_to_plus_1r_minutes")
     private Integer timeToPlus1RMinutes;
 
@@ -137,6 +149,10 @@ public class BacktestTrade {
     @Column(name = "metadata_json", nullable = false, columnDefinition = "jsonb")
     private JsonNode metadataJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "evidence_json", nullable = false, columnDefinition = "jsonb")
+    private JsonNode evidenceJson;
+
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
@@ -144,4 +160,14 @@ public class BacktestTrade {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    @PrePersist
+    void prePersistDefaults() {
+        if (metadataJson == null) {
+            metadataJson = JsonNodeFactory.instance.objectNode();
+        }
+        if (evidenceJson == null) {
+            evidenceJson = JsonNodeFactory.instance.objectNode();
+        }
+    }
 }

@@ -1,0 +1,75 @@
+package com.tradevault.controller;
+
+import com.tradevault.dto.backtest.BacktestDatasetFileResponse;
+import com.tradevault.dto.backtest.BacktestDatasetSetCreateRequest;
+import com.tradevault.dto.backtest.BacktestDatasetSetDatasetsResponse;
+import com.tradevault.dto.backtest.BacktestDatasetSetResponse;
+import com.tradevault.dto.backtest.BacktestLabRunRequest;
+import com.tradevault.dto.backtest.BacktestLabRunResponse;
+import com.tradevault.dto.backtest.BacktestLabRunResultsResponse;
+import com.tradevault.dto.backtest.BacktestRunReportResponse;
+import com.tradevault.dto.backtest.BacktestStrategyConfigResponse;
+import com.tradevault.dto.backtest.BacktestStrategyConfigUpsertRequest;
+import com.tradevault.service.backtest.BacktestLabService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
+
+import java.util.UUID;
+
+@RestController
+@RequestMapping("/api/backtest")
+@RequiredArgsConstructor
+public class BacktestLabController {
+    private final BacktestLabService backtestLabService;
+
+    @PostMapping("/dataset-sets")
+    public ResponseEntity<BacktestDatasetSetResponse> createDatasetSet(@RequestBody(required = false) BacktestDatasetSetCreateRequest request) {
+        return ResponseEntity.ok(backtestLabService.createDatasetSet(request));
+    }
+
+    @PostMapping("/dataset-sets/{id}/upload-csv")
+    public ResponseEntity<BacktestDatasetFileResponse> uploadCsvToSet(@PathVariable UUID id,
+                                                                       @RequestParam("file") MultipartFile file) {
+        return ResponseEntity.ok(backtestLabService.uploadCsv(id, file));
+    }
+
+    @GetMapping("/dataset-sets/{id}/datasets")
+    public ResponseEntity<BacktestDatasetSetDatasetsResponse> listDatasetSetFiles(@PathVariable UUID id) {
+        return ResponseEntity.ok(backtestLabService.listDatasets(id));
+    }
+
+    @PostMapping("/dataset-sets/{id}/strategy-configs")
+    public ResponseEntity<BacktestStrategyConfigResponse> saveStrategyConfig(@PathVariable UUID id,
+                                                                             @RequestBody(required = false) BacktestStrategyConfigUpsertRequest request) {
+        return ResponseEntity.ok(backtestLabService.saveStrategyConfig(id, request));
+    }
+
+    @GetMapping("/strategy-configs/{id}")
+    public ResponseEntity<BacktestStrategyConfigResponse> getStrategyConfig(@PathVariable UUID id) {
+        return ResponseEntity.ok(backtestLabService.getStrategyConfig(id));
+    }
+
+    @PostMapping("/dataset-sets/{id}/runs")
+    public ResponseEntity<BacktestLabRunResponse> runDatasetSetBacktest(@PathVariable UUID id,
+                                                                         @RequestBody(required = false) BacktestLabRunRequest request) {
+        return ResponseEntity.ok(backtestLabService.run(id, request));
+    }
+
+    @GetMapping("/runs/{runId}/results")
+    public ResponseEntity<BacktestLabRunResultsResponse> getRunResults(@PathVariable UUID runId) {
+        return ResponseEntity.ok(backtestLabService.getRunResults(runId));
+    }
+
+    @GetMapping("/runs/{runId}/report")
+    public ResponseEntity<BacktestRunReportResponse> getRunReport(@PathVariable UUID runId) {
+        return ResponseEntity.ok(backtestLabService.getRunReport(runId));
+    }
+}

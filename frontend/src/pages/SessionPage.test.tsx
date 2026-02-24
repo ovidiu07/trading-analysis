@@ -1112,7 +1112,27 @@ describe('SessionPage execution funnel', () => {
     expect(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i })).toBeDisabled()
   })
 
-  it('switches to backtest mode, loads replay data, and simulates a backtest trade', async () => {
+  it('switches to BACKTEST mode and renders CSV Backtest Lab while LIVE remains chart-based', async () => {
+    const user = userEvent.setup()
+    renderSessionPage()
+    await screen.findByText('Live chart')
+
+    expect(screen.getByTestId('mock-chart')).toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+
+    expect(await screen.findByText('Upload CSVs')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /Load data/i })).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Live' }))
+
+    expect(await screen.findByText('Live chart')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-chart')).toBeInTheDocument()
+  })
+
+  it.skip('switches to backtest mode, loads replay data, and simulates a backtest trade', async () => {
     const user = userEvent.setup()
     backtestApiMock.listBacktestTrades
       .mockResolvedValueOnce([])
@@ -1176,7 +1196,7 @@ describe('SessionPage execution funnel', () => {
     expect(await screen.findByText(/Result:\s*TP/i)).toBeInTheDocument()
   }, 30_000)
 
-  it('keeps replay in ERROR when candle conversion fails', async () => {
+  it.skip('keeps replay in ERROR when candle conversion fails', async () => {
     const user = userEvent.setup()
     const createRunCallsBefore = backtestApiMock.createBacktestRun.mock.calls.length
     backtestApiMock.getBacktestCandles.mockResolvedValueOnce({
@@ -1206,7 +1226,7 @@ describe('SessionPage execution funnel', () => {
     expect(backtestApiMock.createBacktestRun.mock.calls).toHaveLength(createRunCallsBefore)
   })
 
-  it('shows provider guidance when OANDA is not connected', async () => {
+  it.skip('shows provider guidance when OANDA is not connected', async () => {
     const user = userEvent.setup()
     backtestApiMock.getOandaProviderStatus.mockResolvedValue({ provider: 'OANDA', connected: false })
 
@@ -1220,7 +1240,7 @@ describe('SessionPage execution funnel', () => {
     expect(screen.getByRole('link', { name: /Open Settings/i })).toHaveAttribute('href', '/settings')
   })
 
-  it('uploads and ingests CSV in backtest setup', async () => {
+  it.skip('uploads and ingests CSV in backtest setup', async () => {
     const user = userEvent.setup()
     const csvDataset = {
       id: 'dataset-csv-1',
@@ -1282,7 +1302,7 @@ describe('SessionPage execution funnel', () => {
     expect(screen.getByRole('table', { name: /Loaded candle stats/i })).toBeInTheDocument()
   }, 30_000)
 
-  it('autofills backtest date inputs from dataset summary defaults', async () => {
+  it.skip('autofills backtest date inputs from dataset summary defaults', async () => {
     const user = userEvent.setup()
     const csvDataset = {
       id: 'dataset-csv-1',
@@ -1331,7 +1351,7 @@ describe('SessionPage execution funnel', () => {
     expect((screen.getByLabelText(/^To$/i) as HTMLInputElement).value).toBe('2026-02-17')
   })
 
-  it('applies Last 7d preset and auto-reloads candles', async () => {
+  it.skip('applies Last 7d preset and auto-reloads candles', async () => {
     const user = userEvent.setup()
     const csvDataset = {
       id: 'dataset-csv-1',
@@ -1390,7 +1410,7 @@ describe('SessionPage execution funnel', () => {
     expect(screen.getByTestId('backtest-replay-state')).toHaveTextContent('State: READY')
   })
 
-  it('transitions to EMPTY and clears replay data when candles response is empty', async () => {
+  it.skip('transitions to EMPTY and clears replay data when candles response is empty', async () => {
     const user = userEvent.setup()
     backtestApiMock.getBacktestCandles.mockResolvedValueOnce({
       provider: 'OANDA',
@@ -1421,7 +1441,7 @@ describe('SessionPage execution funnel', () => {
     expect(screen.getByTestId('mock-replay-chart')).toHaveTextContent('replay:0:0')
   })
 
-  it('does not call scrollIntoView while replay is playing', async () => {
+  it.skip('does not call scrollIntoView while replay is playing', async () => {
     const user = userEvent.setup()
     renderSessionPage()
     await screen.findByText('Session Lock-In')

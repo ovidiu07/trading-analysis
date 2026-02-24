@@ -8,10 +8,14 @@ import DiagnosticsPage from './DiagnosticsPage'
 
 const diagnosticsApiMock = vi.hoisted(() => ({
   listDiagnosticsStrategies: vi.fn(),
-  getDiagnosticsStrategyDetail: vi.fn()
+  getDiagnosticsStrategyDetail: vi.fn(),
+  listDiagnosticsReports: vi.fn()
 }))
 
 vi.mock('../api/diagnostics', () => diagnosticsApiMock)
+vi.mock('../api/backtest', () => ({
+  getBacktestRunReportV2: vi.fn()
+}))
 
 describe('DiagnosticsPage', () => {
   beforeAll(() => {
@@ -77,6 +81,7 @@ describe('DiagnosticsPage', () => {
       ],
       backtestRuns: []
     })
+    diagnosticsApiMock.listDiagnosticsReports.mockResolvedValue({ reports: [] })
   })
 
   it('loads diagnostics and renders core sections', async () => {

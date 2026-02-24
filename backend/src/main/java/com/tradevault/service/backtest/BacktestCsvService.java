@@ -22,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVParser;
 import org.apache.commons.csv.CSVRecord;
+import org.apache.commons.csv.DuplicateHeaderMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -289,6 +290,8 @@ public class BacktestCsvService {
                 .setHeader()
                 .setSkipHeaderRecord(true)
                 .setIgnoreEmptyLines(true)
+                .setAllowMissingColumnNames(true)
+                .setDuplicateHeaderMode(DuplicateHeaderMode.ALLOW_ALL)
                 .build();
 
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(payload), StandardCharsets.UTF_8));
@@ -734,7 +737,7 @@ public class BacktestCsvService {
                 throw new BacktestDomainException(
                         BacktestErrorCodes.UNSUPPORTED_SYMBOL_TIMEFRAME,
                         "Unsupported timeframe: " + requested,
-                        "Supported values are M1, M5, M15, H1, D1.",
+                        "Supported values are M1, M5, M15, H1, H4, D1, W1.",
                         HttpStatus.BAD_REQUEST
                 );
             }
@@ -760,7 +763,12 @@ public class BacktestCsvService {
     }
 
     private List<String> extractHeaders(byte[] payload) {
-        CSVFormat format = CSVFormat.DEFAULT.builder().setHeader().setSkipHeaderRecord(true).build();
+        CSVFormat format = CSVFormat.DEFAULT.builder()
+                .setHeader()
+                .setSkipHeaderRecord(true)
+                .setAllowMissingColumnNames(true)
+                .setDuplicateHeaderMode(DuplicateHeaderMode.ALLOW_ALL)
+                .build();
         try (BufferedReader reader = new BufferedReader(new InputStreamReader(new ByteArrayInputStream(payload), StandardCharsets.UTF_8));
              CSVParser parser = new CSVParser(reader, format)) {
             Map<String, Integer> headers = parser.getHeaderMap();

@@ -2,6 +2,7 @@ package com.tradevault.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.tradevault.domain.entity.BacktestRun;
+import com.tradevault.domain.entity.BacktestRunReport;
 import com.tradevault.domain.entity.BacktestTrade;
 import com.tradevault.domain.entity.ContextSnapshot;
 import com.tradevault.domain.entity.Trade;
@@ -12,12 +13,15 @@ import com.tradevault.dto.diagnostics.DiagnosticsBreakdownRow;
 import com.tradevault.dto.diagnostics.DiagnosticsCoreMetrics;
 import com.tradevault.dto.diagnostics.DiagnosticsFailureModeRow;
 import com.tradevault.dto.diagnostics.DiagnosticsHistogramBucket;
+import com.tradevault.dto.diagnostics.DiagnosticsReportRow;
+import com.tradevault.dto.diagnostics.DiagnosticsReportsResponse;
 import com.tradevault.dto.diagnostics.DiagnosticsStrategiesResponse;
 import com.tradevault.dto.diagnostics.DiagnosticsStrategyDetailResponse;
 import com.tradevault.dto.diagnostics.DiagnosticsStrategyHeadline;
 import com.tradevault.dto.diagnostics.DiagnosticsSuggestion;
 import com.tradevault.dto.diagnostics.DiagnosticsTriggerImpactRow;
 import com.tradevault.repository.BacktestRunRepository;
+import com.tradevault.repository.BacktestRunReportRepository;
 import com.tradevault.repository.BacktestTradeRepository;
 import com.tradevault.repository.ContextSnapshotRepository;
 import com.tradevault.repository.TradeRepository;
@@ -55,6 +59,7 @@ public class DiagnosticsService {
     private final TradeRepository tradeRepository;
     private final BacktestTradeRepository backtestTradeRepository;
     private final BacktestRunRepository backtestRunRepository;
+    private final BacktestRunReportRepository backtestRunReportRepository;
     private final UserStrategyRepository userStrategyRepository;
     private final ContextSnapshotRepository contextSnapshotRepository;
 
@@ -94,6 +99,39 @@ public class DiagnosticsService {
                 .toList();
 
         return DiagnosticsStrategiesResponse.builder().strategies(rows).build();
+    }
+
+    public DiagnosticsReportsResponse listReports(LocalDate from,
+                                                  LocalDate to,
+                                                  String instrument,
+                                                  String strategyName) {
+        User user = currentUserService.getCurrentUser();
+        UUID userId = user.getId();
+        OffsetDateTime fromTs = from == null ? null : from.atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
+        OffsetDateTime toTs = to == null ? null : to.plusDays(1).atStartOfDay().atOffset(java.time.ZoneOffset.UTC).minusNanos(1);
+        String normalizedInstrument = normalizeOptionalText(instrument);
+        String normalizedStrategyName = normalizeOptionalText(strategyName);
+
+        List<DiagnosticsReportRow> rows = backtestRunReportRepository.findByRun_User_IdOrderByCreatedAtUtcDesc(userId).stream()
+                .filter(report -> {
+                    OffsetDateTime created = report.getCreatedAtUtc();
+                    if (fromTs != null && (created == null || created.isBefore(fromTs))) {
+                        return false;
+                    }
+                    if (toTs != null && (created == null || created.isAfter(toTs))) {
+                        return false;
+                    }
+                    return true;
+                })
+                .filter(report -> normalizedInstrument == null
+                        || (report.getRun() != null && equalsIgnoreCase(report.getRun().getSymbol(), normalizedInstrument)))
+                .filter(report -> normalizedStrategyName == null || equalsIgnoreCase(report.getStrategyNameSnapshot(), normalizedStrategyName))
+                .map(this::toReportRow)
+                .toList();
+
+        return DiagnosticsReportsResponse.builder()
+                .reports(rows)
+                .build();
     }
 
     public DiagnosticsStrategyDetailResponse getStrategyDetail(UUID strategyId,
@@ -552,6 +590,30 @@ public class DiagnosticsService {
                 .toList();
     }
 
+    private DiagnosticsReportRow toReportRow(BacktestRunReport report) {
+        JsonNode summary = report.getSummarySnapshotJson();
+        JsonNode filters = report.getFiltersSnapshotJson();
+        int sampleSize = summary == null ? 0 : summary.path("sampleSize").asInt(0);
+        BigDecimal winRate = summary == null ? BigDecimal.ZERO : parseDecimal(summary.path("winRate").asText(null));
+        BigDecimal expectancy = summary == null ? BigDecimal.ZERO : parseDecimal(summary.path("expectancyR").asText(null));
+        String timeframe = filters == null ? null : normalizeOptionalText(filters.path("executionTimeframe").asText(null));
+        String sessionFilter = filters == null ? null : normalizeOptionalText(filters.path("sessionFilter").asText(null));
+
+        return DiagnosticsReportRow.builder()
+                .reportId(report.getId())
+                .runId(report.getRun() == null ? null : report.getRun().getId())
+                .strategyId(report.getStrategyId())
+                .strategyName(report.getStrategyNameSnapshot())
+                .instrument(report.getRun() == null ? null : report.getRun().getSymbol())
+                .timeframe(timeframe)
+                .sessionFilter(sessionFilter)
+                .sampleSize(sampleSize)
+                .winRate(scale(winRate))
+                .expectancyR(scale(expectancy))
+                .createdAt(report.getCreatedAtUtc())
+                .build();
+    }
+
     private Map<String, Boolean> extractChecklistSignals(ContextSnapshot snapshot) {
         Map<String, Boolean> signals = new LinkedHashMap<>();
         appendSignalsFromStates(signals, snapshot.getPrereqsStatesJson());
@@ -612,6 +674,17 @@ public class DiagnosticsService {
             return false;
         }
         return value.equalsIgnoreCase(expected);
+    }
+
+    private BigDecimal parseDecimal(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return BigDecimal.ZERO;
+        }
+        try {
+            return new BigDecimal(raw);
+        } catch (Exception ex) {
+            return BigDecimal.ZERO;
+        }
     }
 
     private record TradeSample(

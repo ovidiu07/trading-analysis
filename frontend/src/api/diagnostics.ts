@@ -80,6 +80,24 @@ export type DiagnosticsStrategyDetailResponse = {
   backtestRuns: DiagnosticsBacktestRunRow[]
 }
 
+export type DiagnosticsReportRow = {
+  reportId: string
+  runId: string
+  strategyId?: string | null
+  strategyName: string
+  instrument: string
+  timeframe?: string | null
+  sessionFilter?: string | null
+  sampleSize: number
+  winRate: number
+  expectancyR: number
+  createdAt: string
+}
+
+export type DiagnosticsReportsResponse = {
+  reports: DiagnosticsReportRow[]
+}
+
 const toQuery = (params: Record<string, string | undefined>) => {
   const sp = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -104,4 +122,13 @@ export async function getDiagnosticsStrategyDetail(strategyId: string, params: {
   sessionWindow?: string
 } = {}) {
   return apiGet<DiagnosticsStrategyDetailResponse>(`/diagnostics/strategy/${strategyId}${toQuery(params)}`)
+}
+
+export async function listDiagnosticsReports(params: {
+  from?: string
+  to?: string
+  instrument?: string
+  strategyName?: string
+} = {}) {
+  return apiGet<DiagnosticsReportsResponse>(`/diagnostics/reports${toQuery(params)}`)
 }

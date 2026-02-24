@@ -13,6 +13,8 @@ public interface BacktestDatasetRepository extends JpaRepository<BacktestDataset
 
     List<BacktestDataset> findByUser_IdOrderByCreatedAtDesc(UUID userId);
 
+    List<BacktestDataset> findByDatasetSet_IdOrderByCreatedAtAsc(UUID datasetSetId);
+
     List<BacktestDataset> findByUser_IdAndProviderOrderByCreatedAtDesc(UUID userId, BacktestCandleSource provider);
 
     Optional<BacktestDataset> findFirstByUser_IdAndProviderAndSourceIdOrderByCreatedAtDesc(UUID userId,

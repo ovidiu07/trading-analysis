@@ -44,6 +44,10 @@ public class BacktestDataset {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "dataset_set_id")
+    private BacktestDatasetSet datasetSet;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 16)
     private BacktestCandleSource provider;
@@ -72,6 +76,24 @@ public class BacktestDataset {
 
     @Column(name = "row_count", nullable = false)
     private Integer rowCount;
+
+    @Column(name = "original_filename", length = 255)
+    private String originalFilename;
+
+    @Column(name = "min_time_utc")
+    private OffsetDateTime minTimeUtc;
+
+    @Column(name = "max_time_utc")
+    private OffsetDateTime maxTimeUtc;
+
+    @Column(name = "candle_count")
+    private Integer candleCount;
+
+    @Column(name = "parsed_ok")
+    private Boolean parsedOk;
+
+    @Column(name = "error_msg", columnDefinition = "TEXT")
+    private String errorMsg;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "metadata_json", nullable = false, columnDefinition = "jsonb")

@@ -10,6 +10,8 @@ import java.util.UUID;
 public interface BacktestTradeRepository extends JpaRepository<BacktestTrade, UUID> {
     List<BacktestTrade> findByRun_IdAndUser_IdOrderByCreatedAtDesc(UUID runId, UUID userId);
 
+    List<BacktestTrade> findByRun_IdOrderByEntryTimeAscCreatedAtAsc(UUID runId);
+
     List<BacktestTrade> findByUser_IdAndCreatedAtBetweenOrderByCreatedAtAsc(UUID userId, OffsetDateTime from, OffsetDateTime to);
 
     List<BacktestTrade> findByUser_IdOrderByCreatedAtAsc(UUID userId);

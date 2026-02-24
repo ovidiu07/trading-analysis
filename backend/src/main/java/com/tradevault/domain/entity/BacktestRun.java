@@ -71,12 +71,32 @@ public class BacktestRun {
     @Column(name = "dataset_id")
     private UUID datasetId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "dataset_set_id")
+    private BacktestDatasetSet datasetSet;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "strategy_config_id")
+    private BacktestStrategyConfig strategyConfig;
+
+    @Column(name = "from_utc")
+    private OffsetDateTime fromUtc;
+
+    @Column(name = "to_utc")
+    private OffsetDateTime toUtc;
+
     @Enumerated(EnumType.STRING)
     @Column(nullable = false, length = 24)
     private BacktestRunStatus status;
 
     @Column(name = "candle_count", nullable = false)
     private Integer candleCount;
+
+    @Column(name = "completed_at")
+    private OffsetDateTime completedAt;
+
+    @Column(name = "error_msg", columnDefinition = "TEXT")
+    private String errorMsg;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
+  Button,
   Box,
   Card,
   CardContent,
@@ -25,16 +26,21 @@ import {
   useTheme
 } from '@mui/material'
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
+import { Link } from 'react-router-dom'
 import {
+  type DiagnosticsReportRow,
   type DiagnosticsStrategyDetailResponse,
   type DiagnosticsStrategiesResponse,
   getDiagnosticsStrategyDetail,
+  listDiagnosticsReports,
   listDiagnosticsStrategies
 } from '../api/diagnostics'
 import { ApiError } from '../api/client'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import EmptyState from '../components/ui/EmptyState'
+import MarkdownContent from '../components/ui/MarkdownContent'
+import { type BacktestRunReport, getBacktestRunReportV2 } from '../api/backtest'
 
 const formatSigned = (value: number | null | undefined) => {
   if (value == null || Number.isNaN(value)) return '0.0000'
@@ -78,6 +84,15 @@ export default function DiagnosticsPage() {
   const [initialLoading, setInitialLoading] = useState(true)
   const [error, setError] = useState('')
   const [detail, setDetail] = useState<DiagnosticsStrategyDetailResponse | null>(null)
+  const [reports, setReports] = useState<DiagnosticsReportRow[]>([])
+  const [reportsLoading, setReportsLoading] = useState(false)
+  const [reportError, setReportError] = useState('')
+  const [selectedReport, setSelectedReport] = useState<BacktestRunReport | null>(null)
+  const [reportLoadingRunId, setReportLoadingRunId] = useState('')
+  const selectedStrategyName = useMemo(
+    () => strategies.find((item) => item.strategyId === strategyId)?.strategyName || '',
+    [strategies, strategyId]
+  )
 
   useEffect(() => {
     let mounted = true
@@ -143,6 +158,41 @@ export default function DiagnosticsPage() {
     }
   }, [strategyId, mode, backtestSource, from, to, symbol, sessionWindow, t])
 
+  useEffect(() => {
+    if (!strategyId) {
+      setReports([])
+      return
+    }
+
+    let mounted = true
+    setReportsLoading(true)
+    setReportError('')
+    listDiagnosticsReports({
+      from: from || undefined,
+      to: to || undefined,
+      instrument: symbol || undefined,
+      strategyName: selectedStrategyName || undefined
+    })
+      .then((response) => {
+        if (!mounted) return
+        setReports(response.reports || [])
+      })
+      .catch((err) => {
+        if (!mounted) return
+        const apiErr = err as ApiError
+        setReportError(translateApiError(apiErr, t, 'diagnostics.errors.loadDetail'))
+      })
+      .finally(() => {
+        if (mounted) {
+          setReportsLoading(false)
+        }
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [strategyId, from, to, symbol, selectedStrategyName, t])
+
   const kpiItems = useMemo(() => {
     if (!detail) return []
     const core = detail.coreMetrics
@@ -157,6 +207,22 @@ export default function DiagnosticsPage() {
   }, [detail, t])
 
   const sampleSize = detail?.coreMetrics?.sampleSize ?? 0
+
+  const handleViewReport = async (runId: string) => {
+    if (!runId) return
+    setReportError('')
+    setReportLoadingRunId(runId)
+    try {
+      const report = await getBacktestRunReportV2(runId)
+      setSelectedReport(report)
+      setActiveTab('RUNS')
+    } catch (err) {
+      const apiErr = err as ApiError
+      setReportError(translateApiError(apiErr, t, 'diagnostics.errors.loadDetail'))
+    } finally {
+      setReportLoadingRunId('')
+    }
+  }
 
   if (initialLoading) {
     return <Skeleton variant="rounded" height={220} />
@@ -283,6 +349,7 @@ export default function DiagnosticsPage() {
       </Card>
 
       {error && <Alert severity="error">{error}</Alert>}
+      {reportError && <Alert severity="warning">{reportError}</Alert>}
 
       {loading && <Skeleton variant="rounded" height={280} />}
 
@@ -488,29 +555,107 @@ export default function DiagnosticsPage() {
           )}
 
           {activeTab === 'RUNS' && (
-            <Card>
-              <CardContent>
-                <Stack spacing={1}>
-                  <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.backtestRuns')}</Typography>
-                  {sampleSize < 1 ? (
-                    <Typography variant="body2" color="text.secondary">
-                      {`You have ${sampleSize} closed trades. This section unlocks at 1.`}
-                    </Typography>
-                  ) : detail.backtestRuns.length === 0 ? (
-                    <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noBacktestRuns')}</Typography>
-                  ) : (
-                    detail.backtestRuns.map((row) => (
-                      <Box key={row.runId} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                        <Typography variant="subtitle2" fontWeight={700}>{row.symbol} · {row.timeframe}</Typography>
-                        <Typography variant="caption" color="text.secondary" display="block">{new Date(row.from).toLocaleDateString()} - {new Date(row.to).toLocaleDateString()}</Typography>
-                        <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.samples')}: {row.tradesCount}</Typography>
-                        <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.kpis.expectancy')}: {formatSigned(row.expectancyR)}</Typography>
-                      </Box>
-                    ))
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
+            <Stack spacing={1.25}>
+              <Card>
+                <CardContent>
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.backtestRuns')}</Typography>
+                    {sampleSize < 1 ? (
+                      <Typography variant="body2" color="text.secondary">
+                        {`You have ${sampleSize} closed trades. This section unlocks at 1.`}
+                      </Typography>
+                    ) : detail.backtestRuns.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noBacktestRuns')}</Typography>
+                    ) : (
+                      detail.backtestRuns.map((row) => (
+                        <Box key={row.runId} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={0.75}>
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={700}>{row.symbol} · {row.timeframe}</Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">{new Date(row.from).toLocaleDateString()} - {new Date(row.to).toLocaleDateString()}</Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.samples')}: {row.tradesCount}</Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.kpis.expectancy')}: {formatSigned(row.expectancyR)}</Typography>
+                            </Box>
+                            <Box>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => void handleViewReport(row.runId)}
+                                disabled={reportLoadingRunId === row.runId}
+                              >
+                                View report
+                              </Button>
+                            </Box>
+                          </Stack>
+                        </Box>
+                      ))
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+
+              <Card>
+                <CardContent>
+                  <Stack spacing={1}>
+                    <Typography variant="subtitle1" fontWeight={700}>Reports</Typography>
+                    {reportsLoading ? (
+                      <Skeleton variant="rounded" height={120} />
+                    ) : reports.length === 0 ? (
+                      <Stack spacing={0.75}>
+                        <Typography variant="body2" color="text.secondary">
+                          No diagnostics reports yet. Run a CSV backtest to generate the first report snapshot.
+                        </Typography>
+                        <Box>
+                          <Button component={Link} to="/today/session" size="small" variant="outlined">
+                            Open Backtest Lab
+                          </Button>
+                        </Box>
+                      </Stack>
+                    ) : (
+                      reports.map((row) => (
+                        <Box key={row.reportId} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={0.75}>
+                            <Box>
+                              <Typography variant="subtitle2" fontWeight={700}>{row.strategyName || 'Strategy report'}</Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                {row.instrument} · {row.timeframe || 'N/A'} · {new Date(row.createdAt).toLocaleString()}
+                              </Typography>
+                              <Typography variant="caption" color="text.secondary" display="block">
+                                Sample {row.sampleSize} · Win {formatPct(row.winRate)} · Expectancy {formatSigned(row.expectancyR)}
+                              </Typography>
+                            </Box>
+                            <Box>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                onClick={() => void handleViewReport(row.runId)}
+                                disabled={reportLoadingRunId === row.runId}
+                              >
+                                View report
+                              </Button>
+                            </Box>
+                          </Stack>
+                        </Box>
+                      ))
+                    )}
+                  </Stack>
+                </CardContent>
+              </Card>
+
+              {selectedReport && (
+                <Card>
+                  <CardContent>
+                    <Stack spacing={1}>
+                      <Typography variant="subtitle1" fontWeight={700}>{selectedReport.strategyNameSnapshot}</Typography>
+                      <Typography variant="caption" color="text.secondary">
+                        Report snapshot: {new Date(selectedReport.createdAtUtc).toLocaleString()}
+                      </Typography>
+                      <MarkdownContent content={selectedReport.reportMarkdown} />
+                    </Stack>
+                  </CardContent>
+                </Card>
+              )}
+            </Stack>
           )}
         </>
       )}

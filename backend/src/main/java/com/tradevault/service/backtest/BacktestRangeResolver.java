@@ -15,8 +15,9 @@ public final class BacktestRangeResolver {
         BacktestTimeframe safe = timeframe == null ? BacktestTimeframe.M1 : timeframe;
         return switch (safe) {
             case M1, M5 -> Duration.ofDays(7);
-            case M15, H1 -> Duration.ofDays(30);
+            case M15, H1, H4 -> Duration.ofDays(30);
             case D1 -> Duration.ofDays(180);
+            case W1 -> Duration.ofDays(365);
         };
     }
 

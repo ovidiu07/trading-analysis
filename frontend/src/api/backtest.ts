@@ -152,6 +152,126 @@ export type BacktestTrade = {
   timeToPlus1RBars?: number
 }
 
+export type BacktestDatasetSet = {
+  id: string
+  instrument: string
+  timezoneBasis: string
+  createdAt: string
+}
+
+export type BacktestDatasetFile = {
+  datasetId: string
+  timeframe: string
+  originalFilename: string
+  minTimeUtc: string
+  maxTimeUtc: string
+  candleCount: number
+  columnsMapped: string
+  status: 'READY' | 'WARN' | 'ERROR'
+  errorMsg?: string | null
+  warnings: string[]
+}
+
+export type BacktestSessionPreview = {
+  sessionName: string
+  sessionDate: string
+  candleCount: number
+  sessionHigh: number
+  sessionLow: number
+}
+
+export type BacktestDatasetSetDatasets = {
+  datasetSetId: string
+  instrument: string
+  timezoneBasis: string
+  datasets: BacktestDatasetFile[]
+  sessionPreview: BacktestSessionPreview[]
+}
+
+export type BacktestStrategyConfig = {
+  id: string
+  datasetSetId: string
+  name: string
+  configJson: Record<string, unknown>
+  createdAt: string
+  updatedAt: string
+}
+
+export type BacktestLabRun = {
+  runId: string
+  status: 'RUNNING' | 'COMPLETED' | 'FAILED' | 'READY'
+  symbol: string
+  timeframe: string
+  fromUtc: string
+  toUtc: string
+  createdAt: string
+  completedAt?: string | null
+  errorMsg?: string | null
+}
+
+export type BacktestLabSummary = {
+  sampleSize: number
+  winRate: number
+  expectancyR: number
+  avgR: number
+  avgMaeR: number
+  avgMfeR: number
+  fillRate: number
+  avgDurationSec: number
+}
+
+export type BacktestLabTimelineEvent = {
+  stage: string
+  timeUtc?: string | null
+  details?: Record<string, unknown>
+}
+
+export type BacktestLabTradeResult = {
+  tradeId: string
+  setupId?: string | null
+  sessionName?: string | null
+  direction?: 'LONG' | 'SHORT'
+  entryTime?: string | null
+  entryPrice?: number | null
+  stopLoss?: number | null
+  takeProfit?: number | null
+  exitTime?: string | null
+  exitPrice?: number | null
+  exitReason?: string | null
+  fillStatus: 'FILLED' | 'NO_FILL'
+  rMultiple?: number | null
+  maeR?: number | null
+  mfeR?: number | null
+  durationSec?: number | null
+  evidence?: Record<string, unknown>
+  timeline: BacktestLabTimelineEvent[]
+}
+
+export type BacktestLabRunResults = {
+  runId: string
+  status: string
+  strategyName: string
+  createdAt: string
+  completedAt?: string | null
+  summary: BacktestLabSummary
+  trades: BacktestLabTradeResult[]
+}
+
+export type BacktestRunReport = {
+  reportId: string
+  runId: string
+  strategyId?: string | null
+  strategyNameSnapshot: string
+  strategyConfigSnapshotJson: Record<string, unknown>
+  filtersSnapshotJson: Record<string, unknown>
+  summarySnapshotJson: Record<string, unknown>
+  tradesTimelineSnapshotJson: unknown[]
+  recommendationsSnapshotJson: unknown[]
+  reportMarkdown: string
+  reportVersion: string
+  createdAtUtc: string
+}
+
 export async function createBacktestRun(payload: {
   symbol: string
   timeframe: string
@@ -293,4 +413,50 @@ export async function connectOandaProvider(token: string) {
 
 export async function disconnectOandaProvider() {
   return apiDelete('/backtest/providers/oanda')
+}
+
+export async function createBacktestDatasetSet(payload: {
+  instrument?: string
+  timezoneBasis?: string
+} = {}) {
+  return apiPost<BacktestDatasetSet>('/backtest/dataset-sets', payload)
+}
+
+export async function uploadBacktestDatasetCsv(datasetSetId: string, file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiPostMultipart<BacktestDatasetFile>(`/backtest/dataset-sets/${encodeURIComponent(datasetSetId)}/upload-csv`, formData)
+}
+
+export async function getBacktestDatasetSetDatasets(datasetSetId: string) {
+  return apiGet<BacktestDatasetSetDatasets>(`/backtest/dataset-sets/${encodeURIComponent(datasetSetId)}/datasets`)
+}
+
+export async function saveBacktestStrategyConfig(datasetSetId: string, payload: {
+  name?: string
+  configJson?: Record<string, unknown>
+}) {
+  return apiPost<BacktestStrategyConfig>(`/backtest/dataset-sets/${encodeURIComponent(datasetSetId)}/strategy-configs`, payload)
+}
+
+export async function getBacktestStrategyConfigV2(id: string) {
+  return apiGet<BacktestStrategyConfig>(`/backtest/strategy-configs/${encodeURIComponent(id)}`)
+}
+
+export async function runBacktestDatasetSet(datasetSetId: string, payload: {
+  strategyConfigId?: string
+  fromUtc?: string
+  toUtc?: string
+  sessionFilter?: string
+  autoGenerateReport?: boolean
+}) {
+  return apiPost<BacktestLabRun>(`/backtest/dataset-sets/${encodeURIComponent(datasetSetId)}/runs`, payload)
+}
+
+export async function getBacktestRunResultsV2(runId: string) {
+  return apiGet<BacktestLabRunResults>(`/backtest/runs/${encodeURIComponent(runId)}/results`)
+}
+
+export async function getBacktestRunReportV2(runId: string) {
+  return apiGet<BacktestRunReport>(`/backtest/runs/${encodeURIComponent(runId)}/report`)
 }

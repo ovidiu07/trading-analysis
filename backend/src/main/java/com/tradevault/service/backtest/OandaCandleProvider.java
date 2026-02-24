@@ -317,7 +317,9 @@ public class OandaCandleProvider {
             case M5 -> "M5";
             case M15 -> "M15";
             case H1 -> "H1";
+            case H4 -> "H4";
             case D1 -> "D";
+            case W1 -> "W";
         };
     }
 
