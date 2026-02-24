@@ -24,6 +24,7 @@ import com.tradevault.repository.BacktestTradeRepository;
 import com.tradevault.service.CurrentUserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -87,6 +88,7 @@ class BacktestLabServiceTest {
                 candleDataService,
                 new ObjectMapper().findAndRegisterModules()
         );
+        ReflectionTestUtils.setField(service, "minRequiredCandles", 30);
 
         user = User.builder().id(UUID.randomUUID()).email("lab@test.com").build();
         datasetSet = BacktestDatasetSet.builder()
@@ -226,6 +228,88 @@ class BacktestLabServiceTest {
                 .contains("LONDON");
     }
 
+    @Test
+    void runDefaultsToDatasetBoundsWhenFromToMissing() {
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(buildDeterministicCandles());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse response = service.run(datasetSet.getId(), request);
+
+        assertThat(response.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+        assertThat(response.getRequestedFromUtc()).isNull();
+        assertThat(response.getRequestedToUtc()).isNull();
+        assertThat(response.getDatasetMinUtc()).isEqualTo(dataset.getMinTimeUtc());
+        assertThat(response.getDatasetMaxUtc()).isEqualTo(dataset.getMaxTimeUtc());
+        assertThat(response.getEffectiveFromUtc()).isEqualTo(dataset.getMinTimeUtc());
+        assertThat(response.getEffectiveToUtc()).isEqualTo(dataset.getMaxTimeUtc());
+        assertThat(response.getWarnings()).isEmpty();
+        assertThat(response.getCandleCountInRange()).isGreaterThanOrEqualTo(30);
+        assertThat(response.getMinRequiredCandles()).isEqualTo(30);
+    }
+
+    @Test
+    void runClampsRequestedRangeAndReturnsWarnings() {
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(buildDeterministicCandles());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2025-01-01T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2027-01-01T00:00:00Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse response = service.run(datasetSet.getId(), request);
+
+        assertThat(response.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+        assertThat(response.getRequestedFromUtc()).isEqualTo(OffsetDateTime.parse("2025-01-01T00:00:00Z"));
+        assertThat(response.getRequestedToUtc()).isEqualTo(OffsetDateTime.parse("2027-01-01T00:00:00Z"));
+        assertThat(response.getEffectiveFromUtc()).isEqualTo(dataset.getMinTimeUtc());
+        assertThat(response.getEffectiveToUtc()).isEqualTo(dataset.getMaxTimeUtc());
+        assertThat(response.getWarnings()).anyMatch(item -> item.toLowerCase().contains("clamped"));
+    }
+
+    @Test
+    void runFailsWithNoCandlesDiagnostic() {
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(List.of());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-03T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-05T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse response = service.run(datasetSet.getId(), request);
+
+        assertThat(response.getStatus()).isEqualTo(BacktestRunStatus.FAILED.name());
+        assertThat(response.getErrorMsg()).isEqualTo("No candles in selected range");
+        assertThat(response.getCandleCountInRange()).isEqualTo(0);
+        assertThat(response.getMinRequiredCandles()).isEqualTo(30);
+    }
+
+    @Test
+    void runFailsWithInsufficientCandlesDiagnostic() {
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(buildSmallCandleWindow());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-03T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-05T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse response = service.run(datasetSet.getId(), request);
+
+        assertThat(response.getStatus()).isEqualTo(BacktestRunStatus.FAILED.name());
+        assertThat(response.getErrorMsg()).isEqualTo("Not enough candles: found 5, need >= 30");
+        assertThat(response.getCandleCountInRange()).isEqualTo(5);
+        assertThat(response.getMinRequiredCandles()).isEqualTo(30);
+    }
+
     private List<BacktestCandle> buildDeterministicCandles() {
         List<BacktestCandle> rows = new ArrayList<>();
 
@@ -254,6 +338,16 @@ class BacktestLabServiceTest {
         rows.add(candle("2026-02-04T08:20:00Z", 1.0950, 1.0955, 1.0948, 1.0951));
 
         return rows;
+    }
+
+    private List<BacktestCandle> buildSmallCandleWindow() {
+        return List.of(
+                candle("2026-02-03T08:00:00Z", 1.1, 1.101, 1.099, 1.1005),
+                candle("2026-02-03T08:05:00Z", 1.1005, 1.1015, 1.1, 1.101),
+                candle("2026-02-03T08:10:00Z", 1.101, 1.1018, 1.1004, 1.1013),
+                candle("2026-02-03T08:15:00Z", 1.1013, 1.1019, 1.1008, 1.1011),
+                candle("2026-02-03T08:20:00Z", 1.1011, 1.1017, 1.1007, 1.101)
+        );
     }
 
     private List<BacktestCandle> buildSessionPreviewCandles() {

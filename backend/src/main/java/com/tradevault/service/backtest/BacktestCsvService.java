@@ -499,7 +499,7 @@ public class BacktestCsvService {
         if (value.matches("^-?\\d{10,17}$")) {
             try {
                 long epoch = Long.parseLong(value);
-                if (value.length() >= 13) {
+                if (Math.abs(epoch) >= 1_000_000_000_000L) {
                     return OffsetDateTime.ofInstant(java.time.Instant.ofEpochMilli(epoch), ZoneOffset.UTC);
                 }
                 return OffsetDateTime.ofInstant(java.time.Instant.ofEpochSecond(epoch), ZoneOffset.UTC);
@@ -543,11 +543,13 @@ public class BacktestCsvService {
             return null;
         }
         String value = raw.trim();
-        if (value.matches("^-?\\d{13,17}$")) {
-            return "epochMs";
-        }
-        if (value.matches("^-?\\d{10,12}$")) {
-            return "epochSec";
+        if (value.matches("^-?\\d{10,17}$")) {
+            try {
+                long epoch = Long.parseLong(value);
+                return Math.abs(epoch) >= 1_000_000_000_000L ? "epochMs" : "epochSec";
+            } catch (Exception ignored) {
+                // continue
+            }
         }
         try {
             OffsetDateTime.parse(value);

@@ -207,6 +207,15 @@ export type BacktestLabRun = {
   createdAt: string
   completedAt?: string | null
   errorMsg?: string | null
+  datasetMinUtc?: string | null
+  datasetMaxUtc?: string | null
+  requestedFromUtc?: string | null
+  requestedToUtc?: string | null
+  effectiveFromUtc?: string | null
+  effectiveToUtc?: string | null
+  candleCountInRange?: number | null
+  minRequiredCandles?: number | null
+  warnings?: string[]
 }
 
 export type BacktestLabSummary = {

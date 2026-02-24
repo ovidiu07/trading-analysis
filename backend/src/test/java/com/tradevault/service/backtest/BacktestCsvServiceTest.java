@@ -185,4 +185,106 @@ class BacktestCsvServiceTest {
 
         assertThat(response.getDetectedTimeframe()).isEqualTo("H4");
     }
+
+    @Test
+    void ingestParsesEpochSecondsAndPreservesHistoricalYears() {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).email("csv@test.com").build();
+        UUID fileId = UUID.randomUUID();
+        String csv = "time,open,high,low,close\n"
+                + "1009843200,1.1000,1.1010,1.0990,1.1005\n"
+                + "1735689600,1.1005,1.1015,1.0995,1.1010\n";
+
+        BacktestCsvUpload upload = BacktestCsvUpload.builder()
+                .id(fileId)
+                .user(user)
+                .originalFileName("epoch-sec.csv")
+                .filePayload(csv.getBytes())
+                .headerSignature("sig-sec")
+                .detectedJson(new ObjectMapper().createObjectNode())
+                .build();
+
+        CsvIngestRequest request = new CsvIngestRequest();
+        request.setSymbol("EURUSD");
+        request.setTimeframe("D1");
+
+        when(uploadRepository.findByIdAndUser_Id(fileId, userId)).thenReturn(Optional.of(upload));
+        when(mappingRepository.findByUser_IdAndHeaderSignature(any(), any())).thenReturn(Optional.empty());
+        stubDatasetUpsertToEchoRange("epoch-sec.csv");
+
+        CsvIngestResponse response = csvService.ingest(user, fileId, request);
+
+        assertThat(response.getDataset().getDataFrom()).isEqualTo(OffsetDateTime.parse("2002-01-01T00:00:00Z"));
+        assertThat(response.getDataset().getDataTo()).isEqualTo(OffsetDateTime.parse("2025-01-01T00:00:00Z"));
+    }
+
+    @Test
+    void ingestParsesEpochMillisecondsAndPreservesHistoricalYears() {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).email("csv@test.com").build();
+        UUID fileId = UUID.randomUUID();
+        String csv = "time,open,high,low,close\n"
+                + "1009843200000,1.1000,1.1010,1.0990,1.1005\n"
+                + "1735689600000,1.1005,1.1015,1.0995,1.1010\n";
+
+        BacktestCsvUpload upload = BacktestCsvUpload.builder()
+                .id(fileId)
+                .user(user)
+                .originalFileName("epoch-ms.csv")
+                .filePayload(csv.getBytes())
+                .headerSignature("sig-ms")
+                .detectedJson(new ObjectMapper().createObjectNode())
+                .build();
+
+        CsvIngestRequest request = new CsvIngestRequest();
+        request.setSymbol("EURUSD");
+        request.setTimeframe("D1");
+
+        when(uploadRepository.findByIdAndUser_Id(fileId, userId)).thenReturn(Optional.of(upload));
+        when(mappingRepository.findByUser_IdAndHeaderSignature(any(), any())).thenReturn(Optional.empty());
+        stubDatasetUpsertToEchoRange("epoch-ms.csv");
+
+        CsvIngestResponse response = csvService.ingest(user, fileId, request);
+
+        assertThat(response.getDataset().getDataFrom()).isEqualTo(OffsetDateTime.parse("2002-01-01T00:00:00Z"));
+        assertThat(response.getDataset().getDataTo()).isEqualTo(OffsetDateTime.parse("2025-01-01T00:00:00Z"));
+    }
+
+    private void stubDatasetUpsertToEchoRange(String name) {
+        when(datasetService.upsertDataset(any(), any(), any(), any(), any(), any(), any(), any(), any(), anyInt(), any(), any(), any()))
+                .thenAnswer(invocation -> {
+                    BacktestTimeframe timeframe = invocation.getArgument(6);
+                    OffsetDateTime from = invocation.getArgument(7);
+                    OffsetDateTime to = invocation.getArgument(8);
+                    Integer rowCount = invocation.getArgument(9);
+                    return BacktestDataset.builder()
+                            .id(UUID.randomUUID())
+                            .provider(BacktestCandleSource.CSV)
+                            .sourceId(invocation.getArgument(2))
+                            .name(name)
+                            .symbolCanonical(invocation.getArgument(4))
+                            .symbolDisplay(invocation.getArgument(5))
+                            .timeframe(timeframe)
+                            .dataFrom(from)
+                            .dataTo(to)
+                            .rowCount(rowCount)
+                            .build();
+                });
+        when(datasetService.toResponse(any())).thenAnswer(invocation -> {
+            BacktestDataset dataset = invocation.getArgument(0);
+            return BacktestDatasetResponse.builder()
+                    .id(dataset.getId())
+                    .provider("CSV")
+                    .sourceId(dataset.getSourceId())
+                    .name(dataset.getName())
+                    .symbolCanonical(dataset.getSymbolCanonical())
+                    .symbolDisplay(dataset.getSymbolDisplay())
+                    .timeframe(dataset.getTimeframe().name())
+                    .dataFrom(dataset.getDataFrom())
+                    .dataTo(dataset.getDataTo())
+                    .rowCount(dataset.getRowCount())
+                    .warnings(java.util.List.of())
+                    .build();
+        });
+    }
 }

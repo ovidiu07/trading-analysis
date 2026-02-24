@@ -4,6 +4,7 @@ import lombok.Builder;
 import lombok.Value;
 
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Value
@@ -18,4 +19,13 @@ public class BacktestLabRunResponse {
     OffsetDateTime createdAt;
     OffsetDateTime completedAt;
     String errorMsg;
+    OffsetDateTime datasetMinUtc;
+    OffsetDateTime datasetMaxUtc;
+    OffsetDateTime requestedFromUtc;
+    OffsetDateTime requestedToUtc;
+    OffsetDateTime effectiveFromUtc;
+    OffsetDateTime effectiveToUtc;
+    Integer candleCountInRange;
+    Integer minRequiredCandles;
+    List<String> warnings;
 }

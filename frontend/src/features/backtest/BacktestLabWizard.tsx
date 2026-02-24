@@ -161,6 +161,44 @@ const toIsoDay = (value?: string | null) => {
   return date.toISOString().slice(0, 10)
 }
 
+const resolveDatasetRangeBounds = (datasets?: BacktestDatasetSetDatasets['datasets'] | null) => {
+  const rows = datasets || []
+  if (!rows.length) return { min: '', max: '' }
+  const min = rows.map((row) => row.minTimeUtc).filter(Boolean).sort()[0]
+  const max = rows.map((row) => row.maxTimeUtc).filter(Boolean).sort().at(-1)
+  return { min: toIsoDay(min), max: toIsoDay(max) }
+}
+
+const clampIsoDay = (value: string, min: string, max: string) => {
+  if (!value) return value
+  if (min && value < min) return min
+  if (max && value > max) return max
+  return value
+}
+
+const normalizeRunWindowToBounds = (
+  current: { fromUtc: string, toUtc: string, sessionFilter: string },
+  bounds: { min: string, max: string }
+) => {
+  if (!bounds.min || !bounds.max) return current
+  let nextFrom = current.fromUtc || bounds.min
+  let nextTo = current.toUtc || bounds.max
+  nextFrom = clampIsoDay(nextFrom, bounds.min, bounds.max)
+  nextTo = clampIsoDay(nextTo, bounds.min, bounds.max)
+  if (nextFrom > nextTo) {
+    nextFrom = bounds.min
+    nextTo = bounds.max
+  }
+  if (nextFrom === current.fromUtc && nextTo === current.toUtc) {
+    return current
+  }
+  return {
+    ...current,
+    fromUtc: nextFrom,
+    toUtc: nextTo
+  }
+}
+
 const applyTemplate = (prev: StrategyConfigState, key: TemplateKey): StrategyConfigState => {
   if (key === 'ASIA_LONDON_REVERSAL') {
     return {
@@ -242,19 +280,15 @@ export default function BacktestLabWizard() {
   }, [datasetInfo])
 
   const rangeBounds = useMemo(() => {
-    const rows = datasetInfo?.datasets || []
-    if (!rows.length) return { min: '', max: '' }
-    const min = rows
-      .map((r) => r.minTimeUtc)
-      .filter(Boolean)
-      .sort()[0]
-    const max = rows
-      .map((r) => r.maxTimeUtc)
-      .filter(Boolean)
-      .sort()
-      .at(-1)
-    return { min: toIsoDay(min), max: toIsoDay(max) }
+    return resolveDatasetRangeBounds(datasetInfo?.datasets)
   }, [datasetInfo])
+
+  const runWindowValid = useMemo(() => {
+    if (!runWindow.fromUtc || !runWindow.toUtc) return false
+    if (rangeBounds.min && runWindow.fromUtc < rangeBounds.min) return false
+    if (rangeBounds.max && runWindow.toUtc > rangeBounds.max) return false
+    return runWindow.fromUtc <= runWindow.toUtc
+  }, [rangeBounds.max, rangeBounds.min, runWindow.fromUtc, runWindow.toUtc])
 
   const loadDatasets = async (id: string) => {
     if (!id) return
@@ -262,6 +296,10 @@ export default function BacktestLabWizard() {
     try {
       const info = await getBacktestDatasetSetDatasets(id)
       setDatasetInfo(info)
+      const bounds = resolveDatasetRangeBounds(info.datasets)
+      if (info.datasets.length) {
+        setRunWindow((prev) => normalizeRunWindowToBounds(prev, bounds))
+      }
       if (info.instrument && info.instrument !== 'UNKNOWN') {
         setInstrument(info.instrument)
         setStrategyConfig((prev) => ({
@@ -275,18 +313,6 @@ export default function BacktestLabWizard() {
               : (info.datasets.find((d) => d.timeframe === 'M5')?.timeframe || info.datasets[0]?.timeframe || prev.context.executionTimeframe)
           }
         }))
-      }
-      if (info.datasets.length && !runWindow.fromUtc && !runWindow.toUtc) {
-        const maxDate = toIsoDay(info.datasets.map((d) => d.maxTimeUtc).sort().at(-1))
-        const minDate = toIsoDay(info.datasets.map((d) => d.minTimeUtc).sort()[0])
-        const maxTs = maxDate ? new Date(maxDate).getTime() : Date.now()
-        const fromTs = maxTs - (1000 * 60 * 60 * 24 * 30)
-        const fromDay = new Date(fromTs).toISOString().slice(0, 10)
-        setRunWindow({
-          fromUtc: minDate && fromDay < minDate ? minDate : fromDay,
-          toUtc: maxDate,
-          sessionFilter: ''
-        })
       }
     } catch (e: any) {
       setError(e?.message || 'Failed to load datasets')
@@ -382,8 +408,8 @@ export default function BacktestLabWizard() {
       setError('Save strategy config first.')
       return
     }
-    if (!runWindow.fromUtc || !runWindow.toUtc) {
-      setError('Select a valid date range.')
+    if (!runWindowValid) {
+      setError('Select a valid date range within dataset bounds.')
       return
     }
 
@@ -407,7 +433,9 @@ export default function BacktestLabWizard() {
         return
       }
       await loadRunArtifacts(run.runId)
-      setSuccess('Backtest completed.')
+      setSuccess(run.warnings && run.warnings.length
+        ? `Backtest completed with warnings: ${run.warnings[0]}`
+        : 'Backtest completed.')
       setStep(3)
     } catch (e: any) {
       setError(e?.message || 'Backtest failed')
@@ -928,8 +956,24 @@ export default function BacktestLabWizard() {
                   </Grid>
                 </Grid>
 
+                {!runWindowValid && rangeBounds.min && rangeBounds.max ? (
+                  <Alert severity="warning">
+                    {`Select a valid range between ${rangeBounds.min} and ${rangeBounds.max}.`}
+                  </Alert>
+                ) : null}
+
+                {lastRun ? (
+                  <Alert severity={lastRun.status === 'FAILED' ? 'error' : 'info'}>
+                    {`Dataset range: ${lastRun.datasetMinUtc || '-'} → ${lastRun.datasetMaxUtc || '-'} | Effective: ${lastRun.effectiveFromUtc || lastRun.fromUtc} → ${lastRun.effectiveToUtc || lastRun.toUtc} | Candles: ${lastRun.candleCountInRange ?? '-'} / min ${lastRun.minRequiredCandles ?? '-'}`}
+                  </Alert>
+                ) : null}
+
+                {lastRun?.warnings && lastRun.warnings.length > 0 ? (
+                  <Alert severity="warning">{lastRun.warnings.join(' ')}</Alert>
+                ) : null}
+
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={runBusy}>
+                  <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={runBusy || !runWindowValid}>
                     Run backtest
                   </Button>
                   <Button variant="outlined" onClick={() => setStep(3)} disabled={!results}>

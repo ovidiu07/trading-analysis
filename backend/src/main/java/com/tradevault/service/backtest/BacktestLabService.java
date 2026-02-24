@@ -44,6 +44,8 @@ import com.tradevault.repository.BacktestTradeRepository;
 import com.tradevault.service.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -72,6 +74,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class BacktestLabService {
     private static final String STRATEGY_DEFAULT_NAME = "SMC Rule Strategy";
 
@@ -86,6 +89,9 @@ public class BacktestLabService {
     private final BacktestCsvService backtestCsvService;
     private final CandleDataService candleDataService;
     private final ObjectMapper objectMapper;
+
+    @Value("${backtest.lab.min-required-candles:30}")
+    private int minRequiredCandles;
 
     @Transactional
     public BacktestDatasetSetResponse createDatasetSet(BacktestDatasetSetCreateRequest request) {
@@ -190,28 +196,35 @@ public class BacktestLabService {
         BacktestDatasetSet set = requireDatasetSet(datasetSetId, user.getId());
         BacktestStrategyConfig strategyConfig = resolveStrategyConfig(set, user.getId(), request == null ? null : request.getStrategyConfigId());
 
-        Range range = resolveRunRange(set, request == null ? null : request.getFromUtc(), request == null ? null : request.getToUtc());
+        RangeResolution range = resolveRunRange(set, request == null ? null : request.getFromUtc(), request == null ? null : request.getToUtc());
 
         BacktestRun run = BacktestRun.builder()
                 .user(user)
                 .symbol(set.getInstrument())
                 .timeframe("M5")
-                .rangeFrom(range.fromUtc())
-                .rangeTo(range.toUtc())
+                .rangeFrom(range.effectiveFromUtc())
+                .rangeTo(range.effectiveToUtc())
                 .sessionWindow(normalizeOptionalText(request == null ? null : request.getSessionFilter()))
                 .provider("CSV")
                 .sourceId(set.getId().toString())
                 .datasetSet(set)
                 .strategyConfig(strategyConfig)
-                .fromUtc(range.fromUtc())
-                .toUtc(range.toUtc())
+                .fromUtc(range.effectiveFromUtc())
+                .toUtc(range.effectiveToUtc())
                 .status(BacktestRunStatus.RUNNING)
                 .candleCount(0)
                 .build();
         run = runRepository.save(run);
 
         try {
-            EngineOutput output = executeRunEngine(run, set, strategyConfig, request);
+            EngineOutput output = executeRunEngine(run, set, strategyConfig, request, range);
+            RunDiagnostics diagnostics = output.diagnostics();
+            if (diagnostics != null) {
+                run.setFromUtc(diagnostics.effectiveFromUtc());
+                run.setToUtc(diagnostics.effectiveToUtc());
+                run.setRangeFrom(diagnostics.effectiveFromUtc());
+                run.setRangeTo(diagnostics.effectiveToUtc());
+            }
 
             run.setTimeframe(output.executionTimeframe().name());
             run.setDatasetId(output.sourceDataset().getId());
@@ -229,13 +242,34 @@ public class BacktestLabService {
                 generateAndPersistReport(run, strategyConfig, output);
             }
 
-            return toRunResponse(run);
+            return toRunResponse(run, diagnostics);
         } catch (Exception ex) {
+            RunDiagnostics diagnostics = ex instanceof BacktestRunDiagnosticsException withDiagnostics
+                    ? withDiagnostics.diagnostics()
+                    : diagnosticsFromRange(range, 0, minRequiredCandles());
+            if (diagnostics != null) {
+                run.setFromUtc(diagnostics.effectiveFromUtc());
+                run.setToUtc(diagnostics.effectiveToUtc());
+                run.setRangeFrom(diagnostics.effectiveFromUtc());
+                run.setRangeTo(diagnostics.effectiveToUtc());
+            }
             run.setStatus(BacktestRunStatus.FAILED);
             run.setCompletedAt(OffsetDateTime.now(ZoneOffset.UTC));
-            run.setErrorMsg(truncate(ex.getMessage(), 800));
+            String failureMessage = ex.getMessage() == null || ex.getMessage().isBlank()
+                    ? "Backtest run failed"
+                    : ex.getMessage();
+            run.setErrorMsg(truncate(failureMessage, 800));
             runRepository.save(run);
-            return toRunResponse(run);
+            if (!(ex instanceof BacktestRunDiagnosticsException)) {
+                log.warn(
+                        "Backtest lab run failed [runId={}, datasetSetId={}, timeframe={}]: {}",
+                        run.getId(),
+                        set.getId(),
+                        run.getTimeframe(),
+                        failureMessage
+                );
+            }
+            return toRunResponse(run, diagnostics);
         }
     }
 
@@ -521,7 +555,8 @@ public class BacktestLabService {
     private EngineOutput executeRunEngine(BacktestRun run,
                                           BacktestDatasetSet set,
                                           BacktestStrategyConfig strategyConfig,
-                                          BacktestLabRunRequest request) {
+                                          BacktestLabRunRequest request,
+                                          RangeResolution rangeResolution) {
         List<BacktestDataset> datasets = datasetRepository.findByDatasetSet_IdOrderByCreatedAtAsc(set.getId());
         if (datasets.isEmpty()) {
             throw new IllegalArgumentException("No datasets found for this dataset set");
@@ -529,11 +564,34 @@ public class BacktestLabService {
 
         ParsedConfig config = parseConfig(strategyConfig, set);
         DatasetSelection selection = chooseExecutionDataset(datasets, config.executionTimeframeRequested());
+        int minRequired = minRequiredCandles();
+
+        List<String> warnings = new ArrayList<>(rangeResolution.warnings());
+        if (rangeResolution.requestedFromUtc() != null && rangeResolution.requestedFromUtc().isBefore(selection.minTimeUtc())) {
+            warnings.add("Requested fromUtc was before selected timeframe dataset start and was clamped.");
+        }
+        if (rangeResolution.requestedToUtc() != null && rangeResolution.requestedToUtc().isAfter(selection.maxTimeUtc())) {
+            warnings.add("Requested toUtc was after selected timeframe dataset end and was clamped.");
+        }
+        List<String> normalizedWarnings = deduplicateWarnings(warnings);
 
         OffsetDateTime fromUtc = clampToRange(run.getFromUtc(), selection.minTimeUtc(), selection.maxTimeUtc());
         OffsetDateTime toUtc = clampToRange(run.getToUtc(), selection.minTimeUtc(), selection.maxTimeUtc());
+        RunDiagnostics baseDiagnostics = new RunDiagnostics(
+                selection.minTimeUtc(),
+                selection.maxTimeUtc(),
+                rangeResolution.requestedFromUtc(),
+                rangeResolution.requestedToUtc(),
+                fromUtc,
+                toUtc,
+                0,
+                minRequired,
+                normalizedWarnings
+        );
         if (fromUtc.isAfter(toUtc)) {
-            throw new IllegalArgumentException("Selected date range does not overlap dataset range");
+            String message = "Selected date range does not overlap dataset range";
+            logRangeFailure(set, run, selection, baseDiagnostics, message);
+            throw new BacktestRunDiagnosticsException(message, baseDiagnostics);
         }
 
         List<BacktestCandle> sourceCandles = loadDatasetCandles(run.getUser().getId(), selection.sourceDataset(), fromUtc, toUtc);
@@ -544,8 +602,26 @@ public class BacktestLabService {
         List<BacktestCandle> candles = execCandles.stream()
                 .sorted(Comparator.comparing(BacktestCandle::timestamp))
                 .toList();
-        if (candles.size() < 30) {
-            throw new IllegalArgumentException("Not enough candles in selected range");
+        RunDiagnostics diagnostics = new RunDiagnostics(
+                selection.minTimeUtc(),
+                selection.maxTimeUtc(),
+                rangeResolution.requestedFromUtc(),
+                rangeResolution.requestedToUtc(),
+                fromUtc,
+                toUtc,
+                candles.size(),
+                minRequired,
+                normalizedWarnings
+        );
+        if (candles.isEmpty()) {
+            String message = "No candles in selected range";
+            logRangeFailure(set, run, selection, diagnostics, message);
+            throw new BacktestRunDiagnosticsException(message, diagnostics);
+        }
+        if (candles.size() < minRequired) {
+            String message = "Not enough candles: found %d, need >= %d".formatted(candles.size(), minRequired);
+            logRangeFailure(set, run, selection, diagnostics, message);
+            throw new BacktestRunDiagnosticsException(message, diagnostics);
         }
 
         List<BacktestCandle> dailyCandles = loadDailyCandles(run.getUser().getId(), datasets, selection.sourceDataset(), fromUtc, toUtc, candles);
@@ -574,7 +650,8 @@ public class BacktestLabService {
                 selection.sourceDataset(),
                 candles,
                 trades,
-                filters
+                filters,
+                diagnostics
         );
     }
 
@@ -1443,7 +1520,7 @@ public class BacktestLabService {
         return rows;
     }
 
-    private Range resolveRunRange(BacktestDatasetSet set, OffsetDateTime requestedFrom, OffsetDateTime requestedTo) {
+    private RangeResolution resolveRunRange(BacktestDatasetSet set, OffsetDateTime requestedFrom, OffsetDateTime requestedTo) {
         List<BacktestDataset> datasets = datasetRepository.findByDatasetSet_IdOrderByCreatedAtAsc(set.getId());
         if (datasets.isEmpty()) {
             throw new IllegalArgumentException("No datasets in selected set");
@@ -1465,8 +1542,19 @@ public class BacktestLabService {
             throw new IllegalArgumentException("Dataset range unavailable");
         }
 
-        OffsetDateTime to = requestedTo == null ? max : requestedTo.withOffsetSameInstant(ZoneOffset.UTC);
-        OffsetDateTime from = requestedFrom == null ? to.minusDays(30) : requestedFrom.withOffsetSameInstant(ZoneOffset.UTC);
+        OffsetDateTime requestedFromUtc = normalizeUtc(requestedFrom);
+        OffsetDateTime requestedToUtc = normalizeUtc(requestedTo);
+
+        OffsetDateTime from = requestedFromUtc == null ? min : requestedFromUtc;
+        OffsetDateTime to = requestedToUtc == null ? max : requestedToUtc;
+        List<String> warnings = new ArrayList<>();
+
+        if (requestedFromUtc != null && requestedFromUtc.isBefore(min)) {
+            warnings.add("Requested fromUtc was before dataset start and was clamped.");
+        }
+        if (requestedToUtc != null && requestedToUtc.isAfter(max)) {
+            warnings.add("Requested toUtc was after dataset end and was clamped.");
+        }
 
         if (from.isBefore(min)) {
             from = min;
@@ -1477,9 +1565,18 @@ public class BacktestLabService {
         if (from.isAfter(to)) {
             from = min;
             to = max;
+            warnings.add("Requested range was invalid after clamping; using full dataset range.");
         }
 
-        return new Range(from, to);
+        return new RangeResolution(
+                min,
+                max,
+                requestedFromUtc,
+                requestedToUtc,
+                from,
+                to,
+                deduplicateWarnings(warnings)
+        );
     }
 
     private BacktestStrategyConfig resolveStrategyConfig(BacktestDatasetSet set, UUID userId, UUID strategyConfigId) {
@@ -1571,7 +1668,7 @@ public class BacktestLabService {
                 .build();
     }
 
-    private BacktestLabRunResponse toRunResponse(BacktestRun run) {
+    private BacktestLabRunResponse toRunResponse(BacktestRun run, RunDiagnostics diagnostics) {
         return BacktestLabRunResponse.builder()
                 .runId(run.getId())
                 .status(run.getStatus().name())
@@ -1582,6 +1679,15 @@ public class BacktestLabService {
                 .createdAt(run.getCreatedAt())
                 .completedAt(run.getCompletedAt())
                 .errorMsg(run.getErrorMsg())
+                .datasetMinUtc(diagnostics == null ? null : diagnostics.datasetMinUtc())
+                .datasetMaxUtc(diagnostics == null ? null : diagnostics.datasetMaxUtc())
+                .requestedFromUtc(diagnostics == null ? null : diagnostics.requestedFromUtc())
+                .requestedToUtc(diagnostics == null ? null : diagnostics.requestedToUtc())
+                .effectiveFromUtc(diagnostics == null ? null : diagnostics.effectiveFromUtc())
+                .effectiveToUtc(diagnostics == null ? null : diagnostics.effectiveToUtc())
+                .candleCountInRange(diagnostics == null ? null : diagnostics.candleCountInRange())
+                .minRequiredCandles(diagnostics == null ? null : diagnostics.minRequiredCandles())
+                .warnings(diagnostics == null || diagnostics.warnings() == null ? List.of() : diagnostics.warnings())
                 .build();
     }
 
@@ -2088,6 +2194,70 @@ public class BacktestLabService {
         return safe;
     }
 
+    private OffsetDateTime normalizeUtc(OffsetDateTime value) {
+        return value == null ? null : value.withOffsetSameInstant(ZoneOffset.UTC);
+    }
+
+    private int minRequiredCandles() {
+        return Math.max(1, minRequiredCandles);
+    }
+
+    private List<String> deduplicateWarnings(List<String> warnings) {
+        if (warnings == null || warnings.isEmpty()) {
+            return List.of();
+        }
+        List<String> normalized = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (String warning : warnings) {
+            if (warning == null || warning.isBlank()) {
+                continue;
+            }
+            if (seen.add(warning)) {
+                normalized.add(warning);
+            }
+        }
+        return normalized;
+    }
+
+    private RunDiagnostics diagnosticsFromRange(RangeResolution range, int candleCount, int minRequired) {
+        if (range == null) {
+            return null;
+        }
+        return new RunDiagnostics(
+                range.datasetMinUtc(),
+                range.datasetMaxUtc(),
+                range.requestedFromUtc(),
+                range.requestedToUtc(),
+                range.effectiveFromUtc(),
+                range.effectiveToUtc(),
+                candleCount,
+                minRequired,
+                range.warnings()
+        );
+    }
+
+    private void logRangeFailure(BacktestDatasetSet set,
+                                 BacktestRun run,
+                                 DatasetSelection selection,
+                                 RunDiagnostics diagnostics,
+                                 String message) {
+        log.warn(
+                "Backtest range check failed [datasetSetId={}, runId={}, timeframe={}]: {} | datasetMinUtc={} datasetMaxUtc={} requestedFromUtc={} requestedToUtc={} effectiveFromUtc={} effectiveToUtc={} candleCount={} minRequiredCandles={}",
+                set.getId(),
+                run.getId(),
+                selection.executionTimeframe().name(),
+                message,
+                diagnostics.datasetMinUtc(),
+                diagnostics.datasetMaxUtc(),
+                diagnostics.requestedFromUtc(),
+                diagnostics.requestedToUtc(),
+                diagnostics.effectiveFromUtc(),
+                diagnostics.effectiveToUtc(),
+                diagnostics.candleCountInRange(),
+                diagnostics.minRequiredCandles()
+        );
+    }
+
     private BigDecimal inferPipSize(String instrumentRaw) {
         String instrument = instrumentRaw == null ? "" : instrumentRaw.toUpperCase(Locale.ROOT);
         if (instrument.contains("JPY")) {
@@ -2166,7 +2336,41 @@ public class BacktestLabService {
     ) {
     }
 
-    private record Range(OffsetDateTime fromUtc, OffsetDateTime toUtc) {
+    private record RangeResolution(
+            OffsetDateTime datasetMinUtc,
+            OffsetDateTime datasetMaxUtc,
+            OffsetDateTime requestedFromUtc,
+            OffsetDateTime requestedToUtc,
+            OffsetDateTime effectiveFromUtc,
+            OffsetDateTime effectiveToUtc,
+            List<String> warnings
+    ) {
+    }
+
+    private record RunDiagnostics(
+            OffsetDateTime datasetMinUtc,
+            OffsetDateTime datasetMaxUtc,
+            OffsetDateTime requestedFromUtc,
+            OffsetDateTime requestedToUtc,
+            OffsetDateTime effectiveFromUtc,
+            OffsetDateTime effectiveToUtc,
+            Integer candleCountInRange,
+            Integer minRequiredCandles,
+            List<String> warnings
+    ) {
+    }
+
+    private static final class BacktestRunDiagnosticsException extends IllegalArgumentException {
+        private final RunDiagnostics diagnostics;
+
+        private BacktestRunDiagnosticsException(String message, RunDiagnostics diagnostics) {
+            super(message);
+            this.diagnostics = diagnostics;
+        }
+
+        private RunDiagnostics diagnostics() {
+            return diagnostics;
+        }
     }
 
     private record LevelPair(BigDecimal high, BigDecimal low) {
@@ -2239,7 +2443,8 @@ public class BacktestLabService {
             BacktestDataset sourceDataset,
             List<BacktestCandle> candles,
             List<EngineTrade> trades,
-            JsonNode filtersSnapshot
+            JsonNode filtersSnapshot,
+            RunDiagnostics diagnostics
     ) {
     }
 

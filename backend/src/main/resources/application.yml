@@ -99,7 +99,7 @@ logging:
   level:
     root: INFO
     com.zaxxer.hikari: DEBUG
-    org.springframework.jdbc.datasource: DEBUG
+    org.springframework.jdbc.datasource: INFO
     org.hibernate.SQL: INFO
 
 management:

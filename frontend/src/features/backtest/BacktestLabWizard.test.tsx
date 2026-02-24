@@ -215,6 +215,62 @@ describe('BacktestLabWizard', () => {
     expect(await screen.findByText('Strategy Diagnostics Report')).toBeInTheDocument()
   })
 
+  it('auto-populates run date range from dataset bounds', async () => {
+    const user = userEvent.setup()
+    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
+      datasetSetId: 'set-1',
+      instrument: 'EURUSD',
+      timezoneBasis: 'UTC',
+      datasets: [
+        {
+          datasetId: 'dataset-1',
+          timeframe: 'M5',
+          originalFilename: 'EURUSD_M5.csv',
+          minTimeUtc: '2002-01-02T00:00:00Z',
+          maxTimeUtc: '2025-12-31T23:55:00Z',
+          candleCount: 2880,
+          columnsMapped: 'time/open/high/low/close',
+          status: 'READY',
+          warnings: []
+        }
+      ],
+      sessionPreview: []
+    })
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+
+    const fromField = await screen.findByLabelText('From')
+    const toField = await screen.findByLabelText('To')
+    expect(fromField).toHaveValue('2002-01-02')
+    expect(toField).toHaveValue('2025-12-31')
+  })
+
+  it('disables run button when date range is invalid', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+
+    fireEvent.change(await screen.findByLabelText('From'), { target: { value: '2026-02-10' } })
+    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-02-01' } })
+
+    const callsBefore = backtestApiMock.runBacktestDatasetSet.mock.calls.length
+    const runButton = screen.getByRole('button', { name: /Run backtest/i })
+    expect(runButton).toBeDisabled()
+    expect(backtestApiMock.runBacktestDatasetSet.mock.calls.length).toBe(callsBefore)
+  })
+
   it('keeps cards readable on mobile width', async () => {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,

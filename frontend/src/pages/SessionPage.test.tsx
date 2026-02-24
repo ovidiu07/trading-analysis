@@ -455,69 +455,58 @@ describe('SessionPage execution funnel', () => {
       note: payload.note ?? null,
       tsUtc: new Date().toISOString()
     }))
-    sessionApiMock.getSessionAutoJournalStatus.mockResolvedValue({
-      sessionId: sessionState.id,
-      state: 'DISARMED',
+    let autoJournalState: 'DISARMED' | 'ARMED' | 'ACTIVE' | 'CLOSED' = 'DISARMED'
+    let autoJournalArmedAt: string | null = null
+    let autoJournalConfig = {
       symbol: 'OANDA:EURUSD',
       side: 'LONG',
       entry: 1.0825,
       sl: 1.081,
       tp: 1.085,
       tolerancePips: 0,
-      timeoutMin: 30,
-      armedAt: null,
-      lastEventAt: null,
+      timeoutMin: 30
+    }
+    const buildStatus = () => ({
+      sessionId: sessionState.id,
+      state: autoJournalState,
+      symbol: autoJournalConfig.symbol,
+      side: autoJournalConfig.side,
+      entry: autoJournalConfig.entry,
+      sl: autoJournalConfig.sl,
+      tp: autoJournalConfig.tp,
+      tolerancePips: autoJournalConfig.tolerancePips,
+      timeoutMin: autoJournalConfig.timeoutMin,
+      armedAt: autoJournalState === 'DISARMED' ? null : autoJournalArmedAt,
+      lastEventAt: autoJournalArmedAt,
       lastError: null,
       quoteAvailable: true,
       quoteReason: null,
       bid: 1.0824,
       ask: 1.08252,
       spread: 0.00012,
-      quoteTsUtc: '2026-02-21T08:16:03Z',
+      quoteTsUtc: autoJournalArmedAt || '2026-02-21T08:16:03Z',
       quoteSource: 'OANDA'
     })
-    sessionApiMock.armSessionAutoJournal.mockImplementation(async (_sessionId: string, payload: any) => ({
-      sessionId: sessionState.id,
-      state: 'ARMED',
-      symbol: payload.symbol,
-      side: payload.side,
-      entry: payload.entry,
-      sl: payload.sl,
-      tp: payload.tp,
-      tolerancePips: payload.tolerancePips ?? 0,
-      timeoutMin: payload.timeoutMin ?? 30,
-      armedAt: '2026-02-21T08:16:03Z',
-      lastEventAt: '2026-02-21T08:16:03Z',
-      lastError: null,
-      quoteAvailable: true,
-      quoteReason: null,
-      bid: 1.0824,
-      ask: 1.08252,
-      spread: 0.00012,
-      quoteTsUtc: '2026-02-21T08:16:03Z',
-      quoteSource: 'OANDA'
-    }))
-    sessionApiMock.disarmSessionAutoJournal.mockImplementation(async () => ({
-      sessionId: sessionState.id,
-      state: 'DISARMED',
-      symbol: 'OANDA:EURUSD',
-      side: 'LONG',
-      entry: 1.0825,
-      sl: 1.081,
-      tp: 1.085,
-      tolerancePips: 0,
-      timeoutMin: 30,
-      armedAt: null,
-      lastEventAt: '2026-02-21T08:17:03Z',
-      lastError: null,
-      quoteAvailable: true,
-      quoteReason: null,
-      bid: 1.0824,
-      ask: 1.08252,
-      spread: 0.00012,
-      quoteTsUtc: '2026-02-21T08:17:03Z',
-      quoteSource: 'OANDA'
-    }))
+    sessionApiMock.getSessionAutoJournalStatus.mockImplementation(async () => buildStatus())
+    sessionApiMock.armSessionAutoJournal.mockImplementation(async (_sessionId: string, payload: any) => {
+      autoJournalState = 'ARMED'
+      autoJournalArmedAt = '2026-02-21T08:16:03Z'
+      autoJournalConfig = {
+        symbol: payload.symbol,
+        side: payload.side,
+        entry: payload.entry,
+        sl: payload.sl,
+        tp: payload.tp,
+        tolerancePips: payload.tolerancePips ?? 0,
+        timeoutMin: payload.timeoutMin ?? 30
+      }
+      return buildStatus()
+    })
+    sessionApiMock.disarmSessionAutoJournal.mockImplementation(async () => {
+      autoJournalState = 'DISARMED'
+      autoJournalArmedAt = null
+      return buildStatus()
+    })
 
     sessionApiMock.startTradeFromSession.mockResolvedValue({ id: 'trade-1' })
     sessionApiMock.closeTradeFromSession.mockResolvedValue({})
@@ -1111,6 +1100,83 @@ describe('SessionPage execution funnel', () => {
     expect(await screen.findByText(/Auto journal needs bid\/ask quotes/i)).toBeInTheDocument()
     expect(screen.getAllByText(/Spread unavailable for this symbol/i).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i })).toBeDisabled()
+
+    const callsAfterUnavailable = quotesApiMock.fetchLiveQuote.mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(quotesApiMock.fetchLiveQuote.mock.calls.length).toBe(callsAfterUnavailable)
+  })
+
+  it('polls auto-journal status slowly while disarmed', async () => {
+    vi.useFakeTimers()
+    try {
+      sessionApiMock.getSessionAutoJournalStatus.mockClear()
+      renderSessionPage()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBeGreaterThan(0)
+
+      const callsAfterInitialFetch = sessionApiMock.getSessionAutoJournalStatus.mock.calls.length
+      await vi.advanceTimersByTimeAsync(2_200)
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBe(callsAfterInitialFetch)
+
+      await vi.advanceTimersByTimeAsync(15_000)
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBeGreaterThan(callsAfterInitialFetch)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('polls auto-journal status faster when monitor is armed', async () => {
+    vi.useFakeTimers()
+    try {
+      sessionApiMock.getSessionAutoJournalStatus.mockClear()
+      sessionApiMock.getSessionAutoJournalStatus.mockResolvedValue({
+        sessionId: sessionState.id,
+        state: 'ARMED',
+        symbol: 'OANDA:EURUSD',
+        side: 'LONG',
+        entry: 1.0825,
+        sl: 1.081,
+        tp: 1.085,
+        tolerancePips: 0,
+        timeoutMin: 30,
+        armedAt: '2026-02-21T08:16:03Z',
+        lastEventAt: '2026-02-21T08:16:03Z',
+        lastError: null,
+        quoteAvailable: true,
+        quoteReason: null,
+        bid: 1.0824,
+        ask: 1.08252,
+        spread: 0.00012,
+        quoteTsUtc: '2026-02-21T08:16:03Z',
+        quoteSource: 'OANDA'
+      })
+      renderSessionPage()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBeGreaterThan(0)
+
+      const callsAfterInitialFetch = sessionApiMock.getSessionAutoJournalStatus.mock.calls.length
+      await vi.advanceTimersByTimeAsync(4_200)
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length - callsAfterInitialFetch).toBeGreaterThanOrEqual(2)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops auto-journal polling after unmount', async () => {
+    vi.useFakeTimers()
+    try {
+      sessionApiMock.getSessionAutoJournalStatus.mockClear()
+      const view = renderSessionPage()
+      await vi.advanceTimersByTimeAsync(1_000)
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBeGreaterThan(0)
+
+      const callsBeforeUnmount = sessionApiMock.getSessionAutoJournalStatus.mock.calls.length
+      view.unmount()
+      await vi.advanceTimersByTimeAsync(20_000)
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBe(callsBeforeUnmount)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('stops quote polling on 403 and shows relogin action', async () => {

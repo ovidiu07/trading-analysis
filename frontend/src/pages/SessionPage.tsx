@@ -173,8 +173,13 @@ const SESSION_CHART_MODE_KEY = 'sessionMode.chartMode'
 const SESSION_AUTO_TRADE_KEY = 'sessionMode.autoTrade'
 const RR_THRESHOLD = 1.5
 const USE_SERVER_AUTO_JOURNAL = true
-const QUOTE_POLL_BASE_MS = 1000
-const QUOTE_POLL_MAX_BACKOFF_MS = 16_000
+const AUTO_JOURNAL_POLL_ACTIVE_MS = 2_000
+const AUTO_JOURNAL_POLL_IDLE_MS = 15_000
+const AUTO_JOURNAL_POLL_HIDDEN_MS = 20_000
+const QUOTE_POLL_ACTIVE_MS = 1_000
+const QUOTE_POLL_HIDDEN_MS = 10_000
+const QUOTE_POLL_UNAVAILABLE_MS = 30_000
+const QUOTE_POLL_MAX_BACKOFF_MS = 30_000
 
 const LOCK_IN_SESSION_OPTIONS = ['LONDON', 'NY_AM'] as const
 
@@ -855,7 +860,6 @@ export default function SessionPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const baseCurrency = user?.baseCurrency || 'USD'
-  const isTestMode = import.meta.env.MODE === 'test' || Boolean(import.meta.env.VITEST)
 
   const isCompactViewport = useMediaQuery('(max-width:900px)')
   const isMobileViewport = useMediaQuery('(max-width:600px)')
@@ -1071,6 +1075,8 @@ export default function SessionPage() {
     () => (session?.id ? `${SESSION_AUTO_TRADE_KEY}.${user?.id || 'anonymous'}.${session.id}` : ''),
     [session?.id, user?.id]
   )
+  const isChartPanelVisibleForPolling = (!layoutState.maximized || layoutState.maximized === 'chart') && !layoutState.collapsed.chart
+  const autoJournalMonitorActive = autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE'
 
   const pushAutoTradeEvent = useCallback(async (payload: {
     type: AutoTradeEventType
@@ -1202,8 +1208,21 @@ export default function SessionPage() {
     if (!USE_SERVER_AUTO_JOURNAL) return
     if (!session?.id) return
     if (quotesUnauthorized) return
+    if (!autoJournalMonitorActive && !isChartPanelVisibleForPolling) return
+
+    const pollDelayMs = !isDocumentVisible
+      ? AUTO_JOURNAL_POLL_HIDDEN_MS
+      : (autoJournalMonitorActive ? AUTO_JOURNAL_POLL_ACTIVE_MS : AUTO_JOURNAL_POLL_IDLE_MS)
 
     let cancelled = false
+    let timer: number | null = null
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled) return
+      timer = window.setTimeout(() => {
+        void syncStatus()
+      }, delayMs)
+    }
+
     const syncStatus = async () => {
       try {
         const status = await getSessionAutoJournalStatus(session.id)
@@ -1226,26 +1245,29 @@ export default function SessionPage() {
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           setQuotesUnauthorized(true)
           setAutoJournalStatus(null)
+          cancelled = true
           return
         }
         setAutoJournalStatus(null)
+      } finally {
+        scheduleNext(pollDelayMs)
       }
     }
 
     void syncStatus()
-    if (isTestMode) {
-      return () => {
-        cancelled = true
-      }
-    }
-    const timer = window.setInterval(() => {
-      void syncStatus()
-    }, 1000)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer != null) {
+        window.clearTimeout(timer)
+      }
     }
-  }, [isTestMode, quotesUnauthorized, session?.id])
+  }, [
+    autoJournalMonitorActive,
+    isChartPanelVisibleForPolling,
+    isDocumentVisible,
+    quotesUnauthorized,
+    session?.id
+  ])
 
   useEffect(() => {
     if (!session) return
@@ -1878,13 +1900,15 @@ export default function SessionPage() {
     if (quotesUnauthorized) {
       return
     }
+    if (!autoJournalMonitorActive && !isChartPanelVisibleForPolling) {
+      return
+    }
 
     let cancelled = false
     let timer: number | null = null
-    let transientFailures = 0
 
     const scheduleNext = (delayMs: number) => {
-      if (cancelled || isTestMode || quotesUnauthorized) return
+      if (cancelled || quotesUnauthorized) return
       timer = window.setTimeout(() => {
         void loadQuote()
       }, delayMs)
@@ -1892,16 +1916,30 @@ export default function SessionPage() {
 
     const loadQuote = async () => {
       if (!isDocumentVisible) {
-        scheduleNext(QUOTE_POLL_BASE_MS)
+        scheduleNext(QUOTE_POLL_HIDDEN_MS)
         return
       }
       try {
         const quote = await fetchLiveQuote(symbol)
         if (cancelled) return
-        transientFailures = 0
+        const unauthorizedReason = typeof quote.reason === 'string' && quote.reason.toUpperCase() === 'UNAUTHORIZED'
+        if (unauthorizedReason) {
+          setQuotesUnauthorized(true)
+          setLiveQuote({
+            symbol,
+            available: false,
+            reason: 'UNAUTHORIZED'
+          })
+          cancelled = true
+          return
+        }
         setQuotesUnauthorized(false)
         setLiveQuote(quote)
-        scheduleNext(QUOTE_POLL_BASE_MS)
+        if (!quote.available || quote.bid == null || quote.ask == null) {
+          scheduleNext(QUOTE_POLL_UNAVAILABLE_MS)
+          return
+        }
+        scheduleNext(QUOTE_POLL_ACTIVE_MS)
       } catch (error) {
         if (cancelled) return
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
@@ -1911,26 +1949,16 @@ export default function SessionPage() {
             available: false,
             reason: 'UNAUTHORIZED'
           })
+          cancelled = true
           return
         }
-
-        const transient = error instanceof ApiError
-          && (error.code === 'NETWORK_ERROR' || (typeof error.status === 'number' && error.status >= 500))
 
         setLiveQuote({
           symbol,
           available: false,
           reason: 'UPSTREAM_ERROR'
         })
-        if (transient) {
-          transientFailures += 1
-          const backoffMs = Math.min(QUOTE_POLL_BASE_MS * (2 ** transientFailures), QUOTE_POLL_MAX_BACKOFF_MS)
-          scheduleNext(backoffMs)
-          return
-        }
-
-        transientFailures = 0
-        scheduleNext(QUOTE_POLL_BASE_MS)
+        scheduleNext(QUOTE_POLL_MAX_BACKOFF_MS)
       }
     }
 
@@ -1941,7 +1969,15 @@ export default function SessionPage() {
         window.clearTimeout(timer)
       }
     }
-  }, [activeSymbol, chartMode, chartSymbol, isDocumentVisible, isTestMode, quotesUnauthorized])
+  }, [
+    activeSymbol,
+    autoJournalMonitorActive,
+    chartMode,
+    chartSymbol,
+    isChartPanelVisibleForPolling,
+    isDocumentVisible,
+    quotesUnauthorized
+  ])
 
   useEffect(() => {
     if (USE_SERVER_AUTO_JOURNAL) return
