@@ -854,33 +854,50 @@ public class TodaySessionService {
         SessionLevel slLevel = resolveRoleLevel(session, user.getId(), tradeSymbol, firstNonNull(request.getSlLevelId(), session.getActiveSlLevelId()));
         SessionLevel tpLevel = resolveRoleLevel(session, user.getId(), tradeSymbol, firstNonNull(request.getTpLevelId(), session.getActiveTpLevelId()));
 
-        List<String> missingItems = new ArrayList<>();
+        List<String> strictMissingItems = new ArrayList<>();
         if (!isLockInComplete(session)) {
-            missingItems.add("lock-in");
+            strictMissingItems.add("lock-in");
         }
         if (!isChecklistComplete(prereqsState)) {
-            missingItems.add("prerequisites checklist");
+            strictMissingItems.add("prerequisites checklist");
         }
         if (!isChecklistComplete(triggersState)) {
-            missingItems.add("triggers checklist");
+            strictMissingItems.add("triggers checklist");
         }
         if (rrAtEntry == null || rrAtEntry.compareTo(BigDecimal.valueOf(1.5)) < 0) {
-            missingItems.add("RR >= 1.5R");
+            strictMissingItems.add("RR >= 1.5R");
         }
         if (!isNarrativeComplete(narrative)) {
-            missingItems.add("narrative (draw/manipulation/confirmation)");
+            strictMissingItems.add("narrative (draw/manipulation/confirmation)");
         }
         if (sweepLevel == null && sweepPoolId == null) {
-            missingItems.add("sweep role");
+            strictMissingItems.add("sweep role");
         }
         if (entryLevel == null) {
-            missingItems.add("entry role");
+            strictMissingItems.add("entry role");
         }
         if (slLevel == null) {
-            missingItems.add("SL role");
+            strictMissingItems.add("SL role");
         }
-        if (!missingItems.isEmpty()) {
-            throw new IllegalArgumentException("Cannot start trade. Missing: " + String.join(", ", missingItems));
+
+        boolean strictAPlusOnly = "A_PLUS_ONLY".equalsIgnoreCase(session.getLockInObjective());
+        if (strictAPlusOnly && !strictMissingItems.isEmpty()) {
+            throw new IllegalArgumentException("Cannot start trade. Missing: " + String.join(", ", strictMissingItems));
+        }
+
+        List<String> quickMissingItems = new ArrayList<>();
+        if (request.getStopLossPrice() == null || request.getStopLossPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            quickMissingItems.add("stop loss");
+        }
+        if (isBlank(request.getEntryInvalidation())) {
+            quickMissingItems.add("invalidation");
+        }
+        if (request.getRiskAmount() == null
+                && (request.getQuantity() == null || request.getQuantity().compareTo(BigDecimal.ZERO) <= 0)) {
+            quickMissingItems.add("risk amount or quantity");
+        }
+        if (!quickMissingItems.isEmpty()) {
+            throw new IllegalArgumentException("Cannot start trade. Missing: " + String.join(", ", quickMissingItems));
         }
 
         List<SessionLevelDto> levelsSnapshot = findSessionLevels(session.getId(), user.getId(), null).stream()
@@ -909,7 +926,14 @@ public class TodaySessionService {
         tradeRequest.setRuleBreaks(Set.of());
         tradeRequest.setSessionId(session.getId());
         tradeRequest.setFeeling(normalizeOptionalText(request.getFeeling()));
-        tradeRequest.setInitialNotes(normalizeOptionalText(firstNonBlank(request.getInitialNotes(), request.getNotes())));
+        String initialNotes = normalizeOptionalText(firstNonBlank(request.getInitialNotes(), request.getNotes()));
+        if (!strictAPlusOnly && !strictMissingItems.isEmpty()) {
+            initialNotes = normalizeOptionalText(firstNonBlank(initialNotes, "Discipline: Incomplete"));
+            if (initialNotes != null && !initialNotes.contains("Discipline: Incomplete")) {
+                initialNotes = (initialNotes + "\nDiscipline: Incomplete").trim();
+            }
+        }
+        tradeRequest.setInitialNotes(initialNotes);
         tradeRequest.setNotes(null);
         tradeRequest.setEntryJournalText(normalizeOptionalText(request.getEntryJournalText()));
         tradeRequest.setEntryInvalidation(normalizeOptionalText(request.getEntryInvalidation()));

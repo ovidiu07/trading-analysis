@@ -48,6 +48,9 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class DiagnosticsService {
+    private static final UUID UNASSIGNED_STRATEGY_ID = UUID.fromString("00000000-0000-0000-0000-000000000000");
+    private static final String UNASSIGNED_STRATEGY_NAME = "Unassigned strategy";
+
     private final CurrentUserService currentUserService;
     private final TradeRepository tradeRepository;
     private final BacktestTradeRepository backtestTradeRepository;
@@ -60,23 +63,24 @@ public class DiagnosticsService {
         UUID userId = user.getId();
         Map<UUID, String> strategyNames = mapStrategyNames(userId);
 
-        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.BOTH, null, null, null, null, null, null)
-                .stream()
-                .filter(sample -> sample.strategyId() != null)
-                .toList();
+        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.BOTH, null, null, null, null, null, null);
 
         Map<UUID, StatsBucket> grouped = new LinkedHashMap<>();
         for (TradeSample sample : samples) {
-            grouped.computeIfAbsent(sample.strategyId(), ignored -> new StatsBucket()).add(sample);
+            UUID strategyKey = sample.strategyId() == null ? UNASSIGNED_STRATEGY_ID : sample.strategyId();
+            grouped.computeIfAbsent(strategyKey, ignored -> new StatsBucket()).add(sample);
         }
 
         List<DiagnosticsStrategyHeadline> rows = grouped.entrySet().stream()
                 .map(entry -> {
                     UUID strategyId = entry.getKey();
                     StatsBucket stats = entry.getValue();
+                    String strategyName = UNASSIGNED_STRATEGY_ID.equals(strategyId)
+                            ? UNASSIGNED_STRATEGY_NAME
+                            : strategyNames.getOrDefault(strategyId, "Unnamed strategy");
                     return DiagnosticsStrategyHeadline.builder()
                             .strategyId(strategyId)
-                            .strategyName(strategyNames.getOrDefault(strategyId, "Unnamed strategy"))
+                            .strategyName(strategyName)
                             .sampleSize(stats.count)
                             .winRate(scale(stats.winRatePct()))
                             .expectancyR(scale(stats.expectancyR()))
@@ -126,9 +130,13 @@ public class DiagnosticsService {
         List<DiagnosticsSuggestion> suggestions = buildSuggestions(samples, triggerImpact, failureModes, bySession);
         List<DiagnosticsBacktestRunRow> backtestRuns = buildBacktestRunRows(userId, samples);
 
+        String strategyName = UNASSIGNED_STRATEGY_ID.equals(strategyId)
+                ? UNASSIGNED_STRATEGY_NAME
+                : strategyNames.getOrDefault(strategyId, "Unnamed strategy");
+
         return DiagnosticsStrategyDetailResponse.builder()
                 .strategyId(strategyId)
-                .strategyName(strategyNames.getOrDefault(strategyId, "Unnamed strategy"))
+                .strategyName(strategyName)
                 .mode(mode.name())
                 .coreMetrics(coreMetrics)
                 .breakdownBySession(bySession)
@@ -163,6 +171,7 @@ public class DiagnosticsService {
         String normalizedSymbol = normalizeOptionalText(symbol);
         String normalizedSession = normalizeOptionalText(sessionWindow);
         String normalizedBacktestSource = normalizeOptionalText(backtestSource);
+        boolean filterUnassignedStrategy = strategyFilter != null && UNASSIGNED_STRATEGY_ID.equals(strategyFilter);
 
         List<TradeSample> rows = new ArrayList<>();
 
@@ -171,10 +180,14 @@ public class DiagnosticsService {
                 if (trade.getStatus() != com.tradevault.domain.enums.TradeStatus.CLOSED) {
                     continue;
                 }
-                if (trade.getRMultiple() == null || trade.getClosedAt() == null) {
+                if (trade.getClosedAt() == null) {
                     continue;
                 }
-                if (strategyFilter != null && !Objects.equals(strategyFilter, trade.getStrategyId())) {
+                if (filterUnassignedStrategy) {
+                    if (trade.getStrategyId() != null) {
+                        continue;
+                    }
+                } else if (strategyFilter != null && !Objects.equals(strategyFilter, trade.getStrategyId())) {
                     continue;
                 }
                 if (fromTs != null && trade.getClosedAt().isBefore(fromTs)) {
@@ -198,7 +211,7 @@ public class DiagnosticsService {
                         trade.getSymbol(),
                         session,
                         trade.getClosedAt().getDayOfWeek(),
-                        trade.getRMultiple(),
+                        trade.getRMultiple() == null ? BigDecimal.ZERO : trade.getRMultiple(),
                         null,
                         null,
                         trade.getOpenedAt() != null
@@ -217,10 +230,11 @@ public class DiagnosticsService {
             }
 
             for (BacktestTrade trade : backtestTradeRepository.findByUser_IdOrderByCreatedAtAsc(userId)) {
-                if (trade.getRMultiple() == null) {
-                    continue;
-                }
-                if (strategyFilter != null && !Objects.equals(strategyFilter, trade.getStrategyId())) {
+                if (filterUnassignedStrategy) {
+                    if (trade.getStrategyId() != null) {
+                        continue;
+                    }
+                } else if (strategyFilter != null && !Objects.equals(strategyFilter, trade.getStrategyId())) {
                     continue;
                 }
 
@@ -260,7 +274,7 @@ public class DiagnosticsService {
                         trade.getSymbol(),
                         session,
                         eventTime.getDayOfWeek(),
-                        trade.getRMultiple(),
+                        trade.getRMultiple() == null ? BigDecimal.ZERO : trade.getRMultiple(),
                         trade.getMaeR(),
                         trade.getMfeR(),
                         trade.getDurationMinutes() == null ? null : BigDecimal.valueOf(trade.getDurationMinutes()),

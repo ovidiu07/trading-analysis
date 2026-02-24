@@ -47,6 +47,18 @@ const formatPct = (value: number | null | undefined) => {
   return `${value.toFixed(2)}%`
 }
 
+function ThresholdNotice({ sampleSize, unlockAt }: { sampleSize: number; unlockAt: number }) {
+  return (
+    <Card>
+      <CardContent>
+        <Typography variant="body2" color="text.secondary">
+          {`You have ${sampleSize} closed trades. This section unlocks at ${unlockAt}.`}
+        </Typography>
+      </CardContent>
+    </Card>
+  )
+}
+
 export default function DiagnosticsPage() {
   const { t } = useI18n()
   const theme = useTheme()
@@ -143,6 +155,8 @@ export default function DiagnosticsPage() {
       { label: t('diagnostics.kpis.avgMfe'), value: formatSigned(core.avgMfeR) }
     ]
   }, [detail, t])
+
+  const sampleSize = detail?.coreMetrics?.sampleSize ?? 0
 
   if (initialLoading) {
     return <Skeleton variant="rounded" height={220} />
@@ -276,18 +290,71 @@ export default function DiagnosticsPage() {
         <>
           {activeTab === 'OVERVIEW' && (
             <>
-              <Grid container spacing={1.25}>
-                {kpiItems.map((item) => (
-                  <Grid key={item.label} item xs={6} md={4} lg={2}>
-                    <Card sx={{ height: '100%' }}>
+              {sampleSize < 1 ? (
+                <ThresholdNotice sampleSize={sampleSize} unlockAt={1} />
+              ) : (
+                <Grid container spacing={1.25}>
+                  {kpiItems.map((item) => (
+                    <Grid key={item.label} item xs={6} md={4} lg={2}>
+                      <Card sx={{ height: '100%' }}>
+                        <CardContent>
+                          <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                          <Typography variant="h6" fontWeight={700}>{item.value}</Typography>
+                        </CardContent>
+                      </Card>
+                    </Grid>
+                  ))}
+                </Grid>
+              )}
+
+              {sampleSize < 10 ? (
+                <ThresholdNotice sampleSize={sampleSize} unlockAt={10} />
+              ) : (
+                <Grid container spacing={1.25}>
+                  <Grid item xs={12} md={6}>
+                    <Card>
                       <CardContent>
-                        <Typography variant="caption" color="text.secondary">{item.label}</Typography>
-                        <Typography variant="h6" fontWeight={700}>{item.value}</Typography>
+                        <Stack spacing={0.75}>
+                          <Typography variant="subtitle1" fontWeight={700}>Session breakdown</Typography>
+                          {detail.breakdownBySession.length === 0 ? (
+                            <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noSuggestions')}</Typography>
+                          ) : (
+                            detail.breakdownBySession.slice(0, 6).map((row) => (
+                              <Box key={`session-${row.key}`} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                                <Typography variant="body2">{row.key}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {row.sampleSize} · {formatSigned(row.expectancyR)}
+                                </Typography>
+                              </Box>
+                            ))
+                          )}
+                        </Stack>
                       </CardContent>
                     </Card>
                   </Grid>
-                ))}
-              </Grid>
+                  <Grid item xs={12} md={6}>
+                    <Card>
+                      <CardContent>
+                        <Stack spacing={0.75}>
+                          <Typography variant="subtitle1" fontWeight={700}>Symbol breakdown</Typography>
+                          {detail.breakdownBySymbol.length === 0 ? (
+                            <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noSuggestions')}</Typography>
+                          ) : (
+                            detail.breakdownBySymbol.slice(0, 6).map((row) => (
+                              <Box key={`symbol-${row.key}`} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                                <Typography variant="body2">{row.key}</Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {row.sampleSize} · {formatSigned(row.expectancyR)}
+                                </Typography>
+                              </Box>
+                            ))
+                          )}
+                        </Stack>
+                      </CardContent>
+                    </Card>
+                  </Grid>
+                </Grid>
+              )}
 
               <Grid container spacing={1.25}>
                 <Grid item xs={12} lg={7}>
@@ -296,17 +363,23 @@ export default function DiagnosticsPage() {
                       <Stack spacing={1}>
                         <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.rDistribution')}</Typography>
                         <Typography variant="caption" color="text.secondary">{t('diagnostics.hints.rDistribution')}</Typography>
-                        <Box sx={{ width: '100%', height: 280 }}>
-                          <ResponsiveContainer>
-                            <BarChart data={detail.rDistribution} margin={{ top: 8, right: 12, left: 4, bottom: 14 }}>
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis dataKey="bucket" interval={0} tick={{ fontSize: 11 }} />
-                              <YAxis allowDecimals={false} />
-                              <ChartTooltip />
-                              <Bar dataKey="count" fill={theme.palette.primary.main} radius={[6, 6, 0, 0]} />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </Box>
+                        {sampleSize < 20 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            {`You have ${sampleSize} closed trades. This section unlocks at 20.`}
+                          </Typography>
+                        ) : (
+                          <Box sx={{ width: '100%', height: 280 }}>
+                            <ResponsiveContainer>
+                              <BarChart data={detail.rDistribution} margin={{ top: 8, right: 12, left: 4, bottom: 14 }}>
+                                <CartesianGrid strokeDasharray="3 3" />
+                                <XAxis dataKey="bucket" interval={0} tick={{ fontSize: 11 }} />
+                                <YAxis allowDecimals={false} />
+                                <ChartTooltip />
+                                <Bar dataKey="count" fill={theme.palette.primary.main} radius={[6, 6, 0, 0]} />
+                              </BarChart>
+                            </ResponsiveContainer>
+                          </Box>
+                        )}
                       </Stack>
                     </CardContent>
                   </Card>
@@ -317,7 +390,11 @@ export default function DiagnosticsPage() {
                       <Stack spacing={1}>
                         <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.suggestions')}</Typography>
                         <Typography variant="caption" color="text.secondary">{t('diagnostics.hints.suggestions')}</Typography>
-                        {detail.suggestions.length === 0 ? (
+                        {sampleSize < 50 ? (
+                          <Typography variant="body2" color="text.secondary">
+                            {`You have ${sampleSize} closed trades. This section unlocks at 50.`}
+                          </Typography>
+                        ) : detail.suggestions.length === 0 ? (
                           <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noSuggestions')}</Typography>
                         ) : (
                           detail.suggestions.map((item) => (
@@ -337,70 +414,76 @@ export default function DiagnosticsPage() {
 
           {activeTab === 'DETAILS' && (
             <>
-              <Card>
-                <CardContent>
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.triggerImpact')}</Typography>
-                    <Typography variant="caption" color="text.secondary">{t('diagnostics.hints.triggerImpact')}</Typography>
-                    {isMobile ? (
+              {sampleSize < 20 ? (
+                <ThresholdNotice sampleSize={sampleSize} unlockAt={20} />
+              ) : (
+                <>
+                  <Card>
+                    <CardContent>
                       <Stack spacing={1}>
-                        {detail.triggerImpact.map((row) => (
-                          <Box key={row.triggerKey} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
-                            <Typography variant="subtitle2" fontWeight={700}>{row.triggerKey}</Typography>
-                            <Typography variant="caption" color="text.secondary">{t('diagnostics.table.checkedExpectancy')}: {formatSigned(row.checkedExpectancy)}</Typography>
-                            <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.uncheckedExpectancy')}: {formatSigned(row.uncheckedExpectancy)}</Typography>
-                            <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.delta')}: {formatSigned(row.deltaExpectancy)}</Typography>
-                            <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.samples')}: {row.checkedCount}/{row.uncheckedCount}</Typography>
-                          </Box>
-                        ))}
-                      </Stack>
-                    ) : (
-                      <TableContainer sx={{ overflowX: 'auto' }}>
-                        <Table size="small">
-                          <TableHead>
-                            <TableRow>
-                              <TableCell>{t('diagnostics.table.trigger')}</TableCell>
-                              <TableCell align="right">{t('diagnostics.table.checkedExpectancy')}</TableCell>
-                              <TableCell align="right">{t('diagnostics.table.uncheckedExpectancy')}</TableCell>
-                              <TableCell align="right">{t('diagnostics.table.delta')}</TableCell>
-                              <TableCell align="right">{t('diagnostics.table.samples')}</TableCell>
-                            </TableRow>
-                          </TableHead>
-                          <TableBody>
+                        <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.triggerImpact')}</Typography>
+                        <Typography variant="caption" color="text.secondary">{t('diagnostics.hints.triggerImpact')}</Typography>
+                        {isMobile ? (
+                          <Stack spacing={1}>
                             {detail.triggerImpact.map((row) => (
-                              <TableRow key={row.triggerKey}>
-                                <TableCell>{row.triggerKey}</TableCell>
-                                <TableCell align="right">{formatSigned(row.checkedExpectancy)}</TableCell>
-                                <TableCell align="right">{formatSigned(row.uncheckedExpectancy)}</TableCell>
-                                <TableCell align="right">{formatSigned(row.deltaExpectancy)}</TableCell>
-                                <TableCell align="right">{row.checkedCount}/{row.uncheckedCount}</TableCell>
-                              </TableRow>
+                              <Box key={row.triggerKey} sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                                <Typography variant="subtitle2" fontWeight={700}>{row.triggerKey}</Typography>
+                                <Typography variant="caption" color="text.secondary">{t('diagnostics.table.checkedExpectancy')}: {formatSigned(row.checkedExpectancy)}</Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.uncheckedExpectancy')}: {formatSigned(row.uncheckedExpectancy)}</Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.delta')}: {formatSigned(row.deltaExpectancy)}</Typography>
+                                <Typography variant="caption" color="text.secondary" display="block">{t('diagnostics.table.samples')}: {row.checkedCount}/{row.uncheckedCount}</Typography>
+                              </Box>
                             ))}
-                          </TableBody>
-                        </Table>
-                      </TableContainer>
-                    )}
-                  </Stack>
-                </CardContent>
-              </Card>
+                          </Stack>
+                        ) : (
+                          <TableContainer sx={{ overflowX: 'auto' }}>
+                            <Table size="small">
+                              <TableHead>
+                                <TableRow>
+                                  <TableCell>{t('diagnostics.table.trigger')}</TableCell>
+                                  <TableCell align="right">{t('diagnostics.table.checkedExpectancy')}</TableCell>
+                                  <TableCell align="right">{t('diagnostics.table.uncheckedExpectancy')}</TableCell>
+                                  <TableCell align="right">{t('diagnostics.table.delta')}</TableCell>
+                                  <TableCell align="right">{t('diagnostics.table.samples')}</TableCell>
+                                </TableRow>
+                              </TableHead>
+                              <TableBody>
+                                {detail.triggerImpact.map((row) => (
+                                  <TableRow key={row.triggerKey}>
+                                    <TableCell>{row.triggerKey}</TableCell>
+                                    <TableCell align="right">{formatSigned(row.checkedExpectancy)}</TableCell>
+                                    <TableCell align="right">{formatSigned(row.uncheckedExpectancy)}</TableCell>
+                                    <TableCell align="right">{formatSigned(row.deltaExpectancy)}</TableCell>
+                                    <TableCell align="right">{row.checkedCount}/{row.uncheckedCount}</TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </TableContainer>
+                        )}
+                      </Stack>
+                    </CardContent>
+                  </Card>
 
-              <Card>
-                <CardContent>
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.failureModes')}</Typography>
-                    {detail.failureModes.length === 0 ? (
-                      <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noFailureModes')}</Typography>
-                    ) : (
-                      detail.failureModes.map((row) => (
-                        <Box key={row.label} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
-                          <Typography variant="body2">{row.label}</Typography>
-                          <Typography variant="caption" color="text.secondary">{row.count} | {formatSigned(row.avgR)}</Typography>
-                        </Box>
-                      ))
-                    )}
-                  </Stack>
-                </CardContent>
-              </Card>
+                  <Card>
+                    <CardContent>
+                      <Stack spacing={1}>
+                        <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.failureModes')}</Typography>
+                        {detail.failureModes.length === 0 ? (
+                          <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noFailureModes')}</Typography>
+                        ) : (
+                          detail.failureModes.map((row) => (
+                            <Box key={row.label} sx={{ display: 'flex', justifyContent: 'space-between', gap: 1 }}>
+                              <Typography variant="body2">{row.label}</Typography>
+                              <Typography variant="caption" color="text.secondary">{row.count} | {formatSigned(row.avgR)}</Typography>
+                            </Box>
+                          ))
+                        )}
+                      </Stack>
+                    </CardContent>
+                  </Card>
+                </>
+              )}
             </>
           )}
 
@@ -409,7 +492,11 @@ export default function DiagnosticsPage() {
               <CardContent>
                 <Stack spacing={1}>
                   <Typography variant="subtitle1" fontWeight={700}>{t('diagnostics.panels.backtestRuns')}</Typography>
-                  {detail.backtestRuns.length === 0 ? (
+                  {sampleSize < 1 ? (
+                    <Typography variant="body2" color="text.secondary">
+                      {`You have ${sampleSize} closed trades. This section unlocks at 1.`}
+                    </Typography>
+                  ) : detail.backtestRuns.length === 0 ? (
                     <Typography variant="body2" color="text.secondary">{t('diagnostics.empty.noBacktestRuns')}</Typography>
                   ) : (
                     detail.backtestRuns.map((row) => (

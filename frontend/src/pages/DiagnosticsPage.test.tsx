@@ -101,4 +101,39 @@ describe('DiagnosticsPage', () => {
     expect(await screen.findByText('Trigger impact')).toBeInTheDocument()
     expect(screen.getByText('MSS confirmed')).toBeInTheDocument()
   })
+
+  it('shows unlock thresholds when sample size is too small', async () => {
+    diagnosticsApiMock.getDiagnosticsStrategyDetail.mockResolvedValueOnce({
+      strategyId: 'strat-1',
+      strategyName: 'London Sweep',
+      mode: 'BOTH',
+      coreMetrics: {
+        sampleSize: 1,
+        winRate: 100,
+        expectancyR: 0.2,
+        profitFactor: 2,
+        avgMaeR: 0.1,
+        avgMfeR: 0.5,
+        avgDurationMinutes: 10
+      },
+      breakdownBySession: [],
+      breakdownBySymbol: [],
+      breakdownByDayOfWeek: [],
+      rDistribution: [],
+      triggerImpact: [],
+      failureModes: [],
+      suggestions: [],
+      backtestRuns: []
+    })
+
+    render(
+      <MemoryRouter>
+        <I18nProvider>
+          <DiagnosticsPage />
+        </I18nProvider>
+      </MemoryRouter>
+    )
+
+    expect(await screen.findByText(/This section unlocks at 10/i)).toBeInTheDocument()
+  })
 })

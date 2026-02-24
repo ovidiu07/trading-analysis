@@ -3,6 +3,8 @@ package com.tradevault.controller;
 import com.tradevault.dto.session.ChecklistTemplateRequest;
 import com.tradevault.dto.session.ChecklistTemplateResponse;
 import com.tradevault.dto.session.SessionAutoTradeEventDto;
+import com.tradevault.dto.session.SessionAutoJournalArmRequest;
+import com.tradevault.dto.session.SessionAutoJournalStatusDto;
 import com.tradevault.dto.session.SessionAutoTradeEventRequest;
 import com.tradevault.dto.session.SessionLevelDto;
 import com.tradevault.dto.session.SessionLevelRequest;
@@ -20,6 +22,7 @@ import com.tradevault.dto.session.TodaySessionPlannedTickersRequest;
 import com.tradevault.dto.session.TodaySessionResponse;
 import com.tradevault.domain.enums.ChecklistTemplateType;
 import com.tradevault.service.today.TodaySessionService;
+import com.tradevault.service.today.SessionAutoJournalService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -42,6 +45,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TodaySessionController {
     private final TodaySessionService todaySessionService;
+    private final SessionAutoJournalService sessionAutoJournalService;
 
     @GetMapping("/sessions/today")
     public TodaySessionResponse getTodaySession() {
@@ -167,6 +171,22 @@ public class TodaySessionController {
     public SessionAutoTradeEventDto logAutoTradeEvent(@PathVariable UUID sessionId,
                                                       @RequestBody SessionAutoTradeEventRequest request) {
         return todaySessionService.logAutoTradeEvent(sessionId, request);
+    }
+
+    @PostMapping("/session/{sessionId}/auto-journal/arm")
+    public SessionAutoJournalStatusDto armAutoJournal(@PathVariable UUID sessionId,
+                                                      @RequestBody SessionAutoJournalArmRequest request) {
+        return sessionAutoJournalService.arm(sessionId, request);
+    }
+
+    @PostMapping("/session/{sessionId}/auto-journal/disarm")
+    public SessionAutoJournalStatusDto disarmAutoJournal(@PathVariable UUID sessionId) {
+        return sessionAutoJournalService.disarm(sessionId);
+    }
+
+    @GetMapping("/session/{sessionId}/auto-journal/status")
+    public SessionAutoJournalStatusDto getAutoJournalStatus(@PathVariable UUID sessionId) {
+        return sessionAutoJournalService.getStatus(sessionId);
     }
 
     @PutMapping("/session/{sessionId}/roles")

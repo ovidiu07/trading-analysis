@@ -1,5 +1,7 @@
 package com.tradevault.domain.entity;
 
+import com.tradevault.domain.enums.AutoJournalState;
+import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
@@ -111,6 +113,42 @@ public class TodaySession {
 
     @Column(name = "lock_in_at")
     private OffsetDateTime lockInAt;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auto_journal_state", nullable = false, length = 16)
+    @Builder.Default
+    private AutoJournalState autoJournalState = AutoJournalState.DISARMED;
+
+    @Column(name = "auto_journal_symbol", length = 64)
+    private String autoJournalSymbol;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auto_journal_side", length = 8)
+    private Direction autoJournalSide;
+
+    @Column(name = "auto_journal_entry_price", precision = 18, scale = 8)
+    private BigDecimal autoJournalEntryPrice;
+
+    @Column(name = "auto_journal_sl_price", precision = 18, scale = 8)
+    private BigDecimal autoJournalSlPrice;
+
+    @Column(name = "auto_journal_tp_price", precision = 18, scale = 8)
+    private BigDecimal autoJournalTpPrice;
+
+    @Column(name = "auto_journal_tolerance_pips", precision = 10, scale = 4)
+    private BigDecimal autoJournalTolerancePips;
+
+    @Column(name = "auto_journal_timeout_min")
+    private Integer autoJournalTimeoutMin;
+
+    @Column(name = "auto_journal_armed_at")
+    private OffsetDateTime autoJournalArmedAt;
+
+    @Column(name = "auto_journal_last_event_at")
+    private OffsetDateTime autoJournalLastEventAt;
+
+    @Column(name = "auto_journal_last_error", length = 280)
+    private String autoJournalLastError;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

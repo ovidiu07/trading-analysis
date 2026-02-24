@@ -109,15 +109,19 @@ import {
 } from '../api/chartProfiles'
 import {
   type AutoTradeEventType,
+  type SessionAutoJournalStatus,
   type QuoteSide,
+  armSessionAutoJournal,
   type SessionAutoTradeEvent,
   createChecklistTemplate,
   createSessionLevel,
   closeTradeFromSession,
+  disarmSessionAutoJournal,
   deleteChecklistTemplate,
   deleteSessionLevel,
   deleteSessionPool,
   createSessionPool,
+  getSessionAutoJournalStatus,
   getTodaySession,
   getSessionNarrative,
   listChecklistTemplates,
@@ -167,6 +171,7 @@ const SESSION_FOLLOW_PLAN_SYMBOL_KEY = 'sessionMode.followPlanSymbol'
 const SESSION_CHART_MODE_KEY = 'sessionMode.chartMode'
 const SESSION_AUTO_TRADE_KEY = 'sessionMode.autoTrade'
 const RR_THRESHOLD = 1.5
+const USE_SERVER_AUTO_JOURNAL = true
 
 const LOCK_IN_SESSION_OPTIONS = ['LONDON', 'NY_AM'] as const
 
@@ -880,6 +885,7 @@ export default function SessionPage() {
     feeling: FEELING_OPTIONS[0] as string,
     setupGrade: 'A' as 'A' | 'B' | 'C'
   })
+  const [activeSymbol, setActiveSymbol] = useState('')
 
   const [lockIn, setLockIn] = useState<LockInState>(DEFAULT_LOCK_IN_STATE)
   const [prereqChecklist, setPrereqChecklist] = useState<SessionChecklistItem[]>([])
@@ -1007,10 +1013,17 @@ export default function SessionPage() {
   const [autoTradeBusy, setAutoTradeBusy] = useState(false)
   const [autoTradeLogOpen, setAutoTradeLogOpen] = useState(true)
   const [autoTradeTimeoutPrompting, setAutoTradeTimeoutPrompting] = useState(false)
+  const [autoJournalStatus, setAutoJournalStatus] = useState<SessionAutoJournalStatus | null>(null)
 
   const invalidationFieldRef = useRef<HTMLInputElement | null>(null)
   const mentorPanelRef = useRef<HTMLDivElement | null>(null)
   const csvUploadInputRef = useRef<HTMLInputElement | null>(null)
+  const lockInSectionRef = useRef<HTMLDivElement | null>(null)
+  const prereqsSectionRef = useRef<HTMLDivElement | null>(null)
+  const triggersSectionRef = useRef<HTMLDivElement | null>(null)
+  const narrativeSectionRef = useRef<HTMLDivElement | null>(null)
+  const rolesSectionRef = useRef<HTMLDivElement | null>(null)
+  const symbolMismatchPromptRef = useRef('')
 
   const sessionQuery = useQuery({
     queryKey: ['todaySession'],
@@ -1165,11 +1178,70 @@ export default function SessionPage() {
   }, [autoTradeArmedAt, autoTradeStatus, autoTradeStorageKey, autoTradeTimeoutMinutes, autoTradeTolerancePips])
 
   useEffect(() => {
+    if (!USE_SERVER_AUTO_JOURNAL) return
+    if (!session?.id) return
+
+    let cancelled = false
+    const syncStatus = async () => {
+      try {
+        const status = await getSessionAutoJournalStatus(session.id)
+        if (cancelled) return
+        setAutoJournalStatus(status)
+        setAutoTradeStatus(status.state)
+        setAutoTradeArmedAt(status.armedAt || null)
+        setAutoTradeTolerancePips(
+          status.tolerancePips != null && Number.isFinite(status.tolerancePips)
+            ? String(status.tolerancePips)
+            : '0'
+        )
+        setAutoTradeTimeoutMinutes(
+          status.timeoutMin != null && Number.isFinite(status.timeoutMin)
+            ? String(status.timeoutMin)
+            : '30'
+        )
+      } catch {
+        if (!cancelled) {
+          setAutoJournalStatus(null)
+        }
+      }
+    }
+
+    void syncStatus()
+    if (isTestMode) {
+      return () => {
+        cancelled = true
+      }
+    }
+    const timer = window.setInterval(() => {
+      void syncStatus()
+    }, 1000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [isTestMode, session?.id])
+
+  useEffect(() => {
     if (!session) return
     if (!planner.symbol && (session.plannedTickers || []).length > 0) {
-      setPlanner((prev) => ({ ...prev, symbol: session.plannedTickers[0] }))
+      const nextSymbol = session.plannedTickers[0]
+      setPlanner((prev) => ({ ...prev, symbol: nextSymbol }))
+      setActiveSymbol(nextSymbol.trim().toUpperCase())
     }
   }, [planner.symbol, session])
+
+  useEffect(() => {
+    const normalizedPlannerSymbol = planner.symbol.trim().toUpperCase()
+    if (!normalizedPlannerSymbol) return
+    if (normalizedPlannerSymbol === activeSymbol) return
+    setActiveSymbol(normalizedPlannerSymbol)
+  }, [activeSymbol, planner.symbol])
+
+  useEffect(() => {
+    if (!activeSymbol) return
+    if (planner.symbol.trim().toUpperCase() === activeSymbol) return
+    setPlanner((prev) => ({ ...prev, symbol: activeSymbol }))
+  }, [activeSymbol, planner.symbol])
 
   useEffect(() => {
     if (selectedPlanId) {
@@ -1686,13 +1758,20 @@ export default function SessionPage() {
   const canReplayPlay = backtestReplayState === 'READY' && backtestCandles.length > 0
   const canReplayStep = backtestReplayState === 'READY' && backtestCandles.length > 0
 
+  useEffect(() => {
+    const planSymbol = selectedPlan?.tradingViewSymbol?.trim().toUpperCase()
+    if (!followPlanSymbol || !planSymbol) return
+    setActiveSymbol(planSymbol)
+    setPlanner((prev) => ({ ...prev, symbol: planSymbol }))
+  }, [followPlanSymbol, selectedPlan?.tradingViewSymbol])
+
   const chartSymbol = (() => {
-    const planSymbol = selectedPlan?.tradingViewSymbol?.trim()
+    const planSymbol = selectedPlan?.tradingViewSymbol?.trim().toUpperCase()
     if (followPlanSymbol && planSymbol) {
       return planSymbol
     }
     return (chartProfileEmbedConfig.symbol
-      || (planner.symbol.trim() ? planner.symbol.trim().toUpperCase() : '')
+      || activeSymbol
       || chartSymbolMemory
       || 'TVC:DXY')
   })()
@@ -1726,8 +1805,10 @@ export default function SessionPage() {
     const quantity = Number(planner.quantity)
     const entryPrice = entryPriceOverride ?? Number(planner.entryPrice)
     const stopLossPrice = Number(planner.stopLossPrice)
+    const disciplineNote = !canMeetExecutionGate ? 'Discipline: Incomplete' : ''
+    const initialNotes = [planner.notes.trim(), disciplineNote].filter(Boolean).join('\n')
     return {
-      symbol: planner.symbol.trim().toUpperCase(),
+      symbol: activeSymbol || planner.symbol.trim().toUpperCase(),
       direction: planner.direction,
       quantity,
       entryPrice,
@@ -1743,7 +1824,7 @@ export default function SessionPage() {
       strategyTag: selectedStrategy ? selectedStrategy.name : undefined,
       linkedPlanId: selectedPlan?.id,
       riskAmount: manualRisk ?? undefined,
-      initialNotes: planner.notes || undefined,
+      initialNotes: initialNotes || undefined,
       entryJournalText: planner.notes.trim() || t('today.session.entryJournal.defaultText'),
       entryInvalidation: planner.invalidation.trim(),
       entryScreenshotAssetIds: attachedScreenshots.map((asset) => asset.id),
@@ -1761,7 +1842,7 @@ export default function SessionPage() {
       return
     }
 
-    const symbol = chartSymbol.trim()
+    const symbol = (activeSymbol || chartSymbol).trim()
     if (!symbol) {
       setLiveQuote(null)
       return
@@ -1798,9 +1879,10 @@ export default function SessionPage() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [chartMode, chartSymbol, isTestMode, t])
+  }, [activeSymbol, chartMode, chartSymbol, isTestMode, t])
 
   useEffect(() => {
+    if (USE_SERVER_AUTO_JOURNAL) return
     if (autoTradeStatus !== 'ARMED' || !autoTradeArmedAt) return
     const timeoutMinutes = Number(autoTradeTimeoutMinutes)
     if (!Number.isFinite(timeoutMinutes) || timeoutMinutes <= 0) return
@@ -1837,6 +1919,7 @@ export default function SessionPage() {
   }, [autoTradeArmedAt, autoTradeStatus, autoTradeTimeoutMinutes, autoTradeTimeoutPrompting, pushAutoTradeEvent, t])
 
   useEffect(() => {
+    if (USE_SERVER_AUTO_JOURNAL) return
     if (chartMode !== 'LIVE') return
     if (autoTradeStatus !== 'ARMED' && autoTradeStatus !== 'ACTIVE') return
     if (!liveQuote?.available) return
@@ -2028,6 +2111,56 @@ export default function SessionPage() {
     () => sessionPools.find((item) => item.id === activeSweepPoolId) || null,
     [activeSweepPoolId, sessionPools]
   )
+
+  useEffect(() => {
+    if (!session?.id) return
+    if (!activeSymbol) return
+    const roleSymbol = (
+      selectedSweepLevel?.symbol
+      || selectedSweepPool?.symbol
+      || selectedEntryLevel?.symbol
+      || selectedSlLevel?.symbol
+      || selectedTpLevel?.symbol
+      || ''
+    ).trim().toUpperCase()
+    if (!roleSymbol || roleSymbol === activeSymbol) return
+
+    const signature = `${activeSymbol}|${roleSymbol}`
+    if (symbolMismatchPromptRef.current === signature) return
+    symbolMismatchPromptRef.current = signature
+
+    const switchSymbol = window.confirm(
+      `Roles are scoped to ${roleSymbol}. Switch ticket symbol to match chart? Press Cancel to clear roles.`
+    )
+    if (switchSymbol) {
+      setActiveSymbol(roleSymbol)
+      setPlanner((prev) => ({ ...prev, symbol: roleSymbol }))
+      return
+    }
+
+    setActiveSweepLevelId(null)
+    setActiveSweepPoolId(null)
+    setActiveEntryLevelId(null)
+    setActiveSlLevelId(null)
+    setActiveTpLevelId(null)
+    void setSessionRoles(session.id, {
+      symbol: activeSymbol,
+      sweepLevelId: null,
+      sweepPoolId: null,
+      entryLevelId: null,
+      slLevelId: null,
+      tpLevelId: null
+    })
+  }, [
+    activeSymbol,
+    selectedEntryLevel?.symbol,
+    selectedSlLevel?.symbol,
+    selectedSweepLevel?.symbol,
+    selectedSweepPool?.symbol,
+    selectedTpLevel?.symbol,
+    session?.id
+  ])
+
   const narrativeComplete = Boolean(narrative.htfDraw && narrative.expectedManipulation && narrative.confirmationModel)
   const rolesComplete = Boolean((selectedSweepLevel || selectedSweepPool) && selectedEntryLevel && selectedSlLevel)
 
@@ -2063,6 +2196,7 @@ export default function SessionPage() {
   const setupQualityChecks = [lockInComplete, prerequisitesComplete, triggersComplete, narrativeComplete, rolesComplete, rrMet, newsSafe]
   const setupQualityScore = Math.round((setupQualityChecks.filter(Boolean).length / setupQualityChecks.length) * 100)
   const suggestedSetupGrade = setupQualityScore >= 95 ? 'A+' : (setupQualityScore >= 75 ? 'A' : 'B')
+  const aPlusOnlyMode = lockIn.objective === 'A_PLUS_ONLY'
 
   const canMeetExecutionGate = lockInComplete
     && prerequisitesComplete
@@ -2071,9 +2205,6 @@ export default function SessionPage() {
     && rolesComplete
     && invalidationWritten
     && rrMet
-  const canSessionTrade = Boolean(session && session.status === 'ACTIVE' && !session.activeTrade)
-  const canStartTrade = canSessionTrade && canMeetExecutionGate
-  const canScheduleTrade = canSessionTrade && canMeetExecutionGate
 
   const missingLockInItems = [
     !lockIn.session ? t('today.session.requirements.lockInSessionSelection') : null,
@@ -2105,6 +2236,42 @@ export default function SessionPage() {
     !selectedEntryLevel ? t('today.session.roles.entry') : null,
     !selectedSlLevel ? t('today.session.roles.sl') : null
   ].filter(Boolean) as string[]
+
+  const plannerQuantity = Number(planner.quantity)
+  const plannerEntry = Number(planner.entryPrice)
+  const plannerStopLoss = Number(planner.stopLossPrice)
+  const hasRiskOrQuantity = manualRisk !== null || (Number.isFinite(plannerQuantity) && plannerQuantity > 0)
+  const quickMissingItems = [
+    !activeSymbol ? t('today.session.autoTrade.symbolRequired') : null,
+    !planner.direction ? t('trades.form.direction') : null,
+    !Number.isFinite(plannerEntry) || plannerEntry <= 0 || !Number.isFinite(plannerStopLoss) || plannerStopLoss <= 0
+      ? t('today.session.autoTrade.levelsRequired')
+      : null,
+    !hasRiskOrQuantity ? t('trades.form.quantity') : null,
+    !invalidationWritten ? t('today.session.planner.invalidation') : null
+  ].filter(Boolean) as string[]
+
+  const strictMissingItems = [
+    ...missingLockInItems,
+    ...missingPrereqs,
+    ...missingTriggers,
+    ...missingNarrative,
+    ...missingRoles,
+    ...(!invalidationWritten ? [t('today.session.planner.invalidation')] : [])
+  ]
+  const canSessionTrade = Boolean(session && session.status === 'ACTIVE' && !session.activeTrade)
+  const canQuickStart = quickMissingItems.length === 0
+  const canStartTrade = canSessionTrade && (aPlusOnlyMode ? canMeetExecutionGate : canQuickStart)
+  const canScheduleTrade = canStartTrade
+  const executionMissingItems = aPlusOnlyMode ? strictMissingItems : quickMissingItems
+  const readinessMissingCount = executionMissingItems.length
+  const localQuotesAvailable = Boolean(liveQuote?.available && liveQuote.bid != null && liveQuote.ask != null)
+  const quotesAvailableForAutoJournal = USE_SERVER_AUTO_JOURNAL
+    ? localQuotesAvailable && autoJournalStatus?.quoteAvailable !== false
+    : localQuotesAvailable
+  const autoJournalUnavailableReason = USE_SERVER_AUTO_JOURNAL
+    ? (autoJournalStatus?.quoteReason || liveQuote?.reason || t('today.session.autoTrade.quoteUnavailable'))
+    : (liveQuote?.reason || t('today.session.autoTrade.quoteUnavailable'))
 
   const groupedLevels = useMemo(() => {
     const htfDrawTypes = new Set<LevelType>(['PDH', 'PDL', 'HTF_SWING_HIGH', 'HTF_SWING_LOW'])
@@ -3276,12 +3443,12 @@ export default function SessionPage() {
   const handleStartTrade = async () => {
     if (!session) return
 
-    if (!canMeetExecutionGate) {
+    if (!canStartTrade) {
       setMissingModalOpen(true)
       return
     }
 
-    if (!planner.symbol.trim()) {
+    if (!activeSymbol && !planner.symbol.trim()) {
       setApiError(t('today.session.errors.tickerRequired'))
       return
     }
@@ -3379,8 +3546,28 @@ export default function SessionPage() {
     })
   }
 
-  const handleToggleAutoTrade = () => {
+  const handleToggleAutoTrade = async () => {
+    if (!session?.id) return
+    if (autoTradeBusy) return
+
     if (autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE') {
+      if (USE_SERVER_AUTO_JOURNAL) {
+        setAutoTradeBusy(true)
+        try {
+          const status = await disarmSessionAutoJournal(session.id)
+          setAutoJournalStatus(status)
+          setAutoTradeStatus(status.state)
+          setAutoTradeArmedAt(status.armedAt || null)
+          const rows = await listSessionAutoTradeEvents(session.id)
+          setAutoTradeEvents((rows || []).map((row) => ({ ...row, localKey: row.id })))
+        } catch (error) {
+          setApiError((error as Error)?.message || t('today.session.autoTrade.disarmed'))
+        } finally {
+          setAutoTradeBusy(false)
+        }
+        return
+      }
+
       setAutoTradeStatus('DISARMED')
       setAutoTradeArmedAt(null)
       void pushAutoTradeEvent({
@@ -3395,7 +3582,8 @@ export default function SessionPage() {
       setApiError(t('today.session.autoTrade.liveOnly'))
       return
     }
-    if (!planner.symbol.trim()) {
+    const autoJournalSymbol = (activeSymbol || planner.symbol).trim().toUpperCase()
+    if (!autoJournalSymbol) {
       setApiError(t('today.session.autoTrade.symbolRequired'))
       return
     }
@@ -3416,6 +3604,32 @@ export default function SessionPage() {
     }
     if (!liveQuote?.available || liveQuote.bid == null || liveQuote.ask == null) {
       setApiError(t('today.session.autoTrade.quoteUnavailable'))
+      return
+    }
+
+    if (USE_SERVER_AUTO_JOURNAL) {
+      setAutoTradeBusy(true)
+      try {
+        const status = await armSessionAutoJournal(session.id, {
+          symbol: autoJournalSymbol,
+          side: planner.direction,
+          entry: entryPrice,
+          sl: stopLossPrice,
+          tp: takeProfitPrice,
+          tolerancePips: Number(autoTradeTolerancePips),
+          timeoutMin: Number(autoTradeTimeoutMinutes)
+        })
+        setAutoJournalStatus(status)
+        setAutoTradeStatus(status.state)
+        setAutoTradeArmedAt(status.armedAt || null)
+        setApiError('')
+        const rows = await listSessionAutoTradeEvents(session.id)
+        setAutoTradeEvents((rows || []).map((row) => ({ ...row, localKey: row.id })))
+      } catch (error) {
+        setApiError((error as Error)?.message || t('today.session.autoTrade.quoteUnavailable'))
+      } finally {
+        setAutoTradeBusy(false)
+      }
       return
     }
 
@@ -3520,8 +3734,35 @@ export default function SessionPage() {
         mentor: false
       }
     }))
-    mentorPanelRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    mentorPanelRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
     mentorPanelRef.current?.focus()
+  }
+
+  const jumpToMissingSection = (section: 'lockIn' | 'prereqs' | 'triggers' | 'narrative' | 'roles') => {
+    setLayoutState((prev) => ({
+      ...prev,
+      maximized: null,
+      collapsed: {
+        ...prev.collapsed,
+        checklist: false,
+        chart: false,
+        planner: false
+      }
+    }))
+    setMissingModalOpen(false)
+    const refMap = {
+      lockIn: lockInSectionRef,
+      prereqs: prereqsSectionRef,
+      triggers: triggersSectionRef,
+      narrative: narrativeSectionRef,
+      roles: rolesSectionRef
+    } as const
+    const target = refMap[section].current
+    if (!target) return
+    window.setTimeout(() => {
+      target.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+      target.focus?.()
+    }, 80)
   }
 
   if (sessionQuery.isLoading) {
@@ -3580,22 +3821,77 @@ export default function SessionPage() {
         </Stack>
       </Stack>
 
-      <Card>
-        <CardContent sx={{ py: 1.5 }}>
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
-            {[
-              { id: 1, label: t('today.session.steps.lockIn') },
-              { id: 2, label: t('today.session.steps.checklist') },
-              { id: 3, label: t('today.session.steps.chart') },
-              { id: 4, label: t('today.session.steps.execute') }
-            ].map((step) => (
-              <Chip
-                key={step.id}
-                label={step.label}
-                color={flowStep === step.id ? 'primary' : (flowStep > step.id ? 'success' : 'default')}
-                variant={flowStep > step.id ? 'filled' : 'outlined'}
-              />
-            ))}
+      <Card sx={{ position: 'sticky', top: 0, zIndex: 20 }}>
+        <CardContent sx={{ py: 1.25 }}>
+          <Stack spacing={1}>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ md: 'center' }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} useFlexGap sx={{ flexWrap: 'wrap' }}>
+                <Chip size="small" color="info" label={`${t('trades.form.symbol')}: ${activeSymbol || chartSymbol || t('common.na')}`} />
+                <Chip size="small" label={`${t('today.session.chart.modeLabel')}: ${chartModeLabel}`} />
+                <Chip size="small" label={`${t('today.session.chart.session')}: ${lockIn.session || t('common.na')}`} />
+                <Chip size="small" label={`${t('today.session.chart.bias')}: ${lockIn.bias || t('common.na')}`} />
+                <Chip
+                  size="small"
+                  color={readinessMissingCount === 0 ? 'success' : 'warning'}
+                  label={readinessMissingCount === 0 ? 'READY' : `MISSING ${readinessMissingCount}`}
+                />
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
+                <Button
+                  size="small"
+                  variant={aPlusOnlyMode ? 'contained' : 'outlined'}
+                  onClick={() => setLockIn((prev) => ({ ...prev, objective: 'A_PLUS_ONLY' }))}
+                >
+                  {t('today.session.lockIn.objectiveAPlus')}
+                </Button>
+                <Button
+                  size="small"
+                  variant={!aPlusOnlyMode ? 'contained' : 'outlined'}
+                  onClick={() => setLockIn((prev) => ({ ...prev, objective: '' }))}
+                >
+                  QUICK START
+                </Button>
+                {!session?.activeTrade ? (
+                  <Button
+                    size="small"
+                    variant="contained"
+                    onClick={handleStartTrade}
+                    disabled={!canStartTrade || startTradeMutation.isLoading}
+                  >
+                    {startTradeMutation.isLoading ? t('today.session.planner.startingTrade') : t('today.session.planner.startTrade')}
+                  </Button>
+                ) : (
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    color="error"
+                    onClick={() => setCloseFormOpen((prev) => !prev)}
+                  >
+                    {t('today.session.planner.stopTrade')}
+                  </Button>
+                )}
+                {readinessMissingCount > 0 && (
+                  <Button size="small" variant="text" onClick={() => setMissingModalOpen(true)}>
+                    View missing
+                  </Button>
+                )}
+              </Stack>
+            </Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap sx={{ flexWrap: 'wrap' }}>
+              {[
+                { id: 1, label: t('today.session.steps.lockIn') },
+                { id: 2, label: t('today.session.steps.checklist') },
+                { id: 3, label: t('today.session.steps.chart') },
+                { id: 4, label: t('today.session.steps.execute') }
+              ].map((step) => (
+                <Chip
+                  key={step.id}
+                  label={step.label}
+                  color={flowStep === step.id ? 'primary' : (flowStep > step.id ? 'success' : 'default')}
+                  variant={flowStep > step.id ? 'filled' : 'outlined'}
+                />
+              ))}
+            </Stack>
           </Stack>
         </CardContent>
       </Card>
@@ -3740,7 +4036,7 @@ export default function SessionPage() {
 
                     {!isPanelCollapsed('checklist') && (
                       <>
-                        <Box sx={{ p: 1.25, border: '1px solid', borderColor: lockInComplete ? 'success.light' : 'warning.light', borderRadius: 2 }}>
+                        <Box ref={lockInSectionRef} tabIndex={-1} sx={{ p: 1.25, border: '1px solid', borderColor: lockInComplete ? 'success.light' : 'warning.light', borderRadius: 2 }}>
                           <Stack spacing={1.25}>
                             <Stack direction="row" justifyContent="space-between" alignItems="center">
                               <Stack direction="row" spacing={0.75} alignItems="center">
@@ -3871,7 +4167,7 @@ export default function SessionPage() {
                           </Stack>
                         </Box>
 
-                        <Accordion defaultExpanded>
+                        <Accordion ref={prereqsSectionRef} defaultExpanded>
                           <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%', pr: 1 }}>
                               <Typography variant="body2">{t('today.session.checklist.prereqsTitle')}</Typography>
@@ -3934,7 +4230,7 @@ export default function SessionPage() {
                           </AccordionDetails>
                         </Accordion>
 
-                        <Accordion defaultExpanded={Boolean(selectedStrategy) || !isMobileViewport}>
+                        <Accordion ref={triggersSectionRef} defaultExpanded={Boolean(selectedStrategy) || !isMobileViewport}>
                           <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />}>
                             <Stack direction="row" spacing={1} alignItems="center" sx={{ width: '100%', pr: 1 }}>
                               <Typography variant="body2">
@@ -4070,6 +4366,14 @@ export default function SessionPage() {
                                   value={selectedChartProfileId}
                                   onChange={(event) => setSelectedChartProfileId(event.target.value)}
                                   displayEmpty
+                                  renderValue={(value) => {
+                                    if (!value) {
+                                      return t('today.session.chartProfiles.defaultPlaceholder')
+                                    }
+                                    const selectedProfile = chartProfiles.find((profile) => profile.id === value)
+                                    if (!selectedProfile) return String(value)
+                                    return `${selectedProfile.name}${selectedProfile.isDefault ? ` (${t('today.session.chartProfiles.defaultTag')})` : ''}`
+                                  }}
                                 >
                                   <MenuItem value="">{t('today.session.chartProfiles.defaultPlaceholder')}</MenuItem>
                                   {chartProfiles.map((profile) => (
@@ -4155,8 +4459,22 @@ export default function SessionPage() {
                               </Stack>
                               <Alert severity="info">{t('today.session.autoTrade.journalOnly')}</Alert>
                               <Typography variant="caption" color="text.secondary">
-                                {t('today.session.autoTrade.tabWarning')}
+                                {USE_SERVER_AUTO_JOURNAL
+                                  ? 'Server-side monitor enabled. Arming remains active even if this tab is backgrounded.'
+                                  : t('today.session.autoTrade.tabWarning')}
                               </Typography>
+                              {!quotesAvailableForAutoJournal && autoTradeStatus === 'DISARMED' && (
+                                <Alert severity="warning">
+                                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                                    <Typography variant="body2">
+                                      {`Auto journal needs bid/ask quotes. ${autoJournalUnavailableReason}`}
+                                    </Typography>
+                                    <Button size="small" variant="outlined" onClick={() => setFollowPlanSymbol(false)}>
+                                      Switch symbol/data source
+                                    </Button>
+                                  </Stack>
+                                </Alert>
+                              )}
                               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75}>
                                 <TextField
                                   size="small"
@@ -4178,8 +4496,8 @@ export default function SessionPage() {
                                   size="small"
                                   variant={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'outlined' : 'contained'}
                                   color={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'warning' : 'primary'}
-                                  onClick={handleToggleAutoTrade}
-                                  disabled={autoTradeBusy}
+                                  onClick={() => void handleToggleAutoTrade()}
+                                  disabled={autoTradeBusy || ((autoTradeStatus !== 'ARMED' && autoTradeStatus !== 'ACTIVE') && !quotesAvailableForAutoJournal)}
                                 >
                                   {autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE'
                                     ? t('today.session.autoTrade.disarm')
@@ -4189,14 +4507,7 @@ export default function SessionPage() {
                                   <Button
                                     size="small"
                                     variant="text"
-                                    onClick={() => {
-                                      setAutoTradeStatus('DISARMED')
-                                      setAutoTradeArmedAt(null)
-                                      void pushAutoTradeEvent({
-                                        type: 'DISARMED',
-                                        note: t('today.session.autoTrade.notFilled')
-                                      })
-                                    }}
+                                    onClick={() => void handleToggleAutoTrade()}
                                   >
                                     {t('today.session.autoTrade.notFilledAction')}
                                   </Button>
@@ -4258,7 +4569,7 @@ export default function SessionPage() {
                             </Stack>
                           </Box>
 
-                          <Box sx={{ p: 1, border: '1px solid', borderColor: narrativeComplete ? 'success.light' : 'divider', borderRadius: 1.5 }}>
+                          <Box ref={narrativeSectionRef} tabIndex={-1} sx={{ p: 1, border: '1px solid', borderColor: narrativeComplete ? 'success.light' : 'divider', borderRadius: 1.5 }}>
                             <Stack spacing={1}>
                               <Stack direction="row" justifyContent="space-between" alignItems="center" flexWrap="wrap" useFlexGap>
                                 <Typography variant="subtitle2">{t('today.session.narrative.title')}</Typography>
@@ -4369,7 +4680,7 @@ export default function SessionPage() {
                             </Stack>
                           </Box>
 
-                          <Box sx={{ p: 1, border: '1px solid', borderColor: rolesComplete ? 'success.light' : 'divider', borderRadius: 1.5 }}>
+                          <Box ref={rolesSectionRef} tabIndex={-1} sx={{ p: 1, border: '1px solid', borderColor: rolesComplete ? 'success.light' : 'divider', borderRadius: 1.5 }}>
                             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} flexWrap="wrap" useFlexGap>
                               <Chip size="small" color={selectedSweepLevel || selectedSweepPool ? 'info' : 'default'} label={`${t('today.session.roles.sweep')}: ${(selectedSweepLevel?.label || selectedSweepPool?.poolName || t('common.none'))}`} />
                               <Chip size="small" color={selectedEntryLevel ? 'success' : 'default'} label={`${t('today.session.roles.entry')}: ${(selectedEntryLevel?.label || t('common.none'))}`} />
@@ -5340,7 +5651,11 @@ export default function SessionPage() {
                                   <TextField
                                     label={t('trades.form.symbol')}
                                     value={planner.symbol}
-                                    onChange={(event) => setPlanner((prev) => ({ ...prev, symbol: event.target.value }))}
+                                    onChange={(event) => {
+                                      const nextSymbol = event.target.value.toUpperCase()
+                                      setPlanner((prev) => ({ ...prev, symbol: nextSymbol }))
+                                      setActiveSymbol(nextSymbol.trim())
+                                    }}
                                     fullWidth
                                     size="small"
                                     required
@@ -5687,7 +6002,7 @@ export default function SessionPage() {
                                 >
                                   {t('today.session.planner.scheduleTrade')}
                                 </Button>
-                                {!canMeetExecutionGate && (
+                                {readinessMissingCount > 0 && (
                                   <Button
                                     variant="text"
                                     size="small"
@@ -5714,7 +6029,7 @@ export default function SessionPage() {
                               )}
                             </Stack>
 
-                            {!canMeetExecutionGate && (
+                            {readinessMissingCount > 0 && (
                               <Typography variant="caption" color="warning.main">
                                 {t('today.session.planner.completeHint')}
                               </Typography>
@@ -5829,6 +6144,9 @@ export default function SessionPage() {
             bgcolor: 'background.paper'
           }}
         >
+          <Typography variant="caption" color={readinessMissingCount === 0 ? 'success.main' : 'warning.main'} sx={{ display: 'block', mb: 0.6 }}>
+            {readinessMissingCount === 0 ? 'READY' : `MISSING ${readinessMissingCount}`}
+          </Typography>
           <Stack direction="row" spacing={1}>
             <Button
               variant="outlined"
@@ -6385,8 +6703,25 @@ export default function SessionPage() {
         <DialogTitle>{t('today.session.requirements.title')}</DialogTitle>
         <DialogContent dividers>
           <Stack spacing={1.5}>
+            {!aPlusOnlyMode && (
+              <Alert severity="info">
+                QUICK START checks are active. Missing checklist/narrative/roles will be tagged as Discipline: Incomplete.
+              </Alert>
+            )}
+            {aPlusOnlyMode && (
+              <Alert severity="warning">
+                A+ ONLY is active. All lock-in, checklist, narrative, roles, invalidation, and RR gates must be complete.
+              </Alert>
+            )}
             <Box>
-              <Typography variant="subtitle2">{t('today.session.steps.lockIn')}</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Typography variant="subtitle2">{t('today.session.steps.lockIn')}</Typography>
+                {missingLockInItems.length > 0 && (
+                  <Button size="small" variant="text" onClick={() => jumpToMissingSection('lockIn')}>
+                    Jump
+                  </Button>
+                )}
+              </Stack>
               {missingLockInItems.length === 0 ? (
                 <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (
@@ -6398,7 +6733,14 @@ export default function SessionPage() {
               )}
             </Box>
             <Box>
-              <Typography variant="subtitle2">{t('today.session.requirements.prereqs')}</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Typography variant="subtitle2">{t('today.session.requirements.prereqs')}</Typography>
+                {missingPrereqs.length > 0 && (
+                  <Button size="small" variant="text" onClick={() => jumpToMissingSection('prereqs')}>
+                    Jump
+                  </Button>
+                )}
+              </Stack>
               {missingPrereqs.length === 0 ? (
                 <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (
@@ -6410,7 +6752,14 @@ export default function SessionPage() {
               )}
             </Box>
             <Box>
-              <Typography variant="subtitle2">{t('today.session.requirements.triggers')}</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Typography variant="subtitle2">{t('today.session.requirements.triggers')}</Typography>
+                {missingTriggers.length > 0 && (
+                  <Button size="small" variant="text" onClick={() => jumpToMissingSection('triggers')}>
+                    Jump
+                  </Button>
+                )}
+              </Stack>
               {missingTriggers.length === 0 ? (
                 <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (
@@ -6422,7 +6771,14 @@ export default function SessionPage() {
               )}
             </Box>
             <Box>
-              <Typography variant="subtitle2">{t('today.session.requirements.narrative')}</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Typography variant="subtitle2">{t('today.session.requirements.narrative')}</Typography>
+                {missingNarrative.length > 0 && (
+                  <Button size="small" variant="text" onClick={() => jumpToMissingSection('narrative')}>
+                    Jump
+                  </Button>
+                )}
+              </Stack>
               {missingNarrative.length === 0 ? (
                 <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (
@@ -6434,7 +6790,14 @@ export default function SessionPage() {
               )}
             </Box>
             <Box>
-              <Typography variant="subtitle2">{t('today.session.requirements.roles')}</Typography>
+              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                <Typography variant="subtitle2">{t('today.session.requirements.roles')}</Typography>
+                {missingRoles.length > 0 && (
+                  <Button size="small" variant="text" onClick={() => jumpToMissingSection('roles')}>
+                    Jump
+                  </Button>
+                )}
+              </Stack>
               {missingRoles.length === 0 ? (
                 <Typography variant="body2" color="success.main">{t('today.session.requirements.complete')}</Typography>
               ) : (

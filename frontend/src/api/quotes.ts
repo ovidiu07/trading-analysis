@@ -7,6 +7,7 @@ export type LiveQuoteResponse = {
   mid?: number | null
   spread?: number | null
   tsUtc?: string | null
+  source?: string | null
   available: boolean
   reason?: string | null
 }

@@ -31,6 +31,9 @@ const sessionApiMock = vi.hoisted(() => ({
   updateSessionNarrative: vi.fn(),
   listSessionAutoTradeEvents: vi.fn(),
   logSessionAutoTradeEvent: vi.fn(),
+  getSessionAutoJournalStatus: vi.fn(),
+  armSessionAutoJournal: vi.fn(),
+  disarmSessionAutoJournal: vi.fn(),
   startTradeFromSession: vi.fn(),
   closeTradeFromSession: vi.fn(),
   saveTradeEntryJournal: vi.fn()
@@ -451,6 +454,69 @@ describe('SessionPage execution funnel', () => {
       note: payload.note ?? null,
       tsUtc: new Date().toISOString()
     }))
+    sessionApiMock.getSessionAutoJournalStatus.mockResolvedValue({
+      sessionId: sessionState.id,
+      state: 'DISARMED',
+      symbol: 'OANDA:EURUSD',
+      side: 'LONG',
+      entry: 1.0825,
+      sl: 1.081,
+      tp: 1.085,
+      tolerancePips: 0,
+      timeoutMin: 30,
+      armedAt: null,
+      lastEventAt: null,
+      lastError: null,
+      quoteAvailable: true,
+      quoteReason: null,
+      bid: 1.0824,
+      ask: 1.08252,
+      spread: 0.00012,
+      quoteTsUtc: '2026-02-21T08:16:03Z',
+      quoteSource: 'OANDA'
+    })
+    sessionApiMock.armSessionAutoJournal.mockImplementation(async (_sessionId: string, payload: any) => ({
+      sessionId: sessionState.id,
+      state: 'ARMED',
+      symbol: payload.symbol,
+      side: payload.side,
+      entry: payload.entry,
+      sl: payload.sl,
+      tp: payload.tp,
+      tolerancePips: payload.tolerancePips ?? 0,
+      timeoutMin: payload.timeoutMin ?? 30,
+      armedAt: '2026-02-21T08:16:03Z',
+      lastEventAt: '2026-02-21T08:16:03Z',
+      lastError: null,
+      quoteAvailable: true,
+      quoteReason: null,
+      bid: 1.0824,
+      ask: 1.08252,
+      spread: 0.00012,
+      quoteTsUtc: '2026-02-21T08:16:03Z',
+      quoteSource: 'OANDA'
+    }))
+    sessionApiMock.disarmSessionAutoJournal.mockImplementation(async () => ({
+      sessionId: sessionState.id,
+      state: 'DISARMED',
+      symbol: 'OANDA:EURUSD',
+      side: 'LONG',
+      entry: 1.0825,
+      sl: 1.081,
+      tp: 1.085,
+      tolerancePips: 0,
+      timeoutMin: 30,
+      armedAt: null,
+      lastEventAt: '2026-02-21T08:17:03Z',
+      lastError: null,
+      quoteAvailable: true,
+      quoteReason: null,
+      bid: 1.0824,
+      ask: 1.08252,
+      spread: 0.00012,
+      quoteTsUtc: '2026-02-21T08:17:03Z',
+      quoteSource: 'OANDA'
+    }))
 
     sessionApiMock.startTradeFromSession.mockResolvedValue({ id: 'trade-1' })
     sessionApiMock.closeTradeFromSession.mockResolvedValue({})
@@ -698,20 +764,47 @@ describe('SessionPage execution funnel', () => {
     })
   })
 
-  it('keeps start disabled until lock-in and required checklist items are complete', async () => {
+  it('allows quick start by default and blocks when A+ only is enabled', async () => {
     const user = userEvent.setup()
     renderSessionPage()
 
     expect(await screen.findByText(/Session Lock-In/i)).toBeInTheDocument()
     await completeChecklistAndTicket(user)
-    expect(screen.getByRole('button', { name: 'Start trade' })).toBeDisabled()
+    expect(screen.getAllByRole('button', { name: 'Start trade' })[0]).toBeEnabled()
+
+    await user.click(screen.getAllByRole('button', { name: /A\+ only/i })[0])
+    expect(screen.getAllByRole('button', { name: 'Start trade' })[0]).toBeDisabled()
 
     await completeLockIn(user)
 
     await waitFor(() => {
-      expect(screen.getByRole('button', { name: 'Start trade' })).toBeEnabled()
+      expect(screen.getAllByRole('button', { name: 'Start trade' })[0]).toBeEnabled()
     })
   }, 20_000)
+
+  it('keeps a sticky start CTA visible in the session header', async () => {
+    renderSessionPage()
+    await screen.findByText('Live chart')
+
+    const startButtons = screen.getAllByRole('button', { name: /Start trade/i })
+    expect(startButtons.length).toBeGreaterThan(1)
+    expect(startButtons[0]).toBeVisible()
+  })
+
+  it('opens missing dialog and jumps to a missing section', async () => {
+    const user = userEvent.setup()
+    renderSessionPage()
+    await screen.findByText('Live chart')
+
+    await user.click(screen.getAllByRole('button', { name: /View missing/i })[0])
+    const dialog = await screen.findByRole('dialog', { name: /Execution requirements/i })
+    await user.click(within(dialog).getAllByRole('button', { name: /^Jump$/i })[0])
+
+    await waitFor(() => {
+      expect(screen.queryByRole('dialog', { name: /Execution requirements/i })).not.toBeInTheDocument()
+    })
+    expect(screen.getByText(/Session Lock-In/i)).toBeInTheDocument()
+  })
 
   it('can pick a session level to fill entry price', async () => {
     const user = userEvent.setup()
@@ -996,9 +1089,9 @@ describe('SessionPage execution funnel', () => {
     await user.click(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i }))
 
     await waitFor(() => {
-      expect(sessionApiMock.logSessionAutoTradeEvent).toHaveBeenCalledWith(
+      expect(sessionApiMock.armSessionAutoJournal).toHaveBeenCalledWith(
         'session-1',
-        expect.objectContaining({ type: 'ARMED' })
+        expect.objectContaining({ symbol: 'EURUSD', side: 'LONG' })
       )
     })
     expect(screen.getByRole('button', { name: /Disarm auto-start\/auto-stop/i })).toBeInTheDocument()
@@ -1014,7 +1107,9 @@ describe('SessionPage execution funnel', () => {
     renderSessionPage()
     await screen.findByText('Live chart')
 
-    expect(await screen.findByText(/Spread unavailable for this symbol/i)).toBeInTheDocument()
+    expect(await screen.findByText(/Auto journal needs bid\/ask quotes/i)).toBeInTheDocument()
+    expect(screen.getAllByText(/Spread unavailable for this symbol/i).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i })).toBeDisabled()
   })
 
   it('switches to backtest mode, loads replay data, and simulates a backtest trade', async () => {

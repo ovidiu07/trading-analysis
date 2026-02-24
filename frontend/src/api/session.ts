@@ -16,6 +16,7 @@ export type AutoTradeEventType =
   | 'MANUAL_CLOSE'
   | 'KEEP_ALIVE'
 export type QuoteSide = 'BID' | 'ASK'
+export type AutoJournalState = 'DISARMED' | 'ARMED' | 'ACTIVE' | 'CLOSED'
 export type LevelType =
   | 'PDH'
   | 'PDL'
@@ -290,6 +291,39 @@ export type SessionAutoTradeEvent = {
   tsUtc: string
 }
 
+export type SessionAutoJournalArmRequest = {
+  tradeDraftId?: string | null
+  symbol: string
+  side: 'LONG' | 'SHORT'
+  entry: number
+  sl: number
+  tp: number
+  tolerancePips?: number
+  timeoutMin?: number
+}
+
+export type SessionAutoJournalStatus = {
+  sessionId: string
+  state: AutoJournalState
+  symbol?: string | null
+  side?: 'LONG' | 'SHORT' | null
+  entry?: number | null
+  sl?: number | null
+  tp?: number | null
+  tolerancePips?: number | null
+  timeoutMin?: number | null
+  armedAt?: string | null
+  lastEventAt?: string | null
+  lastError?: string | null
+  quoteAvailable: boolean
+  quoteReason?: string | null
+  bid?: number | null
+  ask?: number | null
+  spread?: number | null
+  quoteTsUtc?: string | null
+  quoteSource?: string | null
+}
+
 export async function getTodaySession() {
   return apiGet<TodaySessionResponse | null>('/sessions/today')
 }
@@ -407,6 +441,18 @@ export async function logSessionAutoTradeEvent(sessionId: string, payload: {
   note?: string | null
 }) {
   return apiPost<SessionAutoTradeEvent>(`/session/${sessionId}/auto-trade/events`, payload)
+}
+
+export async function armSessionAutoJournal(sessionId: string, payload: SessionAutoJournalArmRequest) {
+  return apiPost<SessionAutoJournalStatus>(`/session/${sessionId}/auto-journal/arm`, payload)
+}
+
+export async function disarmSessionAutoJournal(sessionId: string) {
+  return apiPost<SessionAutoJournalStatus>(`/session/${sessionId}/auto-journal/disarm`, {})
+}
+
+export async function getSessionAutoJournalStatus(sessionId: string) {
+  return apiGet<SessionAutoJournalStatus>(`/session/${sessionId}/auto-journal/status`)
 }
 
 export async function listChecklistTemplates(type?: ChecklistTemplateType) {

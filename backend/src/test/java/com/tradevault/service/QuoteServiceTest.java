@@ -44,11 +44,14 @@ class QuoteServiceTest {
     }
 
     @Test
-    void returnsUnavailableForNonOandaSymbols() {
+    void returnsUnavailableWhenProviderCannotResolveQuote() {
+        when(backtestProviderService.requireOandaToken(user.getId())).thenReturn("token");
+        when(backtestProviderService.resolveOandaSourceId(user.getId())).thenReturn("account");
         LiveQuoteResponse response = quoteService.getLiveQuote("TVC:DXY");
 
         assertFalse(response.isAvailable());
         assertEquals("Spread unavailable for this symbol", response.getReason());
+        assertEquals("OANDA", response.getSource());
     }
 
     @Test
@@ -70,6 +73,7 @@ class QuoteServiceTest {
         assertEquals(BigDecimal.valueOf(1.08410000).setScale(8), response.getBid());
         assertEquals(BigDecimal.valueOf(1.08422000).setScale(8), response.getAsk());
         assertEquals(BigDecimal.valueOf(0.00012000).setScale(8), response.getSpread());
+        assertEquals("OANDA", response.getSource());
         verify(oandaCandleProvider).getQuote("token", "101-001-1234567-001", "OANDA:EURUSD");
     }
 

@@ -32,15 +32,16 @@ public class QuoteService {
 
     @Transactional(readOnly = true)
     public LiveQuoteResponse getLiveQuote(String symbolRaw) {
+        UUID userId = currentUserService.getCurrentUser().getId();
+        return getLiveQuoteForUser(userId, symbolRaw);
+    }
+
+    @Transactional(readOnly = true)
+    public LiveQuoteResponse getLiveQuoteForUser(UUID userId, String symbolRaw) {
         String symbol = normalizeSymbol(symbolRaw);
         if (symbol == null) {
             throw new IllegalArgumentException("Symbol is required");
         }
-        if (!symbol.startsWith("OANDA:")) {
-            return unavailable(symbol, "Spread unavailable for this symbol");
-        }
-
-        UUID userId = currentUserService.getCurrentUser().getId();
         String cacheKey = userId + "|" + symbol;
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
@@ -73,6 +74,7 @@ public class QuoteService {
                     .mid(mid)
                     .spread(spread)
                     .tsUtc(quote.tsUtc() == null ? now : quote.tsUtc())
+                    .source("OANDA")
                     .available(true)
                     .reason(null)
                     .build();
@@ -86,6 +88,7 @@ public class QuoteService {
     private LiveQuoteResponse unavailable(String symbol, String reason) {
         return LiveQuoteResponse.builder()
                 .symbol(symbol)
+                .source("OANDA")
                 .available(false)
                 .reason(reason)
                 .build();
