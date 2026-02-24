@@ -8,6 +8,7 @@ import com.tradevault.domain.enums.AutoTradeEventType;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.QuoteSide;
 import com.tradevault.dto.session.LiveQuoteResponse;
+import com.tradevault.dto.session.QuoteAvailabilityReason;
 import com.tradevault.dto.session.SessionAutoJournalArmRequest;
 import com.tradevault.dto.session.SessionAutoJournalStatusDto;
 import com.tradevault.repository.SessionAutoTradeEventRepository;
@@ -197,7 +198,7 @@ public class SessionAutoJournalService {
                     .symbol("")
                     .source("OANDA")
                     .available(false)
-                    .reason("Spread unavailable for this symbol")
+                    .reason(QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED)
                     .build();
         }
         try {
@@ -207,7 +208,7 @@ public class SessionAutoJournalService {
                     .symbol(session.getAutoJournalSymbol())
                     .source("OANDA")
                     .available(false)
-                    .reason(normalizeReason(ex.getMessage()))
+                    .reason(QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED)
                     .build();
         }
     }
@@ -227,7 +228,7 @@ public class SessionAutoJournalService {
                 .lastEventAt(session.getAutoJournalLastEventAt())
                 .lastError(session.getAutoJournalLastError())
                 .quoteAvailable(quote.isAvailable() && quote.getBid() != null && quote.getAsk() != null)
-                .quoteReason(quote.getReason())
+                .quoteReason(quote.getReason() == null ? null : quote.getReason().name())
                 .bid(quote.getBid())
                 .ask(quote.getAsk())
                 .spread(quote.getSpread())
@@ -353,9 +354,18 @@ public class SessionAutoJournalService {
         return state == null ? AutoJournalState.DISARMED : state;
     }
 
-    private String normalizeReason(String reason) {
-        String normalized = trimToNull(reason);
-        return normalized == null ? "Spread unavailable for this symbol" : normalized;
+    private String normalizeReason(QuoteAvailabilityReason reason) {
+        if (reason == null || reason == QuoteAvailabilityReason.OK) {
+            return "Spread unavailable for this symbol";
+        }
+        return switch (reason) {
+            case NO_PROVIDER -> "Quotes provider is not configured";
+            case NO_CREDENTIALS -> "Quotes credentials are missing or invalid";
+            case SYMBOL_NOT_SUPPORTED -> "Spread unavailable for this symbol";
+            case RATE_LIMIT -> "Quotes rate limit reached";
+            case UPSTREAM_ERROR -> "Quotes provider is unavailable";
+            case OK -> "Spread unavailable for this symbol";
+        };
     }
 
     private String trimToNull(String value) {

@@ -2,7 +2,9 @@ package com.tradevault.service;
 
 import com.tradevault.domain.entity.User;
 import com.tradevault.dto.session.LiveQuoteResponse;
+import com.tradevault.dto.session.QuoteAvailabilityReason;
 import com.tradevault.exception.BacktestDomainException;
+import com.tradevault.exception.BacktestErrorCodes;
 import com.tradevault.service.backtest.BacktestProviderService;
 import com.tradevault.service.backtest.OandaCandleProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -50,7 +52,7 @@ class QuoteServiceTest {
         LiveQuoteResponse response = quoteService.getLiveQuote("TVC:DXY");
 
         assertFalse(response.isAvailable());
-        assertEquals("Spread unavailable for this symbol", response.getReason());
+        assertEquals(QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, response.getReason());
         assertEquals("OANDA", response.getSource());
     }
 
@@ -74,6 +76,7 @@ class QuoteServiceTest {
         assertEquals(BigDecimal.valueOf(1.08422000).setScale(8), response.getAsk());
         assertEquals(BigDecimal.valueOf(0.00012000).setScale(8), response.getSpread());
         assertEquals("OANDA", response.getSource());
+        assertEquals(QuoteAvailabilityReason.OK, response.getReason());
         verify(oandaCandleProvider).getQuote("token", "101-001-1234567-001", "OANDA:EURUSD");
     }
 
@@ -81,7 +84,7 @@ class QuoteServiceTest {
     void returnsUnavailableWhenProviderIsNotConnected() {
         when(backtestProviderService.requireOandaToken(user.getId()))
                 .thenThrow(new BacktestDomainException(
-                        "BACKTEST_PROVIDER_NOT_CONNECTED",
+                        BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
                         "OANDA provider is not connected",
                         "Connect OANDA first",
                         HttpStatus.FORBIDDEN
@@ -90,6 +93,35 @@ class QuoteServiceTest {
         LiveQuoteResponse response = quoteService.getLiveQuote("OANDA:EURUSD");
 
         assertFalse(response.isAvailable());
-        assertEquals("OANDA provider is not connected", response.getReason());
+        assertEquals(QuoteAvailabilityReason.NO_CREDENTIALS, response.getReason());
+    }
+
+    @Test
+    void returnsUnavailableWhenProviderIsNotConfigured() {
+        when(backtestProviderService.requireOandaToken(user.getId()))
+                .thenThrow(new BacktestDomainException(
+                        BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONFIGURED,
+                        "Provider credentials are not configured",
+                        "Set BACKTEST_TOKEN_ENCRYPTION_KEY",
+                        HttpStatus.BAD_REQUEST
+                ));
+
+        LiveQuoteResponse response = quoteService.getLiveQuote("OANDA:EURUSD");
+
+        assertFalse(response.isAvailable());
+        assertEquals(QuoteAvailabilityReason.NO_PROVIDER, response.getReason());
+    }
+
+    @Test
+    void returnsUnavailableWhenUpstreamThrowsUnexpectedError() {
+        when(backtestProviderService.requireOandaToken(user.getId())).thenReturn("token");
+        when(backtestProviderService.resolveOandaSourceId(user.getId())).thenReturn("account");
+        when(oandaCandleProvider.getQuote("token", "account", "OANDA:EURUSD"))
+                .thenThrow(new RuntimeException("network down"));
+
+        LiveQuoteResponse response = quoteService.getLiveQuote("OANDA:EURUSD");
+
+        assertFalse(response.isAvailable());
+        assertEquals(QuoteAvailabilityReason.UPSTREAM_ERROR, response.getReason());
     }
 }

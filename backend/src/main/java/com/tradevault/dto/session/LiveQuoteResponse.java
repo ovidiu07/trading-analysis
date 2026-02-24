@@ -17,5 +17,5 @@ public class LiveQuoteResponse {
     OffsetDateTime tsUtc;
     String source;
     boolean available;
-    String reason;
+    QuoteAvailabilityReason reason;
 }

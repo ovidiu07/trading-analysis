@@ -6,6 +6,7 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { I18nProvider, type AppLanguage, useI18n } from '../i18n'
+import { ApiError } from '../api/client'
 import SessionPage from './SessionPage'
 
 const sessionApiMock = vi.hoisted(() => ({
@@ -1101,7 +1102,7 @@ describe('SessionPage execution funnel', () => {
     quotesApiMock.fetchLiveQuote.mockResolvedValue({
       symbol: 'OANDA:EURUSD',
       available: false,
-      reason: 'Spread unavailable for this symbol'
+      reason: 'SYMBOL_NOT_SUPPORTED'
     })
 
     renderSessionPage()
@@ -1110,6 +1111,24 @@ describe('SessionPage execution funnel', () => {
     expect(await screen.findByText(/Auto journal needs bid\/ask quotes/i)).toBeInTheDocument()
     expect(screen.getAllByText(/Spread unavailable for this symbol/i).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i })).toBeDisabled()
+  })
+
+  it('stops quote polling on 403 and shows relogin action', async () => {
+    quotesApiMock.fetchLiveQuote.mockClear()
+    const error = new ApiError('Forbidden')
+    error.status = 403
+    quotesApiMock.fetchLiveQuote.mockRejectedValue(error)
+
+    renderSessionPage()
+    await screen.findByText('Live chart')
+
+    expect((await screen.findAllByText(/Quotes endpoint unauthorized/i)).length).toBeGreaterThan(0)
+    expect(screen.getByRole('button', { name: /Refresh session \/ Login/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i })).toBeDisabled()
+
+    const callsAfterUnauthorized = quotesApiMock.fetchLiveQuote.mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 1200))
+    expect(quotesApiMock.fetchLiveQuote.mock.calls.length).toBe(callsAfterUnauthorized)
   })
 
   it('switches to BACKTEST mode and renders CSV Backtest Lab while LIVE remains chart-based', async () => {

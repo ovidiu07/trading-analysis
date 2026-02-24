@@ -7,6 +7,7 @@ import com.tradevault.domain.enums.AutoJournalState;
 import com.tradevault.domain.enums.AutoTradeEventType;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.dto.session.LiveQuoteResponse;
+import com.tradevault.dto.session.QuoteAvailabilityReason;
 import com.tradevault.dto.session.SessionAutoJournalArmRequest;
 import com.tradevault.repository.SessionAutoTradeEventRepository;
 import com.tradevault.repository.TodaySessionRepository;
@@ -88,7 +89,7 @@ class SessionAutoJournalServiceTest {
                         .symbol("OANDA:EURUSD")
                         .source("OANDA")
                         .available(false)
-                        .reason("Spread unavailable for this symbol")
+                        .reason(QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED)
                         .build());
 
         IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> service.arm(session.getId(), request));

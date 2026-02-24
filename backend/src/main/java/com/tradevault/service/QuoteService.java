@@ -1,11 +1,15 @@
 package com.tradevault.service;
 
+import com.tradevault.dto.session.QuoteAvailabilityReason;
 import com.tradevault.dto.session.LiveQuoteResponse;
 import com.tradevault.exception.BacktestDomainException;
+import com.tradevault.exception.BacktestErrorCodes;
 import com.tradevault.service.backtest.BacktestProviderService;
 import com.tradevault.service.backtest.OandaCandleProvider;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
@@ -20,6 +24,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class QuoteService {
     private static final Duration CACHE_TTL = Duration.ofMillis(900);
     private static final int QUOTE_SCALE = 8;
@@ -30,23 +35,25 @@ public class QuoteService {
 
     private final Map<String, CachedQuote> cache = new ConcurrentHashMap<>();
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public LiveQuoteResponse getLiveQuote(String symbolRaw) {
         UUID userId = currentUserService.getCurrentUser().getId();
         return getLiveQuoteForUser(userId, symbolRaw);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public LiveQuoteResponse getLiveQuoteForUser(UUID userId, String symbolRaw) {
         String symbol = normalizeSymbol(symbolRaw);
         if (symbol == null) {
             throw new IllegalArgumentException("Symbol is required");
         }
+        log.debug("Quote fetch start [userId={}, symbol={}]", userId, symbol);
         String cacheKey = userId + "|" + symbol;
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         CachedQuote cached = cache.get(cacheKey);
         if (cached != null && Duration.between(cached.createdAtUtc(), now).compareTo(CACHE_TTL) < 0) {
+            log.debug("Quote cache hit [userId={}, symbol={}]", userId, symbol);
             return cached.response();
         }
 
@@ -55,13 +62,13 @@ public class QuoteService {
             String sourceId = backtestProviderService.resolveOandaSourceId(userId);
             OandaCandleProvider.OandaQuote quote = oandaCandleProvider.getQuote(token, sourceId, symbol);
             if (quote == null || quote.bid() == null || quote.ask() == null) {
-                return unavailable(symbol, "Spread unavailable for this symbol");
+                return unavailable(symbol, QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, now);
             }
 
             BigDecimal bid = quote.bid().setScale(QUOTE_SCALE, RoundingMode.HALF_UP);
             BigDecimal ask = quote.ask().setScale(QUOTE_SCALE, RoundingMode.HALF_UP);
             if (ask.compareTo(bid) < 0) {
-                return unavailable(symbol, "Spread unavailable for this symbol");
+                return unavailable(symbol, QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, now);
             }
             BigDecimal spread = ask.subtract(bid).setScale(QUOTE_SCALE, RoundingMode.HALF_UP);
             BigDecimal mid = ask.add(bid)
@@ -76,20 +83,55 @@ public class QuoteService {
                     .tsUtc(quote.tsUtc() == null ? now : quote.tsUtc())
                     .source("OANDA")
                     .available(true)
-                    .reason(null)
+                    .reason(QuoteAvailabilityReason.OK)
                     .build();
             cache.put(cacheKey, new CachedQuote(now, response));
+            log.debug("Quote fetch success [userId={}, symbol={}]", userId, symbol);
             return response;
         } catch (BacktestDomainException ex) {
-            return unavailable(symbol, ex.getMessage());
+            QuoteAvailabilityReason reason = mapReason(ex);
+            log.warn(
+                    "Quote fetch unavailable [userId={}, symbol={}, code={}, status={}, mappedReason={}]",
+                    userId,
+                    symbol,
+                    ex.getCode(),
+                    ex.getStatus(),
+                    reason,
+                    ex
+            );
+            return unavailable(symbol, reason, now);
+        } catch (Exception ex) {
+            log.error("Quote fetch failed [userId={}, symbol={}]", userId, symbol, ex);
+            return unavailable(symbol, QuoteAvailabilityReason.UPSTREAM_ERROR, now);
         }
     }
 
-    private LiveQuoteResponse unavailable(String symbol, String reason) {
+    private QuoteAvailabilityReason mapReason(BacktestDomainException ex) {
+        if (ex == null) {
+            return QuoteAvailabilityReason.UPSTREAM_ERROR;
+        }
+
+        if ("RATE_LIMITED".equals(ex.getCode()) || (ex.getStatus() != null && ex.getStatus().value() == 429)) {
+            return QuoteAvailabilityReason.RATE_LIMIT;
+        }
+        if (BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONFIGURED.equals(ex.getCode())) {
+            return QuoteAvailabilityReason.NO_PROVIDER;
+        }
+        if (BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED.equals(ex.getCode())) {
+            return QuoteAvailabilityReason.NO_CREDENTIALS;
+        }
+        if (BacktestErrorCodes.UNSUPPORTED_SYMBOL_TIMEFRAME.equals(ex.getCode())) {
+            return QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED;
+        }
+        return QuoteAvailabilityReason.UPSTREAM_ERROR;
+    }
+
+    private LiveQuoteResponse unavailable(String symbol, QuoteAvailabilityReason reason, OffsetDateTime now) {
         return LiveQuoteResponse.builder()
                 .symbol(symbol)
                 .source("OANDA")
                 .available(false)
+                .tsUtc(now)
                 .reason(reason)
                 .build();
     }

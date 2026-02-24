@@ -1278,6 +1278,16 @@
         "quoteChip": "Bid {{bid}} | Ask {{ask}} | Spread {{spread}}",
         "quoteTs": "Cotație {{time}}",
         "quoteUnavailable": "Spread indisponibil pentru acest simbol",
+        "quoteUnauthorized": "Endpoint-ul de cotații este neautorizat. Reautentifică-te sau verifică permisiunile.",
+        "quoteUnauthorizedAction": "Reîmprospătează sesiunea / Login",
+        "quoteReasons": {
+          "OK": "Cotațiile sunt disponibile",
+          "NO_PROVIDER": "Providerul de cotații nu este configurat.",
+          "NO_CREDENTIALS": "Credentialele providerului de cotații lipsesc sau sunt invalide.",
+          "SYMBOL_NOT_SUPPORTED": "Spread indisponibil pentru acest simbol",
+          "RATE_LIMIT": "Limita de rată pentru cotații a fost atinsă. Reîncerc în scurt timp.",
+          "UPSTREAM_ERROR": "Providerul de cotații este indisponibil. Reîncerc în scurt timp."
+        },
         "armedAt": "Armat la {{time}}",
         "hideLog": "Ascunde log",
         "showLog": "Afișează log",

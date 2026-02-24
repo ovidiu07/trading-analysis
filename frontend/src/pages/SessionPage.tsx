@@ -173,6 +173,8 @@ const SESSION_CHART_MODE_KEY = 'sessionMode.chartMode'
 const SESSION_AUTO_TRADE_KEY = 'sessionMode.autoTrade'
 const RR_THRESHOLD = 1.5
 const USE_SERVER_AUTO_JOURNAL = true
+const QUOTE_POLL_BASE_MS = 1000
+const QUOTE_POLL_MAX_BACKOFF_MS = 16_000
 
 const LOCK_IN_SESSION_OPTIONS = ['LONDON', 'NY_AM'] as const
 
@@ -744,6 +746,12 @@ const inferPipSize = (symbolRaw: string) => {
   return 0.0001
 }
 
+const normalizeQuoteReasonCode = (reason?: string | null) => {
+  if (!reason) return null
+  const normalized = reason.trim().toUpperCase()
+  return normalized || null
+}
+
 const isEntryTouched = (
   direction: 'LONG' | 'SHORT',
   quote: LiveQuoteResponse,
@@ -847,7 +855,7 @@ export default function SessionPage() {
   const { user } = useAuth()
   const queryClient = useQueryClient()
   const baseCurrency = user?.baseCurrency || 'USD'
-  const isTestMode = import.meta.env.MODE === 'test'
+  const isTestMode = import.meta.env.MODE === 'test' || Boolean(import.meta.env.VITEST)
 
   const isCompactViewport = useMediaQuery('(max-width:900px)')
   const isMobileViewport = useMediaQuery('(max-width:600px)')
@@ -1006,6 +1014,8 @@ export default function SessionPage() {
 
   const [localNow, setLocalNow] = useState(() => new Date())
   const [liveQuote, setLiveQuote] = useState<LiveQuoteResponse | null>(null)
+  const [quotesUnauthorized, setQuotesUnauthorized] = useState(false)
+  const [isDocumentVisible, setIsDocumentVisible] = useState(() => document.visibilityState !== 'hidden')
   const [autoTradeStatus, setAutoTradeStatus] = useState<AutoTradeLifecycleStatus>('DISARMED')
   const [autoTradeTolerancePips, setAutoTradeTolerancePips] = useState('0')
   const [autoTradeTimeoutMinutes, setAutoTradeTimeoutMinutes] = useState('30')
@@ -1114,6 +1124,16 @@ export default function SessionPage() {
   }, [])
 
   useEffect(() => {
+    const onVisibilityChange = () => {
+      setIsDocumentVisible(document.visibilityState !== 'hidden')
+    }
+    document.addEventListener('visibilitychange', onVisibilityChange)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    }
+  }, [])
+
+  useEffect(() => {
     if (!session?.id) return
     setAutoTradeLogOpen(!isTinyViewport)
     setAutoTradeBusy(false)
@@ -1181,6 +1201,7 @@ export default function SessionPage() {
   useEffect(() => {
     if (!USE_SERVER_AUTO_JOURNAL) return
     if (!session?.id) return
+    if (quotesUnauthorized) return
 
     let cancelled = false
     const syncStatus = async () => {
@@ -1200,10 +1221,14 @@ export default function SessionPage() {
             ? String(status.timeoutMin)
             : '30'
         )
-      } catch {
-        if (!cancelled) {
+      } catch (error) {
+        if (cancelled) return
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          setQuotesUnauthorized(true)
           setAutoJournalStatus(null)
+          return
         }
+        setAutoJournalStatus(null)
       }
     }
 
@@ -1220,7 +1245,7 @@ export default function SessionPage() {
       cancelled = true
       window.clearInterval(timer)
     }
-  }, [isTestMode, session?.id])
+  }, [isTestMode, quotesUnauthorized, session?.id])
 
   useEffect(() => {
     if (!session) return
@@ -1840,47 +1865,83 @@ export default function SessionPage() {
   useEffect(() => {
     if (chartMode !== 'LIVE') {
       setLiveQuote(null)
+      setQuotesUnauthorized(false)
       return
     }
 
     const symbol = (activeSymbol || chartSymbol).trim()
     if (!symbol) {
       setLiveQuote(null)
+      setQuotesUnauthorized(false)
+      return
+    }
+    if (quotesUnauthorized) {
       return
     }
 
     let cancelled = false
+    let timer: number | null = null
+    let transientFailures = 0
+
+    const scheduleNext = (delayMs: number) => {
+      if (cancelled || isTestMode || quotesUnauthorized) return
+      timer = window.setTimeout(() => {
+        void loadQuote()
+      }, delayMs)
+    }
+
     const loadQuote = async () => {
+      if (!isDocumentVisible) {
+        scheduleNext(QUOTE_POLL_BASE_MS)
+        return
+      }
       try {
         const quote = await fetchLiveQuote(symbol)
-        if (!cancelled) {
-          setLiveQuote(quote)
-        }
-      } catch {
-        if (!cancelled) {
+        if (cancelled) return
+        transientFailures = 0
+        setQuotesUnauthorized(false)
+        setLiveQuote(quote)
+        scheduleNext(QUOTE_POLL_BASE_MS)
+      } catch (error) {
+        if (cancelled) return
+        if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
+          setQuotesUnauthorized(true)
           setLiveQuote({
             symbol,
             available: false,
-            reason: t('today.session.autoTrade.quoteUnavailable')
+            reason: 'UNAUTHORIZED'
           })
+          return
         }
+
+        const transient = error instanceof ApiError
+          && (error.code === 'NETWORK_ERROR' || (typeof error.status === 'number' && error.status >= 500))
+
+        setLiveQuote({
+          symbol,
+          available: false,
+          reason: 'UPSTREAM_ERROR'
+        })
+        if (transient) {
+          transientFailures += 1
+          const backoffMs = Math.min(QUOTE_POLL_BASE_MS * (2 ** transientFailures), QUOTE_POLL_MAX_BACKOFF_MS)
+          scheduleNext(backoffMs)
+          return
+        }
+
+        transientFailures = 0
+        scheduleNext(QUOTE_POLL_BASE_MS)
       }
     }
 
     void loadQuote()
-    if (isTestMode) {
-      return () => {
-        cancelled = true
-      }
-    }
-    const timer = window.setInterval(() => {
-      void loadQuote()
-    }, 1000)
     return () => {
       cancelled = true
-      window.clearInterval(timer)
+      if (timer != null) {
+        window.clearTimeout(timer)
+      }
     }
-  }, [activeSymbol, chartMode, chartSymbol, isTestMode, t])
+  }, [activeSymbol, chartMode, chartSymbol, isDocumentVisible, isTestMode, quotesUnauthorized])
 
   useEffect(() => {
     if (USE_SERVER_AUTO_JOURNAL) return
@@ -2266,13 +2327,41 @@ export default function SessionPage() {
   const canScheduleTrade = canStartTrade
   const executionMissingItems = aPlusOnlyMode ? strictMissingItems : quickMissingItems
   const readinessMissingCount = executionMissingItems.length
+  const resolveQuoteReasonLabel = useCallback((reason?: string | null) => {
+    const reasonCode = normalizeQuoteReasonCode(reason)
+    if (!reasonCode) {
+      return t('today.session.autoTrade.quoteUnavailable')
+    }
+
+    switch (reasonCode) {
+      case 'OK':
+        return t('today.session.autoTrade.quoteReasons.OK')
+      case 'NO_PROVIDER':
+        return t('today.session.autoTrade.quoteReasons.NO_PROVIDER')
+      case 'NO_CREDENTIALS':
+        return t('today.session.autoTrade.quoteReasons.NO_CREDENTIALS')
+      case 'SYMBOL_NOT_SUPPORTED':
+        return t('today.session.autoTrade.quoteReasons.SYMBOL_NOT_SUPPORTED')
+      case 'RATE_LIMIT':
+        return t('today.session.autoTrade.quoteReasons.RATE_LIMIT')
+      case 'UPSTREAM_ERROR':
+        return t('today.session.autoTrade.quoteReasons.UPSTREAM_ERROR')
+      case 'UNAUTHORIZED':
+        return t('today.session.autoTrade.quoteUnauthorized')
+      default:
+        return reason
+    }
+  }, [t])
+
   const localQuotesAvailable = Boolean(liveQuote?.available && liveQuote.bid != null && liveQuote.ask != null)
   const quotesAvailableForAutoJournal = USE_SERVER_AUTO_JOURNAL
     ? localQuotesAvailable && autoJournalStatus?.quoteAvailable !== false
     : localQuotesAvailable
+  const localQuoteReasonLabel = resolveQuoteReasonLabel(liveQuote?.reason || null)
+  const statusQuoteReasonLabel = resolveQuoteReasonLabel(autoJournalStatus?.quoteReason || null)
   const autoJournalUnavailableReason = USE_SERVER_AUTO_JOURNAL
-    ? (autoJournalStatus?.quoteReason || liveQuote?.reason || t('today.session.autoTrade.quoteUnavailable'))
-    : (liveQuote?.reason || t('today.session.autoTrade.quoteUnavailable'))
+    ? (statusQuoteReasonLabel || localQuoteReasonLabel)
+    : localQuoteReasonLabel
 
   const groupedLevels = useMemo(() => {
     const htfDrawTypes = new Set<LevelType>(['PDH', 'PDL', 'HTF_SWING_HIGH', 'HTF_SWING_LOW'])
@@ -2390,6 +2479,10 @@ export default function SessionPage() {
       </Tooltip>
     </Stack>
   )
+
+  const handleQuoteUnauthorizedAction = () => {
+    window.location.assign('/login')
+  }
 
   const handleSaveConfig = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -3604,7 +3697,7 @@ export default function SessionPage() {
       return
     }
     if (!liveQuote?.available || liveQuote.bid == null || liveQuote.ask == null) {
-      setApiError(t('today.session.autoTrade.quoteUnavailable'))
+      setApiError(resolveQuoteReasonLabel(liveQuote?.reason || null))
       return
     }
 
@@ -3650,7 +3743,7 @@ export default function SessionPage() {
   const handleAutoTradeCloseNow = async () => {
     if (!session?.activeTrade || autoTradeBusy) return
     if (!liveQuote?.available || liveQuote.bid == null || liveQuote.ask == null) {
-      setApiError(t('today.session.autoTrade.quoteUnavailable'))
+      setApiError(resolveQuoteReasonLabel(liveQuote?.reason || null))
       return
     }
     const closeSide: QuoteSide = planner.direction === 'LONG' ? 'BID' : 'ASK'
@@ -4425,7 +4518,7 @@ export default function SessionPage() {
                                   size="small"
                                   variant="outlined"
                                   color="warning"
-                                  label={t('today.session.autoTrade.quoteUnavailable')}
+                                  label={resolveQuoteReasonLabel(liveQuote?.reason || null)}
                                 />
                               )
                             )}
@@ -4459,6 +4552,22 @@ export default function SessionPage() {
                                 />
                               </Stack>
                               <Alert severity="info">{t('today.session.autoTrade.journalOnly')}</Alert>
+                              {quotesUnauthorized && (
+                                <Alert
+                                  severity="error"
+                                  action={(
+                                    <Button
+                                      color="inherit"
+                                      size="small"
+                                      onClick={handleQuoteUnauthorizedAction}
+                                    >
+                                      {t('today.session.autoTrade.quoteUnauthorizedAction')}
+                                    </Button>
+                                  )}
+                                >
+                                  {t('today.session.autoTrade.quoteUnauthorized')}
+                                </Alert>
+                              )}
                               <Typography variant="caption" color="text.secondary">
                                 {USE_SERVER_AUTO_JOURNAL
                                   ? 'Server-side monitor enabled. Arming remains active even if this tab is backgrounded.'
@@ -4498,7 +4607,7 @@ export default function SessionPage() {
                                   variant={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'outlined' : 'contained'}
                                   color={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'warning' : 'primary'}
                                   onClick={() => void handleToggleAutoTrade()}
-                                  disabled={autoTradeBusy || ((autoTradeStatus !== 'ARMED' && autoTradeStatus !== 'ACTIVE') && !quotesAvailableForAutoJournal)}
+                                  disabled={quotesUnauthorized || autoTradeBusy || ((autoTradeStatus !== 'ARMED' && autoTradeStatus !== 'ACTIVE') && !quotesAvailableForAutoJournal)}
                                 >
                                   {autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE'
                                     ? t('today.session.autoTrade.disarm')

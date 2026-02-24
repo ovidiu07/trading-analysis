@@ -1,5 +1,14 @@
 import { apiGet } from './client'
 
+export type QuoteAvailabilityReason =
+  | 'OK'
+  | 'NO_PROVIDER'
+  | 'NO_CREDENTIALS'
+  | 'SYMBOL_NOT_SUPPORTED'
+  | 'RATE_LIMIT'
+  | 'UPSTREAM_ERROR'
+  | 'UNAUTHORIZED'
+
 export type LiveQuoteResponse = {
   symbol: string
   bid?: number | null
@@ -9,7 +18,7 @@ export type LiveQuoteResponse = {
   tsUtc?: string | null
   source?: string | null
   available: boolean
-  reason?: string | null
+  reason?: QuoteAvailabilityReason | string | null
 }
 
 export async function fetchLiveQuote(symbol: string) {
