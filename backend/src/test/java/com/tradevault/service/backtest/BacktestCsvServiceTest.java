@@ -15,11 +15,15 @@ import com.tradevault.repository.BacktestCsvMappingRepository;
 import com.tradevault.repository.BacktestCsvUploadRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.mock.web.MockMultipartFile;
 
+import java.math.BigDecimal;
+import java.io.InputStream;
 import java.time.OffsetDateTime;
 import java.util.Locale;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -305,6 +309,63 @@ class BacktestCsvServiceTest {
                 any()
         );
         assertThat(response.getDataset().getSourceId()).isEqualTo(response.getDataset().getSourceId().toLowerCase(Locale.ROOT));
+    }
+
+    @Test
+    void ingestFixtureCsvKeepsCandleOpenTimestampAndExactOhlcForKnownBar() throws Exception {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).email("csv@test.com").build();
+        UUID fileId = UUID.randomUUID();
+
+        byte[] payload;
+        try (InputStream in = BacktestCsvServiceTest.class.getResourceAsStream("/fixtures/backtest/OANDA_EURUSD_5_89c7a.csv")) {
+            assertThat(in).isNotNull();
+            payload = in.readAllBytes();
+        }
+        BacktestCsvUpload upload = BacktestCsvUpload.builder()
+                .id(fileId)
+                .user(user)
+                .originalFileName("OANDA_EURUSD_5_89c7a.csv")
+                .filePayload(payload)
+                .headerSignature("sig-fixture")
+                .detectedJson(new ObjectMapper().createObjectNode())
+                .build();
+
+        CsvIngestRequest request = new CsvIngestRequest();
+        request.setSymbol("EURUSD");
+        request.setTimeframe("M5");
+        request.setTimezone("UTC");
+
+        when(uploadRepository.findByIdAndUser_Id(fileId, userId)).thenReturn(Optional.of(upload));
+        when(mappingRepository.findByUser_IdAndHeaderSignature(any(), any())).thenReturn(Optional.empty());
+        stubDatasetUpsertToEchoRange("OANDA_EURUSD_5_89c7a.csv");
+
+        csvService.ingest(user, fileId, request);
+
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<List<CanonicalCandle>> candlesCaptor = ArgumentCaptor.forClass(List.class);
+        verify(chunkStoreService).saveCandles(
+                eq(userId),
+                eq(BacktestCandleSource.CSV),
+                any(),
+                eq("EURUSD"),
+                eq("EURUSD"),
+                eq(BacktestTimeframe.M5),
+                candlesCaptor.capture()
+        );
+
+        List<CanonicalCandle> candles = candlesCaptor.getValue();
+        OffsetDateTime targetTs = OffsetDateTime.parse("2026-02-04T08:10:00Z");
+        CanonicalCandle target = candles.stream()
+                .filter(candle -> targetTs.equals(candle.tsUtc()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(target.tsUtc()).isEqualTo(targetTs);
+        assertThat(target.open()).isEqualByComparingTo(new BigDecimal("1.18314"));
+        assertThat(target.high()).isEqualByComparingTo(new BigDecimal("1.18380"));
+        assertThat(target.low()).isEqualByComparingTo(new BigDecimal("1.18300"));
+        assertThat(target.close()).isEqualByComparingTo(new BigDecimal("1.18350"));
     }
 
     private void stubDatasetUpsertToEchoRange(String name) {

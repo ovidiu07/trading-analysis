@@ -32,7 +32,12 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.io.BufferedReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -127,7 +132,7 @@ class BacktestLabServiceTest {
                 .id(UUID.randomUUID())
                 .datasetSet(datasetSet)
                 .name("Asia Raid -> London Reversal")
-                .configJson(new ObjectMapper().createObjectNode())
+                .configJson(buildFixtureReadyConfig())
                 .build();
 
         when(currentUserService.getCurrentUser()).thenReturn(user);
@@ -448,6 +453,152 @@ class BacktestLabServiceTest {
         assertThat(response.getMinRequiredCandles()).isEqualTo(30);
     }
 
+    @Test
+    void fixtureRunMarksSweepAtExcursionExtremeCandle() {
+        List<BacktestCandle> fixtureM5 = loadFixtureM5Candles();
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String timeframe = invocation.getArgument(4);
+                    OffsetDateTime from = invocation.getArgument(5);
+                    OffsetDateTime to = invocation.getArgument(6);
+                    List<BacktestCandle> ranged = fixtureM5.stream()
+                            .filter(candle -> !candle.timestamp().isBefore(from) && !candle.timestamp().isAfter(to))
+                            .toList();
+                    if ("M5".equals(timeframe)) {
+                        return ranged;
+                    }
+                    return aggregateDaily(ranged);
+                });
+
+        strategyConfig.setConfigJson(buildFixtureFeb4Config());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-04T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-04T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse run = service.run(datasetSet.getId(), request);
+        assertThat(run.getStatus())
+                .withFailMessage("Run failed with error: %s", run.getErrorMsg())
+                .isEqualTo(BacktestRunStatus.COMPLETED.name());
+
+        var results = service.getRunResults(run.getRunId());
+        String sweepSummary = results.getTrades().stream()
+                .flatMap(row -> row.getTimeline().stream()
+                        .filter(event -> "SWEEP".equals(event.getStage()))
+                        .map(event -> String.format(
+                                "trade=%s,time=%s,poolType=%s,poolLevel=%s,firstBreach=%s,extreme=%s",
+                                row.getTradeId(),
+                                event.getTimeUtc(),
+                                event.getDetails().path("poolType").asText(),
+                                event.getDetails().path("poolLevel").asText(),
+                                event.getDetails().path("firstBreachTime").asText(),
+                                event.getDetails().path("sweepExtremePrice").asText())))
+                .collect(java.util.stream.Collectors.joining(" | "));
+        var trade = results.getTrades().stream()
+                .filter(row -> row.getTimeline().stream().anyMatch(event ->
+                        "SWEEP".equals(event.getStage())
+                                && "1.183800".equals(event.getDetails().path("sweepExtremePrice").asText())))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No trade with expected sweep extreme. Sweeps: " + sweepSummary));
+
+        var sweep = trade.getTimeline().stream()
+                .filter(event -> "SWEEP".equals(event.getStage()))
+                .findFirst()
+                .orElseThrow();
+
+        assertThat(sweep.getTimeUtc()).isEqualTo(OffsetDateTime.parse("2026-02-04T08:10:00Z"));
+        assertThat(sweep.getDetails().path("sweepExtremePrice").asText()).isEqualTo("1.183800");
+        assertThat(sweep.getDetails().path("poolType").asText()).isEqualTo("ASIA_H");
+        assertThat(sweep.getDetails().path("poolLevel").asText()).isNotBlank();
+        assertThat(sweep.getDetails().path("firstBreachTime").asText()).isNotBlank();
+    }
+
+    @Test
+    void fixtureRunKeepsSweepDisplacementMssEntryOrderingAndDelays() {
+        List<BacktestCandle> fixtureM5 = loadFixtureM5Candles();
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String timeframe = invocation.getArgument(4);
+                    OffsetDateTime from = invocation.getArgument(5);
+                    OffsetDateTime to = invocation.getArgument(6);
+                    List<BacktestCandle> ranged = fixtureM5.stream()
+                            .filter(candle -> !candle.timestamp().isBefore(from) && !candle.timestamp().isAfter(to))
+                            .toList();
+                    if ("M5".equals(timeframe)) {
+                        return ranged;
+                    }
+                    return aggregateDaily(ranged);
+                });
+
+        strategyConfig.setConfigJson(buildFixtureFeb4Config());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-04T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-04T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse run = service.run(datasetSet.getId(), request);
+        assertThat(run.getStatus())
+                .withFailMessage("Run failed with error: %s", run.getErrorMsg())
+                .isEqualTo(BacktestRunStatus.COMPLETED.name());
+
+        var results = service.getRunResults(run.getRunId());
+        String sweepSummary = results.getTrades().stream()
+                .flatMap(row -> row.getTimeline().stream()
+                        .filter(event -> "SWEEP".equals(event.getStage()))
+                        .map(event -> String.format(
+                                "trade=%s,fill=%s,time=%s,poolType=%s,poolLevel=%s,firstBreach=%s,extreme=%s",
+                                row.getTradeId(),
+                                row.getFillStatus(),
+                                event.getTimeUtc(),
+                                event.getDetails().path("poolType").asText(),
+                                event.getDetails().path("poolLevel").asText(),
+                                event.getDetails().path("firstBreachTime").asText(),
+                                event.getDetails().path("sweepExtremePrice").asText())))
+                .collect(java.util.stream.Collectors.joining(" | "));
+        var trade = results.getTrades().stream()
+                .filter(row -> "FILLED".equals(row.getFillStatus()))
+                .filter(row -> row.getTimeline().stream().anyMatch(event ->
+                        "SWEEP".equals(event.getStage())
+                                && "1.183800".equals(event.getDetails().path("sweepExtremePrice").asText())))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("No filled trade with expected sweep extreme. Sweeps: " + sweepSummary));
+
+        var byStage = new HashMap<String, OffsetDateTime>();
+        trade.getTimeline().forEach(event -> byStage.put(event.getStage(), event.getTimeUtc()));
+
+        OffsetDateTime sweepTime = byStage.get("SWEEP");
+        OffsetDateTime displacementTime = byStage.get("DISPLACEMENT");
+        OffsetDateTime mssTime = byStage.get("MSS_BOS");
+        OffsetDateTime entryTime = byStage.get("ENTRY");
+
+        assertThat(sweepTime).isNotNull();
+        assertThat(displacementTime).isNotNull();
+        assertThat(mssTime).isNotNull();
+        assertThat(entryTime).isNotNull();
+
+        assertThat(sweepTime.isAfter(displacementTime)).isFalse();
+        assertThat(displacementTime.isAfter(mssTime)).isFalse();
+        assertThat(mssTime.isAfter(entryTime)).isFalse();
+
+        Map<OffsetDateTime, Integer> indexByTime = new HashMap<>();
+        for (int i = 0; i < fixtureM5.size(); i++) {
+            indexByTime.put(fixtureM5.get(i).timestamp(), i);
+        }
+        int sweepIndex = indexByTime.getOrDefault(sweepTime, -1);
+        int displacementIndex = indexByTime.getOrDefault(displacementTime, -1);
+        int mssIndex = indexByTime.getOrDefault(mssTime, -1);
+
+        assertThat(sweepIndex).isGreaterThanOrEqualTo(0);
+        assertThat(displacementIndex).isGreaterThanOrEqualTo(0);
+        assertThat(mssIndex).isGreaterThanOrEqualTo(0);
+        assertThat(displacementIndex - sweepIndex).isLessThanOrEqualTo(8);
+        assertThat(mssIndex - displacementIndex).isLessThanOrEqualTo(8);
+    }
+
     private List<BacktestCandle> buildDeterministicCandles() {
         List<BacktestCandle> rows = new ArrayList<>();
 
@@ -518,5 +669,175 @@ class BacktestLabServiceTest {
                 BigDecimal.valueOf(close),
                 100L
         );
+    }
+
+    private List<BacktestCandle> loadFixtureM5Candles() {
+        List<BacktestCandle> rows = new ArrayList<>();
+        try (InputStream in = BacktestLabServiceTest.class.getResourceAsStream("/fixtures/backtest/OANDA_EURUSD_5_89c7a.csv")) {
+            assertThat(in).isNotNull();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8))) {
+                String line = reader.readLine();
+                if (line == null) {
+                    return List.of();
+                }
+                while ((line = reader.readLine()) != null) {
+                    if (line.isBlank()) {
+                        continue;
+                    }
+                    String[] parts = line.split(",");
+                    if (parts.length < 5) {
+                        continue;
+                    }
+                    long epochSec = Long.parseLong(parts[0].trim());
+                    rows.add(new BacktestCandle(
+                            OffsetDateTime.ofInstant(Instant.ofEpochSecond(epochSec), ZoneOffset.UTC),
+                            new BigDecimal(parts[1].trim()),
+                            new BigDecimal(parts[2].trim()),
+                            new BigDecimal(parts[3].trim()),
+                            new BigDecimal(parts[4].trim()),
+                            100L
+                    ));
+                }
+            }
+        } catch (Exception ex) {
+            throw new RuntimeException("Could not load fixture candles", ex);
+        }
+        return rows;
+    }
+
+    private List<BacktestCandle> aggregateDaily(List<BacktestCandle> candles) {
+        Map<String, List<BacktestCandle>> grouped = new HashMap<>();
+        for (BacktestCandle candle : candles) {
+            String day = candle.timestamp().toLocalDate().toString();
+            grouped.computeIfAbsent(day, ignored -> new ArrayList<>()).add(candle);
+        }
+        List<BacktestCandle> out = new ArrayList<>();
+        for (Map.Entry<String, List<BacktestCandle>> entry : grouped.entrySet()) {
+            List<BacktestCandle> dayCandles = entry.getValue();
+            dayCandles.sort(Comparator.comparing(BacktestCandle::timestamp));
+            BacktestCandle first = dayCandles.get(0);
+            BacktestCandle last = dayCandles.get(dayCandles.size() - 1);
+            BigDecimal high = dayCandles.stream().map(BacktestCandle::high).max(BigDecimal::compareTo).orElse(first.high());
+            BigDecimal low = dayCandles.stream().map(BacktestCandle::low).min(BigDecimal::compareTo).orElse(first.low());
+            out.add(new BacktestCandle(
+                    OffsetDateTime.parse(entry.getKey() + "T00:00:00Z"),
+                    first.open(),
+                    high,
+                    low,
+                    last.close(),
+                    0L
+            ));
+        }
+        out.sort(Comparator.comparing(BacktestCandle::timestamp));
+        return out;
+    }
+
+    private ObjectNode buildFixtureReadyConfig() {
+        ObjectMapper mapper = new ObjectMapper();
+        ObjectNode root = mapper.createObjectNode();
+        root.put("name", "Fixture London Sweep");
+
+        ObjectNode context = root.putObject("context");
+        context.put("pipSize", 0.0001);
+        context.put("spreadPips", 0.0);
+        context.put("slippagePips", 0.0);
+        context.put("touchTolerancePips", 0.1);
+        context.put("timezoneBasis", "UTC");
+        context.put("executionTimeframe", "M5");
+
+        ArrayNode sessions = root.putArray("sessions");
+        sessions.addObject().put("name", "ASIA").put("zoneId", "UTC").put("startLocal", "00:00").put("endLocal", "07:00");
+        sessions.addObject().put("name", "LONDON").put("zoneId", "UTC").put("startLocal", "07:00").put("endLocal", "12:00");
+        sessions.addObject().put("name", "NY_AM").put("zoneId", "UTC").put("startLocal", "13:00").put("endLocal", "17:00");
+        sessions.addObject().put("name", "NY_PM").put("zoneId", "UTC").put("startLocal", "17:00").put("endLocal", "22:00");
+
+        ObjectNode setupRule = root.putObject("setupRule");
+        setupRule.put("session", "LONDON");
+        setupRule.put("sweepType", "ASIA_H");
+        setupRule.put("confirmationType", "MSS");
+        setupRule.put("direction", "AUTO_FROM_SWEEP");
+
+        ObjectNode entryModel = root.putObject("entryModel");
+        entryModel.put("type", "MARKET_ON_CONFIRM_CLOSE");
+        entryModel.put("retracePercent", 50);
+        entryModel.put("entryWindowBars", 5);
+
+        ObjectNode riskModel = root.putObject("riskModel");
+        riskModel.put("stopRule", "SWEEP_EXTREME_PLUS_BUFFER");
+        riskModel.put("fixedR", 2.0);
+        riskModel.put("minRR", 1.2);
+
+        ObjectNode quality = root.putObject("qualityFilters");
+        quality.put("displacementMultiplier", 1.2);
+        quality.put("bodyLookback", 20);
+        quality.put("antiChop", false);
+        quality.put("maxTradesPerSession", 5);
+        quality.put("maxTradesPerDay", 10);
+        quality.put("pivotLeft", 2);
+        quality.put("pivotRight", 2);
+        quality.put("confirmBreakBufferPips", 0.0);
+
+        ObjectNode smc = root.putObject("smc");
+        smc.put("sessionTimezone", "UTC");
+        smc.putArray("sessionsEnabled").add("ASIA").add("LONDON").add("NY_AM").add("NY_PM");
+
+        ObjectNode ranges = smc.putObject("sessionTimeRanges");
+        ranges.putObject("ASIA").put("start", "00:00").put("end", "07:00").put("zoneId", "UTC");
+        ranges.putObject("LONDON").put("start", "07:00").put("end", "12:00").put("zoneId", "UTC");
+        ranges.putObject("NY_AM").put("start", "13:00").put("end", "17:00").put("zoneId", "UTC");
+        ranges.putObject("NY_PM").put("start", "17:00").put("end", "22:00").put("zoneId", "UTC");
+
+        smc.putArray("evaluationSessionFilter").add("LONDON");
+        smc.putArray("sweepSourceSessions").add("ASIA").add("LONDON");
+        smc.putArray("poolTypesEnabled").add("ASIA_H").add("ASIA_L").add("PDH").add("PDL").add("EQH").add("EQL");
+        smc.put("poolTimeframeForDetection", "M15");
+        smc.put("poolTouchTolerancePips", 0.5);
+        smc.put("poolMinTouches", 2);
+        smc.put("poolMinSeparationBars", 2);
+        smc.put("poolMinAgeBars", 1);
+        smc.put("poolRankRule", "TOUCH_COUNT");
+        smc.put("sweepMinDepthPips", 2.0);
+        smc.put("sweepMaxDurationBars", 4);
+        smc.put("sweepRequiresReclaim", false);
+        smc.put("sweepRequiresLiquidityType", true);
+        smc.put("sweepSelectRule", "LARGEST_DEPTH");
+        smc.put("displacementTimeframe", "M5");
+        smc.put("displacementMaxDelayBarsAfterSweep", 6);
+        smc.put("displacementMinBodyPips", 3.0);
+        smc.put("displacementMinBodyVsAvgMult", 1.2);
+        smc.put("displacementRequiresCloseBeyondLevel", true);
+        smc.put("displacementNoInstantOverlap", false);
+        smc.put("structureTimeframe", "M5");
+        smc.put("swingDetectionMethod", "PIVOT_N");
+        smc.put("swingPivotN", 2);
+        smc.put("mssRequiresClose", true);
+        smc.put("mssMaxDelayBarsAfterDisplacement", 6);
+        smc.put("mssAnchorLevel", "LAST_SWING_HIGH_LOW");
+        smc.put("entryRequiresFvgRetest", false);
+        smc.put("entryRequiresDiscountPremium", false);
+        smc.put("fillPolicy", "MID");
+        smc.put("emitDebugFields", true);
+        smc.put("storeIntermediateLevels", true);
+        return root;
+    }
+
+    private ObjectNode buildFixtureFeb4Config() {
+        ObjectNode root = buildFixtureReadyConfig().deepCopy();
+        ObjectNode smc = (ObjectNode) root.path("smc");
+        ArrayNode poolTypes = smc.putArray("poolTypesEnabled");
+        poolTypes.add("ASIA_H");
+        poolTypes.add("ASIA_L");
+        smc.putArray("sweepSourceSessions").add("ASIA");
+        smc.put("sweepSelectRule", "NEWEST_SESSION_LEVEL");
+        smc.put("sweepMinDepthPips", 1.0);
+        smc.put("sweepRequiresReclaim", false);
+        smc.put("sweepMaxDurationBars", 6);
+        smc.put("displacementMaxDelayBarsAfterSweep", 8);
+        smc.put("displacementMinBodyPips", 0.5);
+        smc.put("displacementMinBodyVsAvgMult", 0.1);
+        smc.put("displacementRequiresCloseBeyondLevel", false);
+        smc.put("mssMaxDelayBarsAfterDisplacement", 8);
+        smc.put("mssAnchorLevel", "INTERNAL_STRUCTURE");
+        return root;
     }
 }

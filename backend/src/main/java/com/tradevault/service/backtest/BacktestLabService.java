@@ -715,80 +715,138 @@ public class BacktestLabService {
                                              Map<LocalDate, DayStats> dailyStats,
                                              PivotState pivots) {
         List<EngineTrade> trades = new ArrayList<>();
+        if (candles == null || candles.isEmpty()) {
+            return trades;
+        }
+
         Map<String, Integer> sessionCounter = new HashMap<>();
         Map<LocalDate, Integer> dayCounter = new HashMap<>();
 
-        BigDecimal buffer = config.touchTolerancePips().multiply(config.pipSize());
-        BigDecimal confirmBreakBuffer = config.confirmBreakBufferPips().multiply(config.pipSize());
-        BigDecimal cost = config.spreadPips().add(config.slippagePips()).multiply(config.pipSize());
+        int swingN = switch (normalizeToken(config.swingDetectionMethod())) {
+            case "FRACTAL" -> 2;
+            case "SWINGHL" -> 1;
+            default -> Math.max(1, config.swingPivotN());
+        };
+        PivotState structurePivots = computePivots(candles, swingN, swingN);
 
-        for (int i = Math.max(3, config.bodyLookback()); i < candles.size() - 3; i++) {
+        List<SessionWindow> evaluationSessions = resolveEvaluationSessions(config, setupSession);
+        if (evaluationSessions.isEmpty()) {
+            return trades;
+        }
+
+        BigDecimal touchBuffer = config.touchTolerancePips().multiply(config.pipSize());
+        BigDecimal confirmBreakBuffer = config.confirmBreakBufferPips().multiply(config.pipSize());
+        BigDecimal minSweepDepth = config.sweepMinDepthPips().multiply(config.pipSize());
+        BigDecimal minDisplacementBody = config.displacementMinBodyPips().multiply(config.pipSize());
+        BigDecimal transactionCost = "MID".equalsIgnoreCase(config.fillPolicy())
+                ? BigDecimal.ZERO
+                : config.spreadPips().add(config.slippagePips()).multiply(config.pipSize());
+
+        Map<String, List<SessionLevelRecord>> sessionLevelRecords = buildSessionLevelRecords(candles, config.sessions());
+        Map<LocalDate, WeekStats> weeklyStats = computeWeeklyStats(dailyStats);
+
+        List<LiquidityPoolCandidate> contextPools = buildContextPools(
+                candles,
+                config,
+                sessionLevelRecords,
+                dailyStats,
+                weeklyStats
+        );
+        List<LiquidityPoolCandidate> eqPools = buildEqPools(candles, config);
+        List<LiquidityPoolCandidate> allPools = new ArrayList<>(contextPools.size() + eqPools.size());
+        allPools.addAll(contextPools);
+        allPools.addAll(eqPools);
+        allPools.sort(Comparator.comparingInt(LiquidityPoolCandidate::createdIndex));
+
+        int startIndex = Math.max(3, config.bodyLookback());
+        for (int i = startIndex; i < candles.size() - 3; i++) {
             BacktestCandle sweepCandle = candles.get(i);
-            SessionStamp stamp = assignSession(sweepCandle.timestamp(), setupSession);
+            SessionStamp stamp = null;
+            for (SessionWindow sessionWindow : evaluationSessions) {
+                stamp = assignSession(sweepCandle.timestamp(), sessionWindow);
+                if (stamp != null) {
+                    break;
+                }
+            }
             if (stamp == null) {
                 continue;
             }
 
-            LocalDate sessionDate = stamp.sessionDateKey();
-            LevelPair levels = resolveLevels(config.sweepType(), sessionDate, sessionStats, dailyStats);
-            if (levels == null || levels.high() == null || levels.low() == null) {
-                continue;
-            }
-
-            Sweep sweep = detectSweep(sweepCandle, levels, buffer);
+            List<LiquidityPoolCandidate> activePools = resolveActivePools(allPools, config, i);
+            Sweep sweep = detectSweep(candles, i, activePools, config, touchBuffer, minSweepDepth, sweepCandle.close());
             if (sweep == null) {
                 continue;
             }
 
-            String directionMode = config.directionMode();
+            String directionMode = normalizeToken(config.directionMode());
             Direction direction = switch (directionMode) {
                 case "LONG" -> Direction.LONG;
                 case "SHORT" -> Direction.SHORT;
                 default -> sweep.side() == SweepSide.HIGH ? Direction.SHORT : Direction.LONG;
             };
 
-            int displacementIndex = findDisplacementIndex(candles, i + 1, sweep.side(), sweep.levelPrice(), buffer, config.displacementMultiplier(), config.bodyLookback());
-            if (displacementIndex < 0) {
+            DisplacementSignal displacement = findDisplacementSignal(
+                    candles,
+                    sweep,
+                    direction,
+                    config,
+                    touchBuffer,
+                    minDisplacementBody
+            );
+            if (displacement == null) {
                 continue;
             }
 
-            BacktestCandle displacement = candles.get(displacementIndex);
-            BigDecimal displacementRatio = bodyRatio(candles, displacementIndex, config.bodyLookback());
-
-            int confirmIndex = findConfirmIndex(candles, pivots, displacementIndex + 1, direction, confirmBreakBuffer, config.confirmationType());
-            if (confirmIndex < 0) {
+            MssSignal mss = findMssSignal(candles, structurePivots, sweep, displacement, direction, config, confirmBreakBuffer);
+            if (mss == null) {
+                i = Math.max(i, displacement.index());
                 continue;
             }
 
-            BacktestCandle confirm = candles.get(confirmIndex);
-            if (config.antiChop() && confirmIndex + 1 < candles.size()) {
-                BacktestCandle next = candles.get(confirmIndex + 1);
-                if (next.high().compareTo(displacement.high()) >= 0 && next.low().compareTo(displacement.low()) <= 0) {
+            if (!(sweep.sweepExtremeTime().isAfter(displacement.time()) || displacement.time().isAfter(mss.time()))) {
+                // ordered correctly
+            } else {
+                continue;
+            }
+
+            if (config.antiChop() && displacement.index() + 1 < candles.size()) {
+                BacktestCandle next = candles.get(displacement.index() + 1);
+                BacktestCandle displacementCandle = candles.get(displacement.index());
+                if (next.high().compareTo(displacementCandle.high()) >= 0 && next.low().compareTo(displacementCandle.low()) <= 0) {
                     continue;
                 }
             }
 
-            String sessionKey = setupSession.name() + ":" + sessionDate;
+            String sessionKey = stamp.sessionName() + ":" + stamp.sessionDateKey();
             int usedInSession = sessionCounter.getOrDefault(sessionKey, 0);
             if (config.maxTradesPerSession() > 0 && usedInSession >= config.maxTradesPerSession()) {
                 continue;
             }
-            int usedInDay = dayCounter.getOrDefault(sessionDate, 0);
+            int usedInDay = dayCounter.getOrDefault(stamp.sessionDateKey(), 0);
             if (config.maxTradesPerDay() > 0 && usedInDay >= config.maxTradesPerDay()) {
                 continue;
             }
 
-            EntryOutcome entry = resolveEntry(config, candles, displacementIndex, confirmIndex, direction);
+            EntryOutcome entry = resolveEntry(config, candles, sweep, displacement, mss, direction);
             if (!entry.filled()) {
-                EngineTrade noFill = buildNoFillTrade(config, setupSession, sessionDate, sweep, displacementIndex, confirmIndex, entry, displacementRatio, direction);
+                EngineTrade noFill = buildNoFillTrade(
+                        config,
+                        stamp.sessionName(),
+                        stamp.sessionDateKey(),
+                        sweep,
+                        displacement,
+                        mss,
+                        entry,
+                        direction
+                );
                 trades.add(noFill);
                 sessionCounter.put(sessionKey, usedInSession + 1);
-                dayCounter.put(sessionDate, usedInDay + 1);
-                i = Math.max(i, confirmIndex);
+                dayCounter.put(stamp.sessionDateKey(), usedInDay + 1);
+                i = Math.max(i, mss.index());
                 continue;
             }
 
-            BigDecimal stopLoss = resolveStop(config, candles, pivots, sweep, entry.fillIndex(), direction, buffer);
+            BigDecimal stopLoss = resolveStop(config, candles, structurePivots, sweep, entry.fillIndex(), direction, touchBuffer);
             if (stopLoss == null) {
                 continue;
             }
@@ -798,14 +856,14 @@ public class BacktestLabService {
                 continue;
             }
 
-            BigDecimal entryPrice = applyEntryCost(entry.entryPrice(), direction, cost);
+            BigDecimal entryPrice = applyEntryCost(entry.entryPrice(), direction, transactionCost);
             BigDecimal risk = entryPrice.subtract(stopLoss).abs();
             if (risk.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
 
             ExitOutcome exit = resolveExit(candles, entry.fillIndex(), direction, stopLoss, takeProfit);
-            BigDecimal exitPrice = applyExitCost(exit.exitPrice(), direction, cost);
+            BigDecimal exitPrice = applyExitCost(exit.exitPrice(), direction, transactionCost);
             BigDecimal rMultiple = calcR(direction, entryPrice, exitPrice, risk);
             Excursion excursion = computeExcursion(candles, entry.fillIndex(), exit.exitIndex(), direction, entryPrice, risk);
             Integer durationSec = null;
@@ -814,35 +872,55 @@ public class BacktestLabService {
             }
 
             ObjectNode setupEvidence = objectMapper.createObjectNode();
-            setupEvidence.put("sessionName", setupSession.name());
-            setupEvidence.put("sessionDate", sessionDate.toString());
+            setupEvidence.put("sessionName", stamp.sessionName());
+            setupEvidence.put("sessionDate", stamp.sessionDateKey().toString());
             setupEvidence.put("sweepSide", sweep.side().name());
+            setupEvidence.put("poolType", sweep.poolType());
+            setupEvidence.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
             setupEvidence.put("sweepDepth", sweep.depth().setScale(6, RoundingMode.HALF_UP).toPlainString());
-            setupEvidence.put("levelPrice", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            setupEvidence.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            setupEvidence.put("sweepExtremeTime", sweep.sweepExtremeTime().toString());
 
             ObjectNode tradeEvidence = objectMapper.createObjectNode();
-            tradeEvidence.put("sessionName", setupSession.name());
-            tradeEvidence.put("sessionDate", sessionDate.toString());
+            tradeEvidence.put("sessionName", stamp.sessionName());
+            tradeEvidence.put("sessionDate", stamp.sessionDateKey().toString());
             tradeEvidence.put("sweepSide", sweep.side().name());
-            tradeEvidence.put("displacementRatio", displacementRatio == null ? 0 : displacementRatio.setScale(4, RoundingMode.HALF_UP).doubleValue());
-            tradeEvidence.put("pivotBroken", direction == Direction.LONG ? "HIGH" : "LOW");
-            tradeEvidence.put("confirmToExitBars", Math.max(1, exit.exitIndex() - confirmIndex + 1));
-            tradeEvidence.set("timeline", buildTimeline(sweep, candles.get(displacementIndex), confirm, entry, exit));
+            tradeEvidence.put("poolType", sweep.poolType());
+            tradeEvidence.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("firstBreachTime", sweep.firstBreachTime() == null ? null : sweep.firstBreachTime().toString());
+            tradeEvidence.put("firstBreachPrice", sweep.firstBreachPrice() == null
+                    ? null
+                    : sweep.firstBreachPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("sweepExtremeTime", sweep.sweepExtremeTime().toString());
+            tradeEvidence.put("displacementRatio", displacement.bodyRatio() == null
+                    ? 0
+                    : displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).doubleValue());
+            tradeEvidence.put("displacementBodyPips", displacement.bodyPips().setScale(3, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("attackedLevel", displacement.attackedLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("mssAnchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("confirmToExitBars", Math.max(1, exit.exitIndex() - mss.index() + 1));
+            if (config.storeIntermediateLevels() || config.emitDebugFields()) {
+                tradeEvidence.put("selectedPoolId", sweep.poolId());
+                tradeEvidence.put("sweepRankScore", BigDecimal.valueOf(sweep.rankScore()).setScale(6, RoundingMode.HALF_UP).toPlainString());
+            }
+            tradeEvidence.set("timeline", buildTimeline(sweep, displacement, mss, entry, exit));
 
             ObjectNode metadata = objectMapper.createObjectNode();
             metadata.put("entryModel", config.entryModelType());
             metadata.put("stopRule", config.stopRule());
             metadata.put("tpRule", "FIXED_R");
+            metadata.put("fillPolicy", config.fillPolicy());
 
             EngineTrade trade = new EngineTrade(
-                    setupSession.name(),
-                    config.sweepType(),
+                    stamp.sessionName(),
+                    sweep.poolType(),
                     config.confirmationType(),
                     direction,
                     BacktestOrderType.valueOf(config.entryModelType().startsWith("LIMIT") ? "LIMIT" : "MARKET"),
-                    sweepCandle.timestamp(),
-                    displacement.timestamp(),
-                    confirm.timestamp(),
+                    sweep.sweepExtremeTime(),
+                    displacement.time(),
+                    mss.time(),
                     entry.entryTime(),
                     entryPrice,
                     stopLoss,
@@ -862,46 +940,53 @@ public class BacktestLabService {
             trades.add(trade);
 
             sessionCounter.put(sessionKey, usedInSession + 1);
-            dayCounter.put(sessionDate, usedInDay + 1);
-            i = Math.max(i, confirmIndex);
+            dayCounter.put(stamp.sessionDateKey(), usedInDay + 1);
+            i = Math.max(i, Math.max(entry.fillIndex(), mss.index()));
         }
 
         return trades;
     }
 
     private EngineTrade buildNoFillTrade(ParsedConfig config,
-                                         SessionWindow setupSession,
+                                         String sessionName,
                                          LocalDate sessionDate,
                                          Sweep sweep,
-                                         int displacementIndex,
-                                         int confirmIndex,
+                                         DisplacementSignal displacement,
+                                         MssSignal mss,
                                          EntryOutcome entry,
-                                         BigDecimal displacementRatio,
                                          Direction direction) {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("entryModel", config.entryModelType());
         metadata.put("status", "NO_FILL");
 
         ObjectNode setupEvidence = objectMapper.createObjectNode();
-        setupEvidence.put("sessionName", setupSession.name());
+        setupEvidence.put("sessionName", sessionName);
         setupEvidence.put("sessionDate", sessionDate.toString());
         setupEvidence.put("sweepSide", sweep.side().name());
+        setupEvidence.put("poolType", sweep.poolType());
+        setupEvidence.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        setupEvidence.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
 
         ObjectNode tradeEvidence = objectMapper.createObjectNode();
-        tradeEvidence.put("sessionName", setupSession.name());
+        tradeEvidence.put("sessionName", sessionName);
         tradeEvidence.put("sessionDate", sessionDate.toString());
-        tradeEvidence.put("displacementRatio", displacementRatio == null ? 0 : displacementRatio.setScale(4, RoundingMode.HALF_UP).doubleValue());
-        tradeEvidence.set("timeline", buildNoFillTimeline(sweep, entry));
+        tradeEvidence.put("sweepSide", sweep.side().name());
+        tradeEvidence.put("poolType", sweep.poolType());
+        tradeEvidence.put("displacementRatio", displacement.bodyRatio() == null
+                ? 0
+                : displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).doubleValue());
+        tradeEvidence.put("mssAnchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        tradeEvidence.set("timeline", buildNoFillTimeline(sweep, displacement, mss, entry));
 
         return new EngineTrade(
-                setupSession.name(),
-                config.sweepType(),
+                sessionName,
+                sweep.poolType(),
                 config.confirmationType(),
                 direction,
                 BacktestOrderType.valueOf(config.entryModelType().startsWith("LIMIT") ? "LIMIT" : "MARKET"),
-                sweep.sweepTime(),
-                entry.displacementTime(),
-                entry.confirmTime(),
+                sweep.sweepExtremeTime(),
+                displacement.time(),
+                mss.time(),
                 null,
                 entry.entryPrice(),
                 entry.entryPrice(),
@@ -920,49 +1005,90 @@ public class BacktestLabService {
         );
     }
 
-    private ArrayNode buildNoFillTimeline(Sweep sweep, EntryOutcome entry) {
+    private ArrayNode buildNoFillTimeline(Sweep sweep, DisplacementSignal displacement, MssSignal mss, EntryOutcome entry) {
         ArrayNode timeline = objectMapper.createArrayNode();
-        timeline.add(timelineNode("SWEEP", sweep.sweepTime(), objectMapper.createObjectNode().put("side", sweep.side().name())));
-        if (entry.displacementTime() != null) {
-            timeline.add(timelineNode("DISPLACEMENT", entry.displacementTime(), objectMapper.createObjectNode()));
+
+        ObjectNode sweepDetails = objectMapper.createObjectNode();
+        sweepDetails.put("side", sweep.side().name());
+        sweepDetails.put("poolType", sweep.poolType());
+        sweepDetails.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        sweepDetails.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        if (sweep.firstBreachTime() != null) {
+            sweepDetails.put("firstBreachTime", sweep.firstBreachTime().toString());
         }
-        if (entry.confirmTime() != null) {
-            timeline.add(timelineNode("CONFIRM", entry.confirmTime(), objectMapper.createObjectNode()));
+        if (sweep.firstBreachPrice() != null) {
+            sweepDetails.put("firstBreachPrice", sweep.firstBreachPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         }
-        timeline.add(timelineNode("ENTRY", null, objectMapper.createObjectNode().put("status", "NO_FILL")));
+        timeline.add(timelineNode("SWEEP", sweep.sweepExtremeTime(), sweepDetails));
+
+        ObjectNode displacementDetails = objectMapper.createObjectNode();
+        displacementDetails.put("attackedLevel", displacement.attackedLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        displacementDetails.put("bodyPips", displacement.bodyPips().setScale(3, RoundingMode.HALF_UP).toPlainString());
+        if (displacement.bodyRatio() != null) {
+            displacementDetails.put("bodyVsAvg", displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).toPlainString());
+        }
+        timeline.add(timelineNode("DISPLACEMENT", displacement.time(), displacementDetails));
+
+        ObjectNode mssDetails = objectMapper.createObjectNode();
+        mssDetails.put("anchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        mssDetails.put("breakPrice", mss.breakPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        timeline.add(timelineNode("MSS_BOS", mss.time(), mssDetails));
+
+        ObjectNode entryDetails = objectMapper.createObjectNode();
+        entryDetails.put("status", "NO_FILL");
+        entryDetails.put("model", entry.model());
+        entryDetails.put("price", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        timeline.add(timelineNode("ENTRY", null, entryDetails));
+
         return timeline;
     }
 
     private ArrayNode buildTimeline(Sweep sweep,
-                                    BacktestCandle displacement,
-                                    BacktestCandle confirm,
+                                    DisplacementSignal displacement,
+                                    MssSignal mss,
                                     EntryOutcome entry,
                                     ExitOutcome exit) {
         ArrayNode timeline = objectMapper.createArrayNode();
 
         ObjectNode sweepDetails = objectMapper.createObjectNode();
         sweepDetails.put("side", sweep.side().name());
-        sweepDetails.put("level", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        sweepDetails.put("poolType", sweep.poolType());
+        sweepDetails.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("depth", sweep.depth().setScale(6, RoundingMode.HALF_UP).toPlainString());
-        timeline.add(timelineNode("SWEEP", sweep.sweepTime(), sweepDetails));
+        sweepDetails.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        sweepDetails.put("sweepExtremeTime", sweep.sweepExtremeTime().toString());
+        if (sweep.firstBreachTime() != null) {
+            sweepDetails.put("firstBreachTime", sweep.firstBreachTime().toString());
+        }
+        if (sweep.firstBreachPrice() != null) {
+            sweepDetails.put("firstBreachPrice", sweep.firstBreachPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        }
+        timeline.add(timelineNode("SWEEP", sweep.sweepExtremeTime(), sweepDetails));
 
         ObjectNode displacementDetails = objectMapper.createObjectNode();
         displacementDetails.put("open", displacement.open().toPlainString());
         displacementDetails.put("close", displacement.close().toPlainString());
-        timeline.add(timelineNode("DISPLACEMENT", displacement.timestamp(), displacementDetails));
+        displacementDetails.put("attackedLevel", displacement.attackedLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        displacementDetails.put("bodyPips", displacement.bodyPips().setScale(3, RoundingMode.HALF_UP).toPlainString());
+        if (displacement.bodyRatio() != null) {
+            displacementDetails.put("bodyVsAvg", displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).toPlainString());
+        }
+        timeline.add(timelineNode("DISPLACEMENT", displacement.time(), displacementDetails));
 
         ObjectNode confirmDetails = objectMapper.createObjectNode();
-        confirmDetails.put("close", confirm.close().toPlainString());
-        timeline.add(timelineNode("MSS_BOS", confirm.timestamp(), confirmDetails));
+        confirmDetails.put("anchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        confirmDetails.put("breakPrice", mss.breakPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        timeline.add(timelineNode("MSS_BOS", mss.time(), confirmDetails));
 
         ObjectNode entryDetails = objectMapper.createObjectNode();
-        entryDetails.put("price", entry.entryPrice().toPlainString());
+        entryDetails.put("price", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        entryDetails.put("model", entry.model());
         timeline.add(timelineNode("ENTRY", entry.entryTime(), entryDetails));
 
         ObjectNode exitDetails = objectMapper.createObjectNode();
         exitDetails.put("reason", exit.exitReason().name());
         if (exit.exitPrice() != null) {
-            exitDetails.put("price", exit.exitPrice().toPlainString());
+            exitDetails.put("price", exit.exitPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         }
         timeline.add(timelineNode("EXIT", exit.exitTime(), exitDetails));
 
@@ -1037,93 +1163,216 @@ public class BacktestLabService {
 
     private EntryOutcome resolveEntry(ParsedConfig config,
                                       List<BacktestCandle> candles,
-                                      int displacementIndex,
-                                      int confirmIndex,
+                                      Sweep sweep,
+                                      DisplacementSignal displacement,
+                                      MssSignal mss,
                                       Direction direction) {
-        BacktestCandle displacement = candles.get(displacementIndex);
-        BacktestCandle confirm = candles.get(confirmIndex);
-
+        BacktestCandle mssCandle = candles.get(mss.index());
         if ("MARKET_ON_CONFIRM_CLOSE".equals(config.entryModelType())) {
             return new EntryOutcome(
                     true,
-                    confirmIndex,
-                    confirm.timestamp(),
-                    confirm.close(),
-                    displacement.timestamp(),
-                    confirm.timestamp()
+                    mss.index(),
+                    mss.time(),
+                    mssCandle.close(),
+                    displacement.time(),
+                    mss.time(),
+                    "MARKET_ON_CONFIRM_CLOSE"
             );
         }
 
+        int legStart = Math.min(sweep.sweepExtremeIndex(), displacement.index());
+        int legEnd = Math.max(sweep.sweepExtremeIndex(), displacement.index());
+        BigDecimal impulseHigh = candles.get(legStart).high();
+        BigDecimal impulseLow = candles.get(legStart).low();
+        for (int i = legStart; i <= legEnd; i++) {
+            BacktestCandle candle = candles.get(i);
+            if (candle.high().compareTo(impulseHigh) > 0) {
+                impulseHigh = candle.high();
+            }
+            if (candle.low().compareTo(impulseLow) < 0) {
+                impulseLow = candle.low();
+            }
+        }
+        BigDecimal range = impulseHigh.subtract(impulseLow).abs();
+        if (range.compareTo(BigDecimal.ZERO) <= 0) {
+            range = candles.get(displacement.index()).high().subtract(candles.get(displacement.index()).low()).abs();
+        }
         BigDecimal retrace = config.retracePercent().divide(BigDecimal.valueOf(100), 8, RoundingMode.HALF_UP);
-        BigDecimal range = displacement.high().subtract(displacement.low()).abs();
-        BigDecimal entryPrice;
-        if (direction == Direction.LONG) {
-            entryPrice = displacement.high().subtract(range.multiply(retrace));
-        } else {
-            entryPrice = displacement.low().add(range.multiply(retrace));
+        BigDecimal entryPrice = direction == Direction.LONG
+                ? impulseHigh.subtract(range.multiply(retrace))
+                : impulseLow.add(range.multiply(retrace));
+
+        if (config.entryRequiresDiscountPremium()) {
+            BigDecimal midpoint = impulseLow.add(range.divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP));
+            if ((direction == Direction.LONG && entryPrice.compareTo(midpoint) > 0)
+                    || (direction == Direction.SHORT && entryPrice.compareTo(midpoint) < 0)) {
+                return new EntryOutcome(false, null, null, entryPrice, displacement.time(), mss.time(), "LIMIT_RETRACE_PERCENT");
+            }
         }
 
-        int until = Math.min(candles.size() - 1, confirmIndex + Math.max(1, config.entryWindowBars()));
-        for (int i = confirmIndex + 1; i <= until; i++) {
+        int until = Math.min(candles.size() - 1, mss.index() + Math.max(1, config.entryWindowBars()));
+        for (int i = mss.index() + 1; i <= until; i++) {
             BacktestCandle candle = candles.get(i);
             if (candle.low().compareTo(entryPrice) <= 0 && candle.high().compareTo(entryPrice) >= 0) {
-                return new EntryOutcome(true, i, candle.timestamp(), entryPrice, displacement.timestamp(), confirm.timestamp());
+                if (config.entryRequiresFvgRetest() && !isFvgRetestSatisfied(candles, displacement.index(), direction, i)) {
+                    continue;
+                }
+                return new EntryOutcome(true, i, candle.timestamp(), entryPrice, displacement.time(), mss.time(), "LIMIT_RETRACE_PERCENT");
             }
         }
 
-        return new EntryOutcome(false, null, null, entryPrice, displacement.timestamp(), confirm.timestamp());
+        return new EntryOutcome(false, null, null, entryPrice, displacement.time(), mss.time(), "LIMIT_RETRACE_PERCENT");
     }
 
-    private int findConfirmIndex(List<BacktestCandle> candles,
-                                 PivotState pivots,
-                                 int start,
-                                 Direction direction,
-                                 BigDecimal buffer,
-                                 String confirmationType) {
-        int until = Math.min(candles.size() - 1, start + 20);
-        for (int i = start; i <= until; i++) {
+    private boolean isFvgRetestSatisfied(List<BacktestCandle> candles,
+                                         int displacementIndex,
+                                         Direction direction,
+                                         int probeIndex) {
+        if (displacementIndex <= 0 || displacementIndex >= candles.size()) {
+            return false;
+        }
+        BacktestCandle previous = candles.get(displacementIndex - 1);
+        BacktestCandle displacement = candles.get(displacementIndex);
+        BacktestCandle probe = candles.get(probeIndex);
+
+        if (direction == Direction.LONG) {
+            if (displacement.low().compareTo(previous.high()) <= 0) {
+                return false;
+            }
+            return probe.low().compareTo(displacement.low()) <= 0 && probe.high().compareTo(previous.high()) >= 0;
+        }
+        if (displacement.high().compareTo(previous.low()) >= 0) {
+            return false;
+        }
+        return probe.high().compareTo(displacement.high()) >= 0 && probe.low().compareTo(previous.low()) <= 0;
+    }
+
+    private MssSignal findMssSignal(List<BacktestCandle> candles,
+                                    PivotState pivots,
+                                    Sweep sweep,
+                                    DisplacementSignal displacement,
+                                    Direction direction,
+                                    ParsedConfig config,
+                                    BigDecimal buffer) {
+        BigDecimal anchor = resolveMssAnchor(candles, pivots, sweep, displacement, direction, config);
+        if (anchor == null) {
+            return null;
+        }
+
+        int from = displacement.index();
+        int until = Math.min(candles.size() - 1, from + Math.max(1, config.mssMaxDelayBarsAfterDisplacement()));
+        for (int i = from; i <= until; i++) {
             BacktestCandle candle = candles.get(i);
+            boolean broken;
             if (direction == Direction.LONG) {
-                BigDecimal pivotHigh = pivots.lastPivotHighPrice(i - 1);
-                if (pivotHigh != null && candle.close().compareTo(pivotHigh.add(buffer)) > 0) {
-                    return i;
-                }
+                broken = config.mssRequiresClose()
+                        ? candle.close().compareTo(anchor.add(buffer)) > 0
+                        : candle.high().compareTo(anchor.add(buffer)) > 0;
             } else {
-                BigDecimal pivotLow = pivots.lastPivotLowPrice(i - 1);
-                if (pivotLow != null && candle.close().compareTo(pivotLow.subtract(buffer)) < 0) {
-                    return i;
-                }
+                broken = config.mssRequiresClose()
+                        ? candle.close().compareTo(anchor.subtract(buffer)) < 0
+                        : candle.low().compareTo(anchor.subtract(buffer)) < 0;
+            }
+            if (broken) {
+                BigDecimal breakPrice = config.mssRequiresClose()
+                        ? candle.close()
+                        : direction == Direction.LONG ? candle.high() : candle.low();
+                return new MssSignal(i, candle.timestamp(), anchor, breakPrice);
             }
         }
-        return -1;
+        return null;
     }
 
-    private int findDisplacementIndex(List<BacktestCandle> candles,
-                                      int start,
-                                      SweepSide sweepSide,
-                                      BigDecimal levelPrice,
-                                      BigDecimal buffer,
-                                      BigDecimal displacementMultiplier,
-                                      int lookback) {
-        int until = Math.min(candles.size() - 1, start + 20);
-        for (int i = start; i <= until; i++) {
+    private BigDecimal resolveMssAnchor(List<BacktestCandle> candles,
+                                        PivotState pivots,
+                                        Sweep sweep,
+                                        DisplacementSignal displacement,
+                                        Direction direction,
+                                        ParsedConfig config) {
+        String anchorMode = normalizeToken(config.mssAnchorLevel());
+        if ("DISPLACEMENTORIGIN".equals(anchorMode)) {
+            return candles.get(displacement.index()).open();
+        }
+        if ("INTERNALSTRUCTURE".equals(anchorMode)) {
+            return displacement.attackedLevel();
+        }
+
+        BigDecimal pivotAnchor = direction == Direction.LONG
+                ? pivots.lastPivotHighPrice(displacement.index() - 1)
+                : pivots.lastPivotLowPrice(displacement.index() - 1);
+        if (pivotAnchor != null) {
+            return pivotAnchor;
+        }
+        if (displacement.attackedLevel() != null) {
+            return displacement.attackedLevel();
+        }
+        return sweep.levelPrice();
+    }
+
+    private DisplacementSignal findDisplacementSignal(List<BacktestCandle> candles,
+                                                      Sweep sweep,
+                                                      Direction direction,
+                                                      ParsedConfig config,
+                                                      BigDecimal touchBuffer,
+                                                      BigDecimal minBodyAbs) {
+        int from = sweep.sweepEndIndex() + 1;
+        int until = Math.min(candles.size() - 2, from + Math.max(1, config.displacementMaxDelayBarsAfterSweep()));
+        if (from >= candles.size()) {
+            return null;
+        }
+        for (int i = from; i <= until; i++) {
             BacktestCandle candle = candles.get(i);
-            BigDecimal ratio = bodyRatio(candles, i, lookback);
-            if (ratio == null || ratio.compareTo(displacementMultiplier) < 0) {
+            BigDecimal body = candle.close().subtract(candle.open()).abs();
+            if (body.compareTo(minBodyAbs) < 0) {
                 continue;
             }
 
-            boolean away;
-            if (sweepSide == SweepSide.HIGH) {
-                away = candle.close().compareTo(levelPrice.subtract(buffer)) <= 0 && candle.close().compareTo(candle.open()) < 0;
-            } else {
-                away = candle.close().compareTo(levelPrice.add(buffer)) >= 0 && candle.close().compareTo(candle.open()) > 0;
+            BigDecimal ratio = bodyRatio(candles, i, config.bodyLookback());
+            if (ratio == null || ratio.compareTo(config.displacementMinBodyVsAvgMult()) < 0) {
+                continue;
             }
-            if (away) {
-                return i;
+
+            boolean directional = direction == Direction.LONG
+                    ? candle.close().compareTo(candle.open()) > 0
+                    : candle.close().compareTo(candle.open()) < 0;
+            if (!directional) {
+                continue;
             }
+
+            BigDecimal attackedLevel = sweep.levelPrice();
+            if (config.displacementRequiresCloseBeyondLevel()) {
+                boolean beyond = direction == Direction.LONG
+                        ? candle.close().compareTo(attackedLevel.add(touchBuffer)) > 0
+                        : candle.close().compareTo(attackedLevel.subtract(touchBuffer)) < 0;
+                if (!beyond) {
+                    continue;
+                }
+            }
+
+            if (config.displacementNoInstantOverlap() && i + 1 < candles.size()) {
+                BacktestCandle next = candles.get(i + 1);
+                if (next.high().compareTo(candle.high()) >= 0 && next.low().compareTo(candle.low()) <= 0) {
+                    continue;
+                }
+            }
+
+            BigDecimal bodyPips = config.pipSize().compareTo(BigDecimal.ZERO) == 0
+                    ? BigDecimal.ZERO
+                    : body.divide(config.pipSize(), 8, RoundingMode.HALF_UP);
+            return new DisplacementSignal(
+                    i,
+                    candle.timestamp(),
+                    attackedLevel,
+                    body,
+                    bodyPips,
+                    ratio,
+                    candle.open(),
+                    candle.close(),
+                    candle.high(),
+                    candle.low()
+            );
         }
-        return -1;
+        return null;
     }
 
     private BigDecimal bodyRatio(List<BacktestCandle> candles, int index, int lookback) {
@@ -1149,49 +1398,551 @@ public class BacktestLabService {
         return current.divide(avg, 8, RoundingMode.HALF_UP);
     }
 
-    private Sweep detectSweep(BacktestCandle candle, LevelPair levels, BigDecimal buffer) {
-        boolean highSweep = candle.high().compareTo(levels.high().add(buffer)) >= 0
-                && candle.close().compareTo(levels.high()) < 0;
-        boolean lowSweep = candle.low().compareTo(levels.low().subtract(buffer)) <= 0
-                && candle.close().compareTo(levels.low()) > 0;
-
-        if (!highSweep && !lowSweep) {
+    private Sweep detectSweep(List<BacktestCandle> candles,
+                              int index,
+                              List<LiquidityPoolCandidate> pools,
+                              ParsedConfig config,
+                              BigDecimal touchBuffer,
+                              BigDecimal minDepthAbs,
+                              BigDecimal referenceClose) {
+        if (pools.isEmpty()) {
             return null;
         }
-
-        if (highSweep && lowSweep) {
-            BigDecimal highDepth = candle.high().subtract(levels.high()).abs();
-            BigDecimal lowDepth = levels.low().subtract(candle.low()).abs();
-            if (highDepth.compareTo(lowDepth) >= 0) {
-                return new Sweep(SweepSide.HIGH, levels.high(), highDepth, candle.high(), candle.timestamp());
+        BacktestCandle candle = candles.get(index);
+        List<Sweep> candidates = new ArrayList<>();
+        for (LiquidityPoolCandidate pool : pools) {
+            if (config.sweepRequiresLiquidityType() && !config.poolTypesEnabled().contains(pool.type())) {
+                continue;
             }
-            return new Sweep(SweepSide.LOW, levels.low(), lowDepth, candle.low(), candle.timestamp());
-        }
+            if (!config.sweepSourceSessions().isEmpty() && pool.sourceSessionName() != null
+                    && !config.sweepSourceSessions().contains(normalizeSessionName(pool.sourceSessionName()))) {
+                continue;
+            }
+            if (pool.side() == SweepSide.HIGH) {
+                if (candle.high().compareTo(pool.levelPrice().add(touchBuffer)) < 0) {
+                    continue;
+                }
+            } else if (candle.low().compareTo(pool.levelPrice().subtract(touchBuffer)) > 0) {
+                continue;
+            }
 
-        if (highSweep) {
-            return new Sweep(SweepSide.HIGH, levels.high(), candle.high().subtract(levels.high()).abs(), candle.high(), candle.timestamp());
+            double rankScore = computePoolRankScore(pool, config.poolRankRule(), referenceClose);
+            Sweep sweep = trackSweepExcursion(candles, index, pool, config, minDepthAbs, rankScore);
+            if (sweep != null) {
+                candidates.add(sweep);
+            }
         }
-        return new Sweep(SweepSide.LOW, levels.low(), levels.low().subtract(candle.low()).abs(), candle.low(), candle.timestamp());
+        return selectSweepCandidate(candidates, config);
     }
 
-    private LevelPair resolveLevels(String sweepType,
-                                    LocalDate sessionDate,
-                                    Map<LocalDate, SessionStats> sessionStats,
-                                    Map<LocalDate, DayStats> dailyStats) {
-        String normalized = normalizeOptionalText(sweepType);
-        if (normalized == null || normalized.equals("SESSION_HL") || normalized.equals("EQH_EQL") || normalized.equals("HTF_SWING")) {
-            SessionStats previous = sessionStats.get(sessionDate.minusDays(1));
-            if (previous == null) {
-                return null;
-            }
-            return new LevelPair(previous.high(), previous.low());
-        }
-
-        DayStats previousDay = dailyStats.get(sessionDate.minusDays(1));
-        if (previousDay == null) {
+    private Sweep selectSweepCandidate(List<Sweep> candidates, ParsedConfig config) {
+        if (candidates == null || candidates.isEmpty()) {
             return null;
         }
-        return new LevelPair(previousDay.high(), previousDay.low());
+        if (candidates.size() == 1) {
+            return candidates.get(0);
+        }
+
+        String rule = normalizeToken(config.sweepSelectRule());
+        Comparator<Sweep> comparator;
+        if ("NEWESTSESSIONLEVEL".equals(rule)) {
+            comparator = Comparator.comparingInt(Sweep::poolCreatedIndex)
+                    .thenComparing(Sweep::depth);
+        } else if ("HIGHESTRANKEDPOOL".equals(rule)) {
+            comparator = Comparator.comparingDouble(Sweep::rankScore)
+                    .thenComparing(Sweep::depth);
+        } else {
+            comparator = Comparator.comparing(Sweep::depth)
+                    .thenComparingDouble(Sweep::rankScore);
+        }
+        return candidates.stream().max(comparator).orElse(null);
+    }
+
+    private Sweep trackSweepExcursion(List<BacktestCandle> candles,
+                                      int startIndex,
+                                      LiquidityPoolCandidate pool,
+                                      ParsedConfig config,
+                                      BigDecimal minDepthAbs,
+                                      double rankScore) {
+        int maxDuration = Math.max(1, config.sweepMaxDurationBars());
+        int until = Math.min(candles.size() - 1, startIndex + maxDuration);
+        BacktestCandle first = candles.get(startIndex);
+
+        BigDecimal extreme = pool.side() == SweepSide.HIGH ? first.high() : first.low();
+        OffsetDateTime extremeTime = first.timestamp();
+        int extremeIndex = startIndex;
+        BigDecimal firstBreachPrice = pool.side() == SweepSide.HIGH ? first.high() : first.low();
+        OffsetDateTime firstBreachTime = first.timestamp();
+        int endIndex = until;
+        boolean reclaimed = false;
+
+        for (int i = startIndex; i <= until; i++) {
+            BacktestCandle candle = candles.get(i);
+            if (pool.side() == SweepSide.HIGH) {
+                if (candle.high().compareTo(extreme) > 0) {
+                    extreme = candle.high();
+                    extremeTime = candle.timestamp();
+                    extremeIndex = i;
+                }
+                if (config.sweepRequiresReclaim() && candle.close().compareTo(pool.levelPrice()) < 0) {
+                    reclaimed = true;
+                    endIndex = i;
+                    break;
+                }
+            } else {
+                if (candle.low().compareTo(extreme) < 0) {
+                    extreme = candle.low();
+                    extremeTime = candle.timestamp();
+                    extremeIndex = i;
+                }
+                if (config.sweepRequiresReclaim() && candle.close().compareTo(pool.levelPrice()) > 0) {
+                    reclaimed = true;
+                    endIndex = i;
+                    break;
+                }
+            }
+        }
+
+        if (config.sweepRequiresReclaim() && !reclaimed) {
+            return null;
+        }
+
+        BigDecimal depth = pool.side() == SweepSide.HIGH
+                ? extreme.subtract(pool.levelPrice()).abs()
+                : pool.levelPrice().subtract(extreme).abs();
+        if (depth.compareTo(minDepthAbs) < 0) {
+            return null;
+        }
+
+        return new Sweep(
+                pool.side(),
+                pool.levelPrice(),
+                depth,
+                extreme,
+                extremeTime,
+                pool.id(),
+                pool.type(),
+                firstBreachPrice,
+                firstBreachTime,
+                endIndex,
+                extremeIndex,
+                pool.createdIndex(),
+                rankScore
+        );
+    }
+
+    private double computePoolRankScore(LiquidityPoolCandidate pool, String rankRule, BigDecimal referenceClose) {
+        String normalizedRule = normalizeToken(rankRule);
+        double touches = Math.max(1, pool.touches());
+        double significance = pool.significance() == null ? 0.0 : pool.significance().doubleValue();
+        double distance = referenceClose == null ? 0.0 : referenceClose.subtract(pool.levelPrice()).abs().doubleValue();
+        if ("LARGESTSWING".equals(normalizedRule)) {
+            return significance * 1_000_000d + touches * 100d;
+        }
+        if ("NEARESTRECENT".equals(normalizedRule)) {
+            return -distance + touches * 0.001d;
+        }
+        return touches * 10_000d + significance * 1_000d;
+    }
+
+    private List<LiquidityPoolCandidate> resolveActivePools(List<LiquidityPoolCandidate> pools,
+                                                            ParsedConfig config,
+                                                            int index) {
+        if (pools == null || pools.isEmpty()) {
+            return List.of();
+        }
+        int minAge = Math.max(0, config.poolMinAgeBars());
+        List<LiquidityPoolCandidate> active = new ArrayList<>();
+        for (LiquidityPoolCandidate pool : pools) {
+            if (pool.createdIndex() > index - minAge) {
+                continue;
+            }
+            active.add(pool);
+        }
+        return active;
+    }
+
+    private List<LiquidityPoolCandidate> buildContextPools(List<BacktestCandle> candles,
+                                                           ParsedConfig config,
+                                                           Map<String, List<SessionLevelRecord>> sessionLevelRecords,
+                                                           Map<LocalDate, DayStats> dailyStats,
+                                                           Map<LocalDate, WeekStats> weeklyStats) {
+        List<LiquidityPoolCandidate> pools = new ArrayList<>();
+        Map<LocalDate, Integer> firstIndexByDay = dailyFirstIndex(candles);
+        Map<LocalDate, Integer> firstIndexByWeek = new LinkedHashMap<>();
+        for (int i = 0; i < candles.size(); i++) {
+            LocalDate day = candles.get(i).timestamp().atZoneSameInstant(ZoneOffset.UTC).toLocalDate();
+            LocalDate week = day.minusDays((day.getDayOfWeek().getValue() + 6L) % 7L);
+            firstIndexByWeek.putIfAbsent(week, i);
+        }
+
+        for (Map.Entry<String, List<SessionLevelRecord>> entry : sessionLevelRecords.entrySet()) {
+            String normalizedSession = normalizeSessionName(entry.getKey());
+            String highType = sessionPoolTypeHigh(normalizedSession);
+            String lowType = sessionPoolTypeLow(normalizedSession);
+            for (SessionLevelRecord record : entry.getValue()) {
+                int createdIndex = Math.max(0, record.lastIndex() + 1);
+                BigDecimal significance = record.high().subtract(record.low()).abs();
+                if (config.poolTypesEnabled().contains(highType)) {
+                    pools.add(new LiquidityPoolCandidate(
+                            "POOL-" + highType + "-" + record.sessionDate(),
+                            highType,
+                            SweepSide.HIGH,
+                            record.high(),
+                            1,
+                            createdIndex,
+                            significance,
+                            normalizedSession
+                    ));
+                }
+                if (config.poolTypesEnabled().contains(lowType)) {
+                    pools.add(new LiquidityPoolCandidate(
+                            "POOL-" + lowType + "-" + record.sessionDate(),
+                            lowType,
+                            SweepSide.LOW,
+                            record.low(),
+                            1,
+                            createdIndex,
+                            significance,
+                            normalizedSession
+                    ));
+                }
+            }
+        }
+
+        if (config.poolTypesEnabled().contains("PDH") || config.poolTypesEnabled().contains("PDL")) {
+            for (Map.Entry<LocalDate, Integer> entry : firstIndexByDay.entrySet()) {
+                LocalDate day = entry.getKey();
+                LocalDate previous = day.minusDays(1);
+                DayStats stats = dailyStats.get(previous);
+                if (stats == null) {
+                    continue;
+                }
+                BigDecimal significance = stats.high().subtract(stats.low()).abs();
+                if (config.poolTypesEnabled().contains("PDH")) {
+                    pools.add(new LiquidityPoolCandidate(
+                            "POOL-PDH-" + day,
+                            "PDH",
+                            SweepSide.HIGH,
+                            stats.high(),
+                            1,
+                            entry.getValue(),
+                            significance,
+                            null
+                    ));
+                }
+                if (config.poolTypesEnabled().contains("PDL")) {
+                    pools.add(new LiquidityPoolCandidate(
+                            "POOL-PDL-" + day,
+                            "PDL",
+                            SweepSide.LOW,
+                            stats.low(),
+                            1,
+                            entry.getValue(),
+                            significance,
+                            null
+                    ));
+                }
+            }
+        }
+
+        if (config.poolTypesEnabled().contains("PWH") || config.poolTypesEnabled().contains("PWL")) {
+            for (Map.Entry<LocalDate, Integer> entry : firstIndexByWeek.entrySet()) {
+                LocalDate week = entry.getKey();
+                LocalDate previous = week.minusWeeks(1);
+                WeekStats stats = weeklyStats.get(previous);
+                if (stats == null) {
+                    continue;
+                }
+                BigDecimal significance = stats.high().subtract(stats.low()).abs();
+                if (config.poolTypesEnabled().contains("PWH")) {
+                    pools.add(new LiquidityPoolCandidate(
+                            "POOL-PWH-" + week,
+                            "PWH",
+                            SweepSide.HIGH,
+                            stats.high(),
+                            1,
+                            entry.getValue(),
+                            significance,
+                            null
+                    ));
+                }
+                if (config.poolTypesEnabled().contains("PWL")) {
+                    pools.add(new LiquidityPoolCandidate(
+                            "POOL-PWL-" + week,
+                            "PWL",
+                            SweepSide.LOW,
+                            stats.low(),
+                            1,
+                            entry.getValue(),
+                            significance,
+                            null
+                    ));
+                }
+            }
+        }
+
+        return pools;
+    }
+
+    private List<LiquidityPoolCandidate> buildEqPools(List<BacktestCandle> candles, ParsedConfig config) {
+        boolean eqhEnabled = config.poolTypesEnabled().contains("EQH");
+        boolean eqlEnabled = config.poolTypesEnabled().contains("EQL");
+        if (!eqhEnabled && !eqlEnabled) {
+            return List.of();
+        }
+
+        List<BacktestCandle> detectionCandles = candles;
+        BacktestTimeframe detectTf = config.poolTimeframeForDetection();
+        if (detectTf != null
+                && detectTf.duration().compareTo(config.executionTimeframeRequested().duration()) > 0) {
+            detectionCandles = resampleCandles(candles, detectTf);
+        }
+
+        int pivotN = Math.max(1, config.swingPivotN());
+        PivotMarkers markers = detectPivotMarkers(detectionCandles, pivotN, pivotN);
+        BigDecimal tolerance = config.poolTouchTolerancePips().multiply(config.pipSize());
+        int minSeparation = Math.max(0, config.poolMinSeparationBars());
+        int minTouches = Math.max(2, config.poolMinTouches());
+
+        List<LiquidityPoolCandidate> pools = new ArrayList<>();
+        if (eqhEnabled) {
+            List<PoolCluster> clusters = new ArrayList<>();
+            for (int i = 0; i < detectionCandles.size(); i++) {
+                if (!markers.pivotHigh()[i]) {
+                    continue;
+                }
+                BigDecimal price = detectionCandles.get(i).high();
+                PoolCluster matched = null;
+                for (PoolCluster cluster : clusters) {
+                    if (price.subtract(cluster.level()).abs().compareTo(tolerance) <= 0
+                            && i - cluster.lastTouchIndex() >= minSeparation) {
+                        matched = cluster;
+                        break;
+                    }
+                }
+                if (matched == null) {
+                    clusters.add(PoolCluster.seed(i, price, detectionCandles.get(i).timestamp()));
+                } else {
+                    matched.touch(i, price, detectionCandles.get(i).timestamp());
+                }
+            }
+            for (PoolCluster cluster : clusters) {
+                if (cluster.touches() < minTouches) {
+                    continue;
+                }
+                int createdIndex = findCandleIndexAtOrAfter(candles, cluster.lastTouchTime());
+                if (createdIndex < 0) {
+                    continue;
+                }
+                pools.add(new LiquidityPoolCandidate(
+                        "POOL-EQH-" + cluster.lastTouchTime(),
+                        "EQH",
+                        SweepSide.HIGH,
+                        cluster.level(),
+                        cluster.touches(),
+                        createdIndex,
+                        cluster.significance(),
+                        null
+                ));
+            }
+        }
+        if (eqlEnabled) {
+            List<PoolCluster> clusters = new ArrayList<>();
+            for (int i = 0; i < detectionCandles.size(); i++) {
+                if (!markers.pivotLow()[i]) {
+                    continue;
+                }
+                BigDecimal price = detectionCandles.get(i).low();
+                PoolCluster matched = null;
+                for (PoolCluster cluster : clusters) {
+                    if (price.subtract(cluster.level()).abs().compareTo(tolerance) <= 0
+                            && i - cluster.lastTouchIndex() >= minSeparation) {
+                        matched = cluster;
+                        break;
+                    }
+                }
+                if (matched == null) {
+                    clusters.add(PoolCluster.seed(i, price, detectionCandles.get(i).timestamp()));
+                } else {
+                    matched.touch(i, price, detectionCandles.get(i).timestamp());
+                }
+            }
+            for (PoolCluster cluster : clusters) {
+                if (cluster.touches() < minTouches) {
+                    continue;
+                }
+                int createdIndex = findCandleIndexAtOrAfter(candles, cluster.lastTouchTime());
+                if (createdIndex < 0) {
+                    continue;
+                }
+                pools.add(new LiquidityPoolCandidate(
+                        "POOL-EQL-" + cluster.lastTouchTime(),
+                        "EQL",
+                        SweepSide.LOW,
+                        cluster.level(),
+                        cluster.touches(),
+                        createdIndex,
+                        cluster.significance(),
+                        null
+                ));
+            }
+        }
+
+        return pools;
+    }
+
+    private PivotMarkers detectPivotMarkers(List<BacktestCandle> candles, int left, int right) {
+        int n = candles.size();
+        boolean[] pivotHigh = new boolean[n];
+        boolean[] pivotLow = new boolean[n];
+        int l = Math.max(1, left);
+        int r = Math.max(1, right);
+        for (int i = l; i < n - r; i++) {
+            boolean isPivotHigh = true;
+            boolean isPivotLow = true;
+            BigDecimal h = candles.get(i).high();
+            BigDecimal lo = candles.get(i).low();
+            for (int j = i - l; j <= i + r; j++) {
+                if (j == i) {
+                    continue;
+                }
+                if (candles.get(j).high().compareTo(h) >= 0) {
+                    isPivotHigh = false;
+                }
+                if (candles.get(j).low().compareTo(lo) <= 0) {
+                    isPivotLow = false;
+                }
+                if (!isPivotHigh && !isPivotLow) {
+                    break;
+                }
+            }
+            pivotHigh[i] = isPivotHigh;
+            pivotLow[i] = isPivotLow;
+        }
+        return new PivotMarkers(pivotHigh, pivotLow);
+    }
+
+    private Map<String, List<SessionLevelRecord>> buildSessionLevelRecords(List<BacktestCandle> candles, List<SessionWindow> sessions) {
+        Map<String, List<SessionLevelRecord>> out = new LinkedHashMap<>();
+        for (SessionWindow session : sessions) {
+            Map<LocalDate, SessionLevelMutable> grouped = new LinkedHashMap<>();
+            for (int i = 0; i < candles.size(); i++) {
+                BacktestCandle candle = candles.get(i);
+                SessionStamp stamp = assignSession(candle.timestamp(), session);
+                if (stamp == null) {
+                    continue;
+                }
+                SessionLevelMutable stats = grouped.computeIfAbsent(stamp.sessionDateKey(), ignored -> new SessionLevelMutable());
+                stats.include(candle.high(), candle.low(), i, candle.timestamp());
+            }
+            List<SessionLevelRecord> rows = new ArrayList<>();
+            for (Map.Entry<LocalDate, SessionLevelMutable> entry : grouped.entrySet()) {
+                SessionLevelMutable stats = entry.getValue();
+                if (stats.high == null || stats.low == null) {
+                    continue;
+                }
+                rows.add(new SessionLevelRecord(
+                        normalizeSessionName(session.name()),
+                        entry.getKey(),
+                        stats.high,
+                        stats.low,
+                        stats.firstIndex,
+                        stats.lastIndex,
+                        stats.firstTime,
+                        stats.lastTime
+                ));
+            }
+            rows.sort(Comparator.comparing(SessionLevelRecord::lastTime));
+            out.put(normalizeSessionName(session.name()), rows);
+        }
+        return out;
+    }
+
+    private Map<LocalDate, Integer> dailyFirstIndex(List<BacktestCandle> candles) {
+        Map<LocalDate, Integer> out = new LinkedHashMap<>();
+        for (int i = 0; i < candles.size(); i++) {
+            LocalDate day = candles.get(i).timestamp().atZoneSameInstant(ZoneOffset.UTC).toLocalDate();
+            out.putIfAbsent(day, i);
+        }
+        return out;
+    }
+
+    private String sessionPoolTypeHigh(String sessionName) {
+        return normalizeSessionPoolBase(sessionName) + "_H";
+    }
+
+    private String sessionPoolTypeLow(String sessionName) {
+        return normalizeSessionPoolBase(sessionName) + "_L";
+    }
+
+    private String normalizeSessionPoolBase(String sessionName) {
+        String normalized = normalizeSessionName(sessionName);
+        if ("NY".equals(normalized)) {
+            return "NY_AM";
+        }
+        return normalized;
+    }
+
+    private String normalizeSessionName(String sessionName) {
+        if (sessionName == null || sessionName.isBlank()) {
+            return "";
+        }
+        return sessionName.trim().toUpperCase(Locale.ROOT).replace('-', '_');
+    }
+
+    private String normalizeToken(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return value.trim().toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", "");
+    }
+
+    private List<SessionWindow> resolveEvaluationSessions(ParsedConfig config, SessionWindow fallback) {
+        Map<String, SessionWindow> byName = new LinkedHashMap<>();
+        for (SessionWindow session : config.sessions()) {
+            byName.put(normalizeSessionName(session.name()), session);
+        }
+        List<SessionWindow> out = new ArrayList<>();
+        Set<String> requested = config.evaluationSessions();
+        if (requested != null && !requested.isEmpty()) {
+            for (String name : requested) {
+                SessionWindow session = byName.get(normalizeSessionName(name));
+                if (session != null) {
+                    out.add(session);
+                }
+            }
+        }
+        if (!out.isEmpty()) {
+            return out;
+        }
+        if (fallback != null) {
+            return List.of(fallback);
+        }
+        return config.sessions().isEmpty() ? List.of() : List.of(config.sessions().get(0));
+    }
+
+    private int findCandleIndexAtOrAfter(List<BacktestCandle> candles, OffsetDateTime ts) {
+        if (candles == null || candles.isEmpty() || ts == null) {
+            return -1;
+        }
+        int left = 0;
+        int right = candles.size() - 1;
+        int answer = -1;
+        while (left <= right) {
+            int mid = (left + right) >>> 1;
+            OffsetDateTime midTs = candles.get(mid).timestamp();
+            if (midTs == null) {
+                break;
+            }
+            if (!midTs.isBefore(ts)) {
+                answer = mid;
+                right = mid - 1;
+            } else {
+                left = mid + 1;
+            }
+        }
+        return answer < 0 ? candles.size() - 1 : answer;
     }
 
     private PivotState computePivots(List<BacktestCandle> candles, int left, int right) {
@@ -1272,6 +2023,20 @@ public class BacktestLabService {
         Map<LocalDate, DayStats> out = new LinkedHashMap<>();
         for (Map.Entry<LocalDate, DayStatsMutable> entry : mutable.entrySet()) {
             out.put(entry.getKey(), new DayStats(entry.getValue().high, entry.getValue().low));
+        }
+        return out;
+    }
+
+    private Map<LocalDate, WeekStats> computeWeeklyStats(Map<LocalDate, DayStats> dailyStats) {
+        Map<LocalDate, WeekStatsMutable> mutable = new LinkedHashMap<>();
+        for (Map.Entry<LocalDate, DayStats> entry : dailyStats.entrySet()) {
+            LocalDate week = entry.getKey().minusDays((entry.getKey().getDayOfWeek().getValue() + 6L) % 7L);
+            WeekStatsMutable stats = mutable.computeIfAbsent(week, ignored -> new WeekStatsMutable());
+            stats.include(entry.getValue().high(), entry.getValue().low());
+        }
+        Map<LocalDate, WeekStats> out = new LinkedHashMap<>();
+        for (Map.Entry<LocalDate, WeekStatsMutable> entry : mutable.entrySet()) {
+            out.put(entry.getKey(), new WeekStats(entry.getValue().high, entry.getValue().low));
         }
         return out;
     }
@@ -1392,23 +2157,73 @@ public class BacktestLabService {
 
     private ParsedConfig parseConfig(BacktestStrategyConfig strategyConfig, BacktestDatasetSet set) {
         JsonNode root = strategyConfig.getConfigJson() == null ? JsonNodeFactory.instance.objectNode() : strategyConfig.getConfigJson();
+        JsonNode smc = path(root, "smc");
 
-        BacktestTimeframe requestedTf;
-        try {
-            requestedTf = BacktestTimeframe.from(text(path(root, "context", "executionTimeframe"), "M5"));
-        } catch (Exception ex) {
-            requestedTf = BacktestTimeframe.M5;
+        String timezoneBasis = text(
+                firstPresent(
+                        path(root, "context", "timezoneBasis"),
+                        path(smc, "sessionTimezone"),
+                        path(smc, "session_timezone")
+                ),
+                set.getTimezoneBasis()
+        );
+
+        BacktestTimeframe requestedTf = parseTimeframe(
+                firstPresent(path(root, "context", "executionTimeframe"), path(smc, "executionTimeframe"), path(smc, "execution_timeframe")),
+                BacktestTimeframe.M5
+        );
+
+        List<SessionWindow> sessions = parseSessions(root, timezoneBasis);
+        Set<String> sessionsEnabled = parseStringSet(
+                firstPresent(path(smc, "sessionsEnabled"), path(smc, "sessions_enabled")),
+                Set.of("ASIA", "LONDON", "NY_AM", "NY_PM")
+        );
+        if (!sessionsEnabled.isEmpty()) {
+            sessions = sessions.stream()
+                    .filter(item -> sessionsEnabled.contains(normalizeSessionName(item.name())))
+                    .toList();
+        }
+        if (sessions.isEmpty()) {
+            sessions = defaultSessions(timezoneBasis);
         }
 
-        List<SessionWindow> sessions = parseSessions(root, text(path(root, "context", "timezoneBasis"), set.getTimezoneBasis()));
+        Set<String> evaluationSessions = parseStringSet(
+                firstPresent(path(smc, "evaluationSessionFilter"), path(smc, "evaluation_session_filter")),
+                Set.of(normalizeSessionName(text(path(root, "setupRule", "session"), "LONDON"))
+                )
+        );
+        Set<String> sweepSourceSessions = parseStringSet(
+                firstPresent(path(smc, "sweepSourceSessions"), path(smc, "sweep_source_sessions")),
+                Set.of("ASIA", "LONDON", "NY_AM", "NY_PM")
+        );
+
+        Set<String> poolTypesEnabled = parseStringSet(
+                firstPresent(path(smc, "poolTypesEnabled"), path(smc, "pool_types_enabled")),
+                Set.of("EQH", "EQL", "ASIA_H", "ASIA_L", "LONDON_H", "LONDON_L", "NY_AM_H", "NY_AM_L", "PDH", "PDL", "PWH", "PWL")
+        );
+
+        BacktestTimeframe poolDetectionTf = parseTimeframe(
+                firstPresent(path(smc, "poolTimeframeForDetection"), path(smc, "pool_timeframe_for_detection")),
+                BacktestTimeframe.M15
+        );
+        BacktestTimeframe displacementTf = parseTimeframe(
+                firstPresent(path(smc, "displacementTimeframe"), path(smc, "displacement_timeframe")),
+                requestedTf
+        );
+        BacktestTimeframe structureTf = parseTimeframe(
+                firstPresent(path(smc, "structureTimeframe"), path(smc, "structure_timeframe")),
+                requestedTf
+        );
+
+        BigDecimal legacyDisplacementMult = decimal(path(root, "qualityFilters", "displacementMultiplier"), BigDecimal.valueOf(1.5));
 
         return new ParsedConfig(
                 text(path(root, "name"), STRATEGY_DEFAULT_NAME),
                 decimal(path(root, "context", "pipSize"), inferPipSize(set.getInstrument())),
-                decimal(path(root, "context", "spreadPips"), BigDecimal.ZERO),
-                decimal(path(root, "context", "slippagePips"), BigDecimal.ZERO),
-                decimal(path(root, "context", "touchTolerancePips"), BigDecimal.valueOf(0.1)),
-                text(path(root, "context", "timezoneBasis"), set.getTimezoneBasis()),
+                decimal(path(root, "context", "spreadPips"), BigDecimal.valueOf(0.8)),
+                decimal(path(root, "context", "slippagePips"), BigDecimal.valueOf(0.2)),
+                decimal(path(root, "context", "touchTolerancePips"), BigDecimal.valueOf(0.5)),
+                timezoneBasis,
                 requestedTf,
                 sessions,
                 text(path(root, "setupRule", "session"), "LONDON"),
@@ -1421,30 +2236,89 @@ public class BacktestLabService {
                 text(path(root, "riskModel", "stopRule"), "SWEEP_EXTREME_PLUS_BUFFER"),
                 decimal(path(root, "riskModel", "fixedR"), BigDecimal.valueOf(2.0)),
                 decimal(path(root, "riskModel", "minRR"), BigDecimal.valueOf(1.5)),
-                decimal(path(root, "qualityFilters", "displacementMultiplier"), BigDecimal.valueOf(1.5)),
+                legacyDisplacementMult,
                 integer(path(root, "qualityFilters", "bodyLookback"), 20),
                 bool(path(root, "qualityFilters", "antiChop"), true),
                 integer(path(root, "qualityFilters", "maxTradesPerSession"), 1),
                 integer(path(root, "qualityFilters", "maxTradesPerDay"), 3),
                 integer(path(root, "qualityFilters", "pivotLeft"), 2),
                 integer(path(root, "qualityFilters", "pivotRight"), 2),
-                decimal(path(root, "qualityFilters", "confirmBreakBufferPips"), BigDecimal.ZERO)
+                decimal(path(root, "qualityFilters", "confirmBreakBufferPips"), BigDecimal.ZERO),
+                normalizeTimezoneBasis(text(firstPresent(path(smc, "sessionTimezone"), path(smc, "session_timezone")), timezoneBasis)),
+                evaluationSessions,
+                sweepSourceSessions,
+                poolTypesEnabled,
+                poolDetectionTf,
+                decimal(firstPresent(path(smc, "poolTouchTolerancePips"), path(smc, "pool_touch_tolerance_pips")), BigDecimal.valueOf(1.0)),
+                integer(firstPresent(path(smc, "poolMinTouches"), path(smc, "pool_min_touches")), 2),
+                integer(firstPresent(path(smc, "poolMinSeparationBars"), path(smc, "pool_min_separation_bars")), 3),
+                integer(firstPresent(path(smc, "poolMinAgeBars"), path(smc, "pool_min_age_bars")), 2),
+                text(firstPresent(path(smc, "poolRankRule"), path(smc, "pool_rank_rule")), "TOUCH_COUNT"),
+                decimal(firstPresent(path(smc, "sweepMinDepthPips"), path(smc, "sweep_min_depth_pips")), BigDecimal.valueOf(2.0)),
+                integer(firstPresent(path(smc, "sweepMaxDurationBars"), path(smc, "sweep_max_duration_bars")), 4),
+                bool(firstPresent(path(smc, "sweepRequiresReclaim"), path(smc, "sweep_requires_reclaim")), true),
+                bool(firstPresent(path(smc, "sweepRequiresLiquidityType"), path(smc, "sweep_requires_liquidity_type")), true),
+                text(firstPresent(path(smc, "sweepSelectRule"), path(smc, "sweep_select_rule")), "LARGEST_DEPTH"),
+                displacementTf,
+                integer(firstPresent(path(smc, "displacementMaxDelayBarsAfterSweep"), path(smc, "displacement_max_delay_bars_after_sweep")), 3),
+                decimal(firstPresent(path(smc, "displacementMinBodyPips"), path(smc, "displacement_min_body_pips")), BigDecimal.valueOf(4.0)),
+                decimal(firstPresent(path(smc, "displacementMinBodyVsAvgMult"), path(smc, "displacement_min_body_vs_avg_mult")), legacyDisplacementMult),
+                bool(firstPresent(path(smc, "displacementRequiresCloseBeyondLevel"), path(smc, "displacement_requires_close_beyond_level")), true),
+                bool(firstPresent(path(smc, "displacementNoInstantOverlap"), path(smc, "displacement_no_instant_overlap")), false),
+                structureTf,
+                text(firstPresent(path(smc, "swingDetectionMethod"), path(smc, "swing_detection_method")), "PIVOT_N"),
+                integer(firstPresent(path(smc, "swingPivotN"), path(smc, "swing_pivot_n")), Math.max(2, integer(path(root, "qualityFilters", "pivotLeft"), 2))),
+                bool(firstPresent(path(smc, "mssRequiresClose"), path(smc, "mss_requires_close")), true),
+                integer(firstPresent(path(smc, "mssMaxDelayBarsAfterDisplacement"), path(smc, "mss_max_delay_bars_after_displacement")), 4),
+                text(firstPresent(path(smc, "mssAnchorLevel"), path(smc, "mss_anchor_level")), "LAST_SWING_HIGH_LOW"),
+                bool(firstPresent(path(smc, "entryRequiresFvgRetest"), path(smc, "entry_requires_fvg_retest")), false),
+                bool(firstPresent(path(smc, "entryRequiresDiscountPremium"), path(smc, "entry_requires_discount_premium")), false),
+                text(firstPresent(path(smc, "fillPolicy"), path(smc, "fill_policy")), "BID_ASK_SIM"),
+                bool(firstPresent(path(smc, "emitDebugFields"), path(smc, "emit_debug_fields")), true),
+                bool(firstPresent(path(smc, "storeIntermediateLevels"), path(smc, "store_intermediate_levels")), true)
         );
     }
 
     private List<SessionWindow> parseSessions(JsonNode root, String timezoneBasis) {
+        JsonNode smc = path(root, "smc");
+        String sessionTimezone = text(firstPresent(path(smc, "sessionTimezone"), path(smc, "session_timezone")), timezoneBasis);
+        JsonNode sessionRanges = firstPresent(path(smc, "sessionTimeRanges"), path(smc, "session_time_ranges"));
+        if (sessionRanges != null && sessionRanges.isObject()) {
+            List<SessionWindow> rows = new ArrayList<>();
+            for (String sessionName : List.of("ASIA", "LONDON", "NY_AM", "NY_PM")) {
+                JsonNode item = firstPresent(
+                        sessionRanges.path(sessionName),
+                        sessionRanges.path(sessionName.toLowerCase(Locale.ROOT)),
+                        sessionRanges.path(sessionName.replace('_', '-'))
+                );
+                if (item == null || item.isMissingNode() || item.isNull()) {
+                    continue;
+                }
+                String start = text(firstPresent(item.path("start"), item.path("startLocal"), item.path("start_local")), null);
+                String end = text(firstPresent(item.path("end"), item.path("endLocal"), item.path("end_local")), null);
+                if (start == null || end == null) {
+                    continue;
+                }
+                String zone = text(firstPresent(item.path("zoneId"), item.path("zone_id")), sessionTimezone);
+                rows.add(new SessionWindow(sessionName, normalizeTimezoneBasis(zone), parseLocalTime(start), parseLocalTime(end)));
+            }
+            if (!rows.isEmpty()) {
+                return rows;
+            }
+        }
+
         JsonNode sessionsNode = path(root, "sessions");
         if (sessionsNode != null && sessionsNode.isArray()) {
             List<SessionWindow> rows = new ArrayList<>();
             for (JsonNode item : sessionsNode) {
                 String name = text(item.path("name"), null);
-                String zone = text(item.path("zoneId"), "UTC");
+                String zone = text(item.path("zoneId"), sessionTimezone);
                 String start = text(item.path("startLocal"), "08:00");
                 String end = text(item.path("endLocal"), "17:00");
                 if (name == null) {
                     continue;
                 }
-                rows.add(new SessionWindow(name, zone, parseLocalTime(start), parseLocalTime(end)));
+                rows.add(new SessionWindow(normalizeSessionName(name), normalizeTimezoneBasis(zone), parseLocalTime(start), parseLocalTime(end)));
             }
             if (!rows.isEmpty()) {
                 return rows;
@@ -1455,30 +2329,28 @@ public class BacktestLabService {
 
     private List<SessionWindow> defaultSessions(String timezoneBasisRaw) {
         String basis = normalizeTimezoneBasis(timezoneBasisRaw);
-        if ("UTC".equalsIgnoreCase(basis)) {
-            return List.of(
-                    new SessionWindow("ASIA", "UTC", LocalTime.of(0, 0), LocalTime.of(7, 0)),
-                    new SessionWindow("LONDON", "UTC", LocalTime.of(8, 0), LocalTime.of(17, 0)),
-                    new SessionWindow("NY", "UTC", LocalTime.of(13, 0), LocalTime.of(22, 0))
-            );
+        String zone = "CENTER_LOCAL".equalsIgnoreCase(basis) ? "UTC" : basis;
+        if (zone == null || zone.isBlank()) {
+            zone = "UTC";
         }
-
         return List.of(
-                new SessionWindow("ASIA", "Asia/Tokyo", LocalTime.of(8, 0), LocalTime.of(17, 0)),
-                new SessionWindow("LONDON", "Europe/London", LocalTime.of(8, 0), LocalTime.of(17, 0)),
-                new SessionWindow("NY", "America/New_York", LocalTime.of(8, 0), LocalTime.of(17, 0))
+                new SessionWindow("ASIA", zone, LocalTime.of(0, 0), LocalTime.of(7, 0)),
+                new SessionWindow("LONDON", zone, LocalTime.of(7, 0), LocalTime.of(12, 0)),
+                new SessionWindow("NY_AM", zone, LocalTime.of(13, 0), LocalTime.of(17, 0)),
+                new SessionWindow("NY_PM", zone, LocalTime.of(17, 0), LocalTime.of(22, 0))
         );
     }
 
     private SessionWindow resolveSessionWindow(List<SessionWindow> sessions, String sessionName) {
         if (sessions == null || sessions.isEmpty()) {
-            return new SessionWindow("LONDON", "Europe/London", LocalTime.of(8, 0), LocalTime.of(17, 0));
+            return new SessionWindow("LONDON", "UTC", LocalTime.of(7, 0), LocalTime.of(12, 0));
         }
         if (sessionName == null || sessionName.isBlank()) {
             return sessions.get(0);
         }
+        String wanted = normalizeSessionName(sessionName);
         for (SessionWindow session : sessions) {
-            if (session.name().equalsIgnoreCase(sessionName.trim())) {
+            if (normalizeSessionName(session.name()).equals(wanted)) {
                 return session;
             }
         }
@@ -2160,16 +3032,19 @@ public class BacktestLabService {
         ObjectNode root = objectMapper.createObjectNode();
         root.put("name", STRATEGY_DEFAULT_NAME);
 
+        String timezone = normalizeTimezoneBasis(set.getTimezoneBasis());
+        BacktestTimeframe executionTf = BacktestTimeframe.M5;
+
         ObjectNode context = root.putObject("context");
         context.put("pipSize", inferPipSize(set.getInstrument()).doubleValue());
-        context.put("spreadPips", 0.0);
-        context.put("slippagePips", 0.0);
-        context.put("touchTolerancePips", 0.1);
-        context.put("timezoneBasis", normalizeTimezoneBasis(set.getTimezoneBasis()));
-        context.put("executionTimeframe", "M5");
+        context.put("spreadPips", 0.8);
+        context.put("slippagePips", 0.2);
+        context.put("touchTolerancePips", 0.5);
+        context.put("timezoneBasis", timezone);
+        context.put("executionTimeframe", executionTf.name());
 
         ArrayNode sessions = root.putArray("sessions");
-        for (SessionWindow window : defaultSessions(set.getTimezoneBasis())) {
+        for (SessionWindow window : defaultSessions(timezone)) {
             ObjectNode node = sessions.addObject();
             node.put("name", window.name());
             node.put("zoneId", window.zoneId());
@@ -2179,7 +3054,7 @@ public class BacktestLabService {
 
         ObjectNode setupRule = root.putObject("setupRule");
         setupRule.put("session", "LONDON");
-        setupRule.put("sweepType", "SESSION_HL");
+        setupRule.put("sweepType", "ASIA_H");
         setupRule.put("confirmationType", "MSS");
         setupRule.put("confirmationTf", "M5");
         setupRule.put("direction", "AUTO_FROM_SWEEP");
@@ -2205,6 +3080,75 @@ public class BacktestLabService {
         quality.put("pivotRight", 2);
         quality.put("confirmBreakBufferPips", 0.0);
 
+        ObjectNode smc = root.putObject("smc");
+        smc.put("sessionTimezone", timezone);
+        smc.putArray("sessionsEnabled")
+                .add("ASIA")
+                .add("LONDON")
+                .add("NY_AM")
+                .add("NY_PM");
+
+        ObjectNode sessionTimeRanges = smc.putObject("sessionTimeRanges");
+        for (SessionWindow window : defaultSessions(timezone)) {
+            ObjectNode range = sessionTimeRanges.putObject(window.name());
+            range.put("start", window.startLocal().toString());
+            range.put("end", window.endLocal().toString());
+            range.put("zoneId", window.zoneId());
+        }
+
+        smc.putArray("sweepSourceSessions")
+                .add("ASIA")
+                .add("LONDON")
+                .add("NY_AM");
+        smc.putArray("evaluationSessionFilter")
+                .add("LONDON");
+
+        smc.putArray("poolTypesEnabled")
+                .add("EQH")
+                .add("EQL")
+                .add("ASIA_H")
+                .add("ASIA_L")
+                .add("LONDON_H")
+                .add("LONDON_L")
+                .add("NY_AM_H")
+                .add("NY_AM_L")
+                .add("PDH")
+                .add("PDL")
+                .add("PWH")
+                .add("PWL");
+        smc.put("poolTimeframeForDetection", "M15");
+        smc.put("poolTouchTolerancePips", 1.0);
+        smc.put("poolMinTouches", 2);
+        smc.put("poolMinSeparationBars", 3);
+        smc.put("poolMinAgeBars", 2);
+        smc.put("poolRankRule", "TOUCH_COUNT");
+
+        smc.put("sweepMinDepthPips", 2.0);
+        smc.put("sweepMaxDurationBars", 4);
+        smc.put("sweepRequiresReclaim", true);
+        smc.put("sweepRequiresLiquidityType", true);
+        smc.put("sweepSelectRule", "LARGEST_DEPTH");
+
+        smc.put("displacementTimeframe", "M5");
+        smc.put("displacementMaxDelayBarsAfterSweep", 3);
+        smc.put("displacementMinBodyPips", 4.0);
+        smc.put("displacementMinBodyVsAvgMult", 1.5);
+        smc.put("displacementRequiresCloseBeyondLevel", true);
+        smc.put("displacementNoInstantOverlap", false);
+
+        smc.put("structureTimeframe", "M5");
+        smc.put("swingDetectionMethod", "PIVOT_N");
+        smc.put("swingPivotN", 2);
+        smc.put("mssRequiresClose", true);
+        smc.put("mssMaxDelayBarsAfterDisplacement", 4);
+        smc.put("mssAnchorLevel", "LAST_SWING_HIGH_LOW");
+
+        smc.put("entryRequiresFvgRetest", false);
+        smc.put("entryRequiresDiscountPremium", false);
+        smc.put("fillPolicy", "BID_ASK_SIM");
+        smc.put("emitDebugFields", true);
+        smc.put("storeIntermediateLevels", true);
+
         return root;
     }
 
@@ -2220,6 +3164,59 @@ public class BacktestLabService {
             node = node.path(key);
         }
         return node;
+    }
+
+    private JsonNode firstPresent(JsonNode... nodes) {
+        if (nodes == null || nodes.length == 0) {
+            return null;
+        }
+        for (JsonNode node : nodes) {
+            if (node != null && !node.isMissingNode() && !node.isNull()) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    private BacktestTimeframe parseTimeframe(JsonNode node, BacktestTimeframe fallback) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return fallback;
+        }
+        try {
+            return BacktestTimeframe.from(node.asText());
+        } catch (Exception ex) {
+            return fallback;
+        }
+    }
+
+    private Set<String> parseStringSet(JsonNode node, Set<String> fallback) {
+        Set<String> out = new LinkedHashSet<>();
+        if (node != null && !node.isMissingNode() && !node.isNull()) {
+            if (node.isArray()) {
+                for (JsonNode item : node) {
+                    if (item != null && item.isTextual()) {
+                        String value = normalizeOptionalText(item.asText());
+                        if (value != null) {
+                            out.add(value.toUpperCase(Locale.ROOT).replace('-', '_'));
+                        }
+                    }
+                }
+            } else if (node.isTextual()) {
+                String raw = normalizeOptionalText(node.asText());
+                if (raw != null) {
+                    for (String token : raw.split(",")) {
+                        String value = normalizeOptionalText(token);
+                        if (value != null) {
+                            out.add(value.toUpperCase(Locale.ROOT).replace('-', '_'));
+                        }
+                    }
+                }
+            }
+        }
+        if (!out.isEmpty()) {
+            return out;
+        }
+        return fallback == null ? Set.of() : new LinkedHashSet<>(fallback);
     }
 
     private String evidenceText(JsonNode evidence, String field, String fallback) {
@@ -2530,7 +3527,39 @@ public class BacktestLabService {
             int maxTradesPerDay,
             int pivotLeft,
             int pivotRight,
-            BigDecimal confirmBreakBufferPips
+            BigDecimal confirmBreakBufferPips,
+            String sessionTimezone,
+            Set<String> evaluationSessions,
+            Set<String> sweepSourceSessions,
+            Set<String> poolTypesEnabled,
+            BacktestTimeframe poolTimeframeForDetection,
+            BigDecimal poolTouchTolerancePips,
+            int poolMinTouches,
+            int poolMinSeparationBars,
+            int poolMinAgeBars,
+            String poolRankRule,
+            BigDecimal sweepMinDepthPips,
+            int sweepMaxDurationBars,
+            boolean sweepRequiresReclaim,
+            boolean sweepRequiresLiquidityType,
+            String sweepSelectRule,
+            BacktestTimeframe displacementTimeframe,
+            int displacementMaxDelayBarsAfterSweep,
+            BigDecimal displacementMinBodyPips,
+            BigDecimal displacementMinBodyVsAvgMult,
+            boolean displacementRequiresCloseBeyondLevel,
+            boolean displacementNoInstantOverlap,
+            BacktestTimeframe structureTimeframe,
+            String swingDetectionMethod,
+            int swingPivotN,
+            boolean mssRequiresClose,
+            int mssMaxDelayBarsAfterDisplacement,
+            String mssAnchorLevel,
+            boolean entryRequiresFvgRetest,
+            boolean entryRequiresDiscountPremium,
+            String fillPolicy,
+            boolean emitDebugFields,
+            boolean storeIntermediateLevels
     ) {
     }
 
@@ -2589,9 +3618,6 @@ public class BacktestLabService {
         }
     }
 
-    private record LevelPair(BigDecimal high, BigDecimal low) {
-    }
-
     private enum SweepSide {
         HIGH,
         LOW
@@ -2602,7 +3628,37 @@ public class BacktestLabService {
             BigDecimal levelPrice,
             BigDecimal depth,
             BigDecimal sweepExtreme,
-            OffsetDateTime sweepTime
+            OffsetDateTime sweepExtremeTime,
+            String poolId,
+            String poolType,
+            BigDecimal firstBreachPrice,
+            OffsetDateTime firstBreachTime,
+            int sweepEndIndex,
+            int sweepExtremeIndex,
+            int poolCreatedIndex,
+            double rankScore
+    ) {
+    }
+
+    private record DisplacementSignal(
+            int index,
+            OffsetDateTime time,
+            BigDecimal attackedLevel,
+            BigDecimal bodyAbs,
+            BigDecimal bodyPips,
+            BigDecimal bodyRatio,
+            BigDecimal open,
+            BigDecimal close,
+            BigDecimal high,
+            BigDecimal low
+    ) {
+    }
+
+    private record MssSignal(
+            int index,
+            OffsetDateTime time,
+            BigDecimal anchorLevel,
+            BigDecimal breakPrice
     ) {
     }
 
@@ -2612,7 +3668,8 @@ public class BacktestLabService {
             OffsetDateTime entryTime,
             BigDecimal entryPrice,
             OffsetDateTime displacementTime,
-            OffsetDateTime confirmTime
+            OffsetDateTime confirmTime,
+            String model
     ) {
     }
 
@@ -2667,6 +3724,18 @@ public class BacktestLabService {
     private record SessionStats(BigDecimal high, BigDecimal low) {
     }
 
+    private record SessionLevelRecord(
+            String sessionName,
+            LocalDate sessionDate,
+            BigDecimal high,
+            BigDecimal low,
+            int firstIndex,
+            int lastIndex,
+            OffsetDateTime firstTime,
+            OffsetDateTime lastTime
+    ) {
+    }
+
     private static final class SessionStatsMutable {
         private BigDecimal high;
         private BigDecimal low;
@@ -2680,6 +3749,32 @@ public class BacktestLabService {
                 low = lowValue;
             }
             count++;
+        }
+    }
+
+    private static final class SessionLevelMutable {
+        private BigDecimal high;
+        private BigDecimal low;
+        private int firstIndex = -1;
+        private int lastIndex = -1;
+        private OffsetDateTime firstTime;
+        private OffsetDateTime lastTime;
+
+        void include(BigDecimal highValue, BigDecimal lowValue, int index, OffsetDateTime time) {
+            if (high == null || highValue.compareTo(high) > 0) {
+                high = highValue;
+            }
+            if (low == null || lowValue.compareTo(low) < 0) {
+                low = lowValue;
+            }
+            if (firstIndex < 0 || index < firstIndex) {
+                firstIndex = index;
+                firstTime = time;
+            }
+            if (lastIndex < 0 || index > lastIndex) {
+                lastIndex = index;
+                lastTime = time;
+            }
         }
     }
 
@@ -2697,6 +3792,95 @@ public class BacktestLabService {
             if (low == null || lowValue.compareTo(low) < 0) {
                 low = lowValue;
             }
+        }
+    }
+
+    private record WeekStats(BigDecimal high, BigDecimal low) {
+    }
+
+    private static final class WeekStatsMutable {
+        private BigDecimal high;
+        private BigDecimal low;
+
+        void include(BigDecimal highValue, BigDecimal lowValue) {
+            if (high == null || highValue.compareTo(high) > 0) {
+                high = highValue;
+            }
+            if (low == null || lowValue.compareTo(low) < 0) {
+                low = lowValue;
+            }
+        }
+    }
+
+    private record LiquidityPoolCandidate(
+            String id,
+            String type,
+            SweepSide side,
+            BigDecimal levelPrice,
+            int touches,
+            int createdIndex,
+            BigDecimal significance,
+            String sourceSessionName
+    ) {
+    }
+
+    private record PivotMarkers(boolean[] pivotHigh, boolean[] pivotLow) {
+    }
+
+    private static final class PoolCluster {
+        private int firstTouchIndex;
+        private int lastTouchIndex;
+        private OffsetDateTime lastTouchTime;
+        private BigDecimal level;
+        private int touches;
+        private BigDecimal minPrice;
+        private BigDecimal maxPrice;
+
+        static PoolCluster seed(int touchIndex, BigDecimal touchPrice, OffsetDateTime touchTime) {
+            PoolCluster cluster = new PoolCluster();
+            cluster.firstTouchIndex = touchIndex;
+            cluster.lastTouchIndex = touchIndex;
+            cluster.lastTouchTime = touchTime;
+            cluster.level = touchPrice;
+            cluster.touches = 1;
+            cluster.minPrice = touchPrice;
+            cluster.maxPrice = touchPrice;
+            return cluster;
+        }
+
+        void touch(int touchIndex, BigDecimal touchPrice, OffsetDateTime touchTime) {
+            touches++;
+            lastTouchIndex = touchIndex;
+            lastTouchTime = touchTime;
+            level = level.multiply(BigDecimal.valueOf(touches - 1L))
+                    .add(touchPrice)
+                    .divide(BigDecimal.valueOf(touches), 8, RoundingMode.HALF_UP);
+            if (touchPrice.compareTo(minPrice) < 0) {
+                minPrice = touchPrice;
+            }
+            if (touchPrice.compareTo(maxPrice) > 0) {
+                maxPrice = touchPrice;
+            }
+        }
+
+        int lastTouchIndex() {
+            return lastTouchIndex;
+        }
+
+        OffsetDateTime lastTouchTime() {
+            return lastTouchTime;
+        }
+
+        BigDecimal level() {
+            return level;
+        }
+
+        int touches() {
+            return touches;
+        }
+
+        BigDecimal significance() {
+            return maxPrice.subtract(minPrice).abs();
         }
     }
 

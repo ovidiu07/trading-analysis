@@ -53,9 +53,14 @@ import {
 import MarkdownContent from '../../components/ui/MarkdownContent'
 
 const STORAGE_KEY = 'session.backtestLab.datasetSetId'
+const PRESET_STORAGE_KEY = 'session.backtestLab.strategyPresets.v1'
 const STEPS = ['Upload CSVs', 'Strategy Builder', 'Run Backtest', 'Results + Report']
 
 type TemplateKey = 'ASIA_LONDON_REVERSAL' | 'LONDON_NY_REVERSAL' | 'BOS_CONTINUATION'
+type SessionName = 'ASIA' | 'LONDON' | 'NY_AM' | 'NY_PM'
+type PoolType = 'EQH' | 'EQL' | 'ASIA_H' | 'ASIA_L' | 'LONDON_H' | 'LONDON_L' | 'NY_AM_H' | 'NY_AM_L' | 'PDH' | 'PDL' | 'PWH' | 'PWL'
+type SwingDetectionMethod = 'FRACTAL' | 'PIVOT_N' | 'SWING_HL'
+type MssAnchorLevel = 'LAST_SWING_HIGH_LOW' | 'DISPLACEMENT_ORIGIN' | 'INTERNAL_STRUCTURE'
 
 type StrategyConfigState = {
   name: string
@@ -75,7 +80,7 @@ type StrategyConfigState = {
   }>
   setupRule: {
     session: string
-    sweepType: 'SESSION_HL' | 'PDH_PDL' | 'EQH_EQL' | 'HTF_SWING'
+    sweepType: PoolType
     confirmationType: 'MSS' | 'BOS'
     confirmationTf: string
     direction: 'AUTO_FROM_SWEEP' | 'LONG' | 'SHORT'
@@ -101,26 +106,63 @@ type StrategyConfigState = {
     pivotRight: number
     confirmBreakBufferPips: number
   }
+  smc: {
+    sessionTimezone: string
+    sessionsEnabled: SessionName[]
+    sessionTimeRanges: Record<SessionName, { start: string, end: string, zoneId: string }>
+    sweepSourceSessions: SessionName[]
+    evaluationSessionFilter: SessionName[]
+    poolTypesEnabled: PoolType[]
+    poolTimeframeForDetection: string
+    poolTouchTolerancePips: number
+    poolMinTouches: number
+    poolMinSeparationBars: number
+    poolMinAgeBars: number
+    poolRankRule: 'TOUCH_COUNT' | 'LARGEST_SWING' | 'NEAREST_RECENT'
+    sweepMinDepthPips: number
+    sweepMaxDurationBars: number
+    sweepRequiresReclaim: boolean
+    sweepRequiresLiquidityType: boolean
+    sweepSelectRule: 'LARGEST_DEPTH' | 'NEWEST_SESSION_LEVEL' | 'HIGHEST_RANKED_POOL'
+    displacementTimeframe: string
+    displacementMaxDelayBarsAfterSweep: number
+    displacementMinBodyPips: number
+    displacementMinBodyVsAvgMult: number
+    displacementRequiresCloseBeyondLevel: boolean
+    displacementNoInstantOverlap: boolean
+    structureTimeframe: string
+    swingDetectionMethod: SwingDetectionMethod
+    swingPivotN: number
+    mssRequiresClose: boolean
+    mssMaxDelayBarsAfterDisplacement: number
+    mssAnchorLevel: MssAnchorLevel
+    entryRequiresFvgRetest: boolean
+    entryRequiresDiscountPremium: boolean
+    fillPolicy: 'MID' | 'BID_ASK_SIM'
+    emitDebugFields: boolean
+    storeIntermediateLevels: boolean
+  }
 }
 
 const defaultConfig = (): StrategyConfigState => ({
   name: 'SMC Rule Strategy',
   context: {
     pipSize: 0.0001,
-    spreadPips: 0,
-    slippagePips: 0,
-    touchTolerancePips: 0.1,
+    spreadPips: 0.8,
+    slippagePips: 0.2,
+    touchTolerancePips: 0.5,
     timezoneBasis: 'UTC',
     executionTimeframe: 'M5'
   },
   sessions: [
-    { name: 'ASIA', zoneId: 'Asia/Tokyo', startLocal: '08:00', endLocal: '17:00' },
-    { name: 'LONDON', zoneId: 'Europe/London', startLocal: '08:00', endLocal: '17:00' },
-    { name: 'NY', zoneId: 'America/New_York', startLocal: '08:00', endLocal: '17:00' }
+    { name: 'ASIA', zoneId: 'UTC', startLocal: '00:00', endLocal: '07:00' },
+    { name: 'LONDON', zoneId: 'UTC', startLocal: '07:00', endLocal: '12:00' },
+    { name: 'NY_AM', zoneId: 'UTC', startLocal: '13:00', endLocal: '17:00' },
+    { name: 'NY_PM', zoneId: 'UTC', startLocal: '17:00', endLocal: '22:00' }
   ],
   setupRule: {
     session: 'LONDON',
-    sweepType: 'SESSION_HL',
+    sweepType: 'ASIA_H',
     confirmationType: 'MSS',
     confirmationTf: 'M5',
     direction: 'AUTO_FROM_SWEEP'
@@ -145,8 +187,60 @@ const defaultConfig = (): StrategyConfigState => ({
     pivotLeft: 2,
     pivotRight: 2,
     confirmBreakBufferPips: 0
+  },
+  smc: {
+    sessionTimezone: 'UTC',
+    sessionsEnabled: ['ASIA', 'LONDON', 'NY_AM', 'NY_PM'],
+    sessionTimeRanges: {
+      ASIA: { start: '00:00', end: '07:00', zoneId: 'UTC' },
+      LONDON: { start: '07:00', end: '12:00', zoneId: 'UTC' },
+      NY_AM: { start: '13:00', end: '17:00', zoneId: 'UTC' },
+      NY_PM: { start: '17:00', end: '22:00', zoneId: 'UTC' }
+    },
+    sweepSourceSessions: ['ASIA', 'LONDON', 'NY_AM'],
+    evaluationSessionFilter: ['LONDON'],
+    poolTypesEnabled: ['EQH', 'EQL', 'ASIA_H', 'ASIA_L', 'LONDON_H', 'LONDON_L', 'NY_AM_H', 'NY_AM_L', 'PDH', 'PDL', 'PWH', 'PWL'],
+    poolTimeframeForDetection: 'M15',
+    poolTouchTolerancePips: 1,
+    poolMinTouches: 2,
+    poolMinSeparationBars: 3,
+    poolMinAgeBars: 2,
+    poolRankRule: 'TOUCH_COUNT',
+    sweepMinDepthPips: 2,
+    sweepMaxDurationBars: 4,
+    sweepRequiresReclaim: true,
+    sweepRequiresLiquidityType: true,
+    sweepSelectRule: 'LARGEST_DEPTH',
+    displacementTimeframe: 'M5',
+    displacementMaxDelayBarsAfterSweep: 3,
+    displacementMinBodyPips: 4,
+    displacementMinBodyVsAvgMult: 1.5,
+    displacementRequiresCloseBeyondLevel: true,
+    displacementNoInstantOverlap: false,
+    structureTimeframe: 'M5',
+    swingDetectionMethod: 'PIVOT_N',
+    swingPivotN: 2,
+    mssRequiresClose: true,
+    mssMaxDelayBarsAfterDisplacement: 4,
+    mssAnchorLevel: 'LAST_SWING_HIGH_LOW',
+    entryRequiresFvgRetest: false,
+    entryRequiresDiscountPremium: false,
+    fillPolicy: 'BID_ASK_SIM',
+    emitDebugFields: true,
+    storeIntermediateLevels: true
   }
 })
+
+const SESSION_NAMES: SessionName[] = ['ASIA', 'LONDON', 'NY_AM', 'NY_PM']
+const POOL_TYPES: PoolType[] = ['EQH', 'EQL', 'ASIA_H', 'ASIA_L', 'LONDON_H', 'LONDON_L', 'NY_AM_H', 'NY_AM_L', 'PDH', 'PDL', 'PWH', 'PWL']
+
+const parseCsvSelection = <T extends string>(value: string, allowed: readonly T[]): T[] => {
+  const selected = value
+    .split(',')
+    .map((item) => item.trim().toUpperCase().replace('-', '_'))
+    .filter(Boolean)
+  return selected.filter((item): item is T => (allowed as readonly string[]).includes(item))
+}
 
 const inferPipSize = (instrument: string) => {
   const symbol = instrument.toUpperCase()
@@ -253,12 +347,20 @@ const applyTemplate = (prev: StrategyConfigState, key: TemplateKey): StrategyCon
       setupRule: {
         ...prev.setupRule,
         session: 'LONDON',
-        sweepType: 'SESSION_HL',
+        sweepType: 'ASIA_H',
         confirmationType: 'MSS',
         direction: 'AUTO_FROM_SWEEP'
       },
       entryModel: { ...prev.entryModel, type: 'MARKET_ON_CONFIRM_CLOSE', entryWindowBars: 4 },
-      qualityFilters: { ...prev.qualityFilters, displacementMultiplier: 1.6 }
+      qualityFilters: { ...prev.qualityFilters, displacementMultiplier: 1.6 },
+      smc: {
+        ...prev.smc,
+        evaluationSessionFilter: ['LONDON'],
+        sweepSourceSessions: ['ASIA'],
+        poolTypesEnabled: ['ASIA_H', 'ASIA_L', 'EQH', 'EQL', 'PDH', 'PDL'],
+        sweepMinDepthPips: 2,
+        displacementMinBodyVsAvgMult: 1.6
+      }
     }
   }
   if (key === 'LONDON_NY_REVERSAL') {
@@ -267,13 +369,19 @@ const applyTemplate = (prev: StrategyConfigState, key: TemplateKey): StrategyCon
       name: 'London Raid -> NY Reversal',
       setupRule: {
         ...prev.setupRule,
-        session: 'NY',
-        sweepType: 'SESSION_HL',
+        session: 'NY_AM',
+        sweepType: 'LONDON_H',
         confirmationType: 'MSS',
         direction: 'AUTO_FROM_SWEEP'
       },
       entryModel: { ...prev.entryModel, type: 'LIMIT_RETRACE_PERCENT', retracePercent: 50, entryWindowBars: 6 },
-      riskModel: { ...prev.riskModel, fixedR: 2 }
+      riskModel: { ...prev.riskModel, fixedR: 2 },
+      smc: {
+        ...prev.smc,
+        evaluationSessionFilter: ['NY_AM'],
+        sweepSourceSessions: ['LONDON'],
+        poolTypesEnabled: ['LONDON_H', 'LONDON_L', 'EQH', 'EQL', 'PDH', 'PDL']
+      }
     }
   }
   return {
@@ -282,13 +390,35 @@ const applyTemplate = (prev: StrategyConfigState, key: TemplateKey): StrategyCon
     setupRule: {
       ...prev.setupRule,
       session: 'LONDON',
-      sweepType: 'PDH_PDL',
+      sweepType: 'PDH',
       confirmationType: 'BOS',
       direction: 'AUTO_FROM_SWEEP'
     },
     entryModel: { ...prev.entryModel, type: 'MARKET_ON_CONFIRM_CLOSE' },
-    qualityFilters: { ...prev.qualityFilters, displacementMultiplier: 1.4 }
+    qualityFilters: { ...prev.qualityFilters, displacementMultiplier: 1.4 },
+    smc: {
+      ...prev.smc,
+      evaluationSessionFilter: ['LONDON'],
+      sweepSourceSessions: ['LONDON'],
+      poolTypesEnabled: ['PDH', 'PDL', 'PWH', 'PWL', 'EQH', 'EQL'],
+      sweepSelectRule: 'HIGHEST_RANKED_POOL'
+    }
   }
+}
+
+const loadStoredPresets = (): Record<string, StrategyConfigState> => {
+  try {
+    const raw = localStorage.getItem(PRESET_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, StrategyConfigState>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  } catch {
+    return {}
+  }
+}
+
+const persistPresets = (presets: Record<string, StrategyConfigState>) => {
+  localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets))
 }
 
 export default function BacktestLabWizard() {
@@ -310,6 +440,9 @@ export default function BacktestLabWizard() {
 
   const [strategyConfig, setStrategyConfig] = useState<StrategyConfigState>(defaultConfig)
   const [strategyConfigId, setStrategyConfigId] = useState('')
+  const [presetName, setPresetName] = useState('')
+  const [selectedPresetKey, setSelectedPresetKey] = useState('')
+  const [savedPresets, setSavedPresets] = useState<Record<string, StrategyConfigState>>(() => loadStoredPresets())
 
   const [runWindow, setRunWindow] = useState({ fromUtc: '', toUtc: '', sessionFilter: '' })
   const [lastRun, setLastRun] = useState<BacktestLabRun | null>(null)
@@ -337,6 +470,29 @@ export default function BacktestLabWizard() {
   const datasetWarningIssues = executionDataset?.warnings || []
   const datasetFatalIssues = executionDataset?.fatalErrors || []
   const executionDatasetProcessing = executionDataset?.status === 'BUILDING' || executionDataset?.status === 'PROCESSING'
+
+  const strategyWarnings = useMemo(() => {
+    const warnings: string[] = []
+    if (strategyConfig.context.spreadPips > 5 || strategyConfig.context.spreadPips < 0) {
+      warnings.push('Spread looks unrealistic for EURUSD. Typical backtest default is around 0.8 pips.')
+    }
+    if (strategyConfig.context.slippagePips > 2 || strategyConfig.context.slippagePips < 0) {
+      warnings.push('Slippage is outside common intraday simulation ranges (0.2 - 0.5 pips).')
+    }
+    if (strategyConfig.smc.sweepMinDepthPips < 1) {
+      warnings.push('Sweep min depth below 1 pip is usually too permissive and captures micro-liquidity.')
+    }
+    if (strategyConfig.smc.displacementMinBodyVsAvgMult < 1) {
+      warnings.push('Displacement body-vs-average multiplier under 1.0 is very loose.')
+    }
+    if (strategyConfig.entryModel.type === 'LIMIT_RETRACE_PERCENT' && strategyConfig.entryModel.entryWindowBars < 2) {
+      warnings.push('Limit retrace with entry window under 2 bars may produce unrealistic no-fill bias.')
+    }
+    if (strategyConfig.riskModel.minRR < 1) {
+      warnings.push('Min RR below 1.0 is uncommon for this setup model.')
+    }
+    return warnings
+  }, [strategyConfig])
 
   const runWindowValid = useMemo(() => {
     if (!runWindow.fromUtc || !runWindow.toUtc) return false
@@ -396,6 +552,16 @@ export default function BacktestLabWizard() {
             executionTimeframe: availableTimeframes.has(prev.context.executionTimeframe)
               ? prev.context.executionTimeframe
               : (info.datasets.find((d) => d.timeframe === 'M5')?.timeframe || info.datasets[0]?.timeframe || prev.context.executionTimeframe)
+          },
+          smc: {
+            ...prev.smc,
+            sessionTimezone: info.timezoneBasis || prev.smc.sessionTimezone,
+            sessionTimeRanges: {
+              ASIA: { ...prev.smc.sessionTimeRanges.ASIA, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.ASIA.zoneId },
+              LONDON: { ...prev.smc.sessionTimeRanges.LONDON, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.LONDON.zoneId },
+              NY_AM: { ...prev.smc.sessionTimeRanges.NY_AM, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.NY_AM.zoneId },
+              NY_PM: { ...prev.smc.sessionTimeRanges.NY_PM, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.NY_PM.zoneId }
+            }
           }
         }))
       }
@@ -482,6 +648,32 @@ export default function BacktestLabWizard() {
     } finally {
       setSaveStrategyBusy(false)
     }
+  }
+
+  const handleSavePreset = () => {
+    const key = presetName.trim()
+    if (!key) {
+      setError('Preset name is required.')
+      return
+    }
+    const next = {
+      ...savedPresets,
+      [key]: strategyConfig
+    }
+    setSavedPresets(next)
+    setSelectedPresetKey(key)
+    persistPresets(next)
+    setPresetName('')
+    setSuccess(`Preset "${key}" saved.`)
+  }
+
+  const handleLoadPreset = (key: string) => {
+    if (!key) return
+    const preset = savedPresets[key]
+    if (!preset) return
+    setStrategyConfig(preset)
+    setSelectedPresetKey(key)
+    setSuccess(`Preset "${key}" loaded.`)
   }
 
   const loadRunArtifacts = async (runId: string) => {
@@ -610,6 +802,9 @@ export default function BacktestLabWizard() {
                         context: {
                           ...prev.context,
                           pipSize: inferPipSize(value)
+                        },
+                        smc: {
+                          ...prev.smc
                         }
                       }))
                     }}
@@ -626,7 +821,17 @@ export default function BacktestLabWizard() {
                         setTimezoneBasis(value)
                         setStrategyConfig((prev) => ({
                           ...prev,
-                          context: { ...prev.context, timezoneBasis: value }
+                          context: { ...prev.context, timezoneBasis: value },
+                          smc: {
+                            ...prev.smc,
+                            sessionTimezone: value,
+                            sessionTimeRanges: {
+                              ASIA: { ...prev.smc.sessionTimeRanges.ASIA, zoneId: value },
+                              LONDON: { ...prev.smc.sessionTimeRanges.LONDON, zoneId: value },
+                              NY_AM: { ...prev.smc.sessionTimeRanges.NY_AM, zoneId: value },
+                              NY_PM: { ...prev.smc.sessionTimeRanges.NY_PM, zoneId: value }
+                            }
+                          }
                         }))
                       }}
                     >
@@ -794,6 +999,46 @@ export default function BacktestLabWizard() {
                   </Button>
                 </Stack>
 
+                <Divider />
+                <Typography variant="subtitle2">Preset Library</Typography>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <TextField
+                    size="small"
+                    label="Preset name"
+                    value={presetName}
+                    onChange={(event) => setPresetName(event.target.value)}
+                    fullWidth
+                  />
+                  <Button variant="outlined" onClick={handleSavePreset}>Save Preset</Button>
+                  <FormControl size="small" fullWidth>
+                    <InputLabel id="preset-select">Load preset</InputLabel>
+                    <Select
+                      labelId="preset-select"
+                      label="Load preset"
+                      value={selectedPresetKey}
+                      onChange={(event) => {
+                        const key = event.target.value
+                        handleLoadPreset(key)
+                      }}
+                    >
+                      <MenuItem value="">Select</MenuItem>
+                      {Object.keys(savedPresets).sort().map((key) => (
+                        <MenuItem key={key} value={key}>{key}</MenuItem>
+                      ))}
+                    </Select>
+                  </FormControl>
+                </Stack>
+
+                {strategyWarnings.length > 0 ? (
+                  <Stack spacing={0.8}>
+                    {strategyWarnings.map((warning) => (
+                      <Alert key={warning} severity="warning">{warning}</Alert>
+                    ))}
+                  </Stack>
+                ) : null}
+
+                <Divider />
+                <Typography variant="subtitle2">Core Context</Typography>
                 <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={3}>
                     <TextField
@@ -841,13 +1086,35 @@ export default function BacktestLabWizard() {
                       label="Touch tolerance (pips)"
                       fullWidth
                       value={strategyConfig.context.touchTolerancePips}
+                      helperText="Base tolerance applied in sweep checks"
                       onChange={(event) => setStrategyConfig((prev) => ({
                         ...prev,
                         context: { ...prev.context, touchTolerancePips: Number(event.target.value) }
                       }))}
                     />
                   </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="fill-policy">Fill policy</InputLabel>
+                      <Select
+                        labelId="fill-policy"
+                        label="Fill policy"
+                        value={strategyConfig.smc.fillPolicy}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, fillPolicy: event.target.value as StrategyConfigState['smc']['fillPolicy'] }
+                        }))}
+                      >
+                        <MenuItem value="BID_ASK_SIM">BID_ASK_SIM</MenuItem>
+                        <MenuItem value="MID">MID</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
 
+                <Divider />
+                <Typography variant="subtitle2">Sessions</Typography>
+                <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={3}>
                     <FormControl size="small" fullWidth>
                       <InputLabel id="setup-session">Setup session</InputLabel>
@@ -860,12 +1127,56 @@ export default function BacktestLabWizard() {
                           setupRule: { ...prev.setupRule, session: event.target.value }
                         }))}
                       >
-                        {strategyConfig.sessions.map((session) => (
-                          <MenuItem key={session.name} value={session.name}>{session.name}</MenuItem>
+                        {SESSION_NAMES.map((session) => (
+                          <MenuItem key={session} value={session}>{session}</MenuItem>
                         ))}
                       </Select>
                     </FormControl>
                   </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="Sessions enabled"
+                      value={strategyConfig.smc.sessionsEnabled.join(',')}
+                      helperText="Comma separated: ASIA,LONDON,NY_AM,NY_PM"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, sessionsEnabled: parseCsvSelection(event.target.value, SESSION_NAMES) as SessionName[] }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="Sweep source sessions"
+                      value={strategyConfig.smc.sweepSourceSessions.join(',')}
+                      helperText="Which session levels can be swept"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, sweepSourceSessions: parseCsvSelection(event.target.value, SESSION_NAMES) as SessionName[] }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="Evaluation sessions"
+                      value={strategyConfig.smc.evaluationSessionFilter.join(',')}
+                      helperText="Where setups are allowed"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, evaluationSessionFilter: parseCsvSelection(event.target.value, SESSION_NAMES) as SessionName[] }
+                      }))}
+                    />
+                  </Grid>
+                </Grid>
+
+                <Divider />
+                <Typography variant="subtitle2">Pool Definition</Typography>
+                <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={3}>
                     <FormControl size="small" fullWidth>
                       <InputLabel id="sweep-type">Sweep type</InputLabel>
@@ -878,49 +1189,114 @@ export default function BacktestLabWizard() {
                           setupRule: { ...prev.setupRule, sweepType: event.target.value as StrategyConfigState['setupRule']['sweepType'] }
                         }))}
                       >
-                        <MenuItem value="SESSION_HL">SESSION_HL</MenuItem>
-                        <MenuItem value="PDH_PDL">PDH/PDL</MenuItem>
-                        <MenuItem value="EQH_EQL">EQH/EQL</MenuItem>
-                        <MenuItem value="HTF_SWING">HTF_SWING</MenuItem>
+                        {POOL_TYPES.map((pool) => (
+                          <MenuItem key={pool} value={pool}>{pool}</MenuItem>
+                        ))}
                       </Select>
                     </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6} md={3}>
-                    <FormControl size="small" fullWidth>
-                      <InputLabel id="confirm-type">Confirmation</InputLabel>
-                      <Select
-                        labelId="confirm-type"
-                        label="Confirmation"
-                        value={strategyConfig.setupRule.confirmationType}
-                        onChange={(event) => setStrategyConfig((prev) => ({
-                          ...prev,
-                          setupRule: { ...prev.setupRule, confirmationType: event.target.value as 'MSS' | 'BOS' }
-                        }))}
-                      >
-                        <MenuItem value="MSS">MSS</MenuItem>
-                        <MenuItem value="BOS">BOS</MenuItem>
-                      </Select>
-                    </FormControl>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="Pool types enabled"
+                      value={strategyConfig.smc.poolTypesEnabled.join(',')}
+                      helperText="Comma separated pool types"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, poolTypesEnabled: parseCsvSelection(event.target.value, POOL_TYPES) as PoolType[] }
+                      }))}
+                    />
                   </Grid>
                   <Grid item xs={12} sm={6} md={3}>
-                    <FormControl size="small" fullWidth>
-                      <InputLabel id="direction">Direction</InputLabel>
-                      <Select
-                        labelId="direction"
-                        label="Direction"
-                        value={strategyConfig.setupRule.direction}
-                        onChange={(event) => setStrategyConfig((prev) => ({
-                          ...prev,
-                          setupRule: { ...prev.setupRule, direction: event.target.value as StrategyConfigState['setupRule']['direction'] }
-                        }))}
-                      >
-                        <MenuItem value="AUTO_FROM_SWEEP">AUTO_FROM_SWEEP</MenuItem>
-                        <MenuItem value="LONG">LONG</MenuItem>
-                        <MenuItem value="SHORT">SHORT</MenuItem>
-                      </Select>
-                    </FormControl>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Pool touch tolerance (pips)"
+                      fullWidth
+                      value={strategyConfig.smc.poolTouchTolerancePips}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, poolTouchTolerancePips: Number(event.target.value) }
+                      }))}
+                    />
                   </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Pool min touches"
+                      fullWidth
+                      value={strategyConfig.smc.poolMinTouches}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, poolMinTouches: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                </Grid>
 
+                <Divider />
+                <Typography variant="subtitle2">Sweep / Displacement / MSS</Typography>
+                <Grid container spacing={1}>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Sweep min depth (pips)"
+                      fullWidth
+                      value={strategyConfig.smc.sweepMinDepthPips}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, sweepMinDepthPips: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Sweep max duration bars"
+                      fullWidth
+                      value={strategyConfig.smc.sweepMaxDurationBars}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, sweepMaxDurationBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Displacement max delay bars"
+                      fullWidth
+                      value={strategyConfig.smc.displacementMaxDelayBarsAfterSweep}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, displacementMaxDelayBarsAfterSweep: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Displacement body vs avg"
+                      fullWidth
+                      value={strategyConfig.smc.displacementMinBodyVsAvgMult}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, displacementMinBodyVsAvgMult: Number(event.target.value) },
+                        qualityFilters: { ...prev.qualityFilters, displacementMultiplier: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                </Grid>
+
+                <Divider />
+                <Typography variant="subtitle2">Entry + Risk</Typography>
+                <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={4}>
                     <FormControl size="small" fullWidth>
                       <InputLabel id="entry-model">Entry model</InputLabel>
@@ -964,7 +1340,6 @@ export default function BacktestLabWizard() {
                       }))}
                     />
                   </Grid>
-
                   <Grid item xs={12} sm={6} md={3}>
                     <TextField
                       size="small"
@@ -992,30 +1367,38 @@ export default function BacktestLabWizard() {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6} md={3}>
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Displacement multiplier"
-                      fullWidth
-                      value={strategyConfig.qualityFilters.displacementMultiplier}
-                      onChange={(event) => setStrategyConfig((prev) => ({
-                        ...prev,
-                        qualityFilters: { ...prev.qualityFilters, displacementMultiplier: Number(event.target.value) }
-                      }))}
-                    />
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="debug-fields">Emit debug fields</InputLabel>
+                      <Select
+                        labelId="debug-fields"
+                        label="Emit debug fields"
+                        value={String(strategyConfig.smc.emitDebugFields)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, emitDebugFields: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="true">true</MenuItem>
+                        <MenuItem value="false">false</MenuItem>
+                      </Select>
+                    </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6} md={3}>
-                    <TextField
-                      size="small"
-                      type="number"
-                      label="Max trades/session"
-                      fullWidth
-                      value={strategyConfig.qualityFilters.maxTradesPerSession}
-                      onChange={(event) => setStrategyConfig((prev) => ({
-                        ...prev,
-                        qualityFilters: { ...prev.qualityFilters, maxTradesPerSession: Number(event.target.value) }
-                      }))}
-                    />
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="store-levels">Store intermediate levels</InputLabel>
+                      <Select
+                        labelId="store-levels"
+                        label="Store intermediate levels"
+                        value={String(strategyConfig.smc.storeIntermediateLevels)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, storeIntermediateLevels: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="true">true</MenuItem>
+                        <MenuItem value="false">false</MenuItem>
+                      </Select>
+                    </FormControl>
                   </Grid>
                 </Grid>
 
@@ -1029,7 +1412,6 @@ export default function BacktestLabWizard() {
                 </Stack>
               </>
             )}
-
             {step === 2 && (
               <>
                 {executionDataset ? (
@@ -1242,9 +1624,21 @@ export default function BacktestLabWizard() {
                     <Stack spacing={0.5}>
                       <Typography variant="subtitle2">{event.stage}</Typography>
                       <Typography variant="caption" color="text.secondary">{event.timeUtc ? new Date(event.timeUtc).toLocaleString() : 'N/A'}</Typography>
-                      <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                        {JSON.stringify(event.details || {}, null, 2)}
-                      </Typography>
+                      {event.stage === 'SWEEP' ? (
+                        <>
+                          <Typography variant="body2">Pool type: {String(event.details?.poolType || '-')}</Typography>
+                          <Typography variant="body2">Pool level: {String(event.details?.poolLevel || '-')}</Typography>
+                          <Typography variant="body2">Sweep extreme: {String(event.details?.sweepExtremePrice || '-')}</Typography>
+                          <Typography variant="body2">Sweep extreme time: {String(event.details?.sweepExtremeTime || event.timeUtc || '-')}</Typography>
+                          {event.details?.firstBreachTime ? (
+                            <Typography variant="body2">First breach: {String(event.details.firstBreachTime)}</Typography>
+                          ) : null}
+                        </>
+                      ) : (
+                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                          {JSON.stringify(event.details || {}, null, 2)}
+                        </Typography>
+                      )}
                     </Stack>
                   </CardContent>
                 </Card>

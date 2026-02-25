@@ -132,7 +132,7 @@ describe('BacktestLabWizard', () => {
           durationSec: 2400,
           evidence: {},
           timeline: [
-            { stage: 'SWEEP', timeUtc: '2026-02-05T08:10:00Z', details: { depth: 0.0008 } },
+            { stage: 'SWEEP', timeUtc: '2026-02-05T08:10:00Z', details: { poolLevel: '1.182920', sweepExtremePrice: '1.183800', sweepExtremeTime: '2026-02-05T08:10:00Z', depth: 0.0008 } },
             { stage: 'DISPLACEMENT', timeUtc: '2026-02-05T08:15:00Z', details: {} },
             { stage: 'MSS_BOS', timeUtc: '2026-02-05T08:20:00Z', details: {} },
             { stage: 'ENTRY', timeUtc: '2026-02-05T08:25:00Z', details: {} },
@@ -215,6 +215,8 @@ describe('BacktestLabWizard', () => {
     await user.click(timelineButton)
     expect(await screen.findByText('Trade Timeline')).toBeInTheDocument()
     expect(screen.getByText('SWEEP')).toBeInTheDocument()
+    expect(screen.getByText(/Pool level: 1.182920/i)).toBeInTheDocument()
+    expect(screen.getByText(/Sweep extreme: 1.183800/i)).toBeInTheDocument()
 
     await user.keyboard('{Escape}')
     await user.click(screen.getByRole('button', { name: /Generate Diagnostics Report/i }))
