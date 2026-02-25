@@ -6,6 +6,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Collapse,
   Divider,
   Drawer,
   FormControl,
@@ -156,6 +157,9 @@ const inferPipSize = (instrument: string) => {
 
 const toIsoDay = (value?: string | null) => {
   if (!value) return ''
+  const normalized = value.trim()
+  const isoPrefix = normalized.match(/^(\d{4}-\d{2}-\d{2})/)
+  if (isoPrefix?.[1]) return isoPrefix[1]
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return ''
   return date.toISOString().slice(0, 10)
@@ -312,6 +316,7 @@ export default function BacktestLabWizard() {
   const [results, setResults] = useState<BacktestLabRunResults | null>(null)
   const [report, setReport] = useState<BacktestRunReport | null>(null)
   const [selectedTrade, setSelectedTrade] = useState<BacktestLabTradeResult | null>(null)
+  const [showDatasetWarnings, setShowDatasetWarnings] = useState(false)
 
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -329,6 +334,10 @@ export default function BacktestLabWizard() {
     return resolveDatasetRangeBounds(executionDataset ? [executionDataset] : [])
   }, [executionDataset])
 
+  const datasetWarningIssues = executionDataset?.warnings || []
+  const datasetFatalIssues = executionDataset?.fatalErrors || []
+  const executionDatasetProcessing = executionDataset?.status === 'BUILDING' || executionDataset?.status === 'PROCESSING'
+
   const runWindowValid = useMemo(() => {
     if (!runWindow.fromUtc || !runWindow.toUtc) return false
     if (rangeBounds.min && runWindow.fromUtc < rangeBounds.min) return false
@@ -339,19 +348,26 @@ export default function BacktestLabWizard() {
   const canRunBacktest = useMemo(() => {
     if (!strategyConfigId) return false
     if (!executionDataset) return false
-    if (executionDataset.status !== 'READY') return false
+    if (executionDatasetProcessing) return false
+    if (!executionDataset.runnable) return false
     if ((executionDataset.candleCount || 0) <= 0) return false
     if (!runWindowValid) return false
     if (uploading || loadingDatasets || runBusy) return false
     return true
-  }, [executionDataset, loadingDatasets, runBusy, runWindowValid, strategyConfigId, uploading])
+  }, [executionDataset, executionDatasetProcessing, loadingDatasets, runBusy, runWindowValid, strategyConfigId, uploading])
 
   const runBlockedReason = useMemo(() => {
     if (!executionDataset) {
       return `Upload a dataset for ${strategyConfig.context.executionTimeframe} (or a lower timeframe to resample).`
     }
-    if (executionDataset.status !== 'READY') {
-      return `Selected timeframe dataset is ${executionDataset.status}. Wait until it is READY before running.`
+    if (executionDatasetProcessing) {
+      return `Selected timeframe dataset is ${executionDataset.status}. Wait until processing finishes.`
+    }
+    if (!executionDataset.runnable) {
+      if (datasetFatalIssues.length > 0) {
+        return datasetFatalIssues[0].message
+      }
+      return `Selected timeframe dataset is ${executionDataset.status} and is not runnable yet.`
     }
     if ((executionDataset.candleCount || 0) <= 0) {
       return `No persisted candles found for timeframe ${executionDataset.timeframe}. Re-import this CSV.`
@@ -360,7 +376,7 @@ export default function BacktestLabWizard() {
       return `Select a valid range between ${rangeBounds.min} and ${rangeBounds.max}.`
     }
     return ''
-  }, [executionDataset, rangeBounds.max, rangeBounds.min, runWindowValid, strategyConfig.context.executionTimeframe])
+  }, [datasetFatalIssues, executionDataset, executionDatasetProcessing, rangeBounds.max, rangeBounds.min, runWindowValid, strategyConfig.context.executionTimeframe])
 
   const loadDatasets = async (id: string) => {
     if (!id) return
@@ -496,8 +512,12 @@ export default function BacktestLabWizard() {
       setError(`Upload a dataset for timeframe ${strategyConfig.context.executionTimeframe} first.`)
       return
     }
-    if (executionDataset.status !== 'READY') {
-      setError(`Selected timeframe dataset is ${executionDataset.status}. Wait until it is READY.`)
+    if (executionDatasetProcessing) {
+      setError(`Selected timeframe dataset is ${executionDataset.status}. Wait until processing finishes.`)
+      return
+    }
+    if (!executionDataset.runnable) {
+      setError(datasetFatalIssues[0]?.message || `Selected timeframe dataset is ${executionDataset.status} and is not runnable.`)
       return
     }
     if ((executionDataset.candleCount || 0) <= 0) {
@@ -1014,13 +1034,44 @@ export default function BacktestLabWizard() {
               <>
                 {executionDataset ? (
                   <Alert severity="info">
-                    {`Execution TF ${strategyConfig.context.executionTimeframe} uses dataset TF ${executionDataset.timeframe} | Range ${executionDataset.minTimeUtc} → ${executionDataset.maxTimeUtc} | Candles ${executionDataset.candleCount} | Status ${executionDataset.status}`}
+                    {`Execution TF ${strategyConfig.context.executionTimeframe} uses dataset TF ${executionDataset.timeframe} | Range ${executionDataset.minTimeUtc} → ${executionDataset.maxTimeUtc} | Candles ${executionDataset.candleCount} | Status ${executionDataset.status} | Runnable ${executionDataset.runnable ? 'YES' : 'NO'}`}
                   </Alert>
                 ) : (
                   <Alert severity="warning">
                     {`No dataset available for execution timeframe ${strategyConfig.context.executionTimeframe}.`}
                   </Alert>
                 )}
+                {executionDataset?.status === 'WARN' && executionDataset.runnable ? (
+                  <Alert severity="warning">
+                    Dataset has warnings (gaps/duplicates/normalization), but it is runnable. You can run backtest anyway.
+                  </Alert>
+                ) : null}
+                {executionDataset && (datasetWarningIssues.length > 0 || datasetFatalIssues.length > 0) ? (
+                  <Stack spacing={1}>
+                    <Button
+                      variant="text"
+                      size="small"
+                      onClick={() => setShowDatasetWarnings((prev) => !prev)}
+                      sx={{ alignSelf: 'flex-start' }}
+                    >
+                      {showDatasetWarnings ? 'Hide warnings' : 'View warnings'}
+                    </Button>
+                    <Collapse in={showDatasetWarnings}>
+                      <Stack spacing={0.8} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1.5, p: 1.2 }}>
+                        {datasetWarningIssues.map((issue) => (
+                          <Typography key={`warn-${issue.code}-${issue.message}`} variant="body2" color="warning.dark">
+                            {`${issue.code}: ${issue.message}`}
+                          </Typography>
+                        ))}
+                        {datasetFatalIssues.map((issue) => (
+                          <Typography key={`fatal-${issue.code}-${issue.message}`} variant="body2" color="error.main">
+                            {`${issue.code}: ${issue.message}`}
+                          </Typography>
+                        ))}
+                      </Stack>
+                    </Collapse>
+                  </Stack>
+                ) : null}
                 <Grid container spacing={1}>
                   <Grid item xs={12} sm={4}>
                     <TextField
@@ -1067,6 +1118,11 @@ export default function BacktestLabWizard() {
                 {!runWindowValid && rangeBounds.min && rangeBounds.max ? (
                   <Alert severity="warning">
                     {`Select a valid range between ${rangeBounds.min} and ${rangeBounds.max}.`}
+                  </Alert>
+                ) : null}
+                {!executionDataset?.runnable && datasetFatalIssues.length > 0 ? (
+                  <Alert severity="error">
+                    {datasetFatalIssues[0].message}
                   </Alert>
                 ) : null}
                 {!canRunBacktest && strategyConfigId && runBlockedReason ? (

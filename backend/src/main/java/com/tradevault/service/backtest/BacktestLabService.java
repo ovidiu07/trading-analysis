@@ -22,6 +22,7 @@ import com.tradevault.dto.backtest.BacktestDatasetFileResponse;
 import com.tradevault.dto.backtest.BacktestDatasetSetCreateRequest;
 import com.tradevault.dto.backtest.BacktestDatasetSetDatasetsResponse;
 import com.tradevault.dto.backtest.BacktestDatasetSetResponse;
+import com.tradevault.dto.backtest.BacktestDatasetValidationIssueResponse;
 import com.tradevault.dto.backtest.BacktestLabRunRequest;
 import com.tradevault.dto.backtest.BacktestLabRunResponse;
 import com.tradevault.dto.backtest.BacktestLabRunResultsResponse;
@@ -1674,20 +1675,18 @@ public class BacktestLabService {
             );
         }
 
-        List<String> warnings = new ArrayList<>();
-        JsonNode warningNode = dataset.getMetadataJson() == null ? null : dataset.getMetadataJson().path("warnings");
-        if (warningNode != null && warningNode.isArray()) {
-            warningNode.forEach(item -> warnings.add(item.asText()));
-        }
+        DatasetValidationResult validation = validateDataset(dataset);
+        int candleCount = resolveDatasetCandleCount(dataset);
 
-        String status;
-        if (Boolean.FALSE.equals(dataset.getParsedOk())) {
-            status = "ERROR";
-        } else if (warnings.isEmpty()) {
-            status = "READY";
-        } else {
-            status = "WARN";
-        }
+        log.info(
+                "Dataset validation [datasetId={}, candlesCount={}, status={}, runnable={}, warningCodes={}, fatalCodes={}]",
+                dataset.getId(),
+                candleCount,
+                validation.status(),
+                validation.runnable(),
+                validation.warnings().stream().map(BacktestDatasetValidationIssueResponse::getCode).toList(),
+                validation.fatalErrors().stream().map(BacktestDatasetValidationIssueResponse::getCode).toList()
+        );
 
         return BacktestDatasetFileResponse.builder()
                 .datasetId(dataset.getId())
@@ -1695,11 +1694,170 @@ public class BacktestLabService {
                 .originalFilename(dataset.getOriginalFilename() == null ? dataset.getName() : dataset.getOriginalFilename())
                 .minTimeUtc(rangeMin(dataset))
                 .maxTimeUtc(rangeMax(dataset))
-                .candleCount(dataset.getCandleCount() == null ? dataset.getRowCount() : dataset.getCandleCount())
+                .candleCount(candleCount)
                 .columnsMapped(columnsMapped)
-                .status(status)
+                .status(validation.status())
+                .runnable(validation.runnable())
+                .minRequiredCandles(validation.minRequiredCandles())
                 .errorMsg(dataset.getErrorMsg())
-                .warnings(warnings)
+                .warnings(validation.warnings())
+                .fatalErrors(validation.fatalErrors())
+                .build();
+    }
+
+    private DatasetValidationResult validateDataset(BacktestDataset dataset) {
+        int candleCount = resolveDatasetCandleCount(dataset);
+        int minRequired = minRequiredCandles();
+        OffsetDateTime min = rangeMin(dataset);
+        OffsetDateTime max = rangeMax(dataset);
+        List<BacktestDatasetValidationIssueResponse> warningIssues = readWarningIssues(dataset);
+        List<BacktestDatasetValidationIssueResponse> fatalIssues = new ArrayList<>(readFatalIssues(dataset));
+
+        if (Boolean.FALSE.equals(dataset.getParsedOk())) {
+            fatalIssues.add(issue(
+                    "PARSE_FAILED",
+                    "Dataset parsing failed. Re-upload a clean CSV with valid timestamp/OHLC columns.",
+                    dataset.getErrorMsg()
+            ));
+        }
+
+        if (candleCount <= 0) {
+            fatalIssues.add(issue(
+                    "NO_CANDLES",
+                    "No candles were persisted for this dataset.",
+                    "Re-import the CSV and verify timestamp plus OHLC mappings."
+            ));
+        } else if (candleCount < minRequired) {
+            fatalIssues.add(issue(
+                    "INSUFFICIENT_CANDLES",
+                    "Need at least %d candles to run safely; found %d.".formatted(minRequired, candleCount),
+                    "Widen the date range or import more history."
+            ));
+        }
+
+        if (min == null || max == null) {
+            fatalIssues.add(issue(
+                    "RANGE_UNAVAILABLE",
+                    "Dataset range is unavailable (missing min/max timestamp).",
+                    "Re-import this dataset to rebuild range metadata."
+            ));
+        } else if (min.isAfter(max)) {
+            fatalIssues.add(issue(
+                    "RANGE_INVALID",
+                    "Dataset range is invalid because min timestamp is after max timestamp.",
+                    "Re-import this dataset to rebuild range metadata."
+            ));
+        }
+
+        List<BacktestDatasetValidationIssueResponse> dedupedWarnings = deduplicateIssues(warningIssues);
+        List<BacktestDatasetValidationIssueResponse> dedupedFatals = deduplicateIssues(fatalIssues);
+        boolean runnable = dedupedFatals.isEmpty();
+        String status = runnable
+                ? (dedupedWarnings.isEmpty() ? "READY" : "WARN")
+                : "ERROR";
+
+        return new DatasetValidationResult(status, runnable, minRequired, dedupedWarnings, dedupedFatals);
+    }
+
+    private List<BacktestDatasetValidationIssueResponse> readWarningIssues(BacktestDataset dataset) {
+        JsonNode warningNode = dataset.getMetadataJson() == null ? null : dataset.getMetadataJson().path("warnings");
+        if (warningNode == null || !warningNode.isArray()) {
+            return List.of();
+        }
+        List<BacktestDatasetValidationIssueResponse> warnings = new ArrayList<>();
+        for (JsonNode item : warningNode) {
+            if (item == null || item.isNull()) {
+                continue;
+            }
+            String message = item.asText(null);
+            if (message == null || message.isBlank()) {
+                continue;
+            }
+            warnings.add(issue(mapWarningCode(message), message, null));
+        }
+        return warnings;
+    }
+
+    private List<BacktestDatasetValidationIssueResponse> readFatalIssues(BacktestDataset dataset) {
+        JsonNode fatalNode = dataset.getMetadataJson() == null ? null : dataset.getMetadataJson().path("fatalErrors");
+        if (fatalNode == null || !fatalNode.isArray()) {
+            return List.of();
+        }
+        List<BacktestDatasetValidationIssueResponse> fatalErrors = new ArrayList<>();
+        for (JsonNode item : fatalNode) {
+            if (item == null || item.isNull()) {
+                continue;
+            }
+            if (item.isObject()) {
+                String code = text(item.path("code"), "VALIDATION_ERROR");
+                String message = text(item.path("message"), null);
+                String details = text(item.path("details"), null);
+                if (message != null && !message.isBlank()) {
+                    fatalErrors.add(issue(code, message, details));
+                }
+                continue;
+            }
+            String message = item.asText(null);
+            if (message != null && !message.isBlank()) {
+                fatalErrors.add(issue("VALIDATION_ERROR", message, null));
+            }
+        }
+        return fatalErrors;
+    }
+
+    private List<BacktestDatasetValidationIssueResponse> deduplicateIssues(List<BacktestDatasetValidationIssueResponse> issues) {
+        if (issues == null || issues.isEmpty()) {
+            return List.of();
+        }
+        Set<String> seen = new LinkedHashSet<>();
+        List<BacktestDatasetValidationIssueResponse> deduped = new ArrayList<>();
+        for (BacktestDatasetValidationIssueResponse issue : issues) {
+            if (issue == null || issue.getMessage() == null || issue.getMessage().isBlank()) {
+                continue;
+            }
+            String key = "%s|%s".formatted(
+                    issue.getCode() == null ? "UNKNOWN" : issue.getCode(),
+                    issue.getMessage().trim()
+            );
+            if (seen.add(key)) {
+                deduped.add(issue);
+            }
+        }
+        return deduped;
+    }
+
+    private String mapWarningCode(String warningMessage) {
+        String normalized = warningMessage == null ? "" : warningMessage.toLowerCase(Locale.ROOT);
+        if (normalized.contains("duplicate")) {
+            return "DUPLICATES_REMOVED";
+        }
+        if (normalized.contains("gap")) {
+            return "GAPS_DETECTED";
+        }
+        if (normalized.contains("unsorted")) {
+            return "UNSORTED_NORMALIZED";
+        }
+        if (normalized.contains("skipped") && normalized.contains("invalid")) {
+            return "INVALID_ROWS_SKIPPED";
+        }
+        return "DATA_WARNING";
+    }
+
+    private int resolveDatasetCandleCount(BacktestDataset dataset) {
+        if (dataset == null) {
+            return 0;
+        }
+        if (dataset.getCandleCount() != null && dataset.getCandleCount() > 0) {
+            return dataset.getCandleCount();
+        }
+        return dataset.getRowCount() == null ? 0 : Math.max(0, dataset.getRowCount());
+    }
+
+    private BacktestDatasetValidationIssueResponse issue(String code, String message, String details) {
+        return BacktestDatasetValidationIssueResponse.builder()
+                .code(code)
+                .message(message)
+                .details(details)
                 .build();
     }
 
@@ -2406,6 +2564,15 @@ public class BacktestLabService {
             Integer candleCountInRange,
             Integer minRequiredCandles,
             List<String> warnings
+    ) {
+    }
+
+    private record DatasetValidationResult(
+            String status,
+            boolean runnable,
+            int minRequiredCandles,
+            List<BacktestDatasetValidationIssueResponse> warnings,
+            List<BacktestDatasetValidationIssueResponse> fatalErrors
     ) {
     }
 

@@ -42,7 +42,10 @@ describe('BacktestLabWizard', () => {
       candleCount: 2880,
       columnsMapped: 'time/open/high/low/close',
       status: 'READY',
-      warnings: []
+      runnable: true,
+      minRequiredCandles: 30,
+      warnings: [],
+      fatalErrors: []
     })
     backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
       datasetSetId: 'set-1',
@@ -58,7 +61,10 @@ describe('BacktestLabWizard', () => {
           candleCount: 2880,
           columnsMapped: 'time/open/high/low/close',
           status: 'READY',
-          warnings: []
+          runnable: true,
+          minRequiredCandles: 30,
+          warnings: [],
+          fatalErrors: []
         }
       ],
       sessionPreview: [
@@ -231,7 +237,10 @@ describe('BacktestLabWizard', () => {
           candleCount: 2880,
           columnsMapped: 'time/open/high/low/close',
           status: 'READY',
-          warnings: []
+          runnable: true,
+          minRequiredCandles: 30,
+          warnings: [],
+          fatalErrors: []
         }
       ],
       sessionPreview: []
@@ -267,7 +276,10 @@ describe('BacktestLabWizard', () => {
           candleCount: 21024,
           columnsMapped: 'time/open/high/low/close',
           status: 'READY',
-          warnings: []
+          runnable: true,
+          minRequiredCandles: 30,
+          warnings: [],
+          fatalErrors: []
         },
         {
           datasetId: 'dataset-d1',
@@ -278,7 +290,10 @@ describe('BacktestLabWizard', () => {
           candleCount: 6181,
           columnsMapped: 'time/open/high/low/close',
           status: 'READY',
-          warnings: []
+          runnable: true,
+          minRequiredCandles: 30,
+          warnings: [],
+          fatalErrors: []
         }
       ],
       sessionPreview: []
@@ -318,7 +333,48 @@ describe('BacktestLabWizard', () => {
     expect(backtestApiMock.runBacktestDatasetSet.mock.calls.length).toBe(callsBefore)
   })
 
-  it('disables run button when selected timeframe dataset is not ready', async () => {
+  it('enables run button and shows warning panel when dataset is WARN but runnable', async () => {
+    const user = userEvent.setup()
+    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
+      datasetSetId: 'set-1',
+      instrument: 'EURUSD',
+      timezoneBasis: 'UTC',
+      datasets: [
+        {
+          datasetId: 'dataset-m5',
+          timeframe: 'M5',
+          originalFilename: 'EURUSD_M5.csv',
+          minTimeUtc: '2025-11-09T22:00:00Z',
+          maxTimeUtc: '2026-02-20T21:55:00Z',
+          candleCount: 21024,
+          columnsMapped: 'time/open/high/low/close',
+          status: 'WARN',
+          runnable: true,
+          minRequiredCandles: 30,
+          warnings: [{ code: 'DUPLICATES_REMOVED', message: 'Removed 4 duplicate timestamps.' }],
+          fatalErrors: []
+        }
+      ],
+      sessionPreview: []
+    })
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+
+    expect(await screen.findByText(/Dataset has warnings/i)).toBeInTheDocument()
+    const runButton = screen.getByRole('button', { name: /Run backtest/i })
+    expect(runButton).toBeEnabled()
+
+    await user.click(screen.getByRole('button', { name: /View warnings/i }))
+    expect(await screen.findByText(/DUPLICATES_REMOVED: Removed 4 duplicate timestamps./i)).toBeInTheDocument()
+  })
+
+  it('disables run button when selected timeframe dataset is not runnable', async () => {
     const user = userEvent.setup()
     backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
       datasetSetId: 'set-1',
@@ -334,7 +390,10 @@ describe('BacktestLabWizard', () => {
           candleCount: 0,
           columnsMapped: 'time/open/high/low/close',
           status: 'WARN',
-          warnings: []
+          runnable: false,
+          minRequiredCandles: 30,
+          warnings: [],
+          fatalErrors: [{ code: 'NO_CANDLES', message: 'No candles were persisted for this dataset.' }]
         }
       ],
       sessionPreview: []
@@ -348,7 +407,7 @@ describe('BacktestLabWizard', () => {
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
 
-    expect(await screen.findByText(/Selected timeframe dataset is WARN/i)).toBeInTheDocument()
+    expect((await screen.findAllByText(/No candles were persisted for this dataset./i)).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /Run backtest/i })).toBeDisabled()
   })
 

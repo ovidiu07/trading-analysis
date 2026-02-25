@@ -140,6 +140,7 @@ class BacktestCsvServiceTest {
 
         assertThat(response.getDataset()).isNotNull();
         assertThat(response.getDataset().getProvider()).isEqualTo("CSV");
+        assertThat(response.getDataset().getRowCount()).isGreaterThan(0);
         verify(chunkStoreService).saveCandles(eq(userId), eq(BacktestCandleSource.CSV), any(), eq("EURUSD"), eq("EURUSD"), eq(BacktestTimeframe.M5), any());
     }
 

@@ -18,6 +18,9 @@ public class BacktestDatasetFileResponse {
     int candleCount;
     String columnsMapped;
     String status;
+    boolean runnable;
+    int minRequiredCandles;
     String errorMsg;
-    List<String> warnings;
+    List<BacktestDatasetValidationIssueResponse> warnings;
+    List<BacktestDatasetValidationIssueResponse> fatalErrors;
 }

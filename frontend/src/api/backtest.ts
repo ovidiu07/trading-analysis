@@ -159,6 +159,12 @@ export type BacktestDatasetSet = {
   createdAt: string
 }
 
+export type BacktestDatasetValidationIssue = {
+  code: string
+  message: string
+  details?: string | null
+}
+
 export type BacktestDatasetFile = {
   datasetId: string
   timeframe: string
@@ -167,9 +173,12 @@ export type BacktestDatasetFile = {
   maxTimeUtc: string
   candleCount: number
   columnsMapped: string
-  status: 'READY' | 'WARN' | 'ERROR'
+  status: 'READY' | 'WARN' | 'ERROR' | 'BUILDING' | 'PROCESSING'
+  runnable: boolean
+  minRequiredCandles: number
   errorMsg?: string | null
-  warnings: string[]
+  warnings: BacktestDatasetValidationIssue[]
+  fatalErrors: BacktestDatasetValidationIssue[]
 }
 
 export type BacktestSessionPreview = {

@@ -1,6 +1,8 @@
 package com.tradevault.service.backtest;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.BacktestDataset;
 import com.tradevault.domain.entity.BacktestDatasetSet;
 import com.tradevault.domain.entity.BacktestRun;
@@ -234,6 +236,46 @@ class BacktestLabServiceTest {
     }
 
     @Test
+    void listDatasetsKeepsWarnStatusRunnableWhenOnlyWarningsExist() {
+        ObjectNode metadata = new ObjectMapper().createObjectNode();
+        ArrayNode warnings = metadata.putArray("warnings");
+        warnings.add("Removed 2 duplicate timestamps.");
+        dataset.setMetadataJson(metadata);
+        dataset.setParsedOk(true);
+        dataset.setErrorMsg(null);
+        dataset.setCandleCount(500);
+
+        BacktestDatasetSetDatasetsResponse response = service.listDatasets(datasetSet.getId());
+
+        assertThat(response.getDatasets()).hasSize(1);
+        assertThat(response.getDatasets().get(0).getStatus()).isEqualTo("WARN");
+        assertThat(response.getDatasets().get(0).isRunnable()).isTrue();
+        assertThat(response.getDatasets().get(0).getWarnings())
+                .extracting(item -> item.getCode())
+                .contains("DUPLICATES_REMOVED");
+        assertThat(response.getDatasets().get(0).getFatalErrors()).isEmpty();
+    }
+
+    @Test
+    void listDatasetsMarksDatasetAsErrorWhenFatalValidationExists() {
+        dataset.setMetadataJson(new ObjectMapper().createObjectNode());
+        dataset.setParsedOk(false);
+        dataset.setErrorMsg("Invalid timestamp value at row 3.");
+        dataset.setCandleCount(0);
+        dataset.setMinTimeUtc(null);
+        dataset.setMaxTimeUtc(null);
+
+        BacktestDatasetSetDatasetsResponse response = service.listDatasets(datasetSet.getId());
+
+        assertThat(response.getDatasets()).hasSize(1);
+        assertThat(response.getDatasets().get(0).getStatus()).isEqualTo("ERROR");
+        assertThat(response.getDatasets().get(0).isRunnable()).isFalse();
+        assertThat(response.getDatasets().get(0).getFatalErrors())
+                .extracting(item -> item.getCode())
+                .contains("PARSE_FAILED");
+    }
+
+    @Test
     void uploadCsvSetsPersistedCandleCountFromStoredCandles() {
         UUID fileId = UUID.randomUUID();
         MockMultipartFile file = new MockMultipartFile(
@@ -271,7 +313,8 @@ class BacktestLabServiceTest {
         var response = service.uploadCsv(datasetSet.getId(), file);
 
         assertThat(response.getCandleCount()).isEqualTo(5);
-        assertThat(response.getStatus()).isEqualTo("READY");
+        assertThat(response.getStatus()).isEqualTo("ERROR");
+        assertThat(response.isRunnable()).isFalse();
         assertThat(dataset.getCandleCount()).isEqualTo(5);
         assertThat(dataset.getMinTimeUtc()).isEqualTo(OffsetDateTime.parse("2026-02-03T08:00:00Z"));
         assertThat(dataset.getMaxTimeUtc()).isEqualTo(OffsetDateTime.parse("2026-02-03T08:20:00Z"));
