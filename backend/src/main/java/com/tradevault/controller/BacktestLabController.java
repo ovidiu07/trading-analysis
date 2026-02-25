@@ -7,6 +7,8 @@ import com.tradevault.dto.backtest.BacktestDatasetSetResponse;
 import com.tradevault.dto.backtest.BacktestLabRunRequest;
 import com.tradevault.dto.backtest.BacktestLabRunResponse;
 import com.tradevault.dto.backtest.BacktestLabRunResultsResponse;
+import com.tradevault.dto.backtest.BacktestOptimizerRunRequest;
+import com.tradevault.dto.backtest.BacktestOptimizerRunResponse;
 import com.tradevault.dto.backtest.BacktestRunReportResponse;
 import com.tradevault.dto.backtest.BacktestStrategyConfigResponse;
 import com.tradevault.dto.backtest.BacktestStrategyConfigUpsertRequest;
@@ -61,6 +63,17 @@ public class BacktestLabController {
     public ResponseEntity<BacktestLabRunResponse> runDatasetSetBacktest(@PathVariable UUID id,
                                                                          @RequestBody(required = false) BacktestLabRunRequest request) {
         return ResponseEntity.ok(backtestLabService.run(id, request));
+    }
+
+    @PostMapping("/dataset-sets/{id}/optimizer/runs")
+    public ResponseEntity<BacktestOptimizerRunResponse> runOptimizer(@PathVariable UUID id,
+                                                                      @RequestBody(required = false) BacktestOptimizerRunRequest request) {
+        return ResponseEntity.ok(backtestLabService.runOptimizer(id, request));
+    }
+
+    @GetMapping("/optimizer/runs/{optimizerRunId}")
+    public ResponseEntity<BacktestOptimizerRunResponse> getOptimizerRun(@PathVariable UUID optimizerRunId) {
+        return ResponseEntity.ok(backtestLabService.getOptimizerRun(optimizerRunId));
     }
 
     @GetMapping("/runs/{runId}/results")

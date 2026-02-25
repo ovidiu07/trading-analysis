@@ -290,6 +290,38 @@ export type BacktestRunReport = {
   createdAtUtc: string
 }
 
+export type BacktestOptimizerGrid = {
+  mssMinConfirmCandles?: number[]
+  displacementType?: string[]
+  retraceRequired?: boolean[]
+  retraceMinPct?: number[]
+  sweepMinDepthPips?: number[]
+}
+
+export type BacktestOptimizerVariantResult = {
+  rank: number
+  params: Record<string, unknown>
+  trades?: number | null
+  sampleSize?: number | null
+  winRate?: number | null
+  profitFactor?: number | null
+  expectancyR?: number | null
+  avgR?: number | null
+  maxDdR?: number | null
+  fillRate?: number | null
+}
+
+export type BacktestOptimizerRun = {
+  optimizerRunId: string
+  status: string
+  variantCount: number
+  maxVariants: number
+  truncated: boolean
+  createdAtUtc: string
+  summary: Record<string, unknown>
+  variants: BacktestOptimizerVariantResult[]
+}
+
 export async function createBacktestRun(payload: {
   symbol: string
   timeframe: string
@@ -477,4 +509,19 @@ export async function getBacktestRunResultsV2(runId: string) {
 
 export async function getBacktestRunReportV2(runId: string) {
   return apiGet<BacktestRunReport>(`/backtest/runs/${encodeURIComponent(runId)}/report`)
+}
+
+export async function runBacktestOptimizer(datasetSetId: string, payload: {
+  strategyConfigId?: string
+  fromUtc?: string
+  toUtc?: string
+  sessionFilter?: string
+  maxVariants?: number
+  grid?: BacktestOptimizerGrid
+}) {
+  return apiPost<BacktestOptimizerRun>(`/backtest/dataset-sets/${encodeURIComponent(datasetSetId)}/optimizer/runs`, payload)
+}
+
+export async function getBacktestOptimizerRun(optimizerRunId: string) {
+  return apiGet<BacktestOptimizerRun>(`/backtest/optimizer/runs/${encodeURIComponent(optimizerRunId)}`)
 }

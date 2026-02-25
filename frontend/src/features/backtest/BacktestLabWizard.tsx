@@ -12,6 +12,7 @@ import {
   FormControl,
   Grid,
   InputLabel,
+  IconButton,
   LinearProgress,
   MenuItem,
   Select,
@@ -26,6 +27,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
   useMediaQuery,
   useTheme
@@ -34,8 +36,10 @@ import UploadFileRoundedIcon from '@mui/icons-material/UploadFileRounded'
 import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded'
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
+import InfoOutlinedRoundedIcon from '@mui/icons-material/InfoOutlined'
 import { Link } from 'react-router-dom'
 import {
+  BacktestOptimizerRun,
   BacktestDatasetSetDatasets,
   BacktestLabRun,
   BacktestLabRunResults,
@@ -43,14 +47,17 @@ import {
   BacktestRunReport,
   createBacktestDatasetSet,
   deleteBacktestDataset,
+  getBacktestOptimizerRun,
   getBacktestDatasetSetDatasets,
   getBacktestRunReportV2,
   getBacktestRunResultsV2,
+  runBacktestOptimizer,
   runBacktestDatasetSet,
   saveBacktestStrategyConfig,
   uploadBacktestDatasetCsv
 } from '../../api/backtest'
 import MarkdownContent from '../../components/ui/MarkdownContent'
+import { formatUtcTimestamp } from './formatUtc'
 
 const STORAGE_KEY = 'session.backtestLab.datasetSetId'
 const PRESET_STORAGE_KEY = 'session.backtestLab.strategyPresets.v1'
@@ -61,6 +68,18 @@ type SessionName = 'ASIA' | 'LONDON' | 'NY_AM' | 'NY_PM'
 type PoolType = 'EQH' | 'EQL' | 'ASIA_H' | 'ASIA_L' | 'LONDON_H' | 'LONDON_L' | 'NY_AM_H' | 'NY_AM_L' | 'PDH' | 'PDL' | 'PWH' | 'PWL'
 type SwingDetectionMethod = 'FRACTAL' | 'PIVOT_N' | 'SWING_HL'
 type MssAnchorLevel = 'LAST_SWING_HIGH_LOW' | 'DISPLACEMENT_ORIGIN' | 'INTERNAL_STRUCTURE'
+type DisplacementType = 'GAP_REQUIRED' | 'GAP_OPTIONAL' | 'NO_GAP_ONLY'
+type DisplacementGapDefinition = 'THREE_CANDLE_FVG' | 'TWO_CANDLE_GAP'
+type MssInvalidationRule = 'CLOSE_BACK_THROUGH_LEVEL'
+type RetraceReference = 'GAP_FILL' | 'IMPULSE_LEG'
+type OptimizerState = {
+  maxVariants: number
+  mssMinConfirmCandles: string
+  displacementType: string
+  retraceRequired: string
+  retraceMinPct: string
+  sweepMinDepthPips: string
+}
 
 type StrategyConfigState = {
   name: string
@@ -110,6 +129,8 @@ type StrategyConfigState = {
     sessionTimezone: string
     sessionsEnabled: SessionName[]
     sessionTimeRanges: Record<SessionName, { start: string, end: string, zoneId: string }>
+    requireKillzone: boolean
+    killzoneWindowsUtc: Partial<Record<SessionName, { start: string, end: string, zoneId: string }>>
     sweepSourceSessions: SessionName[]
     evaluationSessionFilter: SessionName[]
     poolTypesEnabled: PoolType[]
@@ -118,24 +139,34 @@ type StrategyConfigState = {
     poolMinTouches: number
     poolMinSeparationBars: number
     poolMinAgeBars: number
-    poolRankRule: 'TOUCH_COUNT' | 'LARGEST_SWING' | 'NEAREST_RECENT'
+    poolRankRule: 'MOST_TOUCHES_THEN_RECENCY' | 'TOUCH_COUNT' | 'LARGEST_SWING' | 'NEAREST_RECENT'
     sweepMinDepthPips: number
     sweepMaxDurationBars: number
     sweepRequiresReclaim: boolean
     sweepRequiresLiquidityType: boolean
-    sweepSelectRule: 'LARGEST_DEPTH' | 'NEWEST_SESSION_LEVEL' | 'HIGHEST_RANKED_POOL'
+    sweepSelectRule: 'MAX_DEPTH_THEN_BEST_RANKED_POOL' | 'LARGEST_DEPTH' | 'NEWEST_SESSION_LEVEL' | 'HIGHEST_RANKED_POOL'
     displacementTimeframe: string
     displacementMaxDelayBarsAfterSweep: number
     displacementMinBodyPips: number
     displacementMinBodyVsAvgMult: number
     displacementRequiresCloseBeyondLevel: boolean
-    displacementNoInstantOverlap: boolean
-    structureTimeframe: string
+    displacementNoInstantOverlapBars: number
+    displacementType: DisplacementType
+    displacementGapDefinition: DisplacementGapDefinition
+    displacementGapMinPips: number
+    mssTf: string
     swingDetectionMethod: SwingDetectionMethod
     swingPivotN: number
     mssRequiresClose: boolean
-    mssMaxDelayBarsAfterDisplacement: number
+    mssMinConfirmCandles: number
+    mssMaxConfirmWindowBars: number
+    mssInvalidationRule: MssInvalidationRule
     mssAnchorLevel: MssAnchorLevel
+    retraceRequired: boolean
+    retraceReference: RetraceReference
+    retraceMinPct: number
+    retraceMaxWaitBars: number
+    retraceAcceptWickTouch: boolean
     entryRequiresFvgRetest: boolean
     entryRequiresDiscountPremium: boolean
     fillPolicy: 'MID' | 'BID_ASK_SIM'
@@ -149,7 +180,7 @@ const defaultConfig = (): StrategyConfigState => ({
   context: {
     pipSize: 0.0001,
     spreadPips: 0.8,
-    slippagePips: 0.2,
+    slippagePips: 0.3,
     touchTolerancePips: 0.5,
     timezoneBasis: 'UTC',
     executionTimeframe: 'M5'
@@ -168,7 +199,7 @@ const defaultConfig = (): StrategyConfigState => ({
     direction: 'AUTO_FROM_SWEEP'
   },
   entryModel: {
-    type: 'MARKET_ON_CONFIRM_CLOSE',
+    type: 'LIMIT_RETRACE_PERCENT',
     retracePercent: 50,
     entryWindowBars: 5
   },
@@ -176,7 +207,7 @@ const defaultConfig = (): StrategyConfigState => ({
     stopRule: 'SWEEP_EXTREME_PLUS_BUFFER',
     tpRule: 'FIXED_R',
     fixedR: 2,
-    minRR: 1.5
+    minRR: 2
   },
   qualityFilters: {
     displacementMultiplier: 1.5,
@@ -197,32 +228,47 @@ const defaultConfig = (): StrategyConfigState => ({
       NY_AM: { start: '13:00', end: '17:00', zoneId: 'UTC' },
       NY_PM: { start: '17:00', end: '22:00', zoneId: 'UTC' }
     },
+    requireKillzone: true,
+    killzoneWindowsUtc: {
+      LONDON: { start: '07:00', end: '10:00', zoneId: 'UTC' },
+      NY_AM: { start: '12:30', end: '15:30', zoneId: 'UTC' }
+    },
     sweepSourceSessions: ['ASIA', 'LONDON', 'NY_AM'],
     evaluationSessionFilter: ['LONDON'],
     poolTypesEnabled: ['EQH', 'EQL', 'ASIA_H', 'ASIA_L', 'LONDON_H', 'LONDON_L', 'NY_AM_H', 'NY_AM_L', 'PDH', 'PDL', 'PWH', 'PWL'],
     poolTimeframeForDetection: 'M15',
     poolTouchTolerancePips: 1,
     poolMinTouches: 2,
-    poolMinSeparationBars: 3,
-    poolMinAgeBars: 2,
-    poolRankRule: 'TOUCH_COUNT',
-    sweepMinDepthPips: 2,
-    sweepMaxDurationBars: 4,
+    poolMinSeparationBars: 6,
+    poolMinAgeBars: 12,
+    poolRankRule: 'MOST_TOUCHES_THEN_RECENCY',
+    sweepMinDepthPips: 4,
+    sweepMaxDurationBars: 5,
     sweepRequiresReclaim: true,
     sweepRequiresLiquidityType: true,
-    sweepSelectRule: 'LARGEST_DEPTH',
+    sweepSelectRule: 'MAX_DEPTH_THEN_BEST_RANKED_POOL',
     displacementTimeframe: 'M5',
-    displacementMaxDelayBarsAfterSweep: 3,
-    displacementMinBodyPips: 4,
-    displacementMinBodyVsAvgMult: 1.5,
+    displacementMaxDelayBarsAfterSweep: 2,
+    displacementMinBodyPips: 6,
+    displacementMinBodyVsAvgMult: 1.8,
     displacementRequiresCloseBeyondLevel: true,
-    displacementNoInstantOverlap: false,
-    structureTimeframe: 'M5',
+    displacementNoInstantOverlapBars: 1,
+    displacementType: 'GAP_OPTIONAL',
+    displacementGapDefinition: 'THREE_CANDLE_FVG',
+    displacementGapMinPips: 2,
+    mssTf: 'M5',
     swingDetectionMethod: 'PIVOT_N',
     swingPivotN: 2,
     mssRequiresClose: true,
-    mssMaxDelayBarsAfterDisplacement: 4,
+    mssMinConfirmCandles: 3,
+    mssMaxConfirmWindowBars: 8,
+    mssInvalidationRule: 'CLOSE_BACK_THROUGH_LEVEL',
     mssAnchorLevel: 'LAST_SWING_HIGH_LOW',
+    retraceRequired: true,
+    retraceReference: 'GAP_FILL',
+    retraceMinPct: 50,
+    retraceMaxWaitBars: 6,
+    retraceAcceptWickTouch: true,
     entryRequiresFvgRetest: false,
     entryRequiresDiscountPremium: false,
     fillPolicy: 'BID_ASK_SIM',
@@ -234,6 +280,17 @@ const defaultConfig = (): StrategyConfigState => ({
 const SESSION_NAMES: SessionName[] = ['ASIA', 'LONDON', 'NY_AM', 'NY_PM']
 const POOL_TYPES: PoolType[] = ['EQH', 'EQL', 'ASIA_H', 'ASIA_L', 'LONDON_H', 'LONDON_L', 'NY_AM_H', 'NY_AM_L', 'PDH', 'PDL', 'PWH', 'PWL']
 
+const HintLabel = ({ label, tooltip }: { label: string, tooltip: string }) => (
+  <Stack direction="row" spacing={0.4} alignItems="center">
+    <span>{label}</span>
+    <Tooltip title={tooltip} placement="top" arrow>
+      <IconButton size="small" sx={{ p: 0 }}>
+        <InfoOutlinedRoundedIcon fontSize="inherit" />
+      </IconButton>
+    </Tooltip>
+  </Stack>
+)
+
 const parseCsvSelection = <T extends string>(value: string, allowed: readonly T[]): T[] => {
   const selected = value
     .split(',')
@@ -241,6 +298,17 @@ const parseCsvSelection = <T extends string>(value: string, allowed: readonly T[
     .filter(Boolean)
   return selected.filter((item): item is T => (allowed as readonly string[]).includes(item))
 }
+
+const parseNumberList = (value: string) => value
+  .split(',')
+  .map((item) => Number(item.trim()))
+  .filter((item) => Number.isFinite(item))
+
+const parseBooleanList = (value: string) => value
+  .split(',')
+  .map((item) => item.trim().toLowerCase())
+  .filter(Boolean)
+  .map((item) => item === 'true')
 
 const inferPipSize = (instrument: string) => {
   const symbol = instrument.toUpperCase()
@@ -450,6 +518,17 @@ export default function BacktestLabWizard() {
   const [report, setReport] = useState<BacktestRunReport | null>(null)
   const [selectedTrade, setSelectedTrade] = useState<BacktestLabTradeResult | null>(null)
   const [showDatasetWarnings, setShowDatasetWarnings] = useState(false)
+  const [optimizerBusy, setOptimizerBusy] = useState(false)
+  const [optimizerResults, setOptimizerResults] = useState<BacktestOptimizerRun | null>(null)
+  const [optimizerState, setOptimizerState] = useState<OptimizerState>({
+    maxVariants: 100,
+    mssMinConfirmCandles: '2,3,4,5',
+    displacementType: 'GAP_OPTIONAL,GAP_REQUIRED,NO_GAP_ONLY',
+    retraceRequired: 'true,false',
+    retraceMinPct: '0,50,62',
+    sweepMinDepthPips: '3,4,5,6'
+  })
+  const [optimizerSortBy, setOptimizerSortBy] = useState<'rank' | 'expectancyR' | 'winRate' | 'profitFactor' | 'maxDdR'>('rank')
 
   const inputRef = useRef<HTMLInputElement | null>(null)
 
@@ -481,6 +560,12 @@ export default function BacktestLabWizard() {
     }
     if (strategyConfig.smc.sweepMinDepthPips < 1) {
       warnings.push('Sweep min depth below 1 pip is usually too permissive and captures micro-liquidity.')
+    }
+    if (strategyConfig.smc.mssMinConfirmCandles < 1) {
+      warnings.push('MSS min confirm candles should be at least 1.')
+    }
+    if (strategyConfig.smc.poolMinAgeBars < 0 || strategyConfig.smc.poolMinSeparationBars < 0) {
+      warnings.push('Pool age/separation must be non-negative.')
     }
     if (strategyConfig.smc.displacementMinBodyVsAvgMult < 1) {
       warnings.push('Displacement body-vs-average multiplier under 1.0 is very loose.')
@@ -533,6 +618,21 @@ export default function BacktestLabWizard() {
     }
     return ''
   }, [datasetFatalIssues, executionDataset, executionDatasetProcessing, rangeBounds.max, rangeBounds.min, runWindowValid, strategyConfig.context.executionTimeframe])
+
+  const sortedOptimizerVariants = useMemo(() => {
+    const rows = [...(optimizerResults?.variants || [])]
+    if (optimizerSortBy === 'rank') {
+      return rows.sort((a, b) => (a.rank || 0) - (b.rank || 0))
+    }
+    return rows.sort((a, b) => {
+      const av = Number((a as any)[optimizerSortBy] ?? Number.NEGATIVE_INFINITY)
+      const bv = Number((b as any)[optimizerSortBy] ?? Number.NEGATIVE_INFINITY)
+      if (optimizerSortBy === 'maxDdR') {
+        return av - bv
+      }
+      return bv - av
+    })
+  }, [optimizerResults?.variants, optimizerSortBy])
 
   const loadDatasets = async (id: string) => {
     if (!id) return
@@ -676,6 +776,20 @@ export default function BacktestLabWizard() {
     setSuccess(`Preset "${key}" loaded.`)
   }
 
+  const handleApplyHqDefaults = () => {
+    const base = defaultConfig()
+    setStrategyConfig({
+      ...base,
+      name: strategyConfig.name || base.name,
+      context: {
+        ...base.context,
+        pipSize: inferPipSize(instrument || 'EURUSD'),
+        executionTimeframe: strategyConfig.context.executionTimeframe || base.context.executionTimeframe
+      }
+    })
+    setSuccess('HQ defaults applied.')
+  }
+
   const loadRunArtifacts = async (runId: string) => {
     const runResults = await getBacktestRunResultsV2(runId)
     setResults(runResults)
@@ -684,6 +798,45 @@ export default function BacktestLabWizard() {
       setReport(runReport)
     } catch {
       setReport(null)
+    }
+  }
+
+  const handleRunOptimizer = async () => {
+    if (!datasetSetId || !strategyConfigId || !executionDataset || !runWindowValid) {
+      setError('Save strategy and set a valid run window before optimizer.')
+      return
+    }
+    setOptimizerBusy(true)
+    setError('')
+    try {
+      const fromUtc = runWindow.fromUtc === toIsoDay(executionDataset.minTimeUtc)
+        ? executionDataset.minTimeUtc
+        : `${runWindow.fromUtc}T00:00:00Z`
+      const toUtc = runWindow.toUtc === toIsoDay(executionDataset.maxTimeUtc)
+        ? executionDataset.maxTimeUtc
+        : `${runWindow.toUtc}T23:59:59Z`
+
+      const started = await runBacktestOptimizer(datasetSetId, {
+        strategyConfigId,
+        fromUtc,
+        toUtc,
+        sessionFilter: runWindow.sessionFilter || undefined,
+        maxVariants: optimizerState.maxVariants,
+        grid: {
+          mssMinConfirmCandles: parseNumberList(optimizerState.mssMinConfirmCandles).map((item) => Math.trunc(item)),
+          displacementType: optimizerState.displacementType.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean),
+          retraceRequired: parseBooleanList(optimizerState.retraceRequired),
+          retraceMinPct: parseNumberList(optimizerState.retraceMinPct),
+          sweepMinDepthPips: parseNumberList(optimizerState.sweepMinDepthPips)
+        }
+      })
+      const persisted = await getBacktestOptimizerRun(started.optimizerRunId)
+      setOptimizerResults(persisted)
+      setSuccess(`Optimizer completed with ${persisted.variantCount} variants.`)
+    } catch (e: any) {
+      setError(e?.message || 'Optimizer run failed')
+    } finally {
+      setOptimizerBusy(false)
     }
   }
 
@@ -836,9 +989,6 @@ export default function BacktestLabWizard() {
                       }}
                     >
                       <MenuItem value="UTC">UTC</MenuItem>
-                      <MenuItem value="Europe/London">Europe/London</MenuItem>
-                      <MenuItem value="America/New_York">America/New_York</MenuItem>
-                      <MenuItem value="Europe/Bucharest">Europe/Bucharest</MenuItem>
                     </Select>
                   </FormControl>
                 </Stack>
@@ -902,8 +1052,8 @@ export default function BacktestLabWizard() {
                           <TableCell sx={{ maxWidth: 220, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>{row.originalFilename}</TableCell>
                           <TableCell>{row.timeframe}</TableCell>
                           <TableCell>{row.candleCount}</TableCell>
-                          <TableCell>{new Date(row.minTimeUtc).toLocaleString()}</TableCell>
-                          <TableCell>{new Date(row.maxTimeUtc).toLocaleString()}</TableCell>
+                          <TableCell>{formatUtcTimestamp(row.minTimeUtc)}</TableCell>
+                          <TableCell>{formatUtcTimestamp(row.maxTimeUtc)}</TableCell>
                           <TableCell>{row.columnsMapped}</TableCell>
                           <TableCell>
                             <Chip size="small" color={row.status === 'ERROR' ? 'error' : (row.status === 'WARN' ? 'warning' : 'success')} label={row.status} />
@@ -988,6 +1138,9 @@ export default function BacktestLabWizard() {
                 </Stack>
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <Button variant="contained" startIcon={<TuneRoundedIcon />} onClick={handleApplyHqDefaults}>
+                    HQ Default Preset
+                  </Button>
                   <Button variant="outlined" startIcon={<TuneRoundedIcon />} onClick={() => setStrategyConfig((prev) => applyTemplate(prev, 'ASIA_LONDON_REVERSAL'))}>
                     Asia Raid -&gt; London Reversal
                   </Button>
@@ -1038,15 +1191,16 @@ export default function BacktestLabWizard() {
                 ) : null}
 
                 <Divider />
-                <Typography variant="subtitle2">Core Context</Typography>
+                <Typography variant="subtitle2">Execution Realism</Typography>
                 <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={3}>
                     <TextField
                       size="small"
                       type="number"
-                      label="Pip size"
+                      label={<HintLabel label="Pip size" tooltip="What: price precision unit. Why: all pip thresholds depend on it. Trade-off: wrong pip size distorts depth/body filters." />}
                       fullWidth
                       value={strategyConfig.context.pipSize}
+                      helperText="EURUSD default is 0.0001"
                       onChange={(event) => setStrategyConfig((prev) => ({
                         ...prev,
                         context: { ...prev.context, pipSize: Number(event.target.value) }
@@ -1057,9 +1211,10 @@ export default function BacktestLabWizard() {
                     <TextField
                       size="small"
                       type="number"
-                      label="Spread (pips)"
+                      label={<HintLabel label="Spread (pips)" tooltip="What: execution spread model. Why: impacts net R and fill realism. Trade-off: higher spread lowers frequency and edge." />}
                       fullWidth
                       value={strategyConfig.context.spreadPips}
+                      helperText="HQ default 0.8 pips"
                       onChange={(event) => setStrategyConfig((prev) => ({
                         ...prev,
                         context: { ...prev.context, spreadPips: Number(event.target.value) }
@@ -1070,9 +1225,10 @@ export default function BacktestLabWizard() {
                     <TextField
                       size="small"
                       type="number"
-                      label="Slippage (pips)"
+                      label={<HintLabel label="Slippage (pips)" tooltip="What: execution slip on fills/exits. Why: avoids overfitting perfect entries. Trade-off: higher slippage reduces reported win rate." />}
                       fullWidth
                       value={strategyConfig.context.slippagePips}
+                      helperText="HQ default 0.3 pips"
                       onChange={(event) => setStrategyConfig((prev) => ({
                         ...prev,
                         context: { ...prev.context, slippagePips: Number(event.target.value) }
@@ -1083,10 +1239,10 @@ export default function BacktestLabWizard() {
                     <TextField
                       size="small"
                       type="number"
-                      label="Touch tolerance (pips)"
+                      label={<HintLabel label="Touch tolerance (pips)" tooltip="What: tolerance around levels. Why: controls strictness of sweep/touch validation. Trade-off: tighter is cleaner but misses setups." />}
                       fullWidth
                       value={strategyConfig.context.touchTolerancePips}
-                      helperText="Base tolerance applied in sweep checks"
+                      helperText="Base tolerance applied in sweep checks (HQ 0.5)"
                       onChange={(event) => setStrategyConfig((prev) => ({
                         ...prev,
                         context: { ...prev.context, touchTolerancePips: Number(event.target.value) }
@@ -1113,7 +1269,7 @@ export default function BacktestLabWizard() {
                 </Grid>
 
                 <Divider />
-                <Typography variant="subtitle2">Sessions</Typography>
+                <Typography variant="subtitle2">Sessions &amp; Killzones</Typography>
                 <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={3}>
                     <FormControl size="small" fullWidth>
@@ -1170,6 +1326,67 @@ export default function BacktestLabWizard() {
                         ...prev,
                         smc: { ...prev.smc, evaluationSessionFilter: parseCsvSelection(event.target.value, SESSION_NAMES) as SessionName[] }
                       }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="require-killzone">Require killzone</InputLabel>
+                      <Select
+                        labelId="require-killzone"
+                        label="Require killzone"
+                        value={String(strategyConfig.smc.requireKillzone)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, requireKillzone: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="true">true</MenuItem>
+                        <MenuItem value="false">false</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="London killzone (UTC)"
+                      value={`${strategyConfig.smc.killzoneWindowsUtc.LONDON?.start || '07:00'}-${strategyConfig.smc.killzoneWindowsUtc.LONDON?.end || '10:00'}`}
+                      helperText="Why: tighter timing filter improves setup quality. Trade-off: fewer signals."
+                      onChange={(event) => {
+                        const [start, end] = event.target.value.split('-').map((item) => item.trim())
+                        setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: {
+                            ...prev.smc,
+                            killzoneWindowsUtc: {
+                              ...prev.smc.killzoneWindowsUtc,
+                              LONDON: { start: start || '07:00', end: end || '10:00', zoneId: 'UTC' }
+                            }
+                          }
+                        }))
+                      }}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="NY AM killzone (UTC)"
+                      value={`${strategyConfig.smc.killzoneWindowsUtc.NY_AM?.start || '12:30'}-${strategyConfig.smc.killzoneWindowsUtc.NY_AM?.end || '15:30'}`}
+                      helperText="Why: focuses on high-impact NY_AM window. Trade-off: may skip valid off-window setups."
+                      onChange={(event) => {
+                        const [start, end] = event.target.value.split('-').map((item) => item.trim())
+                        setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: {
+                            ...prev.smc,
+                            killzoneWindowsUtc: {
+                              ...prev.smc.killzoneWindowsUtc,
+                              NY_AM: { start: start || '12:30', end: end || '15:30', zoneId: 'UTC' }
+                            }
+                          }
+                        }))
+                      }}
                     />
                   </Grid>
                 </Grid>
@@ -1234,10 +1451,73 @@ export default function BacktestLabWizard() {
                       }))}
                     />
                   </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="pool-tf">Pool detection TF</InputLabel>
+                      <Select
+                        labelId="pool-tf"
+                        label="Pool detection TF"
+                        value={strategyConfig.smc.poolTimeframeForDetection}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, poolTimeframeForDetection: event.target.value }
+                        }))}
+                      >
+                        {['M1', 'M5', 'M15', 'H1'].map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Pool min separation bars"
+                      fullWidth
+                      value={strategyConfig.smc.poolMinSeparationBars}
+                      helperText="Higher = cleaner EQ clusters, fewer pools"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, poolMinSeparationBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Pool min age bars"
+                      fullWidth
+                      value={strategyConfig.smc.poolMinAgeBars}
+                      helperText="Higher = avoid fresh/immature pools"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, poolMinAgeBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="pool-rank">Pool rank rule</InputLabel>
+                      <Select
+                        labelId="pool-rank"
+                        label="Pool rank rule"
+                        value={strategyConfig.smc.poolRankRule}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, poolRankRule: event.target.value as StrategyConfigState['smc']['poolRankRule'] }
+                        }))}
+                      >
+                        <MenuItem value="MOST_TOUCHES_THEN_RECENCY">MOST_TOUCHES_THEN_RECENCY</MenuItem>
+                        <MenuItem value="TOUCH_COUNT">TOUCH_COUNT</MenuItem>
+                        <MenuItem value="LARGEST_SWING">LARGEST_SWING</MenuItem>
+                        <MenuItem value="NEAREST_RECENT">NEAREST_RECENT</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
                 </Grid>
 
                 <Divider />
-                <Typography variant="subtitle2">Sweep / Displacement / MSS</Typography>
+                <Typography variant="subtitle2">Sweep / Displacement / MSS / Structure</Typography>
                 <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={3}>
                     <TextField
@@ -1292,10 +1572,117 @@ export default function BacktestLabWizard() {
                       }))}
                     />
                   </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="sweep-select-rule">Sweep select rule</InputLabel>
+                      <Select
+                        labelId="sweep-select-rule"
+                        label="Sweep select rule"
+                        value={strategyConfig.smc.sweepSelectRule}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, sweepSelectRule: event.target.value as StrategyConfigState['smc']['sweepSelectRule'] }
+                        }))}
+                      >
+                        <MenuItem value="MAX_DEPTH_THEN_BEST_RANKED_POOL">MAX_DEPTH_THEN_BEST_RANKED_POOL</MenuItem>
+                        <MenuItem value="LARGEST_DEPTH">LARGEST_DEPTH</MenuItem>
+                        <MenuItem value="HIGHEST_RANKED_POOL">HIGHEST_RANKED_POOL</MenuItem>
+                        <MenuItem value="NEWEST_SESSION_LEVEL">NEWEST_SESSION_LEVEL</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="disp-type">Displacement type</InputLabel>
+                      <Select
+                        labelId="disp-type"
+                        label="Displacement type"
+                        value={strategyConfig.smc.displacementType}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, displacementType: event.target.value as DisplacementType }
+                        }))}
+                      >
+                        <MenuItem value="GAP_OPTIONAL">GAP_OPTIONAL (HQ)</MenuItem>
+                        <MenuItem value="GAP_REQUIRED">GAP_REQUIRED</MenuItem>
+                        <MenuItem value="NO_GAP_ONLY">NO_GAP_ONLY</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="disp-gap-def">Gap definition</InputLabel>
+                      <Select
+                        labelId="disp-gap-def"
+                        label="Gap definition"
+                        value={strategyConfig.smc.displacementGapDefinition}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, displacementGapDefinition: event.target.value as DisplacementGapDefinition }
+                        }))}
+                      >
+                        <MenuItem value="THREE_CANDLE_FVG">THREE_CANDLE_FVG</MenuItem>
+                        <MenuItem value="TWO_CANDLE_GAP">TWO_CANDLE_GAP</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Gap min pips"
+                      fullWidth
+                      value={strategyConfig.smc.displacementGapMinPips}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, displacementGapMinPips: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="No instant overlap bars"
+                      fullWidth
+                      value={strategyConfig.smc.displacementNoInstantOverlapBars}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, displacementNoInstantOverlapBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="MSS min confirm candles"
+                      fullWidth
+                      value={strategyConfig.smc.mssMinConfirmCandles}
+                      helperText="Higher = fewer but cleaner structure shifts"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, mssMinConfirmCandles: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="MSS confirm window bars"
+                      fullWidth
+                      value={strategyConfig.smc.mssMaxConfirmWindowBars}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, mssMaxConfirmWindowBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
                 </Grid>
 
                 <Divider />
-                <Typography variant="subtitle2">Entry + Risk</Typography>
+                <Typography variant="subtitle2">Retrace &amp; Entry + Risk</Typography>
                 <Grid container spacing={1}>
                   <Grid item xs={12} sm={6} md={4}>
                     <FormControl size="small" fullWidth>
@@ -1326,6 +1713,83 @@ export default function BacktestLabWizard() {
                         entryModel: { ...prev.entryModel, retracePercent: Number(event.target.value) }
                       }))}
                     />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="retrace-required">Retrace required</InputLabel>
+                      <Select
+                        labelId="retrace-required"
+                        label="Retrace required"
+                        value={String(strategyConfig.smc.retraceRequired)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, retraceRequired: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="true">true</MenuItem>
+                        <MenuItem value="false">false</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="retrace-ref">Retrace reference</InputLabel>
+                      <Select
+                        labelId="retrace-ref"
+                        label="Retrace reference"
+                        value={strategyConfig.smc.retraceReference}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, retraceReference: event.target.value as RetraceReference }
+                        }))}
+                      >
+                        <MenuItem value="GAP_FILL">GAP_FILL</MenuItem>
+                        <MenuItem value="IMPULSE_LEG">IMPULSE_LEG</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Retrace min % gate"
+                      fullWidth
+                      value={strategyConfig.smc.retraceMinPct}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, retraceMinPct: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Retrace max wait bars"
+                      fullWidth
+                      value={strategyConfig.smc.retraceMaxWaitBars}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, retraceMaxWaitBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="retrace-wick">Retrace wick touch</InputLabel>
+                      <Select
+                        labelId="retrace-wick"
+                        label="Retrace wick touch"
+                        value={String(strategyConfig.smc.retraceAcceptWickTouch)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, retraceAcceptWickTouch: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="true">true</MenuItem>
+                        <MenuItem value="false">false</MenuItem>
+                      </Select>
+                    </FormControl>
                   </Grid>
                   <Grid item xs={12} sm={6} md={4}>
                     <TextField
@@ -1548,6 +2012,7 @@ export default function BacktestLabWizard() {
                     </Grid>
 
                     <Typography variant="subtitle2">Trades</Typography>
+                    <Typography variant="caption" color="text.secondary">All timestamps are displayed in UTC (ISO Z).</Typography>
                     <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflowX: 'auto' }}>
                       <Table size="small">
                         <TableHead>
@@ -1564,7 +2029,7 @@ export default function BacktestLabWizard() {
                         <TableBody>
                           {results.trades.map((trade) => (
                             <TableRow key={trade.tradeId}>
-                              <TableCell>{trade.entryTime ? new Date(trade.entryTime).toLocaleString() : '-'}</TableCell>
+                              <TableCell>{trade.entryTime ? formatUtcTimestamp(trade.entryTime) : '-'}</TableCell>
                               <TableCell>{trade.sessionName || '-'}</TableCell>
                               <TableCell>{trade.direction || '-'}</TableCell>
                               <TableCell>{trade.exitReason || '-'}</TableCell>
@@ -1583,6 +2048,127 @@ export default function BacktestLabWizard() {
                         </TableBody>
                       </Table>
                     </TableContainer>
+
+                    <Divider />
+                    <Typography variant="subtitle2">Optimizer</Typography>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12} sm={6} md={2}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          fullWidth
+                          label="Max variants"
+                          value={optimizerState.maxVariants}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, maxVariants: Number(event.target.value) }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={2}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          label="MSS candles"
+                          value={optimizerState.mssMinConfirmCandles}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, mssMinConfirmCandles: event.target.value }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={3}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          label="Displacement types"
+                          value={optimizerState.displacementType}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, displacementType: event.target.value }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={2}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          label="Retrace required"
+                          value={optimizerState.retraceRequired}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, retraceRequired: event.target.value }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={2}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          label="Retrace %"
+                          value={optimizerState.retraceMinPct}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, retraceMinPct: event.target.value }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={1}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          label="Sweep pips"
+                          value={optimizerState.sweepMinDepthPips}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, sweepMinDepthPips: event.target.value }))}
+                        />
+                      </Grid>
+                    </Grid>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <Button variant="outlined" onClick={() => void handleRunOptimizer()} disabled={optimizerBusy || runBusy || !canRunBacktest}>
+                        Run Optimizer
+                      </Button>
+                      <FormControl size="small" sx={{ minWidth: 220 }}>
+                        <InputLabel id="optimizer-sort">Sort variants</InputLabel>
+                        <Select
+                          labelId="optimizer-sort"
+                          label="Sort variants"
+                          value={optimizerSortBy}
+                          onChange={(event) => setOptimizerSortBy(event.target.value as typeof optimizerSortBy)}
+                        >
+                          <MenuItem value="rank">rank</MenuItem>
+                          <MenuItem value="expectancyR">expectancyR</MenuItem>
+                          <MenuItem value="winRate">winRate</MenuItem>
+                          <MenuItem value="profitFactor">profitFactor</MenuItem>
+                          <MenuItem value="maxDdR">maxDdR (asc)</MenuItem>
+                        </Select>
+                      </FormControl>
+                    </Stack>
+                    {optimizerResults ? (
+                      <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflowX: 'auto' }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Rank</TableCell>
+                              <TableCell>Trades</TableCell>
+                              <TableCell>Win rate</TableCell>
+                              <TableCell>PF</TableCell>
+                              <TableCell>Expectancy</TableCell>
+                              <TableCell>Avg R</TableCell>
+                              <TableCell>MaxDD</TableCell>
+                              <TableCell>Params</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {sortedOptimizerVariants.map((row, index) => (
+                              <TableRow key={`${row.rank}-${index}`}>
+                                <TableCell>{row.rank}</TableCell>
+                                <TableCell>{row.trades ?? '-'}</TableCell>
+                                <TableCell>{row.winRate != null ? row.winRate.toFixed(2) : '-'}</TableCell>
+                                <TableCell>{row.profitFactor != null ? row.profitFactor.toFixed(2) : '-'}</TableCell>
+                                <TableCell>{row.expectancyR != null ? row.expectancyR.toFixed(3) : '-'}</TableCell>
+                                <TableCell>{row.avgR != null ? row.avgR.toFixed(3) : '-'}</TableCell>
+                                <TableCell>{row.maxDdR != null ? row.maxDdR.toFixed(3) : '-'}</TableCell>
+                                <TableCell sx={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{JSON.stringify(row.params)}</TableCell>
+                              </TableRow>
+                            ))}
+                            {!sortedOptimizerVariants.length ? (
+                              <TableRow>
+                                <TableCell colSpan={8}>No optimizer variants yet.</TableCell>
+                              </TableRow>
+                            ) : null}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    ) : (
+                      <Typography variant="caption" color="text.secondary">
+                        Run optimizer to compare MSS/displacement/retrace/sweep parameter variants.
+                      </Typography>
+                    )}
 
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                       <Button variant="contained" startIcon={<DescriptionRoundedIcon />} onClick={() => void handleGenerateReport()}>
@@ -1617,13 +2203,14 @@ export default function BacktestLabWizard() {
               <Typography variant="body2" color="text.secondary">
                 {selectedTrade.direction} • {selectedTrade.sessionName || 'N/A'} • {selectedTrade.exitReason || 'N/A'}
               </Typography>
+              <Typography variant="caption" color="text.secondary">UTC-only timeline</Typography>
               <Divider />
               {(selectedTrade.timeline || []).map((event, index) => (
                 <Card key={`${event.stage}-${event.timeUtc || index}`} variant="outlined">
                   <CardContent>
                     <Stack spacing={0.5}>
                       <Typography variant="subtitle2">{event.stage}</Typography>
-                      <Typography variant="caption" color="text.secondary">{event.timeUtc ? new Date(event.timeUtc).toLocaleString() : 'N/A'}</Typography>
+                      <Typography variant="caption" color="text.secondary">{event.timeUtc ? formatUtcTimestamp(event.timeUtc) : 'N/A'}</Typography>
                       {event.stage === 'SWEEP' ? (
                         <>
                           <Typography variant="body2">Pool type: {String(event.details?.poolType || '-')}</Typography>

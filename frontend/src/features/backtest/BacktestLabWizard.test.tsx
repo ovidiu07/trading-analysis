@@ -12,6 +12,8 @@ const backtestApiMock = vi.hoisted(() => ({
   deleteBacktestDataset: vi.fn(),
   saveBacktestStrategyConfig: vi.fn(),
   runBacktestDatasetSet: vi.fn(),
+  runBacktestOptimizer: vi.fn(),
+  getBacktestOptimizerRun: vi.fn(),
   getBacktestRunResultsV2: vi.fn(),
   getBacktestRunReportV2: vi.fn()
 }))
@@ -95,6 +97,39 @@ describe('BacktestLabWizard', () => {
       createdAt: '2026-02-24T10:10:00Z',
       completedAt: '2026-02-24T10:10:04Z',
       errorMsg: null
+    })
+    backtestApiMock.runBacktestOptimizer.mockResolvedValue({
+      optimizerRunId: 'opt-1',
+      status: 'COMPLETED',
+      variantCount: 8,
+      maxVariants: 100,
+      truncated: false,
+      createdAtUtc: '2026-02-24T10:20:00Z',
+      summary: { executedVariants: 8 },
+      variants: []
+    })
+    backtestApiMock.getBacktestOptimizerRun.mockResolvedValue({
+      optimizerRunId: 'opt-1',
+      status: 'COMPLETED',
+      variantCount: 8,
+      maxVariants: 100,
+      truncated: false,
+      createdAtUtc: '2026-02-24T10:20:00Z',
+      summary: { executedVariants: 8 },
+      variants: [
+        {
+          rank: 1,
+          params: { mssMinConfirmCandles: 3 },
+          trades: 12,
+          sampleSize: 12,
+          winRate: 58.3,
+          profitFactor: 1.7,
+          expectancyR: 0.21,
+          avgR: 0.21,
+          maxDdR: 1.1,
+          fillRate: 80
+        }
+      ]
     })
     backtestApiMock.getBacktestRunResultsV2.mockResolvedValue({
       runId: 'run-1',
@@ -217,6 +252,7 @@ describe('BacktestLabWizard', () => {
     expect(screen.getByText('SWEEP')).toBeInTheDocument()
     expect(screen.getByText(/Pool level: 1.182920/i)).toBeInTheDocument()
     expect(screen.getByText(/Sweep extreme: 1.183800/i)).toBeInTheDocument()
+    expect(screen.getByText('2026-02-05T08:10:00Z')).toBeInTheDocument()
 
     await user.keyboard('{Escape}')
     await user.click(screen.getByRole('button', { name: /Generate Diagnostics Report/i }))
@@ -411,6 +447,26 @@ describe('BacktestLabWizard', () => {
 
     expect((await screen.findAllByText(/No candles were persisted for this dataset./i)).length).toBeGreaterThan(0)
     expect(screen.getByRole('button', { name: /Run backtest/i })).toBeDisabled()
+  })
+
+  it('runs optimizer and renders ranked variants table', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+    await user.click(screen.getByRole('button', { name: /Run backtest/i }))
+
+    await user.click(await screen.findByRole('button', { name: /Run Optimizer/i }))
+    await waitFor(() => expect(backtestApiMock.runBacktestOptimizer).toHaveBeenCalled())
+    expect(await screen.findByLabelText(/Sort variants/i)).toBeInTheDocument()
+    expect(
+      screen.getByText((content) => content.includes('mssMinConfirmCandles') || content.includes('mss_min_confirm_candles'))
+    ).toBeInTheDocument()
   })
 
   it('keeps cards readable on mobile width', async () => {

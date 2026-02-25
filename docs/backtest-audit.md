@@ -1,96 +1,166 @@
-# Backtest Engine Audit (Current Pipeline Before Overhaul)
+# Backtest Engine Audit (Current State Before Requested HQ Changes)
 
-This document audits the current implementation used by Backtest Lab before the SMC sweep/displacement/MSS overhaul.
+This audit documents the implementation state *before* applying the requested realistic SMC sequencing, UTC-only rendering hardening, and optimizer workflow.
 
-## Scope and Entry Points
-- API controller: `backend/src/main/java/com/tradevault/controller/BacktestLabController.java`
-- Engine/service: `backend/src/main/java/com/tradevault/service/backtest/BacktestLabService.java`
-- CSV ingest: `backend/src/main/java/com/tradevault/service/backtest/BacktestCsvService.java`
-- Candle retrieval/storage: `backend/src/main/java/com/tradevault/service/backtest/CandleDataService.java`, `CandleChunkStoreService.java`, `CandleChunkCodec.java`
-- Strategy builder UI: `frontend/src/features/backtest/BacktestLabWizard.tsx`
-- Frontend API types: `frontend/src/api/backtest.ts`
+## Scope and entry points
+- Controller: `backend/src/main/java/com/tradevault/controller/BacktestLabController.java`
+- Core engine: `backend/src/main/java/com/tradevault/service/backtest/BacktestLabService.java`
+- CSV parsing/ingest: `backend/src/main/java/com/tradevault/service/backtest/BacktestCsvService.java`
+- Candle load/storage: `backend/src/main/java/com/tradevault/service/backtest/CandleDataService.java`, `CandleChunkStoreService.java`, `CandleChunkCodec.java`
+- Strategy UI: `frontend/src/features/backtest/BacktestLabWizard.tsx`
+- Frontend contracts: `frontend/src/api/backtest.ts`
+- Existing test coverage: `backend/src/test/java/com/tradevault/service/backtest/BacktestCsvServiceTest.java`, `BacktestLabServiceTest.java`, `frontend/src/features/backtest/BacktestLabWizard.test.tsx`
 
-## 1) CSV ingestion and timestamp normalization
-- Upload + preview parses CSV in `BacktestCsvService.upload`.
-- Full ingest is done in `BacktestCsvService.ingest`.
-- Timestamp parsing (`parseTimestamp`) supports epoch seconds, epoch milliseconds, ISO timestamp, local datetime formats, and date-only values.
-- All parsed times are normalized to UTC `OffsetDateTime` using `.withOffsetSameInstant(ZoneOffset.UTC)`.
-- Candle timestamp semantics in the system are candle **open times** (the parsed row timestamp is used directly as `tsUtc` in `CanonicalCandle`).
+## 1) CSV parsing and timestamp normalization
+- Upload preview path: `BacktestCsvService.upload(...)`
+- Ingest path: `BacktestCsvService.ingest(...)`
+- Parser flow: `parseCsv(...) -> parseRow(...) -> parseTimestamp(...)`
+- `parseTimestamp(...)` supports:
+  - epoch seconds/milliseconds
+  - ISO offset timestamp
+  - local datetime formats (with optional timezone override)
+  - ISO local date (interpreted at start of day)
+- Timestamps are normalized to UTC (`ZoneOffset.UTC`) during parse.
+- Candle semantics are candle open-time semantics; parsed row timestamp is persisted as `CanonicalCandle.tsUtc`.
+- Deterministic fixture already validated in tests:
+  - `BacktestCsvServiceTest.ingestFixtureCsvKeepsCandleOpenTimestampAndExactOhlcForKnownBar`
+  - expected M5 candle `2026-02-04T08:10:00Z` OHLC `1.18314 / 1.18380 / 1.18300 / 1.18350`.
 
 ## 2) Candle storage/query and timeframe alignment
-- Persisted in `candle_chunks` via `CandleChunkStoreService.saveCandles`.
-- Data is gzip-JSON encoded/decoded by `CandleChunkCodec`.
-- `CandleDataService.getCandles` loads candles by user/provider/source/symbol/timeframe/range.
-- Backtest engine selects execution dataset via `chooseExecutionDataset`:
-  - exact timeframe if available,
-  - else lower/equal TF + resample,
-  - else fallback to smallest available TF.
-- Resampling (`resampleCandles`) buckets by epoch seconds and uses the bucket start as bar timestamp.
+- Persisted in `candle_chunks` through `CandleChunkStoreService.saveCandles(...)`.
+- Query path: `CandleDataService.getCandles(...)`.
+- Dataset selection logic: `BacktestLabService.chooseExecutionDataset(...)`.
+  - exact timeframe -> preferred
+  - otherwise highest <= requested timeframe, then resample
+  - fallback to smallest available timeframe
+- Resampling path: `BacktestLabService.resampleCandles(...)` (bucket by epoch seconds to target timeframe boundary).
+- Output candles sorted ascending by UTC timestamp before simulation.
 
-## 3) Session segmentation logic
-- Session config is parsed by `parseSessions` and defaults from `defaultSessions`.
-- Run uses one setup session (`setupRule.session` or request `sessionFilter`), resolved by `resolveSessionWindow`.
-- Candle-to-session assignment uses `assignSession` with zone conversion and overnight handling.
-- DST is handled implicitly by `ZoneId` conversion.
-- Current defaults are broad session windows and currently include `ASIA`, `LONDON`, `NY` (not split into `NY_AM`/`NY_PM`).
+## 3) Session segmentation (UTC/DST behavior)
+- Session parse: `BacktestLabService.parseSessions(...)`
+- Defaults: `defaultSessions(...)` currently ASIA/LONDON/NY_AM/NY_PM windows in UTC.
+- Session assignment: `assignSession(...)` converts by `ZoneId.of(session.zoneId)`, supports overnight windows.
+- DST handling is implicit via `ZoneId` conversion.
+- Run-level filter:
+  - setup/fallback session via `resolveSessionWindow(...)`
+  - evaluation session set via `resolveEvaluationSessions(...)`
 
-## 4) Liquidity pool logic (current)
-- There is no explicit persisted pool model in run logic.
-- Levels are reduced to a single high/low pair from `resolveLevels`:
-  - `SESSION_HL`, `EQH_EQL`, `HTF_SWING` all map to previous setup-session high/low.
-  - `PDH_PDL` maps to previous day high/low.
-- No configurable EQH/EQL pivot-touch clustering, pool ranking, min touches, min age, or separation bars are implemented yet.
+## 4) Liquidity pool detection and ranking
+- Pool build pipeline:
+  - context/session/day/week pools: `buildContextPools(...)`
+  - EQH/EQL clusters: `buildEqPools(...)`
+  - activation filter (age): `resolveActivePools(...)`
+- Config fields currently consumed:
+  - `poolTypesEnabled`, `poolTimeframeForDetection`, `poolTouchTolerancePips`, `poolMinTouches`, `poolMinSeparationBars`, `poolMinAgeBars`, `poolRankRule`
+- Ranking behavior:
+  - score computed in `computePoolRankScore(...)`
+  - candidate selection in `selectSweepCandidate(...)`
+- Gap identified:
+  - current rank options do not yet include requested `"MOST_TOUCHES_THEN_RECENCY"` label.
+  - min-separation default currently 3, min-age 2, while HQ target defaults are stricter.
 
-## 5) Sweep detection logic (current)
-- Per-candle sweep check in `detectSweep`.
-- Sweep is detected on the **first qualifying candle** that breaches level + tolerance and closes back across level.
-- Depth is computed from that same candle (not from full excursion after first breach).
-- Sweep time stored is current candle timestamp (`candle.timestamp()`).
-- This explains mismatches where timeline anchors to an earlier micro-sweep candle instead of later wick extreme.
+## 5) Sweep detection (first breach vs excursion)
+- Entry method: `detectSweep(...)`
+- Excursion tracking: `trackSweepExcursion(...)`
+  - tracks `firstBreachTime/Price`
+  - tracks true extreme `sweepExtremeTime/Price`
+  - optional reclaim close requirement (`sweepRequiresReclaim`)
+  - enforces min depth and max duration
+- Current stored fields include:
+  - pool level/type/id
+  - first breach
+  - sweep extreme + time
+  - depth
+- Candidate selection rules currently implemented:
+  - default depth-first / rank tie-break
+  - `NEWEST_SESSION_LEVEL`
+  - `HIGHEST_RANKED_POOL`
+- Gap identified:
+  - requested rule label `"MAX_DEPTH_THEN_BEST_RANKED_POOL"` is not implemented as named option.
 
-## 6) Displacement detection (current)
-- `findDisplacementIndex` scans up to 20 bars after sweep candle.
-- Uses body ratio (`bodyRatio`) vs lookback average and threshold `qualityFilters.displacementMultiplier`.
-- Directional check is tied to close moving away from level.
-- No explicit min body in pips, max delay config, attacked-level model, or "clean immediate displacement" strictness controls beyond ratio and anti-chop.
+## 6) Displacement detection (gap/no-gap strictness)
+- Method: `findDisplacementSignal(...)`
+- Current checks:
+  - occurs after sweep end within `displacementMaxDelayBarsAfterSweep`
+  - min absolute body (pips)
+  - body vs average multiplier
+  - directional close (bullish/bearish body)
+  - optional close beyond attacked level
+  - optional no instant overlap check
+- Diagnostics currently emitted:
+  - `displacementBodyPips`, `displacementRatio`, `attackedLevel`
+- Gaps identified:
+  - no `displacementType` mode (`GAP_REQUIRED` / `GAP_OPTIONAL` / `NO_GAP_ONLY`)
+  - no explicit gap/FVG definition mode (`THREE_CANDLE_FVG`, `TWO_CANDLE_GAP`)
+  - no `gapSizePips` diagnostics fields yet.
 
-## 7) MSS/BOS logic (current)
-- Pivot state from `computePivots(left,right)`.
-- Confirmation index found by `findConfirmIndex` with close beyond last pivot plus optional buffer.
-- `confirmationType` exists in config but current flow uses shared pivot-break mechanics.
-- No configurable swing detection method variants (fractals / pivot_n / swing_hl), anchor mode, or displacement-to-MSS strict delay control.
+## 7) MSS/BOS/CHOCH structure confirmation
+- Method: `findMssSignal(...)`
+- Anchor resolution: `resolveMssAnchor(...)` with modes:
+  - last pivot (default)
+  - displacement origin
+  - internal structure
+- Current behavior:
+  - triggers immediately on break beyond anchor (close/high/low depending config)
+  - no multi-candle post-trigger confirmation streak
+  - no separate trigger time vs confirm time fields
+- Gaps identified:
+  - missing `mss_min_confirm_candles` and `mss_max_confirm_window_bars` semantics
+  - missing invalidation rule handling (`CLOSE_BACK_THROUGH_LEVEL`) over confirm window.
 
-## 8) Entry/Exit and execution realism (current)
-- Entry model in `resolveEntry`:
+## 8) Entry/exit simulation realism (retrace, fills, spread/slippage)
+- Entry method: `resolveEntry(...)`
   - `MARKET_ON_CONFIRM_CLOSE`
-  - `LIMIT_RETRACE_PERCENT` over displacement candle range with `entryWindowBars`.
-- Stop model in `resolveStop`:
-  - `LAST_SWING_PLUS_BUFFER` or sweep extreme +/- buffer.
-- TP is fixed R (`resolveTakeProfit`).
-- Exit in `resolveExit` checks SL/TP per candle (same-bar SL+TP resolves to SL conservatively).
-- Spread/slippage is applied as half-cost at entry + exit (`applyEntryCost`/`applyExitCost`) from `context.spreadPips` and `context.slippagePips`.
-- No explicit fill policy toggle (MID vs BID/ASK simulation) yet.
+  - `LIMIT_RETRACE_PERCENT` using impulse range and `entryWindowBars`
+- Stops/TP:
+  - `resolveStop(...)`, `resolveTakeProfit(...)`, fixed-R model
+- Exit simulation:
+  - `resolveExit(...)` candle-by-candle no-lookahead
+  - conservative same-bar SL/TP conflict resolves to SL
+- Costs:
+  - `applyEntryCost(...)`, `applyExitCost(...)`
+  - costs disabled under `fillPolicy=MID`, otherwise spread+slippage is applied
+- Gaps identified:
+  - no explicit post-displacement retrace gate (`retrace_required`, reference type, timeout).
 
-## 9) Timeline generation and event output
-- Timeline is built in `buildTimeline` / `buildNoFillTimeline` and stored in trade evidence JSON.
-- `SWEEP` details currently include only `side`, `level`, `depth`; no separate `poolLevel` vs `sweepExtremePrice` fields.
-- Sweep event time currently uses `sweep.sweepTime()` from first qualifying sweep candle.
-- Timeline is returned to UI via `toTradeResult` into `BacktestLabTimelineEventResponse`.
+## 9) Timeline/report output and time semantics
+- Timeline emitters:
+  - `buildTimeline(...)`
+  - `buildNoFillTimeline(...)`
+  - serialized via `timelineNode(...)`
+- Timeline parse/DTO map:
+  - `toTradeResult(...)` + `parseOffset(...)`
+  - DTO `BacktestLabTimelineEventResponse.timeUtc` currently `OffsetDateTime`
+- Times are persisted/returned in UTC offset, but not strictly typed as `Instant`.
+- Report markdown includes event times via `buildReportMarkdown(...)`.
+- Gap identified:
+  - API emits UTC values, but frontend currently re-renders with local timezone conversion.
 
-## 10) UI rendering and potential confusion
-- Strategy UI + results are in `frontend/src/features/backtest/BacktestLabWizard.tsx`.
-- Timeline drawer renders raw `JSON.stringify(event.details)`.
-- Because sweep details include `level` and `depth` only, users can misread level as the actual swept wick price.
-- There is no separate explicit display field for sweep extreme timestamp/price.
+## 10) Strategy Builder UI fields/defaults/hints validation
+- Main component: `BacktestLabWizard.tsx`
+- Current state:
+  - exposes many SMC parameters but as flat sections
+  - includes basic warnings but not full helper/hint taxonomy for every field
+  - timeline timestamps use `new Date(...).toLocaleString()` (local timezone conversion)
+  - timezone selector still offers non-UTC options
+- Gaps identified against requested HQ UX:
+  - missing grouped HQ sections requested (Sessions/Killzones, Pool Definition, Sweep, Displacement, MSS, Retrace, Execution, Optimizer)
+  - missing per-field helper + why-it-matters + trade-off hint model
+  - missing dedicated “HQ Default preset” control with all requested values
+  - missing optimizer UI and persisted variant result table.
 
-## Observed mismatch root cause (Feb 4 case)
-- The current sweep model is first-breach candle anchored, not excursion-anchored.
-- The engine can emit an earlier breach candle (e.g., `2026-02-04T08:00:00Z`) even when a later candle (`2026-02-04T08:10:00Z`) makes the true sweep extreme.
-
-## Summary of required fix direction
-- Promote pool detection to first-class configurable objects.
-- Track breach excursion and store both:
-  - targeted pool level,
-  - true sweep extreme price/time.
-- Tighten displacement/MSS sequencing with explicit max-delay and structure anchors.
-- Emit clear timeline fields so UI distinguishes pool level from sweep extreme.
+## Additional audit notes
+- CSV fixtures are already present in repo at:
+  - `backend/src/test/resources/fixtures/backtest/OANDA_EURUSD_5_89c7a.csv`
+  - `backend/src/test/resources/fixtures/backtest/OANDA_EURUSD_15_598b2.csv`
+  - `backend/src/test/resources/fixtures/backtest/OANDA_EURUSD_60_18989.csv`
+- Existing tests already cover:
+  - fixture candle parse correctness
+  - sweep extreme anchoring for Feb 4 scenario
+  - basic sweep->displacement->MSS ordering
+- Missing tests for requested scope:
+  - displacement gap definitions/modes
+  - multi-candle MSS confirmation rules
+  - retrace gating + timeout behavior
+  - UTC-only timeline rendering on frontend
+  - optimizer deterministic variant ranking/aggregation.
