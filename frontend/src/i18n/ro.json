@@ -1277,9 +1277,12 @@
         "closeNow": "Închide acum",
         "quoteChip": "Bid {{bid}} | Ask {{ask}} | Spread {{spread}}",
         "quoteTs": "Cotație {{time}}",
+        "lastPrice": "Ultimul preț: {{price}}",
         "quoteUnavailable": "Spread indisponibil pentru acest simbol",
         "quoteUnauthorized": "Endpoint-ul de cotații este neautorizat. Reautentifică-te sau verifică permisiunile.",
         "quoteUnauthorizedAction": "Reîmprospătează sesiunea / Login",
+        "quoteNoCredentials": "Cotațiile live nu sunt disponibile. Conectează OANDA pentru a relua actualizările.",
+        "quoteNoCredentialsAction": "Conectează OANDA",
         "quoteReasons": {
           "OK": "Cotațiile sunt disponibile",
           "NO_PROVIDER": "Providerul de cotații nu este configurat.",

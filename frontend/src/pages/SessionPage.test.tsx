@@ -1107,6 +1107,56 @@ describe('SessionPage execution funnel', () => {
     expect(quotesApiMock.fetchLiveQuote.mock.calls.length).toBe(callsAfterUnavailable)
   })
 
+  it('backs off quote polling and shows connect CTA when OANDA credentials are missing', async () => {
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+    try {
+      quotesApiMock.fetchLiveQuote.mockClear()
+      quotesApiMock.fetchLiveQuote.mockResolvedValue({
+        symbol: 'OANDA:EURUSD',
+        provider: 'OANDA',
+        available: false,
+        reason: 'NO_CREDENTIALS',
+        code: 'BACKTEST_PROVIDER_NOT_CONNECTED'
+      })
+
+      renderSessionPage()
+
+      expect(await screen.findByText(/Live quotes unavailable/i)).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: /Connect OANDA/i })).toHaveAttribute('href', '/settings')
+      expect(screen.getByRole('button', { name: /Arm auto-start\/auto-stop/i })).toBeDisabled()
+      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 10 * 60_000)).toBe(true)
+
+      const callsAfterFirstFetch = quotesApiMock.fetchLiveQuote.mock.calls.length
+      await new Promise((resolve) => setTimeout(resolve, 1_200))
+      expect(quotesApiMock.fetchLiveQuote.mock.calls.length).toBe(callsAfterFirstFetch)
+    } finally {
+      setTimeoutSpy.mockRestore()
+    }
+  })
+
+  it('retries transient quote failures with exponential backoff', async () => {
+    vi.useFakeTimers()
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+    try {
+      quotesApiMock.fetchLiveQuote.mockClear()
+      const networkError = new ApiError('Network request failed')
+      networkError.code = 'NETWORK_ERROR'
+      quotesApiMock.fetchLiveQuote
+        .mockRejectedValue(networkError)
+
+      renderSessionPage()
+      await vi.advanceTimersByTimeAsync(2_200)
+      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 2_000)).toBe(true)
+
+      await vi.advanceTimersByTimeAsync(4_200)
+      expect(setTimeoutSpy.mock.calls.some((call) => call[1] === 4_000)).toBe(true)
+      expect(quotesApiMock.fetchLiveQuote.mock.calls.length).toBeGreaterThanOrEqual(3)
+    } finally {
+      setTimeoutSpy.mockRestore()
+      vi.useRealTimers()
+    }
+  }, 15_000)
+
   it('polls auto-journal status slowly while disarmed', async () => {
     vi.useFakeTimers()
     try {

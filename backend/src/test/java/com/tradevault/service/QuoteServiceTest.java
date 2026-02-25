@@ -5,6 +5,7 @@ import com.tradevault.dto.session.LiveQuoteResponse;
 import com.tradevault.dto.session.QuoteAvailabilityReason;
 import com.tradevault.exception.BacktestDomainException;
 import com.tradevault.exception.BacktestErrorCodes;
+import com.tradevault.exception.ProviderNotConnectedException;
 import com.tradevault.service.backtest.BacktestProviderService;
 import com.tradevault.service.backtest.OandaCandleProvider;
 import org.junit.jupiter.api.BeforeEach;
@@ -83,17 +84,13 @@ class QuoteServiceTest {
     @Test
     void returnsUnavailableWhenProviderIsNotConnected() {
         when(backtestProviderService.requireOandaToken(user.getId()))
-                .thenThrow(new BacktestDomainException(
-                        BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
-                        "OANDA provider is not connected",
-                        "Connect OANDA first",
-                        HttpStatus.FORBIDDEN
-                ));
+                .thenThrow(ProviderNotConnectedException.oandaNoCredentials());
 
         LiveQuoteResponse response = quoteService.getLiveQuote("OANDA:EURUSD");
 
         assertFalse(response.isAvailable());
         assertEquals(QuoteAvailabilityReason.NO_CREDENTIALS, response.getReason());
+        assertEquals(BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED, response.getCode());
     }
 
     @Test

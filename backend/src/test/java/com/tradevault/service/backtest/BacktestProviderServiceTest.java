@@ -1,7 +1,8 @@
 package com.tradevault.service.backtest;
 
 import com.tradevault.domain.enums.BacktestCandleSource;
-import com.tradevault.exception.BacktestDomainException;
+import com.tradevault.exception.BacktestErrorCodes;
+import com.tradevault.exception.ProviderNotConnectedException;
 import com.tradevault.repository.BacktestProviderCredentialRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -33,7 +34,13 @@ class BacktestProviderServiceTest {
         when(credentialRepository.findByUser_IdAndProvider(userId, BacktestCandleSource.OANDA)).thenReturn(Optional.empty());
 
         assertThatThrownBy(() -> backtestProviderService.requireOandaToken(userId))
-                .isInstanceOf(BacktestDomainException.class)
-                .hasMessageContaining("not connected");
+                .isInstanceOf(ProviderNotConnectedException.class)
+                .hasMessageContaining("not connected")
+                .extracting(
+                        throwable -> ((ProviderNotConnectedException) throwable).getProvider(),
+                        throwable -> ((ProviderNotConnectedException) throwable).getReason(),
+                        throwable -> ((ProviderNotConnectedException) throwable).getCode()
+                )
+                .containsExactly("OANDA", "NO_CREDENTIALS", BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED);
     }
 }

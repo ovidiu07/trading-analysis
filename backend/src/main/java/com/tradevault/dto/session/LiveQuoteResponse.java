@@ -16,6 +16,8 @@ public class LiveQuoteResponse {
     BigDecimal spread;
     OffsetDateTime tsUtc;
     String source;
+    String provider;
+    String code;
     boolean available;
     QuoteAvailabilityReason reason;
 }

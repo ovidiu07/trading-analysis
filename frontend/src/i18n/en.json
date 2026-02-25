@@ -1277,9 +1277,12 @@
         "closeNow": "Close now",
         "quoteChip": "Bid {{bid}} | Ask {{ask}} | Spread {{spread}}",
         "quoteTs": "Quote {{time}}",
+        "lastPrice": "Last price: {{price}}",
         "quoteUnavailable": "Spread unavailable for this symbol",
         "quoteUnauthorized": "Quotes endpoint unauthorized. Please re-login or check permissions.",
         "quoteUnauthorizedAction": "Refresh session / Login",
+        "quoteNoCredentials": "Live quotes unavailable. Connect OANDA to resume quote updates.",
+        "quoteNoCredentialsAction": "Connect OANDA",
         "quoteReasons": {
           "OK": "Quotes are available",
           "NO_PROVIDER": "Quotes provider is not configured.",

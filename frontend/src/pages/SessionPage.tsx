@@ -179,6 +179,8 @@ const AUTO_JOURNAL_POLL_HIDDEN_MS = 20_000
 const QUOTE_POLL_ACTIVE_MS = 1_000
 const QUOTE_POLL_HIDDEN_MS = 10_000
 const QUOTE_POLL_UNAVAILABLE_MS = 30_000
+const QUOTE_POLL_NO_CREDENTIALS_MS = 10 * 60_000
+const QUOTE_POLL_BACKOFF_BASE_MS = 2_000
 const QUOTE_POLL_MAX_BACKOFF_MS = 30_000
 
 const LOCK_IN_SESSION_OPTIONS = ['LONDON', 'NY_AM'] as const
@@ -1019,6 +1021,7 @@ export default function SessionPage() {
   const [localNow, setLocalNow] = useState(() => new Date())
   const [liveQuote, setLiveQuote] = useState<LiveQuoteResponse | null>(null)
   const [quotesUnauthorized, setQuotesUnauthorized] = useState(false)
+  const [quoteCredentialsMissing, setQuoteCredentialsMissing] = useState(false)
   const [isDocumentVisible, setIsDocumentVisible] = useState(() => document.visibilityState !== 'hidden')
   const [autoTradeStatus, setAutoTradeStatus] = useState<AutoTradeLifecycleStatus>('DISARMED')
   const [autoTradeTolerancePips, setAutoTradeTolerancePips] = useState('0')
@@ -1039,6 +1042,7 @@ export default function SessionPage() {
   const narrativeSectionRef = useRef<HTMLDivElement | null>(null)
   const rolesSectionRef = useRef<HTMLDivElement | null>(null)
   const symbolMismatchPromptRef = useRef('')
+  const quoteCredentialsMissingRef = useRef(false)
 
   const sessionQuery = useQuery({
     queryKey: ['todaySession'],
@@ -1214,9 +1218,11 @@ export default function SessionPage() {
     if (quotesUnauthorized) return
     if (!autoJournalMonitorActive && !isChartPanelVisibleForPolling) return
 
-    const pollDelayMs = !isDocumentVisible
-      ? AUTO_JOURNAL_POLL_HIDDEN_MS
-      : (autoJournalMonitorActive ? AUTO_JOURNAL_POLL_ACTIVE_MS : AUTO_JOURNAL_POLL_IDLE_MS)
+    const pollDelayMs = quoteCredentialsMissing
+      ? QUOTE_POLL_NO_CREDENTIALS_MS
+      : (!isDocumentVisible
+        ? AUTO_JOURNAL_POLL_HIDDEN_MS
+        : (autoJournalMonitorActive ? AUTO_JOURNAL_POLL_ACTIVE_MS : AUTO_JOURNAL_POLL_IDLE_MS))
 
     let cancelled = false
     let timer: number | null = null
@@ -1244,10 +1250,18 @@ export default function SessionPage() {
             ? String(status.timeoutMin)
             : '30'
         )
+        const statusReasonCode = normalizeQuoteReasonCode(status.quoteReason || null)
+        const missingCredentials = status.quoteAvailable === false && statusReasonCode === 'NO_CREDENTIALS'
+        if (missingCredentials) {
+          quoteCredentialsMissingRef.current = true
+          setQuoteCredentialsMissing(true)
+        }
       } catch (error) {
         if (cancelled) return
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           setQuotesUnauthorized(true)
+          quoteCredentialsMissingRef.current = false
+          setQuoteCredentialsMissing(false)
           setAutoJournalStatus(null)
           cancelled = true
           return
@@ -1270,6 +1284,7 @@ export default function SessionPage() {
     chartMode,
     isChartPanelVisibleForPolling,
     isDocumentVisible,
+    quoteCredentialsMissing,
     quotesUnauthorized,
     session?.id
   ])
@@ -1893,6 +1908,8 @@ export default function SessionPage() {
     if (chartMode !== 'LIVE') {
       setLiveQuote(null)
       setQuotesUnauthorized(false)
+      quoteCredentialsMissingRef.current = false
+      setQuoteCredentialsMissing(false)
       return
     }
 
@@ -1900,6 +1917,8 @@ export default function SessionPage() {
     if (!symbol) {
       setLiveQuote(null)
       setQuotesUnauthorized(false)
+      quoteCredentialsMissingRef.current = false
+      setQuoteCredentialsMissing(false)
       return
     }
     if (quotesUnauthorized) {
@@ -1911,6 +1930,7 @@ export default function SessionPage() {
 
     let cancelled = false
     let timer: number | null = null
+    let transientErrorAttempts = 0
 
     const scheduleNext = (delayMs: number) => {
       if (cancelled || quotesUnauthorized) return
@@ -1919,17 +1939,25 @@ export default function SessionPage() {
       }, delayMs)
     }
 
+    const nextTransientBackoffDelay = () => {
+      const nextDelay = QUOTE_POLL_BACKOFF_BASE_MS * (2 ** Math.max(0, transientErrorAttempts - 1))
+      return Math.min(QUOTE_POLL_MAX_BACKOFF_MS, nextDelay)
+    }
+
     const loadQuote = async () => {
       if (!isDocumentVisible) {
-        scheduleNext(QUOTE_POLL_HIDDEN_MS)
+        scheduleNext(quoteCredentialsMissingRef.current ? QUOTE_POLL_NO_CREDENTIALS_MS : QUOTE_POLL_HIDDEN_MS)
         return
       }
       try {
         const quote = await fetchLiveQuote(symbol)
         if (cancelled) return
-        const unauthorizedReason = typeof quote.reason === 'string' && quote.reason.toUpperCase() === 'UNAUTHORIZED'
+        const reasonCode = normalizeQuoteReasonCode(typeof quote.reason === 'string' ? quote.reason : null)
+        const unauthorizedReason = reasonCode === 'UNAUTHORIZED'
         if (unauthorizedReason) {
           setQuotesUnauthorized(true)
+          quoteCredentialsMissingRef.current = false
+          setQuoteCredentialsMissing(false)
           setLiveQuote({
             symbol,
             available: false,
@@ -1938,8 +1966,19 @@ export default function SessionPage() {
           cancelled = true
           return
         }
+        const missingCredentialsReason = !quote.available && (
+          reasonCode === 'NO_CREDENTIALS'
+          || (typeof quote.code === 'string' && quote.code.trim().toUpperCase() === 'BACKTEST_PROVIDER_NOT_CONNECTED')
+        )
+        quoteCredentialsMissingRef.current = missingCredentialsReason
+        setQuoteCredentialsMissing(missingCredentialsReason)
+        transientErrorAttempts = 0
         setQuotesUnauthorized(false)
         setLiveQuote(quote)
+        if (missingCredentialsReason) {
+          scheduleNext(QUOTE_POLL_NO_CREDENTIALS_MS)
+          return
+        }
         if (!quote.available || quote.bid == null || quote.ask == null) {
           scheduleNext(QUOTE_POLL_UNAVAILABLE_MS)
           return
@@ -1949,6 +1988,8 @@ export default function SessionPage() {
         if (cancelled) return
         if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
           setQuotesUnauthorized(true)
+          quoteCredentialsMissingRef.current = false
+          setQuoteCredentialsMissing(false)
           setLiveQuote({
             symbol,
             available: false,
@@ -1958,12 +1999,15 @@ export default function SessionPage() {
           return
         }
 
+        quoteCredentialsMissingRef.current = false
+        setQuoteCredentialsMissing(false)
+        transientErrorAttempts += 1
         setLiveQuote({
           symbol,
           available: false,
           reason: 'UPSTREAM_ERROR'
         })
-        scheduleNext(QUOTE_POLL_MAX_BACKOFF_MS)
+        scheduleNext(nextTransientBackoffDelay())
       }
     }
 
@@ -2403,6 +2447,17 @@ export default function SessionPage() {
   const autoJournalUnavailableReason = USE_SERVER_AUTO_JOURNAL
     ? (statusQuoteReasonLabel || localQuoteReasonLabel)
     : localQuoteReasonLabel
+  const localLastPrice = (
+    liveQuote?.available
+      ? (
+        liveQuote.mid
+        ?? (liveQuote.bid != null && liveQuote.ask != null
+          ? (liveQuote.bid + liveQuote.ask) / 2
+          : null)
+      )
+      : null
+  )
+  const lastPriceLabel = localLastPrice == null ? '--' : formatNumber(localLastPrice, 5)
 
   const groupedLevels = useMemo(() => {
     const htfDrawTypes = new Set<LevelType>(['PDH', 'PDL', 'HTF_SWING_HIGH', 'HTF_SWING_LOW'])
@@ -4544,6 +4599,13 @@ export default function SessionPage() {
                             <Chip size="small" variant="outlined" label={`${t('today.session.chart.modeLabel')}: ${chartModeLabel}`} />
                             <Chip size="small" label={`${t('today.session.chart.local')}: ${localNow.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`} />
                             {chartMode === 'LIVE' && (
+                              <Chip
+                                size="small"
+                                variant="outlined"
+                                label={t('today.session.autoTrade.lastPrice', { price: lastPriceLabel })}
+                              />
+                            )}
+                            {chartMode === 'LIVE' && (
                               liveQuote?.available && liveQuote.bid != null && liveQuote.ask != null && liveQuote.spread != null ? (
                                 <Chip
                                   size="small"
@@ -4612,6 +4674,23 @@ export default function SessionPage() {
                                   )}
                                 >
                                   {t('today.session.autoTrade.quoteUnauthorized')}
+                                </Alert>
+                              )}
+                              {chartMode === 'LIVE' && quoteCredentialsMissing && !quotesUnauthorized && (
+                                <Alert
+                                  severity="warning"
+                                  action={(
+                                    <Button
+                                      color="inherit"
+                                      size="small"
+                                      component={Link}
+                                      to="/settings"
+                                    >
+                                      {t('today.session.autoTrade.quoteNoCredentialsAction')}
+                                    </Button>
+                                  )}
+                                >
+                                  {t('today.session.autoTrade.quoteNoCredentials')}
                                 </Alert>
                               )}
                               <Typography variant="caption" color="text.secondary">

@@ -17,6 +17,8 @@ export type LiveQuoteResponse = {
   spread?: number | null
   tsUtc?: string | null
   source?: string | null
+  provider?: string | null
+  code?: string | null
   available: boolean
   reason?: QuoteAvailabilityReason | string | null
 }

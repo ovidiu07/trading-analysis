@@ -4,11 +4,9 @@ import com.tradevault.domain.entity.BacktestProviderCredential;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.BacktestCandleSource;
 import com.tradevault.dto.backtest.ProviderConnectionStatusResponse;
-import com.tradevault.exception.BacktestDomainException;
-import com.tradevault.exception.BacktestErrorCodes;
+import com.tradevault.exception.ProviderNotConnectedException;
 import com.tradevault.repository.BacktestProviderCredentialRepository;
 import lombok.RequiredArgsConstructor;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -73,12 +71,7 @@ public class BacktestProviderService {
     @Transactional(readOnly = true)
     public String requireOandaToken(UUID userId) {
         BacktestProviderCredential credential = credentialRepository.findByUser_IdAndProvider(userId, BacktestCandleSource.OANDA)
-                .orElseThrow(() -> new BacktestDomainException(
-                        BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED,
-                        "OANDA provider is not connected",
-                        "Connect OANDA from Settings -> Data Providers before loading candles.",
-                        HttpStatus.FORBIDDEN
-                ));
+                .orElseThrow(ProviderNotConnectedException::oandaNoCredentials);
         return tokenCipherService.decrypt(credential.getTokenIv(), credential.getEncryptedToken());
     }
 

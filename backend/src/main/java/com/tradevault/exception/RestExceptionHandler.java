@@ -85,6 +85,22 @@ public class RestExceptionHandler {
         return ResponseEntity.badRequest().body(response);
     }
 
+    @ExceptionHandler(ProviderNotConnectedException.class)
+    public ResponseEntity<ApiErrorResponse> handleProviderNotConnected(ProviderNotConnectedException ex) {
+        Map<String, String> details = new LinkedHashMap<>();
+        details.put("provider", ex.getProvider());
+        details.put("reason", ex.getReason());
+        details.put("code", ex.getCode());
+
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error(ex.getCode())
+                .message(ex.getMessage())
+                .hint("Connect " + ex.getProvider() + " from Settings -> Data Providers before loading live data.")
+                .details(details)
+                .build();
+        return ResponseEntity.status(HttpStatus.FORBIDDEN).body(response);
+    }
+
     @ExceptionHandler(BacktestDomainException.class)
     public ResponseEntity<ApiErrorResponse> handleBacktestDomain(BacktestDomainException ex) {
         ApiErrorResponse response = ApiErrorResponse.builder()

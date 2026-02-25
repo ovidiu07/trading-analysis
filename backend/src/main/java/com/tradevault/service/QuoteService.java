@@ -4,6 +4,7 @@ import com.tradevault.dto.session.QuoteAvailabilityReason;
 import com.tradevault.dto.session.LiveQuoteResponse;
 import com.tradevault.exception.BacktestDomainException;
 import com.tradevault.exception.BacktestErrorCodes;
+import com.tradevault.exception.ProviderNotConnectedException;
 import com.tradevault.service.backtest.BacktestProviderService;
 import com.tradevault.service.backtest.OandaCandleProvider;
 import lombok.RequiredArgsConstructor;
@@ -62,13 +63,13 @@ public class QuoteService {
             String sourceId = backtestProviderService.resolveOandaSourceId(userId);
             OandaCandleProvider.OandaQuote quote = oandaCandleProvider.getQuote(token, sourceId, symbol);
             if (quote == null || quote.bid() == null || quote.ask() == null) {
-                return unavailable(symbol, QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, now);
+                return unavailable(symbol, QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, now, null);
             }
 
             BigDecimal bid = quote.bid().setScale(QUOTE_SCALE, RoundingMode.HALF_UP);
             BigDecimal ask = quote.ask().setScale(QUOTE_SCALE, RoundingMode.HALF_UP);
             if (ask.compareTo(bid) < 0) {
-                return unavailable(symbol, QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, now);
+                return unavailable(symbol, QuoteAvailabilityReason.SYMBOL_NOT_SUPPORTED, now, null);
             }
             BigDecimal spread = ask.subtract(bid).setScale(QUOTE_SCALE, RoundingMode.HALF_UP);
             BigDecimal mid = ask.add(bid)
@@ -82,27 +83,38 @@ public class QuoteService {
                     .spread(spread)
                     .tsUtc(quote.tsUtc() == null ? now : quote.tsUtc())
                     .source("OANDA")
+                    .provider("OANDA")
                     .available(true)
                     .reason(QuoteAvailabilityReason.OK)
                     .build();
             cache.put(cacheKey, new CachedQuote(now, response));
             log.debug("Quote fetch success [userId={}, symbol={}]", userId, symbol);
             return response;
+        } catch (ProviderNotConnectedException ex) {
+            log.debug(
+                    "Quote fetch unavailable [userId={}, symbol={}, code={}, provider={}, reason={}]",
+                    userId,
+                    symbol,
+                    ex.getCode(),
+                    ex.getProvider(),
+                    ex.getReason()
+            );
+            return unavailable(symbol, QuoteAvailabilityReason.NO_CREDENTIALS, now, ex.getCode());
         } catch (BacktestDomainException ex) {
             QuoteAvailabilityReason reason = mapReason(ex);
             log.warn(
-                    "Quote fetch unavailable [userId={}, symbol={}, code={}, status={}, mappedReason={}]",
+                    "Quote fetch unavailable [userId={}, symbol={}, code={}, status={}, mappedReason={}, message={}]",
                     userId,
                     symbol,
                     ex.getCode(),
                     ex.getStatus(),
                     reason,
-                    ex
+                    ex.getMessage()
             );
-            return unavailable(symbol, reason, now);
+            return unavailable(symbol, reason, now, ex.getCode());
         } catch (Exception ex) {
             log.error("Quote fetch failed [userId={}, symbol={}]", userId, symbol, ex);
-            return unavailable(symbol, QuoteAvailabilityReason.UPSTREAM_ERROR, now);
+            return unavailable(symbol, QuoteAvailabilityReason.UPSTREAM_ERROR, now, null);
         }
     }
 
@@ -126,10 +138,12 @@ public class QuoteService {
         return QuoteAvailabilityReason.UPSTREAM_ERROR;
     }
 
-    private LiveQuoteResponse unavailable(String symbol, QuoteAvailabilityReason reason, OffsetDateTime now) {
+    private LiveQuoteResponse unavailable(String symbol, QuoteAvailabilityReason reason, OffsetDateTime now, String code) {
         return LiveQuoteResponse.builder()
                 .symbol(symbol)
                 .source("OANDA")
+                .provider("OANDA")
+                .code(code)
                 .available(false)
                 .tsUtc(now)
                 .reason(reason)

@@ -2,6 +2,7 @@ package com.tradevault.controller;
 
 import com.tradevault.dto.session.LiveQuoteResponse;
 import com.tradevault.dto.session.QuoteAvailabilityReason;
+import com.tradevault.exception.BacktestErrorCodes;
 import com.tradevault.security.CustomUserDetailsService;
 import com.tradevault.security.JwtAuthenticationFilter;
 import com.tradevault.security.JwtTokenProvider;
@@ -56,6 +57,30 @@ class QuoteControllerSecurityTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.available").value(false))
                 .andExpect(jsonPath("$.reason").value("NO_PROVIDER"));
+    }
+
+    @Test
+    @WithMockUser(username = "trader@example.com", roles = {"USER"})
+    void authenticatedQuoteRequestReturnsNoCredentialsPayload() throws Exception {
+        when(quoteService.getLiveQuote("GBPUSD")).thenReturn(
+                LiveQuoteResponse.builder()
+                        .symbol("GBPUSD")
+                        .source("OANDA")
+                        .provider("OANDA")
+                        .available(false)
+                        .reason(QuoteAvailabilityReason.NO_CREDENTIALS)
+                        .code(BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED)
+                        .tsUtc(OffsetDateTime.now(ZoneOffset.UTC))
+                        .build()
+        );
+
+        mockMvc.perform(get("/api/quotes").param("symbol", "GBPUSD"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.available").value(false))
+                .andExpect(jsonPath("$.reason").value("NO_CREDENTIALS"))
+                .andExpect(jsonPath("$.provider").value("OANDA"))
+                .andExpect(jsonPath("$.code").value(BacktestErrorCodes.BACKTEST_PROVIDER_NOT_CONNECTED))
+                .andExpect(jsonPath("$.trace").doesNotExist());
     }
 
     @Test
