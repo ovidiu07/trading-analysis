@@ -1207,6 +1207,10 @@ export default function SessionPage() {
   useEffect(() => {
     if (!USE_SERVER_AUTO_JOURNAL) return
     if (!session?.id) return
+    if (chartMode !== 'LIVE') {
+      setAutoJournalStatus(null)
+      return
+    }
     if (quotesUnauthorized) return
     if (!autoJournalMonitorActive && !isChartPanelVisibleForPolling) return
 
@@ -1263,6 +1267,7 @@ export default function SessionPage() {
     }
   }, [
     autoJournalMonitorActive,
+    chartMode,
     isChartPanelVisibleForPolling,
     isDocumentVisible,
     quotesUnauthorized,
@@ -4588,6 +4593,11 @@ export default function SessionPage() {
                                 />
                               </Stack>
                               <Alert severity="info">{t('today.session.autoTrade.journalOnly')}</Alert>
+                              {chartMode !== 'LIVE' && (
+                                <Alert severity="warning">
+                                  {t('today.session.autoTrade.liveOnly')}
+                                </Alert>
+                              )}
                               {quotesUnauthorized && (
                                 <Alert
                                   severity="error"
@@ -4609,7 +4619,7 @@ export default function SessionPage() {
                                   ? 'Server-side monitor enabled. Arming remains active even if this tab is backgrounded.'
                                   : t('today.session.autoTrade.tabWarning')}
                               </Typography>
-                              {!quotesAvailableForAutoJournal && autoTradeStatus === 'DISARMED' && (
+                              {chartMode === 'LIVE' && !quotesAvailableForAutoJournal && autoTradeStatus === 'DISARMED' && (
                                 <Alert severity="warning">
                                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
                                     <Typography variant="body2">
@@ -4629,6 +4639,7 @@ export default function SessionPage() {
                                   value={autoTradeTolerancePips}
                                   onChange={(event) => setAutoTradeTolerancePips(event.target.value)}
                                   sx={{ minWidth: { sm: 140 } }}
+                                  disabled={chartMode !== 'LIVE'}
                                 />
                                 <TextField
                                   size="small"
@@ -4637,19 +4648,20 @@ export default function SessionPage() {
                                   value={autoTradeTimeoutMinutes}
                                   onChange={(event) => setAutoTradeTimeoutMinutes(event.target.value)}
                                   sx={{ minWidth: { sm: 140 } }}
+                                  disabled={chartMode !== 'LIVE'}
                                 />
                                 <Button
                                   size="small"
                                   variant={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'outlined' : 'contained'}
                                   color={autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE' ? 'warning' : 'primary'}
                                   onClick={() => void handleToggleAutoTrade()}
-                                  disabled={quotesUnauthorized || autoTradeBusy || ((autoTradeStatus !== 'ARMED' && autoTradeStatus !== 'ACTIVE') && !quotesAvailableForAutoJournal)}
+                                  disabled={chartMode !== 'LIVE' || quotesUnauthorized || autoTradeBusy || ((autoTradeStatus !== 'ARMED' && autoTradeStatus !== 'ACTIVE') && !quotesAvailableForAutoJournal)}
                                 >
                                   {autoTradeStatus === 'ARMED' || autoTradeStatus === 'ACTIVE'
                                     ? t('today.session.autoTrade.disarm')
                                     : t('today.session.autoTrade.arm')}
                                 </Button>
-                                {autoTradeStatus === 'ARMED' && (
+                                {chartMode === 'LIVE' && autoTradeStatus === 'ARMED' && (
                                   <Button
                                     size="small"
                                     variant="text"
@@ -4658,7 +4670,7 @@ export default function SessionPage() {
                                     {t('today.session.autoTrade.notFilledAction')}
                                   </Button>
                                 )}
-                                {session.activeTrade && (
+                                {chartMode === 'LIVE' && session.activeTrade && (
                                   <Button
                                     size="small"
                                     variant="outlined"

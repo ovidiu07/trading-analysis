@@ -19,6 +19,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.time.OffsetDateTime;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -248,6 +249,61 @@ class BacktestCsvServiceTest {
 
         assertThat(response.getDataset().getDataFrom()).isEqualTo(OffsetDateTime.parse("2002-01-01T00:00:00Z"));
         assertThat(response.getDataset().getDataTo()).isEqualTo(OffsetDateTime.parse("2025-01-01T00:00:00Z"));
+    }
+
+    @Test
+    void ingestUsesSameSourceIdForChunksAndDatasetRecord() {
+        UUID userId = UUID.randomUUID();
+        User user = User.builder().id(userId).email("csv@test.com").build();
+        UUID fileId = UUID.randomUUID();
+        String csv = "time,open,high,low,close\n"
+                + "1762725600,1.1000,1.1010,1.0990,1.1005\n"
+                + "1762725900,1.1005,1.1015,1.0995,1.1010\n";
+
+        BacktestCsvUpload upload = BacktestCsvUpload.builder()
+                .id(fileId)
+                .user(user)
+                .originalFileName("source-id.csv")
+                .filePayload(csv.getBytes())
+                .headerSignature("sig-source-id")
+                .detectedJson(new ObjectMapper().createObjectNode())
+                .build();
+
+        CsvIngestRequest request = new CsvIngestRequest();
+        request.setSymbol("EURUSD");
+        request.setTimeframe("M5");
+
+        when(uploadRepository.findByIdAndUser_Id(fileId, userId)).thenReturn(Optional.of(upload));
+        when(mappingRepository.findByUser_IdAndHeaderSignature(any(), any())).thenReturn(Optional.empty());
+        stubDatasetUpsertToEchoRange("source-id.csv");
+
+        CsvIngestResponse response = csvService.ingest(user, fileId, request);
+
+        verify(chunkStoreService).saveCandles(
+                eq(userId),
+                eq(BacktestCandleSource.CSV),
+                argThat(sourceId -> sourceId != null && sourceId.equals(sourceId.toLowerCase(Locale.ROOT))),
+                eq("EURUSD"),
+                eq("EURUSD"),
+                eq(BacktestTimeframe.M5),
+                any()
+        );
+        verify(datasetService).upsertDataset(
+                eq(user),
+                eq(BacktestCandleSource.CSV),
+                argThat(sourceId -> sourceId != null && sourceId.equals(sourceId.toLowerCase(Locale.ROOT))),
+                any(),
+                eq("EURUSD"),
+                eq("EURUSD"),
+                eq(BacktestTimeframe.M5),
+                any(),
+                any(),
+                anyInt(),
+                any(),
+                any(),
+                any()
+        );
+        assertThat(response.getDataset().getSourceId()).isEqualTo(response.getDataset().getSourceId().toLowerCase(Locale.ROOT));
     }
 
     private void stubDatasetUpsertToEchoRange(String name) {

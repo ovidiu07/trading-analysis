@@ -5,6 +5,7 @@ import com.tradevault.domain.enums.BacktestTimeframe;
 import com.tradevault.exception.BacktestDomainException;
 import com.tradevault.exception.BacktestErrorCodes;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -20,6 +21,7 @@ import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class CandleDataService {
     private final CandleChunkStoreService candleChunkStoreService;
     private final OandaCandleProvider oandaCandleProvider;
@@ -93,6 +95,57 @@ public class CandleDataService {
                 from,
                 to
         );
+        if (provider == BacktestCandleSource.CSV && candles.isEmpty()) {
+            String lowerSourceId = sourceId.toLowerCase(Locale.ROOT);
+            if (!lowerSourceId.equals(sourceId)) {
+                if (log.isDebugEnabled()) {
+                    log.debug(
+                            "CSV candle lookup returned no rows; retrying with lowercase sourceId [originalSourceId={}, retrySourceId={}, symbol={}, timeframe={}, from={}, to={}]",
+                            sourceId,
+                            lowerSourceId,
+                            symbolCanonical,
+                            timeframe,
+                            from,
+                            to
+                    );
+                }
+                candles = candleChunkStoreService.loadCandles(
+                        userId,
+                        provider,
+                        lowerSourceId,
+                        symbolCanonical,
+                        timeframe,
+                        from,
+                        to
+                );
+            }
+
+            if (candles.isEmpty()) {
+                String upperSourceId = sourceId.toUpperCase(Locale.ROOT);
+                if (!upperSourceId.equals(sourceId)) {
+                    if (log.isDebugEnabled()) {
+                        log.debug(
+                                "CSV candle lookup still empty; retrying with uppercase sourceId [originalSourceId={}, retrySourceId={}, symbol={}, timeframe={}, from={}, to={}]",
+                                sourceId,
+                                upperSourceId,
+                                symbolCanonical,
+                                timeframe,
+                                from,
+                                to
+                        );
+                    }
+                    candles = candleChunkStoreService.loadCandles(
+                            userId,
+                            provider,
+                            upperSourceId,
+                            symbolCanonical,
+                            timeframe,
+                            from,
+                            to
+                    );
+                }
+            }
+        }
 
         return candles.stream()
                 .sorted(Comparator.comparing(CanonicalCandle::tsUtc))

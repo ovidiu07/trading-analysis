@@ -21,7 +21,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
 
 @Service
@@ -302,6 +301,6 @@ public class BacktestDatasetService {
         if (sourceId == null || sourceId.isBlank()) {
             return UUID.randomUUID().toString();
         }
-        return sourceId.trim().toUpperCase(Locale.ROOT);
+        return sourceId.trim();
     }
 }

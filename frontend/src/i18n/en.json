@@ -1304,7 +1304,7 @@
         "autoCloseTp": "Auto close on TP touch (journal monitor).",
         "closeFailed": "Could not auto-close trade.",
         "disarmed": "Auto journal disarmed.",
-        "liveOnly": "Auto journal is available only in Live mode.",
+        "liveOnly": "Auto-journal monitor is available in Live mode only.",
         "symbolRequired": "Set a symbol before arming auto journal.",
         "levelsRequired": "Set Entry, SL, and TP before arming auto journal.",
         "armedForClose": "Auto journal armed for active trade monitoring.",

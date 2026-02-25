@@ -375,6 +375,7 @@ describe('SessionPage execution funnel', () => {
     localStorage.setItem('app.language', 'en')
     localStorage.removeItem('today.session.selectedPlanId')
     localStorage.removeItem('sessionMode.layoutState.user-1')
+    localStorage.removeItem('sessionMode.chartMode.user-1')
 
     sessionState = baseSession()
 
@@ -1161,6 +1162,72 @@ describe('SessionPage execution funnel', () => {
       vi.useRealTimers()
     }
   })
+
+  it('does not poll auto-journal status or quotes in BACKTEST mode', async () => {
+    vi.useFakeTimers()
+    try {
+      localStorage.setItem('sessionMode.chartMode.user-1', 'BACKTEST')
+      sessionApiMock.getSessionAutoJournalStatus.mockClear()
+      quotesApiMock.fetchLiveQuote.mockClear()
+
+      renderSessionPage()
+      await vi.advanceTimersByTimeAsync(30_000)
+
+      expect(sessionApiMock.getSessionAutoJournalStatus).not.toHaveBeenCalled()
+      expect(quotesApiMock.fetchLiveQuote).not.toHaveBeenCalled()
+      expect(screen.getAllByText(/Auto-journal monitor is available in Live mode only/i).length).toBeGreaterThan(0)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('stops auto-journal polling when switching from LIVE to BACKTEST and resumes in LIVE', async () => {
+    const user = userEvent.setup()
+    sessionApiMock.getSessionAutoJournalStatus.mockClear()
+    sessionApiMock.getSessionAutoJournalStatus.mockResolvedValue({
+      sessionId: sessionState.id,
+      state: 'ARMED',
+      symbol: 'OANDA:EURUSD',
+      side: 'LONG',
+      entry: 1.0825,
+      sl: 1.081,
+      tp: 1.085,
+      tolerancePips: 0,
+      timeoutMin: 30,
+      armedAt: '2026-02-21T08:16:03Z',
+      lastEventAt: '2026-02-21T08:16:03Z',
+      lastError: null,
+      quoteAvailable: true,
+      quoteReason: null,
+      bid: 1.0824,
+      ask: 1.08252,
+      spread: 0.00012,
+      quoteTsUtc: '2026-02-21T08:16:03Z',
+      quoteSource: 'OANDA'
+    })
+
+    renderSessionPage()
+    await waitFor(() => {
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBeGreaterThan(0)
+    }, { timeout: 5_000 })
+
+    const callsAfterInitialFetch = sessionApiMock.getSessionAutoJournalStatus.mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 2_300))
+    expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBeGreaterThan(callsAfterInitialFetch)
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Backtest' }))
+
+    const callsBeforeBacktestWait = sessionApiMock.getSessionAutoJournalStatus.mock.calls.length
+    await new Promise((resolve) => setTimeout(resolve, 2_600))
+    expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBe(callsBeforeBacktestWait)
+
+    await user.click(screen.getByRole('combobox', { name: /^Mode$/i }))
+    await user.click(await screen.findByRole('option', { name: 'Live' }))
+    await waitFor(() => {
+      expect(sessionApiMock.getSessionAutoJournalStatus.mock.calls.length).toBeGreaterThan(callsBeforeBacktestWait)
+    }, { timeout: 5_000 })
+  }, 20_000)
 
   it('stops auto-journal polling after unmount', async () => {
     vi.useFakeTimers()

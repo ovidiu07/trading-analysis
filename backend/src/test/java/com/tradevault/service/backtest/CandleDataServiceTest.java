@@ -93,4 +93,48 @@ class CandleDataServiceTest {
                 .isInstanceOf(BacktestDomainException.class)
                 .hasMessageContaining("Dataset source id is required");
     }
+
+    @Test
+    void retriesCsvLookupWithLowercaseSourceIdWhenExactCaseReturnsNoCandles() {
+        UUID userId = UUID.randomUUID();
+        OffsetDateTime from = OffsetDateTime.parse("2026-02-01T00:00:00Z");
+        OffsetDateTime to = OffsetDateTime.parse("2026-02-01T00:10:00Z");
+        String uppercaseSourceId = "B5E1B31D-6D6D-4A7B-97A1-4DFF2F0D31AB";
+        String lowercaseSourceId = uppercaseSourceId.toLowerCase();
+
+        when(candleChunkStoreService.loadCandles(userId, BacktestCandleSource.CSV, uppercaseSourceId, "EURUSD", BacktestTimeframe.M1, from, to))
+                .thenReturn(List.of());
+        when(candleChunkStoreService.loadCandles(userId, BacktestCandleSource.CSV, lowercaseSourceId, "EURUSD", BacktestTimeframe.M1, from, to))
+                .thenReturn(List.of(
+                        new CanonicalCandle(
+                                BacktestCandleSource.CSV,
+                                lowercaseSourceId,
+                                "EURUSD",
+                                "EURUSD",
+                                BacktestTimeframe.M1,
+                                from,
+                                new BigDecimal("1.1000"),
+                                new BigDecimal("1.1010"),
+                                new BigDecimal("1.0990"),
+                                new BigDecimal("1.1005"),
+                                BigDecimal.valueOf(100)
+                        )
+                ));
+
+        List<BacktestCandle> rows = candleDataService.getCandles(
+                userId,
+                "CSV",
+                uppercaseSourceId,
+                "EURUSD",
+                "M1",
+                from,
+                to,
+                false
+        );
+
+        assertThat(rows).hasSize(1);
+        assertThat(rows.get(0).close()).isEqualByComparingTo("1.1005");
+        verify(candleChunkStoreService).loadCandles(userId, BacktestCandleSource.CSV, uppercaseSourceId, "EURUSD", BacktestTimeframe.M1, from, to);
+        verify(candleChunkStoreService).loadCandles(userId, BacktestCandleSource.CSV, lowercaseSourceId, "EURUSD", BacktestTimeframe.M1, from, to);
+    }
 }

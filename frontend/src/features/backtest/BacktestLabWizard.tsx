@@ -161,6 +161,47 @@ const toIsoDay = (value?: string | null) => {
   return date.toISOString().slice(0, 10)
 }
 
+const timeframeSeconds = (timeframe: string) => {
+  switch ((timeframe || '').toUpperCase()) {
+    case 'M1':
+      return 60
+    case 'M5':
+      return 300
+    case 'M15':
+      return 900
+    case 'H1':
+      return 3600
+    case 'H4':
+      return 14_400
+    case 'D1':
+      return 86_400
+    case 'W1':
+      return 604_800
+    default:
+      return Number.MAX_SAFE_INTEGER
+  }
+}
+
+const pickExecutionDataset = (
+  datasets: BacktestDatasetSetDatasets['datasets'] | null | undefined,
+  requestedTimeframe: string
+) => {
+  const rows = datasets || []
+  if (!rows.length) return null
+  const exact = rows.find((row) => row.timeframe === requestedTimeframe)
+  if (exact) return exact
+
+  const requestedSeconds = timeframeSeconds(requestedTimeframe)
+  const sorted = [...rows].sort((a, b) => timeframeSeconds(a.timeframe) - timeframeSeconds(b.timeframe))
+  let source = null as BacktestDatasetSetDatasets['datasets'][number] | null
+  for (const row of sorted) {
+    if (timeframeSeconds(row.timeframe) <= requestedSeconds) {
+      source = row
+    }
+  }
+  return source || sorted[0]
+}
+
 const resolveDatasetRangeBounds = (datasets?: BacktestDatasetSetDatasets['datasets'] | null) => {
   const rows = datasets || []
   if (!rows.length) return { min: '', max: '' }
@@ -257,6 +298,7 @@ export default function BacktestLabWizard() {
   const [datasetInfo, setDatasetInfo] = useState<BacktestDatasetSetDatasets | null>(null)
   const [loadingDatasets, setLoadingDatasets] = useState(false)
   const [uploading, setUploading] = useState(false)
+  const [uploadStage, setUploadStage] = useState<'' | 'UPLOADING' | 'PARSING' | 'PERSISTING' | 'READY'>('')
   const [saveStrategyBusy, setSaveStrategyBusy] = useState(false)
   const [runBusy, setRunBusy] = useState(false)
   const [error, setError] = useState('')
@@ -279,9 +321,13 @@ export default function BacktestLabWizard() {
     return Array.from(set)
   }, [datasetInfo])
 
+  const executionDataset = useMemo(() => {
+    return pickExecutionDataset(datasetInfo?.datasets, strategyConfig.context.executionTimeframe)
+  }, [datasetInfo?.datasets, strategyConfig.context.executionTimeframe])
+
   const rangeBounds = useMemo(() => {
-    return resolveDatasetRangeBounds(datasetInfo?.datasets)
-  }, [datasetInfo])
+    return resolveDatasetRangeBounds(executionDataset ? [executionDataset] : [])
+  }, [executionDataset])
 
   const runWindowValid = useMemo(() => {
     if (!runWindow.fromUtc || !runWindow.toUtc) return false
@@ -290,17 +336,40 @@ export default function BacktestLabWizard() {
     return runWindow.fromUtc <= runWindow.toUtc
   }, [rangeBounds.max, rangeBounds.min, runWindow.fromUtc, runWindow.toUtc])
 
+  const canRunBacktest = useMemo(() => {
+    if (!strategyConfigId) return false
+    if (!executionDataset) return false
+    if (executionDataset.status !== 'READY') return false
+    if ((executionDataset.candleCount || 0) <= 0) return false
+    if (!runWindowValid) return false
+    if (uploading || loadingDatasets || runBusy) return false
+    return true
+  }, [executionDataset, loadingDatasets, runBusy, runWindowValid, strategyConfigId, uploading])
+
+  const runBlockedReason = useMemo(() => {
+    if (!executionDataset) {
+      return `Upload a dataset for ${strategyConfig.context.executionTimeframe} (or a lower timeframe to resample).`
+    }
+    if (executionDataset.status !== 'READY') {
+      return `Selected timeframe dataset is ${executionDataset.status}. Wait until it is READY before running.`
+    }
+    if ((executionDataset.candleCount || 0) <= 0) {
+      return `No persisted candles found for timeframe ${executionDataset.timeframe}. Re-import this CSV.`
+    }
+    if (!runWindowValid && rangeBounds.min && rangeBounds.max) {
+      return `Select a valid range between ${rangeBounds.min} and ${rangeBounds.max}.`
+    }
+    return ''
+  }, [executionDataset, rangeBounds.max, rangeBounds.min, runWindowValid, strategyConfig.context.executionTimeframe])
+
   const loadDatasets = async (id: string) => {
     if (!id) return
     setLoadingDatasets(true)
     try {
       const info = await getBacktestDatasetSetDatasets(id)
       setDatasetInfo(info)
-      const bounds = resolveDatasetRangeBounds(info.datasets)
-      if (info.datasets.length) {
-        setRunWindow((prev) => normalizeRunWindowToBounds(prev, bounds))
-      }
       if (info.instrument && info.instrument !== 'UNKNOWN') {
+        const availableTimeframes = new Set(info.datasets.map((item) => item.timeframe))
         setInstrument(info.instrument)
         setStrategyConfig((prev) => ({
           ...prev,
@@ -308,7 +377,7 @@ export default function BacktestLabWizard() {
             ...prev.context,
             pipSize: inferPipSize(info.instrument),
             timezoneBasis: info.timezoneBasis || prev.context.timezoneBasis,
-            executionTimeframe: tfOptions.includes(prev.context.executionTimeframe)
+            executionTimeframe: availableTimeframes.has(prev.context.executionTimeframe)
               ? prev.context.executionTimeframe
               : (info.datasets.find((d) => d.timeframe === 'M5')?.timeframe || info.datasets[0]?.timeframe || prev.context.executionTimeframe)
           }
@@ -327,6 +396,11 @@ export default function BacktestLabWizard() {
     }
   }, [datasetSetId])
 
+  useEffect(() => {
+    if (!rangeBounds.min || !rangeBounds.max) return
+    setRunWindow((prev) => normalizeRunWindowToBounds(prev, rangeBounds))
+  }, [rangeBounds.max, rangeBounds.min])
+
   const ensureSet = async () => {
     if (datasetSetId) return datasetSetId
     const created = await createBacktestDatasetSet({ instrument, timezoneBasis })
@@ -340,15 +414,21 @@ export default function BacktestLabWizard() {
     setError('')
     setSuccess('')
     setUploading(true)
+    setUploadStage('UPLOADING')
     try {
       const id = await ensureSet()
       for (const file of Array.from(files)) {
+        setUploadStage('UPLOADING')
         await uploadBacktestDatasetCsv(id, file)
       }
+      setUploadStage('PARSING')
+      setUploadStage('PERSISTING')
       await loadDatasets(id)
+      setUploadStage('READY')
       setSuccess(`${files.length} file(s) uploaded and ingested.`)
     } catch (e: any) {
       setError(e?.message || 'Upload failed')
+      setUploadStage('')
     } finally {
       setUploading(false)
     }
@@ -412,6 +492,18 @@ export default function BacktestLabWizard() {
       setError('Select a valid date range within dataset bounds.')
       return
     }
+    if (!executionDataset) {
+      setError(`Upload a dataset for timeframe ${strategyConfig.context.executionTimeframe} first.`)
+      return
+    }
+    if (executionDataset.status !== 'READY') {
+      setError(`Selected timeframe dataset is ${executionDataset.status}. Wait until it is READY.`)
+      return
+    }
+    if ((executionDataset.candleCount || 0) <= 0) {
+      setError(`No persisted candles found for timeframe ${executionDataset.timeframe}. Re-import this CSV.`)
+      return
+    }
 
     setRunBusy(true)
     setError('')
@@ -420,10 +512,16 @@ export default function BacktestLabWizard() {
     setReport(null)
 
     try {
+      const fromUtc = runWindow.fromUtc === toIsoDay(executionDataset.minTimeUtc)
+        ? executionDataset.minTimeUtc
+        : `${runWindow.fromUtc}T00:00:00Z`
+      const toUtc = runWindow.toUtc === toIsoDay(executionDataset.maxTimeUtc)
+        ? executionDataset.maxTimeUtc
+        : `${runWindow.toUtc}T23:59:59Z`
       const run = await runBacktestDatasetSet(datasetSetId, {
         strategyConfigId,
-        fromUtc: `${runWindow.fromUtc}T00:00:00Z`,
-        toUtc: `${runWindow.toUtc}T23:59:59Z`,
+        fromUtc,
+        toUtc,
         sessionFilter: runWindow.sessionFilter || undefined,
         autoGenerateReport: true
       })
@@ -469,6 +567,7 @@ export default function BacktestLabWizard() {
       </Stepper>
 
       {uploading || loadingDatasets || runBusy ? <LinearProgress /> : null}
+      {uploadStage ? <Alert severity={uploadStage === 'READY' ? 'success' : 'info'}>{`Upload status: ${uploadStage}`}</Alert> : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
       {success ? <Alert severity="success">{success}</Alert> : null}
 
@@ -913,6 +1012,15 @@ export default function BacktestLabWizard() {
 
             {step === 2 && (
               <>
+                {executionDataset ? (
+                  <Alert severity="info">
+                    {`Execution TF ${strategyConfig.context.executionTimeframe} uses dataset TF ${executionDataset.timeframe} | Range ${executionDataset.minTimeUtc} → ${executionDataset.maxTimeUtc} | Candles ${executionDataset.candleCount} | Status ${executionDataset.status}`}
+                  </Alert>
+                ) : (
+                  <Alert severity="warning">
+                    {`No dataset available for execution timeframe ${strategyConfig.context.executionTimeframe}.`}
+                  </Alert>
+                )}
                 <Grid container spacing={1}>
                   <Grid item xs={12} sm={4}>
                     <TextField
@@ -961,6 +1069,9 @@ export default function BacktestLabWizard() {
                     {`Select a valid range between ${rangeBounds.min} and ${rangeBounds.max}.`}
                   </Alert>
                 ) : null}
+                {!canRunBacktest && strategyConfigId && runBlockedReason ? (
+                  <Alert severity="warning">{runBlockedReason}</Alert>
+                ) : null}
 
                 {lastRun ? (
                   <Alert severity={lastRun.status === 'FAILED' ? 'error' : 'info'}>
@@ -973,7 +1084,7 @@ export default function BacktestLabWizard() {
                 ) : null}
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-                  <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={runBusy || !runWindowValid}>
+                  <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={!canRunBacktest}>
                     Run backtest
                   </Button>
                   <Button variant="outlined" onClick={() => setStep(3)} disabled={!results}>

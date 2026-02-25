@@ -127,24 +127,53 @@ public class CandleChunkStoreService {
                         from,
                         to
                 );
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Candle chunk lookup [table=candle_chunks, userId={}, provider={}, sourceId={}, symbolCanonical={}, timeframe={}, fromUtc={} ({}), toUtc={} ({}), chunkRows={}]",
+                    userId,
+                    provider,
+                    sourceId,
+                    symbolCanonical,
+                    timeframe,
+                    from,
+                    from == null ? "null" : from.getClass().getSimpleName(),
+                    to,
+                    to == null ? "null" : to.getClass().getSimpleName(),
+                    chunks.size()
+            );
+        }
 
         List<CanonicalCandle> candles = new ArrayList<>();
+        int decodedCandles = 0;
         for (CandleChunk chunk : chunks) {
-            candles.addAll(candleChunkCodec.decode(
+            List<CanonicalCandle> decoded = candleChunkCodec.decode(
                     chunk.getPayload(),
                     chunk.getProvider(),
                     chunk.getSourceId(),
                     chunk.getSymbolCanonical(),
                     chunk.getSymbolDisplay(),
                     chunk.getTimeframe()
-            ));
+            );
+            decodedCandles += decoded.size();
+            candles.addAll(decoded);
         }
-
-        return candles.stream()
+        List<CanonicalCandle> filtered = candles.stream()
                 .filter(item -> item.tsUtc() != null)
                 .filter(item -> !item.tsUtc().isBefore(from) && !item.tsUtc().isAfter(to))
                 .sorted(Comparator.comparing(CanonicalCandle::tsUtc))
                 .toList();
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Candle chunk decode result [provider={}, sourceId={}, symbolCanonical={}, timeframe={}, decodedCandles={}, filteredCandles={}]",
+                    provider,
+                    sourceId,
+                    symbolCanonical,
+                    timeframe,
+                    decodedCandles,
+                    filtered.size()
+            );
+        }
+        return filtered;
     }
 
     @Transactional(readOnly = true)

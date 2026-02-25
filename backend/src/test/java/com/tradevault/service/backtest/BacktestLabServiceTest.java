@@ -11,9 +11,12 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.BacktestCandleSource;
 import com.tradevault.domain.enums.BacktestRunStatus;
 import com.tradevault.domain.enums.BacktestTimeframe;
+import com.tradevault.dto.backtest.BacktestDatasetResponse;
 import com.tradevault.dto.backtest.BacktestLabRunRequest;
 import com.tradevault.dto.backtest.BacktestLabRunResponse;
 import com.tradevault.dto.backtest.BacktestDatasetSetDatasetsResponse;
+import com.tradevault.dto.backtest.CsvIngestResponse;
+import com.tradevault.dto.backtest.CsvUploadResponse;
 import com.tradevault.repository.BacktestDatasetRepository;
 import com.tradevault.repository.BacktestDatasetSetRepository;
 import com.tradevault.repository.BacktestRunReportRepository;
@@ -24,6 +27,7 @@ import com.tradevault.repository.BacktestTradeRepository;
 import com.tradevault.service.CurrentUserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
@@ -40,6 +44,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -229,6 +234,50 @@ class BacktestLabServiceTest {
     }
 
     @Test
+    void uploadCsvSetsPersistedCandleCountFromStoredCandles() {
+        UUID fileId = UUID.randomUUID();
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "EURUSD_M5.csv",
+                "text/csv",
+                "time,open,high,low,close\n1762725600,1.1,1.11,1.09,1.105\n".getBytes()
+        );
+        CsvUploadResponse uploadResponse = CsvUploadResponse.builder()
+                .fileId(fileId)
+                .fileName("EURUSD_M5.csv")
+                .headers(List.of("time", "open", "high", "low", "close"))
+                .mappingRequired(false)
+                .warnings(List.of())
+                .build();
+        CsvIngestResponse ingestResponse = CsvIngestResponse.builder()
+                .dataset(BacktestDatasetResponse.builder().id(dataset.getId()).build())
+                .warnings(List.of())
+                .build();
+
+        when(backtestCsvService.upload(user, file)).thenReturn(uploadResponse);
+        when(backtestCsvService.ingest(eq(user), eq(fileId), any())).thenReturn(ingestResponse);
+        when(datasetRepository.findById(dataset.getId())).thenReturn(Optional.of(dataset));
+        when(candleDataService.getCandles(
+                eq(user.getId()),
+                eq("CSV"),
+                eq(dataset.getSourceId()),
+                eq(dataset.getSymbolDisplay()),
+                eq(dataset.getTimeframe().name()),
+                eq(dataset.getDataFrom()),
+                eq(dataset.getDataTo()),
+                eq(false)
+        )).thenReturn(buildSmallCandleWindow());
+
+        var response = service.uploadCsv(datasetSet.getId(), file);
+
+        assertThat(response.getCandleCount()).isEqualTo(5);
+        assertThat(response.getStatus()).isEqualTo("READY");
+        assertThat(dataset.getCandleCount()).isEqualTo(5);
+        assertThat(dataset.getMinTimeUtc()).isEqualTo(OffsetDateTime.parse("2026-02-03T08:00:00Z"));
+        assertThat(dataset.getMaxTimeUtc()).isEqualTo(OffsetDateTime.parse("2026-02-03T08:20:00Z"));
+    }
+
+    @Test
     void runDefaultsToDatasetBoundsWhenFromToMissing() {
         when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
                 .thenReturn(buildDeterministicCandles());
@@ -249,6 +298,52 @@ class BacktestLabServiceTest {
         assertThat(response.getWarnings()).isEmpty();
         assertThat(response.getCandleCountInRange()).isGreaterThanOrEqualTo(30);
         assertThat(response.getMinRequiredCandles()).isEqualTo(30);
+    }
+
+    @Test
+    void runUsesExecutionTimeframeDatasetBoundsWhenMultipleTimeframesExist() {
+        BacktestDataset dailyDataset = BacktestDataset.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .datasetSet(datasetSet)
+                .provider(BacktestCandleSource.CSV)
+                .sourceId("SRC-D1")
+                .name("EURUSD_D1.csv")
+                .symbolCanonical("EURUSD")
+                .symbolDisplay("EURUSD")
+                .timeframe(BacktestTimeframe.D1)
+                .dataFrom(OffsetDateTime.parse("2002-05-05T00:00:00Z"))
+                .dataTo(OffsetDateTime.parse("2026-02-19T22:00:00Z"))
+                .minTimeUtc(OffsetDateTime.parse("2002-05-05T00:00:00Z"))
+                .maxTimeUtc(OffsetDateTime.parse("2026-02-19T22:00:00Z"))
+                .rowCount(6000)
+                .candleCount(6000)
+                .parsedOk(true)
+                .build();
+        when(datasetRepository.findByDatasetSet_IdOrderByCreatedAtAsc(datasetSet.getId())).thenReturn(List.of(dataset, dailyDataset));
+
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String timeframe = invocation.getArgument(4);
+                    if ("M5".equals(timeframe)) {
+                        return buildDeterministicCandles();
+                    }
+                    return buildDailyCandles();
+                });
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse response = service.run(datasetSet.getId(), request);
+
+        assertThat(response.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+        assertThat(response.getRequestedFromUtc()).isNull();
+        assertThat(response.getRequestedToUtc()).isNull();
+        assertThat(response.getDatasetMinUtc()).isEqualTo(dataset.getMinTimeUtc());
+        assertThat(response.getDatasetMaxUtc()).isEqualTo(dataset.getMaxTimeUtc());
+        assertThat(response.getEffectiveFromUtc()).isEqualTo(dataset.getMinTimeUtc());
+        assertThat(response.getEffectiveToUtc()).isEqualTo(dataset.getMaxTimeUtc());
     }
 
     @Test
@@ -286,7 +381,7 @@ class BacktestLabServiceTest {
         BacktestLabRunResponse response = service.run(datasetSet.getId(), request);
 
         assertThat(response.getStatus()).isEqualTo(BacktestRunStatus.FAILED.name());
-        assertThat(response.getErrorMsg()).isEqualTo("No candles in selected range");
+        assertThat(response.getErrorMsg()).isEqualTo("No candles found for timeframe M5 in effective range. Import may be incomplete or storage mismatch.");
         assertThat(response.getCandleCountInRange()).isEqualTo(0);
         assertThat(response.getMinRequiredCandles()).isEqualTo(30);
     }
@@ -356,6 +451,14 @@ class BacktestLabServiceTest {
                 candle("2026-02-04T08:05:00Z", 1.1005, 1.102, 1.1, 1.1015),
                 candle("2026-02-04T08:10:00Z", 1.1015, 1.103, 1.101, 1.1025),
                 candle("2026-02-04T13:00:00Z", 1.1025, 1.104, 1.102, 1.103)
+        );
+    }
+
+    private List<BacktestCandle> buildDailyCandles() {
+        return List.of(
+                candle("2026-02-01T00:00:00Z", 1.1, 1.105, 1.095, 1.102),
+                candle("2026-02-02T00:00:00Z", 1.102, 1.106, 1.098, 1.104),
+                candle("2026-02-03T00:00:00Z", 1.104, 1.108, 1.101, 1.106)
         );
     }
 

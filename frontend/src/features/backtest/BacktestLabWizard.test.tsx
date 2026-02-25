@@ -251,6 +251,53 @@ describe('BacktestLabWizard', () => {
     expect(toField).toHaveValue('2025-12-31')
   })
 
+  it('uses selected execution timeframe dataset bounds instead of global earliest dataset', async () => {
+    const user = userEvent.setup()
+    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
+      datasetSetId: 'set-1',
+      instrument: 'EURUSD',
+      timezoneBasis: 'UTC',
+      datasets: [
+        {
+          datasetId: 'dataset-m5',
+          timeframe: 'M5',
+          originalFilename: 'EURUSD_M5.csv',
+          minTimeUtc: '2025-11-09T22:00:00Z',
+          maxTimeUtc: '2026-02-20T21:55:00Z',
+          candleCount: 21024,
+          columnsMapped: 'time/open/high/low/close',
+          status: 'READY',
+          warnings: []
+        },
+        {
+          datasetId: 'dataset-d1',
+          timeframe: 'D1',
+          originalFilename: 'EURUSD_D1.csv',
+          minTimeUtc: '2002-05-05T21:00:00Z',
+          maxTimeUtc: '2026-02-19T22:00:00Z',
+          candleCount: 6181,
+          columnsMapped: 'time/open/high/low/close',
+          status: 'READY',
+          warnings: []
+        }
+      ],
+      sessionPreview: []
+    })
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+
+    const fromField = await screen.findByLabelText('From')
+    const toField = await screen.findByLabelText('To')
+    expect(fromField).toHaveValue('2025-11-09')
+    expect(toField).toHaveValue('2026-02-20')
+  })
+
   it('disables run button when date range is invalid', async () => {
     const user = userEvent.setup()
     renderWizard()
@@ -269,6 +316,40 @@ describe('BacktestLabWizard', () => {
     const runButton = screen.getByRole('button', { name: /Run backtest/i })
     expect(runButton).toBeDisabled()
     expect(backtestApiMock.runBacktestDatasetSet.mock.calls.length).toBe(callsBefore)
+  })
+
+  it('disables run button when selected timeframe dataset is not ready', async () => {
+    const user = userEvent.setup()
+    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
+      datasetSetId: 'set-1',
+      instrument: 'EURUSD',
+      timezoneBasis: 'UTC',
+      datasets: [
+        {
+          datasetId: 'dataset-m5',
+          timeframe: 'M5',
+          originalFilename: 'EURUSD_M5.csv',
+          minTimeUtc: '2025-11-09T22:00:00Z',
+          maxTimeUtc: '2026-02-20T21:55:00Z',
+          candleCount: 0,
+          columnsMapped: 'time/open/high/low/close',
+          status: 'WARN',
+          warnings: []
+        }
+      ],
+      sessionPreview: []
+    })
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+
+    expect(await screen.findByText(/Selected timeframe dataset is WARN/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Run backtest/i })).toBeDisabled()
   })
 
   it('keeps cards readable on mobile width', async () => {

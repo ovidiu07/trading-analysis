@@ -129,14 +129,28 @@ public class BacktestLabService {
         UUID datasetId = ingest.getDataset().getId();
         BacktestDataset dataset = datasetRepository.findById(datasetId)
                 .orElseThrow(() -> new EntityNotFoundException("Dataset not found after ingest"));
+        List<BacktestCandle> persistedCandles = candleDataService.getCandles(
+                user.getId(),
+                dataset.getProvider().name(),
+                dataset.getSourceId(),
+                dataset.getSymbolDisplay(),
+                dataset.getTimeframe().name(),
+                dataset.getDataFrom(),
+                dataset.getDataTo(),
+                false
+        );
+        OffsetDateTime persistedMinUtc = persistedCandles.isEmpty() ? dataset.getDataFrom() : persistedCandles.get(0).timestamp();
+        OffsetDateTime persistedMaxUtc = persistedCandles.isEmpty()
+                ? dataset.getDataTo()
+                : persistedCandles.get(persistedCandles.size() - 1).timestamp();
 
         dataset.setDatasetSet(set);
         dataset.setOriginalFilename(file == null ? dataset.getName() : file.getOriginalFilename());
-        dataset.setMinTimeUtc(dataset.getDataFrom());
-        dataset.setMaxTimeUtc(dataset.getDataTo());
-        dataset.setCandleCount(dataset.getRowCount());
-        dataset.setParsedOk(Boolean.TRUE);
-        dataset.setErrorMsg(null);
+        dataset.setMinTimeUtc(persistedMinUtc);
+        dataset.setMaxTimeUtc(persistedMaxUtc);
+        dataset.setCandleCount(persistedCandles.size());
+        dataset.setParsedOk(!persistedCandles.isEmpty());
+        dataset.setErrorMsg(persistedCandles.isEmpty() ? "No persisted candles found after ingest." : null);
         datasetRepository.save(dataset);
 
         if ("UNKNOWN".equals(set.getInstrument())) {
@@ -195,13 +209,19 @@ public class BacktestLabService {
         User user = currentUserService.getCurrentUser();
         BacktestDatasetSet set = requireDatasetSet(datasetSetId, user.getId());
         BacktestStrategyConfig strategyConfig = resolveStrategyConfig(set, user.getId(), request == null ? null : request.getStrategyConfigId());
+        ParsedConfig parsedConfig = parseConfig(strategyConfig, set);
 
-        RangeResolution range = resolveRunRange(set, request == null ? null : request.getFromUtc(), request == null ? null : request.getToUtc());
+        RangeResolution range = resolveRunRange(
+                set,
+                request == null ? null : request.getFromUtc(),
+                request == null ? null : request.getToUtc(),
+                parsedConfig.executionTimeframeRequested()
+        );
 
         BacktestRun run = BacktestRun.builder()
                 .user(user)
                 .symbol(set.getInstrument())
-                .timeframe("M5")
+                .timeframe(parsedConfig.executionTimeframeRequested().name())
                 .rangeFrom(range.effectiveFromUtc())
                 .rangeTo(range.effectiveToUtc())
                 .sessionWindow(normalizeOptionalText(request == null ? null : request.getSessionFilter()))
@@ -217,7 +237,7 @@ public class BacktestLabService {
         run = runRepository.save(run);
 
         try {
-            EngineOutput output = executeRunEngine(run, set, strategyConfig, request, range);
+            EngineOutput output = executeRunEngine(run, set, parsedConfig, request, range);
             RunDiagnostics diagnostics = output.diagnostics();
             if (diagnostics != null) {
                 run.setFromUtc(diagnostics.effectiveFromUtc());
@@ -420,6 +440,9 @@ public class BacktestLabService {
         md.append("- Avg duration: ").append(summary.getAvgDurationSec() == null ? "0" : summary.getAvgDurationSec().setScale(2, RoundingMode.HALF_UP)).append(" sec\n\n");
 
         md.append("## Trades Timeline\n");
+        if (results.getTrades().isEmpty()) {
+            md.append("- 0 setups matched filters.\n\n");
+        }
         for (BacktestLabTradeResultResponse trade : results.getTrades()) {
             md.append("### Trade ").append(trade.getTradeId()).append("\n");
             md.append("- Direction: ").append(trade.getDirection()).append("\n");
@@ -554,7 +577,7 @@ public class BacktestLabService {
 
     private EngineOutput executeRunEngine(BacktestRun run,
                                           BacktestDatasetSet set,
-                                          BacktestStrategyConfig strategyConfig,
+                                          ParsedConfig config,
                                           BacktestLabRunRequest request,
                                           RangeResolution rangeResolution) {
         List<BacktestDataset> datasets = datasetRepository.findByDatasetSet_IdOrderByCreatedAtAsc(set.getId());
@@ -562,7 +585,6 @@ public class BacktestLabService {
             throw new IllegalArgumentException("No datasets found for this dataset set");
         }
 
-        ParsedConfig config = parseConfig(strategyConfig, set);
         DatasetSelection selection = chooseExecutionDataset(datasets, config.executionTimeframeRequested());
         int minRequired = minRequiredCandles();
 
@@ -594,10 +616,39 @@ public class BacktestLabService {
             throw new BacktestRunDiagnosticsException(message, baseDiagnostics);
         }
 
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Backtest candle load request [datasetSetId={}, runId={}, executionTimeframe={}, selectedDatasetId={}, selectedDatasetTimeframe={}, provider={}, sourceId={}, symbolCanonical={}, symbolDisplay={}, storeTable=candle_chunks, fromUtc={} ({}), toUtc={} ({})]",
+                    set.getId(),
+                    run.getId(),
+                    selection.executionTimeframe().name(),
+                    selection.sourceDataset().getId(),
+                    selection.sourceDataset().getTimeframe().name(),
+                    selection.sourceDataset().getProvider().name(),
+                    selection.sourceDataset().getSourceId(),
+                    selection.sourceDataset().getSymbolCanonical(),
+                    selection.sourceDataset().getSymbolDisplay(),
+                    fromUtc,
+                    fromUtc == null ? "null" : fromUtc.getClass().getSimpleName(),
+                    toUtc,
+                    toUtc == null ? "null" : toUtc.getClass().getSimpleName()
+            );
+        }
         List<BacktestCandle> sourceCandles = loadDatasetCandles(run.getUser().getId(), selection.sourceDataset(), fromUtc, toUtc);
         List<BacktestCandle> execCandles = selection.resample()
                 ? resampleCandles(sourceCandles, selection.executionTimeframe())
                 : sourceCandles;
+        if (log.isDebugEnabled()) {
+            log.debug(
+                    "Backtest candle load result [datasetSetId={}, runId={}, selectedDatasetId={}, sourceCandles={}, executionCandles={}, resampled={}]",
+                    set.getId(),
+                    run.getId(),
+                    selection.sourceDataset().getId(),
+                    sourceCandles.size(),
+                    execCandles.size(),
+                    selection.resample()
+            );
+        }
 
         List<BacktestCandle> candles = execCandles.stream()
                 .sorted(Comparator.comparing(BacktestCandle::timestamp))
@@ -614,7 +665,8 @@ public class BacktestLabService {
                 normalizedWarnings
         );
         if (candles.isEmpty()) {
-            String message = "No candles in selected range";
+            String message = "No candles found for timeframe %s in effective range. Import may be incomplete or storage mismatch."
+                    .formatted(selection.executionTimeframe().name());
             logRangeFailure(set, run, selection, diagnostics, message);
             throw new BacktestRunDiagnosticsException(message, diagnostics);
         }
@@ -1520,24 +1572,18 @@ public class BacktestLabService {
         return rows;
     }
 
-    private RangeResolution resolveRunRange(BacktestDatasetSet set, OffsetDateTime requestedFrom, OffsetDateTime requestedTo) {
+    private RangeResolution resolveRunRange(BacktestDatasetSet set,
+                                            OffsetDateTime requestedFrom,
+                                            OffsetDateTime requestedTo,
+                                            BacktestTimeframe requestedExecutionTimeframe) {
         List<BacktestDataset> datasets = datasetRepository.findByDatasetSet_IdOrderByCreatedAtAsc(set.getId());
         if (datasets.isEmpty()) {
             throw new IllegalArgumentException("No datasets in selected set");
         }
-
-        OffsetDateTime min = null;
-        OffsetDateTime max = null;
-        for (BacktestDataset dataset : datasets) {
-            OffsetDateTime from = rangeMin(dataset);
-            OffsetDateTime to = rangeMax(dataset);
-            if (from != null && (min == null || from.isBefore(min))) {
-                min = from;
-            }
-            if (to != null && (max == null || to.isAfter(max))) {
-                max = to;
-            }
-        }
+        BacktestTimeframe executionTimeframe = requestedExecutionTimeframe == null ? BacktestTimeframe.M5 : requestedExecutionTimeframe;
+        DatasetSelection selection = chooseExecutionDataset(datasets, executionTimeframe);
+        OffsetDateTime min = selection.minTimeUtc();
+        OffsetDateTime max = selection.maxTimeUtc();
         if (min == null || max == null) {
             throw new IllegalArgumentException("Dataset range unavailable");
         }
@@ -1550,10 +1596,10 @@ public class BacktestLabService {
         List<String> warnings = new ArrayList<>();
 
         if (requestedFromUtc != null && requestedFromUtc.isBefore(min)) {
-            warnings.add("Requested fromUtc was before dataset start and was clamped.");
+            warnings.add("Requested fromUtc was before selected timeframe dataset start and was clamped.");
         }
         if (requestedToUtc != null && requestedToUtc.isAfter(max)) {
-            warnings.add("Requested toUtc was after dataset end and was clamped.");
+            warnings.add("Requested toUtc was after selected timeframe dataset end and was clamped.");
         }
 
         if (from.isBefore(min)) {
@@ -2242,10 +2288,13 @@ public class BacktestLabService {
                                  RunDiagnostics diagnostics,
                                  String message) {
         log.warn(
-                "Backtest range check failed [datasetSetId={}, runId={}, timeframe={}]: {} | datasetMinUtc={} datasetMaxUtc={} requestedFromUtc={} requestedToUtc={} effectiveFromUtc={} effectiveToUtc={} candleCount={} minRequiredCandles={}",
+                "Backtest range check failed [datasetSetId={}, runId={}, timeframe={}, selectedDatasetId={}, selectedDatasetTimeframe={}, selectedSourceId={}, storeTable=candle_chunks]: {} | datasetMinUtc={} datasetMaxUtc={} requestedFromUtc={} requestedToUtc={} effectiveFromUtc={} effectiveToUtc={} candleCount={} minRequiredCandles={}",
                 set.getId(),
                 run.getId(),
                 selection.executionTimeframe().name(),
+                selection.sourceDataset().getId(),
+                selection.sourceDataset().getTimeframe().name(),
+                selection.sourceDataset().getSourceId(),
                 message,
                 diagnostics.datasetMinUtc(),
                 diagnostics.datasetMaxUtc(),
