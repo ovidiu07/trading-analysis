@@ -1,5 +1,6 @@
 package com.tradevault.service.today;
 
+import com.tradevault.domain.TodaySessionDefaults;
 import com.tradevault.domain.entity.SessionAutoTradeEvent;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.User;
@@ -34,8 +35,6 @@ import java.util.UUID;
 @RequiredArgsConstructor
 @Slf4j
 public class SessionAutoJournalService {
-    private static final BigDecimal DEFAULT_TOLERANCE_PIPS = BigDecimal.ZERO;
-    private static final int DEFAULT_TIMEOUT_MINUTES = 30;
     private static final int MAX_TIMEOUT_MINUTES = 24 * 60;
 
     private final TodaySessionRepository todaySessionRepository;
@@ -222,8 +221,12 @@ public class SessionAutoJournalService {
                 .entry(session.getAutoJournalEntryPrice())
                 .sl(session.getAutoJournalSlPrice())
                 .tp(session.getAutoJournalTpPrice())
-                .tolerancePips(session.getAutoJournalTolerancePips())
-                .timeoutMin(session.getAutoJournalTimeoutMin())
+                .tolerancePips(session.getAutoJournalTolerancePips() == null
+                        ? TodaySessionDefaults.AUTO_JOURNAL_TOLERANCE_PIPS
+                        : session.getAutoJournalTolerancePips())
+                .timeoutMin(session.getAutoJournalTimeoutMin() == null
+                        ? TodaySessionDefaults.AUTO_JOURNAL_TIMEOUT_MINUTES
+                        : session.getAutoJournalTimeoutMin())
                 .armedAt(session.getAutoJournalArmedAt())
                 .lastEventAt(session.getAutoJournalLastEventAt())
                 .lastError(session.getAutoJournalLastError())
@@ -294,7 +297,7 @@ public class SessionAutoJournalService {
     }
 
     private BigDecimal toTolerancePoints(String symbol, BigDecimal tolerancePips) {
-        BigDecimal pips = tolerancePips == null ? DEFAULT_TOLERANCE_PIPS : tolerancePips;
+        BigDecimal pips = tolerancePips == null ? TodaySessionDefaults.AUTO_JOURNAL_TOLERANCE_PIPS : tolerancePips;
         return inferPipSize(symbol).multiply(pips).setScale(8, RoundingMode.HALF_UP);
     }
 
@@ -334,7 +337,7 @@ public class SessionAutoJournalService {
 
     private BigDecimal normalizeTolerancePips(BigDecimal value) {
         if (value == null) {
-            return DEFAULT_TOLERANCE_PIPS;
+            return TodaySessionDefaults.AUTO_JOURNAL_TOLERANCE_PIPS;
         }
         if (value.compareTo(BigDecimal.ZERO) < 0) {
             throw new IllegalArgumentException("Tolerance must be >= 0.");
@@ -343,7 +346,7 @@ public class SessionAutoJournalService {
     }
 
     private int normalizeTimeoutMinutes(Integer value) {
-        int resolved = value == null ? DEFAULT_TIMEOUT_MINUTES : value;
+        int resolved = value == null ? TodaySessionDefaults.AUTO_JOURNAL_TIMEOUT_MINUTES : value;
         if (resolved <= 0 || resolved > MAX_TIMEOUT_MINUTES) {
             throw new IllegalArgumentException("Timeout must be between 1 and " + MAX_TIMEOUT_MINUTES + " minutes.");
         }

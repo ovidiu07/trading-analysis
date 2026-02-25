@@ -1,5 +1,6 @@
 package com.tradevault.dto.session;
 
+import com.tradevault.domain.enums.AutoJournalState;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.dto.trade.TradeResponse;
 import lombok.Builder;
@@ -35,6 +36,9 @@ public class TodaySessionResponse {
     String lockInBias;
     String lockInBiasReason;
     OffsetDateTime lockInAt;
+    AutoJournalState autoJournalState;
+    BigDecimal autoJournalTolerancePips;
+    Integer autoJournalTimeoutMin;
     UUID activeSweepLevelId;
     UUID activeEntryLevelId;
     UUID activeSlLevelId;

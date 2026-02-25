@@ -1,5 +1,6 @@
 package com.tradevault.domain.entity;
 
+import com.tradevault.domain.TodaySessionDefaults;
 import com.tradevault.domain.enums.AutoJournalState;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TodaySessionStatus;
@@ -12,6 +13,8 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
 import jakarta.persistence.JoinColumn;
 import jakarta.persistence.ManyToOne;
+import jakarta.persistence.PrePersist;
+import jakarta.persistence.PreUpdate;
 import jakarta.persistence.Table;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -23,6 +26,7 @@ import org.hibernate.annotations.GenericGenerator;
 import org.hibernate.annotations.UpdateTimestamp;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.util.UUID;
@@ -135,10 +139,10 @@ public class TodaySession {
     @Column(name = "auto_journal_tp_price", precision = 18, scale = 8)
     private BigDecimal autoJournalTpPrice;
 
-    @Column(name = "auto_journal_tolerance_pips", precision = 10, scale = 4)
+    @Column(name = "auto_journal_tolerance_pips", nullable = false, precision = 10, scale = 4)
     private BigDecimal autoJournalTolerancePips;
 
-    @Column(name = "auto_journal_timeout_min")
+    @Column(name = "auto_journal_timeout_min", nullable = false)
     private Integer autoJournalTimeoutMin;
 
     @Column(name = "auto_journal_armed_at")
@@ -157,4 +161,20 @@ public class TodaySession {
     @UpdateTimestamp
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    @PrePersist
+    @PreUpdate
+    private void applyDefaults() {
+        if (autoJournalState == null) {
+            autoJournalState = AutoJournalState.DISARMED;
+        }
+        if (autoJournalTolerancePips == null) {
+            autoJournalTolerancePips = TodaySessionDefaults.AUTO_JOURNAL_TOLERANCE_PIPS;
+        } else {
+            autoJournalTolerancePips = autoJournalTolerancePips.setScale(4, RoundingMode.HALF_UP);
+        }
+        if (autoJournalTimeoutMin == null) {
+            autoJournalTimeoutMin = TodaySessionDefaults.AUTO_JOURNAL_TIMEOUT_MINUTES;
+        }
+    }
 }

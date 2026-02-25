@@ -3,6 +3,7 @@ package com.tradevault.service.today;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.tradevault.domain.TodaySessionDefaults;
 import com.tradevault.domain.entity.ChecklistTemplate;
 import com.tradevault.domain.entity.ChecklistTemplateEntry;
 import com.tradevault.domain.entity.ChecklistTemplateItem;
@@ -14,6 +15,7 @@ import com.tradevault.domain.entity.SessionNarrative;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.AutoJournalState;
 import com.tradevault.domain.enums.AutoTradeEventType;
 import com.tradevault.domain.enums.ChecklistTemplateType;
 import com.tradevault.domain.enums.ChecklistValueType;
@@ -193,7 +195,7 @@ public class TodaySessionService {
 
         syncLegacyChecklistFields(session);
 
-        TodaySession saved = todaySessionRepository.save(session);
+        TodaySession saved = todaySessionRepository.saveAndFlush(session);
         refreshSessionStatus(saved, user.getId());
         return toResponse(saved, user.getId());
     }
@@ -1341,6 +1343,9 @@ public class TodaySessionService {
                 .lockInBias(session.getLockInBias())
                 .lockInBiasReason(session.getLockInBiasReason())
                 .lockInAt(session.getLockInAt())
+                .autoJournalState(defaultAutoJournalState(session.getAutoJournalState()))
+                .autoJournalTolerancePips(defaultAutoJournalTolerancePips(session.getAutoJournalTolerancePips()))
+                .autoJournalTimeoutMin(defaultAutoJournalTimeoutMin(session.getAutoJournalTimeoutMin()))
                 .activeSweepLevelId(session.getActiveSweepLevelId())
                 .activeEntryLevelId(session.getActiveEntryLevelId())
                 .activeSlLevelId(session.getActiveSlLevelId())
@@ -1393,6 +1398,18 @@ public class TodaySessionService {
     private LocalDate resolveSessionDate() {
         ZoneId zone = ZoneId.of(TimezoneService.DEFAULT_TIMEZONE);
         return LocalDate.now(zone);
+    }
+
+    private AutoJournalState defaultAutoJournalState(AutoJournalState state) {
+        return state == null ? AutoJournalState.DISARMED : state;
+    }
+
+    private BigDecimal defaultAutoJournalTolerancePips(BigDecimal tolerancePips) {
+        return tolerancePips == null ? TodaySessionDefaults.AUTO_JOURNAL_TOLERANCE_PIPS : tolerancePips;
+    }
+
+    private int defaultAutoJournalTimeoutMin(Integer timeoutMinutes) {
+        return timeoutMinutes == null ? TodaySessionDefaults.AUTO_JOURNAL_TIMEOUT_MINUTES : timeoutMinutes;
     }
 
     private void hydrateLegacyChecklistState(TodaySession session) {
