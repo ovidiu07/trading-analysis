@@ -1,54 +1,29 @@
-# Optimizer / Variant Runner
+# Optimizer
 
-The optimizer executes deterministic strategy variants over a fixed backtest range and ranks results by quality metrics.
+The optimizer runs deterministic parameter variants against the same backtest engine path used by normal runs.
 
-## Scope
-
-Grid dimensions supported:
-
-- `mssMinConfirmCandles` (`2..5` typical)
-- `displacementType` (`GAP_REQUIRED`, `GAP_OPTIONAL`, `NO_GAP_ONLY`)
-- `retraceRequired` (`true/false`)
-- `retraceMinPct` (e.g. `0, 50, 62`)
-- `sweepMinDepthPips` (e.g. `3..6`)
-
-Default hard cap: `100` variants per run (`maxVariants`).
-
-## Backend API
+## API
 
 - `POST /api/backtest/dataset-sets/{id}/optimizer/runs`
-  - Starts optimizer run and persists ranked variants.
 - `GET /api/backtest/optimizer/runs/{optimizerRunId}`
-  - Reads persisted run and variant results.
 
-Request DTOs:
+## Grid fields
 
-- `BacktestOptimizerRunRequest`
-- `BacktestOptimizerGridRequest`
+Supported grid dimensions:
 
-Response DTOs:
+- `mssMinConfirmCandles`
+- `displacementType`
+- `retraceRequired`
+- `retraceMinPct`
+- `sweepMinDepthPips`
+- `confirmationTf` (optional)
+- `entryTf` (optional)
 
-- `BacktestOptimizerRunResponse`
-- `BacktestOptimizerVariantResultResponse`
+`maxVariants` caps execution count after variant generation.
 
-Persistence:
+## Variant metrics
 
-- Migration: `V37__backtest_optimizer_runs.sql`
-- Table: `backtest_optimizer_runs`
-- Entity: `BacktestOptimizerRun`
-
-## Determinism
-
-Optimizer variants are generated in stable order from the input grid and executed with the same engine path as normal runs.
-
-Deterministic guarantees tested:
-
-- same input grid -> same ordered variant set
-- same fixtures/range -> stable metrics aggregation
-
-## Metrics
-
-Each variant output includes:
+Each variant row includes:
 
 - `trades`
 - `sampleSize`
@@ -58,25 +33,28 @@ Each variant output includes:
 - `avgR`
 - `maxDdR`
 - `fillRate`
+- `avgMaeR`
+- `avgMfeR`
+- `avgDurationSec`
+- `confidenceNote`
 
-UI supports sorting by `expectancyR`, `winRate`, `profitFactor`, and `avgR`.
+## Ranking
 
-## Ranking Guidance
+Current ranking order:
 
-Practical sequence for narrowing candidates:
+1. `expectancyR` (desc)
+2. `profitFactor` (desc)
+3. `winRate` (desc)
+4. `sampleSize` (desc)
+5. variant index (stable tie-break)
 
-1. Filter out low sample size variants.
-2. Compare `profitFactor` and `expectancyR` first.
-3. Use `maxDdR` and `fillRate` as stability constraints.
-4. Validate top-ranked variants on out-of-sample ranges.
+## UI behavior
 
-## UI Notes
+The Today/Session optimizer UI supports:
 
-Strategy Builder adds an "Optimizer" section in Run Results:
+- running optimizer from results step
+- sorting variants
+- viewing parameter payload + metrics
+- applying any variant back into current strategy config (`Apply` action)
 
-- max variants input
-- variant dimensions (lists/ranges)
-- run button
-- ranked results table with sortable columns
-
-All timestamps in optimizer metadata are UTC (`...Z`).
+After applying a variant, save config and use **Regenerate Backtest**.

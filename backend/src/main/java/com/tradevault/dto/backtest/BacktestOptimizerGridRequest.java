@@ -12,4 +12,6 @@ public class BacktestOptimizerGridRequest {
     private List<Boolean> retraceRequired;
     private List<BigDecimal> retraceMinPct;
     private List<BigDecimal> sweepMinDepthPips;
+    private List<String> confirmationTf;
+    private List<String> entryTf;
 }

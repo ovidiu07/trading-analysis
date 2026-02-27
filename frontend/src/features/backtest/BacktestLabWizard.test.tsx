@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
+import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import BacktestLabWizard from './BacktestLabWizard'
 
@@ -20,15 +21,16 @@ const backtestApiMock = vi.hoisted(() => ({
 
 vi.mock('../../api/backtest', () => backtestApiMock)
 
-const renderWizard = () => render(
+const renderWizard = (props: ComponentProps<typeof BacktestLabWizard> = {}) => render(
   <MemoryRouter>
-    <BacktestLabWizard />
+    <BacktestLabWizard {...props} />
   </MemoryRouter>
 )
 
 describe('BacktestLabWizard', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.clearAllMocks()
     backtestApiMock.createBacktestDatasetSet.mockResolvedValue({
       id: 'set-1',
       instrument: 'EURUSD',
@@ -226,10 +228,32 @@ describe('BacktestLabWizard', () => {
     await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
     await waitFor(() => expect(backtestApiMock.saveBacktestStrategyConfig).toHaveBeenCalled())
 
-    await user.click(screen.getByRole('button', { name: /Run backtest/i }))
+    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
     await waitFor(() => expect(backtestApiMock.runBacktestDatasetSet).toHaveBeenCalled())
     expect(await screen.findByText('Trades')).toBeInTheDocument()
     expect(screen.getByText(/Generate Diagnostics Report/i)).toBeInTheDocument()
+  })
+
+  it('regenerates backtest and refreshes run artifacts on repeated clicks', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+
+    const regenerate = await screen.findByRole('button', { name: /Regenerate Backtest/i })
+    await user.click(regenerate)
+    await waitFor(() => expect(backtestApiMock.runBacktestDatasetSet).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(backtestApiMock.getBacktestRunResultsV2).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Regenerate Backtest/i })).toBeEnabled())
+
+    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
+    await waitFor(() => expect(backtestApiMock.runBacktestDatasetSet).toHaveBeenCalledTimes(2))
+    await waitFor(() => expect(backtestApiMock.getBacktestRunResultsV2).toHaveBeenCalledTimes(2))
   })
 
   it('opens trade timeline drawer and renders report markdown', async () => {
@@ -244,7 +268,7 @@ describe('BacktestLabWizard', () => {
     await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
-    await user.click(screen.getByRole('button', { name: /Run backtest/i }))
+    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
 
     const timelineButton = await screen.findByRole('button', { name: /Timeline/i })
     await user.click(timelineButton)
@@ -366,7 +390,7 @@ describe('BacktestLabWizard', () => {
     fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-02-01' } })
 
     const callsBefore = backtestApiMock.runBacktestDatasetSet.mock.calls.length
-    const runButton = screen.getByRole('button', { name: /Run backtest/i })
+    const runButton = screen.getByRole('button', { name: /Regenerate Backtest/i })
     expect(runButton).toBeDisabled()
     expect(backtestApiMock.runBacktestDatasetSet.mock.calls.length).toBe(callsBefore)
   })
@@ -405,7 +429,7 @@ describe('BacktestLabWizard', () => {
     await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
 
     expect(await screen.findByText(/Dataset has warnings/i)).toBeInTheDocument()
-    const runButton = screen.getByRole('button', { name: /Run backtest/i })
+    const runButton = screen.getByRole('button', { name: /Regenerate Backtest/i })
     expect(runButton).toBeEnabled()
 
     await user.click(screen.getByRole('button', { name: /View warnings/i }))
@@ -446,7 +470,7 @@ describe('BacktestLabWizard', () => {
     await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
 
     expect((await screen.findAllByText(/No candles were persisted for this dataset./i)).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /Run backtest/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Regenerate Backtest/i })).toBeDisabled()
   })
 
   it('runs optimizer and renders ranked variants table', async () => {
@@ -459,7 +483,7 @@ describe('BacktestLabWizard', () => {
     await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
     await user.click(screen.getByRole('button', { name: 'Continue' }))
     await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
-    await user.click(screen.getByRole('button', { name: /Run backtest/i }))
+    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
 
     await user.click(await screen.findByRole('button', { name: /Run Optimizer/i }))
     await waitFor(() => expect(backtestApiMock.runBacktestOptimizer).toHaveBeenCalled())
@@ -467,6 +491,33 @@ describe('BacktestLabWizard', () => {
     expect(
       screen.getByText((content) => content.includes('mssMinConfirmCandles') || content.includes('mss_min_confirm_candles'))
     ).toBeInTheDocument()
+  })
+
+  it('shows regenerate action row with diagnostics actions in run step', async () => {
+    const user = userEvent.setup()
+    renderWizard()
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    await user.click(screen.getByRole('button', { name: 'Continue' }))
+    await user.click(screen.getByRole('button', { name: /Save Strategy Config/i }))
+
+    expect(await screen.findByRole('button', { name: /Save Config/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Regenerate Backtest/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Generate Diagnostics Report/i })).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /Open Diagnostics/i })).toBeInTheDocument()
+  })
+
+  it('shows symbol mismatch warning when header symbol differs from dataset instrument', async () => {
+    renderWizard({ headerSymbol: 'GBPUSD' })
+
+    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+
+    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+    expect(await screen.findByText(/Symbol mismatch/i)).toBeInTheDocument()
   })
 
   it('keeps cards readable on mobile width', async () => {

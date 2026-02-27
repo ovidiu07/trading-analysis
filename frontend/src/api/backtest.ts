@@ -296,6 +296,8 @@ export type BacktestOptimizerGrid = {
   retraceRequired?: boolean[]
   retraceMinPct?: number[]
   sweepMinDepthPips?: number[]
+  confirmationTf?: string[]
+  entryTf?: string[]
 }
 
 export type BacktestOptimizerVariantResult = {
@@ -309,6 +311,10 @@ export type BacktestOptimizerVariantResult = {
   avgR?: number | null
   maxDdR?: number | null
   fillRate?: number | null
+  avgMaeR?: number | null
+  avgMfeR?: number | null
+  avgDurationSec?: number | null
+  confidenceNote?: string | null
 }
 
 export type BacktestOptimizerRun = {

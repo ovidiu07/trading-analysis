@@ -381,6 +381,10 @@ public class BacktestLabService {
             putDecimal(node, "avgR", row.avgR());
             putDecimal(node, "maxDdR", row.maxDdR());
             putDecimal(node, "fillRate", row.fillRate());
+            putDecimal(node, "avgMaeR", row.avgMaeR());
+            putDecimal(node, "avgMfeR", row.avgMfeR());
+            putDecimal(node, "avgDurationSec", row.avgDurationSec());
+            node.put("confidenceNote", row.confidenceNote());
             resultsJson.add(node);
 
             responseRows.add(BacktestOptimizerVariantResultResponse.builder()
@@ -394,6 +398,10 @@ public class BacktestLabService {
                     .avgR(row.avgR())
                     .maxDdR(row.maxDdR())
                     .fillRate(row.fillRate())
+                    .avgMaeR(row.avgMaeR())
+                    .avgMfeR(row.avgMfeR())
+                    .avgDurationSec(row.avgDurationSec())
+                    .confidenceNote(row.confidenceNote())
                     .build());
         }
 
@@ -453,6 +461,10 @@ public class BacktestLabService {
                         .avgR(asDecimal(item, "avgR"))
                         .maxDdR(asDecimal(item, "maxDdR"))
                         .fillRate(asDecimal(item, "fillRate"))
+                        .avgMaeR(asDecimal(item, "avgMaeR"))
+                        .avgMfeR(asDecimal(item, "avgMfeR"))
+                        .avgDurationSec(asDecimal(item, "avgDurationSec"))
+                        .confidenceNote(text(item.path("confidenceNote"), null))
                         .build());
             }
         }
@@ -485,6 +497,12 @@ public class BacktestLabService {
         List<BigDecimal> sweepDepth = grid != null && grid.getSweepMinDepthPips() != null && !grid.getSweepMinDepthPips().isEmpty()
                 ? grid.getSweepMinDepthPips()
                 : List.of(BigDecimal.valueOf(3), BigDecimal.valueOf(4), BigDecimal.valueOf(5), BigDecimal.valueOf(6));
+        List<String> confirmationTf = grid != null && grid.getConfirmationTf() != null && !grid.getConfirmationTf().isEmpty()
+                ? grid.getConfirmationTf()
+                : List.of("M5", "M15");
+        List<String> entryTf = grid != null && grid.getEntryTf() != null && !grid.getEntryTf().isEmpty()
+                ? grid.getEntryTf()
+                : List.of("M5", "M15");
 
         List<ObjectNode> out = new ArrayList<>();
         for (Integer mss : mssCandles) {
@@ -507,13 +525,30 @@ public class BacktestLabService {
                             if (sweep == null) {
                                 continue;
                             }
-                            ObjectNode node = objectMapper.createObjectNode();
-                            node.put("mssMinConfirmCandles", mss);
-                            node.put("displacementType", displacementType);
-                            node.put("retraceRequired", retrace);
-                            node.put("retraceMinPct", retracePct);
-                            node.put("sweepMinDepthPips", sweep);
-                            out.add(node);
+                            for (String confirmTf : confirmationTf) {
+                                BacktestTimeframe confirmationTimeframe = tryParseTimeframeCode(confirmTf);
+                                if (confirmationTimeframe == null) {
+                                    continue;
+                                }
+                                for (String eTf : entryTf) {
+                                    BacktestTimeframe entryTimeframe = tryParseTimeframeCode(eTf);
+                                    if (entryTimeframe == null) {
+                                        continue;
+                                    }
+                                    if (confirmationTimeframe.duration().compareTo(entryTimeframe.duration()) < 0) {
+                                        continue;
+                                    }
+                                    ObjectNode node = objectMapper.createObjectNode();
+                                    node.put("mssMinConfirmCandles", mss);
+                                    node.put("displacementType", displacementType);
+                                    node.put("retraceRequired", retrace);
+                                    node.put("retraceMinPct", retracePct);
+                                    node.put("sweepMinDepthPips", sweep);
+                                    node.put("confirmationTf", confirmationTimeframe.name());
+                                    node.put("entryTf", entryTimeframe.name());
+                                    out.add(node);
+                                }
+                            }
                         }
                     }
                 }
@@ -543,8 +578,40 @@ public class BacktestLabService {
             if (params.path("sweepMinDepthPips").isNumber()) {
                 smc.put("sweepMinDepthPips", params.path("sweepMinDepthPips").decimalValue());
             }
+            if (params.path("confirmationTf").isTextual()) {
+                BacktestTimeframe confirmationTimeframe = tryParseTimeframeCode(params.path("confirmationTf").asText());
+                if (confirmationTimeframe != null) {
+                    smc.put("confirmationTf", confirmationTimeframe.name());
+                    root.with("setupRule").put("confirmationTf", confirmationTimeframe.name());
+                }
+            }
+            if (params.path("entryTf").isTextual()) {
+                BacktestTimeframe entryTimeframe = tryParseTimeframeCode(params.path("entryTf").asText());
+                if (entryTimeframe != null) {
+                    smc.put("entryTf", entryTimeframe.name());
+                    BacktestTimeframe existingExecution = tryParseTimeframeCode(text(
+                            firstPresent(path(smc, "executionTf"), path(root, "context", "executionTimeframe"), path(root, "context", "execution_timeframe")),
+                            null
+                    ));
+                    if (existingExecution == null || existingExecution.duration().compareTo(entryTimeframe.duration()) > 0) {
+                        smc.put("executionTf", entryTimeframe.name());
+                        root.with("context").put("executionTimeframe", entryTimeframe.name());
+                    }
+                }
+            }
         }
         return root;
+    }
+
+    private BacktestTimeframe tryParseTimeframeCode(String code) {
+        if (code == null || code.isBlank()) {
+            return null;
+        }
+        try {
+            return BacktestTimeframe.from(code.trim().toUpperCase(Locale.ROOT));
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private VariantMetrics summarizeVariant(int variantIndex, ObjectNode params, List<EngineTrade> trades) {
@@ -587,6 +654,28 @@ public class BacktestLabService {
                 : BigDecimal.valueOf(sampleSize)
                 .multiply(BigDecimal.valueOf(100))
                 .divide(BigDecimal.valueOf(totalSignals), 6, RoundingMode.HALF_UP);
+        BigDecimal avgMae = sampleSize == 0
+                ? BigDecimal.ZERO
+                : filled.stream()
+                .map(EngineTrade::maeR)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(sampleSize), 6, RoundingMode.HALF_UP);
+        BigDecimal avgMfe = sampleSize == 0
+                ? BigDecimal.ZERO
+                : filled.stream()
+                .map(EngineTrade::mfeR)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(sampleSize), 6, RoundingMode.HALF_UP);
+        BigDecimal avgDurationSec = sampleSize == 0
+                ? BigDecimal.ZERO
+                : filled.stream()
+                .map(EngineTrade::durationSec)
+                .filter(Objects::nonNull)
+                .map(BigDecimal::valueOf)
+                .reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(sampleSize), 6, RoundingMode.HALF_UP);
 
         BigDecimal equity = BigDecimal.ZERO;
         BigDecimal peak = BigDecimal.ZERO;
@@ -612,7 +701,11 @@ public class BacktestLabService {
                 expectancy,
                 expectancy,
                 maxDd,
-                fillRate
+                fillRate,
+                avgMae,
+                avgMfe,
+                avgDurationSec,
+                confidenceLabel(sampleSize)
         );
     }
 
@@ -934,6 +1027,12 @@ public class BacktestLabService {
         int minRequired = minRequiredCandles();
 
         List<String> warnings = new ArrayList<>(rangeResolution.warnings());
+        if (selection.executionTimeframe() != config.executionTimeframeRequested()) {
+            warnings.add(
+                    "Requested executionTf %s is lower than canonical source timeframe %s; executionTf was adjusted."
+                            .formatted(config.executionTimeframeRequested().name(), selection.executionTimeframe().name())
+            );
+        }
         if (rangeResolution.requestedFromUtc() != null && rangeResolution.requestedFromUtc().isBefore(selection.minTimeUtc())) {
             warnings.add("Requested fromUtc was before selected timeframe dataset start and was clamped.");
         }
@@ -1021,7 +1120,7 @@ public class BacktestLabService {
             throw new BacktestRunDiagnosticsException(message, diagnostics);
         }
 
-        List<BacktestCandle> dailyCandles = loadDailyCandles(run.getUser().getId(), datasets, selection.sourceDataset(), fromUtc, toUtc, candles);
+        List<BacktestCandle> dailyCandles = aggregateToDaily(sourceCandles.isEmpty() ? candles : sourceCandles);
 
         List<SessionWindow> sessions = config.sessions().isEmpty() ? defaultSessions(config.timezoneBasis()) : config.sessions();
         SessionWindow setupSession = resolveSessionWindow(sessions, config.setupSessionName());
@@ -1077,14 +1176,16 @@ public class BacktestLabService {
         if (evaluationSessions.isEmpty()) {
             return trades;
         }
+        List<SessionWindow> entrySessions = resolveEntrySessions(config, setupSession);
+        if (entrySessions.isEmpty()) {
+            return trades;
+        }
+        Set<String> consumedPools = new LinkedHashSet<>();
 
         BigDecimal touchBuffer = config.touchTolerancePips().multiply(config.pipSize());
         BigDecimal confirmBreakBuffer = config.confirmBreakBufferPips().multiply(config.pipSize());
         BigDecimal minSweepDepth = config.sweepMinDepthPips().multiply(config.pipSize());
         BigDecimal minDisplacementBody = config.displacementMinBodyPips().multiply(config.pipSize());
-        BigDecimal transactionCost = "MID".equalsIgnoreCase(config.fillPolicy())
-                ? BigDecimal.ZERO
-                : config.spreadPips().add(config.slippagePips()).multiply(config.pipSize());
 
         Map<String, List<SessionLevelRecord>> sessionLevelRecords = buildSessionLevelRecords(candles, config.sessions());
         Map<LocalDate, WeekStats> weeklyStats = computeWeeklyStats(dailyStats);
@@ -1120,9 +1221,31 @@ public class BacktestLabService {
             }
 
             List<LiquidityPoolCandidate> activePools = resolveActivePools(allPools, config, i);
+            if (!activePools.isEmpty() && config.sweepRequiresUnsweptPool()) {
+                for (LiquidityPoolCandidate pool : activePools) {
+                    if (consumedPools.contains(pool.id())) {
+                        continue;
+                    }
+                    if (isPoolConsumedBeforeIndex(pool, candles, i, touchBuffer, minSweepDepth)) {
+                        consumedPools.add(pool.id());
+                    }
+                }
+            }
+            if (config.sweepRequiresUnsweptPool() && !consumedPools.isEmpty()) {
+                activePools = activePools.stream()
+                        .filter(pool -> !consumedPools.contains(pool.id()))
+                        .toList();
+            }
             Sweep sweep = detectSweep(candles, i, activePools, config, touchBuffer, minSweepDepth, sweepCandle.close());
             if (sweep == null) {
                 continue;
+            }
+            if (config.requireCrossSessionSweep() && sweep.sourceSessionName() != null
+                    && normalizeSessionName(sweep.sourceSessionName()).equals(stamp.sessionName())) {
+                continue;
+            }
+            if (config.sweepRequiresUnsweptPool()) {
+                consumedPools.add(sweep.poolId());
             }
 
             String directionMode = normalizeToken(config.directionMode());
@@ -1203,6 +1326,21 @@ public class BacktestLabService {
                 continue;
             }
 
+            SessionStamp entryStamp = null;
+            for (SessionWindow entrySession : entrySessions) {
+                entryStamp = assignSession(entry.entryTime(), entrySession);
+                if (entryStamp != null) {
+                    break;
+                }
+            }
+            if (entryStamp == null) {
+                continue;
+            }
+            if (config.requireSameSessionForSweepAndEntry()
+                    && !normalizeSessionName(entryStamp.sessionName()).equals(normalizeSessionName(stamp.sessionName()))) {
+                continue;
+            }
+
             BigDecimal stopLoss = resolveStop(config, candles, structurePivots, sweep, entry.fillIndex(), direction, touchBuffer);
             if (stopLoss == null) {
                 continue;
@@ -1213,14 +1351,16 @@ public class BacktestLabService {
                 continue;
             }
 
-            BigDecimal entryPrice = applyEntryCost(entry.entryPrice(), direction, transactionCost);
+            ExecutionCostBreakdown entryCost = buildEntryCostBreakdown(config, direction, entry.entryPrice());
+            BigDecimal entryPrice = entryCost.finalPrice();
             BigDecimal risk = entryPrice.subtract(stopLoss).abs();
             if (risk.compareTo(BigDecimal.ZERO) <= 0) {
                 continue;
             }
 
             ExitOutcome exit = resolveExit(candles, entry.fillIndex(), direction, stopLoss, takeProfit);
-            BigDecimal exitPrice = applyExitCost(exit.exitPrice(), direction, transactionCost);
+            ExecutionCostBreakdown exitCost = buildExitCostBreakdown(config, direction, exit.exitPrice());
+            BigDecimal exitPrice = exitCost.finalPrice();
             BigDecimal rMultiple = calcR(direction, entryPrice, exitPrice, risk);
             Excursion excursion = computeExcursion(candles, entry.fillIndex(), exit.exitIndex(), direction, entryPrice, risk);
             Integer durationSec = null;
@@ -1263,6 +1403,18 @@ public class BacktestLabService {
             tradeEvidence.put("mssConfirmTime", isoUtc(mss.confirmTime()));
             tradeEvidence.put("confirmToExitBars", Math.max(1, exit.exitIndex() - mss.confirmIndex() + 1));
             tradeEvidence.put("retraceRequired", config.retraceRequired());
+            tradeEvidence.put("entryTriggerPrice", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("entryRawPrice", entryCost.rawPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("entrySpreadAdjustmentPrice", entryCost.spreadAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("entrySlippageAdjustmentPrice", entryCost.slippageAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("entryFinalExecutionPrice", entryCost.finalPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("entrySpreadPips", config.spreadPips().setScale(3, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("entrySlippagePips", config.slippagePips().setScale(3, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("exitRawPrice", exitCost.rawPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("exitSpreadAdjustmentPrice", exitCost.spreadAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("exitSlippageAdjustmentPrice", exitCost.slippageAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("exitFinalExecutionPrice", exitCost.finalPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            tradeEvidence.put("fillPolicy", config.fillPolicy());
             if (retraceGate != null) {
                 tradeEvidence.put("retraceReference", retraceGate.referenceUsed());
                 tradeEvidence.put("retraceTargetPrice", retraceGate.targetPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
@@ -1272,7 +1424,9 @@ public class BacktestLabService {
                 tradeEvidence.put("selectedPoolId", sweep.poolId());
                 tradeEvidence.put("sweepRankScore", BigDecimal.valueOf(sweep.rankScore()).setScale(6, RoundingMode.HALF_UP).toPlainString());
             }
-            tradeEvidence.set("timeline", buildTimeline(sweep, displacement, mss, retraceGate, entry, exit));
+            ArrayNode timeline = buildTimeline(sweep, displacement, mss, retraceGate, entry, exit, entryCost, exitCost);
+            tradeEvidence.set("timeline", timeline);
+            tradeEvidence.set("eventGraph", timeline.deepCopy());
 
             ObjectNode metadata = objectMapper.createObjectNode();
             metadata.put("entryModel", config.entryModelType());
@@ -1347,13 +1501,17 @@ public class BacktestLabService {
         tradeEvidence.put("mssAnchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
         tradeEvidence.put("mssTriggerTime", isoUtc(mss.triggerTime()));
         tradeEvidence.put("mssConfirmTime", isoUtc(mss.confirmTime()));
+        tradeEvidence.put("entryTriggerPrice", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        tradeEvidence.put("fillPolicy", config.fillPolicy());
         if (retraceGate != null) {
             tradeEvidence.put("retraceRequired", config.retraceRequired());
             tradeEvidence.put("retraceReference", retraceGate.referenceUsed());
             tradeEvidence.put("retraceTargetPrice", retraceGate.targetPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
             tradeEvidence.put("retraceOkTime", isoUtc(retraceGate.retraceOkTime()));
         }
-        tradeEvidence.set("timeline", buildNoFillTimeline(sweep, displacement, mss, retraceGate, entry));
+        ArrayNode timeline = buildNoFillTimeline(sweep, displacement, mss, retraceGate, entry);
+        tradeEvidence.set("timeline", timeline);
+        tradeEvidence.set("eventGraph", timeline.deepCopy());
 
         return new EngineTrade(
                 sessionName,
@@ -1392,17 +1550,33 @@ public class BacktestLabService {
         ObjectNode sweepDetails = objectMapper.createObjectNode();
         sweepDetails.put("side", sweep.side().name());
         sweepDetails.put("poolType", sweep.poolType());
+        sweepDetails.put("poolId", sweep.poolId());
         sweepDetails.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        sweepDetails.put("depth", sweep.depth().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        sweepDetails.put("sweepExtremeTime", isoUtc(sweep.sweepExtremeTime()));
+        if (sweep.poolCreatedTime() != null) {
+            sweepDetails.put("poolCreatedTime", isoUtc(sweep.poolCreatedTime()));
+        }
+        if (sweep.sourceSessionName() != null) {
+            sweepDetails.put("poolSourceSession", sweep.sourceSessionName());
+        }
+        timeline.add(timelineNode("POOL_CREATED", sweep.poolCreatedTime(), sweepDetails.deepCopy()));
+        timeline.add(timelineNode("POOL_TARGETED", sweep.firstBreachTime(), sweepDetails.deepCopy()));
         if (sweep.firstBreachTime() != null) {
             sweepDetails.put("firstBreachTime", isoUtc(sweep.firstBreachTime()));
+            timeline.add(timelineNode("SWEEP_FIRST_BREACH", sweep.firstBreachTime(), sweepDetails.deepCopy()));
         }
         if (sweep.firstBreachPrice() != null) {
             sweepDetails.put("firstBreachPrice", sweep.firstBreachPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         }
+        timeline.add(timelineNode("SWEEP_EXTREME", sweep.sweepExtremeTime(), sweepDetails.deepCopy()));
         timeline.add(timelineNode("SWEEP", sweep.sweepExtremeTime(), sweepDetails));
+        timeline.add(timelineNode("POOL_CONSUMED", sweep.sweepExtremeTime(), sweepDetails.deepCopy()));
 
         ObjectNode displacementDetails = objectMapper.createObjectNode();
+        displacementDetails.put("open", displacement.open().toPlainString());
+        displacementDetails.put("close", displacement.close().toPlainString());
         displacementDetails.put("attackedLevel", displacement.attackedLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
         displacementDetails.put("bodyPips", displacement.bodyPips().setScale(3, RoundingMode.HALF_UP).toPlainString());
         displacementDetails.put("avgBodyPips", displacement.avgBodyPips().setScale(3, RoundingMode.HALF_UP).toPlainString());
@@ -1410,6 +1584,10 @@ public class BacktestLabService {
         displacementDetails.put("gapSizePips", displacement.gapSizePips().setScale(3, RoundingMode.HALF_UP).toPlainString());
         if (displacement.bodyRatio() != null) {
             displacementDetails.put("bodyVsAvg", displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).toPlainString());
+        }
+        timeline.add(timelineNode("DISPLACEMENT_FOUND", displacement.time(), displacementDetails.deepCopy()));
+        if (displacement.gapDetected()) {
+            timeline.add(timelineNode("GAP_FOUND", displacement.time(), displacementDetails.deepCopy()));
         }
         timeline.add(timelineNode("DISPLACEMENT", displacement.time(), displacementDetails));
 
@@ -1446,6 +1624,7 @@ public class BacktestLabService {
         entryDetails.put("status", "NO_FILL");
         entryDetails.put("model", entry.model());
         entryDetails.put("price", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        entryDetails.put("entryTriggerPrice", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         timeline.add(timelineNode("ENTRY", null, entryDetails));
 
         return timeline;
@@ -1456,23 +1635,37 @@ public class BacktestLabService {
                                     MssSignal mss,
                                     RetraceGate retraceGate,
                                     EntryOutcome entry,
-                                    ExitOutcome exit) {
+                                    ExitOutcome exit,
+                                    ExecutionCostBreakdown entryCost,
+                                    ExecutionCostBreakdown exitCost) {
         ArrayNode timeline = objectMapper.createArrayNode();
 
         ObjectNode sweepDetails = objectMapper.createObjectNode();
         sweepDetails.put("side", sweep.side().name());
         sweepDetails.put("poolType", sweep.poolType());
+        sweepDetails.put("poolId", sweep.poolId());
         sweepDetails.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("depth", sweep.depth().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("sweepExtremeTime", isoUtc(sweep.sweepExtremeTime()));
+        if (sweep.poolCreatedTime() != null) {
+            sweepDetails.put("poolCreatedTime", isoUtc(sweep.poolCreatedTime()));
+        }
+        if (sweep.sourceSessionName() != null) {
+            sweepDetails.put("poolSourceSession", sweep.sourceSessionName());
+        }
+        timeline.add(timelineNode("POOL_CREATED", sweep.poolCreatedTime(), sweepDetails.deepCopy()));
+        timeline.add(timelineNode("POOL_TARGETED", sweep.firstBreachTime(), sweepDetails.deepCopy()));
         if (sweep.firstBreachTime() != null) {
             sweepDetails.put("firstBreachTime", isoUtc(sweep.firstBreachTime()));
+            timeline.add(timelineNode("SWEEP_FIRST_BREACH", sweep.firstBreachTime(), sweepDetails.deepCopy()));
         }
         if (sweep.firstBreachPrice() != null) {
             sweepDetails.put("firstBreachPrice", sweep.firstBreachPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         }
+        timeline.add(timelineNode("SWEEP_EXTREME", sweep.sweepExtremeTime(), sweepDetails.deepCopy()));
         timeline.add(timelineNode("SWEEP", sweep.sweepExtremeTime(), sweepDetails));
+        timeline.add(timelineNode("POOL_CONSUMED", sweep.sweepExtremeTime(), sweepDetails.deepCopy()));
 
         ObjectNode displacementDetails = objectMapper.createObjectNode();
         displacementDetails.put("open", displacement.open().toPlainString());
@@ -1484,6 +1677,10 @@ public class BacktestLabService {
         displacementDetails.put("gapSizePips", displacement.gapSizePips().setScale(3, RoundingMode.HALF_UP).toPlainString());
         if (displacement.bodyRatio() != null) {
             displacementDetails.put("bodyVsAvg", displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).toPlainString());
+        }
+        timeline.add(timelineNode("DISPLACEMENT_FOUND", displacement.time(), displacementDetails.deepCopy()));
+        if (displacement.gapDetected()) {
+            timeline.add(timelineNode("GAP_FOUND", displacement.time(), displacementDetails.deepCopy()));
         }
         timeline.add(timelineNode("DISPLACEMENT", displacement.time(), displacementDetails));
 
@@ -1519,12 +1716,26 @@ public class BacktestLabService {
         ObjectNode entryDetails = objectMapper.createObjectNode();
         entryDetails.put("price", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         entryDetails.put("model", entry.model());
+        entryDetails.put("entryTriggerPrice", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        if (entryCost != null) {
+            entryDetails.put("entryRawPrice", entryCost.rawPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            entryDetails.put("spreadAdjustmentPrice", entryCost.spreadAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            entryDetails.put("slippageAdjustmentPrice", entryCost.slippageAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            entryDetails.put("finalExecutionPrice", entryCost.finalPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        }
         timeline.add(timelineNode("ENTRY", entry.entryTime(), entryDetails));
+        timeline.add(timelineNode("ENTRY_FILLED", entry.entryTime(), entryDetails.deepCopy()));
 
         ObjectNode exitDetails = objectMapper.createObjectNode();
         exitDetails.put("reason", exit.exitReason().name());
         if (exit.exitPrice() != null) {
             exitDetails.put("price", exit.exitPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+        }
+        if (exitCost != null) {
+            exitDetails.put("exitRawPrice", exitCost.rawPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            exitDetails.put("spreadAdjustmentPrice", exitCost.spreadAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            exitDetails.put("slippageAdjustmentPrice", exitCost.slippageAdjustment().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            exitDetails.put("finalExecutionPrice", exitCost.finalPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
         }
         timeline.add(timelineNode("EXIT", exit.exitTime(), exitDetails));
 
@@ -2214,6 +2425,8 @@ public class BacktestLabService {
                 endIndex,
                 extremeIndex,
                 pool.createdIndex(),
+                pool.createdTime(),
+                pool.sourceSessionName(),
                 rankScore
         );
     }
@@ -2253,6 +2466,36 @@ public class BacktestLabService {
         return active;
     }
 
+    private boolean isPoolConsumedBeforeIndex(LiquidityPoolCandidate pool,
+                                              List<BacktestCandle> candles,
+                                              int currentIndex,
+                                              BigDecimal touchBufferAbs,
+                                              BigDecimal minSweepDepthAbs) {
+        if (pool == null || candles == null || candles.isEmpty() || currentIndex <= 0) {
+            return false;
+        }
+        int from = Math.max(0, pool.createdIndex());
+        int until = Math.min(currentIndex - 1, candles.size() - 1);
+        if (from > until) {
+            return false;
+        }
+
+        BigDecimal threshold = pool.side() == SweepSide.HIGH
+                ? pool.levelPrice().add(touchBufferAbs).add(minSweepDepthAbs)
+                : pool.levelPrice().subtract(touchBufferAbs).subtract(minSweepDepthAbs);
+        for (int i = from; i <= until; i++) {
+            BacktestCandle candle = candles.get(i);
+            if (pool.side() == SweepSide.HIGH) {
+                if (candle.high().compareTo(threshold) >= 0) {
+                    return true;
+                }
+            } else if (candle.low().compareTo(threshold) <= 0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private List<LiquidityPoolCandidate> buildContextPools(List<BacktestCandle> candles,
                                                            ParsedConfig config,
                                                            Map<String, List<SessionLevelRecord>> sessionLevelRecords,
@@ -2282,6 +2525,7 @@ public class BacktestLabService {
                             record.high(),
                             1,
                             createdIndex,
+                            record.lastTime(),
                             significance,
                             normalizedSession
                     ));
@@ -2294,6 +2538,7 @@ public class BacktestLabService {
                             record.low(),
                             1,
                             createdIndex,
+                            record.lastTime(),
                             significance,
                             normalizedSession
                     ));
@@ -2318,6 +2563,7 @@ public class BacktestLabService {
                             stats.high(),
                             1,
                             entry.getValue(),
+                            timestampAtIndex(candles, entry.getValue()),
                             significance,
                             null
                     ));
@@ -2330,6 +2576,7 @@ public class BacktestLabService {
                             stats.low(),
                             1,
                             entry.getValue(),
+                            timestampAtIndex(candles, entry.getValue()),
                             significance,
                             null
                     ));
@@ -2354,6 +2601,7 @@ public class BacktestLabService {
                             stats.high(),
                             1,
                             entry.getValue(),
+                            timestampAtIndex(candles, entry.getValue()),
                             significance,
                             null
                     ));
@@ -2366,6 +2614,7 @@ public class BacktestLabService {
                             stats.low(),
                             1,
                             entry.getValue(),
+                            timestampAtIndex(candles, entry.getValue()),
                             significance,
                             null
                     ));
@@ -2433,6 +2682,7 @@ public class BacktestLabService {
                         cluster.level(),
                         cluster.touches(),
                         createdIndex,
+                        cluster.lastTouchTime(),
                         cluster.significance(),
                         null
                 ));
@@ -2474,6 +2724,7 @@ public class BacktestLabService {
                         cluster.level(),
                         cluster.touches(),
                         createdIndex,
+                        cluster.lastTouchTime(),
                         cluster.significance(),
                         null
                 ));
@@ -2517,6 +2768,9 @@ public class BacktestLabService {
     private Map<String, List<SessionLevelRecord>> buildSessionLevelRecords(List<BacktestCandle> candles, List<SessionWindow> sessions) {
         Map<String, List<SessionLevelRecord>> out = new LinkedHashMap<>();
         for (SessionWindow session : sessions) {
+            if (!session.canGeneratePools()) {
+                continue;
+            }
             Map<LocalDate, SessionLevelMutable> grouped = new LinkedHashMap<>();
             for (int i = 0; i < candles.size(); i++) {
                 BacktestCandle candle = candles.get(i);
@@ -2602,7 +2856,9 @@ public class BacktestLabService {
     private List<SessionWindow> resolveEvaluationSessions(ParsedConfig config, SessionWindow fallback) {
         Map<String, SessionWindow> byName = new LinkedHashMap<>();
         for (SessionWindow session : config.sessions()) {
-            byName.put(normalizeSessionName(session.name()), session);
+            if (session.canFilterEvaluation()) {
+                byName.put(normalizeSessionName(session.name()), session);
+            }
         }
         List<SessionWindow> out = new ArrayList<>();
         Set<String> requested = config.evaluationSessions();
@@ -2617,10 +2873,36 @@ public class BacktestLabService {
         if (!out.isEmpty()) {
             return out;
         }
-        if (fallback != null) {
+        if (fallback != null && fallback.canFilterEvaluation()) {
             return List.of(fallback);
         }
-        return config.sessions().isEmpty() ? List.of() : List.of(config.sessions().get(0));
+        return config.sessions().stream().filter(SessionWindow::canFilterEvaluation).findFirst().map(List::of).orElse(List.of());
+    }
+
+    private List<SessionWindow> resolveEntrySessions(ParsedConfig config, SessionWindow fallback) {
+        Map<String, SessionWindow> byName = new LinkedHashMap<>();
+        for (SessionWindow session : config.sessions()) {
+            if (session.canFilterEntry()) {
+                byName.put(normalizeSessionName(session.name()), session);
+            }
+        }
+        List<SessionWindow> out = new ArrayList<>();
+        Set<String> requested = config.entrySessions();
+        if (requested != null && !requested.isEmpty()) {
+            for (String name : requested) {
+                SessionWindow session = byName.get(normalizeSessionName(name));
+                if (session != null) {
+                    out.add(session);
+                }
+            }
+        }
+        if (!out.isEmpty()) {
+            return out;
+        }
+        if (fallback != null && fallback.canFilterEntry()) {
+            return List.of(fallback);
+        }
+        return config.sessions().stream().filter(SessionWindow::canFilterEntry).findFirst().map(List::of).orElse(List.of());
     }
 
     private boolean isWithinKillzone(OffsetDateTime ts, String sessionName, ParsedConfig config) {
@@ -2656,6 +2938,14 @@ public class BacktestLabService {
             }
         }
         return answer < 0 ? candles.size() - 1 : answer;
+    }
+
+    private OffsetDateTime timestampAtIndex(List<BacktestCandle> candles, Integer index) {
+        if (candles == null || candles.isEmpty() || index == null) {
+            return null;
+        }
+        int safe = Math.max(0, Math.min(index, candles.size() - 1));
+        return candles.get(safe).timestamp();
     }
 
     private PivotState computePivots(List<BacktestCandle> candles, int left, int right) {
@@ -2839,33 +3129,24 @@ public class BacktestLabService {
     }
 
     private DatasetSelection chooseExecutionDataset(List<BacktestDataset> datasets, BacktestTimeframe requestedTimeframe) {
-        Map<BacktestTimeframe, BacktestDataset> byTf = new LinkedHashMap<>();
-        for (BacktestDataset dataset : datasets) {
-            byTf.putIfAbsent(dataset.getTimeframe(), dataset);
-        }
-
-        BacktestDataset exact = byTf.get(requestedTimeframe);
-        if (exact != null) {
-            return new DatasetSelection(exact, requestedTimeframe, false, rangeMin(exact), rangeMax(exact));
-        }
-
         List<BacktestDataset> sorted = datasets.stream()
                 .sorted(Comparator.comparing(item -> item.getTimeframe().duration()))
                 .toList();
+        BacktestDataset canonical = sorted.get(0);
+        BacktestTimeframe requested = requestedTimeframe == null ? canonical.getTimeframe() : requestedTimeframe;
+        BacktestTimeframe execution = requested;
 
-        BacktestDataset source = null;
-        for (BacktestDataset dataset : sorted) {
-            if (dataset.getTimeframe().duration().compareTo(requestedTimeframe.duration()) <= 0) {
-                source = dataset;
-            }
+        // Lower-than-canonical execution TF cannot be derived safely.
+        if (canonical.getTimeframe().duration().compareTo(execution.duration()) > 0) {
+            execution = canonical.getTimeframe();
         }
-
-        if (source != null) {
-            return new DatasetSelection(source, requestedTimeframe, source.getTimeframe() != requestedTimeframe, rangeMin(source), rangeMax(source));
-        }
-
-        BacktestDataset fallback = sorted.get(0);
-        return new DatasetSelection(fallback, fallback.getTimeframe(), false, rangeMin(fallback), rangeMax(fallback));
+        return new DatasetSelection(
+                canonical,
+                execution,
+                canonical.getTimeframe() != execution,
+                rangeMin(canonical),
+                rangeMax(canonical)
+        );
     }
 
     private ParsedConfig parseConfig(BacktestStrategyConfig strategyConfig, BacktestDatasetSet set) {
@@ -2881,9 +3162,19 @@ public class BacktestLabService {
                 set.getTimezoneBasis()
         );
 
-        BacktestTimeframe requestedTf = parseTimeframe(
-                firstPresent(path(root, "context", "executionTimeframe"), path(smc, "executionTimeframe"), path(smc, "execution_timeframe")),
+        BacktestTimeframe executionTf = parseTimeframe(
+                firstPresent(
+                        path(root, "context", "executionTimeframe"),
+                        path(smc, "executionTf"),
+                        path(smc, "execution_tf"),
+                        path(smc, "executionTimeframe"),
+                        path(smc, "execution_timeframe")
+                ),
                 BacktestTimeframe.M5
+        );
+        BacktestTimeframe contextTf = parseTimeframe(
+                firstPresent(path(smc, "contextTf"), path(smc, "context_tf")),
+                executionTf
         );
 
         List<SessionWindow> sessions = parseSessions(root, timezoneBasis);
@@ -2896,6 +3187,7 @@ public class BacktestLabService {
                     .filter(item -> sessionsEnabled.contains(normalizeSessionName(item.name())))
                     .toList();
         }
+        sessions = sessions.stream().filter(SessionWindow::enabled).toList();
         if (sessions.isEmpty()) {
             sessions = defaultSessions(timezoneBasis);
         }
@@ -2905,8 +3197,17 @@ public class BacktestLabService {
                 Set.of(normalizeSessionName(text(path(root, "setupRule", "session"), "LONDON"))
                 )
         );
+        Set<String> entrySessions = parseStringSet(
+                firstPresent(path(smc, "entrySessions"), path(smc, "entry_sessions")),
+                evaluationSessions
+        );
         Set<String> sweepSourceSessions = parseStringSet(
-                firstPresent(path(smc, "sweepSourceSessions"), path(smc, "sweep_source_sessions")),
+                firstPresent(
+                        path(smc, "poolSourceSessions"),
+                        path(smc, "pool_source_sessions"),
+                        path(smc, "sweepSourceSessions"),
+                        path(smc, "sweep_source_sessions")
+                ),
                 Set.of("ASIA", "LONDON", "NY_AM")
         );
 
@@ -2915,13 +3216,31 @@ public class BacktestLabService {
                 Set.of("EQH", "EQL", "ASIA_H", "ASIA_L", "LONDON_H", "LONDON_L", "NY_AM_H", "NY_AM_L", "PDH", "PDL", "PWH", "PWL")
         );
 
-        BacktestTimeframe poolDetectionTf = parseTimeframe(
-                firstPresent(path(smc, "poolTimeframeForDetection"), path(smc, "pool_timeframe_for_detection")),
+        BacktestTimeframe poolTf = parseTimeframe(
+                firstPresent(
+                        path(smc, "poolTf"),
+                        path(smc, "pool_tf"),
+                        path(smc, "poolTimeframeForDetection"),
+                        path(smc, "pool_timeframe_for_detection")
+                ),
                 BacktestTimeframe.M15
+        );
+        BacktestTimeframe confirmationTf = parseTimeframe(
+                firstPresent(
+                        path(smc, "confirmationTf"),
+                        path(smc, "confirmation_tf"),
+                        path(root, "setupRule", "confirmationTf"),
+                        path(root, "setupRule", "confirmation_tf")
+                ),
+                executionTf
+        );
+        BacktestTimeframe entryTf = parseTimeframe(
+                firstPresent(path(smc, "entryTf"), path(smc, "entry_tf")),
+                confirmationTf
         );
         BacktestTimeframe displacementTf = parseTimeframe(
                 firstPresent(path(smc, "displacementTimeframe"), path(smc, "displacement_timeframe")),
-                requestedTf
+                confirmationTf
         );
         BacktestTimeframe mssTf = parseTimeframe(
                 firstPresent(
@@ -2930,7 +3249,23 @@ public class BacktestLabService {
                         path(smc, "structureTimeframe"),
                         path(smc, "structure_timeframe")
                 ),
-                requestedTf
+                confirmationTf
+        );
+        boolean allowNonHierarchicalTimeframes = bool(
+                firstPresent(path(smc, "allowNonHierarchicalTimeframes"), path(smc, "allow_non_hierarchical_timeframes")),
+                false
+        );
+        boolean requireCrossSessionSweep = bool(
+                firstPresent(path(smc, "requireCrossSessionSweep"), path(smc, "require_cross_session_sweep")),
+                false
+        );
+        boolean requireSameSessionForSweepAndEntry = bool(
+                firstPresent(path(smc, "requireSameSessionForSweepAndEntry"), path(smc, "require_same_session_for_sweep_and_entry")),
+                false
+        );
+        boolean sweepRequiresUnsweptPool = bool(
+                firstPresent(path(smc, "sweepRequiresUnsweptPool"), path(smc, "sweep_requires_unswept_pool")),
+                true
         );
         Map<String, SessionWindow> killzoneWindowsUtc = parseKillzoneWindows(smc);
         int displacementNoOverlapBars = integer(
@@ -2944,14 +3279,14 @@ public class BacktestLabService {
 
         BigDecimal legacyDisplacementMult = decimal(path(root, "qualityFilters", "displacementMultiplier"), BigDecimal.valueOf(1.5));
 
-        return new ParsedConfig(
+        ParsedConfig parsed = new ParsedConfig(
                 text(path(root, "name"), STRATEGY_DEFAULT_NAME),
                 decimal(path(root, "context", "pipSize"), inferPipSize(set.getInstrument())),
                 decimal(path(root, "context", "spreadPips"), BigDecimal.valueOf(0.8)),
                 decimal(path(root, "context", "slippagePips"), BigDecimal.valueOf(0.3)),
                 decimal(path(root, "context", "touchTolerancePips"), BigDecimal.valueOf(0.5)),
                 timezoneBasis,
-                requestedTf,
+                executionTf,
                 sessions,
                 text(path(root, "setupRule", "session"), "LONDON"),
                 text(path(root, "setupRule", "sweepType"), "ASIA_H"),
@@ -2975,7 +3310,7 @@ public class BacktestLabService {
                 evaluationSessions,
                 sweepSourceSessions,
                 poolTypesEnabled,
-                poolDetectionTf,
+                poolTf,
                 decimal(firstPresent(path(smc, "poolTouchTolerancePips"), path(smc, "pool_touch_tolerance_pips")), BigDecimal.valueOf(1.0)),
                 integer(firstPresent(path(smc, "poolMinTouches"), path(smc, "pool_min_touches")), 2),
                 integer(firstPresent(path(smc, "poolMinSeparationBars"), path(smc, "pool_min_separation_bars")), 6),
@@ -3014,7 +3349,78 @@ public class BacktestLabService {
                 text(firstPresent(path(smc, "retraceReference"), path(smc, "retrace_reference")), "GAP_FILL"),
                 decimal(firstPresent(path(smc, "retraceMinPct"), path(smc, "retrace_min_pct")), BigDecimal.valueOf(50)),
                 integer(firstPresent(path(smc, "retraceMaxWaitBars"), path(smc, "retrace_max_wait_bars")), 6),
-                bool(firstPresent(path(smc, "retraceAcceptWickTouch"), path(smc, "retrace_accept_wick_touch")), true)
+                bool(firstPresent(path(smc, "retraceAcceptWickTouch"), path(smc, "retrace_accept_wick_touch")), true),
+                contextTf,
+                poolTf,
+                confirmationTf,
+                entryTf,
+                executionTf,
+                allowNonHierarchicalTimeframes,
+                entrySessions,
+                requireCrossSessionSweep,
+                requireSameSessionForSweepAndEntry,
+                sweepRequiresUnsweptPool
+        );
+        validateTimeframeRoles(parsed);
+        return parsed;
+    }
+
+    private void validateTimeframeRoles(ParsedConfig config) {
+        if (config == null || config.allowNonHierarchicalTimeframes()) {
+            return;
+        }
+        List<String> violations = new ArrayList<>();
+        if (config.contextTf().duration().compareTo(config.poolTf().duration()) < 0) {
+            violations.add("contextTf must be >= poolTf");
+        }
+        if (config.poolTf().duration().compareTo(config.confirmationTf().duration()) < 0) {
+            violations.add("poolTf must be >= confirmationTf");
+        }
+        if (config.confirmationTf().duration().compareTo(config.entryTf().duration()) < 0) {
+            violations.add("confirmationTf must be >= entryTf");
+        }
+        if (config.executionTf().duration().compareTo(config.entryTf().duration()) > 0) {
+            violations.add("executionTf must be <= entryTf");
+        }
+        if (!violations.isEmpty()) {
+            throw new IllegalArgumentException("Invalid timeframe roles. " + String.join("; ", violations)
+                    + ". Enable smc.allowNonHierarchicalTimeframes=true to override.");
+        }
+    }
+
+    private SessionWindow sessionWindow(String name, String zoneId, LocalTime start, LocalTime end, int displayOrder) {
+        return new SessionWindow(
+                normalizeSessionName(name),
+                normalizeTimezoneBasis(zoneId),
+                start,
+                end,
+                true,
+                true,
+                true,
+                true,
+                displayOrder
+        );
+    }
+
+    private SessionWindow sessionWindow(String name,
+                                        String zoneId,
+                                        LocalTime start,
+                                        LocalTime end,
+                                        boolean enabled,
+                                        boolean canGeneratePools,
+                                        boolean canFilterEvaluation,
+                                        boolean canFilterEntry,
+                                        int displayOrder) {
+        return new SessionWindow(
+                normalizeSessionName(name),
+                normalizeTimezoneBasis(zoneId),
+                start,
+                end,
+                enabled,
+                canGeneratePools,
+                canFilterEvaluation,
+                canFilterEntry,
+                displayOrder
         );
     }
 
@@ -3036,14 +3442,17 @@ public class BacktestLabService {
                 if (start == null || end == null) {
                     continue;
                 }
-                out.put(sessionName, new SessionWindow(sessionName, "UTC", parseLocalTime(start), parseLocalTime(end)));
+                out.put(
+                        normalizeSessionName(sessionName),
+                        sessionWindow(sessionName, "UTC", parseLocalTime(start), parseLocalTime(end), true, false, false, false, out.size())
+                );
             }
         }
         if (!out.containsKey("LONDON")) {
-            out.put("LONDON", new SessionWindow("LONDON", "UTC", LocalTime.of(7, 0), LocalTime.of(10, 0)));
+            out.put("LONDON", sessionWindow("LONDON", "UTC", LocalTime.of(7, 0), LocalTime.of(10, 0), true, false, false, false, out.size()));
         }
         if (!out.containsKey("NY_AM")) {
-            out.put("NY_AM", new SessionWindow("NY_AM", "UTC", LocalTime.of(12, 30), LocalTime.of(15, 30)));
+            out.put("NY_AM", sessionWindow("NY_AM", "UTC", LocalTime.of(12, 30), LocalTime.of(15, 30), true, false, false, false, out.size()));
         }
         return out;
     }
@@ -3051,9 +3460,45 @@ public class BacktestLabService {
     private List<SessionWindow> parseSessions(JsonNode root, String timezoneBasis) {
         JsonNode smc = path(root, "smc");
         String sessionTimezone = text(firstPresent(path(smc, "sessionTimezone"), path(smc, "session_timezone")), timezoneBasis);
+
+        JsonNode sessionCalendarNode = firstPresent(path(smc, "sessionCalendar"), path(smc, "session_calendar"));
+        if (sessionCalendarNode != null && sessionCalendarNode.isArray()) {
+            List<SessionWindow> rows = new ArrayList<>();
+            for (JsonNode item : sessionCalendarNode) {
+                String name = text(firstPresent(item.path("name"), item.path("sessionName"), item.path("session_name")), null);
+                String start = text(firstPresent(item.path("localStartTime"), item.path("startLocal"), item.path("start"), item.path("start_local")), null);
+                String end = text(firstPresent(item.path("localEndTime"), item.path("endLocal"), item.path("end"), item.path("end_local")), null);
+                if (name == null || start == null || end == null) {
+                    continue;
+                }
+                String zone = text(firstPresent(item.path("timezoneId"), item.path("zoneId"), item.path("zone_id")), sessionTimezone);
+                boolean enabled = bool(item.path("enabled"), true);
+                boolean canGeneratePools = bool(item.path("canGeneratePools"), true);
+                boolean canFilterEvaluation = bool(item.path("canFilterEvaluation"), true);
+                boolean canFilterEntry = bool(item.path("canFilterEntry"), true);
+                int displayOrder = integer(item.path("displayOrder"), rows.size());
+                rows.add(sessionWindow(
+                        name,
+                        zone,
+                        parseLocalTime(start),
+                        parseLocalTime(end),
+                        enabled,
+                        canGeneratePools,
+                        canFilterEvaluation,
+                        canFilterEntry,
+                        displayOrder
+                ));
+            }
+            if (!rows.isEmpty()) {
+                rows.sort(Comparator.comparingInt(SessionWindow::displayOrder));
+                return rows;
+            }
+        }
+
         JsonNode sessionRanges = firstPresent(path(smc, "sessionTimeRanges"), path(smc, "session_time_ranges"));
         if (sessionRanges != null && sessionRanges.isObject()) {
             List<SessionWindow> rows = new ArrayList<>();
+            int order = 0;
             for (String sessionName : List.of("ASIA", "LONDON", "NY_AM", "NY_PM")) {
                 JsonNode item = firstPresent(
                         sessionRanges.path(sessionName),
@@ -3069,7 +3514,7 @@ public class BacktestLabService {
                     continue;
                 }
                 String zone = text(firstPresent(item.path("zoneId"), item.path("zone_id")), sessionTimezone);
-                rows.add(new SessionWindow(sessionName, normalizeTimezoneBasis(zone), parseLocalTime(start), parseLocalTime(end)));
+                rows.add(sessionWindow(sessionName, zone, parseLocalTime(start), parseLocalTime(end), order++));
             }
             if (!rows.isEmpty()) {
                 return rows;
@@ -3080,16 +3525,27 @@ public class BacktestLabService {
         if (sessionsNode != null && sessionsNode.isArray()) {
             List<SessionWindow> rows = new ArrayList<>();
             for (JsonNode item : sessionsNode) {
-                String name = text(item.path("name"), null);
-                String zone = text(item.path("zoneId"), sessionTimezone);
-                String start = text(item.path("startLocal"), "08:00");
-                String end = text(item.path("endLocal"), "17:00");
+                String name = text(firstPresent(item.path("name"), item.path("sessionName"), item.path("session_name")), null);
+                String zone = text(firstPresent(item.path("timezoneId"), item.path("zoneId"), item.path("zone_id")), sessionTimezone);
+                String start = text(firstPresent(item.path("localStartTime"), item.path("startLocal"), item.path("start"), item.path("start_local")), "08:00");
+                String end = text(firstPresent(item.path("localEndTime"), item.path("endLocal"), item.path("end"), item.path("end_local")), "17:00");
                 if (name == null) {
                     continue;
                 }
-                rows.add(new SessionWindow(normalizeSessionName(name), normalizeTimezoneBasis(zone), parseLocalTime(start), parseLocalTime(end)));
+                rows.add(sessionWindow(
+                        name,
+                        zone,
+                        parseLocalTime(start),
+                        parseLocalTime(end),
+                        bool(item.path("enabled"), true),
+                        bool(item.path("canGeneratePools"), true),
+                        bool(item.path("canFilterEvaluation"), true),
+                        bool(item.path("canFilterEntry"), true),
+                        integer(item.path("displayOrder"), rows.size())
+                ));
             }
             if (!rows.isEmpty()) {
+                rows.sort(Comparator.comparingInt(SessionWindow::displayOrder));
                 return rows;
             }
         }
@@ -3103,27 +3559,27 @@ public class BacktestLabService {
             zone = "UTC";
         }
         return List.of(
-                new SessionWindow("ASIA", zone, LocalTime.of(0, 0), LocalTime.of(7, 0)),
-                new SessionWindow("LONDON", zone, LocalTime.of(7, 0), LocalTime.of(12, 0)),
-                new SessionWindow("NY_AM", zone, LocalTime.of(13, 0), LocalTime.of(17, 0)),
-                new SessionWindow("NY_PM", zone, LocalTime.of(17, 0), LocalTime.of(22, 0))
+                sessionWindow("ASIA", zone, LocalTime.of(0, 0), LocalTime.of(7, 0), 0),
+                sessionWindow("LONDON", zone, LocalTime.of(7, 0), LocalTime.of(12, 0), 1),
+                sessionWindow("NY_AM", zone, LocalTime.of(13, 0), LocalTime.of(17, 0), 2),
+                sessionWindow("NY_PM", zone, LocalTime.of(17, 0), LocalTime.of(22, 0), 3)
         );
     }
 
     private SessionWindow resolveSessionWindow(List<SessionWindow> sessions, String sessionName) {
         if (sessions == null || sessions.isEmpty()) {
-            return new SessionWindow("LONDON", "UTC", LocalTime.of(7, 0), LocalTime.of(12, 0));
+            return sessionWindow("LONDON", "UTC", LocalTime.of(7, 0), LocalTime.of(12, 0), 0);
         }
         if (sessionName == null || sessionName.isBlank()) {
-            return sessions.get(0);
+            return sessions.stream().filter(SessionWindow::enabled).findFirst().orElse(sessions.get(0));
         }
         String wanted = normalizeSessionName(sessionName);
         for (SessionWindow session : sessions) {
-            if (normalizeSessionName(session.name()).equals(wanted)) {
+            if (session.enabled() && normalizeSessionName(session.name()).equals(wanted)) {
                 return session;
             }
         }
-        return sessions.get(0);
+        return sessions.stream().filter(SessionWindow::enabled).findFirst().orElse(sessions.get(0));
     }
 
     private SessionStamp assignSession(OffsetDateTime ts, SessionWindow window) {
@@ -3781,6 +4237,54 @@ public class BacktestLabService {
                 : entry.subtract(reward);
     }
 
+    private ExecutionCostBreakdown buildEntryCostBreakdown(ParsedConfig config, Direction direction, BigDecimal rawPrice) {
+        if (rawPrice == null) {
+            return new ExecutionCostBreakdown(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+        if ("MID".equalsIgnoreCase(config.fillPolicy())) {
+            return new ExecutionCostBreakdown(rawPrice, BigDecimal.ZERO, BigDecimal.ZERO, rawPrice);
+        }
+
+        BigDecimal spreadPrice = config.spreadPips().multiply(config.pipSize());
+        BigDecimal slippagePrice = config.slippagePips().multiply(config.pipSize());
+        BigDecimal spreadAdj = signedEntryHalfCost(direction, spreadPrice);
+        BigDecimal slippageAdj = signedEntryHalfCost(direction, slippagePrice);
+        BigDecimal finalPrice = rawPrice.add(spreadAdj).add(slippageAdj);
+        return new ExecutionCostBreakdown(rawPrice, spreadAdj, slippageAdj, finalPrice);
+    }
+
+    private ExecutionCostBreakdown buildExitCostBreakdown(ParsedConfig config, Direction direction, BigDecimal rawPrice) {
+        if (rawPrice == null) {
+            return new ExecutionCostBreakdown(BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+        if ("MID".equalsIgnoreCase(config.fillPolicy())) {
+            return new ExecutionCostBreakdown(rawPrice, BigDecimal.ZERO, BigDecimal.ZERO, rawPrice);
+        }
+
+        BigDecimal spreadPrice = config.spreadPips().multiply(config.pipSize());
+        BigDecimal slippagePrice = config.slippagePips().multiply(config.pipSize());
+        BigDecimal spreadAdj = signedExitHalfCost(direction, spreadPrice);
+        BigDecimal slippageAdj = signedExitHalfCost(direction, slippagePrice);
+        BigDecimal finalPrice = rawPrice.add(spreadAdj).add(slippageAdj);
+        return new ExecutionCostBreakdown(rawPrice, spreadAdj, slippageAdj, finalPrice);
+    }
+
+    private BigDecimal signedEntryHalfCost(Direction direction, BigDecimal cost) {
+        if (cost == null || direction == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal half = cost.divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+        return direction == Direction.LONG ? half : half.negate();
+    }
+
+    private BigDecimal signedExitHalfCost(Direction direction, BigDecimal cost) {
+        if (cost == null || direction == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal half = cost.divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+        return direction == Direction.LONG ? half.negate() : half;
+    }
+
     private BigDecimal applyEntryCost(BigDecimal entryRaw, Direction direction, BigDecimal cost) {
         if (entryRaw == null || direction == null || cost == null) {
             return entryRaw;
@@ -3851,6 +4355,12 @@ public class BacktestLabService {
 
         ObjectNode smc = root.putObject("smc");
         smc.put("sessionTimezone", timezone);
+        smc.put("contextTf", "H1");
+        smc.put("poolTf", "M15");
+        smc.put("confirmationTf", "M5");
+        smc.put("entryTf", "M5");
+        smc.put("executionTf", executionTf.name());
+        smc.put("allowNonHierarchicalTimeframes", false);
         smc.putArray("sessionsEnabled")
                 .add("ASIA")
                 .add("LONDON")
@@ -3864,6 +4374,19 @@ public class BacktestLabService {
             range.put("end", window.endLocal().toString());
             range.put("zoneId", window.zoneId());
         }
+        ArrayNode sessionCalendar = smc.putArray("sessionCalendar");
+        for (SessionWindow window : defaultSessions(timezone)) {
+            ObjectNode row = sessionCalendar.addObject();
+            row.put("name", window.name());
+            row.put("timezoneId", window.zoneId());
+            row.put("localStartTime", window.startLocal().toString());
+            row.put("localEndTime", window.endLocal().toString());
+            row.put("enabled", window.enabled());
+            row.put("canGeneratePools", window.canGeneratePools());
+            row.put("canFilterEvaluation", window.canFilterEvaluation());
+            row.put("canFilterEntry", window.canFilterEntry());
+            row.put("displayOrder", window.displayOrder());
+        }
 
         smc.putArray("sweepSourceSessions")
                 .add("ASIA")
@@ -3871,6 +4394,11 @@ public class BacktestLabService {
                 .add("NY_AM");
         smc.putArray("evaluationSessionFilter")
                 .add("LONDON");
+        smc.putArray("entrySessions")
+                .add("LONDON");
+        smc.put("requireCrossSessionSweep", false);
+        smc.put("requireSameSessionForSweepAndEntry", false);
+        smc.put("sweepRequiresUnsweptPool", true);
 
         smc.putArray("poolTypesEnabled")
                 .add("EQH")
@@ -4123,7 +4651,16 @@ public class BacktestLabService {
     }
 
     private String normalizeTimezoneBasis(String value) {
-        return "UTC";
+        if (value == null || value.isBlank()) {
+            return "UTC";
+        }
+        String normalized = value.trim();
+        try {
+            ZoneId.of(normalized);
+            return normalized;
+        } catch (Exception ignored) {
+            return "UTC";
+        }
     }
 
     private String normalizeName(String value, String fallback) {
@@ -4275,7 +4812,17 @@ public class BacktestLabService {
         return value.substring(0, Math.max(0, maxLen));
     }
 
-    private record SessionWindow(String name, String zoneId, LocalTime startLocal, LocalTime endLocal) {
+    private record SessionWindow(
+            String name,
+            String zoneId,
+            LocalTime startLocal,
+            LocalTime endLocal,
+            boolean enabled,
+            boolean canGeneratePools,
+            boolean canFilterEvaluation,
+            boolean canFilterEntry,
+            int displayOrder
+    ) {
     }
 
     private record SessionStamp(String sessionName, LocalDate sessionDateKey) {
@@ -4351,7 +4898,17 @@ public class BacktestLabService {
             String retraceReference,
             BigDecimal retraceMinPct,
             int retraceMaxWaitBars,
-            boolean retraceAcceptWickTouch
+            boolean retraceAcceptWickTouch,
+            BacktestTimeframe contextTf,
+            BacktestTimeframe poolTf,
+            BacktestTimeframe confirmationTf,
+            BacktestTimeframe entryTf,
+            BacktestTimeframe executionTf,
+            boolean allowNonHierarchicalTimeframes,
+            Set<String> entrySessions,
+            boolean requireCrossSessionSweep,
+            boolean requireSameSessionForSweepAndEntry,
+            boolean sweepRequiresUnsweptPool
     ) {
     }
 
@@ -4428,6 +4985,8 @@ public class BacktestLabService {
             int sweepEndIndex,
             int sweepExtremeIndex,
             int poolCreatedIndex,
+            OffsetDateTime poolCreatedTime,
+            String sourceSessionName,
             double rankScore
     ) {
     }
@@ -4497,6 +5056,14 @@ public class BacktestLabService {
     ) {
     }
 
+    private record ExecutionCostBreakdown(
+            BigDecimal rawPrice,
+            BigDecimal spreadAdjustment,
+            BigDecimal slippageAdjustment,
+            BigDecimal finalPrice
+    ) {
+    }
+
     private record ExitOutcome(
             int exitIndex,
             OffsetDateTime exitTime,
@@ -4518,7 +5085,11 @@ public class BacktestLabService {
             BigDecimal expectancyR,
             BigDecimal avgR,
             BigDecimal maxDdR,
-            BigDecimal fillRate
+            BigDecimal fillRate,
+            BigDecimal avgMaeR,
+            BigDecimal avgMfeR,
+            BigDecimal avgDurationSec,
+            String confidenceNote
     ) {
     }
 
@@ -4657,6 +5228,7 @@ public class BacktestLabService {
             BigDecimal levelPrice,
             int touches,
             int createdIndex,
+            OffsetDateTime createdTime,
             BigDecimal significance,
             String sourceSessionName
     ) {

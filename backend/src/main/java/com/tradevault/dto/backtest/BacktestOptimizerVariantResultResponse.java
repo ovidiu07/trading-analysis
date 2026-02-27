@@ -19,4 +19,8 @@ public class BacktestOptimizerVariantResultResponse {
     BigDecimal avgR;
     BigDecimal maxDdR;
     BigDecimal fillRate;
+    BigDecimal avgMaeR;
+    BigDecimal avgMfeR;
+    BigDecimal avgDurationSec;
+    String confidenceNote;
 }

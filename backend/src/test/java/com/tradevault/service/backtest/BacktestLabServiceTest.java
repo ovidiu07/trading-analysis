@@ -43,6 +43,8 @@ import java.lang.reflect.Constructor;
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -54,6 +56,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
@@ -861,6 +864,8 @@ class BacktestLabServiceTest {
                     1,
                     1,
                     0,
+                    OffsetDateTime.parse("2026-02-04T07:00:00Z"),
+                    "ASIA",
                     1.0d
             );
 
@@ -923,6 +928,150 @@ class BacktestLabServiceTest {
                 .allMatch(item -> item.getExpectancyR() != null)
                 .allMatch(item -> item.getWinRate() != null)
                 .allMatch(item -> item.getProfitFactor() != null);
+    }
+
+    @Test
+    void runFailsWhenTimeframeHierarchyIsInvalid() {
+        ObjectNode cfg = buildFixtureReadyConfig();
+        ObjectNode smc = (ObjectNode) cfg.path("smc");
+        smc.put("contextTf", "M5");
+        smc.put("poolTf", "H1");
+        strategyConfig.setConfigJson(cfg);
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setAutoGenerateReport(false);
+
+        assertThatThrownBy(() -> service.run(datasetSet.getId(), request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("Invalid timeframe roles");
+    }
+
+    @Test
+    void runEmitsEntryFillTransparencyAndEventGraphStages() {
+        List<BacktestCandle> fixtureM5 = loadFixtureM5Candles();
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String timeframe = invocation.getArgument(4);
+                    OffsetDateTime from = invocation.getArgument(5);
+                    OffsetDateTime to = invocation.getArgument(6);
+                    List<BacktestCandle> ranged = fixtureM5.stream()
+                            .filter(candle -> !candle.timestamp().isBefore(from) && !candle.timestamp().isAfter(to))
+                            .toList();
+                    if ("M5".equals(timeframe)) {
+                        return ranged;
+                    }
+                    return aggregateDaily(ranged);
+                });
+
+        strategyConfig.setConfigJson(buildFixtureFeb4Config());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-04T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-04T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse run = service.run(datasetSet.getId(), request);
+        assertThat(run.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+        var results = service.getRunResults(run.getRunId());
+        var filled = results.getTrades().stream()
+                .filter(item -> "FILLED".equals(item.getFillStatus()))
+                .findFirst()
+                .orElseThrow(() -> new AssertionError("Expected at least one filled trade for fixture day"));
+
+        assertThat(filled.getEvidence().path("entryTriggerPrice").asText()).isNotBlank();
+        assertThat(filled.getEvidence().path("entryRawPrice").asText()).isNotBlank();
+        assertThat(filled.getEvidence().path("entrySpreadAdjustmentPrice").asText()).isNotBlank();
+        assertThat(filled.getEvidence().path("entrySlippageAdjustmentPrice").asText()).isNotBlank();
+        assertThat(filled.getEvidence().path("entryFinalExecutionPrice").asText()).isNotBlank();
+        assertThat(filled.getEvidence().path("eventGraph").isArray()).isTrue();
+
+        assertThat(filled.getTimeline().stream().map(item -> item.getStage()))
+                .contains("POOL_CREATED", "SWEEP_FIRST_BREACH", "SWEEP_EXTREME", "ENTRY_FILLED");
+    }
+
+    @Test
+    void sessionAssignmentRespectsDstForLondonAndNewYork() throws ReflectiveOperationException {
+        Class<?> sessionWindowClass = Class.forName("com.tradevault.service.backtest.BacktestLabService$SessionWindow");
+        Constructor<?> ctor = sessionWindowClass.getDeclaredConstructors()[0];
+        ctor.setAccessible(true);
+
+        Object london = ctor.newInstance(
+                "LONDON",
+                "Europe/London",
+                LocalTime.of(7, 0),
+                LocalTime.of(12, 0),
+                true,
+                true,
+                true,
+                true,
+                0
+        );
+        Object ny = ctor.newInstance(
+                "NY_AM",
+                "America/New_York",
+                LocalTime.of(9, 30),
+                LocalTime.of(12, 0),
+                true,
+                true,
+                true,
+                true,
+                1
+        );
+
+        Object londonWinter = ReflectionTestUtils.invokeMethod(service, "assignSession", OffsetDateTime.parse("2026-01-15T07:30:00Z"), london);
+        Object londonSummer = ReflectionTestUtils.invokeMethod(service, "assignSession", OffsetDateTime.parse("2026-07-15T06:30:00Z"), london);
+        Object nyWinter = ReflectionTestUtils.invokeMethod(service, "assignSession", OffsetDateTime.parse("2026-01-15T15:00:00Z"), ny);
+        Object nySummer = ReflectionTestUtils.invokeMethod(service, "assignSession", OffsetDateTime.parse("2026-07-15T14:00:00Z"), ny);
+
+        assertThat(londonWinter).isNotNull();
+        assertThat(londonSummer).isNotNull();
+        assertThat(nyWinter).isNotNull();
+        assertThat(nySummer).isNotNull();
+        assertThat((LocalDate) ReflectionTestUtils.invokeMethod(londonWinter, "sessionDateKey"))
+                .isEqualTo(LocalDate.parse("2026-01-15"));
+        assertThat((LocalDate) ReflectionTestUtils.invokeMethod(londonSummer, "sessionDateKey"))
+                .isEqualTo(LocalDate.parse("2026-07-15"));
+    }
+
+    @Test
+    void consumedPoolHelperMarksMeaningfulPriorBreachAsConsumed() throws ReflectiveOperationException {
+        Class<?> sideClass = Class.forName("com.tradevault.service.backtest.BacktestLabService$SweepSide");
+        @SuppressWarnings("unchecked")
+        Enum<?> highSide = Enum.valueOf((Class<Enum>) sideClass.asSubclass(Enum.class), "HIGH");
+
+        Class<?> poolClass = Class.forName("com.tradevault.service.backtest.BacktestLabService$LiquidityPoolCandidate");
+        Constructor<?> ctor = poolClass.getDeclaredConstructors()[0];
+        ctor.setAccessible(true);
+        Object pool = ctor.newInstance(
+                "pool-eqh-1",
+                "EQH",
+                highSide,
+                new BigDecimal("1.1000"),
+                2,
+                0,
+                OffsetDateTime.parse("2026-02-03T08:00:00Z"),
+                new BigDecimal("0.0010"),
+                "ASIA"
+        );
+
+        List<BacktestCandle> candles = List.of(
+                candle("2026-02-03T08:00:00Z", 1.0995, 1.1001, 1.0992, 1.0998),
+                candle("2026-02-03T08:05:00Z", 1.0998, 1.1004, 1.0994, 1.1002),
+                candle("2026-02-03T08:10:00Z", 1.1002, 1.1008, 1.0999, 1.1004),
+                candle("2026-02-03T08:15:00Z", 1.1004, 1.1005, 1.1001, 1.1003)
+        );
+        Boolean consumed = ReflectionTestUtils.invokeMethod(
+                service,
+                "isPoolConsumedBeforeIndex",
+                pool,
+                candles,
+                3,
+                new BigDecimal("0.00005"),
+                new BigDecimal("0.00020")
+        );
+        assertThat(consumed).isTrue();
     }
 
     private List<BacktestCandle> buildDeterministicCandles() {
@@ -1105,6 +1254,12 @@ class BacktestLabServiceTest {
 
         ObjectNode smc = root.putObject("smc");
         smc.put("sessionTimezone", "UTC");
+        smc.put("contextTf", "H1");
+        smc.put("poolTf", "M15");
+        smc.put("confirmationTf", "M5");
+        smc.put("entryTf", "M5");
+        smc.put("executionTf", "M5");
+        smc.put("allowNonHierarchicalTimeframes", false);
         smc.putArray("sessionsEnabled").add("ASIA").add("LONDON").add("NY_AM").add("NY_PM");
 
         ObjectNode ranges = smc.putObject("sessionTimeRanges");

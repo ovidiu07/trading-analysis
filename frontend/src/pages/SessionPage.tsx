@@ -5108,7 +5108,7 @@ export default function SessionPage() {
                           fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
                         />
                       ) : (
-                        <BacktestLabWizard />
+                        <BacktestLabWizard headerSymbol={activeSymbol || chartSymbol} />
                       )}
                     </>
                   )}

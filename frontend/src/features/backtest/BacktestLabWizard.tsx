@@ -65,6 +65,7 @@ const STEPS = ['Upload CSVs', 'Strategy Builder', 'Run Backtest', 'Results + Rep
 
 type TemplateKey = 'ASIA_LONDON_REVERSAL' | 'LONDON_NY_REVERSAL' | 'BOS_CONTINUATION'
 type SessionName = 'ASIA' | 'LONDON' | 'NY_AM' | 'NY_PM'
+type TimeframeRole = 'M1' | 'M5' | 'M15' | 'H1' | 'H4' | 'D1' | 'W1'
 type PoolType = 'EQH' | 'EQL' | 'ASIA_H' | 'ASIA_L' | 'LONDON_H' | 'LONDON_L' | 'NY_AM_H' | 'NY_AM_L' | 'PDH' | 'PDL' | 'PWH' | 'PWL'
 type SwingDetectionMethod = 'FRACTAL' | 'PIVOT_N' | 'SWING_HL'
 type MssAnchorLevel = 'LAST_SWING_HIGH_LOW' | 'DISPLACEMENT_ORIGIN' | 'INTERNAL_STRUCTURE'
@@ -79,6 +80,8 @@ type OptimizerState = {
   retraceRequired: string
   retraceMinPct: string
   sweepMinDepthPips: string
+  confirmationTf: string
+  entryTf: string
 }
 
 type StrategyConfigState = {
@@ -96,6 +99,11 @@ type StrategyConfigState = {
     zoneId: string
     startLocal: string
     endLocal: string
+    enabled: boolean
+    canGeneratePools: boolean
+    canFilterEvaluation: boolean
+    canFilterEntry: boolean
+    displayOrder: number
   }>
   setupRule: {
     session: string
@@ -127,12 +135,33 @@ type StrategyConfigState = {
   }
   smc: {
     sessionTimezone: string
+    sessionCalendar: Array<{
+      name: string
+      timezoneId: string
+      localStartTime: string
+      localEndTime: string
+      enabled: boolean
+      canGeneratePools: boolean
+      canFilterEvaluation: boolean
+      canFilterEntry: boolean
+      displayOrder: number
+    }>
+    contextTf: TimeframeRole
+    poolTf: TimeframeRole
+    confirmationTf: TimeframeRole
+    entryTf: TimeframeRole
+    executionTf: TimeframeRole
+    allowNonHierarchicalTimeframes: boolean
     sessionsEnabled: SessionName[]
     sessionTimeRanges: Record<SessionName, { start: string, end: string, zoneId: string }>
     requireKillzone: boolean
     killzoneWindowsUtc: Partial<Record<SessionName, { start: string, end: string, zoneId: string }>>
     sweepSourceSessions: SessionName[]
     evaluationSessionFilter: SessionName[]
+    entrySessions: SessionName[]
+    requireCrossSessionSweep: boolean
+    requireSameSessionForSweepAndEntry: boolean
+    sweepRequiresUnsweptPool: boolean
     poolTypesEnabled: PoolType[]
     poolTimeframeForDetection: string
     poolTouchTolerancePips: number
@@ -186,10 +215,10 @@ const defaultConfig = (): StrategyConfigState => ({
     executionTimeframe: 'M5'
   },
   sessions: [
-    { name: 'ASIA', zoneId: 'UTC', startLocal: '00:00', endLocal: '07:00' },
-    { name: 'LONDON', zoneId: 'UTC', startLocal: '07:00', endLocal: '12:00' },
-    { name: 'NY_AM', zoneId: 'UTC', startLocal: '13:00', endLocal: '17:00' },
-    { name: 'NY_PM', zoneId: 'UTC', startLocal: '17:00', endLocal: '22:00' }
+    { name: 'ASIA', zoneId: 'UTC', startLocal: '00:00', endLocal: '07:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 0 },
+    { name: 'LONDON', zoneId: 'UTC', startLocal: '07:00', endLocal: '12:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 1 },
+    { name: 'NY_AM', zoneId: 'UTC', startLocal: '13:00', endLocal: '17:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 2 },
+    { name: 'NY_PM', zoneId: 'UTC', startLocal: '17:00', endLocal: '22:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 3 }
   ],
   setupRule: {
     session: 'LONDON',
@@ -221,6 +250,18 @@ const defaultConfig = (): StrategyConfigState => ({
   },
   smc: {
     sessionTimezone: 'UTC',
+    sessionCalendar: [
+      { name: 'ASIA', timezoneId: 'UTC', localStartTime: '00:00', localEndTime: '07:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 0 },
+      { name: 'LONDON', timezoneId: 'UTC', localStartTime: '07:00', localEndTime: '12:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 1 },
+      { name: 'NY_AM', timezoneId: 'UTC', localStartTime: '13:00', localEndTime: '17:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 2 },
+      { name: 'NY_PM', timezoneId: 'UTC', localStartTime: '17:00', localEndTime: '22:00', enabled: true, canGeneratePools: true, canFilterEvaluation: true, canFilterEntry: true, displayOrder: 3 }
+    ],
+    contextTf: 'H1',
+    poolTf: 'M15',
+    confirmationTf: 'M5',
+    entryTf: 'M5',
+    executionTf: 'M5',
+    allowNonHierarchicalTimeframes: false,
     sessionsEnabled: ['ASIA', 'LONDON', 'NY_AM', 'NY_PM'],
     sessionTimeRanges: {
       ASIA: { start: '00:00', end: '07:00', zoneId: 'UTC' },
@@ -235,6 +276,10 @@ const defaultConfig = (): StrategyConfigState => ({
     },
     sweepSourceSessions: ['ASIA', 'LONDON', 'NY_AM'],
     evaluationSessionFilter: ['LONDON'],
+    entrySessions: ['LONDON'],
+    requireCrossSessionSweep: false,
+    requireSameSessionForSweepAndEntry: false,
+    sweepRequiresUnsweptPool: true,
     poolTypesEnabled: ['EQH', 'EQL', 'ASIA_H', 'ASIA_L', 'LONDON_H', 'LONDON_L', 'NY_AM_H', 'NY_AM_L', 'PDH', 'PDL', 'PWH', 'PWL'],
     poolTimeframeForDetection: 'M15',
     poolTouchTolerancePips: 1,
@@ -279,6 +324,7 @@ const defaultConfig = (): StrategyConfigState => ({
 
 const SESSION_NAMES: SessionName[] = ['ASIA', 'LONDON', 'NY_AM', 'NY_PM']
 const POOL_TYPES: PoolType[] = ['EQH', 'EQL', 'ASIA_H', 'ASIA_L', 'LONDON_H', 'LONDON_L', 'NY_AM_H', 'NY_AM_L', 'PDH', 'PDL', 'PWH', 'PWL']
+const TIMEFRAME_OPTIONS: TimeframeRole[] = ['M1', 'M5', 'M15', 'H1', 'H4', 'D1', 'W1']
 
 const HintLabel = ({ label, tooltip }: { label: string, tooltip: string }) => (
   <Stack direction="row" spacing={0.4} alignItems="center">
@@ -489,7 +535,54 @@ const persistPresets = (presets: Record<string, StrategyConfigState>) => {
   localStorage.setItem(PRESET_STORAGE_KEY, JSON.stringify(presets))
 }
 
-export default function BacktestLabWizard() {
+const normalizeStrategyConfig = (candidate: Partial<StrategyConfigState> | null | undefined): StrategyConfigState => {
+  const base = defaultConfig()
+  if (!candidate) return base
+  const merged: StrategyConfigState = {
+    ...base,
+    ...candidate,
+    context: { ...base.context, ...(candidate.context || {}) },
+    sessions: (candidate.sessions || base.sessions).map((session, index) => ({
+      ...base.sessions[index % base.sessions.length],
+      ...session,
+      displayOrder: session.displayOrder ?? index
+    })),
+    setupRule: { ...base.setupRule, ...(candidate.setupRule || {}) },
+    entryModel: { ...base.entryModel, ...(candidate.entryModel || {}) },
+    riskModel: { ...base.riskModel, ...(candidate.riskModel || {}) },
+    qualityFilters: { ...base.qualityFilters, ...(candidate.qualityFilters || {}) },
+    smc: {
+      ...base.smc,
+      ...(candidate.smc || {}),
+      sessionTimeRanges: {
+        ...base.smc.sessionTimeRanges,
+        ...(candidate.smc?.sessionTimeRanges || {})
+      },
+      killzoneWindowsUtc: {
+        ...base.smc.killzoneWindowsUtc,
+        ...(candidate.smc?.killzoneWindowsUtc || {})
+      },
+      sessionCalendar: (candidate.smc?.sessionCalendar || base.smc.sessionCalendar).map((session, index) => ({
+        ...base.smc.sessionCalendar[index % base.smc.sessionCalendar.length],
+        ...session,
+        displayOrder: session.displayOrder ?? index
+      }))
+    }
+  }
+  if (!merged.smc.executionTf) {
+    merged.smc.executionTf = (merged.context.executionTimeframe as TimeframeRole) || 'M5'
+  }
+  merged.context.executionTimeframe = merged.smc.executionTf
+  return merged
+}
+
+type RunLifecycleState = 'idle' | 'validating' | 'queued' | 'running' | 'completed' | 'failed'
+
+type BacktestLabWizardProps = {
+  headerSymbol?: string
+}
+
+export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardProps) {
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
 
@@ -503,6 +596,7 @@ export default function BacktestLabWizard() {
   const [uploadStage, setUploadStage] = useState<'' | 'UPLOADING' | 'PARSING' | 'PERSISTING' | 'READY'>('')
   const [saveStrategyBusy, setSaveStrategyBusy] = useState(false)
   const [runBusy, setRunBusy] = useState(false)
+  const [runLifecycleState, setRunLifecycleState] = useState<RunLifecycleState>('idle')
   const [error, setError] = useState('')
   const [success, setSuccess] = useState('')
 
@@ -511,6 +605,7 @@ export default function BacktestLabWizard() {
   const [presetName, setPresetName] = useState('')
   const [selectedPresetKey, setSelectedPresetKey] = useState('')
   const [savedPresets, setSavedPresets] = useState<Record<string, StrategyConfigState>>(() => loadStoredPresets())
+  const [lastSavedConfigFingerprint, setLastSavedConfigFingerprint] = useState('')
 
   const [runWindow, setRunWindow] = useState({ fromUtc: '', toUtc: '', sessionFilter: '' })
   const [lastRun, setLastRun] = useState<BacktestLabRun | null>(null)
@@ -526,7 +621,9 @@ export default function BacktestLabWizard() {
     displacementType: 'GAP_OPTIONAL,GAP_REQUIRED,NO_GAP_ONLY',
     retraceRequired: 'true,false',
     retraceMinPct: '0,50,62',
-    sweepMinDepthPips: '3,4,5,6'
+    sweepMinDepthPips: '3,4,5,6',
+    confirmationTf: 'M5,M15',
+    entryTf: 'M1,M5'
   })
   const [optimizerSortBy, setOptimizerSortBy] = useState<'rank' | 'expectancyR' | 'winRate' | 'profitFactor' | 'maxDdR'>('rank')
 
@@ -538,13 +635,21 @@ export default function BacktestLabWizard() {
     return Array.from(set)
   }, [datasetInfo])
 
+  const requestedExecutionTf = strategyConfig.smc.executionTf || strategyConfig.context.executionTimeframe
+  const strategyConfigFingerprint = useMemo(() => JSON.stringify(strategyConfig), [strategyConfig])
+  const strategyConfigDirty = Boolean(strategyConfigId) && strategyConfigFingerprint !== lastSavedConfigFingerprint
+
   const executionDataset = useMemo(() => {
-    return pickExecutionDataset(datasetInfo?.datasets, strategyConfig.context.executionTimeframe)
-  }, [datasetInfo?.datasets, strategyConfig.context.executionTimeframe])
+    return pickExecutionDataset(datasetInfo?.datasets, requestedExecutionTf)
+  }, [datasetInfo?.datasets, requestedExecutionTf])
 
   const rangeBounds = useMemo(() => {
     return resolveDatasetRangeBounds(executionDataset ? [executionDataset] : [])
   }, [executionDataset])
+
+  const sessionHeaderSymbol = (headerSymbol || '').trim().toUpperCase()
+  const reportInstrument = (datasetInfo?.instrument || instrument || '').trim().toUpperCase()
+  const symbolMismatch = sessionHeaderSymbol && reportInstrument && sessionHeaderSymbol !== reportInstrument
 
   const datasetWarningIssues = executionDataset?.warnings || []
   const datasetFatalIssues = executionDataset?.fatalErrors || []
@@ -576,6 +681,21 @@ export default function BacktestLabWizard() {
     if (strategyConfig.riskModel.minRR < 1) {
       warnings.push('Min RR below 1.0 is uncommon for this setup model.')
     }
+    if (!strategyConfig.smc.allowNonHierarchicalTimeframes) {
+      const tfRank = (tf: string) => timeframeSeconds(tf)
+      if (tfRank(strategyConfig.smc.contextTf) < tfRank(strategyConfig.smc.poolTf)) {
+        warnings.push('Timeframes invalid: contextTf must be >= poolTf unless non-hierarchical override is enabled.')
+      }
+      if (tfRank(strategyConfig.smc.poolTf) < tfRank(strategyConfig.smc.confirmationTf)) {
+        warnings.push('Timeframes invalid: poolTf must be >= confirmationTf unless non-hierarchical override is enabled.')
+      }
+      if (tfRank(strategyConfig.smc.confirmationTf) < tfRank(strategyConfig.smc.entryTf)) {
+        warnings.push('Timeframes invalid: confirmationTf must be >= entryTf unless non-hierarchical override is enabled.')
+      }
+      if (tfRank(strategyConfig.smc.executionTf) > tfRank(strategyConfig.smc.entryTf)) {
+        warnings.push('Timeframes invalid: executionTf must be <= entryTf unless non-hierarchical override is enabled.')
+      }
+    }
     return warnings
   }, [strategyConfig])
 
@@ -587,7 +707,7 @@ export default function BacktestLabWizard() {
   }, [rangeBounds.max, rangeBounds.min, runWindow.fromUtc, runWindow.toUtc])
 
   const canRunBacktest = useMemo(() => {
-    if (!strategyConfigId) return false
+    if (!datasetSetId) return false
     if (!executionDataset) return false
     if (executionDatasetProcessing) return false
     if (!executionDataset.runnable) return false
@@ -595,11 +715,11 @@ export default function BacktestLabWizard() {
     if (!runWindowValid) return false
     if (uploading || loadingDatasets || runBusy) return false
     return true
-  }, [executionDataset, executionDatasetProcessing, loadingDatasets, runBusy, runWindowValid, strategyConfigId, uploading])
+  }, [datasetSetId, executionDataset, executionDatasetProcessing, loadingDatasets, runBusy, runWindowValid, uploading])
 
   const runBlockedReason = useMemo(() => {
     if (!executionDataset) {
-      return `Upload a dataset for ${strategyConfig.context.executionTimeframe} (or a lower timeframe to resample).`
+      return `Upload a dataset for ${requestedExecutionTf} (or a lower timeframe to resample).`
     }
     if (executionDatasetProcessing) {
       return `Selected timeframe dataset is ${executionDataset.status}. Wait until processing finishes.`
@@ -617,7 +737,7 @@ export default function BacktestLabWizard() {
       return `Select a valid range between ${rangeBounds.min} and ${rangeBounds.max}.`
     }
     return ''
-  }, [datasetFatalIssues, executionDataset, executionDatasetProcessing, rangeBounds.max, rangeBounds.min, runWindowValid, strategyConfig.context.executionTimeframe])
+  }, [datasetFatalIssues, executionDataset, executionDatasetProcessing, rangeBounds.max, rangeBounds.min, requestedExecutionTf, runWindowValid])
 
   const sortedOptimizerVariants = useMemo(() => {
     const rows = [...(optimizerResults?.variants || [])]
@@ -644,25 +764,47 @@ export default function BacktestLabWizard() {
         const availableTimeframes = new Set(info.datasets.map((item) => item.timeframe))
         setInstrument(info.instrument)
         setStrategyConfig((prev) => ({
-          ...prev,
-          context: {
-            ...prev.context,
-            pipSize: inferPipSize(info.instrument),
-            timezoneBasis: info.timezoneBasis || prev.context.timezoneBasis,
-            executionTimeframe: availableTimeframes.has(prev.context.executionTimeframe)
-              ? prev.context.executionTimeframe
-              : (info.datasets.find((d) => d.timeframe === 'M5')?.timeframe || info.datasets[0]?.timeframe || prev.context.executionTimeframe)
-          },
-          smc: {
-            ...prev.smc,
-            sessionTimezone: info.timezoneBasis || prev.smc.sessionTimezone,
-            sessionTimeRanges: {
-              ASIA: { ...prev.smc.sessionTimeRanges.ASIA, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.ASIA.zoneId },
-              LONDON: { ...prev.smc.sessionTimeRanges.LONDON, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.LONDON.zoneId },
-              NY_AM: { ...prev.smc.sessionTimeRanges.NY_AM, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.NY_AM.zoneId },
-              NY_PM: { ...prev.smc.sessionTimeRanges.NY_PM, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.NY_PM.zoneId }
+          ...(() => {
+            const fallbackTf = (info.datasets.find((d) => d.timeframe === 'M5')?.timeframe || info.datasets[0]?.timeframe || prev.context.executionTimeframe) as TimeframeRole
+            const nextExecTf = availableTimeframes.has(prev.smc.executionTf)
+              ? prev.smc.executionTf
+              : fallbackTf
+            return {
+              ...prev,
+              context: {
+                ...prev.context,
+                pipSize: inferPipSize(info.instrument),
+                timezoneBasis: info.timezoneBasis || prev.context.timezoneBasis,
+                executionTimeframe: nextExecTf
+              },
+              sessions: prev.sessions.map((session) => ({
+                ...session,
+                zoneId: info.timezoneBasis || session.zoneId
+              })),
+              smc: {
+                ...prev.smc,
+                executionTf: nextExecTf,
+                sessionTimezone: info.timezoneBasis || prev.smc.sessionTimezone,
+                sessionCalendar: prev.sessions.map((session, index) => ({
+                  name: session.name,
+                  timezoneId: info.timezoneBasis || session.zoneId,
+                  localStartTime: session.startLocal,
+                  localEndTime: session.endLocal,
+                  enabled: session.enabled,
+                  canGeneratePools: session.canGeneratePools,
+                  canFilterEvaluation: session.canFilterEvaluation,
+                  canFilterEntry: session.canFilterEntry,
+                  displayOrder: session.displayOrder ?? index
+                })),
+                sessionTimeRanges: {
+                  ASIA: { ...prev.smc.sessionTimeRanges.ASIA, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.ASIA.zoneId },
+                  LONDON: { ...prev.smc.sessionTimeRanges.LONDON, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.LONDON.zoneId },
+                  NY_AM: { ...prev.smc.sessionTimeRanges.NY_AM, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.NY_AM.zoneId },
+                  NY_PM: { ...prev.smc.sessionTimeRanges.NY_PM, zoneId: info.timezoneBasis || prev.smc.sessionTimeRanges.NY_PM.zoneId }
+                }
+              }
             }
-          }
+          })()
         }))
       }
     } catch (e: any) {
@@ -726,6 +868,63 @@ export default function BacktestLabWizard() {
     await uploadFiles(event.dataTransfer.files)
   }
 
+  const buildPersistedConfig = (config: StrategyConfigState): StrategyConfigState => {
+    const orderedSessions = [...config.sessions]
+      .map((session, index) => ({
+        ...session,
+        displayOrder: session.displayOrder ?? index
+      }))
+      .sort((a, b) => a.displayOrder - b.displayOrder)
+
+    const sessionCalendar = orderedSessions.map((session, index) => ({
+      name: session.name,
+      timezoneId: session.zoneId || config.smc.sessionTimezone || 'UTC',
+      localStartTime: session.startLocal,
+      localEndTime: session.endLocal,
+      enabled: session.enabled,
+      canGeneratePools: session.canGeneratePools,
+      canFilterEvaluation: session.canFilterEvaluation,
+      canFilterEntry: session.canFilterEntry,
+      displayOrder: session.displayOrder ?? index
+    }))
+
+    return {
+      ...config,
+      context: {
+        ...config.context,
+        executionTimeframe: config.smc.executionTf
+      },
+      smc: {
+        ...config.smc,
+        sessionCalendar,
+        executionTf: config.smc.executionTf,
+        contextTf: config.smc.contextTf,
+        poolTf: config.smc.poolTf,
+        confirmationTf: config.smc.confirmationTf,
+        entryTf: config.smc.entryTf
+      }
+    }
+  }
+
+  const persistStrategyConfig = async (stepOnSuccess = false) => {
+    if (!datasetSetId) {
+      throw new Error('Upload data first.')
+    }
+    const payloadConfig = buildPersistedConfig(strategyConfig)
+    const payload = {
+      name: payloadConfig.name,
+      configJson: payloadConfig
+    }
+    const saved = await saveBacktestStrategyConfig(datasetSetId, payload)
+    setStrategyConfig(payloadConfig)
+    setStrategyConfigId(saved.id)
+    setLastSavedConfigFingerprint(JSON.stringify(payloadConfig))
+    if (stepOnSuccess) {
+      setStep(2)
+    }
+    return saved
+  }
+
   const handleSaveStrategy = async () => {
     if (!datasetSetId) {
       setError('Upload data first.')
@@ -735,14 +934,8 @@ export default function BacktestLabWizard() {
     setError('')
     setSuccess('')
     try {
-      const payload = {
-        name: strategyConfig.name,
-        configJson: strategyConfig
-      }
-      const saved = await saveBacktestStrategyConfig(datasetSetId, payload)
-      setStrategyConfigId(saved.id)
+      await persistStrategyConfig(true)
       setSuccess('Strategy config saved.')
-      setStep(2)
     } catch (e: any) {
       setError(e?.message || 'Failed to save strategy config')
     } finally {
@@ -771,20 +964,29 @@ export default function BacktestLabWizard() {
     if (!key) return
     const preset = savedPresets[key]
     if (!preset) return
-    setStrategyConfig(preset)
+    setStrategyConfig(normalizeStrategyConfig(preset))
     setSelectedPresetKey(key)
     setSuccess(`Preset "${key}" loaded.`)
   }
 
   const handleApplyHqDefaults = () => {
     const base = defaultConfig()
+    const execTf = (strategyConfig.smc.executionTf || strategyConfig.context.executionTimeframe || base.context.executionTimeframe) as TimeframeRole
     setStrategyConfig({
       ...base,
       name: strategyConfig.name || base.name,
       context: {
         ...base.context,
         pipSize: inferPipSize(instrument || 'EURUSD'),
-        executionTimeframe: strategyConfig.context.executionTimeframe || base.context.executionTimeframe
+        executionTimeframe: execTf
+      },
+      smc: {
+        ...base.smc,
+        executionTf: execTf,
+        contextTf: 'H1',
+        poolTf: 'M15',
+        confirmationTf: 'M5',
+        entryTf: 'M5'
       }
     })
     setSuccess('HQ defaults applied.')
@@ -802,7 +1004,7 @@ export default function BacktestLabWizard() {
   }
 
   const handleRunOptimizer = async () => {
-    if (!datasetSetId || !strategyConfigId || !executionDataset || !runWindowValid) {
+    if (!datasetSetId || !executionDataset || !runWindowValid) {
       setError('Save strategy and set a valid run window before optimizer.')
       return
     }
@@ -815,9 +1017,14 @@ export default function BacktestLabWizard() {
       const toUtc = runWindow.toUtc === toIsoDay(executionDataset.maxTimeUtc)
         ? executionDataset.maxTimeUtc
         : `${runWindow.toUtc}T23:59:59Z`
+      let effectiveStrategyConfigId = strategyConfigId
+      if (!effectiveStrategyConfigId || strategyConfigDirty) {
+        const saved = await persistStrategyConfig(false)
+        effectiveStrategyConfigId = saved.id
+      }
 
       const started = await runBacktestOptimizer(datasetSetId, {
-        strategyConfigId,
+        strategyConfigId: effectiveStrategyConfigId,
         fromUtc,
         toUtc,
         sessionFilter: runWindow.sessionFilter || undefined,
@@ -827,7 +1034,9 @@ export default function BacktestLabWizard() {
           displacementType: optimizerState.displacementType.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean),
           retraceRequired: parseBooleanList(optimizerState.retraceRequired),
           retraceMinPct: parseNumberList(optimizerState.retraceMinPct),
-          sweepMinDepthPips: parseNumberList(optimizerState.sweepMinDepthPips)
+          sweepMinDepthPips: parseNumberList(optimizerState.sweepMinDepthPips),
+          confirmationTf: optimizerState.confirmationTf.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean),
+          entryTf: optimizerState.entryTf.split(',').map((item) => item.trim().toUpperCase()).filter(Boolean)
         }
       })
       const persisted = await getBacktestOptimizerRun(started.optimizerRunId)
@@ -841,50 +1050,63 @@ export default function BacktestLabWizard() {
   }
 
   const handleRun = async () => {
+    setRunLifecycleState('validating')
     if (!datasetSetId) {
       setError('Upload data first.')
-      return
-    }
-    if (!strategyConfigId) {
-      setError('Save strategy config first.')
+      setRunLifecycleState('failed')
       return
     }
     if (!runWindowValid) {
       setError('Select a valid date range within dataset bounds.')
+      setRunLifecycleState('failed')
       return
     }
     if (!executionDataset) {
-      setError(`Upload a dataset for timeframe ${strategyConfig.context.executionTimeframe} first.`)
+      setError(`Upload a dataset for timeframe ${requestedExecutionTf} first.`)
+      setRunLifecycleState('failed')
       return
     }
     if (executionDatasetProcessing) {
       setError(`Selected timeframe dataset is ${executionDataset.status}. Wait until processing finishes.`)
+      setRunLifecycleState('failed')
       return
     }
     if (!executionDataset.runnable) {
       setError(datasetFatalIssues[0]?.message || `Selected timeframe dataset is ${executionDataset.status} and is not runnable.`)
+      setRunLifecycleState('failed')
       return
     }
     if ((executionDataset.candleCount || 0) <= 0) {
       setError(`No persisted candles found for timeframe ${executionDataset.timeframe}. Re-import this CSV.`)
+      setRunLifecycleState('failed')
       return
     }
 
     setRunBusy(true)
     setError('')
     setSuccess('')
+    setRunLifecycleState('queued')
+    setSelectedTrade(null)
+    setLastRun(null)
     setResults(null)
     setReport(null)
 
     try {
+      let effectiveStrategyConfigId = strategyConfigId
+      if (!effectiveStrategyConfigId || strategyConfigDirty) {
+        const saved = await persistStrategyConfig(false)
+        effectiveStrategyConfigId = saved.id
+      }
+
       const fromUtc = runWindow.fromUtc === toIsoDay(executionDataset.minTimeUtc)
         ? executionDataset.minTimeUtc
         : `${runWindow.fromUtc}T00:00:00Z`
       const toUtc = runWindow.toUtc === toIsoDay(executionDataset.maxTimeUtc)
         ? executionDataset.maxTimeUtc
         : `${runWindow.toUtc}T23:59:59Z`
+      setRunLifecycleState('running')
       const run = await runBacktestDatasetSet(datasetSetId, {
-        strategyConfigId,
+        strategyConfigId: effectiveStrategyConfigId,
         fromUtc,
         toUtc,
         sessionFilter: runWindow.sessionFilter || undefined,
@@ -893,18 +1115,52 @@ export default function BacktestLabWizard() {
       setLastRun(run)
       if (run.status === 'FAILED') {
         setError(run.errorMsg || 'Backtest run failed')
+        setRunLifecycleState('failed')
         return
       }
       await loadRunArtifacts(run.runId)
       setSuccess(run.warnings && run.warnings.length
         ? `Backtest completed with warnings: ${run.warnings[0]}`
         : 'Backtest completed.')
+      setRunLifecycleState('completed')
       setStep(3)
     } catch (e: any) {
       setError(e?.message || 'Backtest failed')
+      setRunLifecycleState('failed')
     } finally {
       setRunBusy(false)
     }
+  }
+
+  const handleApplyVariant = (params: Record<string, unknown>) => {
+    setStrategyConfig((prev) => {
+      const next = { ...prev }
+      const smc = { ...next.smc }
+      if (typeof params.mssMinConfirmCandles === 'number') {
+        smc.mssMinConfirmCandles = Math.trunc(params.mssMinConfirmCandles)
+      }
+      if (typeof params.displacementType === 'string') {
+        smc.displacementType = params.displacementType as DisplacementType
+      }
+      if (typeof params.retraceRequired === 'boolean') {
+        smc.retraceRequired = params.retraceRequired
+      }
+      if (typeof params.retraceMinPct === 'number') {
+        smc.retraceMinPct = params.retraceMinPct
+      }
+      if (typeof params.sweepMinDepthPips === 'number') {
+        smc.sweepMinDepthPips = params.sweepMinDepthPips
+      }
+      if (typeof params.confirmationTf === 'string') {
+        smc.confirmationTf = params.confirmationTf as TimeframeRole
+      }
+      if (typeof params.entryTf === 'string') {
+        smc.entryTf = params.entryTf as TimeframeRole
+      }
+      return { ...next, smc }
+    })
+    setStep(1)
+    setSuccess('Variant applied to current strategy config. Save and regenerate to test it.')
   }
 
   const handleGenerateReport = async () => {
@@ -933,6 +1189,16 @@ export default function BacktestLabWizard() {
 
       {uploading || loadingDatasets || runBusy ? <LinearProgress /> : null}
       {uploadStage ? <Alert severity={uploadStage === 'READY' ? 'success' : 'info'}>{`Upload status: ${uploadStage}`}</Alert> : null}
+      {symbolMismatch ? (
+        <Alert severity="warning">
+          {`Symbol mismatch: Session header shows ${sessionHeaderSymbol}, but this backtest dataset/report uses ${reportInstrument}.`}
+        </Alert>
+      ) : null}
+      {runLifecycleState !== 'idle' ? (
+        <Alert severity={runLifecycleState === 'failed' ? 'error' : (runLifecycleState === 'completed' ? 'success' : 'info')}>
+          {`Regenerate state: ${runLifecycleState.toUpperCase()}`}
+        </Alert>
+      ) : null}
       {error ? <Alert severity="error">{error}</Alert> : null}
       {success ? <Alert severity="success">{success}</Alert> : null}
 
@@ -1124,13 +1390,14 @@ export default function BacktestLabWizard() {
                     <Select
                       labelId="exec-tf"
                       label="Execution TF"
-                      value={strategyConfig.context.executionTimeframe}
+                      value={strategyConfig.smc.executionTf}
                       onChange={(event) => setStrategyConfig((prev) => ({
                         ...prev,
-                        context: { ...prev.context, executionTimeframe: event.target.value }
+                        context: { ...prev.context, executionTimeframe: event.target.value },
+                        smc: { ...prev.smc, executionTf: event.target.value as TimeframeRole }
                       }))}
                     >
-                      {[...new Set([...tfOptions, 'M1', 'M5', 'M15', 'H1', 'H4', 'D1', 'W1'])].map((tf) => (
+                      {[...new Set([...(tfOptions as TimeframeRole[]), ...TIMEFRAME_OPTIONS])].map((tf) => (
                         <MenuItem key={tf} value={tf}>{tf}</MenuItem>
                       ))}
                     </Select>
@@ -1181,6 +1448,93 @@ export default function BacktestLabWizard() {
                     </Select>
                   </FormControl>
                 </Stack>
+
+                <Divider />
+                <Typography variant="subtitle2">Timeframes</Typography>
+                <Grid container spacing={1}>
+                  <Grid item xs={12} sm={6} md={2.4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="tf-context">Context TF</InputLabel>
+                      <Select
+                        labelId="tf-context"
+                        label="Context TF"
+                        value={strategyConfig.smc.contextTf}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, contextTf: event.target.value as TimeframeRole }
+                        }))}
+                      >
+                        {TIMEFRAME_OPTIONS.map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2.4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="tf-pool">Pool TF</InputLabel>
+                      <Select
+                        labelId="tf-pool"
+                        label="Pool TF"
+                        value={strategyConfig.smc.poolTf}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, poolTf: event.target.value as TimeframeRole }
+                        }))}
+                      >
+                        {TIMEFRAME_OPTIONS.map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2.4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="tf-confirmation">Confirmation TF</InputLabel>
+                      <Select
+                        labelId="tf-confirmation"
+                        label="Confirmation TF"
+                        value={strategyConfig.smc.confirmationTf}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          setupRule: { ...prev.setupRule, confirmationTf: event.target.value },
+                          smc: { ...prev.smc, confirmationTf: event.target.value as TimeframeRole }
+                        }))}
+                      >
+                        {TIMEFRAME_OPTIONS.map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2.4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="tf-entry">Entry TF</InputLabel>
+                      <Select
+                        labelId="tf-entry"
+                        label="Entry TF"
+                        value={strategyConfig.smc.entryTf}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, entryTf: event.target.value as TimeframeRole }
+                        }))}
+                      >
+                        {TIMEFRAME_OPTIONS.map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={2.4}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="tf-non-hier">Allow non-hierarchical</InputLabel>
+                      <Select
+                        labelId="tf-non-hier"
+                        label="Allow non-hierarchical"
+                        value={String(strategyConfig.smc.allowNonHierarchicalTimeframes)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, allowNonHierarchicalTimeframes: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="false">false (recommended)</MenuItem>
+                        <MenuItem value="true">true</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                </Grid>
 
                 {strategyWarnings.length > 0 ? (
                   <Stack spacing={0.8}>
@@ -1329,6 +1683,70 @@ export default function BacktestLabWizard() {
                     />
                   </Grid>
                   <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      fullWidth
+                      label="Entry sessions"
+                      value={strategyConfig.smc.entrySessions.join(',')}
+                      helperText="Where entries are allowed"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, entrySessions: parseCsvSelection(event.target.value, SESSION_NAMES) as SessionName[] }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="cross-session-sweep">Cross-session sweep</InputLabel>
+                      <Select
+                        labelId="cross-session-sweep"
+                        label="Cross-session sweep"
+                        value={String(strategyConfig.smc.requireCrossSessionSweep)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, requireCrossSessionSweep: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="false">false</MenuItem>
+                        <MenuItem value="true">true</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="same-session-sweep-entry">Same session sweep/entry</InputLabel>
+                      <Select
+                        labelId="same-session-sweep-entry"
+                        label="Same session sweep/entry"
+                        value={String(strategyConfig.smc.requireSameSessionForSweepAndEntry)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, requireSameSessionForSweepAndEntry: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="false">false</MenuItem>
+                        <MenuItem value="true">true</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="unswept-pool-only">Unswept pool required</InputLabel>
+                      <Select
+                        labelId="unswept-pool-only"
+                        label="Unswept pool required"
+                        value={String(strategyConfig.smc.sweepRequiresUnsweptPool)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, sweepRequiresUnsweptPool: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="true">true</MenuItem>
+                        <MenuItem value="false">false</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
                     <FormControl size="small" fullWidth>
                       <InputLabel id="require-killzone">Require killzone</InputLabel>
                       <Select
@@ -1389,6 +1807,124 @@ export default function BacktestLabWizard() {
                       }}
                     />
                   </Grid>
+                </Grid>
+
+                <Typography variant="subtitle2">Session Calendar Editor</Typography>
+                <Grid container spacing={1}>
+                  {strategyConfig.sessions.map((session, index) => (
+                    <Grid item xs={12} key={`${session.name}-${index}`}>
+                      <Stack
+                        direction={{ xs: 'column', md: 'row' }}
+                        spacing={1}
+                        sx={{ p: 1, border: '1px solid', borderColor: 'divider', borderRadius: 1.5 }}
+                      >
+                        <TextField
+                          size="small"
+                          label="Session"
+                          value={session.name}
+                          onChange={(event) => setStrategyConfig((prev) => {
+                            const next = [...prev.sessions]
+                            next[index] = { ...next[index], name: event.target.value.toUpperCase().replace('-', '_') }
+                            return { ...prev, sessions: next }
+                          })}
+                          sx={{ minWidth: 120 }}
+                        />
+                        <TextField
+                          size="small"
+                          label="Timezone"
+                          value={session.zoneId}
+                          onChange={(event) => setStrategyConfig((prev) => {
+                            const next = [...prev.sessions]
+                            next[index] = { ...next[index], zoneId: event.target.value }
+                            return { ...prev, sessions: next, smc: { ...prev.smc, sessionTimezone: event.target.value || prev.smc.sessionTimezone } }
+                          })}
+                          sx={{ minWidth: 180 }}
+                        />
+                        <TextField
+                          size="small"
+                          label="Local start"
+                          value={session.startLocal}
+                          onChange={(event) => setStrategyConfig((prev) => {
+                            const next = [...prev.sessions]
+                            next[index] = { ...next[index], startLocal: event.target.value }
+                            return { ...prev, sessions: next }
+                          })}
+                          sx={{ minWidth: 120 }}
+                        />
+                        <TextField
+                          size="small"
+                          label="Local end"
+                          value={session.endLocal}
+                          onChange={(event) => setStrategyConfig((prev) => {
+                            const next = [...prev.sessions]
+                            next[index] = { ...next[index], endLocal: event.target.value }
+                            return { ...prev, sessions: next }
+                          })}
+                          sx={{ minWidth: 120 }}
+                        />
+                        <FormControl size="small" sx={{ minWidth: 120 }}>
+                          <InputLabel>{`${session.name} enabled`}</InputLabel>
+                          <Select
+                            label={`${session.name} enabled`}
+                            value={String(session.enabled)}
+                            onChange={(event) => setStrategyConfig((prev) => {
+                              const next = [...prev.sessions]
+                              next[index] = { ...next[index], enabled: event.target.value === 'true' }
+                              return { ...prev, sessions: next }
+                            })}
+                          >
+                            <MenuItem value="true">enabled</MenuItem>
+                            <MenuItem value="false">disabled</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <FormControl size="small" sx={{ minWidth: 150 }}>
+                          <InputLabel>Generate pools</InputLabel>
+                          <Select
+                            label="Generate pools"
+                            value={String(session.canGeneratePools)}
+                            onChange={(event) => setStrategyConfig((prev) => {
+                              const next = [...prev.sessions]
+                              next[index] = { ...next[index], canGeneratePools: event.target.value === 'true' }
+                              return { ...prev, sessions: next }
+                            })}
+                          >
+                            <MenuItem value="true">yes</MenuItem>
+                            <MenuItem value="false">no</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <FormControl size="small" sx={{ minWidth: 150 }}>
+                          <InputLabel>Filter eval</InputLabel>
+                          <Select
+                            label="Filter eval"
+                            value={String(session.canFilterEvaluation)}
+                            onChange={(event) => setStrategyConfig((prev) => {
+                              const next = [...prev.sessions]
+                              next[index] = { ...next[index], canFilterEvaluation: event.target.value === 'true' }
+                              return { ...prev, sessions: next }
+                            })}
+                          >
+                            <MenuItem value="true">yes</MenuItem>
+                            <MenuItem value="false">no</MenuItem>
+                          </Select>
+                        </FormControl>
+                        <FormControl size="small" sx={{ minWidth: 150 }}>
+                          <InputLabel>Filter entry</InputLabel>
+                          <Select
+                            label="Filter entry"
+                            value={String(session.canFilterEntry)}
+                            onChange={(event) => setStrategyConfig((prev) => {
+                              const next = [...prev.sessions]
+                              next[index] = { ...next[index], canFilterEntry: event.target.value === 'true' }
+                              return { ...prev, sessions: next }
+                            })}
+                          >
+                            <MenuItem value="true">yes</MenuItem>
+                            <MenuItem value="false">no</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Stack>
+                    </Grid>
+                  ))}
                 </Grid>
 
                 <Divider />
@@ -1880,11 +2416,11 @@ export default function BacktestLabWizard() {
               <>
                 {executionDataset ? (
                   <Alert severity="info">
-                    {`Execution TF ${strategyConfig.context.executionTimeframe} uses dataset TF ${executionDataset.timeframe} | Range ${executionDataset.minTimeUtc} → ${executionDataset.maxTimeUtc} | Candles ${executionDataset.candleCount} | Status ${executionDataset.status} | Runnable ${executionDataset.runnable ? 'YES' : 'NO'}`}
+                    {`Execution TF ${requestedExecutionTf} uses canonical dataset TF ${executionDataset.timeframe} | Range ${executionDataset.minTimeUtc} → ${executionDataset.maxTimeUtc} | Candles ${executionDataset.candleCount} | Status ${executionDataset.status} | Runnable ${executionDataset.runnable ? 'YES' : 'NO'}`}
                   </Alert>
                 ) : (
                   <Alert severity="warning">
-                    {`No dataset available for execution timeframe ${strategyConfig.context.executionTimeframe}.`}
+                    {`No dataset available for execution timeframe ${requestedExecutionTf}.`}
                   </Alert>
                 )}
                 {executionDataset?.status === 'WARN' && executionDataset.runnable ? (
@@ -1971,7 +2507,7 @@ export default function BacktestLabWizard() {
                     {datasetFatalIssues[0].message}
                   </Alert>
                 ) : null}
-                {!canRunBacktest && strategyConfigId && runBlockedReason ? (
+                {!canRunBacktest && runBlockedReason ? (
                   <Alert severity="warning">{runBlockedReason}</Alert>
                 ) : null}
 
@@ -1986,19 +2522,47 @@ export default function BacktestLabWizard() {
                 ) : null}
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <Button variant="outlined" onClick={() => void handleSaveStrategy()} disabled={saveStrategyBusy || !datasetInfo?.datasets?.length}>
+                    Save Config
+                  </Button>
                   <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={!canRunBacktest}>
-                    Run backtest
+                    Regenerate Backtest
+                  </Button>
+                  <Button variant="outlined" startIcon={<DescriptionRoundedIcon />} onClick={() => void handleGenerateReport()} disabled={!lastRun?.runId}>
+                    Generate Diagnostics Report
+                  </Button>
+                  <Button component={Link} to="/diagnostics" variant="outlined">
+                    Open Diagnostics
                   </Button>
                   <Button variant="outlined" onClick={() => setStep(3)} disabled={!results}>
                     Open results
                   </Button>
                   {lastRun ? <Chip size="small" label={`Status: ${lastRun.status}`} /> : null}
+                  <Chip size="small" variant="outlined" label={`Run state: ${runLifecycleState}`} />
                 </Stack>
               </>
             )}
 
             {step === 3 && (
               <>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <Button variant="outlined" onClick={() => setStep(2)}>
+                    Back to Run Setup
+                  </Button>
+                  <Button
+                    variant="contained"
+                    startIcon={<PlayArrowRoundedIcon />}
+                    onClick={() => void handleRun()}
+                    disabled={!canRunBacktest}
+                  >
+                    Regenerate Backtest
+                  </Button>
+                  <Button component={Link} to="/diagnostics" variant="outlined">
+                    Open Diagnostics
+                  </Button>
+                  {lastRun ? <Chip size="small" label={`Status: ${lastRun.status}`} /> : null}
+                  <Chip size="small" variant="outlined" label={`Run state: ${runLifecycleState}`} />
+                </Stack>
                 {!results ? (
                   <Alert severity="info">Run a backtest first to view results and report.</Alert>
                 ) : (
@@ -2107,6 +2671,24 @@ export default function BacktestLabWizard() {
                           onChange={(event) => setOptimizerState((prev) => ({ ...prev, sweepMinDepthPips: event.target.value }))}
                         />
                       </Grid>
+                      <Grid item xs={12} sm={6} md={2}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          label="Confirmation TFs"
+                          value={optimizerState.confirmationTf}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, confirmationTf: event.target.value }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} sm={6} md={2}>
+                        <TextField
+                          size="small"
+                          fullWidth
+                          label="Entry TFs"
+                          value={optimizerState.entryTf}
+                          onChange={(event) => setOptimizerState((prev) => ({ ...prev, entryTf: event.target.value }))}
+                        />
+                      </Grid>
                     </Grid>
                     <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                       <Button variant="outlined" onClick={() => void handleRunOptimizer()} disabled={optimizerBusy || runBusy || !canRunBacktest}>
@@ -2140,7 +2722,12 @@ export default function BacktestLabWizard() {
                               <TableCell>Expectancy</TableCell>
                               <TableCell>Avg R</TableCell>
                               <TableCell>MaxDD</TableCell>
+                              <TableCell>Fill rate</TableCell>
+                              <TableCell>Avg MAE/MFE</TableCell>
+                              <TableCell>Avg duration(s)</TableCell>
+                              <TableCell>Confidence</TableCell>
                               <TableCell>Params</TableCell>
+                              <TableCell align="right">Apply</TableCell>
                             </TableRow>
                           </TableHead>
                           <TableBody>
@@ -2153,12 +2740,21 @@ export default function BacktestLabWizard() {
                                 <TableCell>{row.expectancyR != null ? row.expectancyR.toFixed(3) : '-'}</TableCell>
                                 <TableCell>{row.avgR != null ? row.avgR.toFixed(3) : '-'}</TableCell>
                                 <TableCell>{row.maxDdR != null ? row.maxDdR.toFixed(3) : '-'}</TableCell>
+                                <TableCell>{row.fillRate != null ? row.fillRate.toFixed(2) : '-'}</TableCell>
+                                <TableCell>{row.avgMaeR != null || row.avgMfeR != null ? `${row.avgMaeR?.toFixed(3) || '-'} / ${row.avgMfeR?.toFixed(3) || '-'}` : '-'}</TableCell>
+                                <TableCell>{row.avgDurationSec != null ? row.avgDurationSec.toFixed(1) : '-'}</TableCell>
+                                <TableCell>{row.confidenceNote || '-'}</TableCell>
                                 <TableCell sx={{ fontSize: 12, whiteSpace: 'pre-wrap' }}>{JSON.stringify(row.params)}</TableCell>
+                                <TableCell align="right">
+                                  <Button size="small" onClick={() => handleApplyVariant(row.params)}>
+                                    Apply
+                                  </Button>
+                                </TableCell>
                               </TableRow>
                             ))}
                             {!sortedOptimizerVariants.length ? (
                               <TableRow>
-                                <TableCell colSpan={8}>No optimizer variants yet.</TableCell>
+                                <TableCell colSpan={13}>No optimizer variants yet.</TableCell>
                               </TableRow>
                             ) : null}
                           </TableBody>
