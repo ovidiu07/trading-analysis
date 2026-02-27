@@ -1,14 +1,14 @@
 # Strategy Config Reference
 
-This is the current deterministic strategy schema used by `BacktestLabService.parseConfig(...)` and the Today/Session Backtest Strategy Builder.
+Reference for the Today/Session backtest strategy schema parsed by `BacktestLabService.parseConfig(...)`.
 
-## Time policy
+## Time and timestamp policy
 
-- Engine internals store UTC instants.
-- API returns ISO UTC timestamps (`...Z`).
-- Session definitions are local-time + IANA timezone and are converted to UTC at evaluation time (DST-safe).
+- Engine storage uses UTC timestamps.
+- API returns ISO UTC strings with `Z`.
+- Session windows are local-time + IANA timezone and are resolved to UTC during evaluation.
 
-## Top-level structure
+## Top-level shape
 
 - `name`
 - `context`
@@ -19,7 +19,39 @@ This is the current deterministic strategy schema used by `BacktestLabService.pa
 - `qualityFilters`
 - `smc`
 
-## Timeframe roles (`smc`)
+## `context`
+
+- `instrument`
+- `timezone`
+- `pipSize`
+- `spreadPips`
+- `slippagePips`
+- `touchTolerancePips`
+
+## `setupRule`
+
+- `mode`
+- `sessionName`
+- `liquiditySweepRequired`
+- `direction` (`AUTO_FROM_SWEEP`, `LONG`, `SHORT`)
+- `confirmationType` (`MSS`, `BOS`)
+
+## `entryModel`
+
+- `type`
+  - `MARKET_ON_MSS_CONFIRM` (alias-compatible with previous market-on-confirm naming)
+  - `LIMIT_RETRACE_PERCENT`
+  - `LIMIT_FVG_FILL`
+- `retracePercent`
+- `entryWindowBars`
+
+## `riskModel`
+
+- `stopRule`
+- `fixedR`
+- `minRR`
+
+## `smc` timeframe roles
 
 - `contextTf`
 - `poolTf`
@@ -28,19 +60,19 @@ This is the current deterministic strategy schema used by `BacktestLabService.pa
 - `executionTf`
 - `allowNonHierarchicalTimeframes`
 
-Default hierarchy (when override is false):
+Default validation (when non-hierarchical override is disabled):
 
 - `contextTf >= poolTf >= confirmationTf >= entryTf`
 - `executionTf <= entryTf`
 
-## Session calendar (`sessions` + `smc.sessionCalendar`)
+## `sessions` / `smc.sessionCalendar`
 
-Each session row supports:
+Each session row:
 
 - `name`
-- `zoneId` / `timezoneId` (IANA)
-- `startLocal` / `localStartTime`
-- `endLocal` / `localEndTime`
+- `timezoneId` / `zoneId`
+- `localStartTime` / `startLocal`
+- `localEndTime` / `endLocal`
 - `enabled`
 - `canGeneratePools`
 - `canFilterEvaluation`
@@ -49,16 +81,16 @@ Each session row supports:
 
 Cross-session controls:
 
-- `smc.sweepSourceSessions`
-- `smc.evaluationSessionFilter`
-- `smc.entrySessions`
-- `smc.requireCrossSessionSweep`
-- `smc.requireSameSessionForSweepAndEntry`
+- `sweepSourceSessions`
+- `evaluationSessionFilter`
+- `entrySessions`
+- `requireCrossSessionSweep`
+- `requireSameSessionForSweepAndEntry`
 
-## Pool / sweep controls (`smc`)
+## Liquidity pools and sweep controls
 
 - `poolTypesEnabled`
-- `poolTimeframeForDetection` (alias `poolTf` supported)
+- `poolTimeframeForDetection`
 - `poolTouchTolerancePips`
 - `poolMinTouches`
 - `poolMinSeparationBars`
@@ -71,7 +103,7 @@ Cross-session controls:
 - `sweepSelectRule`
 - `sweepRequiresUnsweptPool`
 
-## Displacement / MSS / retrace (`smc`)
+## Displacement controls
 
 - `displacementTimeframe`
 - `displacementMaxDelayBarsAfterSweep`
@@ -79,45 +111,79 @@ Cross-session controls:
 - `displacementMinBodyVsAvgMult`
 - `displacementRequiresCloseBeyondLevel`
 - `displacementNoInstantOverlapBars`
-- `displacementType`
-- `displacementGapDefinition`
+- `displacementType` (`GAP_REQUIRED`, `GAP_OPTIONAL`, `NO_GAP_ONLY`)
+- `displacementGapDefinition` (`THREE_CANDLE_FVG`, `TWO_CANDLE_GAP`)
 - `displacementGapMinPips`
-- `mssTf` / `structureTimeframe`
+
+## Structure engine controls
+
+Swing/structure:
+
 - `swingDetectionMethod`
 - `swingPivotN`
+- `minSwingDistancePips`
+- `minSwingSeparationBars`
+- `structureTier`
+
+BOS:
+
+- `bosEnabled`
+- `bosAnchorType`
+- `bosBreakMode`
+- `bosMinBreakDistancePips`
+- `bosHoldBars`
+- `bosDirectionRule`
+
+MSS:
+
+- `mssEnabled`
+- `mssBreakMode`
 - `mssRequiresClose`
+- `mssRequiresLiquiditySweep`
+- `mssRequiresDisplacement`
 - `mssMinConfirmCandles`
 - `mssMaxConfirmWindowBars`
 - `mssInvalidationRule`
-- `mssAnchorLevel`
+- `mssMinBreakDistancePips`
+- `mssAnchorLevel` / `mssAnchorType`
+- `mssStructureTier`
+
+Retrace:
+
 - `retraceRequired`
 - `retraceReference`
 - `retraceMinPct`
 - `retraceMaxWaitBars`
 - `retraceAcceptWickTouch`
 
-## Entry / risk / execution
+## Execution realism
 
-- `entryModel.type`
-- `entryModel.retracePercent`
-- `entryModel.entryWindowBars`
-- `riskModel.stopRule`
-- `riskModel.fixedR`
-- `riskModel.minRR`
-- `context.pipSize`
-- `context.spreadPips`
-- `context.slippagePips`
-- `context.touchTolerancePips`
-- `smc.fillPolicy`
+- `fillPolicy` (`MID`, `BID_ASK_SIM`)
+- `executionTf` + spread/slippage from `context`
+- touch and fill tolerances via `context.touchTolerancePips` and sweep/retrace settings
 
-## Diagnostics fields emitted per trade
+## Diagnostics emitted per trade
 
-Evidence and timeline now include:
+Evidence includes:
 
-- pool lifecycle markers (`POOL_CREATED`, `POOL_TARGETED`, `POOL_CONSUMED`)
-- sweep progression (`SWEEP_FIRST_BREACH`, `SWEEP_EXTREME`, `SWEEP`)
-- displacement/gap markers (`DISPLACEMENT_FOUND`, `GAP_FOUND`)
-- structure markers (`MSS_TRIGGER`, `MSS_CONFIRMED`, `MSS_BOS`)
-- retrace markers (`RETRACE_TARGET_CALC`, `RETRACE_OK`)
-- fill transparency (`entryTriggerPrice`, raw/spread/slippage/final execution prices)
-- entry/exit markers (`ENTRY`, `ENTRY_FILLED`, `EXIT`)
+- confirmation metadata (`confirmationType`, `setupFamily`)
+- structure labels/trend
+- pool + sweep prices/timestamps
+- displacement metrics
+- MSS/BOS anchor and break levels
+- entry transparency fields:
+  - `entryTriggerPrice`
+  - `entryRawOrderPrice`
+  - `entrySpreadAdjustmentPrice`
+  - `entrySlippageAdjustmentPrice`
+  - `entryFinalExecutionPrice`
+
+Timeline includes UTC stages for:
+
+- pool lifecycle
+- sweep progression
+- displacement/gap
+- MSS or BOS confirmation
+- retrace gates
+- entry/fill
+- exit

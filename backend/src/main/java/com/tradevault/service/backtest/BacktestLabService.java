@@ -1171,6 +1171,7 @@ public class BacktestLabService {
             default -> Math.max(1, config.swingPivotN());
         };
         PivotState structurePivots = computePivots(candles, swingN, swingN);
+        PivotMarkers structureMarkers = detectPivotMarkers(candles, swingN, swingN);
 
         List<SessionWindow> evaluationSessions = resolveEvaluationSessions(config, setupSession);
         if (evaluationSessions.isEmpty()) {
@@ -1184,6 +1185,8 @@ public class BacktestLabService {
 
         BigDecimal touchBuffer = config.touchTolerancePips().multiply(config.pipSize());
         BigDecimal confirmBreakBuffer = config.confirmBreakBufferPips().multiply(config.pipSize());
+        BigDecimal mssBreakBuffer = confirmBreakBuffer.max(config.mssMinBreakDistancePips().multiply(config.pipSize()));
+        BigDecimal bosBreakBuffer = config.bosMinBreakDistancePips().multiply(config.pipSize());
         BigDecimal minSweepDepth = config.sweepMinDepthPips().multiply(config.pipSize());
         BigDecimal minDisplacementBody = config.displacementMinBodyPips().multiply(config.pipSize());
 
@@ -1267,7 +1270,21 @@ public class BacktestLabService {
                 continue;
             }
 
-            MssSignal mss = findMssSignal(candles, structurePivots, sweep, displacement, direction, config, confirmBreakBuffer);
+            StructureContext structureContext = deriveStructureContext(candles, structureMarkers, displacement.index(), config);
+
+            String confirmationType = normalizeToken(config.confirmationType());
+            MssSignal mss;
+            if ("BOS".equals(confirmationType)) {
+                if (!config.bosEnabled()) {
+                    continue;
+                }
+                mss = findBosSignal(candles, structurePivots, structureContext, displacement, direction, config, bosBreakBuffer);
+            } else {
+                if (!config.mssEnabled()) {
+                    continue;
+                }
+                mss = findMssSignal(candles, structurePivots, sweep, displacement, direction, config, mssBreakBuffer);
+            }
             if (mss == null) {
                 i = Math.max(i, displacement.index());
                 continue;
@@ -1377,10 +1394,15 @@ public class BacktestLabService {
             setupEvidence.put("sweepDepth", sweep.depth().setScale(6, RoundingMode.HALF_UP).toPlainString());
             setupEvidence.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
             setupEvidence.put("sweepExtremeTime", isoUtc(sweep.sweepExtremeTime()));
+            setupEvidence.put("structureHighLabel", structureContext.highLabel());
+            setupEvidence.put("structureLowLabel", structureContext.lowLabel());
+            setupEvidence.put("structureTrend", structureContext.trend());
 
             ObjectNode tradeEvidence = objectMapper.createObjectNode();
             tradeEvidence.put("sessionName", stamp.sessionName());
             tradeEvidence.put("sessionDate", stamp.sessionDateKey().toString());
+            tradeEvidence.put("confirmationType", "BOS".equals(confirmationType) ? "BOS" : "MSS");
+            tradeEvidence.put("setupFamily", "SWEEP_" + ("BOS".equals(confirmationType) ? "BOS" : "MSS"));
             tradeEvidence.put("sweepSide", sweep.side().name());
             tradeEvidence.put("poolType", sweep.poolType());
             tradeEvidence.put("poolLevel", sweep.levelPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
@@ -1390,6 +1412,9 @@ public class BacktestLabService {
                     : sweep.firstBreachPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
             tradeEvidence.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
             tradeEvidence.put("sweepExtremeTime", isoUtc(sweep.sweepExtremeTime()));
+            tradeEvidence.put("sweepDurationBars", sweep.sweepDurationBars());
+            tradeEvidence.put("sweepReclaimConfirmed", sweep.reclaimConfirmed());
+            tradeEvidence.put("poolStatusAfterSweep", "CONSUMED");
             tradeEvidence.put("displacementRatio", displacement.bodyRatio() == null
                     ? 0
                     : displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).doubleValue());
@@ -1401,6 +1426,21 @@ public class BacktestLabService {
             tradeEvidence.put("mssAnchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
             tradeEvidence.put("mssTriggerTime", isoUtc(mss.triggerTime()));
             tradeEvidence.put("mssConfirmTime", isoUtc(mss.confirmTime()));
+            tradeEvidence.put("structureHighLabel", structureContext.highLabel());
+            tradeEvidence.put("structureLowLabel", structureContext.lowLabel());
+            tradeEvidence.put("structureTrend", structureContext.trend());
+            if (structureContext.previousSwingHigh() != null) {
+                tradeEvidence.put("previousSwingHigh", structureContext.previousSwingHigh().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            }
+            if (structureContext.latestSwingHigh() != null) {
+                tradeEvidence.put("latestSwingHigh", structureContext.latestSwingHigh().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            }
+            if (structureContext.previousSwingLow() != null) {
+                tradeEvidence.put("previousSwingLow", structureContext.previousSwingLow().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            }
+            if (structureContext.latestSwingLow() != null) {
+                tradeEvidence.put("latestSwingLow", structureContext.latestSwingLow().setScale(6, RoundingMode.HALF_UP).toPlainString());
+            }
             tradeEvidence.put("confirmToExitBars", Math.max(1, exit.exitIndex() - mss.confirmIndex() + 1));
             tradeEvidence.put("retraceRequired", config.retraceRequired());
             tradeEvidence.put("entryTriggerPrice", entry.entryPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
@@ -1424,7 +1464,7 @@ public class BacktestLabService {
                 tradeEvidence.put("selectedPoolId", sweep.poolId());
                 tradeEvidence.put("sweepRankScore", BigDecimal.valueOf(sweep.rankScore()).setScale(6, RoundingMode.HALF_UP).toPlainString());
             }
-            ArrayNode timeline = buildTimeline(sweep, displacement, mss, retraceGate, entry, exit, entryCost, exitCost);
+            ArrayNode timeline = buildTimeline(sweep, displacement, mss, retraceGate, entry, exit, entryCost, exitCost, config.confirmationType());
             tradeEvidence.set("timeline", timeline);
             tradeEvidence.set("eventGraph", timeline.deepCopy());
 
@@ -1493,8 +1533,11 @@ public class BacktestLabService {
         ObjectNode tradeEvidence = objectMapper.createObjectNode();
         tradeEvidence.put("sessionName", sessionName);
         tradeEvidence.put("sessionDate", sessionDate.toString());
+        tradeEvidence.put("confirmationType", normalizeToken(config.confirmationType()).equals("BOS") ? "BOS" : "MSS");
+        tradeEvidence.put("setupFamily", "SWEEP_" + (normalizeToken(config.confirmationType()).equals("BOS") ? "BOS" : "MSS"));
         tradeEvidence.put("sweepSide", sweep.side().name());
         tradeEvidence.put("poolType", sweep.poolType());
+        tradeEvidence.put("poolStatusAfterSweep", "CONSUMED");
         tradeEvidence.put("displacementRatio", displacement.bodyRatio() == null
                 ? 0
                 : displacement.bodyRatio().setScale(4, RoundingMode.HALF_UP).doubleValue());
@@ -1509,7 +1552,7 @@ public class BacktestLabService {
             tradeEvidence.put("retraceTargetPrice", retraceGate.targetPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
             tradeEvidence.put("retraceOkTime", isoUtc(retraceGate.retraceOkTime()));
         }
-        ArrayNode timeline = buildNoFillTimeline(sweep, displacement, mss, retraceGate, entry);
+        ArrayNode timeline = buildNoFillTimeline(sweep, displacement, mss, retraceGate, entry, config.confirmationType());
         tradeEvidence.set("timeline", timeline);
         tradeEvidence.set("eventGraph", timeline.deepCopy());
 
@@ -1544,8 +1587,10 @@ public class BacktestLabService {
                                           DisplacementSignal displacement,
                                           MssSignal mss,
                                           RetraceGate retraceGate,
-                                          EntryOutcome entry) {
+                                          EntryOutcome entry,
+                                          String confirmationTypeRaw) {
         ArrayNode timeline = objectMapper.createArrayNode();
+        boolean bosMode = "BOS".equals(normalizeToken(confirmationTypeRaw));
 
         ObjectNode sweepDetails = objectMapper.createObjectNode();
         sweepDetails.put("side", sweep.side().name());
@@ -1555,6 +1600,11 @@ public class BacktestLabService {
         sweepDetails.put("depth", sweep.depth().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("sweepExtremeTime", isoUtc(sweep.sweepExtremeTime()));
+        sweepDetails.put("durationBars", sweep.sweepDurationBars());
+        sweepDetails.put("reclaimConfirmed", sweep.reclaimConfirmed());
+        sweepDetails.put("confirmationTf", sweep.confirmationTf());
+        sweepDetails.put("state", "SWEEP_CONFIRMED");
+        sweepDetails.put("poolStatus", "CONSUMED");
         if (sweep.poolCreatedTime() != null) {
             sweepDetails.put("poolCreatedTime", isoUtc(sweep.poolCreatedTime()));
         }
@@ -1594,13 +1644,13 @@ public class BacktestLabService {
         ObjectNode triggerDetails = objectMapper.createObjectNode();
         triggerDetails.put("anchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
         triggerDetails.put("breakPrice", mss.breakPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
-        timeline.add(timelineNode("MSS_TRIGGER", mss.triggerTime(), triggerDetails));
+        timeline.add(timelineNode(bosMode ? "BOS_TRIGGER" : "MSS_TRIGGER", mss.triggerTime(), triggerDetails));
 
         ObjectNode confirmDetails = objectMapper.createObjectNode();
         confirmDetails.put("anchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
         confirmDetails.put("breakPrice", mss.breakPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
-        timeline.add(timelineNode("MSS_CONFIRMED", mss.confirmTime(), confirmDetails));
-        timeline.add(timelineNode("MSS_BOS", mss.confirmTime(), confirmDetails.deepCopy()));
+        timeline.add(timelineNode(bosMode ? "BOS_CONFIRMED" : "MSS_CONFIRMED", mss.confirmTime(), confirmDetails));
+        timeline.add(timelineNode(bosMode ? "BOS" : "MSS_BOS", mss.confirmTime(), confirmDetails.deepCopy()));
 
         if (retraceGate != null) {
             ObjectNode retraceTarget = objectMapper.createObjectNode();
@@ -1637,8 +1687,10 @@ public class BacktestLabService {
                                     EntryOutcome entry,
                                     ExitOutcome exit,
                                     ExecutionCostBreakdown entryCost,
-                                    ExecutionCostBreakdown exitCost) {
+                                    ExecutionCostBreakdown exitCost,
+                                    String confirmationTypeRaw) {
         ArrayNode timeline = objectMapper.createArrayNode();
+        boolean bosMode = "BOS".equals(normalizeToken(confirmationTypeRaw));
 
         ObjectNode sweepDetails = objectMapper.createObjectNode();
         sweepDetails.put("side", sweep.side().name());
@@ -1648,6 +1700,11 @@ public class BacktestLabService {
         sweepDetails.put("depth", sweep.depth().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("sweepExtremePrice", sweep.sweepExtreme().setScale(6, RoundingMode.HALF_UP).toPlainString());
         sweepDetails.put("sweepExtremeTime", isoUtc(sweep.sweepExtremeTime()));
+        sweepDetails.put("durationBars", sweep.sweepDurationBars());
+        sweepDetails.put("reclaimConfirmed", sweep.reclaimConfirmed());
+        sweepDetails.put("confirmationTf", sweep.confirmationTf());
+        sweepDetails.put("state", "SWEEP_CONFIRMED");
+        sweepDetails.put("poolStatus", "CONSUMED");
         if (sweep.poolCreatedTime() != null) {
             sweepDetails.put("poolCreatedTime", isoUtc(sweep.poolCreatedTime()));
         }
@@ -1687,13 +1744,13 @@ public class BacktestLabService {
         ObjectNode triggerDetails = objectMapper.createObjectNode();
         triggerDetails.put("anchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
         triggerDetails.put("breakPrice", mss.breakPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
-        timeline.add(timelineNode("MSS_TRIGGER", mss.triggerTime(), triggerDetails));
+        timeline.add(timelineNode(bosMode ? "BOS_TRIGGER" : "MSS_TRIGGER", mss.triggerTime(), triggerDetails));
 
         ObjectNode confirmDetails = objectMapper.createObjectNode();
         confirmDetails.put("anchorLevel", mss.anchorLevel().setScale(6, RoundingMode.HALF_UP).toPlainString());
         confirmDetails.put("breakPrice", mss.breakPrice().setScale(6, RoundingMode.HALF_UP).toPlainString());
-        timeline.add(timelineNode("MSS_CONFIRMED", mss.confirmTime(), confirmDetails));
-        timeline.add(timelineNode("MSS_BOS", mss.confirmTime(), confirmDetails.deepCopy()));
+        timeline.add(timelineNode(bosMode ? "BOS_CONFIRMED" : "MSS_CONFIRMED", mss.confirmTime(), confirmDetails));
+        timeline.add(timelineNode(bosMode ? "BOS" : "MSS_BOS", mss.confirmTime(), confirmDetails.deepCopy()));
 
         if (retraceGate != null) {
             ObjectNode retraceTarget = objectMapper.createObjectNode();
@@ -1820,7 +1877,8 @@ public class BacktestLabService {
             entryStartIndex = Math.max(entryStartIndex, retraceGate.retraceOkIndex());
         }
         BacktestCandle anchorCandle = candles.get(entryStartIndex);
-        if ("MARKET_ON_CONFIRM_CLOSE".equals(config.entryModelType())) {
+        String modelToken = normalizeToken(config.entryModelType());
+        if ("MARKETONCONFIRMCLOSE".equals(modelToken) || "MARKETONMSSCONFIRM".equals(modelToken)) {
             return new EntryOutcome(
                     true,
                     entryStartIndex,
@@ -1828,8 +1886,27 @@ public class BacktestLabService {
                     anchorCandle.close(),
                     displacement.time(),
                     mss.confirmTime(),
-                    "MARKET_ON_CONFIRM_CLOSE"
+                    "MARKET_ON_MSS_CONFIRM"
             );
+        }
+        if ("LIMITFVGFILL".equals(modelToken)) {
+            BigDecimal entryPrice = null;
+            if (displacement.gapDetected() && displacement.gapLow() != null && displacement.gapHigh() != null) {
+                entryPrice = displacement.gapLow()
+                        .add(displacement.gapHigh())
+                        .divide(BigDecimal.valueOf(2), 8, RoundingMode.HALF_UP);
+            }
+            if (entryPrice == null) {
+                return new EntryOutcome(false, null, null, anchorCandle.close(), displacement.time(), mss.confirmTime(), "LIMIT_FVG_FILL");
+            }
+            int until = Math.min(candles.size() - 1, entryStartIndex + Math.max(1, config.entryWindowBars()));
+            for (int i = entryStartIndex; i <= until; i++) {
+                BacktestCandle candle = candles.get(i);
+                if (candle.low().compareTo(entryPrice) <= 0 && candle.high().compareTo(entryPrice) >= 0) {
+                    return new EntryOutcome(true, i, candle.timestamp(), entryPrice, displacement.time(), mss.confirmTime(), "LIMIT_FVG_FILL");
+                }
+            }
+            return new EntryOutcome(false, null, null, entryPrice, displacement.time(), mss.confirmTime(), "LIMIT_FVG_FILL");
         }
 
         int legStart = Math.min(sweep.sweepExtremeIndex(), displacement.index());
@@ -2023,6 +2100,8 @@ public class BacktestLabService {
         int from = displacement.index();
         int until = Math.min(candles.size() - 1, from + Math.max(1, config.mssMaxConfirmWindowBars()));
         int needed = Math.max(1, config.mssMinConfirmCandles());
+        String invalidationRule = normalizeToken(config.mssInvalidationRule());
+        int allowedPierces = "ALLOWONEPIERCE".equals(invalidationRule) ? 1 : 0;
         for (int i = from; i <= until; i++) {
             BacktestCandle candle = candles.get(i);
             if (!isMssBroken(candle, direction, anchor, buffer, config.mssRequiresClose())) {
@@ -2030,11 +2109,16 @@ public class BacktestLabService {
             }
 
             int streak = 0;
+            int pierces = 0;
             int confirmIndex = -1;
             for (int j = i; j <= until; j++) {
                 BacktestCandle probe = candles.get(j);
                 if (isMssInvalidated(probe, direction, anchor, buffer, config)) {
-                    break;
+                    pierces++;
+                    if (pierces > allowedPierces) {
+                        break;
+                    }
+                    continue;
                 }
                 streak++;
                 if (streak >= needed) {
@@ -2054,6 +2138,98 @@ public class BacktestLabService {
                         anchor,
                         breakPrice
                 );
+            }
+        }
+        return null;
+    }
+
+    private MssSignal findBosSignal(List<BacktestCandle> candles,
+                                    PivotState pivots,
+                                    StructureContext structureContext,
+                                    DisplacementSignal displacement,
+                                    Direction direction,
+                                    ParsedConfig config,
+                                    BigDecimal breakBuffer) {
+        int from = displacement.index();
+        int until = Math.min(candles.size() - 1, from + Math.max(2, config.mssMaxConfirmWindowBars()));
+        if (from >= candles.size()) {
+            return null;
+        }
+
+        boolean closeOnly = !"WICKALLOWED".equals(normalizeToken(config.bosBreakMode()));
+        String anchorType = normalizeToken(config.bosAnchorType());
+        BigDecimal anchor;
+        if ("EXTERNALSWINGONLY".equals(anchorType)) {
+            anchor = direction == Direction.LONG
+                    ? structureContext.latestSwingHigh()
+                    : structureContext.latestSwingLow();
+        } else if ("INTERNALSWINGALLOWED".equals(anchorType)) {
+            anchor = displacement.attackedLevel();
+        } else {
+            anchor = direction == Direction.LONG
+                    ? pivots.lastPivotHighPrice(from - 1)
+                    : pivots.lastPivotLowPrice(from - 1);
+        }
+        if (anchor == null) {
+            anchor = direction == Direction.LONG ? structureContext.latestSwingHigh() : structureContext.latestSwingLow();
+        }
+        if (anchor == null) {
+            return null;
+        }
+        if ("WITHTRENDONLY".equals(normalizeToken(config.bosDirectionRule()))) {
+            if (direction == Direction.LONG && !"BULLISH".equals(structureContext.trend())) {
+                return null;
+            }
+            if (direction == Direction.SHORT && !"BEARISH".equals(structureContext.trend())) {
+                return null;
+            }
+        }
+
+        int neededHoldBars = Math.max(1, config.bosHoldBars());
+        for (int i = from; i <= until; i++) {
+            BacktestCandle candle = candles.get(i);
+            boolean broken;
+            if (direction == Direction.LONG) {
+                broken = closeOnly
+                        ? candle.close().compareTo(anchor.add(breakBuffer)) > 0
+                        : candle.high().compareTo(anchor.add(breakBuffer)) > 0;
+            } else {
+                broken = closeOnly
+                        ? candle.close().compareTo(anchor.subtract(breakBuffer)) < 0
+                        : candle.low().compareTo(anchor.subtract(breakBuffer)) < 0;
+            }
+            if (!broken) {
+                continue;
+            }
+
+            int hold = 0;
+            int confirm = -1;
+            for (int j = i; j <= until; j++) {
+                BacktestCandle probe = candles.get(j);
+                boolean stillBeyond;
+                if (direction == Direction.LONG) {
+                    stillBeyond = closeOnly
+                            ? probe.close().compareTo(anchor.add(breakBuffer)) > 0
+                            : probe.high().compareTo(anchor.add(breakBuffer)) > 0;
+                } else {
+                    stillBeyond = closeOnly
+                            ? probe.close().compareTo(anchor.subtract(breakBuffer)) < 0
+                            : probe.low().compareTo(anchor.subtract(breakBuffer)) < 0;
+                }
+                if (!stillBeyond) {
+                    break;
+                }
+                hold++;
+                if (hold >= neededHoldBars) {
+                    confirm = j;
+                    break;
+                }
+            }
+            if (confirm >= 0) {
+                BigDecimal breakPrice = closeOnly
+                        ? candle.close()
+                        : direction == Direction.LONG ? candle.high() : candle.low();
+                return new MssSignal(i, confirm, candles.get(i).timestamp(), candles.get(confirm).timestamp(), anchor, breakPrice);
             }
         }
         return null;
@@ -2080,7 +2256,13 @@ public class BacktestLabService {
                                      BigDecimal buffer,
                                      ParsedConfig config) {
         String rule = normalizeToken(config.mssInvalidationRule());
-        if ("CLOSEBACKTHROUGHLEVEL".equals(rule) || rule.isBlank()) {
+        if ("WICKBACKTHROUGHLEVEL".equals(rule)) {
+            if (direction == Direction.LONG) {
+                return candle.low().compareTo(anchor.subtract(buffer)) <= 0;
+            }
+            return candle.high().compareTo(anchor.add(buffer)) >= 0;
+        }
+        if ("CLOSEBACKTHROUGHLEVEL".equals(rule) || rule.isBlank() || "ALLOWONEPIERCE".equals(rule)) {
             if (direction == Direction.LONG) {
                 return candle.close().compareTo(anchor.subtract(buffer)) <= 0;
             }
@@ -2099,8 +2281,15 @@ public class BacktestLabService {
         if ("DISPLACEMENTORIGIN".equals(anchorMode)) {
             return candles.get(displacement.index()).open();
         }
-        if ("INTERNALSTRUCTURE".equals(anchorMode)) {
+        if ("INTERNALSTRUCTURE".equals(anchorMode)
+                || "INTERNALSWING".equals(anchorMode)
+                || "INTERNALSWINGALLOWED".equals(anchorMode)) {
             return displacement.attackedLevel();
+        }
+        if ("PROTECTEDHIGHLOW".equals(anchorMode) || "LASTCONFIRMEDSWING".equals(anchorMode)) {
+            return direction == Direction.LONG
+                    ? pivots.lastPivotHighPrice(displacement.index() - 1)
+                    : pivots.lastPivotLowPrice(displacement.index() - 1);
         }
 
         BigDecimal pivotAnchor = direction == Direction.LONG
@@ -2411,6 +2600,7 @@ public class BacktestLabService {
         if (depth.compareTo(minDepthAbs) < 0) {
             return null;
         }
+        int durationBars = Math.max(1, endIndex - startIndex + 1);
 
         return new Sweep(
                 pool.side(),
@@ -2422,6 +2612,10 @@ public class BacktestLabService {
                 pool.type(),
                 firstBreachPrice,
                 firstBreachTime,
+                startIndex,
+                durationBars,
+                reclaimed,
+                config.confirmationTf().name(),
                 endIndex,
                 extremeIndex,
                 pool.createdIndex(),
@@ -2763,6 +2957,95 @@ public class BacktestLabService {
             pivotLow[i] = isPivotLow;
         }
         return new PivotMarkers(pivotHigh, pivotLow);
+    }
+
+    private StructureContext deriveStructureContext(List<BacktestCandle> candles,
+                                                    PivotMarkers markers,
+                                                    int index,
+                                                    ParsedConfig config) {
+        if (candles == null || candles.isEmpty() || markers == null) {
+            return StructureContext.empty();
+        }
+        int safeIndex = Math.max(0, Math.min(index, candles.size() - 1));
+        BigDecimal minDistanceAbs = config.minSwingDistancePips()
+                .multiply(config.pipSize())
+                .abs();
+        int minSeparation = Math.max(1, config.minSwingSeparationBars());
+
+        SwingPair highs = lastTwoConfirmedSwings(candles, markers.pivotHigh(), safeIndex, true, minDistanceAbs, minSeparation);
+        SwingPair lows = lastTwoConfirmedSwings(candles, markers.pivotLow(), safeIndex, false, minDistanceAbs, minSeparation);
+
+        String highLabel = deriveSwingLabel(highs.previousPrice(), highs.latestPrice(), "HH", "LH");
+        String lowLabel = deriveSwingLabel(lows.previousPrice(), lows.latestPrice(), "HL", "LL");
+        String trend;
+        if ("HH".equals(highLabel) && "HL".equals(lowLabel)) {
+            trend = "BULLISH";
+        } else if ("LH".equals(highLabel) && "LL".equals(lowLabel)) {
+            trend = "BEARISH";
+        } else {
+            trend = "MIXED";
+        }
+        return new StructureContext(
+                highs.previousPrice(),
+                highs.latestPrice(),
+                highLabel,
+                lows.previousPrice(),
+                lows.latestPrice(),
+                lowLabel,
+                trend
+        );
+    }
+
+    private SwingPair lastTwoConfirmedSwings(List<BacktestCandle> candles,
+                                             boolean[] markers,
+                                             int index,
+                                             boolean highs,
+                                             BigDecimal minDistanceAbs,
+                                             int minSeparationBars) {
+        int latestIndex = -1;
+        BigDecimal latestPrice = null;
+        int previousIndex = -1;
+        BigDecimal previousPrice = null;
+
+        int from = Math.min(index, Math.min(markers.length, candles.size()) - 1);
+        for (int i = from; i >= 0; i--) {
+            if (!markers[i]) {
+                continue;
+            }
+            BigDecimal price = highs ? candles.get(i).high() : candles.get(i).low();
+            if (latestIndex < 0) {
+                latestIndex = i;
+                latestPrice = price;
+                continue;
+            }
+            if (latestIndex - i < minSeparationBars) {
+                continue;
+            }
+            if (latestPrice != null && latestPrice.subtract(price).abs().compareTo(minDistanceAbs) < 0) {
+                continue;
+            }
+            previousIndex = i;
+            previousPrice = price;
+            break;
+        }
+        return new SwingPair(previousIndex, previousPrice, latestIndex, latestPrice);
+    }
+
+    private String deriveSwingLabel(BigDecimal previousPrice,
+                                    BigDecimal latestPrice,
+                                    String higherLabel,
+                                    String lowerLabel) {
+        if (previousPrice == null || latestPrice == null) {
+            return "N/A";
+        }
+        int cmp = latestPrice.compareTo(previousPrice);
+        if (cmp > 0) {
+            return higherLabel;
+        }
+        if (cmp < 0) {
+            return lowerLabel;
+        }
+        return "EQ";
     }
 
     private Map<String, List<SessionLevelRecord>> buildSessionLevelRecords(List<BacktestCandle> candles, List<SessionWindow> sessions) {
@@ -3276,6 +3559,12 @@ public class BacktestLabService {
                 firstPresent(path(smc, "mssMaxConfirmWindowBars"), path(smc, "mss_max_confirm_window_bars")),
                 integer(firstPresent(path(smc, "mssMaxDelayBarsAfterDisplacement"), path(smc, "mss_max_delay_bars_after_displacement")), 8)
         );
+        String mssBreakMode = text(firstPresent(path(smc, "mssBreakMode"), path(smc, "mss_break_mode")), "CLOSE_ONLY");
+        boolean mssRequiresClose = bool(
+                firstPresent(path(smc, "mssRequiresClose"), path(smc, "mss_requires_close")),
+                !"WICKALLOWED".equals(normalizeToken(mssBreakMode))
+        );
+        String bosBreakMode = text(firstPresent(path(smc, "bosBreakMode"), path(smc, "bos_break_mode")), "CLOSE_ONLY");
 
         BigDecimal legacyDisplacementMult = decimal(path(root, "qualityFilters", "displacementMultiplier"), BigDecimal.valueOf(1.5));
 
@@ -3333,11 +3622,19 @@ public class BacktestLabService {
                 mssTf,
                 text(firstPresent(path(smc, "swingDetectionMethod"), path(smc, "swing_detection_method")), "PIVOT_N"),
                 integer(firstPresent(path(smc, "swingPivotN"), path(smc, "swing_pivot_n")), Math.max(2, integer(path(root, "qualityFilters", "pivotLeft"), 2))),
-                bool(firstPresent(path(smc, "mssRequiresClose"), path(smc, "mss_requires_close")), true),
+                mssRequiresClose,
                 integer(firstPresent(path(smc, "mssMinConfirmCandles"), path(smc, "mss_min_confirm_candles")), 3),
                 mssMaxConfirmWindowBars,
                 text(firstPresent(path(smc, "mssInvalidationRule"), path(smc, "mss_invalidation_rule")), "CLOSE_BACK_THROUGH_LEVEL"),
-                text(firstPresent(path(smc, "mssAnchorLevel"), path(smc, "mss_anchor_level")), "LAST_SWING_HIGH_LOW"),
+                text(
+                        firstPresent(
+                                path(smc, "mssAnchorLevel"),
+                                path(smc, "mss_anchor_level"),
+                                path(smc, "mssAnchorType"),
+                                path(smc, "mss_anchor_type")
+                        ),
+                        "LAST_SWING_HIGH_LOW"
+                ),
                 bool(firstPresent(path(smc, "entryRequiresFvgRetest"), path(smc, "entry_requires_fvg_retest")), false),
                 bool(firstPresent(path(smc, "entryRequiresDiscountPremium"), path(smc, "entry_requires_discount_premium")), false),
                 text(firstPresent(path(smc, "fillPolicy"), path(smc, "fill_policy")), "BID_ASK_SIM"),
@@ -3359,7 +3656,22 @@ public class BacktestLabService {
                 entrySessions,
                 requireCrossSessionSweep,
                 requireSameSessionForSweepAndEntry,
-                sweepRequiresUnsweptPool
+                sweepRequiresUnsweptPool,
+                bool(firstPresent(path(smc, "bosEnabled"), path(smc, "bos_enabled")), false),
+                text(firstPresent(path(smc, "bosAnchorType"), path(smc, "bos_anchor_type")), "LAST_CONFIRMED_SWING"),
+                bosBreakMode,
+                decimal(firstPresent(path(smc, "bosMinBreakDistancePips"), path(smc, "bos_min_break_distance_pips")), BigDecimal.valueOf(0.5)),
+                integer(firstPresent(path(smc, "bosHoldBars"), path(smc, "bos_hold_bars")), 2),
+                text(firstPresent(path(smc, "bosDirectionRule"), path(smc, "bos_direction_rule")), "WITH_TREND_ONLY"),
+                bool(firstPresent(path(smc, "mssEnabled"), path(smc, "mss_enabled")), true),
+                mssBreakMode,
+                bool(firstPresent(path(smc, "mssRequiresLiquiditySweep"), path(smc, "mss_requires_liquidity_sweep")), true),
+                bool(firstPresent(path(smc, "mssRequiresDisplacement"), path(smc, "mss_requires_displacement")), true),
+                decimal(firstPresent(path(smc, "mssMinBreakDistancePips"), path(smc, "mss_min_break_distance_pips")), BigDecimal.valueOf(0.5)),
+                text(firstPresent(path(smc, "mssStructureTier"), path(smc, "mss_structure_tier")), "INTERNAL"),
+                decimal(firstPresent(path(smc, "minSwingDistancePips"), path(smc, "min_swing_distance_pips")), BigDecimal.valueOf(1.0)),
+                integer(firstPresent(path(smc, "minSwingSeparationBars"), path(smc, "min_swing_separation_bars")), 2),
+                text(firstPresent(path(smc, "structureTier"), path(smc, "structure_tier")), "BOTH")
         );
         validateTimeframeRoles(parsed);
         return parsed;
@@ -4439,11 +4751,26 @@ public class BacktestLabService {
         smc.put("mssTf", "M5");
         smc.put("swingDetectionMethod", "PIVOT_N");
         smc.put("swingPivotN", 2);
+        smc.put("minSwingDistancePips", 1.0);
+        smc.put("minSwingSeparationBars", 2);
+        smc.put("structureTier", "BOTH");
         smc.put("mssRequiresClose", true);
+        smc.put("mssBreakMode", "CLOSE_ONLY");
+        smc.put("mssEnabled", true);
+        smc.put("mssRequiresLiquiditySweep", true);
+        smc.put("mssRequiresDisplacement", true);
+        smc.put("mssMinBreakDistancePips", 0.5);
+        smc.put("mssStructureTier", "INTERNAL");
         smc.put("mssMinConfirmCandles", 3);
         smc.put("mssMaxConfirmWindowBars", 8);
         smc.put("mssInvalidationRule", "CLOSE_BACK_THROUGH_LEVEL");
         smc.put("mssAnchorLevel", "LAST_SWING_HIGH_LOW");
+        smc.put("bosEnabled", false);
+        smc.put("bosAnchorType", "LAST_CONFIRMED_SWING");
+        smc.put("bosBreakMode", "CLOSE_ONLY");
+        smc.put("bosMinBreakDistancePips", 0.5);
+        smc.put("bosHoldBars", 2);
+        smc.put("bosDirectionRule", "WITH_TREND_ONLY");
 
         smc.put("requireKillzone", true);
         ObjectNode killzones = smc.putObject("killzoneWindowsUtc");
@@ -4908,7 +5235,22 @@ public class BacktestLabService {
             Set<String> entrySessions,
             boolean requireCrossSessionSweep,
             boolean requireSameSessionForSweepAndEntry,
-            boolean sweepRequiresUnsweptPool
+            boolean sweepRequiresUnsweptPool,
+            boolean bosEnabled,
+            String bosAnchorType,
+            String bosBreakMode,
+            BigDecimal bosMinBreakDistancePips,
+            int bosHoldBars,
+            String bosDirectionRule,
+            boolean mssEnabled,
+            String mssBreakMode,
+            boolean mssRequiresLiquiditySweep,
+            boolean mssRequiresDisplacement,
+            BigDecimal mssMinBreakDistancePips,
+            String mssStructureTier,
+            BigDecimal minSwingDistancePips,
+            int minSwingSeparationBars,
+            String structureTier
     ) {
     }
 
@@ -4982,6 +5324,10 @@ public class BacktestLabService {
             String poolType,
             BigDecimal firstBreachPrice,
             OffsetDateTime firstBreachTime,
+            int sweepStartIndex,
+            int sweepDurationBars,
+            boolean reclaimConfirmed,
+            String confirmationTf,
             int sweepEndIndex,
             int sweepExtremeIndex,
             int poolCreatedIndex,
@@ -5235,6 +5581,28 @@ public class BacktestLabService {
     }
 
     private record PivotMarkers(boolean[] pivotHigh, boolean[] pivotLow) {
+    }
+
+    private record SwingPair(
+            int previousIndex,
+            BigDecimal previousPrice,
+            int latestIndex,
+            BigDecimal latestPrice
+    ) {
+    }
+
+    private record StructureContext(
+            BigDecimal previousSwingHigh,
+            BigDecimal latestSwingHigh,
+            String highLabel,
+            BigDecimal previousSwingLow,
+            BigDecimal latestSwingLow,
+            String lowLabel,
+            String trend
+    ) {
+        private static StructureContext empty() {
+            return new StructureContext(null, null, "N/A", null, null, "N/A", "MIXED");
+        }
     }
 
     private static final class PoolCluster {

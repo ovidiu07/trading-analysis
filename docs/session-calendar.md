@@ -1,59 +1,75 @@
 # Session Calendar
 
-The backtest session engine uses explicit, editable session windows with IANA timezones and local clock times.
+The backtest engine uses explicit, editable session windows with IANA timezone IDs and local session clock ranges.
 
-## Model
+## Session definition schema
 
-Each session definition includes:
+Each session row supports:
 
 - `name`
-- `timezoneId` (IANA, for example `Europe/London`)
-- `localStartTime`
-- `localEndTime`
+- `timezoneId` (or `zoneId` alias), for example `Europe/London`
+- `localStartTime` (or `startLocal` alias)
+- `localEndTime` (or `endLocal` alias)
 - `enabled`
 - `canGeneratePools`
 - `canFilterEvaluation`
 - `canFilterEntry`
 - `displayOrder`
 
-The UI persists this through `smc.sessionCalendar` and `sessions`.
+The strategy builder persists this in `sessions` and `smc.sessionCalendar`.
 
-## Resolution
+## Runtime resolution model
 
-At runtime the engine:
+For each candle timestamp:
 
-1. Reads local session windows and timezone ids.
-2. Converts each candle timestamp into the session timezone.
-3. Assigns session membership using local clock comparisons.
-4. Supports overnight sessions (start after end).
-5. Produces UTC event timestamps for output.
+1. Convert UTC timestamp to the session timezone (`ZoneId`).
+2. Evaluate membership against local start/end clock times.
+3. Support overnight windows where start > end.
+4. Emit UTC timestamps in all backtest outputs.
 
-## DST behavior
+The effective resolved session-day object in engine terms contains:
 
-DST is handled by Java `ZoneId` conversion (`assignSession(...)`) against the session timezone.
+- `sessionName`
+- `sessionDateKey`
+- UTC boundaries (`startUtc`, `endUtc`) implied by local conversion
+- derived OHLC/high/low stats from candles assigned to that session day
 
-Examples covered in tests:
+## DST safety
 
-- London winter (`Europe/London`) and summer (BST) timestamps map correctly.
-- New York winter/summer timestamps map correctly with `America/New_York`.
+DST is handled through timezone conversion, not fixed offsets.
 
-## Session-driven controls
+Validated in tests:
 
-- Session-level pool generation: `canGeneratePools`
-- Setup evaluation filtering: `canFilterEvaluation`
-- Entry filtering: `canFilterEntry`
-- Cross-session policy:
-  - `requireCrossSessionSweep`
-  - `requireSameSessionForSweepAndEntry`
-  - `sweepSourceSessions`
-  - `evaluationSessionFilter`
-  - `entrySessions`
+- London winter/summer mapping with `Europe/London`
+- New York winter/summer mapping with `America/New_York`
 
-## Recommended defaults
+## Strategy-level session rules
 
-- ASIA: `00:00-07:00`
-- LONDON: `07:00-12:00`
-- NY_AM: `13:00-17:00`
-- NY_PM: `17:00-22:00`
+Session filtering and cross-session behavior is controlled by:
 
-Use per-instrument templates as needed; keep engine output in UTC.
+- `sweepSourceSessions` (pool source filter)
+- `evaluationSessionFilter`
+- `entrySessions`
+- `requireCrossSessionSweep`
+- `requireSameSessionForSweepAndEntry`
+
+Typical supported rule:
+
+- London evaluates sweeps of Asia liquidity, entry restricted to London.
+
+## Pool/evaluation/entry flags
+
+Session flags provide separate toggles for where logic is allowed:
+
+- `canGeneratePools`
+- `canFilterEvaluation`
+- `canFilterEntry`
+
+This keeps pool construction, signal evaluation, and entry gating independent.
+
+## UTC policy
+
+- Candle storage is UTC.
+- Event timeline timestamps are UTC.
+- API response timestamps are ISO UTC (`...Z`).
+- Backtest UI labels timestamps as UTC explicitly.

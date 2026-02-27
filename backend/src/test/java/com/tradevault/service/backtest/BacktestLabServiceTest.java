@@ -863,6 +863,10 @@ class BacktestLabServiceTest {
                     OffsetDateTime.parse("2026-02-04T08:05:00Z"),
                     1,
                     1,
+                    false,
+                    "M5",
+                    1,
+                    1,
                     0,
                     OffsetDateTime.parse("2026-02-04T07:00:00Z"),
                     "ASIA",
@@ -985,10 +989,100 @@ class BacktestLabServiceTest {
         assertThat(filled.getEvidence().path("entrySpreadAdjustmentPrice").asText()).isNotBlank();
         assertThat(filled.getEvidence().path("entrySlippageAdjustmentPrice").asText()).isNotBlank();
         assertThat(filled.getEvidence().path("entryFinalExecutionPrice").asText()).isNotBlank();
+        assertThat(filled.getEvidence().path("structureHighLabel").asText()).isNotBlank();
+        assertThat(filled.getEvidence().path("structureLowLabel").asText()).isNotBlank();
         assertThat(filled.getEvidence().path("eventGraph").isArray()).isTrue();
 
         assertThat(filled.getTimeline().stream().map(item -> item.getStage()))
                 .contains("POOL_CREATED", "SWEEP_FIRST_BREACH", "SWEEP_EXTREME", "ENTRY_FILLED");
+
+        var sweepEvent = filled.getTimeline().stream()
+                .filter(item -> "SWEEP".equals(item.getStage()))
+                .findFirst()
+                .orElseThrow();
+        assertThat(sweepEvent.getDetails().path("durationBars").asInt()).isGreaterThan(0);
+        assertThat(sweepEvent.getDetails().path("poolStatus").asText()).isEqualTo("CONSUMED");
+    }
+
+    @Test
+    void runSupportsLimitFvgFillEntryModel() {
+        List<BacktestCandle> fixtureM5 = loadFixtureM5Candles();
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String timeframe = invocation.getArgument(4);
+                    OffsetDateTime from = invocation.getArgument(5);
+                    OffsetDateTime to = invocation.getArgument(6);
+                    List<BacktestCandle> ranged = fixtureM5.stream()
+                            .filter(candle -> !candle.timestamp().isBefore(from) && !candle.timestamp().isAfter(to))
+                            .toList();
+                    if ("M5".equals(timeframe)) {
+                        return ranged;
+                    }
+                    return aggregateDaily(ranged);
+                });
+
+        ObjectNode cfg = buildFixtureFeb4Config();
+        ((ObjectNode) cfg.path("entryModel")).put("type", "LIMIT_FVG_FILL");
+        ((ObjectNode) cfg.path("entryModel")).put("entryWindowBars", 10);
+        ((ObjectNode) cfg.path("riskModel")).put("minRR", 0.8);
+        strategyConfig.setConfigJson(cfg);
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-04T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-04T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse run = service.run(datasetSet.getId(), request);
+        assertThat(run.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+
+        var results = service.getRunResults(run.getRunId());
+        assertThat(results.getTrades()).isNotEmpty();
+        assertThat(results.getTrades())
+                .anyMatch(trade -> "LIMIT_FVG_FILL".equals(trade.getEvidence().path("entryModel").asText()));
+    }
+
+    @Test
+    void runCanUseBosConfirmationPath() {
+        List<BacktestCandle> fixtureM5 = loadFixtureM5Candles();
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String timeframe = invocation.getArgument(4);
+                    OffsetDateTime from = invocation.getArgument(5);
+                    OffsetDateTime to = invocation.getArgument(6);
+                    List<BacktestCandle> ranged = fixtureM5.stream()
+                            .filter(candle -> !candle.timestamp().isBefore(from) && !candle.timestamp().isAfter(to))
+                            .toList();
+                    if ("M5".equals(timeframe)) {
+                        return ranged;
+                    }
+                    return aggregateDaily(ranged);
+                });
+
+        ObjectNode cfg = buildFixtureFeb4Config();
+        ((ObjectNode) cfg.path("setupRule")).put("confirmationType", "BOS");
+        ObjectNode smc = (ObjectNode) cfg.path("smc");
+        smc.put("bosEnabled", true);
+        smc.put("bosBreakMode", "WICK_ALLOWED");
+        smc.put("bosDirectionRule", "ANY_DIRECTION");
+        smc.put("bosMinBreakDistancePips", 0.0);
+        smc.put("bosHoldBars", 1);
+        ((ObjectNode) cfg.path("riskModel")).put("minRR", 0.6);
+        strategyConfig.setConfigJson(cfg);
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-04T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-04T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse run = service.run(datasetSet.getId(), request);
+        assertThat(run.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+
+        var results = service.getRunResults(run.getRunId());
+        assertThat(results.getTrades()).isNotEmpty();
+        assertThat(results.getTrades().stream().flatMap(trade -> trade.getTimeline().stream()).map(item -> item.getStage()))
+                .anyMatch(stage -> stage.startsWith("BOS"));
     }
 
     @Test

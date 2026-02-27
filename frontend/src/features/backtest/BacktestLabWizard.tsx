@@ -68,10 +68,10 @@ type SessionName = 'ASIA' | 'LONDON' | 'NY_AM' | 'NY_PM'
 type TimeframeRole = 'M1' | 'M5' | 'M15' | 'H1' | 'H4' | 'D1' | 'W1'
 type PoolType = 'EQH' | 'EQL' | 'ASIA_H' | 'ASIA_L' | 'LONDON_H' | 'LONDON_L' | 'NY_AM_H' | 'NY_AM_L' | 'PDH' | 'PDL' | 'PWH' | 'PWL'
 type SwingDetectionMethod = 'FRACTAL' | 'PIVOT_N' | 'SWING_HL'
-type MssAnchorLevel = 'LAST_SWING_HIGH_LOW' | 'DISPLACEMENT_ORIGIN' | 'INTERNAL_STRUCTURE'
+type MssAnchorLevel = 'LAST_SWING_HIGH_LOW' | 'DISPLACEMENT_ORIGIN' | 'INTERNAL_STRUCTURE' | 'PROTECTED_HIGH_LOW' | 'LAST_CONFIRMED_SWING' | 'INTERNAL_SWING' | 'EXTERNAL_SWING'
 type DisplacementType = 'GAP_REQUIRED' | 'GAP_OPTIONAL' | 'NO_GAP_ONLY'
 type DisplacementGapDefinition = 'THREE_CANDLE_FVG' | 'TWO_CANDLE_GAP'
-type MssInvalidationRule = 'CLOSE_BACK_THROUGH_LEVEL'
+type MssInvalidationRule = 'CLOSE_BACK_THROUGH_LEVEL' | 'WICK_BACK_THROUGH_LEVEL' | 'ALLOW_ONE_PIERCE'
 type RetraceReference = 'GAP_FILL' | 'IMPULSE_LEG'
 type OptimizerState = {
   maxVariants: number
@@ -113,7 +113,7 @@ type StrategyConfigState = {
     direction: 'AUTO_FROM_SWEEP' | 'LONG' | 'SHORT'
   }
   entryModel: {
-    type: 'MARKET_ON_CONFIRM_CLOSE' | 'LIMIT_RETRACE_PERCENT'
+    type: 'MARKET_ON_MSS_CONFIRM' | 'MARKET_ON_CONFIRM_CLOSE' | 'LIMIT_RETRACE_PERCENT' | 'LIMIT_FVG_FILL' | 'LIMIT_OB_MITIGATION'
     retracePercent: number
     entryWindowBars: number
   }
@@ -186,6 +186,21 @@ type StrategyConfigState = {
     mssTf: string
     swingDetectionMethod: SwingDetectionMethod
     swingPivotN: number
+    minSwingDistancePips: number
+    minSwingSeparationBars: number
+    structureTier: 'INTERNAL' | 'EXTERNAL' | 'BOTH'
+    bosEnabled: boolean
+    bosAnchorType: 'LAST_CONFIRMED_SWING' | 'EXTERNAL_SWING_ONLY' | 'INTERNAL_SWING_ALLOWED'
+    bosBreakMode: 'CLOSE_ONLY' | 'WICK_ALLOWED'
+    bosMinBreakDistancePips: number
+    bosHoldBars: number
+    bosDirectionRule: 'WITH_TREND_ONLY' | 'ANY_DIRECTION'
+    mssEnabled: boolean
+    mssBreakMode: 'CLOSE_ONLY' | 'WICK_ALLOWED'
+    mssRequiresLiquiditySweep: boolean
+    mssRequiresDisplacement: boolean
+    mssMinBreakDistancePips: number
+    mssStructureTier: 'INTERNAL' | 'EXTERNAL' | 'BOTH'
     mssRequiresClose: boolean
     mssMinConfirmCandles: number
     mssMaxConfirmWindowBars: number
@@ -304,6 +319,21 @@ const defaultConfig = (): StrategyConfigState => ({
     mssTf: 'M5',
     swingDetectionMethod: 'PIVOT_N',
     swingPivotN: 2,
+    minSwingDistancePips: 1,
+    minSwingSeparationBars: 2,
+    structureTier: 'BOTH',
+    bosEnabled: false,
+    bosAnchorType: 'LAST_CONFIRMED_SWING',
+    bosBreakMode: 'CLOSE_ONLY',
+    bosMinBreakDistancePips: 0.5,
+    bosHoldBars: 2,
+    bosDirectionRule: 'WITH_TREND_ONLY',
+    mssEnabled: true,
+    mssBreakMode: 'CLOSE_ONLY',
+    mssRequiresLiquiditySweep: true,
+    mssRequiresDisplacement: true,
+    mssMinBreakDistancePips: 0.5,
+    mssStructureTier: 'INTERNAL',
     mssRequiresClose: true,
     mssMinConfirmCandles: 3,
     mssMaxConfirmWindowBars: 8,
@@ -576,7 +606,87 @@ const normalizeStrategyConfig = (candidate: Partial<StrategyConfigState> | null 
   return merged
 }
 
-type RunLifecycleState = 'idle' | 'validating' | 'queued' | 'running' | 'completed' | 'failed'
+const timelineEventByStage = (trade: BacktestLabTradeResult, ...stages: string[]) => {
+  const wanted = new Set(stages)
+  return (trade.timeline || []).find((event) => wanted.has(event.stage))
+}
+
+const readEvidenceValue = (trade: BacktestLabTradeResult, key: string) => {
+  return trade.evidence && typeof trade.evidence === 'object' ? (trade.evidence as any)[key] : undefined
+}
+
+const buildTradeStory = (trade: BacktestLabTradeResult) => {
+  const pool = timelineEventByStage(trade, 'SWEEP', 'SWEEP_EXTREME')
+  const confirmation = timelineEventByStage(trade, 'MSS_CONFIRMED', 'BOS_CONFIRMED', 'MSS_BOS', 'BOS')
+  const entry = timelineEventByStage(trade, 'ENTRY', 'ENTRY_FILLED')
+  const exit = timelineEventByStage(trade, 'EXIT')
+  const displacement = timelineEventByStage(trade, 'DISPLACEMENT', 'DISPLACEMENT_FOUND')
+  const retrace = timelineEventByStage(trade, 'RETRACE_OK', 'RETRACE_TARGET_CALC')
+
+  const setupFamily = String(readEvidenceValue(trade, 'setupFamily') || 'SWEEP_CONFIRMATION')
+  const confirmationType = String(readEvidenceValue(trade, 'confirmationType') || 'MSS')
+  const poolType = String(readEvidenceValue(trade, 'poolType') || pool?.details?.poolType || '-')
+  const poolLevel = String(readEvidenceValue(trade, 'poolLevel') || pool?.details?.poolLevel || '-')
+  const sweepExtreme = String(readEvidenceValue(trade, 'sweepExtremePrice') || pool?.details?.sweepExtremePrice || '-')
+  const retraceTarget = String(readEvidenceValue(trade, 'retraceTargetPrice') || retrace?.details?.targetPrice || '-')
+  const entryFinal = String(readEvidenceValue(trade, 'entryFinalExecutionPrice') || entry?.details?.finalExecutionPrice || trade.entryPrice || '-')
+  const quality = trade.rMultiple == null ? 'Unrated' : trade.rMultiple > 1 ? 'High' : trade.rMultiple >= 0 ? 'Medium' : 'Low'
+
+  const progress = [
+    { label: 'Pool', done: Boolean(timelineEventByStage(trade, 'POOL_CREATED', 'POOL_TARGETED')) },
+    { label: 'Sweep', done: Boolean(timelineEventByStage(trade, 'SWEEP', 'SWEEP_EXTREME')) },
+    { label: 'Confirmation', done: Boolean(confirmation) },
+    { label: 'Entry', done: Boolean(entry) },
+    { label: 'Exit', done: Boolean(exit) }
+  ]
+
+  const reasons = [
+    `Pool used: ${poolType} at ${poolLevel}.`,
+    `Liquidity taken: ${sweepExtreme !== '-' ? `sweep extreme ${sweepExtreme}.` : 'not confirmed.'}`,
+    `${confirmationType} confirmation ${confirmation ? `at ${confirmation.timeUtc || 'N/A'}.` : 'missing.'}`,
+    `Entry model ${String(readEvidenceValue(trade, 'entryModel') || '-')}, fill ${trade.fillStatus}.`,
+    `Exit reason: ${trade.exitReason || 'OPEN'}, R: ${trade.rMultiple != null ? trade.rMultiple.toFixed(2) : '-'}.`
+  ]
+
+  return {
+    setupFamily,
+    confirmationType,
+    quality,
+    poolType,
+    poolLevel,
+    sweepExtreme,
+    retraceTarget,
+    entryFinal,
+    progress,
+    reasons,
+    cards: [
+      {
+        title: 'Context',
+        body: `Session ${trade.sessionName || 'N/A'} on ${confirmationType} confirmation (${setupFamily}).`
+      },
+      {
+        title: 'Liquidity Taken',
+        body: `Engine tracked ${poolType} and recorded sweep extreme at ${sweepExtreme}.`
+      },
+      {
+        title: 'Confirmation',
+        body: displacement
+          ? `Displacement printed at ${displacement.timeUtc || 'N/A'} and ${confirmationType} confirmed at ${confirmation?.timeUtc || 'N/A'}.`
+          : `${confirmationType} confirmation used structure break logic without displacement details.`
+      },
+      {
+        title: 'Entry Setup',
+        body: `Retrace target ${retraceTarget}, trigger ${String(readEvidenceValue(trade, 'entryTriggerPrice') || entry?.details?.entryTriggerPrice || '-')}, final fill ${entryFinal}.`
+      },
+      {
+        title: 'Outcome',
+        body: `Trade ${trade.fillStatus === 'FILLED' ? 'filled' : 'did not fill'} and exited with ${trade.exitReason || 'OPEN'} (${trade.rMultiple != null ? `${trade.rMultiple.toFixed(2)}R` : 'N/A'}).`
+      }
+    ]
+  }
+}
+
+type RunLifecycleState = 'idle' | 'validating' | 'queued' | 'running' | 'refreshing_results' | 'completed' | 'failed'
 
 type BacktestLabWizardProps = {
   headerSymbol?: string
@@ -612,6 +722,7 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
   const [results, setResults] = useState<BacktestLabRunResults | null>(null)
   const [report, setReport] = useState<BacktestRunReport | null>(null)
   const [selectedTrade, setSelectedTrade] = useState<BacktestLabTradeResult | null>(null)
+  const [showTradeDiagnostics, setShowTradeDiagnostics] = useState(false)
   const [showDatasetWarnings, setShowDatasetWarnings] = useState(false)
   const [optimizerBusy, setOptimizerBusy] = useState(false)
   const [optimizerResults, setOptimizerResults] = useState<BacktestOptimizerRun | null>(null)
@@ -821,6 +932,20 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
   }, [datasetSetId])
 
   useEffect(() => {
+    if (datasetSetId || datasetInfo) return
+    if (!sessionHeaderSymbol) return
+    if (instrument && instrument !== 'EURUSD') return
+    setInstrument(sessionHeaderSymbol)
+    setStrategyConfig((prev) => ({
+      ...prev,
+      context: {
+        ...prev.context,
+        pipSize: inferPipSize(sessionHeaderSymbol)
+      }
+    }))
+  }, [datasetInfo, datasetSetId, instrument, sessionHeaderSymbol])
+
+  useEffect(() => {
     if (!rangeBounds.min || !rangeBounds.max) return
     setRunWindow((prev) => normalizeRunWindowToBounds(prev, rangeBounds))
   }, [rangeBounds.max, rangeBounds.min])
@@ -831,6 +956,31 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
     setDatasetSetId(created.id)
     localStorage.setItem(STORAGE_KEY, created.id)
     return created.id
+  }
+
+  const handleResetToHeaderSymbol = () => {
+    if (!sessionHeaderSymbol) return
+    setDatasetSetId('')
+    setDatasetInfo(null)
+    setStrategyConfigId('')
+    setLastSavedConfigFingerprint('')
+    setRunWindow({ fromUtc: '', toUtc: '', sessionFilter: '' })
+    setLastRun(null)
+    setResults(null)
+    setReport(null)
+    setSelectedTrade(null)
+    setStep(0)
+    setInstrument(sessionHeaderSymbol)
+    setStrategyConfig((prev) => ({
+      ...prev,
+      context: {
+        ...prev.context,
+        pipSize: inferPipSize(sessionHeaderSymbol)
+      }
+    }))
+    localStorage.removeItem(STORAGE_KEY)
+    setError('')
+    setSuccess(`Backtest dataset context reset to ${sessionHeaderSymbol}. Upload matching data to regenerate.`)
   }
 
   const uploadFiles = async (files: FileList | File[] | null) => {
@@ -1118,6 +1268,7 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
         setRunLifecycleState('failed')
         return
       }
+      setRunLifecycleState('refreshing_results')
       await loadRunArtifacts(run.runId)
       setSuccess(run.warnings && run.warnings.length
         ? `Backtest completed with warnings: ${run.warnings[0]}`
@@ -1190,8 +1341,15 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
       {uploading || loadingDatasets || runBusy ? <LinearProgress /> : null}
       {uploadStage ? <Alert severity={uploadStage === 'READY' ? 'success' : 'info'}>{`Upload status: ${uploadStage}`}</Alert> : null}
       {symbolMismatch ? (
-        <Alert severity="warning">
-          {`Symbol mismatch: Session header shows ${sessionHeaderSymbol}, but this backtest dataset/report uses ${reportInstrument}.`}
+        <Alert
+          severity="warning"
+          action={(
+            <Button color="inherit" size="small" onClick={handleResetToHeaderSymbol}>
+              Use {sessionHeaderSymbol}
+            </Button>
+          )}
+        >
+          {`Symbol mismatch: Session header shows ${sessionHeaderSymbol}, but this backtest dataset/report uses ${reportInstrument}. Reset the dataset context to avoid cross-symbol runs.`}
         </Alert>
       ) : null}
       {runLifecycleState !== 'idle' ? (
@@ -1417,6 +1575,26 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                   <Button variant="outlined" startIcon={<TuneRoundedIcon />} onClick={() => setStrategyConfig((prev) => applyTemplate(prev, 'BOS_CONTINUATION'))}>
                     BOS Continuation
                   </Button>
+                </Stack>
+
+                <Typography variant="subtitle2">Builder Sections</Typography>
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                  {[
+                    'Sessions & Killzones',
+                    'Timeframes',
+                    'Liquidity Pools',
+                    'Sweep Rules',
+                    'Displacement Rules',
+                    'Structure Engine',
+                    'BOS Rules',
+                    'MSS Rules',
+                    'Retrace & Entry',
+                    'Risk / Exit',
+                    'Execution Realism',
+                    'Optimizer'
+                  ].map((label) => (
+                    <Chip key={label} size="small" variant="outlined" label={label} />
+                  ))}
                 </Stack>
 
                 <Divider />
@@ -2215,6 +2393,163 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                       }))}
                     />
                   </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Swing min distance (pips)"
+                      fullWidth
+                      value={strategyConfig.smc.minSwingDistancePips}
+                      helperText="Higher = cleaner structure labels, fewer swings"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, minSwingDistancePips: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="Swing separation bars"
+                      fullWidth
+                      value={strategyConfig.smc.minSwingSeparationBars}
+                      helperText="Minimum bars between confirmed swings"
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, minSwingSeparationBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="bos-enabled">BOS enabled</InputLabel>
+                      <Select
+                        labelId="bos-enabled"
+                        label="BOS enabled"
+                        value={String(strategyConfig.smc.bosEnabled)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, bosEnabled: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="false">false</MenuItem>
+                        <MenuItem value="true">true</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="bos-break-mode">BOS break mode</InputLabel>
+                      <Select
+                        labelId="bos-break-mode"
+                        label="BOS break mode"
+                        value={strategyConfig.smc.bosBreakMode}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, bosBreakMode: event.target.value as StrategyConfigState['smc']['bosBreakMode'] }
+                        }))}
+                      >
+                        <MenuItem value="CLOSE_ONLY">CLOSE_ONLY</MenuItem>
+                        <MenuItem value="WICK_ALLOWED">WICK_ALLOWED</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="BOS min break (pips)"
+                      fullWidth
+                      value={strategyConfig.smc.bosMinBreakDistancePips}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, bosMinBreakDistancePips: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="BOS hold bars"
+                      fullWidth
+                      value={strategyConfig.smc.bosHoldBars}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, bosHoldBars: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="mss-enabled">MSS enabled</InputLabel>
+                      <Select
+                        labelId="mss-enabled"
+                        label="MSS enabled"
+                        value={String(strategyConfig.smc.mssEnabled)}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, mssEnabled: event.target.value === 'true' }
+                        }))}
+                      >
+                        <MenuItem value="true">true</MenuItem>
+                        <MenuItem value="false">false</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="mss-break-mode">MSS break mode</InputLabel>
+                      <Select
+                        labelId="mss-break-mode"
+                        label="MSS break mode"
+                        value={strategyConfig.smc.mssBreakMode}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: {
+                            ...prev.smc,
+                            mssBreakMode: event.target.value as StrategyConfigState['smc']['mssBreakMode'],
+                            mssRequiresClose: event.target.value === 'CLOSE_ONLY'
+                          }
+                        }))}
+                      >
+                        <MenuItem value="CLOSE_ONLY">CLOSE_ONLY</MenuItem>
+                        <MenuItem value="WICK_ALLOWED">WICK_ALLOWED</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <TextField
+                      size="small"
+                      type="number"
+                      label="MSS min break (pips)"
+                      fullWidth
+                      value={strategyConfig.smc.mssMinBreakDistancePips}
+                      onChange={(event) => setStrategyConfig((prev) => ({
+                        ...prev,
+                        smc: { ...prev.smc, mssMinBreakDistancePips: Number(event.target.value) }
+                      }))}
+                    />
+                  </Grid>
+                  <Grid item xs={12} sm={6} md={3}>
+                    <FormControl size="small" fullWidth>
+                      <InputLabel id="mss-invalidation">MSS invalidation</InputLabel>
+                      <Select
+                        labelId="mss-invalidation"
+                        label="MSS invalidation"
+                        value={strategyConfig.smc.mssInvalidationRule}
+                        onChange={(event) => setStrategyConfig((prev) => ({
+                          ...prev,
+                          smc: { ...prev.smc, mssInvalidationRule: event.target.value as MssInvalidationRule }
+                        }))}
+                      >
+                        <MenuItem value="CLOSE_BACK_THROUGH_LEVEL">CLOSE_BACK_THROUGH_LEVEL</MenuItem>
+                        <MenuItem value="WICK_BACK_THROUGH_LEVEL">WICK_BACK_THROUGH_LEVEL</MenuItem>
+                        <MenuItem value="ALLOW_ONE_PIERCE">ALLOW_ONE_PIERCE</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Grid>
                 </Grid>
 
                 <Divider />
@@ -2232,8 +2567,11 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                           entryModel: { ...prev.entryModel, type: event.target.value as StrategyConfigState['entryModel']['type'] }
                         }))}
                       >
-                        <MenuItem value="MARKET_ON_CONFIRM_CLOSE">MARKET_ON_CONFIRM_CLOSE</MenuItem>
+                        <MenuItem value="MARKET_ON_MSS_CONFIRM">MARKET_ON_MSS_CONFIRM</MenuItem>
+                        <MenuItem value="MARKET_ON_CONFIRM_CLOSE">MARKET_ON_CONFIRM_CLOSE (legacy)</MenuItem>
                         <MenuItem value="LIMIT_RETRACE_PERCENT">LIMIT_RETRACE_PERCENT</MenuItem>
+                        <MenuItem value="LIMIT_FVG_FILL">LIMIT_FVG_FILL</MenuItem>
+                        <MenuItem value="LIMIT_OB_MITIGATION">LIMIT_OB_MITIGATION</MenuItem>
                       </Select>
                     </FormControl>
                   </Grid>
@@ -2404,7 +2742,7 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <Button variant="contained" onClick={() => void handleSaveStrategy()} disabled={saveStrategyBusy || !datasetInfo?.datasets?.length}>
-                    Save Strategy Config
+                    Save Strategy
                   </Button>
                   <Button variant="outlined" onClick={() => setStep(2)} disabled={!strategyConfigId}>
                     Continue
@@ -2523,7 +2861,7 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
 
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <Button variant="outlined" onClick={() => void handleSaveStrategy()} disabled={saveStrategyBusy || !datasetInfo?.datasets?.length}>
-                    Save Config
+                    Save Strategy
                   </Button>
                   <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={!canRunBacktest}>
                     Regenerate Backtest
@@ -2600,7 +2938,10 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                               <TableCell>{trade.rMultiple != null ? trade.rMultiple.toFixed(2) : '-'}</TableCell>
                               <TableCell>{trade.fillStatus}</TableCell>
                               <TableCell align="right">
-                                <Button size="small" onClick={() => setSelectedTrade(trade)}>Timeline</Button>
+                                <Button size="small" onClick={() => {
+                                  setShowTradeDiagnostics(false)
+                                  setSelectedTrade(trade)
+                                }}>Storyline</Button>
                               </TableCell>
                             </TableRow>
                           ))}
@@ -2791,43 +3132,90 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
         </CardContent>
       </Card>
 
-      <Drawer anchor={isMobile ? 'bottom' : 'right'} open={Boolean(selectedTrade)} onClose={() => setSelectedTrade(null)}>
+      <Drawer
+        anchor={isMobile ? 'bottom' : 'right'}
+        open={Boolean(selectedTrade)}
+        onClose={() => {
+          setShowTradeDiagnostics(false)
+          setSelectedTrade(null)
+        }}
+      >
         <Box sx={{ width: isMobile ? '100vw' : 460, p: 2 }}>
-          {selectedTrade && (
-            <Stack spacing={1}>
-              <Typography variant="h6">Trade Timeline</Typography>
-              <Typography variant="body2" color="text.secondary">
-                {selectedTrade.direction} • {selectedTrade.sessionName || 'N/A'} • {selectedTrade.exitReason || 'N/A'}
-              </Typography>
-              <Typography variant="caption" color="text.secondary">UTC-only timeline</Typography>
-              <Divider />
-              {(selectedTrade.timeline || []).map((event, index) => (
-                <Card key={`${event.stage}-${event.timeUtc || index}`} variant="outlined">
-                  <CardContent>
-                    <Stack spacing={0.5}>
-                      <Typography variant="subtitle2">{event.stage}</Typography>
-                      <Typography variant="caption" color="text.secondary">{event.timeUtc ? formatUtcTimestamp(event.timeUtc) : 'N/A'}</Typography>
-                      {event.stage === 'SWEEP' ? (
-                        <>
-                          <Typography variant="body2">Pool type: {String(event.details?.poolType || '-')}</Typography>
-                          <Typography variant="body2">Pool level: {String(event.details?.poolLevel || '-')}</Typography>
-                          <Typography variant="body2">Sweep extreme: {String(event.details?.sweepExtremePrice || '-')}</Typography>
-                          <Typography variant="body2">Sweep extreme time: {String(event.details?.sweepExtremeTime || event.timeUtc || '-')}</Typography>
-                          {event.details?.firstBreachTime ? (
-                            <Typography variant="body2">First breach: {String(event.details.firstBreachTime)}</Typography>
-                          ) : null}
-                        </>
-                      ) : (
-                        <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-                          {JSON.stringify(event.details || {}, null, 2)}
-                        </Typography>
-                      )}
-                    </Stack>
+          {selectedTrade && (() => {
+            const story = buildTradeStory(selectedTrade)
+            return (
+              <Stack spacing={1}>
+                <Typography variant="h6">Trade Storyline</Typography>
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                  <Chip size="small" label={selectedTrade.direction || 'N/A'} />
+                  <Chip size="small" variant="outlined" label={selectedTrade.sessionName || 'N/A'} />
+                  <Chip size="small" color={selectedTrade.exitReason === 'TP' ? 'success' : selectedTrade.exitReason === 'SL' ? 'error' : 'default'} label={selectedTrade.exitReason || 'OPEN'} />
+                  <Chip size="small" variant="outlined" label={story.setupFamily} />
+                  <Chip size="small" variant="outlined" label={`Quality: ${story.quality}`} />
+                  <Chip size="small" variant="outlined" label={selectedTrade.fillStatus} />
+                </Stack>
+
+                <Card variant="outlined">
+                  <CardContent sx={{ py: 1.2 }}>
+                    <Grid container spacing={0.6}>
+                      <Grid item xs={6}><Typography variant="caption" color="text.secondary">Pool level</Typography><Typography variant="body2">{story.poolLevel}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="caption" color="text.secondary">Sweep extreme</Typography><Typography variant="body2">{story.sweepExtreme}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="caption" color="text.secondary">Entry</Typography><Typography variant="body2">{story.entryFinal}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="caption" color="text.secondary">SL</Typography><Typography variant="body2">{selectedTrade.stopLoss ?? '-'}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="caption" color="text.secondary">Exit</Typography><Typography variant="body2">{selectedTrade.exitPrice ?? '-'}</Typography></Grid>
+                      <Grid item xs={6}><Typography variant="caption" color="text.secondary">Retrace target</Typography><Typography variant="body2">{story.retraceTarget}</Typography></Grid>
+                    </Grid>
                   </CardContent>
                 </Card>
-              ))}
-            </Stack>
-          )}
+
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                  {story.progress.map((step) => (
+                    <Chip key={step.label} size="small" color={step.done ? 'primary' : 'default'} variant={step.done ? 'filled' : 'outlined'} label={step.label} />
+                  ))}
+                </Stack>
+
+                {story.cards.map((card) => (
+                  <Card key={card.title} variant="outlined">
+                    <CardContent sx={{ py: 1.2 }}>
+                      <Typography variant="subtitle2">{card.title}</Typography>
+                      <Typography variant="body2" color="text.secondary">{card.body}</Typography>
+                    </CardContent>
+                  </Card>
+                ))}
+
+                <Card variant="outlined">
+                  <CardContent sx={{ py: 1.2 }}>
+                    <Typography variant="subtitle2">Key Reasons</Typography>
+                    {story.reasons.map((reason) => (
+                      <Typography key={reason} variant="body2" color="text.secondary">{reason}</Typography>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Stack direction="row" justifyContent="space-between" alignItems="center">
+                  <Typography variant="subtitle2">Diagnostics (UTC)</Typography>
+                  <Button size="small" onClick={() => setShowTradeDiagnostics((prev) => !prev)}>
+                    {showTradeDiagnostics ? 'Hide Diagnostics' : 'Show Diagnostics'}
+                  </Button>
+                </Stack>
+                <Collapse in={showTradeDiagnostics}>
+                  <Stack spacing={0.8}>
+                    {(selectedTrade.timeline || []).map((event, index) => (
+                      <Card key={`${event.stage}-${event.timeUtc || index}`} variant="outlined">
+                        <CardContent>
+                          <Typography variant="subtitle2">{event.stage}</Typography>
+                          <Typography variant="caption" color="text.secondary">{event.timeUtc ? formatUtcTimestamp(event.timeUtc) : 'N/A'}</Typography>
+                          <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                            {JSON.stringify(event.details || {}, null, 2)}
+                          </Typography>
+                        </CardContent>
+                      </Card>
+                    ))}
+                  </Stack>
+                </Collapse>
+              </Stack>
+            )
+          })()}
         </Box>
       </Drawer>
     </Stack>
