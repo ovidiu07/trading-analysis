@@ -17,4 +17,7 @@ public class BacktestLabRunResultsResponse {
     OffsetDateTime completedAt;
     BacktestLabSummaryResponse summary;
     List<BacktestLabTradeResultResponse> trades;
+    List<BacktestCandidateSetupResponse> candidates;
+    BacktestCandidateSummaryResponse candidateSummary;
+    BacktestPlaybookResponse latestPlaybook;
 }

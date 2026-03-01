@@ -44,6 +44,7 @@ public class TodaySessionResponse {
     UUID activeSlLevelId;
     UUID activeTpLevelId;
     UUID activeSweepPoolId;
+    SessionActivePlaybookDto activePlaybook;
     List<SessionLevelDto> levels;
     List<SessionPoolDto> pools;
     SessionNarrativeDto narrative;

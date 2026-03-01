@@ -200,6 +200,11 @@ public class TodaySessionController {
         return todaySessionService.setActiveSweepLevel(request);
     }
 
+    @PostMapping("/sessions/today/playbook/{playbookId}/apply")
+    public TodaySessionResponse applyPlaybookToToday(@PathVariable UUID playbookId) {
+        return todaySessionService.applyPlaybookToToday(playbookId);
+    }
+
     @GetMapping("/checklistTemplates")
     public List<ChecklistTemplateResponse> listTemplates(@RequestParam(name = "type", required = false) ChecklistTemplateType type) {
         return todaySessionService.listChecklistTemplates(type);

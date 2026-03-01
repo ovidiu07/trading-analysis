@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import type { ComponentProps } from 'react'
@@ -16,10 +16,18 @@ const backtestApiMock = vi.hoisted(() => ({
   runBacktestOptimizer: vi.fn(),
   getBacktestOptimizerRun: vi.fn(),
   getBacktestRunResultsV2: vi.fn(),
-  getBacktestRunReportV2: vi.fn()
+  getBacktestRunReportV2: vi.fn(),
+  getBacktestRunCandidatesV2: vi.fn(),
+  reviewBacktestCandidate: vi.fn(),
+  promoteBacktestRunToPlaybook: vi.fn()
+}))
+
+const sessionApiMock = vi.hoisted(() => ({
+  applyTodayPlaybook: vi.fn()
 }))
 
 vi.mock('../../api/backtest', () => backtestApiMock)
+vi.mock('../../api/session', () => sessionApiMock)
 
 const renderWizard = (props: ComponentProps<typeof BacktestLabWizard> = {}) => render(
   <MemoryRouter>
@@ -27,10 +35,26 @@ const renderWizard = (props: ComponentProps<typeof BacktestLabWizard> = {}) => r
   </MemoryRouter>
 )
 
+const uploadCsvAndContinue = async () => {
+  const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
+  fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+  await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
+  await userEvent.click(screen.getByRole('button', { name: 'Continue' }))
+}
+
+const runBacktestToResults = async () => {
+  await uploadCsvAndContinue()
+  await userEvent.click(screen.getByRole('button', { name: /Save Strategy/i }))
+  await userEvent.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
+  await waitFor(() => expect(backtestApiMock.runBacktestDatasetSet).toHaveBeenCalled())
+  await screen.findByText('Quick Backtest Summary')
+}
+
 describe('BacktestLabWizard', () => {
   beforeEach(() => {
     localStorage.clear()
     vi.clearAllMocks()
+
     backtestApiMock.createBacktestDatasetSet.mockResolvedValue({
       id: 'set-1',
       instrument: 'EURUSD',
@@ -84,7 +108,7 @@ describe('BacktestLabWizard', () => {
     backtestApiMock.saveBacktestStrategyConfig.mockResolvedValue({
       id: 'cfg-1',
       datasetSetId: 'set-1',
-      name: 'Asia Raid -> London Reversal',
+      name: 'Asia Sweep -> London Reversal',
       configJson: {},
       createdAt: '2026-02-24T10:05:00Z',
       updatedAt: '2026-02-24T10:05:00Z'
@@ -98,45 +122,13 @@ describe('BacktestLabWizard', () => {
       toUtc: '2026-02-10T23:59:59Z',
       createdAt: '2026-02-24T10:10:00Z',
       completedAt: '2026-02-24T10:10:04Z',
-      errorMsg: null
-    })
-    backtestApiMock.runBacktestOptimizer.mockResolvedValue({
-      optimizerRunId: 'opt-1',
-      status: 'COMPLETED',
-      variantCount: 8,
-      maxVariants: 100,
-      truncated: false,
-      createdAtUtc: '2026-02-24T10:20:00Z',
-      summary: { executedVariants: 8 },
-      variants: []
-    })
-    backtestApiMock.getBacktestOptimizerRun.mockResolvedValue({
-      optimizerRunId: 'opt-1',
-      status: 'COMPLETED',
-      variantCount: 8,
-      maxVariants: 100,
-      truncated: false,
-      createdAtUtc: '2026-02-24T10:20:00Z',
-      summary: { executedVariants: 8 },
-      variants: [
-        {
-          rank: 1,
-          params: { mssMinConfirmCandles: 3 },
-          trades: 12,
-          sampleSize: 12,
-          winRate: 58.3,
-          profitFactor: 1.7,
-          expectancyR: 0.21,
-          avgR: 0.21,
-          maxDdR: 1.1,
-          fillRate: 80
-        }
-      ]
+      errorMsg: null,
+      warnings: []
     })
     backtestApiMock.getBacktestRunResultsV2.mockResolvedValue({
       runId: 'run-1',
       status: 'COMPLETED',
-      strategyName: 'Asia Raid -> London Reversal',
+      strategyName: 'Asia Sweep -> London Reversal',
       createdAt: '2026-02-24T10:10:00Z',
       completedAt: '2026-02-24T10:10:04Z',
       summary: {
@@ -169,19 +161,73 @@ describe('BacktestLabWizard', () => {
           durationSec: 2400,
           evidence: {},
           timeline: [
-            { stage: 'SWEEP', timeUtc: '2026-02-05T08:10:00Z', details: { poolLevel: '1.182920', sweepExtremePrice: '1.183800', sweepExtremeTime: '2026-02-05T08:10:00Z', depth: 0.0008 } },
+            { stage: 'SWEEP', timeUtc: '2026-02-05T08:10:00Z', details: {} },
             { stage: 'DISPLACEMENT', timeUtc: '2026-02-05T08:15:00Z', details: {} },
             { stage: 'MSS_BOS', timeUtc: '2026-02-05T08:20:00Z', details: {} },
             { stage: 'ENTRY', timeUtc: '2026-02-05T08:25:00Z', details: {} },
-            { stage: 'EXIT', timeUtc: '2026-02-05T09:05:00Z', details: { reason: 'TP' } }
+            { stage: 'EXIT', timeUtc: '2026-02-05T09:05:00Z', details: {} }
           ]
         }
-      ]
+      ],
+      candidates: [
+        {
+          candidateId: 'candidate-1',
+          runId: 'run-1',
+          tradeId: 'trade-1',
+          symbol: 'EURUSD',
+          sessionName: 'LONDON',
+          setupTemplate: 'ASIA_SWEEP_LONDON_REVERSAL',
+          state: 'CONVERTED_TO_TRADE',
+          candidateTimeUtc: '2026-02-05T08:20:00Z',
+          confidenceScore: 82,
+          qualityLabel: 'HIGH',
+          storySummary: 'Asia high sweep with London MSS confirmation.',
+          qualifiedReason: 'Candidate passed all configured gates.',
+          failedReason: null,
+          pool: { type: 'ASIA_H' },
+          sweep: { side: 'HIGH' },
+          displacement: { ratio: '1.9' },
+          structure: { confirmationType: 'MSS' },
+          entry: { fillStatus: 'FILLED' },
+          evidence: {}
+        }
+      ],
+      candidateSummary: {
+        totalCandidates: 1,
+        convertedTrades: 1,
+        userAccepted: 0,
+        userRejected: 0,
+        byState: { CONVERTED_TO_TRADE: 1 }
+      },
+      latestPlaybook: null
     })
+    backtestApiMock.getBacktestRunCandidatesV2.mockResolvedValue([
+      {
+        candidateId: 'candidate-1',
+        runId: 'run-1',
+        tradeId: 'trade-1',
+        symbol: 'EURUSD',
+        sessionName: 'LONDON',
+        setupTemplate: 'ASIA_SWEEP_LONDON_REVERSAL',
+        state: 'CONVERTED_TO_TRADE',
+        candidateTimeUtc: '2026-02-05T08:20:00Z',
+        confidenceScore: 82,
+        qualityLabel: 'HIGH',
+        storySummary: 'Asia high sweep with London MSS confirmation.',
+        qualifiedReason: 'Candidate passed all configured gates.',
+        failedReason: null,
+        pool: { type: 'ASIA_H' },
+        sweep: { side: 'HIGH' },
+        displacement: { ratio: '1.9' },
+        structure: { confirmationType: 'MSS' },
+        entry: { fillStatus: 'FILLED' },
+        evidence: {}
+      }
+    ])
     backtestApiMock.getBacktestRunReportV2.mockResolvedValue({
       reportId: 'report-1',
       runId: 'run-1',
-      strategyNameSnapshot: 'Asia Raid -> London Reversal',
+      strategyNameSnapshot: 'Asia Sweep -> London Reversal',
       strategyConfigSnapshotJson: {},
       filtersSnapshotJson: {},
       summarySnapshotJson: {},
@@ -190,6 +236,80 @@ describe('BacktestLabWizard', () => {
       reportMarkdown: '# Strategy Diagnostics Report\n\n- Sample size: 12',
       reportVersion: 'v1',
       createdAtUtc: '2026-02-24T10:10:05Z'
+    })
+    backtestApiMock.runBacktestOptimizer.mockResolvedValue({
+      optimizerRunId: 'opt-1',
+      status: 'COMPLETED',
+      variantCount: 8,
+      maxVariants: 100,
+      truncated: false,
+      createdAtUtc: '2026-02-24T10:20:00Z',
+      summary: { executedVariants: 8 },
+      variants: []
+    })
+    backtestApiMock.getBacktestOptimizerRun.mockResolvedValue({
+      optimizerRunId: 'opt-1',
+      status: 'COMPLETED',
+      variantCount: 8,
+      maxVariants: 100,
+      truncated: false,
+      createdAtUtc: '2026-02-24T10:20:00Z',
+      summary: {
+        executedVariants: 8,
+        bestWinRateVariant: { rank: 1, winRate: 60, sampleSize: 20, expectancyR: 0.2 },
+        bestExpectancyVariant: { rank: 2, winRate: 55, sampleSize: 20, expectancyR: 0.3 },
+        bestBalancedVariant: { rank: 3, winRate: 57, sampleSize: 24, expectancyR: 0.22 },
+        recommendedLiveVariant: { rank: 4, winRate: 56, sampleSize: 26, expectancyR: 0.21 }
+      },
+      variants: [
+        {
+          rank: 1,
+          params: { mssMinConfirmCandles: 3 },
+          trades: 12,
+          sampleSize: 12,
+          winRate: 58.3,
+          profitFactor: 1.7,
+          expectancyR: 0.21,
+          avgR: 0.21,
+          maxDdR: 1.1,
+          fillRate: 80
+        }
+      ]
+    })
+    backtestApiMock.reviewBacktestCandidate.mockResolvedValue({
+      candidateId: 'candidate-1',
+      candidateState: 'ACCEPTED_BY_USER',
+      decision: 'ACCEPT',
+      note: 'Accepted',
+      reviewedAtUtc: '2026-02-24T10:30:00Z'
+    })
+    backtestApiMock.promoteBacktestRunToPlaybook.mockResolvedValue({
+      playbookId: 'playbook-1',
+      runId: 'run-1',
+      datasetSetId: 'set-1',
+      strategyConfigId: 'cfg-1',
+      name: 'Asia Sweep Playbook',
+      templateFamily: 'ASIA_SWEEP_LONDON_REVERSAL',
+      status: 'ACTIVE',
+      expectedWinRate: 58.33,
+      expectancyR: 0.21,
+      profitFactor: 1.7,
+      maxDrawdownR: 1.2,
+      sampleSize: 12,
+      playbook: {},
+      validationSummary: { confidence: 'Medium', sampleSize: 12 },
+      createdAtUtc: '2026-02-24T10:35:00Z',
+      updatedAtUtc: '2026-02-24T10:35:00Z'
+    })
+
+    sessionApiMock.applyTodayPlaybook.mockResolvedValue({
+      id: 'today-1',
+      sessionDate: '2026-03-01',
+      activePlaybook: {
+        playbookId: 'playbook-1',
+        name: 'Asia Sweep Playbook',
+        snapshot: {}
+      }
     })
 
     Object.defineProperty(window, 'matchMedia', {
@@ -207,308 +327,80 @@ describe('BacktestLabWizard', () => {
     })
   })
 
-  it('supports upload -> strategy save -> run flow', async () => {
-    const user = userEvent.setup()
+  it('shows quick backtest essential controls by default', async () => {
     renderWizard()
+    await uploadCsvAndContinue()
 
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    expect(fileInput).toBeInTheDocument()
-    const file = new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })
-    fireEvent.change(fileInput, { target: { files: [file] } })
-
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    expect(await screen.findByText('Upload Summary')).toBeInTheDocument()
-    expect(screen.getByText('EURUSD_M5.csv')).toBeInTheDocument()
-    expect(screen.getByText('Session Preview')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    expect(await screen.findByLabelText('Strategy name')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: /Asia Raid -> London Reversal/i }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-    await waitFor(() => expect(backtestApiMock.saveBacktestStrategyConfig).toHaveBeenCalled())
-
-    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
-    await waitFor(() => expect(backtestApiMock.runBacktestDatasetSet).toHaveBeenCalled())
-    expect(await screen.findByText('Trades')).toBeInTheDocument()
-    expect(screen.getByText(/Generate Diagnostics Report/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Quick Backtest' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Strategy template')).toBeInTheDocument()
+    expect(screen.getByLabelText('Context TF')).toBeInTheDocument()
+    expect(screen.getByLabelText('Pool TF')).toBeInTheDocument()
+    expect(screen.getByLabelText('Entry TF')).toBeInTheDocument()
+    expect(screen.getByLabelText('Sweep type')).toBeInTheDocument()
+    expect(screen.getByLabelText('Minimum sweep depth (pips)')).toBeInTheDocument()
+    expect(screen.getByLabelText('Displacement strictness')).toBeInTheDocument()
+    expect(screen.getByLabelText('MSS strictness')).toBeInTheDocument()
+    expect(screen.getByLabelText('Retrace %')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Advanced settings/i })).toBeInTheDocument()
   })
 
-  it('regenerates backtest and refreshes run artifacts on repeated clicks', async () => {
-    const user = userEvent.setup()
+  it('runs quick flow and renders storyline-centric results', async () => {
     renderWizard()
+    await runBacktestToResults()
 
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
-
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-
-    const regenerate = await screen.findByRole('button', { name: /Regenerate Backtest/i })
-    await user.click(regenerate)
-    await waitFor(() => expect(backtestApiMock.runBacktestDatasetSet).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(backtestApiMock.getBacktestRunResultsV2).toHaveBeenCalledTimes(1))
-    await waitFor(() => expect(screen.getByRole('button', { name: /Regenerate Backtest/i })).toBeEnabled())
-
-    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
-    await waitFor(() => expect(backtestApiMock.runBacktestDatasetSet).toHaveBeenCalledTimes(2))
-    await waitFor(() => expect(backtestApiMock.getBacktestRunResultsV2).toHaveBeenCalledTimes(2))
+    expect(screen.getByText('Quick Backtest Summary')).toBeInTheDocument()
+    expect(screen.getByText('Candidate Flow')).toBeInTheDocument()
+    expect(screen.getByText('Trades')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /Open Strategy Studio/i })).toBeInTheDocument()
   })
 
-  it('opens trade storyline drawer, then expands diagnostics and renders report markdown', async () => {
-    const user = userEvent.setup()
+  it('renders strategy studio tabs and rule map/candidate/optimize panels', async () => {
     renderWizard()
+    await uploadCsvAndContinue()
 
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, {
-      target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] }
-    })
+    await userEvent.click(screen.getByRole('button', { name: 'Strategy Studio' }))
 
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
+    expect(screen.getByRole('tab', { name: 'Recipe' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Rules Map' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Candidates' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Optimize' })).toBeInTheDocument()
 
-    const storylineButton = await screen.findByRole('button', { name: /Storyline/i })
-    await user.click(storylineButton)
-    expect(await screen.findByText('Trade Storyline')).toBeInTheDocument()
-    expect(screen.getByText(/Pool level/i)).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Show Diagnostics/i })).toBeInTheDocument()
-    await user.click(screen.getByRole('button', { name: /Show Diagnostics/i }))
-    expect(screen.getByText('SWEEP')).toBeInTheDocument()
-    expect(screen.getByText('2026-02-05T08:10:00Z')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: 'Rules Map' }))
+    expect(screen.getByText(/Flow: Pool detected/i)).toBeInTheDocument()
 
-    await user.keyboard('{Escape}')
-    await user.click(screen.getByRole('button', { name: /Generate Diagnostics Report/i }))
-    expect(await screen.findByText('Strategy Diagnostics Report')).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('tab', { name: 'Candidates' }))
+    expect(screen.getByText(/Run a backtest first/i)).toBeInTheDocument()
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Optimize' }))
+    expect(screen.getByRole('button', { name: /Run Optimizer/i })).toBeInTheDocument()
   })
 
-  it('auto-populates run date range from dataset bounds', async () => {
-    const user = userEvent.setup()
-    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
-      datasetSetId: 'set-1',
-      instrument: 'EURUSD',
-      timezoneBasis: 'UTC',
-      datasets: [
-        {
-          datasetId: 'dataset-1',
-          timeframe: 'M5',
-          originalFilename: 'EURUSD_M5.csv',
-          minTimeUtc: '2002-01-02T00:00:00Z',
-          maxTimeUtc: '2025-12-31T23:55:00Z',
-          candleCount: 2880,
-          columnsMapped: 'time/open/high/low/close',
-          status: 'READY',
-          runnable: true,
-          minRequiredCandles: 30,
-          warnings: [],
-          fatalErrors: []
-        }
-      ],
-      sessionPreview: []
-    })
+  it('supports candidate review actions in strategy studio', async () => {
     renderWizard()
+    await runBacktestToResults()
 
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+    await userEvent.click(screen.getByRole('button', { name: /Open Strategy Studio/i }))
+    await userEvent.click(screen.getByRole('tab', { name: 'Candidates' }))
 
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
+    expect(await screen.findByText(/Asia high sweep with London MSS confirmation/i)).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Accept' }))
 
-    const fromField = await screen.findByLabelText('From')
-    const toField = await screen.findByLabelText('To')
-    expect(fromField).toHaveValue('2002-01-02')
-    expect(toField).toHaveValue('2025-12-31')
+    await waitFor(() => expect(backtestApiMock.reviewBacktestCandidate).toHaveBeenCalledWith(
+      'candidate-1',
+      expect.objectContaining({ decision: 'ACCEPT' })
+    ))
   })
 
-  it('uses selected execution timeframe dataset bounds instead of global earliest dataset', async () => {
-    const user = userEvent.setup()
-    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
-      datasetSetId: 'set-1',
-      instrument: 'EURUSD',
-      timezoneBasis: 'UTC',
-      datasets: [
-        {
-          datasetId: 'dataset-m5',
-          timeframe: 'M5',
-          originalFilename: 'EURUSD_M5.csv',
-          minTimeUtc: '2025-11-09T22:00:00Z',
-          maxTimeUtc: '2026-02-20T21:55:00Z',
-          candleCount: 21024,
-          columnsMapped: 'time/open/high/low/close',
-          status: 'READY',
-          runnable: true,
-          minRequiredCandles: 30,
-          warnings: [],
-          fatalErrors: []
-        },
-        {
-          datasetId: 'dataset-d1',
-          timeframe: 'D1',
-          originalFilename: 'EURUSD_D1.csv',
-          minTimeUtc: '2002-05-05T21:00:00Z',
-          maxTimeUtc: '2026-02-19T22:00:00Z',
-          candleCount: 6181,
-          columnsMapped: 'time/open/high/low/close',
-          status: 'READY',
-          runnable: true,
-          minRequiredCandles: 30,
-          warnings: [],
-          fatalErrors: []
-        }
-      ],
-      sessionPreview: []
-    })
+  it('promotes a run to playbook and applies it to today session', async () => {
     renderWizard()
+    await runBacktestToResults()
 
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
+    await userEvent.click(screen.getByRole('button', { name: /Promote to Playbook/i }))
+    await waitFor(() => expect(backtestApiMock.promoteBacktestRunToPlaybook).toHaveBeenCalled())
 
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-
-    const fromField = await screen.findByLabelText('From')
-    const toField = await screen.findByLabelText('To')
-    expect(fromField).toHaveValue('2025-11-09')
-    expect(toField).toHaveValue('2026-02-20')
-  })
-
-  it('disables run button when date range is invalid', async () => {
-    const user = userEvent.setup()
-    renderWizard()
-
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
-
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-
-    fireEvent.change(await screen.findByLabelText('From'), { target: { value: '2026-02-10' } })
-    fireEvent.change(screen.getByLabelText('To'), { target: { value: '2026-02-01' } })
-
-    const callsBefore = backtestApiMock.runBacktestDatasetSet.mock.calls.length
-    const runButton = screen.getByRole('button', { name: /Regenerate Backtest/i })
-    expect(runButton).toBeDisabled()
-    expect(backtestApiMock.runBacktestDatasetSet.mock.calls.length).toBe(callsBefore)
-  })
-
-  it('enables run button and shows warning panel when dataset is WARN but runnable', async () => {
-    const user = userEvent.setup()
-    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
-      datasetSetId: 'set-1',
-      instrument: 'EURUSD',
-      timezoneBasis: 'UTC',
-      datasets: [
-        {
-          datasetId: 'dataset-m5',
-          timeframe: 'M5',
-          originalFilename: 'EURUSD_M5.csv',
-          minTimeUtc: '2025-11-09T22:00:00Z',
-          maxTimeUtc: '2026-02-20T21:55:00Z',
-          candleCount: 21024,
-          columnsMapped: 'time/open/high/low/close',
-          status: 'WARN',
-          runnable: true,
-          minRequiredCandles: 30,
-          warnings: [{ code: 'DUPLICATES_REMOVED', message: 'Removed 4 duplicate timestamps.' }],
-          fatalErrors: []
-        }
-      ],
-      sessionPreview: []
-    })
-    renderWizard()
-
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
-
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-
-    expect(await screen.findByText(/Dataset has warnings/i)).toBeInTheDocument()
-    const runButton = screen.getByRole('button', { name: /Regenerate Backtest/i })
-    expect(runButton).toBeEnabled()
-
-    await user.click(screen.getByRole('button', { name: /View warnings/i }))
-    expect(await screen.findByText(/DUPLICATES_REMOVED: Removed 4 duplicate timestamps./i)).toBeInTheDocument()
-  })
-
-  it('disables run button when selected timeframe dataset is not runnable', async () => {
-    const user = userEvent.setup()
-    backtestApiMock.getBacktestDatasetSetDatasets.mockResolvedValue({
-      datasetSetId: 'set-1',
-      instrument: 'EURUSD',
-      timezoneBasis: 'UTC',
-      datasets: [
-        {
-          datasetId: 'dataset-m5',
-          timeframe: 'M5',
-          originalFilename: 'EURUSD_M5.csv',
-          minTimeUtc: '2025-11-09T22:00:00Z',
-          maxTimeUtc: '2026-02-20T21:55:00Z',
-          candleCount: 0,
-          columnsMapped: 'time/open/high/low/close',
-          status: 'WARN',
-          runnable: false,
-          minRequiredCandles: 30,
-          warnings: [],
-          fatalErrors: [{ code: 'NO_CANDLES', message: 'No candles were persisted for this dataset.' }]
-        }
-      ],
-      sessionPreview: []
-    })
-    renderWizard()
-
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
-
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-
-    expect((await screen.findAllByText(/No candles were persisted for this dataset./i)).length).toBeGreaterThan(0)
-    expect(screen.getByRole('button', { name: /Regenerate Backtest/i })).toBeDisabled()
-  })
-
-  it('runs optimizer and renders ranked variants table', async () => {
-    const user = userEvent.setup()
-    renderWizard()
-
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
-
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-    await user.click(screen.getByRole('button', { name: /Regenerate Backtest/i }))
-
-    await user.click(await screen.findByRole('button', { name: /Run Optimizer/i }))
-    await waitFor(() => expect(backtestApiMock.runBacktestOptimizer).toHaveBeenCalled())
-    expect(await screen.findByLabelText(/Sort variants/i)).toBeInTheDocument()
-    expect(
-      screen.getByText((content) => content.includes('mssMinConfirmCandles') || content.includes('mss_min_confirm_candles'))
-    ).toBeInTheDocument()
-  })
-
-  it('shows regenerate action row with diagnostics actions in run step', async () => {
-    const user = userEvent.setup()
-    renderWizard()
-
-    const fileInput = document.querySelector('input[type="file"][accept=".csv,text/csv"]') as HTMLInputElement
-    fireEvent.change(fileInput, { target: { files: [new File(['time,open,high,low,close\n1,1,2,0.5,1.5'], 'EURUSD_M5.csv', { type: 'text/csv' })] } })
-
-    await waitFor(() => expect(backtestApiMock.uploadBacktestDatasetCsv).toHaveBeenCalled())
-    await user.click(screen.getByRole('button', { name: 'Continue' }))
-    await user.click(screen.getByRole('button', { name: /Save Strategy/i }))
-
-    expect(await screen.findByRole('button', { name: /Save Strategy/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Regenerate Backtest/i })).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Generate Diagnostics Report/i })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /Open Diagnostics/i })).toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: /Apply Playbook to Today/i }))
+    await waitFor(() => expect(sessionApiMock.applyTodayPlaybook).toHaveBeenCalledWith('playbook-1'))
+    expect(await screen.findByText(/Active Strategy Playbook: Asia Sweep Playbook/i)).toBeInTheDocument()
   })
 
   it('shows symbol mismatch warning when header symbol differs from dataset instrument', async () => {
@@ -523,7 +415,7 @@ describe('BacktestLabWizard', () => {
     expect(screen.getByRole('button', { name: /Use GBPUSD/i })).toBeInTheDocument()
   })
 
-  it('keeps cards readable on mobile width', async () => {
+  it('keeps upload section readable on mobile width', async () => {
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation((query: string) => ({
@@ -540,8 +432,6 @@ describe('BacktestLabWizard', () => {
 
     renderWizard()
     expect(await screen.findByText('Upload CSVs')).toBeInTheDocument()
-    const card = screen.getByText('Upload Summary').closest('.MuiCard-root')
-    expect(card).toBeInTheDocument()
-    expect(within(card as HTMLElement).getByText(/No files uploaded yet/i)).toBeInTheDocument()
+    expect(screen.getByText(/No files uploaded yet/i)).toBeInTheDocument()
   })
 })

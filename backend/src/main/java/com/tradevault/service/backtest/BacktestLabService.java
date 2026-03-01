@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.BacktestDataset;
+import com.tradevault.domain.entity.BacktestCandidateReview;
 import com.tradevault.domain.entity.BacktestDatasetSet;
 import com.tradevault.domain.entity.BacktestOptimizerRun;
 import com.tradevault.domain.entity.BacktestRun;
@@ -13,12 +14,21 @@ import com.tradevault.domain.entity.BacktestRunReport;
 import com.tradevault.domain.entity.BacktestSetup;
 import com.tradevault.domain.entity.BacktestStrategyConfig;
 import com.tradevault.domain.entity.BacktestTrade;
+import com.tradevault.domain.entity.StrategyPlaybook;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.BacktestCandidateReviewDecision;
+import com.tradevault.domain.enums.BacktestCandidateState;
 import com.tradevault.domain.enums.BacktestExitReason;
 import com.tradevault.domain.enums.BacktestOrderType;
 import com.tradevault.domain.enums.BacktestRunStatus;
 import com.tradevault.domain.enums.BacktestTimeframe;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.StrategyPlaybookStatus;
+import com.tradevault.domain.enums.StrategyTemplate;
+import com.tradevault.dto.backtest.BacktestCandidateReviewRequest;
+import com.tradevault.dto.backtest.BacktestCandidateReviewResponse;
+import com.tradevault.dto.backtest.BacktestCandidateSetupResponse;
+import com.tradevault.dto.backtest.BacktestCandidateSummaryResponse;
 import com.tradevault.dto.backtest.BacktestDatasetFileResponse;
 import com.tradevault.dto.backtest.BacktestDatasetSetCreateRequest;
 import com.tradevault.dto.backtest.BacktestDatasetSetDatasetsResponse;
@@ -34,12 +44,16 @@ import com.tradevault.dto.backtest.BacktestOptimizerGridRequest;
 import com.tradevault.dto.backtest.BacktestOptimizerRunRequest;
 import com.tradevault.dto.backtest.BacktestOptimizerRunResponse;
 import com.tradevault.dto.backtest.BacktestOptimizerVariantResultResponse;
+import com.tradevault.dto.backtest.BacktestPlaybookResponse;
+import com.tradevault.dto.backtest.BacktestPromotePlaybookRequest;
 import com.tradevault.dto.backtest.BacktestRunReportResponse;
 import com.tradevault.dto.backtest.BacktestSessionPreviewResponse;
 import com.tradevault.dto.backtest.BacktestStrategyConfigResponse;
 import com.tradevault.dto.backtest.BacktestStrategyConfigUpsertRequest;
 import com.tradevault.dto.backtest.CsvIngestRequest;
 import com.tradevault.dto.backtest.CsvUploadResponse;
+import com.tradevault.dto.backtest.PlaybookValidationSummaryResponse;
+import com.tradevault.repository.BacktestCandidateReviewRepository;
 import com.tradevault.repository.BacktestDatasetRepository;
 import com.tradevault.repository.BacktestDatasetSetRepository;
 import com.tradevault.repository.BacktestOptimizerRunRepository;
@@ -48,6 +62,7 @@ import com.tradevault.repository.BacktestRunRepository;
 import com.tradevault.repository.BacktestSetupRepository;
 import com.tradevault.repository.BacktestStrategyConfigRepository;
 import com.tradevault.repository.BacktestTradeRepository;
+import com.tradevault.repository.StrategyPlaybookRepository;
 import com.tradevault.service.CurrentUserService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -95,6 +110,8 @@ public class BacktestLabService {
     private final BacktestTradeRepository tradeRepository;
     private final BacktestRunReportRepository reportRepository;
     private final BacktestOptimizerRunRepository optimizerRunRepository;
+    private final BacktestCandidateReviewRepository candidateReviewRepository;
+    private final StrategyPlaybookRepository strategyPlaybookRepository;
     private final BacktestCsvService backtestCsvService;
     private final CandleDataService candleDataService;
     private final ObjectMapper objectMapper;
@@ -415,6 +432,10 @@ public class BacktestLabService {
             putDecimal(summary, "bestExpectancyR", responseRows.get(0).getExpectancyR());
             putDecimal(summary, "bestProfitFactor", responseRows.get(0).getProfitFactor());
             putDecimal(summary, "bestWinRate", responseRows.get(0).getWinRate());
+            summary.set("bestWinRateVariant", optimizerVariantNode(selectBestWinRateVariant(responseRows)));
+            summary.set("bestExpectancyVariant", optimizerVariantNode(selectBestExpectancyVariant(responseRows)));
+            summary.set("bestBalancedVariant", optimizerVariantNode(selectBestBalancedVariant(responseRows)));
+            summary.set("recommendedLiveVariant", optimizerVariantNode(selectRecommendedLiveVariant(responseRows)));
         }
 
         BacktestOptimizerRun saved = optimizerRunRepository.save(BacktestOptimizerRun.builder()
@@ -736,13 +757,28 @@ public class BacktestLabService {
         User user = currentUserService.getCurrentUser();
         BacktestRun run = requireRun(runId, user.getId());
         List<BacktestTrade> trades = tradeRepository.findByRun_IdOrderByEntryTimeAscCreatedAtAsc(runId);
+        List<BacktestSetup> setups = setupRepository.findByRun_IdAndRun_User_IdOrderByCreatedAtAsc(runId, user.getId());
 
         List<BacktestLabTradeResultResponse> rows = trades.stream()
                 .map(this::toTradeResult)
                 .toList();
+        Map<UUID, BacktestTrade> tradeBySetupId = new HashMap<>();
+        for (BacktestTrade trade : trades) {
+            if (trade.getSetup() != null && trade.getSetup().getId() != null) {
+                tradeBySetupId.put(trade.getSetup().getId(), trade);
+            }
+        }
+        List<BacktestCandidateSetupResponse> candidates = setups.stream()
+                .map(setup -> toCandidateResponse(run, setup, tradeBySetupId.get(setup.getId())))
+                .toList();
 
         BacktestLabSummaryResponse summary = summarize(rows);
+        BacktestCandidateSummaryResponse candidateSummary = summarizeCandidates(candidates);
         String strategyName = run.getStrategyConfig() == null ? STRATEGY_DEFAULT_NAME : run.getStrategyConfig().getName();
+        BacktestPlaybookResponse latestPlaybook = strategyPlaybookRepository
+                .findFirstByRun_IdAndUser_IdOrderByUpdatedAtUtcDesc(run.getId(), user.getId())
+                .map(this::toPlaybookResponse)
+                .orElse(null);
 
         return BacktestLabRunResultsResponse.builder()
                 .runId(run.getId())
@@ -752,7 +788,122 @@ public class BacktestLabService {
                 .completedAt(run.getCompletedAt())
                 .summary(summary)
                 .trades(rows)
+                .candidates(candidates)
+                .candidateSummary(candidateSummary)
+                .latestPlaybook(latestPlaybook)
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public List<BacktestCandidateSetupResponse> getRunCandidates(UUID runId) {
+        User user = currentUserService.getCurrentUser();
+        BacktestRun run = requireRun(runId, user.getId());
+        List<BacktestSetup> setups = setupRepository.findByRun_IdAndRun_User_IdOrderByCreatedAtAsc(runId, user.getId());
+        Map<UUID, BacktestTrade> tradeBySetupId = new HashMap<>();
+        List<BacktestTrade> trades = tradeRepository.findByRun_IdOrderByEntryTimeAscCreatedAtAsc(runId);
+        for (BacktestTrade trade : trades) {
+            if (trade.getSetup() != null && trade.getSetup().getId() != null) {
+                tradeBySetupId.put(trade.getSetup().getId(), trade);
+            }
+        }
+        return setups.stream()
+                .map(setup -> toCandidateResponse(run, setup, tradeBySetupId.get(setup.getId())))
+                .toList();
+    }
+
+    @Transactional
+    public BacktestCandidateReviewResponse reviewCandidate(UUID candidateId, BacktestCandidateReviewRequest request) {
+        User user = currentUserService.getCurrentUser();
+        BacktestSetup setup = setupRepository.findByIdAndRun_User_Id(candidateId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Backtest candidate not found"));
+
+        BacktestCandidateReviewDecision decision = parseReviewDecision(request == null ? null : request.getDecision());
+        String note = truncate(normalizeOptionalText(request == null ? null : request.getNote()), 280);
+
+        if (decision == BacktestCandidateReviewDecision.ACCEPT) {
+            setup.setCandidateState(setup.getConvertedTradeId() != null
+                    ? BacktestCandidateState.CONVERTED_TO_TRADE
+                    : BacktestCandidateState.ACCEPTED_BY_USER);
+        } else {
+            setup.setCandidateState(BacktestCandidateState.REJECTED_BY_USER);
+        }
+        setupRepository.save(setup);
+
+        OffsetDateTime reviewedAt = OffsetDateTime.now(ZoneOffset.UTC);
+        candidateReviewRepository.save(BacktestCandidateReview.builder()
+                .setup(setup)
+                .user(user)
+                .decision(decision)
+                .note(note)
+                .reviewedAtUtc(reviewedAt)
+                .build());
+
+        return BacktestCandidateReviewResponse.builder()
+                .candidateId(setup.getId())
+                .candidateState(setup.getCandidateState().name())
+                .decision(decision.name())
+                .note(note)
+                .reviewedAtUtc(reviewedAt)
+                .build();
+    }
+
+    @Transactional
+    public BacktestPlaybookResponse promoteRunToPlaybook(UUID runId, BacktestPromotePlaybookRequest request) {
+        User user = currentUserService.getCurrentUser();
+        BacktestRun run = requireRun(runId, user.getId());
+        BacktestLabRunResultsResponse results = getRunResults(runId);
+
+        BacktestStrategyConfig strategyConfig = run.getStrategyConfig();
+        JsonNode strategyConfigJson = strategyConfig == null || strategyConfig.getConfigJson() == null
+                ? objectMapper.createObjectNode()
+                : strategyConfig.getConfigJson();
+        StrategyTemplate template = templateFromConfig(strategyConfigJson);
+        String playbookName = normalizeName(
+                request == null ? null : request.getName(),
+                (strategyConfig == null || strategyConfig.getName() == null || strategyConfig.getName().isBlank())
+                        ? "Playbook - " + template.name()
+                        : strategyConfig.getName()
+        );
+
+        ObjectNode playbookJson = buildPlaybookJson(run, strategyConfigJson, results, template);
+        PlaybookValidationSummaryResponse validationSummary = buildPlaybookValidationSummary(results);
+        JsonNode validationJson = objectMapper.valueToTree(validationSummary);
+
+        StrategyPlaybook playbook = strategyPlaybookRepository.save(StrategyPlaybook.builder()
+                .user(user)
+                .datasetSet(run.getDatasetSet())
+                .strategyConfig(strategyConfig)
+                .run(run)
+                .name(playbookName)
+                .templateFamily(template)
+                .status(StrategyPlaybookStatus.ACTIVE)
+                .expectedWinRate(results.getSummary() == null ? null : results.getSummary().getWinRate())
+                .expectancyR(results.getSummary() == null ? null : results.getSummary().getExpectancyR())
+                .profitFactor(computeProfitFactor(results.getTrades()))
+                .maxDrawdownR(computeMaxDrawdownR(results.getTrades()))
+                .sampleSize(results.getSummary() == null ? 0 : results.getSummary().getSampleSize())
+                .playbookJson(playbookJson)
+                .validationSummaryJson(validationJson)
+                .build());
+
+        return toPlaybookResponse(playbook);
+    }
+
+    @Transactional(readOnly = true)
+    public BacktestPlaybookResponse getPlaybook(UUID playbookId) {
+        User user = currentUserService.getCurrentUser();
+        StrategyPlaybook playbook = strategyPlaybookRepository.findByIdAndUser_Id(playbookId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Strategy playbook not found"));
+        return toPlaybookResponse(playbook);
+    }
+
+    @Transactional(readOnly = true)
+    public List<BacktestPlaybookResponse> listPlaybooks() {
+        User user = currentUserService.getCurrentUser();
+        return strategyPlaybookRepository.findByUser_IdOrderByUpdatedAtUtcDesc(user.getId())
+                .stream()
+                .map(this::toPlaybookResponse)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -776,6 +927,8 @@ public class BacktestLabService {
         }
 
         for (EngineTrade tradeRow : trades) {
+            BacktestCandidateState candidateState = deriveCandidateState(tradeRow);
+            BigDecimal confidenceScore = candidateConfidenceScore(tradeRow);
             BacktestSetup setup = BacktestSetup.builder()
                     .run(run)
                     .sessionName(tradeRow.sessionName())
@@ -785,6 +938,11 @@ public class BacktestLabService {
                     .sweepTimeUtc(tradeRow.sweepTimeUtc())
                     .displacementTimeUtc(tradeRow.displacementTimeUtc())
                     .confirmTimeUtc(tradeRow.confirmTimeUtc())
+                    .templateKey(resolveTemplateKey(tradeRow))
+                    .candidateState(candidateState)
+                    .qualityScore(confidenceScore)
+                    .qualityLabel(confidenceLabelFromScore(confidenceScore))
+                    .storySummary(buildCandidateStorySummary(tradeRow))
                     .evidenceJson(tradeRow.setupEvidence())
                     .build();
             setup = setupRepository.save(setup);
@@ -816,7 +974,15 @@ public class BacktestLabService {
                     .metadataJson(tradeRow.metadata())
                     .evidenceJson(tradeRow.tradeEvidence())
                     .build();
-            tradeRepository.save(trade);
+            BacktestTrade savedTrade = tradeRepository.save(trade);
+            if ("FILLED".equalsIgnoreCase(tradeRow.fillStatus()) && savedTrade.getId() != null) {
+                setup.setConvertedTradeId(savedTrade.getId());
+                setup.setCandidateState(BacktestCandidateState.CONVERTED_TO_TRADE);
+                setupRepository.save(setup);
+            } else if ("NO_FILL".equalsIgnoreCase(tradeRow.fillStatus())) {
+                setup.setCandidateState(BacktestCandidateState.EXPIRED);
+                setupRepository.save(setup);
+            }
         }
     }
 
@@ -4356,6 +4522,432 @@ public class BacktestLabService {
                 .evidence(evidence)
                 .timeline(timeline)
                 .build();
+    }
+
+    private BacktestCandidateSetupResponse toCandidateResponse(BacktestRun run, BacktestSetup setup, BacktestTrade trade) {
+        JsonNode baseEvidence = setup.getEvidenceJson() == null ? objectMapper.createObjectNode() : setup.getEvidenceJson();
+        JsonNode tradeEvidence = trade == null || trade.getEvidenceJson() == null ? objectMapper.createObjectNode() : trade.getEvidenceJson();
+
+        ObjectNode pool = objectMapper.createObjectNode();
+        pool.put("type", firstText(tradeEvidence.path("poolType"), baseEvidence.path("poolType"), setup.getSweepType()));
+        pool.put("level", firstText(tradeEvidence.path("poolLevel"), baseEvidence.path("poolLevel"), null));
+
+        ObjectNode sweep = objectMapper.createObjectNode();
+        sweep.put("side", firstText(tradeEvidence.path("sweepSide"), baseEvidence.path("sweepSide"), null));
+        sweep.put("extremePrice", firstText(tradeEvidence.path("sweepExtremePrice"), baseEvidence.path("sweepExtremePrice"), null));
+        sweep.put("extremeTime", firstText(tradeEvidence.path("sweepExtremeTime"), baseEvidence.path("sweepExtremeTime"), isoUtc(setup.getSweepTimeUtc())));
+        sweep.put("depth", firstText(tradeEvidence.path("sweepDepth"), baseEvidence.path("sweepDepth"), null));
+
+        ObjectNode displacement = objectMapper.createObjectNode();
+        displacement.put("ratio", firstText(tradeEvidence.path("displacementRatio"), baseEvidence.path("displacementRatio"), null));
+        displacement.put("bodyPips", firstText(tradeEvidence.path("displacementBodyPips"), baseEvidence.path("displacementBodyPips"), null));
+        displacement.put("gapDetected", tradeEvidence.path("displacementGapDetected").asBoolean(false));
+
+        ObjectNode structure = objectMapper.createObjectNode();
+        structure.put("confirmationType", firstText(tradeEvidence.path("confirmationType"), baseEvidence.path("confirmationType"), setup.getConfirmType()));
+        structure.put("triggerTime", firstText(tradeEvidence.path("mssTriggerTime"), baseEvidence.path("mssTriggerTime"), isoUtc(setup.getConfirmTimeUtc())));
+        structure.put("confirmTime", firstText(tradeEvidence.path("mssConfirmTime"), baseEvidence.path("mssConfirmTime"), isoUtc(setup.getConfirmTimeUtc())));
+
+        ObjectNode entry = objectMapper.createObjectNode();
+        entry.put("entryTriggerPrice", firstText(tradeEvidence.path("entryTriggerPrice"), baseEvidence.path("entryTriggerPrice"), null));
+        entry.put("entryFinalExecutionPrice", firstText(tradeEvidence.path("entryFinalExecutionPrice"), baseEvidence.path("entryFinalExecutionPrice"), trade == null ? null : decimalText(trade.getEntryPrice())));
+        entry.put("fillStatus", trade == null ? "NO_TRADE" : (trade.getFillStatus() == null ? (trade.isFilled() ? "FILLED" : "NO_FILL") : trade.getFillStatus()));
+
+        BacktestCandidateState state = setup.getCandidateState() == null ? BacktestCandidateState.DETECTED : setup.getCandidateState();
+        String qualifiedReason = switch (state) {
+            case CONVERTED_TO_TRADE, QUALIFIED, ACCEPTED_BY_USER -> "Candidate passed configured sweep, displacement, structure, and entry filters.";
+            default -> null;
+        };
+        String failedReason = switch (state) {
+            case EXPIRED -> "Entry did not fill inside the configured entry window.";
+            case REJECTED_BY_RULE -> "Candidate failed one of the enabled rule gates.";
+            case REJECTED_BY_USER -> "Rejected manually during candidate review.";
+            default -> null;
+        };
+
+        OffsetDateTime candidateTime = setup.getConfirmTimeUtc() != null
+                ? setup.getConfirmTimeUtc()
+                : (setup.getSweepTimeUtc() != null ? setup.getSweepTimeUtc() : run.getCreatedAt());
+
+        return BacktestCandidateSetupResponse.builder()
+                .candidateId(setup.getId())
+                .runId(run.getId())
+                .tradeId(trade == null ? null : trade.getId())
+                .symbol(run.getSymbol())
+                .sessionName(firstText(tradeEvidence.path("sessionName"), baseEvidence.path("sessionName"), setup.getSessionName()))
+                .setupTemplate(setup.getTemplateKey())
+                .state(state.name())
+                .candidateTimeUtc(candidateTime == null ? null : candidateTime.toInstant())
+                .confidenceScore(setup.getQualityScore())
+                .qualityLabel(setup.getQualityLabel())
+                .storySummary(setup.getStorySummary())
+                .qualifiedReason(qualifiedReason)
+                .failedReason(failedReason)
+                .pool(pool)
+                .sweep(sweep)
+                .displacement(displacement)
+                .structure(structure)
+                .entry(entry)
+                .evidence(trade == null ? baseEvidence : tradeEvidence)
+                .build();
+    }
+
+    private BacktestCandidateSummaryResponse summarizeCandidates(List<BacktestCandidateSetupResponse> candidates) {
+        Map<String, Integer> byState = new LinkedHashMap<>();
+        int converted = 0;
+        int accepted = 0;
+        int rejected = 0;
+        for (BacktestCandidateSetupResponse item : candidates) {
+            String state = item.getState() == null ? BacktestCandidateState.DETECTED.name() : item.getState();
+            byState.merge(state, 1, Integer::sum);
+            if (BacktestCandidateState.CONVERTED_TO_TRADE.name().equals(state)) {
+                converted++;
+            }
+            if (BacktestCandidateState.ACCEPTED_BY_USER.name().equals(state)) {
+                accepted++;
+            }
+            if (BacktestCandidateState.REJECTED_BY_USER.name().equals(state)) {
+                rejected++;
+            }
+        }
+        return BacktestCandidateSummaryResponse.builder()
+                .totalCandidates(candidates.size())
+                .convertedTrades(converted)
+                .userAccepted(accepted)
+                .userRejected(rejected)
+                .byState(byState)
+                .build();
+    }
+
+    private BacktestPlaybookResponse toPlaybookResponse(StrategyPlaybook playbook) {
+        JsonNode validationJson = playbook.getValidationSummaryJson() == null ? objectMapper.createObjectNode() : playbook.getValidationSummaryJson();
+        PlaybookValidationSummaryResponse validation = PlaybookValidationSummaryResponse.builder()
+                .winRate(asDecimal(validationJson, "winRate"))
+                .expectancyR(asDecimal(validationJson, "expectancyR"))
+                .profitFactor(asDecimal(validationJson, "profitFactor"))
+                .sampleSize(validationJson.path("sampleSize").isInt() ? validationJson.path("sampleSize").asInt() : playbook.getSampleSize())
+                .maxDrawdownR(asDecimal(validationJson, "maxDrawdownR"))
+                .fillRate(asDecimal(validationJson, "fillRate"))
+                .confidence(text(validationJson.path("confidence"), "Low"))
+                .validationSplit(text(validationJson.path("validationSplit"), "single-window"))
+                .build();
+
+        return BacktestPlaybookResponse.builder()
+                .playbookId(playbook.getId())
+                .runId(playbook.getRun() == null ? null : playbook.getRun().getId())
+                .datasetSetId(playbook.getDatasetSet() == null ? null : playbook.getDatasetSet().getId())
+                .strategyConfigId(playbook.getStrategyConfig() == null ? null : playbook.getStrategyConfig().getId())
+                .name(playbook.getName())
+                .templateFamily(playbook.getTemplateFamily() == null ? StrategyTemplate.CUSTOM.name() : playbook.getTemplateFamily().name())
+                .status(playbook.getStatus() == null ? StrategyPlaybookStatus.ACTIVE.name() : playbook.getStatus().name())
+                .expectedWinRate(playbook.getExpectedWinRate())
+                .expectancyR(playbook.getExpectancyR())
+                .profitFactor(playbook.getProfitFactor())
+                .maxDrawdownR(playbook.getMaxDrawdownR())
+                .sampleSize(playbook.getSampleSize())
+                .playbook(playbook.getPlaybookJson())
+                .validationSummary(validation)
+                .createdAtUtc(playbook.getCreatedAtUtc())
+                .updatedAtUtc(playbook.getUpdatedAtUtc())
+                .build();
+    }
+
+    private StrategyTemplate templateFromConfig(JsonNode configJson) {
+        if (configJson == null || configJson.isNull()) {
+            return StrategyTemplate.CUSTOM;
+        }
+        String token = normalizeToken(text(firstPresent(
+                configJson.path("templateFamily"),
+                configJson.path("template"),
+                path(configJson, "setupRule", "template")
+        ), "CUSTOM"));
+        return switch (token) {
+            case "ASIASWEEPLONDONREVERSAL", "ASIALONDONREVERSAL", "ASIARAIDLONDONREVERSAL" ->
+                    StrategyTemplate.ASIA_SWEEP_LONDON_REVERSAL;
+            case "LONDONSWEEPNYREVERSAL", "LONDONNYREVERSAL", "LONDONRAIDNYREVERSAL" ->
+                    StrategyTemplate.LONDON_SWEEP_NY_REVERSAL;
+            case "SWEEPDISPLACEMENTFVGRETRACE" -> StrategyTemplate.SWEEP_DISPLACEMENT_FVG_RETRACE;
+            case "BOSCONTINUATION" -> StrategyTemplate.BOS_CONTINUATION;
+            case "PDHPDLREVERSAL" -> StrategyTemplate.PDH_PDL_REVERSAL;
+            default -> StrategyTemplate.CUSTOM;
+        };
+    }
+
+    private ObjectNode buildPlaybookJson(BacktestRun run,
+                                         JsonNode strategyConfigJson,
+                                         BacktestLabRunResultsResponse results,
+                                         StrategyTemplate template) {
+        ObjectNode playbook = objectMapper.createObjectNode();
+        BacktestLabSummaryResponse summary = results.getSummary();
+        List<BacktestLabTradeResultResponse> trades = results.getTrades() == null ? List.of() : results.getTrades();
+
+        Set<String> sessions = new LinkedHashSet<>();
+        Set<String> pools = new LinkedHashSet<>();
+        for (BacktestLabTradeResultResponse trade : trades) {
+            if (trade.getSessionName() != null && !trade.getSessionName().isBlank()) {
+                sessions.add(trade.getSessionName());
+            }
+            if (trade.getEvidence() != null) {
+                String pool = evidenceText(trade.getEvidence(), "poolType", null);
+                if (pool != null) {
+                    pools.add(pool);
+                }
+            }
+        }
+
+        playbook.put("strategyName", run.getStrategyConfig() == null ? STRATEGY_DEFAULT_NAME : run.getStrategyConfig().getName());
+        playbook.put("templateFamily", template.name());
+        playbook.put("bestConditions", "Highest expectancy windows with confirmed sweep -> displacement -> structure flow.");
+        playbook.put("disqualifyingConditions", "No displacement, invalid structure confirmation, or entry window expiry.");
+        ArrayNode preferredSessions = playbook.putArray("preferredSessions");
+        sessions.forEach(preferredSessions::add);
+        ArrayNode preferredPools = playbook.putArray("preferredPoolTypes");
+        pools.forEach(preferredPools::add);
+
+        ArrayNode confirmation = playbook.putArray("requiredConfirmationSequence");
+        confirmation.add("Pool detected");
+        confirmation.add("Sweep valid");
+        confirmation.add("Displacement valid");
+        confirmation.add(text(path(strategyConfigJson, "setupRule", "confirmationType"), "MSS"));
+        confirmation.add("Retrace valid");
+        confirmation.add("Entry valid");
+
+        playbook.put("entryModel", text(path(strategyConfigJson, "entryModel", "type"), "LIMIT_RETRACE_PERCENT"));
+        playbook.put("slModel", text(path(strategyConfigJson, "riskModel", "stopRule"), "SWEEP_EXTREME_PLUS_BUFFER"));
+        playbook.put("tpModel", text(path(strategyConfigJson, "riskModel", "tpRule"), "FIXED_R"));
+        putDecimal(playbook, "expectedWinRate", summary == null ? BigDecimal.ZERO : summary.getWinRate());
+        putDecimal(playbook, "expectancyR", summary == null ? BigDecimal.ZERO : summary.getExpectancyR());
+        playbook.put("sampleSize", summary == null ? 0 : summary.getSampleSize());
+        playbook.put("confidence", confidenceLabel(summary == null ? 0 : summary.getSampleSize()));
+        playbook.put("validationStatus", (summary != null && summary.getSampleSize() >= 30) ? "READY_FOR_FORWARD_TEST" : "NEEDS_MORE_SAMPLE");
+
+        ObjectNode scorecard = playbook.putObject("scorecard");
+        putDecimal(scorecard, "winRate", summary == null ? BigDecimal.ZERO : summary.getWinRate());
+        putDecimal(scorecard, "expectancyR", summary == null ? BigDecimal.ZERO : summary.getExpectancyR());
+        putDecimal(scorecard, "profitFactor", computeProfitFactor(trades));
+        putDecimal(scorecard, "maxDrawdownR", computeMaxDrawdownR(trades));
+        putDecimal(scorecard, "fillRate", summary == null ? BigDecimal.ZERO : summary.getFillRate());
+        scorecard.put("outOfSampleSupport", "model-ready");
+
+        return playbook;
+    }
+
+    private PlaybookValidationSummaryResponse buildPlaybookValidationSummary(BacktestLabRunResultsResponse results) {
+        BacktestLabSummaryResponse summary = results.getSummary();
+        return PlaybookValidationSummaryResponse.builder()
+                .winRate(summary == null ? BigDecimal.ZERO : summary.getWinRate())
+                .expectancyR(summary == null ? BigDecimal.ZERO : summary.getExpectancyR())
+                .profitFactor(computeProfitFactor(results.getTrades()))
+                .sampleSize(summary == null ? 0 : summary.getSampleSize())
+                .maxDrawdownR(computeMaxDrawdownR(results.getTrades()))
+                .fillRate(summary == null ? BigDecimal.ZERO : summary.getFillRate())
+                .confidence(confidenceLabel(summary == null ? 0 : summary.getSampleSize()))
+                .validationSplit("single-window")
+                .build();
+    }
+
+    private BacktestCandidateReviewDecision parseReviewDecision(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("Candidate review decision is required");
+        }
+        return switch (normalizeToken(raw)) {
+            case "ACCEPT", "ACCEPTED" -> BacktestCandidateReviewDecision.ACCEPT;
+            case "REJECT", "REJECTED" -> BacktestCandidateReviewDecision.REJECT;
+            default -> throw new IllegalArgumentException("Unsupported candidate review decision: " + raw);
+        };
+    }
+
+    private BacktestCandidateState deriveCandidateState(EngineTrade tradeRow) {
+        if (tradeRow == null || tradeRow.fillStatus() == null) {
+            return BacktestCandidateState.DETECTED;
+        }
+        if ("FILLED".equalsIgnoreCase(tradeRow.fillStatus())) {
+            return BacktestCandidateState.CONVERTED_TO_TRADE;
+        }
+        if ("NO_FILL".equalsIgnoreCase(tradeRow.fillStatus())) {
+            return BacktestCandidateState.EXPIRED;
+        }
+        return BacktestCandidateState.QUALIFIED;
+    }
+
+    private BigDecimal candidateConfidenceScore(EngineTrade tradeRow) {
+        BigDecimal score = BigDecimal.valueOf(0.5);
+        if (tradeRow == null) {
+            return score;
+        }
+        if ("FILLED".equalsIgnoreCase(tradeRow.fillStatus())) {
+            score = score.add(BigDecimal.valueOf(0.25));
+        }
+        if (tradeRow.rMultiple() != null && tradeRow.rMultiple().compareTo(BigDecimal.ZERO) > 0) {
+            score = score.add(BigDecimal.valueOf(0.2));
+        }
+        if (tradeRow.maeR() != null && tradeRow.maeR().compareTo(BigDecimal.ONE) < 0) {
+            score = score.add(BigDecimal.valueOf(0.05));
+        }
+        if (score.compareTo(BigDecimal.ONE) > 0) {
+            score = BigDecimal.ONE;
+        }
+        if (score.compareTo(BigDecimal.ZERO) < 0) {
+            score = BigDecimal.ZERO;
+        }
+        return score.setScale(4, RoundingMode.HALF_UP);
+    }
+
+    private String confidenceLabelFromScore(BigDecimal score) {
+        BigDecimal safe = score == null ? BigDecimal.ZERO : score;
+        if (safe.compareTo(BigDecimal.valueOf(0.8)) >= 0) {
+            return "HIGH";
+        }
+        if (safe.compareTo(BigDecimal.valueOf(0.6)) >= 0) {
+            return "MEDIUM";
+        }
+        return "LOW";
+    }
+
+    private String buildCandidateStorySummary(EngineTrade tradeRow) {
+        if (tradeRow == null) {
+            return "Candidate detected from configured sweep/structure sequence.";
+        }
+        String direction = tradeRow.direction() == null ? "N/A" : tradeRow.direction().name();
+        String session = tradeRow.sessionName() == null ? "UNKNOWN" : tradeRow.sessionName();
+        String fill = tradeRow.fillStatus() == null ? "UNKNOWN" : tradeRow.fillStatus();
+        String r = tradeRow.rMultiple() == null ? "N/A" : tradeRow.rMultiple().setScale(2, RoundingMode.HALF_UP).toPlainString() + "R";
+        return "Session %s %s candidate from %s confirmation. Fill=%s, outcome=%s."
+                .formatted(session, direction, tradeRow.confirmType(), fill, r);
+    }
+
+    private String resolveTemplateKey(EngineTrade tradeRow) {
+        if (tradeRow == null || tradeRow.tradeEvidence() == null) {
+            return StrategyTemplate.CUSTOM.name();
+        }
+        String setupFamily = text(tradeRow.tradeEvidence().path("setupFamily"), null);
+        if (setupFamily == null) {
+            return StrategyTemplate.CUSTOM.name();
+        }
+        return normalizeOptionalText(setupFamily) == null
+                ? StrategyTemplate.CUSTOM.name()
+                : normalizeOptionalText(setupFamily).toUpperCase(Locale.ROOT);
+    }
+
+    private BigDecimal computeProfitFactor(List<BacktestLabTradeResultResponse> trades) {
+        if (trades == null || trades.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal grossWin = BigDecimal.ZERO;
+        BigDecimal grossLoss = BigDecimal.ZERO;
+        for (BacktestLabTradeResultResponse trade : trades) {
+            if (!"FILLED".equals(trade.getFillStatus()) || trade.getRMultiple() == null) {
+                continue;
+            }
+            if (trade.getRMultiple().compareTo(BigDecimal.ZERO) > 0) {
+                grossWin = grossWin.add(trade.getRMultiple());
+            } else if (trade.getRMultiple().compareTo(BigDecimal.ZERO) < 0) {
+                grossLoss = grossLoss.add(trade.getRMultiple().abs());
+            }
+        }
+        if (grossLoss.compareTo(BigDecimal.ZERO) <= 0) {
+            return grossWin.compareTo(BigDecimal.ZERO) > 0 ? BigDecimal.valueOf(99) : BigDecimal.ZERO;
+        }
+        return grossWin.divide(grossLoss, 6, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal computeMaxDrawdownR(List<BacktestLabTradeResultResponse> trades) {
+        if (trades == null || trades.isEmpty()) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal equity = BigDecimal.ZERO;
+        BigDecimal peak = BigDecimal.ZERO;
+        BigDecimal maxDd = BigDecimal.ZERO;
+        for (BacktestLabTradeResultResponse trade : trades) {
+            if (!"FILLED".equals(trade.getFillStatus()) || trade.getRMultiple() == null) {
+                continue;
+            }
+            equity = equity.add(trade.getRMultiple());
+            if (equity.compareTo(peak) > 0) {
+                peak = equity;
+            }
+            BigDecimal dd = peak.subtract(equity);
+            if (dd.compareTo(maxDd) > 0) {
+                maxDd = dd;
+            }
+        }
+        return maxDd.setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private BacktestOptimizerVariantResultResponse selectBestWinRateVariant(List<BacktestOptimizerVariantResultResponse> rows) {
+        return rows.stream()
+                .max(Comparator.comparing(BacktestOptimizerVariantResultResponse::getWinRate, Comparator.nullsLast(BigDecimal::compareTo))
+                        .thenComparing(BacktestOptimizerVariantResultResponse::getSampleSize, Comparator.nullsLast(Integer::compareTo)))
+                .orElse(rows.get(0));
+    }
+
+    private BacktestOptimizerVariantResultResponse selectBestExpectancyVariant(List<BacktestOptimizerVariantResultResponse> rows) {
+        return rows.stream()
+                .max(Comparator.comparing(BacktestOptimizerVariantResultResponse::getExpectancyR, Comparator.nullsLast(BigDecimal::compareTo))
+                        .thenComparing(BacktestOptimizerVariantResultResponse::getProfitFactor, Comparator.nullsLast(BigDecimal::compareTo)))
+                .orElse(rows.get(0));
+    }
+
+    private BacktestOptimizerVariantResultResponse selectBestBalancedVariant(List<BacktestOptimizerVariantResultResponse> rows) {
+        return rows.stream()
+                .max(Comparator.comparing(this::balancedVariantScore, Comparator.nullsLast(BigDecimal::compareTo)))
+                .orElse(rows.get(0));
+    }
+
+    private BacktestOptimizerVariantResultResponse selectRecommendedLiveVariant(List<BacktestOptimizerVariantResultResponse> rows) {
+        return rows.stream()
+                .filter(row -> row.getSampleSize() != null && row.getSampleSize() >= 20)
+                .filter(row -> row.getMaxDdR() == null || row.getMaxDdR().compareTo(BigDecimal.valueOf(2.5)) <= 0)
+                .max(Comparator.comparing(this::balancedVariantScore, Comparator.nullsLast(BigDecimal::compareTo)))
+                .orElseGet(() -> selectBestBalancedVariant(rows));
+    }
+
+    private BigDecimal balancedVariantScore(BacktestOptimizerVariantResultResponse row) {
+        if (row == null) {
+            return BigDecimal.ZERO;
+        }
+        BigDecimal winRate = row.getWinRate() == null ? BigDecimal.ZERO : row.getWinRate().divide(BigDecimal.valueOf(100), 6, RoundingMode.HALF_UP);
+        BigDecimal expectancy = row.getExpectancyR() == null ? BigDecimal.ZERO : row.getExpectancyR();
+        BigDecimal pf = row.getProfitFactor() == null ? BigDecimal.ZERO : row.getProfitFactor().min(BigDecimal.valueOf(5)).divide(BigDecimal.valueOf(5), 6, RoundingMode.HALF_UP);
+        BigDecimal sample = row.getSampleSize() == null ? BigDecimal.ZERO : BigDecimal.valueOf(Math.min(1d, row.getSampleSize() / 100.0));
+        BigDecimal ddPenalty = row.getMaxDdR() == null ? BigDecimal.ZERO : row.getMaxDdR().divide(BigDecimal.valueOf(10), 6, RoundingMode.HALF_UP);
+        BigDecimal score = winRate.multiply(BigDecimal.valueOf(0.35))
+                .add(expectancy.multiply(BigDecimal.valueOf(0.35)))
+                .add(pf.multiply(BigDecimal.valueOf(0.15)))
+                .add(sample.multiply(BigDecimal.valueOf(0.15)))
+                .subtract(ddPenalty.multiply(BigDecimal.valueOf(0.2)));
+        return score.setScale(6, RoundingMode.HALF_UP);
+    }
+
+    private JsonNode optimizerVariantNode(BacktestOptimizerVariantResultResponse row) {
+        if (row == null) {
+            return objectMapper.createObjectNode();
+        }
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("rank", row.getRank());
+        node.set("params", row.getParams() == null ? objectMapper.createObjectNode() : row.getParams());
+        putDecimal(node, "winRate", row.getWinRate());
+        putDecimal(node, "expectancyR", row.getExpectancyR());
+        putDecimal(node, "profitFactor", row.getProfitFactor());
+        putDecimal(node, "maxDdR", row.getMaxDdR());
+        node.put("sampleSize", row.getSampleSize() == null ? 0 : row.getSampleSize());
+        return node;
+    }
+
+    private String firstText(JsonNode first, JsonNode second, String fallback) {
+        String f = text(first, null);
+        if (f != null && !f.isBlank()) {
+            return f;
+        }
+        String s = text(second, null);
+        if (s != null && !s.isBlank()) {
+            return s;
+        }
+        return fallback;
+    }
+
+    private String decimalText(BigDecimal value) {
+        return value == null ? null : value.setScale(6, RoundingMode.HALF_UP).toPlainString();
     }
 
     private BigDecimal inferExitPrice(BacktestTrade trade) {

@@ -9,6 +9,7 @@ import com.tradevault.domain.entity.LiquidityPool;
 import com.tradevault.domain.entity.SessionAutoTradeEvent;
 import com.tradevault.domain.entity.SessionLevel;
 import com.tradevault.domain.entity.SessionNarrative;
+import com.tradevault.domain.entity.StrategyPlaybook;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
@@ -47,6 +48,7 @@ import com.tradevault.repository.LiquidityPoolRepository;
 import com.tradevault.repository.SessionAutoTradeEventRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.SessionNarrativeRepository;
+import com.tradevault.repository.StrategyPlaybookRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.ContextSnapshotService;
@@ -89,6 +91,7 @@ class TodaySessionServiceGuardrailsTest {
     private LiquidityPoolRepository liquidityPoolRepository;
     private SessionAutoTradeEventRepository sessionAutoTradeEventRepository;
     private SessionNarrativeRepository sessionNarrativeRepository;
+    private StrategyPlaybookRepository strategyPlaybookRepository;
     private CurrentUserService currentUserService;
     private TradeService tradeService;
     private ContextSnapshotService contextSnapshotService;
@@ -102,6 +105,7 @@ class TodaySessionServiceGuardrailsTest {
     private SessionLevel slLevel;
     private SessionLevel tpLevel;
     private SessionNarrative narrative;
+    private StrategyPlaybook strategyPlaybook;
 
     private List<SessionLevel> levelsStore;
     private List<LiquidityPool> poolsStore;
@@ -119,6 +123,7 @@ class TodaySessionServiceGuardrailsTest {
         liquidityPoolRepository = Mockito.mock(LiquidityPoolRepository.class);
         sessionAutoTradeEventRepository = Mockito.mock(SessionAutoTradeEventRepository.class);
         sessionNarrativeRepository = Mockito.mock(SessionNarrativeRepository.class);
+        strategyPlaybookRepository = Mockito.mock(StrategyPlaybookRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         tradeService = Mockito.mock(TradeService.class);
         contextSnapshotService = Mockito.mock(ContextSnapshotService.class);
@@ -135,6 +140,7 @@ class TodaySessionServiceGuardrailsTest {
                 liquidityPoolRepository,
                 sessionAutoTradeEventRepository,
                 sessionNarrativeRepository,
+                strategyPlaybookRepository,
                 currentUserService,
                 tradeService,
                 contextSnapshotService,
@@ -203,12 +209,20 @@ class TodaySessionServiceGuardrailsTest {
                 .notes("PDH draw with London raid")
                 .build();
         narrativeStore = narrative;
+        strategyPlaybook = StrategyPlaybook.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .name("London Reversal Playbook")
+                .playbookJson(objectMapper.createObjectNode().put("templateFamily", "ASIA_SWEEP_LONDON_REVERSAL"))
+                .build();
 
         when(todaySessionRepository.findByUser_IdAndSessionDate(eq(user.getId()), any(LocalDate.class)))
                 .thenReturn(Optional.of(session));
         when(todaySessionRepository.findByIdAndUser_Id(session.getId(), user.getId()))
                 .thenReturn(Optional.of(session));
         when(todaySessionRepository.save(any(TodaySession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(strategyPlaybookRepository.findByIdAndUser_Id(strategyPlaybook.getId(), user.getId()))
+                .thenReturn(Optional.of(strategyPlaybook));
 
         when(tradeRepository.countByUser_IdAndSessionIdAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
                 .thenReturn(0L);
@@ -281,6 +295,18 @@ class TodaySessionServiceGuardrailsTest {
         wireSessionLevelRepositoryStore();
         wirePoolRepositoryStore();
         wireNarrativeRepositoryStore();
+    }
+
+    @Test
+    void applyPlaybookToTodaySetsActiveStrategyPlaybookSnapshot() {
+        var response = todaySessionService.applyPlaybookToToday(strategyPlaybook.getId());
+
+        assertNotNull(response.getActivePlaybook());
+        assertEquals(strategyPlaybook.getId(), response.getActivePlaybook().getPlaybookId());
+        assertEquals("London Reversal Playbook", response.getActivePlaybook().getName());
+        assertNotNull(response.getActivePlaybook().getSnapshot());
+        assertEquals(strategyPlaybook.getId(), session.getActivePlaybook().getId());
+        assertEquals(strategyPlaybook.getName(), session.getActivePlaybookName());
     }
 
     @Test

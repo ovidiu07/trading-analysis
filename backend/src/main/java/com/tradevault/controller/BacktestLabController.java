@@ -7,8 +7,13 @@ import com.tradevault.dto.backtest.BacktestDatasetSetResponse;
 import com.tradevault.dto.backtest.BacktestLabRunRequest;
 import com.tradevault.dto.backtest.BacktestLabRunResponse;
 import com.tradevault.dto.backtest.BacktestLabRunResultsResponse;
+import com.tradevault.dto.backtest.BacktestCandidateReviewRequest;
+import com.tradevault.dto.backtest.BacktestCandidateReviewResponse;
+import com.tradevault.dto.backtest.BacktestCandidateSetupResponse;
 import com.tradevault.dto.backtest.BacktestOptimizerRunRequest;
 import com.tradevault.dto.backtest.BacktestOptimizerRunResponse;
+import com.tradevault.dto.backtest.BacktestPlaybookResponse;
+import com.tradevault.dto.backtest.BacktestPromotePlaybookRequest;
 import com.tradevault.dto.backtest.BacktestRunReportResponse;
 import com.tradevault.dto.backtest.BacktestStrategyConfigResponse;
 import com.tradevault.dto.backtest.BacktestStrategyConfigUpsertRequest;
@@ -17,6 +22,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -25,6 +31,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.util.UUID;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/backtest")
@@ -79,6 +86,33 @@ public class BacktestLabController {
     @GetMapping("/runs/{runId}/results")
     public ResponseEntity<BacktestLabRunResultsResponse> getRunResults(@PathVariable UUID runId) {
         return ResponseEntity.ok(backtestLabService.getRunResults(runId));
+    }
+
+    @GetMapping("/runs/{runId}/candidates")
+    public ResponseEntity<List<BacktestCandidateSetupResponse>> getRunCandidates(@PathVariable UUID runId) {
+        return ResponseEntity.ok(backtestLabService.getRunCandidates(runId));
+    }
+
+    @PatchMapping("/candidates/{candidateId}/review")
+    public ResponseEntity<BacktestCandidateReviewResponse> reviewCandidate(@PathVariable UUID candidateId,
+                                                                           @RequestBody(required = false) BacktestCandidateReviewRequest request) {
+        return ResponseEntity.ok(backtestLabService.reviewCandidate(candidateId, request));
+    }
+
+    @PostMapping("/runs/{runId}/playbook")
+    public ResponseEntity<BacktestPlaybookResponse> promoteRunToPlaybook(@PathVariable UUID runId,
+                                                                          @RequestBody(required = false) BacktestPromotePlaybookRequest request) {
+        return ResponseEntity.ok(backtestLabService.promoteRunToPlaybook(runId, request));
+    }
+
+    @GetMapping("/playbooks")
+    public ResponseEntity<List<BacktestPlaybookResponse>> listPlaybooks() {
+        return ResponseEntity.ok(backtestLabService.listPlaybooks());
+    }
+
+    @GetMapping("/playbooks/{playbookId}")
+    public ResponseEntity<BacktestPlaybookResponse> getPlaybook(@PathVariable UUID playbookId) {
+        return ResponseEntity.ok(backtestLabService.getPlaybook(playbookId));
     }
 
     @GetMapping("/runs/{runId}/report")

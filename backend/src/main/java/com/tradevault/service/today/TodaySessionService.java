@@ -1,6 +1,7 @@
 package com.tradevault.service.today;
 
 import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.TodaySessionDefaults;
@@ -12,6 +13,7 @@ import com.tradevault.domain.entity.LiquidityPool;
 import com.tradevault.domain.entity.SessionAutoTradeEvent;
 import com.tradevault.domain.entity.SessionLevel;
 import com.tradevault.domain.entity.SessionNarrative;
+import com.tradevault.domain.entity.StrategyPlaybook;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
@@ -44,6 +46,7 @@ import com.tradevault.dto.session.SessionLevelRequest;
 import com.tradevault.dto.session.SessionLevelSuggestionDto;
 import com.tradevault.dto.session.SessionAutoTradeEventDto;
 import com.tradevault.dto.session.SessionAutoTradeEventRequest;
+import com.tradevault.dto.session.SessionActivePlaybookDto;
 import com.tradevault.dto.session.SessionNarrativeDto;
 import com.tradevault.dto.session.SessionNarrativeRequest;
 import com.tradevault.dto.session.SessionPoolDto;
@@ -66,6 +69,7 @@ import com.tradevault.repository.LiquidityPoolRepository;
 import com.tradevault.repository.SessionAutoTradeEventRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.SessionNarrativeRepository;
+import com.tradevault.repository.StrategyPlaybookRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
@@ -133,6 +137,7 @@ public class TodaySessionService {
     private final LiquidityPoolRepository liquidityPoolRepository;
     private final SessionAutoTradeEventRepository sessionAutoTradeEventRepository;
     private final SessionNarrativeRepository sessionNarrativeRepository;
+    private final StrategyPlaybookRepository strategyPlaybookRepository;
     private final CurrentUserService currentUserService;
     private final TradeService tradeService;
     private final ContextSnapshotService contextSnapshotService;
@@ -271,6 +276,21 @@ public class TodaySessionService {
         } else {
             session.setLockInAt(null);
         }
+
+        TodaySession saved = todaySessionRepository.save(session);
+        return toResponse(saved, user.getId());
+    }
+
+    @Transactional
+    public TodaySessionResponse applyPlaybookToToday(UUID playbookId) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireTodaySession(user);
+        StrategyPlaybook playbook = strategyPlaybookRepository.findByIdAndUser_Id(playbookId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Strategy playbook not found"));
+
+        session.setActivePlaybook(playbook);
+        session.setActivePlaybookName(playbook.getName());
+        session.setActivePlaybookSnapshotJson(playbook.getPlaybookJson());
 
         TodaySession saved = todaySessionRepository.save(session);
         return toResponse(saved, user.getId());
@@ -1320,6 +1340,11 @@ public class TodaySessionService {
                 .findBySessionIdAndUser_Id(session.getId(), userId)
                 .map(this::toSessionNarrativeDto)
                 .orElse(null);
+        SessionActivePlaybookDto activePlaybook = SessionActivePlaybookDto.builder()
+                .playbookId(session.getActivePlaybook() == null ? null : session.getActivePlaybook().getId())
+                .name(session.getActivePlaybookName())
+                .snapshot(session.getActivePlaybookSnapshotJson() == null ? objectMapper.createObjectNode() : session.getActivePlaybookSnapshotJson())
+                .build();
 
         return TodaySessionResponse.builder()
                 .id(session.getId())
@@ -1351,6 +1376,7 @@ public class TodaySessionService {
                 .activeSlLevelId(session.getActiveSlLevelId())
                 .activeTpLevelId(session.getActiveTpLevelId())
                 .activeSweepPoolId(session.getActiveSweepPoolId())
+                .activePlaybook(activePlaybook)
                 .levels(levels)
                 .pools(pools)
                 .narrative(narrative)

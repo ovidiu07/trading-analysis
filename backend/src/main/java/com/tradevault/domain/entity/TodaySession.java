@@ -1,5 +1,7 @@
 package com.tradevault.domain.entity;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.TodaySessionDefaults;
 import com.tradevault.domain.enums.AutoJournalState;
 import com.tradevault.domain.enums.Direction;
@@ -23,7 +25,9 @@ import lombok.NoArgsConstructor;
 import lombok.Setter;
 import org.hibernate.annotations.CreationTimestamp;
 import org.hibernate.annotations.GenericGenerator;
+import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.annotations.UpdateTimestamp;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -103,6 +107,17 @@ public class TodaySession {
     @Column(name = "active_sweep_pool_id")
     private UUID activeSweepPoolId;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "active_playbook_id")
+    private StrategyPlaybook activePlaybook;
+
+    @Column(name = "active_playbook_name", length = 180)
+    private String activePlaybookName;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "active_playbook_snapshot_json", nullable = false, columnDefinition = "jsonb")
+    private JsonNode activePlaybookSnapshotJson;
+
     @Column(name = "lock_in_session", length = 24)
     private String lockInSession;
 
@@ -175,6 +190,9 @@ public class TodaySession {
         }
         if (autoJournalTimeoutMin == null) {
             autoJournalTimeoutMin = TodaySessionDefaults.AUTO_JOURNAL_TIMEOUT_MINUTES;
+        }
+        if (activePlaybookSnapshotJson == null) {
+            activePlaybookSnapshotJson = JsonNodeFactory.instance.objectNode();
         }
     }
 }

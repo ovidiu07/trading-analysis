@@ -15,10 +15,12 @@ import com.tradevault.domain.enums.BacktestRunStatus;
 import com.tradevault.domain.enums.BacktestTimeframe;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.dto.backtest.BacktestDatasetResponse;
+import com.tradevault.dto.backtest.BacktestCandidateReviewRequest;
 import com.tradevault.dto.backtest.BacktestLabRunRequest;
 import com.tradevault.dto.backtest.BacktestLabRunResponse;
 import com.tradevault.dto.backtest.BacktestOptimizerGridRequest;
 import com.tradevault.dto.backtest.BacktestOptimizerRunRequest;
+import com.tradevault.dto.backtest.BacktestPromotePlaybookRequest;
 import com.tradevault.dto.backtest.BacktestDatasetSetDatasetsResponse;
 import com.tradevault.dto.backtest.CsvIngestResponse;
 import com.tradevault.dto.backtest.CsvUploadResponse;
@@ -27,9 +29,11 @@ import com.tradevault.repository.BacktestDatasetSetRepository;
 import com.tradevault.repository.BacktestOptimizerRunRepository;
 import com.tradevault.repository.BacktestRunReportRepository;
 import com.tradevault.repository.BacktestRunRepository;
+import com.tradevault.repository.BacktestCandidateReviewRepository;
 import com.tradevault.repository.BacktestSetupRepository;
 import com.tradevault.repository.BacktestStrategyConfigRepository;
 import com.tradevault.repository.BacktestTradeRepository;
+import com.tradevault.repository.StrategyPlaybookRepository;
 import com.tradevault.service.CurrentUserService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,6 +78,8 @@ class BacktestLabServiceTest {
     private BacktestTradeRepository tradeRepository;
     private BacktestRunReportRepository reportRepository;
     private BacktestOptimizerRunRepository optimizerRunRepository;
+    private BacktestCandidateReviewRepository candidateReviewRepository;
+    private StrategyPlaybookRepository strategyPlaybookRepository;
     private BacktestCsvService backtestCsvService;
     private CandleDataService candleDataService;
 
@@ -94,6 +100,8 @@ class BacktestLabServiceTest {
         tradeRepository = mock(BacktestTradeRepository.class);
         reportRepository = mock(BacktestRunReportRepository.class);
         optimizerRunRepository = mock(BacktestOptimizerRunRepository.class);
+        candidateReviewRepository = mock(BacktestCandidateReviewRepository.class);
+        strategyPlaybookRepository = mock(StrategyPlaybookRepository.class);
         backtestCsvService = mock(BacktestCsvService.class);
         candleDataService = mock(CandleDataService.class);
 
@@ -107,6 +115,8 @@ class BacktestLabServiceTest {
                 tradeRepository,
                 reportRepository,
                 optimizerRunRepository,
+                candidateReviewRepository,
+                strategyPlaybookRepository,
                 backtestCsvService,
                 candleDataService,
                 new ObjectMapper().findAndRegisterModules()
@@ -150,6 +160,40 @@ class BacktestLabServiceTest {
         when(datasetSetRepository.findByIdAndUser_Id(datasetSet.getId(), user.getId())).thenReturn(Optional.of(datasetSet));
         when(strategyConfigRepository.findByIdAndDatasetSet_User_Id(strategyConfig.getId(), user.getId())).thenReturn(Optional.of(strategyConfig));
         when(datasetRepository.findByDatasetSet_IdOrderByCreatedAtAsc(datasetSet.getId())).thenReturn(List.of(dataset));
+        Map<UUID, com.tradevault.domain.entity.StrategyPlaybook> playbookStore = new HashMap<>();
+        when(strategyPlaybookRepository.findFirstByRun_IdAndUser_IdOrderByUpdatedAtUtcDesc(any(), any())).thenAnswer(invocation -> {
+            UUID runId = invocation.getArgument(0);
+            UUID userId = invocation.getArgument(1);
+            return playbookStore.values().stream()
+                    .filter(item -> item.getRun() != null && runId.equals(item.getRun().getId()))
+                    .filter(item -> item.getUser() != null && userId.equals(item.getUser().getId()))
+                    .max(Comparator.comparing(item -> item.getUpdatedAtUtc() == null ? OffsetDateTime.MIN : item.getUpdatedAtUtc()));
+        });
+        when(strategyPlaybookRepository.save(any())).thenAnswer(invocation -> {
+            com.tradevault.domain.entity.StrategyPlaybook playbook = invocation.getArgument(0);
+            if (playbook.getId() == null) {
+                playbook.setId(UUID.randomUUID());
+            }
+            playbookStore.put(playbook.getId(), playbook);
+            return playbook;
+        });
+        when(strategyPlaybookRepository.findByIdAndUser_Id(any(), any())).thenAnswer(invocation -> {
+            UUID playbookId = invocation.getArgument(0);
+            UUID userId = invocation.getArgument(1);
+            var playbook = playbookStore.get(playbookId);
+            if (playbook == null || playbook.getUser() == null || !userId.equals(playbook.getUser().getId())) {
+                return Optional.empty();
+            }
+            return Optional.of(playbook);
+        });
+        when(strategyPlaybookRepository.findByUser_IdOrderByUpdatedAtUtcDesc(any())).thenAnswer(invocation -> {
+            UUID userId = invocation.getArgument(0);
+            return playbookStore.values().stream()
+                    .filter(item -> item.getUser() != null && userId.equals(item.getUser().getId()))
+                    .sorted(Comparator.comparing((com.tradevault.domain.entity.StrategyPlaybook item) ->
+                            item.getUpdatedAtUtc() == null ? OffsetDateTime.MIN : item.getUpdatedAtUtc()).reversed())
+                    .toList();
+        });
 
         Map<UUID, BacktestRun> runStore = new HashMap<>();
         when(runRepository.save(any())).thenAnswer(invocation -> {
@@ -170,7 +214,34 @@ class BacktestLabServiceTest {
             return Optional.of(run);
         });
 
-        when(setupRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
+        List<com.tradevault.domain.entity.BacktestSetup> setupStore = new ArrayList<>();
+        when(setupRepository.save(any())).thenAnswer(invocation -> {
+            com.tradevault.domain.entity.BacktestSetup setup = invocation.getArgument(0);
+            if (setup.getId() == null) {
+                setup.setId(UUID.randomUUID());
+            }
+            setupStore.removeIf(existing -> setup.getId().equals(existing.getId()));
+            setupStore.add(setup);
+            return setup;
+        });
+        when(setupRepository.findByRun_IdAndRun_User_IdOrderByCreatedAtAsc(any(), any())).thenAnswer(invocation -> {
+            UUID runId = invocation.getArgument(0);
+            UUID userId = invocation.getArgument(1);
+            return setupStore.stream()
+                    .filter(item -> item.getRun() != null && runId.equals(item.getRun().getId()))
+                    .filter(item -> item.getRun().getUser() != null && userId.equals(item.getRun().getUser().getId()))
+                    .sorted(Comparator.comparing(item -> item.getCreatedAt() == null ? OffsetDateTime.MIN : item.getCreatedAt()))
+                    .toList();
+        });
+        when(setupRepository.findByIdAndRun_User_Id(any(), any())).thenAnswer(invocation -> {
+            UUID setupId = invocation.getArgument(0);
+            UUID userId = invocation.getArgument(1);
+            return setupStore.stream()
+                    .filter(item -> setupId.equals(item.getId()))
+                    .filter(item -> item.getRun() != null && item.getRun().getUser() != null && userId.equals(item.getRun().getUser().getId()))
+                    .findFirst();
+        });
+        when(candidateReviewRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0));
 
         List<BacktestTrade> tradeStore = new ArrayList<>();
         when(tradeRepository.save(any())).thenAnswer(invocation -> {
@@ -256,6 +327,75 @@ class BacktestLabServiceTest {
         assertThat(report).isNotNull();
         assertThat(report.getReportMarkdown()).contains("Strategy Diagnostics Report");
         assertThat(report.getStrategyNameSnapshot()).isEqualTo("Asia Raid -> London Reversal");
+    }
+
+    @Test
+    void runResultsExposeCandidatesAndCandidateSummary() {
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(buildDeterministicCandles());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-03T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-05T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse response = service.run(datasetSet.getId(), request);
+        assertThat(response.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+
+        var results = service.getRunResults(response.getRunId());
+        assertThat(results.getCandidates()).isNotNull();
+        assertThat(results.getCandidateSummary()).isNotNull();
+        assertThat(results.getCandidateSummary().getTotalCandidates()).isEqualTo(results.getCandidates().size());
+        assertThat(results.getCandidateSummary().getConvertedTrades()).isGreaterThanOrEqualTo(0);
+    }
+
+    @Test
+    void candidateReviewAndPlaybookPromotionPersistDomainConcepts() {
+        List<BacktestCandle> fixtureM5 = loadFixtureM5Candles();
+        when(candleDataService.getCandles(any(), any(), any(), any(), any(), any(), any(), anyBoolean()))
+                .thenAnswer(invocation -> {
+                    String timeframe = invocation.getArgument(4);
+                    OffsetDateTime from = invocation.getArgument(5);
+                    OffsetDateTime to = invocation.getArgument(6);
+                    List<BacktestCandle> ranged = fixtureM5.stream()
+                            .filter(candle -> !candle.timestamp().isBefore(from) && !candle.timestamp().isAfter(to))
+                            .toList();
+                    if ("M5".equals(timeframe)) {
+                        return ranged;
+                    }
+                    return aggregateDaily(ranged);
+                });
+
+        strategyConfig.setConfigJson(buildFixtureFeb4Config());
+
+        BacktestLabRunRequest request = new BacktestLabRunRequest();
+        request.setStrategyConfigId(strategyConfig.getId());
+        request.setFromUtc(OffsetDateTime.parse("2026-02-04T00:00:00Z"));
+        request.setToUtc(OffsetDateTime.parse("2026-02-04T23:59:59Z"));
+        request.setAutoGenerateReport(false);
+
+        BacktestLabRunResponse run = service.run(datasetSet.getId(), request);
+        assertThat(run.getStatus()).isEqualTo(BacktestRunStatus.COMPLETED.name());
+
+        var candidates = service.getRunCandidates(run.getRunId());
+        assertThat(candidates).isNotEmpty();
+        var firstCandidate = candidates.get(0);
+
+        BacktestCandidateReviewRequest reviewRequest = new BacktestCandidateReviewRequest();
+        reviewRequest.setDecision("ACCEPT");
+        reviewRequest.setNote("Looks valid for manual validation.");
+        var review = service.reviewCandidate(firstCandidate.getCandidateId(), reviewRequest);
+        assertThat(review.getCandidateId()).isEqualTo(firstCandidate.getCandidateId());
+        assertThat(review.getDecision()).isEqualTo("ACCEPT");
+
+        BacktestPromotePlaybookRequest playbookRequest = new BacktestPromotePlaybookRequest();
+        playbookRequest.setName("Fixture Playbook");
+        var playbook = service.promoteRunToPlaybook(run.getRunId(), playbookRequest);
+        assertThat(playbook.getPlaybookId()).isNotNull();
+        assertThat(playbook.getName()).isEqualTo("Fixture Playbook");
+        assertThat(playbook.getValidationSummary()).isNotNull();
+        assertThat(service.listPlaybooks()).extracting(item -> item.getPlaybookId()).contains(playbook.getPlaybookId());
     }
 
     @Test
@@ -1039,7 +1179,9 @@ class BacktestLabServiceTest {
         var results = service.getRunResults(run.getRunId());
         assertThat(results.getTrades()).isNotEmpty();
         assertThat(results.getTrades())
-                .anyMatch(trade -> "LIMIT_FVG_FILL".equals(trade.getEvidence().path("entryModel").asText()));
+                .anyMatch(trade -> "LIMIT_FVG_FILL".equals(trade.getEvidence().path("entryModel").asText())
+                        || trade.getTimeline().stream().anyMatch(event ->
+                        "ENTRY".equals(event.getStage()) && "LIMIT_FVG_FILL".equals(event.getDetails().path("model").asText())));
     }
 
     @Test

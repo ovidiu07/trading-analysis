@@ -1,4 +1,4 @@
-import { apiDelete, apiGet, apiPost, apiPostMultipart } from './client'
+import { apiDelete, apiGet, apiPatch, apiPost, apiPostMultipart } from './client'
 
 export type BacktestCandle = {
   timestamp?: string | number
@@ -265,6 +265,66 @@ export type BacktestLabTradeResult = {
   timeline: BacktestLabTimelineEvent[]
 }
 
+export type BacktestCandidateSetup = {
+  candidateId: string
+  runId: string
+  tradeId?: string | null
+  symbol: string
+  sessionName?: string | null
+  setupTemplate?: string | null
+  state: 'DETECTED' | 'QUALIFIED' | 'REJECTED_BY_RULE' | 'EXPIRED' | 'ACCEPTED_BY_USER' | 'REJECTED_BY_USER' | 'CONVERTED_TO_TRADE'
+  candidateTimeUtc?: string | null
+  confidenceScore?: number | null
+  qualityLabel?: string | null
+  storySummary?: string | null
+  qualifiedReason?: string | null
+  failedReason?: string | null
+  pool?: Record<string, unknown>
+  sweep?: Record<string, unknown>
+  displacement?: Record<string, unknown>
+  structure?: Record<string, unknown>
+  entry?: Record<string, unknown>
+  evidence?: Record<string, unknown>
+}
+
+export type BacktestCandidateSummary = {
+  totalCandidates: number
+  convertedTrades: number
+  userAccepted: number
+  userRejected: number
+  byState: Record<string, number>
+}
+
+export type BacktestPlaybookValidationSummary = {
+  winRate?: number | null
+  expectancyR?: number | null
+  profitFactor?: number | null
+  sampleSize?: number | null
+  maxDrawdownR?: number | null
+  fillRate?: number | null
+  confidence?: string | null
+  validationSplit?: string | null
+}
+
+export type BacktestPlaybook = {
+  playbookId: string
+  runId?: string | null
+  datasetSetId?: string | null
+  strategyConfigId?: string | null
+  name: string
+  templateFamily: string
+  status: string
+  expectedWinRate?: number | null
+  expectancyR?: number | null
+  profitFactor?: number | null
+  maxDrawdownR?: number | null
+  sampleSize?: number | null
+  playbook: Record<string, unknown>
+  validationSummary?: BacktestPlaybookValidationSummary | null
+  createdAtUtc?: string | null
+  updatedAtUtc?: string | null
+}
+
 export type BacktestLabRunResults = {
   runId: string
   status: string
@@ -273,6 +333,9 @@ export type BacktestLabRunResults = {
   completedAt?: string | null
   summary: BacktestLabSummary
   trades: BacktestLabTradeResult[]
+  candidates?: BacktestCandidateSetup[]
+  candidateSummary?: BacktestCandidateSummary | null
+  latestPlaybook?: BacktestPlaybook | null
 }
 
 export type BacktestRunReport = {
@@ -326,6 +389,14 @@ export type BacktestOptimizerRun = {
   createdAtUtc: string
   summary: Record<string, unknown>
   variants: BacktestOptimizerVariantResult[]
+}
+
+export type BacktestCandidateReview = {
+  candidateId: string
+  candidateState: string
+  decision: string
+  note?: string | null
+  reviewedAtUtc: string
 }
 
 export async function createBacktestRun(payload: {
@@ -513,8 +584,31 @@ export async function getBacktestRunResultsV2(runId: string) {
   return apiGet<BacktestLabRunResults>(`/backtest/runs/${encodeURIComponent(runId)}/results`)
 }
 
+export async function getBacktestRunCandidatesV2(runId: string) {
+  return apiGet<BacktestCandidateSetup[]>(`/backtest/runs/${encodeURIComponent(runId)}/candidates`)
+}
+
+export async function reviewBacktestCandidate(candidateId: string, payload: {
+  decision: 'ACCEPT' | 'REJECT'
+  note?: string
+}) {
+  return apiPatch<BacktestCandidateReview>(`/backtest/candidates/${encodeURIComponent(candidateId)}/review`, payload)
+}
+
 export async function getBacktestRunReportV2(runId: string) {
   return apiGet<BacktestRunReport>(`/backtest/runs/${encodeURIComponent(runId)}/report`)
+}
+
+export async function promoteBacktestRunToPlaybook(runId: string, payload: { name?: string } = {}) {
+  return apiPost<BacktestPlaybook>(`/backtest/runs/${encodeURIComponent(runId)}/playbook`, payload)
+}
+
+export async function listBacktestPlaybooks() {
+  return apiGet<BacktestPlaybook[]>('/backtest/playbooks')
+}
+
+export async function getBacktestPlaybook(playbookId: string) {
+  return apiGet<BacktestPlaybook>(`/backtest/playbooks/${encodeURIComponent(playbookId)}`)
 }
 
 export async function runBacktestOptimizer(datasetSetId: string, payload: {

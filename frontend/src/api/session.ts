@@ -129,6 +129,12 @@ export type SessionNarrative = {
   updatedAtUtc?: string | null
 }
 
+export type SessionActivePlaybook = {
+  playbookId?: string | null
+  name?: string | null
+  snapshot?: Record<string, unknown> | null
+}
+
 export type SessionLevelSuggestion = {
   type: LevelType
   timeframe: LevelTimeframe
@@ -168,6 +174,7 @@ export type TodaySessionResponse = {
   activeSlLevelId?: string | null
   activeTpLevelId?: string | null
   activeSweepPoolId?: string | null
+  activePlaybook?: SessionActivePlaybook | null
   levels: SessionLevel[]
   pools?: SessionPool[]
   narrative?: SessionNarrative | null
@@ -398,6 +405,10 @@ export async function suggestSessionLevels(sessionId: string, symbol?: string) {
 
 export async function setActiveSweepLevel(levelId?: string | null) {
   return apiPatch<TodaySessionResponse>('/sessions/today/activeSweepLevel', { levelId: levelId ?? null })
+}
+
+export async function applyTodayPlaybook(playbookId: string) {
+  return apiPost<TodaySessionResponse>(`/sessions/today/playbook/${encodeURIComponent(playbookId)}/apply`, {})
 }
 
 export async function setSessionRoles(sessionId: string, payload: SessionRolesRequest) {

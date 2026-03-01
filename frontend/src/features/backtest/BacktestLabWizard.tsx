@@ -20,12 +20,14 @@ import {
   Step,
   StepLabel,
   Stepper,
+  Tab,
   Table,
   TableBody,
   TableCell,
   TableContainer,
   TableHead,
   TableRow,
+  Tabs,
   TextField,
   Tooltip,
   Typography,
@@ -39,7 +41,9 @@ import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
 import InfoOutlinedRoundedIcon from '@mui/icons-material/InfoOutlined'
 import { Link } from 'react-router-dom'
 import {
+  BacktestCandidateSetup,
   BacktestOptimizerRun,
+  BacktestPlaybook,
   BacktestDatasetSetDatasets,
   BacktestLabRun,
   BacktestLabRunResults,
@@ -49,21 +53,32 @@ import {
   deleteBacktestDataset,
   getBacktestOptimizerRun,
   getBacktestDatasetSetDatasets,
+  getBacktestRunCandidatesV2,
   getBacktestRunReportV2,
   getBacktestRunResultsV2,
+  promoteBacktestRunToPlaybook,
+  reviewBacktestCandidate,
   runBacktestOptimizer,
   runBacktestDatasetSet,
   saveBacktestStrategyConfig,
   uploadBacktestDatasetCsv
 } from '../../api/backtest'
+import { applyTodayPlaybook } from '../../api/session'
 import MarkdownContent from '../../components/ui/MarkdownContent'
 import { formatUtcTimestamp } from './formatUtc'
 
 const STORAGE_KEY = 'session.backtestLab.datasetSetId'
 const PRESET_STORAGE_KEY = 'session.backtestLab.strategyPresets.v1'
-const STEPS = ['Upload CSVs', 'Strategy Builder', 'Run Backtest', 'Results + Report']
+const STEPS = ['Upload CSVs', 'Quick Backtest', 'Run Backtest', 'Results + Storyline']
 
-type TemplateKey = 'ASIA_LONDON_REVERSAL' | 'LONDON_NY_REVERSAL' | 'BOS_CONTINUATION'
+type TemplateKey =
+  | 'ASIA_LONDON_REVERSAL'
+  | 'LONDON_NY_REVERSAL'
+  | 'SWEEP_DISPLACEMENT_FVG_RETRACE'
+  | 'BOS_CONTINUATION'
+  | 'PDH_PDL_REVERSAL'
+type BacktestBuilderMode = 'QUICK' | 'STUDIO'
+type StrategyStudioTab = 'RECIPE' | 'RULES_MAP' | 'CANDIDATES' | 'OPTIMIZE'
 type SessionName = 'ASIA' | 'LONDON' | 'NY_AM' | 'NY_PM'
 type TimeframeRole = 'M1' | 'M5' | 'M15' | 'H1' | 'H4' | 'D1' | 'W1'
 type PoolType = 'EQH' | 'EQL' | 'ASIA_H' | 'ASIA_L' | 'LONDON_H' | 'LONDON_L' | 'NY_AM_H' | 'NY_AM_L' | 'PDH' | 'PDL' | 'PWH' | 'PWL'
@@ -528,6 +543,55 @@ const applyTemplate = (prev: StrategyConfigState, key: TemplateKey): StrategyCon
       }
     }
   }
+  if (key === 'SWEEP_DISPLACEMENT_FVG_RETRACE') {
+    return {
+      ...prev,
+      name: 'Sweep -> Displacement -> FVG Retrace',
+      setupRule: {
+        ...prev.setupRule,
+        session: 'LONDON',
+        sweepType: 'EQH',
+        confirmationType: 'MSS',
+        direction: 'AUTO_FROM_SWEEP'
+      },
+      entryModel: { ...prev.entryModel, type: 'LIMIT_FVG_FILL', entryWindowBars: 8, retracePercent: 50 },
+      riskModel: { ...prev.riskModel, fixedR: 2, minRR: 1.8 },
+      smc: {
+        ...prev.smc,
+        evaluationSessionFilter: ['LONDON', 'NY_AM'],
+        sweepSourceSessions: ['LONDON', 'NY_AM'],
+        retraceRequired: true,
+        retraceReference: 'GAP_FILL',
+        retraceMinPct: 50,
+        displacementType: 'GAP_REQUIRED',
+        displacementMinBodyVsAvgMult: 1.8,
+        mssMinConfirmCandles: 3
+      }
+    }
+  }
+  if (key === 'PDH_PDL_REVERSAL') {
+    return {
+      ...prev,
+      name: 'PDH/PDL Reversal',
+      setupRule: {
+        ...prev.setupRule,
+        session: 'LONDON',
+        sweepType: 'PDH',
+        confirmationType: 'MSS',
+        direction: 'AUTO_FROM_SWEEP'
+      },
+      entryModel: { ...prev.entryModel, type: 'LIMIT_RETRACE_PERCENT', retracePercent: 62, entryWindowBars: 6 },
+      riskModel: { ...prev.riskModel, fixedR: 2, minRR: 1.6 },
+      smc: {
+        ...prev.smc,
+        poolTypesEnabled: ['PDH', 'PDL', 'EQH', 'EQL'],
+        sweepSourceSessions: ['ASIA', 'LONDON', 'NY_AM'],
+        evaluationSessionFilter: ['LONDON', 'NY_AM'],
+        retraceRequired: true,
+        retraceMinPct: 62
+      }
+    }
+  }
   return {
     ...prev,
     name: 'BOS Continuation',
@@ -548,6 +612,36 @@ const applyTemplate = (prev: StrategyConfigState, key: TemplateKey): StrategyCon
       sweepSelectRule: 'HIGHEST_RANKED_POOL'
     }
   }
+}
+
+const TEMPLATE_LABELS: Array<{ key: TemplateKey, label: string }> = [
+  { key: 'ASIA_LONDON_REVERSAL', label: 'Asia Sweep -> London Reversal' },
+  { key: 'LONDON_NY_REVERSAL', label: 'London Sweep -> New York Reversal' },
+  { key: 'SWEEP_DISPLACEMENT_FVG_RETRACE', label: 'Sweep -> Displacement -> FVG Retrace' },
+  { key: 'BOS_CONTINUATION', label: 'BOS Continuation' },
+  { key: 'PDH_PDL_REVERSAL', label: 'PDH/PDL Reversal' }
+]
+
+const strategyTemplateFromName = (name: string): TemplateKey => {
+  const token = name.trim().toUpperCase().replace(/[^A-Z0-9]+/g, '_')
+  if (token.includes('ASIA') && token.includes('LONDON')) return 'ASIA_LONDON_REVERSAL'
+  if (token.includes('LONDON') && token.includes('NY')) return 'LONDON_NY_REVERSAL'
+  if (token.includes('SWEEP') && token.includes('DISPLACEMENT') && token.includes('FVG')) return 'SWEEP_DISPLACEMENT_FVG_RETRACE'
+  if (token.includes('BOS')) return 'BOS_CONTINUATION'
+  if (token.includes('PDH') || token.includes('PDL')) return 'PDH_PDL_REVERSAL'
+  return 'ASIA_LONDON_REVERSAL'
+}
+
+const displacementStrictnessFromConfig = (config: StrategyConfigState['smc']) => {
+  if (config.displacementMinBodyVsAvgMult >= 1.8 || config.displacementType === 'GAP_REQUIRED') return 'STRICT'
+  if (config.displacementMinBodyVsAvgMult >= 1.5) return 'BALANCED'
+  return 'LOOSE'
+}
+
+const mssStrictnessFromConfig = (config: StrategyConfigState['smc']) => {
+  if (config.mssMinConfirmCandles >= 4 && config.mssBreakMode === 'CLOSE_ONLY') return 'STRICT'
+  if (config.mssMinConfirmCandles >= 3) return 'BALANCED'
+  return 'LOOSE'
 }
 
 const loadStoredPresets = (): Record<string, StrategyConfigState> => {
@@ -697,6 +791,10 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
 
   const [step, setStep] = useState(0)
+  const [builderMode, setBuilderMode] = useState<BacktestBuilderMode>('QUICK')
+  const [studioTab, setStudioTab] = useState<StrategyStudioTab>('RECIPE')
+  const [quickTemplate, setQuickTemplate] = useState<TemplateKey>('ASIA_LONDON_REVERSAL')
+  const [quickAdvancedOpen, setQuickAdvancedOpen] = useState(false)
   const [datasetSetId, setDatasetSetId] = useState<string>(() => localStorage.getItem(STORAGE_KEY) || '')
   const [instrument, setInstrument] = useState('EURUSD')
   const [timezoneBasis, setTimezoneBasis] = useState('UTC')
@@ -722,8 +820,14 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
   const [results, setResults] = useState<BacktestLabRunResults | null>(null)
   const [report, setReport] = useState<BacktestRunReport | null>(null)
   const [selectedTrade, setSelectedTrade] = useState<BacktestLabTradeResult | null>(null)
+  const [selectedCandidate, setSelectedCandidate] = useState<BacktestCandidateSetup | null>(null)
+  const [candidateReviewBusyId, setCandidateReviewBusyId] = useState<string | null>(null)
   const [showTradeDiagnostics, setShowTradeDiagnostics] = useState(false)
   const [showDatasetWarnings, setShowDatasetWarnings] = useState(false)
+  const [promotePlaybookBusy, setPromotePlaybookBusy] = useState(false)
+  const [applyPlaybookBusy, setApplyPlaybookBusy] = useState(false)
+  const [latestPlaybook, setLatestPlaybook] = useState<BacktestPlaybook | null>(null)
+  const [activeTodayPlaybookName, setActiveTodayPlaybookName] = useState('')
   const [optimizerBusy, setOptimizerBusy] = useState(false)
   const [optimizerResults, setOptimizerResults] = useState<BacktestOptimizerRun | null>(null)
   const [optimizerState, setOptimizerState] = useState<OptimizerState>({
@@ -865,6 +969,25 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
     })
   }, [optimizerResults?.variants, optimizerSortBy])
 
+  const candidateRows = useMemo(() => results?.candidates || [], [results?.candidates])
+  const bestTrade = useMemo(() => {
+    const filled = (results?.trades || []).filter((trade) => trade.fillStatus === 'FILLED' && trade.rMultiple != null)
+    return filled.sort((a, b) => (b.rMultiple || 0) - (a.rMultiple || 0))[0] || null
+  }, [results?.trades])
+  const worstTrade = useMemo(() => {
+    const filled = (results?.trades || []).filter((trade) => trade.fillStatus === 'FILLED' && trade.rMultiple != null)
+    return filled.sort((a, b) => (a.rMultiple || 0) - (b.rMultiple || 0))[0] || null
+  }, [results?.trades])
+  const optimizerLeaders = useMemo(() => {
+    const summary = optimizerResults?.summary || {}
+    return {
+      bestWinRate: (summary as any).bestWinRateVariant || null,
+      bestExpectancy: (summary as any).bestExpectancyVariant || null,
+      bestBalanced: (summary as any).bestBalancedVariant || null,
+      recommendedLive: (summary as any).recommendedLiveVariant || null
+    }
+  }, [optimizerResults?.summary])
+
   const loadDatasets = async (id: string) => {
     if (!id) return
     setLoadingDatasets(true)
@@ -950,6 +1073,16 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
     setRunWindow((prev) => normalizeRunWindowToBounds(prev, rangeBounds))
   }, [rangeBounds.max, rangeBounds.min])
 
+  useEffect(() => {
+    setQuickTemplate(strategyTemplateFromName(strategyConfig.name || ''))
+  }, [strategyConfig.name])
+
+  useEffect(() => {
+    if (results?.latestPlaybook) {
+      setLatestPlaybook(results.latestPlaybook)
+    }
+  }, [results?.latestPlaybook])
+
   const ensureSet = async () => {
     if (datasetSetId) return datasetSetId
     const created = await createBacktestDatasetSet({ instrument, timezoneBasis })
@@ -960,6 +1093,9 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
 
   const handleResetToHeaderSymbol = () => {
     if (!sessionHeaderSymbol) return
+    setBuilderMode('QUICK')
+    setStudioTab('RECIPE')
+    setQuickAdvancedOpen(false)
     setDatasetSetId('')
     setDatasetInfo(null)
     setStrategyConfigId('')
@@ -969,6 +1105,9 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
     setResults(null)
     setReport(null)
     setSelectedTrade(null)
+    setSelectedCandidate(null)
+    setLatestPlaybook(null)
+    setActiveTodayPlaybookName('')
     setStep(0)
     setInstrument(sessionHeaderSymbol)
     setStrategyConfig((prev) => ({
@@ -1144,7 +1283,11 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
 
   const loadRunArtifacts = async (runId: string) => {
     const runResults = await getBacktestRunResultsV2(runId)
-    setResults(runResults)
+    const candidates = runResults.candidates && runResults.candidates.length > 0
+      ? runResults.candidates
+      : await getBacktestRunCandidatesV2(runId).catch(() => [])
+    setResults({ ...runResults, candidates })
+    setLatestPlaybook(runResults.latestPlaybook || null)
     try {
       const runReport = await getBacktestRunReportV2(runId)
       setReport(runReport)
@@ -1192,6 +1335,8 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
       const persisted = await getBacktestOptimizerRun(started.optimizerRunId)
       setOptimizerResults(persisted)
       setSuccess(`Optimizer completed with ${persisted.variantCount} variants.`)
+      setBuilderMode('STUDIO')
+      setStudioTab('OPTIMIZE')
     } catch (e: any) {
       setError(e?.message || 'Optimizer run failed')
     } finally {
@@ -1237,6 +1382,7 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
     setSuccess('')
     setRunLifecycleState('queued')
     setSelectedTrade(null)
+    setSelectedCandidate(null)
     setLastRun(null)
     setResults(null)
     setReport(null)
@@ -1283,6 +1429,12 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
     }
   }
 
+  const handleQuickTemplateChange = (template: TemplateKey) => {
+    setQuickTemplate(template)
+    setStrategyConfig((prev) => applyTemplate(prev, template))
+    setSuccess(`Loaded template defaults: ${TEMPLATE_LABELS.find((row) => row.key === template)?.label || template}`)
+  }
+
   const handleApplyVariant = (params: Record<string, unknown>) => {
     setStrategyConfig((prev) => {
       const next = { ...prev }
@@ -1311,7 +1463,72 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
       return { ...next, smc }
     })
     setStep(1)
+    setBuilderMode('STUDIO')
+    setStudioTab('RECIPE')
     setSuccess('Variant applied to current strategy config. Save and regenerate to test it.')
+  }
+
+  const handleCandidateReview = async (candidate: BacktestCandidateSetup, decision: 'ACCEPT' | 'REJECT') => {
+    if (!lastRun?.runId) return
+    setCandidateReviewBusyId(candidate.candidateId)
+    setError('')
+    try {
+      await reviewBacktestCandidate(candidate.candidateId, {
+        decision,
+        note: decision === 'ACCEPT' ? 'Accepted from Strategy Studio candidates.' : 'Rejected from Strategy Studio candidates.'
+      })
+      await loadRunArtifacts(lastRun.runId)
+      setSuccess(`Candidate ${decision === 'ACCEPT' ? 'accepted' : 'rejected'}.`)
+    } catch (e: any) {
+      setError(e?.message || 'Failed to update candidate review.')
+    } finally {
+      setCandidateReviewBusyId(null)
+    }
+  }
+
+  const handlePromoteToPlaybook = async () => {
+    if (!lastRun?.runId) {
+      setError('Run backtest first.')
+      return
+    }
+    setPromotePlaybookBusy(true)
+    setError('')
+    try {
+      const playbook = await promoteBacktestRunToPlaybook(lastRun.runId, {
+        name: strategyConfig.name ? `${strategyConfig.name} Playbook` : undefined
+      })
+      setLatestPlaybook(playbook)
+      setSuccess(`Playbook created: ${playbook.name}.`)
+    } catch (e: any) {
+      setError(e?.message || 'Failed to promote backtest run to playbook.')
+    } finally {
+      setPromotePlaybookBusy(false)
+    }
+  }
+
+  const handleApplyPlaybookToToday = async () => {
+    if (!latestPlaybook?.playbookId) {
+      setError('Promote a playbook first.')
+      return
+    }
+    setApplyPlaybookBusy(true)
+    setError('')
+    try {
+      const session = await applyTodayPlaybook(latestPlaybook.playbookId)
+      const playbookName = session.activePlaybook?.name || latestPlaybook.name
+      setActiveTodayPlaybookName(playbookName)
+      setSuccess(`Applied playbook to Today session: ${playbookName}.`)
+    } catch (e: any) {
+      setError(e?.message || 'Failed to apply playbook to Today session.')
+    } finally {
+      setApplyPlaybookBusy(false)
+    }
+  }
+
+  const handleOpenStrategyStudio = (tab: StrategyStudioTab = 'RECIPE') => {
+    setBuilderMode('STUDIO')
+    setStudioTab(tab)
+    setStep(1)
   }
 
   const handleGenerateReport = async () => {
@@ -1535,6 +1752,514 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
 
             {step === 1 && (
               <>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                    <Button
+                      variant={builderMode === 'QUICK' ? 'contained' : 'outlined'}
+                      onClick={() => setBuilderMode('QUICK')}
+                    >
+                      Quick Backtest
+                    </Button>
+                    <Button
+                      variant={builderMode === 'STUDIO' ? 'contained' : 'outlined'}
+                      onClick={() => {
+                        setBuilderMode('STUDIO')
+                        setStudioTab('RECIPE')
+                      }}
+                    >
+                      Strategy Studio
+                    </Button>
+                  </Stack>
+                </Stack>
+
+                {builderMode === 'QUICK' && (
+                  <Stack spacing={1.25}>
+                    <Alert severity="info">
+                      Quick Backtest keeps only high-impact controls visible. Use Strategy Studio for Recipe, Rules Map, Candidates, and Optimize.
+                    </Alert>
+                    <Grid container spacing={1}>
+                      <Grid item xs={12} md={6}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-template">Strategy template</InputLabel>
+                          <Select
+                            labelId="quick-template"
+                            label="Strategy template"
+                            value={quickTemplate}
+                            onChange={(event) => handleQuickTemplateChange(event.target.value as TemplateKey)}
+                          >
+                            {TEMPLATE_LABELS.map((template) => (
+                              <MenuItem key={template.key} value={template.key}>{template.label}</MenuItem>
+                            ))}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-context-tf">Context TF</InputLabel>
+                          <Select
+                            labelId="quick-context-tf"
+                            label="Context TF"
+                            value={strategyConfig.smc.contextTf}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, smc: { ...prev.smc, contextTf: event.target.value as TimeframeRole } }))}
+                          >
+                            {TIMEFRAME_OPTIONS.map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-pool-tf">Pool TF</InputLabel>
+                          <Select
+                            labelId="quick-pool-tf"
+                            label="Pool TF"
+                            value={strategyConfig.smc.poolTf}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, smc: { ...prev.smc, poolTf: event.target.value as TimeframeRole } }))}
+                          >
+                            {TIMEFRAME_OPTIONS.map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-entry-tf">Entry TF</InputLabel>
+                          <Select
+                            labelId="quick-entry-tf"
+                            label="Entry TF"
+                            value={strategyConfig.smc.entryTf}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, smc: { ...prev.smc, entryTf: event.target.value as TimeframeRole } }))}
+                          >
+                            {TIMEFRAME_OPTIONS.map((tf) => <MenuItem key={tf} value={tf}>{tf}</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-sweep">Sweep type</InputLabel>
+                          <Select
+                            labelId="quick-sweep"
+                            label="Sweep type"
+                            value={strategyConfig.setupRule.sweepType}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, setupRule: { ...prev.setupRule, sweepType: event.target.value as PoolType } }))}
+                          >
+                            {POOL_TYPES.map((pool) => <MenuItem key={pool} value={pool}>{pool}</MenuItem>)}
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          fullWidth
+                          label="Minimum sweep depth (pips)"
+                          value={strategyConfig.smc.sweepMinDepthPips}
+                          onChange={(event) => setStrategyConfig((prev) => ({ ...prev, smc: { ...prev.smc, sweepMinDepthPips: Number(event.target.value) } }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-displacement">Displacement strictness</InputLabel>
+                          <Select
+                            labelId="quick-displacement"
+                            label="Displacement strictness"
+                            value={displacementStrictnessFromConfig(strategyConfig.smc)}
+                            onChange={(event) => {
+                              const level = event.target.value
+                              setStrategyConfig((prev) => ({
+                                ...prev,
+                                smc: {
+                                  ...prev.smc,
+                                  displacementMinBodyVsAvgMult: level === 'STRICT' ? 1.9 : level === 'BALANCED' ? 1.6 : 1.2,
+                                  displacementType: level === 'STRICT' ? 'GAP_REQUIRED' : level === 'BALANCED' ? 'GAP_OPTIONAL' : 'NO_GAP_ONLY'
+                                }
+                              }))
+                            }}
+                          >
+                            <MenuItem value="LOOSE">Loose</MenuItem>
+                            <MenuItem value="BALANCED">Balanced</MenuItem>
+                            <MenuItem value="STRICT">Strict</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-mss">MSS strictness</InputLabel>
+                          <Select
+                            labelId="quick-mss"
+                            label="MSS strictness"
+                            value={mssStrictnessFromConfig(strategyConfig.smc)}
+                            onChange={(event) => {
+                              const level = event.target.value
+                              setStrategyConfig((prev) => ({
+                                ...prev,
+                                smc: {
+                                  ...prev.smc,
+                                  mssMinConfirmCandles: level === 'STRICT' ? 4 : level === 'BALANCED' ? 3 : 2,
+                                  mssBreakMode: level === 'LOOSE' ? 'WICK_ALLOWED' : 'CLOSE_ONLY'
+                                }
+                              }))
+                            }}
+                          >
+                            <MenuItem value="LOOSE">Loose</MenuItem>
+                            <MenuItem value="BALANCED">Balanced</MenuItem>
+                            <MenuItem value="STRICT">Strict</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-retrace-required">Retrace required</InputLabel>
+                          <Select
+                            labelId="quick-retrace-required"
+                            label="Retrace required"
+                            value={String(strategyConfig.smc.retraceRequired)}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, smc: { ...prev.smc, retraceRequired: event.target.value === 'true' } }))}
+                          >
+                            <MenuItem value="true">Yes</MenuItem>
+                            <MenuItem value="false">No</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={3}>
+                        <TextField
+                          size="small"
+                          type="number"
+                          fullWidth
+                          label="Retrace %"
+                          value={strategyConfig.smc.retraceMinPct}
+                          onChange={(event) => setStrategyConfig((prev) => ({
+                            ...prev,
+                            smc: { ...prev.smc, retraceMinPct: Number(event.target.value) },
+                            entryModel: { ...prev.entryModel, retracePercent: Number(event.target.value) }
+                          }))}
+                        />
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-entry-model">Entry model</InputLabel>
+                          <Select
+                            labelId="quick-entry-model"
+                            label="Entry model"
+                            value={strategyConfig.entryModel.type}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, entryModel: { ...prev.entryModel, type: event.target.value as StrategyConfigState['entryModel']['type'] } }))}
+                          >
+                            <MenuItem value="MARKET_ON_MSS_CONFIRM">MARKET_ON_MSS_CONFIRM</MenuItem>
+                            <MenuItem value="LIMIT_RETRACE_PERCENT">LIMIT_RETRACE_PERCENT</MenuItem>
+                            <MenuItem value="LIMIT_FVG_FILL">LIMIT_FVG_FILL</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-sl-model">SL model</InputLabel>
+                          <Select
+                            labelId="quick-sl-model"
+                            label="SL model"
+                            value={strategyConfig.riskModel.stopRule}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, riskModel: { ...prev.riskModel, stopRule: event.target.value as StrategyConfigState['riskModel']['stopRule'] } }))}
+                          >
+                            <MenuItem value="SWEEP_EXTREME_PLUS_BUFFER">SWEEP_EXTREME_PLUS_BUFFER</MenuItem>
+                            <MenuItem value="LAST_SWING_PLUS_BUFFER">LAST_SWING_PLUS_BUFFER</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                      <Grid item xs={12} md={2}>
+                        <FormControl size="small" fullWidth>
+                          <InputLabel id="quick-tp-model">TP model</InputLabel>
+                          <Select
+                            labelId="quick-tp-model"
+                            label="TP model"
+                            value={strategyConfig.riskModel.tpRule}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, riskModel: { ...prev.riskModel, tpRule: event.target.value as StrategyConfigState['riskModel']['tpRule'] } }))}
+                          >
+                            <MenuItem value="FIXED_R">FIXED_R</MenuItem>
+                          </Select>
+                        </FormControl>
+                      </Grid>
+                    </Grid>
+                    <Button size="small" variant="text" onClick={() => setQuickAdvancedOpen((prev) => !prev)} sx={{ alignSelf: 'flex-start' }}>
+                      {quickAdvancedOpen ? 'Hide advanced settings' : 'Advanced settings'}
+                    </Button>
+                    <Collapse in={quickAdvancedOpen}>
+                      <Grid container spacing={1}>
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            size="small"
+                            type="number"
+                            fullWidth
+                            label="Spread (pips)"
+                            value={strategyConfig.context.spreadPips}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, context: { ...prev.context, spreadPips: Number(event.target.value) } }))}
+                          />
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                          <TextField
+                            size="small"
+                            type="number"
+                            fullWidth
+                            label="Slippage (pips)"
+                            value={strategyConfig.context.slippagePips}
+                            onChange={(event) => setStrategyConfig((prev) => ({ ...prev, context: { ...prev.context, slippagePips: Number(event.target.value) } }))}
+                          />
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                          <FormControl size="small" fullWidth>
+                            <InputLabel id="quick-confirmation-type">Confirmation</InputLabel>
+                            <Select
+                              labelId="quick-confirmation-type"
+                              label="Confirmation"
+                              value={strategyConfig.setupRule.confirmationType}
+                              onChange={(event) => setStrategyConfig((prev) => ({ ...prev, setupRule: { ...prev.setupRule, confirmationType: event.target.value as 'MSS' | 'BOS' } }))}
+                            >
+                              <MenuItem value="MSS">MSS</MenuItem>
+                              <MenuItem value="BOS">BOS</MenuItem>
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                        <Grid item xs={12} md={3}>
+                          <FormControl size="small" fullWidth>
+                            <InputLabel id="quick-exec-tf">Execution TF</InputLabel>
+                            <Select
+                              labelId="quick-exec-tf"
+                              label="Execution TF"
+                              value={strategyConfig.smc.executionTf}
+                              onChange={(event) => setStrategyConfig((prev) => ({
+                                ...prev,
+                                context: { ...prev.context, executionTimeframe: event.target.value },
+                                smc: { ...prev.smc, executionTf: event.target.value as TimeframeRole }
+                              }))}
+                            >
+                              {[...new Set([...(tfOptions as TimeframeRole[]), ...TIMEFRAME_OPTIONS])].map((tf) => (
+                                <MenuItem key={tf} value={tf}>{tf}</MenuItem>
+                              ))}
+                            </Select>
+                          </FormControl>
+                        </Grid>
+                      </Grid>
+                    </Collapse>
+                    {results ? (
+                      <Card variant="outlined">
+                        <CardContent>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }} justifyContent="space-between">
+                            <Typography variant="subtitle2">Latest Quick Backtest Snapshot</Typography>
+                            <Button size="small" variant="outlined" onClick={() => handleOpenStrategyStudio('CANDIDATES')}>
+                              Open in Strategy Studio
+                            </Button>
+                          </Stack>
+                          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} mt={1}>
+                            <Chip size="small" label={`Candidates: ${results.candidateSummary?.totalCandidates ?? candidateRows.length}`} />
+                            <Chip size="small" label={`Trades: ${results.summary.sampleSize}`} />
+                            <Chip size="small" variant="outlined" label={`Win rate: ${results.summary.winRate?.toFixed(2)}%`} />
+                            <Chip size="small" variant="outlined" label={`Expectancy: ${results.summary.expectancyR?.toFixed(2)}R`} />
+                          </Stack>
+                        </CardContent>
+                      </Card>
+                    ) : null}
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <Button variant="contained" onClick={() => void handleSaveStrategy()} disabled={saveStrategyBusy || !datasetInfo?.datasets?.length}>
+                        Save Strategy
+                      </Button>
+                      <Button variant="contained" color="primary" startIcon={<PlayArrowRoundedIcon />} onClick={() => setStep(2)} disabled={!datasetInfo?.datasets?.length}>
+                        Continue to Run
+                      </Button>
+                      <Button variant="outlined" onClick={() => handleOpenStrategyStudio('RECIPE')}>
+                        Open Strategy Studio
+                      </Button>
+                    </Stack>
+                  </Stack>
+                )}
+
+                {builderMode === 'STUDIO' && (
+                  <>
+                    <Typography variant="subtitle2">Strategy Studio</Typography>
+                    <Tabs
+                      value={studioTab}
+                      onChange={(_, value) => setStudioTab(value as StrategyStudioTab)}
+                      variant="scrollable"
+                      allowScrollButtonsMobile
+                    >
+                      <Tab value="RECIPE" label="Recipe" />
+                      <Tab value="RULES_MAP" label="Rules Map" />
+                      <Tab value="CANDIDATES" label="Candidates" />
+                      <Tab value="OPTIMIZE" label="Optimize" />
+                    </Tabs>
+                  </>
+                )}
+
+                {builderMode === 'STUDIO' && studioTab === 'RULES_MAP' && (
+                  <Stack spacing={1}>
+                    <Alert severity="info">Flow: Pool detected -&gt; Sweep valid -&gt; Displacement valid -&gt; MSS/BOS valid -&gt; Retrace valid -&gt; Entry valid -&gt; Exit logic.</Alert>
+                    <Grid container spacing={1}>
+                      {[
+                        { title: 'Pool detected', summary: `${strategyConfig.setupRule.sweepType} on ${strategyConfig.smc.poolTf}`, invalidates: 'No eligible liquidity pool in session context.' },
+                        { title: 'Sweep valid', summary: `Min depth ${strategyConfig.smc.sweepMinDepthPips} pips`, invalidates: 'Sweep depth below threshold or reclaim missing.' },
+                        { title: 'Displacement valid', summary: `${displacementStrictnessFromConfig(strategyConfig.smc)} strictness`, invalidates: 'Body ratio or gap rule not met.' },
+                        { title: 'MSS/BOS valid', summary: `${strategyConfig.setupRule.confirmationType} on ${strategyConfig.smc.confirmationTf}`, invalidates: 'Structure break did not confirm.' },
+                        { title: 'Retrace valid', summary: strategyConfig.smc.retraceRequired ? `${strategyConfig.smc.retraceMinPct}% retrace` : 'No retrace required', invalidates: 'Entry window expired before retrace fill.' },
+                        { title: 'Entry + Exit logic', summary: `${strategyConfig.entryModel.type} -> ${strategyConfig.riskModel.stopRule}/${strategyConfig.riskModel.tpRule}`, invalidates: 'RR floor or execution realism constraints failed.' }
+                      ].map((stage) => (
+                        <Grid item xs={12} md={6} key={stage.title}>
+                          <Card variant="outlined">
+                            <CardContent>
+                              <Typography variant="subtitle2">{stage.title}</Typography>
+                              <Typography variant="body2" color="text.secondary">{stage.summary}</Typography>
+                              <Typography variant="caption" color="text.secondary">{`Invalidates when: ${stage.invalidates}`}</Typography>
+                              <Box mt={1}>
+                                <Button size="small" onClick={() => setStudioTab('RECIPE')}>Edit in Recipe</Button>
+                              </Box>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                  </Stack>
+                )}
+
+                {builderMode === 'STUDIO' && studioTab === 'CANDIDATES' && (
+                  <Stack spacing={1}>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <Button variant="outlined" onClick={() => lastRun?.runId && void loadRunArtifacts(lastRun.runId)} disabled={!lastRun?.runId}>
+                        Refresh Candidates
+                      </Button>
+                      <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={!canRunBacktest}>
+                        Regenerate Backtest
+                      </Button>
+                    </Stack>
+                    {!candidateRows.length ? (
+                      <Alert severity="info">Run a backtest first. Candidates appear here with DETECTED / QUALIFIED / EXPIRED / REJECTED states.</Alert>
+                    ) : (
+                      <Grid container spacing={1}>
+                        {candidateRows.map((candidate) => (
+                          <Grid item xs={12} key={candidate.candidateId}>
+                            <Card variant="outlined">
+                              <CardContent>
+                                <Stack spacing={1}>
+                                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between">
+                                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                                      <Chip size="small" label={candidate.state} />
+                                      <Chip size="small" variant="outlined" label={candidate.sessionName || 'N/A'} />
+                                      <Chip size="small" variant="outlined" label={candidate.symbol} />
+                                      <Chip size="small" variant="outlined" label={candidate.qualityLabel || 'UNRATED'} />
+                                    </Stack>
+                                    <Typography variant="caption" color="text.secondary">{candidate.candidateTimeUtc ? formatUtcTimestamp(candidate.candidateTimeUtc) : '-'}</Typography>
+                                  </Stack>
+                                  <Typography variant="body2">{candidate.storySummary || 'No story summary available.'}</Typography>
+                                  {candidate.qualifiedReason ? <Typography variant="caption" color="success.main">{candidate.qualifiedReason}</Typography> : null}
+                                  {candidate.failedReason ? <Typography variant="caption" color="warning.main">{candidate.failedReason}</Typography> : null}
+                                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      onClick={() => void handleCandidateReview(candidate, 'ACCEPT')}
+                                      disabled={candidateReviewBusyId === candidate.candidateId}
+                                    >
+                                      Accept
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      variant="outlined"
+                                      color="error"
+                                      onClick={() => void handleCandidateReview(candidate, 'REJECT')}
+                                      disabled={candidateReviewBusyId === candidate.candidateId}
+                                    >
+                                      Reject
+                                    </Button>
+                                    <Button
+                                      size="small"
+                                      onClick={() => {
+                                        setSelectedCandidate(candidate)
+                                        const linkedTrade = (results?.trades || []).find((row) => row.tradeId === candidate.tradeId)
+                                        if (linkedTrade) {
+                                          setSelectedTrade(linkedTrade)
+                                          setShowTradeDiagnostics(false)
+                                        }
+                                      }}
+                                    >
+                                      Inspect
+                                    </Button>
+                                    <Button size="small" onClick={() => setStudioTab('RECIPE')}>
+                                      Edit Interpretation
+                                    </Button>
+                                  </Stack>
+                                </Stack>
+                              </CardContent>
+                            </Card>
+                          </Grid>
+                        ))}
+                      </Grid>
+                    )}
+                  </Stack>
+                )}
+
+                {builderMode === 'STUDIO' && studioTab === 'OPTIMIZE' && (
+                  <Stack spacing={1}>
+                    <Alert severity="info">Optimizer compares win rate, expectancy, profit factor, sample size, drawdown, fill rate, and robustness.</Alert>
+                    <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                      <Button variant="outlined" onClick={() => void handleRunOptimizer()} disabled={optimizerBusy || runBusy || !canRunBacktest}>
+                        Run Optimizer
+                      </Button>
+                      <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={!canRunBacktest}>
+                        Regenerate Backtest
+                      </Button>
+                    </Stack>
+                    <Grid container spacing={1}>
+                      {[
+                        { title: 'Best Win Rate', row: optimizerLeaders.bestWinRate as any },
+                        { title: 'Best Expectancy', row: optimizerLeaders.bestExpectancy as any },
+                        { title: 'Best Balanced', row: optimizerLeaders.bestBalanced as any },
+                        { title: 'Recommended Live', row: optimizerLeaders.recommendedLive as any }
+                      ].map((item) => (
+                        <Grid item xs={12} md={3} key={item.title}>
+                          <Card variant="outlined">
+                            <CardContent>
+                              <Typography variant="subtitle2">{item.title}</Typography>
+                              <Typography variant="caption" color="text.secondary">{item.row ? `Rank ${item.row.rank || '-'} | Sample ${item.row.sampleSize || '-'}` : 'No leaderboard yet'}</Typography>
+                              <Typography variant="body2">{item.row ? `WR ${item.row.winRate?.toFixed?.(2) ?? '-'}% | Exp ${item.row.expectancyR?.toFixed?.(2) ?? '-'}R` : '-'}</Typography>
+                            </CardContent>
+                          </Card>
+                        </Grid>
+                      ))}
+                    </Grid>
+                    {optimizerResults ? (
+                      <TableContainer sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, overflowX: 'auto' }}>
+                        <Table size="small">
+                          <TableHead>
+                            <TableRow>
+                              <TableCell>Rank</TableCell>
+                              <TableCell>Sample</TableCell>
+                              <TableCell>Win rate</TableCell>
+                              <TableCell>Expectancy</TableCell>
+                              <TableCell>PF</TableCell>
+                              <TableCell>Drawdown</TableCell>
+                              <TableCell>Fill rate</TableCell>
+                              <TableCell align="right">Apply</TableCell>
+                            </TableRow>
+                          </TableHead>
+                          <TableBody>
+                            {sortedOptimizerVariants.map((row, index) => (
+                              <TableRow key={`${row.rank}-${index}`}>
+                                <TableCell>{row.rank}</TableCell>
+                                <TableCell>{row.sampleSize ?? '-'}</TableCell>
+                                <TableCell>{row.winRate != null ? row.winRate.toFixed(2) : '-'}</TableCell>
+                                <TableCell>{row.expectancyR != null ? row.expectancyR.toFixed(3) : '-'}</TableCell>
+                                <TableCell>{row.profitFactor != null ? row.profitFactor.toFixed(2) : '-'}</TableCell>
+                                <TableCell>{row.maxDdR != null ? row.maxDdR.toFixed(2) : '-'}</TableCell>
+                                <TableCell>{row.fillRate != null ? row.fillRate.toFixed(2) : '-'}</TableCell>
+                                <TableCell align="right">
+                                  <Button size="small" onClick={() => handleApplyVariant(row.params)}>
+                                    Apply
+                                  </Button>
+                                </TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </TableContainer>
+                    ) : null}
+                  </Stack>
+                )}
+
+                {builderMode === 'STUDIO' && studioTab === 'RECIPE' && (
+                  <>
                 <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                   <TextField
                     size="small"
@@ -2750,6 +3475,8 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                 </Stack>
               </>
             )}
+              </>
+            )}
             {step === 2 && (
               <>
                 {executionDataset ? (
@@ -2866,6 +3593,9 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                   <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleRun()} disabled={!canRunBacktest}>
                     Regenerate Backtest
                   </Button>
+                  <Button variant="outlined" onClick={() => handleOpenStrategyStudio('RECIPE')}>
+                    Open Strategy Studio
+                  </Button>
                   <Button variant="outlined" startIcon={<DescriptionRoundedIcon />} onClick={() => void handleGenerateReport()} disabled={!lastRun?.runId}>
                     Generate Diagnostics Report
                   </Button>
@@ -2898,6 +3628,15 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                   <Button component={Link} to="/diagnostics" variant="outlined">
                     Open Diagnostics
                   </Button>
+                  <Button variant="outlined" onClick={() => handleOpenStrategyStudio('RECIPE')}>
+                    Open Strategy Studio
+                  </Button>
+                  <Button variant="outlined" onClick={() => void handlePromoteToPlaybook()} disabled={promotePlaybookBusy || !lastRun?.runId}>
+                    Promote to Playbook
+                  </Button>
+                  <Button variant="outlined" onClick={() => void handleApplyPlaybookToToday()} disabled={applyPlaybookBusy || !latestPlaybook?.playbookId}>
+                    Apply Playbook to Today
+                  </Button>
                   {lastRun ? <Chip size="small" label={`Status: ${lastRun.status}`} /> : null}
                   <Chip size="small" variant="outlined" label={`Run state: ${runLifecycleState}`} />
                 </Stack>
@@ -2905,6 +3644,7 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                   <Alert severity="info">Run a backtest first to view results and report.</Alert>
                 ) : (
                   <>
+                    <Typography variant="subtitle2">Quick Backtest Summary</Typography>
                     <Grid container spacing={1}>
                       <Grid item xs={6} md={2.4}><Card variant="outlined"><CardContent><Typography variant="caption">Sample</Typography><Typography variant="h6">{results.summary.sampleSize}</Typography></CardContent></Card></Grid>
                       <Grid item xs={6} md={2.4}><Card variant="outlined"><CardContent><Typography variant="caption">Win rate</Typography><Typography variant="h6">{results.summary.winRate?.toFixed(2)}%</Typography></CardContent></Card></Grid>
@@ -2912,6 +3652,50 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
                       <Grid item xs={6} md={2.4}><Card variant="outlined"><CardContent><Typography variant="caption">Avg MAE/MFE</Typography><Typography variant="h6">{results.summary.avgMaeR?.toFixed(2)} / {results.summary.avgMfeR?.toFixed(2)}</Typography></CardContent></Card></Grid>
                       <Grid item xs={6} md={2.4}><Card variant="outlined"><CardContent><Typography variant="caption">Fill rate</Typography><Typography variant="h6">{results.summary.fillRate?.toFixed(2)}%</Typography></CardContent></Card></Grid>
                     </Grid>
+
+                    <Grid container spacing={1}>
+                      <Grid item xs={12} md={4}>
+                        <Card variant="outlined">
+                          <CardContent>
+                            <Typography variant="subtitle2">Candidate Flow</Typography>
+                            <Typography variant="body2" color="text.secondary">{`Candidates: ${results.candidateSummary?.totalCandidates ?? candidateRows.length}`}</Typography>
+                            <Typography variant="body2" color="text.secondary">{`Converted to trades: ${results.candidateSummary?.convertedTrades ?? 0}`}</Typography>
+                            <Typography variant="body2" color="text.secondary">{`Accepted by user: ${results.candidateSummary?.userAccepted ?? 0}`}</Typography>
+                            <Typography variant="body2" color="text.secondary">{`Rejected by user: ${results.candidateSummary?.userRejected ?? 0}`}</Typography>
+                            <Button size="small" sx={{ mt: 1 }} onClick={() => handleOpenStrategyStudio('CANDIDATES')}>
+                              Open Candidate Review
+                            </Button>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <Card variant="outlined">
+                          <CardContent>
+                            <Typography variant="subtitle2">Best Setup</Typography>
+                            <Typography variant="body2" color="text.secondary">{bestTrade ? `${bestTrade.sessionName || 'N/A'} ${bestTrade.direction || ''}` : 'No filled trade yet'}</Typography>
+                            <Typography variant="h6">{bestTrade?.rMultiple != null ? `${bestTrade.rMultiple.toFixed(2)}R` : '-'}</Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12} md={4}>
+                        <Card variant="outlined">
+                          <CardContent>
+                            <Typography variant="subtitle2">Worst Setup</Typography>
+                            <Typography variant="body2" color="text.secondary">{worstTrade ? `${worstTrade.sessionName || 'N/A'} ${worstTrade.direction || ''}` : 'No filled trade yet'}</Typography>
+                            <Typography variant="h6">{worstTrade?.rMultiple != null ? `${worstTrade.rMultiple.toFixed(2)}R` : '-'}</Typography>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    </Grid>
+
+                    {latestPlaybook ? (
+                      <Alert severity="success">
+                        {`Latest playbook: ${latestPlaybook.name} (${latestPlaybook.templateFamily}) | Sample: ${latestPlaybook.sampleSize || 0} | Validation: ${latestPlaybook.validationSummary?.confidence || 'Low'}`}
+                      </Alert>
+                    ) : null}
+                    {activeTodayPlaybookName ? (
+                      <Alert severity="info">{`Active Strategy Playbook: ${activeTodayPlaybookName}`}</Alert>
+                    ) : null}
 
                     <Typography variant="subtitle2">Trades</Typography>
                     <Typography variant="caption" color="text.secondary">All timestamps are displayed in UTC (ISO Z).</Typography>
@@ -3134,10 +3918,11 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
 
       <Drawer
         anchor={isMobile ? 'bottom' : 'right'}
-        open={Boolean(selectedTrade)}
+        open={Boolean(selectedTrade || selectedCandidate)}
         onClose={() => {
           setShowTradeDiagnostics(false)
           setSelectedTrade(null)
+          setSelectedCandidate(null)
         }}
       >
         <Box sx={{ width: isMobile ? '100vw' : 460, p: 2 }}>
@@ -3216,6 +4001,33 @@ export default function BacktestLabWizard({ headerSymbol }: BacktestLabWizardPro
               </Stack>
             )
           })()}
+          {!selectedTrade && selectedCandidate ? (
+            <Stack spacing={1}>
+              <Typography variant="h6">Candidate Storyline</Typography>
+              <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+                <Chip size="small" label={selectedCandidate.state} />
+                <Chip size="small" variant="outlined" label={selectedCandidate.sessionName || 'N/A'} />
+                <Chip size="small" variant="outlined" label={selectedCandidate.symbol} />
+                <Chip size="small" variant="outlined" label={selectedCandidate.qualityLabel || 'UNRATED'} />
+              </Stack>
+              <Card variant="outlined">
+                <CardContent sx={{ py: 1.2 }}>
+                  <Typography variant="subtitle2">Story</Typography>
+                  <Typography variant="body2" color="text.secondary">{selectedCandidate.storySummary || 'No story available.'}</Typography>
+                  {selectedCandidate.qualifiedReason ? <Typography variant="body2" color="success.main">{selectedCandidate.qualifiedReason}</Typography> : null}
+                  {selectedCandidate.failedReason ? <Typography variant="body2" color="warning.main">{selectedCandidate.failedReason}</Typography> : null}
+                </CardContent>
+              </Card>
+              <Card variant="outlined">
+                <CardContent sx={{ py: 1.2 }}>
+                  <Typography variant="subtitle2">Diagnostics</Typography>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                    {JSON.stringify(selectedCandidate.evidence || {}, null, 2)}
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Stack>
+          ) : null}
         </Box>
       </Drawer>
     </Stack>
