@@ -177,4 +177,43 @@ class DiagnosticsServiceTest {
         assertThat(response.getCoreMetrics().getSampleSize()).isEqualTo(1);
         assertThat(response.getCoreMetrics().getExpectancyR()).isEqualByComparingTo("0.0000");
     }
+
+    @Test
+    void liveSummaryOnlyCountsLiveTrades() {
+        UUID strategyId = UUID.randomUUID();
+
+        when(userStrategyRepository.findByUser_IdOrderByUpdatedAtDesc(user.getId()))
+                .thenReturn(List.of(UserStrategy.builder()
+                        .id(strategyId)
+                        .user(user)
+                        .name("London Sweep")
+                        .model("Model")
+                        .entryConditionsJson("[]")
+                        .entryConditionsRich("<p></p>")
+                        .invalidationLogic("x")
+                        .tpFramework("x")
+                        .build()));
+        when(backtestRunRepository.findByUser_IdOrderByCreatedAtDesc(user.getId())).thenReturn(List.of());
+        when(backtestTradeRepository.findByUser_IdOrderByCreatedAtAsc(user.getId())).thenReturn(List.of());
+
+        Trade liveTrade = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .strategyId(strategyId)
+                .symbol("EURUSD")
+                .status(TradeStatus.CLOSED)
+                .session(TradeSession.LONDON)
+                .openedAt(OffsetDateTime.of(2026, 3, 4, 7, 0, 0, 0, ZoneOffset.UTC))
+                .closedAt(OffsetDateTime.of(2026, 3, 4, 7, 30, 0, 0, ZoneOffset.UTC))
+                .rMultiple(new BigDecimal("1.8000"))
+                .build();
+        when(tradeRepository.findByUserId(user.getId())).thenReturn(List.of(liveTrade));
+        when(contextSnapshotRepository.findAllById(any())).thenReturn(List.of());
+
+        var response = diagnosticsService.getLiveSummary(null, null, null, null);
+
+        assertThat(response.getCoreMetrics().getSampleSize()).isEqualTo(1);
+        assertThat(response.getStrategyPerformance()).extracting(item -> item.getStrategyName()).contains("London Sweep");
+        assertThat(response.getBreakdownBySession()).extracting(item -> item.getKey()).contains("LONDON");
+    }
 }

@@ -3,6 +3,7 @@ package com.tradevault.controller;
 import com.tradevault.dto.diagnostics.DiagnosticsStrategiesResponse;
 import com.tradevault.dto.diagnostics.DiagnosticsStrategyDetailResponse;
 import com.tradevault.dto.diagnostics.DiagnosticsReportsResponse;
+import com.tradevault.dto.diagnostics.LiveDiagnosticsSummaryResponse;
 import com.tradevault.service.DiagnosticsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -47,5 +48,15 @@ public class DiagnosticsController {
             @RequestParam(required = false) String strategyName
     ) {
         return diagnosticsService.listReports(from, to, instrument, strategyName);
+    }
+
+    @GetMapping("/live-summary")
+    public LiveDiagnosticsSummaryResponse liveSummary(
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+            @RequestParam(required = false) String symbol,
+            @RequestParam(name = "sessionWindow", required = false) String sessionWindow
+    ) {
+        return diagnosticsService.getLiveSummary(from, to, symbol, sessionWindow);
     }
 }

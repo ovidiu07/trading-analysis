@@ -98,6 +98,17 @@ export type DiagnosticsReportsResponse = {
   reports: DiagnosticsReportRow[]
 }
 
+export type LiveDiagnosticsSummaryResponse = {
+  coreMetrics: DiagnosticsCoreMetrics
+  breakdownBySession: DiagnosticsBreakdownRow[]
+  breakdownBySymbol: DiagnosticsBreakdownRow[]
+  breakdownByDayOfWeek: DiagnosticsBreakdownRow[]
+  strategyPerformance: DiagnosticsStrategyHeadline[]
+  failureModes: DiagnosticsFailureModeRow[]
+  suggestions: DiagnosticsSuggestion[]
+  generatedAt: string
+}
+
 const toQuery = (params: Record<string, string | undefined>) => {
   const sp = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -131,4 +142,13 @@ export async function listDiagnosticsReports(params: {
   strategyName?: string
 } = {}) {
   return apiGet<DiagnosticsReportsResponse>(`/diagnostics/reports${toQuery(params)}`)
+}
+
+export async function getLiveDiagnosticsSummary(params: {
+  from?: string
+  to?: string
+  symbol?: string
+  sessionWindow?: string
+} = {}) {
+  return apiGet<LiveDiagnosticsSummaryResponse>(`/diagnostics/live-summary${toQuery(params)}`)
 }

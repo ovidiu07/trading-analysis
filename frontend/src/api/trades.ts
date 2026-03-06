@@ -36,6 +36,7 @@ export type TradeRequest = {
   ruleBreaks?: string[]
   session?: TradeSession | null
   sessionId?: string | null
+  setupId?: string | null
   feeling?: string | null
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
@@ -87,6 +88,7 @@ export type TradeResponse = {
   ruleBreaks?: string[]
   session?: TradeSession | null
   sessionId?: string | null
+  setupId?: string | null
   feeling?: string | null
   linkedContentIds?: string[]
   linkedPlanIds?: string[]

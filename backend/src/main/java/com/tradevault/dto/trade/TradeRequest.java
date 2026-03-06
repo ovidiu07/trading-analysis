@@ -58,6 +58,7 @@ public class TradeRequest {
     private Set<String> ruleBreaks;
     private TradeSession session;
     private UUID sessionId;
+    private UUID setupId;
     private UUID sweepLevelId;
     private UUID sweepPoolId;
     private UUID entryLevelId;

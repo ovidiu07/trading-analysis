@@ -117,6 +117,9 @@ public class Trade {
     @Column(name = "session_id")
     private UUID sessionId;
 
+    @Column(name = "setup_id")
+    private UUID setupId;
+
     @Column(name = "sweep_level_id")
     private UUID sweepLevelId;
 

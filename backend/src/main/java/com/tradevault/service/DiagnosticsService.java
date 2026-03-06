@@ -20,6 +20,7 @@ import com.tradevault.dto.diagnostics.DiagnosticsStrategyDetailResponse;
 import com.tradevault.dto.diagnostics.DiagnosticsStrategyHeadline;
 import com.tradevault.dto.diagnostics.DiagnosticsSuggestion;
 import com.tradevault.dto.diagnostics.DiagnosticsTriggerImpactRow;
+import com.tradevault.dto.diagnostics.LiveDiagnosticsSummaryResponse;
 import com.tradevault.repository.BacktestRunRepository;
 import com.tradevault.repository.BacktestRunReportRepository;
 import com.tradevault.repository.BacktestTradeRepository;
@@ -131,6 +132,73 @@ public class DiagnosticsService {
 
         return DiagnosticsReportsResponse.builder()
                 .reports(rows)
+                .build();
+    }
+
+    public LiveDiagnosticsSummaryResponse getLiveSummary(LocalDate from,
+                                                         LocalDate to,
+                                                         String symbol,
+                                                         String sessionWindow) {
+        User user = currentUserService.getCurrentUser();
+        UUID userId = user.getId();
+        Map<UUID, String> strategyNames = mapStrategyNames(userId);
+
+        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.LIVE, from, to, symbol, sessionWindow, null, null);
+        DiagnosticsCoreMetrics coreMetrics = buildCoreMetrics(samples);
+        List<DiagnosticsBreakdownRow> bySession = buildBreakdown(samples, TradeSample::sessionLabel);
+        List<DiagnosticsBreakdownRow> bySymbol = buildBreakdown(samples, TradeSample::symbol);
+        List<DiagnosticsBreakdownRow> byDow = buildBreakdown(samples, sample -> sample.dayOfWeek() == null ? "N/A" : sample.dayOfWeek().name());
+
+        Set<UUID> snapshotIds = samples.stream()
+                .map(TradeSample::contextSnapshotId)
+                .filter(Objects::nonNull)
+                .collect(LinkedHashSet::new, Set::add, Set::addAll);
+        Map<UUID, ContextSnapshot> snapshots = new HashMap<>();
+        if (!snapshotIds.isEmpty()) {
+            contextSnapshotRepository.findAllById(snapshotIds).forEach(item -> snapshots.put(item.getId(), item));
+        }
+
+        List<DiagnosticsTriggerImpactRow> triggerImpact = buildTriggerImpact(samples, snapshots);
+        List<DiagnosticsFailureModeRow> failureModes = buildFailureModes(samples, snapshots);
+        List<DiagnosticsSuggestion> suggestions = buildSuggestions(samples, triggerImpact, failureModes, bySession);
+
+        Map<UUID, StatsBucket> grouped = new LinkedHashMap<>();
+        for (TradeSample sample : samples) {
+            UUID strategyKey = sample.strategyId() == null ? UNASSIGNED_STRATEGY_ID : sample.strategyId();
+            grouped.computeIfAbsent(strategyKey, ignored -> new StatsBucket()).add(sample);
+        }
+
+        List<DiagnosticsStrategyHeadline> strategyPerformance = grouped.entrySet().stream()
+                .map(entry -> {
+                    UUID strategyId = entry.getKey();
+                    StatsBucket stats = entry.getValue();
+                    String strategyName = UNASSIGNED_STRATEGY_ID.equals(strategyId)
+                            ? UNASSIGNED_STRATEGY_NAME
+                            : strategyNames.getOrDefault(strategyId, "Unnamed strategy");
+                    return DiagnosticsStrategyHeadline.builder()
+                            .strategyId(strategyId)
+                            .strategyName(strategyName)
+                            .sampleSize(stats.count)
+                            .winRate(scale(stats.winRatePct()))
+                            .expectancyR(scale(stats.expectancyR()))
+                            .profitFactor(scale(stats.profitFactor()))
+                            .build();
+                })
+                .sorted(Comparator
+                        .comparing(DiagnosticsStrategyHeadline::getSampleSize)
+                        .reversed()
+                        .thenComparing(DiagnosticsStrategyHeadline::getExpectancyR, Comparator.nullsLast(Comparator.reverseOrder())))
+                .toList();
+
+        return LiveDiagnosticsSummaryResponse.builder()
+                .coreMetrics(coreMetrics)
+                .breakdownBySession(bySession)
+                .breakdownBySymbol(bySymbol)
+                .breakdownByDayOfWeek(byDow)
+                .strategyPerformance(strategyPerformance)
+                .failureModes(failureModes)
+                .suggestions(suggestions)
+                .generatedAt(OffsetDateTime.now())
                 .build();
     }
 

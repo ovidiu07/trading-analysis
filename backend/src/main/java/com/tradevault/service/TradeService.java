@@ -250,6 +250,7 @@ public class TradeService {
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
         trade.setSessionId(request.getSessionId());
+        trade.setSetupId(request.getSetupId());
         trade.setSweepLevelId(request.getSweepLevelId());
         trade.setSweepPoolId(request.getSweepPoolId());
         trade.setEntryLevelId(request.getEntryLevelId());
@@ -332,6 +333,7 @@ public class TradeService {
         trade.setSetupGrade(request.getSetupGrade());
         trade.setSession(request.getSession());
         trade.setSessionId(request.getSessionId());
+        trade.setSetupId(request.getSetupId());
         trade.setSweepLevelId(request.getSweepLevelId());
         trade.setSweepPoolId(request.getSweepPoolId());
         trade.setEntryLevelId(request.getEntryLevelId());
@@ -894,6 +896,7 @@ public class TradeService {
                 .ruleBreaks(trade.getRuleBreaks() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getRuleBreaks()))
                 .session(trade.getSession())
                 .sessionId(trade.getSessionId())
+                .setupId(trade.getSetupId())
                 .sweepLevelId(trade.getSweepLevelId())
                 .sweepPoolId(trade.getSweepPoolId())
                 .entryLevelId(trade.getEntryLevelId())

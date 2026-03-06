@@ -133,6 +133,13 @@ public class TodaySession {
     @Column(name = "lock_in_at")
     private OffsetDateTime lockInAt;
 
+    @Column(name = "live_mode_only", nullable = false)
+    @Builder.Default
+    private Boolean liveModeOnly = Boolean.TRUE;
+
+    @Column(name = "active_setup_id")
+    private UUID activeSetupId;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "auto_journal_state", nullable = false, length = 16)
     @Builder.Default
@@ -193,6 +200,9 @@ public class TodaySession {
         }
         if (activePlaybookSnapshotJson == null) {
             activePlaybookSnapshotJson = JsonNodeFactory.instance.objectNode();
+        }
+        if (liveModeOnly == null) {
+            liveModeOnly = Boolean.TRUE;
         }
     }
 }
