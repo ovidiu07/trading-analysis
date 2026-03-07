@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { useEffect } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DailyPlan } from '../api/plans'
@@ -8,7 +9,7 @@ import type { LiveDiagnosticsSummaryResponse } from '../api/diagnostics'
 import type { LiveWorkspaceResponse, SetupItem, SetupStatus } from '../api/liveWorkspace'
 import DiagnosticsPage from './DiagnosticsPage'
 import SessionPage from './SessionPage'
-import { I18nProvider } from '../i18n'
+import { I18nProvider, useI18n } from '../i18n'
 
 const workspaceApiMock = vi.hoisted(() => ({
   getSessionWorkspace: vi.fn(),
@@ -343,7 +344,17 @@ function setupMocks() {
   }))
 }
 
-function renderWithProviders(ui: JSX.Element) {
+function LanguageSetter({ language }: { language: 'en' | 'ro' }) {
+  const { setLanguage } = useI18n()
+
+  useEffect(() => {
+    setLanguage(language)
+  }, [language, setLanguage])
+
+  return null
+}
+
+function renderWithProviders(ui: JSX.Element, language?: 'en' | 'ro') {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
@@ -354,7 +365,10 @@ function renderWithProviders(ui: JSX.Element) {
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
-        <I18nProvider>{ui}</I18nProvider>
+        <I18nProvider>
+          {language ? <LanguageSetter language={language} /> : null}
+          {ui}
+        </I18nProvider>
       </QueryClientProvider>
     </MemoryRouter>
   )
@@ -445,4 +459,12 @@ describe('SessionPage live workspace', () => {
     expect(screen.getByText('EURUSD')).toBeInTheDocument()
     expect(screen.getByText('London sweep')).toBeInTheDocument()
   }, 15000)
+
+  it('renders the workflow guide in Romanian when the app language is ro', async () => {
+    renderWithProviders(<SessionPage />, 'ro')
+
+    expect(await screen.findByText('Cum funcționează Session Mode')).toBeInTheDocument()
+    expect(screen.getByText('Setează regulile')).toBeInTheDocument()
+    expect(screen.getByText('Execută și revizuiește')).toBeInTheDocument()
+  })
 })

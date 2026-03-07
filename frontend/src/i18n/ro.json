@@ -976,6 +976,76 @@
     "session": {
       "title": "Mod sesiune",
       "subtitle": "Vizualizare focusată cu checklist, plan mentor și execuție tranzacții.",
+      "workspace": {
+        "liveWorkspace": "Workspace live",
+        "locked": "Blocat",
+        "unlocked": "Deblocat",
+        "today": "Astăzi",
+        "dateLine": "{{date}} • Workspace live de execuție orientat pe chart",
+        "autoSaving": "Se salvează automat...",
+        "saved": "Salvat",
+        "actions": {
+          "addSetup": "Adaugă setup",
+          "addNewSetup": "Adaugă setup nou",
+          "lockSession": "Blochează sesiunea",
+          "unlockSession": "Deblochează sesiunea",
+          "openMentor": "Deschide mentorul",
+          "hideMentor": "Ascunde mentorul",
+          "startExecution": "Începe execuția"
+        },
+        "metrics": {
+          "maxLoss": "Pierdere maximă",
+          "riskUsed": "Risc folosit",
+          "trades": "Tranzacții",
+          "activeSetups": "Setup-uri active",
+          "realizedPnl": "PnL realizat"
+        },
+        "lockState": {
+          "label": "Stare blocare",
+          "lockedTitle": "Sesiune blocată",
+          "lockedBody": "Regulile sunt fixate pentru execuție. Urmărește avertizările și metricile pe parcursul sesiunii.",
+          "unlockedTitle": "Sesiunea nu este blocată",
+          "unlockedBody": "Finalizează guardrail-urile și blochează sesiunea înainte de execuție, ca să eviți schimbările emoționale."
+        },
+        "rail": {
+          "title": "Rail sesiune",
+          "subtitle": "Lock-in-ul, guardrail-urile și avertizările live rămân vizibile aici.",
+          "setupTitle": "Setare sesiune",
+          "setupSubtitle": "Definește guardrail-urile sesiunii înainte să înceapă execuția.",
+          "qualityFilter": "Filtru de calitate",
+          "sessionNarrative": "Contextul sesiunii",
+          "prerequisites": "Prerechizite",
+          "warnings": "Avertizări",
+          "liveMetrics": "Metrici live",
+          "noWarnings": "Nu există avertizări live pentru sesiune în acest moment."
+        }
+      },
+      "workflowGuide": {
+        "title": "Cum funcționează Session Mode",
+        "subtitle": "Un flux simplu pentru a planifica, bloca, executa și revizui tranzacțiile cu disciplină.",
+        "steps": {
+          "setGuardrails": {
+            "title": "Setează regulile",
+            "description": "Alege sesiunea, definește bias-ul și stabilește limitele zilnice de risc înainte să cauți execuții."
+          },
+          "writeNarrative": {
+            "title": "Scrie contextul",
+            "description": "Notează de ce ai acel bias, ce condiții contează astăzi și ce trebuie să rămână valid pentru idee."
+          },
+          "prepareSetups": {
+            "title": "Pregătește setup-urile",
+            "description": "Adaugă una sau mai multe idei de tranzacționare, marchează nivelurile cheie și concentrează-te doar pe oportunități de calitate."
+          },
+          "lockPlan": {
+            "title": "Blochează planul",
+            "description": "Blochează sesiunea doar când regulile, riscul și contextul sunt clare. Astfel eviți schimbările emoționale în timpul execuției."
+          },
+          "executeReview": {
+            "title": "Execută și revizuiește",
+            "description": "Intră în tranzacții doar dacă respectă planul, apoi urmărește activitatea, avertizările și metricile pe durata sesiunii."
+          }
+        }
+      },
       "actions": {
         "executionFocus": "Focus execuție",
         "studyFocus": "Focus studiu"

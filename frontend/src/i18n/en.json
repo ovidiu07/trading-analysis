@@ -976,6 +976,76 @@
     "session": {
       "title": "Session mode",
       "subtitle": "Focused execution view with checklist, mentor plan, and trade execution.",
+      "workspace": {
+        "liveWorkspace": "Live workspace",
+        "locked": "Locked",
+        "unlocked": "Unlocked",
+        "today": "Today",
+        "dateLine": "{{date}} • Chart-first live execution workspace",
+        "autoSaving": "Auto-saving...",
+        "saved": "Saved",
+        "actions": {
+          "addSetup": "Add setup",
+          "addNewSetup": "Add new setup",
+          "lockSession": "Lock session",
+          "unlockSession": "Unlock session",
+          "openMentor": "Open mentor",
+          "hideMentor": "Hide mentor",
+          "startExecution": "Start execution"
+        },
+        "metrics": {
+          "maxLoss": "Max loss",
+          "riskUsed": "Risk used",
+          "trades": "Trades",
+          "activeSetups": "Active setups",
+          "realizedPnl": "Realized PnL"
+        },
+        "lockState": {
+          "label": "Lock state",
+          "lockedTitle": "Session locked",
+          "lockedBody": "Rules are frozen for execution. Review warnings and metrics while the session unfolds.",
+          "unlockedTitle": "Session is not locked",
+          "unlockedBody": "Finish the guardrails and lock the session before execution to prevent emotional changes."
+        },
+        "rail": {
+          "title": "Session rail",
+          "subtitle": "Lock-in, guardrails, and live warnings stay visible here.",
+          "setupTitle": "Session setup",
+          "setupSubtitle": "Define the session guardrails before execution begins.",
+          "qualityFilter": "Quality filter",
+          "sessionNarrative": "Session narrative",
+          "prerequisites": "Prerequisites",
+          "warnings": "Warnings",
+          "liveMetrics": "Live metrics",
+          "noWarnings": "No live session warnings right now."
+        }
+      },
+      "workflowGuide": {
+        "title": "How Session Mode works",
+        "subtitle": "A simple workflow to plan, lock, execute, and review your trades with discipline.",
+        "steps": {
+          "setGuardrails": {
+            "title": "Set guardrails",
+            "description": "Choose the session, define your bias, and set your daily risk limits before looking for execution."
+          },
+          "writeNarrative": {
+            "title": "Write the narrative",
+            "description": "Record why you are biased, what conditions matter today, and what must stay true for the idea to remain valid."
+          },
+          "prepareSetups": {
+            "title": "Prepare setups",
+            "description": "Add one or more trade ideas, mark key levels, and focus only on high-quality opportunities."
+          },
+          "lockPlan": {
+            "title": "Lock the plan",
+            "description": "Lock the session only when your rules, risk, and narrative are clear. This prevents emotional changes during execution."
+          },
+          "executeReview": {
+            "title": "Execute and review",
+            "description": "Take trades only if they match the plan, then review activity, warnings, and metrics during the session."
+          }
+        }
+      },
       "actions": {
         "executionFocus": "Execution Focus",
         "studyFocus": "Study Focus"
