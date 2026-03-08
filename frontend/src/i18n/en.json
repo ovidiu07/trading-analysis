@@ -1595,31 +1595,45 @@
       },
       "workstation": {
         "header": {
-          "flow": "See chart, compare mentor context, import strategy, refine triggers, execute, and review without leaving the workstation.",
+          "flow": "See chart, pick a setup, compare mentor context, import strategy, trigger, execute, and journal without leaving the workstation.",
           "importStrategy": "Import strategy",
-          "startTrade": "Start trade",
           "newExecution": "New execution",
+          "quickLog": "Quick log",
           "setupCount": "Setups",
-          "selectedStrategy": "Selected strategy"
+          "selectedStrategy": "Selected strategy",
+          "selectedSymbol": "Selected symbol",
+          "sessionSettings": "Session settings"
         },
         "mentor": {
           "kicker": "Mentor reference",
           "title": "Reference lane",
           "collapse": "Collapse",
           "expand": "Expand",
-          "reference": "Reference read",
-          "scenario": "Preferred scenario:",
-          "invalidation": "Invalidation:",
-          "risk": "Risk note:",
-          "levels": "Mentor levels",
+          "bias": "Bias",
+          "narrative": "Narrative",
+          "levels": "Levels",
+          "invalidation": "Invalidation",
+          "checklist": "Checklist / notes",
           "apply": "Apply mentor context",
           "emptyTitle": "No mentor reference for this setup",
-          "emptyBody": "The mentor plan stays read-only and only appears when it matches the selected symbol.",
+          "emptyBody": "The mentor lane stays read-only and appears only when it matches the active setup symbol.",
           "noSetup": "Select a setup to compare it against the mentor plan."
+        },
+        "navigator": {
+          "kicker": "Setup selector",
+          "title": "Setup command row",
+          "executions": "executions",
+          "lastAction": "{{action}} • {{time}}",
+          "noActivity": "No activity yet",
+          "open": "Open",
+          "duplicate": "Duplicate",
+          "newExecution": "New execution",
+          "emptyTitle": "No setups in this session",
+          "emptyBody": "Add a setup or import a strategy to turn the chart into a capture workspace."
         },
         "chart": {
           "kicker": "Chart workspace",
-          "title": "Persistent chart",
+          "title": "Chart command center",
           "subtitle": "The chart stays central while setup context, visible levels, and execution focus stay synchronized beside it.",
           "mentorOnly": "Mentor only",
           "mineOnly": "Mine only",
@@ -1627,77 +1641,142 @@
           "executionsOnly": "Executions only",
           "levelsToggle": "Levels",
           "labelsToggle": "Labels",
-          "strategy": "Strategy",
-          "focus": "Visible levels & execution focus",
-          "focusedLevel": "Focused level",
+          "focus": "Visible levels",
+          "executionFocus": "Execution focus",
           "useForEntry": "Use for entry",
           "useForStop": "Use for stop",
           "useForTarget": "Use for target",
-          "noFocus": "Select a visible level to reuse its price in the execution editor.",
+          "noFocus": "Select a visible level to reuse its price inside the execution ticket.",
           "levelsHidden": "Visible levels are hidden. Turn Levels back on to use chart-linked price helpers.",
           "emptyTitle": "Create or select a setup to anchor the chart",
           "emptyBody": "The chart becomes the working center once a setup defines the live symbol and execution context."
         },
-        "personal": {
-          "kicker": "Personal workspace",
-          "title": "Editable execution lane",
-          "advancedToggle": "Show advanced fields",
-          "sessionControl": "Session control",
-          "setupNavigator": "Setup navigator",
-          "executionCount": "executions",
-          "selectSetup": "Open",
-          "duplicateSetup": "Duplicate",
-          "emptyTitle": "No setups in this session",
-          "emptyBody": "Add a setup or import a strategy to start building today's plan.",
-          "readiness": "Readiness",
-          "sessionLock": "Session lock",
-          "blockedBy": "Blocked by",
-          "readyToExecute": "Context, trigger, execution, and session lock are aligned."
+        "capture": {
+          "kicker": "Trade capture drawer",
+          "title": "Trade capture drawer",
+          "compact": "Compact",
+          "advanced": "Advanced",
+          "emptyTitle": "No setup selected",
+          "emptyBody": "Open a setup from the selector to unlock the capture drawer."
+        },
+        "readiness": {
+          "title": "Readiness and next step",
+          "subtitle": "Plan, trigger, execution, and session guardrails stay separate so the next action is obvious.",
+          "plan": "Plan readiness",
+          "trigger": "Trigger readiness",
+          "execution": "Execution readiness",
+          "session": "Session readiness",
+          "nextAction": "What to do next"
         },
         "tabs": {
           "plan": "Plan",
-          "triggers": "Triggers",
-          "executions": "Executions",
-          "review": "Review"
+          "trigger": "Trigger",
+          "execute": "Execute",
+          "journal": "Journal"
         },
         "plan": {
-          "title": "Personal setup",
-          "subtitle": "Turn today's context into an editable plan without mixing it with mentor reference.",
-          "strategyTrace": "Strategy traceability",
+          "title": "Plan mode",
+          "subtitle": "Build a personal setup from strategy and session context without turning the drawer into a document editor.",
+          "strategySummary": "Strategy summary",
           "localEdits": "Local edits applied",
           "snapshotClean": "Imported snapshot",
-          "importedFrom": "Imported from:",
-          "model": "Model:",
+          "viewDetails": "View full strategy details",
+          "noStrategyTitle": "No strategy imported yet",
+          "noStrategyBody": "Import a strategy to prefill the setup and keep traceability without dumping the full playbook inline.",
+          "advancedTitle": "Advanced plan fields",
+          "strategyDetailsTitle": "Strategy snapshot details",
           "invalidation": "Invalidation:",
-          "targets": "Targets / management:"
+          "targets": "Targets / management:",
+          "noTrade": "No-trade rules:"
         },
-        "triggers": {
-          "title": "Trigger model",
+        "trigger": {
+          "title": "Trigger mode",
+          "subtitle": "Use the trigger checklist to confirm the setup instead of typing long narrative blocks.",
+          "statusSummary": "Trigger status summary",
           "sweepIdentified": "Sweep identified",
           "displacementConfirmed": "Displacement confirmed",
           "structureConfirmed": "MSS / structure confirmed",
-          "advancedTitle": "Advanced trigger parameters"
+          "advancedTitle": "Advanced trigger parameters",
+          "statusValues": {
+            "NOT_READY": "Not ready",
+            "WATCHING": "Watching",
+            "CONFIRMED": "Confirmed",
+            "INVALIDATED": "Invalidated"
+          }
         },
-        "executions": {
-          "title": "Execution terminal",
-          "subtitle": "One setup can hold multiple tickets for first entry, re-entry, scale-in, or secondary confirmation.",
+        "execute": {
+          "title": "Execute mode",
+          "subtitle": "Each ticket behaves like an order ticket so entry, stop, target, risk, and management stay fast.",
           "newExecution": "New execution",
           "cloneExecution": "Clone execution",
-          "notConfigured": "Entry, stop, and target not configured yet.",
-          "linkedTrade": "Linked trade",
-          "focusExecution": "Focus",
-          "editorSubtitle": "Execution values sync with the focused chart context and stay local to this setup.",
-          "saveExecution": "Save execution",
-          "markSetupReady": "Mark setup ready",
-          "startBlocked": "Start trade is blocked"
+          "deleteDraft": "Delete draft",
+          "open": "Open",
+          "clone": "Clone",
+          "markActive": "Mark active",
+          "partial": "Partial",
+          "skip": "Skip",
+          "editorSubtitle": "Edit the active execution ticket while the chart stays visible and focused.",
+          "closeWin": "Close win",
+          "closeLoss": "Close loss",
+          "startBlocked": "Execution is blocked",
+          "notConfigured": "Entry, stop, and target are not configured yet."
+        },
+        "journal": {
+          "title": "Journal mode",
+          "subtitle": "Log events as they happen, then add short notes, mistakes, lessons, and result context only when needed.",
+          "events": "events",
+          "quickNote": "Quick note",
+          "quickNotePlaceholder": "Capture what changed, what you saw, or what you learned in one short note.",
+          "mistakeTags": "Quick mistake tags",
+          "lessonTags": "Quick lesson tags",
+          "resultWatching": "Watching",
+          "resultBE": "Breakeven",
+          "resultWin": "Win",
+          "resultLoss": "Loss",
+          "resultSkipped": "Skipped",
+          "recentActivity": "Recent activity",
+          "mistakePresets": {
+            "fomo": "FOMO entry",
+            "earlyExit": "Early exit",
+            "movedStop": "Moved stop",
+            "oversized": "Oversized position",
+            "newsTrade": "News trade",
+            "noJournal": "No journal"
+          },
+          "lessonPresets": {
+            "confirmation": "Wait for confirmation",
+            "invalidation": "Trust invalidation",
+            "breakeven": "Protect BE with rules",
+            "partials": "Let partials work",
+            "smallerSize": "Reduce size in chop",
+            "skipNoise": "Skip unclear context"
+          }
+        },
+        "timeline": {
+          "kicker": "Activity timeline",
+          "title": "Activity timeline",
+          "subtitle": "Event-based journaling keeps trade capture fast. Every quick action lands here with execution context.",
+          "emptyTitle": "No setup activity yet",
+          "emptyBody": "Open a setup, log an event, or import a strategy to start the timeline.",
+          "event": "Event"
         },
         "review": {
-          "title": "Review & journal",
-          "subtitle": "Log incremental notes while the session is live, then capture mistakes, lessons, and outcome summary in one place.",
-          "addTimelineNote": "Add note to timeline",
-          "timeline": "Timeline",
           "timelineEmpty": "No review events yet",
-          "timelineEmptyBody": "Strategy imports, execution creation, starts, notes, and trade activity will appear here."
+          "timelineEmptyBody": "Strategy imports, trigger confirmations, execution events, and notes will appear here."
+        },
+        "quickActions": {
+          "WATCHING": "Watching",
+          "TRIGGER_CONFIRMED": "Trigger confirmed",
+          "ENTRY_TAKEN": "Entry taken",
+          "PARTIAL_TAKEN": "Partial taken",
+          "MOVE_TO_BE": "Move to BE",
+          "CLOSE_WIN": "Close win",
+          "CLOSE_LOSS": "Close loss",
+          "SKIPPED": "Skipped",
+          "INVALIDATED": "Invalidated",
+          "MISSED_TRADE": "Missed trade",
+          "ADD_NOTE": "Add note",
+          "ADD_LESSON": "Add lesson"
         },
         "dialogs": {
           "createSetup": "Create setup",
@@ -1714,7 +1793,7 @@
           "previewEmpty": "Select a strategy to preview it",
           "previewEmptyBody": "Imported strategies become editable local snapshots inside Session Mode.",
           "importAction": "Import",
-          "noTradeRules": "No-trade rules:"
+          "sessionSettings": "Session settings"
         },
         "fields": {
           "sessionName": "Session name",
@@ -1734,7 +1813,7 @@
           "narrative": "Narrative",
           "liquidity": "Liquidity / key levels",
           "invalidationIdea": "Invalidation idea",
-          "contextNotes": "Context notes",
+          "contextNotes": "Context note",
           "confirmationModel": "Confirmation model",
           "entryZone": "Entry zone",
           "rrEstimate": "RR estimate",
@@ -1762,11 +1841,20 @@
           "whyWrong": "Why wrong if...",
           "initialNotes": "Initial notes",
           "executionNotes": "Execution notes",
-          "liveNotes": "Live notes",
           "mistakes": "Mistakes",
           "lessons": "Lessons",
           "outcomeSummary": "Outcome summary",
           "reviewTags": "Review tags"
+        },
+        "feedback": {
+          "setupAdded": "Setup added to the workstation.",
+          "setupDuplicated": "Setup duplicated.",
+          "tradeStarted": "Trade started from the selected execution.",
+          "executionRemoved": "Draft execution removed.",
+          "mentorApplied": "Mentor context copied into the selected setup.",
+          "strategyImportedNew": "Strategy imported into a new setup.",
+          "strategyImportedCurrent": "Strategy imported into the selected setup.",
+          "quickNoteRequired": "Write a quick note before logging that action."
         }
       }
     }

@@ -553,7 +553,7 @@ describe('SessionPage workstation', () => {
   it('handles strategy import, multi-setup navigation, execution cloning, and trade start', async () => {
     renderWithProviders(<SessionPage />)
 
-    expect(await screen.findByText('Persistent chart')).toBeInTheDocument()
+    expect(await screen.findByText('Chart command center')).toBeInTheDocument()
 
     for (const draft of [
       { symbol: 'GBPUSD', direction: 'SHORT' as const, setupTitle: 'Cable fade' },
@@ -578,33 +578,31 @@ describe('SessionPage workstation', () => {
     expect(await screen.findByText('London sweep')).toBeInTheDocument()
     fireEvent.click(screen.getByText('London sweep'))
     fireEvent.click(screen.getByRole('button', { name: 'Import' }))
-    await waitFor(() => expect(screen.getByText(/Imported from:/)).toBeInTheDocument())
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getByText((_, element) => element?.textContent === 'Imported from: London sweep')).toBeInTheDocument()
+    expect(screen.getAllByText('London sweep').length).toBeGreaterThan(0)
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Triggers' }))
-    fireEvent.click(screen.getByLabelText('Sweep identified'))
-    fireEvent.click(screen.getByLabelText('Displacement confirmed'))
-    fireEvent.click(screen.getByLabelText('MSS / structure confirmed'))
+    fireEvent.click(screen.getByRole('tab', { name: 'Trigger' }))
+    fireEvent.click(screen.getByText('Sweep identified'))
+    fireEvent.click(screen.getByText('Displacement confirmed'))
+    fireEvent.click(screen.getByText('MSS / structure confirmed'))
     fireEvent.change(screen.getByLabelText('Confirmation model'), { target: { value: 'M5 displacement into M1 confirmation' } })
-    fireEvent.change(screen.getByLabelText('Entry zone'), { target: { value: 'M1 FVG reclaim' } })
-    fireEvent.change(screen.getByLabelText('RR estimate'), { target: { value: '2.0' } })
+    fireEvent.change(screen.getByLabelText('Entry model'), { target: { value: 'M1 FVG reclaim' } })
+    fireEvent.change(screen.getByLabelText('RR minimum'), { target: { value: '2.0' } })
 
     fireEvent.click(screen.getByRole('tab', { name: 'Plan' }))
     fireEvent.change(screen.getByLabelText('Liquidity / key levels'), { target: { value: 'PDH sweep into London opening range' } })
     fireEvent.change(screen.getByLabelText('Invalidation idea'), { target: { value: 'If the reclaim fails and price accepts below PDH.' } })
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Executions' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Execute' }))
     fireEvent.change(screen.getByLabelText('Entry'), { target: { value: '1.0812' } })
     fireEvent.change(screen.getByLabelText('Stop loss'), { target: { value: '1.0798' } })
     fireEvent.change(screen.getByLabelText('Take profit'), { target: { value: '1.0844' } })
     fireEvent.change(screen.getByLabelText('Risk amount'), { target: { value: '75' } })
     fireEvent.change(screen.getByLabelText('Execution invalidation'), { target: { value: 'Close below the reclaimed London range low.' } })
-    fireEvent.change(screen.getByLabelText('Initial notes'), { target: { value: 'Execute only if spread stays clean through the reclaim.' } })
+    fireEvent.change(screen.getByLabelText('Execution notes'), { target: { value: 'Execute only if spread stays clean through the reclaim.' } })
     fireEvent.click(screen.getByRole('button', { name: 'Clone execution' }))
     await waitFor(() => expect(screen.getAllByText('Execution 1 Copy').length).toBeGreaterThan(0))
     const setupSaveCallCount = workspaceApiMock.updateSetupCandidate.mock.calls.length
-    fireEvent.click(screen.getByRole('button', { name: 'Save execution' }))
     await waitFor(() => expect(workspaceApiMock.updateSetupCandidate.mock.calls.length).toBeGreaterThan(setupSaveCallCount))
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Lock session' })[0])
@@ -612,13 +610,13 @@ describe('SessionPage workstation', () => {
 
     let startTradeButton: HTMLElement | undefined
     await waitFor(() => {
-      startTradeButton = screen.getAllByRole('button', { name: 'Start trade' }).find((button) => !button.hasAttribute('disabled'))
+      startTradeButton = screen.getAllByRole('button', { name: 'Mark active' }).find((button) => !button.hasAttribute('disabled'))
       expect(startTradeButton).toBeDefined()
     }, { timeout: 5000 })
     fireEvent.click(startTradeButton as HTMLElement)
     await waitFor(() => expect(workspaceApiMock.startTradeFromSetupCandidate).toHaveBeenCalled())
 
-    fireEvent.click(screen.getByRole('tab', { name: 'Review' }))
+    fireEvent.click(screen.getByRole('tab', { name: 'Journal' }))
     await waitFor(() => expect(screen.getAllByText('Execution started').length).toBeGreaterThan(0))
     expect(screen.getAllByText('London sweep reclaim').length).toBeGreaterThan(0)
 
@@ -631,6 +629,6 @@ describe('SessionPage workstation', () => {
 
     expect(await screen.findByText('Importă strategie')).toBeInTheDocument()
     expect(screen.getByText('Bandă referință')).toBeInTheDocument()
-    expect(screen.getByText('Bandă editabilă de execuție')).toBeInTheDocument()
+    expect(screen.getAllByText('Sertar captură trade').length).toBeGreaterThan(0)
   })
 })

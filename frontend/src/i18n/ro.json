@@ -1595,109 +1595,188 @@
       },
       "workstation": {
         "header": {
-          "flow": "Vezi chart-ul, compari contextul mentorului, imporți strategia, rafinezi trigger-ele, execuți și revizuiești fără să părăsești workstation-ul.",
+          "flow": "Vezi chart-ul, alegi setup-ul, compari contextul mentorului, imporți strategia, confirmi trigger-ul, execuți și jurnalizezi fără să părăsești workstation-ul.",
           "importStrategy": "Importă strategie",
-          "startTrade": "Pornește tranzacția",
           "newExecution": "Execuție nouă",
+          "quickLog": "Log rapid",
           "setupCount": "Setup-uri",
-          "selectedStrategy": "Strategie selectată"
+          "selectedStrategy": "Strategie selectată",
+          "selectedSymbol": "Simbol selectat",
+          "sessionSettings": "Setări sesiune"
         },
         "mentor": {
           "kicker": "Referință mentor",
           "title": "Bandă referință",
           "collapse": "Restrânge",
           "expand": "Extinde",
-          "reference": "Lectură referință",
-          "scenario": "Scenariu preferat:",
-          "invalidation": "Invalidare:",
-          "risk": "Notă risc:",
-          "levels": "Niveluri mentor",
+          "bias": "Bias",
+          "narrative": "Narațiune",
+          "levels": "Niveluri",
+          "invalidation": "Invalidare",
+          "checklist": "Checklist / notițe",
           "apply": "Aplică contextul mentorului",
           "emptyTitle": "Nu există referință mentor pentru acest setup",
-          "emptyBody": "Planul mentorului rămâne doar pentru referință și apare doar când se potrivește cu simbolul selectat.",
+          "emptyBody": "Banda mentorului rămâne doar pentru citire și apare doar când se potrivește cu simbolul setup-ului activ.",
           "noSetup": "Selectează un setup pentru a-l compara cu planul mentorului."
+        },
+        "navigator": {
+          "kicker": "Selector setup-uri",
+          "title": "Rând de comandă pentru setup-uri",
+          "executions": "execuții",
+          "lastAction": "{{action}} • {{time}}",
+          "noActivity": "Fără activitate încă",
+          "open": "Deschide",
+          "duplicate": "Duplică",
+          "newExecution": "Execuție nouă",
+          "emptyTitle": "Nu există setup-uri în această sesiune",
+          "emptyBody": "Adaugă un setup sau importă o strategie pentru a transforma chart-ul într-un workspace de captură."
         },
         "chart": {
           "kicker": "Workspace chart",
-          "title": "Chart persistent",
-          "subtitle": "Chart-ul rămâne central, iar contextul setup-ului, nivelurile vizibile și focusul de execuție stau sincronizate lângă el.",
+          "title": "Centru de comandă chart",
+          "subtitle": "Chart-ul rămâne central, iar contextul setup-ului, nivelurile vizibile și focusul de execuție rămân sincronizate lângă el.",
           "mentorOnly": "Doar mentor",
           "mineOnly": "Doar al meu",
           "both": "Ambele",
           "executionsOnly": "Doar execuții",
           "levelsToggle": "Niveluri",
           "labelsToggle": "Etichete",
-          "strategy": "Strategie",
-          "focus": "Niveluri vizibile și focus execuție",
-          "focusedLevel": "Nivel focalizat",
+          "focus": "Niveluri vizibile",
+          "executionFocus": "Focus execuție",
           "useForEntry": "Folosește la intrare",
           "useForStop": "Folosește la stop",
           "useForTarget": "Folosește la target",
-          "noFocus": "Selectează un nivel vizibil pentru a-i reutiliza prețul în editorul de execuție.",
+          "noFocus": "Selectează un nivel vizibil pentru a-i reutiliza prețul în ticket-ul de execuție.",
           "levelsHidden": "Nivelurile vizibile sunt ascunse. Reactivează Niveluri pentru ajutoarele de preț legate de chart.",
           "emptyTitle": "Creează sau selectează un setup ca să ancorezi chart-ul",
           "emptyBody": "Chart-ul devine centrul de lucru când un setup definește simbolul live și contextul de execuție."
         },
-        "personal": {
-          "kicker": "Workspace personal",
-          "title": "Bandă editabilă de execuție",
-          "advancedToggle": "Arată câmpurile avansate",
-          "sessionControl": "Control sesiune",
-          "setupNavigator": "Navigator setup-uri",
-          "executionCount": "execuții",
-          "selectSetup": "Deschide",
-          "duplicateSetup": "Duplică",
-          "emptyTitle": "Nu există setup-uri în această sesiune",
-          "emptyBody": "Adaugă un setup sau importă o strategie pentru a construi planul de azi.",
-          "readiness": "Readiness",
-          "sessionLock": "Blocare sesiune",
-          "blockedBy": "Blocat de",
-          "readyToExecute": "Contextul, trigger-ul, execuția și blocarea sesiunii sunt aliniate."
+        "capture": {
+          "kicker": "Sertar captură trade",
+          "title": "Sertar captură trade",
+          "compact": "Compact",
+          "advanced": "Avansat",
+          "emptyTitle": "Niciun setup selectat",
+          "emptyBody": "Deschide un setup din selector pentru a activa sertarul de captură."
+        },
+        "readiness": {
+          "title": "Readiness și pasul următor",
+          "subtitle": "Planul, trigger-ul, execuția și guardrail-urile sesiunii rămân separate, ca să fie clar următorul pas.",
+          "plan": "Readiness plan",
+          "trigger": "Readiness trigger",
+          "execution": "Readiness execuție",
+          "session": "Readiness sesiune",
+          "nextAction": "Ce urmează să faci"
         },
         "tabs": {
           "plan": "Plan",
-          "triggers": "Trigger-e",
-          "executions": "Execuții",
-          "review": "Review"
+          "trigger": "Trigger",
+          "execute": "Execuție",
+          "journal": "Jurnal"
         },
         "plan": {
-          "title": "Setup personal",
-          "subtitle": "Transformă contextul de azi într-un plan editabil fără să-l amesteci cu referința mentorului.",
-          "strategyTrace": "Trasabilitate strategie",
+          "title": "Mod plan",
+          "subtitle": "Construiește un setup personal din strategie și contextul sesiunii fără să transformi sertarul într-un editor de documente.",
+          "strategySummary": "Sumar strategie",
           "localEdits": "Editări locale aplicate",
           "snapshotClean": "Snapshot importat",
-          "importedFrom": "Importat din:",
-          "model": "Model:",
+          "viewDetails": "Vezi detaliile complete ale strategiei",
+          "noStrategyTitle": "Nu ai importat încă o strategie",
+          "noStrategyBody": "Importă o strategie pentru a precompleta setup-ul și a păstra trasabilitatea fără să aglomerezi spațiul principal.",
+          "advancedTitle": "Câmpuri avansate pentru plan",
+          "strategyDetailsTitle": "Detalii snapshot strategie",
           "invalidation": "Invalidare:",
-          "targets": "Target-uri / management:"
+          "targets": "Target-uri / management:",
+          "noTrade": "Reguli de no-trade:"
         },
-        "triggers": {
-          "title": "Model de trigger",
+        "trigger": {
+          "title": "Mod trigger",
+          "subtitle": "Folosește checklist-ul de trigger pentru a confirma setup-ul în loc să scrii blocuri lungi de text.",
+          "statusSummary": "Sumar status trigger",
           "sweepIdentified": "Sweep identificat",
           "displacementConfirmed": "Displacement confirmat",
           "structureConfirmed": "MSS / structură confirmată",
-          "advancedTitle": "Parametri avansați pentru trigger"
+          "advancedTitle": "Parametri avansați de trigger",
+          "statusValues": {
+            "NOT_READY": "Nepregătit",
+            "WATCHING": "În observație",
+            "CONFIRMED": "Confirmat",
+            "INVALIDATED": "Invalidat"
+          }
         },
-        "executions": {
-          "title": "Terminal de execuție",
-          "subtitle": "Un setup poate conține mai multe ticket-uri pentru prima intrare, re-entry, scale-in sau confirmare secundară.",
+        "execute": {
+          "title": "Mod execuție",
+          "subtitle": "Fiecare ticket se comportă ca un order ticket, astfel încât intrarea, stop-ul, target-ul, riscul și managementul să rămână rapide.",
           "newExecution": "Execuție nouă",
           "cloneExecution": "Clonează execuția",
-          "notConfigured": "Intrarea, stop-ul și target-ul nu sunt configurate încă.",
-          "linkedTrade": "Tranzacție legată",
-          "focusExecution": "Focus",
-          "editorSubtitle": "Valorile execuției se sincronizează cu contextul focalizat din chart și rămân locale pentru acest setup.",
-          "saveExecution": "Salvează execuția",
-          "markSetupReady": "Marchează setup-ul ready",
-          "startBlocked": "Pornirea tranzacției este blocată"
+          "deleteDraft": "Șterge draft-ul",
+          "open": "Deschide",
+          "clone": "Clonează",
+          "markActive": "Marchează activă",
+          "partial": "Partial",
+          "skip": "Skip",
+          "editorSubtitle": "Editează ticket-ul activ de execuție în timp ce chart-ul rămâne vizibil și focalizat.",
+          "closeWin": "Închide profit",
+          "closeLoss": "Închide pierdere",
+          "startBlocked": "Execuția este blocată",
+          "notConfigured": "Intrarea, stop-ul și target-ul nu sunt configurate încă."
+        },
+        "journal": {
+          "title": "Mod jurnal",
+          "subtitle": "Loghează evenimentele pe măsură ce apar, apoi adaugă note scurte, greșeli, lecții și contextul rezultatului doar când este nevoie.",
+          "events": "evenimente",
+          "quickNote": "Notă rapidă",
+          "quickNotePlaceholder": "Capturează pe scurt ce s-a schimbat, ce ai văzut sau ce ai învățat.",
+          "mistakeTags": "Tag-uri rapide pentru greșeli",
+          "lessonTags": "Tag-uri rapide pentru lecții",
+          "resultWatching": "În observație",
+          "resultBE": "Breakeven",
+          "resultWin": "Profit",
+          "resultLoss": "Pierdere",
+          "resultSkipped": "Skipped",
+          "recentActivity": "Activitate recentă",
+          "mistakePresets": {
+            "fomo": "Intrare FOMO",
+            "earlyExit": "Ieșire prea devreme",
+            "movedStop": "Stop mutat",
+            "oversized": "Poziție supradimensionată",
+            "newsTrade": "Trade în știri",
+            "noJournal": "Fără jurnal"
+          },
+          "lessonPresets": {
+            "confirmation": "Așteaptă confirmarea",
+            "invalidation": "Respectă invalidarea",
+            "breakeven": "Protejează BE cu reguli",
+            "partials": "Lasă partialele să lucreze",
+            "smallerSize": "Redu mărimea în chop",
+            "skipNoise": "Sari peste contextul neclar"
+          }
+        },
+        "timeline": {
+          "kicker": "Timeline activitate",
+          "title": "Timeline activitate",
+          "subtitle": "Jurnalizarea bazată pe evenimente păstrează captura de trade-uri rapidă. Fiecare quick action apare aici cu contextul execuției.",
+          "emptyTitle": "Nu există încă activitate pentru setup",
+          "emptyBody": "Deschide un setup, loghează un eveniment sau importă o strategie ca să pornești timeline-ul.",
+          "event": "Eveniment"
         },
         "review": {
-          "title": "Review și jurnal",
-          "subtitle": "Loghează note incrementale cât timp sesiunea este live, apoi capturează greșeli, lecții și sumarul rezultatului într-un singur loc.",
-          "addTimelineNote": "Adaugă notă în timeline",
-          "timeline": "Timeline",
           "timelineEmpty": "Nu există evenimente de review încă",
-          "timelineEmptyBody": "Importurile de strategie, crearea execuțiilor, pornirea lor, notele și activitatea trade-urilor vor apărea aici."
+          "timelineEmptyBody": "Importurile de strategie, confirmările trigger-ului, evenimentele de execuție și notele vor apărea aici."
+        },
+        "quickActions": {
+          "WATCHING": "În observație",
+          "TRIGGER_CONFIRMED": "Trigger confirmat",
+          "ENTRY_TAKEN": "Intrare executată",
+          "PARTIAL_TAKEN": "Partial luat",
+          "MOVE_TO_BE": "Mută la BE",
+          "CLOSE_WIN": "Închide profit",
+          "CLOSE_LOSS": "Închide pierdere",
+          "SKIPPED": "Skipped",
+          "INVALIDATED": "Invalidat",
+          "MISSED_TRADE": "Trade ratat",
+          "ADD_NOTE": "Adaugă notă",
+          "ADD_LESSON": "Adaugă lecție"
         },
         "dialogs": {
           "createSetup": "Creează setup",
@@ -1714,7 +1793,7 @@
           "previewEmpty": "Selectează o strategie pentru previzualizare",
           "previewEmptyBody": "Strategiile importate devin snapshot-uri locale editabile în Session Mode.",
           "importAction": "Importă",
-          "noTradeRules": "Reguli de no-trade:"
+          "sessionSettings": "Setări sesiune"
         },
         "fields": {
           "sessionName": "Nume sesiune",
@@ -1734,7 +1813,7 @@
           "narrative": "Narațiune",
           "liquidity": "Lichiditate / niveluri cheie",
           "invalidationIdea": "Idee de invalidare",
-          "contextNotes": "Notițe context",
+          "contextNotes": "Notă context",
           "confirmationModel": "Model de confirmare",
           "entryZone": "Zonă de intrare",
           "rrEstimate": "Estimare RR",
@@ -1762,11 +1841,20 @@
           "whyWrong": "Greșesc dacă...",
           "initialNotes": "Notițe inițiale",
           "executionNotes": "Notițe execuție",
-          "liveNotes": "Notițe live",
           "mistakes": "Greșeli",
           "lessons": "Lecții",
           "outcomeSummary": "Sumar rezultat",
-          "reviewTags": "Etichete review"
+          "reviewTags": "Tag-uri review"
+        },
+        "feedback": {
+          "setupAdded": "Setup adăugat în workstation.",
+          "setupDuplicated": "Setup duplicat.",
+          "tradeStarted": "Tranzacția a pornit din execuția selectată.",
+          "executionRemoved": "Execuția draft a fost ștearsă.",
+          "mentorApplied": "Contextul mentorului a fost copiat în setup-ul selectat.",
+          "strategyImportedNew": "Strategia a fost importată într-un setup nou.",
+          "strategyImportedCurrent": "Strategia a fost importată în setup-ul selectat.",
+          "quickNoteRequired": "Scrie o notă rapidă înainte să loghezi această acțiune."
         }
       }
     }
