@@ -101,6 +101,14 @@ public class SessionSetup {
     private JsonNode executionSnapshotJson;
 
     @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "strategy_snapshot_json", nullable = false, columnDefinition = "jsonb")
+    private JsonNode strategySnapshotJson;
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "review_snapshot_json", nullable = false, columnDefinition = "jsonb")
+    private JsonNode reviewSnapshotJson;
+
+    @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "levels_json", nullable = false, columnDefinition = "jsonb")
     private JsonNode levelsJson;
 
@@ -166,6 +174,12 @@ public class SessionSetup {
         }
         if (executionSnapshotJson == null) {
             executionSnapshotJson = JsonNodeFactory.instance.objectNode();
+        }
+        if (strategySnapshotJson == null) {
+            strategySnapshotJson = JsonNodeFactory.instance.objectNode();
+        }
+        if (reviewSnapshotJson == null) {
+            reviewSnapshotJson = JsonNodeFactory.instance.objectNode();
         }
         if (levelsJson == null) {
             levelsJson = JsonNodeFactory.instance.arrayNode();

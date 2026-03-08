@@ -49,12 +49,25 @@ export type SetupTrigger = {
   displacementConfirmed?: boolean | null
   structureConfirmed?: boolean | null
   confirmationModel?: string | null
+  sweepType?: string | null
+  liquiditySource?: string | null
+  confirmationTimeframe?: string | null
+  displacementRule?: string | null
+  structureRule?: string | null
+  fvgRequirement?: string | null
+  entryModel?: string | null
   entryZone?: string | null
   rrEstimate?: number | null
+  rrMinimum?: number | null
+  confluenceRequirement?: string | null
+  newsRestriction?: string | null
+  sessionRestriction?: string | null
+  invalidationThreshold?: string | null
   notes?: string | null
 }
 
 export type SetupExecution = {
+  activeExecutionId?: string | null
   entryPrice?: number | null
   stopLossPrice?: number | null
   takeProfitPrice?: number | null
@@ -63,6 +76,78 @@ export type SetupExecution = {
   invalidation?: string | null
   whyWrong?: string | null
   initialNotes?: string | null
+  tickets?: ExecutionTicket[]
+}
+
+export type ExecutionTicketStatus =
+  | 'DRAFT'
+  | 'WATCHING'
+  | 'READY'
+  | 'ACTIVE'
+  | 'PARTIAL'
+  | 'CLOSED'
+  | 'INVALIDATED'
+  | 'SKIPPED'
+
+export type ExecutionTicket = {
+  id: string
+  label: string
+  status: ExecutionTicketStatus
+  entryPrice?: number | null
+  stopLossPrice?: number | null
+  takeProfitPrice?: number | null
+  riskAmount?: number | null
+  quantity?: number | null
+  invalidation?: string | null
+  whyWrong?: string | null
+  initialNotes?: string | null
+  notes?: string | null
+  linkedTradeId?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  startedAt?: string | null
+  closedAt?: string | null
+}
+
+export type SetupExecutionWorkspace = {
+  activeExecutionId?: string | null
+  tickets: ExecutionTicket[]
+}
+
+export type SetupStrategySnapshot = {
+  strategyId?: string | null
+  source?: 'MY' | 'MENTOR' | string | null
+  name?: string | null
+  model?: string | null
+  entryConditionsRich?: string | null
+  entryConditions?: string[]
+  invalidationLogic?: string | null
+  tpFramework?: string | null
+  noTradeRules?: string | null
+  sessionSuitability?: string[]
+  tags?: string[]
+  snapshotAssetId?: string | null
+  importedAt?: string | null
+  localEditsApplied?: boolean | null
+}
+
+export type ReviewTimelineEntry = {
+  id: string
+  type?: string | null
+  title?: string | null
+  body?: string | null
+  executionId?: string | null
+  tradeId?: string | null
+  occurredAt?: string | null
+}
+
+export type SetupReview = {
+  liveNotes?: string | null
+  mistakes?: string | null
+  lessons?: string | null
+  outcomeSummary?: string | null
+  tags?: string[]
+  timeline?: ReviewTimelineEntry[]
 }
 
 export type MentorReference = {
@@ -89,8 +174,11 @@ export type SetupItem = {
   linkedTradeId?: string | null
   readiness: WorkspaceReadiness
   context: SetupContext
+  strategySnapshot?: SetupStrategySnapshot | null
   trigger: SetupTrigger
   execution: SetupExecution
+  executions: SetupExecutionWorkspace
+  review?: SetupReview | null
   levels: SetupLevel[]
   mentorReference?: MentorReference | null
   sortOrder?: number | null
@@ -174,8 +262,11 @@ export type SetupDraftRequest = {
   setupTitle?: string | null
   biasAlignment?: string | null
   context?: SetupContext
+  strategySnapshot?: SetupStrategySnapshot | null
   trigger?: SetupTrigger
   execution?: SetupExecution
+  executions?: SetupExecutionWorkspace
+  review?: SetupReview | null
   levels?: SetupLevel[]
   mentorReference?: MentorReference | null
 }
@@ -221,9 +312,9 @@ export async function selectActiveSetupCandidate(sessionId: string, setupId: str
   return apiPost<LiveWorkspaceResponse>(`/today/session/${encodeURIComponent(sessionId)}/active-setup`, { setupId })
 }
 
-export async function startTradeFromSetupCandidate(sessionId: string, setupId: string) {
+export async function startTradeFromSetupCandidate(sessionId: string, setupId: string, executionId?: string | null) {
   return apiPost<LiveWorkspaceResponse>(
     `/today/session/${encodeURIComponent(sessionId)}/setups/${encodeURIComponent(setupId)}/start-trade`,
-    {}
+    { executionId: executionId || null }
   )
 }

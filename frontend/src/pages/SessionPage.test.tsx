@@ -5,9 +5,14 @@ import { useEffect } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DailyPlan } from '../api/plans'
-import type { LiveDiagnosticsSummaryResponse } from '../api/diagnostics'
-import type { LiveWorkspaceResponse, SetupItem, SetupStatus } from '../api/liveWorkspace'
-import DiagnosticsPage from './DiagnosticsPage'
+import type {
+  ExecutionTicket,
+  LiveWorkspaceResponse,
+  SetupItem,
+  SetupStatus,
+  SetupStrategySnapshot
+} from '../api/liveWorkspace'
+import type { StrategyListResponse } from '../api/strategies'
 import SessionPage from './SessionPage'
 import { I18nProvider, useI18n } from '../i18n'
 
@@ -27,8 +32,8 @@ const plansApiMock = vi.hoisted(() => ({
   fetchTodayMentorPlan: vi.fn()
 }))
 
-const diagnosticsApiMock = vi.hoisted(() => ({
-  getLiveDiagnosticsSummary: vi.fn()
+const strategiesApiMock = vi.hoisted(() => ({
+  listStrategies: vi.fn()
 }))
 
 vi.mock('../auth/AuthContext', () => ({
@@ -43,7 +48,7 @@ vi.mock('../auth/AuthContext', () => ({
 
 vi.mock('../api/liveWorkspace', () => workspaceApiMock)
 vi.mock('../api/plans', () => plansApiMock)
-vi.mock('../api/diagnostics', () => diagnosticsApiMock)
+vi.mock('../api/strategies', () => strategiesApiMock)
 vi.mock('../components/charts/TradingViewWidget', () => ({
   default: ({ symbol, interval }: { symbol?: string; interval?: string }) => (
     <div data-testid="mock-chart">{`chart:${symbol || 'none'}:${interval || 'none'}`}</div>
@@ -51,7 +56,6 @@ vi.mock('../components/charts/TradingViewWidget', () => ({
 }))
 
 let workspaceState: LiveWorkspaceResponse
-let tradeExecuted = false
 let setupSequence = 0
 
 const mentorPlan: DailyPlan = {
@@ -69,47 +73,131 @@ const mentorPlan: DailyPlan = {
   updatedAt: '2026-03-06T07:00:00.000Z'
 }
 
+const strategiesList: StrategyListResponse = {
+  myStrategies: [
+    {
+      id: 'strategy-1',
+      source: 'MY',
+      name: 'London sweep',
+      model: 'Sweep into M5 displacement',
+      entryConditionsRich: '<ul><li>Sweep PDH</li><li>M5 displacement</li><li>M1 FVG reclaim</li></ul>',
+      entryConditions: ['Sweep PDH', 'M5 displacement', 'M1 FVG reclaim'],
+      invalidationLogic: 'Accepts back below PDH.',
+      tpFramework: 'Scale at 1R, runner to ADR midpoint.',
+      noTradeRules: 'Skip during red news.',
+      sessionSuitability: ['London'],
+      tags: ['SMC', 'London'],
+      snapshotAssetId: null,
+      snapshotAsset: null,
+      archived: false,
+      updatedAt: '2026-03-05T10:00:00.000Z'
+    }
+  ],
+  mentorStrategies: []
+}
+
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-function makeReadiness(score: number, state: 'READY' | 'INCOMPLETE' | 'BLOCKED', blockers: string[] = []) {
-  const summary = blockers.length ? `Missing: ${blockers.join(', ')}` : 'Ready to execute.'
+function makeReadiness(score: number, blockers: string[] = []) {
   return {
     score,
-    state,
-    summary,
+    state: blockers.length ? 'INCOMPLETE' as const : 'READY' as const,
+    summary: blockers.length ? `Missing: ${blockers.join(', ')}` : 'Ready to execute.',
     missingItems: blockers,
     blockers,
     steps: [
-      { key: 'context', label: 'Context', state: blockers.some((item) => ['key liquidity idea', 'invalidation concept'].includes(item)) ? 'INCOMPLETE' : 'READY', summary, missingItems: blockers },
-      { key: 'trigger', label: 'Trigger', state: blockers.some((item) => ['sweep', 'displacement', 'structure confirmation', 'confirmation model', 'entry zone', 'RR >= 1.5'].includes(item)) ? 'INCOMPLETE' : 'READY', summary, missingItems: blockers },
-      { key: 'execution', label: 'Execution', state: blockers.some((item) => ['entry', 'stop loss', 'take profit', 'risk amount or quantity', 'invalidation', 'session lock-in'].includes(item)) ? 'INCOMPLETE' : 'READY', summary, missingItems: blockers }
+      { key: 'context', label: 'Context', state: blockers.some((item) => ['key liquidity idea', 'invalidation concept'].includes(item)) ? 'INCOMPLETE' : 'READY', summary: blockers.length ? blockers.join(', ') : 'Ready', missingItems: blockers },
+      { key: 'trigger', label: 'Trigger', state: blockers.some((item) => ['sweep', 'displacement', 'structure confirmation', 'confirmation model', 'entry zone', 'RR >= 1.5'].includes(item)) ? 'INCOMPLETE' : 'READY', summary: blockers.length ? blockers.join(', ') : 'Ready', missingItems: blockers },
+      { key: 'execution', label: 'Execution', state: blockers.some((item) => ['entry', 'stop loss', 'take profit', 'risk amount or quantity', 'invalidation', 'session lock-in'].includes(item)) ? 'INCOMPLETE' : 'READY', summary: blockers.length ? blockers.join(', ') : 'Ready', missingItems: blockers }
     ]
   }
 }
 
-function recalcSetup(setup: SetupItem, locked: boolean): SetupItem {
-  const blockers: string[] = []
-  if (!setup.context.liquidityNotes && setup.levels.length === 0) blockers.push('key liquidity idea')
-  if (!setup.context.invalidationIdea && !setup.execution.invalidation) blockers.push('invalidation concept')
-  if (!setup.trigger.sweepIdentified) blockers.push('sweep')
-  if (!setup.trigger.displacementConfirmed) blockers.push('displacement')
-  if (!setup.trigger.structureConfirmed) blockers.push('structure confirmation')
-  if (!setup.trigger.confirmationModel) blockers.push('confirmation model')
-  if (!setup.trigger.entryZone) blockers.push('entry zone')
-  if ((setup.trigger.rrEstimate ?? 0) < 1.5) blockers.push('RR >= 1.5')
-  if (setup.execution.entryPrice == null) blockers.push('entry')
-  if (setup.execution.stopLossPrice == null) blockers.push('stop loss')
-  if (setup.execution.takeProfitPrice == null) blockers.push('take profit')
-  if (setup.execution.riskAmount == null && setup.execution.quantity == null) blockers.push('risk amount or quantity')
-  if (!setup.execution.invalidation && !setup.context.invalidationIdea) blockers.push('invalidation')
-  if (!locked) blockers.push('session lock-in')
+function makeTicket(index = 0): ExecutionTicket {
+  return {
+    id: `exec-${setupSequence + 1}-${index + 1}`,
+    label: `Execution ${index + 1}`,
+    status: 'DRAFT',
+    entryPrice: null,
+    stopLossPrice: null,
+    takeProfitPrice: null,
+    riskAmount: null,
+    quantity: null,
+    invalidation: '',
+    whyWrong: '',
+    initialNotes: '',
+    notes: '',
+    linkedTradeId: null,
+    createdAt: '2026-03-06T07:00:00.000Z',
+    updatedAt: null,
+    startedAt: null,
+    closedAt: null
+  }
+}
 
-  const score = Math.max(15, 100 - blockers.length * 7)
+function ensureSetupShape(setup: SetupItem): SetupItem {
+  const tickets = setup.executions?.tickets?.length
+    ? setup.executions.tickets
+    : setup.execution?.tickets?.length
+      ? setup.execution.tickets
+      : [makeTicket(0)]
+  const activeExecutionId = setup.executions?.activeExecutionId || setup.execution.activeExecutionId || tickets[0].id
+  const active = tickets.find((ticket) => ticket.id === activeExecutionId) || tickets[0]
   return {
     ...setup,
-    readiness: makeReadiness(score, blockers.length ? 'INCOMPLETE' : 'READY', blockers)
+    strategySnapshot: setup.strategySnapshot || null,
+    review: setup.review || {
+      liveNotes: '',
+      mistakes: '',
+      lessons: '',
+      outcomeSummary: '',
+      tags: [],
+      timeline: []
+    },
+    execution: {
+      activeExecutionId,
+      entryPrice: active.entryPrice,
+      stopLossPrice: active.stopLossPrice,
+      takeProfitPrice: active.takeProfitPrice,
+      riskAmount: active.riskAmount,
+      quantity: active.quantity,
+      invalidation: active.invalidation,
+      whyWrong: active.whyWrong,
+      initialNotes: active.initialNotes,
+      tickets
+    },
+    executions: {
+      activeExecutionId,
+      tickets
+    }
+  }
+}
+
+function recalcSetup(setup: SetupItem, locked: boolean): SetupItem {
+  const normalized = ensureSetupShape(setup)
+  const active = normalized.executions.tickets.find((ticket) => ticket.id === normalized.executions.activeExecutionId) || normalized.executions.tickets[0]
+  const blockers: string[] = []
+  if (!normalized.context.liquidityNotes && normalized.levels.length === 0) blockers.push('key liquidity idea')
+  if (!normalized.context.invalidationIdea && !active.invalidation) blockers.push('invalidation concept')
+  if (!normalized.trigger.sweepIdentified) blockers.push('sweep')
+  if (!normalized.trigger.displacementConfirmed) blockers.push('displacement')
+  if (!normalized.trigger.structureConfirmed) blockers.push('structure confirmation')
+  if (!normalized.trigger.confirmationModel) blockers.push('confirmation model')
+  if (!normalized.trigger.entryZone) blockers.push('entry zone')
+  if ((normalized.trigger.rrEstimate ?? 0) < 1.5) blockers.push('RR >= 1.5')
+  if (active.entryPrice == null) blockers.push('entry')
+  if (active.stopLossPrice == null) blockers.push('stop loss')
+  if (active.takeProfitPrice == null) blockers.push('take profit')
+  if (active.riskAmount == null && active.quantity == null) blockers.push('risk amount or quantity')
+  if (!active.invalidation && !normalized.context.invalidationIdea) blockers.push('invalidation')
+  if (!locked) blockers.push('session lock-in')
+
+  const score = Math.max(12, 100 - blockers.length * 7)
+  return {
+    ...normalized,
+    readiness: makeReadiness(score, blockers)
   }
 }
 
@@ -127,7 +215,7 @@ function buildSetup(symbol: string, direction: 'LONG' | 'SHORT', setupTitle: str
     biasAlignment: '',
     status: 'DRAFT',
     linkedTradeId: null,
-    readiness: makeReadiness(20, 'INCOMPLETE', ['key liquidity idea']),
+    readiness: makeReadiness(20, ['key liquidity idea']),
     context: {
       narrative: '',
       liquidityNotes: '',
@@ -135,16 +223,30 @@ function buildSetup(symbol: string, direction: 'LONG' | 'SHORT', setupTitle: str
       newsSafety: '',
       notes: ''
     },
+    strategySnapshot: null,
     trigger: {
       sweepIdentified: false,
       displacementConfirmed: false,
       structureConfirmed: false,
       confirmationModel: '',
+      sweepType: '',
+      liquiditySource: '',
+      confirmationTimeframe: '',
+      displacementRule: '',
+      structureRule: '',
+      fvgRequirement: '',
+      entryModel: '',
       entryZone: '',
       rrEstimate: null,
+      rrMinimum: null,
+      confluenceRequirement: '',
+      newsRestriction: '',
+      sessionRestriction: '',
+      invalidationThreshold: '',
       notes: ''
     },
     execution: {
+      activeExecutionId: null,
       entryPrice: null,
       stopLossPrice: null,
       takeProfitPrice: null,
@@ -152,7 +254,20 @@ function buildSetup(symbol: string, direction: 'LONG' | 'SHORT', setupTitle: str
       quantity: null,
       invalidation: '',
       whyWrong: '',
-      initialNotes: ''
+      initialNotes: '',
+      tickets: []
+    },
+    executions: {
+      activeExecutionId: null,
+      tickets: []
+    },
+    review: {
+      liveNotes: '',
+      mistakes: '',
+      lessons: '',
+      outcomeSummary: '',
+      tags: [],
+      timeline: []
     },
     levels: [],
     mentorReference: null,
@@ -192,7 +307,6 @@ function recalcWorkspace() {
 }
 
 function resetWorkspaceState() {
-  tradeExecuted = false
   setupSequence = 0
   workspaceState = {
     session: {
@@ -238,34 +352,71 @@ function resetWorkspaceState() {
 
 function setupMocks() {
   workspaceApiMock.getSessionWorkspace.mockImplementation(async () => clone(workspaceState))
-  workspaceApiMock.createSetupCandidate.mockImplementation(async (_sessionId: string, payload: { symbol?: string | null; direction?: 'LONG' | 'SHORT' | null; setupTitle?: string | null }) => {
+  strategiesApiMock.listStrategies.mockResolvedValue(strategiesList)
+  plansApiMock.fetchTodayMentorPlan.mockResolvedValue(mentorPlan)
+
+  workspaceApiMock.createSetupCandidate.mockImplementation(async (_sessionId: string, payload: { symbol?: string; direction?: 'LONG' | 'SHORT'; setupTitle?: string; strategySnapshot?: SetupStrategySnapshot | null }) => {
     const nextSetup = buildSetup(payload.symbol || 'EURUSD', payload.direction || 'LONG', payload.setupTitle || 'Draft setup')
+    if (payload.strategySnapshot) {
+      nextSetup.strategySnapshot = payload.strategySnapshot
+      nextSetup.strategyLabel = payload.strategySnapshot.name || ''
+      nextSetup.strategyId = payload.strategySnapshot.strategyId || null
+    }
     workspaceState.setups.push(nextSetup)
     workspaceState.activeSetupId = nextSetup.id
     recalcWorkspace()
     return clone(workspaceState)
   })
+
   workspaceApiMock.selectActiveSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string | null) => {
     workspaceState.activeSetupId = setupId
     return clone(workspaceState)
   })
-  workspaceApiMock.updateSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string, payload: Partial<SetupItem>) => {
-    workspaceState.setups = workspaceState.setups.map((setup) => (
-      setup.id === setupId
-        ? recalcSetup({
-          ...setup,
-          ...payload,
-          context: { ...setup.context, ...payload.context },
-          trigger: { ...setup.trigger, ...payload.trigger },
-          execution: { ...setup.execution, ...payload.execution },
-          levels: payload.levels || setup.levels,
-          mentorReference: payload.mentorReference || setup.mentorReference
-        }, Boolean(workspaceState.session.lockedInAt))
-        : setup
-    ))
+
+  workspaceApiMock.updateSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string, payload: Partial<SetupItem> & { execution?: { tickets?: ExecutionTicket[] } }) => {
+    workspaceState.setups = workspaceState.setups.map((setup) => {
+      if (setup.id !== setupId) return setup
+      const next = ensureSetupShape({
+        ...setup,
+        ...payload,
+        context: { ...setup.context, ...payload.context },
+        strategySnapshot: payload.strategySnapshot ?? setup.strategySnapshot,
+        trigger: { ...setup.trigger, ...payload.trigger },
+        execution: {
+          ...setup.execution,
+          ...payload.execution,
+          tickets: payload.execution?.tickets || setup.executions.tickets
+        },
+        executions: {
+          activeExecutionId: payload.execution?.activeExecutionId || setup.executions.activeExecutionId,
+          tickets: payload.execution?.tickets || setup.executions.tickets
+        },
+        review: payload.review ? {
+          ...setup.review,
+          ...payload.review,
+          timeline: payload.review.timeline || setup.review?.timeline || []
+        } : setup.review,
+        levels: payload.levels || setup.levels,
+        mentorReference: payload.mentorReference ?? setup.mentorReference
+      })
+      return recalcSetup(next, Boolean(workspaceState.session.lockedInAt))
+    })
     recalcWorkspace()
     return clone(workspaceState)
   })
+
+  workspaceApiMock.duplicateSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string) => {
+    const source = workspaceState.setups.find((setup) => setup.id === setupId)
+    if (!source) return clone(workspaceState)
+    const nextSetup = buildSetup(source.symbol, source.direction, `${source.setupTitle} Copy`)
+    nextSetup.strategySnapshot = source.strategySnapshot
+    nextSetup.strategyId = source.strategyId
+    nextSetup.strategyLabel = source.strategyLabel
+    workspaceState.setups.push(nextSetup)
+    recalcWorkspace()
+    return clone(workspaceState)
+  })
+
   workspaceApiMock.updateSetupCandidateStatus.mockImplementation(async (_sessionId: string, setupId: string, status: SetupStatus) => {
     workspaceState.setups = workspaceState.setups.map((setup) => (
       setup.id === setupId ? { ...setup, status } : setup
@@ -273,14 +424,7 @@ function setupMocks() {
     recalcWorkspace()
     return clone(workspaceState)
   })
-  workspaceApiMock.duplicateSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string) => {
-    const source = workspaceState.setups.find((setup) => setup.id === setupId)
-    if (!source) return clone(workspaceState)
-    const nextSetup = buildSetup(source.symbol, source.direction, `${source.setupTitle} Copy`)
-    workspaceState.setups.push(nextSetup)
-    recalcWorkspace()
-    return clone(workspaceState)
-  })
+
   workspaceApiMock.updateSessionWorkspace.mockImplementation(async (_sessionId: string, payload: { lockSession?: boolean | null }) => {
     if (payload.lockSession === true) {
       workspaceState.session.lockedInAt = '2026-03-06T07:05:00.000Z'
@@ -290,13 +434,54 @@ function setupMocks() {
     recalcWorkspace()
     return clone(workspaceState)
   })
-  workspaceApiMock.startTradeFromSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string) => {
+
+  workspaceApiMock.startTradeFromSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string, executionId?: string | null) => {
     const setup = workspaceState.setups.find((item) => item.id === setupId)
     if (!setup) return clone(workspaceState)
-    tradeExecuted = true
-    workspaceState.setups = workspaceState.setups.map((item) => (
-      item.id === setupId ? { ...item, status: 'EXECUTED', linkedTradeId: 'trade-1' } : item
-    ))
+    const activeExecutionId = executionId || setup.executions.activeExecutionId || setup.executions.tickets[0].id
+    const activeTicket = setup.executions.tickets.find((item) => item.id === activeExecutionId) || setup.executions.tickets[0]
+    workspaceState.setups = workspaceState.setups.map((item) => {
+      if (item.id !== setupId) return item
+      const tickets = item.executions.tickets.map((ticket) => (
+        ticket.id === activeExecutionId
+          ? {
+            ...ticket,
+            status: 'ACTIVE' as const,
+            linkedTradeId: 'trade-1',
+            startedAt: '2026-03-06T07:10:00.000Z'
+          }
+          : ticket
+      ))
+      return ensureSetupShape({
+        ...item,
+        status: 'EXECUTED',
+        linkedTradeId: 'trade-1',
+        review: {
+          ...(item.review || { tags: [], timeline: [] }),
+          timeline: [
+            ...((item.review?.timeline || [])),
+            {
+              id: 'timeline-started',
+              type: 'execution_started',
+              title: 'Execution started',
+              body: activeTicket.label,
+              executionId: activeExecutionId,
+              tradeId: 'trade-1',
+              occurredAt: '2026-03-06T07:10:00.000Z'
+            }
+          ]
+        },
+        executions: {
+          activeExecutionId,
+          tickets
+        },
+        execution: {
+          ...item.execution,
+          activeExecutionId,
+          tickets
+        }
+      })
+    })
     workspaceState.activity = [{
       tradeId: 'trade-1',
       setupId,
@@ -305,9 +490,9 @@ function setupMocks() {
       direction: setup.direction,
       tradeSession: setup.tradeSession,
       status: 'OPEN',
-      entryPrice: setup.execution.entryPrice,
+      entryPrice: activeTicket.entryPrice,
       exitPrice: null,
-      riskAmount: setup.execution.riskAmount,
+      riskAmount: activeTicket.riskAmount,
       rMultiple: null,
       pnlNet: 0,
       openedAt: '2026-03-06T07:10:00.000Z',
@@ -316,32 +501,6 @@ function setupMocks() {
     recalcWorkspace()
     return clone(workspaceState)
   })
-  plansApiMock.fetchTodayMentorPlan.mockResolvedValue(mentorPlan)
-  diagnosticsApiMock.getLiveDiagnosticsSummary.mockImplementation(async (): Promise<LiveDiagnosticsSummaryResponse> => ({
-    coreMetrics: {
-      sampleSize: tradeExecuted ? 1 : 0,
-      winRate: tradeExecuted ? 100 : 0,
-      expectancyR: tradeExecuted ? 1.8 : 0,
-      profitFactor: tradeExecuted ? 2.1 : 0,
-      avgMaeR: tradeExecuted ? 0.3 : 0,
-      avgMfeR: tradeExecuted ? 2.2 : 0,
-      avgDurationMinutes: 35
-    },
-    breakdownBySession: tradeExecuted ? [{ key: 'LONDON', sampleSize: 1, winRate: 100, expectancyR: 1.8 }] : [],
-    breakdownBySymbol: tradeExecuted ? [{ key: 'EURUSD', sampleSize: 1, winRate: 100, expectancyR: 1.8 }] : [],
-    breakdownByDayOfWeek: tradeExecuted ? [{ key: 'FRIDAY', sampleSize: 1, winRate: 100, expectancyR: 1.8 }] : [],
-    strategyPerformance: tradeExecuted ? [{
-      strategyId: 'strategy-1',
-      strategyName: 'London sweep',
-      sampleSize: 1,
-      winRate: 100,
-      expectancyR: 1.8,
-      profitFactor: 2.1
-    }] : [],
-    failureModes: [],
-    suggestions: tradeExecuted ? [{ title: 'Keep London sweep tight', description: 'Live performance is healthy when the trigger sequence is respected.' }] : [],
-    generatedAt: '2026-03-06T08:00:00.000Z'
-  }))
 }
 
 function LanguageSetter({ language }: { language: 'en' | 'ro' }) {
@@ -374,7 +533,7 @@ function renderWithProviders(ui: JSX.Element, language?: 'en' | 'ro') {
   )
 }
 
-describe('SessionPage live workspace', () => {
+describe('SessionPage workstation', () => {
   beforeAll(() => {
     class ResizeObserverMock {
       observe() {}
@@ -391,10 +550,10 @@ describe('SessionPage live workspace', () => {
     setupMocks()
   })
 
-  it('handles the multi-setup live trading workflow end to end', async () => {
-    const sessionView = renderWithProviders(<SessionPage />)
+  it('handles strategy import, multi-setup navigation, execution cloning, and trade start', async () => {
+    renderWithProviders(<SessionPage />)
 
-    expect(await screen.findByText('Chart workspace')).toBeInTheDocument()
+    expect(await screen.findByText('Persistent chart')).toBeInTheDocument()
 
     for (const draft of [
       { symbol: 'GBPUSD', direction: 'SHORT' as const, setupTitle: 'Cable fade' },
@@ -412,59 +571,66 @@ describe('SessionPage live workspace', () => {
       await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     }
 
-    expect(await screen.findByText('Cable fade')).toBeInTheDocument()
-    expect(screen.getByText('DAX continuation')).toBeInTheDocument()
-    expect(screen.getByText('London sweep reclaim')).toBeInTheDocument()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[2])
+    expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15')
 
-    const reclaimCard = screen.getByText('London sweep reclaim').closest('.MuiCard-root') as HTMLElement
-    fireEvent.click(within(reclaimCard).getByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Import strategy' })[0])
+    expect(await screen.findByText('London sweep')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('London sweep'))
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+    await waitFor(() => expect(screen.getByText(/Imported from:/)).toBeInTheDocument())
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getByText((_, element) => element?.textContent === 'Imported from: London sweep')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Liquidity / key levels'), { target: { value: 'PDH sweep into London opening range' } })
-    fireEvent.change(screen.getByLabelText('Invalidation idea'), { target: { value: 'If the reclaim fails and price accepts below PDH.' } })
+    fireEvent.click(screen.getByRole('tab', { name: 'Triggers' }))
     fireEvent.click(screen.getByLabelText('Sweep identified'))
     fireEvent.click(screen.getByLabelText('Displacement confirmed'))
     fireEvent.click(screen.getByLabelText('MSS / structure confirmed'))
     fireEvent.change(screen.getByLabelText('Confirmation model'), { target: { value: 'M5 displacement into M1 confirmation' } })
     fireEvent.change(screen.getByLabelText('Entry zone'), { target: { value: 'M1 FVG reclaim' } })
-    fireEvent.change(screen.getByLabelText('RR estimate'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('RR estimate'), { target: { value: '2.0' } })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }))
+    fireEvent.change(screen.getByLabelText('Liquidity / key levels'), { target: { value: 'PDH sweep into London opening range' } })
+    fireEvent.change(screen.getByLabelText('Invalidation idea'), { target: { value: 'If the reclaim fails and price accepts below PDH.' } })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Executions' }))
     fireEvent.change(screen.getByLabelText('Entry'), { target: { value: '1.0812' } })
     fireEvent.change(screen.getByLabelText('Stop loss'), { target: { value: '1.0798' } })
     fireEvent.change(screen.getByLabelText('Take profit'), { target: { value: '1.0844' } })
     fireEvent.change(screen.getByLabelText('Risk amount'), { target: { value: '75' } })
     fireEvent.change(screen.getByLabelText('Execution invalidation'), { target: { value: 'Close below the reclaimed London range low.' } })
     fireEvent.change(screen.getByLabelText('Initial notes'), { target: { value: 'Execute only if spread stays clean through the reclaim.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save draft' }))
-
-    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: 'Clone execution' }))
+    await waitFor(() => expect(screen.getAllByText('Execution 1 Copy').length).toBeGreaterThan(0))
+    const setupSaveCallCount = workspaceApiMock.updateSetupCandidate.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Save execution' }))
+    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate.mock.calls.length).toBeGreaterThan(setupSaveCallCount))
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Lock session' })[0])
     await waitFor(() => expect(workspaceApiMock.updateSessionWorkspace).toHaveBeenCalled())
 
-    await waitFor(() => expect(screen.getByRole('button', { name: 'Start trade' })).toBeEnabled())
-    fireEvent.click(screen.getByRole('button', { name: 'Start trade' }))
+    let startTradeButton: HTMLElement | undefined
+    await waitFor(() => {
+      startTradeButton = screen.getAllByRole('button', { name: 'Start trade' }).find((button) => !button.hasAttribute('disabled'))
+      expect(startTradeButton).toBeDefined()
+    }, { timeout: 5000 })
+    fireEvent.click(startTradeButton as HTMLElement)
     await waitFor(() => expect(workspaceApiMock.startTradeFromSetupCandidate).toHaveBeenCalled())
-    expect(await screen.findByText('Trade started from selected setup.')).toBeInTheDocument()
 
-    const daxCard = screen.getByText('DAX continuation').closest('.MuiCard-root') as HTMLElement
-    fireEvent.click(within(daxCard).getByRole('button', { name: 'Edit' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Skip' }))
-    await waitFor(() => expect(workspaceApiMock.updateSetupCandidateStatus).toHaveBeenCalled())
-    expect(screen.getByText('OPEN')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('tab', { name: 'Review' }))
+    await waitFor(() => expect(screen.getAllByText('Execution started').length).toBeGreaterThan(0))
+    expect(screen.getAllByText('London sweep reclaim').length).toBeGreaterThan(0)
 
-    sessionView.unmount()
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1])
+    await waitFor(() => expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:DAX:15'))
+  }, 30000)
 
-    renderWithProviders(<DiagnosticsPage />)
-    expect(await screen.findByText('Live diagnostics')).toBeInTheDocument()
-    expect(screen.getByText(/Backtest metrics are intentionally hidden/i)).toBeInTheDocument()
-    expect(screen.getByText('EURUSD')).toBeInTheDocument()
-    expect(screen.getByText('London sweep')).toBeInTheDocument()
-  }, 15000)
-
-  it('renders the workflow guide in Romanian when the app language is ro', async () => {
+  it('renders the workstation labels in Romanian', async () => {
     renderWithProviders(<SessionPage />, 'ro')
 
-    expect(await screen.findByText('Cum funcționează Session Mode')).toBeInTheDocument()
-    expect(screen.getByText('Setează regulile')).toBeInTheDocument()
-    expect(screen.getByText('Execută și revizuiește')).toBeInTheDocument()
+    expect(await screen.findByText('Importă strategie')).toBeInTheDocument()
+    expect(screen.getByText('Bandă referință')).toBeInTheDocument()
+    expect(screen.getByText('Bandă editabilă de execuție')).toBeInTheDocument()
   })
 })

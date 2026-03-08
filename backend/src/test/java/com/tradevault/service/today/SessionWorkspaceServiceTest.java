@@ -70,7 +70,7 @@ class SessionWorkspaceServiceTest {
         currentUserService = mock(CurrentUserService.class);
         tradeService = mock(TradeService.class);
         contextSnapshotService = mock(ContextSnapshotService.class);
-        objectMapper = new ObjectMapper();
+        objectMapper = new ObjectMapper().findAndRegisterModules();
 
         sessionWorkspaceService = new SessionWorkspaceService(
                 todaySessionRepository,
@@ -227,7 +227,7 @@ class SessionWorkspaceServiceTest {
                 .openedAt(OffsetDateTime.parse("2026-03-06T07:15:00Z"))
                 .build());
 
-        sessionWorkspaceService.startTrade(session.getId(), setup.getId());
+        sessionWorkspaceService.startTrade(session.getId(), setup.getId(), null);
 
         ArgumentCaptor<TradeRequest> requestCaptor = ArgumentCaptor.forClass(TradeRequest.class);
         verify(tradeService).create(requestCaptor.capture());

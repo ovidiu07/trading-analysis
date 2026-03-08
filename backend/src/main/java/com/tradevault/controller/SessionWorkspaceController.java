@@ -4,6 +4,7 @@ import com.tradevault.dto.session.SessionSetupReorderRequest;
 import com.tradevault.dto.session.SessionSetupSelectionRequest;
 import com.tradevault.dto.session.SessionSetupStatusRequest;
 import com.tradevault.dto.session.SessionWorkspaceResponse;
+import com.tradevault.dto.session.StartSessionExecutionRequest;
 import com.tradevault.dto.session.UpdateSessionWorkspaceRequest;
 import com.tradevault.dto.session.UpsertSessionSetupRequest;
 import com.tradevault.service.today.SessionWorkspaceService;
@@ -75,7 +76,8 @@ public class SessionWorkspaceController {
 
     @PostMapping("/{sessionId}/setups/{setupId}/start-trade")
     public SessionWorkspaceResponse startTrade(@PathVariable UUID sessionId,
-                                               @PathVariable UUID setupId) {
-        return sessionWorkspaceService.startTrade(sessionId, setupId);
+                                               @PathVariable UUID setupId,
+                                               @RequestBody(required = false) StartSessionExecutionRequest request) {
+        return sessionWorkspaceService.startTrade(sessionId, setupId, request);
     }
 }

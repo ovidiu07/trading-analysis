@@ -90,8 +90,11 @@ public class SessionWorkspaceResponse {
         UUID linkedTradeId;
         Readiness readiness;
         SetupContext context;
+        SetupStrategySnapshot strategySnapshot;
         SetupTrigger trigger;
         SetupExecution execution;
+        SetupExecutionWorkspace executions;
+        SetupReview review;
         List<SetupLevel> levels;
         MentorReference mentorReference;
         Integer sortOrder;
@@ -121,14 +124,27 @@ public class SessionWorkspaceResponse {
         Boolean displacementConfirmed;
         Boolean structureConfirmed;
         String confirmationModel;
+        String sweepType;
+        String liquiditySource;
+        String confirmationTimeframe;
+        String displacementRule;
+        String structureRule;
+        String fvgRequirement;
+        String entryModel;
         String entryZone;
         BigDecimal rrEstimate;
+        BigDecimal rrMinimum;
+        String confluenceRequirement;
+        String newsRestriction;
+        String sessionRestriction;
+        String invalidationThreshold;
         String notes;
     }
 
     @Value
     @Builder
     public static class SetupExecution {
+        String activeExecutionId;
         BigDecimal entryPrice;
         BigDecimal stopLossPrice;
         BigDecimal takeProfitPrice;
@@ -137,6 +153,77 @@ public class SessionWorkspaceResponse {
         String invalidation;
         String whyWrong;
         String initialNotes;
+    }
+
+    @Value
+    @Builder
+    public static class SetupExecutionWorkspace {
+        String activeExecutionId;
+        List<ExecutionTicket> tickets;
+    }
+
+    @Value
+    @Builder
+    public static class ExecutionTicket {
+        String id;
+        String label;
+        String status;
+        BigDecimal entryPrice;
+        BigDecimal stopLossPrice;
+        BigDecimal takeProfitPrice;
+        BigDecimal riskAmount;
+        BigDecimal quantity;
+        String invalidation;
+        String whyWrong;
+        String initialNotes;
+        String notes;
+        UUID linkedTradeId;
+        OffsetDateTime createdAt;
+        OffsetDateTime updatedAt;
+        OffsetDateTime startedAt;
+        OffsetDateTime closedAt;
+    }
+
+    @Value
+    @Builder
+    public static class SetupStrategySnapshot {
+        UUID strategyId;
+        String source;
+        String name;
+        String model;
+        String entryConditionsRich;
+        List<String> entryConditions;
+        String invalidationLogic;
+        String tpFramework;
+        String noTradeRules;
+        List<String> sessionSuitability;
+        List<String> tags;
+        UUID snapshotAssetId;
+        OffsetDateTime importedAt;
+        Boolean localEditsApplied;
+    }
+
+    @Value
+    @Builder
+    public static class SetupReview {
+        String liveNotes;
+        String mistakes;
+        String lessons;
+        String outcomeSummary;
+        List<String> tags;
+        List<ReviewTimelineEntry> timeline;
+    }
+
+    @Value
+    @Builder
+    public static class ReviewTimelineEntry {
+        String id;
+        String type;
+        String title;
+        String body;
+        String executionId;
+        UUID tradeId;
+        OffsetDateTime occurredAt;
     }
 
     @Value
