@@ -9,6 +9,7 @@ import {
   FormControl,
   FormControlLabel,
   FormGroup,
+  InputAdornment,
   InputLabel,
   ListItemText,
   MenuItem,
@@ -20,6 +21,7 @@ import {
   Typography
 } from '@mui/material'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { useAuth } from '../auth/AuthContext'
 import { fetchUserSettings } from '../api/settings'
 import { changePassword } from '../api/auth'
@@ -42,6 +44,12 @@ import {
   testOandaProvider,
   type ProviderConnectionStatus
 } from '../api/backtest'
+import {
+  TradingViewWebhookSettingsResponse,
+  fetchTradingViewWebhookSettings,
+  resetTradingViewWebhookSecret,
+  updateTradingViewWebhookSettings
+} from '../api/signalIntel'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
@@ -73,6 +81,12 @@ export default function SettingsPage() {
   const [providerDisconnecting, setProviderDisconnecting] = useState(false)
   const [providerMessage, setProviderMessage] = useState('')
   const [providerError, setProviderError] = useState('')
+  const [tradingViewSettings, setTradingViewSettings] = useState<TradingViewWebhookSettingsResponse | null>(null)
+  const [tradingViewLoading, setTradingViewLoading] = useState(false)
+  const [tradingViewSaving, setTradingViewSaving] = useState(false)
+  const [tradingViewMessage, setTradingViewMessage] = useState('')
+  const [tradingViewError, setTradingViewError] = useState('')
+  const [newTradingViewSecret, setNewTradingViewSecret] = useState('')
 
   useEffect(() => {
     setForm({
@@ -140,6 +154,17 @@ export default function SettingsPage() {
     return () => {
       mounted = false
     }
+  }, [t])
+
+  useEffect(() => {
+    setTradingViewLoading(true)
+    fetchTradingViewWebhookSettings()
+      .then((settings) => setTradingViewSettings(settings))
+      .catch((err) => {
+        const apiErr = err as ApiError
+        setTradingViewError(translateApiError(apiErr, t))
+      })
+      .finally(() => setTradingViewLoading(false))
   }, [t])
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -299,6 +324,49 @@ export default function SettingsPage() {
     }
   }
 
+  const handleTradingViewToggle = async (enabled: boolean) => {
+    setTradingViewSaving(true)
+    setTradingViewMessage('')
+    setTradingViewError('')
+    try {
+      const updated = await updateTradingViewWebhookSettings(enabled)
+      setTradingViewSettings(updated)
+      setTradingViewMessage(enabled ? 'TradingView signal ingestion enabled.' : 'TradingView signal ingestion disabled.')
+    } catch (err) {
+      const apiErr = err as ApiError
+      setTradingViewError(translateApiError(apiErr, t))
+    } finally {
+      setTradingViewSaving(false)
+    }
+  }
+
+  const handleTradingViewResetSecret = async () => {
+    setTradingViewSaving(true)
+    setTradingViewMessage('')
+    setTradingViewError('')
+    try {
+      const response = await resetTradingViewWebhookSecret()
+      setNewTradingViewSecret(response.secret)
+      const refreshed = await fetchTradingViewWebhookSettings()
+      setTradingViewSettings(refreshed)
+      setTradingViewMessage('TradingView webhook secret reset. Copy the new secret into TradingView now; it is shown only once.')
+    } catch (err) {
+      const apiErr = err as ApiError
+      setTradingViewError(translateApiError(apiErr, t))
+    } finally {
+      setTradingViewSaving(false)
+    }
+  }
+
+  const handleCopyText = async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value)
+      setTradingViewMessage('Copied to clipboard.')
+    } catch {
+      setTradingViewError('Clipboard copy failed. You can still copy the text manually.')
+    }
+  }
+
   return (
     <Stack spacing={2.5}>
       <PageHero
@@ -352,6 +420,104 @@ export default function SettingsPage() {
               <MenuItem value="system">{t('theme.system')}</MenuItem>
             </TextField>
             <Button type="submit" variant="contained" disabled={saving}>{saving ? t('settings.messages.saving') : t('settings.actions.save')}</Button>
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent>
+          {tradingViewMessage && <Alert severity="success" sx={{ mb: 2 }}>{tradingViewMessage}</Alert>}
+          {tradingViewError && <Alert severity="error" sx={{ mb: 2 }}>{tradingViewError}</Alert>}
+          <Stack spacing={2}>
+            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+              <Stack spacing={0.5}>
+                <Typography variant="h6">TradingView signal intelligence</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Generate a webhook secret, paste the JSON alert payload into the Pine signal engine, and TradeJAudit will start storing structured signal events for recommendations and diagnostics.
+                </Typography>
+              </Stack>
+              {tradingViewSettings?.hasSecret && (
+                <Chip size="small" color={tradingViewSettings.enabled ? 'success' : 'default'} label={tradingViewSettings.enabled ? 'Enabled' : 'Disabled'} />
+              )}
+            </Stack>
+
+            {tradingViewLoading ? (
+              <Typography variant="body2" color="text.secondary">Loading TradingView integration settings...</Typography>
+            ) : (
+              <>
+                <FormControlLabel
+                  control={(
+                    <Checkbox
+                      checked={Boolean(tradingViewSettings?.enabled)}
+                      onChange={(event) => handleTradingViewToggle(event.target.checked)}
+                      disabled={tradingViewSaving}
+                    />
+                  )}
+                  label="Enable TradingView webhook ingestion"
+                />
+
+                <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
+                  <Button variant="contained" onClick={handleTradingViewResetSecret} disabled={tradingViewSaving}>
+                    {tradingViewSettings?.hasSecret ? 'Reset webhook secret' : 'Generate webhook secret'}
+                  </Button>
+                  {tradingViewSettings?.secretHint && (
+                    <Chip variant="outlined" label={`Current secret hint: ${tradingViewSettings.secretHint}`} />
+                  )}
+                </Stack>
+
+                {newTradingViewSecret && (
+                  <TextField
+                    label="New webhook secret"
+                    value={newTradingViewSecret}
+                    fullWidth
+                    InputProps={{
+                      readOnly: true,
+                      endAdornment: (
+                        <InputAdornment position="end">
+                          <Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={() => handleCopyText(newTradingViewSecret)}>
+                            Copy
+                          </Button>
+                        </InputAdornment>
+                      )
+                    }}
+                    helperText="This secret is shown only after reset. Store it in TradingView or a password manager."
+                  />
+                )}
+
+                <TextField
+                  label="Open signal webhook URL"
+                  value={tradingViewSettings?.openSignalWebhookUrl || ''}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="Close signal webhook URL"
+                  value={tradingViewSettings?.closeSignalWebhookUrl || ''}
+                  fullWidth
+                  multiline
+                  minRows={2}
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="Sample SIGNAL_OPEN payload"
+                  value={tradingViewSettings?.sampleOpenPayload || ''}
+                  fullWidth
+                  multiline
+                  minRows={8}
+                  InputProps={{ readOnly: true }}
+                />
+                <TextField
+                  label="Sample SIGNAL_CLOSE payload"
+                  value={tradingViewSettings?.sampleClosePayload || ''}
+                  fullWidth
+                  multiline
+                  minRows={6}
+                  InputProps={{ readOnly: true }}
+                />
+              </>
+            )}
           </Stack>
         </CardContent>
       </Card>

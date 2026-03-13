@@ -37,6 +37,19 @@ public class User {
     @Builder.Default
     private String themePreference = "SYSTEM";
 
+    @Column(name = "tradingview_webhook_enabled", nullable = false)
+    @Builder.Default
+    private boolean tradingviewWebhookEnabled = false;
+
+    @Column(name = "tradingview_webhook_secret_hash")
+    private String tradingviewWebhookSecretHash;
+
+    @Column(name = "tradingview_webhook_secret_hint")
+    private String tradingviewWebhookSecretHint;
+
+    @Column(name = "tradingview_webhook_secret_rotated_at")
+    private OffsetDateTime tradingviewWebhookSecretRotatedAt;
+
     private OffsetDateTime createdAt;
     private OffsetDateTime lastLoginAt;
 

@@ -37,6 +37,44 @@ vi.mock('../api/today', () => ({
   })
 }))
 
+vi.mock('../api/signalIntel', () => ({
+  fetchSignalRecommendations: vi.fn().mockResolvedValue({
+    recommendations: [
+      {
+        symbolScope: 'BINANCE:BTCUSDT',
+        timeframe: '15',
+        regimeScope: 'TREND',
+        profileId: 'AUTO_15_TREND_V1',
+        profileJson: {},
+        minSamples: 12,
+        sampleSize: 18,
+        recommendationScore: 81,
+        winRate: 58,
+        expectancyR: 0.42,
+        reasons: ['18 closed signals contributed to this recommendation.'],
+        generatedAt: '2026-02-19T08:00:00Z'
+      }
+    ]
+  }),
+  fetchSignalAnalyticsSummary: vi.fn().mockResolvedValue({
+    overview: {
+      totalSignals: 24,
+      closedSignals: 18,
+      openSignals: 6,
+      winRate: 58,
+      expectancyR: 0.42,
+      avgPnlR: 0.42,
+      avgConfidenceScore: 76,
+      avgHoldBars: 4,
+      avgHoldMinutes: 45
+    },
+    recentWindows: [],
+    confidenceTrend: [],
+    weakConditions: [],
+    topRecommendation: null
+  })
+}))
+
 vi.mock('../hooks/usePlans', () => ({
   useTodayMentorPlanQuery: () => ({
     data: {
@@ -45,6 +83,8 @@ vi.mock('../hooks/usePlans', () => ({
       title: 'Mentor Daily Plan',
       summary: 'Favor longs above opening range.',
       keyLevels: ['1.0820', '1.0795'],
+      tradingViewSymbol: 'BINANCE:BTCUSDT',
+      tradingViewInterval: '15',
       updatedAt: '2026-02-19T08:00:00Z'
     },
     isLoading: false,
@@ -80,6 +120,7 @@ describe('TodayPage simplified dashboard', () => {
     expect(screen.getByText('Mentor Focus Plan')).toBeInTheDocument()
     expect(screen.getByText('Your Focus Metric')).toBeInTheDocument()
     expect(screen.getByText('Recent trades')).toBeInTheDocument()
+    expect(screen.getByText('Signal intelligence')).toBeInTheDocument()
 
     expect(screen.queryByText('My Plan')).not.toBeInTheDocument()
     expect(screen.queryByText('Session checklist')).not.toBeInTheDocument()

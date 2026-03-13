@@ -10,6 +10,11 @@ import { AnalyticsResponse, CoachResponse } from '../api/analytics'
 
 const mockFetchAnalyticsSummary = vi.fn()
 const mockFetchAnalyticsCoach = vi.fn()
+const mockFetchSignalAnalyticsSummary = vi.fn()
+const mockFetchSignalRecommendations = vi.fn()
+const mockFetchSignalBreakdownBySetup = vi.fn()
+const mockFetchSignalBreakdownByRegime = vi.fn()
+const mockFetchSignalBySymbolTimeframe = vi.fn()
 const mockUseChecklistTemplateQuery = vi.fn()
 const mockUseSaveChecklistTemplateMutation = vi.fn()
 
@@ -43,6 +48,14 @@ vi.mock('../api/analytics', async () => {
     fetchAnalyticsCoach: (...args: unknown[]) => mockFetchAnalyticsCoach(...args)
   }
 })
+
+vi.mock('../api/signalIntel', () => ({
+  fetchSignalAnalyticsSummary: (...args: unknown[]) => mockFetchSignalAnalyticsSummary(...args),
+  fetchSignalRecommendations: (...args: unknown[]) => mockFetchSignalRecommendations(...args),
+  fetchSignalBreakdownBySetup: (...args: unknown[]) => mockFetchSignalBreakdownBySetup(...args),
+  fetchSignalBreakdownByRegime: (...args: unknown[]) => mockFetchSignalBreakdownByRegime(...args),
+  fetchSignalBySymbolTimeframe: (...args: unknown[]) => mockFetchSignalBySymbolTimeframe(...args)
+}))
 
 vi.mock('../hooks/useChecklist', () => ({
   useChecklistTemplateQuery: (...args: unknown[]) => mockUseChecklistTemplateQuery(...args),
@@ -213,6 +226,11 @@ describe('Analytics filters label/value overlap', () => {
     mockUseSaveChecklistTemplateMutation.mockReset()
     mockFetchAnalyticsSummary.mockReset()
     mockFetchAnalyticsCoach.mockReset()
+    mockFetchSignalAnalyticsSummary.mockReset()
+    mockFetchSignalRecommendations.mockReset()
+    mockFetchSignalBreakdownBySetup.mockReset()
+    mockFetchSignalBreakdownByRegime.mockReset()
+    mockFetchSignalBySymbolTimeframe.mockReset()
 
     mockUseChecklistTemplateQuery.mockReturnValue({
       data: [],
@@ -225,6 +243,27 @@ describe('Analytics filters label/value overlap', () => {
     })
     mockFetchAnalyticsSummary.mockResolvedValue(buildSummary())
     mockFetchAnalyticsCoach.mockResolvedValue(buildCoach())
+    mockFetchSignalAnalyticsSummary.mockResolvedValue({
+      overview: {
+        totalSignals: 20,
+        closedSignals: 16,
+        openSignals: 4,
+        winRate: 56,
+        expectancyR: 0.32,
+        avgPnlR: 0.32,
+        avgConfidenceScore: 74,
+        avgHoldBars: 5,
+        avgHoldMinutes: 55
+      },
+      recentWindows: [],
+      confidenceTrend: [],
+      weakConditions: [],
+      topRecommendation: null
+    })
+    mockFetchSignalRecommendations.mockResolvedValue({ recommendations: [] })
+    mockFetchSignalBreakdownBySetup.mockResolvedValue({ rows: [] })
+    mockFetchSignalBreakdownByRegime.mockResolvedValue({ rows: [] })
+    mockFetchSignalBySymbolTimeframe.mockResolvedValue({ rows: [] })
   })
 
   it.each([

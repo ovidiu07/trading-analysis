@@ -12,6 +12,7 @@ TradeVault is a Java + React application for tracking trades and generating anal
 - `backend/` – Spring Boot API (JWT auth, trades, tags, analytics, CSV import/export)
 - `frontend/` – React + TypeScript UI (Vite, MUI, TanStack Query, Recharts)
 - `docker-compose.yml` – local stack with PostgreSQL, backend, frontend
+- `docs/signal-intelligence.md` – TradingView/Pine signal intelligence integration guide
 
 ## Running locally with docker-compose
 ```bash
@@ -153,6 +154,19 @@ GA4 is integrated for the SPA shell and route navigation.
 - `JWT_SECRET` – JWT signing secret
 - `JWT_EXPIRY` – token expiry in milliseconds
 - `FRONTEND_URL` – allowed CORS origin
+- `SIGNALINTEL_WEBHOOK_BASE_URL` – base URL shown in TradingView settings/webhook examples
+- `SIGNALINTEL_RECOMMENDATION_MIN_SAMPLES` – minimum closed-signal sample size before recommendations can go live
+- `SIGNALINTEL_RECOMMENDATION_FRESHNESS_HOURS` – how long generated recommendations remain fresh for UI display
+- `SIGNALINTEL_WEAK_EXPECTANCY_THRESHOLD` – expectancy-in-R threshold that triggers weak-condition warnings
+
+### Signal intelligence quick start
+1. Open TradeJAudit Settings and reset the TradingView webhook secret.
+2. Paste the returned secret into the Pine `Webhook Auth Token` input or keep it in the generated webhook URL query string.
+3. In TradingView, create an alert using `Any alert() function call`.
+4. Point the alert to the TradeJAudit open/close URLs from Settings.
+5. Review recommendations in Diagnostics, Analytics, and Today.
+
+Detailed integration notes live in [`docs/signal-intelligence.md`](/Users/ovidiu/Documents/trading-analysis/docs/signal-intelligence.md).
 
 ### Asset storage (AWS S3 + MinIO compatible)
 - `STORAGE_PROVIDER` – storage provider (`s3`)

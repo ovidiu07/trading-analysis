@@ -60,10 +60,22 @@ import {
 } from 'recharts'
 import { AdviceCard, AnalyticsFilters, AnalyticsResponse, CoachResponse, fetchAnalyticsCoach, fetchAnalyticsSummary } from '../api/analytics'
 import { ApiError } from '../api/client'
+import {
+  SignalAnalyticsSummaryResponse,
+  SignalBreakdownResponse,
+  SignalRecommendation,
+  SignalSymbolTimeframeResponse,
+  fetchSignalAnalyticsSummary,
+  fetchSignalBreakdownByRegime,
+  fetchSignalBreakdownBySetup,
+  fetchSignalBySymbolTimeframe,
+  fetchSignalRecommendations
+} from '../api/signalIntel'
 import { formatCurrency, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
 import { useAuth } from '../auth/AuthContext'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
+import LoadingState from '../components/ui/LoadingState'
 import CoachAdviceCard from '../components/analytics/CoachAdviceCard'
 import PageHero from '../components/ui/PageHero'
 import { useLocation, useNavigate } from 'react-router-dom'
@@ -118,10 +130,17 @@ export default function AnalyticsPage() {
   const [filters, setFilters] = useState<AnalyticsFilters>(DEFAULT_FILTERS)
   const [summary, setSummary] = useState<AnalyticsResponse | null>(null)
   const [coach, setCoach] = useState<CoachResponse | null>(null)
+  const [signalSummary, setSignalSummary] = useState<SignalAnalyticsSummaryResponse | null>(null)
+  const [signalRecommendations, setSignalRecommendations] = useState<SignalRecommendation[]>([])
+  const [signalSetupBreakdown, setSignalSetupBreakdown] = useState<SignalBreakdownResponse | null>(null)
+  const [signalRegimeBreakdown, setSignalRegimeBreakdown] = useState<SignalBreakdownResponse | null>(null)
+  const [signalSymbolMatrix, setSignalSymbolMatrix] = useState<SignalSymbolTimeframeResponse | null>(null)
   const [loading, setLoading] = useState<boolean>(false)
   const [coachLoading, setCoachLoading] = useState<boolean>(false)
+  const [signalLoading, setSignalLoading] = useState<boolean>(false)
   const [error, setError] = useState('')
   const [coachError, setCoachError] = useState('')
+  const [signalError, setSignalError] = useState('')
   const [tab, setTab] = useState(0)
   const [showOverviewMore, setShowOverviewMore] = useState(false)
   const [checklistItemsDraft, setChecklistItemsDraft] = useState<ChecklistEditorItem[]>([])
@@ -232,16 +251,47 @@ export default function AnalyticsPage() {
     }
   }, [t])
 
+  const loadSignalIntel = useCallback(async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
+    setSignalLoading(true)
+    setSignalError('')
+    try {
+      const baseFilters = {
+        from: activeFilters.from,
+        to: activeFilters.to,
+        symbol: activeFilters.symbol
+      }
+      const [summaryData, recommendationsData, setupData, regimeData, symbolMatrixData] = await Promise.all([
+        fetchSignalAnalyticsSummary(baseFilters),
+        fetchSignalRecommendations({ symbol: activeFilters.symbol }),
+        fetchSignalBreakdownBySetup(baseFilters),
+        fetchSignalBreakdownByRegime(baseFilters),
+        fetchSignalBySymbolTimeframe({ from: activeFilters.from, to: activeFilters.to })
+      ])
+      setSignalSummary(summaryData)
+      setSignalRecommendations(recommendationsData.recommendations || [])
+      setSignalSetupBreakdown(setupData)
+      setSignalRegimeBreakdown(regimeData)
+      setSignalSymbolMatrix(symbolMatrixData)
+    } catch (err) {
+      const apiErr = err as ApiError
+      setSignalError(translateApiError(apiErr, t, 'analytics.errors.loadAnalytics'))
+    } finally {
+      setSignalLoading(false)
+    }
+  }, [t])
+
   useEffect(() => {
     loadAnalytics(DEFAULT_FILTERS)
     loadCoach(DEFAULT_FILTERS)
-  }, [loadAnalytics, loadCoach])
+    loadSignalIntel(DEFAULT_FILTERS)
+  }, [loadAnalytics, loadCoach, loadSignalIntel])
 
   useEffect(() => {
     if (refreshToken === 0) return
     loadAnalytics(filters)
     loadCoach(filters)
-  }, [filters, loadAnalytics, loadCoach, refreshToken])
+    loadSignalIntel(filters)
+  }, [filters, loadAnalytics, loadCoach, loadSignalIntel, refreshToken])
 
   useEffect(() => {
     const templateItems = checklistTemplateQuery.data || []
@@ -363,12 +413,14 @@ export default function AnalyticsPage() {
     })
     loadAnalytics(filters)
     loadCoach(filters)
+    loadSignalIntel(filters)
   }
 
   const resetFilters = () => {
     setFilters(DEFAULT_FILTERS)
     loadAnalytics(DEFAULT_FILTERS)
     loadCoach(DEFAULT_FILTERS)
+    loadSignalIntel(DEFAULT_FILTERS)
   }
 
   const kpis = useMemo<KpiCard[]>(() => {
@@ -1238,6 +1290,208 @@ export default function AnalyticsPage() {
               </Stack>
             </Grid>
           </Grid>
+
+          <Card sx={{ border: '1px solid', borderColor: alpha(theme.palette.primary.main, 0.12) }}>
+            <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
+              <Stack spacing={2}>
+                <Stack spacing={0.5}>
+                  <Typography variant="h6" fontWeight={700}>Signal intelligence</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    TradingView webhook signals are analyzed separately from manually logged trades so setup degradation, regime drift, and profile-fit changes stay visible.
+                  </Typography>
+                </Stack>
+
+                {signalLoading ? (
+                  <LoadingState rows={4} height={22} />
+                ) : signalError ? (
+                  <ErrorBanner message={signalError} />
+                ) : !signalSummary || signalSummary.overview.totalSignals === 0 ? (
+                  <EmptyState
+                    title="No structured signals available"
+                    description="Connect the TradingView webhook from Settings and let the Pine alert stream build a sample before using this analytics layer."
+                  />
+                ) : (
+                  <>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' },
+                        gap: 1.25
+                      }}
+                    >
+                      {[
+                        { label: 'Signals', value: signalSummary.overview.totalSignals },
+                        { label: 'Closed', value: signalSummary.overview.closedSignals },
+                        { label: 'Win rate', value: formatPercent(signalSummary.overview.winRate) },
+                        { label: 'Expectancy', value: `${signalSummary.overview.expectancyR > 0 ? '+' : ''}${formatNumber(signalSummary.overview.expectancyR, 2)}R` },
+                        { label: 'Avg confidence', value: `${formatNumber(signalSummary.overview.avgConfidenceScore, 1)}/100` }
+                      ].map((item) => (
+                        <Box key={item.label} sx={{ p: 1.25, borderRadius: 2, backgroundColor: 'action.hover' }}>
+                          <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                          <Typography variant="h6" fontWeight={800}>{item.value}</Typography>
+                        </Box>
+                      ))}
+                    </Box>
+
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} lg={7}>
+                        <Card variant="outlined" sx={{ height: '100%' }}>
+                          <CardContent sx={chartCardContentSx}>
+                            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                              Signal quality trend
+                            </Typography>
+                            <Box sx={{ width: '100%', height: chartHeights.medium }}>
+                              <ResponsiveContainer width="100%" height="100%">
+                                <LineChart data={signalSummary.confidenceTrend}>
+                                  <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" />
+                                  <XAxis dataKey="label" {...xAxisProps} />
+                                  <YAxis tick={chartAxisTick} />
+                                  <ChartTooltip
+                                    {...chartTooltipProps}
+                                    formatter={(value: number, name: string) => (
+                                      name === 'avgConfidenceScore'
+                                        ? `${formatNumber(value, 1)}/100`
+                                        : `${value > 0 ? '+' : ''}${formatNumber(value, 2)}R`
+                                    )}
+                                  />
+                                  <Line type="monotone" dataKey="avgConfidenceScore" name="avgConfidenceScore" stroke={theme.palette.primary.main} strokeWidth={2.5} dot={false} />
+                                  <Line type="monotone" dataKey="expectancyR" name="expectancyR" stroke={theme.palette.warning.main} strokeWidth={2.5} dot={false} />
+                                </LineChart>
+                              </ResponsiveContainer>
+                            </Box>
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12} lg={5}>
+                        <Card variant="outlined" sx={{ height: '100%' }}>
+                          <CardContent sx={chartCardContentSx}>
+                            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                              Recommended profile pack
+                            </Typography>
+                            {signalRecommendations.length === 0 ? (
+                              <Alert severity="info">TradeJAudit needs more closed signal outcomes before it will recommend a profile pack.</Alert>
+                            ) : (
+                              <Stack spacing={1.2}>
+                                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                                  <Typography variant="body1" fontWeight={800}>{signalRecommendations[0].profileId}</Typography>
+                                  <Chip size="small" color="success" label={`${formatNumber(signalRecommendations[0].recommendationScore, 1)} score`} />
+                                </Stack>
+                                <Typography variant="body2" color="text.secondary">
+                                  {signalRecommendations[0].symbolScope} · {signalRecommendations[0].timeframe} · {signalRecommendations[0].regimeScope}
+                                </Typography>
+                                <Typography variant="body2">
+                                  {`${signalRecommendations[0].expectancyR > 0 ? '+' : ''}${formatNumber(signalRecommendations[0].expectancyR, 2)}R`} expectancy from {signalRecommendations[0].sampleSize} closed signals.
+                                </Typography>
+                                {signalRecommendations[0].reasons.map((reason) => (
+                                  <Typography key={reason} variant="body2" color="text.secondary">
+                                    • {reason}
+                                  </Typography>
+                                ))}
+                              </Stack>
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    </Grid>
+
+                    <Grid container spacing={2}>
+                      <Grid item xs={12} lg={4}>
+                        <Card variant="outlined" sx={{ height: '100%' }}>
+                          <CardContent sx={chartCardContentSx}>
+                            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                              Expectancy by setup
+                            </Typography>
+                            {signalSetupBreakdown?.rows?.length ? (
+                              <TableContainer>
+                                <Table size="small">
+                                  <TableHead>
+                                    <TableRow>
+                                      <TableCell>Setup</TableCell>
+                                      <TableCell align="right">Trades</TableCell>
+                                      <TableCell align="right">Expectancy</TableCell>
+                                    </TableRow>
+                                  </TableHead>
+                                  <TableBody>
+                                    {signalSetupBreakdown.rows.slice(0, 8).map((row) => (
+                                      <TableRow key={row.key}>
+                                        <TableCell>{row.key}</TableCell>
+                                        <TableCell align="right">{row.sampleSize}</TableCell>
+                                        <TableCell align="right">{`${row.expectancyR > 0 ? '+' : ''}${formatNumber(row.expectancyR, 2)}R`}</TableCell>
+                                      </TableRow>
+                                    ))}
+                                  </TableBody>
+                                </Table>
+                              </TableContainer>
+                            ) : (
+                              <EmptyState title="No setup sample yet" description="Setup-level expectancy appears after the first closed signal outcomes land." />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12} lg={4}>
+                        <Card variant="outlined" sx={{ height: '100%' }}>
+                          <CardContent sx={chartCardContentSx}>
+                            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                              Performance by regime
+                            </Typography>
+                            {signalRegimeBreakdown?.rows?.length ? (
+                              <Box sx={{ width: '100%', height: chartHeights.small }}>
+                                <ResponsiveContainer width="100%" height="100%">
+                                  <BarChart data={signalRegimeBreakdown.rows}>
+                                    <CartesianGrid stroke={chartGridStroke} strokeDasharray="3 3" />
+                                    <XAxis dataKey="key" {...xAxisProps} />
+                                    <YAxis tick={chartAxisTick} />
+                                    <ChartTooltip
+                                      {...chartTooltipProps}
+                                      formatter={(value: number) => `${value > 0 ? '+' : ''}${formatNumber(value, 2)}R`}
+                                    />
+                                    <Bar dataKey="expectancyR" radius={[8, 8, 0, 0]} fill={theme.palette.success.main} />
+                                  </BarChart>
+                                </ResponsiveContainer>
+                              </Box>
+                            ) : (
+                              <EmptyState title="No regime sample yet" description="Regime analytics become meaningful after enough closed signals are labeled." />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                      <Grid item xs={12} lg={4}>
+                        <Card variant="outlined" sx={{ height: '100%' }}>
+                          <CardContent sx={chartCardContentSx}>
+                            <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                              Strongest and weakest buckets
+                            </Typography>
+                            {signalSymbolMatrix?.rows?.length ? (
+                              <Stack spacing={1}>
+                                {signalSymbolMatrix.rows.slice(0, 5).map((row) => (
+                                  <Box key={`${row.symbol}-${row.timeframe}`} sx={{ p: 1.1, borderRadius: 2, backgroundColor: 'action.hover' }}>
+                                    <Stack direction="row" justifyContent="space-between" spacing={1}>
+                                      <Typography variant="body2" fontWeight={700}>{row.symbol} · {row.timeframe}</Typography>
+                                      {row.recommendedProfileId && <Chip size="small" label={row.recommendedProfileId} />}
+                                    </Stack>
+                                    <Typography variant="caption" color="text.secondary">
+                                      {formatPercent(row.winRate)} win rate · {`${row.expectancyR > 0 ? '+' : ''}${formatNumber(row.expectancyR, 2)}R`} expectancy · N={row.sampleSize}
+                                    </Typography>
+                                  </Box>
+                                ))}
+                                {signalSummary.weakConditions.length > 0 && (
+                                  <Alert severity="warning">
+                                    Weakest bucket: {signalSummary.weakConditions[0].symbol} {signalSummary.weakConditions[0].timeframe} {signalSummary.weakConditions[0].setupType} at {`${signalSummary.weakConditions[0].expectancyR > 0 ? '+' : ''}${formatNumber(signalSummary.weakConditions[0].expectancyR, 2)}R`}.
+                                  </Alert>
+                                )}
+                              </Stack>
+                            ) : (
+                              <EmptyState title="No symbol matrix yet" description="The symbol/timeframe matrix fills in after the webhook has a closed-signal sample." />
+                            )}
+                          </CardContent>
+                        </Card>
+                      </Grid>
+                    </Grid>
+                  </>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
             </>
           )}
 

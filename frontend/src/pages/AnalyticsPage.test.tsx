@@ -10,6 +10,11 @@ import { I18nProvider } from '../i18n'
 
 const mockFetchAnalyticsSummary = vi.fn()
 const mockFetchAnalyticsCoach = vi.fn()
+const mockFetchSignalAnalyticsSummary = vi.fn()
+const mockFetchSignalRecommendations = vi.fn()
+const mockFetchSignalBreakdownBySetup = vi.fn()
+const mockFetchSignalBreakdownByRegime = vi.fn()
+const mockFetchSignalBySymbolTimeframe = vi.fn()
 const mockUseChecklistTemplateQuery = vi.fn()
 const mockUseSaveChecklistTemplateMutation = vi.fn()
 
@@ -42,6 +47,14 @@ vi.mock('../api/analytics', async () => {
     fetchAnalyticsCoach: (...args: unknown[]) => mockFetchAnalyticsCoach(...args)
   }
 })
+
+vi.mock('../api/signalIntel', () => ({
+  fetchSignalAnalyticsSummary: (...args: unknown[]) => mockFetchSignalAnalyticsSummary(...args),
+  fetchSignalRecommendations: (...args: unknown[]) => mockFetchSignalRecommendations(...args),
+  fetchSignalBreakdownBySetup: (...args: unknown[]) => mockFetchSignalBreakdownBySetup(...args),
+  fetchSignalBreakdownByRegime: (...args: unknown[]) => mockFetchSignalBreakdownByRegime(...args),
+  fetchSignalBySymbolTimeframe: (...args: unknown[]) => mockFetchSignalBySymbolTimeframe(...args)
+}))
 
 vi.mock('../hooks/useChecklist', () => ({
   useChecklistTemplateQuery: (...args: unknown[]) => mockUseChecklistTemplateQuery(...args),
@@ -205,6 +218,27 @@ describe('AnalyticsPage', () => {
       isError: false,
       error: null
     })
+    mockFetchSignalAnalyticsSummary.mockResolvedValue({
+      overview: {
+        totalSignals: 20,
+        closedSignals: 16,
+        openSignals: 4,
+        winRate: 56,
+        expectancyR: 0.32,
+        avgPnlR: 0.32,
+        avgConfidenceScore: 74,
+        avgHoldBars: 5,
+        avgHoldMinutes: 55
+      },
+      recentWindows: [],
+      confidenceTrend: [],
+      weakConditions: [],
+      topRecommendation: null
+    })
+    mockFetchSignalRecommendations.mockResolvedValue({ recommendations: [] })
+    mockFetchSignalBreakdownBySetup.mockResolvedValue({ rows: [] })
+    mockFetchSignalBreakdownByRegime.mockResolvedValue({ rows: [] })
+    mockFetchSignalBySymbolTimeframe.mockResolvedValue({ rows: [] })
   })
 
   it('requests analytics summary on load and renders KPI', async () => {
@@ -223,6 +257,7 @@ describe('AnalyticsPage', () => {
     await waitFor(() => expect(mockFetchAnalyticsSummary).toHaveBeenCalled())
     expect(mockFetchAnalyticsSummary).toHaveBeenCalledWith({ status: 'CLOSED', dateMode: 'CLOSE' })
     expect(mockFetchAnalyticsCoach).toHaveBeenCalledWith({ status: 'CLOSED', dateMode: 'CLOSE' })
+    expect(mockFetchSignalAnalyticsSummary).toHaveBeenCalled()
     expect(await screen.findByText('Net P&L')).toBeInTheDocument()
   })
 
@@ -246,6 +281,7 @@ describe('AnalyticsPage', () => {
     await waitFor(() => {
       expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
       expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
+      expect(mockFetchSignalAnalyticsSummary).toHaveBeenCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
     })
   })
 

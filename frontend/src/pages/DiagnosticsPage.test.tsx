@@ -10,7 +10,15 @@ const diagnosticsApiMock = vi.hoisted(() => ({
   getLiveDiagnosticsSummary: vi.fn()
 }))
 
+const signalIntelApiMock = vi.hoisted(() => ({
+  fetchSignalAnalyticsSummary: vi.fn(),
+  fetchSignalBreakdownBySetup: vi.fn(),
+  fetchSignalBreakdownByRegime: vi.fn(),
+  fetchSignalRecommendations: vi.fn()
+}))
+
 vi.mock('../api/diagnostics', () => diagnosticsApiMock)
+vi.mock('../api/signalIntel', () => signalIntelApiMock)
 
 function renderPage() {
   const queryClient = new QueryClient({
@@ -72,6 +80,55 @@ describe('DiagnosticsPage live summary', () => {
       ],
       generatedAt: '2026-03-06T08:00:00.000Z'
     })
+    signalIntelApiMock.fetchSignalAnalyticsSummary.mockResolvedValue({
+      overview: {
+        totalSignals: 18,
+        closedSignals: 14,
+        openSignals: 4,
+        winRate: 57.14,
+        expectancyR: 0.36,
+        avgPnlR: 0.36,
+        avgConfidenceScore: 74,
+        avgHoldBars: 5,
+        avgHoldMinutes: 60
+      },
+      recentWindows: [],
+      confidenceTrend: [
+        { label: '2026-03-05', avgConfidenceScore: 72, expectancyR: 0.25, sampleSize: 4 }
+      ],
+      weakConditions: [
+        { symbol: 'EURUSD', timeframe: '15', setupType: 'FVG_MITIGATION', regime: 'RANGE', direction: 'LONG', sampleSize: 6, winRate: 33, expectancyR: -0.28, action: 'REDUCE_CONFIDENCE' }
+      ],
+      topRecommendation: null
+    })
+    signalIntelApiMock.fetchSignalBreakdownBySetup.mockResolvedValue({
+      rows: [
+        { key: 'SWEEP_OB_REVERSAL', sampleSize: 10, winRate: 60, expectancyR: 0.48, avgPnlR: 0.48, avgConfidenceScore: 77, reducedConfidenceSuggested: false }
+      ]
+    })
+    signalIntelApiMock.fetchSignalBreakdownByRegime.mockResolvedValue({
+      rows: [
+        { key: 'TREND', sampleSize: 9, winRate: 66, expectancyR: 0.52, avgPnlR: 0.52, avgConfidenceScore: 79, reducedConfidenceSuggested: false }
+      ]
+    })
+    signalIntelApiMock.fetchSignalRecommendations.mockResolvedValue({
+      recommendations: [
+        {
+          symbolScope: 'EURUSD',
+          timeframe: '15',
+          regimeScope: 'TREND',
+          profileId: 'AUTO_15_TREND_V1',
+          profileJson: {},
+          minSamples: 12,
+          sampleSize: 14,
+          recommendationScore: 78,
+          winRate: 57,
+          expectancyR: 0.36,
+          reasons: ['14 closed signals contributed to this recommendation.'],
+          generatedAt: '2026-03-06T08:00:00.000Z'
+        }
+      ]
+    })
   })
 
   it('renders live-only diagnostics sections', async () => {
@@ -83,6 +140,8 @@ describe('DiagnosticsPage live summary', () => {
     expect(screen.getByText('Strategy performance')).toBeInTheDocument()
     expect(screen.getByText('Symbol breakdown')).toBeInTheDocument()
     expect(screen.getByText('What to change')).toBeInTheDocument()
+    expect(screen.getByText('Signal intelligence')).toBeInTheDocument()
+    expect(screen.getByText('Recommended profile')).toBeInTheDocument()
     expect(screen.queryByText(/Backtest runs/i)).not.toBeInTheDocument()
   })
 })

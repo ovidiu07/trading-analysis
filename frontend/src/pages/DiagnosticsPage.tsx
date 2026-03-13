@@ -5,6 +5,7 @@ import {
   Card,
   CardContent,
   Chip,
+  Divider,
   FormControl,
   InputLabel,
   MenuItem,
@@ -24,9 +25,15 @@ import BoltRoundedIcon from '@mui/icons-material/BoltRounded'
 import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
 import ChecklistRoundedIcon from '@mui/icons-material/ChecklistRounded'
 import { useQuery } from '@tanstack/react-query'
-import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
+import { Bar, BarChart, CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip as ChartTooltip, XAxis, YAxis } from 'recharts'
 import { ApiError } from '../api/client'
 import { getLiveDiagnosticsSummary } from '../api/diagnostics'
+import {
+  fetchSignalAnalyticsSummary,
+  fetchSignalBreakdownByRegime,
+  fetchSignalBreakdownBySetup,
+  fetchSignalRecommendations
+} from '../api/signalIntel'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import { formatNumber } from '../utils/format'
@@ -67,6 +74,40 @@ export default function DiagnosticsPage() {
     })
   })
 
+  const signalSummaryQuery = useQuery({
+    queryKey: ['signalAnalyticsSummary', from, to, symbol],
+    queryFn: () => fetchSignalAnalyticsSummary({
+      from: from || undefined,
+      to: to || undefined,
+      symbol: symbol || undefined
+    })
+  })
+
+  const signalSetupQuery = useQuery({
+    queryKey: ['signalBreakdownBySetup', from, to, symbol],
+    queryFn: () => fetchSignalBreakdownBySetup({
+      from: from || undefined,
+      to: to || undefined,
+      symbol: symbol || undefined
+    })
+  })
+
+  const signalRegimeQuery = useQuery({
+    queryKey: ['signalBreakdownByRegime', from, to, symbol],
+    queryFn: () => fetchSignalBreakdownByRegime({
+      from: from || undefined,
+      to: to || undefined,
+      symbol: symbol || undefined
+    })
+  })
+
+  const signalRecommendationsQuery = useQuery({
+    queryKey: ['signalRecommendations', symbol],
+    queryFn: () => fetchSignalRecommendations({
+      symbol: symbol || undefined
+    })
+  })
+
   if (summaryQuery.isLoading) {
     return <LoadingState rows={8} height={26} />
   }
@@ -78,6 +119,10 @@ export default function DiagnosticsPage() {
 
   const summary = summaryQuery.data
   const hasSample = summary.coreMetrics.sampleSize > 0
+  const signalSummary = signalSummaryQuery.data
+  const signalSetupRows = signalSetupQuery.data?.rows || []
+  const signalRegimeRows = signalRegimeQuery.data?.rows || []
+  const signalRecommendations = signalRecommendationsQuery.data?.recommendations || []
 
   return (
     <Stack spacing={2.5} sx={{ minWidth: 0, pb: 3 }}>
@@ -325,6 +370,200 @@ export default function DiagnosticsPage() {
               </CardContent>
             </Card>
           </Box>
+
+          <Card sx={{ ...panelSx, borderColor: 'rgba(14, 116, 144, 0.18)' }}>
+            <CardContent>
+              <Stack spacing={1.75}>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+                  <Stack spacing={0.35}>
+                    <Typography variant="h6" fontWeight={800}>Signal intelligence</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Structured TradingView signals, their recent quality trend, and the strongest profile recommendations are shown separately from manual trade journaling.
+                    </Typography>
+                  </Stack>
+                  <Chip
+                    size="small"
+                    color={signalSummary?.topRecommendation ? 'success' : 'default'}
+                    label={signalSummary?.topRecommendation ? 'Recommendation ready' : 'Learning'}
+                  />
+                </Stack>
+
+                {signalSummaryQuery.isLoading || signalSetupQuery.isLoading || signalRegimeQuery.isLoading || signalRecommendationsQuery.isLoading ? (
+                  <LoadingState rows={4} height={20} />
+                ) : signalSummaryQuery.isError || signalSetupQuery.isError || signalRegimeQuery.isError || signalRecommendationsQuery.isError ? (
+                  <Alert severity="warning">
+                    Signal intelligence is available after TradingView webhooks are connected and signals start landing in TradeJAudit.
+                  </Alert>
+                ) : !signalSummary || signalSummary.overview.totalSignals === 0 ? (
+                  <EmptyState
+                    title="No signal events yet"
+                    description="Generate a TradingView webhook secret in Settings, paste the alert JSON into Pine, and the signal engine will start populating this panel."
+                    icon={<InsightsRoundedIcon fontSize="inherit" />}
+                  />
+                ) : (
+                  <>
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(5, minmax(0, 1fr))' },
+                        gap: 1.25
+                      }}
+                    >
+                      {[
+                        { label: 'Signals', value: signalSummary.overview.totalSignals },
+                        { label: 'Closed', value: signalSummary.overview.closedSignals },
+                        { label: 'Win rate', value: formatPercent(signalSummary.overview.winRate) },
+                        { label: 'Expectancy', value: formatSignedR(signalSummary.overview.expectancyR) },
+                        { label: 'Avg confidence', value: `${formatNumber(signalSummary.overview.avgConfidenceScore, 1)}/100` }
+                      ].map((item) => (
+                        <Box key={item.label} sx={{ p: 1.25, borderRadius: 3, backgroundColor: 'action.hover' }}>
+                          <Typography variant="caption" color="text.secondary">{item.label}</Typography>
+                          <Typography variant="h6" fontWeight={800}>{item.value}</Typography>
+                        </Box>
+                      ))}
+                    </Box>
+
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: '1fr', xl: '1.2fr 0.8fr' },
+                        gap: 2
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Recent signal quality trend</Typography>
+                        <Box sx={{ width: '100%', height: 260 }}>
+                          <ResponsiveContainer width="100%" height="100%">
+                            <LineChart data={signalSummary.confidenceTrend}>
+                              <CartesianGrid strokeDasharray="3 3" />
+                              <XAxis dataKey="label" />
+                              <YAxis yAxisId="confidence" />
+                              <YAxis yAxisId="expectancy" orientation="right" />
+                              <ChartTooltip formatter={(value: number, name: string) => (
+                                name === 'avgConfidenceScore'
+                                  ? `${formatNumber(value, 1)}/100`
+                                  : formatSignedR(value)
+                              )} />
+                              <Line yAxisId="confidence" type="monotone" dataKey="avgConfidenceScore" stroke="#0f766e" strokeWidth={2} dot={false} />
+                              <Line yAxisId="expectancy" type="monotone" dataKey="expectancyR" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                            </LineChart>
+                          </ResponsiveContainer>
+                        </Box>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Recommended profile</Typography>
+                        {signalRecommendations.length === 0 ? (
+                          <Alert severity="info">TradeJAudit needs more closed signal outcomes before it will recommend a profile pack.</Alert>
+                        ) : (
+                          <Stack spacing={1.1}>
+                            <Box sx={{ p: 1.25, borderRadius: 3, backgroundColor: 'rgba(15, 118, 110, 0.08)' }}>
+                              <Stack direction="row" justifyContent="space-between" spacing={1}>
+                                <Typography variant="body2" fontWeight={800}>{signalRecommendations[0].profileId}</Typography>
+                                <Chip size="small" color="success" label={`${formatNumber(signalRecommendations[0].recommendationScore, 1)} score`} />
+                              </Stack>
+                              <Typography variant="caption" color="text.secondary">
+                                {signalRecommendations[0].symbolScope} · {signalRecommendations[0].timeframe} · {signalRecommendations[0].regimeScope}
+                              </Typography>
+                              <Typography variant="body2" sx={{ mt: 1 }}>
+                                {formatSignedR(signalRecommendations[0].expectancyR)} expectancy from {signalRecommendations[0].sampleSize} closed signals.
+                              </Typography>
+                            </Box>
+                            {signalRecommendations[0].reasons.map((reason) => (
+                              <Typography key={reason} variant="body2" color="text.secondary">
+                                • {reason}
+                              </Typography>
+                            ))}
+                          </Stack>
+                        )}
+                      </Box>
+                    </Box>
+
+                    <Divider />
+
+                    <Box
+                      sx={{
+                        display: 'grid',
+                        gridTemplateColumns: { xs: '1fr', xl: 'repeat(3, minmax(0, 1fr))' },
+                        gap: 2
+                      }}
+                    >
+                      <Box>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>By setup type</Typography>
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Setup</TableCell>
+                                <TableCell align="right">Trades</TableCell>
+                                <TableCell align="right">Expectancy</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {signalSetupRows.slice(0, 6).map((row) => (
+                                <TableRow key={row.key}>
+                                  <TableCell>{row.key}</TableCell>
+                                  <TableCell align="right">{row.sampleSize}</TableCell>
+                                  <TableCell align="right">{formatSignedR(row.expectancyR)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>By regime</Typography>
+                        <TableContainer>
+                          <Table size="small">
+                            <TableHead>
+                              <TableRow>
+                                <TableCell>Regime</TableCell>
+                                <TableCell align="right">Trades</TableCell>
+                                <TableCell align="right">Win rate</TableCell>
+                              </TableRow>
+                            </TableHead>
+                            <TableBody>
+                              {signalRegimeRows.slice(0, 6).map((row) => (
+                                <TableRow key={row.key}>
+                                  <TableCell>{row.key}</TableCell>
+                                  <TableCell align="right">{row.sampleSize}</TableCell>
+                                  <TableCell align="right">{formatPercent(row.winRate)}</TableCell>
+                                </TableRow>
+                              ))}
+                            </TableBody>
+                          </Table>
+                        </TableContainer>
+                      </Box>
+
+                      <Box>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Weak conditions</Typography>
+                        {signalSummary.weakConditions.length === 0 ? (
+                          <Alert severity="success">No persistent weak signal bucket is standing out.</Alert>
+                        ) : (
+                          <Stack spacing={1}>
+                            {signalSummary.weakConditions.map((condition) => (
+                              <Box key={`${condition.symbol}-${condition.setupType}-${condition.regime}-${condition.direction}`} sx={{ p: 1.1, borderRadius: 3, backgroundColor: 'action.hover' }}>
+                                <Typography variant="body2" fontWeight={700}>
+                                  {condition.symbol} · {condition.setupType}
+                                </Typography>
+                                <Typography variant="caption" color="text.secondary">
+                                  {condition.timeframe} · {condition.regime} · {condition.direction}
+                                </Typography>
+                                <Typography variant="body2" sx={{ mt: 0.5 }}>
+                                  {condition.action} at {formatSignedR(condition.expectancyR)} across {condition.sampleSize} signals.
+                                </Typography>
+                              </Box>
+                            ))}
+                          </Stack>
+                        )}
+                      </Box>
+                    </Box>
+                  </>
+                )}
+              </Stack>
+            </CardContent>
+          </Card>
         </>
       )}
     </Stack>

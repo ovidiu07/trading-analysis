@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
   Box,
@@ -8,6 +8,7 @@ import {
   Chip,
   Divider,
   Stack,
+  TextField,
   Typography,
   type ChipProps
 } from '@mui/material'
@@ -30,6 +31,7 @@ import { listTrades, TradeResponse } from '../api/trades'
 import { fetchCoachFocus } from '../api/today'
 import { DailyPlan } from '../api/plans'
 import { useTodayMentorPlanQuery } from '../hooks/usePlans'
+import { fetchSignalAnalyticsSummary, fetchSignalRecommendations } from '../api/signalIntel'
 
 const coachChipColor = (severity: string): ChipProps['color'] => {
   if (severity === 'critical') return 'error'
@@ -77,6 +79,8 @@ export default function TodayPage() {
   const timezone = user?.timezone ?? 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
   const todayDate = useMemo(() => getTodayDateInTimezone(timezone), [timezone])
+  const [signalSymbol, setSignalSymbol] = useState('')
+  const [signalTimeframe, setSignalTimeframe] = useState('')
 
   const mentorPlanQuery = useTodayMentorPlanQuery(todayDate, timezone)
 
@@ -94,6 +98,32 @@ export default function TodayPage() {
   })
 
   const mentorPlan = mentorPlanQuery.data as DailyPlan | null | undefined
+  useEffect(() => {
+    if (!mentorPlan) return
+    if (!signalSymbol && mentorPlan.tradingViewSymbol) {
+      setSignalSymbol(mentorPlan.tradingViewSymbol)
+    }
+    if (!signalTimeframe && mentorPlan.tradingViewInterval) {
+      setSignalTimeframe(mentorPlan.tradingViewInterval)
+    }
+  }, [mentorPlan, signalSymbol, signalTimeframe])
+
+  const signalRecommendationQuery = useQuery({
+    queryKey: ['todaySignalRecommendations', signalSymbol, signalTimeframe],
+    queryFn: () => fetchSignalRecommendations({
+      symbol: signalSymbol || undefined,
+      timeframe: signalTimeframe || undefined
+    })
+  })
+
+  const signalSummaryQuery = useQuery({
+    queryKey: ['todaySignalSummary', signalSymbol, signalTimeframe],
+    queryFn: () => fetchSignalAnalyticsSummary({
+      symbol: signalSymbol || undefined,
+      timeframe: signalTimeframe || undefined
+    })
+  })
+
   const loadingTopCards = mentorPlanQuery.isLoading || coachFocusQuery.isLoading
 
   return (
@@ -162,12 +192,73 @@ export default function TodayPage() {
       <Box
         sx={{
           display: 'grid',
-          gridTemplateColumns: { xs: '1fr', lg: 'repeat(3, minmax(0, 1fr))' },
+          gridTemplateColumns: { xs: '1fr', lg: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(4, minmax(0, 1fr))' },
           gap: 2,
           minWidth: 0,
           '& > *': { minWidth: 0 }
         }}
       >
+        <Card className="interactive-lift" sx={premiumCardSx}>
+          <CardContent>
+            <Stack spacing={1.5}>
+              <Stack direction="row" alignItems="center" spacing={1}>
+                <InsightsRoundedIcon color="primary" fontSize="small" />
+                <Typography variant="subtitle1">Signal intelligence</Typography>
+              </Stack>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+                <TextField
+                  label="Symbol"
+                  size="small"
+                  value={signalSymbol}
+                  onChange={(event) => setSignalSymbol(event.target.value.toUpperCase())}
+                  placeholder="BINANCE:BTCUSDT"
+                  fullWidth
+                />
+                <TextField
+                  label="Timeframe"
+                  size="small"
+                  value={signalTimeframe}
+                  onChange={(event) => setSignalTimeframe(event.target.value.toUpperCase())}
+                  placeholder="15"
+                  sx={{ minWidth: { sm: 120 } }}
+                />
+              </Stack>
+
+              {signalRecommendationQuery.isLoading || signalSummaryQuery.isLoading ? (
+                <LoadingState rows={4} height={20} />
+              ) : signalRecommendationQuery.isError || signalSummaryQuery.isError ? (
+                <Alert severity="warning">Signal recommendations will appear here after the webhook is connected in Settings.</Alert>
+              ) : (signalRecommendationQuery.data?.recommendations || []).length === 0 || !signalSummaryQuery.data ? (
+                <EmptyState
+                  title="No recommendation yet"
+                  description="Once enough closed signal outcomes exist for this symbol and timeframe, the suggested Pine profile pack will appear here."
+                  icon={<InsightsRoundedIcon fontSize="inherit" />}
+                />
+              ) : (
+                <>
+                  <Chip
+                    size="small"
+                    color="success"
+                    label={signalRecommendationQuery.data.recommendations[0].profileId}
+                    sx={{ alignSelf: 'flex-start' }}
+                  />
+                  <Typography variant="body2" color="text.secondary">
+                    Expectancy {signalRecommendationQuery.data.recommendations[0].expectancyR > 0 ? '+' : ''}{signalRecommendationQuery.data.recommendations[0].expectancyR.toFixed(2)}R from {signalRecommendationQuery.data.recommendations[0].sampleSize} closed signals.
+                  </Typography>
+                  {signalSummaryQuery.data.weakConditions.slice(0, 2).map((condition) => (
+                    <Typography key={`${condition.symbol}-${condition.setupType}-${condition.regime}`} variant="body2" color="text.secondary">
+                      {condition.action}: {condition.setupType} in {condition.regime} at {condition.expectancyR > 0 ? '+' : ''}{condition.expectancyR.toFixed(2)}R
+                    </Typography>
+                  ))}
+                  <Typography variant="body2">
+                    Recent average confidence: <strong>{signalSummaryQuery.data.overview.avgConfidenceScore.toFixed(1)}/100</strong>
+                  </Typography>
+                </>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+
         <Card className="interactive-lift" sx={premiumCardSx}>
           <CardContent>
             <Stack spacing={1.5}>

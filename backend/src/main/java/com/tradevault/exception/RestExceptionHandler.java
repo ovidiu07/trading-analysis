@@ -2,6 +2,7 @@ package com.tradevault.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.validation.FieldError;
@@ -54,6 +55,16 @@ public class RestExceptionHandler {
                 .error("VALIDATION_ERROR")
                 .message(message)
                 .details(details)
+                .build();
+        return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<ApiErrorResponse> handleNotReadable(HttpMessageNotReadableException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error("VALIDATION_ERROR")
+                .message("Malformed JSON request payload")
+                .details(ex.getMostSpecificCause() == null ? null : ex.getMostSpecificCause().getMessage())
                 .build();
         return ResponseEntity.badRequest().body(response);
     }

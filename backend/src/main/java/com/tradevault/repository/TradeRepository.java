@@ -197,6 +197,12 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
 
   List<Trade> findByUserIdAndSessionIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, UUID sessionId);
 
+  List<Trade> findByUserIdAndSymbolAndDirectionAndOpenedAtBetweenOrderByOpenedAtAsc(UUID userId,
+                                                                                     String symbol,
+                                                                                     Direction direction,
+                                                                                     OffsetDateTime from,
+                                                                                     OffsetDateTime to);
+
   boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 
   boolean existsByUserIdAndDemoSeedIdIsNull(UUID userId);
