@@ -4,7 +4,24 @@ indicator("SMC Clean Signals v6 [TradeJAudit]", "SMC v6", overlay = true,
      max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════════════════════════════════════════
-//  CHANGELOG (v6 Display/Execution Refactor)
+//  CHANGELOG (v6.1 – Chart Clarity & Execution Refactor)
+// ═══════════════════════════════════════════════════════════════
+// 1. Current-day session-only: session H/L levels drawn only for
+//    the current trading day; prior-day lines/labels cleared on
+//    day rollover using the configured Time Basis timezone.
+// 2. Confluence dashboard: "Score / Threshold" replaced with
+//    human-readable confluence labels (Excellent/Strong/Good/
+//    Moderate/Weak/Very Weak) plus numeric detail.
+// 3. Order block lifecycle: bull/bear OBs visually distinct;
+//    mitigated OBs automatically deleted; expired OBs pruned.
+//    Bull OB = green/teal, Bear OB = red/pink.
+// 4. TP/SL trigger timing: trade boxes appear only when price
+//    enters the execution zone (state 2 → candidate); pending
+//    zones shown as subtle dashed boxes until triggered.
+// 5. Default color/style preservation: London, New York, Tokyo,
+//    Sydney, PDH/PDL colors and line styles unchanged.
+// ═══════════════════════════════════════════════════════════════
+//  CHANGELOG (v6 Display/Execution Refactor – prior)
 // ═══════════════════════════════════════════════════════════════
 // 1. Display bug fixed: sweep markers, PDH/PDL, EQH/EQL, session H/L,
 //    execution zone, dashboard, FVG zones, and OB zones now clear separately.
@@ -25,19 +42,27 @@ indicator("SMC Clean Signals v6 [TradeJAudit]", "SMC v6", overlay = true,
 //    - Toggle Show Session H/L Lines on/off. Only session H/L lines and labels move.
 //    - Toggle Show Execution Zone on/off. Only trade/entry visuals move.
 //    - Toggle Show Dashboard on/off. Table fully disappears with no stale shell.
-// B) Coupling regression:
-//    - Set PDH/PDL OFF, EQH/EQL OFF, Session H/L OFF, Sweep Markers ON.
-//    - Verify unrelated visuals stay hidden.
-//    - Turn Sweep Markers OFF and confirm only sweep markers change.
-// C) Level identification:
-//    - Enable PDH/PDL and verify labeled PDH/PDL lines.
-//    - Enable Session H/L and verify labeled LDN/NY/TKY/SYD highs and lows.
-// D) Execution zone timing:
-//    - Use replay mode and confirm entry visuals start on entryBarIndex.
-//    - Confirm entryPriceLogic matches FVG CE, proximal edge, or structure anchor.
-// E) Dashboard:
-//    - Confirm Regime, Exec Mode, Priority, and Time Basis are absent.
-//    - Confirm remaining rows align cleanly.
+// B) Current-day session test:
+//    - Open chart spanning multiple days.
+//    - Confirm only today's session H/L lines are visible.
+//    - In replay: move into a new day; confirm previous day lines are deleted.
+// C) Confluence dashboard test:
+//    - Trigger setups with varying confluence scores.
+//    - Confirm dashboard shows: "Confluence: Strong (6 vs 3 min)" format.
+//    - Confirm label changes: Weak / Moderate / Good / Strong / Excellent.
+// D) Order block test:
+//    - Generate bullish OBs (green) and bearish OBs (red/pink).
+//    - Confirm both are visually distinguishable.
+//    - Confirm once mitigated (price closes through), they disappear.
+//    - Confirm expired OBs (>obExpBars) are pruned.
+// E) Execution / TP-SL test:
+//    - Find setup where execution zone is visible but not yet touched.
+//    - Confirm TP/SL box is NOT shown yet (only pending zone box).
+//    - Once price enters execution zone, confirm TP/SL appears.
+// F) Default color / style test:
+//    - Reset inputs to defaults.
+//    - Confirm London/NY/Tokyo/Sydney/PDH/PDL colors match defaults.
+//    - Confirm level line style matches default (Dashed).
 // ═══════════════════════════════════════════════════════════════
 //  IMPLEMENTATION NOTES
 // ═══════════════════════════════════════════════════════════════
@@ -186,6 +211,8 @@ obDef           = input.string("lastOpp", "OB Definition", options = ["lastOpp",
 obSearchBars    = input.int(6, "OB Search Bars", minval = 2, maxval = 15, group = grpOB)
 showOBZones     = input.bool(true, "Show OB Zones", group = grpOB, active = useOB,
      tooltip = "Draw order block boxes on chart when detected alongside displacement.")
+obExpBars       = input.int(100, "OB Zone Expiry (bars)", minval = 10, maxval = 300, group = grpOB, active = useOB,
+     tooltip = "Order block zones are removed after this many bars if not mitigated.")
 
 // ── SMT / Correlation ────────────────────────────────────────
 smtEn           = input.bool(false, "Enable SMT Divergence", group = grpSMT)
@@ -376,6 +403,16 @@ gradeColor(score) =>
     score >= 8 ? color.new(#00c27a, 0) :
      score >= 5 ? color.new(#f5a623, 0) :
      color.new(#9b9b9b, 0)
+
+// ── Confluence quality mapping ──────────────────────────────────
+// Maps score as % of max possible score to qualitative label.
+// Deterministic mapping that adapts to configured weight values.
+//   >= 80% = Excellent   >= 60% = Strong    >= 45% = Good
+//   >= 30% = Moderate    >= 15% = Weak      <  15% = Very Weak
+getConfluenceLabel(int score) =>
+    int maxScore = wLiquidity + wMSS + wFVG + wOB + wSession + wSMT
+    float pct = maxScore > 0 ? score * 100.0 / maxScore : 0.0
+    pct >= 80 ? "Excellent" : pct >= 60 ? "Strong" : pct >= 45 ? "Good" : pct >= 30 ? "Moderate" : pct >= 15 ? "Weak" : "Very Weak"
 
 stratLabel(idx) =>
     idx == 1 ? "RAID→MSS→FVG" :
@@ -630,10 +667,43 @@ else if inLondon or inNewYork or inTokyo or inSydney
     sessH := math.max(nz(sessH, high), high)
     sessL := math.min(nz(sessL, low), low)
 
+// ── Per-session H/L tracking variables (all sessions declared first) ──
 var float ldnLiveHigh = na, var float ldnLiveLow = na
 var int ldnLiveStartBar = na
 var float ldnDrawHigh = na, var float ldnDrawLow = na
 var int ldnDrawStartBar = na
+
+var float nyLiveHigh = na, var float nyLiveLow = na
+var int nyLiveStartBar = na
+var float nyDrawHigh = na, var float nyDrawLow = na
+var int nyDrawStartBar = na
+
+var float tkyLiveHigh = na, var float tkyLiveLow = na
+var int tkyLiveStartBar = na
+var float tkyDrawHigh = na, var float tkyDrawLow = na
+var int tkyDrawStartBar = na
+
+var float sydLiveHigh = na, var float sydLiveLow = na
+var int sydLiveStartBar = na
+var float sydDrawHigh = na, var float sydDrawLow = na
+var int sydDrawStartBar = na
+
+// ── Current-day session reset ───────────────────────────────────
+// Session H/L are displayed ONLY for the current trading day.
+// On new day boundary (per timeBasis timezone), all session live/draw
+// vars reset so prior-day levels disappear from the chart.
+// Sessions active across midnight restart tracking from the new day bar.
+if newDay
+    ldnLiveHigh := na, ldnLiveLow := na, ldnLiveStartBar := na
+    ldnDrawHigh := na, ldnDrawLow := na, ldnDrawStartBar := na
+    nyLiveHigh  := na, nyLiveLow  := na, nyLiveStartBar  := na
+    nyDrawHigh  := na, nyDrawLow  := na, nyDrawStartBar  := na
+    tkyLiveHigh := na, tkyLiveLow := na, tkyLiveStartBar := na
+    tkyDrawHigh := na, tkyDrawLow := na, tkyDrawStartBar := na
+    sydLiveHigh := na, sydLiveLow := na, sydLiveStartBar := na
+    sydDrawHigh := na, sydDrawLow := na, sydDrawStartBar := na
+
+// ── Track session levels (after day reset so new-day starts fresh) ──
 [ldnLiveHighNext, ldnLiveLowNext, ldnLiveStartBarNext, ldnDrawHighNext, ldnDrawLowNext, ldnDrawStartBarNext] = trackSessionLevels(
      inLondon, londonStart, londonEnd, ldnLiveHigh, ldnLiveLow, ldnLiveStartBar, ldnDrawHigh, ldnDrawLow, ldnDrawStartBar)
 ldnLiveHigh := ldnLiveHighNext
@@ -643,10 +713,6 @@ ldnDrawHigh := ldnDrawHighNext
 ldnDrawLow := ldnDrawLowNext
 ldnDrawStartBar := ldnDrawStartBarNext
 
-var float nyLiveHigh = na, var float nyLiveLow = na
-var int nyLiveStartBar = na
-var float nyDrawHigh = na, var float nyDrawLow = na
-var int nyDrawStartBar = na
 [nyLiveHighNext, nyLiveLowNext, nyLiveStartBarNext, nyDrawHighNext, nyDrawLowNext, nyDrawStartBarNext] = trackSessionLevels(
      inNewYork, nyStart, nyEnd, nyLiveHigh, nyLiveLow, nyLiveStartBar, nyDrawHigh, nyDrawLow, nyDrawStartBar)
 nyLiveHigh := nyLiveHighNext
@@ -656,10 +722,6 @@ nyDrawHigh := nyDrawHighNext
 nyDrawLow := nyDrawLowNext
 nyDrawStartBar := nyDrawStartBarNext
 
-var float tkyLiveHigh = na, var float tkyLiveLow = na
-var int tkyLiveStartBar = na
-var float tkyDrawHigh = na, var float tkyDrawLow = na
-var int tkyDrawStartBar = na
 [tkyLiveHighNext, tkyLiveLowNext, tkyLiveStartBarNext, tkyDrawHighNext, tkyDrawLowNext, tkyDrawStartBarNext] = trackSessionLevels(
      inTokyo, tokyoStart, tokyoEnd, tkyLiveHigh, tkyLiveLow, tkyLiveStartBar, tkyDrawHigh, tkyDrawLow, tkyDrawStartBar)
 tkyLiveHigh := tkyLiveHighNext
@@ -669,10 +731,6 @@ tkyDrawHigh := tkyDrawHighNext
 tkyDrawLow := tkyDrawLowNext
 tkyDrawStartBar := tkyDrawStartBarNext
 
-var float sydLiveHigh = na, var float sydLiveLow = na
-var int sydLiveStartBar = na
-var float sydDrawHigh = na, var float sydDrawLow = na
-var int sydDrawStartBar = na
 [sydLiveHighNext, sydLiveLowNext, sydLiveStartBarNext, sydDrawHighNext, sydDrawLowNext, sydDrawStartBarNext] = trackSessionLevels(
      inSydney, sydneyStart, sydneyEnd, sydLiveHigh, sydLiveLow, sydLiveStartBar, sydDrawHigh, sydDrawLow, sydDrawStartBar)
 sydLiveHigh := sydLiveHighNext
@@ -909,32 +967,128 @@ findBearOB() =>
                 obLo := math.min(open[i], close[i])
     [obHi, obLo]
 
-// ── OB Zone Rendering (showOBZones toggle) ───────────────────
-var box[] obZoneBoxes = array.new_box(0)
+// ── OB Zone Rendering with Lifecycle Management ──────────────
+// Bull and bear OBs tracked separately for distinct visuals.
+// Mitigated OBs (price closes through the zone) are deleted.
+// Expired OBs (older than obExpBars) are pruned.
+var float[] obBullHi  = array.new_float(0), var float[] obBullLo  = array.new_float(0)
+var int[]   obBullBar = array.new_int(0)
+var box[]   obBullBox = array.new_box(0),   var label[] obBullLbl = array.new_label(0)
+
+var float[] obBearHi  = array.new_float(0), var float[] obBearLo  = array.new_float(0)
+var int[]   obBearBar = array.new_int(0)
+var box[]   obBearBox = array.new_box(0),   var label[] obBearLbl = array.new_label(0)
 
 if useOB and showOBZones
+    // Register new bull OBs on bullish displacement
     if bullDisplace
         [obH, obL] = findBullOB()
         if not na(obH)
-            array.push(obZoneBoxes, box.new(bar_index - obSearchBars, obH, bar_index, obL,
-                 bgcolor = color.new(bullCol, 90), border_color = color.new(bullCol, 55), border_width = 1, border_style = line.style_dotted))
+            newBox = box.new(bar_index - obSearchBars, obH, bar_index, obL,
+                 bgcolor = color.new(bullCol, 85), border_color = color.new(bullCol, 40),
+                 border_width = 1, border_style = line.style_solid)
+            newLbl = label.new(bar_index, obH, "Bull OB",
+                 style = label.style_none, textcolor = color.new(bullCol, 20), size = size.tiny)
+            array.push(obBullHi, obH), array.push(obBullLo, obL)
+            array.push(obBullBar, bar_index), array.push(obBullBox, newBox)
+            array.push(obBullLbl, newLbl)
+    // Register new bear OBs on bearish displacement
     if bearDisplace
         [obH, obL] = findBearOB()
         if not na(obH)
-            array.push(obZoneBoxes, box.new(bar_index - obSearchBars, obH, bar_index, obL,
-                 bgcolor = color.new(bearCol, 90), border_color = color.new(bearCol, 55), border_width = 1, border_style = line.style_dotted))
-    // Extend OB boxes
-    if array.size(obZoneBoxes) > 0
-        for i = 0 to array.size(obZoneBoxes) - 1
-            box.set_right(array.get(obZoneBoxes, i), bar_index)
-    // Limit OB zone count
-    while array.size(obZoneBoxes) > maxActiveFvg * 2
-        box.delete(array.shift(obZoneBoxes))
+            newBox = box.new(bar_index - obSearchBars, obH, bar_index, obL,
+                 bgcolor = color.new(bearCol, 85), border_color = color.new(bearCol, 40),
+                 border_width = 1, border_style = line.style_solid)
+            newLbl = label.new(bar_index, obL, "Bear OB",
+                 style = label.style_none, textcolor = color.new(bearCol, 20), size = size.tiny)
+            array.push(obBearHi, obH), array.push(obBearLo, obL)
+            array.push(obBearBar, bar_index), array.push(obBearBox, newBox)
+            array.push(obBearLbl, newLbl)
 
-// Clean OB zones when the feature is disabled
-if (not useOB or not showOBZones) and array.size(obZoneBoxes) > 0
-    while array.size(obZoneBoxes) > 0
-        box.delete(array.shift(obZoneBoxes))
+    // ── Bull OB lifecycle: extend active, delete mitigated/expired ──
+    // Bull OB is mitigated when price closes below the OB low.
+    int bi = array.size(obBullHi) - 1
+    while bi >= 0
+        obL = array.get(obBullLo, bi)
+        age = bar_index - array.get(obBullBar, bi)
+        mitigated = close < obL  // price closed through bull OB zone
+        expired = age > obExpBars
+        if mitigated or expired
+            b = array.get(obBullBox, bi)
+            if not na(b)
+                box.delete(b)
+            l = array.get(obBullLbl, bi)
+            if not na(l)
+                label.delete(l)
+            array.remove(obBullHi, bi), array.remove(obBullLo, bi)
+            array.remove(obBullBar, bi), array.remove(obBullBox, bi)
+            array.remove(obBullLbl, bi)
+        else
+            b = array.get(obBullBox, bi)
+            if not na(b)
+                box.set_right(b, bar_index)
+        bi -= 1
+
+    // ── Bear OB lifecycle: extend active, delete mitigated/expired ──
+    // Bear OB is mitigated when price closes above the OB high.
+    int bj = array.size(obBearHi) - 1
+    while bj >= 0
+        obH = array.get(obBearHi, bj)
+        age = bar_index - array.get(obBearBar, bj)
+        mitigated = close > obH  // price closed through bear OB zone
+        expired = age > obExpBars
+        if mitigated or expired
+            b = array.get(obBearBox, bj)
+            if not na(b)
+                box.delete(b)
+            l = array.get(obBearLbl, bj)
+            if not na(l)
+                label.delete(l)
+            array.remove(obBearHi, bj), array.remove(obBearLo, bj)
+            array.remove(obBearBar, bj), array.remove(obBearBox, bj)
+            array.remove(obBearLbl, bj)
+        else
+            b = array.get(obBearBox, bj)
+            if not na(b)
+                box.set_right(b, bar_index)
+        bj -= 1
+
+    // Limit OB zone count per side
+    while array.size(obBullBox) > maxActiveFvg
+        b = array.shift(obBullBox)
+        if not na(b)
+            box.delete(b)
+        l = array.shift(obBullLbl)
+        if not na(l)
+            label.delete(l)
+        array.shift(obBullHi), array.shift(obBullLo), array.shift(obBullBar)
+    while array.size(obBearBox) > maxActiveFvg
+        b = array.shift(obBearBox)
+        if not na(b)
+            box.delete(b)
+        l = array.shift(obBearLbl)
+        if not na(l)
+            label.delete(l)
+        array.shift(obBearHi), array.shift(obBearLo), array.shift(obBearBar)
+
+// Clean all OB zones when the feature is disabled
+if not useOB or not showOBZones
+    while array.size(obBullBox) > 0
+        b = array.shift(obBullBox)
+        if not na(b)
+            box.delete(b)
+        l = array.shift(obBullLbl)
+        if not na(l)
+            label.delete(l)
+        array.shift(obBullHi), array.shift(obBullLo), array.shift(obBullBar)
+    while array.size(obBearBox) > 0
+        b = array.shift(obBearBox)
+        if not na(b)
+            box.delete(b)
+        l = array.shift(obBearLbl)
+        if not na(l)
+            label.delete(l)
+        array.shift(obBearHi), array.shift(obBearLo), array.shift(obBearBar)
 
 // ═══════════════════════════════════════════════════════════════
 //  10. LIQUIDITY RAID DETECTION (useLiqPools gated)
@@ -2068,8 +2222,14 @@ if array.size(activeTradeId) > 0
         idx -= 1
 
 // ═══════════════════════════════════════════════════════════════
-//  20. TRADE ZONE BOXES (with drawing lifecycle)
+//  20. TRADE ZONE BOXES (TP/SL drawn ONLY on execution trigger)
 // ═══════════════════════════════════════════════════════════════
+// State model for trade visualization:
+//   1. Setup detected, execution zone known → pending zone shown (section 20b)
+//   2. Price enters execution zone (FVG retracement) → candidate becomes valid
+//   3. Priority engine selects winner → finalBuy/finalSell fires
+//   4. ONLY THEN are TP/SL trade boxes drawn here
+// TP/SL boxes are NEVER drawn for pending setups that haven't triggered.
 var box[]  trdBoxes = array.new_box(0)
 var line[] trdLines = array.new_line(0)
 var label[] trdLabels = array.new_label(0)
@@ -2123,8 +2283,14 @@ else
     clearTradeDrawings()
 
 // ═══════════════════════════════════════════════════════════════
-//  20b. EXECUTION ZONE RENDERING (fixed timing)
+//  20b. EXECUTION ZONE RENDERING (pending zone vs triggered trade)
 // ═══════════════════════════════════════════════════════════════
+// Pending zone: shown as subtle dashed box when a strategy reaches
+//   state 2 (execution zone identified, waiting for price entry).
+// Triggered zone: once price enters and finalBuy/finalSell fires,
+//   the pending box is replaced by the solid execution box + TP/SL.
+// This ensures traders see the zone before execution, but TP/SL
+// only appears at the actual trigger moment.
 var box execBox = na
 var box pendingZoneBox = na
 var line raidRefLine = na
@@ -2407,9 +2573,12 @@ drawDashboard() =>
     table.cell(tbl, 0, r, "Active Setup", text_color = color.new(color.white, 25), text_size = size.small)
     table.cell(tbl, 1, r, activeSetupText, text_color = activeSetupText == "IDLE" ? color.gray : bullCol, text_size = size.small)
     r += 1
-    table.cell(tbl, 0, r, "Score / Threshold", text_color = color.new(color.white, 25), text_size = size.small)
-    table.cell(tbl, 1, r, displayScoreText + " / " + str.tostring(effectiveThreshold) + (profileMode == "AUTO" ? " (AUTO)" : ""),
-         text_color = na(displayScore) ? color.gray : displayScore >= effectiveThreshold ? bullCol : bearCol, text_size = size.small)
+    // Confluence interpretation: qualitative label + numeric detail
+    confLabel = na(displayScore) ? "–" : getConfluenceLabel(nz(displayScore, 0))
+    confText = na(displayScore) ? "–" : confLabel + " (" + str.tostring(nz(displayScore, 0)) + " vs " + str.tostring(effectiveThreshold) + " min)" + (profileMode == "AUTO" ? " · Auto" : "")
+    confColor = na(displayScore) ? color.gray : displayScore >= effectiveThreshold ? (confLabel == "Excellent" or confLabel == "Strong" ? bullCol : color.orange) : bearCol
+    table.cell(tbl, 0, r, "Confluence", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, confText, text_color = confColor, text_size = size.small)
     r += 1
     table.cell(tbl, 0, r, "Last Raid", text_color = color.new(color.white, 25), text_size = size.small)
     table.cell(tbl, 1, r, lastRaidTxt, text_color = lastRaidSide == "BULL" ? bullCol : lastRaidSide == "BEAR" ? bearCol : color.gray, text_size = size.small)
