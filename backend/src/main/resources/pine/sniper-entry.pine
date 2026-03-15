@@ -4,59 +4,40 @@ indicator("SMC Clean Signals v6 [TradeJAudit]", "SMC v6", overlay = true,
      max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════════════════════════════════════════
-//  CHANGELOG (v5 → v6 Refactor)
+//  CHANGELOG (v6 Display/Execution Refactor)
 // ═══════════════════════════════════════════════════════════════
-// 1. INPUTS: Removed all dead inputs. Every input now affects behaviour.
-//    - sessionProfile → timeBasis (UTC default, 4 modes)
-//    - Added executionMode (Confirmed Close / Intrabar)
-//    - Added qaMode for QA instrumentation table
-//    - Added customTz for Custom time basis
-//    - Wired: showDebug, stratPriority, useLiqPools, obDef, showOBZones,
-//      riskMode, partial1Pct, moveToBEatR, useTimeStop, timeStopMins,
-//      sessionCol, profileMode, manualConfThreshold, adaptiveWindow,
-//      adaptiveMaxShift, cooldownLossTrig, cooldownBase, emitCloseAlerts
-// 2. SESSIONS: UTC is now the default time basis. All session/KZ/SB/Judas/PO3
-//    windows default to UTC hours. timeBasis controls timezone for all time().
-// 3. DISPLAY: All toggles properly hide/show. Dashboard fully deleted when off.
-//    Session BG uses sessionCol. Stale objects cleaned on toggle-off.
-// 4. ENTRY ZONE: entryPriceLogic anchored to FVG CE or proximal edge (never
-//    close). Trade box starts at entryBarIndex. No half-candle drift.
-// 5. STRATEGY PRIORITY: Candidates evaluated independently, winner selected
-//    by parsed stratPriority order. Debug shows rejected candidates.
-// 6. RISK MODE: fixedRR (single TP), multiRR (TP1+TP2), structure (PDH/PDL/
-//    session/EQL targets). partial1Pct, moveToBEatR, timeStop all wired.
-// 7. ALERTS: SIGNAL_CLOSE emitted on trade resolution. Payload includes
-//    timeBasis, executionMode, strategyId, entryPriceLogic, riskMode.
-// 8. DEBUG: showDebug prints signal-bar diagnostics. QA table on last bar.
-// 9. ADAPTIVE: profileMode AUTO adjusts effective threshold from recent WR.
-//    cooldownLossTrig/cooldownBase suppress signals after loss streaks.
+// 1. Display bug fixed: sweep markers, PDH/PDL, EQH/EQL, session H/L,
+//    execution zone, dashboard, FVG zones, and OB zones now clear separately.
+// 2. Dashboard simplified: removed Regime, Exec Mode, Priority, and Time Basis.
+// 3. Entry-zone refactor: execution visuals anchor to entryPriceLogic and
+//    entryBarIndex instead of drifting to the signal candle midpoint.
+// 4. PDH/PDL and session H/L line system rebuilt with labels, colors,
+//    independent draw/clear modules, and stale-object cleanup.
+// 5. Dead inputs fixed or removed: partial1Pct is now modeled in trade
+//    tracking and dependent inputs use active= where Pine allows it.
 // ═══════════════════════════════════════════════════════════════
 //  QA CHECKLIST
 // ═══════════════════════════════════════════════════════════════
-// ① General: htfTf, htfEmaLen, useHtfBias, executionTfMax, requireTfCheck,
-//    showDebug, qaMode, executionMode → verify HTF EMA on chart, TF gate.
-// ② Sessions: timeBasis, customTz, londonEn/Sess, nyEn/Sess, tokyoEn/Sess,
-//    sydneyEn/Sess, KZ/SB/Judas/PO3 windows → switch timeBasis modes,
-//    verify session BG colours appear/disappear.
-// ③ Strategy Toggles: strat1-5En, stratPriority, suppressBars →
-//    enable/disable each, verify priority tie-breaking.
-// ④ Confluence: pivotLen, useLiqPools, useEqlHL, usePDHL, useSessionHL,
-//    usePremDisc, useDispFilter, useMSS, useVolSpike, useRsiFilter →
-//    toggle each, verify scoring changes.
-// ⑤ FVG: useFvg, fvgUseCE, minFvgSizeAtr, fvgBodyMin, maxActiveFvg,
-//    fvgExpBars, showFvgZones → toggle zones on/off, verify CE vs proximal.
-// ⑥ OB: useOB, obDef, obSearchBars, showOBZones → switch lastOpp/swingOB,
-//    toggle zone visibility.
-// ⑦ SMT: smtEn, smtSymbolB, smtCorr, smtPivotLen, smtMaxBars →
-//    enable with correlated pair, verify divergence markers.
-// ⑧ Risk: riskMode, rrRatio, stopMode, t1R, t2R, partial1Pct, moveToBEatR,
-//    useTimeStop, timeStopMins → switch modes, verify TP levels change.
-// ⑨ Scoring: useScoring, scoreThreshold, weights → adjust, verify filter.
-// ⑩ Display: showDash, showSweepMarks, showPDHL, showEqlHL, showSessionHL,
-//    showExecZone, sessionCol, showSessionBg → flip each, no stale objects.
-// ⑪ Adaptive: profileMode, manualConfThreshold, adaptiveWindow,
-//    adaptiveMaxShift, cooldownLossTrig, cooldownBase → AUTO vs MANUAL.
-// ⑫ Webhook: emitOpenAlerts, emitCloseAlerts, webhookToken → verify JSON.
+// A) Display toggle tests:
+//    - Toggle Show Sweep Confirmation Markers on/off. Only sweep guides move.
+//    - Toggle Show PDH/PDL Lines on/off. Only PDH/PDL lines and labels move.
+//    - Toggle Show Equal Highs/Lows on/off. Only EQH/EQL lines and labels move.
+//    - Toggle Show Session H/L Lines on/off. Only session H/L lines and labels move.
+//    - Toggle Show Execution Zone on/off. Only trade/entry visuals move.
+//    - Toggle Show Dashboard on/off. Table fully disappears with no stale shell.
+// B) Coupling regression:
+//    - Set PDH/PDL OFF, EQH/EQL OFF, Session H/L OFF, Sweep Markers ON.
+//    - Verify unrelated visuals stay hidden.
+//    - Turn Sweep Markers OFF and confirm only sweep markers change.
+// C) Level identification:
+//    - Enable PDH/PDL and verify labeled PDH/PDL lines.
+//    - Enable Session H/L and verify labeled LDN/NY/TKY/SYD highs and lows.
+// D) Execution zone timing:
+//    - Use replay mode and confirm entry visuals start on entryBarIndex.
+//    - Confirm entryPriceLogic matches FVG CE, proximal edge, or structure anchor.
+// E) Dashboard:
+//    - Confirm Regime, Exec Mode, Priority, and Time Basis are absent.
+//    - Confirm remaining rows align cleanly.
 // ═══════════════════════════════════════════════════════════════
 //  IMPLEMENTATION NOTES
 // ═══════════════════════════════════════════════════════════════
@@ -86,6 +67,7 @@ grpScore    = "⑨ Confluence Scoring"
 grpDisplay  = "⑩ Display"
 grpAdaptive = "⑪ Adaptive Engine"
 grpWebhook  = "⑫ TradingView Webhook"
+int LEVEL_ANCHOR_LIMIT = 1500
 
 // ── General ──────────────────────────────────────────────────
 htfTf           = input.timeframe("240", "HTF Bias Timeframe", group = grpGeneral)
@@ -105,7 +87,7 @@ qaMode          = input.bool(false, "QA Mode (Last-Bar Table)", group = grpGener
 useSessions     = input.bool(true, "Enable Session Filter", group = grpSessions)
 timeBasis       = input.string("UTC", "Time Basis", options = ["UTC", "New York (ICT)", "Local-per-session", "Custom"], group = grpSessions,
      tooltip = "UTC: all sessions evaluated in UTC (default). New York: America/New_York. Local: each session in native TZ. Custom: your IANA string.")
-customTz        = input.string("Etc/UTC", "Custom Timezone (IANA)", group = grpSessions,
+customTz        = input.string("Etc/UTC", "Custom Timezone (IANA)", group = grpSessions, active = timeBasis == "Custom",
      tooltip = "Used only when Time Basis = Custom. Example: Europe/Berlin, Asia/Singapore.")
 londonEn        = input.bool(true, "London Session", group = grpSessions)
 londonSess      = input.session("0700-1600", "London Hours", group = grpSessions,
@@ -195,14 +177,14 @@ minFvgSizeAtr   = input.float(0.20, "Min FVG Size (ATR)", minval = 0.05, maxval 
 fvgBodyMin      = input.float(0.50, "Min FVG Candle Body %", minval = 0.20, maxval = 0.90, step = 0.05, group = grpFvg)
 maxActiveFvg    = input.int(6, "Max Active FVG Zones", minval = 1, maxval = 10, group = grpFvg)
 fvgExpBars      = input.int(80, "FVG Zone Expiry (bars)", minval = 10, maxval = 300, group = grpFvg)
-showFvgZones    = input.bool(true, "Show FVG Zones", group = grpFvg)
+showFvgZones    = input.bool(true, "Show FVG Zones", group = grpFvg, active = useFvg)
 
 // ── Order Block Settings ─────────────────────────────────────
 useOB           = input.bool(true, "Enable Order Block Detection", group = grpOB)
 obDef           = input.string("lastOpp", "OB Definition", options = ["lastOpp", "swingOB"], group = grpOB,
      tooltip = "lastOpp = last opposite candle before displacement. swingOB = pivot-based OB at swept swing.")
 obSearchBars    = input.int(6, "OB Search Bars", minval = 2, maxval = 15, group = grpOB)
-showOBZones     = input.bool(true, "Show OB Zones", group = grpOB,
+showOBZones     = input.bool(true, "Show OB Zones", group = grpOB, active = useOB,
      tooltip = "Draw order block boxes on chart when detected alongside displacement.")
 
 // ── SMT / Correlation ────────────────────────────────────────
@@ -222,12 +204,12 @@ stopAtrMult     = input.float(1.0, "Stop ATR Multiplier", minval = 0.2, maxval =
 stopBuf         = input.float(0.20, "Stop Buffer (ATR fraction)", minval = 0.0, maxval = 1.0, step = 0.05, group = grpRisk)
 t1R             = input.float(1.5, "Target 1 (R-multiple)", minval = 0.5, maxval = 5.0, step = 0.1, group = grpRisk)
 t2R             = input.float(3.0, "Target 2 (R-multiple)", minval = 1.0, maxval = 10.0, step = 0.1, group = grpRisk)
-partial1Pct     = input.float(50.0, "Partial 1 % (at TP1)", minval = 10, maxval = 90, group = grpRisk,
+partial1Pct     = input.float(50.0, "Partial 1 % (at TP1)", minval = 10, maxval = 90, group = grpRisk, active = riskMode == "multiRR",
      tooltip = "Percentage of position closed at TP1. Remainder runs to TP2.")
 moveToBEatR     = input.float(1.0, "Move to BE at R", minval = 0.5, maxval = 3.0, step = 0.1, group = grpRisk,
      tooltip = "After price reaches this R-multiple, SL moves to breakeven.")
 useTimeStop     = input.bool(false, "Use Time Stop", group = grpRisk)
-timeStopMins    = input.int(120, "Time Stop (minutes after entry)", minval = 15, maxval = 480, group = grpRisk)
+timeStopMins    = input.int(120, "Time Stop (minutes after entry)", minval = 15, maxval = 480, group = grpRisk, active = useTimeStop)
 cancelBars      = input.int(20, "Cancel Pending Entry After N Bars", minval = 5, maxval = 60, group = grpRisk)
 maxRiskAtr      = input.float(2.0, "Max Allowed Risk (ATR)", minval = 0.5, maxval = 5.0, step = 0.1, group = grpRisk)
 tradeExtBars    = input.int(40, "Trade Box Width (bars)", minval = 10, maxval = 150, group = grpRisk)
@@ -248,8 +230,24 @@ showSweepMarks  = input.bool(true, "Show Sweep Confirmation Markers", group = gr
 showPDHL        = input.bool(true, "Show PDH/PDL Lines", group = grpDisplay)
 showEqlHL       = input.bool(true, "Show Equal Highs/Lows", group = grpDisplay)
 showSessionHL   = input.bool(true, "Show Session H/L Lines", group = grpDisplay)
+showLevelLabels = input.bool(true, "Show Level Labels", group = grpDisplay, active = showPDHL or showEqlHL or showSessionHL)
+extendLevelLinesRight = input.bool(true, "Extend Level Lines Right", group = grpDisplay, active = showPDHL or showEqlHL or showSessionHL)
 bullCol         = input.color(color.new(#00c27a, 0), "Bull Color", group = grpDisplay)
 bearCol         = input.color(color.new(#ff3d5a, 0), "Bear Color", group = grpDisplay)
+pdhLevelCol     = input.color(color.new(#f59e0b, 0), "PDH/PDL Color", group = grpDisplay, active = showPDHL)
+eqhLevelCol     = input.color(color.new(#fb7185, 0), "EQH Color", group = grpDisplay, active = showEqlHL)
+eqlLevelCol     = input.color(color.new(#34d399, 0), "EQL Color", group = grpDisplay, active = showEqlHL)
+ldnLevelCol     = input.color(color.new(#38bdf8, 0), "London H/L Color", group = grpDisplay, active = showSessionHL)
+nyLevelCol      = input.color(color.new(#10b981, 0), "New York H/L Color", group = grpDisplay, active = showSessionHL)
+tkyLevelCol     = input.color(color.new(#8b5cf6, 0), "Tokyo H/L Color", group = grpDisplay, active = showSessionHL)
+sydLevelCol     = input.color(color.new(#ec4899, 0), "Sydney H/L Color", group = grpDisplay, active = showSessionHL)
+levelTextCol    = input.color(color.white, "Level Label Text", group = grpDisplay, active = showLevelLabels)
+levelLabelBgCol = input.color(color.new(color.rgb(12, 18, 33), 15), "Level Label Background", group = grpDisplay, active = showLevelLabels)
+levelLineStyleInput = input.string("Dashed", "Level Line Style", options = ["Solid", "Dashed", "Dotted"], group = grpDisplay,
+     active = showPDHL or showEqlHL or showSessionHL)
+levelLineWidth  = input.int(1, "Level Line Width", minval = 1, maxval = 4, group = grpDisplay, active = showPDHL or showEqlHL or showSessionHL)
+pdhLabelText    = input.string("PDH", "PDH Label", group = grpDisplay, active = showPDHL and showLevelLabels)
+pdlLabelText    = input.string("PDL", "PDL Label", group = grpDisplay, active = showPDHL and showLevelLabels)
 fvgCol          = input.color(color.new(#a78bfa, 0), "FVG Zone Color", group = grpDisplay)
 smtCol          = input.color(color.new(#f59e0b, 0), "SMT Color", group = grpDisplay)
 sessionCol      = input.color(color.new(#3b82f6, 90), "Session BG Color", group = grpDisplay,
@@ -263,15 +261,15 @@ maxDrawnTrades  = input.int(5, "Max Trade Drawings", minval = 1, maxval = 15, gr
 // ── Adaptive Engine ──────────────────────────────────────────
 profileMode     = input.string("AUTO", "Profile Mode", options = ["AUTO", "MANUAL"], group = grpAdaptive,
      tooltip = "AUTO: score threshold adapts based on recent win rate. MANUAL: uses fixed threshold.")
-manualConfThreshold = input.int(68, "Manual Confidence Threshold", minval = 40, maxval = 95, group = grpAdaptive,
+manualConfThreshold = input.int(68, "Manual Confidence Threshold", minval = 40, maxval = 95, group = grpAdaptive, active = profileMode == "MANUAL",
      tooltip = "In MANUAL mode, maps to effective score threshold: threshold = floor(value / 10).")
-adaptiveWindow  = input.int(40, "Adaptive Memory Window (trades)", minval = 12, maxval = 120, group = grpAdaptive,
+adaptiveWindow  = input.int(40, "Adaptive Memory Window (trades)", minval = 12, maxval = 120, group = grpAdaptive, active = profileMode == "AUTO",
      tooltip = "Number of recent trades used to compute adaptive win rate.")
-adaptiveMaxShift = input.int(8, "Max Confidence Shift", minval = 2, maxval = 16, group = grpAdaptive,
+adaptiveMaxShift = input.int(8, "Max Confidence Shift", minval = 2, maxval = 16, group = grpAdaptive, active = profileMode == "AUTO",
      tooltip = "Max adjustment to score threshold in AUTO mode based on recent performance.")
-cooldownLossTrig = input.int(2, "Cooldown After N Losses", minval = 2, maxval = 5, group = grpAdaptive,
+cooldownLossTrig = input.int(2, "Cooldown After N Losses", minval = 2, maxval = 5, group = grpAdaptive, active = profileMode == "AUTO",
      tooltip = "After this many consecutive losses, suppress signals for cooldownBase bars.")
-cooldownBase    = input.int(12, "Cooldown Base (bars)", minval = 3, maxval = 60, group = grpAdaptive)
+cooldownBase    = input.int(12, "Cooldown Base (bars)", minval = 3, maxval = 60, group = grpAdaptive, active = profileMode == "AUTO")
 maxTrackedSigs  = input.int(36, "Max Tracked Signals", minval = 8, maxval = 64, group = grpAdaptive)
 
 // ── Webhook ──────────────────────────────────────────────────
@@ -290,24 +288,89 @@ type RegimeState
     float atrRatio
     float adxValue
 
-type TradePlan
-    string externalTradeId
-    string setupType
-    string direction
-    string regime
-    string profileId
-    float entry
-    float sl
-    float tp
-    float tp2
-    float rr
-    int confidence
-    int score
-
 // ═══════════════════════════════════════════════════════════════
 //  HELPERS
 // ═══════════════════════════════════════════════════════════════
 clamp(v, lo, hi) => math.max(lo, math.min(hi, v))
+
+levelLineStyle() =>
+    levelLineStyleInput == "Solid" ? line.style_solid :
+     levelLineStyleInput == "Dotted" ? line.style_dotted :
+     line.style_dashed
+
+clearLineArray(line[] refs) =>
+    while array.size(refs) > 0
+        ln = array.shift(refs)
+        if not na(ln)
+            line.delete(ln)
+
+clearLabelArray(label[] refs) =>
+    while array.size(refs) > 0
+        lb = array.shift(refs)
+        if not na(lb)
+            label.delete(lb)
+
+clearBoxArray(box[] refs) =>
+    while array.size(refs) > 0
+        bx = array.shift(refs)
+        if not na(bx)
+            box.delete(bx)
+
+trimLineArray(line[] refs, maxSize) =>
+    while array.size(refs) > maxSize
+        ln = array.shift(refs)
+        if not na(ln)
+            line.delete(ln)
+
+trimLabelArray(label[] refs, maxSize) =>
+    while array.size(refs) > maxSize
+        lb = array.shift(refs)
+        if not na(lb)
+            label.delete(lb)
+
+trimBoxArray(box[] refs, maxSize) =>
+    while array.size(refs) > maxSize
+        bx = array.shift(refs)
+        if not na(bx)
+            box.delete(bx)
+
+levelLabelStyle(isHigh) =>
+    isHigh ? label.style_label_lower_left : label.style_label_upper_left
+
+drawLevelObject(line[] lineRefs, label[] labelRefs, int x1, float level, string txt, color levelColor, bool isHigh) =>
+    if not na(level)
+        minX = math.max(0, bar_index - (LEVEL_ANCHOR_LIMIT - 1))
+        rawX = nz(x1, bar_index - 100)
+        xLeft = math.max(minX, rawX)
+        ln = line.new(xLeft, level, bar_index, level, xloc = xloc.bar_index,
+             extend = extendLevelLinesRight ? extend.right : extend.none,
+             color = levelColor, style = levelLineStyle(), width = levelLineWidth)
+        array.push(lineRefs, ln)
+        if showLevelLabels
+            lbl = label.new(bar_index, level, txt, xloc = xloc.bar_index,
+                 style = levelLabelStyle(isHigh), textcolor = levelTextCol,
+                 color = levelLabelBgCol, size = size.tiny)
+            array.push(labelRefs, lbl)
+
+trackSessionLevels(bool active, bool started, bool ended, float liveHigh, float liveLow, int liveStartBar, float drawHigh, float drawLow, int drawStartBar) =>
+    float nextLiveHigh = liveHigh
+    float nextLiveLow = liveLow
+    int nextLiveStartBar = liveStartBar
+    float nextDrawHigh = drawHigh
+    float nextDrawLow = drawLow
+    int nextDrawStartBar = drawStartBar
+    if started
+        nextLiveHigh := high
+        nextLiveLow := low
+        nextLiveStartBar := bar_index
+    else if active
+        nextLiveHigh := math.max(nz(nextLiveHigh, high), high)
+        nextLiveLow := math.min(nz(nextLiveLow, low), low)
+    if active or ended
+        nextDrawHigh := nextLiveHigh
+        nextDrawLow := nextLiveLow
+        nextDrawStartBar := nz(nextLiveStartBar, bar_index)
+    [nextLiveHigh, nextLiveLow, nextLiveStartBar, nextDrawHigh, nextDrawLow, nextDrawStartBar]
 
 gradeColor(score) =>
     score >= 8 ? color.new(#00c27a, 0) :
@@ -336,6 +399,7 @@ jsonNum(v) => na(v) ? "null" : str.tostring(v)
 // Execution mode helper
 requireConfirmed = executionMode == "Confirmed Close"
 barConfirmedOk = not requireConfirmed or barstate.isconfirmed
+max_bars_back(time, LEVEL_ANCHOR_LIMIT)
 
 // ═══════════════════════════════════════════════════════════════
 //  1. CORE INDICATORS
@@ -507,40 +571,54 @@ if not na(mssPivL)
 //  5. LIQUIDITY LEVELS
 // ═══════════════════════════════════════════════════════════════
 
+var line[] pdhlLines = array.new_line(0)
+var label[] pdhlLabels = array.new_label(0)
+var line[] sessionLevelLines = array.new_line(0)
+var label[] sessionLevelLabels = array.new_label(0)
+var line[] eqlLevelLines = array.new_line(0)
+var label[] eqlLevelLabels = array.new_label(0)
+
+clearPDHPDL() =>
+    clearLineArray(pdhlLines)
+    clearLabelArray(pdhlLabels)
+
+clearSessionHL() =>
+    clearLineArray(sessionLevelLines)
+    clearLabelArray(sessionLevelLabels)
+
+clearEqhEql() =>
+    clearLineArray(eqlLevelLines)
+    clearLabelArray(eqlLevelLabels)
+
 // ── Previous Day High/Low (uses global timezone for day boundary) ──
 var float pdh = na, var float pdl = na
 var float curDayH = na, var float curDayL = na
+var int pdhlStartBar = na
 newDay = ta.change(time("D", "", tzMain)) != 0
 if newDay
     pdh := curDayH
     pdl := curDayL
+    pdhlStartBar := bar_index
     curDayH := high
     curDayL := low
 else
     curDayH := math.max(nz(curDayH, high), high)
     curDayL := math.min(nz(curDayL, low), low)
-
-// PDH/PDL lines — managed for toggle cleanup
-var line pdhLine = na, var line pdlLine = na
-if barstate.islast
-    if not na(pdhLine)
-        line.delete(pdhLine)
-        pdhLine := na
-    if not na(pdlLine)
-        line.delete(pdlLine)
-        pdlLine := na
-    if showPDHL and usePDHL and not na(pdh)
-        pdhLine := line.new(bar_index - 50, pdh, bar_index + 5, pdh, color = color.new(bearCol, 50), style = line.style_dashed, width = 1)
-        pdlLine := line.new(bar_index - 50, pdl, bar_index + 5, pdl, color = color.new(bullCol, 50), style = line.style_dashed, width = 1)
+if na(pdhlStartBar)
+    pdhlStartBar := bar_index
 
 // ── Session High/Low tracking ────────────────────────────────
 var float sessH = na, var float sessL = na
 var float prevSessH = na, var float prevSessL = na
 
 bool londonStart  = inLondon  and not inLondon[1]
+bool londonEnd    = not inLondon and inLondon[1]
 bool nyStart      = inNewYork and not inNewYork[1]
+bool nyEnd        = not inNewYork and inNewYork[1]
 bool tokyoStart   = inTokyo   and not inTokyo[1]
+bool tokyoEnd     = not inTokyo and inTokyo[1]
 bool sydneyStart  = inSydney  and not inSydney[1]
+bool sydneyEnd    = not inSydney and inSydney[1]
 sessionStart = londonStart or nyStart or tokyoStart or sydneyStart
 
 if sessionStart
@@ -552,21 +630,57 @@ else if inLondon or inNewYork or inTokyo or inSydney
     sessH := math.max(nz(sessH, high), high)
     sessL := math.min(nz(sessL, low), low)
 
-// ── Session H/L line rendering (toggle-aware) ────────────────
-var line sessHLine = na, var line sessLLine = na
-if barstate.islast
-    if not na(sessHLine)
-        line.delete(sessHLine)
-        sessHLine := na
-    if not na(sessLLine)
-        line.delete(sessLLine)
-        sessLLine := na
-    if showSessionHL and useSessionHL and not na(sessH)
-        sessHLine := line.new(bar_index - 30, sessH, bar_index + 5, sessH,
-             color = color.new(bearCol, 55), style = line.style_dotted, width = 1)
-    if showSessionHL and useSessionHL and not na(sessL)
-        sessLLine := line.new(bar_index - 30, sessL, bar_index + 5, sessL,
-             color = color.new(bullCol, 55), style = line.style_dotted, width = 1)
+var float ldnLiveHigh = na, var float ldnLiveLow = na
+var int ldnLiveStartBar = na
+var float ldnDrawHigh = na, var float ldnDrawLow = na
+var int ldnDrawStartBar = na
+[ldnLiveHighNext, ldnLiveLowNext, ldnLiveStartBarNext, ldnDrawHighNext, ldnDrawLowNext, ldnDrawStartBarNext] = trackSessionLevels(
+     inLondon, londonStart, londonEnd, ldnLiveHigh, ldnLiveLow, ldnLiveStartBar, ldnDrawHigh, ldnDrawLow, ldnDrawStartBar)
+ldnLiveHigh := ldnLiveHighNext
+ldnLiveLow := ldnLiveLowNext
+ldnLiveStartBar := ldnLiveStartBarNext
+ldnDrawHigh := ldnDrawHighNext
+ldnDrawLow := ldnDrawLowNext
+ldnDrawStartBar := ldnDrawStartBarNext
+
+var float nyLiveHigh = na, var float nyLiveLow = na
+var int nyLiveStartBar = na
+var float nyDrawHigh = na, var float nyDrawLow = na
+var int nyDrawStartBar = na
+[nyLiveHighNext, nyLiveLowNext, nyLiveStartBarNext, nyDrawHighNext, nyDrawLowNext, nyDrawStartBarNext] = trackSessionLevels(
+     inNewYork, nyStart, nyEnd, nyLiveHigh, nyLiveLow, nyLiveStartBar, nyDrawHigh, nyDrawLow, nyDrawStartBar)
+nyLiveHigh := nyLiveHighNext
+nyLiveLow := nyLiveLowNext
+nyLiveStartBar := nyLiveStartBarNext
+nyDrawHigh := nyDrawHighNext
+nyDrawLow := nyDrawLowNext
+nyDrawStartBar := nyDrawStartBarNext
+
+var float tkyLiveHigh = na, var float tkyLiveLow = na
+var int tkyLiveStartBar = na
+var float tkyDrawHigh = na, var float tkyDrawLow = na
+var int tkyDrawStartBar = na
+[tkyLiveHighNext, tkyLiveLowNext, tkyLiveStartBarNext, tkyDrawHighNext, tkyDrawLowNext, tkyDrawStartBarNext] = trackSessionLevels(
+     inTokyo, tokyoStart, tokyoEnd, tkyLiveHigh, tkyLiveLow, tkyLiveStartBar, tkyDrawHigh, tkyDrawLow, tkyDrawStartBar)
+tkyLiveHigh := tkyLiveHighNext
+tkyLiveLow := tkyLiveLowNext
+tkyLiveStartBar := tkyLiveStartBarNext
+tkyDrawHigh := tkyDrawHighNext
+tkyDrawLow := tkyDrawLowNext
+tkyDrawStartBar := tkyDrawStartBarNext
+
+var float sydLiveHigh = na, var float sydLiveLow = na
+var int sydLiveStartBar = na
+var float sydDrawHigh = na, var float sydDrawLow = na
+var int sydDrawStartBar = na
+[sydLiveHighNext, sydLiveLowNext, sydLiveStartBarNext, sydDrawHighNext, sydDrawLowNext, sydDrawStartBarNext] = trackSessionLevels(
+     inSydney, sydneyStart, sydneyEnd, sydLiveHigh, sydLiveLow, sydLiveStartBar, sydDrawHigh, sydDrawLow, sydDrawStartBar)
+sydLiveHigh := sydLiveHighNext
+sydLiveLow := sydLiveLowNext
+sydLiveStartBar := sydLiveStartBarNext
+sydDrawHigh := sydDrawHighNext
+sydDrawLow := sydDrawLowNext
+sydDrawStartBar := sydDrawStartBarNext
 
 // ── Equal Highs/Lows Detection ───────────────────────────────
 eqlTol = eqlTolMode == "atr" ? atr14 * eqlTolValue : eqlTolValue * syminfo.mintick
@@ -586,21 +700,38 @@ if useEqlHL and not na(pivotL) and not na(prevSwL)
         eqlLevel := (pivotL + prevSwL) / 2.0
         eqlBar   := bar_index
 
-// ── EQL/EQH line rendering (toggle-aware) ────────────────────
-var line eqhLine = na, var line eqlLine2 = na
-if barstate.islast
-    if not na(eqhLine)
-        line.delete(eqhLine)
-        eqhLine := na
-    if not na(eqlLine2)
-        line.delete(eqlLine2)
-        eqlLine2 := na
-    if showEqlHL and useEqlHL and not na(eqhLevel)
-        eqhLine := line.new(nz(eqhBar, bar_index - 20), eqhLevel, bar_index + 5, eqhLevel,
-             color = color.new(bearCol, 35), style = line.style_dotted, width = 1)
-    if showEqlHL and useEqlHL and not na(eqlLevel)
-        eqlLine2 := line.new(nz(eqlBar, bar_index - 20), eqlLevel, bar_index + 5, eqlLevel,
-             color = color.new(bullCol, 35), style = line.style_dotted, width = 1)
+drawPDHPDL() =>
+    clearPDHPDL()
+    if showPDHL and usePDHL
+        levelStart = nz(pdhlStartBar, bar_index - 150)
+        if not na(pdh)
+            drawLevelObject(pdhlLines, pdhlLabels, levelStart, pdh, pdhLabelText, pdhLevelCol, true)
+        if not na(pdl)
+            drawLevelObject(pdhlLines, pdhlLabels, levelStart, pdl, pdlLabelText, pdhLevelCol, false)
+
+drawSessionHL() =>
+    clearSessionHL()
+    if showSessionHL and useSessionHL
+        if londonEn and not na(ldnDrawHigh)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(ldnDrawStartBar, bar_index - 80), ldnDrawHigh, "LDN H", ldnLevelCol, true)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(ldnDrawStartBar, bar_index - 80), ldnDrawLow, "LDN L", ldnLevelCol, false)
+        if newyorkEn and not na(nyDrawHigh)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(nyDrawStartBar, bar_index - 80), nyDrawHigh, "NY H", nyLevelCol, true)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(nyDrawStartBar, bar_index - 80), nyDrawLow, "NY L", nyLevelCol, false)
+        if tokyoEn and not na(tkyDrawHigh)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(tkyDrawStartBar, bar_index - 80), tkyDrawHigh, "TKY H", tkyLevelCol, true)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(tkyDrawStartBar, bar_index - 80), tkyDrawLow, "TKY L", tkyLevelCol, false)
+        if sydneyEn and not na(sydDrawHigh)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(sydDrawStartBar, bar_index - 80), sydDrawHigh, "SYD H", sydLevelCol, true)
+            drawLevelObject(sessionLevelLines, sessionLevelLabels, nz(sydDrawStartBar, bar_index - 80), sydDrawLow, "SYD L", sydLevelCol, false)
+
+drawEqhEql() =>
+    clearEqhEql()
+    if showEqlHL and useEqlHL
+        if not na(eqhLevel)
+            drawLevelObject(eqlLevelLines, eqlLevelLabels, nz(eqhBar, bar_index - 80), eqhLevel, "EQH", eqhLevelCol, true)
+        if not na(eqlLevel)
+            drawLevelObject(eqlLevelLines, eqlLevelLabels, nz(eqlBar, bar_index - 80), eqlLevel, "EQL", eqlLevelCol, false)
 
 // ── Premium / Discount Zones ─────────────────────────────────
 dealingRangeH = math.max(nz(lastSwH, high), nz(pdh, high))
@@ -652,12 +783,30 @@ var float[] bfHi = array.new_float(0), var float[] bfLo = array.new_float(0)
 var float[] bfSize = array.new_float(0), var int[] bfBar = array.new_int(0)
 var box[] bfBox = array.new_box(0), var bool[] bfTouched = array.new_bool(0)
 
+syncFvgBoxes(float[] hiArr, float[] loArr, int[] barArr, box[] boxArr) =>
+    if array.size(hiArr) > 0
+        for i = 0 to array.size(hiArr) - 1
+            b = array.get(boxArr, i)
+            if useFvg and showFvgZones
+                if na(b)
+                    newBox = box.new(array.get(barArr, i) - 2, array.get(hiArr, i), bar_index, array.get(loArr, i),
+                         bgcolor = color.new(fvgCol, 88), border_color = color.new(fvgCol, 45), border_width = 1)
+                    array.set(boxArr, i, newBox)
+                    b := newBox
+                if not na(b)
+                    box.set_right(b, bar_index)
+            else if not na(b)
+                box.delete(b)
+                array.set(boxArr, i, na)
+
 // Register bear FVGs
 if bearFvgDisp and (not useHtfBias or htfBear) and array.size(sfHi) < maxActiveFvg
     fHi = low[2]
     fLo = high
-    newBox = showFvgZones ? box.new(bar_index - 2, fHi, bar_index, fLo,
-         bgcolor = color.new(fvgCol, 88), border_color = color.new(fvgCol, 45), border_width = 1) : na
+    box newBox = na
+    if showFvgZones
+        newBox := box.new(bar_index - 2, fHi, bar_index, fLo,
+             bgcolor = color.new(fvgCol, 88), border_color = color.new(fvgCol, 45), border_width = 1)
     array.push(sfHi, fHi), array.push(sfLo, fLo), array.push(sfSize, fHi - fLo)
     array.push(sfBar, bar_index), array.push(sfBox, newBox), array.push(sfTouched, false)
 
@@ -665,22 +814,15 @@ if bearFvgDisp and (not useHtfBias or htfBear) and array.size(sfHi) < maxActiveF
 if bullFvgDisp and (not useHtfBias or htfBull) and array.size(bfHi) < maxActiveFvg
     fHi = low
     fLo = high[2]
-    newBox = showFvgZones ? box.new(bar_index - 2, fHi, bar_index, fLo,
-         bgcolor = color.new(fvgCol, 88), border_color = color.new(fvgCol, 45), border_width = 1) : na
+    box newBox = na
+    if showFvgZones
+        newBox := box.new(bar_index - 2, fHi, bar_index, fLo,
+             bgcolor = color.new(fvgCol, 88), border_color = color.new(fvgCol, 45), border_width = 1)
     array.push(bfHi, fHi), array.push(bfLo, fLo), array.push(bfSize, fHi - fLo)
     array.push(bfBar, bar_index), array.push(bfBox, newBox), array.push(bfTouched, false)
 
-// Extend FVG boxes
-if showFvgZones and array.size(sfHi) > 0
-    for i = 0 to array.size(sfHi) - 1
-        b = array.get(sfBox, i)
-        if not na(b)
-            box.set_right(b, bar_index)
-if showFvgZones and array.size(bfHi) > 0
-    for i = 0 to array.size(bfHi) - 1
-        b = array.get(bfBox, i)
-        if not na(b)
-            box.set_right(b, bar_index)
+syncFvgBoxes(sfHi, sfLo, sfBar, sfBox)
+syncFvgBoxes(bfHi, bfLo, bfBar, bfBox)
 
 // ═══════════════════════════════════════════════════════════════
 //  7. DISPLACEMENT DETECTION
@@ -706,18 +848,16 @@ rsiBearOk = not useRsiFilter or rsiValue >= rsiOB or (rsiValue[1] >= rsiOB and r
 bullMSS = useMSS and not na(mssLastH) and close > mssLastH and close[1] <= mssLastH
 bearMSS = useMSS and not na(mssLastL) and close < mssLastL and close[1] >= mssLastL
 
-var bool bullMSSActive = false, var int bullMSSBar = na, var float bullMSSLevel = na
-var bool bearMSSActive = false, var int bearMSSBar = na, var float bearMSSLevel = na
+var bool bullMSSActive = false, var int bullMSSBar = na
+var bool bearMSSActive = false, var int bearMSSBar = na
 
 if bullMSS and bullDisplaceOk
     bullMSSActive := true
     bullMSSBar    := bar_index
-    bullMSSLevel  := mssLastH
 
 if bearMSS and bearDisplaceOk
     bearMSSActive := true
     bearMSSBar    := bar_index
-    bearMSSLevel  := mssLastL
 
 if bullMSSActive and not na(bullMSSBar) and bar_index - bullMSSBar > cancelBars
     bullMSSActive := false
@@ -791,8 +931,8 @@ if useOB and showOBZones
     while array.size(obZoneBoxes) > maxActiveFvg * 2
         box.delete(array.shift(obZoneBoxes))
 
-// Clean OB zones when toggle is off
-if not showOBZones and array.size(obZoneBoxes) > 0
+// Clean OB zones when the feature is disabled
+if (not useOB or not showOBZones) and array.size(obZoneBoxes) > 0
     while array.size(obZoneBoxes) > 0
         box.delete(array.shift(obZoneBoxes))
 
@@ -826,6 +966,9 @@ var bool bullRaidPending = false, var int bullRaidBar = na, var float bullRaidLo
 var string bullRaidSrc = "", var float bullRaidLvl = na
 var bool bearRaidPending = false, var int bearRaidBar = na, var float bearRaidHigh = na
 var string bearRaidSrc = "", var float bearRaidLvl = na
+var string lastRaidSide = ""
+var string lastRaidSource = ""
+var float lastRaidLevel = na
 
 if anyBullRaid
     bullRaidPending := true
@@ -833,6 +976,9 @@ if anyBullRaid
     bullRaidLow     := low
     bullRaidSrc     := curBullRaidSrc
     bullRaidLvl     := curBullRaidLvl
+    lastRaidSide    := "BULL"
+    lastRaidSource  := curBullRaidSrc
+    lastRaidLevel   := curBullRaidLvl
 
 if anyBearRaid
     bearRaidPending := true
@@ -840,6 +986,9 @@ if anyBearRaid
     bearRaidHigh    := high
     bearRaidSrc     := curBearRaidSrc
     bearRaidLvl     := curBearRaidLvl
+    lastRaidSide    := "BEAR"
+    lastRaidSource  := curBearRaidSrc
+    lastRaidLevel   := curBearRaidLvl
 
 // Expire stale raids
 if bullRaidPending and not na(bullRaidBar) and bar_index - bullRaidBar > cancelBars
@@ -854,7 +1003,7 @@ var bool smtBullDiv = false, var bool smtBearDiv = false
 var int smtDivBar = na
 
 if smtEn
-    [smtBClose, smtBHigh, smtBLow] = request.security(smtSymbolB, timeframe.period,
+    [_, smtBHigh, smtBLow] = request.security(smtSymbolB, timeframe.period,
          [close, high, low], lookahead = barmerge.lookahead_off)
 
     smtBPivH = ta.pivothigh(smtBHigh, smtPivotLen, smtPivotLen)
@@ -919,7 +1068,6 @@ var bool po3AccumDone = false
 var bool po3ManipDone = false
 var bool po3ManipBull = false
 var float po3ManipExtreme = na
-var int po3ManipBar = na
 
 if inPo3Accum
     if inPo3Accum and not inPo3Accum[1]
@@ -939,12 +1087,10 @@ if strat3En and inPo3Manip and po3AccumDone and not po3ManipDone
         po3ManipDone    := true
         po3ManipBull    := false
         po3ManipExtreme := high
-        po3ManipBar     := bar_index
     if sweepBelow
         po3ManipDone    := true
         po3ManipBull    := true
         po3ManipExtreme := low
-        po3ManipBar     := bar_index
 
 // ═══════════════════════════════════════════════════════════════
 //  14. JUDAS SWING TRACKING (timezone-aware via tzMain)
@@ -953,7 +1099,6 @@ var float judasOpenRef = na
 var bool judasRaidDone = false
 var bool judasIsBull = false
 var float judasExtreme = na
-var int judasRaidBar = na
 
 // Midnight reference — uses global timezone
 midnightSession = timeBasis == "UTC" ? "0500-0501" :
@@ -969,12 +1114,10 @@ if strat4En and inJudas and not na(judasOpenRef) and not judasRaidDone
         judasRaidDone := true
         judasIsBull   := false
         judasExtreme  := high
-        judasRaidBar  := bar_index
     if low < judasOpenRef - atr14 * 0.15 and close > judasOpenRef
         judasRaidDone := true
         judasIsBull   := true
         judasExtreme  := low
-        judasRaidBar  := bar_index
 
 // ═══════════════════════════════════════════════════════════════
 //  15. CANDIDATE-BASED STRATEGY EVALUATION
@@ -996,6 +1139,9 @@ float[]  cZoneLo   = array.new_float(5, na)
 string[] cRaidSrc  = array.new_string(5, "")
 float[]  cRaidLvl  = array.new_float(5, na)
 string[] cEntrySrc = array.new_string(5, "")
+int[]    cEntryBar = array.new_int(5, na)
+int[]    cMitBar   = array.new_int(5, na)
+string[] cZoneType = array.new_string(5, "")
 
 // ── Helper: compute entry price (FVG CE or proximal edge) ────
 calcEntryPrice(isBull, fvgHi, fvgLo) =>
@@ -1071,8 +1217,6 @@ var float s1BullRaidLow = na, var float s1BearRaidHigh = na
 var float s1BullFvgHi = na, var float s1BullFvgLo = na
 var float s1BearFvgHi = na, var float s1BearFvgLo = na
 var bool s1BullHasOB = false, var bool s1BearHasOB = false
-var float s1BullOBHi = na, var float s1BullOBLo = na
-var float s1BearOBHi = na, var float s1BearOBLo = na
 
 if strat1En and tfOk
     // ── BULL path ──
@@ -1091,8 +1235,6 @@ if strat1En and tfOk
             if useOB
                 [obH, obL] = findBullOB()
                 s1BullHasOB := not na(obH)
-                s1BullOBHi  := obH
-                s1BullOBLo  := obL
 
     // State 2 → Candidate: Price retraces into FVG
     if s1BullState == 2 and not na(s1BullFvgHi) and not na(s1BullFvgLo)
@@ -1115,6 +1257,9 @@ if strat1En and tfOk
                 array.set(cRaidSrc, 0, bullRaidSrc)
                 array.set(cRaidLvl, 0, bullRaidLvl)
                 array.set(cEntrySrc, 0, entrySrc)
+                array.set(cEntryBar, 0, bar_index)
+                array.set(cMitBar, 0, bar_index)
+                array.set(cZoneType, 0, "FVG")
 
     // Expiry
     if s1BullState > 0 and not na(s1BullBar) and bar_index - s1BullBar > cancelBars
@@ -1138,8 +1283,6 @@ if strat1En and tfOk
             if useOB
                 [obH, obL] = findBearOB()
                 s1BearHasOB := not na(obH)
-                s1BearOBHi  := obH
-                s1BearOBLo  := obL
 
     if s1BearState == 2 and not na(s1BearFvgHi) and not na(s1BearFvgLo) and not array.get(cValid, 0)
         priceRetraced = high >= s1BearFvgLo and close <= s1BearFvgHi
@@ -1161,6 +1304,9 @@ if strat1En and tfOk
                 array.set(cRaidSrc, 0, bearRaidSrc)
                 array.set(cRaidLvl, 0, bearRaidLvl)
                 array.set(cEntrySrc, 0, entrySrc)
+                array.set(cEntryBar, 0, bar_index)
+                array.set(cMitBar, 0, bar_index)
+                array.set(cZoneType, 0, "FVG")
 
     if s1BearState > 0 and not na(s1BearBar) and bar_index - s1BearBar > cancelBars
         s1BearState := 0
@@ -1213,6 +1359,9 @@ if strat2En and tfOk and inAnySB
                 array.set(cRaidSrc, 1, s2BullRaidSrc)
                 array.set(cRaidLvl, 1, nz(bullRaidLvl))
                 array.set(cEntrySrc, 1, entrySrc)
+                array.set(cEntryBar, 1, bar_index)
+                array.set(cMitBar, 1, bar_index)
+                array.set(cZoneType, 1, "FVG")
 
     if s2BearRaided and not na(s2BearFvgHi) and not array.get(cValid, 1)
         priceRetraced = high >= s2BearFvgLo and close <= s2BearFvgHi
@@ -1234,6 +1383,9 @@ if strat2En and tfOk and inAnySB
                 array.set(cRaidSrc, 1, s2BearRaidSrc)
                 array.set(cRaidLvl, 1, nz(bearRaidLvl))
                 array.set(cEntrySrc, 1, entrySrc)
+                array.set(cEntryBar, 1, bar_index)
+                array.set(cMitBar, 1, bar_index)
+                array.set(cZoneType, 1, "FVG")
 
 if not inAnySB
     s2BullRaided := false
@@ -1290,6 +1442,9 @@ if strat3En and tfOk
                     array.set(cRaidSrc, 2, "PO3_Manip")
                     array.set(cRaidLvl, 2, nz(po3ManipExtreme))
                     array.set(cEntrySrc, 2, entrySrc)
+                    array.set(cEntryBar, 2, bar_index)
+                    array.set(cMitBar, 2, bar_index)
+                    array.set(cZoneType, 2, "FVG")
         else
             priceRetraced = high >= s3FvgLo and close <= s3FvgHi
             if priceRetraced and rsiBearOk and barConfirmedOk
@@ -1310,6 +1465,9 @@ if strat3En and tfOk
                     array.set(cRaidSrc, 2, "PO3_Manip")
                     array.set(cRaidLvl, 2, nz(po3ManipExtreme))
                     array.set(cEntrySrc, 2, entrySrc)
+                    array.set(cEntryBar, 2, bar_index)
+                    array.set(cMitBar, 2, bar_index)
+                    array.set(cZoneType, 2, "FVG")
 
     if s3State > 0 and not na(s3Bar) and bar_index - s3Bar > cancelBars * 2
         s3State := 0
@@ -1363,6 +1521,9 @@ if strat4En and tfOk
                     array.set(cRaidSrc, 3, "Judas")
                     array.set(cRaidLvl, 3, nz(judasExtreme))
                     array.set(cEntrySrc, 3, entrySrc)
+                    array.set(cEntryBar, 3, bar_index)
+                    array.set(cMitBar, 3, bar_index)
+                    array.set(cZoneType, 3, "FVG")
         else
             priceRetraced = high >= s4FvgLo and close <= s4FvgHi
             if priceRetraced and inSessionFinal and rsiBearOk and barConfirmedOk
@@ -1383,6 +1544,9 @@ if strat4En and tfOk
                     array.set(cRaidSrc, 3, "Judas")
                     array.set(cRaidLvl, 3, nz(judasExtreme))
                     array.set(cEntrySrc, 3, entrySrc)
+                    array.set(cEntryBar, 3, bar_index)
+                    array.set(cMitBar, 3, bar_index)
+                    array.set(cZoneType, 3, "FVG")
 
     if s4State > 0 and not na(s4Bar) and bar_index - s4Bar > cancelBars
         s4State := 0
@@ -1411,6 +1575,9 @@ if strat5En and smtEn and tfOk
                 array.set(cRaidSrc, 4, bullRaidSrc)
                 array.set(cRaidLvl, 4, bullRaidLvl)
                 array.set(cEntrySrc, 4, entrySrc)
+                array.set(cEntryBar, 4, bar_index)
+                array.set(cMitBar, 4, bar_index)
+                array.set(cZoneType, 4, "FVG")
 
     if smtBearDiv and anyBearRaid and bearMSS and bearDisplaceOk and not array.get(cValid, 4)
         hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 5
@@ -1432,6 +1599,9 @@ if strat5En and smtEn and tfOk
                 array.set(cRaidSrc, 4, bearRaidSrc)
                 array.set(cRaidLvl, 4, bearRaidLvl)
                 array.set(cEntrySrc, 4, entrySrc)
+                array.set(cEntryBar, 4, bar_index)
+                array.set(cMitBar, 4, bar_index)
+                array.set(cZoneType, 4, "FVG")
 
 // ═══════════════════════════════════════════════════════════════
 //  16. STRATEGY PRIORITY ENGINE
@@ -1453,6 +1623,20 @@ var string sigRaidSrc   = ""
 var float  sigRaidLvl   = na
 var string sigEntrySrc  = ""
 var int    sigEntryBar  = na
+var int    sigMitBar    = na
+var string sigZoneType  = ""
+
+var float  entryPriceLogic = na
+var int    entryBarIndex = na
+var int    mitigationBarIndex = na
+var bool   entryReady = false
+var bool   entryTriggered = false
+var string entrySourceZoneType = ""
+var string lastSelectedStrategy = "none"
+var float  lastEntryPriceLogic = na
+var int    lastEntryBarIndex = na
+var int    lastMitigationBarIndex = na
+var string lastEntryZoneType = ""
 
 // Debug: track which candidates were valid and which won
 var string debugCandidates = ""
@@ -1474,6 +1658,14 @@ sigRaidSrc   := ""
 sigRaidLvl   := na
 sigEntrySrc  := ""
 sigEntryBar  := na
+sigMitBar    := na
+sigZoneType  := ""
+entryPriceLogic := na
+entryBarIndex := na
+mitigationBarIndex := na
+entryReady := false
+entryTriggered := false
+entrySourceZoneType := ""
 debugCandidates := ""
 debugWinner := ""
 
@@ -1504,7 +1696,9 @@ for i = 0 to math.min(array.size(prioParts) - 1, 9)
             sigRaidSrc   := array.get(cRaidSrc, stratIdx)
             sigRaidLvl   := array.get(cRaidLvl, stratIdx)
             sigEntrySrc  := array.get(cEntrySrc, stratIdx)
-            sigEntryBar  := bar_index
+            sigEntryBar  := array.get(cEntryBar, stratIdx)
+            sigMitBar    := array.get(cMitBar, stratIdx)
+            sigZoneType  := array.get(cZoneType, stratIdx)
             debugWinner  := "S" + str.tostring(stratIdx + 1)
             winnerFound  := true
 
@@ -1542,9 +1736,12 @@ var float  fvgBuyTP      = na, var float  fvgBuyTP1 = na
 var float  fvgSellEntry  = na, var float  fvgSellSL = na
 var float  fvgSellTP     = na, var float  fvgSellTP1 = na
 var int    fvgBuyScore   = 0, var int    fvgSellScore = 0
+var int    fvgBuyEntryBar = na, var int fvgSellEntryBar = na
 
 fvgBuySignal  := false
 fvgSellSignal := false
+fvgBuyEntryBar := na
+fvgSellEntryBar := na
 
 fvgEntryDepth = 0.30
 
@@ -1588,6 +1785,7 @@ if useFvg and array.size(sfHi) > 0 and not hasStratSignal
             fvgSellTP     := fvgSellEntry - fvgRisk * rrRatio
             fvgSellTP1    := fvgSellEntry - fvgRisk * t1R
             fvgSellScore  := calcScore(false, false, true, false, inAnyKz, smtBearDiv)
+            fvgSellEntryBar := bar_index
             b = array.get(sfBox, i)
             if not na(b)
                 box.delete(b)
@@ -1636,6 +1834,7 @@ if useFvg and array.size(bfHi) > 0 and not hasStratSignal
             fvgBuyTP      := fvgBuyEntry + fvgRisk * rrRatio
             fvgBuyTP1     := fvgBuyEntry + fvgRisk * t1R
             fvgBuyScore   := calcScore(false, false, true, false, inAnyKz, smtBullDiv)
+            fvgBuyEntryBar := bar_index
             b = array.get(bfBox, j)
             if not na(b)
                 box.delete(b)
@@ -1660,8 +1859,20 @@ lossCooldownOk = na(cooldownUntilBar) or bar_index >= cooldownUntilBar
 finalBuy  = (sigBull or fvgBuySignal) and signalCooldownOk and lossCooldownOk
 finalSell = (sigBear or fvgSellSignal) and signalCooldownOk and lossCooldownOk
 
+entryPriceLogic := hasStratSignal ? sigEntry : fvgBuySignal ? fvgBuyEntry : fvgSellSignal ? fvgSellEntry : na
+entryBarIndex := hasStratSignal ? sigEntryBar : fvgBuySignal ? fvgBuyEntryBar : fvgSellSignal ? fvgSellEntryBar : na
+mitigationBarIndex := hasStratSignal ? sigMitBar : fvgBuySignal ? fvgBuyEntryBar : fvgSellSignal ? fvgSellEntryBar : na
+entryReady := (hasStratSignal and not na(sigEntry)) or hasFvgStandalone
+entryTriggered := finalBuy or finalSell
+entrySourceZoneType := hasStratSignal ? sigZoneType : hasFvgStandalone ? "STANDALONE_FVG" : ""
+
 if finalBuy or finalSell
     lastSignalBar := bar_index
+    lastSelectedStrategy := hasStratSignal ? debugWinner + " (" + sigSetupType + ")" : "FVG_MITIGATION"
+    lastEntryPriceLogic := entryPriceLogic
+    lastEntryBarIndex := entryBarIndex
+    lastMitigationBarIndex := mitigationBarIndex
+    lastEntryZoneType := entrySourceZoneType
 
 // ═══════════════════════════════════════════════════════════════
 //  19. PERFORMANCE TRACKING (with time stop + SIGNAL_CLOSE)
@@ -1677,6 +1888,10 @@ var int[]    activeTradeBar = array.new_int(0)
 var int[]    activeTradeConf = array.new_int(0)
 var float[]  activeTradeTP1 = array.new_float(0)
 var float[]  activeTradeBE  = array.new_float(0)  // BE level (na until BE triggered)
+var float[]  activeTradeRisk = array.new_float(0)
+var bool[]   activeTradeTP1Done = array.new_bool(0)
+var float[]  activeTradeRealizedR = array.new_float(0)
+var float[]  activeTradeQtyLeft = array.new_float(0)
 
 var int   totalTrades = 0, var int   totalWins = 0, var int totalLoss = 0
 var float totalR      = 0.0
@@ -1697,16 +1912,22 @@ if finalBuy
     sl    = hasStratSignal ? sigSL : fvgBuySL
     tp    = hasStratSignal ? sigTP2 : fvgBuyTP
     tp1val = hasStratSignal ? sigTP1 : fvgBuyTP1
-    rr    = hasStratSignal ? t2R : rrRatio
+    baseRisk = math.abs(entry - sl)
+    rr    = baseRisk > syminfo.mintick ? math.abs(tp - entry) / baseRisk : 0.0
     conf  = hasStratSignal ? sigScore : fvgBuyScore
+    openBarIdx = hasStratSignal ? sigEntryBar : fvgBuyEntryBar
     tradeId = buildExternalTradeId(setup, direction, int(time_close))
     array.push(activeTradeId, tradeId), array.push(activeTradeST, setup)
     array.push(activeTradeDir, direction), array.push(activeTradeEnt, entry)
     array.push(activeTradeSL, sl), array.push(activeTradeTP, tp)
-    array.push(activeTradeRR, rr), array.push(activeTradeBar, bar_index)
+    array.push(activeTradeRR, rr), array.push(activeTradeBar, nz(openBarIdx, bar_index))
     array.push(activeTradeConf, conf)
     array.push(activeTradeTP1, tp1val)
     array.push(activeTradeBE, na)
+    array.push(activeTradeRisk, baseRisk)
+    array.push(activeTradeTP1Done, false)
+    array.push(activeTradeRealizedR, 0.0)
+    array.push(activeTradeQtyLeft, 1.0)
     lastSignalDirection := direction
     lastSignalSetup := setup
     lastSigConf := conf
@@ -1717,6 +1938,8 @@ if finalBuy
         array.shift(activeTradeRR), array.shift(activeTradeBar)
         array.shift(activeTradeConf), array.shift(activeTradeTP1)
         array.shift(activeTradeBE)
+        array.shift(activeTradeRisk), array.shift(activeTradeTP1Done)
+        array.shift(activeTradeRealizedR), array.shift(activeTradeQtyLeft)
 
 if finalSell
     direction = "SHORT"
@@ -1725,16 +1948,22 @@ if finalSell
     sl    = hasStratSignal ? sigSL : fvgSellSL
     tp    = hasStratSignal ? sigTP2 : fvgSellTP
     tp1val = hasStratSignal ? sigTP1 : fvgSellTP1
-    rr    = hasStratSignal ? t2R : rrRatio
+    baseRisk = math.abs(entry - sl)
+    rr    = baseRisk > syminfo.mintick ? math.abs(tp - entry) / baseRisk : 0.0
     conf  = hasStratSignal ? sigScore : fvgSellScore
+    openBarIdx = hasStratSignal ? sigEntryBar : fvgSellEntryBar
     tradeId = buildExternalTradeId(setup, direction, int(time_close))
     array.push(activeTradeId, tradeId), array.push(activeTradeST, setup)
     array.push(activeTradeDir, direction), array.push(activeTradeEnt, entry)
     array.push(activeTradeSL, sl), array.push(activeTradeTP, tp)
-    array.push(activeTradeRR, rr), array.push(activeTradeBar, bar_index)
+    array.push(activeTradeRR, rr), array.push(activeTradeBar, nz(openBarIdx, bar_index))
     array.push(activeTradeConf, conf)
     array.push(activeTradeTP1, tp1val)
     array.push(activeTradeBE, na)
+    array.push(activeTradeRisk, baseRisk)
+    array.push(activeTradeTP1Done, false)
+    array.push(activeTradeRealizedR, 0.0)
+    array.push(activeTradeQtyLeft, 1.0)
     lastSignalDirection := direction
     lastSignalSetup := setup
     lastSigConf := conf
@@ -1745,6 +1974,8 @@ if finalSell
         array.shift(activeTradeRR), array.shift(activeTradeBar)
         array.shift(activeTradeConf), array.shift(activeTradeTP1)
         array.shift(activeTradeBE)
+        array.shift(activeTradeRisk), array.shift(activeTradeTP1Done)
+        array.shift(activeTradeRealizedR), array.shift(activeTradeQtyLeft)
 
 // Resolve open trades (with BE move, time stop, close alerts)
 if array.size(activeTradeId) > 0
@@ -1760,10 +1991,24 @@ if array.size(activeTradeId) > 0
             tp1Lvl  = array.get(activeTradeTP1, idx)
             tradeRR = array.get(activeTradeRR, idx)
             beLvl   = array.get(activeTradeBE, idx)
+            baseRisk = array.get(activeTradeRisk, idx)
+            tp1Done = array.get(activeTradeTP1Done, idx)
+            realizedR = array.get(activeTradeRealizedR, idx)
+            qtyLeft = array.get(activeTradeQtyLeft, idx)
 
             // Move-to-BE check: if price has reached moveToBEatR level
-            risk = math.abs(entryLvl - stopLvl)
-            beThresholdPrice = isLong ? entryLvl + risk * moveToBEatR : entryLvl - risk * moveToBEatR
+            partialEnabled = riskMode == "multiRR" and tp1Lvl != tgtLvl and partial1Pct > 0
+            tp1Reached = partialEnabled and not tp1Done and ((isLong and high >= tp1Lvl) or (not isLong and low <= tp1Lvl))
+            if tp1Reached and baseRisk > syminfo.mintick
+                tp1RValue = math.abs(tp1Lvl - entryLvl) / baseRisk
+                realizedR += tp1RValue * (partial1Pct / 100.0)
+                qtyLeft := math.max(0.0, 1.0 - partial1Pct / 100.0)
+                tp1Done := true
+                array.set(activeTradeTP1Done, idx, true)
+                array.set(activeTradeRealizedR, idx, realizedR)
+                array.set(activeTradeQtyLeft, idx, qtyLeft)
+
+            beThresholdPrice = isLong ? entryLvl + baseRisk * moveToBEatR : entryLvl - baseRisk * moveToBEatR
             if na(beLvl) and ((isLong and high >= beThresholdPrice) or (not isLong and low <= beThresholdPrice))
                 beLvl := entryLvl
                 array.set(activeTradeBE, idx, entryLvl)
@@ -1780,8 +2025,12 @@ if array.size(activeTradeId) > 0
             lost = isLong ? low <= stopLvl : high >= stopLvl
 
             if won or lost or timeStopHit
-                isLoss = lost or timeStopHit or (won and lost)
-                pnlR = isLoss ? -1.0 : tradeRR
+                sameBarConflict = won and lost
+                stopComponentR = math.abs(stopLvl - entryLvl) <= syminfo.mintick ? 0.0 : -1.0
+                timeStopR = baseRisk > syminfo.mintick ? (isLong ? (close - entryLvl) / baseRisk : (entryLvl - close) / baseRisk) : 0.0
+                pnlR = sameBarConflict or lost ? realizedR + qtyLeft * stopComponentR :
+                     won ? realizedR + qtyLeft * tradeRR :
+                     realizedR + qtyLeft * timeStopR
                 totalTrades += 1
                 // Adaptive tracking
                 recentTotal := math.min(recentTotal + 1, adaptiveWindow)
@@ -1790,15 +2039,18 @@ if array.size(activeTradeId) > 0
                     totalR += pnlR
                     adaptiveLossStreak := 0
                     recentWins := math.min(recentWins + 1, adaptiveWindow)
-                else
+                else if pnlR < 0
                     totalLoss += 1
-                    totalR -= 1.0
+                    totalR += pnlR
                     adaptiveLossStreak += 1
                     // Trigger cooldown after consecutive losses
                     if adaptiveLossStreak >= cooldownLossTrig
                         cooldownUntilBar := bar_index + cooldownBase
+                else
+                    totalR += pnlR
+                    adaptiveLossStreak := 0
 
-                closeReason = timeStopHit ? "TIME" : isLoss ? "SL" : "TP"
+                closeReason = sameBarConflict or lost ? "SL" : won ? "TP" : "TIME"
                 lastCloseReason := closeReason
                 lastCloseTradeId := array.get(activeTradeId, idx)
                 lastCloseEntry := entryLvl
@@ -1811,6 +2063,8 @@ if array.size(activeTradeId) > 0
                 array.remove(activeTradeRR, idx), array.remove(activeTradeBar, idx)
                 array.remove(activeTradeConf, idx), array.remove(activeTradeTP1, idx)
                 array.remove(activeTradeBE, idx)
+                array.remove(activeTradeRisk, idx), array.remove(activeTradeTP1Done, idx)
+                array.remove(activeTradeRealizedR, idx), array.remove(activeTradeQtyLeft, idx)
         idx -= 1
 
 // ═══════════════════════════════════════════════════════════════
@@ -1818,13 +2072,18 @@ if array.size(activeTradeId) > 0
 // ═══════════════════════════════════════════════════════════════
 var box[]  trdBoxes = array.new_box(0)
 var line[] trdLines = array.new_line(0)
+var label[] trdLabels = array.new_label(0)
 
-drawTradeBoxes(entryPrice, slPrice, tp1Price, tp2Price, isBull, entryBarIdx) =>
+clearTradeDrawings() =>
+    clearBoxArray(trdBoxes)
+    clearLineArray(trdLines)
+    clearLabelArray(trdLabels)
+
+drawTradeBoxes(entryPrice, slPrice, tp1Price, tp2Price, isBull, entryBarIdx, entryText) =>
     slBg  = color.new(bearCol, 82), slBrd  = color.new(bearCol, 45)
     tp1Bg = color.new(bullCol, 76), tp1Brd = color.new(bullCol, 38)
     tp2Bg = color.new(bullCol, 90), tp2Brd = color.new(bullCol, 62)
     ext   = entryBarIdx + tradeExtBars
-    // Trade box starts at entryBarIdx (exact entry bar, no +1 offset)
     if isBull
         array.push(trdBoxes, box.new(entryBarIdx, entryPrice, ext, slPrice, bgcolor = slBg, border_color = slBrd, border_width = 1))
         array.push(trdBoxes, box.new(entryBarIdx, tp1Price, ext, entryPrice, bgcolor = tp1Bg, border_color = tp1Brd, border_width = 1))
@@ -1840,35 +2099,38 @@ drawTradeBoxes(entryPrice, slPrice, tp1Price, tp2Price, isBull, entryBarIdx) =>
     array.push(trdLines, line.new(entryBarIdx, tp1Price, ext, tp1Price, color = color.new(bullCol, 20), style = line.style_dotted, width = 1))
     if tp2Price != tp1Price
         array.push(trdLines, line.new(entryBarIdx, tp2Price, ext, tp2Price, color = color.new(bullCol, 5), style = line.style_dashed, width = 2))
+    array.push(trdLabels, label.new(entryBarIdx, entryPrice, entryText,
+         style = isBull ? label.style_label_up : label.style_label_down,
+         color = color.new(execZoneCol, 68), textcolor = color.white, size = size.tiny))
 
-// Strategy signals — use sigEntryBar for exact positioning
-if finalBuy and hasStratSignal and not na(sigSL) and not na(sigTP1) and not na(sigTP2)
-    drawTradeBoxes(sigEntry, sigSL, sigTP1, sigTP2, true, bar_index)
+if showExecZone
+    if finalBuy and hasStratSignal and not na(sigSL) and not na(sigTP1) and not na(sigTP2)
+        drawTradeBoxes(sigEntry, sigSL, sigTP1, sigTP2, true, nz(sigEntryBar, bar_index), "Entry · " + sigEntrySrc)
 
-if finalSell and hasStratSignal and not na(sigSL) and not na(sigTP1) and not na(sigTP2)
-    drawTradeBoxes(sigEntry, sigSL, sigTP1, sigTP2, false, bar_index)
+    if finalSell and hasStratSignal and not na(sigSL) and not na(sigTP1) and not na(sigTP2)
+        drawTradeBoxes(sigEntry, sigSL, sigTP1, sigTP2, false, nz(sigEntryBar, bar_index), "Entry · " + sigEntrySrc)
 
-// FVG standalone signals
-if fvgBuySignal and not hasStratSignal and not na(fvgBuySL) and not na(fvgBuyTP1) and not na(fvgBuyTP)
-    drawTradeBoxes(fvgBuyEntry, fvgBuySL, fvgBuyTP1, fvgBuyTP, true, bar_index)
+    if fvgBuySignal and not hasStratSignal and not na(fvgBuySL) and not na(fvgBuyTP1) and not na(fvgBuyTP)
+        drawTradeBoxes(fvgBuyEntry, fvgBuySL, fvgBuyTP1, fvgBuyTP, true, nz(fvgBuyEntryBar, bar_index), "Entry · STANDALONE_FVG")
 
-if fvgSellSignal and not hasStratSignal and not na(fvgSellSL) and not na(fvgSellTP1) and not na(fvgSellTP)
-    drawTradeBoxes(fvgSellEntry, fvgSellSL, fvgSellTP1, fvgSellTP, false, bar_index)
+    if fvgSellSignal and not hasStratSignal and not na(fvgSellSL) and not na(fvgSellTP1) and not na(fvgSellTP)
+        drawTradeBoxes(fvgSellEntry, fvgSellSL, fvgSellTP1, fvgSellTP, false, nz(fvgSellEntryBar, bar_index), "Entry · STANDALONE_FVG")
 
-// Drawing lifecycle: delete oldest when exceeding maxDrawnTrades
-while array.size(trdBoxes) > maxDrawnTrades * 3
-    box.delete(array.shift(trdBoxes))
-while array.size(trdLines) > maxDrawnTrades * 4
-    line.delete(array.shift(trdLines))
+    trimBoxArray(trdBoxes, maxDrawnTrades * 3)
+    trimLineArray(trdLines, maxDrawnTrades * 4)
+    trimLabelArray(trdLabels, maxDrawnTrades)
+else
+    clearTradeDrawings()
 
 // ═══════════════════════════════════════════════════════════════
 //  20b. EXECUTION ZONE RENDERING (fixed timing)
 // ═══════════════════════════════════════════════════════════════
 var box execBox = na
+var box pendingZoneBox = na
 var line raidRefLine = na
 var label raidRefLbl = na
+var label execEntryLbl = na
 
-// Pending execution zone — shows FVG zone while strategy awaits mitigation
 bool s1BullPending = s1BullState == 2 and not na(s1BullFvgHi)
 bool s1BearPending = s1BearState == 2 and not na(s1BearFvgHi)
 bool s3Pending = s3State == 2 and not na(s3FvgHi)
@@ -1876,65 +2138,98 @@ bool s4Pending = s4State == 2 and not na(s4FvgHi)
 bool anyPending = s1BullPending or s1BearPending or s3Pending or s4Pending
 float pendHi = s1BullPending ? s1BullFvgHi : s1BearPending ? s1BearFvgHi : s3Pending ? s3FvgHi : s4Pending ? s4FvgHi : na
 float pendLo = s1BullPending ? s1BullFvgLo : s1BearPending ? s1BearFvgLo : s3Pending ? s3FvgLo : s4Pending ? s4FvgLo : na
+int pendLeft = s1BullPending ? nz(s1BullBar, bar_index) :
+     s1BearPending ? nz(s1BearBar, bar_index) :
+     s3Pending ? nz(s3Bar, bar_index) :
+     s4Pending ? nz(s4Bar, bar_index) : bar_index
 
-var box pendingZoneBox = na
-if showExecZone and anyPending and not na(pendHi)
-    if na(pendingZoneBox)
-        pendingZoneBox := box.new(bar_index, pendHi, bar_index + 5, pendLo,
-             bgcolor = color.new(execZoneCol, 88), border_color = color.new(execZoneCol, 50),
-             border_width = 1, border_style = line.style_dashed)
-    else
-        box.set_top(pendingZoneBox, pendHi)
-        box.set_bottom(pendingZoneBox, pendLo)
-        box.set_right(pendingZoneBox, bar_index + 5)
-else if not na(pendingZoneBox)
-    box.delete(pendingZoneBox)
-    pendingZoneBox := na
-
-// Execution zone box — drawn on signal at exact entry bar with logical entry price
-if (finalBuy or finalSell) and showExecZone
-    if not na(execBox)
-        box.delete(execBox)
-    if not na(raidRefLine)
-        line.delete(raidRefLine)
-    if not na(raidRefLbl)
-        label.delete(raidRefLbl)
-    if hasStratSignal and not na(sigZoneHi) and not na(sigZoneLo)
-        // Exec zone anchored to entry bar (bar_index), not bar_index-5
-        execBox := box.new(bar_index, sigZoneHi, bar_index + 10, sigZoneLo,
-             bgcolor = color.new(execZoneCol, 78), border_color = color.new(execZoneCol, 15), border_width = 2)
-        if not na(sigRaidLvl)
-            raidRefLine := line.new(bar_index - 5, sigRaidLvl, bar_index + 10, sigRaidLvl,
-                 color = color.new(sigBull ? bullCol : bearCol, 30), style = line.style_solid, width = 2)
-            raidRefLbl := label.new(bar_index - 5, sigRaidLvl, sigRaidSrc + " sweep",
-                 style = sigBull ? label.style_label_up : label.style_label_down,
-                 color = color.new(sigBull ? bullCol : bearCol, 70), textcolor = color.white, size = size.tiny)
-    if not na(pendingZoneBox)
-        box.delete(pendingZoneBox)
-        pendingZoneBox := na
-
-// Extend exec zone box
-if not na(execBox) and showExecZone
-    box.set_right(execBox, bar_index + 5)
-
-// Clean exec zone when toggle is off
 if not showExecZone
     if not na(execBox)
         box.delete(execBox)
         execBox := na
+    if not na(pendingZoneBox)
+        box.delete(pendingZoneBox)
+        pendingZoneBox := na
     if not na(raidRefLine)
         line.delete(raidRefLine)
         raidRefLine := na
     if not na(raidRefLbl)
         label.delete(raidRefLbl)
         raidRefLbl := na
+    if not na(execEntryLbl)
+        label.delete(execEntryLbl)
+        execEntryLbl := na
+else
     if not na(pendingZoneBox)
         box.delete(pendingZoneBox)
         pendingZoneBox := na
+    if anyPending and not na(pendHi)
+        pendingZoneBox := box.new(pendLeft, pendHi, bar_index + 5, pendLo,
+             bgcolor = color.new(execZoneCol, 90), border_color = color.new(execZoneCol, 48),
+             border_width = 1, border_style = line.style_dashed)
+
+if (finalBuy or finalSell) and showExecZone
+    if not na(execBox)
+        box.delete(execBox)
+        execBox := na
+    if not na(pendingZoneBox)
+        box.delete(pendingZoneBox)
+        pendingZoneBox := na
+    if not na(raidRefLine)
+        line.delete(raidRefLine)
+        raidRefLine := na
+    if not na(raidRefLbl)
+        label.delete(raidRefLbl)
+        raidRefLbl := na
+    if not na(execEntryLbl)
+        label.delete(execEntryLbl)
+        execEntryLbl := na
+    if hasStratSignal and not na(sigZoneHi) and not na(sigZoneLo) and not na(entryBarIndex)
+        execBox := box.new(entryBarIndex, sigZoneHi, entryBarIndex + 10, sigZoneLo,
+             bgcolor = color.new(execZoneCol, 78), border_color = color.new(execZoneCol, 15), border_width = 2)
+        execEntryLbl := label.new(entryBarIndex, entryPriceLogic, "Entry " + sigEntrySrc,
+             style = sigBull ? label.style_label_up : label.style_label_down,
+             color = color.new(execZoneCol, 68), textcolor = color.white, size = size.tiny)
+        if not na(sigRaidLvl)
+            raidRefLine := line.new(math.max(0, entryBarIndex - 5), sigRaidLvl, entryBarIndex + 10, sigRaidLvl,
+                 color = color.new(sigBull ? bullCol : bearCol, 30), style = line.style_solid, width = 2)
+            raidRefLbl := label.new(math.max(0, entryBarIndex - 5), sigRaidLvl, sigRaidSrc + " sweep",
+                 style = sigBull ? label.style_label_up : label.style_label_down,
+                 color = color.new(sigBull ? bullCol : bearCol, 70), textcolor = color.white, size = size.tiny)
+
+if not na(execBox) and showExecZone
+    box.set_right(execBox, bar_index + 5)
+if not na(raidRefLine) and showExecZone
+    line.set_x2(raidRefLine, bar_index + 5)
+
+if barstate.islast
+    drawPDHPDL()
+    drawEqhEql()
+    drawSessionHL()
 
 // ═══════════════════════════════════════════════════════════════
 //  21. SIGNAL LABELS (truthful sweep sources)
 // ═══════════════════════════════════════════════════════════════
+var line[] sweepMarkerLines = array.new_line(0)
+var label[] sweepMarkerLabels = array.new_label(0)
+
+clearSweepMarkers() =>
+    clearLineArray(sweepMarkerLines)
+    clearLabelArray(sweepMarkerLabels)
+
+drawSweepMarker(bool isBull, float raidLevel, string raidText) =>
+    if not na(raidLevel) and raidText != ""
+        markerLine = line.new(bar_index, raidLevel, bar_index + 4, raidLevel,
+             color = color.new(isBull ? bullCol : bearCol, 35), style = line.style_dotted, width = 1)
+        markerLabel = label.new(bar_index, isBull ? low - atr14 * 0.15 : high + atr14 * 0.15,
+             (isBull ? "↑ " : "↓ ") + raidText,
+             style = isBull ? label.style_label_up : label.style_label_down,
+             color = color.new(isBull ? bullCol : bearCol, 60), textcolor = color.white, size = size.tiny)
+        array.push(sweepMarkerLines, markerLine)
+        array.push(sweepMarkerLabels, markerLabel)
+        trimLineArray(sweepMarkerLines, 30)
+        trimLabelArray(sweepMarkerLabels, 30)
+
 if finalBuy and hasStratSignal
     lbl = stratLabel(sigStrat)
     srcTxt = sigRaidSrc != "" ? " | " + sigRaidSrc : ""
@@ -1960,14 +2255,13 @@ if fvgSellSignal and not hasStratSignal
          "◆ FVG SELL [" + str.tostring(fvgSellScore) + "]",
          style = label.style_label_down, color = color.new(fvgCol, 0), textcolor = color.white, size = size.normal)
 
-// Raid confirmation markers
-if showSweepMarks and anyBullRaid
-    label.new(bar_index, low - atr14 * 0.15, "↑ " + curBullRaidSrc,
-         style = label.style_label_up, color = color.new(bullCol, 60), textcolor = color.white, size = size.tiny)
-
-if showSweepMarks and anyBearRaid
-    label.new(bar_index, high + atr14 * 0.15, "↓ " + curBearRaidSrc,
-         style = label.style_label_down, color = color.new(bearCol, 60), textcolor = color.white, size = size.tiny)
+if showSweepMarks
+    if anyBullRaid
+        drawSweepMarker(true, curBullRaidLvl, curBullRaidSrc)
+    if anyBearRaid
+        drawSweepMarker(false, curBearRaidLvl, curBearRaidSrc)
+else
+    clearSweepMarkers()
 
 // MSS markers
 if bullMSSActive and bullMSSBar == bar_index
@@ -2031,7 +2325,7 @@ if emitOpenAlerts and fvgSellSignal and not hasStratSignal
 
 // SIGNAL_CLOSE: emitted when a tracked trade resolves
 if emitCloseAlerts and lastCloseTradeId != "" and lastCloseReason != "NONE"
-    closeDir = lastClosePnlR > 0 ? "WIN" : "LOSS"
+    closeDir = lastClosePnlR > 0 ? "WIN" : lastClosePnlR < 0 ? "LOSS" : "BREAKEVEN"
     closePayload = "{" +
          "\"schemaVersion\":\"2.0\"," +
          "\"eventType\":\"SIGNAL_CLOSE\"," +
@@ -2080,267 +2374,197 @@ s3StatusText = strat3En ? (s3State == 0 ? "Idle" : s3State == 1 ? "Manip" : "Con
 s4StatusText = strat4En ? (s4State == 0 ? "Idle" : s4State == 1 ? "Raid" : "Confirm") : "OFF"
 s5StatusText = strat5En ? (smtBullDiv or smtBearDiv ? "Divergence" : "Monitoring") : "OFF"
 
+lastRaidTxt = lastRaidSource != "" ?
+     lastRaidSide + ": " + lastRaidSource + (not na(lastRaidLevel) ? " @ " + str.tostring(lastRaidLevel, format.mintick) : "") :
+     "–"
+stratStatePrimary = "S1:" + s1StatusText + " | S2:" + s2StatusText
+stratStateSecondary = "S3:" + s3StatusText + " | S4:" + s4StatusText + " | S5:" + s5StatusText
+qaSelectedStrategy = sigStrat > 0 or hasFvgStandalone ? (sigStrat > 0 ? debugWinner + " (" + sigSetupType + ")" : "FVG_MITIGATION") : lastSelectedStrategy
+qaEntryPriceLogic = not na(entryPriceLogic) ? entryPriceLogic : lastEntryPriceLogic
+qaEntryBarIndex = not na(entryBarIndex) ? entryBarIndex : lastEntryBarIndex
+qaMitigationBarIndex = not na(mitigationBarIndex) ? mitigationBarIndex : lastMitigationBarIndex
+qaZoneType = entrySourceZoneType != "" ? entrySourceZoneType : lastEntryZoneType
+
 var table dash = na
-if barstate.islast
+
+clearDashboard() =>
     if not na(dash)
         table.delete(dash)
-        dash := na
+
+drawDashboard() =>
+    tbl = table.new(position.bottom_left, 2, 14,
+         bgcolor = color.new(color.rgb(8, 10, 28), 5),
+         border_width = 1, border_color = color.new(color.white, 78))
+    hBg = color.new(color.rgb(15, 18, 55), 0)
+    r = 0
+    table.cell(tbl, 0, r, "SMC v6 Multi-Strategy", text_color = color.white, text_size = size.small, bgcolor = hBg)
+    table.cell(tbl, 1, r, webhookSource, text_color = color.white, text_size = size.small, bgcolor = hBg)
+    r += 1
+    table.cell(tbl, 0, r, "HTF Bias", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, htfBias + (htfStrong ? " · Strong" : " · Soft"),
+         text_color = htfBull ? bullCol : htfBear ? bearCol : color.gray, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Active Setup", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, activeSetupText, text_color = activeSetupText == "IDLE" ? color.gray : bullCol, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Score / Threshold", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, displayScoreText + " / " + str.tostring(effectiveThreshold) + (profileMode == "AUTO" ? " (AUTO)" : ""),
+         text_color = na(displayScore) ? color.gray : displayScore >= effectiveThreshold ? bullCol : bearCol, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Last Raid", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, lastRaidTxt, text_color = lastRaidSide == "BULL" ? bullCol : lastRaidSide == "BEAR" ? bearCol : color.gray, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "S1 / S2", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, stratStatePrimary, text_color = color.new(color.white, 15), text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "S3 / S4 / S5", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, stratStateSecondary, text_color = color.new(color.white, 15), text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Session", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, inOverlap ? "LON-NY Overlap" : inLondon ? "London" : inNewYork ? "New York" : inTokyo ? "Tokyo" : inSydney ? "Sydney" : "Off-Session",
+         text_color = inOverlap ? color.new(#f59e0b, 0) : inAnySession ? bullCol : color.gray, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Kill Zone", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, inLondonKz ? "London KZ" : inNyAmKz ? "NY AM KZ" : inNyPmKz ? "NY PM KZ" : inAnySB ? "Silver Bullet" : "–",
+         text_color = inAnyKz or inAnySB ? bullCol : color.gray, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "PDH / PDL", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, (na(pdh) ? "–" : str.tostring(pdh, format.mintick)) + " / " + (na(pdl) ? "–" : str.tostring(pdl, format.mintick)),
+         text_color = color.new(color.white, 20), text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "FVG Zones", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, "Bull:" + str.tostring(array.size(bfHi)) + " Bear:" + str.tostring(array.size(sfHi)),
+         text_color = array.size(bfHi) + array.size(sfHi) > 0 ? fvgCol : color.gray, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Win Rate", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, wrText, text_color = na(wr) ? color.gray : wr >= 55 ? bullCol : wr >= 45 ? color.orange : bearCol, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Net R", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, netR, text_color = totalR >= 0 ? bullCol : bearCol, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Trades", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, str.tostring(totalWins) + "W  " + str.tostring(totalLoss) + "L  ·  " + lastCloseReason,
+         text_color = color.new(color.white, 30), text_size = size.small)
+    tbl
+
+if barstate.islast
+    clearDashboard()
+    dash := na
     if showDash
-        dash := table.new(position.bottom_left, 2, 22,
-             bgcolor = color.new(color.rgb(8, 10, 28), 5),
-             border_width = 1, border_color = color.new(color.white, 78))
-        hBg = color.new(color.rgb(15, 18, 55), 0)
-        r = 0
-        table.cell(dash, 0, r, "SMC v6 Multi-Strategy", text_color = color.white, text_size = size.small, bgcolor = hBg)
-        table.cell(dash, 1, r, webhookSource, text_color = color.white, text_size = size.small, bgcolor = hBg)
-        r += 1
-
-        table.cell(dash, 0, r, "Time Basis", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, timeBasis + " (" + tzMain + ")",
-             text_color = timeBasis == "UTC" ? color.new(#00e5ff, 0) : color.new(#f59e0b, 0), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Exec Mode", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, executionMode,
-             text_color = executionMode == "Confirmed Close" ? color.new(color.white, 20) : color.new(#f59e0b, 0), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Risk Mode", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, riskMode, text_color = color.new(color.white, 20), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Regime", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, regime.name + " · " + regime.volatilityState,
-             text_color = regime.name == "TREND" ? bullCol : regime.name == "RANGE" ? color.orange : color.new(color.white, 15), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "HTF Bias", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, htfBias + (htfStrong ? " · Strong" : " · Soft"),
-             text_color = htfBull ? bullCol : htfBear ? bearCol : color.gray, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Active Setup", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, activeSetupText,
-             text_color = activeSetupText == "IDLE" ? color.gray : bullCol, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Score / Threshold", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, displayScoreText + " / " + str.tostring(effectiveThreshold) + (profileMode == "AUTO" ? " (AUTO)" : ""),
-             text_color = na(displayScore) ? color.gray : displayScore >= effectiveThreshold ? bullCol : bearCol, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Priority", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, stratPriority, text_color = color.new(color.white, 30), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Last Raid", text_color = color.new(color.white, 25), text_size = size.small)
-        lastRaidTxt = bullRaidSrc != "" ? "Bull: " + bullRaidSrc : bearRaidSrc != "" ? "Bear: " + bearRaidSrc : "–"
-        table.cell(dash, 1, r, lastRaidTxt,
-             text_color = bullRaidSrc != "" ? bullCol : bearRaidSrc != "" ? bearCol : color.gray, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "S1 Raid→MSS→FVG", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, s1StatusText,
-             text_color = s1StatusText == "OFF" ? color.gray : s1StatusText == "Idle" ? color.new(color.white, 40) : bullCol, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "S2 Silver Bullet", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, s2StatusText,
-             text_color = s2StatusText == "OFF" ? color.gray : s2StatusText == "In Window" ? bullCol : color.new(color.white, 40), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "S3 PO3/AMD", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, s3StatusText,
-             text_color = s3StatusText == "OFF" ? color.gray : s3StatusText == "Idle" ? color.new(color.white, 40) : bullCol, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "S4 Judas Swing", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, s4StatusText,
-             text_color = s4StatusText == "OFF" ? color.gray : s4StatusText == "Idle" ? color.new(color.white, 40) : bullCol, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "S5 SMT Divergence", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, s5StatusText,
-             text_color = s5StatusText == "OFF" ? color.gray : s5StatusText == "Divergence" ? smtCol : color.new(color.white, 40), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Session", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, inOverlap ? "LON-NY Overlap" : inLondon ? "London" : inNewYork ? "New York" : inTokyo ? "Tokyo" : inSydney ? "Sydney" : "Off-Session",
-             text_color = inOverlap ? color.new(#f59e0b, 0) : inAnySession ? bullCol : color.gray, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Kill Zone", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, inLondonKz ? "London KZ" : inNyAmKz ? "NY AM KZ" : inNyPmKz ? "NY PM KZ" : inAnySB ? "Silver Bullet" : "–",
-             text_color = inAnyKz or inAnySB ? bullCol : color.gray, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "PDH / PDL", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, (na(pdh) ? "–" : str.tostring(pdh, format.mintick)) + " / " + (na(pdl) ? "–" : str.tostring(pdl, format.mintick)),
-             text_color = color.new(color.white, 20), text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "FVG Zones", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, "Bull:" + str.tostring(array.size(bfHi)) + " Bear:" + str.tostring(array.size(sfHi)),
-             text_color = array.size(bfHi) + array.size(sfHi) > 0 ? fvgCol : color.gray, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Win Rate", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, wrText,
-             text_color = na(wr) ? color.gray : wr >= 55 ? bullCol : wr >= 45 ? color.orange : bearCol, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Net R", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, netR,
-             text_color = totalR >= 0 ? bullCol : bearCol, text_size = size.small)
-        r += 1
-
-        table.cell(dash, 0, r, "Trades", text_color = color.new(color.white, 25), text_size = size.small)
-        table.cell(dash, 1, r, str.tostring(totalWins) + "W  " + str.tostring(totalLoss) + "L  ·  " + lastCloseReason,
-             text_color = color.new(color.white, 30), text_size = size.small)
+        dash := drawDashboard()
 
 // ═══════════════════════════════════════════════════════════════
 //  24. DEBUG LABELS (showDebug)
 // ═══════════════════════════════════════════════════════════════
-if showDebug and (finalBuy or finalSell) and hasStratSignal
-    dbgEntry = not na(sigEntry) ? str.tostring(sigEntry, format.mintick) : "na"
-    dbgTxt = "DEBUG S" + str.tostring(sigStrat) + " " + sigSetupType +
-         "\nEntry: " + dbgEntry + " | Src: " + sigEntrySrc +
-         "\nBar: " + str.tostring(bar_index) +
-         "\nMode: " + executionMode +
-         "\nConfirmed: " + str.tostring(barstate.isconfirmed) +
-         "\nTimeBasis: " + timeBasis +
-         "\nCandidates: " + debugCandidates +
-         "\nWinner: " + debugWinner +
-         "\nScore: " + str.tostring(sigScore) + "/" + str.tostring(effectiveThreshold) +
-         "\nSessions: Lon=" + str.tostring(inLondon) + " NY=" + str.tostring(inNewYork) +
-         " Tok=" + str.tostring(inTokyo) + " Syd=" + str.tostring(inSydney) +
-         "\nKZ=" + str.tostring(inAnyKz) + " SB=" + str.tostring(inAnySB) + " Judas=" + str.tostring(inJudas) +
-         "\nRaid: " + sigRaidSrc + " MSS=" + str.tostring(bullMSSActive or bearMSSActive) +
-         " FVG=" + str.tostring(not na(sigZoneHi))
-    label.new(bar_index, sigBull ? low - atr14 * 1.5 : high + atr14 * 1.5, dbgTxt,
-         style = sigBull ? label.style_label_up : label.style_label_down,
-         color = color.new(color.purple, 20), textcolor = color.white, size = size.tiny)
+var label[] debugSignalLabels = array.new_label(0)
+var label lastBarDebugLabel = na
 
-// Debug on last bar: show current state
+if not showDebug
+    clearLabelArray(debugSignalLabels)
+    if not na(lastBarDebugLabel)
+        label.delete(lastBarDebugLabel)
+        lastBarDebugLabel := na
+
+if showDebug and (finalBuy or finalSell)
+    dbgTxt = "DEBUG " + (hasStratSignal ? "S" + str.tostring(sigStrat) + " " + sigSetupType : "FVG_MITIGATION") +
+         "\nentryPriceLogic: " + (na(entryPriceLogic) ? "na" : str.tostring(entryPriceLogic, format.mintick)) +
+         "\nentryBarIndex: " + (na(entryBarIndex) ? "na" : str.tostring(entryBarIndex)) +
+         "\nmitigationBarIndex: " + (na(mitigationBarIndex) ? "na" : str.tostring(mitigationBarIndex)) +
+         "\nexecutionMode: " + executionMode +
+         "\nconfirmed: " + str.tostring(barstate.isconfirmed) +
+         "\nzoneType: " + entrySourceZoneType +
+         "\nentrySrc: " + (hasStratSignal ? sigEntrySrc : "STANDALONE_FVG") +
+         "\nscore: " + str.tostring(hasStratSignal ? sigScore : finalBuy ? fvgBuyScore : fvgSellScore) + "/" + str.tostring(effectiveThreshold) +
+         "\nlastRaid: " + lastRaidTxt +
+         "\ncandidates: " + (debugCandidates != "" ? debugCandidates : "none") +
+         "\nwinner: " + (debugWinner != "" ? debugWinner : "none")
+    array.push(debugSignalLabels, label.new(bar_index, finalBuy ? low - atr14 * 1.5 : high + atr14 * 1.5, dbgTxt,
+         style = finalBuy ? label.style_label_up : label.style_label_down,
+         color = color.new(color.purple, 20), textcolor = color.white, size = size.tiny))
+    trimLabelArray(debugSignalLabels, 25)
+
 if showDebug and barstate.islast
+    if not na(lastBarDebugLabel)
+        label.delete(lastBarDebugLabel)
     lastDbg = "LAST BAR DEBUG" +
          "\nTimeBasis: " + timeBasis + " TZ: " + tzMain +
-         "\nSessions: Lon=" + str.tostring(inLondon) + " NY=" + str.tostring(inNewYork) +
-         " Tok=" + str.tostring(inTokyo) + " Syd=" + str.tostring(inSydney) +
+         "\nSessions: L=" + str.tostring(inLondon) + " NY=" + str.tostring(inNewYork) +
+         " T=" + str.tostring(inTokyo) + " S=" + str.tostring(inSydney) +
          "\ninSession=" + str.tostring(inSessionFinal) + " KZ=" + str.tostring(inAnyKz) +
          " SB=" + str.tostring(inAnySB) + " Judas=" + str.tostring(inJudas) +
-         "\nS1: B=" + str.tostring(s1BullState) + " S=" + str.tostring(s1BearState) +
-         " S3=" + str.tostring(s3State) + " S4=" + str.tostring(s4State) +
+         "\nentryPriceLogic=" + (na(qaEntryPriceLogic) ? "na" : str.tostring(qaEntryPriceLogic, format.mintick)) +
+         " entryBar=" + (na(qaEntryBarIndex) ? "na" : str.tostring(qaEntryBarIndex)) +
+         "\nmitBar=" + (na(qaMitigationBarIndex) ? "na" : str.tostring(qaMitigationBarIndex)) +
+         " zone=" + qaZoneType +
          "\nLossStreak=" + str.tostring(adaptiveLossStreak) +
          " Cooldown=" + (not na(cooldownUntilBar) and bar_index < cooldownUntilBar ? str.tostring(cooldownUntilBar - bar_index) + "bars" : "none")
-    label.new(bar_index + 3, close, lastDbg,
+    lastBarDebugLabel := label.new(bar_index + 3, close, lastDbg,
          style = label.style_label_left, color = color.new(color.purple, 30), textcolor = color.white, size = size.tiny)
 
 // ═══════════════════════════════════════════════════════════════
 //  25. QA MODE TABLE (qaMode)
 // ═══════════════════════════════════════════════════════════════
 var table qaTable = na
+
+drawQATable() =>
+    tbl = table.new(position.top_right, 2, 14,
+         bgcolor = color.new(color.rgb(10, 12, 30), 5),
+         border_width = 1, border_color = color.new(color.yellow, 60))
+    hBg2 = color.new(color.rgb(30, 20, 60), 0)
+    qr = 0
+    table.cell(tbl, 0, qr, "QA MODE", text_color = color.yellow, text_size = size.small, bgcolor = hBg2)
+    table.cell(tbl, 1, qr, "SMC v6", text_color = color.yellow, text_size = size.small, bgcolor = hBg2)
+    qr += 1
+    table.cell(tbl, 0, qr, "Toggles", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, "Dash:" + str.tostring(showDash) + " Sweep:" + str.tostring(showSweepMarks) +
+         " PDH:" + str.tostring(showPDHL) + " EQL:" + str.tostring(showEqlHL) +
+         " SessHL:" + str.tostring(showSessionHL) + " Exec:" + str.tostring(showExecZone),
+         text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "timeBasis", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, timeBasis + " (" + tzMain + ")", text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "Sessions", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, "L:" + str.tostring(inLondon) + " NY:" + str.tostring(inNewYork) + " T:" + str.tostring(inTokyo) + " S:" + str.tostring(inSydney),
+         text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "KZ/SB/Judas", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, "KZ:" + str.tostring(inAnyKz) + " SB:" + str.tostring(inAnySB) + " J:" + str.tostring(inJudas),
+         text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "Strategy States", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, stratStatePrimary + " | " + stratStateSecondary, text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "S2 Armed", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, "B:" + str.tostring(s2BullRaided) + " S:" + str.tostring(s2BearRaided), text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "Last Raid", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, lastRaidTxt, text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "Selected", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, qaSelectedStrategy,
+         text_color = qaSelectedStrategy != "none" ? bullCol : color.gray, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "Candidates", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, debugCandidates != "" ? debugCandidates : "none", text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "entryPriceLogic", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, na(qaEntryPriceLogic) ? "–" : str.tostring(qaEntryPriceLogic, format.mintick), text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "entryBarIndex", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, na(qaEntryBarIndex) ? "–" : str.tostring(qaEntryBarIndex), text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "mitigationBar", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, na(qaMitigationBarIndex) ? "–" : str.tostring(qaMitigationBarIndex), text_color = color.white, text_size = size.small)
+    qr += 1
+    table.cell(tbl, 0, qr, "Entry State", text_color = color.new(color.white, 20), text_size = size.small)
+    table.cell(tbl, 1, qr, "Ready:" + str.tostring(entryReady) + " Triggered:" + str.tostring(entryTriggered) + " Zone:" + qaZoneType,
+         text_color = entryTriggered ? bullCol : color.white, text_size = size.small)
+    tbl
+
 if barstate.islast
     if not na(qaTable)
         table.delete(qaTable)
         qaTable := na
     if qaMode
-        qaTable := table.new(position.top_right, 2, 24,
-             bgcolor = color.new(color.rgb(10, 12, 30), 5),
-             border_width = 1, border_color = color.new(color.yellow, 60))
-        hBg2 = color.new(color.rgb(30, 20, 60), 0)
-        qr = 0
-        table.cell(qaTable, 0, qr, "QA MODE", text_color = color.yellow, text_size = size.small, bgcolor = hBg2)
-        table.cell(qaTable, 1, qr, "SMC v6", text_color = color.yellow, text_size = size.small, bgcolor = hBg2)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "timeBasis", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, timeBasis, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "tzMain", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, tzMain, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "tzLondon/NY", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, tzLondon + " / " + tzNy, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Sessions", text_color = color.new(color.white, 20), text_size = size.small)
-        sessStr = "L:" + str.tostring(inLondon) + " NY:" + str.tostring(inNewYork) + " T:" + str.tostring(inTokyo) + " S:" + str.tostring(inSydney)
-        table.cell(qaTable, 1, qr, sessStr, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "inSessionFinal", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, str.tostring(inSessionFinal), text_color = inSessionFinal ? bullCol : bearCol, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "KZ/SB/Judas", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, "KZ:" + str.tostring(inAnyKz) + " SB:" + str.tostring(inAnySB) + " J:" + str.tostring(inJudas),
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "PO3 Phase", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, "Acc:" + str.tostring(inPo3Accum) + " Man:" + str.tostring(inPo3Manip) + " Dist:" + str.tostring(inPo3Dist),
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Strategy States", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, "S1b:" + str.tostring(s1BullState) + " S1s:" + str.tostring(s1BearState) + " S3:" + str.tostring(s3State) + " S4:" + str.tostring(s4State),
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "S2 Armed", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, "B:" + str.tostring(s2BullRaided) + " S:" + str.tostring(s2BearRaided),
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Last Raid", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, "B:" + bullRaidSrc + " S:" + bearRaidSrc,
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Priority Winner", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, sigStrat > 0 ? debugWinner + " (" + sigSetupType + ")" : "none",
-             text_color = sigStrat > 0 ? bullCol : color.gray, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Candidates", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, debugCandidates != "" ? debugCandidates : "none",
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Entry Price", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, not na(sigEntry) ? str.tostring(sigEntry, format.mintick) + " (" + sigEntrySrc + ")" : "–",
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Exec Mode", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, executionMode, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Risk Mode", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, riskMode, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Eff. Threshold", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, str.tostring(effectiveThreshold) + " (base:" + str.tostring(scoreThreshold) + " shift:" + str.tostring(adaptiveShift) + ")",
-             text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Cooldown", text_color = color.new(color.white, 20), text_size = size.small)
-        cdText = not na(cooldownUntilBar) and bar_index < cooldownUntilBar ?
-             str.tostring(cooldownUntilBar - bar_index) + " bars (streak:" + str.tostring(adaptiveLossStreak) + ")" : "none"
-        table.cell(qaTable, 1, qr, cdText, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Toggles", text_color = color.new(color.white, 20), text_size = size.small)
-        togStr = "Dash:" + str.tostring(showDash) + " Sweep:" + str.tostring(showSweepMarks) +
-             " PDH:" + str.tostring(showPDHL) + " EQL:" + str.tostring(showEqlHL) +
-             " SessHL:" + str.tostring(showSessionHL) + " Exec:" + str.tostring(showExecZone)
-        table.cell(qaTable, 1, qr, togStr, text_color = color.white, text_size = size.small)
-        qr += 1
-
-        table.cell(qaTable, 0, qr, "Pending Zone", text_color = color.new(color.white, 20), text_size = size.small)
-        table.cell(qaTable, 1, qr, anyPending ? "YES" : "no",
-             text_color = anyPending ? bullCol : color.gray, text_size = size.small)
+        qaTable := drawQATable()
