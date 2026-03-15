@@ -30,20 +30,23 @@ showDebug       = input.bool(false, "Show Debug Labels", group = grpGeneral)
 
 // ── Sessions ─────────────────────────────────────────────────
 useSessions     = input.bool(true, "Enable Session Filter", group = grpSessions)
-timezoneMode    = input.string("NY", "Timezone Anchor", options = ["NY", "UTC"], group = grpSessions,
-     tooltip = "NY = America/New_York (auto-DST). UTC = fixed UTC hours.")
+sessionProfile  = input.string("ICT_NY", "Session Time Profile", options = ["ICT_NY", "LOCAL", "UTC"], group = grpSessions,
+     tooltip = "ICT_NY = all sessions in Eastern Time (default). LOCAL = each session in its native IANA timezone (update hour strings to local time). UTC = all in UTC.")
 londonEn        = input.bool(true, "London Session", group = grpSessions)
-londonSess      = input.session("0200-1100", "London Hours (ET)", group = grpSessions)
+londonSess      = input.session("0200-1100", "London Hours", group = grpSessions,
+     tooltip = "ICT_NY: ET. LOCAL: Europe/London local. UTC: UTC.")
 newyorkEn       = input.bool(true, "New York Session", group = grpSessions)
-newyorkSess     = input.session("0800-1700", "New York Hours (ET)", group = grpSessions)
+newyorkSess     = input.session("0800-1700", "New York Hours", group = grpSessions,
+     tooltip = "ICT_NY: ET. LOCAL: America/New_York local. UTC: UTC.")
 tokyoEn         = input.bool(false, "Tokyo Session", group = grpSessions)
-tokyoSess       = input.session("1900-0400", "Tokyo Hours (ET)", group = grpSessions)
+tokyoSess       = input.session("1900-0400", "Tokyo Hours", group = grpSessions,
+     tooltip = "ICT_NY: ET. LOCAL: Asia/Tokyo local. UTC: UTC.")
 sydneyEn        = input.bool(false, "Sydney Session", group = grpSessions)
-sydneySess      = input.session("1700-0200", "Sydney Hours (ET)", group = grpSessions)
+sydneySess      = input.session("1700-0200", "Sydney Hours", group = grpSessions,
+     tooltip = "ICT_NY: ET. LOCAL: Australia/Sydney local. UTC: UTC.")
 overlapEn       = input.bool(true, "London-NY Overlap Highlight", group = grpSessions)
-overlapSess     = input.session("0800-1100", "Overlap Hours (ET)", group = grpSessions)
 excludeLunch    = input.bool(false, "Exclude Lunch Window", group = grpSessions)
-lunchSess       = input.session("1200-1300", "Lunch Hours (ET)", group = grpSessions)
+lunchSess       = input.session("1200-1300", "Lunch Hours (NY)", group = grpSessions)
 showSessionBg   = input.bool(true, "Show Session Background", group = grpSessions)
 
 // ── Kill Zones (ET-anchored) ─────────────────────────────────
@@ -158,6 +161,11 @@ bearCol         = input.color(color.new(#ff3d5a, 0), "Bear Color", group = grpDi
 fvgCol          = input.color(color.new(#a78bfa, 0), "FVG Zone Color", group = grpDisplay)
 smtCol          = input.color(color.new(#f59e0b, 0), "SMT Color", group = grpDisplay)
 sessionCol      = input.color(color.new(#3b82f6, 90), "Session BG Color", group = grpDisplay)
+showExecZone    = input.bool(true, "Show Execution Zone", group = grpDisplay,
+     tooltip = "Highlights the FVG zone used for entry and the swept liquidity level.")
+execZoneCol     = input.color(color.new(#00e5ff, 0), "Execution Zone Color", group = grpDisplay)
+maxDrawnTrades  = input.int(5, "Max Trade Drawings", minval = 1, maxval = 15, group = grpDisplay,
+     tooltip = "Max trade box sets on chart. Oldest deleted when exceeded.")
 
 // ── Adaptive Engine ──────────────────────────────────────────
 profileMode     = input.string("AUTO", "Profile Mode", options = ["AUTO", "MANUAL"], group = grpAdaptive)
@@ -270,40 +278,52 @@ tfOk = not requireTfCheck or chartTfMins <= executionTfMax
 // ═══════════════════════════════════════════════════════════════
 //  2. SESSION ENGINE (timezone-aware)
 // ═══════════════════════════════════════════════════════════════
-tzStr = timezoneMode == "NY" ? "America/New_York" : "Etc/UTC"
+// IANA timezone constants
+string TZ_LONDON = "Europe/London"
+string TZ_NY     = "America/New_York"
+string TZ_TOKYO  = "Asia/Tokyo"
+string TZ_SYDNEY = "Australia/Sydney"
+string TZ_UTC    = "Etc/UTC"
 
-inSessionCheck(sess, en) =>
-    en and not na(time(timeframe.period, sess, tzStr))
+// Resolve timezone per session based on profile
+tzForSession(string localTz) =>
+    sessionProfile == "LOCAL" ? localTz : sessionProfile == "UTC"   ? TZ_UTC  : TZ_NY
 
-inLondon    = inSessionCheck(londonSess, londonEn)
-inNewYork   = inSessionCheck(newyorkSess, newyorkEn)
-inTokyo     = inSessionCheck(tokyoSess, tokyoEn)
-inSydney    = inSessionCheck(sydneySess, sydneyEn)
-inOverlap   = inSessionCheck(overlapSess, overlapEn)
-inLunch     = inSessionCheck(lunchSess, excludeLunch)
+string tzLondon = tzForSession(TZ_LONDON)
+string tzNy     = tzForSession(TZ_NY)
+string tzTokyo  = tzForSession(TZ_TOKYO)
+string tzSydney = tzForSession(TZ_SYDNEY)
+
+// Each session interpreted in its own timezone (DST-safe via IANA)
+inLondon    = londonEn  and not na(time(timeframe.period, londonSess, tzLondon))
+inNewYork   = newyorkEn and not na(time(timeframe.period, newyorkSess, tzNy))
+inTokyo     = tokyoEn   and not na(time(timeframe.period, tokyoSess, tzTokyo))
+inSydney    = sydneyEn  and not na(time(timeframe.period, sydneySess, tzSydney))
+
+// Overlap = true intersection of London AND NY (DST-safe, no separate session string)
+inOverlap   = overlapEn and inLondon and inNewYork
+inLunch     = excludeLunch and not na(time(timeframe.period, lunchSess, tzNy))
 
 inAnySession = not useSessions or (inLondon or inNewYork or inTokyo or inSydney)
 inSessionFinal = inAnySession and not inLunch
 
-// Kill zones
-inLondonKz  = not na(time(timeframe.period, londonKzSess, tzStr))
-inNyAmKz    = not na(time(timeframe.period, nyAmKzSess, tzStr))
-inNyPmKz    = not na(time(timeframe.period, nyPmKzSess, tzStr))
+// Kill zones — London KZ in London TZ, NY KZs in NY TZ
+inLondonKz  = not na(time(timeframe.period, londonKzSess, tzLondon))
+inNyAmKz    = not na(time(timeframe.period, nyAmKzSess, tzNy))
+inNyPmKz    = not na(time(timeframe.period, nyPmKzSess, tzNy))
 inAnyKz     = inLondonKz or inNyAmKz or inNyPmKz
 
-// Silver Bullet windows
-inSbLondon  = not na(time(timeframe.period, sbLondonSess, tzStr))
-inSbNyAm    = not na(time(timeframe.period, sbNyAmSess, tzStr))
-inSbNyPm    = not na(time(timeframe.period, sbNyPmSess, tzStr))
+// Silver Bullet — London SB in London TZ, NY SBs in NY TZ
+inSbLondon  = not na(time(timeframe.period, sbLondonSess, tzLondon))
+inSbNyAm    = not na(time(timeframe.period, sbNyAmSess, tzNy))
+inSbNyPm    = not na(time(timeframe.period, sbNyPmSess, tzNy))
 inAnySB     = inSbLondon or inSbNyAm or inSbNyPm
 
-// Judas window
-inJudas     = not na(time(timeframe.period, judasSess, tzStr))
-
-// PO3 session phases
-inPo3Accum  = not na(time(timeframe.period, po3AccumSess, tzStr))
-inPo3Manip  = not na(time(timeframe.period, po3ManipSess, tzStr))
-inPo3Dist   = not na(time(timeframe.period, po3DistSess, tzStr))
+// Judas + PO3: always NY time (ICT model anchoring)
+inJudas     = not na(time(timeframe.period, judasSess, TZ_NY))
+inPo3Accum  = not na(time(timeframe.period, po3AccumSess, TZ_NY))
+inPo3Manip  = not na(time(timeframe.period, po3ManipSess, TZ_NY))
+inPo3Dist   = not na(time(timeframe.period, po3DistSess, TZ_NY))
 
 // Session background
 sessionBgColor = showSessionBg ? (inOverlap ? color.new(#f59e0b, 95) :
@@ -340,13 +360,16 @@ pivotL = ta.pivotlow(low, pivotLen, pivotLen)
 var float lastSwH = na, var float lastSwL = na
 var int lastSwHBar = na, var int lastSwLBar = na
 var float prevSwH = na, var float prevSwL = na
+var int prevSwHBar = na, var int prevSwLBar = na
 
 if not na(pivotH)
     prevSwH    := lastSwH
+    prevSwHBar := lastSwHBar
     lastSwH    := pivotH
     lastSwHBar := bar_index - pivotLen
 if not na(pivotL)
     prevSwL    := lastSwL
+    prevSwLBar := lastSwLBar
     lastSwL    := pivotL
     lastSwLBar := bar_index - pivotLen
 
@@ -397,15 +420,35 @@ if showPDHL and usePDHL and not na(pdh) and barstate.islast
 var float sessH = na, var float sessL = na
 var float prevSessH = na, var float prevSessL = na
 
-sessionStart = (inLondon and not inLondon[1]) or (inNewYork and not inNewYork[1])
+// Session start detection — includes all 4 sessions
+bool londonStart  = inLondon  and not inLondon[1]
+bool nyStart      = inNewYork and not inNewYork[1]
+bool tokyoStart   = inTokyo   and not inTokyo[1]
+bool sydneyStart  = inSydney  and not inSydney[1]
+sessionStart = londonStart or nyStart or tokyoStart or sydneyStart
+
 if sessionStart
     prevSessH := sessH
     prevSessL := sessL
     sessH := high
     sessL := low
-else if inAnySession
+else if inLondon or inNewYork or inTokyo or inSydney
     sessH := math.max(nz(sessH, high), high)
     sessL := math.min(nz(sessL, low), low)
+
+// ── Session H/L line rendering ───────────────────────────────
+var line sessHLine = na, var line sessLLine = na
+if showSessionHL and useSessionHL and barstate.islast
+    if not na(sessHLine)
+        line.delete(sessHLine)
+    if not na(sessLLine)
+        line.delete(sessLLine)
+    if not na(sessH)
+        sessHLine := line.new(bar_index - 30, sessH, bar_index + 5, sessH,
+             color = color.new(bearCol, 55), style = line.style_dotted, width = 1)
+    if not na(sessL)
+        sessLLine := line.new(bar_index - 30, sessL, bar_index + 5, sessL,
+             color = color.new(bullCol, 55), style = line.style_dotted, width = 1)
 
 // ── Equal Highs/Lows Detection ───────────────────────────────
 eqlTol = eqlTolMode == "atr" ? atr14 * eqlTolValue : eqlTolValue * syminfo.mintick
@@ -414,14 +457,30 @@ var float eqhLevel = na, var int eqhBar = na
 var float eqlLevel = na, var int eqlBar = na
 
 if useEqlHL and not na(pivotH) and not na(prevSwH)
-    if math.abs(pivotH - prevSwH) <= eqlTol and not na(lastSwHBar)
+    barsApart = not na(prevSwHBar) ? (bar_index - pivotLen) - prevSwHBar : 9999
+    if math.abs(pivotH - prevSwH) <= eqlTol and barsApart <= eqlMaxBars
         eqhLevel := (pivotH + prevSwH) / 2.0
         eqhBar   := bar_index
 
 if useEqlHL and not na(pivotL) and not na(prevSwL)
-    if math.abs(pivotL - prevSwL) <= eqlTol and not na(lastSwLBar)
+    barsApart = not na(prevSwLBar) ? (bar_index - pivotLen) - prevSwLBar : 9999
+    if math.abs(pivotL - prevSwL) <= eqlTol and barsApart <= eqlMaxBars
         eqlLevel := (pivotL + prevSwL) / 2.0
         eqlBar   := bar_index
+
+// ── EQL/EQH line rendering ──────────────────────────────────
+var line eqhLine = na, var line eqlLine2 = na
+if showEqlHL and useEqlHL and barstate.islast
+    if not na(eqhLine)
+        line.delete(eqhLine)
+    if not na(eqlLine2)
+        line.delete(eqlLine2)
+    if not na(eqhLevel)
+        eqhLine := line.new(nz(eqhBar, bar_index - 20), eqhLevel, bar_index + 5, eqhLevel,
+             color = color.new(bearCol, 35), style = line.style_dotted, width = 1)
+    if not na(eqlLevel)
+        eqlLine2 := line.new(nz(eqlBar, bar_index - 20), eqlLevel, bar_index + 5, eqlLevel,
+             color = color.new(bullCol, 35), style = line.style_dotted, width = 1)
 
 // ── Premium / Discount Zones ─────────────────────────────────
 dealingRangeH = math.max(nz(lastSwH, high), nz(pdh, high))
@@ -510,11 +569,15 @@ dispRef = dispMetric == "atr" ? atr14 * dispThreshold : stdevClose * dispThresho
 bullDisplace = bullCandle and bodySize >= dispRef and bodyPct >= 0.55
 bearDisplace = bearCandle and bodySize >= dispRef and bodyPct >= 0.55
 
+// Displacement filter gate — when useDispFilter is off, displacement is not required
+bullDisplaceOk = not useDispFilter or bullDisplace
+bearDisplaceOk = not useDispFilter or bearDisplace
+
 // Volume spike
 volAvg = ta.sma(volume, volLookback)
 volSpikeOk = not useVolSpike or (volume >= volAvg * volMultiple)
 
-// RSI filter
+// RSI filter (wired into strategy entry conditions below)
 rsiBullOk = not useRsiFilter or rsiValue <= rsiOS or (rsiValue[1] <= rsiOS and rsiValue > rsiOS)
 rsiBearOk = not useRsiFilter or rsiValue >= rsiOB or (rsiValue[1] >= rsiOB and rsiValue < rsiOB)
 
@@ -529,12 +592,12 @@ bearMSS = useMSS and not na(mssLastL) and close < mssLastL and close[1] >= mssLa
 var bool bullMSSActive = false, var int bullMSSBar = na, var float bullMSSLevel = na
 var bool bearMSSActive = false, var int bearMSSBar = na, var float bearMSSLevel = na
 
-if bullMSS and bullDisplace
+if bullMSS and bullDisplaceOk
     bullMSSActive := true
     bullMSSBar    := bar_index
     bullMSSLevel  := mssLastH
 
-if bearMSS and bearDisplace
+if bearMSS and bearDisplaceOk
     bearMSSActive := true
     bearMSSBar    := bar_index
     bearMSSLevel  := mssLastL
@@ -592,19 +655,31 @@ eqhRaid = useEqlHL and not na(eqhLevel) and high > eqhLevel + sweepTol and close
 prevSessHRaid = useSessionHL and not na(prevSessH) and high > prevSessH + sweepTol and close < prevSessH
 anyBearRaid = bslRaid or pdhRaid or eqhRaid or prevSessHRaid
 
-// Track most recent raid
+// ── Identify which liquidity source was raided (truthful labels) ──
+curBullRaidSrc = anyBullRaid ? (eqlRaid ? "EQL" : pdlRaid ? "PDL" : prevSessLRaid ? "SessL" : "SSL") : ""
+curBullRaidLvl = anyBullRaid ? (eqlRaid ? eqlLevel : pdlRaid ? pdl : prevSessLRaid ? prevSessL : ssl) : na
+curBearRaidSrc = anyBearRaid ? (eqhRaid ? "EQH" : pdhRaid ? "PDH" : prevSessHRaid ? "SessH" : "BSL") : ""
+curBearRaidLvl = anyBearRaid ? (eqhRaid ? eqhLevel : pdhRaid ? pdh : prevSessHRaid ? prevSessH : bsl) : na
+
+// Track most recent raid with source provenance
 var bool bullRaidPending = false, var int bullRaidBar = na, var float bullRaidLow = na
+var string bullRaidSrc = "", var float bullRaidLvl = na
 var bool bearRaidPending = false, var int bearRaidBar = na, var float bearRaidHigh = na
+var string bearRaidSrc = "", var float bearRaidLvl = na
 
 if anyBullRaid
     bullRaidPending := true
     bullRaidBar     := bar_index
     bullRaidLow     := low
+    bullRaidSrc     := curBullRaidSrc
+    bullRaidLvl     := curBullRaidLvl
 
 if anyBearRaid
     bearRaidPending := true
     bearRaidBar     := bar_index
     bearRaidHigh    := high
+    bearRaidSrc     := curBearRaidSrc
+    bearRaidLvl     := curBearRaidLvl
 
 // Expire stale raids
 if bullRaidPending and not na(bullRaidBar) and bar_index - bullRaidBar > cancelBars
@@ -718,7 +793,7 @@ var float judasExtreme = na
 var int judasRaidBar = na
 
 midnightSession = "0000-0001"
-isMidnight = not na(time(timeframe.period, midnightSession, tzStr))
+isMidnight = not na(time(timeframe.period, midnightSession, TZ_NY))
 if isMidnight and (na(judasOpenRef) or isMidnight and not isMidnight[1])
     judasOpenRef  := open
     judasRaidDone := false
@@ -752,6 +827,12 @@ var float  sigTP2       = na
 var int    sigScore     = 0
 var string sigSetupType = ""
 
+// Signal context — stores which zone/raid created this signal (for rendering)
+var float  sigZoneHi    = na
+var float  sigZoneLo    = na
+var string sigRaidSrc   = ""
+var float  sigRaidLvl   = na
+
 // Reset each bar
 sigStrat := 0
 sigBull  := false
@@ -761,6 +842,10 @@ sigSL    := na
 sigTP1   := na
 sigTP2   := na
 sigScore := 0
+sigZoneHi := na
+sigZoneLo := na
+sigRaidSrc := ""
+sigRaidLvl := na
 
 // ── Helper: compute entry/SL/TP for a setup ──────────────────
 calcTrade(isBull, entryPrice, raidExtreme, fvgBound) =>
@@ -799,7 +884,7 @@ if strat1En and tfOk
         s1BullRaidLow := low
 
     // State 1 → 2: MSS + Displacement + FVG forms
-    if s1BullState == 1 and bullMSS and bullDisplace and volSpikeOk
+    if s1BullState == 1 and bullMSS and bullDisplaceOk and volSpikeOk
         hasFvg = not na(lastBullFvgBar) and bar_index - lastBullFvgBar <= 3
         if hasFvg
             s1BullState := 2
@@ -818,7 +903,7 @@ if strat1En and tfOk
         fvgCE = (s1BullFvgHi + s1BullFvgLo) / 2.0
         entryLevel = fvgUseCE ? fvgCE : s1BullFvgHi
         priceRetraced = low <= s1BullFvgHi and close >= s1BullFvgLo
-        if priceRetraced and inSessionFinal and htfBullOk and premDiscOk(true) and barstate.isconfirmed
+        if priceRetraced and inSessionFinal and htfBullOk and premDiscOk(true) and rsiBullOk and barstate.isconfirmed
             entryP = fvgUseCE ? fvgCE : close
             [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s1BullRaidLow, s1BullFvgLo)
             score = calcScore(true, true, true, s1BullHasOB, inAnyKz, smtBullDiv)
@@ -831,6 +916,10 @@ if strat1En and tfOk
                 sigTP2   := tp2
                 sigScore := score
                 sigSetupType := "RAID_MSS_FVG"
+                sigZoneHi := s1BullFvgHi
+                sigZoneLo := s1BullFvgLo
+                sigRaidSrc := bullRaidSrc
+                sigRaidLvl := bullRaidLvl
                 s1BullState := 0
 
     // Expiry
@@ -846,7 +935,7 @@ if strat1En and tfOk
         s1BearBar      := bar_index
         s1BearRaidHigh := high
 
-    if s1BearState == 1 and bearMSS and bearDisplace and volSpikeOk
+    if s1BearState == 1 and bearMSS and bearDisplaceOk and volSpikeOk
         hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 3
         if hasFvg
             s1BearState := 2
@@ -862,7 +951,7 @@ if strat1En and tfOk
     if s1BearState == 2 and not na(s1BearFvgHi) and not na(s1BearFvgLo)
         fvgCE = (s1BearFvgHi + s1BearFvgLo) / 2.0
         priceRetraced = high >= s1BearFvgLo and close <= s1BearFvgHi
-        if priceRetraced and inSessionFinal and htfBearOk and premDiscOk(false) and barstate.isconfirmed
+        if priceRetraced and inSessionFinal and htfBearOk and premDiscOk(false) and rsiBearOk and barstate.isconfirmed
             entryP = fvgUseCE ? fvgCE : close
             [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s1BearRaidHigh, s1BearFvgHi)
             score = calcScore(true, true, true, s1BearHasOB, inAnyKz, smtBearDiv)
@@ -875,6 +964,10 @@ if strat1En and tfOk
                 sigTP2   := tp2
                 sigScore := score
                 sigSetupType := "RAID_MSS_FVG"
+                sigZoneHi := s1BearFvgHi
+                sigZoneLo := s1BearFvgLo
+                sigRaidSrc := bearRaidSrc
+                sigRaidLvl := bearRaidLvl
                 s1BearState := 0
 
     if s1BearState > 0 and not na(s1BearBar) and bar_index - s1BearBar > cancelBars
@@ -888,29 +981,35 @@ if strat1En and tfOk
 var float s2BullFvgHi = na, var float s2BullFvgLo = na, var int s2BullBar = na
 var float s2BearFvgHi = na, var float s2BearFvgLo = na, var int s2BearBar = na
 var bool s2BullRaided = false, var bool s2BearRaided = false
+// S2 stores its own raid extreme to prevent cross-contamination
+var float s2BullRaidLow = na, var string s2BullRaidSrc = ""
+var float s2BearRaidHigh = na, var string s2BearRaidSrc = ""
 
 if strat2En and tfOk and inAnySB and sigStrat == 0
     // Detect qualifying FVGs within Silver Bullet window
     if bullFvgDisp and anyBullRaid
-        s2BullFvgHi := lastBullFvgHi
-        s2BullFvgLo := lastBullFvgLo
-        s2BullBar   := bar_index
-        s2BullRaided := true
+        s2BullFvgHi   := lastBullFvgHi
+        s2BullFvgLo   := lastBullFvgLo
+        s2BullBar     := bar_index
+        s2BullRaided  := true
+        s2BullRaidLow := low
+        s2BullRaidSrc := curBullRaidSrc
 
     if bearFvgDisp and anyBearRaid
-        s2BearFvgHi := lastBearFvgHi
-        s2BearFvgLo := lastBearFvgLo
-        s2BearBar   := bar_index
-        s2BearRaided := true
+        s2BearFvgHi    := lastBearFvgHi
+        s2BearFvgLo    := lastBearFvgLo
+        s2BearBar      := bar_index
+        s2BearRaided   := true
+        s2BearRaidHigh := high
+        s2BearRaidSrc  := curBearRaidSrc
 
     // Entry on FVG mitigation within window
     if s2BullRaided and not na(s2BullFvgHi)
         priceRetraced = low <= s2BullFvgHi and close >= s2BullFvgLo
-        if priceRetraced and htfBullOk and barstate.isconfirmed
+        if priceRetraced and htfBullOk and rsiBullOk and barstate.isconfirmed
             fvgCE = (s2BullFvgHi + s2BullFvgLo) / 2.0
             entryP = fvgUseCE ? fvgCE : close
-            raidLow = nz(bullRaidLow, low)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, raidLow, s2BullFvgLo)
+            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s2BullRaidLow, s2BullFvgLo)
             score = calcScore(true, false, true, false, true, smtBullDiv)
             if riskOk and scorePassesThreshold(score)
                 sigStrat := 2
@@ -921,16 +1020,19 @@ if strat2En and tfOk and inAnySB and sigStrat == 0
                 sigTP2   := tp2
                 sigScore := score
                 sigSetupType := "SILVER_BULLET"
+                sigZoneHi := s2BullFvgHi
+                sigZoneLo := s2BullFvgLo
+                sigRaidSrc := s2BullRaidSrc
+                sigRaidLvl := nz(bullRaidLvl)
                 s2BullRaided := false
                 s2BullFvgHi  := na
 
     if s2BearRaided and not na(s2BearFvgHi)
         priceRetraced = high >= s2BearFvgLo and close <= s2BearFvgHi
-        if priceRetraced and htfBearOk and barstate.isconfirmed
+        if priceRetraced and htfBearOk and rsiBearOk and barstate.isconfirmed
             fvgCE = (s2BearFvgHi + s2BearFvgLo) / 2.0
             entryP = fvgUseCE ? fvgCE : close
-            raidHigh = nz(bearRaidHigh, high)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, raidHigh, s2BearFvgHi)
+            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s2BearRaidHigh, s2BearFvgHi)
             score = calcScore(true, false, true, false, true, smtBearDiv)
             if riskOk and scorePassesThreshold(score)
                 sigStrat := 2
@@ -941,6 +1043,10 @@ if strat2En and tfOk and inAnySB and sigStrat == 0
                 sigTP2   := tp2
                 sigScore := score
                 sigSetupType := "SILVER_BULLET"
+                sigZoneHi := s2BearFvgHi
+                sigZoneLo := s2BearFvgLo
+                sigRaidSrc := s2BearRaidSrc
+                sigRaidLvl := nz(bearRaidLvl)
                 s2BearRaided := false
                 s2BearFvgHi  := na
 
@@ -966,14 +1072,14 @@ if strat3En and tfOk and sigStrat == 0
 
     // State 1 → 2: MSS + displacement confirms direction
     if s3State == 1
-        if po3ManipBull and bullMSS and bullDisplace
+        if po3ManipBull and bullMSS and bullDisplaceOk
             hasFvg = not na(lastBullFvgBar) and bar_index - lastBullFvgBar <= 5
             if hasFvg
                 s3State  := 2
                 s3FvgHi  := lastBullFvgHi
                 s3FvgLo  := lastBullFvgLo
                 s3Bar    := bar_index
-        if not po3ManipBull and bearMSS and bearDisplace
+        if not po3ManipBull and bearMSS and bearDisplaceOk
             hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 5
             if hasFvg
                 s3State  := 2
@@ -985,7 +1091,7 @@ if strat3En and tfOk and sigStrat == 0
     if s3State == 2 and inPo3Dist and not na(s3FvgHi) and not na(s3FvgLo)
         if po3ManipBull
             priceRetraced = low <= s3FvgHi and close >= s3FvgLo
-            if priceRetraced and barstate.isconfirmed
+            if priceRetraced and rsiBullOk and barstate.isconfirmed
                 fvgCE = (s3FvgHi + s3FvgLo) / 2.0
                 entryP = fvgUseCE ? fvgCE : close
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(po3ManipExtreme, low), s3FvgLo)
@@ -999,10 +1105,14 @@ if strat3En and tfOk and sigStrat == 0
                     sigTP2   := tp2
                     sigScore := score
                     sigSetupType := "PO3_AMD"
+                    sigZoneHi := s3FvgHi
+                    sigZoneLo := s3FvgLo
+                    sigRaidSrc := "PO3_Manip"
+                    sigRaidLvl := nz(po3ManipExtreme)
                     s3State  := 0
         else
             priceRetraced = high >= s3FvgLo and close <= s3FvgHi
-            if priceRetraced and barstate.isconfirmed
+            if priceRetraced and rsiBearOk and barstate.isconfirmed
                 fvgCE = (s3FvgHi + s3FvgLo) / 2.0
                 entryP = fvgUseCE ? fvgCE : close
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(po3ManipExtreme, high), s3FvgHi)
@@ -1016,6 +1126,10 @@ if strat3En and tfOk and sigStrat == 0
                     sigTP2   := tp2
                     sigScore := score
                     sigSetupType := "PO3_AMD"
+                    sigZoneHi := s3FvgHi
+                    sigZoneLo := s3FvgLo
+                    sigRaidSrc := "PO3_Manip"
+                    sigRaidLvl := nz(po3ManipExtreme)
                     s3State  := 0
 
     // Expiry
@@ -1037,14 +1151,14 @@ if strat4En and tfOk and sigStrat == 0
 
     // State 1 → 2: MSS + displacement + FVG
     if s4State == 1
-        if judasIsBull and bullMSS and bullDisplace
+        if judasIsBull and bullMSS and bullDisplaceOk
             hasFvg = not na(lastBullFvgBar) and bar_index - lastBullFvgBar <= 5
             if hasFvg
                 s4State := 2
                 s4FvgHi := lastBullFvgHi
                 s4FvgLo := lastBullFvgLo
                 s4Bar   := bar_index
-        if not judasIsBull and bearMSS and bearDisplace
+        if not judasIsBull and bearMSS and bearDisplaceOk
             hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 5
             if hasFvg
                 s4State := 2
@@ -1056,7 +1170,7 @@ if strat4En and tfOk and sigStrat == 0
     if s4State == 2 and not na(s4FvgHi) and not na(s4FvgLo)
         if judasIsBull
             priceRetraced = low <= s4FvgHi and close >= s4FvgLo
-            if priceRetraced and inSessionFinal and barstate.isconfirmed
+            if priceRetraced and inSessionFinal and rsiBullOk and barstate.isconfirmed
                 fvgCE = (s4FvgHi + s4FvgLo) / 2.0
                 entryP = fvgUseCE ? fvgCE : close
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(judasExtreme, low), s4FvgLo)
@@ -1070,10 +1184,14 @@ if strat4En and tfOk and sigStrat == 0
                     sigTP2   := tp2
                     sigScore := score
                     sigSetupType := "JUDAS_SWING"
+                    sigZoneHi := s4FvgHi
+                    sigZoneLo := s4FvgLo
+                    sigRaidSrc := "Judas"
+                    sigRaidLvl := nz(judasExtreme)
                     s4State  := 0
         else
             priceRetraced = high >= s4FvgLo and close <= s4FvgHi
-            if priceRetraced and inSessionFinal and barstate.isconfirmed
+            if priceRetraced and inSessionFinal and rsiBearOk and barstate.isconfirmed
                 fvgCE = (s4FvgHi + s4FvgLo) / 2.0
                 entryP = fvgUseCE ? fvgCE : close
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(judasExtreme, high), s4FvgHi)
@@ -1087,6 +1205,10 @@ if strat4En and tfOk and sigStrat == 0
                     sigTP2   := tp2
                     sigScore := score
                     sigSetupType := "JUDAS_SWING"
+                    sigZoneHi := s4FvgHi
+                    sigZoneLo := s4FvgLo
+                    sigRaidSrc := "Judas"
+                    sigRaidLvl := nz(judasExtreme)
                     s4State  := 0
 
     // Expiry
@@ -1098,9 +1220,9 @@ if strat4En and tfOk and sigStrat == 0
 // ═══════════════════════════════════════════════════════════════
 if strat5En and smtEn and tfOk and sigStrat == 0
     // Bullish SMT: divergence at liquidity + MSS + FVG
-    if smtBullDiv and anyBullRaid and bullMSS and bullDisplace
+    if smtBullDiv and anyBullRaid and bullMSS and bullDisplaceOk
         hasFvg = not na(lastBullFvgBar) and bar_index - lastBullFvgBar <= 5
-        if hasFvg and inSessionFinal and barstate.isconfirmed
+        if hasFvg and inSessionFinal and rsiBullOk and barstate.isconfirmed
             fvgCE = (lastBullFvgHi + lastBullFvgLo) / 2.0
             entryP = fvgUseCE ? fvgCE : close
             [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(bullRaidLow, low), lastBullFvgLo)
@@ -1114,12 +1236,16 @@ if strat5En and smtEn and tfOk and sigStrat == 0
                 sigTP2   := tp2
                 sigScore := score
                 sigSetupType := "SMT_REVERSAL"
+                sigZoneHi := lastBullFvgHi
+                sigZoneLo := lastBullFvgLo
+                sigRaidSrc := bullRaidSrc
+                sigRaidLvl := bullRaidLvl
                 smtBullDiv := false
 
     // Bearish SMT
-    if smtBearDiv and anyBearRaid and bearMSS and bearDisplace
+    if smtBearDiv and anyBearRaid and bearMSS and bearDisplaceOk
         hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 5
-        if hasFvg and inSessionFinal and barstate.isconfirmed
+        if hasFvg and inSessionFinal and rsiBearOk and barstate.isconfirmed
             fvgCE = (lastBearFvgHi + lastBearFvgLo) / 2.0
             entryP = fvgUseCE ? fvgCE : close
             [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(bearRaidHigh, high), lastBearFvgHi)
@@ -1133,6 +1259,10 @@ if strat5En and smtEn and tfOk and sigStrat == 0
                 sigTP2   := tp2
                 sigScore := score
                 sigSetupType := "SMT_REVERSAL"
+                sigZoneHi := lastBearFvgHi
+                sigZoneLo := lastBearFvgLo
+                sigRaidSrc := bearRaidSrc
+                sigRaidLvl := bearRaidLvl
                 smtBearDiv := false
 
 // ═══════════════════════════════════════════════════════════════
@@ -1366,25 +1496,28 @@ if array.size(activeTradeId) > 0
         idx -= 1
 
 // ═══════════════════════════════════════════════════════════════
-//  19. TRADE ZONE BOXES
+//  19. TRADE ZONE BOXES (with drawing lifecycle)
 // ═══════════════════════════════════════════════════════════════
+var box[]  trdBoxes = array.new_box(0)
+var line[] trdLines = array.new_line(0)
+
 drawTradeBoxes(entryPrice, slPrice, tp1Price, tp2Price, isBull) =>
     slBg  = color.new(bearCol, 82), slBrd  = color.new(bearCol, 45)
     tp1Bg = color.new(bullCol, 76), tp1Brd = color.new(bullCol, 38)
     tp2Bg = color.new(bullCol, 90), tp2Brd = color.new(bullCol, 62)
     ext   = bar_index + tradeExtBars
     if isBull
-        box.new(bar_index, entryPrice, ext, slPrice, bgcolor = slBg, border_color = slBrd, border_width = 1)
-        box.new(bar_index, tp1Price, ext, entryPrice, bgcolor = tp1Bg, border_color = tp1Brd, border_width = 1)
-        box.new(bar_index, tp2Price, ext, tp1Price, bgcolor = tp2Bg, border_color = tp2Brd, border_style = line.style_dashed, border_width = 1)
+        array.push(trdBoxes, box.new(bar_index, entryPrice, ext, slPrice, bgcolor = slBg, border_color = slBrd, border_width = 1))
+        array.push(trdBoxes, box.new(bar_index, tp1Price, ext, entryPrice, bgcolor = tp1Bg, border_color = tp1Brd, border_width = 1))
+        array.push(trdBoxes, box.new(bar_index, tp2Price, ext, tp1Price, bgcolor = tp2Bg, border_color = tp2Brd, border_style = line.style_dashed, border_width = 1))
     else
-        box.new(bar_index, slPrice, ext, entryPrice, bgcolor = slBg, border_color = slBrd, border_width = 1)
-        box.new(bar_index, entryPrice, ext, tp1Price, bgcolor = tp1Bg, border_color = tp1Brd, border_width = 1)
-        box.new(bar_index, tp1Price, ext, tp2Price, bgcolor = tp2Bg, border_color = tp2Brd, border_style = line.style_dashed, border_width = 1)
-    line.new(bar_index, entryPrice, ext, entryPrice, color = color.new(color.white, 30), style = line.style_solid, width = 1)
-    line.new(bar_index, slPrice, ext, slPrice, color = color.new(bearCol, 15), style = line.style_dashed, width = 1)
-    line.new(bar_index, tp1Price, ext, tp1Price, color = color.new(bullCol, 20), style = line.style_dotted, width = 1)
-    line.new(bar_index, tp2Price, ext, tp2Price, color = color.new(bullCol, 5), style = line.style_dashed, width = 2)
+        array.push(trdBoxes, box.new(bar_index, slPrice, ext, entryPrice, bgcolor = slBg, border_color = slBrd, border_width = 1))
+        array.push(trdBoxes, box.new(bar_index, entryPrice, ext, tp1Price, bgcolor = tp1Bg, border_color = tp1Brd, border_width = 1))
+        array.push(trdBoxes, box.new(bar_index, tp1Price, ext, tp2Price, bgcolor = tp2Bg, border_color = tp2Brd, border_style = line.style_dashed, border_width = 1))
+    array.push(trdLines, line.new(bar_index, entryPrice, ext, entryPrice, color = color.new(color.white, 30), style = line.style_solid, width = 1))
+    array.push(trdLines, line.new(bar_index, slPrice, ext, slPrice, color = color.new(bearCol, 15), style = line.style_dashed, width = 1))
+    array.push(trdLines, line.new(bar_index, tp1Price, ext, tp1Price, color = color.new(bullCol, 20), style = line.style_dotted, width = 1))
+    array.push(trdLines, line.new(bar_index, tp2Price, ext, tp2Price, color = color.new(bullCol, 5), style = line.style_dashed, width = 2))
 
 // Strategy signals
 if finalBuy and hasStratSignal and not na(sigSL) and not na(sigTP1) and not na(sigTP2)
@@ -1400,20 +1533,86 @@ if fvgBuySignal and not hasStratSignal and not na(fvgBuySL) and not na(fvgBuyTP1
 if fvgSellSignal and not hasStratSignal and not na(fvgSellSL) and not na(fvgSellTP1) and not na(fvgSellTP)
     drawTradeBoxes(fvgSellEntry, fvgSellSL, fvgSellTP1, fvgSellTP, false)
 
+// Drawing lifecycle: delete oldest trade drawings when exceeding maxDrawnTrades
+while array.size(trdBoxes) > maxDrawnTrades * 3
+    box.delete(array.shift(trdBoxes))
+while array.size(trdLines) > maxDrawnTrades * 4
+    line.delete(array.shift(trdLines))
+
 // ═══════════════════════════════════════════════════════════════
-//  20. SIGNAL LABELS
+//  19b. EXECUTION ZONE RENDERING
 // ═══════════════════════════════════════════════════════════════
-// Strategy signals
+var box execBox = na
+var line raidRefLine = na
+var label raidRefLbl = na
+
+// Pending execution zone — shows FVG zone while strategy awaits mitigation
+bool s1BullPending = s1BullState == 2 and not na(s1BullFvgHi)
+bool s1BearPending = s1BearState == 2 and not na(s1BearFvgHi)
+bool s3Pending = s3State == 2 and not na(s3FvgHi)
+bool s4Pending = s4State == 2 and not na(s4FvgHi)
+bool anyPending = s1BullPending or s1BearPending or s3Pending or s4Pending
+float pendHi = s1BullPending ? s1BullFvgHi : s1BearPending ? s1BearFvgHi : s3Pending ? s3FvgHi : s4Pending ? s4FvgHi : na
+float pendLo = s1BullPending ? s1BullFvgLo : s1BearPending ? s1BearFvgLo : s3Pending ? s3FvgLo : s4Pending ? s4FvgLo : na
+
+var box pendingZoneBox = na
+if anyPending and showExecZone and not na(pendHi)
+    if na(pendingZoneBox)
+        pendingZoneBox := box.new(bar_index, pendHi, bar_index + 5, pendLo,
+             bgcolor = color.new(execZoneCol, 88), border_color = color.new(execZoneCol, 50),
+             border_width = 1, border_style = line.style_dashed)
+    else
+        box.set_top(pendingZoneBox, pendHi)
+        box.set_bottom(pendingZoneBox, pendLo)
+        box.set_right(pendingZoneBox, bar_index + 5)
+else if not na(pendingZoneBox)
+    box.delete(pendingZoneBox)
+    pendingZoneBox := na
+
+// Execution zone box — drawn on signal, highlights the actual FVG used for entry
+if (finalBuy or finalSell) and showExecZone
+    // Clean previous exec zone
+    if not na(execBox)
+        box.delete(execBox)
+    if not na(raidRefLine)
+        line.delete(raidRefLine)
+    if not na(raidRefLbl)
+        label.delete(raidRefLbl)
+    // Draw new exec zone from signal context
+    if hasStratSignal and not na(sigZoneHi) and not na(sigZoneLo)
+        execBox := box.new(bar_index - 5, sigZoneHi, bar_index + 10, sigZoneLo,
+             bgcolor = color.new(execZoneCol, 78), border_color = color.new(execZoneCol, 15), border_width = 2)
+        if not na(sigRaidLvl)
+            raidRefLine := line.new(bar_index - 10, sigRaidLvl, bar_index + 10, sigRaidLvl,
+                 color = color.new(sigBull ? bullCol : bearCol, 30), style = line.style_solid, width = 2)
+            raidRefLbl := label.new(bar_index - 10, sigRaidLvl, sigRaidSrc + " sweep",
+                 style = sigBull ? label.style_label_up : label.style_label_down,
+                 color = color.new(sigBull ? bullCol : bearCol, 70), textcolor = color.white, size = size.tiny)
+    // Delete pending zone on signal
+    if not na(pendingZoneBox)
+        box.delete(pendingZoneBox)
+        pendingZoneBox := na
+
+// Extend exec zone box
+if not na(execBox) and showExecZone
+    box.set_right(execBox, bar_index + 5)
+
+// ═══════════════════════════════════════════════════════════════
+//  20. SIGNAL LABELS (truthful sweep sources)
+// ═══════════════════════════════════════════════════════════════
+// Strategy signals — include raid source in label
 if finalBuy and hasStratSignal
     lbl = stratLabel(sigStrat)
+    srcTxt = sigRaidSrc != "" ? " | " + sigRaidSrc : ""
     label.new(bar_index, low - atr14 * 0.65,
-         "▲ BUY " + lbl + " [" + str.tostring(sigScore) + "]",
+         "▲ BUY " + lbl + " [" + str.tostring(sigScore) + "]" + srcTxt,
          style = label.style_label_up, color = gradeColor(sigScore), textcolor = color.white, size = size.normal)
 
 if finalSell and hasStratSignal
     lbl = stratLabel(sigStrat)
+    srcTxt = sigRaidSrc != "" ? " | " + sigRaidSrc : ""
     label.new(bar_index, high + atr14 * 0.65,
-         "▼ SELL " + lbl + " [" + str.tostring(sigScore) + "]",
+         "▼ SELL " + lbl + " [" + str.tostring(sigScore) + "]" + srcTxt,
          style = label.style_label_down, color = gradeColor(sigScore), textcolor = color.white, size = size.normal)
 
 // FVG standalone signals
@@ -1427,13 +1626,13 @@ if fvgSellSignal and not hasStratSignal
          "◆ FVG SELL [" + str.tostring(fvgSellScore) + "]",
          style = label.style_label_down, color = color.new(fvgCol, 0), textcolor = color.white, size = size.normal)
 
-// Raid confirmation markers
+// Raid confirmation markers — truthful source labels
 if showSweepMarks and anyBullRaid
-    label.new(bar_index, low - atr14 * 0.15, "↑ SSL",
+    label.new(bar_index, low - atr14 * 0.15, "↑ " + curBullRaidSrc,
          style = label.style_label_up, color = color.new(bullCol, 60), textcolor = color.white, size = size.tiny)
 
 if showSweepMarks and anyBearRaid
-    label.new(bar_index, high + atr14 * 0.15, "↓ BSL",
+    label.new(bar_index, high + atr14 * 0.15, "↓ " + curBearRaidSrc,
          style = label.style_label_down, color = color.new(bearCol, 60), textcolor = color.white, size = size.tiny)
 
 // MSS markers
@@ -1525,7 +1724,7 @@ s3StatusText = strat3En ? (s3State == 0 ? "Idle" : s3State == 1 ? "Manip" : "Con
 s4StatusText = strat4En ? (s4State == 0 ? "Idle" : s4State == 1 ? "Raid" : "Confirm") : "OFF"
 s5StatusText = strat5En ? (smtBullDiv or smtBearDiv ? "Divergence" : "Monitoring") : "OFF"
 
-var table dash = table.new(position.bottom_left, 2, 18,
+var table dash = table.new(position.bottom_left, 2, 20,
      bgcolor = color.new(color.rgb(8, 10, 28), 5),
      border_width = 1, border_color = color.new(color.white, 78))
 
@@ -1534,6 +1733,11 @@ if showDash and barstate.islast
     r = 0
     table.cell(dash, 0, r, "SMC v5 Multi-Strategy", text_color = color.white, text_size = size.small, bgcolor = hBg)
     table.cell(dash, 1, r, webhookSource, text_color = color.white, text_size = size.small, bgcolor = hBg)
+    r += 1
+
+    table.cell(dash, 0, r, "TZ Profile", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(dash, 1, r, sessionProfile,
+         text_color = sessionProfile == "LOCAL" ? color.new(#f59e0b, 0) : color.new(color.white, 20), text_size = size.small)
     r += 1
 
     table.cell(dash, 0, r, "Regime", text_color = color.new(color.white, 25), text_size = size.small)
@@ -1554,6 +1758,12 @@ if showDash and barstate.islast
     table.cell(dash, 0, r, "Score", text_color = color.new(color.white, 25), text_size = size.small)
     table.cell(dash, 1, r, displayScoreText + " / " + str.tostring(scoreThreshold),
          text_color = na(displayScore) ? color.gray : displayScore >= scoreThreshold ? bullCol : bearCol, text_size = size.small)
+    r += 1
+
+    table.cell(dash, 0, r, "Last Raid", text_color = color.new(color.white, 25), text_size = size.small)
+    lastRaidTxt = bullRaidSrc != "" ? "Bull: " + bullRaidSrc : bearRaidSrc != "" ? "Bear: " + bearRaidSrc : "–"
+    table.cell(dash, 1, r, lastRaidTxt,
+         text_color = bullRaidSrc != "" ? bullCol : bearRaidSrc != "" ? bearCol : color.gray, text_size = size.small)
     r += 1
 
     table.cell(dash, 0, r, "S1 Raid→MSS→FVG", text_color = color.new(color.white, 25), text_size = size.small)
