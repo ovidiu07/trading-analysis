@@ -784,8 +784,9 @@ if useOB and showOBZones
             array.push(obZoneBoxes, box.new(bar_index - obSearchBars, obH, bar_index, obL,
                  bgcolor = color.new(bearCol, 90), border_color = color.new(bearCol, 55), border_width = 1, border_style = line.style_dotted))
     // Extend OB boxes
-    for i = 0 to math.max(array.size(obZoneBoxes) - 1, -1)
-        box.set_right(array.get(obZoneBoxes, i), bar_index)
+    if array.size(obZoneBoxes) > 0
+        for i = 0 to array.size(obZoneBoxes) - 1
+            box.set_right(array.get(obZoneBoxes, i), bar_index)
     // Limit OB zone count
     while array.size(obZoneBoxes) > maxActiveFvg * 2
         box.delete(array.shift(obZoneBoxes))
