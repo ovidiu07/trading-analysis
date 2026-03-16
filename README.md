@@ -239,8 +239,8 @@ The TradingView indicator source lives in:
 - `Current-Day Window` controls whether “today” means the broker daily candle window or the configured Time Basis day.
 - `Session Visibility` options:
   - `Active Only`: only the active session H/L is visible.
-  - `Active + Previous`: active session H/L stays strong, the most recent completed session stays faint.
-  - `Today All`: all sessions from the current day window remain visible.
+  - `Active + Completed Today`: active session H/L stays strong, completed sessions from the current day stay faint.
+  - `Current Active Day`: only Tokyo, London, and New York sessions that have already opened in the current day remain visible; future sessions stay hidden.
 - If sessions overlap, one active session is chosen by `Active Session Priority` using the configured order.
 
 ### UX modes
@@ -267,6 +267,10 @@ The TradingView indicator source lives in:
 - Execution:
   - `#00E5FF`
   - Lifecycle: Candidate, Armed, Triggered
+- Sweep markers:
+  - Candidate-only public sweep crosses at `PDH/PDL`, `Asia H/L`, `Prev TKY/LDN/NY H/L`, and `EQH/EQL`
+- Setup projections:
+  - All `ARMED` / `TRIGGERED` setups draw a projected zone plus risk/reward box; the selected setup is strongest and others are faded
 
 ### Test harness
 
