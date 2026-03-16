@@ -219,6 +219,64 @@ STORAGE_S3_PRESIGN_ENABLED=true
 UPLOADS_MAX_FILE_SIZE_MB=20
 ```
 
+## Pine indicator notes
+
+The TradingView indicator source lives in:
+- [`backend/src/main/resources/pine/sniper-entry.pine`](/Users/ovidiu/Documents/trading-analysis/backend/src/main/resources/pine/sniper-entry.pine)
+- [`sniper-entry.pine`](/Users/ovidiu/Documents/trading-analysis/sniper-entry.pine)
+
+### PDH/PDL logic
+
+- Default mode is `Broker Daily (MTF)`.
+- PDH/PDL are derived from the daily series with `request.security(..., "D", high[1]/low[1])` and `barmerge.lookahead_off`.
+- This avoids the old intraday aggregation bug where UTC day slicing could turn the Sunday evening FX reopen into the “previous day”.
+- Optional `Ignore Sunday Candle On Monday` falls back to `[2]` when Monday would otherwise use a Sunday daily candle.
+- Optional `Custom Day` mode keeps timezone-sliced intraday aggregation for traders who explicitly want a custom day anchor.
+
+### Session rules
+
+- Session membership still uses `time(timeframe.period, session, timezone)`.
+- `Current-Day Window` controls whether “today” means the broker daily candle window or the configured Time Basis day.
+- `Session Visibility` options:
+  - `Active Only`: only the active session H/L is visible.
+  - `Active + Previous`: active session H/L stays strong, the most recent completed session stays faint.
+  - `Today All`: all sessions from the current day window remain visible.
+- If sessions overlap, one active session is chosen by `Active Session Priority` using the configured order.
+
+### UX modes
+
+- `Minimal`: lowest clutter, reduced OB/FVG budgets, focus on the live setup.
+- `Standard`: trader-facing default, balanced retention of nearby OB/FVG context.
+- `Study`: higher historical retention with the same hard deletion rules and table/card UI.
+
+### Visual spec summary
+
+- PDH/PDL: `#F59E0B`, dashed, width `1`, right-edge labels on `#0B1020`.
+- Sessions:
+  - London fill `#0EA5E9`
+  - New York fill `#10B981`
+  - Tokyo fill `#8B5CF6`
+  - Sydney fill `#EC4899`
+- OB:
+  - Bull `#00C27A`
+  - Bear `#FF3D5A`
+  - States: Fresh, Touched, Mitigated
+- FVG:
+  - `#A78BFA`
+  - States: Fresh, Touched, Filled
+- Execution:
+  - `#00E5FF`
+  - Lifecycle: Candidate, Armed, Triggered
+
+### Test harness
+
+The CSV regression suite is documented in [`README_TESTS.md`](/Users/ovidiu/Documents/trading-analysis/README_TESTS.md) and can be run with:
+
+```bash
+pip install -r requirements.txt
+pytest -q
+```
+
 ## API Docs
 OpenAPI/Swagger UI available at `/swagger-ui/index.html` once the backend is running.
 
