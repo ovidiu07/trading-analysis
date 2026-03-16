@@ -1,8 +1,30 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
-indicator("SMC Clean Signals v6 [TradeJAudit]", "SMC v6", overlay = true,
+indicator("SMC Clean Signals v7 [TradeJAudit]", "SMC v7", overlay = true,
      max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
+// ═══════════════════════════════════════════════════════════════
+//  CHANGELOG (v7.0 – Signal Clarity, Armed Setup & Execution UX)
+// ═══════════════════════════════════════════════════════════════
+// 1. Signal label size/format refactor: new signalLabelMode input
+//    with Full / Compact (B-S3) / X-Number (X3) modes. Label size
+//    controllable via signalLabelSize. Direction color toggle added.
+// 2. Late signal printing fix: entry zone proximity validation now
+//    prevents signals from printing when price has already drifted
+//    > 0.65R from planned entry. Signals align with actual zone.
+// 3. Strategy description dashboard: new "Describe strategy?" bool
+//    adds plain-English strategy descriptions to dashboard. Modes:
+//    "Active Only" or "Enabled Strategies". Respects strategy toggles.
+// 4. Pending/armed setup planning layer: 4-stage lifecycle model
+//    (Idle → Candidate → Armed → Triggered). Armed setups show
+//    projected entry zone, SL, and TP as lighter/dashed visuals.
+//    Pending markers (P1..P5 / A1..A5) appear before final signal.
+// 5. Projected vs triggered trade plan: projected plans use dashed/
+//    translucent style. Triggered plans become solid. Stale projected
+//    objects cleaned on invalidation, trigger, or session reset.
+// 6. Dashboard enhancements: setup state shows CANDIDATE/ARMED/
+//    TRIGGERED. Planned entry/SL/TP shown when armed. Strategy
+//    descriptions controlled by new inputs.
 // ═══════════════════════════════════════════════════════════════
 //  CHANGELOG (v6.1 – Chart Clarity & Execution Refactor)
 // ═══════════════════════════════════════════════════════════════
@@ -63,6 +85,36 @@ indicator("SMC Clean Signals v6 [TradeJAudit]", "SMC v6", overlay = true,
 //    - Reset inputs to defaults.
 //    - Confirm London/NY/Tokyo/Sydney/PDH/PDL colors match defaults.
 //    - Confirm level line style matches default (Dashed).
+// ═══════════════════════════════════════════════════════════════
+//  v7 QA CHECKLIST (additional)
+// ═══════════════════════════════════════════════════════════════
+// G) Signal label size/format test:
+//    - Set signalLabelMode = Full → labels show full text.
+//    - Set signalLabelMode = Compact → labels show B-S1, S-S3 etc.
+//    - Set signalLabelMode = X-Number → labels show X1, X3 etc.
+//    - Toggle signalLabelSize through Tiny/Small/Normal.
+//    - Confirm labels are progressively smaller and less intrusive.
+// H) Late signal test:
+//    - Find setup where price retraces into FVG then moves away.
+//    - Confirm final signal does NOT print on a bar already far from
+//      the execution zone (> 0.65R drift from planned entry).
+//    - Confirm signal appears when price is still near entry zone.
+// I) Pending / Armed test:
+//    - Find setup forming (state 1→2 transition).
+//    - Confirm projected plan (lighter/dashed TP/SL) is visible.
+//    - Confirm pending marker (A1, A3, C4) appears on chart.
+//    - Confirm projected plan is visually lighter than triggered plan.
+//    - Confirm projected plan disappears when setup invalidates.
+// J) Dashboard description test:
+//    - Set Describe strategy? = false → no description row.
+//    - Set Describe strategy? = true → description appears.
+//    - Set strategyDescriptionMode = Active Only → only active shown.
+//    - Set strategyDescriptionMode = Enabled Strategies → all enabled.
+//    - Disable a strategy toggle → its description disappears.
+// K) Trigger state test:
+//    - Confirm pending→triggered transition is clean visually.
+//    - Confirm projected visuals removed when signal fires.
+//    - Confirm no stale pending objects remain after trigger.
 // ═══════════════════════════════════════════════════════════════
 //  IMPLEMENTATION NOTES
 // ═══════════════════════════════════════════════════════════════
@@ -285,6 +337,32 @@ execZoneCol     = input.color(color.new(#00e5ff, 0), "Execution Zone Color", gro
 maxDrawnTrades  = input.int(5, "Max Trade Drawings", minval = 1, maxval = 15, group = grpDisplay,
      tooltip = "Max trade box sets on chart. Oldest deleted when exceeded.")
 
+// ── Signal Label Controls ─────────────────────────────────────
+grpSignalUx = "⑩b Signal & Setup UX"
+signalLabelMode = input.string("Compact", "Signal Label Mode", options = ["Full", "Compact", "X-Number"], group = grpSignalUx,
+     tooltip = "Full: BUY RAID_MSS_FVG [7]. Compact: B-S1. X-Number: X1.")
+signalLabelSize = input.string("Small", "Signal Label Size", options = ["Tiny", "Small", "Normal"], group = grpSignalUx)
+showSignalDirColor = input.bool(true, "Signal Direction Color", group = grpSignalUx,
+     tooltip = "Bull signals use bull color, bear signals use bear color.")
+
+// ── Strategy Description Controls ─────────────────────────────
+describeStrategy = input.bool(false, "Describe strategy?", group = grpSignalUx,
+     tooltip = "Show plain-English strategy description in dashboard.")
+stratDescMode = input.string("Active Only", "Description Mode", options = ["Active Only", "Enabled Strategies"],
+     group = grpSignalUx, active = describeStrategy)
+
+// ── Projected Plan & Armed Setup Controls ─────────────────────
+showProjectedPlan = input.bool(true, "Show Projected Trade Plan", group = grpSignalUx,
+     tooltip = "Show lighter/dashed TP/SL plan when setup is armed but not yet triggered.")
+projectedStyle = input.string("Dashed", "Projected Plan Style", options = ["Dashed", "Light Fill", "Minimal"],
+     group = grpSignalUx, active = showProjectedPlan)
+showPendingMarker = input.bool(true, "Show Pending Setup Marker", group = grpSignalUx,
+     tooltip = "Show small marker (P3, A1) on chart when setup is forming.")
+showCandidateState = input.bool(false, "Show Candidate State", group = grpSignalUx,
+     tooltip = "Show early candidate detection (noisier).")
+showArmedState = input.bool(true, "Show Armed State", group = grpSignalUx,
+     tooltip = "Show armed/pending setup state on chart and dashboard.")
+
 // ── Adaptive Engine ──────────────────────────────────────────
 profileMode     = input.string("AUTO", "Profile Mode", options = ["AUTO", "MANUAL"], group = grpAdaptive,
      tooltip = "AUTO: score threshold adapts based on recent win rate. MANUAL: uses fixed threshold.")
@@ -437,6 +515,61 @@ jsonNum(v) => na(v) ? "null" : str.tostring(v)
 requireConfirmed = executionMode == "Confirmed Close"
 barConfirmedOk = not requireConfirmed or barstate.isconfirmed
 max_bars_back(time, LEVEL_ANCHOR_LIMIT)
+
+// ── Signal label helpers ──────────────────────────────────────
+// Maps signalLabelSize input to Pine size constant
+labelSizeVal() =>
+    signalLabelSize == "Tiny" ? size.tiny : signalLabelSize == "Normal" ? size.normal : size.small
+
+// Compact label text: B-S1, S-S3, etc.
+compactLabel(isBull, stratIdx) =>
+    (isBull ? "B" : "S") + "-S" + str.tostring(stratIdx)
+
+// X-Number label text: X1, X3, etc.
+xLabel(stratIdx) =>
+    "X" + str.tostring(stratIdx)
+
+// Format signal label based on mode
+formatSignalLabel(isBull, stratIdx, score, raidSrc, setupType) =>
+    if signalLabelMode == "X-Number"
+        xLabel(stratIdx)
+    else if signalLabelMode == "Compact"
+        compactLabel(isBull, stratIdx)
+    else
+        dir = isBull ? "▲ BUY " : "▼ SELL "
+        dir + stratLabel(stratIdx) + " [" + str.tostring(score) + "]" + (raidSrc != "" ? " | " + raidSrc : "")
+
+// Signal label color based on mode
+signalColor(isBull, score) =>
+    showSignalDirColor ? (isBull ? bullCol : bearCol) : gradeColor(score)
+
+// ── Entry zone proximity validation ──────────────────────────
+// Prevents signals from printing when price has drifted too far
+// from planned entry (the "almost 1R late" bug fix).
+// Returns true if close is within acceptable distance of entry.
+entryZoneProximityOk(isBull, entryPrice, risk) =>
+    maxDrift = risk * 0.65
+    isBull ? close <= entryPrice + maxDrift : close >= entryPrice - maxDrift
+
+// ── Strategy description text ─────────────────────────────────
+stratDescription(idx) =>
+    idx == 1 ? "Sweep liquidity, wait for MSS, enter retrace into FVG" :
+     idx == 2 ? "Silver Bullet: FVG entry during SB time window" :
+     idx == 3 ? "PO3: accumulation → manipulation → reversal expansion" :
+     idx == 4 ? "Judas swing: session open sweep followed by reversal" :
+     idx == 5 ? "SMT divergence: intermarket mismatch + reversal entry" : ""
+
+// Short strategy description for dashboard
+stratDescShort(idx) =>
+    idx == 1 ? "Raid + MSS + FVG retrace" :
+     idx == 2 ? "SB window FVG entry" :
+     idx == 3 ? "PO3 manipulation reversal" :
+     idx == 4 ? "Judas session sweep reversal" :
+     idx == 5 ? "SMT divergence reversal" : ""
+
+// ── Setup state label ─────────────────────────────────────────
+setupStateStr(state) =>
+    state == 0 ? "IDLE" : state == 1 ? "CANDIDATE" : state == 2 ? "ARMED" : state == 3 ? "TRIGGERED" : "UNKNOWN"
 
 // ═══════════════════════════════════════════════════════════════
 //  1. CORE INDICATORS
@@ -1297,6 +1430,22 @@ int[]    cEntryBar = array.new_int(5, na)
 int[]    cMitBar   = array.new_int(5, na)
 string[] cZoneType = array.new_string(5, "")
 
+// ── Armed state arrays ──────────────────────────────────────
+// Populated when a strategy reaches state 2 (armed/pending).
+// Used to render projected trade plans before final trigger.
+// These are non-var (fresh each bar) and filled by strategy state machines.
+bool[]   aValid    = array.new_bool(5, false)
+bool[]   aBull     = array.new_bool(5, false)
+float[]  aEntry    = array.new_float(5, na)
+float[]  aSL       = array.new_float(5, na)
+float[]  aTP1      = array.new_float(5, na)
+float[]  aTP2      = array.new_float(5, na)
+float[]  aZoneHi   = array.new_float(5, na)
+float[]  aZoneLo   = array.new_float(5, na)
+string[] aSetup    = array.new_string(5, "")
+string[] aEntrySrc = array.new_string(5, "")
+int[]    aState    = array.new_int(5, 0)
+
 // ── Helper: compute entry price (FVG CE or proximal edge) ────
 calcEntryPrice(isBull, fvgHi, fvgLo) =>
     // fvgHi = proximal for bull, fvgLo = proximal for bear
@@ -1390,6 +1539,23 @@ if strat1En and tfOk
                 [obH, obL] = findBullOB()
                 s1BullHasOB := not na(obH)
 
+    // Armed state: populate projected plan when state 2
+    if s1BullState == 2 and not na(s1BullFvgHi) and not na(s1BullFvgLo)
+        [armEntry, armSrc] = calcEntryPrice(true, s1BullFvgHi, s1BullFvgLo)
+        [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(true, armEntry, s1BullRaidLow, s1BullFvgLo)
+        if armRiskOk
+            array.set(aValid, 0, true)
+            array.set(aBull, 0, true)
+            array.set(aEntry, 0, armEntry)
+            array.set(aSL, 0, armSL)
+            array.set(aTP1, 0, armTP1)
+            array.set(aTP2, 0, armTP2)
+            array.set(aZoneHi, 0, s1BullFvgHi)
+            array.set(aZoneLo, 0, s1BullFvgLo)
+            array.set(aSetup, 0, "RAID_MSS_FVG")
+            array.set(aEntrySrc, 0, armSrc)
+            array.set(aState, 0, 2)
+
     // State 2 → Candidate: Price retraces into FVG
     if s1BullState == 2 and not na(s1BullFvgHi) and not na(s1BullFvgLo)
         priceRetraced = low <= s1BullFvgHi and close >= s1BullFvgLo
@@ -1397,7 +1563,9 @@ if strat1En and tfOk
             [entryP, entrySrc] = calcEntryPrice(true, s1BullFvgHi, s1BullFvgLo)
             [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s1BullRaidLow, s1BullFvgLo)
             score = calcScore(true, true, true, s1BullHasOB, inAnyKz, smtBullDiv)
-            if riskOk and scorePassesThreshold(score)
+            // Entry zone proximity check: reject if price already ~1R away
+            zoneOk = entryZoneProximityOk(true, entryP, risk)
+            if riskOk and zoneOk and scorePassesThreshold(score)
                 array.set(cValid, 0, true)
                 array.set(cBull, 0, true)
                 array.set(cEntry, 0, entryP)
@@ -1421,6 +1589,10 @@ if strat1En and tfOk
     if s1BullState > 0 and anyBearRaid
         s1BullState := 0
 
+    // Candidate state tracking for S1 bull
+    if s1BullState == 1
+        array.set(aState, 0, 1)
+
     // ── BEAR path ──
     if s1BearState == 0 and anyBearRaid
         s1BearState    := 1
@@ -1438,13 +1610,32 @@ if strat1En and tfOk
                 [obH, obL] = findBearOB()
                 s1BearHasOB := not na(obH)
 
+    // Armed state: populate projected plan for bear S1
+    if s1BearState == 2 and not na(s1BearFvgHi) and not na(s1BearFvgLo) and not array.get(aValid, 0)
+        [armEntry, armSrc] = calcEntryPrice(false, s1BearFvgHi, s1BearFvgLo)
+        [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(false, armEntry, s1BearRaidHigh, s1BearFvgHi)
+        if armRiskOk
+            array.set(aValid, 0, true)
+            array.set(aBull, 0, false)
+            array.set(aEntry, 0, armEntry)
+            array.set(aSL, 0, armSL)
+            array.set(aTP1, 0, armTP1)
+            array.set(aTP2, 0, armTP2)
+            array.set(aZoneHi, 0, s1BearFvgHi)
+            array.set(aZoneLo, 0, s1BearFvgLo)
+            array.set(aSetup, 0, "RAID_MSS_FVG")
+            array.set(aEntrySrc, 0, armSrc)
+            array.set(aState, 0, 2)
+
     if s1BearState == 2 and not na(s1BearFvgHi) and not na(s1BearFvgLo) and not array.get(cValid, 0)
         priceRetraced = high >= s1BearFvgLo and close <= s1BearFvgHi
         if priceRetraced and inSessionFinal and htfBearOk and premDiscOk(false) and rsiBearOk and barConfirmedOk
             [entryP, entrySrc] = calcEntryPrice(false, s1BearFvgHi, s1BearFvgLo)
             [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s1BearRaidHigh, s1BearFvgHi)
             score = calcScore(true, true, true, s1BearHasOB, inAnyKz, smtBearDiv)
-            if riskOk and scorePassesThreshold(score)
+            // Entry zone proximity check
+            zoneOk = entryZoneProximityOk(false, entryP, risk)
+            if riskOk and zoneOk and scorePassesThreshold(score)
                 array.set(cValid, 0, true)
                 array.set(cBull, 0, false)
                 array.set(cEntry, 0, entryP)
@@ -1466,6 +1657,10 @@ if strat1En and tfOk
         s1BearState := 0
     if s1BearState > 0 and anyBullRaid
         s1BearState := 0
+
+    // Candidate state tracking for S1 bear
+    if s1BearState == 1 and not array.get(aValid, 0)
+        array.set(aState, 0, 1)
 
 // ═══════════════════════════════════════════════════════════════
 //  STRATEGY 2: ICT Silver Bullet
@@ -1493,13 +1688,31 @@ if strat2En and tfOk and inAnySB
         s2BearRaidHigh := high
         s2BearRaidSrc  := curBearRaidSrc
 
+    // S2 armed state: when FVG+raid detected in SB window
+    if s2BullRaided and not na(s2BullFvgHi)
+        [armEntry, armSrc] = calcEntryPrice(true, s2BullFvgHi, s2BullFvgLo)
+        [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(true, armEntry, s2BullRaidLow, s2BullFvgLo)
+        if armRiskOk
+            array.set(aValid, 1, true)
+            array.set(aBull, 1, true)
+            array.set(aEntry, 1, armEntry)
+            array.set(aSL, 1, armSL)
+            array.set(aTP1, 1, armTP1)
+            array.set(aTP2, 1, armTP2)
+            array.set(aZoneHi, 1, s2BullFvgHi)
+            array.set(aZoneLo, 1, s2BullFvgLo)
+            array.set(aSetup, 1, "SILVER_BULLET")
+            array.set(aEntrySrc, 1, armSrc)
+            array.set(aState, 1, 2)
+
     if s2BullRaided and not na(s2BullFvgHi)
         priceRetraced = low <= s2BullFvgHi and close >= s2BullFvgLo
         if priceRetraced and htfBullOk and rsiBullOk and barConfirmedOk
             [entryP, entrySrc] = calcEntryPrice(true, s2BullFvgHi, s2BullFvgLo)
             [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s2BullRaidLow, s2BullFvgLo)
             score = calcScore(true, false, true, false, true, smtBullDiv)
-            if riskOk and scorePassesThreshold(score)
+            zoneOk = entryZoneProximityOk(true, entryP, risk)
+            if riskOk and zoneOk and scorePassesThreshold(score)
                 array.set(cValid, 1, true)
                 array.set(cBull, 1, true)
                 array.set(cEntry, 1, entryP)
@@ -1517,13 +1730,30 @@ if strat2En and tfOk and inAnySB
                 array.set(cMitBar, 1, bar_index)
                 array.set(cZoneType, 1, "FVG")
 
+    if s2BearRaided and not na(s2BearFvgHi)
+        [armEntry, armSrc] = calcEntryPrice(false, s2BearFvgHi, s2BearFvgLo)
+        [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(false, armEntry, s2BearRaidHigh, s2BearFvgHi)
+        if armRiskOk and not array.get(aValid, 1)
+            array.set(aValid, 1, true)
+            array.set(aBull, 1, false)
+            array.set(aEntry, 1, armEntry)
+            array.set(aSL, 1, armSL)
+            array.set(aTP1, 1, armTP1)
+            array.set(aTP2, 1, armTP2)
+            array.set(aZoneHi, 1, s2BearFvgHi)
+            array.set(aZoneLo, 1, s2BearFvgLo)
+            array.set(aSetup, 1, "SILVER_BULLET")
+            array.set(aEntrySrc, 1, armSrc)
+            array.set(aState, 1, 2)
+
     if s2BearRaided and not na(s2BearFvgHi) and not array.get(cValid, 1)
         priceRetraced = high >= s2BearFvgLo and close <= s2BearFvgHi
         if priceRetraced and htfBearOk and rsiBearOk and barConfirmedOk
             [entryP, entrySrc] = calcEntryPrice(false, s2BearFvgHi, s2BearFvgLo)
             [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s2BearRaidHigh, s2BearFvgHi)
             score = calcScore(true, false, true, false, true, smtBearDiv)
-            if riskOk and scorePassesThreshold(score)
+            zoneOk = entryZoneProximityOk(false, entryP, risk)
+            if riskOk and zoneOk and scorePassesThreshold(score)
                 array.set(cValid, 1, true)
                 array.set(cBull, 1, false)
                 array.set(cEntry, 1, entryP)
@@ -1575,6 +1805,29 @@ if strat3En and tfOk
                 s3FvgLo  := lastBearFvgLo
                 s3Bar    := bar_index
 
+    // S3 armed state: compute projected plan at state 2
+    if s3State == 2 and not na(s3FvgHi) and not na(s3FvgLo)
+        [armEntry, armSrc] = calcEntryPrice(po3ManipBull, s3FvgHi, s3FvgLo)
+        extremeRef = nz(po3ManipExtreme, po3ManipBull ? low : high)
+        boundRef = po3ManipBull ? s3FvgLo : s3FvgHi
+        [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(po3ManipBull, armEntry, extremeRef, boundRef)
+        if armRiskOk
+            array.set(aValid, 2, true)
+            array.set(aBull, 2, po3ManipBull)
+            array.set(aEntry, 2, armEntry)
+            array.set(aSL, 2, armSL)
+            array.set(aTP1, 2, armTP1)
+            array.set(aTP2, 2, armTP2)
+            array.set(aZoneHi, 2, s3FvgHi)
+            array.set(aZoneLo, 2, s3FvgLo)
+            array.set(aSetup, 2, "PO3_AMD")
+            array.set(aEntrySrc, 2, armSrc)
+            array.set(aState, 2, 2)
+
+    // S3 candidate state
+    if s3State == 1
+        array.set(aState, 2, 1)
+
     if s3State == 2 and inPo3Dist and not na(s3FvgHi) and not na(s3FvgLo)
         if po3ManipBull
             priceRetraced = low <= s3FvgHi and close >= s3FvgLo
@@ -1582,7 +1835,8 @@ if strat3En and tfOk
                 [entryP, entrySrc] = calcEntryPrice(true, s3FvgHi, s3FvgLo)
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(po3ManipExtreme, low), s3FvgLo)
                 score = calcScore(true, true, true, false, true, smtBullDiv)
-                if riskOk and scorePassesThreshold(score)
+                zoneOk = entryZoneProximityOk(true, entryP, risk)
+                if riskOk and zoneOk and scorePassesThreshold(score)
                     array.set(cValid, 2, true)
                     array.set(cBull, 2, true)
                     array.set(cEntry, 2, entryP)
@@ -1605,7 +1859,8 @@ if strat3En and tfOk
                 [entryP, entrySrc] = calcEntryPrice(false, s3FvgHi, s3FvgLo)
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(po3ManipExtreme, high), s3FvgHi)
                 score = calcScore(true, true, true, false, true, smtBearDiv)
-                if riskOk and scorePassesThreshold(score)
+                zoneOk = entryZoneProximityOk(false, entryP, risk)
+                if riskOk and zoneOk and scorePassesThreshold(score)
                     array.set(cValid, 2, true)
                     array.set(cBull, 2, false)
                     array.set(cEntry, 2, entryP)
@@ -1654,6 +1909,29 @@ if strat4En and tfOk
                 s4FvgLo := lastBearFvgLo
                 s4Bar   := bar_index
 
+    // S4 armed state: compute projected plan at state 2
+    if s4State == 2 and not na(s4FvgHi) and not na(s4FvgLo)
+        [armEntry, armSrc] = calcEntryPrice(judasIsBull, s4FvgHi, s4FvgLo)
+        extremeRef = nz(judasExtreme, judasIsBull ? low : high)
+        boundRef = judasIsBull ? s4FvgLo : s4FvgHi
+        [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(judasIsBull, armEntry, extremeRef, boundRef)
+        if armRiskOk
+            array.set(aValid, 3, true)
+            array.set(aBull, 3, judasIsBull)
+            array.set(aEntry, 3, armEntry)
+            array.set(aSL, 3, armSL)
+            array.set(aTP1, 3, armTP1)
+            array.set(aTP2, 3, armTP2)
+            array.set(aZoneHi, 3, s4FvgHi)
+            array.set(aZoneLo, 3, s4FvgLo)
+            array.set(aSetup, 3, "JUDAS_SWING")
+            array.set(aEntrySrc, 3, armSrc)
+            array.set(aState, 3, 2)
+
+    // S4 candidate state
+    if s4State == 1
+        array.set(aState, 3, 1)
+
     if s4State == 2 and not na(s4FvgHi) and not na(s4FvgLo)
         if judasIsBull
             priceRetraced = low <= s4FvgHi and close >= s4FvgLo
@@ -1661,7 +1939,8 @@ if strat4En and tfOk
                 [entryP, entrySrc] = calcEntryPrice(true, s4FvgHi, s4FvgLo)
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(judasExtreme, low), s4FvgLo)
                 score = calcScore(true, true, true, false, inAnyKz, smtBullDiv)
-                if riskOk and scorePassesThreshold(score)
+                zoneOk = entryZoneProximityOk(true, entryP, risk)
+                if riskOk and zoneOk and scorePassesThreshold(score)
                     array.set(cValid, 3, true)
                     array.set(cBull, 3, true)
                     array.set(cEntry, 3, entryP)
@@ -1684,7 +1963,8 @@ if strat4En and tfOk
                 [entryP, entrySrc] = calcEntryPrice(false, s4FvgHi, s4FvgLo)
                 [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(judasExtreme, high), s4FvgHi)
                 score = calcScore(true, true, true, false, inAnyKz, smtBearDiv)
-                if riskOk and scorePassesThreshold(score)
+                zoneOk = entryZoneProximityOk(false, entryP, risk)
+                if riskOk and zoneOk and scorePassesThreshold(score)
                     array.set(cValid, 3, true)
                     array.set(cBull, 3, false)
                     array.set(cEntry, 3, entryP)
@@ -1709,53 +1989,86 @@ if strat4En and tfOk
 //  STRATEGY 5: SMT Divergence Reversal
 // ═══════════════════════════════════════════════════════════════
 if strat5En and smtEn and tfOk
+    // S5 armed state: SMT divergence detected (pre-trigger)
     if smtBullDiv and anyBullRaid and bullMSS and bullDisplaceOk
         hasFvg = not na(lastBullFvgBar) and bar_index - lastBullFvgBar <= 5
-        if hasFvg and inSessionFinal and rsiBullOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(true, lastBullFvgHi, lastBullFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(bullRaidLow, low), lastBullFvgLo)
-            score = calcScore(true, true, true, false, inAnyKz, true)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 4, true)
-                array.set(cBull, 4, true)
-                array.set(cEntry, 4, entryP)
-                array.set(cSL, 4, sl)
-                array.set(cTP1, 4, tp1)
-                array.set(cTP2, 4, tp2)
-                array.set(cScore, 4, score)
-                array.set(cSetup, 4, "SMT_REVERSAL")
-                array.set(cZoneHi, 4, lastBullFvgHi)
-                array.set(cZoneLo, 4, lastBullFvgLo)
-                array.set(cRaidSrc, 4, bullRaidSrc)
-                array.set(cRaidLvl, 4, bullRaidLvl)
-                array.set(cEntrySrc, 4, entrySrc)
-                array.set(cEntryBar, 4, bar_index)
-                array.set(cMitBar, 4, bar_index)
-                array.set(cZoneType, 4, "FVG")
+        if hasFvg
+            [armEntry, armSrc] = calcEntryPrice(true, lastBullFvgHi, lastBullFvgLo)
+            [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(true, armEntry, nz(bullRaidLow, low), lastBullFvgLo)
+            if armRiskOk
+                array.set(aValid, 4, true)
+                array.set(aBull, 4, true)
+                array.set(aEntry, 4, armEntry)
+                array.set(aSL, 4, armSL)
+                array.set(aTP1, 4, armTP1)
+                array.set(aTP2, 4, armTP2)
+                array.set(aZoneHi, 4, lastBullFvgHi)
+                array.set(aZoneLo, 4, lastBullFvgLo)
+                array.set(aSetup, 4, "SMT_REVERSAL")
+                array.set(aEntrySrc, 4, armSrc)
+                array.set(aState, 4, 2)
+            if inSessionFinal and rsiBullOk and barConfirmedOk
+                [entryP, entrySrc] = calcEntryPrice(true, lastBullFvgHi, lastBullFvgLo)
+                [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(bullRaidLow, low), lastBullFvgLo)
+                score = calcScore(true, true, true, false, inAnyKz, true)
+                zoneOk = entryZoneProximityOk(true, entryP, risk)
+                if riskOk and zoneOk and scorePassesThreshold(score)
+                    array.set(cValid, 4, true)
+                    array.set(cBull, 4, true)
+                    array.set(cEntry, 4, entryP)
+                    array.set(cSL, 4, sl)
+                    array.set(cTP1, 4, tp1)
+                    array.set(cTP2, 4, tp2)
+                    array.set(cScore, 4, score)
+                    array.set(cSetup, 4, "SMT_REVERSAL")
+                    array.set(cZoneHi, 4, lastBullFvgHi)
+                    array.set(cZoneLo, 4, lastBullFvgLo)
+                    array.set(cRaidSrc, 4, bullRaidSrc)
+                    array.set(cRaidLvl, 4, bullRaidLvl)
+                    array.set(cEntrySrc, 4, entrySrc)
+                    array.set(cEntryBar, 4, bar_index)
+                    array.set(cMitBar, 4, bar_index)
+                    array.set(cZoneType, 4, "FVG")
 
     if smtBearDiv and anyBearRaid and bearMSS and bearDisplaceOk and not array.get(cValid, 4)
         hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 5
-        if hasFvg and inSessionFinal and rsiBearOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(false, lastBearFvgHi, lastBearFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(bearRaidHigh, high), lastBearFvgHi)
-            score = calcScore(true, true, true, false, inAnyKz, true)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 4, true)
-                array.set(cBull, 4, false)
-                array.set(cEntry, 4, entryP)
-                array.set(cSL, 4, sl)
-                array.set(cTP1, 4, tp1)
-                array.set(cTP2, 4, tp2)
-                array.set(cScore, 4, score)
-                array.set(cSetup, 4, "SMT_REVERSAL")
-                array.set(cZoneHi, 4, lastBearFvgHi)
-                array.set(cZoneLo, 4, lastBearFvgLo)
-                array.set(cRaidSrc, 4, bearRaidSrc)
-                array.set(cRaidLvl, 4, bearRaidLvl)
-                array.set(cEntrySrc, 4, entrySrc)
-                array.set(cEntryBar, 4, bar_index)
-                array.set(cMitBar, 4, bar_index)
-                array.set(cZoneType, 4, "FVG")
+        if hasFvg
+            [armEntry, armSrc] = calcEntryPrice(false, lastBearFvgHi, lastBearFvgLo)
+            [armSL, armTP1, armTP2, armRisk, armRiskOk] = calcTrade(false, armEntry, nz(bearRaidHigh, high), lastBearFvgHi)
+            if armRiskOk and not array.get(aValid, 4)
+                array.set(aValid, 4, true)
+                array.set(aBull, 4, false)
+                array.set(aEntry, 4, armEntry)
+                array.set(aSL, 4, armSL)
+                array.set(aTP1, 4, armTP1)
+                array.set(aTP2, 4, armTP2)
+                array.set(aZoneHi, 4, lastBearFvgHi)
+                array.set(aZoneLo, 4, lastBearFvgLo)
+                array.set(aSetup, 4, "SMT_REVERSAL")
+                array.set(aEntrySrc, 4, armSrc)
+                array.set(aState, 4, 2)
+            if inSessionFinal and rsiBearOk and barConfirmedOk
+                [entryP, entrySrc] = calcEntryPrice(false, lastBearFvgHi, lastBearFvgLo)
+                [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(bearRaidHigh, high), lastBearFvgHi)
+                score = calcScore(true, true, true, false, inAnyKz, true)
+                zoneOk = entryZoneProximityOk(false, entryP, risk)
+                if riskOk and zoneOk and scorePassesThreshold(score)
+                    array.set(cValid, 4, true)
+                    array.set(cBull, 4, false)
+                    array.set(cEntry, 4, entryP)
+                    array.set(cSL, 4, sl)
+                    array.set(cTP1, 4, tp1)
+                    array.set(cTP2, 4, tp2)
+                    array.set(cScore, 4, score)
+                    array.set(cSetup, 4, "SMT_REVERSAL")
+                    array.set(cZoneHi, 4, lastBearFvgHi)
+                    array.set(cZoneLo, 4, lastBearFvgLo)
+                    array.set(cRaidSrc, 4, bearRaidSrc)
+                    array.set(cRaidLvl, 4, bearRaidLvl)
+                    array.set(cEntrySrc, 4, entrySrc)
+                    array.set(cEntryBar, 4, bar_index)
+                    array.set(cMitBar, 4, bar_index)
+                    array.set(cZoneType, 4, "FVG")
 
 // ═══════════════════════════════════════════════════════════════
 //  16. STRATEGY PRIORITY ENGINE
@@ -1878,6 +2191,57 @@ else if sigStrat == 5
         smtBullDiv := false
     else
         smtBearDiv := false
+
+// ═══════════════════════════════════════════════════════════════
+//  16b. ARMED SETUP PRIORITY SELECTION
+// ═══════════════════════════════════════════════════════════════
+// Select the best armed candidate using priority engine (same logic).
+// This powers the projected trade plan visualization and pending markers.
+var int    armedStrat     = 0
+var bool   armedBull      = false
+var float  armedEntry     = na
+var float  armedSL        = na
+var float  armedTP1       = na
+var float  armedTP2       = na
+var float  armedZoneHi    = na
+var float  armedZoneLo    = na
+var string armedSetup     = ""
+var string armedEntrySrc  = ""
+var int    armedState     = 0
+
+// Reset armed state each bar
+armedStrat     := 0
+armedBull      := false
+armedEntry     := na
+armedSL        := na
+armedTP1       := na
+armedTP2       := na
+armedZoneHi    := na
+armedZoneLo    := na
+armedSetup     := ""
+armedEntrySrc  := ""
+armedState     := 0
+
+// Select best armed candidate (only if no trigger fired this bar)
+if sigStrat == 0
+    bool armedFound = false
+    for ai = 0 to math.min(array.size(prioParts) - 1, 9)
+        if not armedFound
+            part = str.replace_all(array.get(prioParts, ai), " ", "")
+            aIdx = part == "S1" ? 0 : part == "S2" ? 1 : part == "S3" ? 2 : part == "S4" ? 3 : part == "S5" ? 4 : -1
+            if aIdx >= 0 and aIdx < 5 and array.get(aValid, aIdx)
+                armedStrat     := aIdx + 1
+                armedBull      := array.get(aBull, aIdx)
+                armedEntry     := array.get(aEntry, aIdx)
+                armedSL        := array.get(aSL, aIdx)
+                armedTP1       := array.get(aTP1, aIdx)
+                armedTP2       := array.get(aTP2, aIdx)
+                armedZoneHi    := array.get(aZoneHi, aIdx)
+                armedZoneLo    := array.get(aZoneLo, aIdx)
+                armedSetup     := array.get(aSetup, aIdx)
+                armedEntrySrc  := array.get(aEntrySrc, aIdx)
+                armedState     := array.get(aState, aIdx)
+                armedFound     := true
 
 // ═══════════════════════════════════════════════════════════════
 //  17. STANDALONE FVG MITIGATION (fallback when no strategy fires)
@@ -2297,17 +2661,11 @@ var line raidRefLine = na
 var label raidRefLbl = na
 var label execEntryLbl = na
 
-bool s1BullPending = s1BullState == 2 and not na(s1BullFvgHi)
-bool s1BearPending = s1BearState == 2 and not na(s1BearFvgHi)
-bool s3Pending = s3State == 2 and not na(s3FvgHi)
-bool s4Pending = s4State == 2 and not na(s4FvgHi)
-bool anyPending = s1BullPending or s1BearPending or s3Pending or s4Pending
-float pendHi = s1BullPending ? s1BullFvgHi : s1BearPending ? s1BearFvgHi : s3Pending ? s3FvgHi : s4Pending ? s4FvgHi : na
-float pendLo = s1BullPending ? s1BullFvgLo : s1BearPending ? s1BearFvgLo : s3Pending ? s3FvgLo : s4Pending ? s4FvgLo : na
-int pendLeft = s1BullPending ? nz(s1BullBar, bar_index) :
-     s1BearPending ? nz(s1BearBar, bar_index) :
-     s3Pending ? nz(s3Bar, bar_index) :
-     s4Pending ? nz(s4Bar, bar_index) : bar_index
+// Use armed state for pending zone (replaces old per-strategy checks)
+bool anyPending = armedStrat > 0 and armedState == 2
+float pendHi = anyPending ? armedZoneHi : na
+float pendLo = anyPending ? armedZoneLo : na
+int pendLeft = bar_index
 
 if not showExecZone
     if not na(execBox)
@@ -2368,6 +2726,115 @@ if not na(execBox) and showExecZone
 if not na(raidRefLine) and showExecZone
     line.set_x2(raidRefLine, bar_index + 5)
 
+// ═══════════════════════════════════════════════════════════════
+//  20c. PROJECTED TRADE PLAN (armed setup visualization)
+// ═══════════════════════════════════════════════════════════════
+// Shows lighter/dashed TP/SL/entry when a strategy is armed but
+// not yet triggered. Visually distinct from triggered trade plans.
+// Cleaned up when setup triggers, invalidates, or session resets.
+var box   projZoneBox   = na
+var box   projSLBox     = na
+var box   projTP1Box    = na
+var box   projTP2Box    = na
+var line  projEntryLine = na
+var line  projSLLine    = na
+var line  projTP1Line   = na
+var label projMarkerLbl = na
+
+// Clean projected visuals
+cleanProjected() =>
+    if not na(projZoneBox)
+        box.delete(projZoneBox)
+    if not na(projSLBox)
+        box.delete(projSLBox)
+    if not na(projTP1Box)
+        box.delete(projTP1Box)
+    if not na(projTP2Box)
+        box.delete(projTP2Box)
+    if not na(projEntryLine)
+        line.delete(projEntryLine)
+    if not na(projSLLine)
+        line.delete(projSLLine)
+    if not na(projTP1Line)
+        line.delete(projTP1Line)
+    if not na(projMarkerLbl)
+        label.delete(projMarkerLbl)
+
+// Always clean first, then redraw if armed
+cleanProjected()
+projZoneBox   := na
+projSLBox     := na
+projTP1Box    := na
+projTP2Box    := na
+projEntryLine := na
+projSLLine    := na
+projTP1Line   := na
+projMarkerLbl := na
+
+// Draw projected plan when armed and no trigger this bar
+if showProjectedPlan and showExecZone and armedStrat > 0 and sigStrat == 0 and not na(armedEntry)
+    projExt = bar_index + tradeExtBars
+    projAlpha = projectedStyle == "Minimal" ? 94 : projectedStyle == "Light Fill" ? 88 : 92
+    projBorderStyle = projectedStyle == "Dashed" ? line.style_dashed : line.style_dotted
+    projBorderAlpha = projectedStyle == "Minimal" ? 70 : 55
+
+    // Projected execution zone box
+    if not na(armedZoneHi) and not na(armedZoneLo)
+        projZoneBox := box.new(bar_index, armedZoneHi, bar_index + 8, armedZoneLo,
+             bgcolor = color.new(execZoneCol, projAlpha), border_color = color.new(execZoneCol, projBorderAlpha),
+             border_width = 1, border_style = projBorderStyle)
+
+    // Projected SL box
+    if armedBull
+        projSLBox := box.new(bar_index, armedEntry, projExt, armedSL,
+             bgcolor = color.new(bearCol, projAlpha), border_color = color.new(bearCol, projBorderAlpha),
+             border_width = 1, border_style = projBorderStyle)
+        projTP1Box := box.new(bar_index, armedTP1, projExt, armedEntry,
+             bgcolor = color.new(bullCol, projAlpha), border_color = color.new(bullCol, projBorderAlpha),
+             border_width = 1, border_style = projBorderStyle)
+        if armedTP2 != armedTP1
+            projTP2Box := box.new(bar_index, armedTP2, projExt, armedTP1,
+                 bgcolor = color.new(bullCol, math.min(projAlpha + 4, 96)), border_color = color.new(bullCol, projBorderAlpha + 10),
+                 border_width = 1, border_style = projBorderStyle)
+    else
+        projSLBox := box.new(bar_index, armedSL, projExt, armedEntry,
+             bgcolor = color.new(bearCol, projAlpha), border_color = color.new(bearCol, projBorderAlpha),
+             border_width = 1, border_style = projBorderStyle)
+        projTP1Box := box.new(bar_index, armedEntry, projExt, armedTP1,
+             bgcolor = color.new(bullCol, projAlpha), border_color = color.new(bullCol, projBorderAlpha),
+             border_width = 1, border_style = projBorderStyle)
+        if armedTP2 != armedTP1
+            projTP2Box := box.new(bar_index, armedTP1, projExt, armedTP2,
+                 bgcolor = color.new(bullCol, math.min(projAlpha + 4, 96)), border_color = color.new(bullCol, projBorderAlpha + 10),
+                 border_width = 1, border_style = projBorderStyle)
+
+    // Projected entry line
+    projEntryLine := line.new(bar_index, armedEntry, projExt, armedEntry,
+         color = color.new(color.white, 55), style = line.style_dashed, width = 1)
+    projSLLine := line.new(bar_index, armedSL, projExt, armedSL,
+         color = color.new(bearCol, 45), style = line.style_dotted, width = 1)
+    projTP1Line := line.new(bar_index, armedTP1, projExt, armedTP1,
+         color = color.new(bullCol, 50), style = line.style_dotted, width = 1)
+
+// ═══════════════════════════════════════════════════════════════
+//  20d. PENDING / ARMED CHART MARKERS
+// ═══════════════════════════════════════════════════════════════
+// Small labels showing which strategy is forming before full trigger.
+var label[] pendingMarkers = array.new_label(0)
+
+if showPendingMarker and armedStrat > 0 and sigStrat == 0
+    statePrefix = armedState == 1 ? "C" : "A"
+    markerText = statePrefix + str.tostring(armedStrat)
+    showIt = (armedState == 1 and showCandidateState) or (armedState == 2 and showArmedState)
+    if showIt
+        markerCol = armedState == 1 ? color.new(color.gray, 30) : color.new(execZoneCol, 30)
+        yPos = armedBull ? low - atr14 * 0.25 : high + atr14 * 0.25
+        lbl = label.new(bar_index, yPos, markerText,
+             style = armedBull ? label.style_label_up : label.style_label_down,
+             color = markerCol, textcolor = color.white, size = size.tiny)
+        array.push(pendingMarkers, lbl)
+        trimLabelArray(pendingMarkers, 15)
+
 if barstate.islast
     drawPDHPDL()
     drawEqhEql()
@@ -2396,30 +2863,34 @@ drawSweepMarker(bool isBull, float raidLevel, string raidText) =>
         trimLineArray(sweepMarkerLines, 30)
         trimLabelArray(sweepMarkerLabels, 30)
 
+// Signal label rendering — respects signalLabelMode and signalLabelSize
+// Offset scales with mode: Full uses more space, X-Number uses minimal
+sigLabelOffset = signalLabelMode == "Full" ? 0.55 : signalLabelMode == "Compact" ? 0.35 : 0.25
+
 if finalBuy and hasStratSignal
-    lbl = stratLabel(sigStrat)
-    srcTxt = sigRaidSrc != "" ? " | " + sigRaidSrc : ""
-    label.new(bar_index, low - atr14 * 0.65,
-         "▲ BUY " + lbl + " [" + str.tostring(sigScore) + "]" + srcTxt,
-         style = label.style_label_up, color = gradeColor(sigScore), textcolor = color.white, size = size.normal)
+    labelText = formatSignalLabel(true, sigStrat, sigScore, sigRaidSrc, sigSetupType)
+    labelCol = signalColor(true, sigScore)
+    label.new(bar_index, low - atr14 * sigLabelOffset, labelText,
+         style = label.style_label_up, color = labelCol, textcolor = color.white, size = labelSizeVal())
 
 if finalSell and hasStratSignal
-    lbl = stratLabel(sigStrat)
-    srcTxt = sigRaidSrc != "" ? " | " + sigRaidSrc : ""
-    label.new(bar_index, high + atr14 * 0.65,
-         "▼ SELL " + lbl + " [" + str.tostring(sigScore) + "]" + srcTxt,
-         style = label.style_label_down, color = gradeColor(sigScore), textcolor = color.white, size = size.normal)
+    labelText = formatSignalLabel(false, sigStrat, sigScore, sigRaidSrc, sigSetupType)
+    labelCol = signalColor(false, sigScore)
+    label.new(bar_index, high + atr14 * sigLabelOffset, labelText,
+         style = label.style_label_down, color = labelCol, textcolor = color.white, size = labelSizeVal())
 
-// FVG standalone signals
+// FVG standalone signals — also respect label mode
 if fvgBuySignal and not hasStratSignal
-    label.new(bar_index, low - atr14 * 0.65,
-         "◆ FVG BUY [" + str.tostring(fvgBuyScore) + "]",
-         style = label.style_label_up, color = color.new(fvgCol, 0), textcolor = color.white, size = size.normal)
+    fvgLabelText = signalLabelMode == "X-Number" ? "Xf" : signalLabelMode == "Compact" ? "B-FVG" : "◆ FVG BUY [" + str.tostring(fvgBuyScore) + "]"
+    fvgLabelCol = showSignalDirColor ? bullCol : color.new(fvgCol, 0)
+    label.new(bar_index, low - atr14 * sigLabelOffset, fvgLabelText,
+         style = label.style_label_up, color = fvgLabelCol, textcolor = color.white, size = labelSizeVal())
 
 if fvgSellSignal and not hasStratSignal
-    label.new(bar_index, high + atr14 * 0.65,
-         "◆ FVG SELL [" + str.tostring(fvgSellScore) + "]",
-         style = label.style_label_down, color = color.new(fvgCol, 0), textcolor = color.white, size = size.normal)
+    fvgLabelText = signalLabelMode == "X-Number" ? "Xf" : signalLabelMode == "Compact" ? "S-FVG" : "◆ FVG SELL [" + str.tostring(fvgSellScore) + "]"
+    fvgLabelCol = showSignalDirColor ? bearCol : color.new(fvgCol, 0)
+    label.new(bar_index, high + atr14 * sigLabelOffset, fvgLabelText,
+         style = label.style_label_down, color = fvgLabelCol, textcolor = color.white, size = labelSizeVal())
 
 if showSweepMarks
     if anyBullRaid
@@ -2510,9 +2981,9 @@ if emitCloseAlerts and lastCloseTradeId != "" and lastCloseReason != "NONE"
     lastCloseTradeId := ""
 
 // Generic alert conditions
-alertcondition(finalBuy, "Buy Signal", "SMC v6 Buy Signal")
-alertcondition(finalSell, "Sell Signal", "SMC v6 Sell Signal")
-alertcondition(finalBuy or finalSell, "Any Signal", "SMC v6 Signal")
+alertcondition(finalBuy, "Buy Signal", "SMC v7 Buy Signal")
+alertcondition(finalSell, "Sell Signal", "SMC v7 Sell Signal")
+alertcondition(finalBuy or finalSell, "Any Signal", "SMC v7 Signal")
 
 // ═══════════════════════════════════════════════════════════════
 //  23. DASHBOARD (toggle-aware, delete when off)
@@ -2521,8 +2992,11 @@ wr = totalTrades > 0 ? totalWins * 100.0 / totalTrades : na
 wrText = na(wr) ? "–" : str.tostring(wr, "#.#") + "%"
 netR = str.tostring(totalR, "#.##") + "R"
 
-activeSetupText = hasStratSignal ? sigSetupType :
-     hasFvgStandalone ? "FVG_MITIGATION" :
+// Active setup text: now reflects lifecycle state (CANDIDATE/ARMED/TRIGGERED)
+activeSetupText = hasStratSignal ? "S" + str.tostring(sigStrat) + ":TRIGGERED" :
+     hasFvgStandalone ? "FVG:TRIGGERED" :
+     armedStrat > 0 and armedState == 2 ? "S" + str.tostring(armedStrat) + ":ARMED" :
+     armedStrat > 0 and armedState == 1 ? "S" + str.tostring(armedStrat) + ":CANDIDATE" :
      s1BullState >= 1 or s1BearState >= 1 ? "S1:TRACKING" :
      s3State >= 1 ? "S3:PO3" :
      s4State >= 1 ? "S4:JUDAS" : "IDLE"
@@ -2533,11 +3007,11 @@ displayScore = hasStratSignal ? sigScore :
 displayScoreText = na(displayScore) ? "–" : str.tostring(displayScore)
 
 s1StatusText = strat1En ? (s1BullState == 0 and s1BearState == 0 ? "Idle" :
-     s1BullState == 1 ? "Raid▲" : s1BullState == 2 ? "FVG▲" :
-     s1BearState == 1 ? "Raid▼" : s1BearState == 2 ? "FVG▼" : "Active") : "OFF"
-s2StatusText = strat2En ? (inAnySB ? "In Window" : "Waiting") : "OFF"
-s3StatusText = strat3En ? (s3State == 0 ? "Idle" : s3State == 1 ? "Manip" : "Confirm") : "OFF"
-s4StatusText = strat4En ? (s4State == 0 ? "Idle" : s4State == 1 ? "Raid" : "Confirm") : "OFF"
+     s1BullState == 1 ? "Cand▲" : s1BullState == 2 ? "Armed▲" :
+     s1BearState == 1 ? "Cand▼" : s1BearState == 2 ? "Armed▼" : "Active") : "OFF"
+s2StatusText = strat2En ? (s2BullRaided or s2BearRaided ? "Armed" : inAnySB ? "In Window" : "Waiting") : "OFF"
+s3StatusText = strat3En ? (s3State == 0 ? "Idle" : s3State == 1 ? "Cand" : "Armed") : "OFF"
+s4StatusText = strat4En ? (s4State == 0 ? "Idle" : s4State == 1 ? "Cand" : "Armed") : "OFF"
 s5StatusText = strat5En ? (smtBullDiv or smtBearDiv ? "Divergence" : "Monitoring") : "OFF"
 
 lastRaidTxt = lastRaidSource != "" ?
@@ -2557,13 +3031,30 @@ clearDashboard() =>
     if not na(dash)
         table.delete(dash)
 
+// Count extra rows for strategy descriptions
+dashDescRows() =>
+    int rows = 0
+    if describeStrategy
+        if stratDescMode == "Active Only"
+            rows := (armedStrat > 0 or sigStrat > 0) ? 1 : 0
+        else
+            rows += strat1En ? 1 : 0
+            rows += strat2En ? 1 : 0
+            rows += strat3En ? 1 : 0
+            rows += strat4En ? 1 : 0
+            rows += strat5En ? 1 : 0
+    rows
+
 drawDashboard() =>
-    tbl = table.new(position.bottom_left, 2, 14,
+    int extraRows = dashDescRows()
+    int planRows = armedStrat > 0 and showArmedState ? 3 : 0
+    int totalRows = 14 + extraRows + planRows
+    tbl = table.new(position.bottom_left, 2, totalRows,
          bgcolor = color.new(color.rgb(8, 10, 28), 5),
          border_width = 1, border_color = color.new(color.white, 78))
     hBg = color.new(color.rgb(15, 18, 55), 0)
     r = 0
-    table.cell(tbl, 0, r, "SMC v6 Multi-Strategy", text_color = color.white, text_size = size.small, bgcolor = hBg)
+    table.cell(tbl, 0, r, "SMC v7 Multi-Strategy", text_color = color.white, text_size = size.small, bgcolor = hBg)
     table.cell(tbl, 1, r, webhookSource, text_color = color.white, text_size = size.small, bgcolor = hBg)
     r += 1
     table.cell(tbl, 0, r, "HTF Bias", text_color = color.new(color.white, 25), text_size = size.small)
@@ -2571,7 +3062,11 @@ drawDashboard() =>
          text_color = htfBull ? bullCol : htfBear ? bearCol : color.gray, text_size = size.small)
     r += 1
     table.cell(tbl, 0, r, "Active Setup", text_color = color.new(color.white, 25), text_size = size.small)
-    table.cell(tbl, 1, r, activeSetupText, text_color = activeSetupText == "IDLE" ? color.gray : bullCol, text_size = size.small)
+    setupColor = str.contains(activeSetupText, "TRIGGERED") ? bullCol :
+         str.contains(activeSetupText, "ARMED") ? execZoneCol :
+         str.contains(activeSetupText, "CANDIDATE") ? color.new(color.yellow, 15) :
+         activeSetupText == "IDLE" ? color.gray : color.new(color.white, 15)
+    table.cell(tbl, 1, r, activeSetupText, text_color = setupColor, text_size = size.small)
     r += 1
     // Confluence interpretation: qualitative label + numeric detail
     confLabel = na(displayScore) ? "–" : getConfluenceLabel(nz(displayScore, 0))
@@ -2614,6 +3109,55 @@ drawDashboard() =>
     table.cell(tbl, 0, r, "Trades", text_color = color.new(color.white, 25), text_size = size.small)
     table.cell(tbl, 1, r, str.tostring(totalWins) + "W  " + str.tostring(totalLoss) + "L  ·  " + lastCloseReason,
          text_color = color.new(color.white, 30), text_size = size.small)
+
+    // ── Armed plan rows (entry, SL, TP) ──────────────────────
+    if armedStrat > 0 and showArmedState
+        r += 1
+        table.cell(tbl, 0, r, "Plan Entry", text_color = color.new(color.white, 25), text_size = size.small)
+        entryPlanText = na(armedEntry) ? "–" : str.tostring(armedEntry, format.mintick) + " · " + armedEntrySrc
+        table.cell(tbl, 1, r, entryPlanText, text_color = execZoneCol, text_size = size.small)
+        r += 1
+        table.cell(tbl, 0, r, "Plan Stop", text_color = color.new(color.white, 25), text_size = size.small)
+        table.cell(tbl, 1, r, na(armedSL) ? "–" : str.tostring(armedSL, format.mintick),
+             text_color = bearCol, text_size = size.small)
+        r += 1
+        table.cell(tbl, 0, r, "Plan TP", text_color = color.new(color.white, 25), text_size = size.small)
+        tp1Str = na(armedTP1) ? "–" : str.tostring(armedTP1, format.mintick)
+        tp2Str = na(armedTP2) or armedTP2 == armedTP1 ? "" : " / " + str.tostring(armedTP2, format.mintick)
+        table.cell(tbl, 1, r, tp1Str + tp2Str, text_color = bullCol, text_size = size.small)
+
+    // ── Strategy description rows ────────────────────────────
+    if describeStrategy
+        descBg = color.new(color.rgb(12, 14, 40), 0)
+        if stratDescMode == "Active Only"
+            descIdx = sigStrat > 0 ? sigStrat : armedStrat > 0 ? armedStrat : 0
+            if descIdx > 0
+                r += 1
+                table.cell(tbl, 0, r, "Strategy", text_color = color.new(color.white, 25), text_size = size.small, bgcolor = descBg)
+                table.cell(tbl, 1, r, stratDescription(descIdx), text_color = color.new(color.white, 15), text_size = size.small, bgcolor = descBg)
+        else
+            // Enabled Strategies mode: show all enabled
+            if strat1En
+                r += 1
+                table.cell(tbl, 0, r, "S1", text_color = color.new(color.white, 25), text_size = size.small, bgcolor = descBg)
+                table.cell(tbl, 1, r, stratDescShort(1), text_color = color.new(color.white, 15), text_size = size.small, bgcolor = descBg)
+            if strat2En
+                r += 1
+                table.cell(tbl, 0, r, "S2", text_color = color.new(color.white, 25), text_size = size.small, bgcolor = descBg)
+                table.cell(tbl, 1, r, stratDescShort(2), text_color = color.new(color.white, 15), text_size = size.small, bgcolor = descBg)
+            if strat3En
+                r += 1
+                table.cell(tbl, 0, r, "S3", text_color = color.new(color.white, 25), text_size = size.small, bgcolor = descBg)
+                table.cell(tbl, 1, r, stratDescShort(3), text_color = color.new(color.white, 15), text_size = size.small, bgcolor = descBg)
+            if strat4En
+                r += 1
+                table.cell(tbl, 0, r, "S4", text_color = color.new(color.white, 25), text_size = size.small, bgcolor = descBg)
+                table.cell(tbl, 1, r, stratDescShort(4), text_color = color.new(color.white, 15), text_size = size.small, bgcolor = descBg)
+            if strat5En
+                r += 1
+                table.cell(tbl, 0, r, "S5", text_color = color.new(color.white, 25), text_size = size.small, bgcolor = descBg)
+                table.cell(tbl, 1, r, stratDescShort(5), text_color = color.new(color.white, 15), text_size = size.small, bgcolor = descBg)
+
     tbl
 
 if barstate.islast
@@ -2682,7 +3226,7 @@ drawQATable() =>
     hBg2 = color.new(color.rgb(30, 20, 60), 0)
     qr = 0
     table.cell(tbl, 0, qr, "QA MODE", text_color = color.yellow, text_size = size.small, bgcolor = hBg2)
-    table.cell(tbl, 1, qr, "SMC v6", text_color = color.yellow, text_size = size.small, bgcolor = hBg2)
+    table.cell(tbl, 1, qr, "SMC v7", text_color = color.yellow, text_size = size.small, bgcolor = hBg2)
     qr += 1
     table.cell(tbl, 0, qr, "Toggles", text_color = color.new(color.white, 20), text_size = size.small)
     table.cell(tbl, 1, qr, "Dash:" + str.tostring(showDash) + " Sweep:" + str.tostring(showSweepMarks) +
