@@ -4,6 +4,20 @@ indicator("SMC Clean Signals v6 [TradeJAudit]", "SMC v6", overlay = true,
      max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 500)
 
 // ═══════════════════════════════════════════════════════════════
+//  CHANGELOG (v6.2 – Lifecycle / UX Refactor)
+// ═══════════════════════════════════════════════════════════════
+// 1. Signal labels refactored with Full / Compact / X-Number
+//    modes, configurable size, and lower-obstruction anchoring.
+// 2. Late signal printing fixed by separating armed execution
+//    planning from the actual trigger that touches the zone.
+// 3. Dashboard now supports an optional plain-English strategy
+//    description row controlled by "Describe strategy?".
+// 4. Setup lifecycle expanded into Candidate / Armed / Triggered
+//    states with projected entry, stop, and targets before entry.
+// 5. Projected plans and triggered trades now render as distinct
+//    visual layers so pending context cannot masquerade as fills.
+// ═══════════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════════
 //  CHANGELOG (v6.1 – Chart Clarity & Execution Refactor)
 // ═══════════════════════════════════════════════════════════════
 // 1. Current-day session-only: session H/L levels drawn only for
@@ -282,6 +296,19 @@ sessionCol      = input.color(color.new(#3b82f6, 90), "Session BG Color", group 
 showExecZone    = input.bool(true, "Show Execution Zone", group = grpDisplay,
      tooltip = "Highlights the FVG zone used for entry and the swept liquidity level.")
 execZoneCol     = input.color(color.new(#00e5ff, 0), "Execution Zone Color", group = grpDisplay)
+signalLabelMode = input.string("Compact", "Signal Label Mode", options = ["Full", "Compact", "X-Number"], group = grpDisplay)
+signalLabelSize = input.string("Tiny", "Signal Label Size", options = ["Tiny", "Small", "Normal"], group = grpDisplay)
+showSignalDirectionColor = input.bool(true, "Color Signal Labels By Direction", group = grpDisplay)
+describeStrategy = input.bool(false, "Describe strategy?", group = grpDisplay, active = showDash)
+strategyDescriptionMode = input.string("Active Only", "Strategy Description Mode", options = ["Active Only", "Enabled Strategies"], group = grpDisplay,
+     active = showDash and describeStrategy)
+showProjectedTradePlan = input.bool(true, "Show Projected Trade Plan", group = grpDisplay, active = showExecZone)
+projectedPlanStyle = input.string("Dashed", "Projected Plan Style", options = ["Dashed", "Light Fill", "Minimal"], group = grpDisplay,
+     active = showExecZone and showProjectedTradePlan)
+showPendingSetupMarker = input.bool(true, "Show Pending Setup Marker", group = grpDisplay, active = showExecZone or showDash)
+showCandidateState = input.bool(true, "Show Candidate State", group = grpDisplay, active = showPendingSetupMarker or showDash)
+showArmedState = input.bool(true, "Show Armed State", group = grpDisplay, active = showProjectedTradePlan or showPendingSetupMarker or showDash)
+showTriggeredState = input.bool(true, "Show Triggered State", group = grpDisplay, active = showDash)
 maxDrawnTrades  = input.int(5, "Max Trade Drawings", minval = 1, maxval = 15, group = grpDisplay,
      tooltip = "Max trade box sets on chart. Oldest deleted when exceeded.")
 
@@ -420,6 +447,79 @@ stratLabel(idx) =>
      idx == 3 ? "PO3_AMD" :
      idx == 4 ? "JUDAS_SWING" :
      idx == 5 ? "SMT_REVERSAL" : "UNKNOWN"
+
+stratShortCode(idx) =>
+    idx == 1 ? "RAID_MSS_FVG" :
+     idx == 2 ? "SILVER_BULLET" :
+     idx == 3 ? "PO3_AMD" :
+     idx == 4 ? "JUDAS_SWING" :
+     idx == 5 ? "SMT_REVERSAL" : "UNKNOWN"
+
+strategyDescription(idx) =>
+    idx == 1 ? "S1: Sweep liquidity, wait for MSS, then enter the FVG retrace." :
+     idx == 2 ? "S2: Silver Bullet FVG setup inside the Silver Bullet window." :
+     idx == 3 ? "S3: PO3 setup, accumulation then manipulation, then reversal expansion." :
+     idx == 4 ? "S4: Judas swing, session sweep first, then reversal confirmation." :
+     idx == 5 ? "S5: SMT divergence reversal after correlated liquidity disagreement." : "–"
+
+entryPlanLabel(entrySrc, zoneType) =>
+    entrySrc == "FVG_CE" ? "FVG CE" :
+     entrySrc == "FVG_TOUCH" ? "FVG touch" :
+     zoneType == "STANDALONE_FVG" ? "FVG rejection" :
+     zoneType == "OB" ? "OB touch" : "Execution zone retest"
+
+signalLabelSizeValue() =>
+    signalLabelSize == "Normal" ? size.normal :
+     signalLabelSize == "Small" ? size.small : size.tiny
+
+signalAnchorPrice(bool isBull, float fallbackPrice, float zoneHi, float zoneLo) =>
+    not na(fallbackPrice) ? fallbackPrice :
+     isBull ? nz(zoneLo, low) : nz(zoneHi, high)
+
+signalText(int stratIdx, bool isBull, int score) =>
+    // Compact label rendering keeps the execution bar readable while still exposing strategy identity.
+    signalLabelMode == "X-Number" ? "X" + str.tostring(stratIdx) :
+     signalLabelMode == "Compact" ? (isBull ? "B-S" : "S-S") + str.tostring(stratIdx) :
+     (isBull ? "BUY " : "SELL ") + "S" + str.tostring(stratIdx) + " " + stratShortCode(stratIdx) + " [" + str.tostring(score) + "]"
+
+pendingMarkerText(string setupState, int stratIdx) =>
+    setupState == "ARMED" ? "A" + str.tostring(stratIdx) :
+     setupState == "CANDIDATE" ? "C" + str.tostring(stratIdx) :
+     "P" + str.tostring(stratIdx)
+
+projectedPlanBorderStyle() =>
+    projectedPlanStyle == "Minimal" ? line.style_dotted : line.style_dashed
+
+projectedPlanFillOpacity() =>
+    projectedPlanStyle == "Light Fill" ? 84 :
+     projectedPlanStyle == "Minimal" ? 94 : 90
+
+projectedPlanBorderOpacity() =>
+    projectedPlanStyle == "Light Fill" ? 55 :
+     projectedPlanStyle == "Minimal" ? 68 : 46
+
+executionZoneTouched(bool isBull, float plannedEntryPrice, float zoneHi, float zoneLo, string entrySrc) =>
+    // Planned entry / execution zone logic stays tied to the true zone touch, never to a later expanded close.
+    if na(zoneHi) or na(zoneLo)
+        false
+    else if entrySrc == "FVG_CE" and not na(plannedEntryPrice)
+        high >= plannedEntryPrice and low <= plannedEntryPrice
+    else
+        high >= zoneLo and low <= zoneHi
+
+enabledStrategySummary() =>
+    string txt = ""
+    if strat1En
+        txt += (txt != "" ? "\n" : "") + "S1: Raid + MSS + FVG retrace"
+    if strat2En
+        txt += (txt != "" ? "\n" : "") + "S2: Silver Bullet FVG window"
+    if strat3En
+        txt += (txt != "" ? "\n" : "") + "S3: PO3 manipulation reversal"
+    if strat4En
+        txt += (txt != "" ? "\n" : "") + "S4: Judas sweep reversal"
+    if strat5En
+        txt += (txt != "" ? "\n" : "") + "S5: SMT divergence reversal"
+    txt != "" ? txt : "No strategies enabled"
 
 sanitizeSymbol(s) =>
     str.replace_all(str.replace_all(str.replace_all(s, ":", "_"), ".", "_"), "/", "_")
@@ -1282,6 +1382,8 @@ if strat4En and inJudas and not na(judasOpenRef) and not judasRaidDone
 // Candidate arrays — fresh each bar (no var)
 bool[]   cValid    = array.new_bool(5, false)
 bool[]   cBull     = array.new_bool(5, false)
+bool[]   cCandidate = array.new_bool(5, false)
+bool[]   cArmed    = array.new_bool(5, false)
 float[]  cEntry    = array.new_float(5, na)
 float[]  cSL       = array.new_float(5, na)
 float[]  cTP1      = array.new_float(5, na)
@@ -1294,8 +1396,24 @@ string[] cRaidSrc  = array.new_string(5, "")
 float[]  cRaidLvl  = array.new_float(5, na)
 string[] cEntrySrc = array.new_string(5, "")
 int[]    cEntryBar = array.new_int(5, na)
+int[]    cArmedBar = array.new_int(5, na)
+int[]    cTriggerBar = array.new_int(5, na)
 int[]    cMitBar   = array.new_int(5, na)
 string[] cZoneType = array.new_string(5, "")
+string[] cState    = array.new_string(5, "IDLE")
+string[] cDesc     = array.new_string(5, "")
+string[] cPlan     = array.new_string(5, "")
+
+// Setup lifecycle model: candidate identifies likely intent, armed publishes the trade plan,
+// triggered validates that price actually traded the execution zone, and signalPrinted is the final chart event.
+var float plannedEntryPrice = na
+var float executionZoneLow = na
+var float executionZoneHigh = na
+var int setupArmedBarIndex = na
+var int triggerBarIndex = na
+var bool setupCandidate = false
+var bool setupArmed = false
+var bool signalPrinted = false
 
 // ── Helper: compute entry price (FVG CE or proximal edge) ────
 calcEntryPrice(isBull, fvgHi, fvgLo) =>
@@ -1362,6 +1480,43 @@ calcTrade(isBull, entryPrice, raidExtreme, fvgBound) =>
     riskOk = risk <= maxRiskAtr * atr14 and risk > syminfo.mintick
     [sl, tp1, tp2, risk, riskOk]
 
+setLifecycleCandidate(int idx, bool isBull, string setup, string description, string stateText, string raidSource, float raidLevel) =>
+    array.set(cCandidate, idx, true)
+    array.set(cBull, idx, isBull)
+    array.set(cSetup, idx, setup)
+    array.set(cDesc, idx, description)
+    array.set(cState, idx, stateText)
+    array.set(cRaidSrc, idx, raidSource)
+    array.set(cRaidLvl, idx, raidLevel)
+
+setLifecycleArmed(int idx, bool isBull, string setup, string description, float entryP, float sl, float tp1, float tp2, int score, float zoneHi, float zoneLo, string raidSource, float raidLevel, string entrySrc, int armedBar, string zoneType) =>
+    array.set(cCandidate, idx, true)
+    array.set(cArmed, idx, true)
+    array.set(cBull, idx, isBull)
+    array.set(cEntry, idx, entryP)
+    array.set(cSL, idx, sl)
+    array.set(cTP1, idx, tp1)
+    array.set(cTP2, idx, tp2)
+    array.set(cScore, idx, score)
+    array.set(cSetup, idx, setup)
+    array.set(cZoneHi, idx, zoneHi)
+    array.set(cZoneLo, idx, zoneLo)
+    array.set(cRaidSrc, idx, raidSource)
+    array.set(cRaidLvl, idx, raidLevel)
+    array.set(cEntrySrc, idx, entrySrc)
+    array.set(cArmedBar, idx, armedBar)
+    array.set(cState, idx, "ARMED")
+    array.set(cDesc, idx, description)
+    array.set(cPlan, idx, entryPlanLabel(entrySrc, zoneType))
+    array.set(cZoneType, idx, zoneType)
+
+setLifecycleTriggered(int idx, int triggerBar, int mitigationBar) =>
+    array.set(cValid, idx, true)
+    array.set(cTriggerBar, idx, triggerBar)
+    array.set(cEntryBar, idx, triggerBar)
+    array.set(cMitBar, idx, mitigationBar)
+    array.set(cState, idx, "TRIGGERED")
+
 // ═══════════════════════════════════════════════════════════════
 //  STRATEGY 1: Liquidity Raid → MSS/Displacement → FVG Entry
 // ═══════════════════════════════════════════════════════════════
@@ -1372,12 +1527,27 @@ var float s1BullFvgHi = na, var float s1BullFvgLo = na
 var float s1BearFvgHi = na, var float s1BearFvgLo = na
 var bool s1BullHasOB = false, var bool s1BearHasOB = false
 
+if newDay
+    s1BullState := 0
+    s1BearState := 0
+    s1BullBar := na
+    s1BearBar := na
+    s1BullFvgHi := na
+    s1BullFvgLo := na
+    s1BearFvgHi := na
+    s1BearFvgLo := na
+    s1BullHasOB := false
+    s1BearHasOB := false
+
 if strat1En and tfOk
     // ── BULL path ──
     if s1BullState == 0 and anyBullRaid
         s1BullState   := 1
         s1BullBar     := bar_index
         s1BullRaidLow := low
+
+    if s1BullState == 1
+        setLifecycleCandidate(0, true, "RAID_MSS_FVG", strategyDescription(1), "CANDIDATE", bullRaidSrc, bullRaidLvl)
 
     if s1BullState == 1 and bullMSS and bullDisplaceOk and volSpikeOk
         hasFvg = not na(lastBullFvgBar) and bar_index - lastBullFvgBar <= 3
@@ -1390,30 +1560,17 @@ if strat1En and tfOk
                 [obH, obL] = findBullOB()
                 s1BullHasOB := not na(obH)
 
-    // State 2 → Candidate: Price retraces into FVG
+    // State 2 → Armed: FVG is known, so publish the execution plan before price returns to it.
     if s1BullState == 2 and not na(s1BullFvgHi) and not na(s1BullFvgLo)
-        priceRetraced = low <= s1BullFvgHi and close >= s1BullFvgLo
-        if priceRetraced and inSessionFinal and htfBullOk and premDiscOk(true) and rsiBullOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(true, s1BullFvgHi, s1BullFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s1BullRaidLow, s1BullFvgLo)
-            score = calcScore(true, true, true, s1BullHasOB, inAnyKz, smtBullDiv)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 0, true)
-                array.set(cBull, 0, true)
-                array.set(cEntry, 0, entryP)
-                array.set(cSL, 0, sl)
-                array.set(cTP1, 0, tp1)
-                array.set(cTP2, 0, tp2)
-                array.set(cScore, 0, score)
-                array.set(cSetup, 0, "RAID_MSS_FVG")
-                array.set(cZoneHi, 0, s1BullFvgHi)
-                array.set(cZoneLo, 0, s1BullFvgLo)
-                array.set(cRaidSrc, 0, bullRaidSrc)
-                array.set(cRaidLvl, 0, bullRaidLvl)
-                array.set(cEntrySrc, 0, entrySrc)
-                array.set(cEntryBar, 0, bar_index)
-                array.set(cMitBar, 0, bar_index)
-                array.set(cZoneType, 0, "FVG")
+        [entryP, entrySrc] = calcEntryPrice(true, s1BullFvgHi, s1BullFvgLo)
+        [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s1BullRaidLow, s1BullFvgLo)
+        score = calcScore(true, true, true, s1BullHasOB, inAnyKz, smtBullDiv)
+        armedReady = inSessionFinal and htfBullOk and premDiscOk(true) and rsiBullOk and riskOk and scorePassesThreshold(score)
+        if armedReady
+            setLifecycleArmed(0, true, "RAID_MSS_FVG", strategyDescription(1), entryP, sl, tp1, tp2, score, s1BullFvgHi, s1BullFvgLo, bullRaidSrc, bullRaidLvl, entrySrc, nz(s1BullBar, bar_index), "FVG")
+            triggerTouch = executionZoneTouched(true, entryP, s1BullFvgHi, s1BullFvgLo, entrySrc)
+            if triggerTouch and barConfirmedOk
+                setLifecycleTriggered(0, bar_index, bar_index)
 
     // Expiry
     if s1BullState > 0 and not na(s1BullBar) and bar_index - s1BullBar > cancelBars
@@ -1427,6 +1584,9 @@ if strat1En and tfOk
         s1BearBar      := bar_index
         s1BearRaidHigh := high
 
+    if s1BearState == 1
+        setLifecycleCandidate(0, false, "RAID_MSS_FVG", strategyDescription(1), "CANDIDATE", bearRaidSrc, bearRaidLvl)
+
     if s1BearState == 1 and bearMSS and bearDisplaceOk and volSpikeOk
         hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 3
         if hasFvg
@@ -1439,28 +1599,15 @@ if strat1En and tfOk
                 s1BearHasOB := not na(obH)
 
     if s1BearState == 2 and not na(s1BearFvgHi) and not na(s1BearFvgLo) and not array.get(cValid, 0)
-        priceRetraced = high >= s1BearFvgLo and close <= s1BearFvgHi
-        if priceRetraced and inSessionFinal and htfBearOk and premDiscOk(false) and rsiBearOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(false, s1BearFvgHi, s1BearFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s1BearRaidHigh, s1BearFvgHi)
-            score = calcScore(true, true, true, s1BearHasOB, inAnyKz, smtBearDiv)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 0, true)
-                array.set(cBull, 0, false)
-                array.set(cEntry, 0, entryP)
-                array.set(cSL, 0, sl)
-                array.set(cTP1, 0, tp1)
-                array.set(cTP2, 0, tp2)
-                array.set(cScore, 0, score)
-                array.set(cSetup, 0, "RAID_MSS_FVG")
-                array.set(cZoneHi, 0, s1BearFvgHi)
-                array.set(cZoneLo, 0, s1BearFvgLo)
-                array.set(cRaidSrc, 0, bearRaidSrc)
-                array.set(cRaidLvl, 0, bearRaidLvl)
-                array.set(cEntrySrc, 0, entrySrc)
-                array.set(cEntryBar, 0, bar_index)
-                array.set(cMitBar, 0, bar_index)
-                array.set(cZoneType, 0, "FVG")
+        [entryP, entrySrc] = calcEntryPrice(false, s1BearFvgHi, s1BearFvgLo)
+        [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s1BearRaidHigh, s1BearFvgHi)
+        score = calcScore(true, true, true, s1BearHasOB, inAnyKz, smtBearDiv)
+        armedReady = inSessionFinal and htfBearOk and premDiscOk(false) and rsiBearOk and riskOk and scorePassesThreshold(score)
+        if armedReady
+            setLifecycleArmed(0, false, "RAID_MSS_FVG", strategyDescription(1), entryP, sl, tp1, tp2, score, s1BearFvgHi, s1BearFvgLo, bearRaidSrc, bearRaidLvl, entrySrc, nz(s1BearBar, bar_index), "FVG")
+            triggerTouch = executionZoneTouched(false, entryP, s1BearFvgHi, s1BearFvgLo, entrySrc)
+            if triggerTouch and barConfirmedOk
+                setLifecycleTriggered(0, bar_index, bar_index)
 
     if s1BearState > 0 and not na(s1BearBar) and bar_index - s1BearBar > cancelBars
         s1BearState := 0
@@ -1475,6 +1622,20 @@ var float s2BearFvgHi = na, var float s2BearFvgLo = na, var int s2BearBar = na
 var bool s2BullRaided = false, var bool s2BearRaided = false
 var float s2BullRaidLow = na, var string s2BullRaidSrc = ""
 var float s2BearRaidHigh = na, var string s2BearRaidSrc = ""
+
+if newDay
+    s2BullFvgHi := na
+    s2BullFvgLo := na
+    s2BullBar := na
+    s2BearFvgHi := na
+    s2BearFvgLo := na
+    s2BearBar := na
+    s2BullRaided := false
+    s2BearRaided := false
+    s2BullRaidLow := na
+    s2BullRaidSrc := ""
+    s2BearRaidHigh := na
+    s2BearRaidSrc := ""
 
 if strat2En and tfOk and inAnySB
     if bullFvgDisp and anyBullRaid
@@ -1494,58 +1655,34 @@ if strat2En and tfOk and inAnySB
         s2BearRaidSrc  := curBearRaidSrc
 
     if s2BullRaided and not na(s2BullFvgHi)
-        priceRetraced = low <= s2BullFvgHi and close >= s2BullFvgLo
-        if priceRetraced and htfBullOk and rsiBullOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(true, s2BullFvgHi, s2BullFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s2BullRaidLow, s2BullFvgLo)
-            score = calcScore(true, false, true, false, true, smtBullDiv)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 1, true)
-                array.set(cBull, 1, true)
-                array.set(cEntry, 1, entryP)
-                array.set(cSL, 1, sl)
-                array.set(cTP1, 1, tp1)
-                array.set(cTP2, 1, tp2)
-                array.set(cScore, 1, score)
-                array.set(cSetup, 1, "SILVER_BULLET")
-                array.set(cZoneHi, 1, s2BullFvgHi)
-                array.set(cZoneLo, 1, s2BullFvgLo)
-                array.set(cRaidSrc, 1, s2BullRaidSrc)
-                array.set(cRaidLvl, 1, nz(bullRaidLvl))
-                array.set(cEntrySrc, 1, entrySrc)
-                array.set(cEntryBar, 1, bar_index)
-                array.set(cMitBar, 1, bar_index)
-                array.set(cZoneType, 1, "FVG")
+        [entryP, entrySrc] = calcEntryPrice(true, s2BullFvgHi, s2BullFvgLo)
+        [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s2BullRaidLow, s2BullFvgLo)
+        score = calcScore(true, false, true, false, true, smtBullDiv)
+        armedReady = htfBullOk and rsiBullOk and riskOk and scorePassesThreshold(score)
+        if armedReady
+            setLifecycleArmed(1, true, "SILVER_BULLET", strategyDescription(2), entryP, sl, tp1, tp2, score, s2BullFvgHi, s2BullFvgLo, s2BullRaidSrc, nz(bullRaidLvl), entrySrc, nz(s2BullBar, bar_index), "FVG")
+            triggerTouch = executionZoneTouched(true, entryP, s2BullFvgHi, s2BullFvgLo, entrySrc)
+            if triggerTouch and barConfirmedOk
+                setLifecycleTriggered(1, bar_index, bar_index)
 
     if s2BearRaided and not na(s2BearFvgHi) and not array.get(cValid, 1)
-        priceRetraced = high >= s2BearFvgLo and close <= s2BearFvgHi
-        if priceRetraced and htfBearOk and rsiBearOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(false, s2BearFvgHi, s2BearFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s2BearRaidHigh, s2BearFvgHi)
-            score = calcScore(true, false, true, false, true, smtBearDiv)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 1, true)
-                array.set(cBull, 1, false)
-                array.set(cEntry, 1, entryP)
-                array.set(cSL, 1, sl)
-                array.set(cTP1, 1, tp1)
-                array.set(cTP2, 1, tp2)
-                array.set(cScore, 1, score)
-                array.set(cSetup, 1, "SILVER_BULLET")
-                array.set(cZoneHi, 1, s2BearFvgHi)
-                array.set(cZoneLo, 1, s2BearFvgLo)
-                array.set(cRaidSrc, 1, s2BearRaidSrc)
-                array.set(cRaidLvl, 1, nz(bearRaidLvl))
-                array.set(cEntrySrc, 1, entrySrc)
-                array.set(cEntryBar, 1, bar_index)
-                array.set(cMitBar, 1, bar_index)
-                array.set(cZoneType, 1, "FVG")
+        [entryP, entrySrc] = calcEntryPrice(false, s2BearFvgHi, s2BearFvgLo)
+        [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s2BearRaidHigh, s2BearFvgHi)
+        score = calcScore(true, false, true, false, true, smtBearDiv)
+        armedReady = htfBearOk and rsiBearOk and riskOk and scorePassesThreshold(score)
+        if armedReady
+            setLifecycleArmed(1, false, "SILVER_BULLET", strategyDescription(2), entryP, sl, tp1, tp2, score, s2BearFvgHi, s2BearFvgLo, s2BearRaidSrc, nz(bearRaidLvl), entrySrc, nz(s2BearBar, bar_index), "FVG")
+            triggerTouch = executionZoneTouched(false, entryP, s2BearFvgHi, s2BearFvgLo, entrySrc)
+            if triggerTouch and barConfirmedOk
+                setLifecycleTriggered(1, bar_index, bar_index)
 
 if not inAnySB
     s2BullRaided := false
     s2BearRaided := false
     s2BullFvgHi  := na
+    s2BullFvgLo  := na
     s2BearFvgHi  := na
+    s2BearFvgLo  := na
 
 // ═══════════════════════════════════════════════════════════════
 //  STRATEGY 3: Power of Three (PO3 / AMD)
@@ -1554,10 +1691,19 @@ var int s3State = 0
 var int s3Bar = na
 var float s3FvgHi = na, var float s3FvgLo = na
 
+if newDay
+    s3State := 0
+    s3Bar := na
+    s3FvgHi := na
+    s3FvgLo := na
+
 if strat3En and tfOk
     if s3State == 0 and po3ManipDone and inPo3Manip
         s3State := 1
         s3Bar   := bar_index
+
+    if s3State == 1
+        setLifecycleCandidate(2, po3ManipBull, "PO3_AMD", strategyDescription(3), "CANDIDATE", "PO3_Manip", nz(po3ManipExtreme))
 
     if s3State == 1
         if po3ManipBull and bullMSS and bullDisplaceOk
@@ -1575,53 +1721,27 @@ if strat3En and tfOk
                 s3FvgLo  := lastBearFvgLo
                 s3Bar    := bar_index
 
-    if s3State == 2 and inPo3Dist and not na(s3FvgHi) and not na(s3FvgLo)
+    if s3State == 2 and not na(s3FvgHi) and not na(s3FvgLo)
         if po3ManipBull
-            priceRetraced = low <= s3FvgHi and close >= s3FvgLo
-            if priceRetraced and rsiBullOk and barConfirmedOk
-                [entryP, entrySrc] = calcEntryPrice(true, s3FvgHi, s3FvgLo)
-                [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(po3ManipExtreme, low), s3FvgLo)
-                score = calcScore(true, true, true, false, true, smtBullDiv)
-                if riskOk and scorePassesThreshold(score)
-                    array.set(cValid, 2, true)
-                    array.set(cBull, 2, true)
-                    array.set(cEntry, 2, entryP)
-                    array.set(cSL, 2, sl)
-                    array.set(cTP1, 2, tp1)
-                    array.set(cTP2, 2, tp2)
-                    array.set(cScore, 2, score)
-                    array.set(cSetup, 2, "PO3_AMD")
-                    array.set(cZoneHi, 2, s3FvgHi)
-                    array.set(cZoneLo, 2, s3FvgLo)
-                    array.set(cRaidSrc, 2, "PO3_Manip")
-                    array.set(cRaidLvl, 2, nz(po3ManipExtreme))
-                    array.set(cEntrySrc, 2, entrySrc)
-                    array.set(cEntryBar, 2, bar_index)
-                    array.set(cMitBar, 2, bar_index)
-                    array.set(cZoneType, 2, "FVG")
+            [entryP, entrySrc] = calcEntryPrice(true, s3FvgHi, s3FvgLo)
+            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(po3ManipExtreme, low), s3FvgLo)
+            score = calcScore(true, true, true, false, true, smtBullDiv)
+            armedReady = rsiBullOk and riskOk and scorePassesThreshold(score)
+            if armedReady
+                setLifecycleArmed(2, true, "PO3_AMD", strategyDescription(3), entryP, sl, tp1, tp2, score, s3FvgHi, s3FvgLo, "PO3_Manip", nz(po3ManipExtreme), entrySrc, nz(s3Bar, bar_index), "FVG")
+                triggerTouch = executionZoneTouched(true, entryP, s3FvgHi, s3FvgLo, entrySrc)
+                if inPo3Dist and triggerTouch and barConfirmedOk
+                    setLifecycleTriggered(2, bar_index, bar_index)
         else
-            priceRetraced = high >= s3FvgLo and close <= s3FvgHi
-            if priceRetraced and rsiBearOk and barConfirmedOk
-                [entryP, entrySrc] = calcEntryPrice(false, s3FvgHi, s3FvgLo)
-                [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(po3ManipExtreme, high), s3FvgHi)
-                score = calcScore(true, true, true, false, true, smtBearDiv)
-                if riskOk and scorePassesThreshold(score)
-                    array.set(cValid, 2, true)
-                    array.set(cBull, 2, false)
-                    array.set(cEntry, 2, entryP)
-                    array.set(cSL, 2, sl)
-                    array.set(cTP1, 2, tp1)
-                    array.set(cTP2, 2, tp2)
-                    array.set(cScore, 2, score)
-                    array.set(cSetup, 2, "PO3_AMD")
-                    array.set(cZoneHi, 2, s3FvgHi)
-                    array.set(cZoneLo, 2, s3FvgLo)
-                    array.set(cRaidSrc, 2, "PO3_Manip")
-                    array.set(cRaidLvl, 2, nz(po3ManipExtreme))
-                    array.set(cEntrySrc, 2, entrySrc)
-                    array.set(cEntryBar, 2, bar_index)
-                    array.set(cMitBar, 2, bar_index)
-                    array.set(cZoneType, 2, "FVG")
+            [entryP, entrySrc] = calcEntryPrice(false, s3FvgHi, s3FvgLo)
+            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(po3ManipExtreme, high), s3FvgHi)
+            score = calcScore(true, true, true, false, true, smtBearDiv)
+            armedReady = rsiBearOk and riskOk and scorePassesThreshold(score)
+            if armedReady
+                setLifecycleArmed(2, false, "PO3_AMD", strategyDescription(3), entryP, sl, tp1, tp2, score, s3FvgHi, s3FvgLo, "PO3_Manip", nz(po3ManipExtreme), entrySrc, nz(s3Bar, bar_index), "FVG")
+                triggerTouch = executionZoneTouched(false, entryP, s3FvgHi, s3FvgLo, entrySrc)
+                if inPo3Dist and triggerTouch and barConfirmedOk
+                    setLifecycleTriggered(2, bar_index, bar_index)
 
     if s3State > 0 and not na(s3Bar) and bar_index - s3Bar > cancelBars * 2
         s3State := 0
@@ -1633,10 +1753,19 @@ var int s4State = 0
 var int s4Bar = na
 var float s4FvgHi = na, var float s4FvgLo = na
 
+if newDay
+    s4State := 0
+    s4Bar := na
+    s4FvgHi := na
+    s4FvgLo := na
+
 if strat4En and tfOk
     if s4State == 0 and judasRaidDone and inJudas
         s4State := 1
         s4Bar   := bar_index
+
+    if s4State == 1
+        setLifecycleCandidate(3, judasIsBull, "JUDAS_SWING", strategyDescription(4), "CANDIDATE", "Judas", nz(judasExtreme))
 
     if s4State == 1
         if judasIsBull and bullMSS and bullDisplaceOk
@@ -1656,51 +1785,25 @@ if strat4En and tfOk
 
     if s4State == 2 and not na(s4FvgHi) and not na(s4FvgLo)
         if judasIsBull
-            priceRetraced = low <= s4FvgHi and close >= s4FvgLo
-            if priceRetraced and inSessionFinal and rsiBullOk and barConfirmedOk
-                [entryP, entrySrc] = calcEntryPrice(true, s4FvgHi, s4FvgLo)
-                [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(judasExtreme, low), s4FvgLo)
-                score = calcScore(true, true, true, false, inAnyKz, smtBullDiv)
-                if riskOk and scorePassesThreshold(score)
-                    array.set(cValid, 3, true)
-                    array.set(cBull, 3, true)
-                    array.set(cEntry, 3, entryP)
-                    array.set(cSL, 3, sl)
-                    array.set(cTP1, 3, tp1)
-                    array.set(cTP2, 3, tp2)
-                    array.set(cScore, 3, score)
-                    array.set(cSetup, 3, "JUDAS_SWING")
-                    array.set(cZoneHi, 3, s4FvgHi)
-                    array.set(cZoneLo, 3, s4FvgLo)
-                    array.set(cRaidSrc, 3, "Judas")
-                    array.set(cRaidLvl, 3, nz(judasExtreme))
-                    array.set(cEntrySrc, 3, entrySrc)
-                    array.set(cEntryBar, 3, bar_index)
-                    array.set(cMitBar, 3, bar_index)
-                    array.set(cZoneType, 3, "FVG")
+            [entryP, entrySrc] = calcEntryPrice(true, s4FvgHi, s4FvgLo)
+            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(judasExtreme, low), s4FvgLo)
+            score = calcScore(true, true, true, false, inAnyKz, smtBullDiv)
+            armedReady = inSessionFinal and rsiBullOk and riskOk and scorePassesThreshold(score)
+            if armedReady
+                setLifecycleArmed(3, true, "JUDAS_SWING", strategyDescription(4), entryP, sl, tp1, tp2, score, s4FvgHi, s4FvgLo, "Judas", nz(judasExtreme), entrySrc, nz(s4Bar, bar_index), "FVG")
+                triggerTouch = executionZoneTouched(true, entryP, s4FvgHi, s4FvgLo, entrySrc)
+                if triggerTouch and barConfirmedOk
+                    setLifecycleTriggered(3, bar_index, bar_index)
         else
-            priceRetraced = high >= s4FvgLo and close <= s4FvgHi
-            if priceRetraced and inSessionFinal and rsiBearOk and barConfirmedOk
-                [entryP, entrySrc] = calcEntryPrice(false, s4FvgHi, s4FvgLo)
-                [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(judasExtreme, high), s4FvgHi)
-                score = calcScore(true, true, true, false, inAnyKz, smtBearDiv)
-                if riskOk and scorePassesThreshold(score)
-                    array.set(cValid, 3, true)
-                    array.set(cBull, 3, false)
-                    array.set(cEntry, 3, entryP)
-                    array.set(cSL, 3, sl)
-                    array.set(cTP1, 3, tp1)
-                    array.set(cTP2, 3, tp2)
-                    array.set(cScore, 3, score)
-                    array.set(cSetup, 3, "JUDAS_SWING")
-                    array.set(cZoneHi, 3, s4FvgHi)
-                    array.set(cZoneLo, 3, s4FvgLo)
-                    array.set(cRaidSrc, 3, "Judas")
-                    array.set(cRaidLvl, 3, nz(judasExtreme))
-                    array.set(cEntrySrc, 3, entrySrc)
-                    array.set(cEntryBar, 3, bar_index)
-                    array.set(cMitBar, 3, bar_index)
-                    array.set(cZoneType, 3, "FVG")
+            [entryP, entrySrc] = calcEntryPrice(false, s4FvgHi, s4FvgLo)
+            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(judasExtreme, high), s4FvgHi)
+            score = calcScore(true, true, true, false, inAnyKz, smtBearDiv)
+            armedReady = inSessionFinal and rsiBearOk and riskOk and scorePassesThreshold(score)
+            if armedReady
+                setLifecycleArmed(3, false, "JUDAS_SWING", strategyDescription(4), entryP, sl, tp1, tp2, score, s4FvgHi, s4FvgLo, "Judas", nz(judasExtreme), entrySrc, nz(s4Bar, bar_index), "FVG")
+                triggerTouch = executionZoneTouched(false, entryP, s4FvgHi, s4FvgLo, entrySrc)
+                if triggerTouch and barConfirmedOk
+                    setLifecycleTriggered(3, bar_index, bar_index)
 
     if s4State > 0 and not na(s4Bar) and bar_index - s4Bar > cancelBars
         s4State := 0
@@ -1708,54 +1811,86 @@ if strat4En and tfOk
 // ═══════════════════════════════════════════════════════════════
 //  STRATEGY 5: SMT Divergence Reversal
 // ═══════════════════════════════════════════════════════════════
+var bool s5BullArmed = false, var bool s5BearArmed = false
+var int s5BullBar = na, var int s5BearBar = na
+var float s5BullFvgHi = na, var float s5BullFvgLo = na
+var float s5BearFvgHi = na, var float s5BearFvgLo = na
+var float s5BullRaidLow = na, var float s5BearRaidHigh = na
+var float s5BullRaidLvl = na, var float s5BearRaidLvl = na
+var string s5BullRaidSrc = "", var string s5BearRaidSrc = ""
+
+if newDay
+    s5BullArmed := false
+    s5BearArmed := false
+    s5BullBar := na
+    s5BearBar := na
+    s5BullFvgHi := na
+    s5BullFvgLo := na
+    s5BearFvgHi := na
+    s5BearFvgLo := na
+    s5BullRaidLow := na
+    s5BearRaidHigh := na
+    s5BullRaidLvl := na
+    s5BearRaidLvl := na
+    s5BullRaidSrc := ""
+    s5BearRaidSrc := ""
+
 if strat5En and smtEn and tfOk
     if smtBullDiv and anyBullRaid and bullMSS and bullDisplaceOk
         hasFvg = not na(lastBullFvgBar) and bar_index - lastBullFvgBar <= 5
-        if hasFvg and inSessionFinal and rsiBullOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(true, lastBullFvgHi, lastBullFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, nz(bullRaidLow, low), lastBullFvgLo)
-            score = calcScore(true, true, true, false, inAnyKz, true)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 4, true)
-                array.set(cBull, 4, true)
-                array.set(cEntry, 4, entryP)
-                array.set(cSL, 4, sl)
-                array.set(cTP1, 4, tp1)
-                array.set(cTP2, 4, tp2)
-                array.set(cScore, 4, score)
-                array.set(cSetup, 4, "SMT_REVERSAL")
-                array.set(cZoneHi, 4, lastBullFvgHi)
-                array.set(cZoneLo, 4, lastBullFvgLo)
-                array.set(cRaidSrc, 4, bullRaidSrc)
-                array.set(cRaidLvl, 4, bullRaidLvl)
-                array.set(cEntrySrc, 4, entrySrc)
-                array.set(cEntryBar, 4, bar_index)
-                array.set(cMitBar, 4, bar_index)
-                array.set(cZoneType, 4, "FVG")
+        if hasFvg
+            s5BullArmed := true
+            s5BullBar := bar_index
+            s5BullFvgHi := lastBullFvgHi
+            s5BullFvgLo := lastBullFvgLo
+            s5BullRaidLow := nz(bullRaidLow, low)
+            s5BullRaidLvl := bullRaidLvl
+            s5BullRaidSrc := bullRaidSrc
 
     if smtBearDiv and anyBearRaid and bearMSS and bearDisplaceOk and not array.get(cValid, 4)
         hasFvg = not na(lastBearFvgBar) and bar_index - lastBearFvgBar <= 5
-        if hasFvg and inSessionFinal and rsiBearOk and barConfirmedOk
-            [entryP, entrySrc] = calcEntryPrice(false, lastBearFvgHi, lastBearFvgLo)
-            [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, nz(bearRaidHigh, high), lastBearFvgHi)
-            score = calcScore(true, true, true, false, inAnyKz, true)
-            if riskOk and scorePassesThreshold(score)
-                array.set(cValid, 4, true)
-                array.set(cBull, 4, false)
-                array.set(cEntry, 4, entryP)
-                array.set(cSL, 4, sl)
-                array.set(cTP1, 4, tp1)
-                array.set(cTP2, 4, tp2)
-                array.set(cScore, 4, score)
-                array.set(cSetup, 4, "SMT_REVERSAL")
-                array.set(cZoneHi, 4, lastBearFvgHi)
-                array.set(cZoneLo, 4, lastBearFvgLo)
-                array.set(cRaidSrc, 4, bearRaidSrc)
-                array.set(cRaidLvl, 4, bearRaidLvl)
-                array.set(cEntrySrc, 4, entrySrc)
-                array.set(cEntryBar, 4, bar_index)
-                array.set(cMitBar, 4, bar_index)
-                array.set(cZoneType, 4, "FVG")
+        if hasFvg
+            s5BearArmed := true
+            s5BearBar := bar_index
+            s5BearFvgHi := lastBearFvgHi
+            s5BearFvgLo := lastBearFvgLo
+            s5BearRaidHigh := nz(bearRaidHigh, high)
+            s5BearRaidLvl := bearRaidLvl
+            s5BearRaidSrc := bearRaidSrc
+
+if s5BullArmed and not na(s5BullFvgHi) and not na(s5BullFvgLo)
+    [entryP, entrySrc] = calcEntryPrice(true, s5BullFvgHi, s5BullFvgLo)
+    [sl, tp1, tp2, risk, riskOk] = calcTrade(true, entryP, s5BullRaidLow, s5BullFvgLo)
+    score = calcScore(true, true, true, false, inAnyKz, true)
+    armedReady = inSessionFinal and rsiBullOk and riskOk and scorePassesThreshold(score)
+    if armedReady
+        setLifecycleArmed(4, true, "SMT_REVERSAL", strategyDescription(5), entryP, sl, tp1, tp2, score, s5BullFvgHi, s5BullFvgLo, s5BullRaidSrc, s5BullRaidLvl, entrySrc, nz(s5BullBar, bar_index), "FVG")
+        triggerTouch = executionZoneTouched(true, entryP, s5BullFvgHi, s5BullFvgLo, entrySrc)
+        if triggerTouch and barConfirmedOk
+            setLifecycleTriggered(4, bar_index, bar_index)
+
+if s5BearArmed and not na(s5BearFvgHi) and not na(s5BearFvgLo) and not array.get(cValid, 4)
+    [entryP, entrySrc] = calcEntryPrice(false, s5BearFvgHi, s5BearFvgLo)
+    [sl, tp1, tp2, risk, riskOk] = calcTrade(false, entryP, s5BearRaidHigh, s5BearFvgHi)
+    score = calcScore(true, true, true, false, inAnyKz, true)
+    armedReady = inSessionFinal and rsiBearOk and riskOk and scorePassesThreshold(score)
+    if armedReady
+        setLifecycleArmed(4, false, "SMT_REVERSAL", strategyDescription(5), entryP, sl, tp1, tp2, score, s5BearFvgHi, s5BearFvgLo, s5BearRaidSrc, s5BearRaidLvl, entrySrc, nz(s5BearBar, bar_index), "FVG")
+        triggerTouch = executionZoneTouched(false, entryP, s5BearFvgHi, s5BearFvgLo, entrySrc)
+        if triggerTouch and barConfirmedOk
+            setLifecycleTriggered(4, bar_index, bar_index)
+
+if s5BullArmed and not na(s5BullBar) and bar_index - s5BullBar > cancelBars
+    s5BullArmed := false
+    s5BullFvgHi := na
+    s5BullFvgLo := na
+    s5BullRaidLvl := na
+
+if s5BearArmed and not na(s5BearBar) and bar_index - s5BearBar > cancelBars
+    s5BearArmed := false
+    s5BearFvgHi := na
+    s5BearFvgLo := na
+    s5BearRaidLvl := na
 
 // ═══════════════════════════════════════════════════════════════
 //  16. STRATEGY PRIORITY ENGINE
@@ -1777,8 +1912,28 @@ var string sigRaidSrc   = ""
 var float  sigRaidLvl   = na
 var string sigEntrySrc  = ""
 var int    sigEntryBar  = na
+var int    sigArmedBar  = na
 var int    sigMitBar    = na
 var string sigZoneType  = ""
+
+var int    activePlanStrat = 0
+var bool   activePlanBull = false
+var string activePlanSetup = ""
+var string activePlanState = "IDLE"
+var string activePlanDesc = ""
+var string activePlanEntryPlan = ""
+var float  activePlanEntry = na
+var float  activePlanSL = na
+var float  activePlanTP1 = na
+var float  activePlanTP2 = na
+var float  activePlanZoneHi = na
+var float  activePlanZoneLo = na
+var float  activePlanRaidLvl = na
+var string activePlanRaidSrc = ""
+var string activePlanEntrySrc = ""
+var int    activePlanBar = na
+var int    activePlanScore = 0
+var string activePlanZoneType = ""
 
 var float  entryPriceLogic = na
 var int    entryBarIndex = na
@@ -1812,30 +1967,63 @@ sigRaidSrc   := ""
 sigRaidLvl   := na
 sigEntrySrc  := ""
 sigEntryBar  := na
+sigArmedBar  := na
 sigMitBar    := na
 sigZoneType  := ""
+activePlanStrat := 0
+activePlanBull := false
+activePlanSetup := ""
+activePlanState := "IDLE"
+activePlanDesc := ""
+activePlanEntryPlan := ""
+activePlanEntry := na
+activePlanSL := na
+activePlanTP1 := na
+activePlanTP2 := na
+activePlanZoneHi := na
+activePlanZoneLo := na
+activePlanRaidLvl := na
+activePlanRaidSrc := ""
+activePlanEntrySrc := ""
+activePlanBar := na
+activePlanScore := 0
+activePlanZoneType := ""
 entryPriceLogic := na
 entryBarIndex := na
 mitigationBarIndex := na
 entryReady := false
 entryTriggered := false
 entrySourceZoneType := ""
+plannedEntryPrice := na
+executionZoneLow := na
+executionZoneHigh := na
+setupArmedBarIndex := na
+triggerBarIndex := na
+setupCandidate := false
+setupArmed := false
+signalPrinted := false
 debugCandidates := ""
 debugWinner := ""
 
 // Build debug string of valid candidates
 for ci = 0 to 4
-    if array.get(cValid, ci)
-        debugCandidates := debugCandidates + (debugCandidates != "" ? "," : "") + "S" + str.tostring(ci + 1)
+    if array.get(cCandidate, ci) or array.get(cArmed, ci) or array.get(cValid, ci)
+        debugCandidates := debugCandidates + (debugCandidates != "" ? "," : "") + "S" + str.tostring(ci + 1) + ":" + array.get(cState, ci)
 
 // Parse priority and select winner
 string[] prioParts = str.split(stratPriority, ",")
 bool winnerFound = false
+int armedFoundIdx = -1
+int candidateFoundIdx = -1
 for i = 0 to math.min(array.size(prioParts) - 1, 9)
-    if not winnerFound
-        part = str.replace_all(array.get(prioParts, i), " ", "")
-        stratIdx = part == "S1" ? 0 : part == "S2" ? 1 : part == "S3" ? 2 : part == "S4" ? 3 : part == "S5" ? 4 : -1
-        if stratIdx >= 0 and stratIdx < 5 and array.get(cValid, stratIdx)
+    part = str.replace_all(array.get(prioParts, i), " ", "")
+    stratIdx = part == "S1" ? 0 : part == "S2" ? 1 : part == "S3" ? 2 : part == "S4" ? 3 : part == "S5" ? 4 : -1
+    if stratIdx >= 0 and stratIdx < 5
+        if armedFoundIdx == -1 and array.get(cArmed, stratIdx)
+            armedFoundIdx := stratIdx
+        if candidateFoundIdx == -1 and array.get(cCandidate, stratIdx)
+            candidateFoundIdx := stratIdx
+        if not winnerFound and array.get(cValid, stratIdx)
             sigStrat     := stratIdx + 1
             sigBull      := array.get(cBull, stratIdx)
             sigBear      := not array.get(cBull, stratIdx)
@@ -1851,10 +2039,40 @@ for i = 0 to math.min(array.size(prioParts) - 1, 9)
             sigRaidLvl   := array.get(cRaidLvl, stratIdx)
             sigEntrySrc  := array.get(cEntrySrc, stratIdx)
             sigEntryBar  := array.get(cEntryBar, stratIdx)
+            sigArmedBar  := array.get(cArmedBar, stratIdx)
             sigMitBar    := array.get(cMitBar, stratIdx)
             sigZoneType  := array.get(cZoneType, stratIdx)
             debugWinner  := "S" + str.tostring(stratIdx + 1)
             winnerFound  := true
+
+int activePlanIdx = winnerFound ? sigStrat - 1 : (armedFoundIdx >= 0 ? armedFoundIdx : candidateFoundIdx)
+if activePlanIdx >= 0
+    activePlanStrat := activePlanIdx + 1
+    activePlanBull := array.get(cBull, activePlanIdx)
+    activePlanSetup := array.get(cSetup, activePlanIdx)
+    activePlanState := array.get(cState, activePlanIdx)
+    activePlanDesc := array.get(cDesc, activePlanIdx)
+    activePlanEntryPlan := array.get(cPlan, activePlanIdx)
+    activePlanEntry := array.get(cEntry, activePlanIdx)
+    activePlanSL := array.get(cSL, activePlanIdx)
+    activePlanTP1 := array.get(cTP1, activePlanIdx)
+    activePlanTP2 := array.get(cTP2, activePlanIdx)
+    activePlanZoneHi := array.get(cZoneHi, activePlanIdx)
+    activePlanZoneLo := array.get(cZoneLo, activePlanIdx)
+    activePlanRaidLvl := array.get(cRaidLvl, activePlanIdx)
+    activePlanRaidSrc := array.get(cRaidSrc, activePlanIdx)
+    activePlanEntrySrc := array.get(cEntrySrc, activePlanIdx)
+    activePlanBar := array.get(cArmedBar, activePlanIdx)
+    activePlanScore := array.get(cScore, activePlanIdx)
+    activePlanZoneType := array.get(cZoneType, activePlanIdx)
+
+plannedEntryPrice := activePlanEntry
+executionZoneLow := activePlanZoneLo
+executionZoneHigh := activePlanZoneHi
+setupArmedBarIndex := activePlanBar
+triggerBarIndex := winnerFound ? sigEntryBar : na
+setupCandidate := activePlanState == "CANDIDATE"
+setupArmed := activePlanState == "ARMED" or activePlanState == "TRIGGERED"
 
 // Reset winning strategy state after selection
 if sigStrat == 1
@@ -1876,8 +2094,14 @@ else if sigStrat == 4
 else if sigStrat == 5
     if sigBull
         smtBullDiv := false
+        s5BullArmed := false
+        s5BullFvgHi := na
+        s5BullFvgLo := na
     else
         smtBearDiv := false
+        s5BearArmed := false
+        s5BearFvgHi := na
+        s5BearFvgLo := na
 
 // ═══════════════════════════════════════════════════════════════
 //  17. STANDALONE FVG MITIGATION (fallback when no strategy fires)
@@ -2010,15 +2234,17 @@ var int adaptiveLossStreak = 0
 signalCooldownOk = na(lastSignalBar) or bar_index - lastSignalBar >= suppressBars
 lossCooldownOk = na(cooldownUntilBar) or bar_index >= cooldownUntilBar
 
+// Final trigger logic: only a real zone touch can promote an armed plan into a printed signal.
 finalBuy  = (sigBull or fvgBuySignal) and signalCooldownOk and lossCooldownOk
 finalSell = (sigBear or fvgSellSignal) and signalCooldownOk and lossCooldownOk
 
 entryPriceLogic := hasStratSignal ? sigEntry : fvgBuySignal ? fvgBuyEntry : fvgSellSignal ? fvgSellEntry : na
 entryBarIndex := hasStratSignal ? sigEntryBar : fvgBuySignal ? fvgBuyEntryBar : fvgSellSignal ? fvgSellEntryBar : na
 mitigationBarIndex := hasStratSignal ? sigMitBar : fvgBuySignal ? fvgBuyEntryBar : fvgSellSignal ? fvgSellEntryBar : na
-entryReady := (hasStratSignal and not na(sigEntry)) or hasFvgStandalone
+entryReady := (setupArmed and not na(plannedEntryPrice)) or hasFvgStandalone
 entryTriggered := finalBuy or finalSell
-entrySourceZoneType := hasStratSignal ? sigZoneType : hasFvgStandalone ? "STANDALONE_FVG" : ""
+signalPrinted := finalBuy or finalSell
+entrySourceZoneType := hasStratSignal ? sigZoneType : setupArmed ? activePlanZoneType : hasFvgStandalone ? "STANDALONE_FVG" : ""
 
 if finalBuy or finalSell
     lastSignalBar := bar_index
@@ -2285,37 +2511,59 @@ else
 // ═══════════════════════════════════════════════════════════════
 //  20b. EXECUTION ZONE RENDERING (pending zone vs triggered trade)
 // ═══════════════════════════════════════════════════════════════
-// Pending zone: shown as subtle dashed box when a strategy reaches
-//   state 2 (execution zone identified, waiting for price entry).
-// Triggered zone: once price enters and finalBuy/finalSell fires,
-//   the pending box is replaced by the solid execution box + TP/SL.
-// This ensures traders see the zone before execution, but TP/SL
-// only appears at the actual trigger moment.
+// Pending visuals remain explicitly projected. Triggered visuals only appear after the real touch.
 var box execBox = na
-var box pendingZoneBox = na
 var line raidRefLine = na
 var label raidRefLbl = na
 var label execEntryLbl = na
+var box[] projectedPlanBoxes = array.new_box(0)
+var line[] projectedPlanLines = array.new_line(0)
+var label[] projectedPlanLabels = array.new_label(0)
+var label[] pendingStateLabels = array.new_label(0)
 
-bool s1BullPending = s1BullState == 2 and not na(s1BullFvgHi)
-bool s1BearPending = s1BearState == 2 and not na(s1BearFvgHi)
-bool s3Pending = s3State == 2 and not na(s3FvgHi)
-bool s4Pending = s4State == 2 and not na(s4FvgHi)
-bool anyPending = s1BullPending or s1BearPending or s3Pending or s4Pending
-float pendHi = s1BullPending ? s1BullFvgHi : s1BearPending ? s1BearFvgHi : s3Pending ? s3FvgHi : s4Pending ? s4FvgHi : na
-float pendLo = s1BullPending ? s1BullFvgLo : s1BearPending ? s1BearFvgLo : s3Pending ? s3FvgLo : s4Pending ? s4FvgLo : na
-int pendLeft = s1BullPending ? nz(s1BullBar, bar_index) :
-     s1BearPending ? nz(s1BearBar, bar_index) :
-     s3Pending ? nz(s3Bar, bar_index) :
-     s4Pending ? nz(s4Bar, bar_index) : bar_index
+clearProjectedPlanDrawings() =>
+    clearBoxArray(projectedPlanBoxes)
+    clearLineArray(projectedPlanLines)
+    clearLabelArray(projectedPlanLabels)
+
+clearPendingStateMarkers() =>
+    clearLabelArray(pendingStateLabels)
+
+drawPendingStateMarker(string setupState, int stratIdx, bool isBull, float markerPrice) =>
+    if showPendingSetupMarker
+        markerStyle = label.style_label_left
+        markerColor = setupState == "ARMED" ? color.new(execZoneCol, 58) : color.new(color.silver, 72)
+        marker = label.new(bar_index, markerPrice, pendingMarkerText(setupState, stratIdx),
+             style = markerStyle, color = markerColor,
+             textcolor = color.white, size = size.tiny)
+        array.push(pendingStateLabels, marker)
+
+drawProjectedPlan(int stratIdx, bool isBull, int leftBar, float zoneHi, float zoneLo, float entryPrice, float slPrice, float tp1Price, float tp2Price, string entrySrc) =>
+    // Projected trade plan rendering stays advisory: lighter styling, dashed levels, and explicit plan labels.
+    int leftIdx = nz(leftBar, bar_index)
+    int rightIdx = bar_index + 6
+    color zoneBorder = color.new(execZoneCol, projectedPlanBorderOpacity())
+    color zoneFill = color.new(execZoneCol, projectedPlanFillOpacity())
+    if projectedPlanStyle != "Minimal"
+        array.push(projectedPlanBoxes, box.new(leftIdx, zoneHi, rightIdx, zoneLo,
+             bgcolor = zoneFill, border_color = zoneBorder, border_style = projectedPlanBorderStyle(), border_width = 1))
+    array.push(projectedPlanLines, line.new(leftIdx, entryPrice, rightIdx, entryPrice,
+         color = color.new(color.white, 46), style = projectedPlanBorderStyle(), width = 1))
+    array.push(projectedPlanLines, line.new(leftIdx, slPrice, rightIdx, slPrice,
+         color = color.new(bearCol, 44), style = projectedPlanBorderStyle(), width = 1))
+    array.push(projectedPlanLines, line.new(leftIdx, tp1Price, rightIdx, tp1Price,
+         color = color.new(bullCol, 42), style = projectedPlanBorderStyle(), width = 1))
+    if tp2Price != tp1Price
+        array.push(projectedPlanLines, line.new(leftIdx, tp2Price, rightIdx, tp2Price,
+             color = color.new(bullCol, 28), style = projectedPlanBorderStyle(), width = 1))
+    array.push(projectedPlanLabels, label.new(leftIdx, entryPrice, "Plan · S" + str.tostring(stratIdx) + " · " + entryPlanLabel(entrySrc, "FVG"),
+         style = isBull ? label.style_label_up : label.style_label_down,
+         color = color.new(execZoneCol, 78), textcolor = color.white, size = size.tiny))
 
 if not showExecZone
     if not na(execBox)
         box.delete(execBox)
         execBox := na
-    if not na(pendingZoneBox)
-        box.delete(pendingZoneBox)
-        pendingZoneBox := na
     if not na(raidRefLine)
         line.delete(raidRefLine)
         raidRefLine := na
@@ -2325,22 +2573,26 @@ if not showExecZone
     if not na(execEntryLbl)
         label.delete(execEntryLbl)
         execEntryLbl := na
+    clearProjectedPlanDrawings()
+    clearPendingStateMarkers()
 else
-    if not na(pendingZoneBox)
-        box.delete(pendingZoneBox)
-        pendingZoneBox := na
-    if anyPending and not na(pendHi)
-        pendingZoneBox := box.new(pendLeft, pendHi, bar_index + 5, pendLo,
-             bgcolor = color.new(execZoneCol, 90), border_color = color.new(execZoneCol, 48),
-             border_width = 1, border_style = line.style_dashed)
+    clearProjectedPlanDrawings()
+    clearPendingStateMarkers()
+    if activePlanStrat > 0 and activePlanState == "ARMED"
+        if showProjectedTradePlan and not na(activePlanZoneHi) and not na(activePlanZoneLo) and not na(activePlanEntry)
+            drawProjectedPlan(activePlanStrat, activePlanBull, setupArmedBarIndex, activePlanZoneHi, activePlanZoneLo, activePlanEntry, activePlanSL, activePlanTP1, activePlanTP2, activePlanEntrySrc)
+        if showArmedState
+            drawPendingStateMarker("ARMED", activePlanStrat, activePlanBull, signalAnchorPrice(activePlanBull, activePlanEntry, activePlanZoneHi, activePlanZoneLo))
+    else if activePlanStrat > 0 and activePlanState == "CANDIDATE" and showCandidateState
+        markerPrice = not na(activePlanRaidLvl) ? activePlanRaidLvl : close
+        drawPendingStateMarker("CANDIDATE", activePlanStrat, activePlanBull, markerPrice)
 
 if (finalBuy or finalSell) and showExecZone
     if not na(execBox)
         box.delete(execBox)
         execBox := na
-    if not na(pendingZoneBox)
-        box.delete(pendingZoneBox)
-        pendingZoneBox := na
+    clearProjectedPlanDrawings()
+    clearPendingStateMarkers()
     if not na(raidRefLine)
         line.delete(raidRefLine)
         raidRefLine := na
@@ -2378,10 +2630,28 @@ if barstate.islast
 // ═══════════════════════════════════════════════════════════════
 var line[] sweepMarkerLines = array.new_line(0)
 var label[] sweepMarkerLabels = array.new_label(0)
+var label[] finalSignalLabels = array.new_label(0)
 
 clearSweepMarkers() =>
     clearLineArray(sweepMarkerLines)
     clearLabelArray(sweepMarkerLabels)
+
+drawFinalSignalLabel(int stratIdx, bool isBull, int score, float entryPrice, float zoneHi, float zoneLo, int anchorBar) =>
+    labelColor = showSignalDirectionColor ? (isBull ? bullCol : bearCol) : gradeColor(score)
+    anchorPrice = signalAnchorPrice(isBull, entryPrice, zoneHi, zoneLo)
+    marker = label.new(nz(anchorBar, bar_index), anchorPrice, signalText(stratIdx, isBull, score),
+         style = isBull ? label.style_label_up : label.style_label_down,
+         color = color.new(labelColor, signalLabelMode == "Full" ? 12 : 24),
+         textcolor = color.white, size = signalLabelSizeValue())
+    array.push(finalSignalLabels, marker)
+    trimLabelArray(finalSignalLabels, maxDrawnTrades * 3)
+
+drawStandaloneSignalLabel(bool isBull, int score, float entryPrice, int anchorBar) =>
+    marker = label.new(nz(anchorBar, bar_index), entryPrice, isBull ? "FVG-B" : "FVG-S",
+         style = isBull ? label.style_label_up : label.style_label_down,
+         color = color.new(fvgCol, 22), textcolor = color.white, size = signalLabelSizeValue())
+    array.push(finalSignalLabels, marker)
+    trimLabelArray(finalSignalLabels, maxDrawnTrades * 3)
 
 drawSweepMarker(bool isBull, float raidLevel, string raidText) =>
     if not na(raidLevel) and raidText != ""
@@ -2397,29 +2667,17 @@ drawSweepMarker(bool isBull, float raidLevel, string raidText) =>
         trimLabelArray(sweepMarkerLabels, 30)
 
 if finalBuy and hasStratSignal
-    lbl = stratLabel(sigStrat)
-    srcTxt = sigRaidSrc != "" ? " | " + sigRaidSrc : ""
-    label.new(bar_index, low - atr14 * 0.65,
-         "▲ BUY " + lbl + " [" + str.tostring(sigScore) + "]" + srcTxt,
-         style = label.style_label_up, color = gradeColor(sigScore), textcolor = color.white, size = size.normal)
+    drawFinalSignalLabel(sigStrat, true, sigScore, sigEntry, sigZoneHi, sigZoneLo, sigEntryBar)
 
 if finalSell and hasStratSignal
-    lbl = stratLabel(sigStrat)
-    srcTxt = sigRaidSrc != "" ? " | " + sigRaidSrc : ""
-    label.new(bar_index, high + atr14 * 0.65,
-         "▼ SELL " + lbl + " [" + str.tostring(sigScore) + "]" + srcTxt,
-         style = label.style_label_down, color = gradeColor(sigScore), textcolor = color.white, size = size.normal)
+    drawFinalSignalLabel(sigStrat, false, sigScore, sigEntry, sigZoneHi, sigZoneLo, sigEntryBar)
 
 // FVG standalone signals
 if fvgBuySignal and not hasStratSignal
-    label.new(bar_index, low - atr14 * 0.65,
-         "◆ FVG BUY [" + str.tostring(fvgBuyScore) + "]",
-         style = label.style_label_up, color = color.new(fvgCol, 0), textcolor = color.white, size = size.normal)
+    drawStandaloneSignalLabel(true, fvgBuyScore, fvgBuyEntry, fvgBuyEntryBar)
 
 if fvgSellSignal and not hasStratSignal
-    label.new(bar_index, high + atr14 * 0.65,
-         "◆ FVG SELL [" + str.tostring(fvgSellScore) + "]",
-         style = label.style_label_down, color = color.new(fvgCol, 0), textcolor = color.white, size = size.normal)
+    drawStandaloneSignalLabel(false, fvgSellScore, fvgSellEntry, fvgSellEntryBar)
 
 if showSweepMarks
     if anyBullRaid
@@ -2521,24 +2779,27 @@ wr = totalTrades > 0 ? totalWins * 100.0 / totalTrades : na
 wrText = na(wr) ? "–" : str.tostring(wr, "#.#") + "%"
 netR = str.tostring(totalR, "#.##") + "R"
 
-activeSetupText = hasStratSignal ? sigSetupType :
-     hasFvgStandalone ? "FVG_MITIGATION" :
-     s1BullState >= 1 or s1BearState >= 1 ? "S1:TRACKING" :
-     s3State >= 1 ? "S3:PO3" :
-     s4State >= 1 ? "S4:JUDAS" : "IDLE"
+activeLifecycleVisible = activePlanStrat > 0 and
+     ((activePlanState == "CANDIDATE" and showCandidateState) or
+     (activePlanState == "ARMED" and showArmedState) or
+     (activePlanState == "TRIGGERED" and showTriggeredState))
+activeSetupText = hasStratSignal ? "S" + str.tostring(sigStrat) + (showTriggeredState ? ":TRIGGERED" : "") :
+     activeLifecycleVisible ? "S" + str.tostring(activePlanStrat) + ":" + activePlanState :
+     hasFvgStandalone ? "FVG" + (showTriggeredState ? ":TRIGGERED" : "") : "IDLE"
 
 displayScore = hasStratSignal ? sigScore :
+     activePlanStrat > 0 and activePlanScore > 0 ? activePlanScore :
      hasFvgStandalone ? (fvgBuySignal ? fvgBuyScore : fvgSellScore) :
      na(lastSigConf) ? na : lastSigConf
 displayScoreText = na(displayScore) ? "–" : str.tostring(displayScore)
 
 s1StatusText = strat1En ? (s1BullState == 0 and s1BearState == 0 ? "Idle" :
-     s1BullState == 1 ? "Raid▲" : s1BullState == 2 ? "FVG▲" :
-     s1BearState == 1 ? "Raid▼" : s1BearState == 2 ? "FVG▼" : "Active") : "OFF"
-s2StatusText = strat2En ? (inAnySB ? "In Window" : "Waiting") : "OFF"
-s3StatusText = strat3En ? (s3State == 0 ? "Idle" : s3State == 1 ? "Manip" : "Confirm") : "OFF"
-s4StatusText = strat4En ? (s4State == 0 ? "Idle" : s4State == 1 ? "Raid" : "Confirm") : "OFF"
-s5StatusText = strat5En ? (smtBullDiv or smtBearDiv ? "Divergence" : "Monitoring") : "OFF"
+     s1BullState == 1 ? "Candidate▲" : s1BullState == 2 ? "Armed▲" :
+     s1BearState == 1 ? "Candidate▼" : s1BearState == 2 ? "Armed▼" : "Active") : "OFF"
+s2StatusText = strat2En ? (s2BullRaided ? "Armed▲" : s2BearRaided ? "Armed▼" : inAnySB ? "In Window" : "Waiting") : "OFF"
+s3StatusText = strat3En ? (s3State == 0 ? "Idle" : s3State == 1 ? "Candidate" : "Armed") : "OFF"
+s4StatusText = strat4En ? (s4State == 0 ? "Idle" : s4State == 1 ? "Candidate" : "Armed") : "OFF"
+s5StatusText = strat5En ? (s5BullArmed ? "Armed▲" : s5BearArmed ? "Armed▼" : (smtBullDiv or smtBearDiv) ? "Divergence" : "Monitoring") : "OFF"
 
 lastRaidTxt = lastRaidSource != "" ?
      lastRaidSide + ": " + lastRaidSource + (not na(lastRaidLevel) ? " @ " + str.tostring(lastRaidLevel, format.mintick) : "") :
@@ -2550,6 +2811,24 @@ qaEntryPriceLogic = not na(entryPriceLogic) ? entryPriceLogic : lastEntryPriceLo
 qaEntryBarIndex = not na(entryBarIndex) ? entryBarIndex : lastEntryBarIndex
 qaMitigationBarIndex = not na(mitigationBarIndex) ? mitigationBarIndex : lastMitigationBarIndex
 qaZoneType = entrySourceZoneType != "" ? entrySourceZoneType : lastEntryZoneType
+setupStateText = activeLifecycleVisible ? activePlanState + " · " + (activePlanBull ? "Bull" : "Bear") +
+     (activePlanScore > 0 ? " · Score " + str.tostring(activePlanScore) : "") :
+     (hasFvgStandalone and showTriggeredState) ? "TRIGGERED · Standalone FVG" : "–"
+plannedEntryText = activeLifecycleVisible and not na(activePlanEntry) ? activePlanEntryPlan + " @ " + str.tostring(activePlanEntry, format.mintick) : "–"
+plannedRiskText = activeLifecycleVisible and not na(activePlanSL) and not na(activePlanTP1) ?
+     "SL " + str.tostring(activePlanSL, format.mintick) + " · TP1 " + str.tostring(activePlanTP1, format.mintick) +
+     (not na(activePlanTP2) ? " · TP2 " + str.tostring(activePlanTP2, format.mintick) : "") : "–"
+// Dashboard description logic stays opt-in and only surfaces enabled or active strategies.
+strategyDescriptionText = describeStrategy ?
+     (strategyDescriptionMode == "Enabled Strategies" ? enabledStrategySummary() :
+     activeLifecycleVisible ? activePlanDesc :
+     sigStrat > 0 ? strategyDescription(sigStrat) :
+     "–") : ""
+activeSetupColor = activeSetupText == "IDLE" ? color.gray :
+     hasStratSignal ? (sigBull ? bullCol : bearCol) :
+     activePlanStrat > 0 ? (activePlanBull ? bullCol : bearCol) :
+     hasFvgStandalone ? (fvgBuySignal ? bullCol : bearCol) :
+     bullCol
 
 var table dash = na
 
@@ -2558,7 +2837,7 @@ clearDashboard() =>
         table.delete(dash)
 
 drawDashboard() =>
-    tbl = table.new(position.bottom_left, 2, 14,
+    tbl = table.new(position.bottom_left, 2, 18,
          bgcolor = color.new(color.rgb(8, 10, 28), 5),
          border_width = 1, border_color = color.new(color.white, 78))
     hBg = color.new(color.rgb(15, 18, 55), 0)
@@ -2571,7 +2850,16 @@ drawDashboard() =>
          text_color = htfBull ? bullCol : htfBear ? bearCol : color.gray, text_size = size.small)
     r += 1
     table.cell(tbl, 0, r, "Active Setup", text_color = color.new(color.white, 25), text_size = size.small)
-    table.cell(tbl, 1, r, activeSetupText, text_color = activeSetupText == "IDLE" ? color.gray : bullCol, text_size = size.small)
+    table.cell(tbl, 1, r, activeSetupText, text_color = activeSetupColor, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Setup State", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, setupStateText, text_color = activeSetupColor, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Entry Plan", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, plannedEntryText, text_color = activeLifecycleVisible ? color.white : color.gray, text_size = size.small)
+    r += 1
+    table.cell(tbl, 0, r, "Plan Levels", text_color = color.new(color.white, 25), text_size = size.small)
+    table.cell(tbl, 1, r, plannedRiskText, text_color = activeLifecycleVisible ? color.new(color.white, 8) : color.gray, text_size = size.small)
     r += 1
     // Confluence interpretation: qualitative label + numeric detail
     confLabel = na(displayScore) ? "–" : getConfluenceLabel(nz(displayScore, 0))
@@ -2588,6 +2876,10 @@ drawDashboard() =>
     r += 1
     table.cell(tbl, 0, r, "S3 / S4 / S5", text_color = color.new(color.white, 25), text_size = size.small)
     table.cell(tbl, 1, r, stratStateSecondary, text_color = color.new(color.white, 15), text_size = size.small)
+    if describeStrategy
+        r += 1
+        table.cell(tbl, 0, r, "Strategy Note", text_color = color.new(color.white, 25), text_size = size.small)
+        table.cell(tbl, 1, r, strategyDescriptionText, text_color = color.new(color.white, 12), text_size = size.small)
     r += 1
     table.cell(tbl, 0, r, "Session", text_color = color.new(color.white, 25), text_size = size.small)
     table.cell(tbl, 1, r, inOverlap ? "LON-NY Overlap" : inLondon ? "London" : inNewYork ? "New York" : inTokyo ? "Tokyo" : inSydney ? "Sydney" : "Off-Session",
@@ -2727,7 +3019,7 @@ drawQATable() =>
     table.cell(tbl, 1, qr, na(qaMitigationBarIndex) ? "–" : str.tostring(qaMitigationBarIndex), text_color = color.white, text_size = size.small)
     qr += 1
     table.cell(tbl, 0, qr, "Entry State", text_color = color.new(color.white, 20), text_size = size.small)
-    table.cell(tbl, 1, qr, "Ready:" + str.tostring(entryReady) + " Triggered:" + str.tostring(entryTriggered) + " Zone:" + qaZoneType,
+    table.cell(tbl, 1, qr, "Ready:" + str.tostring(entryReady) + " Triggered:" + str.tostring(entryTriggered) + " Plan:" + activePlanState + " Zone:" + qaZoneType,
          text_color = entryTriggered ? bullCol : color.white, text_size = size.small)
     tbl
 
