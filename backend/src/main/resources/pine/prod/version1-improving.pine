@@ -57,6 +57,22 @@ type SetupState
     float   invalidationLevel = na
     bool    isPotentialLong = false
     bool    isPotentialShort = false
+    // Phase 1+2: Quality & sequence tracking
+    int     scoreLong = 0
+    int     scoreShort = 0
+    string  phaseLong = "Monitoring"
+    string  phaseShort = "Monitoring"
+    string  missingLong = ""
+    string  missingShort = ""
+    string  sweepGrade = ""
+    string  mssGrade = ""
+    string  fvgGrade = ""
+    bool    sequenceValid = false
+    bool    hasOBConfluence = false
+    // Phase 5: Lifecycle
+    bool    isExpired = false
+    bool    isConflicted = false
+    bool    isDegraded = false
 
 type SmartZone
     box   boxId
@@ -295,6 +311,27 @@ bool bosBear = ta.crossunder(close, lastPLo) and isDispBear
 bool mssBull = ta.crossover(close, lastPHi) and isDispBull and not na(prevPLo) and low[1] < prevPLo
 bool mssBear = ta.crossunder(close, lastPLo) and isDispBear and not na(prevPHi) and high[1] > prevPHi
 
+// --- Sequence Tracking: persistent bar timestamps for Sweep → MSS → FVG ordering ---
+var int lastMssBullBar = na
+var int lastMssBearBar = na
+var float lastMssBullDispStrength = na
+var float lastMssBearDispStrength = na
+
+if mssBull
+    lastMssBullBar := bar_index
+    lastMssBullDispStrength := math.abs(close - open) / atr
+if mssBear
+    lastMssBearBar := bar_index
+    lastMssBearDispStrength := math.abs(close - open) / atr
+
+// Expire stale MSS (same age logic as sweeps)
+int mssMaxAge = sensitivityMode == "Aggressive" ? 50 : sensitivityMode == "Conservative" ? 120 : 80
+if not na(lastMssBullBar) and (bar_index - lastMssBullBar) > mssMaxAge
+    lastMssBullBar := na
+    lastMssBullDispStrength := na
+if not na(lastMssBearBar) and (bar_index - lastMssBearBar) > mssMaxAge
+    lastMssBearBar := na
+    lastMssBearDispStrength := na
 
 // --- SMC Elements (FVG & OB) ---
 var SmartZone[] fvgArray = array.new<SmartZone>()
@@ -332,6 +369,50 @@ bool bearFVG_C = bearFVG and not bearFVG_A and not bearFVG_B
 // Bias-aligned variants for strategy triggers
 bool bullFvgAligned = bullFVG and (marketBias != "Bearish")
 bool bearFvgAligned = bearFVG and (marketBias != "Bullish")
+
+// FVG bar tracking for sequence validation + mitigation detection (Phase 5)
+var int lastBullFvgBar = na
+var int lastBearFvgBar = na
+var int lastBullFvgGrade = 0
+var int lastBearFvgGrade = 0
+var float lastBullFvgTop = na
+var float lastBullFvgBot = na
+var float lastBearFvgTop = na
+var float lastBearFvgBot = na
+var bool lastBullFvgMitigated = false
+var bool lastBearFvgMitigated = false
+
+if bullFVG
+    lastBullFvgBar := bar_index
+    lastBullFvgGrade := bullFVG_A ? 3 : bullFVG_B ? 2 : 1
+    lastBullFvgTop := low
+    lastBullFvgBot := high[2]
+    lastBullFvgMitigated := false
+if bearFVG
+    lastBearFvgBar := bar_index
+    lastBearFvgGrade := bearFVG_A ? 3 : bearFVG_B ? 2 : 1
+    lastBearFvgTop := low[2]
+    lastBearFvgBot := high
+    lastBearFvgMitigated := false
+
+// Phase 5: Detect if tracked FVG was mitigated (close-based, LuxAlgo style)
+// Bull FVG mitigated = close below its bottom
+if not na(lastBullFvgBar) and not lastBullFvgMitigated and close < lastBullFvgBot
+    lastBullFvgMitigated := true
+// Bear FVG mitigated = close above its top
+if not na(lastBearFvgBar) and not lastBearFvgMitigated and close > lastBearFvgTop
+    lastBearFvgMitigated := true
+
+// Expire stale FVG references
+int fvgMaxAge = sensitivityMode == "Aggressive" ? 40 : sensitivityMode == "Conservative" ? 100 : 60
+if not na(lastBullFvgBar) and (bar_index - lastBullFvgBar) > fvgMaxAge
+    lastBullFvgBar := na
+    lastBullFvgGrade := 0
+    lastBullFvgMitigated := false
+if not na(lastBearFvgBar) and (bar_index - lastBearFvgBar) > fvgMaxAge
+    lastBearFvgBar := na
+    lastBearFvgGrade := 0
+    lastBearFvgMitigated := false
 
 // Returns: 0 = no overlap, 1 = merge (expand existing), 2 = near-duplicate (skip)
 check_fvg_overlap(SmartZone[] arr, float newTop, float newBottom, bool newIsBull) =>
@@ -600,6 +681,8 @@ bool sweptSSL = false
 bool sweptBSL = false
 float sweepQualitySSL = 0.0
 float sweepQualityBSL = 0.0
+int bestSweepBarSSL = na
+int bestSweepBarBSL = na
 
 if array.size(activeSweeps) > 0
     for i = 0 to array.size(activeSweeps) - 1
@@ -611,10 +694,12 @@ if array.size(activeSweeps) > 0
             sweptSSL := true
             if q > sweepQualitySSL
                 sweepQualitySSL := q
+                bestSweepBarSSL := s.sweepBar
         else
             sweptBSL := true
             if q > sweepQualityBSL
                 sweepQualityBSL := q
+                bestSweepBarBSL := s.sweepBar
 
 // Premium / Discount
 int rangeLookback = 50
@@ -655,85 +740,247 @@ if not na(lastPLo) and lastPLo < close
 float reqL = nearestSSL
 float reqS = nearestBSL
 
+// --- OB Confluence Check: is price near an unmitigated OB? ---
+bool obBullConfluence = false
+bool obBearConfluence = false
+if array.size(obArray) > 0
+    for i = 0 to array.size(obArray) - 1
+        SmartZone ob = array.get(obArray, i)
+        if not ob.mitigated
+            if ob.isBull and low <= ob.top and close >= ob.bottom
+                obBullConfluence := true
+            if not ob.isBull and high >= ob.bottom and close <= ob.top
+                obBearConfluence := true
+
+// Silver Bullet window flag (higher value than generic killzone)
+bool isSilverBullet = sbLon.isActive or sbAm.isActive
+
 // --- Setup Readiness Evaluation ---
 SetupState liveSetup = SetupState.new()
 
-eval_setup(string bias, string pd, bool killzone, bool sweptL, bool sweptS, bool mssB, bool mssS, bool fvgB, bool fvgS, float pHiVal, float pLoVal, float nBSL, float nSSL, float rL, float rS) =>
-    SetupState s = SetupState.new()
-    s.nearestBSL := nBSL
-    s.nearestSSL := nSSL
-    int score = 0
-    string missing = ""
+// Evaluate one side (long or short) with quality-weighted, sequence-aware scoring
+// Returns [score, phase, missing, sweepGrade, mssGrade, fvgGrade, sequenceOk, triggerLvl, expired, degraded]
+eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, float sweepQ, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool obConf, float pivotVal, float reqLevel, float atrVal, string sessName, int sweepMaxAge_, int mssMaxAge_, int fvgMaxAge_) =>
+    float sc = 0.0
+    string ph = "Monitoring"
+    string ms = ""
+    string swG = ""
+    string msG = ""
+    string fgG = ""
+    bool seqOk = false
+    float trig = na
+    bool expired = false
+    bool degraded = false
 
-    if bias == "Bullish"
-        score += 10
-        if pd == "Discount"
-            score += 10
-        if killzone
-            score += 10
-        s.requiredSweep := rL
-        if sweptL
-            score += 20
-            s.phase := "Sweep Detected"
-            if not mssB
-                s.phase := "MSS Pending"
-                missing := "Wait for Bullish MSS (" + (na(pHiVal) ? "Pending" : str.tostring(pHiVal, "#.#####")) + ")"
-                s.triggerLevel := pHiVal
-            else
-                score += 20
-                s.phase := "MSS Confirmed"
-                if not fvgB
-                    s.phase := "FVG Pending"
-                    missing := "Wait for Bullish FVG"
+    // --- Context Score (max 18) ---
+    // Bias alignment: full credit if aligned, partial if neutral, penalty if counter
+    string alignedPD = isLong ? "Discount" : "Premium"
+    bool biasAligned = (isLong and bias == "Bullish") or (not isLong and bias == "Bearish")
+    bool biasCounter = (isLong and bias == "Bearish") or (not isLong and bias == "Bullish")
+
+    if biasAligned
+        sc += 5.0
+    else if biasCounter
+        sc -= 3.0
+
+    // PD zone: aligned = full, wrong = penalty
+    if pd == alignedPD
+        sc += 5.0
+    else if pd != alignedPD and pd != ""
+        sc -= 2.0
+
+    // Phase 4: Timing — Silver Bullet > Killzone > No session (max 5)
+    if sb
+        sc += 5.0
+    else if kz
+        sc += 3.0
+
+    // Phase 4: Session alignment — evaluated after main scoring
+    // (moved to confluence section below where seqOk is resolved)
+    bool isLondon = str.contains(sessName, "London") and not str.contains(sessName, "Overlap")
+    bool isNY = str.contains(sessName, "New York") or str.contains(sessName, "Overlap")
+
+    // --- Sweep Score (max 25) — quality-weighted ---
+    if swept
+        // Scale sweep quality (0-100 range) into 10-25 point range
+        float sweepScore = 10.0 + math.min(sweepQ, 100.0) * 0.15
+        sc += sweepScore
+        swG := sweepQ >= 70 ? "A" : sweepQ >= 40 ? "B" : "C"
+        ph := "Sweep (" + swG + ")"
+
+        // Phase 4: Sweep staleness penalty — decaying value as sweep ages
+        if not na(sweepBar_)
+            float sweepAge = bar_index - sweepBar_
+            float sweepLifeRatio = sweepAge / sweepMaxAge_
+            if sweepLifeRatio > 0.7
+                sc -= 5.0
+                ph := ph + " ⌛"
+
+        // --- MSS Score (max 25) — quality + sequence ---
+        if not na(mssBar_)
+            // Sequence check: MSS must come AFTER sweep
+            bool mssAfterSweep = not na(sweepBar_) and mssBar_ >= sweepBar_
+            if mssAfterSweep
+                // MSS displacement strength: maps ~0.5-2.0 body/ATR ratio to quality
+                float mssScore = 10.0
+                if mssDisp > 1.5
+                    mssScore := 25.0
+                    msG := "A"
+                else if mssDisp > 0.8
+                    mssScore := 18.0
+                    msG := "B"
                 else
-                    score += 20
-                    s.phase := "Armed"
-                    missing := "Ready for Trigger"
-        else if not na(rL) and close < rL * 1.005
-            s.phase := "Liquidity Nearby"
-            missing := "Waiting for Sweep of " + str.tostring(rL, "#.#####")
-        else
-            s.phase := "Monitoring"
-            missing := "Searching for SSL sweep..."
+                    mssScore := 12.0
+                    msG := "C"
+                sc += mssScore
+                ph := "MSS (" + msG + ")"
 
+                // MSS staleness penalty
+                float mssAge = bar_index - mssBar_
+                float mssLifeRatio = mssAge / mssMaxAge_
+                if mssLifeRatio > 0.6
+                    sc -= 4.0
+                    ph := ph + " ⌛"
+
+                // Phase 5: MSS too old with no FVG = Expired setup
+                if mssLifeRatio > 0.85 and (na(fvgBar_) or fvgGrade_ == 0)
+                    expired := true
+                    ph := "Expired"
+                    ms := "MSS aged out without FVG — setup dead"
+
+                // --- FVG Score (max 25) — grade + sequence ---
+                if not expired and not na(fvgBar_) and fvgGrade_ > 0
+                    // Sequence check: FVG must come AFTER MSS
+                    bool fvgAfterMss = fvgBar_ >= mssBar_
+                    if fvgAfterMss
+                        // Phase 5: Check if this FVG was mitigated (degradation)
+                        if fvgMitigated
+                            degraded := true
+                            sc -= 10.0
+                            ph := "Degraded"
+                            ms := "FVG mitigated — setup weakened, wait for fresh FVG"
+                        else
+                            seqOk := true
+                            float fvgScore = fvgGrade_ == 3 ? 25.0 : fvgGrade_ == 2 ? 18.0 : 12.0
+                            fgG := fvgGrade_ == 3 ? "A" : fvgGrade_ == 2 ? "B" : "C"
+                            sc += fvgScore
+                            ph := "Armed (" + fgG + ")"
+                            ms := "Ready — Sweep(" + swG + ") MSS(" + msG + ") FVG(" + fgG + ")"
+
+                            // FVG staleness warning (not penalty, just info)
+                            float fvgAge = bar_index - fvgBar_
+                            if fvgAge / fvgMaxAge_ > 0.7
+                                ms := ms + " ⌛FVG aging"
+                    else
+                        // FVG exists but predates MSS — stale, don't count
+                        ph := "FVG Pending"
+                        ms := "FVG is stale (before MSS) — wait for new FVG"
+                else if not expired
+                    ph := "FVG Pending"
+                    ms := "Wait for " + (isLong ? "Bullish" : "Bearish") + " FVG"
+            else
+                // MSS exists but predates sweep — wrong sequence
+                ph := "MSS Pending"
+                ms := "MSS is stale (before sweep) — wait for new " + (isLong ? "Bullish" : "Bearish") + " MSS"
+                trig := pivotVal
+        else
+            ph := "MSS Pending"
+            trig := pivotVal
+            ms := "Wait for " + (isLong ? "Bullish" : "Bearish") + " MSS (" + (na(pivotVal) ? "Pending" : str.tostring(pivotVal, "#.#####")) + ")"
     else
-        score += 10
-        if pd == "Premium"
-            score += 10
-        if killzone
-            score += 10
-        s.requiredSweep := rS
-        if sweptS
-            score += 20
-            s.phase := "Sweep Detected"
-            if not mssS
-                s.phase := "MSS Pending"
-                missing := "Wait for Bearish MSS (" + (na(pLoVal) ? "Pending" : str.tostring(pLoVal, "#.#####")) + ")"
-                s.triggerLevel := pLoVal
+        // No sweep yet — ATR-based proximity check (Phase 4)
+        if not na(reqLevel) and not na(atrVal)
+            float proximity = math.abs(close - reqLevel) / atrVal
+            if proximity < 0.5
+                ph := "Liquidity Imminent"
+                sc += 3.0
+                ms := (isLong ? "SSL" : "BSL") + " at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR)"
+            else if proximity < 1.5
+                ph := "Liquidity Nearby"
+                sc += 1.0
+                ms := (isLong ? "SSL" : "BSL") + " at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR away)"
+            else if proximity < 3.0
+                ph := "Approaching"
+                ms := (isLong ? "SSL" : "BSL") + " at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR away)"
             else
-                score += 20
-                s.phase := "MSS Confirmed"
-                if not fvgS
-                    s.phase := "FVG Pending"
-                    missing := "Wait for Bearish FVG"
-                else
-                    score += 20
-                    s.phase := "Armed"
-                    missing := "Ready for Trigger"
-        else if not na(rS) and close > rS * 0.995
-            s.phase := "Liquidity Nearby"
-            missing := "Waiting for Sweep of " + str.tostring(rS, "#.#####")
+                ms := "Searching for " + (isLong ? "SSL" : "BSL") + " sweep..."
         else
-            s.phase := "Monitoring"
-            missing := "Searching for BSL sweep..."
+            ms := "No liquidity levels identified"
 
-    s.score := score
-    s.missing := missing
-    s.isPotentialLong := bias == "Bullish"
-    s.isPotentialShort := bias == "Bearish"
-    s
+    // --- Confluence Bonus (max 13) ---
+    // OB overlap with entry zone: +5
+    if obConf and seqOk
+        sc += 5.0
+        ms := ms + " +OB"
 
-liveSetup := eval_setup(marketBias, pdStatus, isKillzone, sweptSSL, sweptBSL, mssBull, mssBear, bullFVG, bearFVG, lastPHi, lastPLo, nearestBSL, nearestSSL, reqL, reqS)
+    // Full sequence in correct order with quality: +5 non-linear bonus
+    if seqOk and sweepQ >= 40 and not na(mssDisp) and mssDisp > 0.8 and fvgGrade_ >= 2
+        sc += 5.0
+
+    // Phase 4: Session alignment (max 3) — evaluated here where seqOk is resolved
+    // London = manipulation phase (sweeps are high value), NY/Overlap = distribution (entries fire)
+    if isLondon and swept
+        sc += 2.0
+    else if isNY and seqOk
+        sc += 3.0
+    else if isLondon or isNY
+        sc += 1.0
+
+    // Clamp score to 0-100
+    int finalScore = math.max(0, math.min(100, math.round(sc)))
+    [finalScore, ph, ms, swG, msG, fgG, seqOk, trig, expired, degraded]
+
+// --- Run dual-side evaluation ---
+[scoreLong, phaseLong, missingLong, swGradeL, msGradeL, fgGradeL, seqOkL, trigL, expiredL, degradedL] = eval_side(true, marketBias, pdStatus, isKillzone, isSilverBullet, sweptSSL, sweepQualitySSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, obBullConfluence, lastPHi, reqL, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
+[scoreShort, phaseShort, missingShort, swGradeS, msGradeS, fgGradeS, seqOkS, trigS, expiredS, degradedS] = eval_side(false, marketBias, pdStatus, isKillzone, isSilverBullet, sweptBSL, sweepQualityBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, obBearConfluence, lastPLo, reqS, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
+
+// --- Select dominant side and populate SetupState ---
+// Bias acts as tiebreaker multiplier, not gate
+float biasMultLong = marketBias == "Bullish" ? 1.15 : marketBias == "Bearish" ? 0.85 : 1.0
+float biasMultShort = marketBias == "Bearish" ? 1.15 : marketBias == "Bullish" ? 0.85 : 1.0
+float adjScoreLong = scoreLong * biasMultLong
+float adjScoreShort = scoreShort * biasMultShort
+
+// Phase 5: Conflicted — both sides have strong valid sequences simultaneously
+bool isConflicted = seqOkL and seqOkS and math.abs(adjScoreLong - adjScoreShort) < 15
+
+bool pickLong = adjScoreLong >= adjScoreShort
+
+liveSetup := SetupState.new()
+liveSetup.nearestBSL := nearestBSL
+liveSetup.nearestSSL := nearestSSL
+liveSetup.scoreLong := scoreLong
+liveSetup.scoreShort := scoreShort
+liveSetup.phaseLong := phaseLong
+liveSetup.phaseShort := phaseShort
+liveSetup.missingLong := missingLong
+liveSetup.missingShort := missingShort
+
+// Dominant side drives the legacy fields for backwards compatibility
+liveSetup.score := pickLong ? scoreLong : scoreShort
+liveSetup.isPotentialLong := pickLong
+liveSetup.isPotentialShort := not pickLong
+liveSetup.requiredSweep := pickLong ? reqL : reqS
+liveSetup.triggerLevel := pickLong ? trigL : trigS
+liveSetup.sequenceValid := pickLong ? seqOkL : seqOkS
+liveSetup.sweepGrade := pickLong ? swGradeL : swGradeS
+liveSetup.mssGrade := pickLong ? msGradeL : msGradeS
+liveSetup.fvgGrade := pickLong ? fgGradeL : fgGradeS
+liveSetup.hasOBConfluence := pickLong ? obBullConfluence : obBearConfluence
+liveSetup.isExpired := pickLong ? expiredL : expiredS
+liveSetup.isDegraded := pickLong ? degradedL : degradedS
+liveSetup.isConflicted := isConflicted
+
+// Phase 5: Lifecycle overrides
+// Expired/Degraded phases are already set by eval_side — just assign dominant side
+liveSetup.phase := pickLong ? phaseLong : phaseShort
+liveSetup.missing := pickLong ? missingLong : missingShort
+
+// Conflicted overrides everything — both sides have valid armed sequences
+if isConflicted
+    liveSetup.phase := "Conflicted"
+    liveSetup.missing := "Both L(" + str.tostring(scoreLong) + ") and S(" + str.tostring(scoreShort) + ") valid — no edge, stand aside"
+    liveSetup.score := math.max(scoreLong, scoreShort)
 
 // --- Strategy Detection ---
 bool sig2022B = sweptSSL and mssBull and enableICT2022
@@ -888,43 +1135,75 @@ resolve_pos(string pos) =>
 // =====================================================================
 // --- DASHBOARD 1: Setup & Performance ---
 // =====================================================================
-var table readTable = table.new(resolve_pos(readinessPos), 2, 15, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+var table readTable = table.new(resolve_pos(readinessPos), 2, 18, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
 if showReadiness and barstate.islast
     float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
 
+    // Phase color: lifecycle states override normal scoring colors
+    color phaseColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 40 ? color.orange : uiNeutralColor
+
+    // Confluence chain display: Sweep(A) → MSS(B) → FVG(A) +OB
+    string chainStr = ""
+    if liveSetup.sweepGrade != ""
+        chainStr := "Sw(" + liveSetup.sweepGrade + ")"
+    if liveSetup.mssGrade != ""
+        chainStr := chainStr + " → MSS(" + liveSetup.mssGrade + ")"
+    if liveSetup.fvgGrade != ""
+        chainStr := chainStr + " → FVG(" + liveSetup.fvgGrade + ")"
+    if liveSetup.hasOBConfluence
+        chainStr := chainStr + " +OB"
+    if liveSetup.isDegraded
+        chainStr := chainStr + " ✗MIT"
+    if liveSetup.isExpired
+        chainStr := chainStr + " ✗EXP"
+    if chainStr == ""
+        chainStr := "—"
+
+    // Sequence status with lifecycle awareness
+    string seqStr = liveSetup.isConflicted ? "⚠ Conflicted" : liveSetup.isExpired ? "✗ Expired" : liveSetup.isDegraded ? "↓ Degraded" : liveSetup.sequenceValid ? "✓ Valid" : "✗ Incomplete"
+    color seqColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : liveSetup.sequenceValid ? uiPosColor : uiNegColor
+
+    // Direction indicator — conflicted shows both
+    string dirStr = liveSetup.isConflicted ? "◆ BOTH" : liveSetup.isPotentialLong ? "▲ LONG" : "▼ SHORT"
+    color dirColor = liveSetup.isConflicted ? color.yellow : liveSetup.isPotentialLong ? uiPosColor : uiNegColor
+
     // --- Section A: Setup / Market Context ---
     table.cell(readTable, 0, 0, "Setup & Performance", text_color = uiHeaderText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 0, "", bgcolor = uiBg)
+    table.cell(readTable, 1, 0, dirStr, text_color = dirColor, text_size = size.small)
     table.cell(readTable, 0, 1, "Phase", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 1, liveSetup.phase, text_color = uiNeutralColor, text_size = size.small)
-    table.cell(readTable, 0, 2, "Market Bias", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 2, marketBias, text_color = marketBias == "Bullish" ? uiPosColor : uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 3, "Session", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 3, activeSessName, text_color = isKillzone ? uiPosColor : uiLabelText, text_size = size.small)
-    table.cell(readTable, 0, 4, "Readiness Score", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 4, str.tostring(liveSetup.score) + "/100", text_color = liveSetup.score > 70 ? uiPosColor : (liveSetup.score > 40 ? color.orange : uiNegColor), text_size = size.small)
-    table.cell(readTable, 0, 5, "Next Step", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 5, liveSetup.missing, text_color = uiNeutralColor, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 0, 6, "Nearest BSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 6, na(liveSetup.nearestBSL) ? "Searching..." : str.tostring(liveSetup.nearestBSL, "#.#####"), text_color = uiPosColor, text_size = size.small)
-    table.cell(readTable, 0, 7, "Nearest SSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 7, na(liveSetup.nearestSSL) ? "Searching..." : str.tostring(liveSetup.nearestSSL, "#.#####"), text_color = uiNegColor, text_size = size.small)
+    table.cell(readTable, 1, 1, liveSetup.phase, text_color = phaseColor, text_size = size.small)
+    table.cell(readTable, 0, 2, "Confluence", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 2, chainStr, text_color = phaseColor, text_size = size.small)
+    table.cell(readTable, 0, 3, "Sequence", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 3, seqStr, text_color = seqColor, text_size = size.small)
+    table.cell(readTable, 0, 4, "Session", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 4, activeSessName + (isSilverBullet ? " ★SB" : ""), text_color = isSilverBullet ? uiPosColor : isKillzone ? color.orange : uiLabelText, text_size = size.small)
+    table.cell(readTable, 0, 5, "Score (L / S)", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 5, str.tostring(liveSetup.scoreLong) + " / " + str.tostring(liveSetup.scoreShort), text_color = phaseColor, text_size = size.small)
+    table.cell(readTable, 0, 6, "Next Step", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 6, liveSetup.missing, text_color = uiNeutralColor, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 0, 7, "Nearest BSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 7, na(liveSetup.nearestBSL) ? "Searching..." : str.tostring(liveSetup.nearestBSL, "#.#####"), text_color = uiPosColor, text_size = size.small)
+    table.cell(readTable, 0, 8, "Nearest SSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 8, na(liveSetup.nearestSSL) ? "Searching..." : str.tostring(liveSetup.nearestSSL, "#.#####"), text_color = uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 9, "PD Zone", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 9, pdStatus, text_color = pdStatus == "Discount" ? uiPosColor : uiNegColor, text_size = size.small)
 
     // --- Section B: Performance ---
-    table.cell(readTable, 0, 8, "─── Performance ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 8, "", bgcolor = uiBg)
-    table.cell(readTable, 0, 9, "Win Rate", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 9, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? uiPosColor : uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 10, "Total Trades", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 10, str.tostring(mainStats.totalTrades), text_color = uiValueText, text_size = size.small)
-    table.cell(readTable, 0, 11, "Wins / Losses", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 11, str.tostring(mainStats.wins) + " / " + str.tostring(mainStats.losses), text_color = uiValueText, text_size = size.small)
-    table.cell(readTable, 0, 12, "Total R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 12, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 13, "Equity R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 13, str.format("{0,number,#.##}R", mainStats.equityR), text_color = mainStats.equityR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 14, "Max DD R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 14, str.format("{0,number,#.##}R", mainStats.maxDrawdownR), text_color = mainStats.maxDrawdownR < 0 ? uiNegColor : uiLabelText, text_size = size.small)
+    table.cell(readTable, 0, 10, "─── Performance ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(readTable, 1, 10, "", bgcolor = uiBg)
+    table.cell(readTable, 0, 11, "Win Rate", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 11, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 12, "Total Trades", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 12, str.tostring(mainStats.totalTrades), text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 13, "Wins / Losses", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 13, str.tostring(mainStats.wins) + " / " + str.tostring(mainStats.losses), text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 14, "Total R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 14, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 15, "Equity R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 15, str.format("{0,number,#.##}R", mainStats.equityR), text_color = mainStats.equityR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 16, "Max DD R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 16, str.format("{0,number,#.##}R", mainStats.maxDrawdownR), text_color = mainStats.maxDrawdownR < 0 ? uiNegColor : uiLabelText, text_size = size.small)
 
 // =====================================================================
 // --- DASHBOARD 2: Market Intelligence (MTF Trend + Alerts + OB Scanner) ---
@@ -1025,20 +1304,21 @@ var box candSl = na
 var label candLbl = na
 
 if barstate.islast
-    if showSetups and showCandidatePreview and liveSetup.score >= 60 and na(activeTrade)
+    if showSetups and showCandidatePreview and liveSetup.score >= 60 and na(activeTrade) and not liveSetup.isExpired and not liveSetup.isConflicted and not liveSetup.isDegraded
         float projRisk = atr * 1.5
         float entry = close
-        float sl = marketBias == "Bullish" ? entry - projRisk : entry + projRisk
-        float tp = marketBias == "Bullish" ? entry + projRisk * 2.0 : entry - projRisk * 2.0
+        bool isLongCandidate = liveSetup.isPotentialLong
+        float sl = isLongCandidate ? entry - projRisk : entry + projRisk
+        float tp = isLongCandidate ? entry + projRisk * 2.0 : entry - projRisk * 2.0
         int width = activeSetupSize == "Large" ? activeMinWidth * 2 : activeSetupSize == "Normal" ? activeMinWidth : 10
-        bool isLongCandidate = marketBias == "Bullish"
         color candTpCol = isLongCandidate ? longTpColor : shortTpColor
         color candSlCol = isLongCandidate ? longSlColor : shortSlColor
 
         if na(candTp)
             candTp := box.new(bar_index, isLongCandidate ? tp : entry, bar_index + width, isLongCandidate ? entry : tp, bgcolor = color.new(candTpCol, activeTransp + 5), border_color = candTpCol, border_width = activeBorderWidth)
             candSl := box.new(bar_index, isLongCandidate ? entry : sl, bar_index + width, isLongCandidate ? sl : entry, bgcolor = color.new(candSlCol, activeTransp + 5), border_color = candSlCol, border_width = activeBorderWidth)
-            candLbl := label.new(bar_index + width, entry, "Candidate Setup (" + str.tostring(liveSetup.score) + "%)", color = #00000000, textcolor = setupLabelColor, style = label.style_label_left, size = size.small)
+            string candDir = isLongCandidate ? "▲ " : "▼ "
+            candLbl := label.new(bar_index + width, entry, candDir + "Candidate (" + str.tostring(liveSetup.score) + "%" + (liveSetup.sequenceValid ? " ✓" : "") + ")", color = #00000000, textcolor = setupLabelColor, style = label.style_label_left, size = size.small)
         else
             box.set_lefttop(candTp, bar_index, isLongCandidate ? tp : entry)
             box.set_rightbottom(candTp, bar_index + width, isLongCandidate ? entry : tp)
@@ -1049,7 +1329,8 @@ if barstate.islast
             box.set_bgcolor(candSl, color.new(candSlCol, activeTransp + 5))
             box.set_border_color(candSl, candSlCol)
             label.set_xy(candLbl, bar_index + width, entry)
-            label.set_text(candLbl, "Candidate Setup (" + str.tostring(liveSetup.score) + "%)")
+            string candDir2 = isLongCandidate ? "▲ " : "▼ "
+            label.set_text(candLbl, candDir2 + "Candidate (" + str.tostring(liveSetup.score) + "%" + (liveSetup.sequenceValid ? " ✓" : "") + ")")
             label.set_textcolor(candLbl, setupLabelColor)
     else
         if not na(candTp)
