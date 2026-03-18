@@ -1,0 +1,2070 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("SMC & ICT Multi-Strategy v2 [Pro]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500, max_bars_back = 3000)
+
+// =====================================================================
+// CONSTANTS
+// =====================================================================
+string NY_TZ       = "America/New_York"
+color  BULL_COLOR  = #089981
+color  BEAR_COLOR  = #f23645
+color  NEUTRAL_CLR = #5b9cf6
+
+int DIR_NONE = 0
+int DIR_BULL = 1
+int DIR_BEAR = -1
+
+int ZONE_NONE = 0
+int ZONE_FVG  = 1
+int ZONE_OB   = 2
+
+int STATE_MONITORING      = 0
+int STATE_LIQUIDITY_NEAR  = 1
+int STATE_SWEEP_CONFIRMED = 2
+int STATE_MSS_PENDING     = 3
+int STATE_MSS_CONFIRMED   = 4
+int STATE_ZONE_FORMED     = 5
+int STATE_ARMED           = 6
+int STATE_PENDING_ENTRY   = 7
+int STATE_TRIGGERED       = 8
+int STATE_INVALIDATED     = 9
+int STATE_EXPIRED         = 10
+
+// =====================================================================
+// USER DEFINED TYPES
+// =====================================================================
+type Trade
+    string strategyName = ""
+    bool   isLong       = false
+    float  entryPrice   = na
+    float  stopPrice    = na
+    float  tp1Price     = na
+    float  tp2Price     = na
+    int    entryBar     = na
+    bool   isActive     = false
+    bool   isTp1Hit     = false
+    box    tpBox        = na
+    box    slBox        = na
+
+type AlertLog
+    string timeStr    = ""
+    string signalType = ""
+    float  price      = na
+    color  col        = color.gray
+
+type Stats
+    int   totalTrades  = 0
+    int   wins         = 0
+    int   losses       = 0
+    float totalR       = 0.0
+    float equityR      = 0.0
+    float maxDrawdownR = 0.0
+    float peakEquityR  = 0.0
+
+type SessionData
+    string name       = ""
+    string timeRange  = ""
+    bool   isActive   = false
+    float  high       = na
+    float  low        = na
+    float  lastHigh   = na
+    float  lastLow    = na
+    int    startBar   = na
+    int    lastStart  = na
+    int    lastEnd    = na
+
+type LiquidityRef
+    bool   valid     = false
+    int    direction = 0
+    int    priority  = 0
+    string key       = ""
+    string label     = ""
+    string category  = ""
+    float  price     = na
+    int    refBar    = na
+
+type SweepCandidate
+    bool   active    = false
+    int    direction = 0
+    int    priority  = 0
+    string label     = ""
+    string category  = ""
+    float  price     = na
+    float  extreme   = na
+    int    startBar  = na
+    int    refBar    = na
+
+type ZoneData
+    box    boxId       = na
+    int    direction   = 0
+    int    zoneType    = 0
+    float  top         = na
+    float  bottom      = na
+    int    createdBar  = na
+    int    quality     = 0
+    int    touchCount  = 0
+    int    lastTouchBar = na
+    float  fillPct     = 0.0
+    bool   isMitigated = false
+    bool   isInvalid   = false
+    bool   isInverted  = false
+    string label       = ""
+
+type TradePlan
+    bool   valid             = false
+    float  entryPrice        = na
+    string entryModel        = ""
+    float  stopPrice         = na
+    string stopModel         = ""
+    float  tp1               = na
+    float  tp2               = na
+    float  invalidationPrice = na
+    float  internalTarget    = na
+    float  externalTarget    = na
+    float  primaryRr         = na
+    string targetModel       = ""
+
+type SetupState
+    int    direction         = 0
+    int    state             = 0
+    int    stateBar          = na
+    int    score             = 0
+    string strategy          = ""
+    string waitReason        = ""
+    string blockReason       = ""
+    string summary           = ""
+    string liquidityKey      = ""
+    string liquidityLabel    = ""
+    string liquidityCategory = ""
+    float  liquidityPrice    = na
+    int    liquidityPriority = 0
+    int    liquidityBar      = na
+    float  sweepExtreme      = na
+    int    sweepBar          = na
+    float  sweepWickRatio    = 0.0
+    int    trendAtSweep      = 0
+    float  mssWatchLevel     = na
+    int    mssWatchBar       = na
+    int    mssDeadlineBar    = na
+    float  mssLevel          = na
+    int    mssBar            = na
+    string structureTag      = ""
+    int    displacementScore = 0
+    float  displacementAtr   = na
+    float  bodyAtr           = na
+    float  followThrough     = na
+    float  dealingHigh       = na
+    float  dealingLow        = na
+    float  equilibrium       = na
+    int    zoneType          = 0
+    string zoneLabel         = ""
+    float  zoneTop           = na
+    float  zoneBottom        = na
+    int    zoneBar           = na
+    int    zoneScore         = 0
+    int    zoneTouches       = 0
+    float  zoneFillPct       = 0.0
+    bool   sessionOk         = false
+    bool   htfOk             = false
+    bool   pdOk              = false
+    bool   regimeOk          = false
+    bool   rrOk              = false
+    bool   momentumOk        = false
+    float  entryPrice        = na
+    string entryModel        = ""
+    float  stopPrice         = na
+    string stopModel         = ""
+    float  tp1Price          = na
+    float  tp2Price          = na
+    string targetModel       = ""
+    float  rrToTp1           = na
+    float  rrToTp2           = na
+    float  internalTarget    = na
+    float  externalTarget    = na
+    float  invalidationPrice = na
+    int    expiryBar         = na
+    int    triggerBar        = na
+
+// =====================================================================
+// INPUTS — Core Modes
+// =====================================================================
+var string G_SENS = "Core Mode"
+string sensitivityMode = input.string("Balanced", "Sensitivity Profile", options = ["Aggressive", "Balanced", "Conservative"], tooltip = "Aggressive enters earlier, Balanced is default, Conservative enforces stricter MSS, HTF, and killzone behavior.", group = G_SENS)
+
+// =====================================================================
+// INPUTS — Strategy Toggles
+// =====================================================================
+var string G_STRAT = "Strategy Toggles"
+bool enableICT2022      = input.bool(true, "Enable Flagship Sweep → MSS → Zone Engine", group = G_STRAT)
+bool enableSilverBullet = input.bool(true, "Label In Silver Bullet Windows", tooltip = "When enabled, setups that begin inside Silver Bullet windows are tagged separately while using the same deterministic engine.", group = G_STRAT)
+
+// =====================================================================
+// INPUTS — HTF Trend Filter
+// =====================================================================
+var string G_HTF = "HTF Trend Filter"
+bool   useHTFTrendFilter = input.bool(true, "Enable HTF Trend Filter", group = G_HTF)
+string htfTrendTF        = input.timeframe("60", "HTF Trend Timeframe", group = G_HTF)
+string htfTrendTF2       = input.timeframe("240", "HTF 2 Timeframe", group = G_HTF)
+int    htfFastLen        = input.int(50, "HTF Fast EMA Length", minval = 10, maxval = 200, group = G_HTF)
+int    htfEmaLen         = input.int(200, "HTF Slow EMA Length", minval = 20, maxval = 500, group = G_HTF)
+string htfBiasMode       = input.string("Both", "HTF Bias Method", options = ["EMA", "Structure", "Both"], group = G_HTF)
+
+// =====================================================================
+// INPUTS — Premium / Discount Filter
+// =====================================================================
+var string G_PD = "Premium / Discount Filter"
+bool   usePDFilter  = input.bool(true, "Enable Premium/Discount Filter", group = G_PD)
+string pdStrictness = input.string("Strict", "Strictness", options = ["Soft", "Strict"], group = G_PD, tooltip = "Soft keeps P/D in scoring; Strict blocks entries that are on the wrong side of the setup dealing range.")
+
+// =====================================================================
+// INPUTS — Structure / Sweep / Displacement
+// =====================================================================
+var string G_STRUCT = "Structure Engine"
+int    internalPivotLenInput         = input.int(3, "Base Internal Pivot Length", minval = 2, maxval = 8, group = G_STRUCT)
+int    externalPivotLenInput         = input.int(8, "Base External Pivot Length", minval = 4, maxval = 20, group = G_STRUCT)
+int    sweepCloseBars                = input.int(1, "Sweep Reclaim Bars", minval = 1, maxval = 4, group = G_STRUCT, tooltip = "How many bars the raid can take to reclaim the swept level. 1 = same-bar reclaim only.")
+float  wickFactor                    = input.float(1.0, "Sweep Wick / Body Ratio", minval = 0.0, maxval = 5.0, step = 0.1, group = G_STRUCT)
+float  maxSweepDistanceAtr           = input.float(0.80, "Max Sweep Excursion (ATR)", minval = 0.10, maxval = 3.0, step = 0.05, group = G_STRUCT)
+int    mssWindowBars                 = input.int(10, "MSS Window Bars", minval = 3, maxval = 40, group = G_STRUCT)
+float  minimumBreakDistanceAtr       = input.float(0.08, "Minimum Break Distance (ATR)", minval = 0.01, maxval = 0.50, step = 0.01, group = G_STRUCT)
+float  minDisplacementAtr            = input.float(1.10, "Min Displacement Range (ATR)", minval = 0.20, maxval = 3.0, step = 0.05, group = G_STRUCT)
+float  minDisplacementBodyAtr        = input.float(0.55, "Min Displacement Body (ATR)", minval = 0.10, maxval = 2.0, step = 0.05, group = G_STRUCT)
+int    displacementFollowThroughBars = input.int(2, "Displacement Follow-Through Bars", minval = 1, maxval = 4, group = G_STRUCT)
+bool   useEqualHighLow               = input.bool(true, "Track Equal Highs/Lows", group = G_STRUCT)
+float  equalToleranceAtr             = input.float(0.08, "Equal High/Low Tolerance (ATR)", minval = 0.01, maxval = 0.50, step = 0.01, group = G_STRUCT)
+int    equalMaxBarsApart             = input.int(45, "Equal High/Low Max Separation", minval = 5, maxval = 150, group = G_STRUCT)
+
+// =====================================================================
+// INPUTS — FVG Settings
+// =====================================================================
+var string G_FVG = "FVG Settings"
+bool   requireFVG              = input.bool(false, "Require FVG For Arming", group = G_FVG)
+float  minFvgAtr               = input.float(0.20, "Min FVG Size (ATR)", minval = 0.05, maxval = 2.0, step = 0.05, group = G_FVG)
+int    fvgMaxAge               = input.int(40, "FVG Max Age (bars)", minval = 5, maxval = 200, group = G_FVG)
+float  fvgPartialFillThreshold = input.float(0.50, "FVG Max Fill Before Invalid", minval = 0.05, maxval = 1.0, step = 0.05, group = G_FVG)
+string fvgEntryMode            = input.string("midpoint", "FVG Entry Mode", options = ["touch", "midpoint", "fullZone"], group = G_FVG)
+
+// =====================================================================
+// INPUTS — Order Block Settings
+// =====================================================================
+var string G_OB = "Order Block Settings"
+bool   requireOB             = input.bool(false, "Require OB For Arming", group = G_OB)
+int    obSearchLookback      = input.int(8, "Pre-Break OB Search Lookback", minval = 2, maxval = 20, group = G_OB)
+int    obMaxAge              = input.int(80, "OB Max Age (bars)", minval = 10, maxval = 300, group = G_OB)
+int    obMaxTouches          = input.int(2, "OB Max Touches", minval = 1, maxval = 5, group = G_OB)
+float  obMitigationThreshold = input.float(0.25, "OB Mitigation Threshold", minval = 0.05, maxval = 1.0, step = 0.05, group = G_OB)
+string obRangeMode           = input.string("Profile", "OB Range Mode", options = ["Profile", "Body", "Full Candle"], group = G_OB)
+
+// =====================================================================
+// INPUTS — Momentum Filter
+// =====================================================================
+var string G_MOM = "Momentum Confirmation"
+bool   useMomentumFilter = input.bool(true, "Enable Momentum Filter", group = G_MOM)
+string momentumMode      = input.string("Displacement", "Momentum Method", options = ["Candle", "RSI", "Displacement"], group = G_MOM)
+int    rsiLength         = input.int(14, "RSI Length", minval = 5, maxval = 50, group = G_MOM)
+float  rsiBullThreshold  = input.float(50.0, "RSI Bull Threshold", minval = 20, maxval = 70, group = G_MOM)
+float  rsiBearThreshold  = input.float(50.0, "RSI Bear Threshold", minval = 30, maxval = 80, group = G_MOM)
+
+// =====================================================================
+// INPUTS — Regime Filter
+// =====================================================================
+var string G_REGIME = "Regime Filter"
+bool   regimeFilterEnabled = input.bool(true, "Enable Chop / Compression Filter", group = G_REGIME)
+float  chopAtrThreshold    = input.float(0.85, "ATR Compression Threshold", minval = 0.20, maxval = 2.0, step = 0.05, group = G_REGIME)
+float  chopRangeAtr        = input.float(5.0, "Narrow Range Threshold (ATR)", minval = 2.0, maxval = 15.0, step = 0.5, group = G_REGIME)
+int    chopFlipLookback    = input.int(20, "Opposing Break Lookback", minval = 5, maxval = 60, group = G_REGIME)
+
+// =====================================================================
+// INPUTS — Entry Model
+// =====================================================================
+var string G_ENTRY = "Entry Execution"
+string entryModel         = input.string("blended", "Entry Model", options = ["immediate", "fvgRetrace", "obRetrace", "blended"], group = G_ENTRY)
+float  entryZonePadATR    = input.float(0.05, "Entry Touch Tolerance (ATR)", minval = 0.0, maxval = 0.5, step = 0.01, group = G_ENTRY)
+int    pendingSetupExpiry = input.int(20, "Pending Entry Expiry (bars)", minval = 3, maxval = 100, group = G_ENTRY)
+float  minRRRequired      = input.float(1.20, "Min Required R Multiple", minval = 0.5, maxval = 5.0, step = 0.05, group = G_ENTRY)
+
+// =====================================================================
+// INPUTS — Risk Management
+// =====================================================================
+var string G_RISK = "Risk Management"
+string stopMode   = input.string("hybrid", "Stop-Loss Mode", options = ["structure", "sweepWick", "obInvalidation", "atr", "hybrid"], group = G_RISK)
+float  stopPadATR = input.float(0.25, "Stop Padding (ATR)", minval = 0.0, maxval = 2.0, step = 0.05, group = G_RISK)
+string tpMode     = input.string("hybrid", "Take-Profit Mode", options = ["fixedRR", "internalLiquidity", "externalLiquidity", "hybrid"], group = G_RISK)
+float  rrTarget1  = input.float(1.5, "TP1 Risk Multiple", minval = 0.5, maxval = 5.0, step = 0.1, group = G_RISK)
+float  rrTarget2  = input.float(3.0, "TP2 Risk Multiple", minval = 1.0, maxval = 10.0, step = 0.5, group = G_RISK)
+
+// =====================================================================
+// INPUTS — Session Settings
+// =====================================================================
+var string G_SESS = "Session Settings"
+string sbLondonWindow             = input.session("0300-0400", "Silver Bullet London Window", group = G_SESS)
+string sbNYAMWindow               = input.session("1000-1100", "Silver Bullet NY AM Window", group = G_SESS)
+string sbNYPMWindow               = input.session("1400-1500", "Silver Bullet NY PM Window", group = G_SESS)
+string asiaWindow                 = input.session("2000-0000", "Asia Session", group = G_SESS)
+string londonWindow               = input.session("0200-1100", "London Session", group = G_SESS)
+string nyWindow                   = input.session("0800-1700", "New York Session", group = G_SESS)
+bool   requireSessionForSetup     = input.bool(true, "Require Active Session For Setup", group = G_SESS)
+bool   requireKillzoneForConservative = input.bool(true, "Conservative Requires Killzone", group = G_SESS)
+
+// =====================================================================
+// INPUTS — Visualization
+// =====================================================================
+var string G_VIS = "Visual Style & Display"
+bool showLabels = input.bool(true, "Show Buy/Sell Labels", group = G_VIS)
+bool showSetups = input.bool(true, "Show Setup Visuals", group = G_VIS)
+bool showZones  = input.bool(true, "Show Trade SL/TP Zones", group = G_VIS)
+int  maxHistory = input.int(5, "Max Historical Trades Shown", minval = 1, maxval = 20, group = G_VIS)
+
+var string G_SETUP_STYLE = "Setup Colors"
+color longTpColor     = input.color(#089981, "Long TP / Reward Color", group = G_SETUP_STYLE)
+color longSlColor     = input.color(#f23645, "Long Risk / SL Color", group = G_SETUP_STYLE)
+color shortTpColor    = input.color(#f23645, "Short TP / Reward Color", group = G_SETUP_STYLE)
+color shortSlColor    = input.color(#089981, "Short Risk / SL Color", group = G_SETUP_STYLE)
+color setupLabelColor = input.color(#5b9cf6, "Setup Label Text Color", group = G_SETUP_STYLE)
+
+var string G_SMC = "Supply & Demand Elements"
+bool  showOB        = input.bool(true, "Show Order Blocks", group = G_SMC)
+bool  showFVG       = input.bool(true, "Show FVG Zones", group = G_SMC)
+bool  showIFVG      = input.bool(true, "Show Inversion FVGs", group = G_SMC)
+int   maxZones      = input.int(10, "Max Active Zones Per Side/Type", minval = 1, maxval = 30, group = G_SMC)
+color bullObColor   = input.color(color.new(BULL_COLOR, 82), "Bull OB Color", group = G_SMC)
+color bearObColor   = input.color(color.new(BEAR_COLOR, 82), "Bear OB Color", group = G_SMC)
+color bullFvgColor  = input.color(color.new(BULL_COLOR, 88), "Bull FVG Color", group = G_SMC)
+color bearFvgColor  = input.color(color.new(BEAR_COLOR, 88), "Bear FVG Color", group = G_SMC)
+color bullIfvgColor = input.color(color.new(BULL_COLOR, 70), "Bull IFVG Color", group = G_SMC)
+color bearIfvgColor = input.color(color.new(BEAR_COLOR, 70), "Bear IFVG Color", group = G_SMC)
+
+var string G_READINESS = "Setup & Performance Dashboard"
+bool   showReadiness = input.bool(true, "Show Dashboard", group = G_READINESS)
+string readinessPos  = input.string("bottom_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_READINESS)
+
+var string G_INTEL = "Market Intelligence Dashboard"
+bool   showMarketIntelDash = input.bool(true, "Show Dashboard", group = G_INTEL)
+string marketIntelPos      = input.string("bottom_left", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_INTEL)
+int    maxAlertRows        = input.int(5, "Max Alert Rows", minval = 1, maxval = 10, group = G_INTEL)
+int    maxScannerRows      = input.int(5, "Max OB Scanner Rows", minval = 1, maxval = 10, group = G_INTEL)
+
+var string G_HTF_VIS = "HTF Levels Visibility"
+string htfDisplayMode    = input.string("Short Segment", "Display Mode", options = ["Short Segment", "Full Width"], group = G_HTF_VIS)
+int    htfSegLen         = input.int(15, "Segment Length", minval = 1, group = G_HTF_VIS)
+int    htfSegOffset      = input.int(5, "Segment Offset", minval = 0, group = G_HTF_VIS)
+bool   showPDH           = input.bool(true, "PDH", group = G_HTF_VIS, inline = "pdh")
+color  pdhColor          = input.color(color.new(color.gray, 30), "", group = G_HTF_VIS, inline = "pdh")
+bool   showPDL           = input.bool(true, "PDL", group = G_HTF_VIS, inline = "pdl")
+color  pdlColor          = input.color(color.new(color.gray, 30), "", group = G_HTF_VIS, inline = "pdl")
+bool   showPWH           = input.bool(true, "PWH", group = G_HTF_VIS, inline = "pwh")
+color  pwhColor          = input.color(color.new(color.blue, 30), "", group = G_HTF_VIS, inline = "pwh")
+bool   showPWL           = input.bool(true, "PWL", group = G_HTF_VIS, inline = "pwl")
+color  pwlColor          = input.color(color.new(color.blue, 30), "", group = G_HTF_VIS, inline = "pwl")
+string htfLineStyleInput = input.string("Dashed", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = G_HTF_VIS)
+int    htfLineWidth      = input.int(1, "Line Width", minval = 1, group = G_HTF_VIS)
+bool   htfShowLabels     = input.bool(true, "Show Labels", group = G_HTF_VIS)
+
+var string G_SESS_LINES = "Session High/Low Lines"
+string sessDisplayMode    = input.string("Short Segment", "Display Mode", options = ["Short Segment", "Full Width"], group = G_SESS_LINES)
+int    sessSegLen         = input.int(15, "Segment Length", minval = 1, group = G_SESS_LINES)
+bool   showAsiaH          = input.bool(false, "Asia High", group = G_SESS_LINES, inline = "asiah")
+color  asiaHColor         = input.color(color.new(color.purple, 30), "", group = G_SESS_LINES, inline = "asiah")
+bool   showAsiaL          = input.bool(false, "Asia Low", group = G_SESS_LINES, inline = "asial")
+color  asiaLColor         = input.color(color.new(color.purple, 30), "", group = G_SESS_LINES, inline = "asial")
+bool   showLonH           = input.bool(false, "London High", group = G_SESS_LINES, inline = "lonh")
+color  lonHColor          = input.color(color.new(color.orange, 30), "", group = G_SESS_LINES, inline = "lonh")
+bool   showLonL           = input.bool(false, "London Low", group = G_SESS_LINES, inline = "lonl")
+color  lonLColor          = input.color(color.new(color.orange, 30), "", group = G_SESS_LINES, inline = "lonl")
+bool   showNYH            = input.bool(false, "NY High", group = G_SESS_LINES, inline = "nyh")
+color  nyHColor           = input.color(color.new(color.red, 30), "", group = G_SESS_LINES, inline = "nyh")
+bool   showNYL            = input.bool(false, "NY Low", group = G_SESS_LINES, inline = "nyl")
+color  nyLColor           = input.color(color.new(color.red, 30), "", group = G_SESS_LINES, inline = "nyl")
+string sessLineStyleInput = input.string("Dotted", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = G_SESS_LINES)
+
+var string G_ACTIVE_VIS = "Active Setup Visuals"
+bool   showCandidatePreview = input.bool(true, "Show Projected Armed Setup", group = G_ACTIVE_VIS)
+string activeSetupSize      = input.string("Normal", "Active Setup Size", options = ["Compact", "Normal", "Large"], group = G_ACTIVE_VIS)
+int    activeMinWidth       = input.int(15, "Min Projected Width (Bars)", minval = 5, group = G_ACTIVE_VIS)
+bool   extendCandidateRight = input.bool(true, "Extend Forming Setup To Right", group = G_ACTIVE_VIS)
+int    activeBorderWidth    = input.int(2, "Active Border Thickness", minval = 1, maxval = 5, group = G_ACTIVE_VIS)
+int    activeTransp         = input.int(85, "Active Setup Transparency", minval = 0, maxval = 100, group = G_ACTIVE_VIS)
+
+var string G_OUTCOME_VIS = "Outcome Markers"
+bool   showTpMarkers   = input.bool(true, "Show TP/TP1 Hit Markers", group = G_OUTCOME_VIS)
+bool   showSlMarkers   = input.bool(true, "Show SL/BE Hit Markers", group = G_OUTCOME_VIS)
+string markerSizeInput = input.string("Small", "Marker Size", options = ["Tiny", "Small", "Normal"], group = G_OUTCOME_VIS)
+color  tpMarkerColor   = input.color(BULL_COLOR, "TP Marker Color", group = G_OUTCOME_VIS)
+color  slMarkerColor   = input.color(BEAR_COLOR, "SL Marker Color", group = G_OUTCOME_VIS)
+
+var string G_STYLE = "Dashboard Colors & UI Theme"
+color uiBg           = input.color(color.new(#131722, 10), "Dashboard Background", group = G_STYLE)
+color uiBorder       = input.color(#363a45, "Dashboard Border", group = G_STYLE)
+color uiHeaderText   = input.color(color.white, "Header Text", group = G_STYLE)
+color uiLabelText    = input.color(color.gray, "Label Text", group = G_STYLE)
+color uiValueText    = input.color(color.white, "Value Text", group = G_STYLE)
+color uiPosColor     = input.color(BULL_COLOR, "Positive Color", group = G_STYLE)
+color uiNegColor     = input.color(BEAR_COLOR, "Negative Color", group = G_STYLE)
+color uiNeutralColor = input.color(NEUTRAL_CLR, "Neutral/Accent Color", group = G_STYLE)
+
+var string G_DEBUG = "QA / Debug"
+bool showDebugState = input.bool(false, "Show Debug State Label", group = G_DEBUG)
+
+// =====================================================================
+// PROFILE RESOLUTION
+// =====================================================================
+bool isAggressive   = sensitivityMode == "Aggressive"
+bool isBalanced     = sensitivityMode == "Balanced"
+bool isConservative = sensitivityMode == "Conservative"
+
+int   internalPivotLen      = isAggressive ? math.max(2, internalPivotLenInput - 1) : isConservative ? internalPivotLenInput + 1 : internalPivotLenInput
+int   externalPivotLen      = isAggressive ? math.max(4, externalPivotLenInput - 2) : isConservative ? externalPivotLenInput + 2 : externalPivotLenInput
+int   resolvedMssWindow     = isAggressive ? mssWindowBars + 2 : isConservative ? math.max(4, mssWindowBars - 2) : mssWindowBars
+float resolvedWickFactor    = isAggressive ? math.max(0.0, wickFactor * 0.8) : isConservative ? wickFactor * 1.2 : wickFactor
+float resolvedMinDispAtr    = isAggressive ? minDisplacementAtr * 0.85 : isConservative ? minDisplacementAtr * 1.2 : minDisplacementAtr
+float resolvedMinBodyAtr    = isAggressive ? minDisplacementBodyAtr * 0.85 : isConservative ? minDisplacementBodyAtr * 1.2 : minDisplacementBodyAtr
+int   resolvedFollowBars    = isAggressive ? math.max(1, displacementFollowThroughBars - 1) : isConservative ? displacementFollowThroughBars + 1 : displacementFollowThroughBars
+float resolvedMinFvgAtr     = isAggressive ? minFvgAtr * 0.85 : isConservative ? minFvgAtr * 1.15 : minFvgAtr
+int   resolvedFvgMaxAge     = isAggressive ? fvgMaxAge + 10 : isConservative ? math.max(5, fvgMaxAge - 10) : fvgMaxAge
+int   resolvedObMaxTouches  = isAggressive ? obMaxTouches + 1 : isConservative ? math.max(1, obMaxTouches - 1) : obMaxTouches
+int   minScoreReq           = isAggressive ? 52 : isConservative ? 80 : 66
+int   displacementScoreGate = isAggressive ? 56 : isConservative ? 74 : 64
+
+bool profRequireHTF      = isConservative ? true : useHTFTrendFilter
+bool profRequireFVG      = isConservative ? true : requireFVG
+bool profRequireMomentum = isConservative ? true : useMomentumFilter
+bool profStrictPd        = isConservative or (usePDFilter and pdStrictness == "Strict")
+bool useBodyOnlyOb       = obRangeMode == "Body" or (obRangeMode == "Profile" and isConservative)
+string resolvedEntryModel = isConservative and entryModel == "immediate" ? "blended" : entryModel
+
+// =====================================================================
+// FOUNDATION HELPERS
+// =====================================================================
+clamp(float value, float low, float high) =>
+    math.max(low, math.min(high, value))
+
+safe_range(float h, float l) =>
+    math.max(h - l, syminfo.mintick)
+
+state_text(int state) =>
+    state == STATE_LIQUIDITY_NEAR ? "Liquidity Nearby" :
+     state == STATE_SWEEP_CONFIRMED ? "Sweep Confirmed" :
+     state == STATE_MSS_PENDING ? "MSS Pending" :
+     state == STATE_MSS_CONFIRMED ? "MSS Confirmed" :
+     state == STATE_ZONE_FORMED ? "Zone Formed" :
+     state == STATE_ARMED ? "Armed" :
+     state == STATE_PENDING_ENTRY ? "Pending Entry" :
+     state == STATE_TRIGGERED ? "Triggered" :
+     state == STATE_INVALIDATED ? "Invalidated" :
+     state == STATE_EXPIRED ? "Expired" : "Monitoring"
+
+dir_text(int direction) =>
+    direction == DIR_BULL ? "Bullish" : direction == DIR_BEAR ? "Bearish" : "Neutral"
+
+zone_text(int zoneType) =>
+    zoneType == ZONE_FVG ? "FVG" : zoneType == ZONE_OB ? "Order Block" : "None"
+
+style_from_input(string styleStr) =>
+    styleStr == "Solid" ? line.style_solid : styleStr == "Dashed" ? line.style_dashed : line.style_dotted
+
+marker_size(string sizeStr) =>
+    sizeStr == "Tiny" ? size.tiny : sizeStr == "Small" ? size.small : size.normal
+
+resolve_pos(string pos) =>
+    pos == "top_right" ? position.top_right : pos == "top_left" ? position.top_left : pos == "bottom_right" ? position.bottom_right : position.bottom_left
+
+append_reason(string base, string next) =>
+    next == "" ? base : base == "" ? next : base + ", " + next
+
+new_session(string name, string timeRange) =>
+    SessionData s = SessionData.new()
+    s.name := name
+    s.timeRange := timeRange
+    s
+
+new_liq_ref() =>
+    LiquidityRef.new()
+
+new_sweep_candidate(int direction) =>
+    SweepCandidate s = SweepCandidate.new()
+    s.direction := direction
+    s
+
+new_zone() =>
+    ZoneData.new()
+
+new_trade_plan() =>
+    TradePlan.new()
+
+new_setup(int direction) =>
+    SetupState s = SetupState.new()
+    s.direction := direction
+    s
+
+setup_is_working(SetupState s) =>
+    s.state >= STATE_SWEEP_CONFIRMED and s.state <= STATE_PENDING_ENTRY
+
+setup_is_final(SetupState s) =>
+    s.state == STATE_INVALIDATED or s.state == STATE_EXPIRED
+
+setup_can_restart(SetupState s) =>
+    s.state == STATE_MONITORING or s.state == STATE_LIQUIDITY_NEAR or setup_is_final(s) or s.state == STATE_TRIGGERED
+
+setup_priority(SetupState s) =>
+    int weight = s.state == STATE_TRIGGERED ? 800 :
+         s.state == STATE_PENDING_ENTRY ? 700 :
+         s.state == STATE_ARMED ? 650 :
+         s.state == STATE_ZONE_FORMED ? 550 :
+         s.state == STATE_MSS_CONFIRMED ? 450 :
+         s.state == STATE_MSS_PENDING ? 300 :
+         s.state == STATE_SWEEP_CONFIRMED ? 250 :
+         s.state == STATE_LIQUIDITY_NEAR ? 100 : 0
+    weight + s.score
+
+pick_better_setup(SetupState leftRef, SetupState rightRef) =>
+    setup_priority(rightRef) > setup_priority(leftRef) ? rightRef : leftRef
+
+consider_liq_ref(LiquidityRef bestRef, bool condition, int direction, int priority, string key, string label, string category, float price, int refBar) =>
+    LiquidityRef nextRef = bestRef
+    if condition
+        float bestDist = bestRef.valid ? math.abs(close - bestRef.price) : 1e10
+        float curDist  = math.abs(close - price)
+        if not bestRef.valid or priority > bestRef.priority or (priority == bestRef.priority and curDist < bestDist)
+            nextRef.valid := true
+            nextRef.direction := direction
+            nextRef.priority := priority
+            nextRef.key := key
+            nextRef.label := label
+            nextRef.category := category
+            nextRef.price := price
+            nextRef.refBar := refBar
+    nextRef
+
+consider_target_above(float best, float candidate, float anchor) =>
+    not na(candidate) and candidate > anchor and (na(best) or candidate < best) ? candidate : best
+
+consider_target_below(float best, float candidate, float anchor) =>
+    not na(candidate) and candidate < anchor and (na(best) or candidate > best) ? candidate : best
+
+trend_from_pivots(float lastHigh, float prevHigh, float lastLow, float prevLow) =>
+    not na(lastHigh) and not na(prevHigh) and not na(lastLow) and not na(prevLow) ?
+         (lastHigh > prevHigh and lastLow > prevLow ? DIR_BULL : lastHigh < prevHigh and lastLow < prevLow ? DIR_BEAR : DIR_NONE) :
+         DIR_NONE
+
+bull_wick_ratio() =>
+    float body = math.max(math.abs(close - open), syminfo.mintick)
+    (math.min(open, close) - low) / body
+
+bear_wick_ratio() =>
+    float body = math.max(math.abs(close - open), syminfo.mintick)
+    (high - math.max(open, close)) / body
+
+count_true_bars(bool condition, int length) =>
+    float total = 0.0
+    for i = 0 to length - 1
+        total += condition[i] ? 1.0 : 0.0
+    total
+
+// =====================================================================
+// SESSION ENGINE
+// =====================================================================
+session_active(string sessionSpec) =>
+    not na(time(timeframe.period, sessionSpec, NY_TZ))
+
+update_session(SessionData s, bool activeNow) =>
+    SessionData next = s
+    bool wasActive = next.isActive
+    if activeNow
+        if not wasActive
+            next.high := high
+            next.low := low
+            next.startBar := bar_index
+        else
+            next.high := math.max(nz(next.high, high), high)
+            next.low := math.min(nz(next.low, low), low)
+    else if wasActive
+        next.lastHigh := next.high
+        next.lastLow := next.low
+        next.lastStart := next.startBar
+        next.lastEnd := bar_index
+        next.high := na
+        next.low := na
+        next.startBar := na
+    next.isActive := activeNow
+    next
+
+var SessionData asia   = new_session("Asia", asiaWindow)
+var SessionData london = new_session("London", londonWindow)
+var SessionData ny     = new_session("New York", nyWindow)
+
+bool asiaActive   = session_active(asiaWindow)
+bool londonActive = session_active(londonWindow)
+bool nyActive     = session_active(nyWindow)
+bool overlapActive = londonActive and nyActive
+bool sbLonActive  = session_active(sbLondonWindow)
+bool sbAmActive   = session_active(sbNYAMWindow)
+bool sbPmActive   = session_active(sbNYPMWindow)
+
+asia   := update_session(asia, asiaActive)
+london := update_session(london, londonActive)
+ny     := update_session(ny, nyActive)
+
+string activeSessName = overlapActive ? "London/NY Overlap" : ny.isActive ? ny.name : london.isActive ? london.name : asia.isActive ? asia.name : "Inter-Session"
+bool   isKillzone     = sbLonActive or sbAmActive or sbPmActive or overlapActive
+bool   inSilverBullet = sbLonActive or sbAmActive or sbPmActive
+bool   isActiveSess   = asia.isActive or london.isActive or ny.isActive or overlapActive
+
+// =====================================================================
+// HTF LEVELS / BIAS (CLOSED BAR ONLY)
+// =====================================================================
+[pdh, pdl] = request.security(syminfo.tickerid, "D", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead = barmerge.lookahead_on)
+
+[htf1Close, htf1Fast, htf1Slow, htf1High20, htf1Low20] = request.security(syminfo.tickerid, htfTrendTF, [close[1], ta.ema(close, htfFastLen)[1], ta.ema(close, htfEmaLen)[1], ta.highest(high, 20)[1], ta.lowest(low, 20)[1]], lookahead = barmerge.lookahead_on)
+[htf2Close, htf2Fast, htf2Slow, htf2High20, htf2Low20] = request.security(syminfo.tickerid, htfTrendTF2, [close[1], ta.ema(close, htfFastLen)[1], ta.ema(close, htfEmaLen)[1], ta.highest(high, 20)[1], ta.lowest(low, 20)[1]], lookahead = barmerge.lookahead_on)
+
+get_htf_bias() =>
+    bool emaBull1 = htf1Close > htf1Fast and htf1Fast >= htf1Slow
+    bool emaBull2 = htf2Close > htf2Fast and htf2Fast >= htf2Slow
+    bool emaBear1 = htf1Close < htf1Fast and htf1Fast <= htf1Slow
+    bool emaBear2 = htf2Close < htf2Fast and htf2Fast <= htf2Slow
+    bool structBull1 = htf1Close > (htf1High20 + htf1Low20) * 0.5
+    bool structBull2 = htf2Close > (htf2High20 + htf2Low20) * 0.5
+    bool structBear1 = htf1Close < (htf1High20 + htf1Low20) * 0.5
+    bool structBear2 = htf2Close < (htf2High20 + htf2Low20) * 0.5
+    bool bull = false
+    bool bear = false
+    if htfBiasMode == "EMA"
+        bull := emaBull1 and emaBull2
+        bear := emaBear1 and emaBear2
+    else if htfBiasMode == "Structure"
+        bull := structBull1 and structBull2
+        bear := structBear1 and structBear2
+    else
+        bull := emaBull1 and emaBull2 and structBull1 and structBull2
+        bear := emaBear1 and emaBear2 and structBear1 and structBear2
+    [bull, bear]
+
+[htfBullBias, htfBearBias] = get_htf_bias()
+bool htf1Bull = htf1Close > htf1Fast
+bool htf2Bull = htf2Close > htf2Fast
+float emaBias = ta.ema(close, 200)
+bool  curBull = close > emaBias
+int   trendScore = (htf1Bull ? 1 : 0) + (htf2Bull ? 1 : 0) + (curBull ? 1 : 0)
+
+// =====================================================================
+// CORE DATA / DISPLACEMENT / MOMENTUM
+// =====================================================================
+float atr      = ta.atr(14)
+float rsiVal   = ta.rsi(close, rsiLength)
+float avgRange = ta.sma(high - low, 20)
+float avgBody  = ta.sma(math.abs(close - open), 20)
+
+impulse_dominance(int direction, int length, int offset) =>
+    float totalBody  = 0.0
+    float totalRange = 0.0
+    for i = 0 to length - 1
+        int idx = offset + i
+        float dirBody = direction == DIR_BULL ? math.max(close[idx] - open[idx], 0.0) : math.max(open[idx] - close[idx], 0.0)
+        totalBody += dirBody
+        totalRange += safe_range(high[idx], low[idx])
+    totalBody / math.max(totalRange, syminfo.mintick)
+
+displacement_metrics(int direction, int offset) =>
+    float rangeValue   = safe_range(high[offset], low[offset])
+    float atrValue     = math.max(nz(atr[offset], atr), syminfo.mintick)
+    float dirBody      = direction == DIR_BULL ? math.max(close[offset] - open[offset], 0.0) : math.max(open[offset] - close[offset], 0.0)
+    float bodyDom      = dirBody / rangeValue
+    float closeEdge    = direction == DIR_BULL ? (close[offset] - low[offset]) / rangeValue : (high[offset] - close[offset]) / rangeValue
+    float rangeAtr     = rangeValue / atrValue
+    float bodyAtrLocal = dirBody / atrValue
+    float rangeExp     = rangeValue / math.max(nz(avgRange[offset], rangeValue), syminfo.mintick)
+    float bodyExp      = dirBody / math.max(nz(avgBody[offset], dirBody), syminfo.mintick)
+    float impulseDom   = impulse_dominance(direction, math.max(resolvedFollowBars, 2), offset)
+    float scoreRaw     = clamp(rangeAtr / math.max(resolvedMinDispAtr * 1.5, 0.01), 0.0, 1.0) * 25.0 +
+         clamp(bodyAtrLocal / math.max(resolvedMinBodyAtr * 1.6, 0.01), 0.0, 1.0) * 30.0 +
+         clamp(bodyDom / 0.70, 0.0, 1.0) * 20.0 +
+         clamp(closeEdge / 0.80, 0.0, 1.0) * 15.0 +
+         clamp(impulseDom / 0.60, 0.0, 1.0) * 10.0
+    int score = int(math.round(math.min(scoreRaw, 100.0)))
+    bool valid = score >= displacementScoreGate and rangeAtr >= resolvedMinDispAtr and bodyAtrLocal >= resolvedMinBodyAtr and closeEdge >= 0.60 and impulseDom >= 0.50
+    [score, rangeAtr, bodyAtrLocal, impulseDom, valid]
+
+[bullDispScoreNow, bullDispAtrNow, bullBodyAtrNow, bullImpulseNow, bullDisplacementStrong] = displacement_metrics(DIR_BULL, 0)
+[bearDispScoreNow, bearDispAtrNow, bearBodyAtrNow, bearImpulseNow, bearDisplacementStrong] = displacement_metrics(DIR_BEAR, 0)
+
+has_bull_momentum() =>
+    bool ok = false
+    if momentumMode == "Candle"
+        float bodyPos = safe_range(high, low) > 0 ? (close - low) / safe_range(high, low) : 0.5
+        ok := close > open and bodyPos >= 0.65 and close > close[1]
+    else if momentumMode == "RSI"
+        ok := rsiVal >= rsiBullThreshold
+    else
+        ok := bullDisplacementStrong
+    ok
+
+has_bear_momentum() =>
+    bool ok = false
+    if momentumMode == "Candle"
+        float bodyPos = safe_range(high, low) > 0 ? (high - close) / safe_range(high, low) : 0.5
+        ok := close < open and bodyPos >= 0.65 and close < close[1]
+    else if momentumMode == "RSI"
+        ok := rsiVal <= rsiBearThreshold
+    else
+        ok := bearDisplacementStrong
+    ok
+
+bool bullMomentum = has_bull_momentum()
+bool bearMomentum = has_bear_momentum()
+
+// =====================================================================
+// PIVOTS / STRUCTURE
+// =====================================================================
+float internalPivotHigh = ta.pivothigh(high, internalPivotLen, internalPivotLen)
+float internalPivotLow  = ta.pivotlow(low, internalPivotLen, internalPivotLen)
+float externalPivotHigh = ta.pivothigh(high, externalPivotLen, externalPivotLen)
+float externalPivotLow  = ta.pivotlow(low, externalPivotLen, externalPivotLen)
+
+var float lastInternalHigh = na
+var float prevInternalHigh = na
+var int   lastInternalHighBar = na
+var int   prevInternalHighBar = na
+var float lastInternalLow = na
+var float prevInternalLow = na
+var int   lastInternalLowBar = na
+var int   prevInternalLowBar = na
+
+var float lastExternalHigh = na
+var float prevExternalHigh = na
+var int   lastExternalHighBar = na
+var int   prevExternalHighBar = na
+var float lastExternalLow = na
+var float prevExternalLow = na
+var int   lastExternalLowBar = na
+var int   prevExternalLowBar = na
+
+if not na(internalPivotHigh)
+    prevInternalHigh := lastInternalHigh
+    prevInternalHighBar := lastInternalHighBar
+    lastInternalHigh := internalPivotHigh
+    lastInternalHighBar := bar_index - internalPivotLen
+
+if not na(internalPivotLow)
+    prevInternalLow := lastInternalLow
+    prevInternalLowBar := lastInternalLowBar
+    lastInternalLow := internalPivotLow
+    lastInternalLowBar := bar_index - internalPivotLen
+
+if not na(externalPivotHigh)
+    prevExternalHigh := lastExternalHigh
+    prevExternalHighBar := lastExternalHighBar
+    lastExternalHigh := externalPivotHigh
+    lastExternalHighBar := bar_index - externalPivotLen
+
+if not na(externalPivotLow)
+    prevExternalLow := lastExternalLow
+    prevExternalLowBar := lastExternalLowBar
+    lastExternalLow := externalPivotLow
+    lastExternalLowBar := bar_index - externalPivotLen
+
+int internalTrend = trend_from_pivots(lastInternalHigh, prevInternalHigh, lastInternalLow, prevInternalLow)
+int externalTrend = trend_from_pivots(lastExternalHigh, prevExternalHigh, lastExternalLow, prevExternalLow)
+string marketBias = externalTrend == DIR_BULL ? "Bullish" : externalTrend == DIR_BEAR ? "Bearish" : close > emaBias ? "Bullish" : close < emaBias ? "Bearish" : "Neutral"
+
+bool genericBullBreak = not na(lastInternalHigh) and close > lastInternalHigh + atr * minimumBreakDistanceAtr and close[1] <= lastInternalHigh and bullDisplacementStrong and barstate.isconfirmed
+bool genericBearBreak = not na(lastInternalLow) and close < lastInternalLow - atr * minimumBreakDistanceAtr and close[1] >= lastInternalLow and bearDisplacementStrong and barstate.isconfirmed
+
+// =====================================================================
+// EQUAL HIGHS / LOWS
+// =====================================================================
+float equalTolerance = atr * equalToleranceAtr
+var float equalHighLevel = na
+var int   equalHighBar   = na
+var float equalLowLevel  = na
+var int   equalLowBar    = na
+
+if useEqualHighLow and not na(internalPivotHigh) and not na(prevInternalHigh)
+    int eqHighBarsApart = (bar_index - internalPivotLen) - nz(prevInternalHighBar, bar_index)
+    if math.abs(internalPivotHigh - prevInternalHigh) <= equalTolerance and eqHighBarsApart <= equalMaxBarsApart
+        equalHighLevel := (internalPivotHigh + prevInternalHigh) * 0.5
+        equalHighBar := bar_index - internalPivotLen
+
+if useEqualHighLow and not na(internalPivotLow) and not na(prevInternalLow)
+    int eqLowBarsApart = (bar_index - internalPivotLen) - nz(prevInternalLowBar, bar_index)
+    if math.abs(internalPivotLow - prevInternalLow) <= equalTolerance and eqLowBarsApart <= equalMaxBarsApart
+        equalLowLevel := (internalPivotLow + prevInternalLow) * 0.5
+        equalLowBar := bar_index - internalPivotLen
+
+// =====================================================================
+// REGIME FILTER
+// =====================================================================
+float atrSlow = ta.sma(atr, 50)
+float range20 = ta.highest(high, 20) - ta.lowest(low, 20)
+float recentBullBreaks = count_true_bars(genericBullBreak, chopFlipLookback)
+float recentBearBreaks = count_true_bars(genericBearBreak, chopFlipLookback)
+bool   atrCompressed = atrSlow > 0 ? atr / atrSlow < chopAtrThreshold : false
+bool   narrowRange   = range20 / math.max(atr, syminfo.mintick) < chopRangeAtr
+bool   flipHeavy     = recentBullBreaks >= 2 and recentBearBreaks >= 2
+bool   isChoppy      = regimeFilterEnabled and ((atrCompressed and narrowRange) or flipHeavy)
+string regimeText    = isChoppy ? "Chop / Compression" : "Expansion / Directional"
+
+// =====================================================================
+// LIQUIDITY ENGINE — SPECIFIC REFERENCES ONLY
+// =====================================================================
+LiquidityRef bullLiquidity = new_liq_ref()
+LiquidityRef bearLiquidity = new_liq_ref()
+
+bullLiquidity := consider_liq_ref(bullLiquidity, not na(pdl), DIR_BULL, 100, "PDL", "Previous Day Low", "daily", pdl, bar_index)
+bullLiquidity := consider_liq_ref(bullLiquidity, not na(pwl), DIR_BULL, 97, "PWL", "Previous Week Low", "weekly", pwl, bar_index)
+bullLiquidity := consider_liq_ref(bullLiquidity, not na(asia.lastLow), DIR_BULL, 94, "ASIA_LOW", "Asia Low", "session", asia.lastLow, asia.lastEnd)
+bullLiquidity := consider_liq_ref(bullLiquidity, not na(london.lastLow), DIR_BULL, 93, "LONDON_LOW", "London Low", "session", london.lastLow, london.lastEnd)
+bullLiquidity := consider_liq_ref(bullLiquidity, not na(ny.lastLow), DIR_BULL, 92, "NY_LOW", "New York Low", "session", ny.lastLow, ny.lastEnd)
+bullLiquidity := consider_liq_ref(bullLiquidity, useEqualHighLow and not na(equalLowLevel), DIR_BULL, 89, "EQL", "Equal Lows", "equal", equalLowLevel, equalLowBar)
+bullLiquidity := consider_liq_ref(bullLiquidity, not na(lastExternalLow), DIR_BULL, 86, "EXT_LOW", "External Swing Low", "swing", lastExternalLow, lastExternalLowBar)
+
+bearLiquidity := consider_liq_ref(bearLiquidity, not na(pdh), DIR_BEAR, 100, "PDH", "Previous Day High", "daily", pdh, bar_index)
+bearLiquidity := consider_liq_ref(bearLiquidity, not na(pwh), DIR_BEAR, 97, "PWH", "Previous Week High", "weekly", pwh, bar_index)
+bearLiquidity := consider_liq_ref(bearLiquidity, not na(asia.lastHigh), DIR_BEAR, 94, "ASIA_HIGH", "Asia High", "session", asia.lastHigh, asia.lastEnd)
+bearLiquidity := consider_liq_ref(bearLiquidity, not na(london.lastHigh), DIR_BEAR, 93, "LONDON_HIGH", "London High", "session", london.lastHigh, london.lastEnd)
+bearLiquidity := consider_liq_ref(bearLiquidity, not na(ny.lastHigh), DIR_BEAR, 92, "NY_HIGH", "New York High", "session", ny.lastHigh, ny.lastEnd)
+bearLiquidity := consider_liq_ref(bearLiquidity, useEqualHighLow and not na(equalHighLevel), DIR_BEAR, 89, "EQH", "Equal Highs", "equal", equalHighLevel, equalHighBar)
+bearLiquidity := consider_liq_ref(bearLiquidity, not na(lastExternalHigh), DIR_BEAR, 86, "EXT_HIGH", "External Swing High", "swing", lastExternalHigh, lastExternalHighBar)
+
+float nearestSSL = na
+nearestSSL := consider_target_below(nearestSSL, asia.lastLow, close)
+nearestSSL := consider_target_below(nearestSSL, london.lastLow, close)
+nearestSSL := consider_target_below(nearestSSL, ny.lastLow, close)
+nearestSSL := consider_target_below(nearestSSL, pdl, close)
+nearestSSL := consider_target_below(nearestSSL, pwl, close)
+nearestSSL := consider_target_below(nearestSSL, lastExternalLow, close)
+nearestSSL := consider_target_below(nearestSSL, equalLowLevel, close)
+
+float nearestBSL = na
+nearestBSL := consider_target_above(nearestBSL, asia.lastHigh, close)
+nearestBSL := consider_target_above(nearestBSL, london.lastHigh, close)
+nearestBSL := consider_target_above(nearestBSL, ny.lastHigh, close)
+nearestBSL := consider_target_above(nearestBSL, pdh, close)
+nearestBSL := consider_target_above(nearestBSL, pwh, close)
+nearestBSL := consider_target_above(nearestBSL, lastExternalHigh, close)
+nearestBSL := consider_target_above(nearestBSL, equalHighLevel, close)
+
+// =====================================================================
+// SWEEP ENGINE — RECLAIM OF A SPECIFIC REFERENCE
+// =====================================================================
+var SweepCandidate bullSweepPending = new_sweep_candidate(DIR_BULL)
+var SweepCandidate bearSweepPending = new_sweep_candidate(DIR_BEAR)
+
+bool  bullSweepSignal = false
+bool  bearSweepSignal = false
+float bullSweepExtreme = na
+float bearSweepExtreme = na
+LiquidityRef bullSweepRef = new_liq_ref()
+LiquidityRef bearSweepRef = new_liq_ref()
+
+bool useWickFilter = resolvedWickFactor > 0
+
+bool bullImmediateSweep = bullLiquidity.valid and low < bullLiquidity.price and close > bullLiquidity.price and (bullLiquidity.price - low) <= atr * maxSweepDistanceAtr and (not useWickFilter or bull_wick_ratio() >= resolvedWickFactor)
+if bullImmediateSweep
+    bullSweepSignal := true
+    bullSweepExtreme := low
+    bullSweepRef := bullLiquidity
+    bullSweepPending := new_sweep_candidate(DIR_BULL)
+else
+    if bullLiquidity.valid and low < bullLiquidity.price and close <= bullLiquidity.price and sweepCloseBars > 1
+        if not bullSweepPending.active or bullLiquidity.priority >= bullSweepPending.priority
+            bullSweepPending.active := true
+            bullSweepPending.direction := DIR_BULL
+            bullSweepPending.priority := bullLiquidity.priority
+            bullSweepPending.label := bullLiquidity.label
+            bullSweepPending.category := bullLiquidity.category
+            bullSweepPending.price := bullLiquidity.price
+            bullSweepPending.extreme := low
+            bullSweepPending.startBar := bar_index
+            bullSweepPending.refBar := bullLiquidity.refBar
+    if bullSweepPending.active
+        bullSweepPending.extreme := math.min(bullSweepPending.extreme, low)
+        bool delayedOk = close > bullSweepPending.price and (bullSweepPending.price - bullSweepPending.extreme) <= atr * maxSweepDistanceAtr
+        if delayedOk
+            bullSweepSignal := true
+            bullSweepExtreme := bullSweepPending.extreme
+            bullSweepRef.valid := true
+            bullSweepRef.direction := DIR_BULL
+            bullSweepRef.priority := bullSweepPending.priority
+            bullSweepRef.key := bullSweepPending.label
+            bullSweepRef.label := bullSweepPending.label
+            bullSweepRef.category := bullSweepPending.category
+            bullSweepRef.price := bullSweepPending.price
+            bullSweepRef.refBar := bullSweepPending.refBar
+            bullSweepPending := new_sweep_candidate(DIR_BULL)
+        else if bar_index - bullSweepPending.startBar >= sweepCloseBars or (bullSweepPending.price - bullSweepPending.extreme) > atr * maxSweepDistanceAtr
+            bullSweepPending := new_sweep_candidate(DIR_BULL)
+
+bool bearImmediateSweep = bearLiquidity.valid and high > bearLiquidity.price and close < bearLiquidity.price and (high - bearLiquidity.price) <= atr * maxSweepDistanceAtr and (not useWickFilter or bear_wick_ratio() >= resolvedWickFactor)
+if bearImmediateSweep
+    bearSweepSignal := true
+    bearSweepExtreme := high
+    bearSweepRef := bearLiquidity
+    bearSweepPending := new_sweep_candidate(DIR_BEAR)
+else
+    if bearLiquidity.valid and high > bearLiquidity.price and close >= bearLiquidity.price and sweepCloseBars > 1
+        if not bearSweepPending.active or bearLiquidity.priority >= bearSweepPending.priority
+            bearSweepPending.active := true
+            bearSweepPending.direction := DIR_BEAR
+            bearSweepPending.priority := bearLiquidity.priority
+            bearSweepPending.label := bearLiquidity.label
+            bearSweepPending.category := bearLiquidity.category
+            bearSweepPending.price := bearLiquidity.price
+            bearSweepPending.extreme := high
+            bearSweepPending.startBar := bar_index
+            bearSweepPending.refBar := bearLiquidity.refBar
+    if bearSweepPending.active
+        bearSweepPending.extreme := math.max(bearSweepPending.extreme, high)
+        bool delayedOk = close < bearSweepPending.price and (bearSweepPending.extreme - bearSweepPending.price) <= atr * maxSweepDistanceAtr
+        if delayedOk
+            bearSweepSignal := true
+            bearSweepExtreme := bearSweepPending.extreme
+            bearSweepRef.valid := true
+            bearSweepRef.direction := DIR_BEAR
+            bearSweepRef.priority := bearSweepPending.priority
+            bearSweepRef.key := bearSweepPending.label
+            bearSweepRef.label := bearSweepPending.label
+            bearSweepRef.category := bearSweepPending.category
+            bearSweepRef.price := bearSweepPending.price
+            bearSweepRef.refBar := bearSweepPending.refBar
+            bearSweepPending := new_sweep_candidate(DIR_BEAR)
+        else if bar_index - bearSweepPending.startBar >= sweepCloseBars or (bearSweepPending.extreme - bearSweepPending.price) > atr * maxSweepDistanceAtr
+            bearSweepPending := new_sweep_candidate(DIR_BEAR)
+
+// =====================================================================
+// ZONE STORAGE
+// =====================================================================
+var ZoneData[] bullFvgs = array.new<ZoneData>()
+var ZoneData[] bearFvgs = array.new<ZoneData>()
+var ZoneData[] bullObs  = array.new<ZoneData>()
+var ZoneData[] bearObs  = array.new<ZoneData>()
+
+delete_zone(ZoneData z) =>
+    if not na(z.boxId)
+        box.delete(z.boxId)
+
+remove_zone_at(ZoneData[] arr, int idx) =>
+    ZoneData z = array.get(arr, idx)
+    delete_zone(z)
+    ZoneData removed = array.remove(arr, idx)
+    delete_zone(new_zone())
+
+zone_score(ZoneData z) =>
+    int agePenalty = z.zoneType == ZONE_FVG ? 2 : 1
+    z.quality - (bar_index - z.createdBar) * agePenalty - z.touchCount * 8 - int(math.round(z.fillPct * 25.0))
+
+register_fvg(int direction, float top, float bottom, int quality) =>
+    ZoneData z = new_zone()
+    z.direction := direction
+    z.zoneType := ZONE_FVG
+    z.top := top
+    z.bottom := bottom
+    z.createdBar := bar_index
+    z.quality := quality
+    z.label := direction == DIR_BULL ? "Bull FVG" : "Bear FVG"
+    if showFVG
+        z.boxId := box.new(bar_index - 2, top, bar_index, bottom, bgcolor = direction == DIR_BULL ? bullFvgColor : bearFvgColor, border_color = color.new(direction == DIR_BULL ? bullFvgColor : bearFvgColor, 30), border_style = line.style_dotted)
+    if direction == DIR_BULL
+        array.push(bullFvgs, z)
+        if array.size(bullFvgs) > maxZones
+            remove_zone_at(bullFvgs, 0)
+    else
+        array.push(bearFvgs, z)
+        if array.size(bearFvgs) > maxZones
+            remove_zone_at(bearFvgs, 0)
+
+register_ob(int direction, float top, float bottom, int quality) =>
+    ZoneData z = new_zone()
+    z.direction := direction
+    z.zoneType := ZONE_OB
+    z.top := top
+    z.bottom := bottom
+    z.createdBar := bar_index
+    z.quality := quality
+    z.label := direction == DIR_BULL ? "Bull OB" : "Bear OB"
+    if showOB
+        z.boxId := box.new(bar_index - 1, top, bar_index, bottom, bgcolor = direction == DIR_BULL ? bullObColor : bearObColor, border_color = color.new(direction == DIR_BULL ? bullObColor : bearObColor, 30))
+    if direction == DIR_BULL
+        array.push(bullObs, z)
+        if array.size(bullObs) > maxZones
+            remove_zone_at(bullObs, 0)
+    else
+        array.push(bearObs, z)
+        if array.size(bearObs) > maxZones
+            remove_zone_at(bearObs, 0)
+
+if bar_index >= 2
+    float bullGap = low - high[2]
+    float bearGap = low[2] - high
+    [bullDispPrev, _, _, _, bullPrevStrong] = displacement_metrics(DIR_BULL, 1)
+    [bearDispPrev, _, _, _, bearPrevStrong] = displacement_metrics(DIR_BEAR, 1)
+    bool bullFvgOk = low > high[2] and bullGap >= atr * resolvedMinFvgAtr and bullPrevStrong
+    bool bearFvgOk = high < low[2] and bearGap >= atr * resolvedMinFvgAtr and bearPrevStrong
+    if bullFvgOk
+        register_fvg(DIR_BULL, low, high[2], bullDispPrev + int(math.round((bullGap / math.max(atr, syminfo.mintick)) * 20.0)))
+    if bearFvgOk
+        register_fvg(DIR_BEAR, low[2], high, bearDispPrev + int(math.round((bearGap / math.max(atr, syminfo.mintick)) * 20.0)))
+
+find_bull_ob() =>
+    float bestTop = na
+    float bestBot = na
+    int bestScore = 0
+    for i = 1 to obSearchLookback
+        if close[i] < open[i]
+            float candleTop = useBodyOnlyOb ? math.max(open[i], close[i]) : high[i]
+            float candleBot = useBodyOnlyOb ? math.min(open[i], close[i]) : low[i]
+            float departure = (close - candleTop) / math.max(atr, syminfo.mintick)
+            float efficiency = (close - candleTop) / math.max(safe_range(high, low), syminfo.mintick)
+            int score = int(math.round(clamp(departure / 1.5, 0.0, 1.0) * 50.0 + clamp(efficiency / 0.8, 0.0, 1.0) * 25.0 + clamp((obSearchLookback - i + 1.0) / obSearchLookback, 0.0, 1.0) * 25.0))
+            if score > bestScore
+                bestTop := candleTop
+                bestBot := candleBot
+                bestScore := score
+    [bestTop, bestBot, bestScore]
+
+find_bear_ob() =>
+    float bestTop = na
+    float bestBot = na
+    int bestScore = 0
+    for i = 1 to obSearchLookback
+        if close[i] > open[i]
+            float candleTop = useBodyOnlyOb ? math.max(open[i], close[i]) : high[i]
+            float candleBot = useBodyOnlyOb ? math.min(open[i], close[i]) : low[i]
+            float departure = (candleBot - close) / math.max(atr, syminfo.mintick)
+            float efficiency = (candleBot - close) / math.max(safe_range(high, low), syminfo.mintick)
+            int score = int(math.round(clamp(departure / 1.5, 0.0, 1.0) * 50.0 + clamp(efficiency / 0.8, 0.0, 1.0) * 25.0 + clamp((obSearchLookback - i + 1.0) / obSearchLookback, 0.0, 1.0) * 25.0))
+            if score > bestScore
+                bestTop := candleTop
+                bestBot := candleBot
+                bestScore := score
+    [bestTop, bestBot, bestScore]
+
+if genericBullBreak
+    [bullObTop, bullObBot, bullObScore] = find_bull_ob()
+    if not na(bullObTop)
+        register_ob(DIR_BULL, bullObTop, bullObBot, bullObScore + bullDispScoreNow)
+
+if genericBearBreak
+    [bearObTop, bearObBot, bearObScore] = find_bear_ob()
+    if not na(bearObTop)
+        register_ob(DIR_BEAR, bearObTop, bearObBot, bearObScore + bearDispScoreNow)
+
+update_bull_fvgs() =>
+    if array.size(bullFvgs) > 0
+        for i = array.size(bullFvgs) - 1 to 0
+            ZoneData z = array.get(bullFvgs, i)
+            float zoneSize = math.max(z.top - z.bottom, syminfo.mintick)
+            float fill = clamp((z.top - low) / zoneSize, 0.0, 1.0)
+            z.fillPct := math.max(z.fillPct, fill)
+            if not na(z.boxId)
+                box.set_right(z.boxId, bar_index)
+            if z.isInverted
+                if high > z.top or bar_index - z.createdBar > resolvedFvgMaxAge
+                    remove_zone_at(bullFvgs, i)
+                else
+                    if not na(z.boxId)
+                        box.set_bgcolor(z.boxId, bearIfvgColor)
+                        box.set_border_color(z.boxId, color.new(bearIfvgColor, 20))
+                    array.set(bullFvgs, i, z)
+            else
+                bool fullFill = low <= z.bottom
+                bool ageOut = bar_index - z.createdBar > resolvedFvgMaxAge
+                if fullFill and showIFVG and close < z.bottom
+                    z.isInverted := true
+                    if not na(z.boxId)
+                        box.set_bgcolor(z.boxId, bearIfvgColor)
+                        box.set_border_color(z.boxId, color.new(bearIfvgColor, 20))
+                    array.set(bullFvgs, i, z)
+                else if fullFill or ageOut
+                    remove_zone_at(bullFvgs, i)
+                else
+                    if not na(z.boxId)
+                        color fillCol = z.fillPct > 0 ? color.new(bullFvgColor, 94) : bullFvgColor
+                        box.set_bgcolor(z.boxId, fillCol)
+                    array.set(bullFvgs, i, z)
+
+update_bear_fvgs() =>
+    if array.size(bearFvgs) > 0
+        for i = array.size(bearFvgs) - 1 to 0
+            ZoneData z = array.get(bearFvgs, i)
+            float zoneSize = math.max(z.top - z.bottom, syminfo.mintick)
+            float fill = clamp((high - z.bottom) / zoneSize, 0.0, 1.0)
+            z.fillPct := math.max(z.fillPct, fill)
+            if not na(z.boxId)
+                box.set_right(z.boxId, bar_index)
+            if z.isInverted
+                if low < z.bottom or bar_index - z.createdBar > resolvedFvgMaxAge
+                    remove_zone_at(bearFvgs, i)
+                else
+                    if not na(z.boxId)
+                        box.set_bgcolor(z.boxId, bullIfvgColor)
+                        box.set_border_color(z.boxId, color.new(bullIfvgColor, 20))
+                    array.set(bearFvgs, i, z)
+            else
+                bool fullFill = high >= z.top
+                bool ageOut = bar_index - z.createdBar > resolvedFvgMaxAge
+                if fullFill and showIFVG and close > z.top
+                    z.isInverted := true
+                    if not na(z.boxId)
+                        box.set_bgcolor(z.boxId, bullIfvgColor)
+                        box.set_border_color(z.boxId, color.new(bullIfvgColor, 20))
+                    array.set(bearFvgs, i, z)
+                else if fullFill or ageOut
+                    remove_zone_at(bearFvgs, i)
+                else
+                    if not na(z.boxId)
+                        color fillCol = z.fillPct > 0 ? color.new(bearFvgColor, 94) : bearFvgColor
+                        box.set_bgcolor(z.boxId, fillCol)
+                    array.set(bearFvgs, i, z)
+
+update_bull_obs() =>
+    if array.size(bullObs) > 0
+        for i = array.size(bullObs) - 1 to 0
+            ZoneData z = array.get(bullObs, i)
+            float zoneSize = math.max(z.top - z.bottom, syminfo.mintick)
+            float penetration = clamp((z.top - low) / zoneSize, 0.0, 1.0)
+            z.fillPct := math.max(z.fillPct, penetration)
+            if not na(z.boxId)
+                box.set_right(z.boxId, bar_index)
+            if penetration >= obMitigationThreshold and low <= z.top and nz(z.lastTouchBar, -1) != bar_index
+                z.touchCount += 1
+                z.lastTouchBar := bar_index
+                z.isMitigated := true
+            bool invalid = close < z.bottom or bar_index - z.createdBar > obMaxAge or z.touchCount > resolvedObMaxTouches
+            if invalid
+                remove_zone_at(bullObs, i)
+            else
+                if not na(z.boxId)
+                    color fillCol = z.touchCount > 0 ? color.new(bullObColor, 90) : bullObColor
+                    box.set_bgcolor(z.boxId, fillCol)
+                array.set(bullObs, i, z)
+
+update_bear_obs() =>
+    if array.size(bearObs) > 0
+        for i = array.size(bearObs) - 1 to 0
+            ZoneData z = array.get(bearObs, i)
+            float zoneSize = math.max(z.top - z.bottom, syminfo.mintick)
+            float penetration = clamp((high - z.bottom) / zoneSize, 0.0, 1.0)
+            z.fillPct := math.max(z.fillPct, penetration)
+            if not na(z.boxId)
+                box.set_right(z.boxId, bar_index)
+            if penetration >= obMitigationThreshold and high >= z.bottom and nz(z.lastTouchBar, -1) != bar_index
+                z.touchCount += 1
+                z.lastTouchBar := bar_index
+                z.isMitigated := true
+            bool invalid = close > z.top or bar_index - z.createdBar > obMaxAge or z.touchCount > resolvedObMaxTouches
+            if invalid
+                remove_zone_at(bearObs, i)
+            else
+                if not na(z.boxId)
+                    color fillCol = z.touchCount > 0 ? color.new(bearObColor, 90) : bearObColor
+                    box.set_bgcolor(z.boxId, fillCol)
+                array.set(bearObs, i, z)
+
+update_bull_fvgs()
+update_bear_fvgs()
+update_bull_obs()
+update_bear_obs()
+
+select_bull_fvg(int afterBar) =>
+    ZoneData best = new_zone()
+    if array.size(bullFvgs) > 0
+        for i = array.size(bullFvgs) - 1 to 0
+            ZoneData z = array.get(bullFvgs, i)
+            bool fresh = not z.isInverted and not z.isInvalid and z.createdBar >= afterBar and z.fillPct <= fvgPartialFillThreshold and bar_index - z.createdBar <= resolvedFvgMaxAge
+            if fresh and (best.zoneType == ZONE_NONE or zone_score(z) > zone_score(best))
+                best := z
+    best
+
+select_bear_fvg(int afterBar) =>
+    ZoneData best = new_zone()
+    if array.size(bearFvgs) > 0
+        for i = array.size(bearFvgs) - 1 to 0
+            ZoneData z = array.get(bearFvgs, i)
+            bool fresh = not z.isInverted and not z.isInvalid and z.createdBar >= afterBar and z.fillPct <= fvgPartialFillThreshold and bar_index - z.createdBar <= resolvedFvgMaxAge
+            if fresh and (best.zoneType == ZONE_NONE or zone_score(z) > zone_score(best))
+                best := z
+    best
+
+select_bull_ob(int afterBar) =>
+    ZoneData best = new_zone()
+    if array.size(bullObs) > 0
+        for i = array.size(bullObs) - 1 to 0
+            ZoneData z = array.get(bullObs, i)
+            bool fresh = not z.isInvalid and z.createdBar >= afterBar and z.touchCount <= resolvedObMaxTouches and bar_index - z.createdBar <= obMaxAge
+            if fresh and (best.zoneType == ZONE_NONE or zone_score(z) > zone_score(best))
+                best := z
+    best
+
+select_bear_ob(int afterBar) =>
+    ZoneData best = new_zone()
+    if array.size(bearObs) > 0
+        for i = array.size(bearObs) - 1 to 0
+            ZoneData z = array.get(bearObs, i)
+            bool fresh = not z.isInvalid and z.createdBar >= afterBar and z.touchCount <= resolvedObMaxTouches and bar_index - z.createdBar <= obMaxAge
+            if fresh and (best.zoneType == ZONE_NONE or zone_score(z) > zone_score(best))
+                best := z
+    best
+
+choose_zone(int direction, ZoneData fvgZone, ZoneData obZone) =>
+    ZoneData chosen = new_zone()
+    bool hasFvg = fvgZone.zoneType == ZONE_FVG
+    bool hasOb  = obZone.zoneType == ZONE_OB
+    if resolvedEntryModel == "fvgRetrace" and hasFvg
+        chosen := fvgZone
+    if resolvedEntryModel == "obRetrace" and hasOb
+        chosen := obZone
+    if resolvedEntryModel == "blended"
+        if hasFvg and hasOb
+            float fvgMid = (fvgZone.top + fvgZone.bottom) * 0.5
+            float obMid  = (obZone.top + obZone.bottom) * 0.5
+            if math.abs(close - fvgMid) <= math.abs(close - obMid)
+                chosen := fvgZone
+            else
+                chosen := obZone
+        else if hasFvg
+            chosen := fvgZone
+        else if hasOb
+            chosen := obZone
+    if resolvedEntryModel == "immediate"
+        if hasFvg and not hasOb
+            chosen := fvgZone
+        else if hasOb and not hasFvg
+            chosen := obZone
+        else if hasFvg and hasOb
+            if zone_score(fvgZone) >= zone_score(obZone)
+                chosen := fvgZone
+            else
+                chosen := obZone
+    chosen
+
+// =====================================================================
+// TARGET / PLAN HELPERS
+// =====================================================================
+internal_target_up(float entry) =>
+    float target = na
+    target := consider_target_above(target, lastInternalHigh, entry)
+    target := consider_target_above(target, prevInternalHigh, entry)
+    target := consider_target_above(target, equalHighLevel, entry)
+    target := consider_target_above(target, asia.lastHigh, entry)
+    target := consider_target_above(target, london.lastHigh, entry)
+    target := consider_target_above(target, ny.lastHigh, entry)
+    target
+
+internal_target_down(float entry) =>
+    float target = na
+    target := consider_target_below(target, lastInternalLow, entry)
+    target := consider_target_below(target, prevInternalLow, entry)
+    target := consider_target_below(target, equalLowLevel, entry)
+    target := consider_target_below(target, asia.lastLow, entry)
+    target := consider_target_below(target, london.lastLow, entry)
+    target := consider_target_below(target, ny.lastLow, entry)
+    target
+
+external_target_up(float entry) =>
+    float target = na
+    target := consider_target_above(target, pdh, entry)
+    target := consider_target_above(target, pwh, entry)
+    target := consider_target_above(target, lastExternalHigh, entry)
+    target := consider_target_above(target, prevExternalHigh, entry)
+    target
+
+external_target_down(float entry) =>
+    float target = na
+    target := consider_target_below(target, pdl, entry)
+    target := consider_target_below(target, pwl, entry)
+    target := consider_target_below(target, lastExternalLow, entry)
+    target := consider_target_below(target, prevExternalLow, entry)
+    target
+
+zone_entry_price(int direction, ZoneData zoneRef) =>
+    float entry = na
+    string label = ""
+    float mid = (zoneRef.top + zoneRef.bottom) * 0.5
+    if zoneRef.zoneType == ZONE_FVG
+        if fvgEntryMode == "touch"
+            entry := direction == DIR_BULL ? zoneRef.top : zoneRef.bottom
+            label := "FVG Touch"
+        else if fvgEntryMode == "midpoint"
+            entry := mid
+            label := "FVG Midpoint"
+        else
+            entry := direction == DIR_BULL ? zoneRef.bottom : zoneRef.top
+            label := "FVG Full Fill"
+    else if zoneRef.zoneType == ZONE_OB
+        entry := direction == DIR_BULL ? zoneRef.top : zoneRef.bottom
+        label := "OB Tap"
+    [entry, label]
+
+build_trade_plan(int direction, SetupState s, ZoneData zoneRef) =>
+    TradePlan plan = new_trade_plan()
+    float pad = atr * stopPadATR
+    [zoneEntry, zoneEntryLabel] = zone_entry_price(direction, zoneRef)
+    float entry = resolvedEntryModel == "immediate" ? close : zoneEntry
+    if not na(entry)
+        float structureStop = direction == DIR_BULL ? math.min(s.sweepExtreme, nz(lastInternalLow, s.sweepExtreme)) : math.max(s.sweepExtreme, nz(lastInternalHigh, s.sweepExtreme))
+        float zoneInvalid   = direction == DIR_BULL ? zoneRef.bottom : zoneRef.top
+        float stop = na
+        string stopLabel = stopMode
+        if stopMode == "structure"
+            stop := direction == DIR_BULL ? structureStop - pad : structureStop + pad
+        else if stopMode == "sweepWick"
+            stop := direction == DIR_BULL ? s.sweepExtreme - pad : s.sweepExtreme + pad
+        else if stopMode == "obInvalidation"
+            stop := direction == DIR_BULL ? zoneInvalid - pad : zoneInvalid + pad
+        else if stopMode == "atr"
+            stop := direction == DIR_BULL ? entry - atr * 1.5 - pad : entry + atr * 1.5 + pad
+        else
+            float hybridStop = direction == DIR_BULL ? math.min(structureStop, zoneInvalid) : math.max(structureStop, zoneInvalid)
+            stop := direction == DIR_BULL ? hybridStop - pad : hybridStop + pad
+        float risk = math.abs(entry - stop)
+        float internalTarget = direction == DIR_BULL ? internal_target_up(entry) : internal_target_down(entry)
+        float externalTarget = direction == DIR_BULL ? external_target_up(entry) : external_target_down(entry)
+        float rrInternal = not na(internalTarget) and risk > 0 ? math.abs(internalTarget - entry) / risk : na
+        float rrExternal = not na(externalTarget) and risk > 0 ? math.abs(externalTarget - entry) / risk : na
+        float tp1 = na
+        float tp2 = na
+        string targetLabel = tpMode
+        if tpMode == "fixedRR"
+            tp1 := direction == DIR_BULL ? entry + risk * rrTarget1 : entry - risk * rrTarget1
+            tp2 := direction == DIR_BULL ? entry + risk * rrTarget2 : entry - risk * rrTarget2
+        else if tpMode == "internalLiquidity"
+            if not na(internalTarget) and rrInternal >= minRRRequired
+                tp1 := internalTarget
+                tp2 := not na(externalTarget) and rrExternal >= minRRRequired ? externalTarget : direction == DIR_BULL ? entry + risk * rrTarget2 : entry - risk * rrTarget2
+            else if na(internalTarget) and not na(externalTarget) and rrExternal >= minRRRequired
+                tp1 := externalTarget
+                tp2 := direction == DIR_BULL ? entry + risk * rrTarget2 : entry - risk * rrTarget2
+        else if tpMode == "externalLiquidity"
+            if not na(externalTarget) and rrExternal >= minRRRequired
+                tp1 := externalTarget
+                tp2 := direction == DIR_BULL ? math.max(externalTarget, entry + risk * rrTarget2) : math.min(externalTarget, entry - risk * rrTarget2)
+            else if na(externalTarget)
+                tp1 := direction == DIR_BULL ? entry + risk * rrTarget1 : entry - risk * rrTarget1
+                tp2 := direction == DIR_BULL ? entry + risk * rrTarget2 : entry - risk * rrTarget2
+        else
+            if not na(internalTarget) and rrInternal >= minRRRequired
+                tp1 := internalTarget
+            else if na(internalTarget) and not na(externalTarget) and rrExternal >= minRRRequired
+                tp1 := externalTarget
+            else if na(internalTarget) and na(externalTarget)
+                tp1 := direction == DIR_BULL ? entry + risk * rrTarget1 : entry - risk * rrTarget1
+            if not na(externalTarget) and rrExternal >= minRRRequired
+                tp2 := externalTarget
+            else if na(externalTarget)
+                tp2 := direction == DIR_BULL ? entry + risk * rrTarget2 : entry - risk * rrTarget2
+        float primaryRr = not na(tp1) and risk > 0 ? math.abs(tp1 - entry) / risk : na
+        if not na(tp1) and not na(tp2) and direction == DIR_BULL and tp2 <= tp1
+            tp2 := tp1 + risk
+        if not na(tp1) and not na(tp2) and direction == DIR_BEAR and tp2 >= tp1
+            tp2 := tp1 - risk
+        plan.valid := not na(entry) and not na(stop) and risk > syminfo.mintick and not na(tp1) and primaryRr >= minRRRequired
+        plan.entryPrice := entry
+        plan.entryModel := resolvedEntryModel == "immediate" ? "Immediate Confirm" : zoneEntryLabel
+        plan.stopPrice := stop
+        plan.stopModel := stopLabel
+        plan.tp1 := tp1
+        plan.tp2 := not na(tp2) ? tp2 : tp1
+        plan.invalidationPrice := direction == DIR_BULL ? math.min(s.sweepExtreme, zoneRef.bottom) : math.max(s.sweepExtreme, zoneRef.top)
+        plan.internalTarget := internalTarget
+        plan.externalTarget := externalTarget
+        plan.primaryRr := primaryRr
+        plan.targetModel := targetLabel
+    plan
+
+entry_touch_hit(int direction, float entryPrice, float tolerance) =>
+    direction == DIR_BULL ? low <= entryPrice + tolerance and high >= entryPrice - tolerance : high >= entryPrice - tolerance and low <= entryPrice + tolerance
+
+setup_strategy_label() =>
+    enableSilverBullet and inSilverBullet ? "Silver Bullet" : "ICT 2022"
+
+setup_start_allowed() =>
+    enableICT2022 or (enableSilverBullet and inSilverBullet)
+
+session_gate_ok() =>
+    not requireSessionForSetup or isActiveSess
+
+killzone_gate_ok() =>
+    not (isConservative and requireKillzoneForConservative) or isKillzone
+
+htf_gate_ok(int direction) =>
+    not profRequireHTF or (direction == DIR_BULL ? htfBullBias : htfBearBias)
+
+pd_gate_ok(int direction, float price, float equilibriumPrice) =>
+    not usePDFilter or (direction == DIR_BULL ? price <= equilibriumPrice : price >= equilibriumPrice)
+
+momentum_gate_ok(int direction) =>
+    not profRequireMomentum or (direction == DIR_BULL ? bullMomentum : bearMomentum)
+
+build_setup_score(SetupState s, ZoneData fvgZone, ZoneData obZone) =>
+    int score = 0
+    score += 18
+    score += s.structureTag == "MSS/CHOCH" ? 18 : 8
+    score += int(math.round(clamp(float(s.displacementScore) / 100.0, 0.0, 1.0) * 18.0))
+    if fvgZone.zoneType == ZONE_FVG and obZone.zoneType == ZONE_OB
+        score += 18
+    else if fvgZone.zoneType == ZONE_FVG or obZone.zoneType == ZONE_OB
+        score += 12
+    if s.htfOk
+        score += 10
+    else if not profRequireHTF and (s.direction == DIR_BULL ? not htfBearBias : not htfBullBias)
+        score += 4
+    if s.pdOk
+        score += 8
+    if s.sessionOk
+        score += isKillzone ? 8 : 5
+    if s.regimeOk
+        score += 6
+    if s.momentumOk
+        score += 4
+    if fvgZone.zoneType == ZONE_FVG
+        score -= int(math.round(fvgZone.fillPct * 10.0))
+    if obZone.zoneType == ZONE_OB
+        score -= obZone.touchCount * 3
+    if isConservative and not isKillzone
+        score -= 6
+    int(clamp(score, 0, 100))
+
+setup_blockers(bool sessionOk, bool killOk, bool structureOk, bool zoneOk, bool fvgReqOk, bool obReqOk, bool htfOk, bool pdOk, bool regimeOk, bool momentumOk, bool rrOk, int score) =>
+    string blockers = ""
+    if not sessionOk
+        blockers := append_reason(blockers, "Session gate")
+    if not killOk
+        blockers := append_reason(blockers, "Killzone gate")
+    if not structureOk
+        blockers := append_reason(blockers, "MSS quality")
+    if not zoneOk
+        blockers := append_reason(blockers, "Zone missing")
+    if not fvgReqOk
+        blockers := append_reason(blockers, "Required FVG")
+    if not obReqOk
+        blockers := append_reason(blockers, "Required OB")
+    if not htfOk
+        blockers := append_reason(blockers, "HTF bias")
+    if not pdOk and profStrictPd
+        blockers := append_reason(blockers, "Premium/discount")
+    if not regimeOk
+        blockers := append_reason(blockers, "Chop filter")
+    if not momentumOk
+        blockers := append_reason(blockers, "Momentum")
+    if not rrOk
+        blockers := append_reason(blockers, "Min RR")
+    if score < minScoreReq
+        blockers := append_reason(blockers, "Score")
+    blockers
+
+process_setup(SetupState setupRef, int direction, bool sweepSignal, LiquidityRef sweepRef, float sweepExtreme) =>
+    SetupState s = setupRef
+    bool armedEvent = false
+    bool zoneEvent = false
+    bool triggerEvent = false
+    bool mssEvent = false
+
+    if not setup_is_working(s) and s.state != STATE_TRIGGERED
+        LiquidityRef nearRef = new_liq_ref()
+        if direction == DIR_BULL
+            nearRef := bullLiquidity
+        else
+            nearRef := bearLiquidity
+        if nearRef.valid and math.abs(close - nearRef.price) <= atr * 0.75
+            s.direction := direction
+            s.state := STATE_LIQUIDITY_NEAR
+            s.stateBar := bar_index
+            s.waitReason := "Watching " + nearRef.label
+            s.liquidityLabel := nearRef.label
+            s.liquidityPrice := nearRef.price
+        else
+            s := new_setup(direction)
+
+    if sweepSignal and setup_start_allowed() and (setup_can_restart(s) or (s.state <= STATE_MSS_PENDING and sweepRef.priority >= s.liquidityPriority))
+        s := new_setup(direction)
+        s.state := STATE_SWEEP_CONFIRMED
+        s.stateBar := bar_index
+        s.strategy := setup_strategy_label()
+        s.liquidityKey := sweepRef.key
+        s.liquidityLabel := sweepRef.label
+        s.liquidityCategory := sweepRef.category
+        s.liquidityPrice := sweepRef.price
+        s.liquidityPriority := sweepRef.priority
+        s.liquidityBar := sweepRef.refBar
+        s.sweepExtreme := sweepExtreme
+        s.sweepBar := bar_index
+        s.sweepWickRatio := direction == DIR_BULL ? bull_wick_ratio() : bear_wick_ratio()
+        s.trendAtSweep := internalTrend
+        s.mssWatchLevel := direction == DIR_BULL ? lastInternalHigh : lastInternalLow
+        s.mssWatchBar := direction == DIR_BULL ? lastInternalHighBar : lastInternalLowBar
+        s.mssDeadlineBar := bar_index + resolvedMssWindow
+        s.waitReason := "Waiting for " + (direction == DIR_BULL ? "bullish" : "bearish") + " MSS"
+        s.summary := "Swept " + sweepRef.label
+
+    if setup_is_working(s)
+        bool structureFail = direction == DIR_BULL ? close < s.sweepExtreme - atr * 0.10 : close > s.sweepExtreme + atr * 0.10
+        if structureFail
+            s.state := STATE_INVALIDATED
+            s.stateBar := bar_index
+            s.blockReason := "Sweep extreme failed before entry"
+        else
+            if direction == DIR_BULL
+                if not na(lastInternalHigh) and nz(lastInternalHighBar, -1) > nz(s.sweepBar, -1)
+                    s.mssWatchLevel := lastInternalHigh
+                    s.mssWatchBar := lastInternalHighBar
+            else
+                if not na(lastInternalLow) and nz(lastInternalLowBar, -1) > nz(s.sweepBar, -1)
+                    s.mssWatchLevel := lastInternalLow
+                    s.mssWatchBar := lastInternalLowBar
+
+            if s.state == STATE_SWEEP_CONFIRMED and bar_index > s.sweepBar
+                s.state := STATE_MSS_PENDING
+                s.stateBar := bar_index
+
+            if (s.state == STATE_SWEEP_CONFIRMED or s.state == STATE_MSS_PENDING) and bar_index > s.mssDeadlineBar
+                s.state := STATE_EXPIRED
+                s.stateBar := bar_index
+                s.blockReason := "MSS window expired"
+
+            bool breakHit = false
+            int breakScore = 0
+            float breakAtr = na
+            float breakBodyAtr = na
+            float breakFollow = na
+            if s.state == STATE_SWEEP_CONFIRMED or s.state == STATE_MSS_PENDING
+                if direction == DIR_BULL and not na(s.mssWatchLevel)
+                    [dispScore, dispAtr, bodyAtrLocal, followLocal, dispValid] = displacement_metrics(DIR_BULL, 0)
+                    breakHit := close > s.mssWatchLevel + atr * minimumBreakDistanceAtr and close[1] <= s.mssWatchLevel and dispValid and barstate.isconfirmed
+                    breakScore := dispScore
+                    breakAtr := dispAtr
+                    breakBodyAtr := bodyAtrLocal
+                    breakFollow := followLocal
+                if direction == DIR_BEAR and not na(s.mssWatchLevel)
+                    [dispScore, dispAtr, bodyAtrLocal, followLocal, dispValid] = displacement_metrics(DIR_BEAR, 0)
+                    breakHit := close < s.mssWatchLevel - atr * minimumBreakDistanceAtr and close[1] >= s.mssWatchLevel and dispValid and barstate.isconfirmed
+                    breakScore := dispScore
+                    breakAtr := dispAtr
+                    breakBodyAtr := bodyAtrLocal
+                    breakFollow := followLocal
+                if breakHit
+                    string tag = direction == DIR_BULL ? (s.trendAtSweep == DIR_BEAR or externalTrend == DIR_BEAR ? "MSS/CHOCH" : "BOS") : (s.trendAtSweep == DIR_BULL or externalTrend == DIR_BULL ? "MSS/CHOCH" : "BOS")
+                    bool structureOk = isAggressive ? true : tag == "MSS/CHOCH"
+                    if structureOk
+                        s.state := STATE_MSS_CONFIRMED
+                        s.stateBar := bar_index
+                        s.mssLevel := s.mssWatchLevel
+                        s.mssBar := bar_index
+                        s.structureTag := tag
+                        s.displacementScore := breakScore
+                        s.displacementAtr := breakAtr
+                        s.bodyAtr := breakBodyAtr
+                        s.followThrough := breakFollow
+                        s.dealingLow := direction == DIR_BULL ? math.min(s.sweepExtreme, nz(lastExternalLow, s.sweepExtreme)) : math.min(low, s.mssLevel)
+                        s.dealingHigh := direction == DIR_BULL ? math.max(high, s.mssLevel) : math.max(s.sweepExtreme, nz(lastExternalHigh, s.sweepExtreme))
+                        s.equilibrium := (s.dealingHigh + s.dealingLow) * 0.5
+                        s.waitReason := "Waiting for fresh FVG / OB after MSS"
+                        s.summary := s.summary + " -> " + tag
+                        mssEvent := true
+                    else
+                        s.state := STATE_INVALIDATED
+                        s.stateBar := bar_index
+                        s.blockReason := "Post-sweep break was BOS, not MSS/CHOCH"
+
+            if s.state == STATE_MSS_CONFIRMED or s.state == STATE_ZONE_FORMED or s.state == STATE_ARMED or s.state == STATE_PENDING_ENTRY
+                bool followOk = bar_index - s.mssBar + 1 >= resolvedFollowBars
+                if direction == DIR_BULL and close <= s.mssLevel
+                    followOk := false
+                if direction == DIR_BEAR and close >= s.mssLevel
+                    followOk := false
+                ZoneData fvgZone = new_zone()
+                ZoneData obZone  = new_zone()
+                if direction == DIR_BULL
+                    fvgZone := select_bull_fvg(s.mssBar)
+                    obZone := select_bull_ob(s.mssBar)
+                else
+                    fvgZone := select_bear_fvg(s.mssBar)
+                    obZone := select_bear_ob(s.mssBar)
+                ZoneData chosenZone = choose_zone(direction, fvgZone, obZone)
+                bool zoneOk = chosenZone.zoneType != ZONE_NONE
+                bool fvgReqOk = not profRequireFVG or fvgZone.zoneType == ZONE_FVG
+                bool obReqOk  = not requireOB or obZone.zoneType == ZONE_OB
+                if zoneOk
+                    bool firstZone = s.zoneType == ZONE_NONE or s.zoneBar != chosenZone.createdBar or s.zoneType != chosenZone.zoneType
+                    s.zoneType := chosenZone.zoneType
+                    s.zoneLabel := chosenZone.label
+                    s.zoneTop := chosenZone.top
+                    s.zoneBottom := chosenZone.bottom
+                    s.zoneBar := chosenZone.createdBar
+                    s.zoneScore := chosenZone.quality
+                    s.zoneTouches := chosenZone.touchCount
+                    s.zoneFillPct := chosenZone.fillPct
+                    if firstZone
+                        zoneEvent := true
+                    if s.state < STATE_ZONE_FORMED
+                        s.state := STATE_ZONE_FORMED
+                        s.stateBar := bar_index
+                TradePlan plan = new_trade_plan()
+                if zoneOk
+                    plan := build_trade_plan(direction, s, chosenZone)
+                bool sessionOk = session_gate_ok()
+                bool killOk = killzone_gate_ok()
+                bool htfOk = htf_gate_ok(direction)
+                bool regimeOk = not regimeFilterEnabled or not isChoppy
+                bool momentumOk = momentum_gate_ok(direction)
+                bool pdOk = zoneOk and not na(plan.entryPrice) ? pd_gate_ok(direction, plan.entryPrice, s.equilibrium) : false
+                bool rrOk = plan.valid and plan.primaryRr >= minRRRequired
+                s.sessionOk := sessionOk and killOk
+                s.htfOk := htfOk
+                s.pdOk := pdOk
+                s.regimeOk := regimeOk
+                s.rrOk := rrOk
+                s.momentumOk := momentumOk
+                s.score := zoneOk ? build_setup_score(s, fvgZone, obZone) : s.score
+                bool blockersPass = zoneOk and fvgReqOk and obReqOk and sessionOk and killOk and htfOk and regimeOk and momentumOk and rrOk and followOk and (not profStrictPd or pdOk) and s.score >= minScoreReq
+                if blockersPass and s.state != STATE_PENDING_ENTRY and s.state != STATE_TRIGGERED
+                    s.entryPrice := plan.entryPrice
+                    s.entryModel := plan.entryModel
+                    s.stopPrice := plan.stopPrice
+                    s.stopModel := plan.stopModel
+                    s.tp1Price := plan.tp1
+                    s.tp2Price := plan.tp2
+                    s.targetModel := plan.targetModel
+                    s.internalTarget := plan.internalTarget
+                    s.externalTarget := plan.externalTarget
+                    s.invalidationPrice := plan.invalidationPrice
+                    float risk = math.max(math.abs(s.entryPrice - s.stopPrice), syminfo.mintick)
+                    s.rrToTp1 := math.abs(s.tp1Price - s.entryPrice) / risk
+                    s.rrToTp2 := math.abs(s.tp2Price - s.entryPrice) / risk
+                    s.expiryBar := bar_index + pendingSetupExpiry
+                    s.state := STATE_ARMED
+                    s.stateBar := bar_index
+                    s.waitReason := resolvedEntryModel == "immediate" ? "Immediate confirmation entry" : "Setup armed"
+                    armedEvent := true
+                else if s.state != STATE_PENDING_ENTRY and s.state != STATE_TRIGGERED and (s.state == STATE_ZONE_FORMED or s.state == STATE_MSS_CONFIRMED)
+                    string blockers = setup_blockers(sessionOk, killOk, isAggressive or s.structureTag == "MSS/CHOCH", zoneOk, fvgReqOk, obReqOk, htfOk, pdOk, regimeOk, momentumOk, rrOk, s.score)
+                    s.waitReason := blockers == "" ? "Validating follow-through" : blockers
+
+            if s.state == STATE_ARMED
+                if resolvedEntryModel == "immediate"
+                    s.state := STATE_TRIGGERED
+                    s.stateBar := bar_index
+                    s.triggerBar := bar_index
+                    s.waitReason := ""
+                    triggerEvent := true
+                else if bar_index > s.stateBar
+                    s.state := STATE_PENDING_ENTRY
+                    s.stateBar := bar_index
+                    s.waitReason := "Waiting for actual entry touch"
+
+            if s.state == STATE_PENDING_ENTRY
+                bool expired = bar_index > s.expiryBar
+                bool invalidZone = direction == DIR_BULL ? close < s.invalidationPrice : close > s.invalidationPrice
+                bool entrySessionOk = session_gate_ok() and killzone_gate_ok()
+                float tolerance = math.min(atr * entryZonePadATR, math.max((s.zoneTop - s.zoneBottom) * 0.25, syminfo.mintick))
+                bool touched = entry_touch_hit(direction, s.entryPrice, tolerance)
+                if invalidZone
+                    s.state := STATE_INVALIDATED
+                    s.stateBar := bar_index
+                    s.blockReason := "Invalidation level failed before entry"
+                else if expired
+                    s.state := STATE_EXPIRED
+                    s.stateBar := bar_index
+                    s.blockReason := "Pending entry expired"
+                else if not entrySessionOk
+                    s.waitReason := "Waiting for valid session / killzone"
+                else if touched and barstate.isconfirmed
+                    s.state := STATE_TRIGGERED
+                    s.stateBar := bar_index
+                    s.triggerBar := bar_index
+                    s.waitReason := ""
+                    triggerEvent := true
+    [s, armedEvent, zoneEvent, triggerEvent, mssEvent]
+
+// =====================================================================
+// SETUP STATE MACHINES
+// =====================================================================
+var SetupState bullSetup = new_setup(DIR_BULL)
+var SetupState bearSetup = new_setup(DIR_BEAR)
+
+[bullSetupNext, bullArmedEvent, bullZoneEvent, bullTriggerEvent, bullMssEvent] = process_setup(bullSetup, DIR_BULL, bullSweepSignal, bullSweepRef, bullSweepExtreme)
+[bearSetupNext, bearArmedEvent, bearZoneEvent, bearTriggerEvent, bearMssEvent] = process_setup(bearSetup, DIR_BEAR, bearSweepSignal, bearSweepRef, bearSweepExtreme)
+
+bullSetup := bullSetupNext
+bearSetup := bearSetupNext
+
+SetupState selectedSetup = new_setup(DIR_NONE)
+selectedSetup := pick_better_setup(selectedSetup, bullSetup)
+selectedSetup := pick_better_setup(selectedSetup, bearSetup)
+
+string selectedPhase = state_text(selectedSetup.state)
+float selectedEquilibrium = not na(selectedSetup.equilibrium) ? selectedSetup.equilibrium : (not na(lastExternalHigh) and not na(lastExternalLow) ? (lastExternalHigh + lastExternalLow) * 0.5 : (not na(pdh) and not na(pdl) ? (pdh + pdl) * 0.5 : na))
+string pdStatus = not na(selectedEquilibrium) ? (close > selectedEquilibrium ? "Premium" : close < selectedEquilibrium ? "Discount" : "Equilibrium") : "n/a"
+
+// =====================================================================
+// ALERT HISTORY / TRADE STATS
+// =====================================================================
+var AlertLog[] alertLogs = array.new<AlertLog>()
+var Stats mainStats = Stats.new()
+var Trade activeTrade = na
+var box[] historicalBoxes = array.new_box()
+
+push_alert(string sig, float price, color c) =>
+    array.unshift(alertLogs, AlertLog.new(str.format_time(time, "HH:mm", NY_TZ), sig, price, c))
+    if array.size(alertLogs) > maxAlertRows
+        array.pop(alertLogs)
+
+if bullArmedEvent
+    push_alert("ARM LONG", close, uiPosColor)
+if bearArmedEvent
+    push_alert("ARM SHORT", close, uiNegColor)
+if bullTriggerEvent
+    push_alert("BUY", nz(bullSetup.entryPrice, close), uiPosColor)
+if bearTriggerEvent
+    push_alert("SELL", nz(bearSetup.entryPrice, close), uiNegColor)
+
+update_stats(Stats s, float rEarned, bool isWin) =>
+    s.totalTrades += 1
+    s.totalR += rEarned
+    s.equityR += rEarned
+    if isWin
+        s.wins += 1
+    else
+        s.losses += 1
+    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
+    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+
+bool triggerLong = bullTriggerEvent
+bool triggerShort = bearTriggerEvent
+
+if (triggerLong or triggerShort) and na(activeTrade)
+    SetupState tradeSetup = new_setup(DIR_NONE)
+    if triggerLong
+        tradeSetup := bullSetup
+    else
+        tradeSetup := bearSetup
+    float tradeEntry = nz(tradeSetup.entryPrice, close)
+    box tpB = na
+    box slB = na
+    if showSetups and showZones
+        color tpCol = tradeSetup.direction == DIR_BULL ? longTpColor : shortTpColor
+        color slCol = tradeSetup.direction == DIR_BULL ? longSlColor : shortSlColor
+        tpB := box.new(bar_index, tradeSetup.direction == DIR_BULL ? tradeSetup.tp2Price : tradeEntry, bar_index, tradeSetup.direction == DIR_BULL ? tradeEntry : tradeSetup.tp2Price, bgcolor = color.new(tpCol, activeTransp), border_color = tpCol, border_width = activeBorderWidth)
+        slB := box.new(bar_index, tradeSetup.direction == DIR_BULL ? tradeEntry : tradeSetup.stopPrice, bar_index, tradeSetup.direction == DIR_BULL ? tradeSetup.stopPrice : tradeEntry, bgcolor = color.new(slCol, activeTransp), border_color = slCol, border_width = activeBorderWidth)
+    activeTrade := Trade.new(tradeSetup.strategy, tradeSetup.direction == DIR_BULL, tradeEntry, tradeSetup.stopPrice, tradeSetup.tp1Price, tradeSetup.tp2Price, bar_index, true, false, tpB, slB)
+
+if not na(activeTrade)
+    sz = marker_size(markerSizeInput)
+    if not na(activeTrade.tpBox)
+        box.set_right(activeTrade.tpBox, bar_index + (extendCandidateRight ? activeMinWidth : 0))
+        box.set_right(activeTrade.slBox, bar_index + (extendCandidateRight ? activeMinWidth : 0))
+
+    bool closed = false
+    float r = 0.0
+    if activeTrade.isLong
+        if low <= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            if showSlMarkers
+                label.new(bar_index, activeTrade.stopPrice, activeTrade.isTp1Hit ? "BE" : "SL", color = slMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+        else if high >= activeTrade.tp2Price
+            r := math.abs(activeTrade.tp2Price - activeTrade.entryPrice) / math.max(math.abs(activeTrade.entryPrice - activeTrade.stopPrice), syminfo.mintick)
+            closed := true
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp2Price, "TP2", color = tpMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+        else if high >= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+            activeTrade.stopPrice := activeTrade.entryPrice
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp1Price, "TP1", color = tpMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+    else
+        if high >= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            if showSlMarkers
+                label.new(bar_index, activeTrade.stopPrice, activeTrade.isTp1Hit ? "BE" : "SL", color = slMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+        else if low <= activeTrade.tp2Price
+            r := math.abs(activeTrade.entryPrice - activeTrade.tp2Price) / math.max(math.abs(activeTrade.entryPrice - activeTrade.stopPrice), syminfo.mintick)
+            closed := true
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp2Price, "TP2", color = tpMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+        else if low <= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+            activeTrade.stopPrice := activeTrade.entryPrice
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp1Price, "TP1", color = tpMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+
+    if closed
+        update_stats(mainStats, r, r > 0)
+        if not na(activeTrade.tpBox)
+            box.set_right(activeTrade.tpBox, bar_index)
+            box.set_right(activeTrade.slBox, bar_index)
+            box.set_border_width(activeTrade.tpBox, 1)
+            box.set_border_width(activeTrade.slBox, 1)
+            array.push(historicalBoxes, activeTrade.tpBox)
+            array.push(historicalBoxes, activeTrade.slBox)
+            if array.size(historicalBoxes) > maxHistory * 2
+                box.delete(array.shift(historicalBoxes))
+                box.delete(array.shift(historicalBoxes))
+        if activeTrade.isLong
+            bullSetup := new_setup(DIR_BULL)
+        else
+            bearSetup := new_setup(DIR_BEAR)
+        activeTrade := na
+
+selectedSetup := new_setup(DIR_NONE)
+selectedSetup := pick_better_setup(selectedSetup, bullSetup)
+selectedSetup := pick_better_setup(selectedSetup, bearSetup)
+selectedPhase := state_text(selectedSetup.state)
+selectedEquilibrium := not na(selectedSetup.equilibrium) ? selectedSetup.equilibrium : (not na(lastExternalHigh) and not na(lastExternalLow) ? (lastExternalHigh + lastExternalLow) * 0.5 : (not na(pdh) and not na(pdl) ? (pdh + pdl) * 0.5 : na))
+pdStatus := not na(selectedEquilibrium) ? (close > selectedEquilibrium ? "Premium" : close < selectedEquilibrium ? "Discount" : "Equilibrium") : "n/a"
+
+// =====================================================================
+// LEVEL / ACTIVE SETUP DRAWINGS
+// =====================================================================
+var line[] overlayLines = array.new_line()
+var label[] overlayLabels = array.new_label()
+
+clear_overlay() =>
+    while array.size(overlayLines) > 0
+        line.delete(array.shift(overlayLines))
+    while array.size(overlayLabels) > 0
+        label.delete(array.shift(overlayLabels))
+
+draw_level(float val, bool show, color col, string txt, string mode, int segLen, int offset, string styleStr, int width, bool showLabel) =>
+    if show and not na(val)
+        int x1 = mode == "Full Width" ? bar_index - 500 : bar_index - segLen + offset
+        int x2 = bar_index + offset
+        line l = line.new(x1, val, x2, val, color = col, style = style_from_input(styleStr), width = width, extend = extend.none)
+        array.push(overlayLines, l)
+        if showLabel
+            label lbl = label.new(x2, val, txt, color = #00000000, textcolor = col, style = label.style_label_left, size = size.small)
+            array.push(overlayLabels, lbl)
+
+if barstate.islast
+    clear_overlay()
+    draw_level(pdh, showPDH, pdhColor, "PDH", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+    draw_level(pdl, showPDL, pdlColor, "PDL", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+    draw_level(pwh, showPWH, pwhColor, "PWH", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+    draw_level(pwl, showPWL, pwlColor, "PWL", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+
+    draw_level(asia.lastHigh, showAsiaH, asiaHColor, "Asia High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    draw_level(asia.lastLow, showAsiaL, asiaLColor, "Asia Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    draw_level(london.lastHigh, showLonH, lonHColor, "London High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    draw_level(london.lastLow, showLonL, lonLColor, "London Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    draw_level(ny.isActive ? ny.high : ny.lastHigh, showNYH, nyHColor, "NY High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    draw_level(ny.isActive ? ny.low : ny.lastLow, showNYL, nyLColor, "NY Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+
+    if showSetups and selectedSetup.state >= STATE_SWEEP_CONFIRMED and selectedSetup.state != STATE_INVALIDATED and selectedSetup.state != STATE_EXPIRED
+        color selColor = selectedSetup.direction == DIR_BULL ? uiPosColor : uiNegColor
+        draw_level(selectedSetup.liquidityPrice, true, selColor, selectedSetup.liquidityLabel, "Short Segment", 20, 0, "Dashed", 1, true)
+        if not na(selectedSetup.mssLevel)
+            draw_level(selectedSetup.mssLevel, true, color.white, "MSS", "Short Segment", 20, 0, "Solid", 1, true)
+        if not na(selectedSetup.equilibrium)
+            draw_level(selectedSetup.equilibrium, true, uiNeutralColor, "EQ", "Short Segment", 20, 0, "Dotted", 1, false)
+
+// =====================================================================
+// CANDIDATE PREVIEW — ONLY REAL ARMED / PENDING SETUPS
+// =====================================================================
+var box   candTp  = na
+var box   candSl  = na
+var label candLbl = na
+
+if barstate.islast
+    bool showRealCandidate = showSetups and showCandidatePreview and na(activeTrade) and (selectedSetup.state == STATE_ARMED or selectedSetup.state == STATE_PENDING_ENTRY)
+    if showRealCandidate
+        int width = activeSetupSize == "Large" ? activeMinWidth * 2 : activeSetupSize == "Compact" ? math.max(8, activeMinWidth / 2) : activeMinWidth
+        int rightX = bar_index + (extendCandidateRight ? width : activeMinWidth)
+        color candTpCol = selectedSetup.direction == DIR_BULL ? longTpColor : shortTpColor
+        color candSlCol = selectedSetup.direction == DIR_BULL ? longSlColor : shortSlColor
+        float entry = selectedSetup.entryPrice
+        float stop  = selectedSetup.stopPrice
+        float tp    = selectedSetup.tp2Price
+        if na(candTp)
+            candTp := box.new(bar_index, selectedSetup.direction == DIR_BULL ? tp : entry, rightX, selectedSetup.direction == DIR_BULL ? entry : tp, bgcolor = color.new(candTpCol, activeTransp + 3), border_color = candTpCol, border_width = activeBorderWidth)
+            candSl := box.new(bar_index, selectedSetup.direction == DIR_BULL ? entry : stop, rightX, selectedSetup.direction == DIR_BULL ? stop : entry, bgcolor = color.new(candSlCol, activeTransp + 3), border_color = candSlCol, border_width = activeBorderWidth)
+            candLbl := label.new(rightX, entry, selectedSetup.strategy + " | " + selectedSetup.entryModel + " | " + str.tostring(selectedSetup.score) + "/" + str.tostring(minScoreReq), color = #00000000, textcolor = setupLabelColor, style = label.style_label_left, size = size.small)
+        else
+            box.set_lefttop(candTp, bar_index, selectedSetup.direction == DIR_BULL ? tp : entry)
+            box.set_rightbottom(candTp, rightX, selectedSetup.direction == DIR_BULL ? entry : tp)
+            box.set_bgcolor(candTp, color.new(candTpCol, activeTransp + 3))
+            box.set_border_color(candTp, candTpCol)
+            box.set_lefttop(candSl, bar_index, selectedSetup.direction == DIR_BULL ? entry : stop)
+            box.set_rightbottom(candSl, rightX, selectedSetup.direction == DIR_BULL ? stop : entry)
+            box.set_bgcolor(candSl, color.new(candSlCol, activeTransp + 3))
+            box.set_border_color(candSl, candSlCol)
+            label.set_xy(candLbl, rightX, entry)
+            label.set_text(candLbl, selectedSetup.strategy + " | " + selectedSetup.entryModel + " | " + str.tostring(selectedSetup.score) + "/" + str.tostring(minScoreReq))
+            label.set_textcolor(candLbl, setupLabelColor)
+    else
+        if not na(candTp)
+            box.delete(candTp)
+            box.delete(candSl)
+            label.delete(candLbl)
+            candTp := na
+            candSl := na
+            candLbl := na
+
+// =====================================================================
+// DASHBOARD 1: SETUP & PERFORMANCE
+// =====================================================================
+var table readTable = table.new(resolve_pos(readinessPos), 2, 18, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+if showReadiness and barstate.islast
+    float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100.0 : 0.0
+    string pendingStr = selectedSetup.state == STATE_ARMED or selectedSetup.state == STATE_PENDING_ENTRY ? dir_text(selectedSetup.direction) + " (" + str.tostring(math.max(0, selectedSetup.expiryBar - bar_index)) + " bars)" : "None"
+    table.cell(readTable, 0, 0, "Setup & Performance", text_color = uiHeaderText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 0, "", bgcolor = uiBg)
+    table.cell(readTable, 0, 1, "Profile", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 1, sensitivityMode, text_color = isConservative ? uiPosColor : isAggressive ? uiNegColor : uiNeutralColor, text_size = size.small)
+    table.cell(readTable, 0, 2, "Phase", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 2, selectedPhase, text_color = uiNeutralColor, text_size = size.small)
+    table.cell(readTable, 0, 3, "Market Bias", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 3, marketBias, text_color = marketBias == "Bullish" ? uiPosColor : marketBias == "Bearish" ? uiNegColor : uiNeutralColor, text_size = size.small)
+    table.cell(readTable, 0, 4, "Session", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 4, activeSessName, text_color = isKillzone ? uiPosColor : uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 5, "P/D Zone", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 5, pdStatus, text_color = pdStatus == "Discount" ? uiPosColor : pdStatus == "Premium" ? uiNegColor : uiNeutralColor, text_size = size.small)
+    table.cell(readTable, 0, 6, "Confluence", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 6, str.tostring(selectedSetup.score) + "/100 (min " + str.tostring(minScoreReq) + ")", text_color = selectedSetup.score >= minScoreReq ? uiPosColor : selectedSetup.score >= minScoreReq * 0.7 ? color.orange : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 7, "Blocked By", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 7, selectedSetup.blockReason != "" ? selectedSetup.blockReason : selectedSetup.waitReason != "" ? selectedSetup.waitReason : "None", text_color = uiNeutralColor, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 0, 8, "Liquidity", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 8, selectedSetup.liquidityLabel == "" ? "—" : selectedSetup.liquidityLabel + " @ " + str.tostring(selectedSetup.liquidityPrice, "#.#####"), text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 9, "Structure", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 9, selectedSetup.structureTag == "" ? "Waiting" : selectedSetup.structureTag + " @ " + str.tostring(selectedSetup.mssLevel, "#.#####"), text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 10, "Zone / Entry", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 10, selectedSetup.zoneType == ZONE_NONE ? "Waiting" : zone_text(selectedSetup.zoneType) + " | " + selectedSetup.entryModel, text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 11, "Pending Setup", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 11, pendingStr, text_color = pendingStr == "None" ? uiLabelText : uiNeutralColor, text_size = size.small)
+    table.cell(readTable, 0, 12, "Nearest BSL", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 12, na(nearestBSL) ? "—" : str.tostring(nearestBSL, "#.#####"), text_color = uiPosColor, text_size = size.small)
+    table.cell(readTable, 0, 13, "Nearest SSL", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 13, na(nearestSSL) ? "—" : str.tostring(nearestSSL, "#.#####"), text_color = uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 14, "Win Rate", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 14, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 15, "Trades", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 15, str.tostring(mainStats.totalTrades) + " | " + str.tostring(mainStats.wins) + "/" + str.tostring(mainStats.losses), text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 16, "Equity R", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 16, str.format("{0,number,#.##}R", mainStats.equityR), text_color = mainStats.equityR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 17, "Max DD R", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 17, str.format("{0,number,#.##}R", mainStats.maxDrawdownR), text_color = mainStats.maxDrawdownR < 0 ? uiNegColor : uiValueText, text_size = size.small)
+
+// =====================================================================
+// DASHBOARD 2: MARKET INTELLIGENCE
+// =====================================================================
+int intelRows = 1 + 5 + 1 + 1 + maxAlertRows + 1 + 1 + maxScannerRows
+var table marketIntelTable = table.new(resolve_pos(marketIntelPos), 3, intelRows, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+
+if showMarketIntelDash and barstate.islast
+    int row = 0
+    string alignment = trendScore == 3 ? "Strong Bullish" : trendScore == 0 ? "Strong Bearish" : trendScore == 2 ? "Bullish Lean" : trendScore == 1 ? "Bearish Lean" : "Neutral"
+    color alignCol = trendScore >= 2 ? uiPosColor : trendScore == 0 ? uiNegColor : uiNeutralColor
+
+    table.cell(marketIntelTable, 0, row, "Market Intelligence", text_color = uiHeaderText, text_size = size.small, text_halign = text.align_left)
+    table.merge_cells(marketIntelTable, 0, row, 2, row)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "Alignment", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, alignment, text_color = alignCol, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, regimeText, text_color = isChoppy ? uiNegColor : uiPosColor, text_size = size.tiny)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "HTF 2 (" + htfTrendTF2 + ")", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, htfBullBias ? "BULL" : htfBearBias ? "BEAR" : "NEUTRAL", text_color = htfBullBias ? uiPosColor : htfBearBias ? uiNegColor : uiNeutralColor, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "", bgcolor = uiBg)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "HTF 1 (" + htfTrendTF + ")", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, htf1Bull ? "BULL" : "BEAR", text_color = htf1Bull ? uiPosColor : uiNegColor, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "", bgcolor = uiBg)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "Current Context", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, marketBias, text_color = marketBias == "Bullish" ? uiPosColor : marketBias == "Bearish" ? uiNegColor : uiNeutralColor, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, pdStatus, text_color = pdStatus == "Discount" ? uiPosColor : pdStatus == "Premium" ? uiNegColor : uiNeutralColor, text_size = size.tiny)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "Selected Setup", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, selectedSetup.strategy == "" ? "None" : selectedSetup.strategy, text_color = selectedSetup.direction == DIR_BULL ? uiPosColor : selectedSetup.direction == DIR_BEAR ? uiNegColor : uiValueText, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, selectedPhase, text_color = uiNeutralColor, text_size = size.tiny)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "─── Alert History ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+    table.merge_cells(marketIntelTable, 0, row, 2, row)
+    row += 1
+    table.cell(marketIntelTable, 0, row, "Time (NY)", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, "Signal", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "Price", text_color = uiLabelText, text_size = size.tiny)
+    row += 1
+    if array.size(alertLogs) > 0
+        for i = 0 to math.min(array.size(alertLogs) - 1, maxAlertRows - 1)
+            AlertLog al = array.get(alertLogs, i)
+            table.cell(marketIntelTable, 0, row, al.timeStr, text_color = uiLabelText, text_size = size.tiny)
+            table.cell(marketIntelTable, 1, row, al.signalType, text_color = al.col, text_size = size.tiny)
+            table.cell(marketIntelTable, 2, row, str.tostring(al.price, "#.#####"), text_color = uiValueText, text_size = size.tiny)
+            row += 1
+    else
+        table.cell(marketIntelTable, 0, row, "No signals yet", text_color = uiLabelText, text_size = size.tiny)
+        table.merge_cells(marketIntelTable, 0, row, 2, row)
+        row += 1
+
+    table.cell(marketIntelTable, 0, row, "─── Active OBs ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+    table.merge_cells(marketIntelTable, 0, row, 2, row)
+    row += 1
+    table.cell(marketIntelTable, 0, row, "Type", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, "Range", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "Age", text_color = uiLabelText, text_size = size.tiny)
+    row += 1
+
+    int obCount = 0
+    if array.size(bullObs) > 0
+        for i = array.size(bullObs) - 1 to 0
+            ZoneData z = array.get(bullObs, i)
+            if obCount < maxScannerRows
+                table.cell(marketIntelTable, 0, row, "BULL", text_color = uiPosColor, text_size = size.tiny)
+                table.cell(marketIntelTable, 1, row, str.format("{0,number,#.#####}-{1,number,#.#####}", z.bottom, z.top), text_color = uiValueText, text_size = size.tiny)
+                table.cell(marketIntelTable, 2, row, str.tostring(bar_index - z.createdBar), text_color = uiLabelText, text_size = size.tiny)
+                row += 1
+                obCount += 1
+    if array.size(bearObs) > 0 and obCount < maxScannerRows
+        for i = array.size(bearObs) - 1 to 0
+            ZoneData z = array.get(bearObs, i)
+            if obCount < maxScannerRows
+                table.cell(marketIntelTable, 0, row, "BEAR", text_color = uiNegColor, text_size = size.tiny)
+                table.cell(marketIntelTable, 1, row, str.format("{0,number,#.#####}-{1,number,#.#####}", z.bottom, z.top), text_color = uiValueText, text_size = size.tiny)
+                table.cell(marketIntelTable, 2, row, str.tostring(bar_index - z.createdBar), text_color = uiLabelText, text_size = size.tiny)
+                row += 1
+                obCount += 1
+    if obCount == 0
+        table.cell(marketIntelTable, 0, row, "No active OBs", text_color = uiLabelText, text_size = size.tiny)
+        table.merge_cells(marketIntelTable, 0, row, 2, row)
+
+// =====================================================================
+// ALERTS / SHAPES
+// =====================================================================
+alertcondition(bullArmedEvent, "Bull Setup Armed", "SMC/ICT bullish setup armed")
+alertcondition(bearArmedEvent, "Bear Setup Armed", "SMC/ICT bearish setup armed")
+alertcondition(bullTriggerEvent, "Bull Entry Triggered", "SMC/ICT bullish entry triggered")
+alertcondition(bearTriggerEvent, "Bear Entry Triggered", "SMC/ICT bearish entry triggered")
+
+plotshape(showLabels and bullTriggerEvent, "Buy Signal", shape.labelup, location.belowbar, BULL_COLOR, text = "BUY", textcolor = color.white, size = size.small)
+plotshape(showLabels and bearTriggerEvent, "Sell Signal", shape.labeldown, location.abovebar, BEAR_COLOR, text = "SELL", textcolor = color.white, size = size.small)
+plotshape(showSetups and bullSweepSignal, "Bull Sweep", shape.circle, location.belowbar, color.new(BULL_COLOR, 0), text = "1", textcolor = color.white, size = size.tiny)
+plotshape(showSetups and bearSweepSignal, "Bear Sweep", shape.circle, location.abovebar, color.new(BEAR_COLOR, 0), text = "1", textcolor = color.white, size = size.tiny)
+plotshape(showSetups and bullMssEvent, "Bull MSS", shape.square, location.belowbar, color.new(color.white, 0), text = "2", textcolor = color.black, size = size.tiny)
+plotshape(showSetups and bearMssEvent, "Bear MSS", shape.square, location.abovebar, color.new(color.white, 0), text = "2", textcolor = color.black, size = size.tiny)
+plotshape(showSetups and bullZoneEvent, "Bull Zone", shape.diamond, location.belowbar, color.new(BULL_COLOR, 0), text = "3", textcolor = color.white, size = size.tiny)
+plotshape(showSetups and bearZoneEvent, "Bear Zone", shape.diamond, location.abovebar, color.new(BEAR_COLOR, 0), text = "3", textcolor = color.white, size = size.tiny)
+plotshape(showSetups and bullArmedEvent, "Bull Armed", shape.triangleup, location.belowbar, color.new(BULL_COLOR, 0), text = "A", textcolor = color.white, size = size.tiny)
+plotshape(showSetups and bearArmedEvent, "Bear Armed", shape.triangledown, location.abovebar, color.new(BEAR_COLOR, 0), text = "A", textcolor = color.white, size = size.tiny)
+
+// =====================================================================
+// DEBUG LABEL
+// =====================================================================
+var label debugLabel = na
+if barstate.islast
+    if not na(debugLabel)
+        label.delete(debugLabel)
+        debugLabel := na
+    if showDebugState
+        string txt = "Selected: " + selectedPhase + " " + dir_text(selectedSetup.direction) + "\n" +
+             "Liq: " + (selectedSetup.liquidityLabel == "" ? "n/a" : selectedSetup.liquidityLabel) + "\n" +
+             "MSS: " + (not na(selectedSetup.mssLevel) ? str.tostring(selectedSetup.mssLevel, format.mintick) : "waiting") + "\n" +
+             "Zone: " + zone_text(selectedSetup.zoneType) + "\n" +
+             "Reason: " + (selectedSetup.blockReason != "" ? selectedSetup.blockReason : selectedSetup.waitReason)
+        debugLabel := label.new(bar_index + 2, high, txt, style = label.style_label_left, color = color.new(color.rgb(25, 30, 60), 0), textcolor = color.white, size = size.tiny)
