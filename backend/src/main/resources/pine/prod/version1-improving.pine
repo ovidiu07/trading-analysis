@@ -1,0 +1,919 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("SMC & ICT Multi-Strategy [Pro Visuals]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// --- Constants ---
+string NY_TZ = "America/New_York"
+color BULL_COLOR = #089981
+color BEAR_COLOR = #f23645
+color NEUTRAL_COLOR = #5b9cf6
+
+// --- User Defined Types ---
+type Trade
+    string  strategyName
+    bool    isLong
+    float   entryPrice
+    float   stopPrice
+    float   tp1Price
+    float   tp2Price
+    int     entryBar
+    bool    isActive = false
+    bool    isTp1Hit = false
+    box     tpBox    = na
+    box     slBox    = na
+
+type AlertLog
+    string  timeStr
+    string  signalType
+    float   price
+    color   col
+
+type Stats
+    int     totalTrades = 0
+    int     wins = 0
+    int     losses = 0
+    float   totalR = 0.0
+    float   equityR = 0.0
+    float   maxDrawdownR = 0.0
+    float   peakEquityR = 0.0
+
+type SessionData
+    string name
+    string timeRange
+    bool   isActive = false
+    float  high = na
+    float  low = na
+    float  lastHigh = na
+    float  lastLow = na
+
+type SetupState
+    string  phase = "Monitoring"
+    int     score = 0
+    string  missing = "Searching for context..."
+    float   nearestBSL = na
+    float   nearestSSL = na
+    float   requiredSweep = na
+    float   triggerLevel = na
+    float   invalidationLevel = na
+    bool    isPotentialLong = false
+    bool    isPotentialShort = false
+
+type SmartZone
+    box   boxId
+    float top
+    float bottom
+    bool  isBull
+    bool  mitigated = false
+    bool  isInverted = false
+    int   startBar
+    float ce = na
+    bool  ceRespected = false
+    bool  ceBroken = false
+    int   touchCount = 0
+    float gapSize = na
+
+
+// --- Inputs ---
+var string G_SENS = "Signal Sensitivity"
+string sensitivityMode = input.string("Balanced", "Sensitivity Mode", options = ["Aggressive", "Balanced", "Conservative"], tooltip = "Adjusts pivot lookback and displacement requirements for signals.", group = G_SENS)
+
+var string G_VIS = "Visual Style & Display"
+bool showLabels = input.bool(true, "Show Buy/Sell Labels", group = G_VIS)
+bool showSetups = input.bool(true, "Show Setup Visuals", tooltip = "Master toggle for all setup boxes, candidate previews, and active trade zones.", group = G_VIS)
+bool showZones = input.bool(true, "Show Trade SL/TP Zones", group = G_VIS)
+int maxHistory = input.int(5, "Max Historical Trades Shown", minval = 1, maxval = 20, group = G_VIS)
+
+var string G_SETUP_STYLE = "Setup Colors"
+color longTpColor = input.color(#089981, "Long TP / Reward Color", group = G_SETUP_STYLE)
+color longSlColor = input.color(#f23645, "Long Risk / SL Color", group = G_SETUP_STYLE)
+color shortTpColor = input.color(#f23645, "Short TP / Reward Color", group = G_SETUP_STYLE)
+color shortSlColor = input.color(#089981, "Short Risk / SL Color", group = G_SETUP_STYLE)
+color setupLabelColor = input.color(#5b9cf6, "Setup Label Text Color", group = G_SETUP_STYLE)
+
+var string G_SMC = "Supply & Demand Elements"
+bool showOB = input.bool(true, "Show Order Blocks", group = G_SMC)
+bool showFVG = input.bool(true, "Show FVG Zones", group = G_SMC)
+bool showIFVG = input.bool(true, "Show Inversion FVGs", group = G_SMC, tooltip = "FVGs that are closed through become Inversion FVGs.")
+int maxZones = input.int(10, "Max Historical Zones", minval = 1, maxval = 50, group = G_SMC)
+color bullObColor = input.color(color.new(BULL_COLOR, 80), "Bull OB Color", group = G_SMC)
+color bearObColor = input.color(color.new(BEAR_COLOR, 80), "Bear OB Color", group = G_SMC)
+color bullFvgColor = input.color(color.new(BULL_COLOR, 90), "Bull FVG Color", group = G_SMC)
+color bearFvgColor = input.color(color.new(BEAR_COLOR, 90), "Bear FVG Color", group = G_SMC)
+color bullIfvgColor = input.color(color.new(BULL_COLOR, 75), "Bull IFVG Color", group = G_SMC)
+color bearIfvgColor = input.color(color.new(BEAR_COLOR, 75), "Bear IFVG Color", group = G_SMC)
+
+var string G_STRAT = "Strategy Toggles"
+bool enableICT2022 = input.bool(true, "ICT 2022 Model (Sweep + MSS)", group = G_STRAT)
+bool enableSilverBullet = input.bool(true, "Silver Bullet (Time + FVG)", group = G_STRAT)
+
+var string G_READINESS = "Setup & Performance Dashboard"
+bool showReadiness = input.bool(true, "Show Dashboard", group = G_READINESS)
+string readinessPos = input.string("bottom_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_READINESS)
+
+var string G_INTEL = "Market Intelligence Dashboard"
+bool showMarketIntelDash = input.bool(true, "Show Dashboard", group = G_INTEL)
+string marketIntelPos = input.string("bottom_left", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_INTEL)
+string trendHTF1 = input.timeframe("60", "HTF 1 Timeframe", group = G_INTEL)
+string trendHTF2 = input.timeframe("240", "HTF 2 Timeframe", group = G_INTEL)
+int maxAlertRows = input.int(5, "Max Alert Rows", minval = 1, maxval = 10, group = G_INTEL)
+int maxScannerRows = input.int(5, "Max OB Scanner Rows", minval = 1, maxval = 10, group = G_INTEL)
+
+var string G_HTF_VIS = "HTF Levels Visibility"
+string htfDisplayMode = input.string("Short Segment", "Display Mode", options = ["Short Segment", "Full Width"], group = G_HTF_VIS)
+int htfSegLen = input.int(15, "Segment Length", minval = 1, group = G_HTF_VIS)
+int htfSegOffset = input.int(5, "Segment Offset", minval = 0, group = G_HTF_VIS)
+bool showPDH = input.bool(true, "PDH", group = G_HTF_VIS, inline = "pdh")
+color pdhColor = input.color(color.new(color.gray, 30), "", group = G_HTF_VIS, inline = "pdh")
+bool showPDL = input.bool(true, "PDL", group = G_HTF_VIS, inline = "pdl")
+color pdlColor = input.color(color.new(color.gray, 30), "", group = G_HTF_VIS, inline = "pdl")
+bool showPWH = input.bool(true, "PWH", group = G_HTF_VIS, inline = "pwh")
+color pwhColor = input.color(color.new(color.blue, 30), "", group = G_HTF_VIS, inline = "pwh")
+bool showPWL = input.bool(true, "PWL", group = G_HTF_VIS, inline = "pwl")
+color pwlColor = input.color(color.new(color.blue, 30), "", group = G_HTF_VIS, inline = "pwl")
+string htfLineStyleInput = input.string("Dashed", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = G_HTF_VIS)
+int htfLineWidth = input.int(1, "Line Width", minval = 1, group = G_HTF_VIS)
+bool htfShowLabels = input.bool(true, "Show Labels", group = G_HTF_VIS)
+
+var string G_SESS_LINES = "Session High/Low Lines"
+string sessDisplayMode = input.string("Short Segment", "Display Mode", options = ["Short Segment", "Full Width"], group = G_SESS_LINES)
+int sessSegLen = input.int(15, "Segment Length", minval = 1, group = G_SESS_LINES)
+bool showAsiaH = input.bool(false, "Asia High", group = G_SESS_LINES, inline = "asiah")
+color asiaHColor = input.color(color.new(color.purple, 30), "", group = G_SESS_LINES, inline = "asiah")
+bool showAsiaL = input.bool(false, "Asia Low", group = G_SESS_LINES, inline = "asial")
+color asiaLColor = input.color(color.new(color.purple, 30), "", group = G_SESS_LINES, inline = "asial")
+bool showLonH = input.bool(false, "London High", group = G_SESS_LINES, inline = "lonh")
+color lonHColor = input.color(color.new(color.orange, 30), "", group = G_SESS_LINES, inline = "lonh")
+bool showLonL = input.bool(false, "London Low", group = G_SESS_LINES, inline = "lonl")
+color lonLColor = input.color(color.new(color.orange, 30), "", group = G_SESS_LINES, inline = "lonl")
+bool showNYH = input.bool(false, "NY High", group = G_SESS_LINES, inline = "nyh")
+color nyHColor = input.color(color.new(color.red, 30), "", group = G_SESS_LINES, inline = "nyh")
+bool showNYL = input.bool(false, "NY Low", group = G_SESS_LINES, inline = "nyl")
+color nyLColor = input.color(color.new(color.red, 30), "", group = G_SESS_LINES, inline = "nyl")
+string sessLineStyleInput = input.string("Dotted", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = G_SESS_LINES)
+
+var string G_ACTIVE_VIS = "Active Setup Visuals"
+bool showCandidatePreview = input.bool(true, "Show Projected Forming Setup", group = G_ACTIVE_VIS)
+string activeSetupSize = input.string("Normal", "Active Setup Size", options = ["Compact", "Normal", "Large"], group = G_ACTIVE_VIS)
+int activeMinWidth = input.int(15, "Min Projected Width (Bars)", minval = 5, group = G_ACTIVE_VIS)
+bool extendCandidateRight = input.bool(true, "Extend Forming Setup to Right", group = G_ACTIVE_VIS)
+int activeBorderWidth = input.int(2, "Active Border Thickness", minval = 1, maxval = 5, group = G_ACTIVE_VIS)
+int activeTransp = input.int(85, "Active Setup Transparency", minval = 0, maxval = 100, group = G_ACTIVE_VIS)
+
+var string G_OUTCOME_VIS = "Outcome Markers"
+bool showTpMarkers = input.bool(true, "Show TP/TP1 Hit Markers", group = G_OUTCOME_VIS)
+bool showSlMarkers = input.bool(true, "Show SL/BE Hit Markers", group = G_OUTCOME_VIS)
+string markerSizeInput = input.string("Small", "Marker Size", options = ["Tiny", "Small", "Normal"], group = G_OUTCOME_VIS)
+color tpMarkerColor = input.color(BULL_COLOR, "TP Marker Color", group = G_OUTCOME_VIS)
+color slMarkerColor = input.color(BEAR_COLOR, "SL Marker Color", group = G_OUTCOME_VIS)
+
+var string G_STYLE = "Dashboard Colors & UI Theme"
+color uiBg = input.color(color.new(#131722, 10), "Dashboard Background", group = G_STYLE)
+color uiBorder = input.color(#363a45, "Dashboard Border", group = G_STYLE)
+color uiHeaderText = input.color(color.white, "Header Text", group = G_STYLE)
+color uiLabelText = input.color(color.gray, "Label Text", group = G_STYLE)
+color uiValueText = input.color(color.white, "Value Text", group = G_STYLE)
+color uiPosColor = input.color(BULL_COLOR, "Positive Color", group = G_STYLE)
+color uiNegColor = input.color(BEAR_COLOR, "Negative Color", group = G_STYLE)
+color uiNeutralColor = input.color(NEUTRAL_COLOR, "Neutral/Accent Color", group = G_STYLE)
+
+// --- Sensitivity Logic ---
+float sensAtrMult = sensitivityMode == "Aggressive" ? 1.0 : sensitivityMode == "Conservative" ? 2.5 : 1.5
+int sensPivotLen = sensitivityMode == "Aggressive" ? 2 : sensitivityMode == "Conservative" ? 5 : 3
+
+// --- Session Engine ---
+var asia    = SessionData.new("Asia", "2000-0000")
+var london  = SessionData.new("London", "0200-1100")
+var ny      = SessionData.new("New York", "0800-1700")
+var overlap = SessionData.new("London/NY Overlap", "0800-1100")
+var sbLon   = SessionData.new("SB London", "0300-0400")
+var sbAm    = SessionData.new("SB AM", "1000-1100")
+
+update_session(SessionData s) =>
+    inSess = not na(time(timeframe.period, s.timeRange, NY_TZ))
+    if inSess
+        if not s.isActive
+            s.high := high
+            s.low := low
+        else
+            s.high := math.max(high, s.high)
+            s.low := math.min(low, s.low)
+    else if s.isActive
+        s.lastHigh := s.high
+        s.lastLow := s.low
+    s.isActive := inSess
+
+update_session(asia)
+update_session(london)
+update_session(ny)
+update_session(overlap)
+update_session(sbLon)
+update_session(sbAm)
+
+string activeSessName = overlap.isActive ? overlap.name : ny.isActive ? ny.name : london.isActive ? london.name : asia.isActive ? asia.name : "Inter-Session"
+bool isKillzone = sbLon.isActive or sbAm.isActive or overlap.isActive
+
+// --- HTF Liquidity ---
+float pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+float pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+float pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+float pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+
+// --- Core Data & Primitives ---
+int atrLen = input.int(14, "ATR Length", minval = 1, group = G_SENS)
+float atr = ta.atr(atrLen)
+float bodySize = math.abs(close - open)
+float rangeSize = high - low
+float volSma = ta.sma(volume, 20)
+bool volOk = na(volume) or volume > volSma * 1.2
+
+bool isDispBull = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close > open and volOk
+bool isDispBear = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close < open and volOk
+bool isDisplacement = isDispBull or isDispBear
+
+float emaBias = ta.ema(close, 200)
+float emaSlope = emaBias - emaBias[10]
+float emaBuffer = atr * 0.3
+string marketBias = close > emaBias + emaBuffer and emaSlope > 0 ? "Bullish"
+     : close < emaBias - emaBuffer and emaSlope < 0 ? "Bearish"
+     : "Neutral"
+
+
+// MTF Trend Data (BUG FIX: htf2Ema and htf2Price now use trendHTF2)
+float htf1Ema = request.security(syminfo.tickerid, trendHTF1, ta.ema(close, 200))
+float htf2Ema = request.security(syminfo.tickerid, trendHTF2, ta.ema(close, 200))
+float htf1Price = request.security(syminfo.tickerid, trendHTF1, close)
+float htf2Price = request.security(syminfo.tickerid, trendHTF2, close)
+
+// --- Sensitivity Logic (updated) ---
+int sensLeftLen = sensitivityMode == "Aggressive" ? 3 : sensitivityMode == "Conservative" ? 7 : 5
+int sensRightLen = sensitivityMode == "Aggressive" ? 1 : sensitivityMode == "Conservative" ? 3 : 2
+int pivotMaxAge = sensitivityMode == "Aggressive" ? 100 : sensitivityMode == "Conservative" ? 200 : 150
+
+// --- Market Structure Shift (MSS) ---
+float pHi = ta.pivothigh(sensLeftLen, sensRightLen)
+float pLo = ta.pivotlow(sensLeftLen, sensRightLen)
+
+var float lastPHi = na
+var float prevPHi = na
+var int lastPHiBar = na
+var float lastPLo = na
+var float prevPLo = na
+var int lastPLoBar = na
+
+float minSwingDepth = atr * 0.5
+
+if not na(pHi) and (na(lastPLo) or (pHi - lastPLo) > minSwingDepth)
+    prevPHi := lastPHi
+    lastPHi := pHi
+    lastPHiBar := bar_index - sensRightLen
+
+if not na(pLo) and (na(lastPHi) or (lastPHi - pLo) > minSwingDepth)
+    prevPLo := lastPLo
+    lastPLo := pLo
+    lastPLoBar := bar_index - sensRightLen
+
+// Expire stale pivots
+if not na(lastPHiBar) and (bar_index - lastPHiBar) > pivotMaxAge
+    lastPHi := na
+    lastPHiBar := na
+if not na(lastPLoBar) and (bar_index - lastPLoBar) > pivotMaxAge
+    lastPLo := na
+    lastPLoBar := na
+
+// BOS (continuation) vs MSS (reversal)
+bool bosBull = ta.crossover(close, lastPHi) and isDispBull
+bool bosBear = ta.crossunder(close, lastPLo) and isDispBear
+bool mssBull = ta.crossover(close, lastPHi) and isDispBull and not na(prevPLo) and low[1] < prevPLo
+bool mssBear = ta.crossunder(close, lastPLo) and isDispBear and not na(prevPHi) and high[1] > prevPHi
+
+
+// --- SMC Elements (FVG & OB) ---
+var SmartZone[] fvgArray = array.new<SmartZone>()
+var SmartZone[] obArray = array.new<SmartZone>()
+
+// FVG Detection — sized, directional, confirmed
+float minFvgSize = atr * 0.15
+float maxFvgSize = atr * 3.0
+float bullGapSize = low - high[2]
+float bearGapSize = low[2] - high
+
+bool bullConfirm = close > open or close > (high + low) / 2
+bool bearConfirm = close < open or close < (high + low) / 2
+
+bool bullFVG = bullGapSize > minFvgSize and bullGapSize < maxFvgSize
+     and isDispBull[1] and bullConfirm
+bool bearFVG = bearGapSize > minFvgSize and bearGapSize < maxFvgSize
+     and isDispBear[1] and bearConfirm
+
+// Bias-aligned variants for strategy triggers
+bool bullFvgAligned = bullFVG and (marketBias != "Bearish")
+bool bearFvgAligned = bearFVG and (marketBias != "Bullish")
+
+// Returns: 0 = no overlap, 1 = merge (expand existing), 2 = near-duplicate (skip)
+check_fvg_overlap(SmartZone[] arr, float newTop, float newBottom, bool newIsBull) =>
+    int result = 0
+    int mergeIdx = -1
+    float newSize = newTop - newBottom
+    if array.size(arr) > 0 and newSize > 0
+        int startIdx = math.max(0, array.size(arr) - 8)
+        for i = array.size(arr) - 1 to startIdx
+            SmartZone existing = array.get(arr, i)
+            if existing.isBull == newIsBull and not existing.mitigated
+                float exSize = existing.top - existing.bottom
+                if exSize > 0
+                    float overlapTop = math.min(existing.top, newTop)
+                    float overlapBot = math.max(existing.bottom, newBottom)
+                    if overlapTop > overlapBot
+                        float overlapSize = overlapTop - overlapBot
+                        float smallerZone = math.min(exSize, newSize)
+                        float overlapPct = overlapSize / smallerZone
+                        if overlapPct > 0.8
+                            result := 2
+                            break
+                        else if overlapPct > 0.3
+                            result := 1
+                            mergeIdx := i
+                            break
+    [result, mergeIdx]
+
+
+// Merge: expand existing zone to encompass both
+merge_fvg(SmartZone[] arr, int idx, float newTop, float newBottom, color bgCol) =>
+    SmartZone existing = array.get(arr, idx)
+    float mergedTop = math.max(existing.top, newTop)
+    float mergedBot = math.min(existing.bottom, newBottom)
+    existing.top := mergedTop
+    existing.bottom := mergedBot
+    existing.ce := (mergedTop + mergedBot) / 2.0
+    box.set_top(existing.boxId, mergedTop)
+    box.set_bottom(existing.boxId, mergedBot)
+    box.set_border_width(existing.boxId, 2)
+    box.set_bgcolor(existing.boxId, color.new(bgCol, 75))
+
+
+
+if showFVG
+    if bullFVG
+        float fvgTop = low
+        float fvgBot = high[2]
+        [overlapResult, mergeIdx] = check_fvg_overlap(fvgArray, fvgTop, fvgBot, true)
+        if overlapResult == 0
+            float fvgCE = (fvgTop + fvgBot) / 2.0
+            box b = box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor = bullFvgColor, border_color = color.new(bullFvgColor, 50), border_style = line.style_dotted)
+            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, true, false, false, bar_index - 2, fvgCE, false, false, 0, fvgTop - fvgBot))
+        else if overlapResult == 1
+            merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bullFvgColor)
+
+    if bearFVG
+        float fvgTop = low[2]
+        float fvgBot = high
+        [overlapResult, mergeIdx] = check_fvg_overlap(fvgArray, fvgTop, fvgBot, false)
+        if overlapResult == 0
+            float fvgCE = (fvgTop + fvgBot) / 2.0
+            box b = box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor = bearFvgColor, border_color = color.new(bearFvgColor, 50), border_style = line.style_dotted)
+            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, false, false, false, bar_index - 2, fvgCE, false, false, 0, fvgTop - fvgBot))
+        else if overlapResult == 1
+            merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bearFvgColor)
+
+
+
+// OB Detection (Last opposite candle before MSS)
+if showOB
+    if mssBull
+        int obBar = na
+        for i = 1 to 20
+            if close[i] < open[i]
+                obBar := bar_index - i
+                break
+        if not na(obBar)
+            float t = high[bar_index - obBar]
+            float b_ = low[bar_index - obBar]
+            box bx = box.new(obBar, t, bar_index, b_, bgcolor = bullObColor, border_color = color.new(bullObColor, 50))
+            array.push(obArray, SmartZone.new(bx, t, b_, true, false, false, obBar))
+
+    if mssBear
+        int obBar = na
+        for i = 1 to 20
+            if close[i] > open[i]
+                obBar := bar_index - i
+                break
+        if not na(obBar)
+            float t = high[bar_index - obBar]
+            float b_ = low[bar_index - obBar]
+            box bx = box.new(obBar, t, bar_index, b_, bgcolor = bearObColor, border_color = color.new(bearObColor, 50))
+            array.push(obArray, SmartZone.new(bx, t, b_, false, false, false, obBar))
+
+// Mitigation & Inversion Logic
+update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
+    if array.size(arr) > 0
+        for i = array.size(arr) - 1 to 0
+            SmartZone sz = array.get(arr, i)
+            if not sz.mitigated
+                box.set_right(sz.boxId, bar_index)
+
+                if not sz.isInverted
+                    if sz.isBull
+                        // Check for inversion (Close through)
+                        if isFVG and showIFVG and close < sz.bottom
+                            sz.isInverted := true
+                            box.set_bgcolor(sz.boxId, bearIfvgColor)
+                            box.set_border_style(sz.boxId, line.style_solid)
+                        // Regular mitigation (Touch)
+                        else if low < sz.bottom
+                            sz.mitigated := true
+                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                    else
+                        // Check for inversion (Close through)
+                        if isFVG and showIFVG and close > sz.top
+                            sz.isInverted := true
+                            box.set_bgcolor(sz.boxId, bullIfvgColor)
+                            box.set_border_style(sz.boxId, line.style_solid)
+                        // Regular mitigation (Touch)
+                        else if high > sz.top
+                            sz.mitigated := true
+                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                else
+                    // Mitigation for Inverted Zones
+                    if sz.isBull // Was originally Bullish, now Bearish IFVG (Resistance)
+                        if high > sz.top
+                            sz.mitigated := true
+                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                    else // Was originally Bearish, now Bullish IFVG (Support)
+                        if low < sz.bottom
+                            sz.mitigated := true
+                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+
+        if array.size(arr) > maxCount
+            SmartZone old = array.shift(arr)
+            box.delete(old.boxId)
+
+update_zones(fvgArray, maxZones, true)
+update_zones(obArray, maxZones, false)
+
+// --- Liquidity State ---
+var bool sweptSSL = false
+var bool sweptBSL = false
+float reqL = asia.isActive ? na : asia.lastLow
+float reqS = asia.isActive ? na : asia.lastHigh
+
+if not na(reqL) and low < reqL and close > reqL
+    sweptSSL := true
+    sweptBSL := false
+if not na(reqS) and high > reqS and close < reqS
+    sweptBSL := true
+    sweptSSL := false
+
+if mssBull
+    sweptSSL := false
+if mssBear
+    sweptBSL := false
+
+// Premium / Discount
+int rangeLookback = 50
+float pdArray = (ta.highest(rangeLookback) + ta.lowest(rangeLookback)) / 2
+string pdStatus = close > pdArray ? "Premium" : "Discount"
+
+// --- Liquidity Engine ---
+float nearestBSL = na
+float nearestSSL = na
+
+if not na(asia.lastHigh) and asia.lastHigh > close
+    nearestBSL := asia.lastHigh
+if not na(london.lastHigh) and london.lastHigh > close
+    nearestBSL := na(nearestBSL) ? london.lastHigh : math.min(nearestBSL, london.lastHigh)
+if not na(pdh) and pdh > close
+    nearestBSL := na(nearestBSL) ? pdh : math.min(nearestBSL, pdh)
+if not na(pwh) and pwh > close
+    nearestBSL := na(nearestBSL) ? pwh : math.min(nearestBSL, pwh)
+if not na(lastPHi) and lastPHi > close
+    nearestBSL := na(nearestBSL) ? lastPHi : math.min(nearestBSL, lastPHi)
+
+if not na(asia.lastLow) and asia.lastLow < close
+    nearestSSL := asia.lastLow
+if not na(london.lastLow) and london.lastLow < close
+    nearestSSL := na(nearestSSL) ? london.lastLow : math.max(nearestSSL, london.lastLow)
+if not na(pdl) and pdl < close
+    nearestSSL := na(nearestSSL) ? pdl : math.max(nearestSSL, pdl)
+if not na(pwl) and pwl < close
+    nearestSSL := na(nearestSSL) ? pwl : math.max(nearestSSL, pwl)
+if not na(lastPLo) and lastPLo < close
+    nearestSSL := na(nearestSSL) ? lastPLo : math.max(nearestSSL, lastPLo)
+
+// --- Setup Readiness Evaluation ---
+SetupState liveSetup = SetupState.new()
+
+eval_setup(string bias, string pd, bool killzone, bool sweptL, bool sweptS, bool mssB, bool mssS, bool fvgB, bool fvgS, float pHiVal, float pLoVal, float nBSL, float nSSL, float rL, float rS) =>
+    SetupState s = SetupState.new()
+    s.nearestBSL := nBSL
+    s.nearestSSL := nSSL
+    int score = 0
+    string missing = ""
+
+    if bias == "Bullish"
+        score += 10
+        if pd == "Discount"
+            score += 10
+        if killzone
+            score += 10
+        s.requiredSweep := rL
+        if sweptL
+            score += 20
+            s.phase := "Sweep Detected"
+            if not mssB
+                s.phase := "MSS Pending"
+                missing := "Wait for Bullish MSS (" + (na(pHiVal) ? "Pending" : str.tostring(pHiVal, "#.#####")) + ")"
+                s.triggerLevel := pHiVal
+            else
+                score += 20
+                s.phase := "MSS Confirmed"
+                if not fvgB
+                    s.phase := "FVG Pending"
+                    missing := "Wait for Bullish FVG"
+                else
+                    score += 20
+                    s.phase := "Armed"
+                    missing := "Ready for Trigger"
+        else if not na(rL) and close < rL * 1.005
+            s.phase := "Liquidity Nearby"
+            missing := "Waiting for Sweep of " + str.tostring(rL, "#.#####")
+        else
+            s.phase := "Monitoring"
+            missing := "Searching for SSL sweep..."
+
+    else
+        score += 10
+        if pd == "Premium"
+            score += 10
+        if killzone
+            score += 10
+        s.requiredSweep := rS
+        if sweptS
+            score += 20
+            s.phase := "Sweep Detected"
+            if not mssS
+                s.phase := "MSS Pending"
+                missing := "Wait for Bearish MSS (" + (na(pLoVal) ? "Pending" : str.tostring(pLoVal, "#.#####")) + ")"
+                s.triggerLevel := pLoVal
+            else
+                score += 20
+                s.phase := "MSS Confirmed"
+                if not fvgS
+                    s.phase := "FVG Pending"
+                    missing := "Wait for Bearish FVG"
+                else
+                    score += 20
+                    s.phase := "Armed"
+                    missing := "Ready for Trigger"
+        else if not na(rS) and close > rS * 0.995
+            s.phase := "Liquidity Nearby"
+            missing := "Waiting for Sweep of " + str.tostring(rS, "#.#####")
+        else
+            s.phase := "Monitoring"
+            missing := "Searching for BSL sweep..."
+
+    s.score := score
+    s.missing := missing
+    s.isPotentialLong := bias == "Bullish"
+    s.isPotentialShort := bias == "Bearish"
+    s
+
+liveSetup := eval_setup(marketBias, pdStatus, isKillzone, sweptSSL, sweptBSL, mssBull, mssBear, bullFVG, bearFVG, lastPHi, lastPLo, nearestBSL, nearestSSL, reqL, reqS)
+
+// --- Strategy Detection ---
+bool sig2022B = sweptSSL and mssBull and enableICT2022
+bool sig2022S = sweptBSL and mssBear and enableICT2022
+bool inSB = sbLon.isActive or sbAm.isActive
+bool sigSBB = inSB and bullFvgAligned and enableSilverBullet
+bool sigSBS = inSB and bearFvgAligned and enableSilverBullet
+
+
+// --- Alert History Engine ---
+var AlertLog[] alertLogs = array.new<AlertLog>()
+if (sig2022B or sigSBB or sig2022S or sigSBS)
+    string sig = (sig2022B or sigSBB) ? "BUY" : "SELL"
+    color c = (sig2022B or sigSBB) ? uiPosColor : uiNegColor
+    array.unshift(alertLogs, AlertLog.new(str.format_time(time, "HH:mm", NY_TZ), sig, close, c))
+    if array.size(alertLogs) > maxAlertRows
+        array.pop(alertLogs)
+
+// --- Trade Management ---
+var Stats mainStats = Stats.new()
+var Trade activeTrade = na
+var box[] historicalBoxes = array.new_box()
+
+method update_stats(Stats s, float rEarned, bool isWin) =>
+    s.totalTrades += 1
+    s.totalR += rEarned
+    s.equityR += rEarned
+    if isWin
+        s.wins += 1
+    else
+        s.losses += 1
+    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
+    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+
+bool isSignalB = sig2022B or sigSBB
+bool isSignalS = sig2022S or sigSBS
+
+if (isSignalB or isSignalS) and na(activeTrade)
+    float sl = isSignalB ? low[1] - (atr * 0.5) : high[1] + (atr * 0.5)
+    float risk = math.abs(close - sl)
+    float tp1 = isSignalB ? close + risk * 1.0 : close - risk * 1.0
+    float tp2 = isSignalB ? close + risk * 2.0 : close - risk * 2.0
+    box tpB = na
+    box slB = na
+    if showSetups and showZones
+        color tpCol = isSignalB ? longTpColor : shortTpColor
+        color slCol = isSignalB ? longSlColor : shortSlColor
+        tpB := box.new(bar_index, isSignalB ? tp2 : close, bar_index, isSignalB ? close : tp2, bgcolor = color.new(tpCol, activeTransp), border_color = tpCol, border_width = activeBorderWidth)
+        slB := box.new(bar_index, isSignalB ? close : sl, bar_index, isSignalB ? sl : close, bgcolor = color.new(slCol, activeTransp), border_color = slCol, border_width = activeBorderWidth)
+    activeTrade := Trade.new(sig2022B or sig2022S ? "ICT 2022" : "SB", isSignalB, close, sl, tp1, tp2, bar_index, true, false, tpB, slB)
+
+if not na(activeTrade)
+    bool closed = false
+    float r = 0.0
+    string outcome = ""
+    string sz = markerSizeInput == "Tiny" ? size.tiny : markerSizeInput == "Small" ? size.small : size.normal
+
+    if not na(activeTrade.tpBox)
+        box.set_right(activeTrade.tpBox, bar_index + (extendCandidateRight ? activeMinWidth : 0))
+        box.set_right(activeTrade.slBox, bar_index + (extendCandidateRight ? activeMinWidth : 0))
+
+    if activeTrade.isLong
+        if low <= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            outcome := r == 0 ? "BE" : "SL"
+            if showSlMarkers
+                label.new(bar_index, activeTrade.stopPrice, outcome, color = slMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+        else if high >= activeTrade.tp2Price
+            r := 2.0
+            closed := true
+            outcome := "TP2"
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp2Price, "TP2", color = tpMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+        else if high >= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp1Price, "TP1", color = tpMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+    else
+        if high >= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            outcome := r == 0 ? "BE" : "SL"
+            if showSlMarkers
+                label.new(bar_index, activeTrade.stopPrice, outcome, color = slMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+        else if low <= activeTrade.tp2Price
+            r := 2.0
+            closed := true
+            outcome := "TP2"
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp2Price, "TP2", color = tpMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+        else if low <= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp1Price, "TP1", color = tpMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+
+    if closed
+        mainStats.update_stats(r, r > 0)
+        box.set_right(activeTrade.tpBox, bar_index)
+        box.set_right(activeTrade.slBox, bar_index)
+        box.set_border_width(activeTrade.tpBox, 1)
+        box.set_border_width(activeTrade.slBox, 1)
+        array.push(historicalBoxes, activeTrade.tpBox)
+        array.push(historicalBoxes, activeTrade.slBox)
+        if array.size(historicalBoxes) > maxHistory * 2
+            box.delete(array.shift(historicalBoxes))
+            box.delete(array.shift(historicalBoxes))
+        activeTrade := na
+
+// --- Level Rendering ---
+render_level(float val, bool show, color col, string txt, string mode, int segLen, int offset, string styleStr, int width, bool showLabel) =>
+    var line l = na
+    var label lbl = na
+    style = styleStr == "Solid" ? line.style_solid : styleStr == "Dashed" ? line.style_dashed : line.style_dotted
+
+    if show and not na(val)
+        x1 = mode == "Full Width" ? bar_index - 500 : bar_index - segLen + offset
+        x2 = bar_index + offset
+        if na(l)
+            l := line.new(x1, val, x2, val, color = col, style = style, width = width)
+            if showLabel
+                lbl := label.new(x2, val, txt, color = #00000000, textcolor = col, style = label.style_label_left, size = size.small)
+        else
+            line.set_xy1(l, x1, val)
+            line.set_xy2(l, x2, val)
+            line.set_color(l, col)
+            line.set_style(l, style)
+            line.set_width(l, width)
+            if showLabel
+                label.set_xy(lbl, x2, val)
+                label.set_text(lbl, txt)
+                label.set_textcolor(lbl, col)
+    [l, lbl]
+
+if barstate.islast
+    render_level(pdh, showPDH, pdhColor, "PDH", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+    render_level(pdl, showPDL, pdlColor, "PDL", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+    render_level(pwh, showPWH, pwhColor, "PWH", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+    render_level(pwl, showPWL, pwlColor, "PWL", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+
+    render_level(asia.lastHigh, showAsiaH, asiaHColor, "Asia High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    render_level(asia.lastLow, showAsiaL, asiaLColor, "Asia Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    render_level(london.lastHigh, showLonH, lonHColor, "London High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    render_level(london.lastLow, showLonL, lonLColor, "London Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    render_level(ny.isActive ? ny.high : ny.lastHigh, showNYH, nyHColor, "NY High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+    render_level(ny.isActive ? ny.low : ny.lastLow, showNYL, nyLColor, "NY Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+
+// --- Helper: resolve table position ---
+resolve_pos(string pos) =>
+    pos == "top_right" ? position.top_right : pos == "top_left" ? position.top_left : pos == "bottom_right" ? position.bottom_right : position.bottom_left
+
+// =====================================================================
+// --- DASHBOARD 1: Setup & Performance ---
+// =====================================================================
+var table readTable = table.new(resolve_pos(readinessPos), 2, 15, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+if showReadiness and barstate.islast
+    float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
+
+    // --- Section A: Setup / Market Context ---
+    table.cell(readTable, 0, 0, "Setup & Performance", text_color = uiHeaderText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 0, "", bgcolor = uiBg)
+    table.cell(readTable, 0, 1, "Phase", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 1, liveSetup.phase, text_color = uiNeutralColor, text_size = size.small)
+    table.cell(readTable, 0, 2, "Market Bias", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 2, marketBias, text_color = marketBias == "Bullish" ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 3, "Session", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 3, activeSessName, text_color = isKillzone ? uiPosColor : uiLabelText, text_size = size.small)
+    table.cell(readTable, 0, 4, "Readiness Score", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 4, str.tostring(liveSetup.score) + "/100", text_color = liveSetup.score > 70 ? uiPosColor : (liveSetup.score > 40 ? color.orange : uiNegColor), text_size = size.small)
+    table.cell(readTable, 0, 5, "Next Step", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 5, liveSetup.missing, text_color = uiNeutralColor, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 0, 6, "Nearest BSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 6, na(liveSetup.nearestBSL) ? "Searching..." : str.tostring(liveSetup.nearestBSL, "#.#####"), text_color = uiPosColor, text_size = size.small)
+    table.cell(readTable, 0, 7, "Nearest SSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 7, na(liveSetup.nearestSSL) ? "Searching..." : str.tostring(liveSetup.nearestSSL, "#.#####"), text_color = uiNegColor, text_size = size.small)
+
+    // --- Section B: Performance ---
+    table.cell(readTable, 0, 8, "─── Performance ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(readTable, 1, 8, "", bgcolor = uiBg)
+    table.cell(readTable, 0, 9, "Win Rate", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 9, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 10, "Total Trades", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 10, str.tostring(mainStats.totalTrades), text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 11, "Wins / Losses", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 11, str.tostring(mainStats.wins) + " / " + str.tostring(mainStats.losses), text_color = uiValueText, text_size = size.small)
+    table.cell(readTable, 0, 12, "Total R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 12, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 13, "Equity R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 13, str.format("{0,number,#.##}R", mainStats.equityR), text_color = mainStats.equityR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 14, "Max DD R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 14, str.format("{0,number,#.##}R", mainStats.maxDrawdownR), text_color = mainStats.maxDrawdownR < 0 ? uiNegColor : uiLabelText, text_size = size.small)
+
+// =====================================================================
+// --- DASHBOARD 2: Market Intelligence (MTF Trend + Alerts + OB Scanner) ---
+// =====================================================================
+int intelRows = 1 + 4 + 1 + 1 + maxAlertRows + 1 + 1 + maxScannerRows
+var table marketIntelTable = table.new(resolve_pos(marketIntelPos), 3, intelRows, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+if showMarketIntelDash and barstate.islast
+    int row = 0
+
+    // --- Section A: Header ---
+    table.cell(marketIntelTable, 0, row, "Market Intelligence", text_color = uiHeaderText, text_size = size.small, text_halign = text.align_left)
+    table.merge_cells(marketIntelTable, 0, row, 2, row)
+    row += 1
+
+    // --- Section B: MTF Trend ---
+    bool htf1Bull = htf1Price > htf1Ema
+    bool htf2Bull = htf2Price > htf2Ema
+    bool curBull = close > emaBias
+
+    int trendScore = (htf1Bull ? 1 : 0) + (htf2Bull ? 1 : 0) + (curBull ? 1 : 0)
+    string alignment = trendScore == 3 ? "Strong Bullish" : trendScore == 0 ? "Strong Bearish" : trendScore == 2 ? "Bullish Alignment" : "Bearish Alignment"
+    color alignCol = trendScore >= 2 ? uiPosColor : (trendScore == 0 ? uiNegColor : uiNeutralColor)
+
+    table.cell(marketIntelTable, 0, row, "Alignment", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(marketIntelTable, 1, row, alignment, text_color = alignCol, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "", bgcolor = uiBg)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "HTF 2 (" + trendHTF2 + ")", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(marketIntelTable, 1, row, htf2Bull ? "BULL" : "BEAR", text_color = htf2Bull ? uiPosColor : uiNegColor, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "", bgcolor = uiBg)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "HTF 1 (" + trendHTF1 + ")", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(marketIntelTable, 1, row, htf1Bull ? "BULL" : "BEAR", text_color = htf1Bull ? uiPosColor : uiNegColor, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "", bgcolor = uiBg)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "Current (" + timeframe.period + ")", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(marketIntelTable, 1, row, curBull ? "BULL" : "BEAR", text_color = curBull ? uiPosColor : uiNegColor, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "", bgcolor = uiBg)
+    row += 1
+
+    // --- Section C: Alert History ---
+    table.cell(marketIntelTable, 0, row, "─── Alert History ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+    table.merge_cells(marketIntelTable, 0, row, 2, row)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "Time (NY)", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, "Signal", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "Price", text_color = uiLabelText, text_size = size.tiny)
+    row += 1
+
+    if array.size(alertLogs) > 0
+        for i = 0 to math.min(array.size(alertLogs) - 1, maxAlertRows - 1)
+            AlertLog al = array.get(alertLogs, i)
+            table.cell(marketIntelTable, 0, row, al.timeStr, text_color = uiLabelText, text_size = size.tiny)
+            table.cell(marketIntelTable, 1, row, al.signalType, text_color = al.col, text_size = size.tiny)
+            table.cell(marketIntelTable, 2, row, str.tostring(al.price, "#.#####"), text_color = uiValueText, text_size = size.tiny)
+            row += 1
+    else
+        table.cell(marketIntelTable, 0, row, "No signals yet", text_color = uiLabelText, text_size = size.tiny)
+        table.merge_cells(marketIntelTable, 0, row, 2, row)
+        row += 1
+
+    // --- Section D: Active Order Blocks ---
+    table.cell(marketIntelTable, 0, row, "─── Active OBs ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+    table.merge_cells(marketIntelTable, 0, row, 2, row)
+    row += 1
+
+    table.cell(marketIntelTable, 0, row, "Type", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 1, row, "Range", text_color = uiLabelText, text_size = size.tiny)
+    table.cell(marketIntelTable, 2, row, "Age", text_color = uiLabelText, text_size = size.tiny)
+    row += 1
+
+    int obCount = 0
+    if array.size(obArray) > 0
+        for i = array.size(obArray) - 1 to 0
+            SmartZone szOb = array.get(obArray, i)
+            if not szOb.mitigated and obCount < maxScannerRows
+                color c = szOb.isBull ? uiPosColor : uiNegColor
+                string t = szOb.isBull ? "BULL" : "BEAR"
+                string p = str.format("{0,number,#.##}-{1,number,#.##}", szOb.bottom, szOb.top)
+                string a = str.tostring(bar_index - szOb.startBar) + " bars"
+                table.cell(marketIntelTable, 0, row, t, text_color = c, text_size = size.tiny)
+                table.cell(marketIntelTable, 1, row, p, text_color = uiValueText, text_size = size.tiny)
+                table.cell(marketIntelTable, 2, row, a, text_color = uiLabelText, text_size = size.tiny)
+                row += 1
+                obCount += 1
+
+    if obCount == 0
+        table.cell(marketIntelTable, 0, row, "No active OBs", text_color = uiLabelText, text_size = size.tiny)
+        table.merge_cells(marketIntelTable, 0, row, 2, row)
+
+// --- Candidate Preview ---
+var box candTp = na
+var box candSl = na
+var label candLbl = na
+
+if barstate.islast
+    if showSetups and showCandidatePreview and liveSetup.score >= 60 and na(activeTrade)
+        float projRisk = atr * 1.5
+        float entry = close
+        float sl = marketBias == "Bullish" ? entry - projRisk : entry + projRisk
+        float tp = marketBias == "Bullish" ? entry + projRisk * 2.0 : entry - projRisk * 2.0
+        int width = activeSetupSize == "Large" ? activeMinWidth * 2 : activeSetupSize == "Normal" ? activeMinWidth : 10
+        bool isLongCandidate = marketBias == "Bullish"
+        color candTpCol = isLongCandidate ? longTpColor : shortTpColor
+        color candSlCol = isLongCandidate ? longSlColor : shortSlColor
+
+        if na(candTp)
+            candTp := box.new(bar_index, isLongCandidate ? tp : entry, bar_index + width, isLongCandidate ? entry : tp, bgcolor = color.new(candTpCol, activeTransp + 5), border_color = candTpCol, border_width = activeBorderWidth)
+            candSl := box.new(bar_index, isLongCandidate ? entry : sl, bar_index + width, isLongCandidate ? sl : entry, bgcolor = color.new(candSlCol, activeTransp + 5), border_color = candSlCol, border_width = activeBorderWidth)
+            candLbl := label.new(bar_index + width, entry, "Candidate Setup (" + str.tostring(liveSetup.score) + "%)", color = #00000000, textcolor = setupLabelColor, style = label.style_label_left, size = size.small)
+        else
+            box.set_lefttop(candTp, bar_index, isLongCandidate ? tp : entry)
+            box.set_rightbottom(candTp, bar_index + width, isLongCandidate ? entry : tp)
+            box.set_bgcolor(candTp, color.new(candTpCol, activeTransp + 5))
+            box.set_border_color(candTp, candTpCol)
+            box.set_lefttop(candSl, bar_index, isLongCandidate ? entry : sl)
+            box.set_rightbottom(candSl, bar_index + width, isLongCandidate ? sl : entry)
+            box.set_bgcolor(candSl, color.new(candSlCol, activeTransp + 5))
+            box.set_border_color(candSl, candSlCol)
+            label.set_xy(candLbl, bar_index + width, entry)
+            label.set_text(candLbl, "Candidate Setup (" + str.tostring(liveSetup.score) + "%)")
+            label.set_textcolor(candLbl, setupLabelColor)
+    else
+        if not na(candTp)
+            box.delete(candTp)
+            box.delete(candSl)
+            label.delete(candLbl)
+            candTp := na
+            candSl := na
+            candLbl := na
+
+// --- Alerts ---
+bool alertBuy = sig2022B or sigSBB
+bool alertSell = sig2022S or sigSBS
+alertcondition(alertBuy, "Buy Signal", "ICT/SMC Buy Setup Confirmed")
+alertcondition(alertSell, "Sell Signal", "ICT/SMC Sell Setup Confirmed")
+
+// --- Visual Shapes ---
+plotshape(showLabels and isSignalB, "Buy Signal", shape.labelup, location.belowbar, BULL_COLOR, text="BUY", textcolor=color.white, size = size.small)
+plotshape(showLabels and isSignalS, "Sell Signal", shape.labeldown, location.abovebar, BEAR_COLOR, text="SELL", textcolor=color.white, size = size.small)
