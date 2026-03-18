@@ -291,19 +291,30 @@ bool mssBear = ta.crossunder(close, lastPLo) and isDispBear and not na(prevPHi) 
 var SmartZone[] fvgArray = array.new<SmartZone>()
 var SmartZone[] obArray = array.new<SmartZone>()
 
-// FVG Detection — sized, directional, confirmed
-float minFvgSize = atr * 0.15
+// FVG Detection — tiered quality
+float minFvgSize = atr * 0.10
 float maxFvgSize = atr * 3.0
 float bullGapSize = low - high[2]
 float bearGapSize = low[2] - high
 
-bool bullConfirm = close > open or close > (high + low) / 2
-bool bearConfirm = close < open or close < (high + low) / 2
+// Core FVG: just the gap + middle candle has directional body
+bool midBullBody = close[1] > open[1]
+bool midBearBody = close[1] < open[1]
 
-bool bullFVG = bullGapSize > minFvgSize and bullGapSize < maxFvgSize
-     and isDispBull[1] and bullConfirm
-bool bearFVG = bearGapSize > minFvgSize and bearGapSize < maxFvgSize
-     and isDispBear[1] and bearConfirm
+bool bullFVG = bullGapSize > minFvgSize and bullGapSize < maxFvgSize and midBullBody
+bool bearFVG = bearGapSize > minFvgSize and bearGapSize < maxFvgSize and midBearBody
+
+// Quality grading (for confluence scoring later, not for filtering)
+// Grade A: displacement + large gap
+bool bullFVG_A = bullFVG and isDispBull[1] and bullGapSize > atr * 0.5
+bool bearFVG_A = bearFVG and isDispBear[1] and bearGapSize > atr * 0.5
+// Grade B: displacement OR large gap
+bool bullFVG_B = bullFVG and (isDispBull[1] or bullGapSize > atr * 0.3) and not bullFVG_A
+bool bearFVG_B = bearFVG and (isDispBear[1] or bearGapSize > atr * 0.3) and not bearFVG_A
+// Grade C: basic valid FVG (gap exists, correct body direction)
+bool bullFVG_C = bullFVG and not bullFVG_A and not bullFVG_B
+bool bearFVG_C = bearFVG and not bearFVG_A and not bearFVG_B
+
 
 // Bias-aligned variants for strategy triggers
 bool bullFvgAligned = bullFVG and (marketBias != "Bearish")
