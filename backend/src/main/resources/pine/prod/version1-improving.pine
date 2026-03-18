@@ -291,30 +291,34 @@ bool mssBear = ta.crossunder(close, lastPLo) and isDispBear and not na(prevPHi) 
 var SmartZone[] fvgArray = array.new<SmartZone>()
 var SmartZone[] obArray = array.new<SmartZone>()
 
-// FVG Detection — tiered quality
-float minFvgSize = atr * 0.10
+// FVG Detection — LuxAlgo-inspired adaptive threshold + quality grading
+// Auto threshold: cumulative average range as % of price (adapts to instrument & TF)
+float autoThreshold = ta.cum((high - low) / low) / bar_index
 float maxFvgSize = atr * 3.0
+
+// Wick-based gap (strict classic 3-candle FVG)
 float bullGapSize = low - high[2]
 float bearGapSize = low[2] - high
 
-// Core FVG: just the gap + middle candle has directional body
-bool midBullBody = close[1] > open[1]
-bool midBearBody = close[1] < open[1]
+// LuxAlgo close confirmation: middle candle must close through candle 1's extreme
+// This is stronger than just checking body direction — confirms commitment
+bool bullCloseConfirm = close[1] > high[2]
+bool bearCloseConfirm = close[1] < low[2]
 
-bool bullFVG = bullGapSize > minFvgSize and bullGapSize < maxFvgSize and midBullBody
-bool bearFVG = bearGapSize > minFvgSize and bearGapSize < maxFvgSize and midBearBody
+// Core FVG detection: gap exists + close confirmation + exceeds adaptive threshold
+bool bullFVG = bullGapSize > 0 and bullCloseConfirm and (bullGapSize / high[2]) > autoThreshold and bullGapSize < maxFvgSize
+bool bearFVG = bearGapSize > 0 and bearCloseConfirm and (bearGapSize / high) > autoThreshold and bearGapSize < maxFvgSize
 
-// Quality grading (for confluence scoring later, not for filtering)
-// Grade A: displacement + large gap
+// Quality grading (for confluence scoring, not filtering)
+// Grade A: displacement + large gap (> 0.5 ATR)
 bool bullFVG_A = bullFVG and isDispBull[1] and bullGapSize > atr * 0.5
 bool bearFVG_A = bearFVG and isDispBear[1] and bearGapSize > atr * 0.5
-// Grade B: displacement OR large gap
+// Grade B: displacement OR large gap (> 0.3 ATR)
 bool bullFVG_B = bullFVG and (isDispBull[1] or bullGapSize > atr * 0.3) and not bullFVG_A
 bool bearFVG_B = bearFVG and (isDispBear[1] or bearGapSize > atr * 0.3) and not bearFVG_A
-// Grade C: basic valid FVG (gap exists, correct body direction)
+// Grade C: basic valid FVG (passed threshold, has close confirmation)
 bool bullFVG_C = bullFVG and not bullFVG_A and not bullFVG_B
 bool bearFVG_C = bearFVG and not bearFVG_A and not bearFVG_B
-
 
 // Bias-aligned variants for strategy triggers
 bool bullFvgAligned = bullFVG and (marketBias != "Bearish")
@@ -400,7 +404,7 @@ if showOB
             float t = high[bar_index - obBar]
             float b_ = low[bar_index - obBar]
             box bx = box.new(obBar, t, bar_index, b_, bgcolor = bullObColor, border_color = color.new(bullObColor, 50))
-            array.push(obArray, SmartZone.new(bx, t, b_, true, false, false, obBar))
+            array.push(obArray, SmartZone.new(bx, t, b_, true, false, false, obBar, na, false, false, 0, na))
 
     if mssBear
         int obBar = na
@@ -412,9 +416,9 @@ if showOB
             float t = high[bar_index - obBar]
             float b_ = low[bar_index - obBar]
             box bx = box.new(obBar, t, bar_index, b_, bgcolor = bearObColor, border_color = color.new(bearObColor, 50))
-            array.push(obArray, SmartZone.new(bx, t, b_, false, false, false, obBar))
+            array.push(obArray, SmartZone.new(bx, t, b_, false, false, false, obBar, na, false, false, 0, na))
 
-// Mitigation & Inversion Logic
+// Mitigation & Inversion Logic (LuxAlgo-inspired: close-based mitigation for FVGs)
 update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
     if array.size(arr) > 0
         for i = array.size(arr) - 1 to 0
@@ -424,36 +428,53 @@ update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
 
                 if not sz.isInverted
                     if sz.isBull
-                        // Check for inversion (Close through)
+                        // Track CE touch (price enters the FVG)
+                        if isFVG and not na(sz.ce) and low <= sz.ce and not sz.ceRespected
+                            sz.ceRespected := true
+                            sz.touchCount += 1
+                        // Check for inversion: close fully through bottom
                         if isFVG and showIFVG and close < sz.bottom
                             sz.isInverted := true
                             box.set_bgcolor(sz.boxId, bearIfvgColor)
                             box.set_border_style(sz.boxId, line.style_solid)
-                        // Regular mitigation (Touch)
-                        else if low < sz.bottom
+                        // FVG mitigation: CLOSE below bottom (LuxAlgo style — not just wick touch)
+                        // OB mitigation: wick touch (unchanged — OBs are demand/supply zones)
+                        else if isFVG and close < sz.bottom
+                            sz.mitigated := true
+                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                        else if not isFVG and low < sz.bottom
                             sz.mitigated := true
                             box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
                             box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
                     else
-                        // Check for inversion (Close through)
+                        // Track CE touch
+                        if isFVG and not na(sz.ce) and high >= sz.ce and not sz.ceRespected
+                            sz.ceRespected := true
+                            sz.touchCount += 1
+                        // Check for inversion: close fully through top
                         if isFVG and showIFVG and close > sz.top
                             sz.isInverted := true
                             box.set_bgcolor(sz.boxId, bullIfvgColor)
                             box.set_border_style(sz.boxId, line.style_solid)
-                        // Regular mitigation (Touch)
-                        else if high > sz.top
+                        // FVG mitigation: CLOSE above top (LuxAlgo style)
+                        else if isFVG and close > sz.top
+                            sz.mitigated := true
+                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                        else if not isFVG and high > sz.top
                             sz.mitigated := true
                             box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
                             box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
                 else
-                    // Mitigation for Inverted Zones
+                    // Mitigation for Inverted Zones (close-based for FVGs, touch for OBs)
                     if sz.isBull // Was originally Bullish, now Bearish IFVG (Resistance)
-                        if high > sz.top
+                        if (isFVG and close > sz.top) or (not isFVG and high > sz.top)
                             sz.mitigated := true
                             box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
                             box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
                     else // Was originally Bearish, now Bullish IFVG (Support)
-                        if low < sz.bottom
+                        if (isFVG and close < sz.bottom) or (not isFVG and low < sz.bottom)
                             sz.mitigated := true
                             box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
                             box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
