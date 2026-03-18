@@ -72,6 +72,15 @@ type SmartZone
     int   touchCount = 0
     float gapSize = na
 
+type LiqSweep
+    string levelName
+    float  levelPrice
+    float  sweepDepth
+    float  sweepDepthAtr
+    int    sweepBar
+    bool   isSSL
+    bool   hasRejection
+    bool   hasDisplacement
 
 // --- Inputs ---
 var string G_SENS = "Signal Sensitivity"
@@ -486,30 +495,129 @@ update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
 update_zones(fvgArray, maxZones, true)
 update_zones(obArray, maxZones, false)
 
-// --- Liquidity State ---
-var bool sweptSSL = false
-var bool sweptBSL = false
-float reqL = asia.isActive ? na : asia.lastLow
-float reqS = asia.isActive ? na : asia.lastHigh
+// --- Liquidity Sweep Engine ---
+// Tracks individual level sweeps with metadata for quality assessment
+var LiqSweep[] activeSweeps = array.new<LiqSweep>()
+int sweepMaxAge = sensitivityMode == "Aggressive" ? 30 : sensitivityMode == "Conservative" ? 70 : 50
+int sweepMaxCount = 5
 
-if not na(reqL) and low < reqL and close > reqL
-    sweptSSL := true
-    sweptBSL := false
-if not na(reqS) and high > reqS and close < reqS
-    sweptBSL := true
-    sweptSSL := false
+// Check SSL sweep (sell-side liquidity — levels below price)
+check_sweep_ssl(string name, float level) =>
+    LiqSweep result = na
+    if not na(level) and level < close[1]
+        if low <= level and close > level
+            float depth = level - low
+            float depthAtr = depth / atr
+            bool rejection = close > open
+            bool disp = isDispBull
+            result := LiqSweep.new(name, level, depth, depthAtr, bar_index, true, rejection, disp)
+    result
 
+// Check BSL sweep (buy-side liquidity — levels above price)
+check_sweep_bsl(string name, float level) =>
+    LiqSweep result = na
+    if not na(level) and level > close[1]
+        if high >= level and close < level
+            float depth = high - level
+            float depthAtr = depth / atr
+            bool rejection = close < open
+            bool disp = isDispBear
+            result := LiqSweep.new(name, level, depth, depthAtr, bar_index, false, rejection, disp)
+    result
+
+// Check all SSL levels
+LiqSweep sslAsia = check_sweep_ssl("Asia Low", asia.isActive ? na : asia.lastLow)
+LiqSweep sslLondon = check_sweep_ssl("London Low", london.isActive ? na : london.lastLow)
+LiqSweep sslPDL = check_sweep_ssl("PDL", pdl)
+LiqSweep sslPWL = check_sweep_ssl("PWL", pwl)
+LiqSweep sslPivot = check_sweep_ssl("Pivot Low", lastPLo)
+
+// Check all BSL levels
+LiqSweep bslAsia = check_sweep_bsl("Asia High", asia.isActive ? na : asia.lastHigh)
+LiqSweep bslLondon = check_sweep_bsl("London High", london.isActive ? na : london.lastHigh)
+LiqSweep bslPDH = check_sweep_bsl("PDH", pdh)
+LiqSweep bslPWH = check_sweep_bsl("PWH", pwh)
+LiqSweep bslPivot = check_sweep_bsl("Pivot High", lastPHi)
+
+// Register new sweeps (avoid duplicates for same level within 3 bars)
+register_sweep(LiqSweep s) =>
+    if not na(s)
+        bool duplicate = false
+        if array.size(activeSweeps) > 0
+            for i = array.size(activeSweeps) - 1 to math.max(0, array.size(activeSweeps) - 5)
+                LiqSweep existing = array.get(activeSweeps, i)
+                if existing.levelName == s.levelName and (bar_index - existing.sweepBar) < 3
+                    duplicate := true
+                    if s.sweepDepth > existing.sweepDepth
+                        existing.sweepDepth := s.sweepDepth
+                        existing.sweepDepthAtr := s.sweepDepthAtr
+                        existing.hasRejection := existing.hasRejection or s.hasRejection
+                        existing.hasDisplacement := existing.hasDisplacement or s.hasDisplacement
+                    break
+        if not duplicate
+            array.push(activeSweeps, s)
+
+register_sweep(sslAsia)
+register_sweep(sslLondon)
+register_sweep(sslPDL)
+register_sweep(sslPWL)
+register_sweep(sslPivot)
+register_sweep(bslAsia)
+register_sweep(bslLondon)
+register_sweep(bslPDH)
+register_sweep(bslPWH)
+register_sweep(bslPivot)
+
+// Expire stale sweeps
+if array.size(activeSweeps) > 0
+    for i = array.size(activeSweeps) - 1 to 0
+        LiqSweep s = array.get(activeSweeps, i)
+        if (bar_index - s.sweepBar) > sweepMaxAge
+            array.remove(activeSweeps, i)
+if array.size(activeSweeps) > sweepMaxCount
+    array.shift(activeSweeps)
+
+// Clear sweeps consumed by MSS (setup completed)
 if mssBull
-    sweptSSL := false
+    if array.size(activeSweeps) > 0
+        for i = array.size(activeSweeps) - 1 to 0
+            LiqSweep s = array.get(activeSweeps, i)
+            if s.isSSL
+                array.remove(activeSweeps, i)
 if mssBear
-    sweptBSL := false
+    if array.size(activeSweeps) > 0
+        for i = array.size(activeSweeps) - 1 to 0
+            LiqSweep s = array.get(activeSweeps, i)
+            if not s.isSSL
+                array.remove(activeSweeps, i)
+
+// --- Derived sweep state (backwards-compatible + enhanced) ---
+bool sweptSSL = false
+bool sweptBSL = false
+float sweepQualitySSL = 0.0
+float sweepQualityBSL = 0.0
+
+if array.size(activeSweeps) > 0
+    for i = 0 to array.size(activeSweeps) - 1
+        LiqSweep s = array.get(activeSweeps, i)
+        float age = bar_index - s.sweepBar
+        float freshness = 1.0 - (age / sweepMaxAge)
+        float q = s.sweepDepthAtr * 30.0 + (s.hasRejection ? 20.0 : 0.0) + (s.hasDisplacement ? 25.0 : 0.0) + freshness * 25.0
+        if s.isSSL
+            sweptSSL := true
+            if q > sweepQualitySSL
+                sweepQualitySSL := q
+        else
+            sweptBSL := true
+            if q > sweepQualityBSL
+                sweepQualityBSL := q
 
 // Premium / Discount
 int rangeLookback = 50
 float pdArray = (ta.highest(rangeLookback) + ta.lowest(rangeLookback)) / 2
 string pdStatus = close > pdArray ? "Premium" : "Discount"
 
-// --- Liquidity Engine ---
+// --- Liquidity Level Map (nearest untouched levels) ---
 float nearestBSL = na
 float nearestSSL = na
 
@@ -534,6 +642,10 @@ if not na(pwl) and pwl < close
     nearestSSL := na(nearestSSL) ? pwl : math.max(nearestSSL, pwl)
 if not na(lastPLo) and lastPLo < close
     nearestSSL := na(nearestSSL) ? lastPLo : math.max(nearestSSL, lastPLo)
+
+// reqL/reqS now use full liquidity map instead of Asia-only
+float reqL = nearestSSL
+float reqS = nearestBSL
 
 // --- Setup Readiness Evaluation ---
 SetupState liveSetup = SetupState.new()
