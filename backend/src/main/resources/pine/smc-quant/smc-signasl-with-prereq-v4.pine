@@ -1,0 +1,418 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("SMC & ICT Multi-Strategy [Pro Visuals]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// --- Constants ---
+string NY_TZ = "America/New_York"
+color BULL_COLOR = #089981
+color BEAR_COLOR = #f23645
+color NEUTRAL_COLOR = #5b9cf6
+
+// --- User Defined Types ---
+type Trade
+    string  strategyName
+    bool    isLong
+    float   entryPrice
+    float   stopPrice
+    float   tp1Price
+    float   tp2Price
+    int     entryBar
+    bool    isActive = false
+    bool    isTp1Hit = false
+    box     tpBox    = na
+    box     slBox    = na
+
+type Stats
+    int     totalTrades = 0
+    int     wins = 0
+    int     losses = 0
+    float   totalR = 0.0
+    float   equityR = 0.0
+    float   maxDrawdownR = 0.0
+    float   peakEquityR = 0.0
+
+type SessionData
+    string name
+    string timeRange
+    bool   isActive = false
+    float  high = na
+    float  low = na
+    float  lastHigh = na
+    float  lastLow = na
+
+type SetupState
+    string  phase = "Monitoring"
+    int     score = 0
+    string  missing = "Searching for context..."
+    float   nearestBSL = na
+    float   nearestSSL = na
+    float   requiredSweep = na
+    float   triggerLevel = na
+    float   invalidationLevel = na
+    bool    isPotentialLong = false
+    bool    isPotentialShort = false
+
+// --- Inputs ---
+var string G_SENS = "Signal Sensitivity"
+string sensitivityMode = input.string("Balanced", "Sensitivity Mode", options = ["Aggressive", "Balanced", "Conservative"], tooltip = "Adjusts pivot lookback and displacement requirements for signals.", group = G_SENS)
+
+var string G_VIS = "Visual Style & Display"
+bool showLabels = input.bool(true, "Show Buy/Sell Labels", group = G_VIS)
+bool showZones = input.bool(true, "Show Trade SL/TP Zones", group = G_VIS)
+int maxHistory = input.int(5, "Max Historical Trades Shown", minval = 1, maxval = 20, group = G_VIS)
+
+var string G_STRAT = "Strategy Toggles"
+bool enableICT2022 = input.bool(true, "ICT 2022 Model (Sweep + MSS)", group = G_STRAT)
+bool enableSilverBullet = input.bool(true, "Silver Bullet (Time + FVG)", group = G_STRAT)
+
+var string G_READINESS = "Setup Readiness Dashboard"
+bool showReadiness = input.bool(true, "Show Readiness Dashboard", group = G_READINESS)
+string readinessPos = input.string("bottom_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_READINESS)
+
+var string G_DASH = "Performance Dashboard"
+bool showDash = input.bool(true, "Show Performance Dashboard", group = G_DASH)
+string dashPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_DASH)
+
+// --- Sensitivity Logic ---
+float sensAtrMult = sensitivityMode == "Aggressive" ? 1.0 : sensitivityMode == "Conservative" ? 2.5 : 1.5
+int sensPivotLen = sensitivityMode == "Aggressive" ? 2 : sensitivityMode == "Conservative" ? 5 : 3
+
+// --- Session Engine ---
+var asia    = SessionData.new("Asia", "2000-0000")
+var london  = SessionData.new("London", "0200-1100")
+var ny      = SessionData.new("New York", "0800-1700")
+var overlap = SessionData.new("London/NY Overlap", "0800-1100")
+var sbLon   = SessionData.new("SB London", "0300-0400")
+var sbAm    = SessionData.new("SB AM", "1000-1100")
+
+update_session(SessionData s) =>
+    inSess = not na(time(timeframe.period, s.timeRange, NY_TZ))
+    if inSess
+        if not s.isActive
+            s.high := high
+            s.low := low
+        else
+            s.high := math.max(high, s.high)
+            s.low := math.min(low, s.low)
+    else if s.isActive
+        s.lastHigh := s.high
+        s.lastLow := s.low
+    s.isActive := inSess
+
+update_session(asia)
+update_session(london)
+update_session(ny)
+update_session(overlap)
+update_session(sbLon)
+update_session(sbAm)
+
+string activeSessName = overlap.isActive ? overlap.name : ny.isActive ? ny.name : london.isActive ? london.name : asia.isActive ? asia.name : "Inter-Session"
+bool isKillzone = sbLon.isActive or sbAm.isActive or overlap.isActive
+
+// --- HTF Liquidity ---
+float pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+float pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+float pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+float pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+
+// --- Core Data & Primitives ---
+float atr = ta.atr(14)
+bool isDisplacement = (high - low) > (atr * sensAtrMult)
+float emaBias = ta.ema(close, 200)
+string marketBias = close > emaBias ? "Bullish" : "Bearish"
+
+// Market Structure Shift (MSS)
+float pHi = ta.pivothigh(sensPivotLen, sensPivotLen)
+float pLo = ta.pivotlow(sensPivotLen, sensPivotLen)
+var float lastPHi = na
+var float lastPLo = na
+if not na(pHi)
+    lastPHi := pHi
+if not na(pLo)
+    lastPLo := pLo
+
+bool mssBull = ta.crossover(close, lastPHi) and isDisplacement
+bool mssBear = ta.crossunder(close, lastPLo) and isDisplacement
+
+// Fair Value Gaps (FVG)
+bool bullFVG = low > high[2] and isDisplacement[1]
+bool bearFVG = high < low[2] and isDisplacement[1]
+var float lastBullFVG_CE = na
+var float lastBearFVG_CE = na
+if bullFVG
+    lastBullFVG_CE := (low + high[2]) / 2
+if bearFVG
+    lastBearFVG_CE := (high + low[2]) / 2
+
+// Liquidity State
+var bool sweptSSL = false
+var bool sweptBSL = false
+float reqL = asia.isActive ? na : asia.lastLow
+float reqS = asia.isActive ? na : asia.lastHigh
+
+if not na(reqL) and low < reqL and close > reqL
+    sweptSSL := true
+    sweptBSL := false
+if not na(reqS) and high > reqS and close < reqS
+    sweptBSL := true
+    sweptSSL := false
+
+if mssBull
+    sweptSSL := false
+if mssBear
+    sweptBSL := false
+
+// Premium / Discount
+int rangeLookback = 50
+float pdArray = (ta.highest(rangeLookback) + ta.lowest(rangeLookback)) / 2
+string pdStatus = close > pdArray ? "Premium" : "Discount"
+
+// --- Liquidity Engine (Dashboard Selection) ---
+float nearestBSL = na
+float nearestSSL = na
+
+// BSL Candidates
+if not na(asia.lastHigh) and asia.lastHigh > close
+    nearestBSL := asia.lastHigh
+if not na(london.lastHigh) and london.lastHigh > close
+    nearestBSL := na(nearestBSL) ? london.lastHigh : math.min(nearestBSL, london.lastHigh)
+if not na(pdh) and pdh > close
+    nearestBSL := na(nearestBSL) ? pdh : math.min(nearestBSL, pdh)
+if not na(pwh) and pwh > close
+    nearestBSL := na(nearestBSL) ? pwh : math.min(nearestBSL, pwh)
+if not na(lastPHi) and lastPHi > close
+    nearestBSL := na(nearestBSL) ? lastPHi : math.min(nearestBSL, lastPHi)
+
+// SSL Candidates
+if not na(asia.lastLow) and asia.lastLow < close
+    nearestSSL := asia.lastLow
+if not na(london.lastLow) and london.lastLow < close
+    nearestSSL := na(nearestSSL) ? london.lastLow : math.max(nearestSSL, london.lastLow)
+if not na(pdl) and pdl < close
+    nearestSSL := na(nearestSSL) ? pdl : math.max(nearestSSL, pdl)
+if not na(pwl) and pwl < close
+    nearestSSL := na(nearestSSL) ? pwl : math.max(nearestSSL, pwl)
+if not na(lastPLo) and lastPLo < close
+    nearestSSL := na(nearestSSL) ? lastPLo : math.max(nearestSSL, lastPLo)
+
+// --- Setup Readiness Evaluation ---
+SetupState liveSetup = SetupState.new()
+
+eval_setup(string bias, string pd, bool killzone, bool sweptL, bool sweptS, bool mssB, bool mssS, bool fvgB, bool fvgS, float pHiVal, float pLoVal, float fvgB_CE, float fvgS_CE, float nBSL, float nSSL, float rL, float rS) =>
+    SetupState s = SetupState.new()
+    s.nearestBSL := nBSL
+    s.nearestSSL := nSSL
+    int score = 0
+    string missing = ""
+
+    if bias == "Bullish"
+        score += 10
+        if pd == "Discount"
+            score += 10
+        if killzone
+            score += 10
+        s.requiredSweep := rL
+        if sweptL
+            score += 20
+            s.phase := "Sweep Detected"
+            if not mssB
+                s.phase := "MSS Pending"
+                missing := "Wait for Bullish MSS (" + (na(pHiVal) ? "Pending" : str.tostring(pHiVal, "#.#####")) + ")"
+                s.triggerLevel := pHiVal
+            else
+                score += 20
+                s.phase := "MSS Confirmed"
+                if not fvgB
+                    s.phase := "FVG Pending"
+                    missing := "Wait for Bullish FVG"
+                else
+                    score += 20
+                    s.phase := "FVG Formed"
+                    if close > fvgB_CE
+                        s.phase := "Retrace Pending"
+                        missing := "Wait for FVG Retest (" + str.tostring(fvgB_CE, "#.#####") + ")"
+                    else
+                        score += 10
+                        s.phase := "Armed"
+                        missing := "Ready for Trigger"
+        else if not na(rL) and close < rL * 1.005
+            s.phase := "Liquidity Nearby"
+            missing := "Waiting for Sweep of " + str.tostring(rL, "#.#####")
+        else
+            s.phase := "Monitoring"
+            missing := "Searching for SSL sweep..."
+
+    else
+        score += 10
+        if pd == "Premium"
+            score += 10
+        if killzone
+            score += 10
+        s.requiredSweep := rS
+        if sweptS
+            score += 20
+            s.phase := "Sweep Detected"
+            if not mssS
+                s.phase := "MSS Pending"
+                missing := "Wait for Bearish MSS (" + (na(pLoVal) ? "Pending" : str.tostring(pLoVal, "#.#####")) + ")"
+                s.triggerLevel := pLoVal
+            else
+                score += 20
+                s.phase := "MSS Confirmed"
+                if not fvgS
+                    s.phase := "FVG Pending"
+                    missing := "Wait for Bearish FVG"
+                else
+                    score += 20
+                    s.phase := "FVG Formed"
+                    if close < fvgS_CE
+                        s.phase := "Retrace Pending"
+                        missing := "Wait for FVG Retest (" + str.tostring(fvgS_CE, "#.#####") + ")"
+                    else
+                        score += 10
+                        s.phase := "Armed"
+                        missing := "Ready for Trigger"
+        else if not na(rS) and close > rS * 0.995
+            s.phase := "Liquidity Nearby"
+            missing := "Waiting for Sweep of " + str.tostring(rS, "#.#####")
+        else
+            s.phase := "Monitoring"
+            missing := "Searching for BSL sweep..."
+
+    s.score := score
+    s.missing := missing
+    s.isPotentialLong := bias == "Bullish"
+    s.isPotentialShort := bias == "Bearish"
+    s
+
+liveSetup := eval_setup(marketBias, pdStatus, isKillzone, sweptSSL, sweptBSL, mssBull, mssBear, bullFVG, bearFVG, lastPHi, lastPLo, lastBullFVG_CE, lastBearFVG_CE, nearestBSL, nearestSSL, reqL, reqS)
+
+// --- Strategy Detection ---
+bool sig2022B = sweptSSL and mssBull and enableICT2022
+bool sig2022S = sweptBSL and mssBear and enableICT2022
+bool inSB = sbLon.isActive or sbAm.isActive
+bool sigSBB = inSB and bullFVG and enableSilverBullet
+bool sigSBS = inSB and bearFVG and enableSilverBullet
+
+// --- Trade Management Logic ---
+var Stats mainStats = Stats.new()
+var Trade activeTrade = na
+var box[] historicalBoxes = array.new_box()
+
+method update_stats(Stats s, float rEarned, bool isWin) =>
+    s.totalTrades += 1
+    s.totalR += rEarned
+    s.equityR += rEarned
+    if isWin
+        s.wins += 1
+    else
+        s.losses += 1
+    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
+    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+
+bool isSignalB = sig2022B or sigSBB
+bool isSignalS = sig2022S or sigSBS
+
+if (isSignalB or isSignalS) and na(activeTrade)
+    float sl = isSignalB ? low[1] - (atr * 0.5) : high[1] + (atr * 0.5)
+    float risk = math.abs(close - sl)
+    float tp1 = isSignalB ? close + risk * 1.0 : close - risk * 1.0
+    float tp2 = isSignalB ? close + risk * 2.0 : close - risk * 2.0
+    box tpB = na
+    box slB = na
+    if showZones
+        tpB := box.new(bar_index, isSignalB ? tp2 : close, bar_index, isSignalB ? close : tp2, bgcolor = color.new(BULL_COLOR, 90), border_color = color.new(BULL_COLOR, 80))
+        slB := box.new(bar_index, isSignalB ? close : sl, bar_index, isSignalB ? sl : close, bgcolor = color.new(BEAR_COLOR, 90), border_color = color.new(BEAR_COLOR, 80))
+    activeTrade := Trade.new(sig2022B or sig2022S ? "ICT 2022" : "SB", isSignalB, close, sl, tp1, tp2, bar_index, true, false, tpB, slB)
+
+if not na(activeTrade)
+    bool closed = false
+    float r = 0.0
+    string outcome = ""
+    if not na(activeTrade.tpBox)
+        box.set_right(activeTrade.tpBox, bar_index)
+        box.set_right(activeTrade.slBox, bar_index)
+    if activeTrade.isLong
+        if low <= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            outcome := r == 0 ? "BE" : "SL"
+        else if high >= activeTrade.tp2Price
+            r := 2.0
+            closed := true
+            outcome := "TP"
+        else if high >= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+    else
+        if high >= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            outcome := r == 0 ? "BE" : "SL"
+        else if low <= activeTrade.tp2Price
+            r := 2.0
+            closed := true
+            outcome := "TP"
+        else if low <= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+    if closed
+        mainStats.update_stats(r, r > 0)
+        array.push(historicalBoxes, activeTrade.tpBox)
+        array.push(historicalBoxes, activeTrade.slBox)
+        if array.size(historicalBoxes) > maxHistory * 2
+            box.delete(array.shift(historicalBoxes))
+            box.delete(array.shift(historicalBoxes))
+        activeTrade := na
+
+// --- Dashboards ---
+var table perfTable = table.new(dashPos == "top_right" ? position.top_right : (dashPos == "top_left" ? position.top_left : (dashPos == "bottom_right" ? position.bottom_right : position.bottom_left)), 2, 5, bgcolor = color.new(chart.bg_color, 10), border_width = 1, border_color = chart.fg_color)
+if showDash and barstate.islast
+    float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
+    table.cell(perfTable, 0, 0, "Performance", text_color = chart.fg_color, text_size = size.small, text_halign = text.align_left)
+    table.cell(perfTable, 1, 0, "", bgcolor = chart.bg_color)
+    table.cell(perfTable, 0, 1, "Win Rate", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(perfTable, 1, 1, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? BULL_COLOR : BEAR_COLOR, text_size = size.small)
+    table.cell(perfTable, 0, 2, "Total R", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(perfTable, 1, 2, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? BULL_COLOR : BEAR_COLOR, text_size = size.small)
+
+var table readTable = table.new(readinessPos == "bottom_right" ? position.bottom_right : (readinessPos == "bottom_left" ? position.bottom_left : (readinessPos == "top_right" ? position.top_right : position.top_left)), 2, 18, bgcolor = color.new(chart.bg_color, 10), border_width = 1, border_color = chart.fg_color)
+if showReadiness and barstate.islast
+    table.cell(readTable, 0, 0, "Setup Readiness", text_color = chart.fg_color, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 0, liveSetup.phase, text_color = NEUTRAL_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 1, "Market Bias", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 1, marketBias, text_color = marketBias == "Bullish" ? BULL_COLOR : BEAR_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 2, "Session", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 2, activeSessName, text_color = isKillzone ? BULL_COLOR : color.gray, text_size = size.small)
+    table.cell(readTable, 0, 3, "Readiness Score", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 3, str.tostring(liveSetup.score) + "/100", text_color = liveSetup.score > 70 ? BULL_COLOR : (liveSetup.score > 40 ? color.orange : BEAR_COLOR), text_size = size.small)
+    table.cell(readTable, 0, 4, "Next Step", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 4, liveSetup.missing, text_color = NEUTRAL_COLOR, text_size = size.small, text_halign = text.align_left)
+
+    // Liquidity Monitoring
+    table.cell(readTable, 0, 5, "Nearest BSL (Above)", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 5, na(liveSetup.nearestBSL) ? "Searching..." : str.tostring(liveSetup.nearestBSL, "#.#####"), text_color = BULL_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 6, "Nearest SSL (Below)", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 6, na(liveSetup.nearestSSL) ? "Searching..." : str.tostring(liveSetup.nearestSSL, "#.#####"), text_color = BEAR_COLOR, text_size = size.small)
+
+    // HTF Levels
+    table.cell(readTable, 0, 7, "Prev Day High", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 7, str.tostring(pdh, "#.#####"), text_color = BULL_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 8, "Prev Day Low", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 8, str.tostring(pdl, "#.#####"), text_color = BEAR_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 9, "Prev Week High", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 9, str.tostring(pwh, "#.#####"), text_color = BULL_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 10, "Prev Week Low", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 10, str.tostring(pwl, "#.#####"), text_color = BEAR_COLOR, text_size = size.small)
+
+    // Session Ranges
+    table.cell(readTable, 0, 11, "Asia High", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 11, na(asia.lastHigh) ? "Waiting..." : str.tostring(asia.lastHigh, "#.#####"), text_color = BULL_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 12, "Asia Low", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 12, na(asia.lastLow) ? "Waiting..." : str.tostring(asia.lastLow, "#.#####"), text_color = BEAR_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 13, "London High", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 13, na(london.lastHigh) ? "Waiting..." : str.tostring(london.lastHigh, "#.#####"), text_color = BULL_COLOR, text_size = size.small)
+    table.cell(readTable, 0, 14, "London Low", text_color = color.gray, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, 14, na(london.lastLow) ? "Waiting..." : str.tostring(london.lastLow, "#.#####"), text_color = BEAR_COLOR, text_size = size.small)
+
+// --- Visual Shapes ---
+plotshape(showLabels and isSignalB, "Buy Signal", shape.labelup, location.belowbar, BULL_COLOR, text="BUY", textcolor=color.white, size = size.small)
+plotshape(showLabels and isSignalS, "Sell Signal", shape.labeldown, location.abovebar, BEAR_COLOR, text="SELL", textcolor=color.white, size = size.small)

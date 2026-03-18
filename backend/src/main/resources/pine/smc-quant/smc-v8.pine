@@ -1,0 +1,492 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("SMC & ICT Multi-Strategy [Pro Visuals]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// --- Constants ---
+string NY_TZ = "America/New_York"
+color BULL_COLOR = #089981
+color BEAR_COLOR = #f23645
+color NEUTRAL_COLOR = #5b9cf6
+
+// --- User Defined Types ---
+type Trade
+    string  strategyName
+    bool    isLong
+    float   entryPrice
+    float   stopPrice
+    float   tp1Price
+    float   tp2Price
+    int     entryBar
+    bool    isActive = false
+    bool    isTp1Hit = false
+    box     tpBox    = na
+    box     slBox    = na
+
+type Candidate
+    bool    isLong
+    float   entryZoneTop
+    float   entryZoneBottom
+    float   sl
+    float   tp1
+    float   tp2
+    int     startBar
+    int     expiryBar
+    string  status = "Armed" // Armed, Filled, Expired, Invalidated
+    string  failReason = ""
+    box     zoneBox = na
+
+type Stats
+    int     totalTrades = 0
+    int     wins = 0
+    int     losses = 0
+    float   totalR = 0.0
+    float   equityR = 0.0
+    float   maxDrawdownR = 0.0
+    float   peakEquityR = 0.0
+
+type SessionData
+    string name
+    string timeRange
+    bool   isActive = false
+    float  high = na
+    float  low = na
+    float  lastHigh = na
+    float  lastLow = na
+
+type SetupState
+    string  phase = "Monitoring"
+    int     score = 0
+    string  missing = "Searching for context..."
+    string  lastRejection = "None"
+    float   nearestBSL = na
+    float   nearestSSL = na
+    float   requiredSweep = na
+    bool    isPotentialLong = false
+    bool    isPotentialShort = false
+
+type SmartZone
+    box   boxId
+    float top
+    float bottom
+    bool  isBull
+    bool  mitigated = false
+    int   startBar
+
+// --- Inputs ---
+var string G_SENS = "Signal Sensitivity"
+string sensitivityMode = input.string("Balanced", "Sensitivity Mode", options = ["Aggressive", "Balanced", "Conservative"], tooltip = "Conservative mode requires FVG retest and stricter spacing.", group = G_SENS)
+
+var string G_CONS = "Conservative Strictness"
+int retracementExpiry = input.int(10, "Retracement Expiry (Bars)", minval = 1, tooltip = "Max bars to wait for retest into entry zone.", group = G_CONS)
+int minBarsBetween = input.int(15, "Min Bars Between Setups", minval = 1, tooltip = "Prevents clustered signals in the same region.", group = G_CONS)
+float minRR = input.float(1.5, "Min Reward/Risk Ratio", minval = 0.5, step = 0.1, group = G_CONS)
+bool cancelIfFrontRun = input.bool(true, "Cancel if Target Hit First", tooltip = "Cancel setup if price reaches near TP before filling.", group = G_CONS)
+
+var string G_VIS = "Visual Style & Display"
+bool showLabels = input.bool(true, "Show Buy/Sell Labels", group = G_VIS)
+bool showZones = input.bool(true, "Show Trade SL/TP Zones", group = G_VIS)
+int maxHistory = input.int(5, "Max Historical Trades Shown", minval = 1, maxval = 20, group = G_VIS)
+
+var string G_SMC = "Supply & Demand Elements"
+bool showOB = input.bool(true, "Show Order Blocks", group = G_SMC)
+bool showFVG = input.bool(true, "Show FVG Zones", group = G_SMC)
+int maxZones = input.int(10, "Max Historical Zones", minval = 1, maxval = 50, group = G_SMC)
+color bullObColor = input.color(color.new(BULL_COLOR, 80), "Bull OB Color", group = G_SMC)
+color bearObColor = input.color(color.new(BEAR_COLOR, 80), "Bear OB Color", group = G_SMC)
+color bullFvgColor = input.color(color.new(BULL_COLOR, 90), "Bull FVG Color", group = G_SMC)
+color bearFvgColor = input.color(color.new(BEAR_COLOR, 90), "Bear FVG Color", group = G_SMC)
+
+var string G_STRAT = "Strategy Toggles"
+bool enableICT2022 = input.bool(true, "ICT 2022 Model (Sweep + MSS)", group = G_STRAT)
+bool enableSilverBullet = input.bool(true, "Silver Bullet (Time + FVG)", group = G_STRAT)
+
+var string G_READINESS = "Setup Readiness Dashboard"
+bool showReadiness = input.bool(true, "Show Readiness Dashboard", group = G_READINESS)
+string readinessPos = input.string("bottom_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_READINESS)
+
+var string G_DASH = "Performance Dashboard"
+bool showDash = input.bool(true, "Show Performance Dashboard", group = G_DASH)
+string dashPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_DASH)
+
+var string G_HTF_VIS = "HTF Levels Visibility"
+string htfDisplayMode = input.string("Short Segment", "Display Mode", options = ["Short Segment", "Full Width"], group = G_HTF_VIS)
+int htfSegLen = input.int(15, "Segment Length", minval = 1, group = G_HTF_VIS)
+int htfSegOffset = input.int(5, "Segment Offset", minval = 0, group = G_HTF_VIS)
+bool showPDH = input.bool(true, "PDH", group = G_HTF_VIS, inline = "pdh")
+color pdhColor = input.color(color.new(color.gray, 30), "", group = G_HTF_VIS, inline = "pdh")
+bool showPDL = input.bool(true, "PDL", group = G_HTF_VIS, inline = "pdl")
+color pdlColor = input.color(color.new(color.gray, 30), "", group = G_HTF_VIS, inline = "pdl")
+bool showPWH = input.bool(true, "PWH", group = G_HTF_VIS, inline = "pwh")
+color pwhColor = input.color(color.new(color.blue, 30), "", group = G_HTF_VIS, inline = "pwh")
+bool showPWL = input.bool(true, "PWL", group = G_HTF_VIS, inline = "pwl")
+color pwlColor = input.color(color.new(color.blue, 30), "", group = G_HTF_VIS, inline = "pwl")
+string htfLineStyleInput = input.string("Dashed", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = G_HTF_VIS)
+int htfLineWidth = input.int(1, "Line Width", minval = 1, group = G_HTF_VIS)
+bool htfShowLabels = input.bool(true, "Show Labels", group = G_HTF_VIS)
+
+var string G_SESS_LINES = "Session High/Low Lines"
+string sessDisplayMode = input.string("Short Segment", "Display Mode", options = ["Short Segment", "Full Width"], group = G_SESS_LINES)
+int sessSegLen = input.int(15, "Segment Length", minval = 1, group = G_SESS_LINES)
+bool showAsiaH = input.bool(false, "Asia High", group = G_SESS_LINES, inline = "asiah")
+color asiaHColor = input.color(color.new(color.purple, 30), "", group = G_SESS_LINES, inline = "asiah")
+bool showAsiaL = input.bool(false, "Asia Low", group = G_SESS_LINES, inline = "asial")
+color asiaLColor = input.color(color.new(color.purple, 30), "", group = G_SESS_LINES, inline = "asial")
+bool showLonH = input.bool(false, "London High", group = G_SESS_LINES, inline = "lonh")
+color lonHColor = input.color(color.new(color.orange, 30), "", group = G_SESS_LINES, inline = "lonh")
+bool showLonL = input.bool(false, "London Low", group = G_SESS_LINES, inline = "lonl")
+color lonLColor = input.color(color.new(color.orange, 30), "", group = G_SESS_LINES, inline = "lonl")
+bool showNYH = input.bool(false, "NY High", group = G_SESS_LINES, inline = "nyh")
+color nyHColor = input.color(color.new(color.red, 30), "", group = G_SESS_LINES, inline = "nyh")
+bool showNYL = input.bool(false, "NY Low", group = G_SESS_LINES, inline = "nyl")
+color nyLColor = input.color(color.new(color.red, 30), "", group = G_SESS_LINES, inline = "nyl")
+string sessLineStyleInput = input.string("Dotted", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = G_SESS_LINES)
+
+var string G_ACTIVE_VIS = "Active Setup Visuals"
+bool showCandidatePreview = input.bool(true, "Show Projected Forming Setup", group = G_ACTIVE_VIS)
+string activeSetupSize = input.string("Normal", "Active Setup Size", options = ["Compact", "Normal", "Large"], group = G_ACTIVE_VIS)
+int activeMinWidth = input.int(15, "Min Projected Width (Bars)", minval = 5, group = G_ACTIVE_VIS)
+bool extendCandidateRight = input.bool(true, "Extend Forming Setup to Right", group = G_ACTIVE_VIS)
+int activeBorderWidth = input.int(2, "Active Border Thickness", minval = 1, maxval = 5, group = G_ACTIVE_VIS)
+int activeTransp = input.int(85, "Active Setup Transparency", minval = 0, maxval = 100, group = G_ACTIVE_VIS)
+
+var string G_OUTCOME_VIS = "Outcome Markers"
+bool showTpMarkers = input.bool(true, "Show TP/TP1 Hit Markers", group = G_OUTCOME_VIS)
+bool showSlMarkers = input.bool(true, "Show SL/BE Hit Markers", group = G_OUTCOME_VIS)
+string markerSizeInput = input.string("Small", "Marker Size", options = ["Tiny", "Small", "Normal"], group = G_OUTCOME_VIS)
+color tpMarkerColor = input.color(BULL_COLOR, "TP Marker Color", group = G_OUTCOME_VIS)
+color slMarkerColor = input.color(BEAR_COLOR, "SL Marker Color", group = G_OUTCOME_VIS)
+
+var string G_STYLE = "Dashboard Colors & UI Theme"
+color uiBg = input.color(color.new(#131722, 10), "Dashboard Background", group = G_STYLE)
+color uiBorder = input.color(#363a45, "Dashboard Border", group = G_STYLE)
+color uiHeaderText = input.color(color.white, "Header Text", group = G_STYLE)
+color uiLabelText = input.color(color.gray, "Label Text", group = G_STYLE)
+color uiValueText = input.color(color.white, "Value Text", group = G_STYLE)
+color uiPosColor = input.color(BULL_COLOR, "Positive Color", group = G_STYLE)
+color uiNegColor = input.color(BEAR_COLOR, "Negative Color", group = G_STYLE)
+color uiNeutralColor = input.color(NEUTRAL_COLOR, "Neutral/Accent Color", group = G_STYLE)
+
+// --- Sensitivity Logic ---
+float sensAtrMult = sensitivityMode == "Aggressive" ? 1.0 : sensitivityMode == "Conservative" ? 2.5 : 1.5
+int sensPivotLen = sensitivityMode == "Aggressive" ? 2 : sensitivityMode == "Conservative" ? 5 : 3
+
+// --- Session Engine ---
+var asia    = SessionData.new("Asia", "2000-0000")
+var london  = SessionData.new("London", "0200-1100")
+var ny      = SessionData.new("New York", "0800-1700")
+var overlap = SessionData.new("London/NY Overlap", "0800-1100")
+var sbLon   = SessionData.new("SB London", "0300-0400")
+var sbAm    = SessionData.new("SB AM", "1000-1100")
+
+update_session(SessionData s) =>
+    inSess = not na(time(timeframe.period, s.timeRange, NY_TZ))
+    if inSess
+        if not s.isActive
+            s.high := high
+            s.low := low
+        else
+            s.high := math.max(high, s.high)
+            s.low := math.min(low, s.low)
+    else if s.isActive
+        s.lastHigh := s.high
+        s.lastLow := s.low
+    s.isActive := inSess
+
+update_session(asia)
+update_session(london)
+update_session(ny)
+update_session(overlap)
+update_session(sbLon)
+update_session(sbAm)
+
+string activeSessName = overlap.isActive ? overlap.name : ny.isActive ? ny.name : london.isActive ? london.name : asia.isActive ? asia.name : "Inter-Session"
+bool isKillzone = sbLon.isActive or sbAm.isActive or overlap.isActive
+
+// --- HTF Liquidity ---
+float pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
+float pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge.lookahead_on)
+float pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
+float pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
+
+// --- Core Data & Primitives ---
+float atr = ta.atr(14)
+bool isDisplacement = (high - low) > (atr * sensAtrMult)
+float emaBias = ta.ema(close, 200)
+string marketBias = close > emaBias ? "Bullish" : "Bearish"
+
+// Market Structure Shift (MSS)
+float pHi = ta.pivothigh(sensPivotLen, sensPivotLen)
+float pLo = ta.pivotlow(sensPivotLen, sensPivotLen)
+var float lastPHi = na
+var float lastPLo = na
+if not na(pHi)
+    lastPHi := pHi
+if not na(pLo)
+    lastPLo := pLo
+
+bool mssBull = ta.crossover(close, lastPHi) and isDisplacement
+bool mssBear = ta.crossunder(close, lastPLo) and isDisplacement
+
+// --- SMC Elements (FVG & OB) ---
+var SmartZone[] fvgArray = array.new<SmartZone>()
+var SmartZone[] obArray = array.new<SmartZone>()
+
+// FVG Detection
+bool bullFVG = low > high[2] and isDisplacement[1]
+bool bearFVG = high < low[2] and isDisplacement[1]
+
+if showFVG
+    if bullFVG
+        box b = box.new(bar_index - 2, low, bar_index, high[2], bgcolor = bullFvgColor, border_color = color.new(bullFvgColor, 50), border_style = line.style_dotted)
+        array.push(fvgArray, SmartZone.new(b, low, high[2], true, false, bar_index - 2))
+    if bearFVG
+        box b = box.new(bar_index - 2, high, bar_index, low[2], bgcolor = bearFvgColor, border_color = color.new(bearFvgColor, 50), border_style = line.style_dotted)
+        array.push(fvgArray, SmartZone.new(b, low[2], high, false, false, bar_index - 2))
+
+// OB Detection
+if showOB
+    if mssBull
+        int obBar = na
+        for i = 1 to 20
+            if close[i] < open[i]
+                obBar := bar_index - i
+                break
+        if not na(obBar)
+            float t = high[bar_index - obBar]
+            float b_ = low[bar_index - obBar]
+            box bx = box.new(obBar, t, bar_index, b_, bgcolor = bullObColor, border_color = color.new(bullObColor, 50))
+            array.push(obArray, SmartZone.new(bx, t, b_, true, false, obBar))
+    if mssBear
+        int obBar = na
+        for i = 1 to 20
+            if close[i] > open[i]
+                obBar := bar_index - i
+                break
+        if not na(obBar)
+            float t = high[bar_index - obBar]
+            float b_ = low[bar_index - obBar]
+            box bx = box.new(obBar, t, bar_index, b_, bgcolor = bearObColor, border_color = color.new(bearObColor, 50))
+            array.push(obArray, SmartZone.new(bx, t, b_, false, false, obBar))
+
+update_zones(SmartZone[] arr, int maxCount) =>
+    if array.size(arr) > 0
+        for i = array.size(arr) - 1 to 0
+            SmartZone sz = array.get(arr, i)
+            if not sz.mitigated
+                box.set_right(sz.boxId, bar_index)
+                if sz.isBull
+                    if low < sz.bottom
+                        sz.mitigated := true
+                        box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+                else
+                    if high > sz.top
+                        sz.mitigated := true
+                        box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
+        if array.size(arr) > maxCount
+            SmartZone old = array.shift(arr)
+            box.delete(old.boxId)
+
+update_zones(fvgArray, maxZones)
+update_zones(obArray, maxZones)
+
+// --- Patient Trader Engine (Candidates & Retracement) ---
+var Candidate activeLongCandidate = na
+var Candidate activeShortCandidate = na
+var SetupState liveSetup = SetupState.new()
+var int lastLongBar = 0
+var int lastShortBar = 0
+
+// Liquidity State
+var bool sweptSSL = false
+var bool sweptBSL = false
+float reqL = asia.isActive ? na : asia.lastLow
+float reqS = asia.isActive ? na : asia.lastHigh
+
+if not na(reqL) and low < reqL and close > reqL
+    sweptSSL := true
+    sweptBSL := false
+if not na(reqS) and high > reqS and close < reqS
+    sweptBSL := true
+    sweptSSL := false
+
+if mssBull
+    sweptSSL := false
+if mssBear
+    sweptBSL := false
+
+// Premium / Discount
+int rangeLookback = 50
+float pdArray = (ta.highest(rangeLookback) + ta.lowest(rangeLookback)) / 2
+string pdStatus = close > pdArray ? "Premium" : "Discount"
+
+// Candidate Generation
+bool sig2022B = sweptSSL and mssBull and enableICT2022
+bool sig2022S = sweptBSL and mssBear and enableICT2022
+bool inSB = sbLon.isActive or sbAm.isActive
+bool sigSBB = inSB and bullFVG and enableSilverBullet
+bool sigSBS = inSB and bearFVG and enableSilverBullet
+
+bool potentialLong = sig2022B or sigSBB
+bool potentialShort = sig2022S or sigSBS
+
+// Spacing & De-Duplication Logic
+if potentialLong
+    if not na(activeLongCandidate) or bar_index - lastLongBar < minBarsBetween
+        liveSetup.lastRejection := "Clustered/Duplicate Long"
+        potentialLong := false
+    else
+        float entryZoneT = low
+        float entryZoneB = high[2]
+        float sl = ta.lowest(5) - (atr * 0.5)
+        float risk = math.abs(entryZoneT - sl)
+        float tp2 = entryZoneT + (risk * 2)
+        if (tp2 - entryZoneT) / risk < minRR
+            liveSetup.lastRejection := "Poor RR Ratio"
+            potentialLong := false
+        else
+            activeLongCandidate := Candidate.new(true, entryZoneT, entryZoneB, sl, entryZoneT + risk, tp2, bar_index, bar_index + retracementExpiry, "Armed")
+            lastLongBar := bar_index
+
+if potentialShort
+    if not na(activeShortCandidate) or bar_index - lastShortBar < minBarsBetween
+        liveSetup.lastRejection := "Clustered/Duplicate Short"
+        potentialShort := false
+    else
+        float entryZoneT = low[2]
+        float entryZoneB = high
+        float sl = ta.highest(5) + (atr * 0.5)
+        float risk = math.abs(sl - entryZoneB)
+        float tp2 = entryZoneB - (risk * 2)
+        if (sl - entryZoneB) / risk < minRR
+            liveSetup.lastRejection := "Poor RR Ratio"
+            potentialShort := false
+        else
+            activeShortCandidate := Candidate.new(false, entryZoneT, entryZoneB, sl, entryZoneB - risk, tp2, bar_index, bar_index + retracementExpiry, "Armed")
+            lastShortBar := bar_index
+
+// --- Execution & Monitoring ---
+var Stats mainStats = Stats.new()
+var Trade activeTrade = na
+var box[] historicalBoxes = array.new_box()
+
+process_candidate(Candidate c) =>
+    bool fill = false
+    if not na(c) and c.status == "Armed"
+        // Expiry
+        if bar_index > c.expiryBar
+            c.status := "Expired"
+            liveSetup.lastRejection := "Setup Expired"
+        // Invalidation (Price goes too far without us)
+        else if cancelIfFrontRun and (c.isLong ? high > (c.entryZoneTop + (c.tp2 - c.entryZoneTop) * 0.5) : low < (c.entryZoneBottom - (c.entryZoneBottom - c.tp2) * 0.5))
+            c.status := "Invalidated"
+            liveSetup.lastRejection := "Price Extended (Front-run)"
+        // Fill logic
+        else if c.isLong ? low <= c.entryZoneTop : high >= c.entryZoneBottom
+            fill := true
+            c.status := "Filled"
+    fill
+
+method update_stats(Stats s, float rEarned, bool isWin) =>
+    s.totalTrades += 1
+    s.totalR += rEarned
+    s.equityR += rEarned
+    if isWin
+        s.wins += 1
+    else
+        s.losses += 1
+    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
+    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+
+// Handle Retracement Entry
+if na(activeTrade)
+    if process_candidate(activeLongCandidate)
+        box tpB = showZones ? box.new(bar_index, activeLongCandidate.tp2, bar_index, activeLongCandidate.entryZoneTop, bgcolor = color.new(BULL_COLOR, activeTransp), border_color = BULL_COLOR, border_width = activeBorderWidth) : na
+        box slB = showZones ? box.new(bar_index, activeLongCandidate.entryZoneTop, bar_index, activeLongCandidate.sl, bgcolor = color.new(BEAR_COLOR, activeTransp), border_color = BEAR_COLOR, border_width = activeBorderWidth) : na
+        activeTrade := Trade.new("SMC Cons", true, activeLongCandidate.entryZoneTop, activeLongCandidate.sl, activeLongCandidate.tp1, activeLongCandidate.tp2, bar_index, true, false, tpB, slB)
+        activeLongCandidate := na
+    else if process_candidate(activeShortCandidate)
+        box tpB = showZones ? box.new(bar_index, activeShortCandidate.entryZoneBottom, bar_index, activeShortCandidate.tp2, bgcolor = color.new(BULL_COLOR, activeTransp), border_color = BULL_COLOR, border_width = activeBorderWidth) : na
+        box slB = showZones ? box.new(bar_index, activeShortCandidate.sl, bar_index, activeShortCandidate.entryZoneBottom, bgcolor = color.new(BEAR_COLOR, activeTransp), border_color = BEAR_COLOR, border_width = activeBorderWidth) : na
+        activeTrade := Trade.new("SMC Cons", false, activeShortCandidate.entryZoneBottom, activeShortCandidate.sl, activeShortCandidate.tp1, activeShortCandidate.tp2, bar_index, true, false, tpB, slB)
+        activeShortCandidate := na
+
+// Clear expired/invalid candidates
+if not na(activeLongCandidate) and activeLongCandidate.status != "Armed"
+    activeLongCandidate := na
+if not na(activeShortCandidate) and activeShortCandidate.status != "Armed"
+    activeShortCandidate := na
+
+// Trade Lifecycle
+if not na(activeTrade)
+    bool closed = false
+    float r = 0.0
+    string outcome = ""
+    string sz = markerSizeInput == "Tiny" ? size.tiny : markerSizeInput == "Small" ? size.small : size.normal
+
+    if not na(activeTrade.tpBox)
+        box.set_right(activeTrade.tpBox, bar_index + (extendCandidateRight ? activeMinWidth : 0))
+        box.set_right(activeTrade.slBox, bar_index + (extendCandidateRight ? activeMinWidth : 0))
+
+    if activeTrade.isLong
+        if low <= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            outcome := r == 0 ? "BE" : "SL"
+            if showSlMarkers
+                label.new(bar_index, activeTrade.stopPrice, outcome, color = slMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+        else if high >= activeTrade.tp2Price
+            r := 2.0
+            closed := true
+            outcome := "TP2"
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp2Price, "TP2", color = tpMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+        else if high >= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+    else
+        if high >= activeTrade.stopPrice
+            r := activeTrade.isTp1Hit ? 0.0 : -1.0
+            closed := true
+            outcome := r == 0 ? "BE" : "SL"
+            if showSlMarkers
+                label.new(bar_index, activeTrade.stopPrice, outcome, color = slMarkerColor, textcolor = color.white, style = label.style_label_down, size = sz)
+        else if low <= activeTrade.tp2Price
+            r := 2.0
+            closed := true
+            outcome := "TP2"
+            if showTpMarkers
+                label.new(bar_index, activeTrade.tp2Price, "TP2", color = tpMarkerColor, textcolor = color.white, style = label.style_label_up, size = sz)
+        else if low <= activeTrade.tp1Price and not activeTrade.isTp1Hit
+            activeTrade.isTp1Hit := true
+
+    if closed
+        mainStats.update_stats(r, r > 0)
+        box.set_right(activeTrade.tpBox, bar_index)
+        box.set_right(activeTrade.slBox, bar_index)
+        array.push(historicalBoxes, activeTrade.tpBox)
+        array.push(historicalBoxes, activeTrade.slBox)
+        if array.size(historicalBoxes) > maxHistory * 2
+            box.delete(array.shift(historicalBoxes))
+            box.delete(array.shift(historicalBoxes))
+        activeTrade := na
+
+// --- Dashboards & Visuals ---
+if showReadiness and barstate.islast
+    var table readTable = table.new(readinessPos == "bottom_right" ? position.bottom_right : position.bottom_left, 2, 10, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+    table.cell(readTable, 0, 0, "Setup Readiness", text_color = uiHeaderText, text_size = size.small)
+    table.cell(readTable, 1, 0, na(activeLongCandidate) and na(activeShortCandidate) ? "Monitoring" : "Armed/Retest", text_color = uiNeutralColor, text_size = size.small)
+    table.cell(readTable, 0, 1, "Market Bias", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 1, marketBias, text_color = marketBias == "Bullish" ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(readTable, 0, 2, "Last Rejection", text_color = uiLabelText, text_size = size.small)
+    table.cell(readTable, 1, 2, liveSetup.lastRejection, text_color = uiNeutralColor, text_size = size.small)
+
+var table perfTable = table.new(dashPos == "top_right" ? position.top_right : position.top_left, 2, 5, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+if showDash and barstate.islast
+    float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
+    table.cell(perfTable, 0, 0, "Performance", text_color = uiHeaderText, text_size = size.small)
+    table.cell(perfTable, 1, 0, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+    table.cell(perfTable, 0, 1, "Win Rate", text_color = uiLabelText, text_size = size.small)
+    table.cell(perfTable, 1, 1, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? uiPosColor : uiNegColor, text_size = size.small)
+
+// Visual Shapes for Fill/Signals
+plotshape(showLabels and (not na(activeLongCandidate) and activeLongCandidate.startBar == bar_index), "Candidate Long", shape.labelup, location.belowbar, color.new(BULL_COLOR, 50), text="ARMED", textcolor=color.white, size = size.small)
+plotshape(showLabels and (not na(activeShortCandidate) and activeShortCandidate.startBar == bar_index), "Candidate Short", shape.labeldown, location.abovebar, color.new(BEAR_COLOR, 50), text="ARMED", textcolor=color.white, size = size.small)

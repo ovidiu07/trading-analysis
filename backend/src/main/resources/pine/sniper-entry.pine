@@ -1,7 +1,7 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
 indicator("SMC Clean Signals v6 [TradeJAudit]", "SMC v6", overlay = true,
-     max_labels_count = 500, max_lines_count = 500, max_boxes_count = 250, max_bars_back = 2000)
+     max_labels_count = 500, max_lines_count = 500, max_boxes_count = 500, max_bars_back = 2000)
 
 // ============================================================================
 //  EURUSD SMC EXECUTION ENGINE VNEXT
@@ -214,112 +214,179 @@ grpDisplay = "8. Display"
 grpPerformance = "9. Performance"
 grpWebhook = "10. TradingView Webhook"
 grpDebug = "11. QA / Debug"
+grpDashSize = "8A. Dashboard Sizing"
+grpHistTrades = "8B. Historical Trade Display"
+grpClrDashboard = "8C. Dashboard Colors"
+grpClrSessions = "8D. Session Colors"
+grpClrTrades = "8E. Trade / Projection Colors"
+grpClrZones = "8F. Zone / Marker Colors"
+grpClrQa = "11B. QA Colors"
 
-marketProfile = input.string("Forex ICT", "Market Profile", options = ["Forex ICT", "US Indices", "Crypto 24/7", "Custom"], group = grpFoundation)
-profilePreset = input.string("Auto", "Execution Profile", options = ["Auto", "Scalping 1m-3m", "Intraday 5m-15m", "Swing Intraday 30m-60m"], group = grpFoundation)
-useHtfBias = input.bool(true, "Require HTF Bias Alignment", group = grpFoundation)
-htfBiasTf = input.timeframe("240", "HTF Bias Timeframe", group = grpFoundation)
-requireExecutionTfGate = input.bool(true, "Enforce Max Execution Timeframe", group = grpFoundation)
-maxExecutionTfMinutes = input.int(60, "Max Execution TF (minutes)", minval = 1, maxval = 240, group = grpFoundation)
-executionMode = input.string("Confirmed Close", "Execution Mode", options = ["Confirmed Close", "Aggressive Intrabar"], group = grpFoundation)
-timeBasis = input.string("Auto", "Session Time Basis", options = ["Auto", "UTC", "New York (ICT)", "Local-per-session", "Custom"], group = grpFoundation)
-customTz = input.string("Etc/UTC", "Custom IANA Timezone", group = grpFoundation, active = timeBasis == "Custom")
+marketProfile = input.string("Forex ICT", "Market Profile", options = ["Forex ICT", "US Indices", "Crypto 24/7", "Custom"], group = grpFoundation, tooltip = "Selects the asset class profile which tunes sweep buffers, FVG thresholds, and risk limits. Forex ICT is optimized for EUR/USD and major pairs; US Indices widens tolerances for higher volatility; Crypto 24/7 adjusts for round-the-clock markets.")
+profilePreset = input.string("Auto", "Execution Profile", options = ["Auto", "Scalping 1m-3m", "Intraday 5m-15m", "Swing Intraday 30m-60m"], group = grpFoundation, tooltip = "Controls pivot lengths, displacement thresholds, and stage windows. Auto detects from chart timeframe. Override manually if your timeframe doesn't match the preset ranges.")
+useHtfBias = input.bool(true, "Require HTF Bias Alignment", group = grpFoundation, tooltip = "When enabled, setups must align with the higher-timeframe EMA trend direction. Disabling allows counter-trend entries but increases noise.")
+htfBiasTf = input.timeframe("240", "HTF Bias Timeframe", group = grpFoundation, tooltip = "The higher timeframe used to determine trend bias via 20/50 EMA alignment. Default 4H works well for 5m-15m execution charts. Use Daily for swing setups.")
+requireExecutionTfGate = input.bool(true, "Enforce Max Execution Timeframe", group = grpFoundation, tooltip = "Prevents the indicator from generating signals on timeframes above the configured maximum. Keeps execution precise on lower timeframes.")
+maxExecutionTfMinutes = input.int(60, "Max Execution TF (minutes)", minval = 1, maxval = 240, group = grpFoundation, tooltip = "Maximum chart timeframe in minutes that allows trade signals. Set higher for swing trading approaches, lower for pure scalping.")
+executionMode = input.string("Confirmed Close", "Execution Mode", options = ["Confirmed Close", "Aggressive Intrabar"], group = grpFoundation, tooltip = "Confirmed Close waits for the bar to close before confirming MSS breaks and triggers, reducing false signals. Aggressive Intrabar reacts immediately but may trigger on wicks that reverse.")
+timeBasis = input.string("Auto", "Session Time Basis", options = ["Auto", "UTC", "New York (ICT)", "Local-per-session", "Custom"], group = grpFoundation, tooltip = "Controls which timezone is used for session window calculations. Auto selects New York for Forex/Indices and UTC for Crypto. ICT traders should use New York.")
+customTz = input.string("Etc/UTC", "Custom IANA Timezone", group = grpFoundation, active = timeBasis == "Custom", tooltip = "Enter a valid IANA timezone string (e.g. America/Chicago, Europe/London) when Time Basis is set to Custom.")
 
-londonEnabled = input.bool(true, "London Session", group = grpSessions)
-londonSession = input.session("0700-1100", "London Active Range", group = grpSessions)
-newYorkEnabled = input.bool(true, "New York Session", group = grpSessions)
-newYorkSession = input.session("1300-1700", "New York Active Range", group = grpSessions)
-tokyoEnabled = input.bool(true, "Tokyo Session", group = grpSessions)
-tokyoSession = input.session("0000-0600", "Tokyo Active Range", group = grpSessions)
-sydneyEnabled = input.bool(false, "Sydney Session", group = grpSessions)
-sydneySession = input.session("2200-0200", "Sydney Active Range", group = grpSessions)
-asiaRangeSession = input.session("0000-0700", "Asia Range Session", group = grpSessions)
-silverBulletLondon = input.session("0800-0900", "Silver Bullet London", group = grpSessions)
-silverBulletNyAm = input.session("1500-1600", "Silver Bullet NY AM", group = grpSessions)
-silverBulletNyPm = input.session("1900-2000", "Silver Bullet NY PM", group = grpSessions)
-judasSession = input.session("0500-1000", "Judas Window", group = grpSessions)
-po3AccumulationSession = input.session("0000-0700", "PO3 Accumulation", group = grpSessions)
-po3ManipulationSession = input.session("0700-1000", "PO3 Manipulation", group = grpSessions)
-po3DistributionSession = input.session("1300-1800", "PO3 Distribution", group = grpSessions)
-sessionDisplayMode = input.string("Current Active Day", "Session Display", options = ["Active Only", "Active + Completed Today", "Current Active Day"], group = grpSessions)
-showSessionBackground = input.bool(false, "Show Active Session Background", group = grpSessions)
+londonEnabled = input.bool(true, "London Session", group = grpSessions, tooltip = "Enables London session tracking for liquidity sweeps, session high/low levels, and kill zone awareness. Core session for ICT models.")
+londonSession = input.session("0700-1100", "London Active Range", group = grpSessions, tooltip = "The active kill zone hours for the London session in local session timezone. Default covers the primary London liquidity window.")
+newYorkEnabled = input.bool(true, "New York Session", group = grpSessions, tooltip = "Enables New York session tracking. The NY kill zone and London-NY overlap are high-probability windows for ICT setups.")
+newYorkSession = input.session("1300-1700", "New York Active Range", group = grpSessions, tooltip = "Active kill zone hours for the New York session. Adjust if trading different NY sub-sessions or if your broker offset differs.")
+tokyoEnabled = input.bool(true, "Tokyo Session", group = grpSessions, tooltip = "Enables Tokyo session tracking. Useful for Asian range definition and as a liquidity pool reference for London sweeps.")
+tokyoSession = input.session("0000-0600", "Tokyo Active Range", group = grpSessions, tooltip = "Active hours for the Tokyo session in local session timezone.")
+sydneyEnabled = input.bool(false, "Sydney Session", group = grpSessions, tooltip = "Enables Sydney session tracking. Usually disabled for Forex ICT models but useful for AUD pairs or Crypto.")
+sydneySession = input.session("2200-0200", "Sydney Active Range", group = grpSessions, tooltip = "Active hours for the Sydney session in local session timezone.")
+asiaRangeSession = input.session("0000-0700", "Asia Range Session", group = grpSessions, tooltip = "Defines the consolidation range that London and Judas setups reference for liquidity sweeps. Covers the overnight Asian accumulation period.")
+silverBulletLondon = input.session("0800-0900", "Silver Bullet London", group = grpSessions, tooltip = "ICT Silver Bullet window during London session. FVG entries within this window qualify for S2 Silver Bullet setups.")
+silverBulletNyAm = input.session("1500-1600", "Silver Bullet NY AM", group = grpSessions, tooltip = "ICT Silver Bullet window during New York AM session. One of the highest-probability intraday FVG windows.")
+silverBulletNyPm = input.session("1900-2000", "Silver Bullet NY PM", group = grpSessions, tooltip = "ICT Silver Bullet window during New York PM session. Lower volume but can produce clean setups in trending conditions.")
+judasSession = input.session("0500-1000", "Judas Window", group = grpSessions, tooltip = "The window during which Judas Swing false moves are detected. Covers the pre-London to early-London manipulation period.")
+po3AccumulationSession = input.session("0000-0700", "PO3 Accumulation", group = grpSessions, tooltip = "Power of Three accumulation phase. Price builds a range during this period that is later swept in the manipulation phase.")
+po3ManipulationSession = input.session("0700-1000", "PO3 Manipulation", group = grpSessions, tooltip = "Power of Three manipulation phase. The false move that sweeps accumulation range liquidity before reversing.")
+po3DistributionSession = input.session("1300-1800", "PO3 Distribution", group = grpSessions, tooltip = "Power of Three distribution phase. The true directional move after manipulation, where S3 triggers are expected.")
+sessionDisplayMode = input.string("Current Active Day", "Session Display", options = ["Active Only", "Active + Completed Today", "Current Active Day"], group = grpSessions, tooltip = "Controls which session high/low levels remain visible. Active Only shows only the current session; Current Active Day keeps all today's sessions visible for reference.")
+showSessionBackground = input.bool(false, "Show Active Session Background", group = grpSessions, tooltip = "Tints the chart background during active session windows. Useful for visually identifying which session you are in.")
 
-showPdhl = input.bool(true, "Show Previous Day High/Low", group = grpLiquidity)
-showSessionLevels = input.bool(true, "Show Session High/Low", group = grpLiquidity)
-showEqualHighLow = input.bool(false, "Show Equal Highs/Lows", group = grpLiquidity)
-useDailyOpen = input.bool(true, "Track Daily Open", group = grpLiquidity)
-equalToleranceAtr = input.float(0.08, "Equal High/Low Tolerance (ATR)", minval = 0.01, maxval = 0.50, step = 0.01, group = grpLiquidity)
-equalMaxBarsApart = input.int(45, "Equal High/Low Max Separation Bars", minval = 5, maxval = 150, group = grpLiquidity)
+showPdhl = input.bool(true, "Show Previous Day High/Low", group = grpLiquidity, tooltip = "Draws horizontal lines at the previous day's high and low. These are primary liquidity targets for ICT-style sweeps.")
+showSessionLevels = input.bool(true, "Show Session High/Low", group = grpLiquidity, tooltip = "Draws session high/low lines for visible sessions. These intraday levels serve as secondary liquidity targets.")
+showEqualHighLow = input.bool(false, "Show Equal Highs/Lows", group = grpLiquidity, tooltip = "Detects and marks double tops/bottoms that represent resting liquidity. Enable to see EQH/EQL levels as potential sweep targets.")
+useDailyOpen = input.bool(true, "Track Daily Open", group = grpLiquidity, tooltip = "Tracks the daily open price as a potential liquidity reference. Sweeps of the daily open can initiate setup candidates.")
+equalToleranceAtr = input.float(0.08, "Equal High/Low Tolerance (ATR)", minval = 0.01, maxval = 0.50, step = 0.01, group = grpLiquidity, tooltip = "Maximum distance between two pivot highs/lows to be considered equal, as a fraction of ATR. Increase for volatile instruments; decrease for tight precision.")
+equalMaxBarsApart = input.int(45, "Equal High/Low Max Separation Bars", minval = 5, maxval = 150, group = grpLiquidity, tooltip = "Maximum bar distance between two pivot points to qualify as equal highs/lows. Larger values find wider double tops/bottoms.")
 
-manualInternalPivot = input.int(3, "Manual Internal Pivot Length", minval = 2, maxval = 8, group = grpStructure)
-manualExternalPivot = input.int(8, "Manual External Pivot Length", minval = 4, maxval = 20, group = grpStructure)
-manualDisplacementScore = input.int(62, "Manual Displacement Score", minval = 40, maxval = 90, group = grpStructure)
-manualStageWindow = input.int(18, "Manual Stage Window Bars", minval = 5, maxval = 80, group = grpStructure)
-manualSweepBufferAtr = input.float(0.03, "Manual Sweep Buffer (ATR)", minval = 0.01, maxval = 0.20, step = 0.01, group = grpStructure)
-requirePremiumDiscount = input.bool(true, "Use Premium / Discount Filter", group = grpStructure)
-useVolumeConfluence = input.bool(false, "Use Volume Confluence", group = grpStructure)
-minimumBreakDistanceAtr = input.float(0.08, "Minimum MSS Break Distance (ATR)", minval = 0.01, maxval = 0.40, step = 0.01, group = grpStructure)
+manualInternalPivot = input.int(3, "Manual Internal Pivot Length", minval = 2, maxval = 8, group = grpStructure, tooltip = "Pivot lookback length for internal (short-term) swing detection. Lower values find more pivots with more noise; higher values find fewer but stronger swings. Only used when Execution Profile is not Auto.")
+manualExternalPivot = input.int(8, "Manual External Pivot Length", minval = 4, maxval = 20, group = grpStructure, tooltip = "Pivot lookback for external (higher-timeframe) swing detection used in dealing range and bias calculation. Only used when Execution Profile is not Auto.")
+manualDisplacementScore = input.int(62, "Manual Displacement Score", minval = 40, maxval = 90, group = grpStructure, tooltip = "Minimum displacement quality score (0-100) required for MSS confirmation. Higher values demand stronger impulsive candles, reducing signals but improving quality. Only used when Execution Profile is not Auto.")
+manualStageWindow = input.int(18, "Manual Stage Window Bars", minval = 5, maxval = 80, group = grpStructure, tooltip = "Number of bars a setup remains valid from sweep to expiry. Shorter windows keep setups fresh; longer windows allow more time for zones to form. Only used when Execution Profile is not Auto.")
+manualSweepBufferAtr = input.float(0.03, "Manual Sweep Buffer (ATR)", minval = 0.01, maxval = 0.20, step = 0.01, group = grpStructure, tooltip = "Minimum distance beyond a liquidity level that price must penetrate to count as a sweep, as ATR fraction. Increase to require deeper sweeps; decrease for more sensitive detection. Only used when Execution Profile is not Auto.")
+requirePremiumDiscount = input.bool(true, "Use Premium / Discount Filter", group = grpStructure, tooltip = "Requires bullish entries in discount (below dealing range midpoint) and bearish entries in premium. Disabling removes this structural filter and allows entries anywhere in the range.")
+useVolumeConfluence = input.bool(false, "Use Volume Confluence", group = grpStructure, tooltip = "Adds a volume component to the displacement score. Bars with volume above 1.25x the 20-bar average receive a bonus. Enable on instruments with reliable volume data.")
+minimumBreakDistanceAtr = input.float(0.08, "Minimum MSS Break Distance (ATR)", minval = 0.01, maxval = 0.40, step = 0.01, group = grpStructure, tooltip = "Minimum distance the close must exceed the swing level to confirm a Market Structure Shift, as ATR fraction. Filters out marginal breaks that may be noise.")
 
-enableFvg = input.bool(true, "Enable Fair Value Gaps", group = grpZones)
-enableOb = input.bool(true, "Enable Order Blocks", group = grpZones)
-zoneSelectionMode = input.string("FVG then OB", "Zone Selection", options = ["FVG then OB", "OB then FVG", "Best Quality"], group = grpZones)
-experimentalStandaloneFvg = input.bool(false, "Experimental Standalone FVG", group = grpZones)
-fvgEntryMode = input.string("CE Midpoint", "FVG Entry Model", options = ["CE Midpoint", "Proximal Edge"], group = grpZones)
-triggerModel = input.string("Zone Touch", "Trigger Model", options = ["Zone Touch", "Confirmation Close"], group = grpExecution)
-minFvgAtr = input.float(0.15, "Min FVG Size (ATR)", minval = 0.05, maxval = 0.60, step = 0.01, group = grpZones)
-fvgExpiryBars = input.int(50, "FVG Expiry Bars", minval = 10, maxval = 200, group = grpZones)
-obLookbackBars = input.int(6, "OB Origin Lookback Bars", minval = 2, maxval = 12, group = grpZones)
-obExpiryBars = input.int(80, "OB Expiry Bars", minval = 10, maxval = 200, group = grpZones)
-maxActiveFvg = input.int(5, "Max Active FVGs Per Side", minval = 1, maxval = 8, group = grpZones)
-maxActiveOb = input.int(4, "Max Active OBs Per Side", minval = 1, maxval = 6, group = grpZones)
-showPassiveZones = input.bool(false, "Show Passive Historical Zones", group = grpZones)
-passiveZoneLimit = input.int(2, "Passive Zone Limit Per Type/Side", minval = 1, maxval = 4, group = grpZones, active = showPassiveZones)
+enableFvg = input.bool(true, "Enable Fair Value Gaps", group = grpZones, tooltip = "Enables detection and storage of Fair Value Gaps (3-candle imbalances). FVGs are the primary entry zone type for most ICT setups.")
+enableOb = input.bool(true, "Enable Order Blocks", group = grpZones, tooltip = "Enables detection of Order Blocks (last opposing candle before displacement). OBs serve as secondary entry zones when no qualifying FVG is found.")
+zoneSelectionMode = input.string("FVG then OB", "Zone Selection", options = ["FVG then OB", "OB then FVG", "Best Quality"], group = grpZones, tooltip = "Priority order when both FVG and OB are available. FVG then OB prefers imbalance-based entries; Best Quality picks whichever has the higher score.")
+experimentalStandaloneFvg = input.bool(false, "Experimental Standalone FVG", group = grpZones, tooltip = "Allows standalone FVG mitigation entries without requiring a prior liquidity sweep or MSS. More setups but lower conviction — treat as experimental.")
+fvgEntryMode = input.string("CE Midpoint", "FVG Entry Model", options = ["CE Midpoint", "Proximal Edge"], group = grpZones, tooltip = "Where within the FVG the entry price is set. CE Midpoint (consequent encroachment) targets the middle for better fills; Proximal Edge enters at the nearest boundary for tighter risk.")
+triggerModel = input.string("Zone Touch", "Trigger Model", options = ["Zone Touch", "Confirmation Close"], group = grpExecution, tooltip = "How the trade triggers when price reaches the zone. Zone Touch fires on any wick into the zone; Confirmation Close requires price to close through the zone with directional confirmation.")
+minFvgAtr = input.float(0.15, "Min FVG Size (ATR)", minval = 0.05, maxval = 0.60, step = 0.01, group = grpZones, tooltip = "Minimum Fair Value Gap size as a fraction of ATR. Increase to ignore small, noisy gaps and focus on strong displacement zones; decrease for more setups at the cost of quality.")
+fvgExpiryBars = input.int(50, "FVG Expiry Bars", minval = 10, maxval = 200, group = grpZones, tooltip = "Number of bars before an unfilled FVG expires and is removed. Shorter values keep only fresh zones; longer values allow older zones to remain as targets.")
+obLookbackBars = input.int(6, "OB Origin Lookback Bars", minval = 2, maxval = 12, group = grpZones, tooltip = "How many bars back to search for the origin candle of an Order Block after displacement. Larger values find OBs further from the break; smaller values keep them proximal.")
+obExpiryBars = input.int(80, "OB Expiry Bars", minval = 10, maxval = 200, group = grpZones, tooltip = "Number of bars before an unmitigated Order Block expires. OBs tend to remain relevant longer than FVGs, so this is typically set higher.")
+maxActiveFvg = input.int(5, "Max Active FVGs Per Side", minval = 1, maxval = 8, group = grpZones, tooltip = "Maximum number of active FVGs tracked per direction. When exceeded, the oldest FVG is dropped. Higher values use more memory but retain more zone history.")
+maxActiveOb = input.int(4, "Max Active OBs Per Side", minval = 1, maxval = 6, group = grpZones, tooltip = "Maximum number of active Order Blocks tracked per direction. When exceeded, the oldest OB is dropped.")
+showPassiveZones = input.bool(false, "Show Passive Historical Zones", group = grpZones, tooltip = "Draws boxes for tracked FVGs and OBs that are not part of the active setup. Useful for seeing the full zone landscape on the chart.")
+passiveZoneLimit = input.int(2, "Passive Zone Limit Per Type/Side", minval = 1, maxval = 4, group = grpZones, active = showPassiveZones, tooltip = "Maximum number of passive zones drawn per type (FVG/OB) per side (bull/bear). Keeps the chart uncluttered when passive zones are enabled.")
 
-enableS1 = input.bool(true, "S1 Liquidity Raid -> MSS -> Zone", group = grpStrategies)
-enableS2 = input.bool(true, "S2 Silver Bullet", group = grpStrategies)
-enableS3 = input.bool(false, "S3 PO3 / AMD (Experimental)", group = grpStrategies)
-enableS4 = input.bool(false, "S4 Judas Swing (Experimental)", group = grpStrategies)
-enableS5 = input.bool(false, "S5 SMT Reversal", group = grpStrategies)
-strategyPriority = input.string("S1,S2,S3,S4,S5", "Strategy Priority Order", group = grpStrategies)
-judasAnchor = input.string("Asia Range", "Judas Anchor", options = ["Asia Range", "Daily Open", "London Pre-Range"], group = grpStrategies)
-smtSymbol = input.symbol("", "SMT Comparison Symbol", group = grpStrategies, active = enableS5)
-smtCorrelation = input.string("Positive", "SMT Correlation", options = ["Positive", "Negative"], group = grpStrategies, active = enableS5)
-smtPivotLength = input.int(3, "SMT Pivot Length", minval = 2, maxval = 8, group = grpStrategies, active = enableS5)
+enableS1 = input.bool(true, "S1 Liquidity Raid -> MSS -> Zone", group = grpStrategies, tooltip = "The flagship ICT setup: liquidity sweep followed by Market Structure Shift into an FVG/OB retracement entry. Highest conviction when aligned with HTF bias.")
+enableS2 = input.bool(true, "S2 Silver Bullet", group = grpStrategies, tooltip = "ICT Silver Bullet model: time-window constrained FVG entries during specific kill zone hours. Requires sweep + MSS within the Silver Bullet window.")
+enableS3 = input.bool(false, "S3 PO3 / AMD (Experimental)", group = grpStrategies, tooltip = "Power of Three / Accumulation-Manipulation-Distribution model. Detects overnight range buildup, manipulation sweep, and distribution entry. Experimental — enable with caution.")
+enableS4 = input.bool(false, "S4 Judas Swing (Experimental)", group = grpStrategies, tooltip = "Judas Swing model: detects false breakouts around session opens (Asia range, Daily Open, or London pre-range) that reverse sharply. Experimental — enable with caution.")
+enableS5 = input.bool(false, "S5 SMT Reversal", group = grpStrategies, tooltip = "Smart Money Technique divergence reversal: confirms setups when the comparison symbol fails to make a corresponding new high/low, signaling institutional divergence.")
+strategyPriority = input.string("S1,S2,S3,S4,S5", "Strategy Priority Order", group = grpStrategies, tooltip = "Comma-separated priority ranking when multiple strategies trigger simultaneously. The leftmost strategy wins ties. Reorder to prefer your highest-conviction model.")
+judasAnchor = input.string("Asia Range", "Judas Anchor", options = ["Asia Range", "Daily Open", "London Pre-Range"], group = grpStrategies, tooltip = "The reference level for Judas Swing false move detection. Asia Range is the classic ICT anchor; Daily Open works for indices; London Pre-Range for early European sessions.")
+smtSymbol = input.symbol("", "SMT Comparison Symbol", group = grpStrategies, active = enableS5, tooltip = "The correlated instrument to compare for SMT divergence. For EUR/USD, use GBP/USD or DXY. Leave empty to disable S5.")
+smtCorrelation = input.string("Positive", "SMT Correlation", options = ["Positive", "Negative"], group = grpStrategies, active = enableS5, tooltip = "Whether the comparison symbol is positively correlated (e.g. EUR/USD vs GBP/USD) or negatively correlated (e.g. EUR/USD vs DXY). Affects divergence detection logic.")
+smtPivotLength = input.int(3, "SMT Pivot Length", minval = 2, maxval = 8, group = grpStrategies, active = enableS5, tooltip = "Pivot lookback length for the SMT comparison symbol's swing detection. Should match or be close to the internal pivot length for consistent divergence comparison.")
 
-entryModel = input.string("Auto", "Entry Model", options = ["Auto", "FVG Only", "OB Only", "Confirmation Close"], group = grpExecution)
-stopModel = input.string("Hybrid Buffer", "Stop Model", options = ["Beyond Sweep Extreme", "Beyond Zone Boundary", "Hybrid Buffer"], group = grpExecution)
-targetModel = input.string("Partials + Runner", "Target Model", options = ["Fixed RR", "Opposing Liquidity", "Partials + Runner"], group = grpExecution)
-fixedRr = input.float(2.5, "Fixed RR", minval = 1.0, maxval = 10.0, step = 0.1, group = grpExecution)
-partialR1 = input.float(1.5, "Partial TP1 (R)", minval = 0.5, maxval = 5.0, step = 0.1, group = grpExecution, active = targetModel == "Partials + Runner")
-runnerR2 = input.float(3.0, "Runner TP2 (R)", minval = 1.0, maxval = 10.0, step = 0.1, group = grpExecution, active = targetModel == "Partials + Runner")
-partialClosePct = input.float(50.0, "Partial Close %", minval = 10.0, maxval = 90.0, step = 5.0, group = grpExecution, active = targetModel == "Partials + Runner")
-moveRunnerToBe = input.bool(true, "Move Runner To BE After TP1", group = grpExecution, active = targetModel == "Partials + Runner")
-riskBufferAtr = input.float(0.12, "Risk Buffer (ATR)", minval = 0.01, maxval = 0.50, step = 0.01, group = grpExecution)
-maxRiskAtr = input.float(1.75, "Max Allowed Risk (ATR)", minval = 0.50, maxval = 4.00, step = 0.05, group = grpExecution)
-useTimeStop = input.bool(false, "Use Time Stop", group = grpExecution)
-timeStopBars = input.int(24, "Time Stop (bars)", minval = 4, maxval = 240, group = grpExecution, active = useTimeStop)
+entryModel = input.string("Auto", "Entry Model", options = ["Auto", "FVG Only", "OB Only", "Confirmation Close"], group = grpExecution, tooltip = "Controls which zone types are accepted for entries. Auto uses the zone selection mode; FVG Only or OB Only restrict to a single zone type; Confirmation Close requires a directional close through the zone.")
+stopModel = input.string("Hybrid Buffer", "Stop Model", options = ["Beyond Sweep Extreme", "Beyond Zone Boundary", "Hybrid Buffer"], group = grpExecution, tooltip = "Where the stop-loss is placed. Beyond Sweep Extreme uses the sweep wick; Beyond Zone Boundary uses the zone edge; Hybrid Buffer takes the more protective of both. Hybrid is recommended for most setups.")
+targetModel = input.string("Partials + Runner", "Target Model", options = ["Fixed RR", "Opposing Liquidity", "Partials + Runner"], group = grpExecution, tooltip = "How take-profit targets are calculated. Fixed RR uses a simple risk multiple; Opposing Liquidity targets the nearest opposing level; Partials + Runner takes partial profit at TP1 and lets a runner target TP2 or opposing liquidity.")
+fixedRr = input.float(2.5, "Fixed RR", minval = 1.0, maxval = 10.0, step = 0.1, group = grpExecution, tooltip = "Risk-to-reward ratio for Fixed RR target model, or fallback when opposing liquidity is not found. 2.5R is a balanced default for intraday setups.")
+partialR1 = input.float(1.5, "Partial TP1 (R)", minval = 0.5, maxval = 5.0, step = 0.1, group = grpExecution, active = targetModel == "Partials + Runner", tooltip = "First partial take-profit level as a risk multiple. Taking partials at 1.5R locks in profit and reduces psychological pressure on the runner.")
+runnerR2 = input.float(3.0, "Runner TP2 (R)", minval = 1.0, maxval = 10.0, step = 0.1, group = grpExecution, active = targetModel == "Partials + Runner", tooltip = "Runner target level as a risk multiple. Used as the final target unless opposing liquidity provides a closer or better target.")
+partialClosePct = input.float(50.0, "Partial Close %", minval = 10.0, maxval = 90.0, step = 5.0, group = grpExecution, active = targetModel == "Partials + Runner", tooltip = "Percentage of position closed at TP1. Higher values lock in more profit early but leave a smaller runner. 50% is balanced; 70%+ is conservative.")
+moveRunnerToBe = input.bool(true, "Move Runner To BE After TP1", group = grpExecution, active = targetModel == "Partials + Runner", tooltip = "After TP1 is hit, moves the stop-loss to breakeven for the remaining runner position. Eliminates downside risk on the runner but may get stopped out on shallow pullbacks.")
+riskBufferAtr = input.float(0.12, "Risk Buffer (ATR)", minval = 0.01, maxval = 0.50, step = 0.01, group = grpExecution, tooltip = "Extra padding added beyond the stop-loss placement level, as ATR fraction. Protects against stop hunts on tight stops. Increase for volatile pairs; decrease for precision scalping.")
+maxRiskAtr = input.float(1.75, "Max Allowed Risk (ATR)", minval = 0.50, maxval = 4.00, step = 0.05, group = grpExecution, tooltip = "Maximum allowed distance between entry and stop-loss as ATR multiple. Setups with wider risk are rejected. Increase for swing setups; keep tight for scalps.")
+useTimeStop = input.bool(false, "Use Time Stop", group = grpExecution, tooltip = "Enables a time-based stop that closes the trade if neither TP nor SL is hit within the specified number of bars. Useful for preventing stale trades from lingering.")
+timeStopBars = input.int(24, "Time Stop (bars)", minval = 4, maxval = 240, group = grpExecution, active = useTimeStop, tooltip = "Number of bars after entry before the time stop triggers. On 5m chart, 24 bars = 2 hours. Adjust based on your expected trade duration and timeframe.")
 
-showDashboard = input.bool(true, "Show Dashboard", group = grpDisplay)
-showExplanation = input.bool(true, "Show Plain-English Explanation", group = grpDisplay)
-showSelectedLiquidity = input.bool(true, "Show Setup Liquidity / MSS Lines", group = grpDisplay)
-showProjectedZone = input.bool(true, "Show Setup Projections", group = grpDisplay)
-showTradeLevels = input.bool(true, "Show Triggered Trade Levels", group = grpDisplay)
-showStepMarkers = input.bool(true, "Show Step Markers", group = grpDisplay)
-showPassiveZoneLabels = input.bool(false, "Show Passive Zone Labels", group = grpDisplay, active = showPassiveZones)
-dashboardPosition = input.string("Bottom Right", "Dashboard Position", options = ["Bottom Right", "Bottom Left", "Top Right"], group = grpDisplay)
+showDashboard = input.bool(true, "Show Dashboard", group = grpDisplay, tooltip = "Shows the information dashboard table on the chart. Disable to reduce visual clutter when you only need chart-level signals.")
+showExplanation = input.bool(true, "Show Plain-English Explanation", group = grpDisplay, tooltip = "Adds a row to the dashboard with a plain-English description of the current setup state, including sweep source, MSS level, zone type, and entry plan.")
+showSelectedLiquidity = input.bool(true, "Show Setup Liquidity / MSS Lines", group = grpDisplay, tooltip = "Draws lines on the chart showing the swept liquidity level and the MSS break level for the active setup. Helps visualize the narrative flow of the trade.")
+showProjectedZone = input.bool(true, "Show Setup Projections", group = grpDisplay, tooltip = "Draws projected risk/reward boxes and zone fill for armed and triggered setups. Shows where the trade plans to enter, stop, and target.")
+showTradeLevels = input.bool(true, "Show Triggered Trade Levels", group = grpDisplay, tooltip = "Draws entry, stop, TP1, and TP2 lines on the chart when a trade is triggered or active. Essential for monitoring live trade levels.")
+showStepMarkers = input.bool(true, "Show Step Markers", group = grpDisplay, tooltip = "Shows numbered markers at each setup lifecycle step: 1=sweep, 2=MSS, 3=armed, 4=triggered. Useful for understanding when and where each step occurred.")
+showPassiveZoneLabels = input.bool(false, "Show Passive Zone Labels", group = grpDisplay, active = showPassiveZones, tooltip = "Adds text labels to passive zone boxes identifying them as Bull/Bear FVG or OB. Disable for cleaner charts when zone colors are sufficient.")
+dashboardPosition = input.string("Bottom Right", "Dashboard Position", options = ["Bottom Right", "Bottom Left", "Top Right"], group = grpDisplay, tooltip = "Controls where the dashboard table appears on the chart. Bottom Right is default; move to Top Right if it overlaps with price action.")
 
-minClosedTradesForWinRate = input.int(10, "Min Closed Trades For Win Rate", minval = 1, maxval = 100, group = grpPerformance)
-trackExperimentalInStats = input.bool(false, "Include Experimental Signals In Stats", group = grpPerformance, active = experimentalStandaloneFvg)
-showPerformanceRows = input.bool(true, "Show Performance Rows", group = grpPerformance)
+minClosedTradesForWinRate = input.int(10, "Min Closed Trades For Win Rate", minval = 1, maxval = 100, group = grpPerformance, tooltip = "Minimum number of decisive (non-ambiguous) closed trades before win rate is displayed. Prevents misleading statistics from small sample sizes.")
+trackExperimentalInStats = input.bool(false, "Include Experimental Signals In Stats", group = grpPerformance, active = experimentalStandaloneFvg, tooltip = "When enabled, experimental standalone FVG trades are included in the performance statistics. Disable to keep stats pure for core strategy signals only.")
+showPerformanceRows = input.bool(true, "Show Performance Rows", group = grpPerformance, tooltip = "Shows win rate, expectancy, net R, and other performance metrics in the dashboard. Disable to reduce dashboard size when you only need setup information.")
 
-emitOpenAlerts = input.bool(true, "Emit SIGNAL_OPEN Alerts", group = grpWebhook)
-emitCloseAlerts = input.bool(false, "Emit SIGNAL_CLOSE Alerts", group = grpWebhook)
-webhookToken = input.string("", "Webhook Auth Token", group = grpWebhook)
-webhookSource = input.string("TRADEJAUDIT_PINE_V2", "Webhook Source Tag", group = grpWebhook)
+emitOpenAlerts = input.bool(true, "Emit SIGNAL_OPEN Alerts", group = grpWebhook, tooltip = "Fires a TradingView alert with JSON payload when a trade is triggered. Required for webhook integration with your backend or automation system.")
+emitCloseAlerts = input.bool(false, "Emit SIGNAL_CLOSE Alerts", group = grpWebhook, tooltip = "Fires a TradingView alert with JSON payload when a tracked trade closes (SL, TP, or time stop). Enable for full trade lifecycle tracking via webhooks.")
+webhookToken = input.string("", "Webhook Auth Token", group = grpWebhook, tooltip = "Authentication token included in webhook JSON payloads. Set this to match your backend webhook receiver for request validation. Leave empty if not using webhooks.")
+webhookSource = input.string("TRADEJAUDIT_PINE_V2", "Webhook Source Tag", group = grpWebhook, tooltip = "Source identifier string included in webhook payloads. Used to distinguish signals from different indicator instances or versions in your backend.")
 
-qaDailyDebug = input.bool(false, "QA: Show Previous Daily Bar Debug", group = grpDebug)
-qaSessionDebug = input.bool(false, "QA: Show Session Debug Label", group = grpDebug)
-qaExplainReasons = input.bool(true, "QA: Keep Waiting / Invalidation Reasons", group = grpDebug)
+qaDailyDebug = input.bool(false, "QA: Show Previous Daily Bar Debug", group = grpDebug, tooltip = "Shows a debug label and dashboard row with the previous daily bar timestamp, PDH, and PDL values. Use to verify daily level accuracy across broker feeds.")
+qaSessionDebug = input.bool(false, "QA: Show Session Debug Label", group = grpDebug, tooltip = "Shows a debug label with current session state, previous session highs/lows, and Asia range values. Use to verify session detection and timezone calculations.")
+qaExplainReasons = input.bool(true, "QA: Keep Waiting / Invalidation Reasons", group = grpDebug, tooltip = "Preserves detailed waiting and invalidation reason text in the dashboard. Disable to simplify display when you are confident in the setup logic.")
+
+// --- 8A. Dashboard Sizing ---
+dashboardSizePreset = input.string("Normal", "Dashboard Size", options = ["Small", "Normal", "Large"], group = grpDashSize, tooltip = "Controls the overall dashboard footprint. Small reduces rows and uses smaller text for compact screens. Normal is the default layout. Large increases readability with bigger text.")
+dashboardShowExtendedRows = input.bool(true, "Show Extended Rows", group = grpDashSize, tooltip = "When disabled in Normal/Large mode, hides confluence, displacement detail, and explanation rows to reduce dashboard height. Always hidden in Small mode.")
+
+// --- 8B. Historical Trade Display ---
+showClosedTradesOnChart = input.bool(true, "Show Closed Trades On Chart", group = grpHistTrades, tooltip = "Draws visual history of recently closed trades showing entry, stop, target zones, and result labels. Lets you see past trade execution quality at a glance.")
+closedTradeRenderLimit = input.int(10, "Closed Trade Render Limit", minval = 1, maxval = 30, group = grpHistTrades, tooltip = "Maximum number of recent closed trades to render on the chart. Higher values show more history but use more drawing objects. Keep low on busy charts.")
+showClosedTradeLabels = input.bool(true, "Show Closed Trade Labels", group = grpHistTrades, tooltip = "Adds a compact result label to each closed trade showing strategy, direction, R-multiple, and close reason.")
+showClosedTradeTp1 = input.bool(true, "Show Closed Trade TP1 Line", group = grpHistTrades, tooltip = "Draws the TP1 level on closed trades when it differs from the final target. Useful for seeing where partials were taken.")
+closedTradeLabelMode = input.string("Compact", "Closed Trade Label Mode", options = ["Compact", "Detailed"], group = grpHistTrades, tooltip = "Compact shows strategy code, result, and R-multiple. Detailed adds entry/SL/TP prices and close reason text.")
+
+// --- 8C. Dashboard Colors ---
+clrDashBg = input.color(color.rgb(8, 11, 24), "Dashboard Background", group = grpClrDashboard, tooltip = "Background color for the main dashboard table body.")
+clrDashHeaderBg = input.color(color.rgb(14, 19, 44), "Dashboard Header Background", group = grpClrDashboard, tooltip = "Background color for the dashboard title/header row.")
+clrDashLabelText = input.color(color.new(color.white, 20), "Dashboard Label Text", group = grpClrDashboard, tooltip = "Text color for left-column row labels in the dashboard.")
+clrDashValueText = input.color(color.white, "Dashboard Value Text", group = grpClrDashboard, tooltip = "Default text color for right-column values in the dashboard.")
+clrDashBullText = input.color(#00c27a, "Dashboard Bullish Text", group = grpClrDashboard, tooltip = "Text color used for bullish-aligned values in the dashboard (HTF bias, win rate, positive R).")
+clrDashBearText = input.color(#ff4d6d, "Dashboard Bearish Text", group = grpClrDashboard, tooltip = "Text color used for bearish-aligned values in the dashboard (bearish bias, negative R).")
+clrDashNeutralText = input.color(color.gray, "Dashboard Neutral Text", group = grpClrDashboard, tooltip = "Text color for neutral or inactive dashboard values.")
+clrDashWarningText = input.color(color.orange, "Dashboard Warning Text", group = grpClrDashboard, tooltip = "Text color for warning-level dashboard values (moderate win rate, transitional regime).")
+
+// --- 8D. Session Colors ---
+clrSessionLondon = input.color(#38bdf8, "London Session", group = grpClrSessions, tooltip = "Base color for London session high/low levels and background tint.")
+clrSessionNewYork = input.color(#10b981, "New York Session", group = grpClrSessions, tooltip = "Base color for New York session high/low levels and background tint.")
+clrSessionTokyo = input.color(#8b5cf6, "Tokyo Session", group = grpClrSessions, tooltip = "Base color for Tokyo session high/low levels and background tint.")
+clrSessionSydney = input.color(#ec4899, "Sydney Session", group = grpClrSessions, tooltip = "Base color for Sydney session high/low levels and background tint.")
+clrSessionOverlap = input.color(color.orange, "Session Overlap", group = grpClrSessions, tooltip = "Color used when London and New York sessions overlap.")
+
+// --- 8E. Trade / Projection Colors ---
+clrBull = input.color(#00c27a, "Bullish Bias", group = grpClrTrades, tooltip = "Primary color for bullish direction indicators, projection borders, and bias display.")
+clrBear = input.color(#ff4d6d, "Bearish Bias", group = grpClrTrades, tooltip = "Primary color for bearish direction indicators, projection borders, and bias display.")
+clrEntryLine = input.color(color.white, "Entry Line", group = grpClrTrades, tooltip = "Color for the entry price level line on active and projected trades.")
+clrStopLine = input.color(#ff4d6d, "Stop-Loss Line", group = grpClrTrades, tooltip = "Color for the stop-loss price level line on active and projected trades.")
+clrTp1Line = input.color(#00c27a, "TP1 Line", group = grpClrTrades, tooltip = "Color for the first take-profit level line.")
+clrTp2Line = input.color(color.new(#00c27a, 20), "TP2 / Runner Line", group = grpClrTrades, tooltip = "Color for the second take-profit / runner target level line.")
+clrRewardBox = input.color(#10b981, "Reward Zone Fill", group = grpClrTrades, tooltip = "Fill color for the reward (entry-to-target) projection box.")
+clrRiskBox = input.color(#ff4d6d, "Risk Zone Fill", group = grpClrTrades, tooltip = "Fill color for the risk (entry-to-stop) projection box.")
+clrMssLine = input.color(color.white, "MSS Level Line", group = grpClrTrades, tooltip = "Color for the Market Structure Shift level line drawn during setup projection.")
+clrPdhl = input.color(#f59e0b, "PDH / PDL Lines", group = grpClrTrades, tooltip = "Color for Previous Day High and Previous Day Low level lines.")
+clrHistoryWin = input.color(#10b981, "Closed Trade Win", group = grpClrTrades, tooltip = "Color for closed trades that ended in profit (reward box and label).")
+clrHistoryLoss = input.color(#ef4444, "Closed Trade Loss", group = grpClrTrades, tooltip = "Color for closed trades that ended in a loss (risk box and label).")
+clrHistoryAmbiguous = input.color(#f59e0b, "Closed Trade Ambiguous", group = grpClrTrades, tooltip = "Color for closed trades with ambiguous outcomes (simultaneous TP/SL bar).")
+
+// --- 8F. Zone / Marker Colors ---
+clrFvgBull = input.color(#4f46e5, "FVG Bullish", group = grpClrZones, tooltip = "Fill and border color for bullish Fair Value Gap zones.")
+clrFvgBear = input.color(#fb7185, "FVG Bearish", group = grpClrZones, tooltip = "Fill and border color for bearish Fair Value Gap zones.")
+clrObBull = input.color(#10b981, "OB Bullish", group = grpClrZones, tooltip = "Fill and border color for bullish Order Block zones.")
+clrObBear = input.color(#ef4444, "OB Bearish", group = grpClrZones, tooltip = "Fill and border color for bearish Order Block zones.")
+clrEqHigh = input.color(#fb7185, "Equal Highs", group = grpClrZones, tooltip = "Color for Equal Highs (EQH) level lines.")
+clrEqLow = input.color(#34d399, "Equal Lows", group = grpClrZones, tooltip = "Color for Equal Lows (EQL) level lines.")
+clrSweepBull = input.color(#00c27a, "Sweep Marker Bullish", group = grpClrZones, tooltip = "Color for bullish liquidity sweep step markers on the chart.")
+clrSweepBear = input.color(#ff4d6d, "Sweep Marker Bearish", group = grpClrZones, tooltip = "Color for bearish liquidity sweep step markers on the chart.")
+clrExperimentalBull = input.color(#4f46e5, "Experimental Bull FVG", group = grpClrZones, tooltip = "Color for experimental standalone bullish FVG trigger markers.")
+clrExperimentalBear = input.color(#fb7185, "Experimental Bear FVG", group = grpClrZones, tooltip = "Color for experimental standalone bearish FVG trigger markers.")
+
+// --- 11B. QA Colors ---
+clrQaLabel = input.color(color.yellow, "QA Label Text", group = grpClrQa, tooltip = "Text color for QA/debug labels and dashboard rows.")
+clrQaBg = input.color(color.rgb(30, 20, 60), "QA Label Background", group = grpClrQa, tooltip = "Background color for QA/debug labels.")
+
 
 // ============================================================================
 //  3. FOUNDATION HELPERS
@@ -466,17 +533,17 @@ activeSessionText = inOverlap ? "London + New York" :
      inTokyo ? "Tokyo" :
      inSydney ? "Sydney" : "Off Session"
 
-activeSessionColor = inOverlap ? color.new(color.orange, 0) :
-     inLondon ? color.new(#38bdf8, 0) :
-     inNewYork ? color.new(#10b981, 0) :
-     inTokyo ? color.new(#8b5cf6, 0) :
-     inSydney ? color.new(#ec4899, 0) : color.new(color.gray, 0)
+activeSessionColor = inOverlap ? color.new(clrSessionOverlap, 0) :
+     inLondon ? color.new(clrSessionLondon, 0) :
+     inNewYork ? color.new(clrSessionNewYork, 0) :
+     inTokyo ? color.new(clrSessionTokyo, 0) :
+     inSydney ? color.new(clrSessionSydney, 0) : color.new(color.gray, 0)
 
-sessionBgColor = showSessionBackground ? (inOverlap ? color.new(color.orange, 90) :
-     inLondon ? color.new(#38bdf8, 94) :
-     inNewYork ? color.new(#10b981, 94) :
-     inTokyo ? color.new(#8b5cf6, 94) :
-     inSydney ? color.new(#ec4899, 94) : na) : na
+sessionBgColor = showSessionBackground ? (inOverlap ? color.new(clrSessionOverlap, 90) :
+     inLondon ? color.new(clrSessionLondon, 94) :
+     inNewYork ? color.new(clrSessionNewYork, 94) :
+     inTokyo ? color.new(clrSessionTokyo, 94) :
+     inSydney ? color.new(clrSessionSydney, 94) : na) : na
 bgcolor(sessionBgColor)
 
 updateSession(SessionState sessionRef, bool enabled, bool activeNow, bool resetDay) =>
@@ -520,10 +587,10 @@ sessionVisible(SessionState sessionRef) =>
      sessionDisplayMode == "Active + Completed Today" ? (sessionRef.active or sessionRef.completedToday) :
      (isTrackedSession(sessionRef.key) and (sessionRef.active or sessionRef.startedToday))
 
-var SessionState londonState = newSession("LDN", "London", color.new(#38bdf8, 0))
-var SessionState newYorkState = newSession("NY", "New York", color.new(#10b981, 0))
-var SessionState tokyoState = newSession("TKY", "Tokyo", color.new(#8b5cf6, 0))
-var SessionState sydneyState = newSession("SYD", "Sydney", color.new(#ec4899, 0))
+var SessionState londonState = newSession("LDN", "London", color.new(clrSessionLondon, 0))
+var SessionState newYorkState = newSession("NY", "New York", color.new(clrSessionNewYork, 0))
+var SessionState tokyoState = newSession("TKY", "Tokyo", color.new(clrSessionTokyo, 0))
+var SessionState sydneyState = newSession("SYD", "Sydney", color.new(clrSessionSydney, 0))
 
 londonState := updateSession(londonState, londonEnabled, inLondon, sessionDayChanged)
 newYorkState := updateSession(newYorkState, newYorkEnabled, inNewYork, sessionDayChanged)
@@ -1507,7 +1574,7 @@ hasSelectedSetup = selectedSetup.strategyId > 0 and selectedSetup.state != STATE
 
 selectedStateText = hasSelectedSetup ? str.upper(stateText(selectedSetup.state)) : "IDLE"
 selectedDirectionText = hasSelectedSetup ? str.upper(dirText(selectedSetup.direction)) : "NEUTRAL"
-selectedBiasColor = selectedSetup.direction == DIR_BULL ? color.new(#00c27a, 0) : selectedSetup.direction == DIR_BEAR ? color.new(#ff4d6d, 0) : color.gray
+selectedBiasColor = selectedSetup.direction == DIR_BULL ? color.new(clrBull, 0) : selectedSetup.direction == DIR_BEAR ? color.new(clrBear, 0) : clrDashNeutralText
 
 SetupState displayS1Setup = s1Setup
 SetupState displayS2Setup = s2Setup
@@ -1597,6 +1664,26 @@ var int[] liveTradeQuality = array.new_int()
 var bool[] liveTradePartialTaken = array.new_bool()
 var bool[] liveTradeMovedBe = array.new_bool()
 var bool[] liveTradeExperimental = array.new_bool()
+
+// Closed-trade visual history storage
+var int[] closedTradeStrategy = array.new_int()
+var string[] closedTradeSetup = array.new_string()
+var int[] closedTradeDirection = array.new_int()
+var float[] closedTradeEntry = array.new_float()
+var float[] closedTradeInitialStop = array.new_float()
+var float[] closedTradeFinalStop = array.new_float()
+var float[] closedTradeTp1 = array.new_float()
+var float[] closedTradeTp2 = array.new_float()
+var float[] closedTradeRunner = array.new_float()
+var int[] closedTradeEntryBar = array.new_int()
+var int[] closedTradeTriggerBar = array.new_int()
+var int[] closedTradeCloseBar = array.new_int()
+var float[] closedTradeClosePrice = array.new_float()
+var string[] closedTradeCloseReason = array.new_string()
+var float[] closedTradeR = array.new_float()
+var bool[] closedTradeAmbiguous = array.new_bool()
+var bool[] closedTradeWon = array.new_bool()
+var bool[] closedTradePartialTaken = array.new_bool()
 
 var int totalClosedTrades = 0
 var int decisiveClosedTrades = 0
@@ -1794,6 +1881,45 @@ if array.size(liveTradeId) > 0
                 lastClosedR := closeTradeR
                 if emitCloseAlerts and closeAlertPayload == ""
                     closeAlertPayload := buildPayload(array.get(liveTradeSetup, tradeIdx), tradeDirectionTag(dir), entryPrice, array.get(liveTradeStop, tradeIdx), close, array.get(liveTradeQuality, tradeIdx), "SIGNAL_CLOSE")
+                // Store closed trade for visual history
+                array.push(closedTradeStrategy, array.get(liveTradeStrategy, tradeIdx))
+                array.push(closedTradeSetup, array.get(liveTradeSetup, tradeIdx))
+                array.push(closedTradeDirection, dir)
+                array.push(closedTradeEntry, entryPrice)
+                array.push(closedTradeInitialStop, array.get(liveTradeStop, tradeIdx))
+                array.push(closedTradeFinalStop, array.get(liveTradeDynamicStop, tradeIdx))
+                array.push(closedTradeTp1, tp1Price)
+                array.push(closedTradeTp2, tp2Price)
+                array.push(closedTradeRunner, runnerPrice)
+                array.push(closedTradeEntryBar, entryBar)
+                array.push(closedTradeTriggerBar, array.get(liveTradeTriggerBar, tradeIdx))
+                array.push(closedTradeCloseBar, bar_index)
+                array.push(closedTradeClosePrice, close)
+                array.push(closedTradeCloseReason, closeReason)
+                array.push(closedTradeR, closeTradeR)
+                array.push(closedTradeAmbiguous, ambiguousTrade)
+                array.push(closedTradeWon, not ambiguousTrade and closeTradeR > 0)
+                array.push(closedTradePartialTaken, partialTaken)
+                // Trim to render limit
+                while array.size(closedTradeStrategy) > closedTradeRenderLimit
+                    array.shift(closedTradeStrategy)
+                    array.shift(closedTradeSetup)
+                    array.shift(closedTradeDirection)
+                    array.shift(closedTradeEntry)
+                    array.shift(closedTradeInitialStop)
+                    array.shift(closedTradeFinalStop)
+                    array.shift(closedTradeTp1)
+                    array.shift(closedTradeTp2)
+                    array.shift(closedTradeRunner)
+                    array.shift(closedTradeEntryBar)
+                    array.shift(closedTradeTriggerBar)
+                    array.shift(closedTradeCloseBar)
+                    array.shift(closedTradeClosePrice)
+                    array.shift(closedTradeCloseReason)
+                    array.shift(closedTradeR)
+                    array.shift(closedTradeAmbiguous)
+                    array.shift(closedTradeWon)
+                    array.shift(closedTradePartialTaken)
                 array.remove(liveTradeId, tradeIdx)
                 array.remove(liveTradeStrategy, tradeIdx)
                 array.remove(liveTradeSetup, tradeIdx)
@@ -1866,7 +1992,7 @@ clearBoxes() =>
         box.delete(array.shift(drawBoxes))
 
 safeHistoryBar(int candidateBar) =>
-    int(math.max(0, math.max(candidateBar, bar_index - 9999)))
+    int(math.max(0, math.max(candidateBar, bar_index - 1990)))
 
 addLevel(int x1, float y, string labelText, color lineColor, bool isHigh) =>
     int startBar = safeHistoryBar(x1)
@@ -1909,7 +2035,7 @@ setupPrimaryTarget(SetupState setupRef) =>
 drawSetupProjection(SetupState setupRef, bool isSelected) =>
     bool showSetup = setupRef.strategyId > 0 and (setupRef.state == STATE_ARMED or setupRef.state == STATE_TRIGGERED)
     if showSetup
-        color biasBase = setupRef.direction == DIR_BULL ? color.new(#00c27a, 0) : color.new(#ff4d6d, 0)
+        color biasBase = setupRef.direction == DIR_BULL ? color.new(clrBull, 0) : color.new(clrBear, 0)
         int fade = isSelected ? 0 : 48
         if showSelectedLiquidity and not na(setupRef.liquidityPrice)
             addLevel(nz(setupRef.sweepBar, bar_index), setupRef.liquidityPrice, isSelected ? strategyCode(setupRef.strategyId) + " " + setupRef.liquidityLabel : "", color.new(biasBase, fade), setupRef.direction == DIR_BEAR)
@@ -1923,13 +2049,102 @@ drawSetupProjection(SetupState setupRef, bool isSelected) =>
             if not na(setupRef.entryPrice) and not na(setupRef.stopPrice) and not na(targetPrice)
                 int projectionLeft = nz(setupRef.sweepBar, nz(setupRef.zoneBar, bar_index))
                 int projectionRight = setupRef.state == STATE_ARMED ? math.max(bar_index + 1, nz(setupRef.expiryBar, bar_index + 1)) : bar_index + 1
-                addSpanBox(projectionLeft, projectionRight, setupRef.direction == DIR_BULL ? targetPrice : setupRef.entryPrice, setupRef.direction == DIR_BULL ? setupRef.entryPrice : targetPrice, color.new(#10b981, isSelected ? 82 : 92), color.new(#10b981, isSelected ? 5 : 55))
-                addSpanBox(projectionLeft, projectionRight, setupRef.direction == DIR_BULL ? setupRef.entryPrice : setupRef.stopPrice, setupRef.direction == DIR_BULL ? setupRef.stopPrice : setupRef.entryPrice, color.new(#ff4d6d, isSelected ? 84 : 93), color.new(#ff4d6d, isSelected ? 5 : 55))
+                addSpanBox(projectionLeft, projectionRight, setupRef.direction == DIR_BULL ? targetPrice : setupRef.entryPrice, setupRef.direction == DIR_BULL ? setupRef.entryPrice : targetPrice, color.new(clrRewardBox, isSelected ? 82 : 92), color.new(clrRewardBox, isSelected ? 5 : 55))
+                addSpanBox(projectionLeft, projectionRight, setupRef.direction == DIR_BULL ? setupRef.entryPrice : setupRef.stopPrice, setupRef.direction == DIR_BULL ? setupRef.stopPrice : setupRef.entryPrice, color.new(clrRiskBox, isSelected ? 84 : 93), color.new(clrRiskBox, isSelected ? 5 : 55))
                 bool labelProjectionLevels = isSelected and (not hasActiveTrade or activeTradeStrategy != setupRef.strategyId or setupRef.state == STATE_ARMED)
                 if labelProjectionLevels
-                    addLevel(projectionLeft, setupRef.entryPrice, "Entry", color.new(color.white, 0), setupRef.direction == DIR_BEAR)
-                    addLevel(projectionLeft, setupRef.stopPrice, "Stop", color.new(#ff4d6d, 0), setupRef.direction == DIR_BULL)
-                    addLevel(projectionLeft, targetPrice, "Target", color.new(#10b981, 0), setupRef.direction == DIR_BEAR)
+                    addLevel(projectionLeft, setupRef.entryPrice, "Entry", color.new(clrEntryLine, 0), setupRef.direction == DIR_BEAR)
+                    addLevel(projectionLeft, setupRef.stopPrice, "Stop", color.new(clrStopLine, 0), setupRef.direction == DIR_BULL)
+                    addLevel(projectionLeft, targetPrice, "Target", color.new(clrTp1Line, 0), setupRef.direction == DIR_BEAR)
+
+
+// --- Historical Trade Drawing Helpers ---
+addHistoricalTradeLevel(int x1, int x2, float y, color lineColor) =>
+    int startBar = safeHistoryBar(x1)
+    int endBar = math.max(startBar + 1, x2)
+    line levelLine = line.new(startBar, y, endBar, y, xloc = xloc.bar_index, color = lineColor, width = 1, style = line.style_dotted)
+    array.push(drawLines, levelLine)
+
+addHistoricalTradeBox(int x1, int x2, float topPrice, float bottomPrice, color fillColor, color borderColor) =>
+    int startBar = safeHistoryBar(x1)
+    int endBar = math.max(startBar + 1, x2)
+    box tradeBox = box.new(startBar, math.max(topPrice, bottomPrice), endBar, math.min(topPrice, bottomPrice),
+         xloc = xloc.bar_index, bgcolor = fillColor, border_color = borderColor, border_width = 1)
+    array.push(drawBoxes, tradeBox)
+
+buildClosedTradeLabel(int idx) =>
+    int strat = array.get(closedTradeStrategy, idx)
+    int dir = array.get(closedTradeDirection, idx)
+    float rVal = array.get(closedTradeR, idx)
+    bool won = array.get(closedTradeWon, idx)
+    bool ambig = array.get(closedTradeAmbiguous, idx)
+    string reason = array.get(closedTradeCloseReason, idx)
+    string dirTag = dir == DIR_BULL ? "L" : "S"
+    string resultTag = ambig ? "AMB" : won ? "WIN" : "LOSS"
+    string rText = str.tostring(rVal, "#.0") + "R"
+    if closedTradeLabelMode == "Detailed"
+        float entry = array.get(closedTradeEntry, idx)
+        float sl = array.get(closedTradeInitialStop, idx)
+        float tp = nz(array.get(closedTradeRunner, idx), array.get(closedTradeTp2, idx))
+        strategyCode(strat) + " " + dirTag + " | " + resultTag + " " + rText + "\n" +
+             "E:" + str.tostring(entry, format.mintick) + " SL:" + str.tostring(sl, format.mintick) + "\n" +
+             "TP:" + str.tostring(tp, format.mintick) + " | " + reason
+    else
+        strategyCode(strat) + " " + dirTag + " " + resultTag + " " + rText + " [" + reason + "]"
+
+drawClosedTrade(int idx) =>
+    int dir = array.get(closedTradeDirection, idx)
+    float entry = array.get(closedTradeEntry, idx)
+    float initialStop = array.get(closedTradeInitialStop, idx)
+    float tp1Price = array.get(closedTradeTp1, idx)
+    float runner = nz(array.get(closedTradeRunner, idx), array.get(closedTradeTp2, idx))
+    int entryBar = array.get(closedTradeEntryBar, idx)
+    int closeBar = nz(array.get(closedTradeCloseBar, idx), bar_index)
+    bool won = array.get(closedTradeWon, idx)
+    bool ambig = array.get(closedTradeAmbiguous, idx)
+    float finalTarget = not na(runner) ? runner : tp1Price
+    color resultColor = ambig ? clrHistoryAmbiguous : won ? clrHistoryWin : clrHistoryLoss
+    // Entry level
+    addHistoricalTradeLevel(entryBar, closeBar, entry, color.new(clrEntryLine, 40))
+    // Stop level
+    addHistoricalTradeLevel(entryBar, closeBar, initialStop, color.new(clrStopLine, 50))
+    // Final target level
+    if not na(finalTarget)
+        addHistoricalTradeLevel(entryBar, closeBar, finalTarget, color.new(resultColor, 40))
+    // TP1 level if different
+    if showClosedTradeTp1 and not na(tp1Price) and not na(finalTarget) and math.abs(tp1Price - finalTarget) > syminfo.mintick * 5
+        addHistoricalTradeLevel(entryBar, closeBar, tp1Price, color.new(clrTp1Line, 60))
+    // Risk box (entry to stop)
+    if dir == DIR_BULL
+        addHistoricalTradeBox(entryBar, closeBar, entry, initialStop, color.new(clrRiskBox, 92), color.new(resultColor, 60))
+    else
+        addHistoricalTradeBox(entryBar, closeBar, initialStop, entry, color.new(clrRiskBox, 92), color.new(resultColor, 60))
+    // Reward box (entry to target)
+    if not na(finalTarget)
+        if dir == DIR_BULL
+            addHistoricalTradeBox(entryBar, closeBar, finalTarget, entry, color.new(clrRewardBox, 92), color.new(resultColor, 60))
+        else
+            addHistoricalTradeBox(entryBar, closeBar, entry, finalTarget, color.new(clrRewardBox, 92), color.new(resultColor, 60))
+    // Result label
+    if showClosedTradeLabels
+        string labelTxt = buildClosedTradeLabel(idx)
+        int safeLabelBar = safeHistoryBar(closeBar)
+        label resultLabel = label.new(safeLabelBar, dir == DIR_BULL ? (not na(finalTarget) ? finalTarget : entry) : (not na(initialStop) ? initialStop : entry),
+             labelTxt, xloc = xloc.bar_index,
+             style = dir == DIR_BULL ? label.style_label_lower_left : label.style_label_upper_left,
+             color = color.new(resultColor, 15), textcolor = color.white, size = size.tiny)
+        array.push(drawLabels, resultLabel)
+
+drawClosedTrades() =>
+    if showClosedTradesOnChart
+        int count = array.size(closedTradeStrategy)
+        int startIdx = math.max(0, count - closedTradeRenderLimit)
+        int oldestAllowed = bar_index - 1990
+        for idx = startIdx to count - 1
+            if idx >= 0 and idx < count
+                int cBar = array.get(closedTradeCloseBar, idx)
+                if cBar >= oldestAllowed
+                    drawClosedTrade(idx)
 
 // ============================================================================
 //  13. CHART VISUALS
@@ -1940,9 +2155,9 @@ clearBoxes()
 
 if showPdhl
     if not na(pdh)
-        addLevel(bar_index - 20, pdh, "PDH", color.new(#f59e0b, 0), true)
+        addLevel(bar_index - 20, pdh, "PDH", color.new(clrPdhl, 0), true)
     if not na(pdl)
-        addLevel(bar_index - 20, pdl, "PDL", color.new(#f59e0b, 0), false)
+        addLevel(bar_index - 20, pdl, "PDL", color.new(clrPdhl, 0), false)
 
 drawSessionLevel(londonState)
 drawSessionLevel(newYorkState)
@@ -1950,9 +2165,9 @@ drawSessionLevel(tokyoState)
 
 if showEqualHighLow
     if not na(equalHighLevel)
-        addLevel(nz(equalHighBar, bar_index), equalHighLevel, "EQH", color.new(#fb7185, 0), true)
+        addLevel(nz(equalHighBar, bar_index), equalHighLevel, "EQH", color.new(clrEqHigh, 0), true)
     if not na(equalLowLevel)
-        addLevel(nz(equalLowBar, bar_index), equalLowLevel, "EQL", color.new(#34d399, 0), false)
+        addLevel(nz(equalLowBar, bar_index), equalLowLevel, "EQL", color.new(clrEqLow, 0), false)
 
 drawSetupProjection(displayS1Setup, hasSelectedSetup and selectedSetup.strategyId == STRAT_S1)
 drawSetupProjection(displayS2Setup, hasSelectedSetup and selectedSetup.strategyId == STRAT_S2)
@@ -1960,43 +2175,46 @@ drawSetupProjection(displayS3Setup, hasSelectedSetup and selectedSetup.strategyI
 drawSetupProjection(displayS4Setup, hasSelectedSetup and selectedSetup.strategyId == STRAT_S4)
 drawSetupProjection(displayS5Setup, hasSelectedSetup and selectedSetup.strategyId == STRAT_S5)
 
+// Draw historical closed trades
+drawClosedTrades()
+
 if showTradeLevels and hasActiveTrade
-    addLevel(nz(activeTradeEntryBar, bar_index), activeTradeEntry, "Entry", color.new(color.white, 0), activeTradeDirection == DIR_BEAR)
-    addLevel(nz(activeTradeEntryBar, bar_index), activeTradeStop, "Stop", color.new(#ff4d6d, 0), activeTradeDirection == DIR_BULL)
+    addLevel(nz(activeTradeEntryBar, bar_index), activeTradeEntry, "Entry", color.new(clrEntryLine, 0), activeTradeDirection == DIR_BEAR)
+    addLevel(nz(activeTradeEntryBar, bar_index), activeTradeStop, "Stop", color.new(clrStopLine, 0), activeTradeDirection == DIR_BULL)
     if not na(activeTradeTp1)
-        addLevel(nz(activeTradeEntryBar, bar_index), activeTradeTp1, "TP1", color.new(#00c27a, 0), activeTradeDirection == DIR_BEAR)
+        addLevel(nz(activeTradeEntryBar, bar_index), activeTradeTp1, "TP1", color.new(clrTp1Line, 0), activeTradeDirection == DIR_BEAR)
     if not na(activeTradeTp2) and activeTradeTp2 != activeTradeTp1
-        addLevel(nz(activeTradeEntryBar, bar_index), activeTradeTp2, "TP2", color.new(#00c27a, 20), activeTradeDirection == DIR_BEAR)
+        addLevel(nz(activeTradeEntryBar, bar_index), activeTradeTp2, "TP2", color.new(clrTp2Line, 0), activeTradeDirection == DIR_BEAR)
 else if hasSelectedSetup and showTradeLevels and selectedSetup.state == STATE_TRIGGERED
-    addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.entryPrice, "Entry", color.new(color.white, 0), selectedSetup.direction == DIR_BEAR)
-    addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.stopPrice, "Stop", color.new(#ff4d6d, 0), selectedSetup.direction == DIR_BULL)
+    addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.entryPrice, "Entry", color.new(clrEntryLine, 0), selectedSetup.direction == DIR_BEAR)
+    addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.stopPrice, "Stop", color.new(clrStopLine, 0), selectedSetup.direction == DIR_BULL)
     if not na(selectedSetup.tp1)
-        addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.tp1, "TP1", color.new(#00c27a, 0), selectedSetup.direction == DIR_BEAR)
+        addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.tp1, "TP1", color.new(clrTp1Line, 0), selectedSetup.direction == DIR_BEAR)
     if not na(selectedSetup.tp2) and selectedSetup.tp2 != selectedSetup.tp1
-        addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.tp2, "TP2", color.new(#00c27a, 20), selectedSetup.direction == DIR_BEAR)
+        addLevel(nz(selectedSetup.triggerBar, bar_index), selectedSetup.tp2, "TP2", color.new(clrTp2Line, 0), selectedSetup.direction == DIR_BEAR)
 
 if showPassiveZones and enableFvg
     if array.size(bullFvgHigh) > 0
         int bullFvgDraw = math.max(array.size(bullFvgHigh) - passiveZoneLimit, 0)
         for idx = bullFvgDraw to array.size(bullFvgHigh) - 1
             if idx >= 0 and idx < array.size(bullFvgHigh)
-                addZoneBox(array.get(bullFvgBar, idx), array.get(bullFvgHigh, idx), array.get(bullFvgLow, idx), color.new(#4f46e5, 93), color.new(#4f46e5, 35), showPassiveZoneLabels ? "Bull FVG" : "", 50)
+                addZoneBox(array.get(bullFvgBar, idx), array.get(bullFvgHigh, idx), array.get(bullFvgLow, idx), color.new(clrFvgBull, 93), color.new(clrFvgBull, 35), showPassiveZoneLabels ? "Bull FVG" : "", 50)
     if array.size(bearFvgHigh) > 0
         int bearFvgDraw = math.max(array.size(bearFvgHigh) - passiveZoneLimit, 0)
         for idx = bearFvgDraw to array.size(bearFvgHigh) - 1
             if idx >= 0 and idx < array.size(bearFvgHigh)
-                addZoneBox(array.get(bearFvgBar, idx), array.get(bearFvgHigh, idx), array.get(bearFvgLow, idx), color.new(#7c2d12, 93), color.new(#fb7185, 35), showPassiveZoneLabels ? "Bear FVG" : "", 50)
+                addZoneBox(array.get(bearFvgBar, idx), array.get(bearFvgHigh, idx), array.get(bearFvgLow, idx), color.new(clrFvgBear, 93), color.new(clrFvgBear, 35), showPassiveZoneLabels ? "Bear FVG" : "", 50)
 if showPassiveZones and enableOb
     if array.size(bullObHigh) > 0
         int bullObDraw = math.max(array.size(bullObHigh) - passiveZoneLimit, 0)
         for idx = bullObDraw to array.size(bullObHigh) - 1
             if idx >= 0 and idx < array.size(bullObHigh)
-                addZoneBox(array.get(bullObBar, idx), array.get(bullObHigh, idx), array.get(bullObLow, idx), color.new(#065f46, 92), color.new(#10b981, 45), showPassiveZoneLabels ? "Bull OB" : "", 55)
+                addZoneBox(array.get(bullObBar, idx), array.get(bullObHigh, idx), array.get(bullObLow, idx), color.new(clrObBull, 92), color.new(clrObBull, 45), showPassiveZoneLabels ? "Bull OB" : "", 55)
     if array.size(bearObHigh) > 0
         int bearObDraw = math.max(array.size(bearObHigh) - passiveZoneLimit, 0)
         for idx = bearObDraw to array.size(bearObHigh) - 1
             if idx >= 0 and idx < array.size(bearObHigh)
-                addZoneBox(array.get(bearObBar, idx), array.get(bearObHigh, idx), array.get(bearObLow, idx), color.new(#7f1d1d, 92), color.new(#ef4444, 45), showPassiveZoneLabels ? "Bear OB" : "", 55)
+                addZoneBox(array.get(bearObBar, idx), array.get(bearObHigh, idx), array.get(bearObLow, idx), color.new(clrObBear, 92), color.new(clrObBear, 45), showPassiveZoneLabels ? "Bear OB" : "", 55)
 
 bool bullSweepMarker = (s1PublicSweepThisBar and displayS1Setup.direction == DIR_BULL) or (s2PublicSweepThisBar and displayS2Setup.direction == DIR_BULL) or (s3PublicSweepThisBar and displayS3Setup.direction == DIR_BULL) or (s4PublicSweepThisBar and displayS4Setup.direction == DIR_BULL) or (s5PublicSweepThisBar and displayS5Setup.direction == DIR_BULL)
 bool bearSweepMarker = (s1PublicSweepThisBar and displayS1Setup.direction == DIR_BEAR) or (s2PublicSweepThisBar and displayS2Setup.direction == DIR_BEAR) or (s3PublicSweepThisBar and displayS3Setup.direction == DIR_BEAR) or (s4PublicSweepThisBar and displayS4Setup.direction == DIR_BEAR) or (s5PublicSweepThisBar and displayS5Setup.direction == DIR_BEAR)
@@ -2008,16 +2226,16 @@ bool bullTriggeredMarker = (s1TriggeredThisBar and displayS1Setup.direction == D
 bool bearTriggeredMarker = (s1TriggeredThisBar and displayS1Setup.direction == DIR_BEAR) or (s2TriggeredThisBar and displayS2Setup.direction == DIR_BEAR) or (s3TriggeredThisBar and displayS3Setup.direction == DIR_BEAR) or (s4TriggeredThisBar and displayS4Setup.direction == DIR_BEAR) or (s5TriggeredThisBar and displayS5Setup.direction == DIR_BEAR)
 
 // Lifecycle markers
-plotshape(showStepMarkers and bullSweepMarker, title = "Bull Sweep", style = shape.xcross, location = location.belowbar, color = color.new(#00c27a, 0), size = size.tiny)
-plotshape(showStepMarkers and bearSweepMarker, title = "Bear Sweep", style = shape.xcross, location = location.abovebar, color = color.new(#ff4d6d, 0), size = size.tiny)
+plotshape(showStepMarkers and bullSweepMarker, title = "Bull Sweep", style = shape.xcross, location = location.belowbar, color = color.new(clrSweepBull, 0), size = size.tiny)
+plotshape(showStepMarkers and bearSweepMarker, title = "Bear Sweep", style = shape.xcross, location = location.abovebar, color = color.new(clrSweepBear, 0), size = size.tiny)
 plotshape(showStepMarkers and bullMssMarker, title = "Bull MSS", text = "2", style = shape.labelup, location = location.belowbar, color = color.new(color.white, 0), textcolor = color.black, size = size.tiny)
 plotshape(showStepMarkers and bearMssMarker, title = "Bear MSS", text = "2", style = shape.labeldown, location = location.abovebar, color = color.new(color.white, 0), textcolor = color.black, size = size.tiny)
-plotshape(showStepMarkers and bullArmedMarker, title = "Bull Zone Formed", text = "3", style = shape.square, location = location.belowbar, color = color.new(#00c27a, 0), textcolor = color.white, size = size.tiny)
-plotshape(showStepMarkers and bearArmedMarker, title = "Bear Zone Formed", text = "3", style = shape.square, location = location.abovebar, color = color.new(#ff4d6d, 0), textcolor = color.white, size = size.tiny)
-plotshape(showStepMarkers and bullTriggeredMarker, title = "Bull Triggered", text = "4", style = shape.diamond, location = location.belowbar, color = color.new(#00c27a, 0), textcolor = color.white, size = size.tiny)
-plotshape(showStepMarkers and bearTriggeredMarker, title = "Bear Triggered", text = "4", style = shape.diamond, location = location.abovebar, color = color.new(#ff4d6d, 0), textcolor = color.white, size = size.tiny)
-plotshape(showStepMarkers and experimentalBullSignal, title = "Experimental Bull FVG", text = "X", style = shape.circle, location = location.belowbar, color = color.new(#4f46e5, 0), textcolor = color.white, size = size.tiny)
-plotshape(showStepMarkers and experimentalBearSignal, title = "Experimental Bear FVG", text = "X", style = shape.circle, location = location.abovebar, color = color.new(#fb7185, 0), textcolor = color.white, size = size.tiny)
+plotshape(showStepMarkers and bullArmedMarker, title = "Bull Zone Formed", text = "3", style = shape.square, location = location.belowbar, color = color.new(clrSweepBull, 0), textcolor = color.white, size = size.tiny)
+plotshape(showStepMarkers and bearArmedMarker, title = "Bear Zone Formed", text = "3", style = shape.square, location = location.abovebar, color = color.new(clrSweepBear, 0), textcolor = color.white, size = size.tiny)
+plotshape(showStepMarkers and bullTriggeredMarker, title = "Bull Triggered", text = "4", style = shape.diamond, location = location.belowbar, color = color.new(clrSweepBull, 0), textcolor = color.white, size = size.tiny)
+plotshape(showStepMarkers and bearTriggeredMarker, title = "Bear Triggered", text = "4", style = shape.diamond, location = location.abovebar, color = color.new(clrSweepBear, 0), textcolor = color.white, size = size.tiny)
+plotshape(showStepMarkers and experimentalBullSignal, title = "Experimental Bull FVG", text = "X", style = shape.circle, location = location.belowbar, color = color.new(clrExperimentalBull, 0), textcolor = color.white, size = size.tiny)
+plotshape(showStepMarkers and experimentalBearSignal, title = "Experimental Bear FVG", text = "X", style = shape.circle, location = location.abovebar, color = color.new(clrExperimentalBear, 0), textcolor = color.white, size = size.tiny)
 
 // ============================================================================
 //  14. DASHBOARD / EXPLANATION PANEL
@@ -2056,94 +2274,129 @@ buildExplanation(SetupState setupRef) =>
 
 var table dashboard = na
 
+// Dashboard size helpers
+dashboardIsSmall = dashboardSizePreset == "Small"
+dashboardIsLarge = dashboardSizePreset == "Large"
+dashboardTxtSize = dashboardIsSmall ? size.tiny : dashboardIsLarge ? size.normal : size.small
+dashboardShowPerf = showPerformanceRows and not dashboardIsSmall
+dashboardShowExplain = showExplanation and not dashboardIsSmall
+dashboardShowExtended = dashboardShowExtendedRows and not dashboardIsSmall
+dashboardShowConfl = dashboardShowExtended
+dashboardShowDisp = dashboardShowExtended
+dashboardShowContext = not dashboardIsSmall
+dashboardShowQa = qaDailyDebug and not dashboardIsSmall
+
+addDashRow(table tbl, int rowNum, string labelStr, string valueStr, color lblClr, color valClr) =>
+    table.cell(tbl, 0, rowNum, labelStr, text_color = lblClr, text_size = dashboardTxtSize)
+    table.cell(tbl, 1, rowNum, valueStr, text_color = valClr, text_size = dashboardTxtSize)
+
 if barstate.islast
     if not na(dashboard)
         table.delete(dashboard)
     if showDashboard
-        int dashboardRows = 15 + (showPerformanceRows ? 6 : 0) + (qaDailyDebug ? 1 : 0) + (showExplanation ? 1 : 0)
-        dashboard := table.new(dashboardPos, 2, dashboardRows,
-             bgcolor = color.new(color.rgb(8, 11, 24), 0), border_color = color.new(color.white, 80), border_width = 1)
+        // Count rows needed
+        int estRows = 9
+        if dashboardShowContext
+            estRows += 1
+        if dashboardShowDisp
+            estRows += 1
+        if dashboardShowConfl
+            estRows += 1
+        if not dashboardIsSmall
+            estRows += 2
+        if dashboardShowPerf
+            estRows += 6
+        estRows += 1
+        if dashboardShowQa
+            estRows += 1
+        if dashboardShowExplain
+            estRows += 1
+        dashboard := table.new(dashboardPos, 2, estRows,
+             bgcolor = color.new(clrDashBg, 0), border_color = color.new(color.white, 80), border_width = 1)
         int row = 0
-        table.cell(dashboard, 0, row, "SMC Clean Signals v6", text_color = color.white, bgcolor = color.new(color.rgb(14, 19, 44), 0))
-        table.cell(dashboard, 1, row, webhookSource, text_color = color.white, bgcolor = color.new(color.rgb(14, 19, 44), 0))
+        // Header
+        string headerTitle = dashboardIsSmall ? "SMC v6" : "SMC Clean Signals v6"
+        string headerVal = dashboardIsSmall ? "" : webhookSource
+        table.cell(dashboard, 0, row, headerTitle, text_color = clrDashValueText, bgcolor = color.new(clrDashHeaderBg, 0), text_size = dashboardTxtSize)
+        table.cell(dashboard, 1, row, headerVal, text_color = clrDashValueText, bgcolor = color.new(clrDashHeaderBg, 0), text_size = dashboardTxtSize)
         row += 1
-        table.cell(dashboard, 0, row, "Profile", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, marketProfile + " | " + profilePreset, text_color = color.new(color.white, 0))
+        // Profile
+        addDashRow(dashboard, row, "Profile", dashboardIsSmall ? profilePreset : marketProfile + " | " + profilePreset, clrDashLabelText, clrDashValueText)
         row += 1
-        table.cell(dashboard, 0, row, "HTF Bias", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, htfBiasText + (htfBiasStrong ? " strong" : " soft"), text_color = htfBull ? color.new(#00c27a, 0) : htfBear ? color.new(#ff4d6d, 0) : color.gray)
+        // HTF Bias
+        color htfColor = htfBull ? color.new(clrDashBullText, 0) : htfBear ? color.new(clrDashBearText, 0) : clrDashNeutralText
+        addDashRow(dashboard, row, "HTF Bias", htfBiasText + (dashboardIsSmall ? "" : (htfBiasStrong ? " strong" : " soft")), clrDashLabelText, htfColor)
         row += 1
-        table.cell(dashboard, 0, row, "External Context", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, externalBiasText + " | " + premiumDiscountText + " | " + regimeName, text_color = color.new(color.white, 0))
+        // External Context (skip in small)
+        if dashboardShowContext
+            addDashRow(dashboard, row, "Context", externalBiasText + " | " + premiumDiscountText + " | " + regimeName, clrDashLabelText, clrDashValueText)
+            row += 1
+        // Session
+        addDashRow(dashboard, row, "Session", activeSessionText, clrDashLabelText, activeSessionColor)
         row += 1
-        table.cell(dashboard, 0, row, "Active Session", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, activeSessionText, text_color = activeSessionColor)
+        // Strategy
+        string stratVal = hasSelectedSetup ? strategyCode(selectedSetup.strategyId) + " " + (dashboardIsSmall ? "" : selectedSetup.strategyLabel) : (hasActiveTrade ? activeTradeSetup + (dashboardIsSmall ? "" : " (live)") : "None")
+        addDashRow(dashboard, row, "Strategy", stratVal, clrDashLabelText, hasSelectedSetup ? selectedBiasColor : clrDashValueText)
         row += 1
-        table.cell(dashboard, 0, row, "Active Strategy", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, hasSelectedSetup ? strategyCode(selectedSetup.strategyId) + " " + selectedSetup.strategyLabel : (hasActiveTrade ? activeTradeSetup + " (live)" : "None"), text_color = hasSelectedSetup ? selectedBiasColor : color.new(color.white, 0))
+        // State
+        string stateVal = hasSelectedSetup ? selectedStateText + " | " + selectedDirectionText : (hasActiveTrade ? "LIVE | " + tradeDirectionTag(activeTradeDirection) : selectedStateText)
+        addDashRow(dashboard, row, "State", stateVal, clrDashLabelText, hasSelectedSetup ? selectedBiasColor : clrDashValueText)
         row += 1
-        table.cell(dashboard, 0, row, "Setup State", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, hasSelectedSetup ? selectedStateText + " | " + selectedDirectionText : (hasActiveTrade ? "TRADE_LIVE | " + tradeDirectionTag(activeTradeDirection) : selectedStateText), text_color = hasSelectedSetup ? selectedBiasColor : color.new(color.white, 0))
+        // Entry / Stop
+        string esVal = hasSelectedSetup and selectedSetup.state >= STATE_ARMED ? str.tostring(selectedSetup.entryPrice, format.mintick) + " / " + str.tostring(selectedSetup.stopPrice, format.mintick) : hasActiveTrade ? str.tostring(activeTradeEntry, format.mintick) + " / " + str.tostring(activeTradeStop, format.mintick) : "Pending"
+        addDashRow(dashboard, row, "Entry/Stop", esVal, clrDashLabelText, clrDashValueText)
         row += 1
-        table.cell(dashboard, 0, row, "Liquidity Swept", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, hasSelectedSetup ? selectedSetup.liquidityLabel : "None", text_color = color.new(color.white, 0))
+        // Target
+        if not dashboardIsSmall
+            addDashRow(dashboard, row, "Target", hasSelectedSetup and selectedSetup.state >= STATE_ARMED ? selectedSetup.targetModel : (hasActiveTrade ? activeTradeSetup : "Pending"), clrDashLabelText, clrDashValueText)
+            row += 1
+        // Liquidity + MSS (skip in small)
+        if not dashboardIsSmall
+            addDashRow(dashboard, row, "Liquidity", hasSelectedSetup ? selectedSetup.liquidityLabel : "None", clrDashLabelText, clrDashValueText)
+            row += 1
+        // Displacement (extended only)
+        if dashboardShowDisp
+            string dispVal = hasSelectedSetup and selectedSetup.displacementScore > 0 ? qualityLabel(selectedSetup.displacementScore) + " (" + str.tostring(selectedSetup.displacementScore) + ")" : "Waiting"
+            addDashRow(dashboard, row, "Displacement", dispVal, clrDashLabelText, clrDashValueText)
+            row += 1
+        // Confluence (extended only)
+        if dashboardShowConfl
+            addDashRow(dashboard, row, "Confluence", hasSelectedSetup ? selectedSetup.confluenceSummary : "Waiting", clrDashLabelText, clrDashValueText)
+            row += 1
+        // Live Trades
+        addDashRow(dashboard, row, "Live", str.tostring(array.size(liveTradeId)) + " active", clrDashLabelText, hasActiveTrade ? color.new(clrDashBullText, 0) : clrDashNeutralText)
         row += 1
-        table.cell(dashboard, 0, row, "MSS Level", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, hasSelectedSetup and not na(selectedSetup.mssLevel) ? str.tostring(selectedSetup.mssLevel, format.mintick) : "Waiting", text_color = color.new(color.white, 0))
-        row += 1
-        table.cell(dashboard, 0, row, "Displacement", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, hasSelectedSetup and selectedSetup.displacementScore > 0 ? qualityLabel(selectedSetup.displacementScore) + " (" + str.tostring(selectedSetup.displacementScore) + ")" : "Waiting", text_color = color.new(color.white, 0))
-        row += 1
-        table.cell(dashboard, 0, row, "Entry / Stop", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row,
-             hasSelectedSetup and selectedSetup.state >= STATE_ARMED ? str.tostring(selectedSetup.entryPrice, format.mintick) + " / " + str.tostring(selectedSetup.stopPrice, format.mintick) :
-             hasActiveTrade ? str.tostring(activeTradeEntry, format.mintick) + " / " + str.tostring(activeTradeStop, format.mintick) : "Pending",
-             text_color = color.new(color.white, 0))
-        row += 1
-        table.cell(dashboard, 0, row, "Target Logic", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, hasSelectedSetup and selectedSetup.state >= STATE_ARMED ? selectedSetup.targetModel : (hasActiveTrade ? activeTradeSetup : "Pending"), text_color = color.new(color.white, 0))
-        row += 1
-        table.cell(dashboard, 0, row, "Confluence", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, hasSelectedSetup ? selectedSetup.confluenceSummary : "Waiting", text_color = color.new(color.white, 0))
-        row += 1
-        table.cell(dashboard, 0, row, "Live Trades", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row, str.tostring(array.size(liveTradeId)) + " active", text_color = hasActiveTrade ? color.new(#00c27a, 0) : color.gray)
-        row += 1
-        if showPerformanceRows
-            wrText = na(winRate) ? "N/A until " + str.tostring(minClosedTradesForWinRate) : str.tostring(winRate, "#.0") + "%"
+        // Performance rows
+        if dashboardShowPerf
+            wrText = na(winRate) ? "N/A" + (dashboardIsSmall ? "" : " until " + str.tostring(minClosedTradesForWinRate)) : str.tostring(winRate, "#.0") + "%"
             expText = totalClosedTrades > 0 ? str.tostring(avgClosedR, "#.00") + "R" : "N/A"
             avgWinLossText = (totalWins > 0 ? str.tostring(avgWinR, "#.00") : "N/A") + " / " + (totalLosses > 0 ? str.tostring(avgLossR, "#.00") : "N/A")
-            table.cell(dashboard, 0, row, "Closed Trades", text_color = color.new(color.white, 20))
-            table.cell(dashboard, 1, row, str.tostring(totalClosedTrades) + " (" + str.tostring(totalAmbiguous) + " ambiguous)", text_color = color.new(color.white, 0))
+            addDashRow(dashboard, row, "Closed", str.tostring(totalClosedTrades) + " (" + str.tostring(totalAmbiguous) + " amb)", clrDashLabelText, clrDashValueText)
             row += 1
-            table.cell(dashboard, 0, row, "Win Rate", text_color = color.new(color.white, 20))
-            table.cell(dashboard, 1, row, wrText, text_color = na(winRate) ? color.gray : winRate >= 55 ? color.new(#00c27a, 0) : winRate >= 45 ? color.new(color.orange, 0) : color.new(#ff4d6d, 0))
+            color wrColor = na(winRate) ? clrDashNeutralText : winRate >= 55 ? color.new(clrDashBullText, 0) : winRate >= 45 ? color.new(clrDashWarningText, 0) : color.new(clrDashBearText, 0)
+            addDashRow(dashboard, row, "WR", wrText, clrDashLabelText, wrColor)
             row += 1
-            table.cell(dashboard, 0, row, "Expectancy", text_color = color.new(color.white, 20))
-            table.cell(dashboard, 1, row, expText, text_color = totalClosedTrades > 0 and avgClosedR >= 0 ? color.new(#00c27a, 0) : color.new(#ff4d6d, 0))
+            addDashRow(dashboard, row, "Expect", expText, clrDashLabelText, totalClosedTrades > 0 and avgClosedR >= 0 ? color.new(clrDashBullText, 0) : color.new(clrDashBearText, 0))
             row += 1
-            table.cell(dashboard, 0, row, "Avg Win / Loss", text_color = color.new(color.white, 20))
-            table.cell(dashboard, 1, row, avgWinLossText, text_color = color.new(color.white, 0))
+            addDashRow(dashboard, row, "Avg W/L", avgWinLossText, clrDashLabelText, clrDashValueText)
             row += 1
-            table.cell(dashboard, 0, row, "Net R", text_color = color.new(color.white, 20))
-            table.cell(dashboard, 1, row, str.tostring(totalNetR, "#.00") + "R", text_color = totalNetR >= 0 ? color.new(#00c27a, 0) : color.new(#ff4d6d, 0))
+            addDashRow(dashboard, row, "Net R", str.tostring(totalNetR, "#.00") + "R", clrDashLabelText, totalNetR >= 0 ? color.new(clrDashBullText, 0) : color.new(clrDashBearText, 0))
             row += 1
-            table.cell(dashboard, 0, row, "Last Close", text_color = color.new(color.white, 20))
-            table.cell(dashboard, 1, row, lastCloseReason + " | " + (na(lastClosedR) ? "N/A" : str.tostring(lastClosedR, "#.00") + "R"), text_color = color.new(color.white, 0))
+            addDashRow(dashboard, row, "Last", lastCloseReason + " | " + (na(lastClosedR) ? "N/A" : str.tostring(lastClosedR, "#.00") + "R"), clrDashLabelText, clrDashValueText)
             row += 1
-        table.cell(dashboard, 0, row, hasSelectedSetup and selectedSetup.strategyId == STRAT_S4 ? "Judas Anchor" : "Why Waiting", text_color = color.new(color.white, 20))
-        table.cell(dashboard, 1, row,
-             hasSelectedSetup and selectedSetup.strategyId == STRAT_S4 ? judasAnchorLabel + " | " + selectedSetup.liquidityLabel : (hasSelectedSetup ? buildWaitingText(selectedSetup) : (hasActiveTrade ? "Managing live trade" : "Idle")),
-             text_color = color.new(color.white, 0))
+        // Why Waiting
+        string waitLabel = hasSelectedSetup and selectedSetup.strategyId == STRAT_S4 ? "Judas" : "Waiting"
+        string waitVal = hasSelectedSetup and selectedSetup.strategyId == STRAT_S4 ? judasAnchorLabel + " | " + selectedSetup.liquidityLabel : (hasSelectedSetup ? buildWaitingText(selectedSetup) : (hasActiveTrade ? "Managing trade" : "Idle"))
+        addDashRow(dashboard, row, waitLabel, waitVal, clrDashLabelText, clrDashValueText)
         row += 1
-        if qaDailyDebug
+        // QA row
+        if dashboardShowQa
             prevDailyTimeText = not na(prevDailyTime) ? str.format_time(prevDailyTime, "yyyy-MM-dd HH:mm", "Etc/UTC") : "n/a"
-            table.cell(dashboard, 0, row, "PDH/PDL QA", text_color = color.new(color.yellow, 0))
-            table.cell(dashboard, 1, row, prevDailyTimeText + " | " + str.tostring(pdh, format.mintick) + " / " + str.tostring(pdl, format.mintick), text_color = color.new(color.yellow, 0))
+            addDashRow(dashboard, row, "QA", prevDailyTimeText + " | " + str.tostring(pdh, format.mintick) + " / " + str.tostring(pdl, format.mintick), clrQaLabel, clrQaLabel)
             row += 1
-        if showExplanation
-            table.cell(dashboard, 0, row, "Explain", text_color = color.new(color.white, 20))
-            table.cell(dashboard, 1, row, buildExplanation(selectedSetup), text_color = color.new(color.white, 0))
+        // Explain row
+        if dashboardShowExplain
+            addDashRow(dashboard, row, "Explain", buildExplanation(selectedSetup), clrDashLabelText, clrDashValueText)
 
 // ============================================================================
 //  15. QA LABELS
@@ -2160,7 +2413,7 @@ if barstate.islast
              "time: " + (not na(prevDailyTime) ? str.format_time(prevDailyTime, "yyyy-MM-dd HH:mm", "Etc/UTC") : "n/a") + "\n" +
              "high: " + str.tostring(pdh, format.mintick) + "\n" +
              "low:  " + str.tostring(pdl, format.mintick)
-        dailyQaLabel := label.new(bar_index + 2, high, dailyQaText, style = label.style_label_left, color = color.new(color.rgb(30, 20, 60), 0), textcolor = color.yellow, size = size.tiny)
+        dailyQaLabel := label.new(bar_index + 2, high, dailyQaText, style = label.style_label_left, color = color.new(clrQaBg, 0), textcolor = clrQaLabel, size = size.tiny)
 
     if not na(sessionQaLabel)
         label.delete(sessionQaLabel)
@@ -2171,4 +2424,4 @@ if barstate.islast
              "LDN prev: " + str.tostring(londonState.prevHigh, format.mintick) + " / " + str.tostring(londonState.prevLow, format.mintick) + "\n" +
              "NY prev: " + str.tostring(newYorkState.prevHigh, format.mintick) + " / " + str.tostring(newYorkState.prevLow, format.mintick) + "\n" +
              "Asia: " + str.tostring(asiaRangeHigh, format.mintick) + " / " + str.tostring(asiaRangeLow, format.mintick)
-        sessionQaLabel := label.new(bar_index + 2, low, sessionQaText, style = label.style_label_left, color = color.new(color.rgb(15, 21, 41), 0), textcolor = color.white, size = size.tiny)
+        sessionQaLabel := label.new(bar_index + 2, low, sessionQaText, style = label.style_label_left, color = color.new(clrDashBg, 0), textcolor = clrDashValueText, size = size.tiny)

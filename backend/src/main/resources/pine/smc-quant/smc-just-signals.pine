@@ -1,0 +1,198 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © LuxAlgo
+
+//@version=6
+indicator("SMC & ICT Multi-Strategy [Pro Visuals]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// --- Constants ---
+string NY_TZ = "America/New_York"
+color BULL_COLOR = #089981
+color BEAR_COLOR = #f23645
+color NEUTRAL_COLOR = #5b9cf6
+
+// --- User Defined Types ---
+type Trade
+    string  strategyName
+    bool    isLong
+    float   entryPrice
+    float   stopPrice
+    float   tp1Price
+    float   tp2Price
+    int     entryBar
+    bool    isActive = false
+    bool    isTp1Hit = false
+    box     tpBox    = na
+    box     slBox    = na
+
+type Stats
+    int     totalTrades = 0
+    int     wins = 0
+    int     losses = 0
+    float   totalR = 0.0
+    float   equityR = 0.0
+    float   maxDrawdownR = 0.0
+    float   peakEquityR = 0.0
+
+// --- Inputs ---
+// --- Signal Sensitivity ---
+var string G_SENS = "Signal Sensitivity"
+string sensitivityMode = input.string("Balanced", "Sensitivity Mode", options = ["Aggressive", "Balanced", "Conservative"], tooltip = "Aggressive: More trades, looser confirmation.\nBalanced: Standard ICT rules.\nConservative: Fewer trades, strict displacement and structure confirmation.", group = G_SENS)
+
+// --- Visual Style & Display ---
+var string G_VIS = "Visual Style & Display"
+bool showLabels = input.bool(true, "Show Buy/Sell Labels", group = G_VIS)
+bool showZones = input.bool(true, "Show Trade SL/TP Zones", group = G_VIS)
+bool showHistoricalTrades = input.bool(true, "Show Historical Trades", group = G_VIS)
+int maxHistory = input.int(5, "Max Historical Trades Shown", minval = 1, maxval = 20, group = G_VIS)
+bool showOutcomeMarkers = input.bool(true, "Show Outcome Markers (TP/SL)", group = G_VIS)
+
+// --- Strategy Toggles ---
+var string G_STRAT = "Strategy Toggles"
+bool enableICT2022 = input.bool(true, "ICT 2022 Model", group = G_STRAT)
+bool enableSilverBullet = input.bool(true, "Silver Bullet", group = G_STRAT)
+
+// --- Performance Dashboard ---
+var string G_DASH = "Dashboard Settings"
+bool showDash = input.bool(true, "Show Performance Dashboard", group = G_DASH)
+string dashPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_DASH)
+
+// --- Sensitivity Logic ---
+float sensAtrMult = sensitivityMode == "Aggressive" ? 1.0 : sensitivityMode == "Conservative" ? 2.2 : 1.5
+int sensPivotLen = sensitivityMode == "Aggressive" ? 2 : sensitivityMode == "Conservative" ? 5 : 3
+
+// --- Core Data & Primitives ---
+float atr = ta.atr(14)
+bool isDisplacement = (high - low) > (atr * sensAtrMult)
+float pHi = ta.pivothigh(sensPivotLen, sensPivotLen)
+float pLo = ta.pivotlow(sensPivotLen, sensPivotLen)
+var float lastPHi = na
+var float lastPLo = na
+if not na(pHi)
+    lastPHi := pHi
+if not na(pLo)
+    lastPLo := pLo
+
+bool mssBull = ta.crossover(close, lastPHi)
+bool mssBear = ta.crossunder(close, lastPLo)
+bool bullFVG = low > high[2] and isDisplacement[1]
+bool bearFVG = high < low[2] and isDisplacement[1]
+
+// Liquidity
+var float sessHi = na
+var float sessLo = na
+bool inAsia = not na(time(timeframe.period, "2000-0000", NY_TZ))
+if ta.change(inAsia)
+    sessHi := high
+    sessLo := low
+else if inAsia
+    sessHi := math.max(high, sessHi)
+    sessLo := math.min(low, sessLo)
+bool sweepSSL = low < sessLo[1] and close > sessLo[1]
+bool sweepBSL = high > sessHi[1] and close < sessHi[1]
+
+// --- Strategy Detection ---
+bool sig2022B = sweepSSL and mssBull and enableICT2022
+bool sig2022S = sweepBSL and mssBear and enableICT2022
+bool inSB = not na(time(timeframe.period, "0300-0400", NY_TZ)) or not na(time(timeframe.period, "1000-1100", NY_TZ))
+bool sigSBB = inSB and bullFVG and enableSilverBullet
+bool sigSBS = inSB and bearFVG and enableSilverBullet
+
+// --- Performance & Trade Tracking ---
+var Stats mainStats = Stats.new()
+var Trade activeTrade = na
+var box[] historicalBoxes = array.new_box()
+
+update_stats(Stats s, float rEarned, bool isWin) =>
+    s.totalTrades += 1
+    s.totalR += rEarned
+    s.equityR += rEarned
+    if isWin
+        s.wins += 1
+    else
+        s.losses += 1
+    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
+    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+
+// Signal Logic to Trade
+bool isSignalB = sig2022B or sigSBB
+bool isSignalS = sig2022S or sigSBS
+
+if (isSignalB or isSignalS) and na(activeTrade)
+    float sl = isSignalB ? low - (atr * 1.5) : high + (atr * 1.5)
+    float risk = math.abs(close - sl)
+    float tp1 = isSignalB ? close + risk * 1.0 : close - risk * 1.0
+    float tp2 = isSignalB ? close + risk * 2.0 : close - risk * 2.0
+
+    // Create Visual Boxes
+    box tpB = na
+    box slB = na
+    if showZones
+        tpB := box.new(bar_index, isSignalB ? tp2 : close, bar_index, isSignalB ? close : tp2, bgcolor = color.new(BULL_COLOR, 90), border_color = color.new(BULL_COLOR, 80))
+        slB := box.new(bar_index, isSignalB ? close : sl, bar_index, isSignalB ? sl : close, bgcolor = color.new(BEAR_COLOR, 90), border_color = color.new(BEAR_COLOR, 80))
+
+    activeTrade := Trade.new("SMC", isSignalB, close, sl, tp1, tp2, bar_index, true, false, tpB, slB)
+
+// Manage Active Trade Visuals and States
+if not na(activeTrade)
+    if activeTrade.isActive
+        bool closed = false
+        float r = 0.0
+        string outcomeStr = ""
+
+        // Update box positions
+        if not na(activeTrade.tpBox)
+            box.set_right(activeTrade.tpBox, bar_index)
+            box.set_right(activeTrade.slBox, bar_index)
+
+        if activeTrade.isLong
+            if low <= activeTrade.stopPrice
+                r := activeTrade.isTp1Hit ? 0.0 : -1.0
+                closed := true
+                outcomeStr := r == 0 ? "BE" : "SL"
+            else if high >= activeTrade.tp2Price
+                r := 2.0
+                closed := true
+                outcomeStr := "TP"
+            else if high >= activeTrade.tp1Price
+                activeTrade.isTp1Hit := true
+        else
+            if high >= activeTrade.stopPrice
+                r := activeTrade.isTp1Hit ? 0.0 : -1.0
+                closed := true
+                outcomeStr := r == 0 ? "BE" : "SL"
+            else if low <= activeTrade.tp2Price
+                r := 2.0
+                closed := true
+                outcomeStr := "TP"
+            else if low <= activeTrade.tp1Price
+                activeTrade.isTp1Hit := true
+
+        if closed
+            update_stats(mainStats, r, r > 0)
+            if showOutcomeMarkers
+                label.new(bar_index, outcomeStr == "TP" ? (activeTrade.isLong ? activeTrade.tp2Price : activeTrade.tp2Price) : (activeTrade.isLong ? activeTrade.stopPrice : activeTrade.stopPrice), outcomeStr, color = outcomeStr == "TP" ? BULL_COLOR : BEAR_COLOR, textcolor = color.white, style = label.style_label_center, size = size.tiny)
+
+            // Handle History
+            if not showHistoricalTrades
+                box.delete(activeTrade.tpBox)
+                box.delete(activeTrade.slBox)
+            else
+                array.push(historicalBoxes, activeTrade.tpBox)
+                array.push(historicalBoxes, activeTrade.slBox)
+                if array.size(historicalBoxes) > maxHistory * 2
+                    box.delete(array.shift(historicalBoxes))
+                    box.delete(array.shift(historicalBoxes))
+            activeTrade := na
+
+// --- Dashboard Rendering ---
+var table perfTable = table.new(dashPos == "top_right" ? position.top_right : position.top_left, 2, 5, bgcolor = color.new(color.black, 20), border_width = 1)
+if showDash and barstate.islast
+    table.cell(perfTable, 0, 0, "Win Rate", text_color = color.gray, text_size = size.small)
+    float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
+    table.cell(perfTable, 1, 0, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? BULL_COLOR : BEAR_COLOR, text_size = size.small)
+    table.cell(perfTable, 0, 1, "Total R", text_color = color.gray, text_size = size.small)
+    table.cell(perfTable, 1, 1, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? BULL_COLOR : BEAR_COLOR, text_size = size.small)
+
+// --- Simplified Labels ---
+plotshape(showLabels and isSignalB, "Buy", shape.labelup, location.belowbar, BULL_COLOR, text="Buy", textcolor=color.white, size = size.small)
+plotshape(showLabels and isSignalS, "Sell", shape.labeldown, location.abovebar, BEAR_COLOR, text="Sell", textcolor=color.white, size = size.small)

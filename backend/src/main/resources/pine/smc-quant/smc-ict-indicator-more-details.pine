@@ -1,0 +1,255 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © LuxAlgo
+
+//@version=6
+indicator("SMC & ICT Multi-Strategy with Performance Dashboard", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
+
+// --- Constants ---
+string NY_TZ = "America/New_York"
+color BULL_COLOR = #089981
+color BEAR_COLOR = #f23645
+color NEUTRAL_COLOR = #5b9cf6
+
+// --- User Defined Types ---
+type Trade
+    string  strategyName
+    string  sessionName
+    bool    isLong
+    float   entryPrice
+    float   stopPrice
+    float   tp1Price
+    float   tp2Price
+    int     entryBar
+    bool    isActive = false
+    bool    isTp1Hit = false
+
+type Stats
+    int     totalTrades = 0
+    int     wins = 0
+    int     losses = 0
+    float   totalR = 0.0
+    float   maxWinR = 0.0
+    float   maxLossR = 0.0
+    int     winStreak = 0
+    int     lossStreak = 0
+    int     maxWinStreak = 0
+    int     maxLossStreak = 0
+    float   equityR = 0.0
+    float   maxDrawdownR = 0.0
+    float   peakEquityR = 0.0
+    int     longTrades = 0
+    int     longWins = 0
+    int     shortTrades = 0
+    int     shortWins = 0
+    int     totalBarsInTrade = 0
+
+// --- Inputs ---
+var string G_GEN = "General Settings"
+bool showSignals = input.bool(true, "Show Strategy Signals", group = G_GEN)
+bool showFVG = input.bool(true, "Display FVGs", group = G_GEN)
+
+var string G_SESS = "Session Windows (NY Time)"
+string asiaSession = input.session("2000-0000", "Asia Accumulation", group = G_SESS)
+string londonSession = input.session("0200-0500", "London Manipulation", group = G_SESS)
+string nySession = input.session("0800-1100", "New York Distribution", group = G_SESS)
+
+var string G_STRAT = "Strategy Toggles"
+bool enableICT2022 = input.bool(true, "ICT 2022 Model", group = G_STRAT)
+bool enableSilverBullet = input.bool(true, "Silver Bullet", group = G_STRAT)
+bool enablePO3 = input.bool(true, "Power of Three (AMD)", group = G_STRAT)
+bool enableJudas = input.bool(true, "Judas Swing", group = G_STRAT)
+bool enableSMT = input.bool(true, "SMT Divergence", group = G_STRAT)
+
+var string G_DASH = "Dashboard Settings"
+bool showDash = input.bool(true, "Show Performance Dashboard", group = G_DASH)
+string dashPos = input.string("top_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_DASH)
+string dashSize = input.string("small", "Size", options = ["tiny", "small", "normal", "large"], group = G_DASH)
+bool showCoreStats = input.bool(true, "Show Core Stats", group = G_DASH)
+bool showAdvancedStats = input.bool(true, "Show Advanced Stats", group = G_DASH)
+bool showStrategyStats = input.bool(true, "Show Strategy Breakdown", group = G_DASH)
+
+var string G_RISK = "Trade Logic (Simulation)"
+float tp1RR = input.float(1.0, "TP1 Risk:Reward", minval = 0.5, group = G_RISK)
+float tp2RR = input.float(2.0, "TP2 Risk:Reward", minval = 1.0, group = G_RISK)
+float slAtrMult = input.float(1.5, "SL Buffer (ATR Mult)", minval = 0.0, group = G_RISK)
+
+// --- Helper Functions ---
+is_in_session(sess) => not na(time(timeframe.period, sess, NY_TZ))
+get_session_name() =>
+    is_in_session(londonSession) ? "London" : is_in_session(nySession) ? "NY" : is_in_session(asiaSession) ? "Asia" : "Other"
+
+// --- Core Data & Primitives ---
+float atr = ta.atr(14)
+bool isDisplacement = (high - low) > (atr * 1.5)
+float pHi = ta.pivothigh(3, 3)
+float pLo = ta.pivotlow(3, 3)
+var float lastPHi = na
+var float lastPLo = na
+if not na(pHi)
+    lastPHi := pHi
+if not na(pLo)
+    lastPLo := pLo
+
+bool mssBull = ta.crossover(close, lastPHi)
+bool mssBear = ta.crossunder(close, lastPLo)
+bool bullFVG = low > high[2] and isDisplacement[1]
+bool bearFVG = high < low[2] and isDisplacement[1]
+
+// Liquidity
+var float sessHi = na
+var float sessLo = na
+if ta.change(is_in_session(asiaSession))
+    sessHi := high
+    sessLo := low
+else if is_in_session(asiaSession)
+    sessHi := math.max(high, sessHi)
+    sessLo := math.min(low, sessLo)
+bool sweepSSL = low < sessLo[1] and close > sessLo[1]
+bool sweepBSL = high > sessHi[1] and close < sessHi[1]
+
+// SMT Divergence
+float smtHigh = request.security(input.symbol("CME_MINI:NQ1!", "SMT Symbol"), timeframe.period, high)
+float smtLow = request.security(input.symbol("CME_MINI:NQ1!", "SMT Symbol"), timeframe.period, low)
+var float lastSmtPHi = na
+var float lastSmtPLo = na
+float sPHi = ta.pivothigh(smtHigh, 3, 3)
+float sPLo = ta.pivotlow(smtLow, 3, 3)
+if not na(sPHi)
+    lastSmtPHi := sPHi
+if not na(sPLo)
+    lastSmtPLo := sPLo
+bool smtBearDiv = (high > lastPHi) and (smtHigh < lastSmtPHi)
+bool smtBullDiv = (low < lastPLo) and (smtLow > lastSmtPLo)
+
+// --- Strategy Detection ---
+bool sig2022B = sweepSSL and mssBull and enableICT2022
+bool sig2022S = sweepBSL and mssBear and enableICT2022
+bool inSB = is_in_session("0300-0400") or is_in_session("1000-1100") or is_in_session("1400-1500")
+bool sigSBB = inSB and bullFVG and enableSilverBullet
+bool sigSBS = inSB and bearFVG and enableSilverBullet
+
+// --- Performance Tracking Engine ---
+var Stats mainStats = Stats.new()
+var Trade activeTrade = na
+var Stats ictStats = Stats.new()
+var Stats sbStats = Stats.new()
+
+update_stats(Stats s, float rEarned, bool isWin, bool isLong, int duration) =>
+    s.totalTrades += 1
+    s.totalR += rEarned
+    s.equityR += rEarned
+    s.totalBarsInTrade += duration
+    if isWin
+        s.wins += 1
+        s.winStreak += 1
+        s.lossStreak := 0
+        s.maxWinStreak := math.max(s.maxWinStreak, s.winStreak)
+        s.maxWinR := math.max(s.maxWinR, rEarned)
+        if isLong
+            s.longWins += 1
+        else
+            s.shortWins += 1
+    else
+        s.losses += 1
+        s.lossStreak += 1
+        s.winStreak := 0
+        s.maxLossStreak := math.max(s.maxLossStreak, s.lossStreak)
+        s.maxLossR := math.min(s.maxLossR, rEarned)
+
+    if isLong
+        s.longTrades += 1
+    else
+        s.shortTrades += 1
+    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
+    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+
+// Signal Logic to Trade
+string currentStrat = sig2022B or sig2022S ? "ICT2022" : sigSBB or sigSBS ? "SilverBullet" : "Other"
+bool isSignalB = sig2022B or sigSBB
+bool isSignalS = sig2022S or sigSBS
+
+if (isSignalB or isSignalS) and na(activeTrade)
+    float sl = isSignalB ? low - (atr * slAtrMult) : high + (atr * slAtrMult)
+    float risk = math.abs(close - sl)
+    activeTrade := Trade.new(currentStrat, get_session_name(), isSignalB, close, sl,
+                             isSignalB ? close + risk * tp1RR : close - risk * tp1RR,
+                             isSignalB ? close + risk * tp2RR : close - risk * tp2RR,
+                             bar_index, true, false)
+
+// Manage Active Trade
+if not na(activeTrade)
+    if activeTrade.isActive
+        bool closed = false
+        float r = 0.0
+        int dur = bar_index - activeTrade.entryBar
+
+        if activeTrade.isLong
+            if low <= activeTrade.stopPrice
+                r := activeTrade.isTp1Hit ? 0.0 : -1.0 // If TP1 hit, SL moved to BE (simplified)
+                closed := true
+            else if high >= activeTrade.tp2Price
+                r := tp2RR
+                closed := true
+            else if high >= activeTrade.tp1Price
+                activeTrade.isTp1Hit := true
+        else
+            if high >= activeTrade.stopPrice
+                r := activeTrade.isTp1Hit ? 0.0 : -1.0
+                closed := true
+            else if low <= activeTrade.tp2Price
+                r := tp2RR
+                closed := true
+            else if low <= activeTrade.tp1Price
+                activeTrade.isTp1Hit := true
+
+        if closed
+            update_stats(mainStats, r, r > 0, activeTrade.isLong, dur)
+            if activeTrade.strategyName == "ICT2022"
+                update_stats(ictStats, r, r > 0, activeTrade.isLong, dur)
+            if activeTrade.strategyName == "SilverBullet"
+                update_stats(sbStats, r, r > 0, activeTrade.isLong, dur)
+            activeTrade := na
+
+// --- Dashboard Rendering ---
+var table perfTable = table.new(dashPos == "top_right" ? position.top_right : dashPos == "top_left" ? position.top_left : dashPos == "bottom_right" ? position.bottom_right : position.bottom_left, 10, 20, bgcolor = color.new(color.black, 20), border_width = 1, border_color = color.gray)
+
+if showDash and barstate.islast
+    int r_idx = 0
+    table.cell(perfTable, 0, r_idx, "PERFORMANCE DASHBOARD", text_color = color.white, text_size = dashSize, bgcolor = color.new(NEUTRAL_COLOR, 30))
+    table.merge_cells(perfTable, 0, r_idx, 1, r_idx)
+    r_idx += 1
+
+    if showCoreStats
+        float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
+        table.cell(perfTable, 0, r_idx, "Win Rate", text_color = color.gray, text_size = dashSize)
+        table.cell(perfTable, 1, r_idx, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? BULL_COLOR : BEAR_COLOR, text_size = dashSize)
+        r_idx += 1
+        table.cell(perfTable, 0, r_idx, "Total R", text_color = color.gray, text_size = dashSize)
+        table.cell(perfTable, 1, r_idx, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? BULL_COLOR : BEAR_COLOR, text_size = dashSize)
+        r_idx += 1
+        table.cell(perfTable, 0, r_idx, "Total Trades", text_color = color.gray, text_size = dashSize)
+        table.cell(perfTable, 1, r_idx, str.tostring(mainStats.totalTrades), text_color = color.white, text_size = dashSize)
+        r_idx += 1
+
+    if showAdvancedStats
+        float pf = mainStats.losses > 0 ? math.abs(mainStats.totalR / mainStats.losses) : mainStats.totalR
+        table.cell(perfTable, 0, r_idx, "Profit Factor", text_color = color.gray, text_size = dashSize)
+        table.cell(perfTable, 1, r_idx, str.format("{0,number,#.##}", pf), text_color = pf >= 1.5 ? BULL_COLOR : NEUTRAL_COLOR, text_size = dashSize)
+        r_idx += 1
+        table.cell(perfTable, 0, r_idx, "Max Drawdown", text_color = color.gray, text_size = dashSize)
+        table.cell(perfTable, 1, r_idx, str.format("{0,number,#.##}R", mainStats.maxDrawdownR), text_color = BEAR_COLOR, text_size = dashSize)
+        r_idx += 1
+
+    if showStrategyStats
+        table.cell(perfTable, 0, r_idx, "STRATEGY BREAKDOWN", text_color = color.white, text_size = dashSize, bgcolor = color.new(color.gray, 80))
+        table.merge_cells(perfTable, 0, r_idx, 1, r_idx)
+        r_idx += 1
+        table.cell(perfTable, 0, r_idx, "ICT 2022 R", text_color = color.gray, text_size = dashSize)
+        table.cell(perfTable, 1, r_idx, str.format("{0,number,#.##}R", ictStats.totalR), text_color = color.white, text_size = dashSize)
+        r_idx += 1
+        table.cell(perfTable, 0, r_idx, "Silver Bullet R", text_color = color.gray, text_size = dashSize)
+        table.cell(perfTable, 1, r_idx, str.format("{0,number,#.##}R", sbStats.totalR), text_color = color.white, text_size = dashSize)
+
+// --- Visuals ---
+plotshape(isSignalB, "Bull Signal", shape.labelup, location.belowbar, BULL_COLOR, text="SMC BUY", textcolor=color.white, size=size.small)
+plotshape(isSignalS, "Bear Signal", shape.labeldown, location.abovebar, BEAR_COLOR, text="SMC SELL", textcolor=color.white, size=size.small)
