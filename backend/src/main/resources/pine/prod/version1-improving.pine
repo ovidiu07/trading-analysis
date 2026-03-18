@@ -528,6 +528,7 @@ check_sweep_bsl(string name, float level) =>
 // Check all SSL levels
 LiqSweep sslAsia = check_sweep_ssl("Asia Low", asia.isActive ? na : asia.lastLow)
 LiqSweep sslLondon = check_sweep_ssl("London Low", london.isActive ? na : london.lastLow)
+LiqSweep sslNY = check_sweep_ssl("NY Low", ny.isActive ? na : ny.lastLow)
 LiqSweep sslPDL = check_sweep_ssl("PDL", pdl)
 LiqSweep sslPWL = check_sweep_ssl("PWL", pwl)
 LiqSweep sslPivot = check_sweep_ssl("Pivot Low", lastPLo)
@@ -535,6 +536,7 @@ LiqSweep sslPivot = check_sweep_ssl("Pivot Low", lastPLo)
 // Check all BSL levels
 LiqSweep bslAsia = check_sweep_bsl("Asia High", asia.isActive ? na : asia.lastHigh)
 LiqSweep bslLondon = check_sweep_bsl("London High", london.isActive ? na : london.lastHigh)
+LiqSweep bslNY = check_sweep_bsl("NY High", ny.isActive ? na : ny.lastHigh)
 LiqSweep bslPDH = check_sweep_bsl("PDH", pdh)
 LiqSweep bslPWH = check_sweep_bsl("PWH", pwh)
 LiqSweep bslPivot = check_sweep_bsl("Pivot High", lastPHi)
@@ -559,11 +561,13 @@ register_sweep(LiqSweep s) =>
 
 register_sweep(sslAsia)
 register_sweep(sslLondon)
+register_sweep(sslNY)
 register_sweep(sslPDL)
 register_sweep(sslPWL)
 register_sweep(sslPivot)
 register_sweep(bslAsia)
 register_sweep(bslLondon)
+register_sweep(bslNY)
 register_sweep(bslPDH)
 register_sweep(bslPWH)
 register_sweep(bslPivot)
@@ -625,6 +629,8 @@ if not na(asia.lastHigh) and asia.lastHigh > close
     nearestBSL := asia.lastHigh
 if not na(london.lastHigh) and london.lastHigh > close
     nearestBSL := na(nearestBSL) ? london.lastHigh : math.min(nearestBSL, london.lastHigh)
+if not na(ny.lastHigh) and ny.lastHigh > close
+    nearestBSL := na(nearestBSL) ? ny.lastHigh : math.min(nearestBSL, ny.lastHigh)
 if not na(pdh) and pdh > close
     nearestBSL := na(nearestBSL) ? pdh : math.min(nearestBSL, pdh)
 if not na(pwh) and pwh > close
@@ -636,6 +642,8 @@ if not na(asia.lastLow) and asia.lastLow < close
     nearestSSL := asia.lastLow
 if not na(london.lastLow) and london.lastLow < close
     nearestSSL := na(nearestSSL) ? london.lastLow : math.max(nearestSSL, london.lastLow)
+if not na(ny.lastLow) and ny.lastLow < close
+    nearestSSL := na(nearestSSL) ? ny.lastLow : math.max(nearestSSL, ny.lastLow)
 if not na(pdl) and pdl < close
     nearestSSL := na(nearestSSL) ? pdl : math.max(nearestSSL, pdl)
 if not na(pwl) and pwl < close
