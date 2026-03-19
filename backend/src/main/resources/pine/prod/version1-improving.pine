@@ -516,6 +516,8 @@ update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
             if not sz.mitigated
                 box.set_right(sz.boxId, bar_index)
 
+                bool justMitigated = false
+
                 if not sz.isInverted
                     if sz.isBull
                         // Track CE touch (price enters the FVG)
@@ -530,13 +532,9 @@ update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
                         // FVG mitigation: CLOSE below bottom (LuxAlgo style — not just wick touch)
                         // OB mitigation: wick touch (unchanged — OBs are demand/supply zones)
                         else if isFVG and close < sz.bottom
-                            sz.mitigated := true
-                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
-                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                            justMitigated := true
                         else if not isFVG and low < sz.bottom
-                            sz.mitigated := true
-                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
-                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                            justMitigated := true
                     else
                         // Track CE touch
                         if isFVG and not na(sz.ce) and high >= sz.ce and not sz.ceRespected
@@ -549,25 +547,22 @@ update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
                             box.set_border_style(sz.boxId, line.style_solid)
                         // FVG mitigation: CLOSE above top (LuxAlgo style)
                         else if isFVG and close > sz.top
-                            sz.mitigated := true
-                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
-                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                            justMitigated := true
                         else if not isFVG and high > sz.top
-                            sz.mitigated := true
-                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
-                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                            justMitigated := true
                 else
                     // Mitigation for Inverted Zones (close-based for FVGs, touch for OBs)
                     if sz.isBull // Was originally Bullish, now Bearish IFVG (Resistance)
                         if (isFVG and close > sz.top) or (not isFVG and high > sz.top)
-                            sz.mitigated := true
-                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
-                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                            justMitigated := true
                     else // Was originally Bearish, now Bullish IFVG (Support)
                         if (isFVG and close < sz.bottom) or (not isFVG and low < sz.bottom)
-                            sz.mitigated := true
-                            box.set_bgcolor(sz.boxId, color.new(chart.bg_color, 100))
-                            box.set_border_color(sz.boxId, color.new(chart.fg_color, 80))
+                            justMitigated := true
+
+                // On mitigation: delete the box entirely (no ghost lines)
+                if justMitigated
+                    sz.mitigated := true
+                    box.delete(sz.boxId)
 
         if array.size(arr) > maxCount
             SmartZone old = array.shift(arr)
