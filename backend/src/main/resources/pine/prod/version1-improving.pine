@@ -127,6 +127,12 @@ color bearFvgColor = input.color(color.new(BEAR_COLOR, 90), "Bear FVG Color", gr
 color bullIfvgColor = input.color(color.new(BULL_COLOR, 75), "Bull IFVG Color", group = G_SMC)
 color bearIfvgColor = input.color(color.new(BEAR_COLOR, 75), "Bear IFVG Color", group = G_SMC)
 
+var string G_FVG_ENGINE = "FVG Engine"
+float fvgThresholdPct = input.float(0.0, "Threshold %", minval = 0, maxval = 100, step = 0.1, inline = "fvg_thresh", group = G_FVG_ENGINE, tooltip = "Manual minimum gap size as % of price. 0 = no manual filter.")
+bool fvgAutoThreshold = input.bool(true, "Auto", inline = "fvg_thresh", group = G_FVG_ENGINE, tooltip = "Adaptive threshold: cumulative average of range/price ratio.")
+string fvgTimeframe = input.timeframe("", "FVG Timeframe", group = G_FVG_ENGINE, tooltip = "Leave empty for chart TF. Set to detect FVGs from a higher timeframe.")
+int fvgExtendBars = input.int(20, "Extend Bars", minval = 0, group = G_FVG_ENGINE, tooltip = "Initial right extension of FVG boxes in bars.")
+
 var string G_STRAT = "Strategy Toggles"
 bool enableICT2022 = input.bool(true, "ICT 2022 Model (Sweep + MSS)", group = G_STRAT)
 bool enableSilverBullet = input.bool(true, "Silver Bullet (Time + FVG)", group = G_STRAT)
@@ -337,73 +343,119 @@ if not na(lastMssBearBar) and (bar_index - lastMssBearBar) > mssMaxAge
 var SmartZone[] fvgArray = array.new<SmartZone>()
 var SmartZone[] obArray = array.new<SmartZone>()
 
-// FVG Detection — LuxAlgo-inspired adaptive threshold + quality grading
-// Auto threshold: cumulative average range as % of price (adapts to instrument & TF)
-float autoThreshold = ta.cum((high - low) / low) / bar_index
+// =====================================================================
+// FVG ENGINE — Clean-room reimplementation of Lux-style detection behavior
+// Original behavioral reference: Fair Value Gap [LuxAlgo] (CC BY-NC-SA 4.0)
+// This is an independent reimplementation adapted to this indicator's
+// SmartZone architecture, scoring pipeline, and setup lifecycle.
+// =====================================================================
+
+// FVG detection function — evaluated in source timeframe context via request.security.
+// Returns: [bullDetected, bearDetected, zoneTop, zoneBot, sourceTimestamp]
+//
+// Detection rules (clean-room reimplementation of Lux-style behavior):
+//   Bullish: low > high[2]  AND  close[1] > high[2]  AND  gapRatio > threshold
+//   Bearish: high < low[2]  AND  close[1] < low[2]   AND  gapRatio > threshold
+//
+// Threshold modes:
+//   Auto:   cumulative average of (range / low) across all bars — adapts to instrument & TF
+//   Manual: user-supplied percentage converted to ratio
+detect_fvg() =>
+    // Threshold: adaptive cumulative average, or manual percentage
+    float thresh = fvgAutoThreshold ? ta.cum((high - low) / low) / bar_index : fvgThresholdPct / 100.0
+
+    // Bullish FVG: 3-candle upward imbalance with close commitment
+    //   candle[0].low above candle[2].high = price gap up
+    //   candle[1].close above candle[2].high = middle candle confirms bullish intent
+    //   gap ratio = (gap size) / (reference price) must exceed threshold
+    bool bull = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > thresh
+
+    // Bearish FVG: mirror — 3-candle downward imbalance
+    //   candle[0].high below candle[2].low = price gap down
+    //   candle[1].close below candle[2].low = middle candle confirms bearish intent
+    bool bear = high < low[2] and close[1] < low[2] and (low[2] - high) / high > thresh
+
+    // Zone bounds (absolute price levels, TF-native)
+    float zTop = bull ? low : bear ? low[2] : na
+    float zBot = bull ? high[2] : bear ? high : na
+
+    // Source-bar timestamp for MTF deduplication
+    int zTime = time
+
+    [bull, bear, zTop, zBot, zTime]
+
+// Execute detection via request.security for optional MTF support.
+// When fvgTimeframe is "" (default), evaluates on the chart timeframe.
+// No lookahead — only confirmed source-bar data is used.
+[fvgBullRaw, fvgBearRaw, fvgTopRaw, fvgBotRaw, fvgSourceTime] = request.security(syminfo.tickerid, fvgTimeframe, detect_fvg())
+
+// MTF deduplication: one FVG registration per source-timeframe detection event.
+// When using a higher TF, the same detection fires on every chart bar until the
+// next HTF bar closes. The timestamp check prevents repeated insertions.
+var int lastFvgRegisteredTime = 0
+bool bullFVG = fvgBullRaw and fvgSourceTime != lastFvgRegisteredTime
+bool bearFVG = fvgBearRaw and fvgSourceTime != lastFvgRegisteredTime
+
+if bullFVG or bearFVG
+    lastFvgRegisteredTime := fvgSourceTime
+
+// Gap size from returned zone bounds (works for both local and MTF detection)
+float fvgGapSize = not na(fvgTopRaw) and not na(fvgBotRaw) ? fvgTopRaw - fvgBotRaw : 0.0
 float maxFvgSize = atr * 3.0
 
-// Wick-based gap (strict classic 3-candle FVG)
-float bullGapSize = low - high[2]
-float bearGapSize = low[2] - high
-
-// LuxAlgo close confirmation: middle candle must close through candle 1's extreme
-// This is stronger than just checking body direction — confirms commitment
-bool bullCloseConfirm = close[1] > high[2]
-bool bearCloseConfirm = close[1] < low[2]
-
-// Core FVG detection: gap exists + close confirmation + exceeds adaptive threshold
-bool bullFVG = bullGapSize > 0 and bullCloseConfirm and (bullGapSize / high[2]) > autoThreshold and bullGapSize < maxFvgSize
-bool bearFVG = bearGapSize > 0 and bearCloseConfirm and (bearGapSize / high) > autoThreshold and bearGapSize < maxFvgSize
-
-// Quality grading (for confluence scoring, not filtering)
-// Grade A: displacement + large gap (> 0.5 ATR)
-bool bullFVG_A = bullFVG and isDispBull[1] and bullGapSize > atr * 0.5
-bool bearFVG_A = bearFVG and isDispBear[1] and bearGapSize > atr * 0.5
-// Grade B: displacement OR large gap (> 0.3 ATR)
-bool bullFVG_B = bullFVG and (isDispBull[1] or bullGapSize > atr * 0.3) and not bullFVG_A
-bool bearFVG_B = bearFVG and (isDispBear[1] or bearGapSize > atr * 0.3) and not bearFVG_A
-// Grade C: basic valid FVG (passed threshold, has close confirmation)
+// Quality grading (for confluence scoring, not detection filtering)
+// Grading uses chart-TF displacement and ATR — a large HTF gap relative to
+// chart ATR naturally scores higher, which is the correct behavior.
+// Grade A: strong displacement on middle candle + large gap (> 0.5 ATR)
+bool bullFVG_A = bullFVG and isDispBull[1] and fvgGapSize > atr * 0.5 and fvgGapSize < maxFvgSize
+bool bearFVG_A = bearFVG and isDispBear[1] and fvgGapSize > atr * 0.5 and fvgGapSize < maxFvgSize
+// Grade B: displacement OR moderate gap (> 0.3 ATR), not already Grade A
+bool bullFVG_B = bullFVG and (isDispBull[1] or fvgGapSize > atr * 0.3) and not bullFVG_A and fvgGapSize < maxFvgSize
+bool bearFVG_B = bearFVG and (isDispBear[1] or fvgGapSize > atr * 0.3) and not bearFVG_A and fvgGapSize < maxFvgSize
+// Grade C: basic valid FVG (passed Lux-style threshold + close confirmation)
 bool bullFVG_C = bullFVG and not bullFVG_A and not bullFVG_B
 bool bearFVG_C = bearFVG and not bearFVG_A and not bearFVG_B
 
-// Bias-aligned variants for strategy triggers
+// Bias-aligned variants for strategy triggers (Silver Bullet etc.)
 bool bullFvgAligned = bullFVG and (marketBias != "Bearish")
 bool bearFvgAligned = bearFVG and (marketBias != "Bullish")
 
-// FVG bar tracking for sequence validation + mitigation detection (Phase 5)
-var int lastBullFvgBar = na
-var int lastBearFvgBar = na
-var int lastBullFvgGrade = 0
-var int lastBearFvgGrade = 0
+// --- FVG Tracking State ---
+// Persistent tracking for sequence validation (Sweep → MSS → FVG) and mitigation
+var int   lastBullFvgBar = na
+var int   lastBearFvgBar = na
+var int   lastBullFvgGrade = 0
+var int   lastBearFvgGrade = 0
 var float lastBullFvgTop = na
 var float lastBullFvgBot = na
 var float lastBearFvgTop = na
 var float lastBearFvgBot = na
-var bool lastBullFvgMitigated = false
-var bool lastBearFvgMitigated = false
+var bool  lastBullFvgMitigated = false
+var bool  lastBearFvgMitigated = false
 
 if bullFVG
     lastBullFvgBar := bar_index
     lastBullFvgGrade := bullFVG_A ? 3 : bullFVG_B ? 2 : 1
-    lastBullFvgTop := low
-    lastBullFvgBot := high[2]
+    lastBullFvgTop := fvgTopRaw
+    lastBullFvgBot := fvgBotRaw
     lastBullFvgMitigated := false
 if bearFVG
     lastBearFvgBar := bar_index
     lastBearFvgGrade := bearFVG_A ? 3 : bearFVG_B ? 2 : 1
-    lastBearFvgTop := low[2]
-    lastBearFvgBot := high
+    lastBearFvgTop := fvgTopRaw
+    lastBearFvgBot := fvgBotRaw
     lastBearFvgMitigated := false
 
-// Phase 5: Detect if tracked FVG was mitigated (close-based, LuxAlgo style)
-// Bull FVG mitigated = close below its bottom
+// --- FVG Lifecycle: Close-Based Mitigation ---
+// Bull FVG mitigated when close moves below its lower boundary (bottom of gap)
+// Bear FVG mitigated when close moves above its upper boundary (top of gap)
+// This is close-based, not wick-based — consistent with the reference behavior.
 if not na(lastBullFvgBar) and not lastBullFvgMitigated and close < lastBullFvgBot
     lastBullFvgMitigated := true
-// Bear FVG mitigated = close above its top
 if not na(lastBearFvgBar) and not lastBearFvgMitigated and close > lastBearFvgTop
     lastBearFvgMitigated := true
 
-// Expire stale FVG references
+// --- FVG Expiry ---
 int fvgMaxAge = sensitivityMode == "Aggressive" ? 40 : sensitivityMode == "Conservative" ? 100 : 60
 if not na(lastBullFvgBar) and (bar_index - lastBullFvgBar) > fvgMaxAge
     lastBullFvgBar := na
@@ -457,26 +509,29 @@ merge_fvg(SmartZone[] arr, int idx, float newTop, float newBottom, color bgCol) 
 
 
 
+// FVG Visual Rendering — uses zone bounds from the detection engine (fvgTopRaw/fvgBotRaw)
+// so that MTF-detected FVGs render at the correct price levels.
+// Overlap merge logic is preserved: same-direction nearby FVGs are merged to reduce clutter.
 if showFVG
     if bullFVG
-        float fvgTop = low
-        float fvgBot = high[2]
+        float fvgTop = fvgTopRaw
+        float fvgBot = fvgBotRaw
         [overlapResult, mergeIdx] = check_fvg_overlap(fvgArray, fvgTop, fvgBot, true)
         if overlapResult == 0
             float fvgCE = (fvgTop + fvgBot) / 2.0
-            box b = box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor = bullFvgColor, border_color = color.new(bullFvgColor, 50), border_style = line.style_dotted)
-            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, true, false, false, bar_index - 2, fvgCE, false, false, 0, fvgTop - fvgBot))
+            box b = box.new(bar_index - 2, fvgTop, bar_index + fvgExtendBars, fvgBot, bgcolor = bullFvgColor, border_color = color.new(bullFvgColor, 50), border_style = line.style_dotted)
+            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, true, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize))
         else if overlapResult == 1
             merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bullFvgColor)
 
     if bearFVG
-        float fvgTop = low[2]
-        float fvgBot = high
+        float fvgTop = fvgTopRaw
+        float fvgBot = fvgBotRaw
         [overlapResult, mergeIdx] = check_fvg_overlap(fvgArray, fvgTop, fvgBot, false)
         if overlapResult == 0
             float fvgCE = (fvgTop + fvgBot) / 2.0
-            box b = box.new(bar_index - 2, fvgTop, bar_index, fvgBot, bgcolor = bearFvgColor, border_color = color.new(bearFvgColor, 50), border_style = line.style_dotted)
-            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, false, false, false, bar_index - 2, fvgCE, false, false, 0, fvgTop - fvgBot))
+            box b = box.new(bar_index - 2, fvgTop, bar_index + fvgExtendBars, fvgBot, bgcolor = bearFvgColor, border_color = color.new(bearFvgColor, 50), border_style = line.style_dotted)
+            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, false, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize))
         else if overlapResult == 1
             merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bearFvgColor)
 
