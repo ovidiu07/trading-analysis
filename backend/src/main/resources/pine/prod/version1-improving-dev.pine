@@ -146,6 +146,21 @@ type SetupState
     string  freshnessReasonLong = ""
     string  freshnessReasonShort = ""
     string  activationPathDominant = ""
+    // Chapter 3: Reclaim Stage
+    bool    reclaimDetectedLong = false
+    bool    reclaimDetectedShort = false
+    bool    reclaimValidLong = false
+    bool    reclaimValidShort = false
+    bool    reclaimStrongLong = false
+    bool    reclaimStrongShort = false
+    bool    reclaimFailedLong = false
+    bool    reclaimFailedShort = false
+    float   reclaimScoreLong = 0.0
+    float   reclaimScoreShort = 0.0
+    string  reclaimStageReasonLong = ""
+    string  reclaimStageReasonShort = ""
+    int     reclaimAcceptBarsLong = 0
+    int     reclaimAcceptBarsShort = 0
 
 type SmartZone
     box   boxId
@@ -475,6 +490,18 @@ bool volOk = na(volume) or volume > volSma * 1.2
 float recentHigh5 = ta.highest(high, 5)
 float recentLow5 = ta.lowest(low, 5)
 float recentMid5 = (recentHigh5 + recentLow5) / 2.0
+
+// --- Chapter 3: Reclaim Stage Persistent State ---
+var int    _rclSweepRefL = na       // sweep bar this reclaim tracks (reset on new sweep)
+var int    _rclSweepRefS = na
+var float  _rclThreshL = na         // current reclaim threshold
+var float  _rclThreshS = na
+var int    _rclAcceptL = 0          // acceptance bar count
+var int    _rclAcceptS = 0
+var bool   _rclFailedL = false      // reclaim has failed
+var bool   _rclFailedS = false
+var int    _rclDetBarL = na         // bar when first detected
+var int    _rclDetBarS = na
 
 bool isDispBull = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close > open and volOk
 bool isDispBear = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close < open and volOk
@@ -1385,6 +1412,11 @@ string bestSweepNameBSL = ""
 bool   bestSweepExtBSL = false
 int    bestSweepSrcBSL = 0
 bool   bestSweepInducementBSL = false
+// Chapter 3: sweep level + depth for reclaim threshold computation
+float bestSweepLevelSSL = na
+float bestSweepLevelBSL = na
+float bestSweepDepthSSL = na
+float bestSweepDepthBSL = na
 
 if array.size(activeSweeps) > 0
     for i = 0 to array.size(activeSweeps) - 1
@@ -1402,6 +1434,8 @@ if array.size(activeSweeps) > 0
                 bestSweepExtSSL := s.isExternal
                 bestSweepSrcSSL := s.sourceType
                 bestSweepInducementSSL := s.isInducementLike
+                bestSweepLevelSSL := s.levelPrice
+                bestSweepDepthSSL := s.sweepDepth
         else
             sweptBSL := true
             if s.qualityScore > sweepQualityBSL
@@ -1413,6 +1447,8 @@ if array.size(activeSweeps) > 0
                 bestSweepExtBSL := s.isExternal
                 bestSweepSrcBSL := s.sourceType
                 bestSweepInducementBSL := s.isInducementLike
+                bestSweepLevelBSL := s.levelPrice
+                bestSweepDepthBSL := s.sweepDepth
 
 // Premium / Discount
 int rangeLookback = 50
@@ -1668,53 +1704,161 @@ mode_name_short(string mode) =>
 // --- CHAPTER 2.2: QUALITY RECOVERY PATCH — Transitional Quality Helpers ---
 // =====================================================================
 
-// Reclaim quality: multi-component post-sweep recovery assessment.
-// Returns: [pass, strength, reason, weak, strong]
-compute_reclaim_quality(bool isLong, int sweepBar_, float sweepQ, float mssDisp_, float atrVal, string mode, float mid5_, float reqLevel) =>
-    bool pass = false
-    float strength = 0.0
-    string reason = "No sweep context"
+// =====================================================================
+// --- CHAPTER 3: RECLAIM STAGE EVALUATOR ---
+// Formal structural reclaim assessment after liquidity sweep.
+// Replaces crude reclaim proxy with graded, acceptance-aware, failable model.
+// Returns: [detected, weak, valid, strong_, failed, score, reason, newAccept, threshold]
+// =====================================================================
+evaluate_reclaim_stage(bool isLong, int sweepBar_, float sweepLevel_, float sweepDepth_,
+                       float atrVal, int prevAccept, bool prevFailed, int prevSweepRef) =>
+    bool detected = false
     bool weak = false
-    bool strong = false
-    if not na(sweepBar_) and atrVal > 0
+    bool valid = false
+    bool strong_ = false
+    bool failed = prevFailed
+    float score = 0.0
+    string reason = "No sweep context"
+    int acceptBars = 0
+    float threshold = na
+
+    if not na(sweepBar_) and not na(sweepLevel_) and atrVal > 0
         int age = bar_index - sweepBar_
-        if age >= 0 and age <= 40
-            float score = 0.0
-            // 1. Recovery distance from structural reference (0-25)
-            float ref = not na(reqLevel) ? reqLevel : mid5_
-            float dist = isLong ? (close - ref) / atrVal : (ref - close) / atrVal
-            score += math.min(math.max(dist * 15.0, 0.0), 25.0)
-            // 2. Acceptance: close vs mid5 + directional candle + prior bar (0-20)
-            bool aboveMid = isLong ? close > mid5_ : close < mid5_
+        // Compute sweep extreme: for long, the low that swept below level; for short, the high above
+        float sweepExtreme = na
+        if not na(sweepDepth_)
+            sweepExtreme := isLong ? sweepLevel_ - sweepDepth_ : sweepLevel_ + sweepDepth_
+
+        if age >= 0 and age <= 50
+            // --- Reclaim threshold computation ---
+            // Primary: the swept liquidity level itself (must be reclaimed)
+            float primaryThresh = sweepLevel_
+            // Secondary: midpoint between sweep extreme and sweep level (early recovery reference)
+            float midThresh = not na(sweepExtreme) ? (sweepExtreme + sweepLevel_) / 2.0 : sweepLevel_
+            // Recovery band: minimum meaningful recovery = 40% of sweep depth from extreme
+            float recoveryBand = not na(sweepExtreme) and not na(sweepDepth_) and sweepDepth_ > 0 ?
+                 sweepExtreme + (isLong ? 1 : -1) * sweepDepth_ * 0.4 : midThresh
+            threshold := primaryThresh
+
+            // --- Directional checks ---
+            bool abovePrimary = isLong ? close > primaryThresh : close < primaryThresh
+            bool aboveMid = isLong ? close > midThresh : close < midThresh
+            bool aboveRecovBand = isLong ? close > recoveryBand : close < recoveryBand
             bool dirCandle = isLong ? close > open : close < open
-            bool priorAccept = isLong ? close[1] > mid5_[1] : close[1] < mid5_[1]
-            score += (aboveMid ? 8.0 : 0.0) + (dirCandle ? 6.0 : 0.0) + (priorAccept ? 6.0 : 0.0)
-            // 3. No failure back into sweep area (0-15)
-            bool noFailure = true
-            if age >= 1
-                int checkBars = math.min(age, 3)
-                for i = 0 to checkBars
-                    if isLong ? (close[i] < ref - atrVal * 0.3) : (close[i] > ref + atrVal * 0.3)
-                        noFailure := false
-            score += noFailure ? 15.0 : 0.0
-            // 4. Displacement support (0-20)
-            if not na(mssDisp_)
-                score += math.min(mssDisp_ * 10.0, 20.0)
-            // 5. Sweep quality contribution (0-10)
-            score += math.min(sweepQ / 10.0, 10.0)
-            // 6. Age freshness bonus (0-10)
-            score += math.max(0.0, 10.0 - float(age) * 0.5)
-            strength := math.min(score, 100.0)
-            float minStr = mode == "Aggressive" ? 20.0 : mode == "Conservative" ? 50.0 : 35.0
-            pass := strength >= minStr
-            weak := strength < 35.0
-            strong := strength >= 60.0
-            reason := str.tostring(math.round(strength)) + "/100"
-            if not pass
-                reason := reason + " < " + str.tostring(math.round(minStr)) + " [" + mode + "]"
+
+            // --- Reset tracking on new sweep ---
+            bool sameRef = not na(prevSweepRef) and prevSweepRef == sweepBar_
+            if not sameRef
+                // New sweep — reset acceptance, clear failure
+                acceptBars := 0
+                failed := false
+            else
+                acceptBars := prevAccept
+
+            // --- Reclaim detection ---
+            if abovePrimary
+                detected := true
+                // Accumulate acceptance bars
+                acceptBars := acceptBars + 1
+            else if aboveRecovBand or aboveMid
+                detected := true
+                // Early/partial reclaim — don't accumulate acceptance
+                if not abovePrimary and acceptBars > 0
+                    // Was above, now lost primary but still in recovery band
+                    acceptBars := math.max(0, acceptBars - 1)
+
+            // --- Score computation (0-100) ---
+            // 1. Recovery distance from sweep extreme (0-25)
+            float recoveryDist = 0.0
+            if not na(sweepExtreme)
+                recoveryDist := isLong ? (close - sweepExtreme) / atrVal : (sweepExtreme - close) / atrVal
+            score += math.min(math.max(recoveryDist * 10.0, 0.0), 25.0)
+
+            // 2. Primary threshold acceptance (0-20)
+            score += abovePrimary ? 15.0 : (aboveMid ? 6.0 : (aboveRecovBand ? 3.0 : 0.0))
+            score += dirCandle ? 5.0 : 0.0
+
+            // 3. Acceptance bar count (0-20) — sustained holds are more meaningful
+            score += math.min(float(acceptBars) * 6.0, 20.0)
+
+            // 4. No re-sweep of extreme (0-15)
+            bool noRetest = true
+            if age >= 2
+                int checkBars = math.min(age, 5)
+                for i = 0 to checkBars - 1
+                    bool retested = not na(sweepExtreme) ?
+                         (isLong ? low[i] <= sweepExtreme : high[i] >= sweepExtreme) :
+                         (isLong ? low[i] <= sweepLevel_ - atrVal * 0.3 : high[i] >= sweepLevel_ + atrVal * 0.3)
+                    if retested
+                        noRetest := false
+            score += noRetest ? 15.0 : 0.0
+
+            // 5. Age freshness (0-10) — reclaim soon after sweep is more meaningful
+            score += math.max(0.0, 10.0 - float(age) * 0.25)
+
+            // 6. Multi-bar holding bonus (0-10)
+            if acceptBars >= 2
+                bool priorHeld = isLong ? close[1] > primaryThresh : close[1] < primaryThresh
+                score += priorHeld ? 10.0 : 4.0
+
+            score := math.min(score, 100.0)
+
+            // --- Grade reclaim ---
+            if detected
+                weak := score < 35.0
+                valid := score >= 35.0
+                strong_ := score >= 60.0
+
+            // --- Failed reclaim detection ---
+            if not failed and sameRef and prevAccept >= 2
+                // Had meaningful acceptance, now check for loss
+                bool lostPrimary = isLong ? close < primaryThresh - atrVal * 0.15 : close > primaryThresh + atrVal * 0.15
+                if lostPrimary
+                    failed := true
+                    detected := false
+                    valid := false
+                    strong_ := false
+                    reason := "Reclaim lost after " + str.tostring(prevAccept) + " acceptance bars"
+
+            if not failed and sameRef
+                // Check for new extreme beyond sweep (invalidates reclaim entirely)
+                bool newExtreme = not na(sweepExtreme) ?
+                     (isLong ? low < sweepExtreme - atrVal * 0.1 : high > sweepExtreme + atrVal * 0.1) :
+                     (isLong ? low < sweepLevel_ - atrVal * 0.5 : high > sweepLevel_ + atrVal * 0.5)
+                if newExtreme
+                    failed := true
+                    detected := false
+                    valid := false
+                    strong_ := false
+                    reason := "New extreme beyond sweep — reclaim invalidated"
+
+            // --- Build reason string ---
+            if not failed
+                if strong_
+                    reason := "Strong (" + str.tostring(math.round(score)) + ") — " + str.tostring(acceptBars) + " bars accepted"
+                else if valid
+                    reason := "Valid (" + str.tostring(math.round(score)) + ") — " + str.tostring(acceptBars) + " bars"
+                else if weak and detected
+                    reason := "Weak (" + str.tostring(math.round(score)) + ") — early recovery"
+                else if not detected
+                    reason := "No reclaim yet (age " + str.tostring(age) + ")"
         else
+            // Sweep too old for reclaim tracking
             reason := "Sweep aged out (" + str.tostring(age) + " bars)"
-    [pass, strength, reason, weak, strong]
+            failed := true
+
+    [detected, weak, valid, strong_, failed, score, reason, acceptBars, threshold]
+
+// Mode-dependent reclaim pass: maps formal reclaim grades to mode thresholds (Chapter 3)
+reclaim_mode_pass(bool detected_, bool valid_, bool strong_, float score_, string mode) =>
+    bool pass = false
+    if mode == "Aggressive"
+        pass := detected_ and score_ >= 15.0
+    else if mode == "Conservative"
+        pass := strong_ or score_ >= 55.0
+    else // Balanced
+        pass := valid_ or score_ >= 35.0
+    pass
 
 // Extension filter: blocks chased entries too far from structural anchor.
 // Returns: [isExtended, distanceAtr, reason]
@@ -1914,12 +2058,17 @@ pending_setup_has_expired(int expiryBar) =>
 
 // Evaluate whether a pending setup qualifies for delayed activation (Chapter 2.2).
 // Returns: [canActivateNow, updatedReason, shouldInvalidate]
-evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass, float reclaimStr, bool reclaimStrong, float dispStrength, bool seqOk, bool expired, bool degraded, string mode, int signalBar, int expiryBar, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass_, bool bridgeStrong_, bool pendingFresh) =>
+// Chapter 3: reclaimFailed parameter added to block pending activation on failed reclaim
+evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass, float reclaimStr, bool reclaimStrong, float dispStrength, bool seqOk, bool expired, bool degraded, string mode, int signalBar, int expiryBar, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass_, bool bridgeStrong_, bool pendingFresh, bool reclaimFailed_) =>
     bool canActivate = false
     string reason = ""
     bool shouldInvalidate = false
 
-    if not pending_setup_is_fresh(signalBar, expiryBar)
+    // Chapter 3: failed reclaim invalidates pending setup
+    if reclaimFailed_
+        shouldInvalidate := true
+        reason := "Pending invalidated — reclaim failed"
+    else if not pending_setup_is_fresh(signalBar, expiryBar)
         shouldInvalidate := pending_setup_has_expired(expiryBar)
         reason := shouldInvalidate ? "Pending window expired" : "Pending not yet active"
     else if expired or degraded
@@ -1960,7 +2109,8 @@ evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass,
     [canActivate, reason, shouldInvalidate]
 
 // Determine lifecycle stage from raw setup data + eval_side outputs
-determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal) =>
+// Chapter 3: now accepts reclaim state for truthful LC_RECLAIM_VISIBLE promotion
+determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal, bool reclaimDetected_, bool reclaimValid_, bool reclaimFailed_) =>
     int lc = LC_NONE
     string reason = ""
     if expired
@@ -1979,9 +2129,13 @@ determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int f
         else
             lc := LC_MSS_CONFIRMED
             reason := "Structure shift confirmed after sweep"
+    else if swept and reclaimDetected_ and not reclaimFailed_
+        // Chapter 3: Reclaim visible — post-sweep recovery detected, MSS not yet confirmed
+        lc := LC_RECLAIM_VISIBLE
+        reason := reclaimValid_ ? "Valid reclaim visible — watch for structure shift" : "Early reclaim visible — awaiting confirmation"
     else if swept
         lc := LC_SWEEP_CONFIRMED
-        reason := "Liquidity swept — awaiting structure shift"
+        reason := reclaimFailed_ ? "Liquidity swept — reclaim failed, awaiting fresh structure" : "Liquidity swept — awaiting structure shift"
     else if not na(reqLevel) and not na(atrVal) and atrVal > 0
         float proximity = math.abs(close - reqLevel) / atrVal
         if proximity < 3.0
@@ -2180,9 +2334,32 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
 [scoreLong, phaseLong, missingLong, swGradeL, msGradeL, fgGradeL, seqOkL, trigL, expiredL, degradedL] = eval_side(true, marketBias, pdStatus, isKillzone, isSilverBullet, sweptSSL, sweepQualitySSL, bestSweepBarSSL, bestSweepGradeSSL, bestSweepExtSSL, bestSweepSrcSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, obBullConfluence, lastPHi, reqL, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
 [scoreShort, phaseShort, missingShort, swGradeS, msGradeS, fgGradeS, seqOkS, trigS, expiredS, degradedS] = eval_side(false, marketBias, pdStatus, isKillzone, isSilverBullet, sweptBSL, sweepQualityBSL, bestSweepBarBSL, bestSweepGradeBSL, bestSweepExtBSL, bestSweepSrcBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, obBearConfluence, lastPLo, reqS, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
 
-// --- Lifecycle Determination (Chapter 1) ---
-[lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr)
-[lcShort, lcNameShort, lcNextReqShort, lcCanActShort, lcReasonShort] = determine_lifecycle(sweptBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, expiredS, degradedS, reqS, lastPLo, false, atr)
+// --- Chapter 3: Reclaim Stage Evaluation (runs each bar) ---
+[rclDetL, rclWeakL2, rclValidL2, rclStrongL2, rclFailedL2, rclScoreL2, rclReasonL2, rclAcceptL2, rclThreshL2] = evaluate_reclaim_stage(true, bestSweepBarSSL, bestSweepLevelSSL, bestSweepDepthSSL, atr, _rclAcceptL, _rclFailedL, _rclSweepRefL)
+[rclDetS, rclWeakS2, rclValidS2, rclStrongS2, rclFailedS2, rclScoreS2, rclReasonS2, rclAcceptS2, rclThreshS2] = evaluate_reclaim_stage(false, bestSweepBarBSL, bestSweepLevelBSL, bestSweepDepthBSL, atr, _rclAcceptS, _rclFailedS, _rclSweepRefS)
+
+// Update persistent reclaim state
+// Reset detection bar on new sweep (must check BEFORE updating sweep ref)
+if not na(bestSweepBarSSL) and bestSweepBarSSL != _rclSweepRefL
+    _rclDetBarL := na
+if not na(bestSweepBarBSL) and bestSweepBarBSL != _rclSweepRefS
+    _rclDetBarS := na
+_rclAcceptL := rclAcceptL2
+_rclAcceptS := rclAcceptS2
+_rclFailedL := rclFailedL2
+_rclFailedS := rclFailedS2
+_rclThreshL := rclThreshL2
+_rclThreshS := rclThreshS2
+_rclSweepRefL := not na(bestSweepBarSSL) ? bestSweepBarSSL : _rclSweepRefL
+_rclSweepRefS := not na(bestSweepBarBSL) ? bestSweepBarBSL : _rclSweepRefS
+if rclDetL and na(_rclDetBarL)
+    _rclDetBarL := bar_index
+if rclDetS and na(_rclDetBarS)
+    _rclDetBarS := bar_index
+
+// --- Lifecycle Determination (Chapter 1 + Chapter 3: reclaim-aware) ---
+[lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr, rclDetL, rclValidL2, rclFailedL2)
+[lcShort, lcNameShort, lcNextReqShort, lcCanActShort, lcReasonShort] = determine_lifecycle(sweptBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, expiredS, degradedS, reqS, lastPLo, false, atr, rclDetS, rclValidS2, rclFailedS2)
 
 // --- Select dominant side and populate SetupState ---
 // Bias acts as tiebreaker multiplier, not gate
@@ -2337,9 +2514,17 @@ bool isSignalS = sig2022S or sigSBS
 // --- MODE QUALIFICATION COMPUTATION (Chapter 2 + 2.2) ---
 // =====================================================================
 
-// Chapter 2.2: Compute quality helpers for both sides
-[rclPassL, rclStrL, rclReasonL, rclWeakL, rclStrongL] = compute_reclaim_quality(true, bestSweepBarSSL, sweepQualitySSL, lastMssBullDispStrength, atr, sensitivityMode, recentMid5, reqL)
-[rclPassS, rclStrS, rclReasonS, rclWeakS, rclStrongS] = compute_reclaim_quality(false, bestSweepBarBSL, sweepQualityBSL, lastMssBearDispStrength, atr, sensitivityMode, recentMid5, reqS)
+// Chapter 3: Map formal reclaim stage outputs to mode-dependent pass/fail
+bool rclPassL = reclaim_mode_pass(rclDetL, rclValidL2, rclStrongL2, rclScoreL2, sensitivityMode)
+float rclStrL = rclScoreL2
+string rclReasonL = rclReasonL2
+bool rclWeakL = rclWeakL2
+bool rclStrongL = rclStrongL2
+bool rclPassS = reclaim_mode_pass(rclDetS, rclValidS2, rclStrongS2, rclScoreS2, sensitivityMode)
+float rclStrS = rclScoreS2
+string rclReasonS = rclReasonS2
+bool rclWeakS = rclWeakS2
+bool rclStrongS = rclStrongS2
 
 [extBlockL, extDistL, extReasonL] = compute_extension_block(true, lastMssBullBar, lastPHi, atr, sensitivityMode, reqL)
 [extBlockS, extDistS, extReasonS] = compute_extension_block(false, lastMssBearBar, lastPLo, atr, sensitivityMode, reqS)
@@ -2350,11 +2535,18 @@ bool isSignalS = sig2022S or sigSBS
 [bridgePassL, bridgeStrongL, bridgeReasonL] = evaluate_displacement_bridge(lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, lastMssBullBar, sensitivityMode)
 [bridgePassS, bridgeStrongS, bridgeReasonS] = evaluate_displacement_bridge(lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, lastMssBearBar, sensitivityMode)
 
-// Backward-compatible reclaim proxy aliases
+// Chapter 3: Failed reclaim blocks activation for all modes
+// Override reclaim pass if reclaim has failed
+if rclFailedL2
+    rclPassL := false
+if rclFailedS2
+    rclPassS := false
+
+// Backward-compatible reclaim proxy aliases (now sourced from Chapter 3 evaluator, post-failure-override)
 bool reclaimProxyLong = rclPassL
 bool reclaimProxyShort = rclPassS
 
-// Evaluate mode qualification with quality data
+// Evaluate mode qualification with quality data (Chapter 3: reclaimFailed added)
 [modeCandL, modeActL, modeBlockL, modeDirectL, modePathL] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleLong, sweptSSL, sweepQualitySSL, not na(lastMssBullBar), lastMssBullDispStrength, not na(lastBullFvgBar) and lastBullFvgGrade > 0, lastBullFvgGrade, seqOkL, expiredL, degradedL, rclPassL, rclStrL, rclStrongL, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, scoreLong)
 
 [modeCandS, modeActS, modeBlockS, modeDirectS, modePathS] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleShort, sweptBSL, sweepQualityBSL, not na(lastMssBearBar), lastMssBearDispStrength, not na(lastBearFvgBar) and lastBearFvgGrade > 0, lastBearFvgGrade, seqOkS, expiredS, degradedS, rclPassS, rclStrS, rclStrongS, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, scoreShort)
@@ -2371,11 +2563,26 @@ liveSetup.longModeBlockReason := modeBlockL
 liveSetup.shortModeBlockReason := modeBlockS
 liveSetup.longHasReclaimProxy := reclaimProxyLong
 liveSetup.shortHasReclaimProxy := reclaimProxyShort
-// Chapter 2.2: Quality fields
+// Chapter 2.2: Quality fields (now sourced from Chapter 3 reclaim evaluator)
 liveSetup.reclaimStrengthLong := rclStrL
 liveSetup.reclaimStrengthShort := rclStrS
 liveSetup.reclaimReasonLong := rclReasonL
 liveSetup.reclaimReasonShort := rclReasonS
+// Chapter 3: Reclaim stage fields
+liveSetup.reclaimDetectedLong := rclDetL
+liveSetup.reclaimDetectedShort := rclDetS
+liveSetup.reclaimValidLong := rclValidL2
+liveSetup.reclaimValidShort := rclValidS2
+liveSetup.reclaimStrongLong := rclStrongL2
+liveSetup.reclaimStrongShort := rclStrongS2
+liveSetup.reclaimFailedLong := rclFailedL2
+liveSetup.reclaimFailedShort := rclFailedS2
+liveSetup.reclaimScoreLong := rclScoreL2
+liveSetup.reclaimScoreShort := rclScoreS2
+liveSetup.reclaimStageReasonLong := rclReasonL2
+liveSetup.reclaimStageReasonShort := rclReasonS2
+liveSetup.reclaimAcceptBarsLong := rclAcceptL2
+liveSetup.reclaimAcceptBarsShort := rclAcceptS2
 liveSetup.extensionBlockedLong := extBlockL
 liveSetup.extensionBlockedShort := extBlockS
 liveSetup.extensionDistLong := extDistL
@@ -2460,7 +2667,7 @@ liveSetup.freshnessReasonLong := pendFreshReasonL
 liveSetup.freshnessReasonShort := pendFreshReasonS
 
 if _pendingLongActive and na(activeTrade)
-    [canActPL, reasonPL, shouldInvPL] = evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL)
+    [canActPL, reasonPL, shouldInvPL] = evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL, rclFailedL2)
     if shouldInvPL
         _pendingLongActive := false
         _pendingLongCanStillActivate := false
@@ -2474,7 +2681,7 @@ if _pendingLongActive and na(activeTrade)
 
 // Evaluate pending short
 if _pendingShortActive and na(activeTrade) and not pendingActivatedLong
-    [canActPS, reasonPS, shouldInvPS] = evaluate_pending_activation(false, liveSetup.lifecycleShort, rclPassS, rclStrS, rclStrongS, lastMssBearDispStrength, seqOkS, expiredS, degradedS, _pendingShortMode, _pendingShortSignalBar, _pendingShortExpiryBar, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, pendFreshS)
+    [canActPS, reasonPS, shouldInvPS] = evaluate_pending_activation(false, liveSetup.lifecycleShort, rclPassS, rclStrS, rclStrongS, lastMssBearDispStrength, seqOkS, expiredS, degradedS, _pendingShortMode, _pendingShortSignalBar, _pendingShortExpiryBar, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, pendFreshS, rclFailedS2)
     if shouldInvPS
         _pendingShortActive := false
         _pendingShortCanStillActivate := false
@@ -2814,6 +3021,64 @@ if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.ent
         liveSetup.lifecycleDesyncReason := "Q5: " + mode_name_short(sensitivityMode) + " activated without MSS quality pass"
         liveSetup.lifecycleDominant := LC_DESYNC
 
+// --- Chapter 3: Reclaim Stage Invariants ---
+
+// Invariant R1: lifecycle = LC_RECLAIM_VISIBLE while reclaimDetected is false
+if not liveSetup.lifecycleIsDesynced
+    bool rclDesyncL = liveSetup.lifecycleLong == LC_RECLAIM_VISIBLE and not rclDetL
+    bool rclDesyncS = liveSetup.lifecycleShort == LC_RECLAIM_VISIBLE and not rclDetS
+    if rclDesyncL or rclDesyncS
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "R1: LC_RECLAIM_VISIBLE without reclaim detected (" + (rclDesyncL ? "long" : "short") + ")"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant R2: activation allowed while reclaimFailed is true
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
+    bool domRclFailed_ = activeTrade.isLong ? rclFailedL2 : rclFailedS2
+    if domRclFailed_
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "R2: trade activated while reclaim failed"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant R3: Balanced/Conservative activation with reclaim below mode minimum
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode != "Aggressive"
+    bool domRclValid_ = activeTrade.isLong ? rclValidL2 : rclValidS2
+    bool domRclStrong_ = activeTrade.isLong ? rclStrongL2 : rclStrongS2
+    if sensitivityMode == "Conservative" and not domRclStrong_
+        float domRclScore_ = activeTrade.isLong ? rclScoreL2 : rclScoreS2
+        if domRclScore_ < 55.0
+            liveSetup.lifecycleIsDesynced := true
+            liveSetup.lifecycleDesyncReason := "R3: CON activated without strong reclaim (" + str.tostring(math.round(domRclScore_)) + ")"
+            liveSetup.lifecycleDominant := LC_DESYNC
+    else if sensitivityMode == "Balanced" and not domRclValid_
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "R3: BAL activated without valid reclaim"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant R4: pending setup alive while reclaim has clearly failed
+if not liveSetup.lifecycleIsDesynced
+    if _pendingLongActive and _pendingLongCanStillActivate and rclFailedL2
+        _pendingLongActive := false
+        _pendingLongCanStillActivate := false
+        _pendingLongReason := "R4: pending invalidated — reclaim failed"
+    if _pendingShortActive and _pendingShortCanStillActivate and rclFailedS2
+        _pendingShortActive := false
+        _pendingShortCanStillActivate := false
+        _pendingShortReason := "R4: pending invalidated — reclaim failed"
+
+// Invariant R5: lifecycle advanced past sweep without reclaim evidence
+if not liveSetup.lifecycleIsDesynced
+    bool advLNoRecl = liveSetup.lifecycleLong >= LC_RECLAIM_VISIBLE and liveSetup.lifecycleLong <= LC_MSS_CONFIRMED and not rclDetL and not na(bestSweepBarSSL) and na(lastMssBullBar)
+    bool advSNoRecl = liveSetup.lifecycleShort >= LC_RECLAIM_VISIBLE and liveSetup.lifecycleShort <= LC_MSS_CONFIRMED and not rclDetS and not na(bestSweepBarBSL) and na(lastMssBearBar)
+    if advLNoRecl or advSNoRecl
+        // Downgrade to SWEEP_CONFIRMED instead of desync (soft correction)
+        if advLNoRecl
+            liveSetup.lifecycleLong := LC_SWEEP_CONFIRMED
+            liveSetup.lifecycleNameLong := lifecycle_name(LC_SWEEP_CONFIRMED)
+        if advSNoRecl
+            liveSetup.lifecycleShort := LC_SWEEP_CONFIRMED
+            liveSetup.lifecycleNameShort := lifecycle_name(LC_SWEEP_CONFIRMED)
+
 // --- Backward-Compatible Field Overrides (lifecycle-authoritative) ---
 if liveSetup.lifecycleIsDesynced
     liveSetup.phase := "State desync"
@@ -2951,7 +3216,7 @@ if showReadiness and barstate.islast
     bool showContext = isAnalyst or isDebug
     bool showAdvanced = isDebug
 
-    int maxR = isDebug ? 64 : isAnalyst ? 32 : 18
+    int maxR = isDebug ? 68 : isAnalyst ? 34 : 18
     readTable := table.new(resolve_pos(readinessPos), 2, maxR, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
 
     float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
@@ -3093,6 +3358,18 @@ if showReadiness and barstate.islast
         color obCol = obConf ? uiPosColor : uiLabelText
         table.cell(readTable, 0, r, "OB Confluence", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
         table.cell(readTable, 1, r, obStr, text_color = obCol, text_size = size.tiny)
+        r += 1
+
+        // Chapter 3: Reclaim Status (Analyst-level concise messaging)
+        bool domRclFailed = pickLong ? liveSetup.reclaimFailedLong : liveSetup.reclaimFailedShort
+        bool domRclValid = pickLong ? liveSetup.reclaimValidLong : liveSetup.reclaimValidShort
+        bool domRclStrong = pickLong ? liveSetup.reclaimStrongLong : liveSetup.reclaimStrongShort
+        bool domRclDetected = pickLong ? liveSetup.reclaimDetectedLong : liveSetup.reclaimDetectedShort
+        bool domSwept = pickLong ? sweptSSL : sweptBSL
+        string rclStatusStr = domRclFailed ? "Reclaim failed — setup degraded" : domRclStrong ? "Reclaim visible — watch for structure shift" : domRclValid ? "Reclaim visible — developing" : domRclDetected ? "Early reclaim — needs confirmation" : domSwept ? "Sweep confirmed — waiting for reclaim" : "—"
+        color rclStatusCol = domRclFailed ? uiNegColor : domRclStrong ? uiPosColor : domRclValid ? color.orange : domRclDetected ? uiNeutralColor : uiLabelText
+        table.cell(readTable, 0, r, "Reclaim", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, rclStatusStr, text_color = rclStatusCol, text_size = size.tiny)
         r += 1
 
     // Long / Short Score (all modes, detail varies)
@@ -3301,10 +3578,19 @@ if showReadiness and barstate.islast
         table.cell(readTable, 1, r, modeBlkStr, text_color = modeBlkCol, text_size = size.tiny)
         r += 1
 
-        // Reclaim quality (Chapter 2.2)
-        string rclDbgStr = "L: " + liveSetup.reclaimReasonLong + "  |  S: " + liveSetup.reclaimReasonShort
-        table.cell(readTable, 0, r, "Reclaim Quality", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-        table.cell(readTable, 1, r, rclDbgStr, text_color = (reclaimProxyLong or reclaimProxyShort) ? uiNeutralColor : uiLabelText, text_size = size.tiny)
+        // Chapter 3: Reclaim Stage (replaces old reclaim quality row)
+        string rclStageL = liveSetup.reclaimFailedLong ? "FAILED" : liveSetup.reclaimStrongLong ? "STRONG" : liveSetup.reclaimValidLong ? "VALID" : liveSetup.reclaimDetectedLong ? "WEAK" : "NONE"
+        string rclStageS = liveSetup.reclaimFailedShort ? "FAILED" : liveSetup.reclaimStrongShort ? "STRONG" : liveSetup.reclaimValidShort ? "VALID" : liveSetup.reclaimDetectedShort ? "WEAK" : "NONE"
+        string rclDbgStr = "L: " + rclStageL + " (" + str.tostring(math.round(liveSetup.reclaimScoreLong)) + ") " + str.tostring(liveSetup.reclaimAcceptBarsLong) + "bars  |  S: " + rclStageS + " (" + str.tostring(math.round(liveSetup.reclaimScoreShort)) + ") " + str.tostring(liveSetup.reclaimAcceptBarsShort) + "bars"
+        color rclDbgCol = (liveSetup.reclaimFailedLong or liveSetup.reclaimFailedShort) ? uiNegColor : (liveSetup.reclaimValidLong or liveSetup.reclaimValidShort) ? uiPosColor : (liveSetup.reclaimDetectedLong or liveSetup.reclaimDetectedShort) ? color.orange : uiLabelText
+        table.cell(readTable, 0, r, "Reclaim Stage", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, rclDbgStr, text_color = rclDbgCol, text_size = size.tiny)
+        r += 1
+
+        // Chapter 3: Reclaim reason detail
+        string rclReasonDbg = "L: " + liveSetup.reclaimStageReasonLong + "  |  S: " + liveSetup.reclaimStageReasonShort
+        table.cell(readTable, 0, r, "Reclaim Detail", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, rclReasonDbg, text_color = rclDbgCol, text_size = size.tiny)
         r += 1
 
         // Extension filter (Chapter 2.2)
@@ -3502,12 +3788,14 @@ var box candSl = na
 var label candLbl = na
 
 if barstate.islast
-    // Chapter 2.1+2.2: Candidate preview with quality gating
+    // Chapter 2.1+2.2+3: Candidate preview with quality + reclaim gating
     bool hasPendingCandidate = (liveSetup.pendingLongActive and liveSetup.pendingLongCanStillActivate) or (liveSetup.pendingShortActive and liveSetup.pendingShortCanStillActivate)
     // Chapter 2.2: Block preview for stale or overextended setups
     bool domExtended = pickLong ? liveSetup.extensionBlockedLong : liveSetup.extensionBlockedShort
     bool domPendingStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
-    bool qualityPreviewOk = not domExtended and not domPendingStale
+    // Chapter 3: Block preview if reclaim has failed on dominant side
+    bool domReclaimFailed = pickLong ? liveSetup.reclaimFailedLong : liveSetup.reclaimFailedShort
+    bool qualityPreviewOk = not domExtended and not domPendingStale and not domReclaimFailed
     if showSetups and showCandidatePreview and (liveSetup.dominantMeetsModeCandidate or hasPendingCandidate) and qualityPreviewOk and na(activeTrade) and not liveSetup.isExpired and not liveSetup.isConflicted and not liveSetup.isDegraded and not dominantLiquidityBlocked and not liveSetup.lifecycleIsDesynced
         float projRisk = atr * 1.5
         float entry = close
