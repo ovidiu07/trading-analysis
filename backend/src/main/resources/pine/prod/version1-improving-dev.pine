@@ -97,6 +97,10 @@ int SRC_PIVOT_EXT   = 4   // External structure pivot
 int SRC_PIVOT_INT   = 5   // Internal structure pivot
 int SRC_EQH_EQL     = 6   // Equal highs / equal lows cluster
 int SRC_DEVELOPING  = 7   // Developing session level (lower trust)
+int SRC_PIVOT_HTF_1 = 8   // Configured HTF pivot tier 1
+int SRC_PIVOT_HTF_2 = 9   // Configured HTF pivot tier 2
+int SRC_PIVOT_HTF_3 = 10  // Optional configured HTF pivot tier 3
+int SRC_ROUND_NUM   = 11  // Psychological / round-number liquidity
 
 // Source priority scores (higher = more important)
 int PRI_PWH_PWL     = 100
@@ -106,6 +110,10 @@ int PRI_SESSION     = 60
 int PRI_PIVOT_EXT   = 50
 int PRI_PIVOT_INT   = 25
 int PRI_DEVELOPING  = 15
+int PRI_PIVOT_HTF_1 = 68
+int PRI_PIVOT_HTF_2 = 78
+int PRI_PIVOT_HTF_3 = 88
+int PRI_ROUND_NUM   = 35
 
 // Sweep type classification
 int SWEEP_SHALLOW        = 1   // Tiny penetration, low confidence
@@ -170,6 +178,8 @@ type LiqSweep
     bool    isHTF           // Weekly/Daily level sweep
     bool    isSessionSweep  // Session extreme sweep
     bool    isClusterSweep  // EQH/EQL cluster sweep
+    int     clusterCount    // Persist cluster significance through lifecycle updates
+    bool    isInducementLike
     bool    inKillzone      // Swept during killzone
     bool    inSilverBullet  // Swept during SB window
     string  sessionAtSweep  // Session name when swept
@@ -177,6 +187,23 @@ type LiqSweep
 // --- Inputs ---
 var string G_SENS = "Signal Sensitivity"
 string sensitivityMode = input.string("Balanced", "Sensitivity Mode", options = ["Aggressive", "Balanced", "Conservative"], tooltip = "Adjusts pivot lookback and displacement requirements for signals.", group = G_SENS)
+
+var string G_LIQ = "Liquidity Engine"
+bool enableHtfPivot1 = input.bool(true, "Track HTF Pivot 1", group = G_LIQ, inline = "liq_htf1")
+string liqPivotTf1 = input.timeframe("60", "", group = G_LIQ, inline = "liq_htf1")
+bool enableHtfPivot2 = input.bool(true, "Track HTF Pivot 2", group = G_LIQ, inline = "liq_htf2")
+string liqPivotTf2 = input.timeframe("240", "", group = G_LIQ, inline = "liq_htf2")
+bool enableHtfPivot3 = input.bool(false, "Track HTF Pivot 3", group = G_LIQ, inline = "liq_htf3")
+string liqPivotTf3 = input.timeframe("D", "", group = G_LIQ, inline = "liq_htf3")
+int htfPivotLeftLen = input.int(3, "HTF Pivot Left", minval = 1, maxval = 10, group = G_LIQ, inline = "liq_htf_len")
+int htfPivotRightLen = input.int(2, "Right", minval = 1, maxval = 10, group = G_LIQ, inline = "liq_htf_len")
+int eqLocalLookback = input.int(12, "EQ Local Lookback", minval = 6, maxval = 40, group = G_LIQ)
+int eqStructuralLookback = input.int(32, "EQ Structural Lookback", minval = 10, maxval = 80, group = G_LIQ)
+int eqClusterMaxAge = input.int(220, "EQ Max Age (bars)", minval = 40, maxval = 1000, group = G_LIQ)
+bool enableRoundNumbers = input.bool(false, "Track Round Numbers", group = G_LIQ, inline = "liq_rn")
+float roundStep = input.float(1.0, "Primary Step", minval = 0.00001, step = 0.00001, group = G_LIQ, inline = "liq_rn")
+float roundSubStep = input.float(0.0, "Substep", minval = 0.0, step = 0.00001, group = G_LIQ, inline = "liq_rn")
+bool enableInducementTag = input.bool(true, "Tag Deterministic Inducement", group = G_LIQ)
 
 var string G_VIS = "Visual Style & Display"
 bool showLabels = input.bool(true, "Show Buy/Sell Labels", group = G_VIS)
@@ -216,6 +243,7 @@ bool enableSilverBullet = input.bool(true, "Silver Bullet (Time + FVG)", group =
 var string G_READINESS = "Setup & Performance Dashboard"
 bool showReadiness = input.bool(true, "Show Dashboard", group = G_READINESS)
 string readinessPos = input.string("bottom_right", "Position", options = ["top_right", "top_left", "bottom_right", "bottom_left"], group = G_READINESS)
+string dashMode = input.string("Analyst", "Display Mode", options = ["Trader", "Analyst", "Debug"], tooltip = "Trader: minimal, action-oriented view. Analyst: richer setup context and confluence. Debug: full engine transparency.", group = G_READINESS)
 
 var string G_INTEL = "Market Intelligence Dashboard"
 bool showMarketIntelDash = input.bool(true, "Show Dashboard", group = G_INTEL)
@@ -257,6 +285,14 @@ color nyHColor = input.color(color.new(color.red, 30), "", group = G_SESS_LINES,
 bool showNYL = input.bool(false, "NY Low", group = G_SESS_LINES, inline = "nyl")
 color nyLColor = input.color(color.new(color.red, 30), "", group = G_SESS_LINES, inline = "nyl")
 string sessLineStyleInput = input.string("Dotted", "Line Style", options = ["Solid", "Dashed", "Dotted"], group = G_SESS_LINES)
+
+var string G_EQ_VIS = "EQH / EQL Visibility"
+bool showEqClusters = input.bool(true, "Show EQ Clusters", group = G_EQ_VIS)
+int eqClusterSegLen = input.int(14, "Segment Length", minval = 4, maxval = 80, group = G_EQ_VIS)
+int eqClusterOffset = input.int(2, "Segment Offset", minval = 0, maxval = 20, group = G_EQ_VIS)
+bool eqClusterShowLabels = input.bool(true, "Show Labels", group = G_EQ_VIS)
+color eqhColor = input.color(color.new(color.orange, 25), "EQH Color", group = G_EQ_VIS, inline = "eq_col")
+color eqlColor = input.color(color.new(color.aqua, 25), "EQL Color", group = G_EQ_VIS, inline = "eq_col")
 
 var string G_ACTIVE_VIS = "Active Setup Visuals"
 bool showCandidatePreview = input.bool(true, "Show Projected Forming Setup", group = G_ACTIVE_VIS)
@@ -326,6 +362,20 @@ float pdl = request.security(syminfo.tickerid, "D", low[1], lookahead = barmerge
 float pwh = request.security(syminfo.tickerid, "W", high[1], lookahead = barmerge.lookahead_on)
 float pwl = request.security(syminfo.tickerid, "W", low[1], lookahead = barmerge.lookahead_on)
 
+get_last_confirmed_pivot_high(string tf, int leftLen, int rightLen) =>
+    request.security(
+         syminfo.tickerid,
+         tf,
+         ta.valuewhen(not na(ta.pivothigh(high, leftLen, rightLen)), ta.pivothigh(high, leftLen, rightLen), 0),
+         lookahead = barmerge.lookahead_off)
+
+get_last_confirmed_pivot_low(string tf, int leftLen, int rightLen) =>
+    request.security(
+         syminfo.tickerid,
+         tf,
+         ta.valuewhen(not na(ta.pivotlow(low, leftLen, rightLen)), ta.pivotlow(low, leftLen, rightLen), 0),
+         lookahead = barmerge.lookahead_off)
+
 // --- Core Data & Primitives ---
 int atrLen = input.int(14, "ATR Length", minval = 1, group = G_SENS)
 float atr = ta.atr(atrLen)
@@ -387,6 +437,13 @@ if not na(lastPHiBar) and (bar_index - lastPHiBar) > pivotMaxAge
 if not na(lastPLoBar) and (bar_index - lastPLoBar) > pivotMaxAge
     lastPLo := na
     lastPLoBar := na
+
+float htfPivot1High = enableHtfPivot1 ? get_last_confirmed_pivot_high(liqPivotTf1, htfPivotLeftLen, htfPivotRightLen) : na
+float htfPivot1Low = enableHtfPivot1 ? get_last_confirmed_pivot_low(liqPivotTf1, htfPivotLeftLen, htfPivotRightLen) : na
+float htfPivot2High = enableHtfPivot2 ? get_last_confirmed_pivot_high(liqPivotTf2, htfPivotLeftLen, htfPivotRightLen) : na
+float htfPivot2Low = enableHtfPivot2 ? get_last_confirmed_pivot_low(liqPivotTf2, htfPivotLeftLen, htfPivotRightLen) : na
+float htfPivot3High = enableHtfPivot3 ? get_last_confirmed_pivot_high(liqPivotTf3, htfPivotLeftLen, htfPivotRightLen) : na
+float htfPivot3Low = enableHtfPivot3 ? get_last_confirmed_pivot_low(liqPivotTf3, htfPivotLeftLen, htfPivotRightLen) : na
 
 // BOS (continuation) vs MSS (reversal)
 bool bosBull = ta.crossover(close, lastPHi) and isDispBull
@@ -707,86 +764,6 @@ update_zones(obArray, maxZones, false)
 // --- LIQUIDITY ENGINE v2 — Hierarchical Detection, Classification & Scoring ---
 // =====================================================================
 
-// --- Equal Highs / Equal Lows Detection ---
-// Tracks recent swing highs/lows and identifies clusters within ATR tolerance
-float eqhTolerance = atr * 0.15   // Proximity tolerance for "equal" levels
-int   eqhLookback  = 10           // How many recent pivots to scan
-
-var float[] recentSwingHighs = array.new_float()
-var float[] recentSwingLows  = array.new_float()
-var int[]   recentSwingHighBars = array.new_int()
-var int[]   recentSwingLowBars  = array.new_int()
-
-// Track pivot highs
-if not na(pHi)
-    array.push(recentSwingHighs, pHi)
-    array.push(recentSwingHighBars, bar_index - sensRightLen)
-    if array.size(recentSwingHighs) > eqhLookback
-        array.shift(recentSwingHighs)
-        array.shift(recentSwingHighBars)
-
-// Track pivot lows
-if not na(pLo)
-    array.push(recentSwingLows, pLo)
-    array.push(recentSwingLowBars, bar_index - sensRightLen)
-    if array.size(recentSwingLows) > eqhLookback
-        array.shift(recentSwingLows)
-        array.shift(recentSwingLowBars)
-
-// Detect clustered equal highs (BSL cluster)
-var float eqhLevel = na
-var int   eqhCount = 0
-var int   eqhLastBar = na
-eqhLevel := na
-eqhCount := 0
-eqhLastBar := na
-
-if array.size(recentSwingHighs) >= 2
-    float bestClusterPrice = na
-    int   bestClusterCount = 0
-    for i = array.size(recentSwingHighs) - 1 to 0
-        float refPrice = array.get(recentSwingHighs, i)
-        int matchCount = 0
-        float sumPrice = 0.0
-        for j = 0 to array.size(recentSwingHighs) - 1
-            if math.abs(array.get(recentSwingHighs, j) - refPrice) <= eqhTolerance
-                matchCount += 1
-                sumPrice += array.get(recentSwingHighs, j)
-        if matchCount >= 2 and matchCount > bestClusterCount
-            bestClusterCount := matchCount
-            bestClusterPrice := sumPrice / matchCount
-    if bestClusterCount >= 2
-        eqhLevel := bestClusterPrice
-        eqhCount := bestClusterCount
-        eqhLastBar := bar_index
-
-// Detect clustered equal lows (SSL cluster)
-var float eqlLevel = na
-var int   eqlCount = 0
-var int   eqlLastBar = na
-eqlLevel := na
-eqlCount := 0
-eqlLastBar := na
-
-if array.size(recentSwingLows) >= 2
-    float bestClusterPrice = na
-    int   bestClusterCount = 0
-    for i = array.size(recentSwingLows) - 1 to 0
-        float refPrice = array.get(recentSwingLows, i)
-        int matchCount = 0
-        float sumPrice = 0.0
-        for j = 0 to array.size(recentSwingLows) - 1
-            if math.abs(array.get(recentSwingLows, j) - refPrice) <= eqhTolerance
-                matchCount += 1
-                sumPrice += array.get(recentSwingLows, j)
-        if matchCount >= 2 and matchCount > bestClusterCount
-            bestClusterCount := matchCount
-            bestClusterPrice := sumPrice / matchCount
-    if bestClusterCount >= 2
-        eqlLevel := bestClusterPrice
-        eqlCount := bestClusterCount
-        eqlLastBar := bar_index
-
 // --- Internal vs External Pivot Classification ---
 // External: defines the active dealing range boundary (outermost swings)
 // Internal: intermediate pullback pivots within the range
@@ -802,10 +779,212 @@ bool pivotLoIsExternal = not na(lastPLo) and (lastPLo < rangeLow50 + extThreshol
 bool prevPivotHiIsInternal = not na(prevPHi) and not (prevPHi > rangeHigh50 - extThreshold)
 bool prevPivotLoIsInternal = not na(prevPLo) and not (prevPLo < rangeLow50 + extThreshold)
 
+// --- Equal Highs / Equal Lows Detection ---
+// Tracks recent swing highs/lows, scores clusters by recency/touches/context,
+// and prefers local structure unless an older structural cluster is materially better.
+float eqhTolerance = atr * 0.15
+int eqPivotStore = math.max(eqLocalLookback, eqStructuralLookback)
+
+var float[] recentSwingHighs = array.new_float()
+var float[] recentSwingLows  = array.new_float()
+var int[]   recentSwingHighBars = array.new_int()
+var int[]   recentSwingLowBars  = array.new_int()
+
+if not na(pHi)
+    array.push(recentSwingHighs, pHi)
+    array.push(recentSwingHighBars, bar_index - sensRightLen)
+    if array.size(recentSwingHighs) > eqPivotStore
+        array.shift(recentSwingHighs)
+        array.shift(recentSwingHighBars)
+
+if not na(pLo)
+    array.push(recentSwingLows, pLo)
+    array.push(recentSwingLowBars, bar_index - sensRightLen)
+    if array.size(recentSwingLows) > eqPivotStore
+        array.shift(recentSwingLows)
+        array.shift(recentSwingLowBars)
+
+level_is_near(float lhs, float rhs, float tol) =>
+    not na(lhs) and not na(rhs) and math.abs(lhs - rhs) <= tol
+
+cluster_context_bonus(float price_, bool isSSL_) =>
+    float bonus = 0.0
+    float tol = eqhTolerance * 1.5
+    if isSSL_
+        if level_is_near(price_, pdl, tol)
+            bonus += 5.0
+        if level_is_near(price_, pwl, tol)
+            bonus += 6.0
+        if level_is_near(price_, htfPivot1Low, tol)
+            bonus += 3.0
+        if level_is_near(price_, htfPivot2Low, tol)
+            bonus += 4.0
+        if level_is_near(price_, htfPivot3Low, tol)
+            bonus += 5.0
+        if level_is_near(price_, asia.lastLow, tol) or level_is_near(price_, london.lastLow, tol) or level_is_near(price_, ny.lastLow, tol)
+            bonus += 3.0
+        if level_is_near(price_, rangeLow50, tol * 2.0)
+            bonus += 4.0
+    else
+        if level_is_near(price_, pdh, tol)
+            bonus += 5.0
+        if level_is_near(price_, pwh, tol)
+            bonus += 6.0
+        if level_is_near(price_, htfPivot1High, tol)
+            bonus += 3.0
+        if level_is_near(price_, htfPivot2High, tol)
+            bonus += 4.0
+        if level_is_near(price_, htfPivot3High, tol)
+            bonus += 5.0
+        if level_is_near(price_, asia.lastHigh, tol) or level_is_near(price_, london.lastHigh, tol) or level_is_near(price_, ny.lastHigh, tol)
+            bonus += 3.0
+        if level_is_near(price_, rangeHigh50, tol * 2.0)
+            bonus += 4.0
+    bonus
+
+find_eq_cluster(float[] priceArr, int[] barArr, int lookbackN, bool isSSL_) =>
+    float bestPrice = na
+    int bestCount = 0
+    int bestLastBar = na
+    float bestScore = 0.0
+    int available = array.size(priceArr)
+    if available >= 2
+        int startIdx = math.max(0, available - lookbackN)
+        int localStartIdx = math.max(0, available - eqLocalLookback)
+        for i = available - 1 to startIdx
+            float refPrice = array.get(priceArr, i)
+            int matchCount = 0
+            int localTouches = 0
+            float sumPrice = 0.0
+            int lastTouchBar = na
+            for j = startIdx to available - 1
+                float cmpPrice = array.get(priceArr, j)
+                int cmpBar = array.get(barArr, j)
+                if math.abs(cmpPrice - refPrice) <= eqhTolerance
+                    matchCount += 1
+                    sumPrice += cmpPrice
+                    if j >= localStartIdx
+                        localTouches += 1
+                    lastTouchBar := na(lastTouchBar) ? cmpBar : math.max(lastTouchBar, cmpBar)
+            if matchCount >= 2 and not na(lastTouchBar)
+                int ageBars = bar_index - lastTouchBar
+                if ageBars <= eqClusterMaxAge
+                    float avgPrice = sumPrice / matchCount
+                    float recencyScore = math.max(0.0, 1.0 - float(ageBars) / eqClusterMaxAge)
+                    float distAtr = atr > 0 ? math.abs(avgPrice - close) / atr : 0.0
+                    float score = matchCount * 16.0 + localTouches * 5.0 + recencyScore * 20.0 + cluster_context_bonus(avgPrice, isSSL_) - math.min(math.max(distAtr - 6.0, 0.0) * 1.5, 12.0)
+                    if score > bestScore or (score == bestScore and (na(bestLastBar) or lastTouchBar > bestLastBar))
+                        bestPrice := avgPrice
+                        bestCount := matchCount
+                        bestLastBar := lastTouchBar
+                        bestScore := score
+    [bestPrice, bestCount, bestLastBar, bestScore]
+
+select_cluster(float localPrice, int localCount, int localBar, float localScore, float structuralPrice, int structuralCount, int structuralBar, float structuralScore) =>
+    float chosenPrice = na
+    int chosenCount = 0
+    int chosenBar = na
+    float chosenScore = 0.0
+    if not na(localPrice) or not na(structuralPrice)
+        bool useStructural = false
+        if na(localPrice)
+            useStructural := true
+        else if not na(structuralPrice)
+            useStructural := structuralScore > localScore + 4.0 or (structuralCount > localCount and structuralScore >= localScore)
+        chosenPrice := useStructural ? structuralPrice : localPrice
+        chosenCount := useStructural ? structuralCount : localCount
+        chosenBar := useStructural ? structuralBar : localBar
+        chosenScore := useStructural ? structuralScore : localScore
+    [chosenPrice, chosenCount, chosenBar, chosenScore]
+
+cluster_priority_from_score(int clusterCount_, int lastTouchBar_, float clusterScore_) =>
+    int pri = PRI_EQH_EQL
+    if clusterCount_ >= 3
+        pri += 4
+    if clusterCount_ >= 4
+        pri += 4
+    if clusterScore_ >= 60
+        pri += 4
+    if clusterScore_ >= 75
+        pri += 4
+    if not na(lastTouchBar_)
+        int ageBars = bar_index - lastTouchBar_
+        if ageBars > math.round(eqClusterMaxAge * 0.6)
+            pri -= 12
+        else if ageBars > math.round(eqClusterMaxAge * 0.35)
+            pri -= 6
+    math.max(42, math.min(84, pri))
+
+[eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqLocalLookback, false)
+
+[eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqStructuralLookback, false)
+
+[eqhLevel, eqhCount, eqhLastBar, eqhScore] = select_cluster(eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore, eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore)
+int eqhPriority = not na(eqhLevel) ? cluster_priority_from_score(eqhCount, eqhLastBar, eqhScore) : PRI_EQH_EQL
+
+[eqlLocalLevel, eqlLocalCount, eqlLocalBar, eqlLocalScore] = find_eq_cluster(recentSwingLows, recentSwingLowBars, eqLocalLookback, true)
+
+[eqlStructLevel, eqlStructCount, eqlStructBar, eqlStructScore] = find_eq_cluster(recentSwingLows, recentSwingLowBars, eqStructuralLookback, true)
+
+[eqlLevel, eqlCount, eqlLastBar, eqlScore] = select_cluster(eqlLocalLevel, eqlLocalCount, eqlLocalBar, eqlLocalScore, eqlStructLevel, eqlStructCount, eqlStructBar, eqlStructScore)
+int eqlPriority = not na(eqlLevel) ? cluster_priority_from_score(eqlCount, eqlLastBar, eqlScore) : PRI_EQH_EQL
+
 // --- Build Liquidity Level Registry ---
 // Constructs LiqLevel objects for all monitored sources each bar
 var LiqLevel[] liqLevels = array.new<LiqLevel>()
 array.clear(liqLevels)
+
+is_htf_liquidity_source(int srcType) =>
+    srcType == SRC_PDH_PDL or srcType == SRC_PWH_PWL or srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
+
+source_category_label(int srcType, string lvlName) =>
+    string label = "Liquidity"
+    if srcType == SRC_PWH_PWL
+        label := "Weekly Level"
+    else if srcType == SRC_PDH_PDL
+        label := "Daily Level"
+    else if srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
+        label := "HTF Pivot"
+    else if srcType == SRC_SESSION
+        label := "Session Level"
+    else if srcType == SRC_EQH_EQL
+        label := "EQ Cluster"
+    else if srcType == SRC_ROUND_NUM
+        label := "Round Number"
+    else if srcType == SRC_PIVOT_EXT
+        label := "External Pivot"
+    else if srcType == SRC_PIVOT_INT
+        label := "Internal Pivot"
+    if (srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3) and lvlName != ""
+        label := label + " (" + lvlName + ")"
+    label
+
+source_phase_tag(int srcType, bool isExt) =>
+    string tag = isExt ? " [Ext]" : " [Int]"
+    if srcType == SRC_PWH_PWL
+        tag := " [W]"
+    else if srcType == SRC_PDH_PDL
+        tag := " [D]"
+    else if srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
+        tag := " [HTF Pivot]"
+    else if srcType == SRC_EQH_EQL
+        tag := " [EQ]"
+    else if srcType == SRC_SESSION
+        tag := " [Sess]"
+    else if srcType == SRC_ROUND_NUM
+        tag := " [RN]"
+    tag
+
+round_grid_base(float price_, float step_) =>
+    step_ > 0 ? math.floor(price_ / step_) * step_ : na
+
+float roundMainBase = enableRoundNumbers and roundStep > 0 ? round_grid_base(close, roundStep) : na
+float roundMainBelow = roundMainBase
+float roundMainAbove = not na(roundMainBase) ? roundMainBase + roundStep : na
+bool hasRoundSubStep = enableRoundNumbers and roundSubStep > 0 and roundSubStep < roundStep
+float roundSubBase = hasRoundSubStep ? round_grid_base(close, roundSubStep) : na
+float roundSubBelow = roundSubBase
+float roundSubAbove = not na(roundSubBase) ? roundSubBase + roundSubStep : na
 
 // Helper: add level if valid
 add_liq_level(LiqLevel[] arr, string name_, float price_, int srcType, int pri, bool ext, bool ssl, bool htf, bool sess, bool cluster, int clusterN) =>
@@ -825,14 +1004,26 @@ add_liq_level(liqLevels, "PDH", pdh, SRC_PDH_PDL, PRI_PDH_PDL, true, false, true
 add_liq_level(liqLevels, "PDL", pdl, SRC_PDH_PDL, PRI_PDH_PDL, true, true,  true, false, false, 0)
 add_liq_level(liqLevels, "PWH", pwh, SRC_PWH_PWL, PRI_PWH_PWL, true, false, true, false, false, 0)
 add_liq_level(liqLevels, "PWL", pwl, SRC_PWH_PWL, PRI_PWH_PWL, true, true,  true, false, false, 0)
+add_liq_level(liqLevels, "HTF " + liqPivotTf1 + " High", htfPivot1High, SRC_PIVOT_HTF_1, PRI_PIVOT_HTF_1, true, false, true, false, false, 0)
+add_liq_level(liqLevels, "HTF " + liqPivotTf1 + " Low", htfPivot1Low, SRC_PIVOT_HTF_1, PRI_PIVOT_HTF_1, true, true,  true, false, false, 0)
+add_liq_level(liqLevels, "HTF " + liqPivotTf2 + " High", htfPivot2High, SRC_PIVOT_HTF_2, PRI_PIVOT_HTF_2, true, false, true, false, false, 0)
+add_liq_level(liqLevels, "HTF " + liqPivotTf2 + " Low", htfPivot2Low, SRC_PIVOT_HTF_2, PRI_PIVOT_HTF_2, true, true,  true, false, false, 0)
+add_liq_level(liqLevels, "HTF " + liqPivotTf3 + " High", enableHtfPivot3 ? htfPivot3High : na, SRC_PIVOT_HTF_3, PRI_PIVOT_HTF_3, true, false, true, false, false, 0)
+add_liq_level(liqLevels, "HTF " + liqPivotTf3 + " Low", enableHtfPivot3 ? htfPivot3Low : na, SRC_PIVOT_HTF_3, PRI_PIVOT_HTF_3, true, true,  true, false, false, 0)
 
 // Structural pivots (classified by internal/external)
 add_liq_level(liqLevels, "Pivot High", lastPHi, pivotHiIsExternal ? SRC_PIVOT_EXT : SRC_PIVOT_INT, pivotHiIsExternal ? PRI_PIVOT_EXT : PRI_PIVOT_INT, pivotHiIsExternal, false, false, false, false, 0)
 add_liq_level(liqLevels, "Pivot Low",  lastPLo, pivotLoIsExternal ? SRC_PIVOT_EXT : SRC_PIVOT_INT, pivotLoIsExternal ? PRI_PIVOT_EXT : PRI_PIVOT_INT, pivotLoIsExternal, true,  false, false, false, 0)
 
 // Equal highs/lows clusters
-add_liq_level(liqLevels, "EQH", eqhLevel, SRC_EQH_EQL, PRI_EQH_EQL, true, false, false, false, true, eqhCount)
-add_liq_level(liqLevels, "EQL", eqlLevel, SRC_EQH_EQL, PRI_EQH_EQL, true, true,  false, false, true, eqlCount)
+add_liq_level(liqLevels, "EQH", eqhLevel, SRC_EQH_EQL, eqhPriority, true, false, false, false, true, eqhCount)
+add_liq_level(liqLevels, "EQL", eqlLevel, SRC_EQH_EQL, eqlPriority, true, true,  false, false, true, eqlCount)
+
+// Optional psychological levels
+add_liq_level(liqLevels, "RN " + str.tostring(roundMainAbove, "#.#####"), enableRoundNumbers ? roundMainAbove : na, SRC_ROUND_NUM, PRI_ROUND_NUM, false, false, false, false, false, 0)
+add_liq_level(liqLevels, "RN " + str.tostring(roundMainBelow, "#.#####"), enableRoundNumbers ? roundMainBelow : na, SRC_ROUND_NUM, PRI_ROUND_NUM, false, true,  false, false, false, 0)
+add_liq_level(liqLevels, "RN sub " + str.tostring(roundSubAbove, "#.#####"), hasRoundSubStep ? roundSubAbove : na, SRC_ROUND_NUM, PRI_ROUND_NUM - 5, false, false, false, false, false, 0)
+add_liq_level(liqLevels, "RN sub " + str.tostring(roundSubBelow, "#.#####"), hasRoundSubStep ? roundSubBelow : na, SRC_ROUND_NUM, PRI_ROUND_NUM - 5, false, true,  false, false, false, 0)
 
 // --- Session Timing Weight ---
 // Returns multiplier for sweep significance based on when it happens
@@ -965,7 +1156,7 @@ check_sweep_level(LiqLevel lvl) =>
                  depth, depthAtr, wickPen, rejStr, rejection, disp,
                  sType, sStr, grade, q,
                  bar_index, LIFE_DETECTED, grade != "Reject", false,
-                 lvl.isHTF, lvl.isSession, lvl.isCluster,
+                 lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.clusterCount, false,
                  isKillzone, isSilverBullet, activeSessName)
     result
 
@@ -1005,24 +1196,29 @@ if array.size(liqLevels) > 0
                 sw.lifecycleState := old.lifecycleState == LIFE_CONFIRMED ? LIFE_CONFIRMED : (sw.hasRejection or sw.hasDisplacement ? LIFE_CONFIRMED : LIFE_ACTIVE)
                 array.set(activeSweeps, replaceIdx, sw)
 
-// --- Inducement Detection (optional, low-risk) ---
-// If an internal sweep happened within 5 bars and a larger external level exists nearby, tag it
-if array.size(activeSweeps) > 0
+// --- Inducement Detection (deterministic only) ---
+// Tag a smaller internal sweep only after a larger same-side external/HTF/session event
+// is actually taken shortly after it. This keeps inducement as metadata, not prophecy.
+if enableInducementTag and array.size(activeSweeps) > 1
+    int inducementWindow = sensitivityMode == "Aggressive" ? 6 : sensitivityMode == "Conservative" ? 10 : 8
     for i = 0 to array.size(activeSweeps) - 1
-        LiqSweep s = array.get(activeSweeps, i)
-        if s.sweepType == SWEEP_INT_LIQ_SWEEP and (bar_index - s.sweepBar) <= 5 and s.lifecycleState != LIFE_CONSUMED
-            // Check if a bigger external level exists on the same side within 3 ATR
-            if array.size(liqLevels) > 0
-                for j = 0 to array.size(liqLevels) - 1
-                    LiqLevel lvl = array.get(liqLevels, j)
-                    if lvl.isExternal and lvl.isSSL == s.isSSL and lvl.priority > s.sourcePriority
-                        float dist = math.abs(lvl.price - close)
-                        if dist < atr * 3.0
-                            s.sweepType := SWEEP_INDUCEMENT
-                            s.sweepTypeStr := "Inducement"
-                            s.qualityScore := math.max(0, s.qualityScore - 10.0)  // Reduce score — this is noise before the real move
-                            s.grade := get_sweep_grade(s.qualityScore)
-                            break
+        LiqSweep major = array.get(activeSweeps, i)
+        bool majorSweep = (major.isExternal or is_htf_liquidity_source(major.sourceType) or major.sourceType == SRC_SESSION) and major.qualityScore >= 40
+        if majorSweep
+            for j = 0 to array.size(activeSweeps) - 1
+                if i != j
+                    LiqSweep minor = array.get(activeSweeps, j)
+                    bool sameSide = minor.isSSL == major.isSSL
+                    bool minorInternal = minor.sourceType == SRC_PIVOT_INT or (not minor.isExternal and minor.sourcePriority < major.sourcePriority)
+                    bool shortLead = minor.sweepBar <= major.sweepBar and (major.sweepBar - minor.sweepBar) <= inducementWindow
+                    bool lowerSig = minor.qualityScore < major.qualityScore and minor.sourcePriority < major.sourcePriority
+                    if sameSide and minorInternal and shortLead and lowerSig and not minor.isInducementLike
+                        minor.isInducementLike := true
+                        minor.sweepType := SWEEP_INDUCEMENT
+                        minor.sweepTypeStr := "Inducement"
+                        minor.qualityScore := math.max(0.0, minor.qualityScore - 8.0)
+                        minor.grade := get_sweep_grade(minor.qualityScore)
+                        array.set(activeSweeps, j, minor)
 
 // --- Lifecycle Management ---
 // Expire stale sweeps, cap count, manage states
@@ -1040,11 +1236,12 @@ if array.size(activeSweeps) > 0
             s.isActionable := false
         // Recalculate quality with updated freshness
         float freshness = 1.0 - (float(age) / sweepMaxAge)
-        float updatedQ = compute_sweep_quality(s.sweepDepthAtr, s.wickPenetrationRatio, s.rejectionStrength, s.hasRejection, s.hasDisplacement, s.sourcePriority, s.isExternal, s.isHTF, s.isClusterSweep, 0, s.inKillzone, s.inSilverBullet, 1.0, freshness, s.sweepType)
+        float updatedQ = compute_sweep_quality(s.sweepDepthAtr, s.wickPenetrationRatio, s.rejectionStrength, s.hasRejection, s.hasDisplacement, s.sourcePriority, s.isExternal, s.isHTF, s.isClusterSweep, s.clusterCount, s.inKillzone, s.inSilverBullet, 1.0, freshness, s.sweepType)
         s.qualityScore := updatedQ
         s.grade := get_sweep_grade(updatedQ)
         if updatedQ < 15.0
             s.isActionable := false
+        array.set(activeSweeps, i, s)
 
 // Cap sweep count — keep best by quality
 while array.size(activeSweeps) > sweepMaxCount
@@ -1066,6 +1263,7 @@ if mssBull
             if s.isSSL and s.lifecycleState != LIFE_CONSUMED
                 s.lifecycleState := LIFE_CONSUMED
                 s.isConsumed := true
+                array.set(activeSweeps, i, s)
 if mssBear
     if array.size(activeSweeps) > 0
         for i = array.size(activeSweeps) - 1 to 0
@@ -1073,6 +1271,7 @@ if mssBear
             if not s.isSSL and s.lifecycleState != LIFE_CONSUMED
                 s.lifecycleState := LIFE_CONSUMED
                 s.isConsumed := true
+                array.set(activeSweeps, i, s)
 
 // --- Derived Sweep State (backwards-compatible + enriched) ---
 bool sweptSSL = false
@@ -1087,11 +1286,13 @@ string bestSweepGradeSSL = ""
 string bestSweepNameSSL = ""
 bool   bestSweepExtSSL = false
 int    bestSweepSrcSSL = 0
+bool   bestSweepInducementSSL = false
 string bestSweepTypeBSL = ""
 string bestSweepGradeBSL = ""
 string bestSweepNameBSL = ""
 bool   bestSweepExtBSL = false
 int    bestSweepSrcBSL = 0
+bool   bestSweepInducementBSL = false
 
 if array.size(activeSweeps) > 0
     for i = 0 to array.size(activeSweeps) - 1
@@ -1108,6 +1309,7 @@ if array.size(activeSweeps) > 0
                 bestSweepNameSSL := s.levelName
                 bestSweepExtSSL := s.isExternal
                 bestSweepSrcSSL := s.sourceType
+                bestSweepInducementSSL := s.isInducementLike
         else
             sweptBSL := true
             if s.qualityScore > sweepQualityBSL
@@ -1118,6 +1320,7 @@ if array.size(activeSweeps) > 0
                 bestSweepNameBSL := s.levelName
                 bestSweepExtBSL := s.isExternal
                 bestSweepSrcBSL := s.sourceType
+                bestSweepInducementBSL := s.isInducementLike
 
 // Premium / Discount
 int rangeLookback = 50
@@ -1138,6 +1341,8 @@ float nearestHTFBSL = na
 float nearestHTFSSL = na
 float nearestClusterBSL = na
 float nearestClusterSSL = na
+float nearestRoundBSL = na
+float nearestRoundSSL = na
 // Source names for dashboard
 string nearestBSLName = ""
 string nearestSSLName = ""
@@ -1162,6 +1367,8 @@ if array.size(liqLevels) > 0
                 nearestHTFSSL := lvl.price
             if lvl.isCluster and (na(nearestClusterSSL) or lvl.price > nearestClusterSSL)
                 nearestClusterSSL := lvl.price
+            if lvl.sourceType == SRC_ROUND_NUM and (na(nearestRoundSSL) or lvl.price > nearestRoundSSL)
+                nearestRoundSSL := lvl.price
         else if not lvl.isSSL and lvl.price > close
             // BSL: nearest = lowest above price
             if na(nearestBSL) or lvl.price < nearestBSL
@@ -1177,10 +1384,83 @@ if array.size(liqLevels) > 0
                 nearestHTFBSL := lvl.price
             if lvl.isCluster and (na(nearestClusterBSL) or lvl.price < nearestClusterBSL)
                 nearestClusterBSL := lvl.price
+            if lvl.sourceType == SRC_ROUND_NUM and (na(nearestRoundBSL) or lvl.price < nearestRoundBSL)
+                nearestRoundBSL := lvl.price
 
 // reqL/reqS: backward-compatible required sweep levels
 float reqL = nearestSSL
 float reqS = nearestBSL
+
+ict_liquidity_gate(bool isLong, int mssBar_, float mssDisp) =>
+    bool ok = false
+    bool hasValidExternal = false
+    string detail = "No qualifying liquidity sweep detected"
+    float bestQ = -1.0
+    bool sawAnySweep = false
+    bool sawInternalOnly = false
+    bool sawWeakMajor = false
+    bool sawOutOfSequence = false
+    if array.size(activeSweeps) > 0
+        for i = 0 to array.size(activeSweeps) - 1
+            LiqSweep s = array.get(activeSweeps, i)
+            bool sideOk = s.isSSL == isLong
+            bool liveOk = s.isActionable or s.isConsumed
+            if sideOk and liveOk
+                sawAnySweep := true
+                bool orderOk = na(mssBar_) or s.sweepBar <= mssBar_
+                bool htfSweep = is_htf_liquidity_source(s.sourceType)
+                bool strongSession = s.sourceType == SRC_SESSION and s.qualityScore >= 55.0
+                bool strongExternal = s.isExternal and s.sourceType != SRC_SESSION and s.sourceType != SRC_PIVOT_INT and s.qualityScore >= 35.0
+                bool aggressiveInternal = sensitivityMode == "Aggressive" and s.sourceType == SRC_PIVOT_INT and s.qualityScore >= 72.0 and mssDisp >= 1.2 and (s.hasRejection or s.hasDisplacement)
+                bool hardQualified = htfSweep or strongSession or strongExternal or aggressiveInternal
+                if orderOk and (htfSweep or strongSession or strongExternal)
+                    hasValidExternal := true
+                if not orderOk
+                    sawOutOfSequence := true
+                else if s.sourceType == SRC_PIVOT_INT and not aggressiveInternal
+                    sawInternalOnly := true
+                else if not hardQualified
+                    sawWeakMajor := true
+
+                if orderOk and hardQualified and s.qualityScore > bestQ
+                    ok := true
+                    bestQ := s.qualityScore
+                    detail := s.levelName + " — " + source_category_label(s.sourceType, "")
+                    if s.isInducementLike
+                        detail := detail + " (preconditioned by inducement)"
+    if not ok
+        detail := not sawAnySweep ? "No liquidity sweep detected" : sawOutOfSequence ? "Sweep came after structure shift (wrong sequence)" : sawInternalOnly ? "Only internal liquidity swept — need external" : sawWeakMajor ? "Sweep quality insufficient for this strategy" : detail
+    [ok, detail, hasValidExternal]
+
+silver_bullet_liquidity_gate(bool isLong) =>
+    bool ok = false
+    bool hasValidSessionSweep = false
+    string detail = "No qualifying sweep in Silver Bullet window"
+    float bestQ = -1.0
+    bool sawWindowSweep = false
+    bool sawWeakWindowSweep = false
+    int sbWindowBars = math.max(1, int(math.round(3600.0 / timeframe.in_seconds(timeframe.period)))) + 1
+    if array.size(activeSweeps) > 0
+        for i = 0 to array.size(activeSweeps) - 1
+            LiqSweep s = array.get(activeSweeps, i)
+            bool sideOk = s.isSSL == isLong
+            bool liveOk = s.isActionable or s.isConsumed
+            bool windowFresh = (bar_index - s.sweepBar) <= sbWindowBars
+            if sideOk and liveOk and s.inSilverBullet and windowFresh
+                sawWindowSweep := true
+                bool validSession = s.sourceType == SRC_SESSION and s.qualityScore >= 42.0
+                bool validExternal = (s.isExternal or is_htf_liquidity_source(s.sourceType)) and s.qualityScore >= 35.0
+                if validSession
+                    hasValidSessionSweep := true
+                if (validSession or validExternal) and s.qualityScore > bestQ
+                    ok := true
+                    bestQ := s.qualityScore
+                    detail := s.levelName + " — " + source_category_label(s.sourceType, "")
+                else if not (validSession or validExternal)
+                    sawWeakWindowSweep := true
+    if not ok
+        detail := not sawWindowSweep ? "No qualifying liquidity in Silver Bullet window" : sawWeakWindowSweep ? "Silver Bullet window sweep not structural enough" : detail
+    [ok, detail, hasValidSessionSweep]
 
 // --- OB Confluence Check: is price near an unmitigated OB? ---
 bool obBullConfluence = false
@@ -1202,7 +1482,7 @@ SetupState liveSetup = SetupState.new()
 // Returns [score, phase, missing, sweepGrade, mssGrade, fvgGrade, sequenceOk, triggerLvl, expired, degraded]
 eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, float sweepQ, int sweepBar_, string sweepGradeIn, bool sweepIsExt, int sweepSrcType, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool obConf, float pivotVal, float reqLevel, float atrVal, string sessName, int sweepMaxAge_, int mssMaxAge_, int fvgMaxAge_) =>
     float sc = 0.0
-    string ph = "Monitoring"
+    string ph = "Scanning"
     string ms = ""
     string swG = ""
     string msG = ""
@@ -1257,8 +1537,8 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
         if not sweepIsExt and sweepSrcType == SRC_PIVOT_INT
             sc -= 3.0
 
-        string srcLabel = sweepSrcType == SRC_PWH_PWL ? " [HTF]" : sweepSrcType == SRC_PDH_PDL ? " [D]" : sweepSrcType == SRC_EQH_EQL ? " [EQ]" : sweepSrcType == SRC_SESSION ? " [Sess]" : sweepIsExt ? " [Ext]" : " [Int]"
-        ph := "Sweep (" + swG + ")" + srcLabel
+        string srcLabel = source_phase_tag(sweepSrcType, sweepIsExt)
+        ph := "Liquidity swept"
 
         // Sweep staleness penalty
         if not na(sweepBar_)
@@ -1283,7 +1563,7 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
                     mssScore := 12.0
                     msG := "C"
                 sc += mssScore
-                ph := "MSS (" + msG + ")"
+                ph := "Structure confirmed"
 
                 float mssAge = bar_index - mssBar_
                 float mssLifeRatio = mssAge / mssMaxAge_
@@ -1293,8 +1573,8 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
 
                 if mssLifeRatio > 0.85 and (na(fvgBar_) or fvgGrade_ == 0)
                     expired := true
-                    ph := "Expired"
-                    ms := "MSS aged out without FVG — setup dead"
+                    ph := "Setup expired"
+                    ms := "Structure shift expired without imbalance — setup invalid"
 
                 // --- FVG Score (max 25) — grade + sequence ---
                 if not expired and not na(fvgBar_) and fvgGrade_ > 0
@@ -1303,59 +1583,57 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
                         if fvgMitigated
                             degraded := true
                             sc -= 10.0
-                            ph := "Degraded"
-                            ms := "FVG mitigated — setup weakened, wait for fresh FVG"
+                            ph := "Setup degraded"
+                            ms := "Imbalance zone was filled — wait for a fresh one"
                         else
                             seqOk := true
                             float fvgScore = fvgGrade_ == 3 ? 25.0 : fvgGrade_ == 2 ? 18.0 : 12.0
                             fgG := fvgGrade_ == 3 ? "A" : fvgGrade_ == 2 ? "B" : "C"
                             sc += fvgScore
-                            ph := "Armed (" + fgG + ")"
-                            ms := "Ready — Sweep(" + swG + ") MSS(" + msG + ") FVG(" + fgG + ")"
-                            // Enriched: show sweep source in armed message
-                            ms := ms + srcLabel
+                            ph := "Setup ready"
+                            ms := "Full sequence complete — monitor entry zone"
 
                             float fvgAge = bar_index - fvgBar_
                             if fvgAge / fvgMaxAge_ > 0.7
-                                ms := ms + " ⌛FVG aging"
+                                ms := ms + " (imbalance aging)"
                     else
-                        ph := "FVG Pending"
-                        ms := "FVG is stale (before MSS) — wait for new FVG"
+                        ph := "Awaiting imbalance"
+                        ms := "Imbalance predates structure shift — need a fresh one"
                 else if not expired
-                    ph := "FVG Pending"
-                    ms := "Wait for " + (isLong ? "Bullish" : "Bearish") + " FVG"
+                    ph := "Awaiting imbalance"
+                    ms := "Need fresh " + (isLong ? "bullish" : "bearish") + " imbalance after structure shift"
             else
-                ph := "MSS Pending"
-                ms := "MSS is stale (before sweep) — wait for new " + (isLong ? "Bullish" : "Bearish") + " MSS"
+                ph := "Awaiting structure shift"
+                ms := "Structure shift predates sweep — need new " + (isLong ? "bullish" : "bearish") + " confirmation"
                 trig := pivotVal
         else
-            ph := "MSS Pending"
+            ph := "Awaiting structure shift"
             trig := pivotVal
-            ms := "Wait for " + (isLong ? "Bullish" : "Bearish") + " MSS (" + (na(pivotVal) ? "Pending" : str.tostring(pivotVal, "#.#####")) + ")"
+            ms := "Need " + (isLong ? "bullish" : "bearish") + " structure shift" + (na(pivotVal) ? "" : " — break " + (isLong ? "above " : "below ") + str.tostring(pivotVal, "#.#####"))
     else
         // No sweep yet — ATR-based proximity check
         if not na(reqLevel) and not na(atrVal)
             float proximity = math.abs(close - reqLevel) / atrVal
             if proximity < 0.5
-                ph := "Liquidity Imminent"
+                ph := "Liquidity imminent"
                 sc += 3.0
-                ms := (isLong ? "SSL" : "BSL") + " at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR)"
+                ms := (isLong ? "Sell-side" : "Buy-side") + " liquidity at " + str.tostring(reqLevel, "#.#####") + " — very close (" + str.tostring(proximity, "#.#") + " ATR)"
             else if proximity < 1.5
-                ph := "Liquidity Nearby"
+                ph := "Liquidity nearby"
                 sc += 1.0
-                ms := (isLong ? "SSL" : "BSL") + " at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR away)"
+                ms := (isLong ? "Sell-side" : "Buy-side") + " liquidity at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR away)"
             else if proximity < 3.0
-                ph := "Approaching"
-                ms := (isLong ? "SSL" : "BSL") + " at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR away)"
+                ph := "Approaching liquidity"
+                ms := (isLong ? "Sell-side" : "Buy-side") + " liquidity at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR away)"
             else
-                ms := "Searching for " + (isLong ? "SSL" : "BSL") + " sweep..."
+                ms := "Searching for " + (isLong ? "sell-side" : "buy-side") + " liquidity to sweep"
         else
             ms := "No liquidity levels identified"
 
     // --- Confluence Bonus (max 18) ---
     if obConf and seqOk
         sc += 5.0
-        ms := ms + " +OB"
+        ms := ms + " (order block confluence)"
 
     // Full sequence + quality bonus
     if seqOk and sweepQ >= 40 and not na(mssDisp) and mssDisp > 0.8 and fvgGrade_ >= 2
@@ -1425,16 +1703,38 @@ liveSetup.missing := pickLong ? missingLong : missingShort
 
 // Conflicted overrides everything — both sides have valid armed sequences
 if isConflicted
-    liveSetup.phase := "Conflicted"
-    liveSetup.missing := "Both L(" + str.tostring(scoreLong) + ") and S(" + str.tostring(scoreShort) + ") valid — no edge, stand aside"
+    liveSetup.phase := "Market conflicted"
+    liveSetup.missing := "Both long (" + str.tostring(scoreLong) + ") and short (" + str.tostring(scoreShort) + ") setups active — no clear edge, stand aside"
     liveSetup.score := math.max(scoreLong, scoreShort)
 
 // --- Strategy Detection ---
-bool sig2022B = sweptSSL and mssBull and enableICT2022
-bool sig2022S = sweptBSL and mssBear and enableICT2022
+[ictGateLong, ictGateLongInfo, ictHasValidExternalLong] = ict_liquidity_gate(true, lastMssBullBar, lastMssBullDispStrength)
+
+[ictGateShort, ictGateShortInfo, ictHasValidExternalShort] = ict_liquidity_gate(false, lastMssBearBar, lastMssBearDispStrength)
+
+[sbGateLong, sbGateLongInfo, sbHasSessionSweepLong] = silver_bullet_liquidity_gate(true)
+
+[sbGateShort, sbGateShortInfo, sbHasSessionSweepShort] = silver_bullet_liquidity_gate(false)
+
+bool continuationLiquidityLong = sweptSSL and (bestSweepSrcSSL == SRC_PIVOT_INT or bestSweepExtSSL or bestSweepSrcSSL == SRC_EQH_EQL or bestSweepSrcSSL == SRC_ROUND_NUM or is_htf_liquidity_source(bestSweepSrcSSL))
+bool continuationLiquidityShort = sweptBSL and (bestSweepSrcBSL == SRC_PIVOT_INT or bestSweepExtBSL or bestSweepSrcBSL == SRC_EQH_EQL or bestSweepSrcBSL == SRC_ROUND_NUM or is_htf_liquidity_source(bestSweepSrcBSL))
+
+bool sig2022B = mssBull and ictGateLong and enableICT2022
+bool sig2022S = mssBear and ictGateShort and enableICT2022
 bool inSB = sbLon.isActive or sbAm.isActive
-bool sigSBB = inSB and bullFvgAligned and enableSilverBullet
-bool sigSBS = inSB and bearFvgAligned and enableSilverBullet
+bool sigSBB = inSB and bullFvgAligned and sbGateLong and enableSilverBullet
+bool sigSBS = inSB and bearFvgAligned and sbGateShort and enableSilverBullet
+
+if pickLong and enableICT2022 and mssBull and not ictGateLong
+    liveSetup.missing := "ICT 2022 blocked: " + ictGateLongInfo
+else if not pickLong and enableICT2022 and mssBear and not ictGateShort
+    liveSetup.missing := "ICT 2022 blocked: " + ictGateShortInfo
+else if pickLong and enableSilverBullet and inSB and bullFvgAligned and not sbGateLong
+    liveSetup.missing := "Silver Bullet blocked: " + sbGateLongInfo
+else if not pickLong and enableSilverBullet and inSB and bearFvgAligned and not sbGateShort
+    liveSetup.missing := "Silver Bullet blocked: " + sbGateShortInfo
+
+bool dominantLiquidityBlocked = pickLong ? ((enableICT2022 and mssBull and not ictGateLong) or (enableSilverBullet and inSB and bullFvgAligned and not sbGateLong)) : ((enableICT2022 and mssBear and not ictGateShort) or (enableSilverBullet and inSB and bearFvgAligned and not sbGateShort))
 
 
 // --- Alert History Engine ---
@@ -1557,10 +1857,34 @@ render_level(float val, bool show, color col, string txt, string mode, int segLe
             line.set_style(l, style)
             line.set_width(l, width)
             if showLabel
-                label.set_xy(lbl, x2, val)
-                label.set_text(lbl, txt)
-                label.set_textcolor(lbl, col)
+                if na(lbl)
+                    lbl := label.new(x2, val, txt, color = #00000000, textcolor = col, style = label.style_label_left, size = size.small)
+                else
+                    label.set_xy(lbl, x2, val)
+                    label.set_text(lbl, txt)
+                    label.set_textcolor(lbl, col)
+            else if not na(lbl)
+                label.delete(lbl)
+                lbl := na
+    else
+        if not na(l)
+            line.delete(l)
+            l := na
+        if not na(lbl)
+            label.delete(lbl)
+            lbl := na
     [l, lbl]
+
+bool eqhSwept = false
+bool eqlSwept = false
+if array.size(activeSweeps) > 0
+    for i = 0 to array.size(activeSweeps) - 1
+        LiqSweep s = array.get(activeSweeps, i)
+        if s.sourceType == SRC_EQH_EQL
+            if s.isSSL
+                eqlSwept := true
+            else
+                eqhSwept := true
 
 if barstate.islast
     render_level(pdh, showPDH, pdhColor, "PDH", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
@@ -1575,128 +1899,386 @@ if barstate.islast
     render_level(ny.isActive ? ny.high : ny.lastHigh, showNYH, nyHColor, "NY High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
     render_level(ny.isActive ? ny.low : ny.lastLow, showNYL, nyLColor, "NY Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
 
+    int eqhTransp = eqhSwept ? 80 : math.max(18, 62 - math.round(eqhScore * 0.4))
+    int eqlTransp = eqlSwept ? 80 : math.max(18, 62 - math.round(eqlScore * 0.4))
+    int eqhWidth = eqhScore >= 68 ? 2 : 1
+    int eqlWidth = eqlScore >= 68 ? 2 : 1
+    string eqhText = "EQH" + (eqhCount >= 2 ? "×" + str.tostring(eqhCount) : "") + (eqhSwept ? " ✓" : "")
+    string eqlText = "EQL" + (eqlCount >= 2 ? "×" + str.tostring(eqlCount) : "") + (eqlSwept ? " ✓" : "")
+    render_level(eqhLevel, showEqClusters and eqhCount >= 2, color.new(eqhColor, eqhTransp), eqhText, "Short Segment", eqClusterSegLen, eqClusterOffset, "Dotted", eqhWidth, eqClusterShowLabels)
+    render_level(eqlLevel, showEqClusters and eqlCount >= 2, color.new(eqlColor, eqlTransp), eqlText, "Short Segment", eqClusterSegLen, eqClusterOffset, "Dotted", eqlWidth, eqClusterShowLabels)
+
 // --- Helper: resolve table position ---
 resolve_pos(string pos) =>
     pos == "top_right" ? position.top_right : pos == "top_left" ? position.top_left : pos == "bottom_right" ? position.bottom_right : position.bottom_left
 
+// --- Dashboard Helper Functions ---
+
+format_grade_word(string grade) =>
+    grade == "A" ? "high quality" : grade == "B" ? "moderate quality" : grade == "C" ? "low quality" : "—"
+
+format_confidence(int score) =>
+    score >= 85 ? "High conviction" : score >= 70 ? "Strong" : score >= 50 ? "Good" : score >= 30 ? "Moderate" : "Low"
+
+format_score_bias(int sL, int sS) =>
+    int diff = sL - sS
+    math.abs(diff) < 5 ? "Neutral" : diff >= 20 ? "Strong long bias" : diff >= 10 ? "Long bias" : diff > 0 ? "Slight long bias" : diff <= -20 ? "Strong short bias" : diff <= -10 ? "Short bias" : "Slight short bias"
+
+format_action(string phase, bool isConflicted, bool isExpired, bool isDegraded, bool seqValid, int score, bool isLong, bool gateBlocked, bool hasActiveTrade) =>
+    string a = "Stand aside — no setup forming"
+    if hasActiveTrade
+        a := "Trade active — manage position"
+    else if isConflicted
+        a := "Stand aside — both sides active, no clear edge"
+    else if isExpired
+        a := "No trade — setup expired"
+    else if isDegraded
+        a := "No trade — imbalance was filled"
+    else if gateBlocked
+        a := "Setup blocked — check strategy eligibility"
+    else if seqValid and score >= 60
+        a := (isLong ? "Bullish" : "Bearish") + " setup ready — monitor entry zone"
+    else if str.contains(phase, "Awaiting imbalance")
+        a := "Wait for fresh " + (isLong ? "bullish" : "bearish") + " imbalance"
+    else if str.contains(phase, "Structure confirmed")
+        a := "Wait for " + (isLong ? "bullish" : "bearish") + " imbalance after structure shift"
+    else if str.contains(phase, "Awaiting structure shift")
+        a := "Wait for " + (isLong ? "bullish" : "bearish") + " structure confirmation"
+    else if str.contains(phase, "Liquidity swept")
+        a := "Wait for " + (isLong ? "bullish" : "bearish") + " structure shift"
+    else if str.contains(phase, "imminent")
+        a := "Approaching key liquidity — prepare for sweep"
+    else if str.contains(phase, "nearby") or str.contains(phase, "Approaching")
+        a := "Monitoring — approaching key liquidity"
+    else if score >= 15
+        a := "Monitoring — setup developing"
+    a
+
 // =====================================================================
-// --- DASHBOARD 1: Setup & Performance ---
+// --- DASHBOARD 1: Trading Assistant ---
 // =====================================================================
-var table readTable = table.new(resolve_pos(readinessPos), 2, 26, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+var table readTable = na
+if barstate.islast
+    if not na(readTable)
+        table.delete(readTable)
+    readTable := na
 if showReadiness and barstate.islast
+    bool isTrader = dashMode == "Trader"
+    bool isAnalyst = dashMode == "Analyst"
+    bool isDebug = dashMode == "Debug"
+    bool showContext = isAnalyst or isDebug
+    bool showAdvanced = isDebug
+
+    int maxR = isDebug ? 38 : isAnalyst ? 26 : 16
+    readTable := table.new(resolve_pos(readinessPos), 2, maxR, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+
     float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
 
-    // Phase color: lifecycle states override normal scoring colors
-    color phaseColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 40 ? color.orange : uiNeutralColor
-
-    // Confluence chain display: Sweep(A) → MSS(B) → FVG(A) +OB
-    string chainStr = ""
-    if liveSetup.sweepGrade != ""
-        chainStr := "Sw(" + liveSetup.sweepGrade + ")"
-    if liveSetup.mssGrade != ""
-        chainStr := chainStr + " → MSS(" + liveSetup.mssGrade + ")"
-    if liveSetup.fvgGrade != ""
-        chainStr := chainStr + " → FVG(" + liveSetup.fvgGrade + ")"
-    if liveSetup.hasOBConfluence
-        chainStr := chainStr + " +OB"
-    if liveSetup.isDegraded
-        chainStr := chainStr + " ✗MIT"
-    if liveSetup.isExpired
-        chainStr := chainStr + " ✗EXP"
-    if chainStr == ""
-        chainStr := "—"
-
-    // Sequence status with lifecycle awareness
-    string seqStr = liveSetup.isConflicted ? "⚠ Conflicted" : liveSetup.isExpired ? "✗ Expired" : liveSetup.isDegraded ? "↓ Degraded" : liveSetup.sequenceValid ? "✓ Valid" : "✗ Incomplete"
-    color seqColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : liveSetup.sequenceValid ? uiPosColor : uiNegColor
-
-    // Direction indicator — conflicted shows both
+    // --- Derived display values ---
+    // Direction
     string dirStr = liveSetup.isConflicted ? "◆ BOTH" : liveSetup.isPotentialLong ? "▲ LONG" : "▼ SHORT"
     color dirColor = liveSetup.isConflicted ? color.yellow : liveSetup.isPotentialLong ? uiPosColor : uiNegColor
 
-    // --- Section A: Setup / Market Context ---
-    table.cell(readTable, 0, 0, "Setup & Performance", text_color = uiHeaderText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 0, dirStr, text_color = dirColor, text_size = size.small)
-    table.cell(readTable, 0, 1, "Phase", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 1, liveSetup.phase, text_color = phaseColor, text_size = size.small)
-    table.cell(readTable, 0, 2, "Confluence", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 2, chainStr, text_color = phaseColor, text_size = size.small)
-    table.cell(readTable, 0, 3, "Sequence", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 3, seqStr, text_color = seqColor, text_size = size.small)
-    table.cell(readTable, 0, 4, "Session", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 4, activeSessName + (isSilverBullet ? " ★SB" : ""), text_color = isSilverBullet ? uiPosColor : isKillzone ? color.orange : uiLabelText, text_size = size.small)
-    table.cell(readTable, 0, 5, "Score (L / S)", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 5, str.tostring(liveSetup.scoreLong) + " / " + str.tostring(liveSetup.scoreShort), text_color = phaseColor, text_size = size.small)
-    table.cell(readTable, 0, 6, "Next Step", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 6, liveSetup.missing, text_color = uiNeutralColor, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 0, 7, "Nearest BSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 7, (na(nearestBSL) ? "—" : str.tostring(nearestBSL, "#.#####") + " (" + nearestBSLName + ")"), text_color = uiPosColor, text_size = size.small)
-    table.cell(readTable, 0, 8, "Nearest SSL", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 8, (na(nearestSSL) ? "—" : str.tostring(nearestSSL, "#.#####") + " (" + nearestSSLName + ")"), text_color = uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 9, "PD Zone", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 9, pdStatus, text_color = pdStatus == "Discount" ? uiPosColor : uiNegColor, text_size = size.small)
+    // Setup state color
+    color phaseColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : str.contains(liveSetup.phase, "Setup ready") ? uiPosColor : str.contains(liveSetup.phase, "confirmed") or str.contains(liveSetup.phase, "swept") ? color.orange : liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 40 ? color.orange : uiNeutralColor
 
-    // --- Section B: Liquidity Intelligence (v2) ---
-    table.cell(readTable, 0, 10, "─── Liquidity Intel ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 10, "", bgcolor = uiBg)
+    // Trader action
+    string actionStr = format_action(liveSetup.phase, liveSetup.isConflicted, liveSetup.isExpired, liveSetup.isDegraded, liveSetup.sequenceValid, liveSetup.score, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade))
+    color actionColor = str.contains(actionStr, "ready") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") ? color.orange : uiNeutralColor
 
-    // Best SSL sweep info
-    string sslInfo = sweptSSL ? bestSweepNameSSL + " " + bestSweepGradeSSL + " (" + bestSweepTypeSSL + ")" + (bestSweepExtSSL ? " EXT" : " INT") : "None"
-    color sslInfoCol = sweptSSL ? (bestSweepGradeSSL == "A" ? uiPosColor : bestSweepGradeSSL == "B" ? color.orange : uiLabelText) : uiLabelText
-    table.cell(readTable, 0, 11, "Best SSL Sweep", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 11, sslInfo, text_color = sslInfoCol, text_size = size.tiny)
+    // Confidence
+    string confStr = format_confidence(liveSetup.score)
+    color confColor = liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 50 ? color.orange : liveSetup.score >= 30 ? uiNeutralColor : uiLabelText
 
-    // Best BSL sweep info
-    string bslInfo = sweptBSL ? bestSweepNameBSL + " " + bestSweepGradeBSL + " (" + bestSweepTypeBSL + ")" + (bestSweepExtBSL ? " EXT" : " INT") : "None"
-    color bslInfoCol = sweptBSL ? (bestSweepGradeBSL == "A" ? uiPosColor : bestSweepGradeBSL == "B" ? color.orange : uiLabelText) : uiLabelText
-    table.cell(readTable, 0, 12, "Best BSL Sweep", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 12, bslInfo, text_color = bslInfoCol, text_size = size.tiny)
+    // Session
+    string sessStr = activeSessName + (isSilverBullet ? " (Silver Bullet)" : isKillzone ? " (Kill Zone)" : "")
+    color sessColor = isSilverBullet ? uiPosColor : isKillzone ? color.orange : uiLabelText
 
-    // Sweep quality scores
-    table.cell(readTable, 0, 13, "Sweep Q (SSL/BSL)", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 13, str.tostring(math.round(sweepQualitySSL)) + " / " + str.tostring(math.round(sweepQualityBSL)), text_color = uiValueText, text_size = size.tiny)
+    // Price Location
+    color pdColor = pdStatus == "Discount" ? uiPosColor : uiNegColor
 
-    // EQH/EQL clusters
-    string eqInfo = ""
-    if not na(eqhLevel)
-        eqInfo := "EQH×" + str.tostring(eqhCount) + " @" + str.tostring(eqhLevel, "#.##")
-    if not na(eqlLevel)
-        eqInfo := eqInfo + (eqInfo != "" ? " | " : "") + "EQL×" + str.tostring(eqlCount) + " @" + str.tostring(eqlLevel, "#.##")
-    if eqInfo == ""
-        eqInfo := "—"
-    table.cell(readTable, 0, 14, "EQ Clusters", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 14, eqInfo, text_color = uiNeutralColor, text_size = size.tiny)
+    // Score bias
+    string biasStr = format_score_bias(liveSetup.scoreLong, liveSetup.scoreShort)
 
-    // Active sweep count
-    table.cell(readTable, 0, 15, "Active Sweeps", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 15, str.tostring(array.size(activeSweeps)), text_color = uiValueText, text_size = size.tiny)
+    int r = 0
 
-    // Nearest external liquidity
-    string extLiqStr = ""
-    if not na(nearestExtBSL)
-        extLiqStr := "BSL: " + str.tostring(nearestExtBSL, "#.#####")
-    if not na(nearestExtSSL)
-        extLiqStr := extLiqStr + (extLiqStr != "" ? " | " : "") + "SSL: " + str.tostring(nearestExtSSL, "#.#####")
-    if extLiqStr == ""
-        extLiqStr := "—"
-    table.cell(readTable, 0, 16, "Nearest Ext Liq", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 16, extLiqStr, text_color = uiNeutralColor, text_size = size.tiny)
+    // ═══════════════════════════════════════════════════════════════
+    // PRIMARY DECISION BLOCK — answers: what side, what state, what to do
+    // ═══════════════════════════════════════════════════════════════
+    table.cell(readTable, 0, r, "Trading Assistant", text_color = uiHeaderText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, dirStr, text_color = dirColor, text_size = size.small)
+    r += 1
 
-    // --- Section C: Performance ---
-    table.cell(readTable, 0, 17, "─── Performance ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(readTable, 1, 17, "", bgcolor = uiBg)
-    table.cell(readTable, 0, 18, "Win Rate", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 18, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? uiPosColor : uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 19, "Total Trades", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 19, str.tostring(mainStats.totalTrades), text_color = uiValueText, text_size = size.small)
-    table.cell(readTable, 0, 20, "Wins / Losses", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 20, str.tostring(mainStats.wins) + " / " + str.tostring(mainStats.losses), text_color = uiValueText, text_size = size.small)
-    table.cell(readTable, 0, 21, "Total R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 21, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 22, "Equity R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 22, str.format("{0,number,#.##}R", mainStats.equityR), text_color = mainStats.equityR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
-    table.cell(readTable, 0, 23, "Max DD R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
-    table.cell(readTable, 1, 23, str.format("{0,number,#.##}R", mainStats.maxDrawdownR), text_color = mainStats.maxDrawdownR < 0 ? uiNegColor : uiLabelText, text_size = size.small)
+    table.cell(readTable, 0, r, "Setup State", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, liveSetup.phase, text_color = phaseColor, text_size = size.small)
+    r += 1
+
+    table.cell(readTable, 0, r, "Trader Action", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, actionStr, text_color = actionColor, text_size = size.small, text_halign = text.align_left)
+    r += 1
+
+    table.cell(readTable, 0, r, "Next Required", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, liveSetup.missing, text_color = uiNeutralColor, text_size = size.small, text_halign = text.align_left)
+    r += 1
+
+    table.cell(readTable, 0, r, "Setup Quality", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, confStr + " (" + str.tostring(liveSetup.score) + ")", text_color = confColor, text_size = size.small)
+    r += 1
+
+    table.cell(readTable, 0, r, "Session", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, sessStr, text_color = sessColor, text_size = size.small)
+    r += 1
+
+    table.cell(readTable, 0, r, "Price Location", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, pdStatus, text_color = pdColor, text_size = size.small)
+    r += 1
+
+    // ═══════════════════════════════════════════════════════════════
+    // SETUP CONTEXT BLOCK — explains why the setup looks the way it does
+    // (Analyst + Debug modes only)
+    // ═══════════════════════════════════════════════════════════════
+    if showContext
+        table.cell(readTable, 0, r, "─── Setup Context ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, "", bgcolor = uiBg)
+        r += 1
+
+        // Liquidity Event
+        string liqEventStr = "No meaningful liquidity sweep yet"
+        color liqEventCol = uiLabelText
+        if liveSetup.isPotentialLong and sweptSSL
+            liqEventStr := "Sell-side swept: " + bestSweepNameSSL + " (" + format_grade_word(bestSweepGradeSSL) + ")"
+            liqEventCol := bestSweepGradeSSL == "A" ? uiPosColor : bestSweepGradeSSL == "B" ? color.orange : uiLabelText
+        else if not liveSetup.isPotentialLong and sweptBSL
+            liqEventStr := "Buy-side swept: " + bestSweepNameBSL + " (" + format_grade_word(bestSweepGradeBSL) + ")"
+            liqEventCol := bestSweepGradeBSL == "A" ? uiPosColor : bestSweepGradeBSL == "B" ? color.orange : uiLabelText
+        table.cell(readTable, 0, r, "Liquidity Event", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, liqEventStr, text_color = liqEventCol, text_size = size.tiny)
+        r += 1
+
+        // Structure Status
+        string structStr = "No structure shift yet"
+        color structCol = uiLabelText
+        if liveSetup.mssGrade != ""
+            structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift confirmed (" + format_grade_word(liveSetup.mssGrade) + ")"
+            structCol := liveSetup.mssGrade == "A" ? uiPosColor : color.orange
+        table.cell(readTable, 0, r, "Structure", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, structStr, text_color = structCol, text_size = size.tiny)
+        r += 1
+
+        // Imbalance Status
+        string imbStr = "—"
+        color imbCol = uiLabelText
+        if liveSetup.isDegraded
+            imbStr := "Imbalance zone was filled — setup weakened"
+            imbCol := uiNegColor
+        else if liveSetup.fvgGrade != ""
+            imbStr := "Fresh " + (liveSetup.isPotentialLong ? "bullish" : "bearish") + " imbalance present (" + format_grade_word(liveSetup.fvgGrade) + ")"
+            imbCol := liveSetup.fvgGrade == "A" ? uiPosColor : color.orange
+        else if liveSetup.mssGrade != ""
+            imbStr := "No fresh imbalance yet — waiting"
+            imbCol := color.orange
+        table.cell(readTable, 0, r, "Imbalance", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, imbStr, text_color = imbCol, text_size = size.tiny)
+        r += 1
+
+        // OB Confluence
+        bool obConf = liveSetup.hasOBConfluence
+        string obStr = obConf ? "Order block confluence present" : "No clean OB confluence"
+        color obCol = obConf ? uiPosColor : uiLabelText
+        table.cell(readTable, 0, r, "OB Confluence", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, obStr, text_color = obCol, text_size = size.tiny)
+        r += 1
+
+    // Long / Short Score (all modes, detail varies)
+    string scoreStr = str.tostring(liveSetup.scoreLong) + " / " + str.tostring(liveSetup.scoreShort)
+    if showContext
+        scoreStr := scoreStr + "  ·  " + biasStr
+    table.cell(readTable, 0, r, "Long / Short Score", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, scoreStr, text_color = phaseColor, text_size = size.small)
+    r += 1
+
+    // Nearest Liquidity (all modes)
+    table.cell(readTable, 0, r, "Buy-Side Liquidity", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, (na(nearestBSL) ? "—" : str.tostring(nearestBSL, "#.#####") + " (" + nearestBSLName + ")"), text_color = uiNegColor, text_size = size.small)
+    r += 1
+
+    table.cell(readTable, 0, r, "Sell-Side Liquidity", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, (na(nearestSSL) ? "—" : str.tostring(nearestSSL, "#.#####") + " (" + nearestSSLName + ")"), text_color = uiPosColor, text_size = size.small)
+    r += 1
+
+    // Strategy Eligibility
+    if showContext
+        // ICT 2022 — detailed per-side
+        string ictLongDetail = "Long: " + (ictGateLong ? "Valid" : "Invalid") + " — " + ictGateLongInfo + (ictHasValidExternalLong ? " [ext]" : "")
+        string ictShortDetail = "Short: " + (ictGateShort ? "Valid" : "Invalid") + " — " + ictGateShortInfo + (ictHasValidExternalShort ? " [ext]" : "")
+        color ictCol = ictGateLong and ictGateShort ? uiPosColor : (ictGateLong or ictGateShort ? color.orange : uiNegColor)
+        table.cell(readTable, 0, r, "ICT 2022 Eligibility", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, ictLongDetail + "  |  " + ictShortDetail, text_color = ictCol, text_size = size.tiny)
+        r += 1
+
+        // Silver Bullet — detailed per-side
+        string sbLongDetail = "Long: " + (sbGateLong ? "Valid" : "Invalid") + " — " + sbGateLongInfo + (sbHasSessionSweepLong ? " [sess]" : "")
+        string sbShortDetail = "Short: " + (sbGateShort ? "Valid" : "Invalid") + " — " + sbGateShortInfo + (sbHasSessionSweepShort ? " [sess]" : "")
+        color sbCol = sbGateLong and sbGateShort ? uiPosColor : (sbGateLong or sbGateShort ? color.orange : uiNegColor)
+        table.cell(readTable, 0, r, "Silver Bullet Eligibility", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, sbLongDetail + "  |  " + sbShortDetail, text_color = sbCol, text_size = size.tiny)
+        r += 1
+
+        // Continuation Context
+        string contStr = "Long: " + (continuationLiquidityLong ? "Valid" : "None") + "  |  Short: " + (continuationLiquidityShort ? "Valid" : "None")
+        table.cell(readTable, 0, r, "Continuation Context", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, contStr, text_color = continuationLiquidityLong or continuationLiquidityShort ? uiNeutralColor : uiLabelText, text_size = size.tiny)
+        r += 1
+    else
+        // Trader mode — compressed strategy summary
+        string ictSummary = ictGateLong and ictGateShort ? "Both eligible" : ictGateLong ? "Long eligible" : ictGateShort ? "Short eligible" : "Not eligible"
+        string sbSummary = sbGateLong and sbGateShort ? "Both eligible" : sbGateLong ? "Long eligible" : sbGateShort ? "Short eligible" : "Not eligible"
+        string stratStr = "ICT 2022: " + ictSummary + "  |  SB: " + sbSummary
+        color stratCol = (ictGateLong or ictGateShort or sbGateLong or sbGateShort) ? uiNeutralColor : uiLabelText
+        table.cell(readTable, 0, r, "Strategy Status", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+        table.cell(readTable, 1, r, stratStr, text_color = stratCol, text_size = size.small)
+        r += 1
+
+    // ═══════════════════════════════════════════════════════════════
+    // ADVANCED BLOCK — raw engine diagnostics (Debug mode only)
+    // ═══════════════════════════════════════════════════════════════
+    if showAdvanced
+        table.cell(readTable, 0, r, "─── Advanced ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, "", bgcolor = uiBg)
+        r += 1
+
+        // Confluence chain: Sweep(A) → MSS(B) → FVG(A) +OB
+        string chainStr = ""
+        if liveSetup.sweepGrade != ""
+            chainStr := "Sweep(" + liveSetup.sweepGrade + ")"
+        if liveSetup.mssGrade != ""
+            chainStr := chainStr + " → MSS(" + liveSetup.mssGrade + ")"
+        if liveSetup.fvgGrade != ""
+            chainStr := chainStr + " → FVG(" + liveSetup.fvgGrade + ")"
+        if liveSetup.hasOBConfluence
+            chainStr := chainStr + " +OB"
+        if liveSetup.isDegraded
+            chainStr := chainStr + " ✗MIT"
+        if liveSetup.isExpired
+            chainStr := chainStr + " ✗EXP"
+        if chainStr == ""
+            chainStr := "—"
+        table.cell(readTable, 0, r, "Confluence Chain", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, chainStr, text_color = phaseColor, text_size = size.tiny)
+        r += 1
+
+        // Sequence Status
+        string seqStr = liveSetup.isConflicted ? "Conflicted" : liveSetup.isExpired ? "Expired" : liveSetup.isDegraded ? "Degraded" : liveSetup.sequenceValid ? "Valid" : "Incomplete"
+        color seqColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : liveSetup.sequenceValid ? uiPosColor : uiNegColor
+        table.cell(readTable, 0, r, "Sequence Status", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, seqStr, text_color = seqColor, text_size = size.tiny)
+        r += 1
+
+        // Best Sell-Side Sweep
+        string sslScope = bestSweepSrcSSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtSSL or is_htf_liquidity_source(bestSweepSrcSSL)) ? "EXT" : "INT")
+        string sslInfo = sweptSSL ? bestSweepNameSSL + " " + bestSweepGradeSSL + " [" + bestSweepTypeSSL + " · " + source_category_label(bestSweepSrcSSL, "") + " · " + sslScope + (bestSweepInducementSSL ? " · IND" : "") + "]" : "None"
+        color sslInfoCol = sweptSSL ? (bestSweepGradeSSL == "A" ? uiPosColor : bestSweepGradeSSL == "B" ? color.orange : uiLabelText) : uiLabelText
+        table.cell(readTable, 0, r, "Best Sell-Side Sweep", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, sslInfo, text_color = sslInfoCol, text_size = size.tiny)
+        r += 1
+
+        // Best Buy-Side Sweep
+        string bslScope = bestSweepSrcBSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtBSL or is_htf_liquidity_source(bestSweepSrcBSL)) ? "EXT" : "INT")
+        string bslInfo = sweptBSL ? bestSweepNameBSL + " " + bestSweepGradeBSL + " [" + bestSweepTypeBSL + " · " + source_category_label(bestSweepSrcBSL, "") + " · " + bslScope + (bestSweepInducementBSL ? " · IND" : "") + "]" : "None"
+        color bslInfoCol = sweptBSL ? (bestSweepGradeBSL == "A" ? uiPosColor : bestSweepGradeBSL == "B" ? color.orange : uiLabelText) : uiLabelText
+        table.cell(readTable, 0, r, "Best Buy-Side Sweep", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, bslInfo, text_color = bslInfoCol, text_size = size.tiny)
+        r += 1
+
+        // Sweep Quality
+        table.cell(readTable, 0, r, "Sweep Quality", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, "SSL: " + str.tostring(math.round(sweepQualitySSL)) + "  |  BSL: " + str.tostring(math.round(sweepQualityBSL)), text_color = uiValueText, text_size = size.tiny)
+        r += 1
+
+        // EQ Clusters
+        string eqInfo = ""
+        if not na(eqhLevel)
+            eqInfo := "EQH×" + str.tostring(eqhCount) + " @" + str.tostring(eqhLevel, "#.##") + " [" + str.tostring(math.round(eqhScore)) + "]"
+        if not na(eqlLevel)
+            eqInfo := eqInfo + (eqInfo != "" ? "  |  " : "") + "EQL×" + str.tostring(eqlCount) + " @" + str.tostring(eqlLevel, "#.##") + " [" + str.tostring(math.round(eqlScore)) + "]"
+        if eqInfo == ""
+            eqInfo := "—"
+        table.cell(readTable, 0, r, "EQ Clusters", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, eqInfo, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+        // Active Sweeps
+        table.cell(readTable, 0, r, "Active Sweeps", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, str.tostring(array.size(activeSweeps)), text_color = uiValueText, text_size = size.tiny)
+        r += 1
+
+        // Nearest External Liquidity
+        string extLiqStr = ""
+        if not na(nearestExtBSL)
+            extLiqStr := "BSL: " + str.tostring(nearestExtBSL, "#.#####")
+        if not na(nearestExtSSL)
+            extLiqStr := extLiqStr + (extLiqStr != "" ? "  |  " : "") + "SSL: " + str.tostring(nearestExtSSL, "#.#####")
+        if extLiqStr == ""
+            extLiqStr := "—"
+        table.cell(readTable, 0, r, "Nearest Ext Liq", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, extLiqStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+        // Nearest HTF Liquidity
+        string htfLiqStr = ""
+        if not na(nearestHTFBSL)
+            htfLiqStr := "BSL: " + str.tostring(nearestHTFBSL, "#.#####")
+        if not na(nearestHTFSSL)
+            htfLiqStr := htfLiqStr + (htfLiqStr != "" ? "  |  " : "") + "SSL: " + str.tostring(nearestHTFSSL, "#.#####")
+        if htfLiqStr == ""
+            htfLiqStr := "—"
+        table.cell(readTable, 0, r, "Nearest HTF Liq", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, htfLiqStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+        // Nearest Round-Number Liquidity
+        string rnLiqStr = ""
+        if not na(nearestRoundBSL)
+            rnLiqStr := "BSL: " + str.tostring(nearestRoundBSL, "#.#####")
+        if not na(nearestRoundSSL)
+            rnLiqStr := rnLiqStr + (rnLiqStr != "" ? "  |  " : "") + "SSL: " + str.tostring(nearestRoundSSL, "#.#####")
+        if rnLiqStr == ""
+            rnLiqStr := "—"
+        table.cell(readTable, 0, r, "Nearest RN Liq", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, rnLiqStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+    // ═══════════════════════════════════════════════════════════════
+    // PERFORMANCE SECTION — secondary emphasis, lighter visual weight
+    // ═══════════════════════════════════════════════════════════════
+    table.cell(readTable, 0, r, "─── Performance ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+    table.cell(readTable, 1, r, "", bgcolor = uiBg)
+    r += 1
+
+    table.cell(readTable, 0, r, "Win Rate", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, str.format("{0,number,#.##}%", wr), text_color = wr >= 50 ? uiPosColor : uiNegColor, text_size = size.small)
+    r += 1
+
+    if showContext
+        table.cell(readTable, 0, r, "Total Trades", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+        table.cell(readTable, 1, r, str.tostring(mainStats.totalTrades), text_color = uiValueText, text_size = size.small)
+        r += 1
+
+        table.cell(readTable, 0, r, "Wins / Losses", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+        table.cell(readTable, 1, r, str.tostring(mainStats.wins) + " / " + str.tostring(mainStats.losses), text_color = uiValueText, text_size = size.small)
+        r += 1
+
+    table.cell(readTable, 0, r, "Net R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, str.format("{0,number,#.##}R", mainStats.totalR), text_color = mainStats.totalR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+    r += 1
+
+    if showContext
+        table.cell(readTable, 0, r, "Equity R", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+        table.cell(readTable, 1, r, str.format("{0,number,#.##}R", mainStats.equityR), text_color = mainStats.equityR >= 0 ? uiPosColor : uiNegColor, text_size = size.small)
+        r += 1
+
+    table.cell(readTable, 0, r, "Max Drawdown", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, str.format("{0,number,#.##}R", mainStats.maxDrawdownR), text_color = mainStats.maxDrawdownR < 0 ? uiNegColor : uiLabelText, text_size = size.small)
 
 // =====================================================================
 // --- DASHBOARD 2: Market Intelligence (MTF Trend + Alerts + OB Scanner) ---
@@ -1797,7 +2379,7 @@ var box candSl = na
 var label candLbl = na
 
 if barstate.islast
-    if showSetups and showCandidatePreview and liveSetup.score >= 60 and na(activeTrade) and not liveSetup.isExpired and not liveSetup.isConflicted and not liveSetup.isDegraded
+    if showSetups and showCandidatePreview and liveSetup.score >= 60 and na(activeTrade) and not liveSetup.isExpired and not liveSetup.isConflicted and not liveSetup.isDegraded and not dominantLiquidityBlocked
         float projRisk = atr * 1.5
         float entry = close
         bool isLongCandidate = liveSetup.isPotentialLong
