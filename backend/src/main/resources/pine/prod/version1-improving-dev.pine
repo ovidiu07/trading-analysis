@@ -161,6 +161,29 @@ type SetupState
     string  reclaimStageReasonShort = ""
     int     reclaimAcceptBarsLong = 0
     int     reclaimAcceptBarsShort = 0
+    // Chapter 4: MSS / Structure Shift Validation
+    bool    mssDetectedLong = false
+    bool    mssDetectedShort = false
+    bool    mssValidLong = false
+    bool    mssValidShort = false
+    bool    mssStrongLong = false
+    bool    mssStrongShort = false
+    bool    mssFreshLong = true
+    bool    mssFreshShort = true
+    bool    mssFailedLong = false
+    bool    mssFailedShort = false
+    float   mssScoreLong = 0.0
+    float   mssScoreShort = 0.0
+    float   mssBreakLevelLong = na
+    float   mssBreakLevelShort = na
+    string  mssReasonLong = ""
+    string  mssReasonShort = ""
+    string  mssTriggerTypeLong = ""
+    string  mssTriggerTypeShort = ""
+    int     mssTriggerSigLong = 0
+    int     mssTriggerSigShort = 0
+    bool    mssBodyConfirmedLong = false
+    bool    mssBodyConfirmedShort = false
 
 type SmartZone
     box   boxId
@@ -502,6 +525,24 @@ var bool   _rclFailedL = false      // reclaim has failed
 var bool   _rclFailedS = false
 var int    _rclDetBarL = na         // bar when first detected
 var int    _rclDetBarS = na
+
+// --- Chapter 4: MSS / Structure Shift Persistent State ---
+var int    _mssRefBarL = na          // bar of the MSS event being tracked (long side)
+var int    _mssRefBarS = na
+var float  _mssBreakLvlL = na        // the trigger level that was broken
+var float  _mssBreakLvlS = na
+var int    _mssSweepRefL = na        // sweep bar this MSS tracks
+var int    _mssSweepRefS = na
+var float  _mssScorePersistL = 0.0   // persisted composite score
+var float  _mssScorePersistS = 0.0
+var bool   _mssFailedPersistL = false
+var bool   _mssFailedPersistS = false
+var int    _mssFollowBarsL = 0       // bars of follow-through after break
+var int    _mssFollowBarsS = 0
+var bool   _mssBodyConfL = false     // persisted body confirmation
+var bool   _mssBodyConfS = false
+var float  _mssBreakQScoreL = 0.0    // persisted break quality score
+var float  _mssBreakQScoreS = 0.0
 
 bool isDispBull = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close > open and volOk
 bool isDispBear = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close < open and volOk
@@ -1860,6 +1901,239 @@ reclaim_mode_pass(bool detected_, bool valid_, bool strong_, float score_, strin
         pass := valid_ or score_ >= 35.0
     pass
 
+// =====================================================================
+// --- CHAPTER 4: MSS / STRUCTURE SHIFT VALIDATION ---
+// Formal structural shift assessment after sweep + reclaim.
+// Replaces lightweight MSS quality shortcuts with graded, significance-aware,
+// break-quality-validated, failable MSS truth.
+// NOTE: This chapter improves structural truth and setup quality. Performance
+// gains remain limited by the current generic entry/SL/TP scaffold.
+// =====================================================================
+
+// --- Part B+C: Trigger Level Significance Classification ---
+// Evaluates whether the pivot being broken is meaningful protected structure
+// or trivial internal noise.
+// Returns: [triggerType, significance, sigScore]
+// significance: 0=trivial, 1=internal-relevant, 2=protected, 3=strongly-protected
+classify_mss_trigger(bool isLong, float triggerLevel, int triggerBar, bool triggerIsExternal,
+                      float sweepLevel_, float atrVal, float rangeSpan_, float rangeHigh_, float rangeLow_) =>
+    string trigType = "unknown"
+    int significance = 0
+    float sigScore = 0.0
+    if not na(triggerLevel) and not na(triggerBar) and atrVal > 0
+        int pivotAge = bar_index - triggerBar
+        float distFromSweep = not na(sweepLevel_) ? math.abs(triggerLevel - sweepLevel_) / atrVal : 0.0
+        float rangePos = rangeSpan_ > 0 ? (triggerLevel - rangeLow_) / rangeSpan_ : 0.5
+        // 1. Pivot age freshness (0-20)
+        sigScore += math.max(0.0, 20.0 - float(pivotAge) * 0.3)
+        // 2. External vs internal (0-20)
+        if triggerIsExternal
+            sigScore += 20.0
+            trigType := "protected-external"
+        else
+            float edgeDist = rangeSpan_ > 0 ? (isLong ? (rangeHigh_ - triggerLevel) / rangeSpan_ : (triggerLevel - rangeLow_) / rangeSpan_) : 0.5
+            if edgeDist < 0.3
+                sigScore += 14.0
+                trigType := "protected-range"
+            else
+                sigScore += 6.0
+                trigType := "internal"
+        // 3. Distance from sweep (0-15)
+        if distFromSweep > 0.5
+            sigScore += math.min(distFromSweep * 5.0, 15.0)
+        else if distFromSweep > 0.2
+            sigScore += 5.0
+        // 4. Pivot prominence via post-pivot depth (0-20)
+        float postPivotMove = isLong ? (triggerLevel - rangeLow_) : (rangeHigh_ - triggerLevel)
+        float swingDepth = atrVal > 0 ? postPivotMove / atrVal : 0.0
+        sigScore += math.min(swingDepth * 4.0, 20.0)
+        // 5. Range position appropriateness (0-10)
+        bool posOk = isLong ? rangePos > 0.35 : rangePos < 0.65
+        sigScore += posOk ? 10.0 : 3.0
+        // 6. Micro-pivot penalty
+        if swingDepth < 0.3
+            sigScore -= 10.0
+        sigScore := math.max(0.0, math.min(100.0, sigScore))
+        // Classify tier
+        if sigScore >= 65.0
+            significance := 3
+            if trigType == "internal"
+                trigType := "protected"
+        else if sigScore >= 45.0
+            significance := 2
+        else if sigScore >= 25.0
+            significance := 1
+        else
+            significance := 0
+    [trigType, significance, sigScore]
+
+// --- Part D: Break Quality Evaluation ---
+// Assesses whether the structure break is decisive or a weak wick-through.
+// Returns: [bodyConfirmed, followThrough, decisive, weak, qualityScore]
+evaluate_break_quality(bool isLong, float triggerLevel, float breakClose, float breakOpen,
+                        float breakHigh, float breakLow, float atrVal) =>
+    bool bodyConfirmed = false
+    bool followThrough = false
+    bool decisive = false
+    bool weak = true
+    float qualityScore = 0.0
+    if not na(triggerLevel) and atrVal > 0
+        float breakRange = breakHigh - breakLow
+        float breakBody = math.abs(breakClose - breakOpen)
+        // 1. Close beyond trigger (25)
+        bool closedThrough = isLong ? breakClose > triggerLevel : breakClose < triggerLevel
+        if closedThrough
+            qualityScore += 25.0
+        // 2. Body size relative to ATR (0-20)
+        float bodyAtrRatio = breakBody / atrVal
+        qualityScore += math.min(bodyAtrRatio * 15.0, 20.0)
+        // 3. Body confirmation: correct direction + meaningful body
+        bodyConfirmed := closedThrough and (isLong ? breakClose > breakOpen : breakClose < breakOpen) and breakBody > atrVal * 0.3
+        if bodyConfirmed
+            qualityScore += 15.0
+        // 4. Close location in candle range (0-15)
+        float closeRatio = breakRange > 0 ? (isLong ? (breakClose - breakLow) / breakRange : (breakHigh - breakClose) / breakRange) : 0.5
+        qualityScore += closeRatio * 15.0
+        // 5. Break distance beyond level (0-15)
+        float breakDist = isLong ? (breakClose - triggerLevel) / atrVal : (triggerLevel - breakClose) / atrVal
+        if breakDist > 0
+            qualityScore += math.min(breakDist * 15.0, 15.0)
+        else
+            qualityScore -= 10.0
+        // 6. Barely-through penalty
+        if math.abs(breakDist) < 0.1 and not bodyConfirmed
+            qualityScore -= 10.0
+        // 7. Follow-through hint
+        followThrough := closedThrough and bodyConfirmed and bodyAtrRatio > 0.5
+        if followThrough
+            qualityScore += 10.0
+        qualityScore := math.max(0.0, math.min(100.0, qualityScore))
+        decisive := qualityScore >= 60.0
+        weak := qualityScore < 35.0
+    [bodyConfirmed, followThrough, decisive, weak, qualityScore]
+
+// --- Part A+E: Formal MSS Stage Evaluator ---
+// Main authority for structure-shift truth. Replaces evaluate_mss_quality().
+// Returns: [detected, weak, valid, strong_, fresh, failed, score, reason, failReason,
+//           breakLevel, bodyConfirmed, trigType, trigSig, followBars, breakQualScore]
+evaluate_mss_stage(bool isLong, int sweepBar_, bool reclaimDetected_, bool reclaimValid_,
+                    int mssBar_, float mssDisp_, float triggerLevel, int triggerBar,
+                    bool triggerIsExternal, float sweepLevel_, float atrVal,
+                    float rangeSpan_, float rangeHigh_, float rangeLow_,
+                    string mode, int prevMssRefBar, float prevMssScore, bool prevMssFailed,
+                    int prevFollowBars, bool prevBodyConf, float prevBreakQScore) =>
+    bool detected = false
+    bool mssWeak = false
+    bool valid = false
+    bool strong_ = false
+    bool fresh = true
+    bool failed = prevMssFailed
+    float score = 0.0
+    string reason = "No MSS context"
+    string failReason = ""
+    float breakLvl = na
+    bool bodyConf = prevBodyConf
+    string trigType = ""
+    int trigSig = 0
+    int followBars = prevFollowBars
+    float breakQScore = prevBreakQScore
+    if not na(mssBar_) and atrVal > 0
+        int mssAge = bar_index - mssBar_
+        bool afterSweep = not na(sweepBar_) and mssBar_ >= sweepBar_
+        // Reset on new MSS event
+        bool newMss = na(prevMssRefBar) or mssBar_ != prevMssRefBar
+        if newMss
+            failed := false
+            followBars := 0
+            bodyConf := false
+            breakQScore := 0.0
+        // --- Trigger significance (Part B+C) ---
+        [tType, tSig, tScore] = classify_mss_trigger(isLong, triggerLevel, triggerBar, triggerIsExternal, sweepLevel_, atrVal, rangeSpan_, rangeHigh_, rangeLow_)
+        trigType := tType
+        trigSig := tSig
+        // --- Break quality (Part D) — on fresh MSS bar ---
+        if newMss and mssAge <= 2
+            [bConf, _bFollow, _bDecisive, _bWeak, bScore] = evaluate_break_quality(isLong, triggerLevel, close[mssAge], open[mssAge], high[mssAge], low[mssAge], atrVal)
+            bodyConf := bConf
+            breakQScore := bScore
+        breakLvl := triggerLevel
+        // --- Sequence validation ---
+        float seqScore = 0.0
+        if afterSweep
+            seqScore += 15.0
+            if reclaimDetected_
+                seqScore += 10.0
+            if reclaimValid_
+                seqScore += 5.0
+        else if not na(sweepBar_)
+            seqScore -= 10.0
+        // --- Freshness (Part E) ---
+        int mssMaxFresh = mode == "Aggressive" ? 35 : mode == "Conservative" ? 18 : 25
+        fresh := mssAge <= mssMaxFresh
+        if not fresh and not failed
+            failed := true
+            failReason := "MSS stale (" + str.tostring(mssAge) + " bars)"
+        // --- Follow-through tracking ---
+        if not newMss and not failed and mssAge >= 1 and not na(triggerLevel)
+            bool holdingBreak = isLong ? close > triggerLevel : close < triggerLevel
+            if holdingBreak
+                followBars := followBars + 1
+            else if followBars > 0
+                followBars := followBars - 1
+        // --- MSS failure detection (Part E) ---
+        if not failed and not newMss and mssAge >= 2 and not na(triggerLevel)
+            bool lostBreak = isLong ? close < triggerLevel - atrVal * 0.15 : close > triggerLevel + atrVal * 0.15
+            if lostBreak and followBars <= 1
+                failed := true
+                failReason := "Break lost — price recrossed trigger"
+        // --- Composite score ---
+        score += math.min(tScore * 0.3, 30.0)
+        score += math.min(breakQScore * 0.3, 30.0)
+        score += math.max(0.0, math.min(seqScore, 20.0))
+        float dispScore = not na(mssDisp_) ? math.min(mssDisp_ * 10.0, 15.0) : 0.0
+        score += dispScore
+        score += math.min(float(followBars) * 2.0, 5.0)
+        if mssAge > math.round(mssMaxFresh * 0.5)
+            float decay = float(mssAge - math.round(mssMaxFresh * 0.5)) / float(mssMaxFresh) * 15.0
+            score -= decay
+        score := math.max(0.0, math.min(100.0, score))
+        // --- Grading ---
+        detected := not failed
+        if detected
+            mssWeak := score < 35.0 or trigSig == 0
+            valid := score >= 35.0 and trigSig >= 1
+            strong_ := score >= 60.0 and trigSig >= 2 and bodyConf
+        if failed
+            detected := false
+            valid := false
+            strong_ := false
+            reason := "MSS failed: " + failReason
+        else if strong_
+            reason := "Strong MSS (" + str.tostring(math.round(score)) + ") — " + trigType
+        else if valid
+            reason := "Valid MSS (" + str.tostring(math.round(score)) + ") — " + trigType
+        else if detected and mssWeak
+            reason := "Weak MSS (" + str.tostring(math.round(score)) + ") — " + (trigSig == 0 ? "trivial trigger" : "low quality break")
+        else
+            reason := na(sweepBar_) ? "No sweep context" : not afterSweep ? "MSS before sweep" : "No MSS detected"
+    [detected, mssWeak, valid, strong_, fresh, failed, score, reason, failReason, breakLvl, bodyConf, trigType, trigSig, followBars, breakQScore]
+
+// Mode-dependent MSS pass: maps formal MSS grades to mode thresholds (Chapter 4)
+// Returns: [pass, passStrong]
+mss_mode_pass(bool detected_, bool valid_, bool strong_, float score_, int trigSig_, string mode) =>
+    bool pass = false
+    bool passStrong = false
+    if mode == "Aggressive"
+        pass := detected_ and score_ >= 20.0
+        passStrong := valid_ and score_ >= 50.0
+    else if mode == "Conservative"
+        pass := valid_ and trigSig_ >= 2 and score_ >= 50.0
+        passStrong := strong_ and trigSig_ >= 2 and score_ >= 65.0
+    else // Balanced
+        pass := valid_ and trigSig_ >= 1 and score_ >= 35.0
+        passStrong := strong_ or (valid_ and score_ >= 55.0 and trigSig_ >= 2)
+    [pass, passStrong]
+
 // Extension filter: blocks chased entries too far from structural anchor.
 // Returns: [isExtended, distanceAtr, reason]
 compute_extension_block(bool isLong, int mssBar_, float pivotVal, float atrVal, string mode, float reqLevel) =>
@@ -1940,7 +2214,8 @@ evaluate_displacement_bridge(float mssDisp_, int fvgBar_, int fvgGrade_, bool fv
 
 // Pending structural freshness: blocks stale pending setups.
 // Returns: [fresh, stale, reason]
-pending_is_structurally_fresh(int signalBar, int mssBar_, int fvgBar_, bool degraded, bool isExtended, string mode) =>
+// Chapter 4: mssFailed_ added to block on failed MSS
+pending_is_structurally_fresh(int signalBar, int mssBar_, int fvgBar_, bool degraded, bool isExtended, string mode, bool mssFailed_) =>
     bool fresh = true
     bool stale = false
     string reason = "Structurally fresh"
@@ -1965,11 +2240,15 @@ pending_is_structurally_fresh(int signalBar, int mssBar_, int fvgBar_, bool degr
         fresh := false
         stale := true
         reason := "Price too extended"
+    if fresh and mssFailed_
+        fresh := false
+        stale := true
+        reason := "MSS failed — structure invalidated"
     [fresh, stale, reason]
 
-// Central mode qualification function (Chapter 2.2: refactored with quality helpers).
+// Central mode qualification function (Chapter 2.2 + Chapter 4: MSS-truth-aware).
 // Returns: [meetsModeCandidate, meetsModeActivation, blockReason, allowDirectPromotion, activationPath]
-evaluate_mode_execution(string mode, int lifecycle, bool swept, float sweepQ, bool hasMss, float mssDisp_, bool hasFvg, int fvgGrade_, bool seqOk, bool expired, bool degraded, bool reclaimPass, float reclaimStr, bool reclaimStrong, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass, bool bridgeStrong, int score) =>
+evaluate_mode_execution(string mode, int lifecycle, bool swept, float sweepQ, bool hasMss, float mssDisp_, bool hasFvg, int fvgGrade_, bool seqOk, bool expired, bool degraded, bool reclaimPass, float reclaimStr, bool reclaimStrong, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass, bool bridgeStrong, int score, int mssTrigSig) =>
     int minCandidate = mode_min_lifecycle_for_candidate(mode)
     bool meetsCandidate = lifecycle >= minCandidate and not expired and not degraded
     bool meetsActivation = false
@@ -2020,10 +2299,10 @@ evaluate_mode_execution(string mode, int lifecycle, bool swept, float sweepQ, bo
                 blockReason := not reclaimPass ? "BAL: reclaim insufficient (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualPass ? "BAL: MSS quality insufficient" : isExtended ? "BAL: entry too extended" : lifecycle < LC_ENTRY_ARMED and not bridgeOk ? "BAL: bridge conditions not met" : "BAL: activation not met"
 
         else // Conservative
-            // CON IDEAL: lifecycle >= ENTRY_ARMED + strong reclaim + strong MSS + seqOk
-            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and reclaimStr >= 50.0 and mssQualStrong and not isExtended and seqOk
-            // CON BRIDGE: DISPLACEMENT_CONFIRMED + ALL strong
-            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and bridgeStrong and not isExtended and (seqOk or (hasFvg and fvgGrade_ >= 2))
+            // CON IDEAL: lifecycle >= ENTRY_ARMED + strong reclaim + strong MSS + seqOk + protected trigger
+            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and reclaimStr >= 50.0 and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2
+            // CON BRIDGE: DISPLACEMENT_CONFIRMED + ALL strong + protected trigger
+            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and bridgeStrong and not isExtended and (seqOk or (hasFvg and fvgGrade_ >= 2)) and mssTrigSig >= 2
             if idealOk
                 meetsActivation := true
                 actPath := "CON ideal"
@@ -2031,7 +2310,7 @@ evaluate_mode_execution(string mode, int lifecycle, bool swept, float sweepQ, bo
                 meetsActivation := true
                 actPath := "CON bridge"
             else
-                blockReason := not reclaimStrong and reclaimStr < 50.0 ? "CON: reclaim not strong (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualStrong ? "CON: MSS quality not strong" : isExtended ? "CON: entry too extended" : not seqOk and lifecycle >= LC_ENTRY_ARMED ? "CON: requires complete sequence" : "CON: strong bridge not met"
+                blockReason := not reclaimStrong and reclaimStr < 50.0 ? "CON: reclaim not strong (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualStrong ? "CON: MSS quality not strong" : mssTrigSig < 2 ? "CON: protected structure not broken (sig=" + str.tostring(mssTrigSig) + ")" : isExtended ? "CON: entry too extended" : not seqOk and lifecycle >= LC_ENTRY_ARMED ? "CON: requires complete sequence" : "CON: strong bridge not met"
 
     // Non-aggressive never allow direct signal activation
     if mode != "Aggressive"
@@ -2058,16 +2337,23 @@ pending_setup_has_expired(int expiryBar) =>
 
 // Evaluate whether a pending setup qualifies for delayed activation (Chapter 2.2).
 // Returns: [canActivateNow, updatedReason, shouldInvalidate]
-// Chapter 3: reclaimFailed parameter added to block pending activation on failed reclaim
-evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass, float reclaimStr, bool reclaimStrong, float dispStrength, bool seqOk, bool expired, bool degraded, string mode, int signalBar, int expiryBar, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass_, bool bridgeStrong_, bool pendingFresh, bool reclaimFailed_) =>
+// Chapter 3: reclaimFailed | Chapter 4: mssFailed/mssFresh added
+evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass, float reclaimStr, bool reclaimStrong, float dispStrength, bool seqOk, bool expired, bool degraded, string mode, int signalBar, int expiryBar, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass_, bool bridgeStrong_, bool pendingFresh, bool reclaimFailed_, bool mssFailed_, bool mssFresh_) =>
     bool canActivate = false
     string reason = ""
     bool shouldInvalidate = false
 
     // Chapter 3: failed reclaim invalidates pending setup
+    // Chapter 4: failed/stale MSS invalidates pending setup
     if reclaimFailed_
         shouldInvalidate := true
         reason := "Pending invalidated — reclaim failed"
+    else if mssFailed_
+        shouldInvalidate := true
+        reason := "Pending invalidated — MSS failed"
+    else if not mssFresh_
+        shouldInvalidate := true
+        reason := "Pending invalidated — MSS stale"
     else if not pending_setup_is_fresh(signalBar, expiryBar)
         shouldInvalidate := pending_setup_has_expired(expiryBar)
         reason := shouldInvalidate ? "Pending window expired" : "Pending not yet active"
@@ -2109,8 +2395,8 @@ evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass,
     [canActivate, reason, shouldInvalidate]
 
 // Determine lifecycle stage from raw setup data + eval_side outputs
-// Chapter 3: now accepts reclaim state for truthful LC_RECLAIM_VISIBLE promotion
-determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal, bool reclaimDetected_, bool reclaimValid_, bool reclaimFailed_) =>
+// Chapter 3: reclaim-aware | Chapter 4: MSS-truth-aware
+determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal, bool reclaimDetected_, bool reclaimValid_, bool reclaimFailed_, bool mssValid_, bool mssStrong_, bool mssFailed_) =>
     int lc = LC_NONE
     string reason = ""
     if expired
@@ -2119,18 +2405,30 @@ determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int f
     else if degraded
         lc := LC_INVALIDATED
         reason := "Imbalance zone was filled"
-    else if seqOk
+    else if seqOk and mssValid_
+        // Chapter 4: full sequence requires validated MSS
         lc := LC_ENTRY_ARMED
-        reason := "Full sequence: sweep → MSS → FVG"
+        reason := "Full sequence: sweep → MSS → FVG (MSS validated)"
+    else if seqOk and not mssValid_ and not mssFailed_
+        // Chapter 4: sequence complete but MSS not validated — cap at DISPLACEMENT_CONFIRMED
+        lc := not na(mssDisp) and mssDisp > 1.5 ? LC_DISPLACEMENT_CONFIRMED : LC_MSS_CONFIRMED
+        reason := "Sequence present but MSS not fully validated"
     else if swept and not na(mssBar_) and not na(sweepBar_) and mssBar_ >= sweepBar_
-        if not na(mssDisp) and mssDisp > 1.5
+        if mssValid_ and not na(mssDisp) and mssDisp > 1.5
             lc := LC_DISPLACEMENT_CONFIRMED
-            reason := "Strong displacement (" + str.tostring(mssDisp, "#.##") + "x ATR)"
-        else
+            reason := "Strong displacement (" + str.tostring(mssDisp, "#.##") + "x ATR) — MSS validated"
+        else if mssValid_
             lc := LC_MSS_CONFIRMED
-            reason := "Structure shift confirmed after sweep"
+            reason := "Structure shift confirmed — MSS validated"
+        else if mssFailed_
+            // Chapter 4: MSS failed — don't promote past sweep
+            lc := LC_SWEEP_CONFIRMED
+            reason := "MSS failed — awaiting fresh structure shift"
+        else
+            // Chapter 4: MSS detected but not validated (weak/trivial)
+            lc := reclaimDetected_ and not reclaimFailed_ ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
+            reason := "MSS detected but not validated — awaiting better structure"
     else if swept and reclaimDetected_ and not reclaimFailed_
-        // Chapter 3: Reclaim visible — post-sweep recovery detected, MSS not yet confirmed
         lc := LC_RECLAIM_VISIBLE
         reason := reclaimValid_ ? "Valid reclaim visible — watch for structure shift" : "Early reclaim visible — awaiting confirmation"
     else if swept
@@ -2357,9 +2655,32 @@ if rclDetL and na(_rclDetBarL)
 if rclDetS and na(_rclDetBarS)
     _rclDetBarS := bar_index
 
-// --- Lifecycle Determination (Chapter 1 + Chapter 3: reclaim-aware) ---
-[lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr, rclDetL, rclValidL2, rclFailedL2)
-[lcShort, lcNameShort, lcNextReqShort, lcCanActShort, lcReasonShort] = determine_lifecycle(sweptBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, expiredS, degradedS, reqS, lastPLo, false, atr, rclDetS, rclValidS2, rclFailedS2)
+// --- Chapter 4: MSS Stage Evaluation (runs each bar, like reclaim) ---
+[mssDetL, mssWeakL2, mssValidL2, mssStrongL2, mssFreshL2, mssFailedL2, mssScoreL2, mssReasonL2, mssFailReasonL2, mssBreakLvlL2, mssBodyConfL2, mssTrigTypeL2, mssTrigSigL2, mssFollowBarsL2, mssBreakQScoreL2] = evaluate_mss_stage(true, bestSweepBarSSL, rclDetL, rclValidL2, lastMssBullBar, lastMssBullDispStrength, lastPHi, lastPHiBar, pivotHiIsExternal, bestSweepLevelSSL, atr, rangeSpan, rangeHigh50, rangeLow50, sensitivityMode, _mssRefBarL, _mssScorePersistL, _mssFailedPersistL, _mssFollowBarsL, _mssBodyConfL, _mssBreakQScoreL)
+
+[mssDetS, mssWeakS2, mssValidS2, mssStrongS2, mssFreshS2, mssFailedS2, mssScoreS2, mssReasonS2, mssFailReasonS2, mssBreakLvlS2, mssBodyConfS2, mssTrigTypeS2, mssTrigSigS2, mssFollowBarsS2, mssBreakQScoreS2] = evaluate_mss_stage(false, bestSweepBarBSL, rclDetS, rclValidS2, lastMssBearBar, lastMssBearDispStrength, lastPLo, lastPLoBar, pivotLoIsExternal, bestSweepLevelBSL, atr, rangeSpan, rangeHigh50, rangeLow50, sensitivityMode, _mssRefBarS, _mssScorePersistS, _mssFailedPersistS, _mssFollowBarsS, _mssBodyConfS, _mssBreakQScoreS)
+
+// Update persistent MSS state
+_mssRefBarL := not na(lastMssBullBar) ? lastMssBullBar : _mssRefBarL
+_mssRefBarS := not na(lastMssBearBar) ? lastMssBearBar : _mssRefBarS
+_mssBreakLvlL := mssBreakLvlL2
+_mssBreakLvlS := mssBreakLvlS2
+_mssSweepRefL := not na(bestSweepBarSSL) ? bestSweepBarSSL : _mssSweepRefL
+_mssSweepRefS := not na(bestSweepBarBSL) ? bestSweepBarBSL : _mssSweepRefS
+_mssScorePersistL := mssScoreL2
+_mssScorePersistS := mssScoreS2
+_mssFailedPersistL := mssFailedL2
+_mssFailedPersistS := mssFailedS2
+_mssFollowBarsL := mssFollowBarsL2
+_mssFollowBarsS := mssFollowBarsS2
+_mssBodyConfL := mssBodyConfL2
+_mssBodyConfS := mssBodyConfS2
+_mssBreakQScoreL := mssBreakQScoreL2
+_mssBreakQScoreS := mssBreakQScoreS2
+
+// --- Lifecycle Determination (Chapter 1 + Chapter 3 + Chapter 4: MSS-truth-aware) ---
+[lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr, rclDetL, rclValidL2, rclFailedL2, mssValidL2, mssStrongL2, mssFailedL2)
+[lcShort, lcNameShort, lcNextReqShort, lcCanActShort, lcReasonShort] = determine_lifecycle(sweptBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, expiredS, degradedS, reqS, lastPLo, false, atr, rclDetS, rclValidS2, rclFailedS2, mssValidS2, mssStrongS2, mssFailedS2)
 
 // --- Select dominant side and populate SetupState ---
 // Bias acts as tiebreaker multiplier, not gate
@@ -2529,8 +2850,11 @@ bool rclStrongS = rclStrongS2
 [extBlockL, extDistL, extReasonL] = compute_extension_block(true, lastMssBullBar, lastPHi, atr, sensitivityMode, reqL)
 [extBlockS, extDistS, extReasonS] = compute_extension_block(false, lastMssBearBar, lastPLo, atr, sensitivityMode, reqS)
 
-[mssQPassL, mssQStrongL, mssQReasonL] = evaluate_mss_quality(bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, atr, sensitivityMode)
-[mssQPassS, mssQStrongS, mssQReasonS] = evaluate_mss_quality(bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, atr, sensitivityMode)
+// Chapter 4: MSS quality now sourced from formal MSS evaluator via mss_mode_pass
+[mssQPassL, mssQStrongL] = mss_mode_pass(mssDetL, mssValidL2, mssStrongL2, mssScoreL2, mssTrigSigL2, sensitivityMode)
+string mssQReasonL = mssReasonL2
+[mssQPassS, mssQStrongS] = mss_mode_pass(mssDetS, mssValidS2, mssStrongS2, mssScoreS2, mssTrigSigS2, sensitivityMode)
+string mssQReasonS = mssReasonS2
 
 [bridgePassL, bridgeStrongL, bridgeReasonL] = evaluate_displacement_bridge(lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, lastMssBullBar, sensitivityMode)
 [bridgePassS, bridgeStrongS, bridgeReasonS] = evaluate_displacement_bridge(lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, lastMssBearBar, sensitivityMode)
@@ -2546,10 +2870,10 @@ if rclFailedS2
 bool reclaimProxyLong = rclPassL
 bool reclaimProxyShort = rclPassS
 
-// Evaluate mode qualification with quality data (Chapter 3: reclaimFailed added)
-[modeCandL, modeActL, modeBlockL, modeDirectL, modePathL] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleLong, sweptSSL, sweepQualitySSL, not na(lastMssBullBar), lastMssBullDispStrength, not na(lastBullFvgBar) and lastBullFvgGrade > 0, lastBullFvgGrade, seqOkL, expiredL, degradedL, rclPassL, rclStrL, rclStrongL, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, scoreLong)
+// Evaluate mode qualification with quality data (Chapter 3+4: reclaim + MSS truth)
+[modeCandL, modeActL, modeBlockL, modeDirectL, modePathL] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleLong, sweptSSL, sweepQualitySSL, not na(lastMssBullBar), lastMssBullDispStrength, not na(lastBullFvgBar) and lastBullFvgGrade > 0, lastBullFvgGrade, seqOkL, expiredL, degradedL, rclPassL, rclStrL, rclStrongL, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, scoreLong, mssTrigSigL2)
 
-[modeCandS, modeActS, modeBlockS, modeDirectS, modePathS] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleShort, sweptBSL, sweepQualityBSL, not na(lastMssBearBar), lastMssBearDispStrength, not na(lastBearFvgBar) and lastBearFvgGrade > 0, lastBearFvgGrade, seqOkS, expiredS, degradedS, rclPassS, rclStrS, rclStrongS, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, scoreShort)
+[modeCandS, modeActS, modeBlockS, modeDirectS, modePathS] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleShort, sweptBSL, sweepQualityBSL, not na(lastMssBearBar), lastMssBearDispStrength, not na(lastBearFvgBar) and lastBearFvgGrade > 0, lastBearFvgGrade, seqOkS, expiredS, degradedS, rclPassS, rclStrS, rclStrongS, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, scoreShort, mssTrigSigS2)
 
 // Populate SetupState mode fields
 liveSetup.sensitivityModeActive := sensitivityMode
@@ -2591,6 +2915,29 @@ liveSetup.extensionReasonLong := extReasonL
 liveSetup.extensionReasonShort := extReasonS
 liveSetup.mssQualityPassLong := mssQPassL
 liveSetup.mssQualityPassShort := mssQPassS
+// Chapter 4: MSS stage fields
+liveSetup.mssDetectedLong := mssDetL
+liveSetup.mssDetectedShort := mssDetS
+liveSetup.mssValidLong := mssValidL2
+liveSetup.mssValidShort := mssValidS2
+liveSetup.mssStrongLong := mssStrongL2
+liveSetup.mssStrongShort := mssStrongS2
+liveSetup.mssFreshLong := mssFreshL2
+liveSetup.mssFreshShort := mssFreshS2
+liveSetup.mssFailedLong := mssFailedL2
+liveSetup.mssFailedShort := mssFailedS2
+liveSetup.mssScoreLong := mssScoreL2
+liveSetup.mssScoreShort := mssScoreS2
+liveSetup.mssBreakLevelLong := mssBreakLvlL2
+liveSetup.mssBreakLevelShort := mssBreakLvlS2
+liveSetup.mssReasonLong := mssReasonL2
+liveSetup.mssReasonShort := mssReasonS2
+liveSetup.mssTriggerTypeLong := mssTrigTypeL2
+liveSetup.mssTriggerTypeShort := mssTrigTypeS2
+liveSetup.mssTriggerSigLong := mssTrigSigL2
+liveSetup.mssTriggerSigShort := mssTrigSigS2
+liveSetup.mssBodyConfirmedLong := mssBodyConfL2
+liveSetup.mssBodyConfirmedShort := mssBodyConfS2
 liveSetup.mssQualityReasonLong := mssQReasonL
 liveSetup.mssQualityReasonShort := mssQReasonS
 liveSetup.activationPathDominant := pickLong ? modePathL : modePathS
@@ -2658,16 +3005,16 @@ bool pendingActivatedLong = false
 bool pendingActivatedShort = false
 string pendingActivationReason = ""
 
-// Chapter 2.2: Compute pending freshness before delayed activation evaluation
-[pendFreshL, pendStaleL, pendFreshReasonL] = pending_is_structurally_fresh(_pendingLongActive ? _pendingLongSignalBar : bar_index, lastMssBullBar, lastBullFvgBar, degradedL, extBlockL, sensitivityMode)
-[pendFreshS, pendStaleS, pendFreshReasonS] = pending_is_structurally_fresh(_pendingShortActive ? _pendingShortSignalBar : bar_index, lastMssBearBar, lastBearFvgBar, degradedS, extBlockS, sensitivityMode)
+// Chapter 2.2+4: Compute pending freshness before delayed activation evaluation
+[pendFreshL, pendStaleL, pendFreshReasonL] = pending_is_structurally_fresh(_pendingLongActive ? _pendingLongSignalBar : bar_index, lastMssBullBar, lastBullFvgBar, degradedL, extBlockL, sensitivityMode, mssFailedL2)
+[pendFreshS, pendStaleS, pendFreshReasonS] = pending_is_structurally_fresh(_pendingShortActive ? _pendingShortSignalBar : bar_index, lastMssBearBar, lastBearFvgBar, degradedS, extBlockS, sensitivityMode, mssFailedS2)
 liveSetup.pendingStructFreshLong := pendFreshL
 liveSetup.pendingStructFreshShort := pendFreshS
 liveSetup.freshnessReasonLong := pendFreshReasonL
 liveSetup.freshnessReasonShort := pendFreshReasonS
 
 if _pendingLongActive and na(activeTrade)
-    [canActPL, reasonPL, shouldInvPL] = evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL, rclFailedL2)
+    [canActPL, reasonPL, shouldInvPL] = evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL, rclFailedL2, mssFailedL2, mssFreshL2)
     if shouldInvPL
         _pendingLongActive := false
         _pendingLongCanStillActivate := false
@@ -2681,7 +3028,7 @@ if _pendingLongActive and na(activeTrade)
 
 // Evaluate pending short
 if _pendingShortActive and na(activeTrade) and not pendingActivatedLong
-    [canActPS, reasonPS, shouldInvPS] = evaluate_pending_activation(false, liveSetup.lifecycleShort, rclPassS, rclStrS, rclStrongS, lastMssBearDispStrength, seqOkS, expiredS, degradedS, _pendingShortMode, _pendingShortSignalBar, _pendingShortExpiryBar, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, pendFreshS, rclFailedS2)
+    [canActPS, reasonPS, shouldInvPS] = evaluate_pending_activation(false, liveSetup.lifecycleShort, rclPassS, rclStrS, rclStrongS, lastMssBearDispStrength, seqOkS, expiredS, degradedS, _pendingShortMode, _pendingShortSignalBar, _pendingShortExpiryBar, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, pendFreshS, rclFailedS2, mssFailedS2, mssFreshS2)
     if shouldInvPS
         _pendingShortActive := false
         _pendingShortCanStillActivate := false
@@ -3079,6 +3426,84 @@ if not liveSetup.lifecycleIsDesynced
             liveSetup.lifecycleShort := LC_SWEEP_CONFIRMED
             liveSetup.lifecycleNameShort := lifecycle_name(LC_SWEEP_CONFIRMED)
 
+// --- Chapter 4: MSS Integrity Invariants ---
+
+// Invariant M1: lifecycle = LC_MSS_CONFIRMED while mssValid is false (and not failed)
+if not liveSetup.lifecycleIsDesynced
+    bool mssLcDesyncL = liveSetup.lifecycleLong == LC_MSS_CONFIRMED and not mssValidL2 and not mssFailedL2 and not na(lastMssBullBar)
+    bool mssLcDesyncS = liveSetup.lifecycleShort == LC_MSS_CONFIRMED and not mssValidS2 and not mssFailedS2 and not na(lastMssBearBar)
+    if mssLcDesyncL or mssLcDesyncS
+        // Soft correction: downgrade to RECLAIM_VISIBLE or SWEEP_CONFIRMED
+        if mssLcDesyncL
+            liveSetup.lifecycleLong := rclDetL ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
+            liveSetup.lifecycleNameLong := lifecycle_name(liveSetup.lifecycleLong)
+        if mssLcDesyncS
+            liveSetup.lifecycleShort := rclDetS ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
+            liveSetup.lifecycleNameShort := lifecycle_name(liveSetup.lifecycleShort)
+
+// Invariant M2: activation allowed while mssFailed is true
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
+    bool domMssFailed2 = activeTrade.isLong ? mssFailedL2 : mssFailedS2
+    if domMssFailed2
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "M2: trade activated while MSS failed"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant M3: Balanced/Conservative activation with MSS below mode minimum quality
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode != "Aggressive"
+    bool domMssQPass2 = activeTrade.isLong ? mssQPassL : mssQPassS
+    int domMssTrigSig2 = activeTrade.isLong ? mssTrigSigL2 : mssTrigSigS2
+    if not domMssQPass2
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "M3: " + mode_name_short(sensitivityMode) + " activated without MSS mode pass"
+        liveSetup.lifecycleDominant := LC_DESYNC
+    else if sensitivityMode == "Conservative" and domMssTrigSig2 < 2
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "M3: CON activated with trigger sig=" + str.tostring(domMssTrigSig2) + " (need >= 2)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant M4: pending setup alive while MSS has clearly failed
+if not liveSetup.lifecycleIsDesynced
+    if _pendingLongActive and _pendingLongCanStillActivate and mssFailedL2
+        _pendingLongActive := false
+        _pendingLongCanStillActivate := false
+        _pendingLongReason := "M4: pending invalidated — MSS failed"
+    if _pendingShortActive and _pendingShortCanStillActivate and mssFailedS2
+        _pendingShortActive := false
+        _pendingShortCanStillActivate := false
+        _pendingShortReason := "M4: pending invalidated — MSS failed"
+
+// Invariant M5: lifecycle advanced past reclaim without valid MSS evidence
+if not liveSetup.lifecycleIsDesynced
+    bool advLNoMss = liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and not mssValidL2 and not na(lastMssBullBar) and not mssFailedL2
+    bool advSNoMss = liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and not mssValidS2 and not na(lastMssBearBar) and not mssFailedS2
+    if advLNoMss
+        liveSetup.lifecycleLong := rclDetL ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
+        liveSetup.lifecycleNameLong := lifecycle_name(liveSetup.lifecycleLong)
+    if advSNoMss
+        liveSetup.lifecycleShort := rclDetS ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
+        liveSetup.lifecycleNameShort := lifecycle_name(liveSetup.lifecycleShort)
+
+// Invariant M6: LC_DISPLACEMENT_CONFIRMED while underlying MSS is invalid or stale
+if not liveSetup.lifecycleIsDesynced
+    bool dispNoMssL = liveSetup.lifecycleLong == LC_DISPLACEMENT_CONFIRMED and (mssFailedL2 or not mssFreshL2)
+    bool dispNoMssS = liveSetup.lifecycleShort == LC_DISPLACEMENT_CONFIRMED and (mssFailedS2 or not mssFreshS2)
+    if dispNoMssL
+        liveSetup.lifecycleLong := LC_SWEEP_CONFIRMED
+        liveSetup.lifecycleNameLong := lifecycle_name(LC_SWEEP_CONFIRMED)
+    if dispNoMssS
+        liveSetup.lifecycleShort := LC_SWEEP_CONFIRMED
+        liveSetup.lifecycleNameShort := lifecycle_name(LC_SWEEP_CONFIRMED)
+
+// Invariant M7: Conservative activates on MSS quality weaker than Balanced
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Conservative"
+    bool domMssStrong2 = activeTrade.isLong ? mssQStrongL : mssQStrongS
+    float domMssScore2 = activeTrade.isLong ? mssScoreL2 : mssScoreS2
+    if not domMssStrong2 and domMssScore2 < 50.0
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "M7: CON activated with weak MSS (score=" + str.tostring(math.round(domMssScore2)) + ")"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
 // --- Backward-Compatible Field Overrides (lifecycle-authoritative) ---
 if liveSetup.lifecycleIsDesynced
     liveSetup.phase := "State desync"
@@ -3216,7 +3641,7 @@ if showReadiness and barstate.islast
     bool showContext = isAnalyst or isDebug
     bool showAdvanced = isDebug
 
-    int maxR = isDebug ? 68 : isAnalyst ? 34 : 18
+    int maxR = isDebug ? 74 : isAnalyst ? 34 : 18
     readTable := table.new(resolve_pos(readinessPos), 2, maxR, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
 
     float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
@@ -3326,11 +3751,27 @@ if showReadiness and barstate.islast
         table.cell(readTable, 1, r, liqEventStr, text_color = liqEventCol, text_size = size.tiny)
         r += 1
 
-        // Structure Status
+        // Structure Status (Chapter 4: MSS-truth-aware messaging)
+        bool domMssValid_ = pickLong ? liveSetup.mssValidLong : liveSetup.mssValidShort
+        bool domMssStrong_ = pickLong ? liveSetup.mssStrongLong : liveSetup.mssStrongShort
+        bool domMssFailed_ = pickLong ? liveSetup.mssFailedLong : liveSetup.mssFailedShort
+        bool domMssDetected_ = pickLong ? liveSetup.mssDetectedLong : liveSetup.mssDetectedShort
         string structStr = "No structure shift yet"
         color structCol = uiLabelText
-        if liveSetup.mssGrade != ""
-            structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift confirmed (" + format_grade_word(liveSetup.mssGrade) + ")"
+        if domMssFailed_
+            structStr := "MSS failed — structure shift not confirmed"
+            structCol := uiNegColor
+        else if domMssStrong_
+            structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift confirmed (strong)"
+            structCol := uiPosColor
+        else if domMssValid_
+            structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift confirmed (valid)"
+            structCol := color.orange
+        else if domMssDetected_
+            structStr := "Weak break — structure shift not confirmed"
+            structCol := uiNeutralColor
+        else if liveSetup.mssGrade != ""
+            structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift detected (" + format_grade_word(liveSetup.mssGrade) + ")"
             structCol := liveSetup.mssGrade == "A" ? uiPosColor : color.orange
         table.cell(readTable, 0, r, "Structure", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
         table.cell(readTable, 1, r, structStr, text_color = structCol, text_size = size.tiny)
@@ -3600,11 +4041,26 @@ if showReadiness and barstate.islast
         table.cell(readTable, 1, r, extDbgStr, text_color = extDbgCol, text_size = size.tiny)
         r += 1
 
-        // MSS quality (Chapter 2.2)
-        string mssQDbgStr = "L: " + liveSetup.mssQualityReasonLong + "  |  S: " + liveSetup.mssQualityReasonShort
-        color mssQDbgCol = (liveSetup.mssQualityPassLong or liveSetup.mssQualityPassShort) ? uiNeutralColor : uiLabelText
-        table.cell(readTable, 0, r, "MSS Quality", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
-        table.cell(readTable, 1, r, mssQDbgStr, text_color = mssQDbgCol, text_size = size.tiny)
+        // Chapter 4: MSS Stage (replaces old MSS quality row)
+        string mssStageL = liveSetup.mssFailedLong ? "FAILED" : liveSetup.mssStrongLong ? "STRONG" : liveSetup.mssValidLong ? "VALID" : liveSetup.mssDetectedLong ? "WEAK" : "NONE"
+        string mssStageS = liveSetup.mssFailedShort ? "FAILED" : liveSetup.mssStrongShort ? "STRONG" : liveSetup.mssValidShort ? "VALID" : liveSetup.mssDetectedShort ? "WEAK" : "NONE"
+        string mssDbgStr = "L: " + mssStageL + " (" + str.tostring(math.round(liveSetup.mssScoreLong)) + ") sig=" + str.tostring(liveSetup.mssTriggerSigLong) + " " + liveSetup.mssTriggerTypeLong + (liveSetup.mssBodyConfirmedLong ? " body✓" : "") + "  |  S: " + mssStageS + " (" + str.tostring(math.round(liveSetup.mssScoreShort)) + ") sig=" + str.tostring(liveSetup.mssTriggerSigShort) + " " + liveSetup.mssTriggerTypeShort + (liveSetup.mssBodyConfirmedShort ? " body✓" : "")
+        color mssDbgCol = (liveSetup.mssFailedLong or liveSetup.mssFailedShort) ? uiNegColor : (liveSetup.mssValidLong or liveSetup.mssValidShort) ? uiPosColor : (liveSetup.mssDetectedLong or liveSetup.mssDetectedShort) ? color.orange : uiLabelText
+        table.cell(readTable, 0, r, "MSS Stage", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, mssDbgStr, text_color = mssDbgCol, text_size = size.tiny)
+        r += 1
+
+        // Chapter 4: MSS reason detail
+        string mssReasonDbg = "L: " + liveSetup.mssReasonLong + "  |  S: " + liveSetup.mssReasonShort
+        table.cell(readTable, 0, r, "MSS Detail", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, mssReasonDbg, text_color = mssDbgCol, text_size = size.tiny)
+        r += 1
+
+        // Chapter 4: MSS mode pass
+        string mssPassDbg = "L: " + (liveSetup.mssQualityPassLong ? "PASS" : "FAIL") + "  |  S: " + (liveSetup.mssQualityPassShort ? "PASS" : "FAIL")
+        color mssPassCol = (liveSetup.mssQualityPassLong or liveSetup.mssQualityPassShort) ? uiNeutralColor : uiLabelText
+        table.cell(readTable, 0, r, "MSS Mode Pass", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, mssPassDbg, text_color = mssPassCol, text_size = size.tiny)
         r += 1
 
         // Activation path (Chapter 2.2)
@@ -3795,7 +4251,10 @@ if barstate.islast
     bool domPendingStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
     // Chapter 3: Block preview if reclaim has failed on dominant side
     bool domReclaimFailed = pickLong ? liveSetup.reclaimFailedLong : liveSetup.reclaimFailedShort
-    bool qualityPreviewOk = not domExtended and not domPendingStale and not domReclaimFailed
+    // Chapter 4: Block preview if MSS has failed or is stale on dominant side
+    bool domMssFailed = pickLong ? liveSetup.mssFailedLong : liveSetup.mssFailedShort
+    bool domMssStale = pickLong ? (not liveSetup.mssFreshLong) : (not liveSetup.mssFreshShort)
+    bool qualityPreviewOk = not domExtended and not domPendingStale and not domReclaimFailed and not domMssFailed and not domMssStale
     if showSetups and showCandidatePreview and (liveSetup.dominantMeetsModeCandidate or hasPendingCandidate) and qualityPreviewOk and na(activeTrade) and not liveSetup.isExpired and not liveSetup.isConflicted and not liveSetup.isDegraded and not dominantLiquidityBlocked and not liveSetup.lifecycleIsDesynced
         float projRisk = atr * 1.5
         float entry = close
