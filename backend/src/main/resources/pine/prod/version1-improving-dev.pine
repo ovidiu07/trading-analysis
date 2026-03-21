@@ -91,6 +91,61 @@ type SetupState
     bool    lifecycleCanActivateDominant = false
     bool    lifecycleIsDesynced = false
     string  lifecycleDesyncReason = ""
+    // Chapter 2: Sensitivity Mode Execution Policy
+    string  sensitivityModeActive = ""
+    int     modeMinCandidateLifecycle = 0
+    int     modeMinActivationLifecycle = 0
+    bool    dominantMeetsModeCandidate = false
+    bool    dominantMeetsModeActivation = false
+    bool    dominantBlockedByMode = false
+    string  dominantModeBlockReason = ""
+    bool    longMeetsModeCandidate = false
+    bool    shortMeetsModeCandidate = false
+    bool    longMeetsModeActivation = false
+    bool    shortMeetsModeActivation = false
+    string  longModeBlockReason = ""
+    string  shortModeBlockReason = ""
+    bool    longHasReclaimProxy = false
+    bool    shortHasReclaimProxy = false
+    // Chapter 2.1: Pending Activation State
+    bool    pendingLongActive = false
+    bool    pendingShortActive = false
+    int     pendingLongSignalBar = 0
+    int     pendingShortSignalBar = 0
+    int     pendingLongExpiryBar = 0
+    int     pendingShortExpiryBar = 0
+    string  pendingLongSource = ""
+    string  pendingShortSource = ""
+    int     pendingLongInitialLifecycle = 0
+    int     pendingShortInitialLifecycle = 0
+    string  pendingLongMode = ""
+    string  pendingShortMode = ""
+    string  pendingLongReason = ""
+    string  pendingShortReason = ""
+    bool    pendingLongCanStillActivate = false
+    bool    pendingShortCanStillActivate = false
+    bool    pendingLongActivatedThisBar = false
+    bool    pendingShortActivatedThisBar = false
+    // Chapter 2.2: Quality Recovery Patch
+    float   reclaimStrengthLong = 0.0
+    float   reclaimStrengthShort = 0.0
+    string  reclaimReasonLong = ""
+    string  reclaimReasonShort = ""
+    bool    extensionBlockedLong = false
+    bool    extensionBlockedShort = false
+    float   extensionDistLong = 0.0
+    float   extensionDistShort = 0.0
+    string  extensionReasonLong = ""
+    string  extensionReasonShort = ""
+    bool    mssQualityPassLong = false
+    bool    mssQualityPassShort = false
+    string  mssQualityReasonLong = ""
+    string  mssQualityReasonShort = ""
+    bool    pendingStructFreshLong = true
+    bool    pendingStructFreshShort = true
+    string  freshnessReasonLong = ""
+    string  freshnessReasonShort = ""
+    string  activationPathDominant = ""
 
 type SmartZone
     box   boxId
@@ -415,6 +470,11 @@ float bodySize = math.abs(close - open)
 float rangeSize = high - low
 float volSma = ta.sma(volume, 20)
 bool volOk = na(volume) or volume > volSma * 1.2
+
+// --- Reclaim Proxy Primitives (Chapter 2) ---
+float recentHigh5 = ta.highest(high, 5)
+float recentLow5 = ta.lowest(low, 5)
+float recentMid5 = (recentHigh5 + recentLow5) / 2.0
 
 bool isDispBull = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close > open and volOk
 bool isDispBear = bodySize > (atr * sensAtrMult * 0.6) and rangeSize > (atr * sensAtrMult) and close < open and volOk
@@ -1578,6 +1638,327 @@ lifecycle_next_required(int lc, bool isLong, float pivotVal, float reqLevel) =>
         result := "Internal state contradiction detected"
     result
 
+// =====================================================================
+// --- SENSITIVITY MODE EXECUTION POLICY (Chapter 2) ---
+// =====================================================================
+
+// Mode policy helpers — central source of truth for mode behavior
+mode_min_lifecycle_for_candidate(string mode) =>
+    mode == "Aggressive" ? LC_MSS_CONFIRMED : mode == "Conservative" ? LC_ENTRY_ARMED : LC_DISPLACEMENT_CONFIRMED
+
+mode_min_lifecycle_for_activation(string mode) =>
+    mode == "Aggressive" ? LC_ENTRY_TRIGGERED : mode == "Conservative" ? LC_ENTRY_ARMED : LC_ENTRY_ARMED
+
+mode_requires_retrace_for_activation(string mode) =>
+    mode != "Aggressive"
+
+mode_allows_direct_signal_activation(string mode) =>
+    mode == "Aggressive"
+
+mode_requires_displacement(string _mode) =>
+    true
+
+mode_requires_reclaim_proxy(string _mode) =>
+    true
+
+mode_name_short(string mode) =>
+    mode == "Aggressive" ? "AGG" : mode == "Conservative" ? "CON" : "BAL"
+
+// =====================================================================
+// --- CHAPTER 2.2: QUALITY RECOVERY PATCH — Transitional Quality Helpers ---
+// =====================================================================
+
+// Reclaim quality: multi-component post-sweep recovery assessment.
+// Returns: [pass, strength, reason, weak, strong]
+compute_reclaim_quality(bool isLong, int sweepBar_, float sweepQ, float mssDisp_, float atrVal, string mode, float mid5_, float reqLevel) =>
+    bool pass = false
+    float strength = 0.0
+    string reason = "No sweep context"
+    bool weak = false
+    bool strong = false
+    if not na(sweepBar_) and atrVal > 0
+        int age = bar_index - sweepBar_
+        if age >= 0 and age <= 40
+            float score = 0.0
+            // 1. Recovery distance from structural reference (0-25)
+            float ref = not na(reqLevel) ? reqLevel : mid5_
+            float dist = isLong ? (close - ref) / atrVal : (ref - close) / atrVal
+            score += math.min(math.max(dist * 15.0, 0.0), 25.0)
+            // 2. Acceptance: close vs mid5 + directional candle + prior bar (0-20)
+            bool aboveMid = isLong ? close > mid5_ : close < mid5_
+            bool dirCandle = isLong ? close > open : close < open
+            bool priorAccept = isLong ? close[1] > mid5_[1] : close[1] < mid5_[1]
+            score += (aboveMid ? 8.0 : 0.0) + (dirCandle ? 6.0 : 0.0) + (priorAccept ? 6.0 : 0.0)
+            // 3. No failure back into sweep area (0-15)
+            bool noFailure = true
+            if age >= 1
+                int checkBars = math.min(age, 3)
+                for i = 0 to checkBars
+                    if isLong ? (close[i] < ref - atrVal * 0.3) : (close[i] > ref + atrVal * 0.3)
+                        noFailure := false
+            score += noFailure ? 15.0 : 0.0
+            // 4. Displacement support (0-20)
+            if not na(mssDisp_)
+                score += math.min(mssDisp_ * 10.0, 20.0)
+            // 5. Sweep quality contribution (0-10)
+            score += math.min(sweepQ / 10.0, 10.0)
+            // 6. Age freshness bonus (0-10)
+            score += math.max(0.0, 10.0 - float(age) * 0.5)
+            strength := math.min(score, 100.0)
+            float minStr = mode == "Aggressive" ? 20.0 : mode == "Conservative" ? 50.0 : 35.0
+            pass := strength >= minStr
+            weak := strength < 35.0
+            strong := strength >= 60.0
+            reason := str.tostring(math.round(strength)) + "/100"
+            if not pass
+                reason := reason + " < " + str.tostring(math.round(minStr)) + " [" + mode + "]"
+        else
+            reason := "Sweep aged out (" + str.tostring(age) + " bars)"
+    [pass, strength, reason, weak, strong]
+
+// Extension filter: blocks chased entries too far from structural anchor.
+// Returns: [isExtended, distanceAtr, reason]
+compute_extension_block(bool isLong, int mssBar_, float pivotVal, float atrVal, string mode, float reqLevel) =>
+    bool isExtended = false
+    float distAtr = 0.0
+    string reason = ""
+    if atrVal > 0
+        float anchor = not na(pivotVal) ? pivotVal : reqLevel
+        if not na(anchor)
+            distAtr := isLong ? (close - anchor) / atrVal : (anchor - close) / atrVal
+            float maxExt = mode == "Aggressive" ? 1.5 : mode == "Conservative" ? 0.7 : 1.0
+            if distAtr > maxExt
+                isExtended := true
+                reason := str.tostring(distAtr, "#.##") + " ATR > " + str.tostring(maxExt, "#.#") + " max"
+        if not isExtended and not na(mssBar_)
+            int barsSince = bar_index - mssBar_
+            int maxBars = mode == "Aggressive" ? 15 : mode == "Conservative" ? 8 : 12
+            if barsSince > maxBars
+                isExtended := true
+                reason := str.tostring(barsSince) + " bars since MSS > " + str.tostring(maxBars)
+    [isExtended, distAtr, reason]
+
+// MSS quality gate: ensures MSS is meaningful, fresh, and post-sweep.
+// Returns: [qualityPass, qualityStrong, reason]
+evaluate_mss_quality(int sweepBar_, int mssBar_, float mssDisp_, float atrVal, string mode) =>
+    bool qualityPass = false
+    bool qualityStrong = false
+    string reason = ""
+    if not na(mssBar_) and not na(sweepBar_)
+        bool afterSweep = mssBar_ >= sweepBar_
+        int mssAge = bar_index - mssBar_
+        int mssMaxFresh = mode == "Aggressive" ? 30 : mode == "Conservative" ? 15 : 20
+        bool isFresh = mssAge <= mssMaxFresh
+        float minDisp = mode == "Aggressive" ? 0.4 : mode == "Conservative" ? 1.0 : 0.7
+        bool dispOk = not na(mssDisp_) and mssDisp_ >= minDisp
+        if not afterSweep
+            reason := "MSS before sweep"
+        else if not isFresh
+            reason := "MSS stale (" + str.tostring(mssAge) + " bars)"
+        else if not dispOk
+            reason := "Disp " + str.tostring(nz(mssDisp_), "#.##") + " < " + str.tostring(minDisp, "#.#")
+        else
+            qualityPass := true
+            qualityStrong := mssAge <= math.round(mssMaxFresh / 2) and mssDisp_ >= minDisp * 1.5
+            reason := "OK" + (qualityStrong ? " [strong]" : "")
+    else
+        reason := na(mssBar_) ? "No MSS" : "No sweep"
+    [qualityPass, qualityStrong, reason]
+
+// Displacement/FVG bridge: compensates for incomplete entry-arming.
+// Returns: [bridgePass, bridgeStrong, reason]
+evaluate_displacement_bridge(float mssDisp_, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, int mssBar_, string mode) =>
+    bool bridgePass = false
+    bool bridgeStrong = false
+    string reason = ""
+    float minDisp = mode == "Conservative" ? 1.5 : mode == "Balanced" ? 1.0 : 0.5
+    bool dispOk = not na(mssDisp_) and mssDisp_ >= minDisp
+    bool hasFreshFvg = not na(fvgBar_) and fvgGrade_ >= 2 and not fvgMitigated
+    bool fvgAfterMss = hasFreshFvg and not na(mssBar_) and fvgBar_ >= mssBar_
+    int fvgAge = not na(fvgBar_) ? bar_index - fvgBar_ : 999
+    bool fvgFresh = fvgAge <= 20
+    if mode == "Conservative"
+        bridgePass := dispOk and (seqOk or (fvgAfterMss and fvgFresh and fvgGrade_ >= 2))
+        bridgeStrong := dispOk and mssDisp_ >= 2.0 and seqOk and hasFreshFvg
+    else if mode == "Balanced"
+        bridgePass := dispOk and (seqOk or hasFreshFvg or mssDisp_ >= 1.5)
+        bridgeStrong := dispOk and mssDisp_ >= 1.5 and (seqOk or (fvgAfterMss and fvgFresh))
+    else
+        bridgePass := dispOk
+        bridgeStrong := not na(mssDisp_) and mssDisp_ >= 1.0
+    if bridgePass
+        reason := "Bridge OK" + (bridgeStrong ? " [strong]" : "")
+    else
+        reason := "Bridge fail"
+        if not dispOk
+            reason := reason + " — disp " + str.tostring(nz(mssDisp_), "#.##") + " < " + str.tostring(minDisp, "#.#")
+    [bridgePass, bridgeStrong, reason]
+
+// Pending structural freshness: blocks stale pending setups.
+// Returns: [fresh, stale, reason]
+pending_is_structurally_fresh(int signalBar, int mssBar_, int fvgBar_, bool degraded, bool isExtended, string mode) =>
+    bool fresh = true
+    bool stale = false
+    string reason = "Structurally fresh"
+    int age = bar_index - signalBar
+    int maxFresh = mode == "Aggressive" ? 5 : mode == "Conservative" ? 4 : 5
+    if age > maxFresh
+        fresh := false
+        stale := true
+        reason := "Age " + str.tostring(age) + " > " + str.tostring(maxFresh) + " bars"
+    if fresh and not na(mssBar_)
+        int mssAge = bar_index - mssBar_
+        int mssMaxFresh = mode == "Conservative" ? 15 : mode == "Balanced" ? 25 : 35
+        if mssAge > mssMaxFresh
+            fresh := false
+            stale := true
+            reason := "MSS aged (" + str.tostring(mssAge) + " bars)"
+    if fresh and degraded
+        fresh := false
+        stale := true
+        reason := "Setup degraded"
+    if fresh and isExtended
+        fresh := false
+        stale := true
+        reason := "Price too extended"
+    [fresh, stale, reason]
+
+// Central mode qualification function (Chapter 2.2: refactored with quality helpers).
+// Returns: [meetsModeCandidate, meetsModeActivation, blockReason, allowDirectPromotion, activationPath]
+evaluate_mode_execution(string mode, int lifecycle, bool swept, float sweepQ, bool hasMss, float mssDisp_, bool hasFvg, int fvgGrade_, bool seqOk, bool expired, bool degraded, bool reclaimPass, float reclaimStr, bool reclaimStrong, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass, bool bridgeStrong, int score) =>
+    int minCandidate = mode_min_lifecycle_for_candidate(mode)
+    bool meetsCandidate = lifecycle >= minCandidate and not expired and not degraded
+    bool meetsActivation = false
+    bool allowDirect = mode_allows_direct_signal_activation(mode)
+    string blockReason = ""
+    string actPath = ""
+
+    // All modes: reject sweep-only
+    if lifecycle <= LC_SWEEP_CONFIRMED
+        meetsCandidate := false
+        blockReason := "Sweep-only — need structure shift"
+
+    // Extension filter: block candidate for non-Aggressive if too extended
+    if meetsCandidate and isExtended and mode != "Aggressive"
+        meetsCandidate := false
+        blockReason := mode_name_short(mode) + " blocked — entry too extended"
+
+    if not meetsCandidate
+        if blockReason == ""
+            blockReason := mode_name_short(mode) + " needs " + lifecycle_name(minCandidate)
+    else
+        // --- Activation qualification (Chapter 2.2: quality-gate driven) ---
+        if mode == "Aggressive"
+            // AGG: lifecycle >= ENTRY_TRIGGERED or promoted from DISPLACEMENT_CONFIRMED
+            bool standardOk = lifecycle >= LC_ENTRY_TRIGGERED and hasMss and reclaimPass
+            bool promoOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and reclaimPass and (not na(mssDisp_) and mssDisp_ >= 0.3)
+            if standardOk
+                meetsActivation := true
+                actPath := "AGG standard"
+            else if promoOk
+                meetsActivation := true
+                actPath := "AGG promo"
+            else
+                blockReason := "AGG: " + (not hasMss ? "no MSS" : not reclaimPass ? "reclaim " + str.tostring(math.round(reclaimStr)) + " insufficient" : "lifecycle insufficient")
+
+        else if mode == "Balanced"
+            // BAL IDEAL: lifecycle >= ENTRY_ARMED + reclaim + MSS quality + not extended
+            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and mssQualPass and not isExtended
+            // BAL BRIDGE: DISPLACEMENT_CONFIRMED + higher quality
+            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStr >= 40.0 and mssQualPass and bridgePass and not isExtended
+            if idealOk
+                meetsActivation := true
+                actPath := "BAL ideal"
+            else if bridgeOk
+                meetsActivation := true
+                actPath := "BAL bridge"
+            else
+                blockReason := not reclaimPass ? "BAL: reclaim insufficient (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualPass ? "BAL: MSS quality insufficient" : isExtended ? "BAL: entry too extended" : lifecycle < LC_ENTRY_ARMED and not bridgeOk ? "BAL: bridge conditions not met" : "BAL: activation not met"
+
+        else // Conservative
+            // CON IDEAL: lifecycle >= ENTRY_ARMED + strong reclaim + strong MSS + seqOk
+            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and reclaimStr >= 50.0 and mssQualStrong and not isExtended and seqOk
+            // CON BRIDGE: DISPLACEMENT_CONFIRMED + ALL strong
+            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and bridgeStrong and not isExtended and (seqOk or (hasFvg and fvgGrade_ >= 2))
+            if idealOk
+                meetsActivation := true
+                actPath := "CON ideal"
+            else if bridgeOk
+                meetsActivation := true
+                actPath := "CON bridge"
+            else
+                blockReason := not reclaimStrong and reclaimStr < 50.0 ? "CON: reclaim not strong (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualStrong ? "CON: MSS quality not strong" : isExtended ? "CON: entry too extended" : not seqOk and lifecycle >= LC_ENTRY_ARMED ? "CON: requires complete sequence" : "CON: strong bridge not met"
+
+    // Non-aggressive never allow direct signal activation
+    if mode != "Aggressive"
+        allowDirect := false
+
+    [meetsCandidate, meetsActivation, blockReason, allowDirect, actPath]
+
+// =====================================================================
+// --- DELAYED ACTIVATION WINDOW POLICY (Chapter 2.1) ---
+// =====================================================================
+
+// Mode-specific pending activation window (bars after signal)
+// AGG=2 (fast confirmation), BAL=5 (moderate patience), CON=7 (patience-first)
+mode_pending_activation_bars(string mode) =>
+    mode == "Aggressive" ? 2 : mode == "Conservative" ? 7 : 5
+
+// Is the pending setup still within its activation window?
+pending_setup_is_fresh(int signalBar, int expiryBar) =>
+    bar_index >= signalBar and bar_index <= expiryBar
+
+// Has the pending setup's activation window expired?
+pending_setup_has_expired(int expiryBar) =>
+    bar_index > expiryBar
+
+// Evaluate whether a pending setup qualifies for delayed activation (Chapter 2.2).
+// Returns: [canActivateNow, updatedReason, shouldInvalidate]
+evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass, float reclaimStr, bool reclaimStrong, float dispStrength, bool seqOk, bool expired, bool degraded, string mode, int signalBar, int expiryBar, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass_, bool bridgeStrong_, bool pendingFresh) =>
+    bool canActivate = false
+    string reason = ""
+    bool shouldInvalidate = false
+
+    if not pending_setup_is_fresh(signalBar, expiryBar)
+        shouldInvalidate := pending_setup_has_expired(expiryBar)
+        reason := shouldInvalidate ? "Pending window expired" : "Pending not yet active"
+    else if expired or degraded
+        shouldInvalidate := true
+        reason := expired ? "Setup expired" : "Setup degraded"
+    else if not pendingFresh
+        shouldInvalidate := true
+        reason := "Pending structurally stale"
+    else if isExtended
+        shouldInvalidate := true
+        reason := "Price too extended for pending"
+    else
+        if mode == "Aggressive"
+            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
+            if lifecycleOk and reclaimPass
+                canActivate := true
+                reason := "AGG pending confirmed"
+            else
+                reason := not lifecycleOk ? "Pending: lifecycle insufficient" : "Pending: reclaim lost"
+        else if mode == "Balanced"
+            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
+            bool qualityOk = reclaimPass and mssQualPass and bridgePass_
+            if lifecycleOk and qualityOk
+                canActivate := true
+                reason := "BAL pending: quality confirmed"
+            else
+                reason := not lifecycleOk ? "Pending: lifecycle " + lifecycle_name(currentLifecycle) : not reclaimPass ? "Pending: reclaim insufficient" : not mssQualPass ? "Pending: MSS quality insufficient" : "Pending: bridge insufficient"
+        else // Conservative
+            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
+            bool qualityOk = reclaimStrong and mssQualStrong and bridgeStrong_
+            bool seqGate = seqOk or (not na(dispStrength) and dispStrength >= 1.5)
+            if lifecycleOk and qualityOk and seqGate
+                canActivate := true
+                reason := "CON pending: strong quality confirmed"
+            else
+                reason := not lifecycleOk ? "Pending: lifecycle insufficient" : not reclaimStrong ? "Pending: reclaim not strong" : not mssQualStrong ? "Pending: MSS not strong" : not seqGate ? "Pending: sequence insufficient" : "Pending: bridge not strong"
+
+    [canActivate, reason, shouldInvalidate]
+
 // Determine lifecycle stage from raw setup data + eval_side outputs
 determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal) =>
     int lc = LC_NONE
@@ -1920,6 +2301,24 @@ var Stats mainStats = Stats.new()
 var Trade activeTrade = na
 var box[] historicalBoxes = array.new_box()
 
+// Chapter 2.1: Persistent pending activation state (survives across bars)
+var bool   _pendingLongActive = false
+var bool   _pendingShortActive = false
+var int    _pendingLongSignalBar = 0
+var int    _pendingShortSignalBar = 0
+var int    _pendingLongExpiryBar = 0
+var int    _pendingShortExpiryBar = 0
+var string _pendingLongSource = ""
+var string _pendingShortSource = ""
+var int    _pendingLongInitialLC = 0
+var int    _pendingShortInitialLC = 0
+var string _pendingLongMode = ""
+var string _pendingShortMode = ""
+var string _pendingLongReason = ""
+var string _pendingShortReason = ""
+var bool   _pendingLongCanStillActivate = false
+var bool   _pendingShortCanStillActivate = false
+
 method update_stats(Stats s, float rEarned, bool isWin) =>
     s.totalTrades += 1
     s.totalR += rEarned
@@ -1934,45 +2333,250 @@ method update_stats(Stats s, float rEarned, bool isWin) =>
 bool isSignalB = sig2022B or sigSBB
 bool isSignalS = sig2022S or sigSBS
 
-// --- Signal Lifecycle Promotion (Chapter 1) ---
-// When a valid strategy signal fires, the signal itself IS the entry trigger.
-// Promote lifecycle from MSS_CONFIRMED+ to ENTRY_TRIGGERED.
+// =====================================================================
+// --- MODE QUALIFICATION COMPUTATION (Chapter 2 + 2.2) ---
+// =====================================================================
+
+// Chapter 2.2: Compute quality helpers for both sides
+[rclPassL, rclStrL, rclReasonL, rclWeakL, rclStrongL] = compute_reclaim_quality(true, bestSweepBarSSL, sweepQualitySSL, lastMssBullDispStrength, atr, sensitivityMode, recentMid5, reqL)
+[rclPassS, rclStrS, rclReasonS, rclWeakS, rclStrongS] = compute_reclaim_quality(false, bestSweepBarBSL, sweepQualityBSL, lastMssBearDispStrength, atr, sensitivityMode, recentMid5, reqS)
+
+[extBlockL, extDistL, extReasonL] = compute_extension_block(true, lastMssBullBar, lastPHi, atr, sensitivityMode, reqL)
+[extBlockS, extDistS, extReasonS] = compute_extension_block(false, lastMssBearBar, lastPLo, atr, sensitivityMode, reqS)
+
+[mssQPassL, mssQStrongL, mssQReasonL] = evaluate_mss_quality(bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, atr, sensitivityMode)
+[mssQPassS, mssQStrongS, mssQReasonS] = evaluate_mss_quality(bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, atr, sensitivityMode)
+
+[bridgePassL, bridgeStrongL, bridgeReasonL] = evaluate_displacement_bridge(lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, lastMssBullBar, sensitivityMode)
+[bridgePassS, bridgeStrongS, bridgeReasonS] = evaluate_displacement_bridge(lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, lastMssBearBar, sensitivityMode)
+
+// Backward-compatible reclaim proxy aliases
+bool reclaimProxyLong = rclPassL
+bool reclaimProxyShort = rclPassS
+
+// Evaluate mode qualification with quality data
+[modeCandL, modeActL, modeBlockL, modeDirectL, modePathL] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleLong, sweptSSL, sweepQualitySSL, not na(lastMssBullBar), lastMssBullDispStrength, not na(lastBullFvgBar) and lastBullFvgGrade > 0, lastBullFvgGrade, seqOkL, expiredL, degradedL, rclPassL, rclStrL, rclStrongL, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, scoreLong)
+
+[modeCandS, modeActS, modeBlockS, modeDirectS, modePathS] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleShort, sweptBSL, sweepQualityBSL, not na(lastMssBearBar), lastMssBearDispStrength, not na(lastBearFvgBar) and lastBearFvgGrade > 0, lastBearFvgGrade, seqOkS, expiredS, degradedS, rclPassS, rclStrS, rclStrongS, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, scoreShort)
+
+// Populate SetupState mode fields
+liveSetup.sensitivityModeActive := sensitivityMode
+liveSetup.modeMinCandidateLifecycle := mode_min_lifecycle_for_candidate(sensitivityMode)
+liveSetup.modeMinActivationLifecycle := mode_min_lifecycle_for_activation(sensitivityMode)
+liveSetup.longMeetsModeCandidate := modeCandL
+liveSetup.shortMeetsModeCandidate := modeCandS
+liveSetup.longMeetsModeActivation := modeActL
+liveSetup.shortMeetsModeActivation := modeActS
+liveSetup.longModeBlockReason := modeBlockL
+liveSetup.shortModeBlockReason := modeBlockS
+liveSetup.longHasReclaimProxy := reclaimProxyLong
+liveSetup.shortHasReclaimProxy := reclaimProxyShort
+// Chapter 2.2: Quality fields
+liveSetup.reclaimStrengthLong := rclStrL
+liveSetup.reclaimStrengthShort := rclStrS
+liveSetup.reclaimReasonLong := rclReasonL
+liveSetup.reclaimReasonShort := rclReasonS
+liveSetup.extensionBlockedLong := extBlockL
+liveSetup.extensionBlockedShort := extBlockS
+liveSetup.extensionDistLong := extDistL
+liveSetup.extensionDistShort := extDistS
+liveSetup.extensionReasonLong := extReasonL
+liveSetup.extensionReasonShort := extReasonS
+liveSetup.mssQualityPassLong := mssQPassL
+liveSetup.mssQualityPassShort := mssQPassS
+liveSetup.mssQualityReasonLong := mssQReasonL
+liveSetup.mssQualityReasonShort := mssQReasonS
+liveSetup.activationPathDominant := pickLong ? modePathL : modePathS
+
+// Dominant side mode qualification
+liveSetup.dominantMeetsModeCandidate := pickLong ? modeCandL : modeCandS
+liveSetup.dominantMeetsModeActivation := pickLong ? modeActL : modeActS
+liveSetup.dominantBlockedByMode := not (pickLong ? modeActL : modeActS) and liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED
+liveSetup.dominantModeBlockReason := pickLong ? modeBlockL : modeBlockS
+
+// --- Signal Lifecycle Promotion (Chapter 1+2: Mode-Aware) ---
+// Signal promotion is now gated by sensitivity mode policy.
+// Aggressive: may promote from MSS_CONFIRMED+ to ENTRY_TRIGGERED if reclaim+displacement pass
+// Balanced: signal may at most confirm displacement; cannot promote to ENTRY_TRIGGERED directly
+// Conservative: signal cannot bypass entry-armed requirements
 if isSignalB and liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and liveSetup.lifecycleLong < LC_ENTRY_TRIGGERED
-    liveSetup.lifecycleLong := LC_ENTRY_TRIGGERED
-    liveSetup.lifecycleNameLong := lifecycle_name(LC_ENTRY_TRIGGERED)
-    liveSetup.lifecycleCanActivateLong := true
+    // Aggressive: direct promotion if reclaim proxy + displacement meet thresholds
+    bool canPromoteAggL = sensitivityMode == "Aggressive" and reclaimProxyLong and sweptSSL and not na(lastMssBullBar) and (not na(lastMssBullDispStrength) and lastMssBullDispStrength >= 0.3) and not expiredL and not degradedL
+    if canPromoteAggL
+        liveSetup.lifecycleLong := LC_ENTRY_TRIGGERED
+        liveSetup.lifecycleNameLong := lifecycle_name(LC_ENTRY_TRIGGERED)
+        liveSetup.lifecycleCanActivateLong := true
+        modeActL := true
+        modeBlockL := ""
+        liveSetup.longMeetsModeActivation := true
+        liveSetup.longModeBlockReason := ""
+    else if sensitivityMode != "Aggressive" and modeCandL and liveSetup.lifecycleLong < LC_DISPLACEMENT_CONFIRMED and not na(lastMssBullDispStrength) and lastMssBullDispStrength > 0.8
+        // Balanced/Conservative: promote at most to DISPLACEMENT_CONFIRMED
+        liveSetup.lifecycleLong := LC_DISPLACEMENT_CONFIRMED
+        liveSetup.lifecycleNameLong := lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
+
 if isSignalS and liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and liveSetup.lifecycleShort < LC_ENTRY_TRIGGERED
-    liveSetup.lifecycleShort := LC_ENTRY_TRIGGERED
-    liveSetup.lifecycleNameShort := lifecycle_name(LC_ENTRY_TRIGGERED)
-    liveSetup.lifecycleCanActivateShort := true
+    bool canPromoteAggS = sensitivityMode == "Aggressive" and reclaimProxyShort and sweptBSL and not na(lastMssBearBar) and (not na(lastMssBearDispStrength) and lastMssBearDispStrength >= 0.3) and not expiredS and not degradedS
+    if canPromoteAggS
+        liveSetup.lifecycleShort := LC_ENTRY_TRIGGERED
+        liveSetup.lifecycleNameShort := lifecycle_name(LC_ENTRY_TRIGGERED)
+        liveSetup.lifecycleCanActivateShort := true
+        modeActS := true
+        modeBlockS := ""
+        liveSetup.shortMeetsModeActivation := true
+        liveSetup.shortModeBlockReason := ""
+    else if sensitivityMode != "Aggressive" and modeCandS and liveSetup.lifecycleShort < LC_DISPLACEMENT_CONFIRMED and not na(lastMssBearDispStrength) and lastMssBearDispStrength > 0.8
+        liveSetup.lifecycleShort := LC_DISPLACEMENT_CONFIRMED
+        liveSetup.lifecycleNameShort := lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
 
 // Update dominant lifecycle after signal promotion
 if (isSignalB and pickLong) or (isSignalS and not pickLong)
     liveSetup.lifecycleDominant := pickLong ? liveSetup.lifecycleLong : liveSetup.lifecycleShort
     liveSetup.lifecycleNameDominant := lifecycle_name(liveSetup.lifecycleDominant)
     liveSetup.lifecycleCanActivateDominant := pickLong ? liveSetup.lifecycleCanActivateLong : liveSetup.lifecycleCanActivateShort
+    // Re-evaluate dominant mode qualification after promotion
+    liveSetup.dominantMeetsModeActivation := pickLong ? modeActL : modeActS
+    liveSetup.dominantBlockedByMode := not (pickLong ? modeActL : modeActS) and liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED
+    liveSetup.dominantModeBlockReason := pickLong ? modeBlockL : modeBlockS
 
-// --- Trade Activation with Lifecycle Guard (Chapter 1) ---
+// --- Trade Activation with Lifecycle + Mode Guard (Chapter 1+2+2.1) ---
+// PATH 1: Immediate activation (signal bar, same as before for Aggressive)
 bool signalLifecycleOk = (isSignalB and lifecycle_allows_activation(liveSetup.lifecycleLong)) or (isSignalS and lifecycle_allows_activation(liveSetup.lifecycleShort))
+bool signalModeOk = (isSignalB and modeActL) or (isSignalS and modeActS)
+bool canActivateImmediate = signalLifecycleOk and signalModeOk
 
-// Desync: signal fired but lifecycle doesn't authorize activation — block trade
-if (isSignalB or isSignalS) and na(activeTrade) and not signalLifecycleOk
-    liveSetup.lifecycleIsDesynced := true
-    liveSetup.lifecycleDesyncReason := "Signal blocked at " + (isSignalB ? lifecycle_name(liveSetup.lifecycleLong) : lifecycle_name(liveSetup.lifecycleShort))
+// PATH 2: Delayed activation (pending setup from prior bar, no current signal required)
+// Evaluate pending long
+bool pendingActivatedLong = false
+bool pendingActivatedShort = false
+string pendingActivationReason = ""
 
-if (isSignalB or isSignalS) and na(activeTrade) and signalLifecycleOk
-    float sl = isSignalB ? low[1] - (atr * 0.5) : high[1] + (atr * 0.5)
+// Chapter 2.2: Compute pending freshness before delayed activation evaluation
+[pendFreshL, pendStaleL, pendFreshReasonL] = pending_is_structurally_fresh(_pendingLongActive ? _pendingLongSignalBar : bar_index, lastMssBullBar, lastBullFvgBar, degradedL, extBlockL, sensitivityMode)
+[pendFreshS, pendStaleS, pendFreshReasonS] = pending_is_structurally_fresh(_pendingShortActive ? _pendingShortSignalBar : bar_index, lastMssBearBar, lastBearFvgBar, degradedS, extBlockS, sensitivityMode)
+liveSetup.pendingStructFreshLong := pendFreshL
+liveSetup.pendingStructFreshShort := pendFreshS
+liveSetup.freshnessReasonLong := pendFreshReasonL
+liveSetup.freshnessReasonShort := pendFreshReasonS
+
+if _pendingLongActive and na(activeTrade)
+    [canActPL, reasonPL, shouldInvPL] = evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL)
+    if shouldInvPL
+        _pendingLongActive := false
+        _pendingLongCanStillActivate := false
+        _pendingLongReason := reasonPL
+    else if canActPL
+        pendingActivatedLong := true
+        pendingActivationReason := reasonPL
+        _pendingLongCanStillActivate := false
+    else
+        _pendingLongReason := reasonPL
+
+// Evaluate pending short
+if _pendingShortActive and na(activeTrade) and not pendingActivatedLong
+    [canActPS, reasonPS, shouldInvPS] = evaluate_pending_activation(false, liveSetup.lifecycleShort, rclPassS, rclStrS, rclStrongS, lastMssBearDispStrength, seqOkS, expiredS, degradedS, _pendingShortMode, _pendingShortSignalBar, _pendingShortExpiryBar, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, pendFreshS)
+    if shouldInvPS
+        _pendingShortActive := false
+        _pendingShortCanStillActivate := false
+        _pendingShortReason := reasonPS
+    else if canActPS
+        pendingActivatedShort := true
+        pendingActivationReason := reasonPS
+        _pendingShortCanStillActivate := false
+    else
+        _pendingShortReason := reasonPS
+
+bool canActivateDelayed = pendingActivatedLong or pendingActivatedShort
+bool canActivateTrade = canActivateImmediate or canActivateDelayed
+bool activatingViaDelayed = canActivateDelayed and not canActivateImmediate
+
+// Determine activation direction
+bool activateLong = canActivateImmediate ? isSignalB : pendingActivatedLong
+bool activateShort = canActivateImmediate ? isSignalS : pendingActivatedShort
+
+// Signal fired but cannot activate — store as pending for delayed activation (Chapter 2.1 Part C)
+if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
+    if isSignalB and not _pendingLongActive
+        // Signal qualifies for pending if lifecycle is past sweep and mode candidate passes
+        bool pendingCandidateL = liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and modeCandL and not expiredL and not degradedL
+        if pendingCandidateL
+            int windowBars = mode_pending_activation_bars(sensitivityMode)
+            _pendingLongActive := true
+            _pendingLongSignalBar := bar_index
+            _pendingLongExpiryBar := bar_index + windowBars
+            _pendingLongSource := sig2022B ? "ICT 2022" : "SB"
+            _pendingLongInitialLC := liveSetup.lifecycleLong
+            _pendingLongMode := sensitivityMode
+            _pendingLongReason := mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBars) + " bars)"
+            _pendingLongCanStillActivate := true
+    if isSignalS and not _pendingShortActive
+        bool pendingCandidateS = liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and modeCandS and not expiredS and not degradedS
+        if pendingCandidateS
+            int windowBarsS = mode_pending_activation_bars(sensitivityMode)
+            _pendingShortActive := true
+            _pendingShortSignalBar := bar_index
+            _pendingShortExpiryBar := bar_index + windowBarsS
+            _pendingShortSource := sig2022S ? "ICT 2022" : "SB"
+            _pendingShortInitialLC := liveSetup.lifecycleShort
+            _pendingShortMode := sensitivityMode
+            _pendingShortReason := mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBarsS) + " bars)"
+            _pendingShortCanStillActivate := true
+
+    // Diagnostic: explain why immediate activation was blocked
+    if signalLifecycleOk and not signalModeOk
+        liveSetup.dominantBlockedByMode := true
+        liveSetup.dominantModeBlockReason := isSignalB ? modeBlockL : modeBlockS
+    else if mode_allows_direct_signal_activation(sensitivityMode) and not signalLifecycleOk
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "AGG: signal blocked at " + (isSignalB ? lifecycle_name(liveSetup.lifecycleLong) : lifecycle_name(liveSetup.lifecycleShort))
+    else
+        liveSetup.dominantBlockedByMode := true
+        string modeReason = isSignalB ? modeBlockL : modeBlockS
+        if modeReason == ""
+            modeReason := mode_name_short(sensitivityMode) + " mode: pending activation stored (" + str.tostring(mode_pending_activation_bars(sensitivityMode)) + " bar window)"
+        liveSetup.dominantModeBlockReason := modeReason
+
+// Clear pending state after successful delayed activation
+if pendingActivatedLong
+    _pendingLongActive := false
+if pendingActivatedShort
+    _pendingShortActive := false
+
+// Populate SetupState pending fields for dashboard visibility
+liveSetup.pendingLongActive := _pendingLongActive
+liveSetup.pendingShortActive := _pendingShortActive
+liveSetup.pendingLongSignalBar := _pendingLongSignalBar
+liveSetup.pendingShortSignalBar := _pendingShortSignalBar
+liveSetup.pendingLongExpiryBar := _pendingLongExpiryBar
+liveSetup.pendingShortExpiryBar := _pendingShortExpiryBar
+liveSetup.pendingLongSource := _pendingLongSource
+liveSetup.pendingShortSource := _pendingShortSource
+liveSetup.pendingLongInitialLifecycle := _pendingLongInitialLC
+liveSetup.pendingShortInitialLifecycle := _pendingShortInitialLC
+liveSetup.pendingLongMode := _pendingLongMode
+liveSetup.pendingShortMode := _pendingShortMode
+liveSetup.pendingLongReason := _pendingLongReason
+liveSetup.pendingShortReason := _pendingShortReason
+liveSetup.pendingLongCanStillActivate := _pendingLongCanStillActivate
+liveSetup.pendingShortCanStillActivate := _pendingShortCanStillActivate
+liveSetup.pendingLongActivatedThisBar := pendingActivatedLong
+liveSetup.pendingShortActivatedThisBar := pendingActivatedShort
+
+if na(activeTrade) and canActivateTrade
+    // Determine trade source name for delayed activations
+    string tradeSource = activatingViaDelayed ? (activateLong ? _pendingLongSource : _pendingShortSource) : (sig2022B or sig2022S ? "ICT 2022" : "SB")
+    float sl = activateLong ? low[1] - (atr * 0.5) : high[1] + (atr * 0.5)
     float risk = math.abs(close - sl)
-    float tp1 = isSignalB ? close + risk * 1.0 : close - risk * 1.0
-    float tp2 = isSignalB ? close + risk * 2.0 : close - risk * 2.0
+    float tp1 = activateLong ? close + risk * 1.0 : close - risk * 1.0
+    float tp2 = activateLong ? close + risk * 2.0 : close - risk * 2.0
     box tpB = na
     box slB = na
     if showSetups and showZones
-        color tpCol = isSignalB ? longTpColor : shortTpColor
-        color slCol = isSignalB ? longSlColor : shortSlColor
-        tpB := box.new(bar_index, isSignalB ? tp2 : close, bar_index, isSignalB ? close : tp2, bgcolor = color.new(tpCol, activeTransp), border_color = tpCol, border_width = activeBorderWidth)
-        slB := box.new(bar_index, isSignalB ? close : sl, bar_index, isSignalB ? sl : close, bgcolor = color.new(slCol, activeTransp), border_color = slCol, border_width = activeBorderWidth)
-    activeTrade := Trade.new(sig2022B or sig2022S ? "ICT 2022" : "SB", isSignalB, close, sl, tp1, tp2, bar_index, true, false, tpB, slB)
+        color tpCol = activateLong ? longTpColor : shortTpColor
+        color slCol = activateLong ? longSlColor : shortSlColor
+        tpB := box.new(bar_index, activateLong ? tp2 : close, bar_index, activateLong ? close : tp2, bgcolor = color.new(tpCol, activeTransp), border_color = tpCol, border_width = activeBorderWidth)
+        slB := box.new(bar_index, activateLong ? close : sl, bar_index, activateLong ? sl : close, bgcolor = color.new(slCol, activeTransp), border_color = slCol, border_width = activeBorderWidth)
+    activeTrade := Trade.new(tradeSource, activateLong, close, sl, tp1, tp2, bar_index, true, false, tpB, slB)
 
 if not na(activeTrade)
     bool closed = false
@@ -2063,6 +2667,153 @@ if liveSetup.lifecycleCanActivateDominant and liveSetup.lifecycleDominant < LC_E
     liveSetup.lifecycleDesyncReason := "canActivate=true at lifecycle=" + lifecycle_name(liveSetup.lifecycleDominant)
     liveSetup.lifecycleDominant := LC_DESYNC
 
+// --- Chapter 2 Mode Invariants ---
+
+// Invariant M1: Trade activated this bar while pre-promotion lifecycle below mode minimum
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
+    int modeMinAct = mode_min_lifecycle_for_activation(sensitivityMode)
+    int prePromotionLc = pickLong ? lcLong : lcShort
+    if prePromotionLc < modeMinAct and prePromotionLc != LC_ACTIVE
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := mode_name_short(sensitivityMode) + ": trade activated at " + lifecycle_name(prePromotionLc) + ", min=" + lifecycle_name(modeMinAct)
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant M2: Signal promoted to ENTRY_TRIGGERED with canActivate in non-Aggressive mode
+if not liveSetup.lifecycleIsDesynced and not mode_allows_direct_signal_activation(sensitivityMode)
+    bool badPromoL = isSignalB and liveSetup.lifecycleLong == LC_ENTRY_TRIGGERED and liveSetup.lifecycleCanActivateLong
+    bool badPromoS = isSignalS and liveSetup.lifecycleShort == LC_ENTRY_TRIGGERED and liveSetup.lifecycleCanActivateShort
+    if badPromoL or badPromoS
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := mode_name_short(sensitivityMode) + ": signal promoted to ENTRY_TRIGGERED with canActivate (disallowed)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant M3: Candidate preview would show while mode candidate qualification fails
+// (Enforced at render time; flagged here for debug visibility only — no desync)
+
+// Invariant M4: Lifecycle/action implies readiness while mode block reason exists
+// Chapter 2.1: Exempt when a pending activation is stored (mode block is expected on signal bar)
+bool hasPendingStored = _pendingLongActive or _pendingShortActive
+if not liveSetup.lifecycleIsDesynced and liveSetup.dominantBlockedByMode and liveSetup.lifecycleCanActivateDominant and liveSetup.lifecycleDominant != LC_ACTIVE and not hasPendingStored
+    liveSetup.lifecycleIsDesynced := true
+    liveSetup.lifecycleDesyncReason := mode_name_short(sensitivityMode) + ": canActivate=true but mode blocks (" + liveSetup.dominantModeBlockReason + ")"
+    liveSetup.lifecycleDominant := LC_DESYNC
+
+// --- Chapter 2.1 Pending Activation Invariants ---
+
+// Invariant P1: Delayed activation fired but no activeTrade created
+if not liveSetup.lifecycleIsDesynced and (pendingActivatedLong or pendingActivatedShort) and na(activeTrade)
+    // This would indicate the activation path was taken but trade creation failed
+    liveSetup.lifecycleIsDesynced := true
+    liveSetup.lifecycleDesyncReason := "P1: delayed activation succeeded but no trade created"
+    liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant P2: Pending active for a mode that allows direct signal activation (AGG shouldn't need pending)
+if not liveSetup.lifecycleIsDesynced
+    if _pendingLongActive and mode_allows_direct_signal_activation(_pendingLongMode)
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P2: pending long stored for AGG mode (should activate immediately)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+    if not liveSetup.lifecycleIsDesynced and _pendingShortActive and mode_allows_direct_signal_activation(_pendingShortMode)
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P2: pending short stored for AGG mode (should activate immediately)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant P3: Pending expiry bar is before signal bar (impossible window)
+if not liveSetup.lifecycleIsDesynced
+    if _pendingLongActive and _pendingLongExpiryBar <= _pendingLongSignalBar
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P3: pending long expiry (" + str.tostring(_pendingLongExpiryBar) + ") <= signal (" + str.tostring(_pendingLongSignalBar) + ")"
+        liveSetup.lifecycleDominant := LC_DESYNC
+    if not liveSetup.lifecycleIsDesynced and _pendingShortActive and _pendingShortExpiryBar <= _pendingShortSignalBar
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P3: pending short expiry (" + str.tostring(_pendingShortExpiryBar) + ") <= signal (" + str.tostring(_pendingShortSignalBar) + ")"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant P4: Both pending long and short active simultaneously
+if not liveSetup.lifecycleIsDesynced and _pendingLongActive and _pendingShortActive
+    liveSetup.lifecycleIsDesynced := true
+    liveSetup.lifecycleDesyncReason := "P4: both pending long and short active simultaneously"
+    liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant P5: Delayed activation on same bar as signal (should have been immediate)
+if not liveSetup.lifecycleIsDesynced
+    if pendingActivatedLong and _pendingLongSignalBar == bar_index
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P5: delayed long activation on signal bar (should be immediate)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+    if not liveSetup.lifecycleIsDesynced and pendingActivatedShort and _pendingShortSignalBar == bar_index
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P5: delayed short activation on signal bar (should be immediate)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant P6: Trade activated via delayed path but activeTrade direction mismatch
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and activatingViaDelayed
+    if pendingActivatedLong and not activeTrade.isLong
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P6: delayed long activation created short trade"
+        liveSetup.lifecycleDominant := LC_DESYNC
+    if not liveSetup.lifecycleIsDesynced and pendingActivatedShort and activeTrade.isLong
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P6: delayed short activation created long trade"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant P7: Pending initial lifecycle below MSS_CONFIRMED (shouldn't have been stored)
+if not liveSetup.lifecycleIsDesynced
+    if _pendingLongActive and _pendingLongInitialLC < LC_MSS_CONFIRMED
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P7: pending long stored at " + lifecycle_name(_pendingLongInitialLC) + " (below MSS_CONFIRMED)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+    if not liveSetup.lifecycleIsDesynced and _pendingShortActive and _pendingShortInitialLC < LC_MSS_CONFIRMED
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "P7: pending short stored at " + lifecycle_name(_pendingShortInitialLC) + " (below MSS_CONFIRMED)"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// --- Chapter 2.2 Quality Invariants ---
+
+// Invariant Q1: Balanced activation while extension filter says blocked
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Balanced"
+    bool domExt = activeTrade.isLong ? extBlockL : extBlockS
+    if domExt
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "Q1: BAL activated while extension filter blocked"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant Q2: Conservative activation without stronger quality than Balanced
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Conservative"
+    float domRclStr = activeTrade.isLong ? rclStrL : rclStrS
+    bool domMssStrong = activeTrade.isLong ? mssQStrongL : mssQStrongS
+    if domRclStr < 50.0 and not domMssStrong
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "Q2: CON activated without strong quality (reclaim=" + str.tostring(math.round(domRclStr)) + ")"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant Q3: Pending setup valid while freshness helper says stale
+if not liveSetup.lifecycleIsDesynced
+    if _pendingLongActive and _pendingLongCanStillActivate and not pendFreshL
+        _pendingLongActive := false
+        _pendingLongCanStillActivate := false
+        _pendingLongReason := "Q3: pending invalidated — structurally stale"
+    if _pendingShortActive and _pendingShortCanStillActivate and not pendFreshS
+        _pendingShortActive := false
+        _pendingShortCanStillActivate := false
+        _pendingShortReason := "Q3: pending invalidated — structurally stale"
+
+// Invariant Q4: Reclaim quality insufficient but activation permitted
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
+    bool domRclPass = activeTrade.isLong ? rclPassL : rclPassS
+    if not domRclPass and sensitivityMode != "Aggressive"
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "Q4: " + mode_name_short(sensitivityMode) + " activated without reclaim pass"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant Q5: MSS quality insufficient but activation permitted (non-Aggressive)
+if not liveSetup.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode != "Aggressive"
+    bool domMssQPass = activeTrade.isLong ? mssQPassL : mssQPassS
+    if not domMssQPass
+        liveSetup.lifecycleIsDesynced := true
+        liveSetup.lifecycleDesyncReason := "Q5: " + mode_name_short(sensitivityMode) + " activated without MSS quality pass"
+        liveSetup.lifecycleDominant := LC_DESYNC
+
 // --- Backward-Compatible Field Overrides (lifecycle-authoritative) ---
 if liveSetup.lifecycleIsDesynced
     liveSetup.phase := "State desync"
@@ -2071,7 +2822,15 @@ if liveSetup.lifecycleIsDesynced
     liveSetup.lifecycleNameDominant := lifecycle_name(LC_DESYNC)
 else if not liveSetup.isConflicted
     liveSetup.phase := liveSetup.lifecycleNameDominant
-    if not dominantLiquidityBlocked
+    // Chapter 2.1: Show pending status in Next Required when pending is active
+    if _pendingLongActive or _pendingShortActive
+        bool pendL2 = _pendingLongActive
+        int barsRemaining = (pendL2 ? _pendingLongExpiryBar : _pendingShortExpiryBar) - bar_index
+        string pendSide = pendL2 ? "Long" : "Short"
+        liveSetup.missing := pendSide + " pending activation (" + str.tostring(math.max(0, barsRemaining)) + " bars remaining)"
+    else if liveSetup.dominantBlockedByMode and not dominantLiquidityBlocked
+        liveSetup.missing := liveSetup.dominantModeBlockReason
+    else if not dominantLiquidityBlocked
         liveSetup.missing := liveSetup.lifecycleNextRequiredDominant
     liveSetup.sequenceValid := liveSetup.lifecycleDominant >= LC_ENTRY_ARMED
 
@@ -2162,13 +2921,16 @@ format_score_bias(int sL, int sS) =>
     int diff = sL - sS
     math.abs(diff) < 5 ? "Neutral" : diff >= 20 ? "Strong long bias" : diff >= 10 ? "Long bias" : diff > 0 ? "Slight long bias" : diff <= -20 ? "Strong short bias" : diff <= -10 ? "Short bias" : "Slight short bias"
 
-// Lifecycle-driven format_action (Chapter 1: State Machine Integrity)
-// Action text is now derived from lifecycle stage, not from loose phase/score inference.
-format_action(int lcDom, bool isDesynced, bool isConflicted, bool isLong, bool gateBlocked, bool hasActiveTrade) =>
+// Lifecycle-driven format_action (Chapter 1+2.2: Quality-aware)
+format_action(int lcDom, bool isDesynced, bool isConflicted, bool isLong, bool gateBlocked, bool hasActiveTrade, bool modeBlocked, string modeBlockRsn, bool pendingStale) =>
     if isDesynced
         "State error — setup/trade desync"
     else if isConflicted
         "Stand aside — both sides active, no clear edge"
+    else if pendingStale
+        "Pending setup stale — wait for fresh structure"
+    else if modeBlocked and lcDom >= LC_MSS_CONFIRMED
+        modeBlockRsn
     else if gateBlocked and lcDom >= LC_MSS_CONFIRMED and lcDom < LC_ENTRY_TRIGGERED
         "Setup blocked — check strategy eligibility"
     else
@@ -2189,7 +2951,7 @@ if showReadiness and barstate.islast
     bool showContext = isAnalyst or isDebug
     bool showAdvanced = isDebug
 
-    int maxR = isDebug ? 44 : isAnalyst ? 26 : 16
+    int maxR = isDebug ? 64 : isAnalyst ? 32 : 18
     readTable := table.new(resolve_pos(readinessPos), 2, maxR, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
 
     float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
@@ -2202,8 +2964,9 @@ if showReadiness and barstate.islast
     // Setup state color — lifecycle-driven (Chapter 1)
     color phaseColor = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.isConflicted ? color.yellow : lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : uiNeutralColor
 
-    // Trader action — lifecycle-driven (Chapter 1)
-    string actionStr = format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade))
+    // Trader action — lifecycle-driven (Chapter 1+2.2)
+    bool domPendStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
+    string actionStr = format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade), liveSetup.dominantBlockedByMode, liveSetup.dominantModeBlockReason, domPendStale)
     color actionColor = str.contains(actionStr, "desync") or str.contains(actionStr, "error") ? color.red : str.contains(actionStr, "ready") or str.contains(actionStr, "Trade active") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") or str.contains(actionStr, "invalidated") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") ? color.orange : uiNeutralColor
 
     // Confidence
@@ -2244,6 +3007,29 @@ if showReadiness and barstate.islast
     table.cell(readTable, 0, r, "Setup Quality", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
     table.cell(readTable, 1, r, confStr + " (" + str.tostring(liveSetup.score) + ")", text_color = confColor, text_size = size.small)
     r += 1
+
+    // Sensitivity Mode row (Chapter 2)
+    string modeStr = sensitivityMode
+    color modeColor = uiNeutralColor
+    if liveSetup.dominantBlockedByMode
+        modeStr := sensitivityMode + " — " + liveSetup.dominantModeBlockReason
+        modeColor := color.orange
+    table.cell(readTable, 0, r, "Sensitivity Mode", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTable, 1, r, modeStr, text_color = modeColor, text_size = size.small, text_halign = text.align_left)
+    r += 1
+
+    // Chapter 2.1: Pending Activation row (visible when pending is active)
+    if liveSetup.pendingLongActive or liveSetup.pendingShortActive
+        bool pendL = liveSetup.pendingLongActive
+        int pendBar = pendL ? liveSetup.pendingLongSignalBar : liveSetup.pendingShortSignalBar
+        int pendExpiry = pendL ? liveSetup.pendingLongExpiryBar : liveSetup.pendingShortExpiryBar
+        int barsLeft = pendExpiry - bar_index
+        string pendDir = pendL ? "LONG" : "SHORT"
+        string pendStr = pendDir + " pending (" + str.tostring(math.max(0, barsLeft)) + " bars left)"
+        color pendCol = barsLeft > 2 ? color.orange : barsLeft > 0 ? #e65100 : uiNegColor
+        table.cell(readTable, 0, r, "Pending Activation", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
+        table.cell(readTable, 1, r, pendStr, text_color = pendCol, text_size = size.small, text_halign = text.align_left)
+        r += 1
 
     table.cell(readTable, 0, r, "Session", text_color = uiLabelText, text_size = size.small, text_halign = text.align_left)
     table.cell(readTable, 1, r, sessStr, text_color = sessColor, text_size = size.small)
@@ -2501,6 +3287,83 @@ if showReadiness and barstate.islast
         table.cell(readTable, 1, r, lcActStr, text_color = lcActCol, text_size = size.tiny)
         r += 1
 
+        // Chapter 2: Mode Qualification (Debug only)
+        string modeQualStr = "L: " + (liveSetup.longMeetsModeCandidate ? "cand" : "—") + "/" + (liveSetup.longMeetsModeActivation ? "act" : "—") + (liveSetup.longHasReclaimProxy ? "/rcl" : "") + "  |  S: " + (liveSetup.shortMeetsModeCandidate ? "cand" : "—") + "/" + (liveSetup.shortMeetsModeActivation ? "act" : "—") + (liveSetup.shortHasReclaimProxy ? "/rcl" : "")
+        color modeQualCol = liveSetup.dominantMeetsModeActivation ? uiPosColor : liveSetup.dominantMeetsModeCandidate ? color.orange : uiLabelText
+        table.cell(readTable, 0, r, "Mode Qualification", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, modeQualStr, text_color = modeQualCol, text_size = size.tiny)
+        r += 1
+
+        // Mode block reason
+        string modeBlkStr = liveSetup.dominantBlockedByMode ? liveSetup.dominantModeBlockReason : "No mode block"
+        color modeBlkCol = liveSetup.dominantBlockedByMode ? color.orange : uiPosColor
+        table.cell(readTable, 0, r, "Mode Block", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, modeBlkStr, text_color = modeBlkCol, text_size = size.tiny)
+        r += 1
+
+        // Reclaim quality (Chapter 2.2)
+        string rclDbgStr = "L: " + liveSetup.reclaimReasonLong + "  |  S: " + liveSetup.reclaimReasonShort
+        table.cell(readTable, 0, r, "Reclaim Quality", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, rclDbgStr, text_color = (reclaimProxyLong or reclaimProxyShort) ? uiNeutralColor : uiLabelText, text_size = size.tiny)
+        r += 1
+
+        // Extension filter (Chapter 2.2)
+        string extDbgStr = "L: " + (liveSetup.extensionBlockedLong ? "BLOCKED " + liveSetup.extensionReasonLong : "OK") + "  |  S: " + (liveSetup.extensionBlockedShort ? "BLOCKED " + liveSetup.extensionReasonShort : "OK")
+        color extDbgCol = (liveSetup.extensionBlockedLong or liveSetup.extensionBlockedShort) ? color.orange : uiPosColor
+        table.cell(readTable, 0, r, "Extension Filter", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, extDbgStr, text_color = extDbgCol, text_size = size.tiny)
+        r += 1
+
+        // MSS quality (Chapter 2.2)
+        string mssQDbgStr = "L: " + liveSetup.mssQualityReasonLong + "  |  S: " + liveSetup.mssQualityReasonShort
+        color mssQDbgCol = (liveSetup.mssQualityPassLong or liveSetup.mssQualityPassShort) ? uiNeutralColor : uiLabelText
+        table.cell(readTable, 0, r, "MSS Quality", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, mssQDbgStr, text_color = mssQDbgCol, text_size = size.tiny)
+        r += 1
+
+        // Activation path (Chapter 2.2)
+        string actPathStr = liveSetup.activationPathDominant != "" ? liveSetup.activationPathDominant : "blocked"
+        color actPathCol = liveSetup.activationPathDominant != "" ? uiPosColor : uiLabelText
+        table.cell(readTable, 0, r, "Activation Path", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, actPathStr, text_color = actPathCol, text_size = size.tiny)
+        r += 1
+
+        // Pending freshness (Chapter 2.2)
+        string freshDbgStr = "L: " + liveSetup.freshnessReasonLong + "  |  S: " + liveSetup.freshnessReasonShort
+        table.cell(readTable, 0, r, "Pending Freshness", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, freshDbgStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+        // Mode policy thresholds
+        string modeThrStr = "Min cand: " + lifecycle_name(mode_min_lifecycle_for_candidate(sensitivityMode)) + "  |  Min act: " + lifecycle_name(mode_min_lifecycle_for_activation(sensitivityMode))
+        table.cell(readTable, 0, r, "Mode Thresholds", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, modeThrStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+        // Chapter 2.1: Pending Activation Debug
+        string pendDbgL = _pendingLongActive ? "ACTIVE sig=" + str.tostring(_pendingLongSignalBar) + " exp=" + str.tostring(_pendingLongExpiryBar) + " lc=" + lifecycle_name(_pendingLongInitialLC) + " [" + _pendingLongMode + "]" : "—"
+        string pendDbgS = _pendingShortActive ? "ACTIVE sig=" + str.tostring(_pendingShortSignalBar) + " exp=" + str.tostring(_pendingShortExpiryBar) + " lc=" + lifecycle_name(_pendingShortInitialLC) + " [" + _pendingShortMode + "]" : "—"
+        table.cell(readTable, 0, r, "Pending Long", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, pendDbgL, text_color = _pendingLongActive ? color.orange : uiLabelText, text_size = size.tiny)
+        r += 1
+
+        table.cell(readTable, 0, r, "Pending Short", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, pendDbgS, text_color = _pendingShortActive ? color.orange : uiLabelText, text_size = size.tiny)
+        r += 1
+
+        // Pending activation window
+        string pendWinStr = "AGG=" + str.tostring(mode_pending_activation_bars("Aggressive")) + "  BAL=" + str.tostring(mode_pending_activation_bars("Balanced")) + "  CON=" + str.tostring(mode_pending_activation_bars("Conservative")) + "  (current: " + str.tostring(mode_pending_activation_bars(sensitivityMode)) + ")"
+        table.cell(readTable, 0, r, "Pending Windows", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, pendWinStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+        // Delayed activation status this bar
+        string delayActStr = liveSetup.pendingLongActivatedThisBar ? "LONG activated via delayed" : liveSetup.pendingShortActivatedThisBar ? "SHORT activated via delayed" : "No delayed activation"
+        color delayActCol = (liveSetup.pendingLongActivatedThisBar or liveSetup.pendingShortActivatedThisBar) ? uiPosColor : uiLabelText
+        table.cell(readTable, 0, r, "Delayed Activation", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, delayActStr, text_color = delayActCol, text_size = size.tiny)
+        r += 1
+
         // Desync status
         string desyncStr = liveSetup.lifecycleIsDesynced ? "DESYNC: " + liveSetup.lifecycleDesyncReason : "OK — no invariant violations"
         color desyncCol = liveSetup.lifecycleIsDesynced ? color.red : uiPosColor
@@ -2639,7 +3502,13 @@ var box candSl = na
 var label candLbl = na
 
 if barstate.islast
-    if showSetups and showCandidatePreview and liveSetup.score >= 60 and na(activeTrade) and not liveSetup.isExpired and not liveSetup.isConflicted and not liveSetup.isDegraded and not dominantLiquidityBlocked
+    // Chapter 2.1+2.2: Candidate preview with quality gating
+    bool hasPendingCandidate = (liveSetup.pendingLongActive and liveSetup.pendingLongCanStillActivate) or (liveSetup.pendingShortActive and liveSetup.pendingShortCanStillActivate)
+    // Chapter 2.2: Block preview for stale or overextended setups
+    bool domExtended = pickLong ? liveSetup.extensionBlockedLong : liveSetup.extensionBlockedShort
+    bool domPendingStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
+    bool qualityPreviewOk = not domExtended and not domPendingStale
+    if showSetups and showCandidatePreview and (liveSetup.dominantMeetsModeCandidate or hasPendingCandidate) and qualityPreviewOk and na(activeTrade) and not liveSetup.isExpired and not liveSetup.isConflicted and not liveSetup.isDegraded and not dominantLiquidityBlocked and not liveSetup.lifecycleIsDesynced
         float projRisk = atr * 1.5
         float entry = close
         bool isLongCandidate = liveSetup.isPotentialLong
@@ -2649,11 +3518,14 @@ if barstate.islast
         color candTpCol = isLongCandidate ? longTpColor : shortTpColor
         color candSlCol = isLongCandidate ? longSlColor : shortSlColor
 
+        // Chapter 2.1: Pending suffix for candidate label
+        string pendSuffix = hasPendingCandidate and not liveSetup.dominantMeetsModeCandidate ? " [PENDING]" : ""
+
         if na(candTp)
             candTp := box.new(bar_index, isLongCandidate ? tp : entry, bar_index + width, isLongCandidate ? entry : tp, bgcolor = color.new(candTpCol, activeTransp + 5), border_color = candTpCol, border_width = activeBorderWidth)
             candSl := box.new(bar_index, isLongCandidate ? entry : sl, bar_index + width, isLongCandidate ? sl : entry, bgcolor = color.new(candSlCol, activeTransp + 5), border_color = candSlCol, border_width = activeBorderWidth)
             string candDir = isLongCandidate ? "▲ " : "▼ "
-            candLbl := label.new(bar_index + width, entry, candDir + "Candidate (" + str.tostring(liveSetup.score) + "%" + (liveSetup.sequenceValid ? " ✓" : "") + ")", color = #00000000, textcolor = setupLabelColor, style = label.style_label_left, size = size.small)
+            candLbl := label.new(bar_index + width, entry, candDir + "Candidate (" + str.tostring(liveSetup.score) + "%" + (liveSetup.sequenceValid ? " ✓" : "") + ")" + pendSuffix, color = #00000000, textcolor = setupLabelColor, style = label.style_label_left, size = size.small)
         else
             box.set_lefttop(candTp, bar_index, isLongCandidate ? tp : entry)
             box.set_rightbottom(candTp, bar_index + width, isLongCandidate ? entry : tp)
@@ -2665,7 +3537,7 @@ if barstate.islast
             box.set_border_color(candSl, candSlCol)
             label.set_xy(candLbl, bar_index + width, entry)
             string candDir2 = isLongCandidate ? "▲ " : "▼ "
-            label.set_text(candLbl, candDir2 + "Candidate (" + str.tostring(liveSetup.score) + "%" + (liveSetup.sequenceValid ? " ✓" : "") + ")")
+            label.set_text(candLbl, candDir2 + "Candidate (" + str.tostring(liveSetup.score) + "%" + (liveSetup.sequenceValid ? " ✓" : "") + ")" + pendSuffix)
             label.set_textcolor(candLbl, setupLabelColor)
     else
         if not na(candTp)
