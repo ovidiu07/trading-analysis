@@ -73,6 +73,24 @@ type SetupState
     bool    isExpired = false
     bool    isConflicted = false
     bool    isDegraded = false
+    // Chapter 1: Setup Lifecycle
+    int     lifecycleLong = 0
+    int     lifecycleShort = 0
+    int     lifecycleDominant = 0
+    string  lifecycleNameLong = ""
+    string  lifecycleNameShort = ""
+    string  lifecycleNameDominant = ""
+    string  lifecycleReasonLong = ""
+    string  lifecycleReasonShort = ""
+    string  lifecycleReasonDominant = ""
+    string  lifecycleNextRequiredLong = ""
+    string  lifecycleNextRequiredShort = ""
+    string  lifecycleNextRequiredDominant = ""
+    bool    lifecycleCanActivateLong = false
+    bool    lifecycleCanActivateShort = false
+    bool    lifecycleCanActivateDominant = false
+    bool    lifecycleIsDesynced = false
+    string  lifecycleDesyncReason = ""
 
 type SmartZone
     box   boxId
@@ -132,6 +150,20 @@ int LIFE_CONFIRMED       = 3   // Validated by rejection/displacement
 int LIFE_CONSUMED        = 4   // Used by MSS/setup
 int LIFE_STALE           = 5
 int LIFE_INVALIDATED     = 6
+
+// --- Setup Lifecycle Constants (Chapter 1: State Machine Integrity) ---
+int LC_NONE                    = 0   // No meaningful setup context
+int LC_LIQUIDITY_IDENTIFIED    = 1   // Liquidity nearby but not swept
+int LC_SWEEP_CONFIRMED         = 2   // Liquidity swept, no structure shift yet
+int LC_RECLAIM_VISIBLE         = 3   // Post-sweep recovery visible, MSS not confirmed
+int LC_MSS_CONFIRMED           = 4   // MSS confirmed after sweep
+int LC_DISPLACEMENT_CONFIRMED  = 5   // MSS + strong displacement confirmed
+int LC_ENTRY_ARMED             = 6   // Full sequence complete (sweep→MSS→FVG), entry zone exists
+int LC_ENTRY_TRIGGERED         = 7   // Entry criteria triggered, trade can activate
+int LC_ACTIVE                  = 8   // Valid active trade
+int LC_EXPIRED                 = 9   // Setup aged out
+int LC_INVALIDATED             = 10  // Setup structurally negated
+int LC_DESYNC                  = 11  // Contradictory state detected
 
 // --- Liquidity Level Type ---
 // Represents a monitored liquidity source with classification metadata
@@ -1475,6 +1507,114 @@ if array.size(obArray) > 0
                 obBearConfluence := true
 
 // --- Setup Readiness Evaluation ---
+// =====================================================================
+// --- SETUP LIFECYCLE HELPERS (Chapter 1: State Machine Integrity) ---
+// =====================================================================
+
+lifecycle_name(int lc) =>
+    lc == LC_NONE ? "No setup"
+     : lc == LC_LIQUIDITY_IDENTIFIED ? "Liquidity identified"
+     : lc == LC_SWEEP_CONFIRMED ? "Liquidity swept"
+     : lc == LC_RECLAIM_VISIBLE ? "Reclaim visible"
+     : lc == LC_MSS_CONFIRMED ? "Structure confirmed"
+     : lc == LC_DISPLACEMENT_CONFIRMED ? "Displacement confirmed"
+     : lc == LC_ENTRY_ARMED ? "Setup ready"
+     : lc == LC_ENTRY_TRIGGERED ? "Entry triggered"
+     : lc == LC_ACTIVE ? "Trade active"
+     : lc == LC_EXPIRED ? "Setup expired"
+     : lc == LC_INVALIDATED ? "Setup invalidated"
+     : lc == LC_DESYNC ? "State desync" : "Unknown"
+
+lifecycle_allows_activation(int lc) =>
+    lc == LC_ENTRY_TRIGGERED or lc == LC_ACTIVE
+
+lifecycle_is_preconfirmation(int lc) =>
+    lc <= LC_SWEEP_CONFIRMED
+
+lifecycle_is_terminal(int lc) =>
+    lc == LC_EXPIRED or lc == LC_INVALIDATED or lc == LC_DESYNC
+
+lifecycle_action_text(int lc) =>
+    lc == LC_NONE ? "Stand aside — no setup"
+     : lc == LC_LIQUIDITY_IDENTIFIED ? "Monitor liquidity — prepare for sweep"
+     : lc == LC_SWEEP_CONFIRMED ? "Wait for structure shift"
+     : lc == LC_RECLAIM_VISIBLE ? "Wait for confirmed structure shift"
+     : lc == LC_MSS_CONFIRMED ? "Wait for displacement / entry development"
+     : lc == LC_DISPLACEMENT_CONFIRMED ? "Wait for entry zone"
+     : lc == LC_ENTRY_ARMED ? "Setup ready — monitor trigger"
+     : lc == LC_ENTRY_TRIGGERED ? "Entry triggered — validate activation"
+     : lc == LC_ACTIVE ? "Trade active — manage position"
+     : lc == LC_EXPIRED ? "No trade — setup expired"
+     : lc == LC_INVALIDATED ? "No trade — setup invalidated"
+     : lc == LC_DESYNC ? "State error — setup/trade desync" : "Unknown state"
+
+lifecycle_next_required(int lc, bool isLong, float pivotVal, float reqLevel) =>
+    string side = isLong ? "bullish" : "bearish"
+    string liqSide = isLong ? "sell-side" : "buy-side"
+    string result = ""
+    if lc == LC_NONE
+        result := "Identify " + liqSide + " liquidity to target"
+    else if lc == LC_LIQUIDITY_IDENTIFIED
+        result := "Wait for " + liqSide + " liquidity sweep" + (na(reqLevel) ? "" : " at " + str.tostring(reqLevel, "#.#####"))
+    else if lc == LC_SWEEP_CONFIRMED
+        result := "Need " + side + " structure shift" + (na(pivotVal) ? "" : " — break " + (isLong ? "above " : "below ") + str.tostring(pivotVal, "#.#####"))
+    else if lc == LC_RECLAIM_VISIBLE
+        result := "Need confirmed " + side + " structure shift"
+    else if lc == LC_MSS_CONFIRMED
+        result := "Need fresh " + side + " displacement / imbalance"
+    else if lc == LC_DISPLACEMENT_CONFIRMED
+        result := "Need " + side + " imbalance / entry zone formation"
+    else if lc == LC_ENTRY_ARMED
+        result := "Monitor retrace / trigger into entry zone"
+    else if lc == LC_ENTRY_TRIGGERED
+        result := "Validate entry conditions for activation"
+    else if lc == LC_ACTIVE
+        result := "Manage active position"
+    else if lc == LC_EXPIRED
+        result := "Setup expired — wait for fresh sequence"
+    else if lc == LC_INVALIDATED
+        result := "Setup invalidated — wait for fresh sequence"
+    else if lc == LC_DESYNC
+        result := "Internal state contradiction detected"
+    result
+
+// Determine lifecycle stage from raw setup data + eval_side outputs
+determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal) =>
+    int lc = LC_NONE
+    string reason = ""
+    if expired
+        lc := LC_EXPIRED
+        reason := "Structure shift expired without progression"
+    else if degraded
+        lc := LC_INVALIDATED
+        reason := "Imbalance zone was filled"
+    else if seqOk
+        lc := LC_ENTRY_ARMED
+        reason := "Full sequence: sweep → MSS → FVG"
+    else if swept and not na(mssBar_) and not na(sweepBar_) and mssBar_ >= sweepBar_
+        if not na(mssDisp) and mssDisp > 1.5
+            lc := LC_DISPLACEMENT_CONFIRMED
+            reason := "Strong displacement (" + str.tostring(mssDisp, "#.##") + "x ATR)"
+        else
+            lc := LC_MSS_CONFIRMED
+            reason := "Structure shift confirmed after sweep"
+    else if swept
+        lc := LC_SWEEP_CONFIRMED
+        reason := "Liquidity swept — awaiting structure shift"
+    else if not na(reqLevel) and not na(atrVal) and atrVal > 0
+        float proximity = math.abs(close - reqLevel) / atrVal
+        if proximity < 3.0
+            lc := LC_LIQUIDITY_IDENTIFIED
+            reason := (isLong ? "SSL" : "BSL") + " at " + str.tostring(reqLevel, "#.#####") + " (" + str.tostring(proximity, "#.#") + " ATR)"
+        else
+            reason := "Searching for liquidity"
+    else
+        reason := "No setup context"
+    string lcName = lifecycle_name(lc)
+    string nextReq = lifecycle_next_required(lc, isLong, pivotVal, reqLevel)
+    bool canActivate = lifecycle_allows_activation(lc)
+    [lc, lcName, nextReq, canActivate, reason]
+
 SetupState liveSetup = SetupState.new()
 
 // Evaluate one side (long or short) with quality-weighted, sequence-aware scoring
@@ -1659,6 +1799,10 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
 [scoreLong, phaseLong, missingLong, swGradeL, msGradeL, fgGradeL, seqOkL, trigL, expiredL, degradedL] = eval_side(true, marketBias, pdStatus, isKillzone, isSilverBullet, sweptSSL, sweepQualitySSL, bestSweepBarSSL, bestSweepGradeSSL, bestSweepExtSSL, bestSweepSrcSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, obBullConfluence, lastPHi, reqL, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
 [scoreShort, phaseShort, missingShort, swGradeS, msGradeS, fgGradeS, seqOkS, trigS, expiredS, degradedS] = eval_side(false, marketBias, pdStatus, isKillzone, isSilverBullet, sweptBSL, sweepQualityBSL, bestSweepBarBSL, bestSweepGradeBSL, bestSweepExtBSL, bestSweepSrcBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, obBearConfluence, lastPLo, reqS, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
 
+// --- Lifecycle Determination (Chapter 1) ---
+[lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr)
+[lcShort, lcNameShort, lcNextReqShort, lcCanActShort, lcReasonShort] = determine_lifecycle(sweptBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, expiredS, degradedS, reqS, lastPLo, false, atr)
+
 // --- Select dominant side and populate SetupState ---
 // Bias acts as tiebreaker multiplier, not gate
 float biasMultLong = marketBias == "Bullish" ? 1.15 : marketBias == "Bearish" ? 0.85 : 1.0
@@ -1696,6 +1840,24 @@ liveSetup.isExpired := pickLong ? expiredL : expiredS
 liveSetup.isDegraded := pickLong ? degradedL : degradedS
 liveSetup.isConflicted := isConflicted
 
+// Lifecycle fields
+liveSetup.lifecycleLong := lcLong
+liveSetup.lifecycleShort := lcShort
+liveSetup.lifecycleNameLong := lcNameLong
+liveSetup.lifecycleNameShort := lcNameShort
+liveSetup.lifecycleReasonLong := lcReasonLong
+liveSetup.lifecycleReasonShort := lcReasonShort
+liveSetup.lifecycleNextRequiredLong := lcNextReqLong
+liveSetup.lifecycleNextRequiredShort := lcNextReqShort
+liveSetup.lifecycleCanActivateLong := lcCanActLong
+liveSetup.lifecycleCanActivateShort := lcCanActShort
+// Dominant lifecycle
+liveSetup.lifecycleDominant := pickLong ? lcLong : lcShort
+liveSetup.lifecycleNameDominant := pickLong ? lcNameLong : lcNameShort
+liveSetup.lifecycleReasonDominant := pickLong ? lcReasonLong : lcReasonShort
+liveSetup.lifecycleNextRequiredDominant := pickLong ? lcNextReqLong : lcNextReqShort
+liveSetup.lifecycleCanActivateDominant := pickLong ? lcCanActLong : lcCanActShort
+
 // Phase 5: Lifecycle overrides
 // Expired/Degraded phases are already set by eval_side — just assign dominant side
 liveSetup.phase := pickLong ? phaseLong : phaseShort
@@ -1706,6 +1868,10 @@ if isConflicted
     liveSetup.phase := "Market conflicted"
     liveSetup.missing := "Both long (" + str.tostring(scoreLong) + ") and short (" + str.tostring(scoreShort) + ") setups active — no clear edge, stand aside"
     liveSetup.score := math.max(scoreLong, scoreShort)
+    liveSetup.lifecycleDominant := LC_NONE
+    liveSetup.lifecycleNameDominant := "Market conflicted"
+    liveSetup.lifecycleNextRequiredDominant := "Both sides active — stand aside"
+    liveSetup.lifecycleCanActivateDominant := false
 
 // --- Strategy Detection ---
 [ictGateLong, ictGateLongInfo, ictHasValidExternalLong] = ict_liquidity_gate(true, lastMssBullBar, lastMssBullDispStrength)
@@ -1736,6 +1902,9 @@ else if not pickLong and enableSilverBullet and inSB and bearFvgAligned and not 
 
 bool dominantLiquidityBlocked = pickLong ? ((enableICT2022 and mssBull and not ictGateLong) or (enableSilverBullet and inSB and bullFvgAligned and not sbGateLong)) : ((enableICT2022 and mssBear and not ictGateShort) or (enableSilverBullet and inSB and bearFvgAligned and not sbGateShort))
 
+// Gate-blocked lifecycle update — preserve detailed gate info in next-required
+if dominantLiquidityBlocked and liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED
+    liveSetup.lifecycleNextRequiredDominant := liveSetup.missing
 
 // --- Alert History Engine ---
 var AlertLog[] alertLogs = array.new<AlertLog>()
@@ -1765,7 +1934,33 @@ method update_stats(Stats s, float rEarned, bool isWin) =>
 bool isSignalB = sig2022B or sigSBB
 bool isSignalS = sig2022S or sigSBS
 
-if (isSignalB or isSignalS) and na(activeTrade)
+// --- Signal Lifecycle Promotion (Chapter 1) ---
+// When a valid strategy signal fires, the signal itself IS the entry trigger.
+// Promote lifecycle from MSS_CONFIRMED+ to ENTRY_TRIGGERED.
+if isSignalB and liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and liveSetup.lifecycleLong < LC_ENTRY_TRIGGERED
+    liveSetup.lifecycleLong := LC_ENTRY_TRIGGERED
+    liveSetup.lifecycleNameLong := lifecycle_name(LC_ENTRY_TRIGGERED)
+    liveSetup.lifecycleCanActivateLong := true
+if isSignalS and liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and liveSetup.lifecycleShort < LC_ENTRY_TRIGGERED
+    liveSetup.lifecycleShort := LC_ENTRY_TRIGGERED
+    liveSetup.lifecycleNameShort := lifecycle_name(LC_ENTRY_TRIGGERED)
+    liveSetup.lifecycleCanActivateShort := true
+
+// Update dominant lifecycle after signal promotion
+if (isSignalB and pickLong) or (isSignalS and not pickLong)
+    liveSetup.lifecycleDominant := pickLong ? liveSetup.lifecycleLong : liveSetup.lifecycleShort
+    liveSetup.lifecycleNameDominant := lifecycle_name(liveSetup.lifecycleDominant)
+    liveSetup.lifecycleCanActivateDominant := pickLong ? liveSetup.lifecycleCanActivateLong : liveSetup.lifecycleCanActivateShort
+
+// --- Trade Activation with Lifecycle Guard (Chapter 1) ---
+bool signalLifecycleOk = (isSignalB and lifecycle_allows_activation(liveSetup.lifecycleLong)) or (isSignalS and lifecycle_allows_activation(liveSetup.lifecycleShort))
+
+// Desync: signal fired but lifecycle doesn't authorize activation — block trade
+if (isSignalB or isSignalS) and na(activeTrade) and not signalLifecycleOk
+    liveSetup.lifecycleIsDesynced := true
+    liveSetup.lifecycleDesyncReason := "Signal blocked at " + (isSignalB ? lifecycle_name(liveSetup.lifecycleLong) : lifecycle_name(liveSetup.lifecycleShort))
+
+if (isSignalB or isSignalS) and na(activeTrade) and signalLifecycleOk
     float sl = isSignalB ? low[1] - (atr * 0.5) : high[1] + (atr * 0.5)
     float risk = math.abs(close - sl)
     float tp1 = isSignalB ? close + risk * 1.0 : close - risk * 1.0
@@ -1836,6 +2031,49 @@ if not na(activeTrade)
             box.delete(array.shift(historicalBoxes))
             box.delete(array.shift(historicalBoxes))
         activeTrade := na
+
+// =====================================================================
+// --- POST-TRADE LIFECYCLE RECONCILIATION & INVARIANT VALIDATION ---
+// (Chapter 1: State Machine Integrity)
+// =====================================================================
+
+// If activeTrade exists, lifecycle dominant must be ACTIVE
+if not na(activeTrade)
+    liveSetup.lifecycleDominant := LC_ACTIVE
+    liveSetup.lifecycleNameDominant := lifecycle_name(LC_ACTIVE)
+    liveSetup.lifecycleNextRequiredDominant := "Manage active position"
+    liveSetup.lifecycleCanActivateDominant := true
+
+// --- Invariant Validation ---
+// Detect impossible state combinations and flag as DESYNC
+
+// Invariant 3: Pre-confirmation lifecycle but sequenceValid reports true
+if lifecycle_is_preconfirmation(liveSetup.lifecycleLong) and seqOkL
+    liveSetup.lifecycleIsDesynced := true
+    liveSetup.lifecycleDesyncReason := "Long: pre-confirmation lifecycle (" + lifecycle_name(liveSetup.lifecycleLong) + ") but sequence valid"
+    liveSetup.lifecycleDominant := LC_DESYNC
+if lifecycle_is_preconfirmation(liveSetup.lifecycleShort) and seqOkS
+    liveSetup.lifecycleIsDesynced := true
+    liveSetup.lifecycleDesyncReason := "Short: pre-confirmation lifecycle (" + lifecycle_name(liveSetup.lifecycleShort) + ") but sequence valid"
+    liveSetup.lifecycleDominant := LC_DESYNC
+
+// Invariant 5: Dominant says can activate but lifecycle below ENTRY_ARMED
+if liveSetup.lifecycleCanActivateDominant and liveSetup.lifecycleDominant < LC_ENTRY_ARMED and liveSetup.lifecycleDominant != LC_ACTIVE
+    liveSetup.lifecycleIsDesynced := true
+    liveSetup.lifecycleDesyncReason := "canActivate=true at lifecycle=" + lifecycle_name(liveSetup.lifecycleDominant)
+    liveSetup.lifecycleDominant := LC_DESYNC
+
+// --- Backward-Compatible Field Overrides (lifecycle-authoritative) ---
+if liveSetup.lifecycleIsDesynced
+    liveSetup.phase := "State desync"
+    liveSetup.missing := liveSetup.lifecycleDesyncReason
+    liveSetup.sequenceValid := false
+    liveSetup.lifecycleNameDominant := lifecycle_name(LC_DESYNC)
+else if not liveSetup.isConflicted
+    liveSetup.phase := liveSetup.lifecycleNameDominant
+    if not dominantLiquidityBlocked
+        liveSetup.missing := liveSetup.lifecycleNextRequiredDominant
+    liveSetup.sequenceValid := liveSetup.lifecycleDominant >= LC_ENTRY_ARMED
 
 // --- Level Rendering ---
 render_level(float val, bool show, color col, string txt, string mode, int segLen, int offset, string styleStr, int width, bool showLabel) =>
@@ -1924,35 +2162,17 @@ format_score_bias(int sL, int sS) =>
     int diff = sL - sS
     math.abs(diff) < 5 ? "Neutral" : diff >= 20 ? "Strong long bias" : diff >= 10 ? "Long bias" : diff > 0 ? "Slight long bias" : diff <= -20 ? "Strong short bias" : diff <= -10 ? "Short bias" : "Slight short bias"
 
-format_action(string phase, bool isConflicted, bool isExpired, bool isDegraded, bool seqValid, int score, bool isLong, bool gateBlocked, bool hasActiveTrade) =>
-    string a = "Stand aside — no setup forming"
-    if hasActiveTrade
-        a := "Trade active — manage position"
+// Lifecycle-driven format_action (Chapter 1: State Machine Integrity)
+// Action text is now derived from lifecycle stage, not from loose phase/score inference.
+format_action(int lcDom, bool isDesynced, bool isConflicted, bool isLong, bool gateBlocked, bool hasActiveTrade) =>
+    if isDesynced
+        "State error — setup/trade desync"
     else if isConflicted
-        a := "Stand aside — both sides active, no clear edge"
-    else if isExpired
-        a := "No trade — setup expired"
-    else if isDegraded
-        a := "No trade — imbalance was filled"
-    else if gateBlocked
-        a := "Setup blocked — check strategy eligibility"
-    else if seqValid and score >= 60
-        a := (isLong ? "Bullish" : "Bearish") + " setup ready — monitor entry zone"
-    else if str.contains(phase, "Awaiting imbalance")
-        a := "Wait for fresh " + (isLong ? "bullish" : "bearish") + " imbalance"
-    else if str.contains(phase, "Structure confirmed")
-        a := "Wait for " + (isLong ? "bullish" : "bearish") + " imbalance after structure shift"
-    else if str.contains(phase, "Awaiting structure shift")
-        a := "Wait for " + (isLong ? "bullish" : "bearish") + " structure confirmation"
-    else if str.contains(phase, "Liquidity swept")
-        a := "Wait for " + (isLong ? "bullish" : "bearish") + " structure shift"
-    else if str.contains(phase, "imminent")
-        a := "Approaching key liquidity — prepare for sweep"
-    else if str.contains(phase, "nearby") or str.contains(phase, "Approaching")
-        a := "Monitoring — approaching key liquidity"
-    else if score >= 15
-        a := "Monitoring — setup developing"
-    a
+        "Stand aside — both sides active, no clear edge"
+    else if gateBlocked and lcDom >= LC_MSS_CONFIRMED and lcDom < LC_ENTRY_TRIGGERED
+        "Setup blocked — check strategy eligibility"
+    else
+        lifecycle_action_text(lcDom)
 
 // =====================================================================
 // --- DASHBOARD 1: Trading Assistant ---
@@ -1969,7 +2189,7 @@ if showReadiness and barstate.islast
     bool showContext = isAnalyst or isDebug
     bool showAdvanced = isDebug
 
-    int maxR = isDebug ? 38 : isAnalyst ? 26 : 16
+    int maxR = isDebug ? 44 : isAnalyst ? 26 : 16
     readTable := table.new(resolve_pos(readinessPos), 2, maxR, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
 
     float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
@@ -1979,12 +2199,12 @@ if showReadiness and barstate.islast
     string dirStr = liveSetup.isConflicted ? "◆ BOTH" : liveSetup.isPotentialLong ? "▲ LONG" : "▼ SHORT"
     color dirColor = liveSetup.isConflicted ? color.yellow : liveSetup.isPotentialLong ? uiPosColor : uiNegColor
 
-    // Setup state color
-    color phaseColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : str.contains(liveSetup.phase, "Setup ready") ? uiPosColor : str.contains(liveSetup.phase, "confirmed") or str.contains(liveSetup.phase, "swept") ? color.orange : liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 40 ? color.orange : uiNeutralColor
+    // Setup state color — lifecycle-driven (Chapter 1)
+    color phaseColor = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.isConflicted ? color.yellow : lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : uiNeutralColor
 
-    // Trader action
-    string actionStr = format_action(liveSetup.phase, liveSetup.isConflicted, liveSetup.isExpired, liveSetup.isDegraded, liveSetup.sequenceValid, liveSetup.score, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade))
-    color actionColor = str.contains(actionStr, "ready") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") ? color.orange : uiNeutralColor
+    // Trader action — lifecycle-driven (Chapter 1)
+    string actionStr = format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade))
+    color actionColor = str.contains(actionStr, "desync") or str.contains(actionStr, "error") ? color.red : str.contains(actionStr, "ready") or str.contains(actionStr, "Trade active") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") or str.contains(actionStr, "invalidated") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") ? color.orange : uiNeutralColor
 
     // Confidence
     string confStr = format_confidence(liveSetup.score)
@@ -2246,6 +2466,46 @@ if showReadiness and barstate.islast
             rnLiqStr := "—"
         table.cell(readTable, 0, r, "Nearest RN Liq", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
         table.cell(readTable, 1, r, rnLiqStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+    // ═══════════════════════════════════════════════════════════════
+    // LIFECYCLE STATE BLOCK — Chapter 1 diagnostics (Debug mode only)
+    // ═══════════════════════════════════════════════════════════════
+    if showAdvanced
+        table.cell(readTable, 0, r, "─── Lifecycle ───", text_color = uiHeaderText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, "", bgcolor = uiBg)
+        r += 1
+
+        // Lifecycle Stage (dominant)
+        string lcStageStr = lifecycle_name(liveSetup.lifecycleDominant) + " (" + str.tostring(liveSetup.lifecycleDominant) + ")"
+        color lcStageCol = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : uiNeutralColor
+        table.cell(readTable, 0, r, "Lifecycle Stage", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, lcStageStr, text_color = lcStageCol, text_size = size.tiny)
+        r += 1
+
+        // Lifecycle Reason
+        table.cell(readTable, 0, r, "Lifecycle Reason", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, liveSetup.lifecycleReasonDominant, text_color = uiValueText, text_size = size.tiny)
+        r += 1
+
+        // Both sides lifecycle
+        string lcBothStr = "L: " + lifecycle_name(liveSetup.lifecycleLong) + " (" + str.tostring(liveSetup.lifecycleLong) + ")  |  S: " + lifecycle_name(liveSetup.lifecycleShort) + " (" + str.tostring(liveSetup.lifecycleShort) + ")"
+        table.cell(readTable, 0, r, "Lifecycle L/S", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, lcBothStr, text_color = uiNeutralColor, text_size = size.tiny)
+        r += 1
+
+        // Activation allowed
+        string lcActStr = "Can activate: " + (liveSetup.lifecycleCanActivateDominant ? "YES" : "NO")
+        color lcActCol = liveSetup.lifecycleCanActivateDominant ? uiPosColor : uiLabelText
+        table.cell(readTable, 0, r, "Activation Gate", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, lcActStr, text_color = lcActCol, text_size = size.tiny)
+        r += 1
+
+        // Desync status
+        string desyncStr = liveSetup.lifecycleIsDesynced ? "DESYNC: " + liveSetup.lifecycleDesyncReason : "OK — no invariant violations"
+        color desyncCol = liveSetup.lifecycleIsDesynced ? color.red : uiPosColor
+        table.cell(readTable, 0, r, "Integrity", text_color = uiLabelText, text_size = size.tiny, text_halign = text.align_left)
+        table.cell(readTable, 1, r, desyncStr, text_color = desyncCol, text_size = size.tiny)
         r += 1
 
     // ═══════════════════════════════════════════════════════════════
