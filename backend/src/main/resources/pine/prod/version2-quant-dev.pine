@@ -1,0 +1,1213 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © LuxAlgo
+
+//@version=6
+indicator("SMC & ICT Multi-Strategy [Pro Visuals]", shorttitle="SMC ICT Pro", overlay=true, max_boxes_count=500, max_lines_count=500, max_labels_count=500)
+
+// ==========================================
+// CHAPTER 1, 2, 3 & 4 — CORE ENGINE & MSS
+// ==========================================
+
+// --- Lifecycle Constants ---
+const int LC_NONE                 = 0
+const int LC_LIQUIDITY_IDENTIFIED = 1
+const int LC_SWEEP_CONFIRMED      = 2
+const int LC_RECLAIM_VISIBLE      = 3
+const int LC_MSS_CONFIRMED        = 4
+const int LC_DISPLACEMENT_VALID   = 5
+const int LC_ENTRY_ARMED          = 6
+const int LC_ACTIVE               = 7
+const int LC_EXPIRED              = 8
+const int LC_INVALIDATED          = 9
+const int LC_DESYNC               = 10
+
+// --- Sensitivity Modes ---
+const string MODE_AGGR = "Aggressive"
+const string MODE_BAL  = "Balanced"
+const string MODE_CONS = "Conservative"
+
+// --- Colors ---
+color C_BULL = #089981
+color C_BEAR = #f23645
+color C_NEUT = #5b9cf6
+
+// ==========================================
+// DATA MODEL (STATE)
+// ==========================================
+
+type LiqLevel
+    float price
+    bool  isHigh
+    int   originTime
+    label lb = na
+
+type SetupState
+    int    phase          = 0
+    int    prevPhase      = 0
+    bool   isLong         = false
+    float  setupLow       = na
+    float  setupHigh      = na
+    float  sweepLevel     = na
+    float  reclaimLevel   = na
+    float  mssLevel       = na
+    float  entryPrice     = na
+    float  stopPrice      = na
+    float  tpPrice        = na
+    int    startBar       = 0
+    int    lastUpdateBar  = 0
+    string status         = "Idle"
+    string missing        = "Liquidity"
+    string reason         = "Waiting for market structure"
+    bool   isCandidate    = false
+    bool   isArmed        = false
+    bool   isActive       = false
+    bool   isInvalid      = false
+    bool   isExpired      = false
+    string qualityText    = "No setup"
+    string desyncReason   = ""
+    // --- Mode Fields ---
+    string modeLabel      = ""
+    string modeReason     = ""
+    string modeBlockReason = ""
+    bool   modeCanProceed = false
+    float  modeStrictness = 0.0
+    // --- Chapter 3 Reclaim Fields ---
+    float  reclaimScore   = 0.0
+    bool   reclaimWeak    = false
+    bool   reclaimValid   = false
+    bool   reclaimStrong  = false
+    bool   reclaimFailed  = false
+    int    reclaimAcceptBars = 0
+    string reclaimReason  = ""
+    string reclaimFailureReason = ""
+    // --- Chapter 4 MSS Fields ---
+    float  mssScore       = 0.0
+    bool   mssWeak        = false
+    bool   mssValid       = false
+    bool   mssStrong      = false
+    bool   mssFresh       = false
+    bool   mssFailed      = false
+    float  mssTriggerLevel = na
+    string mssTriggerType = "None"
+    float  mssTriggerSignificance = 0.0
+    string mssReason      = ""
+    string mssFailureReason = ""
+    int    mssConfirmBar  = 0
+    int    mssAgeBars     = 0
+    // --- Chapter 5 Displacement Fields ---
+    float  dispScore       = 0.0
+    bool   dispWeak        = false
+    bool   dispValid       = false
+    bool   dispStrong      = false
+    bool   dispFresh       = false
+    bool   dispFailed      = false
+    float  dispBodySize    = 0.0
+    float  dispRangeSize   = 0.0
+    float  dispCloseQuality = 0.0
+    float  dispBreakDistance = 0.0
+    int    dispConfirmBar  = 0
+    int    dispAgeBars     = 0
+    string dispReason      = ""
+    string dispFailureReason = ""
+    // --- Chapter 6 Pending Activation Fields ---
+    bool   pendingActive      = false
+    bool   pendingLong        = false
+    int    pendingStartBar    = 0
+    int    pendingExpiryBar   = 0
+    int    pendingAgeBars     = 0
+    float  pendingEntryPrice  = na
+    float  pendingStopPrice   = na
+    float  pendingTpPrice     = na
+    string pendingReason      = ""
+    string pendingBlockReason = ""
+    bool   pendingFresh       = false
+    bool   pendingExpired     = false
+    bool   pendingInvalidated = false
+
+// ==========================================
+// INPUTS
+// ==========================================
+
+string modeInput = input.string(MODE_BAL, "Sensitivity Mode", options=[MODE_AGGR, MODE_BAL, MODE_CONS], group="Signal Sensitivity")
+int htfPivotLen = input.int(10, "HTF Pivot Lookback", minval=1, group="Liquidity Engine")
+color bullCol = input.color(C_BULL, "Bullish Color", group="Style")
+color bearCol = input.color(C_BEAR, "Bearish Color", group="Style")
+string dashPosInput = input.string("Top Right", "Dashboard Position", options=["Top Right", "Bottom Right", "Top Left", "Bottom Left"], group="Dashboard")
+
+// ==========================================
+// BUFFER MANAGEMENT
+// ==========================================
+max_bars_back(high, 2000)
+max_bars_back(low, 2000)
+max_bars_back(close, 2000)
+max_bars_back(open, 2000)
+max_bars_back(time, 2000)
+
+// ==========================================
+// MODE POLICY HELPERS
+// ==========================================
+
+mode_min_reclaim_score(string m) =>
+    switch m
+        MODE_AGGR => 0.3
+        MODE_BAL  => 0.5
+        MODE_CONS => 0.7
+        => 0.5
+
+mode_min_displacement_body(string m, float a) =>
+    switch m
+        MODE_AGGR => a * 0.2
+        MODE_BAL  => a * 0.6
+        MODE_CONS => a * 1.0
+        => a * 0.6
+
+mode_max_bars_sweep_to_reclaim(string m) =>
+    switch m
+        MODE_AGGR => 10
+        MODE_BAL  => 15
+        MODE_CONS => 20
+        => 15
+
+mode_max_bars_reclaim_to_mss(string m) =>
+    switch m
+        MODE_AGGR => 15
+        MODE_BAL  => 20
+        MODE_CONS => 25
+        => 20
+
+mode_max_bars_mss_to_displacement(string m) =>
+    switch m
+        MODE_AGGR => 8
+        MODE_BAL  => 10
+        MODE_CONS => 12
+        => 10
+
+mode_max_bars_armed_to_entry(string m) =>
+    switch m
+        MODE_AGGR => 20
+        MODE_BAL  => 30
+        MODE_CONS => 40
+        => 30
+
+mode_allows_light_mss(string m) =>
+    m == MODE_AGGR
+
+mode_reclaim_passes(string m, bool isLong, float c, float t, float a) =>
+    float buffer = switch m
+        MODE_AGGR => 0.0
+        MODE_BAL  => a * 0.05
+        MODE_CONS => a * 0.1
+        => 0.0
+    isLong ? c > (t + buffer) : c < (t - buffer)
+
+// Stricter MSS confirmation for Balanced/Conservative
+mode_mss_passes(string m, bool isLong, float c, float t, float a) =>
+    float bodySize = math.abs(close - open)
+    float closeBeyond = isLong ? (c - t) : (t - c)
+    switch m
+        MODE_AGGR => closeBeyond >= 0 and bodySize >= a * 0.1
+        MODE_BAL  => closeBeyond >= a * 0.05 and bodySize >= a * 0.35
+        MODE_CONS => closeBeyond >= a * 0.1 and bodySize >= a * 0.6
+        => false
+
+// Lighter MSS path for Aggressive
+mode_mss_light_passes(string m, bool isLong, float c, float t, float a) =>
+    float bodySize = math.abs(close - open)
+    float closeBeyond = isLong ? (c - t) : (t - c)
+    m == MODE_AGGR and closeBeyond >= 0 and bodySize >= a * 0.1
+
+mode_displacement_passes(string m, float b, float a) =>
+    b >= mode_min_displacement_body(m, a)
+
+// Authoritative Arming Check
+mode_allows_arming(string m, SetupState s, float a) =>
+    float bodySize = math.abs(close - open)
+    float dist = na(s.mssLevel) ? 0.0 : math.abs(close - s.mssLevel)
+    switch m
+        MODE_AGGR => bodySize >= a * 0.15 and dist >= a * 0.1
+        MODE_BAL  => bodySize >= a * 0.45 and dist >= a * 0.25
+        MODE_CONS => bodySize >= a * 0.75 and dist >= a * 0.4
+        => false
+
+// ==========================================
+// CHAPTER 3 — RECLAIM HARDENING HELPERS
+// ==========================================
+
+reclaim_threshold(SetupState s, string mode, float atr) =>
+    float mult = switch mode
+        MODE_AGGR => 0.3
+        MODE_BAL  => 0.5
+        MODE_CONS => 0.7
+        => 0.5
+    s.isLong ? (s.setupLow + atr * mult) : (s.setupHigh - atr * mult)
+
+reclaim_acceptance_bars(SetupState s, float thr) =>
+    int count = 0
+    if not na(thr)
+        for i = 0 to 3
+            if s.isLong
+                if close[i] > thr
+                    count += 1
+            else
+                if close[i] < thr
+                    count += 1
+    count
+
+evaluate_reclaim_score(SetupState s, string mode, float atr) =>
+    float score = 0.0
+    if not (na(s.sweepLevel) or na(s.setupLow) or na(s.setupHigh))
+        float thr = reclaim_threshold(s, mode, atr)
+
+        // 1. Recovery Distance (0.4)
+        float dist = s.isLong ? (close - s.setupLow) : (s.setupHigh - close)
+        score := score + math.min(0.4, (dist / (atr * 2.0)) * 0.4)
+
+        // 2. Threshold Cross (0.2)
+        bool beyond = s.isLong ? close > thr : close < thr
+        if beyond
+            score := score + 0.2
+
+        // 3. Structural Acceptance (0.3)
+        int acc = reclaim_acceptance_bars(s, thr)
+        score := score + (acc >= 3 ? 0.3 : acc >= 2 ? 0.2 : acc >= 1 ? 0.1 : 0.0)
+
+        // 4. Candle Favorability (0.1)
+        bool fav = s.isLong ? close > open : close < open
+        if fav
+            score := score + 0.1
+
+        // Penalty: territorial loss
+        float distToExt = s.isLong ? (close - s.setupLow) : (s.setupHigh - close)
+        if distToExt < atr * 0.15
+            score := score * 0.4
+    math.min(1.0, score)
+
+reclaim_is_valid(SetupState s, string mode, float score, int acceptBars) =>
+    switch mode
+        MODE_AGGR => score >= 0.3
+        MODE_BAL  => score >= 0.5 and acceptBars >= 1
+        MODE_CONS => score >= 0.7 and acceptBars >= 2
+        => false
+
+reclaim_is_strong(SetupState s, string mode, float score, int acceptBars) =>
+    score >= 0.8 and acceptBars >= 2 and s.reclaimFailed == false
+
+reclaim_has_failed(SetupState s, float thr, float atr) =>
+    bool result = false
+    if s.phase >= LC_RECLAIM_VISIBLE
+        float tol = atr * 0.05
+        bool lostThr = s.isLong ? close < (thr - tol) : close > (thr + tol)
+        bool lostExt = s.isLong ? low < s.setupLow : high > s.setupHigh
+        result := lostThr or lostExt
+    result
+
+sync_reclaim_state(SetupState s, string mode, float atr) =>
+    s.reclaimLevel := reclaim_threshold(s, mode, atr)
+    s.reclaimScore := evaluate_reclaim_score(s, mode, atr)
+    s.reclaimAcceptBars := reclaim_acceptance_bars(s, s.reclaimLevel)
+
+    // Check failure first
+    bool isFailed = reclaim_has_failed(s, s.reclaimLevel, atr)
+
+    if isFailed
+        s.reclaimFailed := true
+        s.reclaimValid  := false
+        s.reclaimStrong := false
+        s.reclaimFailureReason := s.isLong ? "Long reclaim failed below threshold" : "Short reclaim failed above threshold"
+        s.reclaimReason := "Failed"
+    else
+        s.reclaimFailed := false
+        s.reclaimValid  := reclaim_is_valid(s, mode, s.reclaimScore, s.reclaimAcceptBars)
+        s.reclaimStrong := reclaim_is_strong(s, mode, s.reclaimScore, s.reclaimAcceptBars)
+        s.reclaimWeak   := s.reclaimScore >= 0.2 and s.reclaimValid == false
+        s.reclaimReason := s.reclaimStrong ? "Strong" : s.reclaimValid ? "Valid" : s.reclaimWeak ? "Weak" : "Waiting"
+        s.reclaimFailureReason := ""
+
+// ==========================================
+// CHAPTER 4 — MSS HELPERS
+// ==========================================
+
+mss_candidate_trigger(SetupState s, float hh5, float ll5, float atr) =>
+    float baseTrig = s.isLong ? hh5 : ll5
+    float minSep = atr * 0.15
+    if not na(s.reclaimLevel)
+        float sep = s.isLong ? (baseTrig - s.reclaimLevel) : (s.reclaimLevel - baseTrig)
+        if sep < minSep
+            baseTrig := baseTrig // Logic placeholder
+    baseTrig
+
+mss_trigger_type(SetupState s, float trig, float atr) =>
+    string tType = "None"
+    if not (na(trig) or na(s.reclaimLevel))
+        float sep = s.isLong ? (trig - s.reclaimLevel) : (s.reclaimLevel - trig)
+        if sep > atr * 1.5
+            tType := "Protected"
+        else if sep > atr * 0.5
+            tType := "Relevant"
+        else
+            tType := "Trivial"
+    tType
+
+mss_trigger_significance(SetupState s, float trig, float atr) =>
+    float sig = 0.0
+    if not (na(trig) or na(s.reclaimLevel))
+        float sep = s.isLong ? (trig - s.reclaimLevel) : (s.reclaimLevel - trig)
+        sig := math.min(1.0, sep / (atr * 2.0))
+    sig
+
+evaluate_mss_score(SetupState s, string mode, float trig, float atr) =>
+    float score = 0.0
+    if not (na(trig) or na(s.reclaimLevel))
+        // 1. Close Beyond Trigger (0.3)
+        float distPast = s.isLong ? (close - trig) : (trig - close)
+        if distPast > 0
+            score := score + 0.3 + math.min(0.1, (distPast / atr) * 0.1)
+
+        // 2. Body Strength (0.2)
+        float body = math.abs(close - open)
+        score := score + math.min(0.2, (body / atr) * 0.2)
+
+        // 3. Trigger Significance (0.2)
+        score := score + mss_trigger_significance(s, trig, atr) * 0.2
+
+        // 4. Directional Candle (0.2)
+        if (s.isLong and close > open) or (not s.isLong and close < open)
+            score := score + 0.2
+
+        // Penalty for shallow break
+        if distPast > 0 and distPast < atr * 0.05
+            score := score * 0.7
+    math.min(1.0, score)
+
+mss_is_valid(SetupState s, string mode, float score, string trigType) =>
+    switch mode
+        MODE_AGGR => score >= 0.35 and trigType != "None"
+        MODE_BAL  => score >= 0.55 and trigType != "Trivial"
+        MODE_CONS => score >= 0.75 and trigType == "Protected"
+        => false
+
+mss_is_strong(float score, string trigType) =>
+    score >= 0.8 and trigType == "Protected"
+
+mss_is_fresh(SetupState s, string mode) =>
+    bool fresh = false
+    if s.mssConfirmBar > 0
+        int age = bar_index - s.mssConfirmBar
+        int maxAge = switch mode
+            MODE_AGGR => 8
+            MODE_BAL  => 12
+            MODE_CONS => 15
+            => 10
+        fresh := age <= maxAge
+    fresh
+
+mss_has_failed(SetupState s, float atr) =>
+    bool failed = false
+    if s.phase >= LC_MSS_CONFIRMED and not na(s.mssTriggerLevel)
+        float tol = atr * 0.05
+        bool lostTrig = s.isLong ? close < (s.mssTriggerLevel - tol) : close > (s.mssTriggerLevel + tol)
+        bool lostRec  = s.isLong ? close < s.reclaimLevel : close > s.reclaimLevel
+        failed := lostTrig or lostRec
+    failed
+
+sync_mss_state(SetupState s, string mode, float hh5, float ll5, float atr) =>
+    s.mssTriggerLevel := mss_candidate_trigger(s, hh5, ll5, atr)
+    s.mssTriggerType  := mss_trigger_type(s, s.mssTriggerLevel, atr)
+    s.mssTriggerSignificance := mss_trigger_significance(s, s.mssTriggerLevel, atr)
+
+    s.mssScore := evaluate_mss_score(s, mode, s.mssTriggerLevel, atr)
+    s.mssAgeBars := s.mssConfirmBar > 0 ? (bar_index - s.mssConfirmBar) : 0
+    s.mssFresh := mss_is_fresh(s, mode)
+
+    if mss_has_failed(s, atr)
+        s.mssFailed := true
+        s.mssValid  := false
+        s.mssStrong := false
+        s.mssFailureReason := s.isLong ? "Long MSS failed below trigger" : "Short MSS failed above trigger"
+        s.mssReason := "Failed"
+    else
+        s.mssFailed := false
+        s.mssValid  := mss_is_valid(s, mode, s.mssScore, s.mssTriggerType)
+        s.mssStrong := mss_is_strong(s.mssScore, s.mssTriggerType)
+        s.mssWeak   := s.mssScore >= 0.2 and not s.mssValid
+        s.mssReason := s.mssStrong ? "Strong" : s.mssValid ? "Valid" : s.mssWeak ? "Weak" : "Waiting"
+        s.mssFailureReason := ""
+// ==========================================
+// CHAPTER 5 — DISPLACEMENT HELPERS
+// ==========================================
+
+displacement_body_size() => math.abs(close - open)
+displacement_range_size() => high - low
+
+displacement_close_quality(bool isLong) =>
+    float rng = math.max(high - low, syminfo.mintick)
+    float q = isLong ? (close - low) / rng : (high - close) / rng
+    math.max(0.0, math.min(1.0, q))
+
+displacement_break_distance(SetupState s, float atr) =>
+    float dist = 0.0
+    if not na(s.mssTriggerLevel)
+        dist := s.isLong ? (close - s.mssTriggerLevel) : (s.mssTriggerLevel - close)
+    math.max(0.0, dist / atr)
+
+evaluate_displacement_score(SetupState s, string mode, float atr) =>
+    float score = 0.0
+    if s.phase >= LC_MSS_CONFIRMED
+        // 1. Body Component (0.3)
+        float bSize = displacement_body_size()
+        score := score + math.min(0.3, (bSize / atr) * 0.3)
+
+        // 2. Range Component (0.2)
+        float rSize = displacement_range_size()
+        score := score + math.min(0.2, (rSize / (atr * 1.5)) * 0.2)
+
+        // 3. Close Quality Component (0.2)
+        score := score + displacement_close_quality(s.isLong) * 0.2
+
+        // 4. Break Distance Component (0.2)
+        float bDist = displacement_break_distance(s, atr)
+        score := score + math.min(0.2, bDist * 0.1)
+
+        // 5. Directional Commitment (0.1)
+        if (s.isLong and close > open) or (not s.isLong and close < open)
+            score := score + 0.1
+
+        // Penalty: Shallow push
+        if bSize < atr * 0.2
+            score := score * 0.5
+
+    math.min(1.0, score)
+
+displacement_is_valid(SetupState s, string mode, float score) =>
+    switch mode
+        MODE_AGGR => score >= 0.35
+        MODE_BAL  => score >= 0.55
+        MODE_CONS => score >= 0.75
+        => false
+
+displacement_is_strong(SetupState s, float score, float closeQuality) =>
+    score >= 0.8 and closeQuality >= 0.7
+
+displacement_is_fresh(SetupState s, string mode) =>
+    bool fresh = false
+    if s.dispConfirmBar > 0
+        int age = bar_index - s.dispConfirmBar
+        int maxAge = switch mode
+            MODE_AGGR => 5
+            MODE_BAL  => 8
+            MODE_CONS => 10
+            => 7
+        fresh := age <= maxAge
+    fresh
+
+displacement_has_failed(SetupState s, float atr) =>
+    bool failed = false
+    if s.phase >= LC_DISPLACEMENT_VALID
+        float tol = atr * 0.05
+        // Failure: price returns below MSS or loses reclaim context
+        bool lostMss = s.isLong ? close < (s.mssLevel - tol) : close > (s.mssLevel + tol)
+        bool lostRec = s.isLong ? close < s.reclaimLevel : close > s.reclaimLevel
+        failed := lostMss or lostRec
+    failed
+
+sync_displacement_state(SetupState s, string mode, float atr) =>
+    s.dispBodySize      := displacement_body_size()
+    s.dispRangeSize     := displacement_range_size()
+    s.dispCloseQuality  := displacement_close_quality(s.isLong)
+    s.dispBreakDistance := displacement_break_distance(s, atr)
+
+    s.dispScore := evaluate_displacement_score(s, mode, atr)
+    s.dispAgeBars := s.dispConfirmBar > 0 ? (bar_index - s.dispConfirmBar) : 0
+    s.dispFresh := displacement_is_fresh(s, mode)
+
+    if displacement_has_failed(s, atr)
+        s.dispFailed := true
+        s.dispValid  := false
+        s.dispStrong := false
+        s.dispFailureReason := s.isLong ? "Long displacement failed below structure" : "Short displacement failed above structure"
+        s.dispReason := "Failed"
+    else
+        s.dispFailed := false
+        s.dispValid  := displacement_is_valid(s, mode, s.dispScore)
+        s.dispStrong := displacement_is_strong(s, s.dispScore, s.dispCloseQuality)
+        s.dispWeak   := s.dispScore >= 0.2 and not s.dispValid
+        s.dispReason := s.dispStrong ? "Strong" : s.dispValid ? "Valid" : s.dispWeak ? "Weak" : "Waiting"
+        s.dispFailureReason := ""
+// ==========================================
+// CHAPTER 6 — PENDING ACTIVATION HELPERS
+// ==========================================
+
+mode_pending_bars(string mode) =>
+    switch mode
+        MODE_AGGR => 5
+        MODE_BAL  => 9
+        MODE_CONS => 12
+        => 9
+
+pending_is_fresh(SetupState s, string mode) =>
+    bool result = false
+    if s.pendingStartBar > 0
+        int age = bar_index - s.pendingStartBar
+        result := age <= mode_pending_bars(mode)
+    result
+
+pending_should_invalidate(SetupState s) =>
+    bool result = false
+    if s.pendingActive
+        bool structureBroken = s.reclaimFailed or s.mssFailed or s.dispFailed
+        bool priceViolatedStop = s.isLong ? (s.isLong ? close < s.pendingStopPrice : close > s.pendingStopPrice) : (s.isLong ? close < s.pendingStopPrice : close > s.pendingStopPrice)
+        // Simplified check
+        bool violated = s.pendingLong ? close < s.pendingStopPrice : close > s.pendingStopPrice
+        result := structureBroken or violated
+    result
+
+pending_should_activate(SetupState s) =>
+    bool result = false
+    if s.pendingActive and s.pendingFresh and not s.pendingInvalidated
+        bool tap = s.pendingLong ? low <= s.pendingEntryPrice : high >= s.pendingEntryPrice
+        result := tap
+    result
+
+sync_pending_state(SetupState s, string mode) =>
+    if s.pendingActive
+        s.pendingAgeBars   := bar_index - s.pendingStartBar
+        s.pendingFresh     := pending_is_fresh(s, mode)
+        s.pendingExpired   := not s.pendingFresh
+        s.pendingInvalidated := pending_should_invalidate(s)
+
+        if s.pendingInvalidated
+            s.pendingActive := false
+            s.pendingReason := "Pending setup invalidated before trigger"
+        else if s.pendingExpired
+            s.pendingActive := false
+            s.pendingReason := "Pending setup expired before trigger"
+        else
+            s.pendingReason := s.pendingLong ? "Pending long waiting for entry" : "Pending short waiting for entry"
+    else
+        s.pendingFresh   := false
+        s.pendingAgeBars := 0
+    float dummy = 0.0
+
+// ==========================================
+// LIFECYCLE HELPERS
+// ==========================================
+
+get_phase_name(int p) =>
+    switch p
+        LC_NONE                 => "Idle"
+        LC_LIQUIDITY_IDENTIFIED => "Liquidity Identified"
+        LC_SWEEP_CONFIRMED      => "Sweep Confirmed"
+        LC_RECLAIM_VISIBLE      => "Reclaim Visible"
+        LC_MSS_CONFIRMED        => "MSS Confirmed"
+        LC_DISPLACEMENT_VALID   => "Displacement Valid"
+        LC_ENTRY_ARMED          => "Entry Armed"
+        LC_ACTIVE               => "Active"
+        LC_EXPIRED              => "Expired"
+        LC_INVALIDATED          => "Invalidated"
+        LC_DESYNC               => "Desync"
+        => "Unknown"
+
+get_next_req(int p) =>
+    switch p
+        LC_NONE                 => "Liquidity"
+        LC_LIQUIDITY_IDENTIFIED => "Sweep"
+        LC_SWEEP_CONFIRMED      => "Reclaim"
+        LC_RECLAIM_VISIBLE      => "MSS"
+        LC_MSS_CONFIRMED        => "Displacement"
+        LC_DISPLACEMENT_VALID   => "Anchor"
+        LC_ENTRY_ARMED          => "Tap"
+        LC_ACTIVE               => "Manage"
+        => "Fresh setup"
+
+get_quality_text(int p) =>
+    switch p
+        LC_NONE                 => "No setup"
+        LC_LIQUIDITY_IDENTIFIED => "Watching"
+        LC_SWEEP_CONFIRMED      => "Early"
+        LC_RECLAIM_VISIBLE      => "Developing"
+        LC_MSS_CONFIRMED        => "Promising"
+        LC_DISPLACEMENT_VALID   => "Qualified"
+        LC_ENTRY_ARMED          => "Ready"
+        LC_ACTIVE               => "Live"
+        LC_EXPIRED              => "Stale"
+        LC_INVALIDATED          => "Broken"
+        LC_DESYNC               => "Error"
+        => "No setup"
+
+phase_status_text(int p) =>
+    switch p
+        LC_NONE                 => "Idle"
+        LC_LIQUIDITY_IDENTIFIED => "Watching liquidity"
+        LC_SWEEP_CONFIRMED      => "Sweep detected"
+        LC_RECLAIM_VISIBLE      => "Reclaim forming"
+        LC_MSS_CONFIRMED        => "Structure shift confirmed"
+        LC_DISPLACEMENT_VALID   => "Displacement confirmed"
+        LC_ENTRY_ARMED          => "Entry armed"
+        LC_ACTIVE               => "Active"
+        LC_EXPIRED              => "Expired"
+        LC_INVALIDATED          => "Invalidated"
+        LC_DESYNC               => "State error"
+        => "Unknown"
+
+phase_is_terminal(int p) =>
+    p == LC_EXPIRED or p == LC_INVALIDATED or p == LC_DESYNC
+
+phase_is_live(int p) =>
+    p == LC_LIQUIDITY_IDENTIFIED or p == LC_SWEEP_CONFIRMED or p == LC_RECLAIM_VISIBLE or p == LC_MSS_CONFIRMED or p == LC_DISPLACEMENT_VALID or p == LC_ENTRY_ARMED or p == LC_ACTIVE
+
+reset_setup(SetupState s, string r) =>
+    s.prevPhase      := s.phase
+    s.phase          := LC_NONE
+    s.isLong         := false
+    s.setupLow       := na
+    s.setupHigh      := na
+    s.sweepLevel     := na
+    s.reclaimLevel   := na
+    s.mssLevel       := na
+    s.entryPrice     := na
+    s.stopPrice      := na
+    s.tpPrice        := na
+    s.startBar       := bar_index
+    s.lastUpdateBar  := bar_index
+    s.status         := phase_status_text(LC_NONE)
+    s.missing        := get_next_req(LC_NONE)
+    s.reason         := r
+    s.isActive       := false
+    s.isArmed        := false
+    s.isCandidate    := false
+    s.isInvalid      := false
+    s.isExpired      := false
+    s.qualityText    := get_quality_text(LC_NONE)
+    s.desyncReason   := ""
+    s.modeReason     := ""
+    s.modeBlockReason := ""
+    s.modeCanProceed := false
+    // Chapter 3 resets
+    s.reclaimScore   := 0.0
+    s.reclaimWeak    := false
+    s.reclaimValid   := false
+    s.reclaimStrong  := false
+    s.reclaimFailed  := false
+    s.reclaimAcceptBars := 0
+    s.reclaimReason  := ""
+    s.reclaimFailureReason := ""
+    // Chapter 4 resets
+    s.mssScore       := 0.0
+    s.mssWeak        := false
+    s.mssValid       := false
+    s.mssStrong      := false
+    s.mssFresh       := false
+    s.mssFailed      := false
+    s.mssTriggerLevel := na
+    s.mssTriggerType := "None"
+    s.mssTriggerSignificance := 0.0
+    s.mssReason      := ""
+    s.mssFailureReason := ""
+    s.mssConfirmBar  := 0
+    s.mssAgeBars     := 0
+    // Chapter 5 resets
+    s.dispScore       := 0.0
+    s.dispWeak        := false
+    s.dispValid       := false
+    s.dispStrong      := false
+    s.dispFresh       := false
+    s.dispFailed      := false
+    s.dispBodySize    := 0.0
+    s.dispRangeSize   := 0.0
+    s.dispCloseQuality := 0.0
+    s.dispBreakDistance := 0.0
+    s.dispConfirmBar  := 0
+    s.dispAgeBars     := 0
+    s.dispReason      := ""
+    s.reclaimFailureReason := "" // Existing
+    s.mssFailureReason := "" // Existing
+    s.dispFailureReason := ""
+    // Chapter 6 resets
+    s.pendingActive      := false
+    s.pendingLong        := false
+    s.pendingStartBar    := 0
+    s.pendingExpiryBar   := 0
+    s.pendingAgeBars     := 0
+    s.pendingEntryPrice  := na
+    s.pendingStopPrice   := na
+    s.pendingTpPrice     := na
+    s.pendingReason      := ""
+    s.pendingBlockReason := ""
+    s.pendingFresh       := false
+    s.pendingExpired     := false
+    s.pendingInvalidated := false
+
+invalidate_setup(SetupState s, string r) =>
+    s.prevPhase      := s.phase
+    s.phase          := LC_INVALIDATED
+    s.status         := phase_status_text(LC_INVALIDATED)
+    s.reason         := r
+    s.isInvalid      := true
+    s.isActive       := false
+    s.isArmed        := false
+    s.isCandidate    := false
+    s.qualityText    := get_quality_text(LC_INVALIDATED)
+    s.lastUpdateBar  := bar_index
+    s.modeCanProceed := false
+    s.modeReason     := ""
+    // Chapter 6 invalidation cleanup
+    s.pendingActive      := false
+    s.pendingFresh       := false
+    s.pendingInvalidated := true
+
+expire_setup(SetupState s, string r) =>
+    s.prevPhase      := s.phase
+    s.phase          := LC_EXPIRED
+    s.status         := phase_status_text(LC_EXPIRED)
+    s.reason         := r
+    s.isExpired      := true
+    s.isActive       := false
+    s.isArmed        := false
+    s.isCandidate    := false
+    s.qualityText    := get_quality_text(LC_EXPIRED)
+    s.lastUpdateBar  := bar_index
+    s.modeCanProceed := false
+    s.modeReason     := ""
+    // Chapter 6 expiry cleanup
+    s.pendingActive      := false
+    s.pendingFresh       := false
+    s.pendingExpired     := true
+
+// Finalized Integrity Validation for Chapter 2, 3 & 4
+validate_integrity(SetupState s, string m, float a) =>
+    bool hasDesync = false
+    string dReason = ""
+
+    // Check for "illegal" phase jumps without mode permission
+    if phase_is_live(s.phase) and s.phase >= LC_RECLAIM_VISIBLE
+        if s.modeCanProceed == false and s.prevPhase < s.phase
+            hasDesync := true
+            dReason   := "Phase advanced while mode policy was blocking"
+
+    if s.phase == LC_MSS_CONFIRMED
+        bool mPass = mode_mss_passes(m, s.isLong, close, s.mssLevel, a)
+        bool lPass = mode_allows_light_mss(m) and mode_mss_light_passes(m, s.isLong, close, s.mssLevel, a)
+        if not (mPass or lPass)
+            hasDesync := true
+            dReason   := "Advanced to MSS stage but mode policy should block"
+
+    // Chapter 3 Reclaim Integrity Hardening
+    if phase_is_live(s.phase) and s.phase >= LC_RECLAIM_VISIBLE
+        if na(s.reclaimLevel)
+            hasDesync := true
+            dReason   := "Phase >= RECLAIM but reclaimLevel is na"
+        if s.phase == LC_RECLAIM_VISIBLE and s.reclaimFailed
+            hasDesync := true
+            dReason   := "RECLAIM phase but reclaim state is failed"
+        if s.phase > LC_RECLAIM_VISIBLE and s.reclaimFailed
+            hasDesync := true
+            dReason   := "Phase advanced past reclaim but reclaim failed afterwards"
+
+    // Chapter 4 MSS Integrity Hardening
+    if phase_is_live(s.phase) and s.phase >= LC_MSS_CONFIRMED
+        if na(s.mssTriggerLevel)
+            hasDesync := true
+            dReason   := "Phase >= MSS but mssTriggerLevel is na"
+        if not s.mssValid and s.phase == LC_MSS_CONFIRMED
+            hasDesync := true
+            dReason   := "MSS confirmed phase but mss state is invalid"
+        if s.mssFailed
+            hasDesync := true
+            dReason   := "Phase active while MSS is failed"
+        if s.phase >= LC_DISPLACEMENT_VALID and not s.mssFresh
+            hasDesync := true
+            dReason   := "Advanced past MSS but MSS is no longer fresh"
+        if not s.reclaimValid or s.reclaimFailed
+            hasDesync := true
+            dReason   := "In MSS phase but reclaim context is broken"
+        if s.mssTriggerType == "Trivial" and s.mssStrong
+            hasDesync := true
+            dReason   := "Strong MSS assigned to Trivial trigger type"
+
+    // Chapter 5 Displacement Integrity Hardening
+        if s.dispStrong and not s.dispValid
+            hasDesync := true
+            dReason   := "Strong displacement marked but valid is false"
+
+    // Chapter 6 Pending Activation Integrity Hardening
+    if phase_is_live(s.phase) and s.phase == LC_ENTRY_ARMED
+        if s.pendingActive == false
+            hasDesync := true
+            dReason   := "ENTRY_ARMED phase but pendingActive is false"
+        if na(s.pendingEntryPrice) or na(s.pendingStopPrice) or na(s.pendingTpPrice)
+            hasDesync := true
+            dReason   := "ENTRY_ARMED phase but entry/stop/tp prices are na"
+
+    if s.pendingActive
+        if phase_is_terminal(s.phase)
+            hasDesync := true
+            dReason   := "Pending active while phase is terminal"
+        if s.phase == LC_ACTIVE
+            hasDesync := true
+            dReason   := "Pending active while phase is ACTIVE"
+        if s.reclaimFailed or s.mssFailed or s.dispFailed
+            hasDesync := true
+            dReason   := "Pending active while structure is broken"
+        if s.pendingAgeBars > mode_pending_bars(m) + 1
+            hasDesync := true
+            dReason   := "Pending marked fresh/active but age exceeds window"
+
+    if s.phase == LC_ENTRY_ARMED and not mode_allows_arming(m, s, a)
+        hasDesync := true
+        dReason   := "Advanced to arming stage but commitment should block"
+
+
+    if phase_is_terminal(s.phase) and s.modeCanProceed == true
+        hasDesync := true
+        dReason   := "Terminal phase conflicting with modeCanProceed true"
+
+    if hasDesync
+        s.phase := LC_DESYNC
+        s.status := phase_status_text(LC_DESYNC)
+        s.reason := "Integrity violation"
+        s.desyncReason := dReason
+        s.isActive := false
+        s.isArmed := false
+        s.isCandidate := false
+        s.modeCanProceed := false
+
+// ==========================================
+// CORE LOGIC (CALCULATION)
+// ==========================================
+
+// --- Global Context ---
+float atr = ta.atr(14)
+float phGlobal = ta.pivothigh(htfPivotLen, htfPivotLen)
+float plGlobal = ta.pivotlow(htfPivotLen, htfPivotLen)
+float hh5 = ta.highest(high, 5)
+float ll5 = ta.lowest(low, 5)
+
+var LiqLevel[] liqLevels = array.new<LiqLevel>()
+var SetupState setup = SetupState.new()
+
+// --- Liquidity Logic ---
+if not na(phGlobal)
+    int oTime = time[htfPivotLen]
+    label newLb = label.new(oTime, phGlobal, "•", xloc=xloc.bar_time, color=#00000000, textcolor=bearCol, style=label.style_label_center)
+    liqLevels.push(LiqLevel.new(phGlobal, true, oTime, newLb))
+
+if not na(plGlobal)
+    int oTime = time[htfPivotLen]
+    label newLb = label.new(oTime, plGlobal, "•", xloc=xloc.bar_time, color=#00000000, textcolor=bullCol, style=label.style_label_center)
+    liqLevels.push(LiqLevel.new(plGlobal, false, oTime, newLb))
+
+if liqLevels.size() > 50
+    LiqLevel oldLiq = liqLevels.shift()
+    label.delete(oldLiq.lb)
+
+// --- Authoritative Mode Sync Helper ---
+sync_mode_state(SetupState s, string m) =>
+    s.modeLabel := switch m
+        MODE_AGGR => "Fast / Early"
+        MODE_BAL  => "Standard"
+        MODE_CONS => "Strict"
+        => "Standard"
+
+    s.modeStrictness := switch m
+        MODE_AGGR => 0.25
+        MODE_BAL  => 0.50
+        MODE_CONS => 0.75
+        => 0.5
+
+    if phase_is_terminal(s.phase)
+        s.modeCanProceed := false
+        s.modeReason := ""
+    else if s.phase == LC_NONE
+        s.modeCanProceed := false
+        s.modeReason := "Waiting for pools"
+
+// --- State Machine ---
+if setup.phase == LC_NONE or setup.phase == LC_LIQUIDITY_IDENTIFIED or phase_is_terminal(setup.phase)
+    if setup.phase == LC_NONE and liqLevels.size() > 0
+        setup.prevPhase := setup.phase
+        setup.phase := LC_LIQUIDITY_IDENTIFIED
+        setup.lastUpdateBar := bar_index
+
+    for liq in liqLevels
+        if (liq.isHigh and high > liq.price) or (not liq.isHigh and low < liq.price)
+            reset_setup(setup, liq.isHigh ? "BSL Sweep detected" : "SSL Sweep detected")
+            setup.phase := LC_SWEEP_CONFIRMED
+            setup.isLong := not liq.isHigh
+            setup.sweepLevel := liq.price
+            setup.setupLow := low
+            setup.setupHigh := high
+            setup.startBar := bar_index
+            setup.lastUpdateBar := bar_index
+            break
+
+else if setup.phase == LC_SWEEP_CONFIRMED
+    sync_reclaim_state(setup, modeInput, atr)
+    setup.modeCanProceed := setup.reclaimValid and setup.reclaimFailed == false
+
+    if setup.modeCanProceed
+        setup.prevPhase := setup.phase
+        setup.phase := LC_RECLAIM_VISIBLE
+        setup.lastUpdateBar := bar_index
+        setup.modeBlockReason := ""
+        setup.modeReason := switch modeInput
+            MODE_AGGR => "Aggressive early reclaim accepted"
+            MODE_BAL  => "Balanced reclaim confirmed"
+            MODE_CONS => "Conservative reclaim confirmed"
+            => "Reclaim confirmed"
+        setup.reason := "Reclaim threshold recovered"
+    else
+        setup.modeBlockReason := "Waiting for mode-compliant reclaim"
+        if bar_index - setup.startBar > mode_max_bars_sweep_to_reclaim(modeInput)
+            expire_setup(setup, "No reclaim timeout for " + modeInput)
+
+else if setup.phase == LC_RECLAIM_VISIBLE
+    sync_reclaim_state(setup, modeInput, atr)
+
+    if setup.reclaimFailed
+        setup.reason := "Reclaim failed before MSS"
+        invalidate_setup(setup, setup.reclaimFailureReason)
+    else
+        sync_mss_state(setup, modeInput, hh5, ll5, atr)
+
+        if setup.reclaimValid and setup.mssValid and not setup.mssFailed
+            setup.prevPhase := setup.phase
+            setup.phase := LC_MSS_CONFIRMED
+            setup.mssLevel := setup.mssTriggerLevel
+            setup.mssConfirmBar := bar_index
+            setup.lastUpdateBar := bar_index
+            setup.modeBlockReason := ""
+            setup.modeReason := switch modeInput
+                MODE_AGGR => "Aggressive light MSS accepted"
+                MODE_BAL  => "Balanced MSS confirmed"
+                MODE_CONS => "Conservative MSS confirmed"
+                => "MSS confirmed"
+            setup.reason := "MSS confirmed after reclaim"
+        else
+            setup.modeBlockReason := setup.reclaimValid == false ? "Reclaim lost stability" : "Waiting for mode-compliant MSS break"
+            if bar_index - setup.lastUpdateBar > mode_max_bars_reclaim_to_mss(modeInput)
+                expire_setup(setup, "No MSS timeout for " + modeInput)
+
+else if setup.phase == LC_MSS_CONFIRMED
+    sync_reclaim_state(setup, modeInput, atr)
+    sync_mss_state(setup, modeInput, hh5, ll5, atr)
+    sync_displacement_state(setup, modeInput, atr)
+
+    if setup.reclaimFailed
+        invalidate_setup(setup, "Structural failure after MSS: " + setup.reclaimFailureReason)
+    else if setup.mssFailed
+        setup.reason := "MSS failed before displacement"
+        invalidate_setup(setup, setup.mssFailureReason)
+    else if not setup.mssFresh
+        expire_setup(setup, "MSS stale before displacement")
+    else
+        setup.modeCanProceed := setup.dispValid
+
+        if setup.dispValid
+            setup.prevPhase := setup.phase
+            setup.phase := LC_DISPLACEMENT_VALID
+            setup.dispConfirmBar := bar_index
+            setup.lastUpdateBar := bar_index
+            setup.modeBlockReason := ""
+            setup.modeReason := switch modeInput
+                MODE_AGGR => "Aggressive displacement accepted"
+                MODE_BAL  => "Balanced displacement confirmed"
+                MODE_CONS => "Conservative displacement confirmed"
+                => "Displacement confirmed"
+            setup.reason := "Displacement confirmed after MSS"
+        else
+            setup.modeBlockReason := "Waiting for mode-compliant displacement"
+            if bar_index - setup.lastUpdateBar > mode_max_bars_mss_to_displacement(modeInput)
+                expire_setup(setup, "Weak displacement rejected by " + modeInput)
+
+else if setup.phase == LC_DISPLACEMENT_VALID
+    sync_reclaim_state(setup, modeInput, atr)
+    sync_mss_state(setup, modeInput, hh5, ll5, atr)
+    sync_displacement_state(setup, modeInput, atr)
+
+    if setup.dispFailed
+        setup.reason := "Displacement failed before arming"
+        invalidate_setup(setup, setup.dispFailureReason)
+    else if not setup.dispFresh
+        expire_setup(setup, "Displacement stale before arming")
+    else
+        // Arming gate hardening: transition to real Pending State
+        if setup.dispValid and setup.dispFresh and not setup.dispFailed
+            if mode_allows_arming(modeInput, setup, atr)
+                float mssRange = math.abs(close - setup.mssLevel)
+                setup.entryPrice := setup.isLong ? (setup.mssLevel + mssRange * 0.5) : (setup.mssLevel - mssRange * 0.5)
+                setup.stopPrice := setup.isLong ? setup.setupLow : setup.setupHigh
+                float r = math.abs(setup.entryPrice - setup.stopPrice)
+                setup.tpPrice := setup.isLong ? (setup.entryPrice + r * 2) : (setup.entryPrice - r * 2)
+
+                // Initialize Pending State
+                setup.pendingActive := true
+                setup.pendingLong := setup.isLong
+                setup.pendingStartBar := bar_index
+                setup.pendingExpiryBar := bar_index + mode_pending_bars(modeInput)
+                setup.pendingEntryPrice := setup.entryPrice
+                setup.pendingStopPrice := setup.stopPrice
+                setup.pendingTpPrice := setup.tpPrice
+                setup.pendingReason := "Setup armed and waiting for trigger"
+
+                setup.modeCanProceed := true
+                setup.prevPhase := setup.phase
+                setup.phase := LC_ENTRY_ARMED
+                setup.lastUpdateBar := bar_index
+                setup.modeBlockReason := ""
+                setup.modeReason := modeInput + " setup pending"
+            else
+                setup.modeBlockReason := "Waiting for arming commitment"
+        else
+            setup.modeBlockReason := "Displacement degraded"
+else if setup.phase == LC_ENTRY_ARMED
+    sync_pending_state(setup, modeInput)
+
+    if not setup.pendingActive
+        if setup.pendingInvalidated
+            invalidate_setup(setup, setup.pendingReason)
+        else if setup.pendingExpired
+            expire_setup(setup, setup.pendingReason)
+        else
+            invalidate_setup(setup, "Pending state lost")
+    else if pending_should_activate(setup)
+        setup.prevPhase := setup.phase
+        setup.phase := LC_ACTIVE
+        setup.lastUpdateBar := bar_index
+        setup.modeReason := "Trade live from pending state"
+        setup.reason := "Pending setup triggered"
+        // Clear pending on activation
+        setup.pendingActive := false
+    else
+        // Stay in armed phase
+        setup.modeCanProceed := true
+        setup.status := "Pending Trigger"
+else if setup.phase == LC_ENTRY_ARMED
+    setup.modeCanProceed := true // Already arming
+    bool tap = setup.isLong ? low <= setup.entryPrice : high >= setup.entryPrice
+    if tap
+        setup.prevPhase := setup.phase
+        setup.phase := LC_ACTIVE
+        setup.lastUpdateBar := bar_index
+        setup.modeReason := "Trade live"
+    else if (setup.isLong and close < setup.stopPrice) or (not setup.isLong and close > setup.stopPrice)
+        invalidate_setup(setup, "Stop hit before entry")
+    else if bar_index - setup.lastUpdateBar > mode_max_bars_armed_to_entry(modeInput)
+        expire_setup(setup, "Entry window timeout for " + modeInput)
+
+else if setup.phase == LC_ACTIVE
+    setup.modeCanProceed := true
+    bool tp = setup.isLong ? high >= setup.tpPrice : low <= setup.tpPrice
+    bool sl = setup.isLong ? low <= setup.stopPrice : high >= setup.stopPrice
+    if tp or sl
+        reset_setup(setup, tp ? "Target hit" : "Stop hit")
+
+// --- Sync Lifecycle & Mode Truth ---
+validate_integrity(setup, modeInput, atr)
+sync_mode_state(setup, modeInput)
+
+setup.status      := phase_status_text(setup.phase)
+setup.missing     := get_next_req(setup.phase)
+setup.qualityText := get_quality_text(setup.phase)
+
+// Sync flags
+setup.isCandidate := phase_is_live(setup.phase) and setup.phase >= LC_SWEEP_CONFIRMED and setup.phase < LC_ACTIVE
+setup.isArmed     := setup.phase == LC_ENTRY_ARMED
+setup.isActive    := setup.phase == LC_ACTIVE
+setup.isInvalid   := setup.phase == LC_INVALIDATED
+setup.isExpired   := setup.phase == LC_EXPIRED
+
+// ==========================================
+// VISUALS & DASHBOARD
+// ==========================================
+
+string tPos = switch dashPosInput
+    "Top Right"    => position.top_right
+    "Bottom Right" => position.bottom_right
+    "Top Left"     => position.top_left
+    "Bottom Left"  => position.bottom_left
+    => position.top_right
+
+var table dash = table.new(tPos, 2, 13, bgcolor=color.new(color.black, 20), border_width=1, border_color=color.gray)
+
+if barstate.islast
+    table.cell(dash, 0, 0, "SMC PRO [CH6]", text_color=color.white)
+    table.cell(dash, 1, 0, modeInput, text_color=C_NEUT)
+
+    table.cell(dash, 0, 1, "Phase", text_color=color.gray)
+    table.cell(dash, 1, 1, get_phase_name(setup.phase) + " (" + str.tostring(setup.phase) + ")", text_color=color.white)
+
+    table.cell(dash, 0, 2, "Status", text_color=color.gray)
+    table.cell(dash, 1, 2, setup.status, text_color=color.white)
+
+    table.cell(dash, 0, 3, "Reclaim Score", text_color=color.gray)
+    table.cell(dash, 1, 3, str.tostring(setup.reclaimScore, "#.##"), text_color=setup.reclaimValid ? color.green : color.yellow)
+
+    table.cell(dash, 0, 4, "MSS Score", text_color=color.gray)
+    table.cell(dash, 1, 4, str.tostring(setup.mssScore, "#.##"), text_color=setup.mssValid ? color.green : color.yellow)
+
+    table.cell(dash, 0, 5, "Disp Score", text_color=color.gray)
+    table.cell(dash, 1, 5, str.tostring(setup.dispScore, "#.##"), text_color=setup.dispValid ? color.green : color.yellow)
+
+    table.cell(dash, 0, 6, "Pending Status", text_color=color.gray)
+    table.cell(dash, 1, 6, setup.pendingActive ? "Armed" : setup.pendingExpired ? "Expired" : setup.pendingInvalidated ? "Invalidated" : "None", text_color=setup.pendingActive ? color.aqua : setup.pendingInvalidated ? color.red : color.gray)
+
+    table.cell(dash, 0, 7, "Pending Age", text_color=color.gray)
+    table.cell(dash, 1, 7, setup.pendingActive ? str.tostring(setup.pendingAgeBars) + " / " + str.tostring(mode_pending_bars(modeInput)) : "0", text_color=color.white)
+
+    table.cell(dash, 0, 8, "Direction", text_color=color.gray)
+    table.cell(dash, 1, 8, setup.phase > 0 ? (setup.isLong ? "Long" : "Short") : "None", text_color=setup.isLong ? C_BULL : C_BEAR)
+
+    table.cell(dash, 0, 9, "Mode Status", text_color=color.gray)
+    table.cell(dash, 1, 9, setup.modeBlockReason != "" ? setup.modeBlockReason : setup.modeReason, text_color=setup.modeBlockReason != "" ? color.red : color.green, text_size=size.small)
+
+    table.cell(dash, 0, 10, "Lifecycle Explanation", text_color=color.gray)
+    table.cell(dash, 1, 10, setup.phase == LC_DESYNC ? setup.desyncReason : setup.reason, text_color=color.white, text_size=size.small)
+
+
+var box tpBox = box.new(na, na, na, na, bgcolor = color.new(bullCol, 85), border_color = bullCol)
+var box slBox = box.new(na, na, na, na, bgcolor = color.new(color.gray, 85), border_color = color.gray)
+var line mssLine = line.new(na, na, na, na, color = color.gray, style = line.style_dashed)
+
+// --- Lifecycle Event Visuals ---
+bool isNewSweep = setup.phase == LC_SWEEP_CONFIRMED and setup.prevPhase != LC_SWEEP_CONFIRMED
+bool isNewMSS   = setup.phase == LC_MSS_CONFIRMED   and setup.prevPhase != LC_MSS_CONFIRMED
+bool isNewEntry = setup.isActive and setup.prevPhase != LC_ACTIVE
+
+if isNewSweep
+    label.new(bar_index, setup.isLong ? low : high, "SWEEP", color=setup.isLong ? bullCol : bearCol, textcolor=color.white, style=setup.isLong ? label.style_label_up : label.style_label_down, size=size.tiny)
+
+if isNewMSS
+    label.new(bar_index, setup.mssLevel, "MSS", color=C_NEUT, textcolor=color.white, style=setup.isLong ? label.style_label_up : label.style_label_down, size=size.tiny)
+    line.set_xy1(mssLine, setup.startBar, setup.mssLevel)
+    line.set_xy2(mssLine, bar_index + 10, setup.mssLevel)
+    line.set_color(mssLine, setup.isLong ? bullCol : bearCol)
+
+// --- Active Setup Visualization ---
+bool showSetup = (setup.phase == LC_ENTRY_ARMED or setup.isActive) and not phase_is_terminal(setup.phase)
+
+if showSetup
+    color setupCol = setup.isLong ? bullCol : bearCol
+    float entry = setup.phase == LC_ENTRY_ARMED ? setup.pendingEntryPrice : setup.entryPrice
+    float stop  = setup.phase == LC_ENTRY_ARMED ? setup.pendingStopPrice  : setup.stopPrice
+    float tp    = setup.phase == LC_ENTRY_ARMED ? setup.pendingTpPrice     : setup.tpPrice
+
+    box.set_lefttop(tpBox, setup.lastUpdateBar, tp)
+    box.set_rightbottom(tpBox, bar_index + 15, entry)
+    box.set_bgcolor(tpBox, color.new(setupCol, 85))
+    box.set_border_color(tpBox, setupCol)
+
+    box.set_lefttop(slBox, setup.lastUpdateBar, entry)
+    box.set_rightbottom(slBox, bar_index + 15, stop)
+    box.set_bgcolor(slBox, color.new(color.gray, 90))
+else
+    box.set_lefttop(tpBox, na, na)
+    box.set_lefttop(slBox, na, na)
+    line.set_xy1(mssLine, na, na)
+
+
+// --- Signals ---
+plotshape(isNewEntry, "Entry Signal", shape.labelup, location.belowbar, bullCol, text="ENTRY", textcolor=color.white, size=size.tiny)
+plotshape(setup.phase == LC_INVALIDATED and setup.prevPhase != LC_INVALIDATED, "Invalidated", shape.xcross, location.abovebar, color.gray, size=size.tiny)
+
+// --- Background Highlighting ---
+bgcolor(setup.isArmed ? color.new(C_NEUT, 95) : setup.isActive ? color.new(setup.isLong ? bullCol : bearCol, 95) : na)

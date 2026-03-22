@@ -1,0 +1,272 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+// @description Readiness dashboard renderer for the Trading Assistant panel.
+// Renders ALL rows from precomputed display values — no trading logic, no edge decisions.
+// The main indicator computes all text, colors, and flags, then passes them here.
+library("tv_readiness_ui", overlay = true)
+
+import Devtailor/tv_dashboard_utils/1 as tbl
+
+// =====================================================================
+// DISPLAY DTOs — carry precomputed display values from main to UI layer.
+// These contain ONLY rendered text, colors, and flags.
+// NO secret thresholds, NO score formulas, NO activation logic.
+// =====================================================================
+
+// @description Primary decision block display values.
+export type PrimaryDisplay
+    string dirStr
+    color  dirColor
+    string phaseStr
+    color  phaseColor
+    string actionStr
+    color  actionColor
+    string nextRequired
+    color  nextReqColor
+    string confStr
+    color  confColor
+    string modeStr
+    color  modeColor
+    bool   hasPending
+    string pendingStr
+    color  pendingColor
+    string sessStr
+    color  sessColor
+    string pdStatus
+    color  pdColor
+    string scoreStr
+    color  scoreColor
+    string bslStr
+    color  bslColor
+    string sslStr
+    color  sslColor
+
+// @description Setup context block display values (Analyst+Debug).
+export type ContextDisplay
+    string liqEventStr
+    color  liqEventCol
+    string structStr
+    color  structCol
+    string imbStr
+    color  imbCol
+    string obStr
+    color  obCol
+    string rclStatusStr
+    color  rclStatusCol
+    string dispStatusStr
+    color  dispStatusCol
+    // Strategy eligibility
+    string ictLongDetail
+    string ictShortDetail
+    color  ictCol
+    string sbLongDetail
+    string sbShortDetail
+    color  sbCol
+    string contStr
+    color  contCol
+    // Trader-mode compressed
+    string stratStr
+    color  stratCol
+
+// @description Advanced diagnostics display values (Debug only).
+export type AdvancedDisplay
+    string chainStr
+    color  chainCol
+    string seqStr
+    color  seqCol
+    string sslInfo
+    color  sslInfoCol
+    string bslInfo
+    color  bslInfoCol
+    string sweepQualStr
+    string eqInfo
+    string activeSweepCount
+    string extLiqStr
+    string htfLiqStr
+    string rnLiqStr
+    color  neutralColor
+
+// @description Lifecycle diagnostics display values (Debug only).
+export type LifecycleDisplay
+    string lcStageStr
+    color  lcStageCol
+    string lcReasonStr
+    string lcBothStr
+    string lcActStr
+    color  lcActCol
+    string modeQualStr
+    color  modeQualCol
+    string modeBlkStr
+    color  modeBlkCol
+    string rclDbgStr
+    color  rclDbgCol
+    string rclReasonDbg
+    string extDbgStr
+    color  extDbgCol
+    string mssDbgStr
+    color  mssDbgCol
+    string mssReasonDbg
+    string mssPassDbg
+    color  mssPassCol
+    string dispDbgStr
+    color  dispDbgCol
+    string dispReasonDbg
+    string dispPassDbg
+    color  dispPassCol
+    string actPathStr
+    color  actPathCol
+    string freshDbgStr
+    string modeThrStr
+    string pendDbgL
+    color  pendDbgLCol
+    string pendDbgS
+    color  pendDbgSCol
+    string pendWinStr
+    string delayActStr
+    color  delayActCol
+    string desyncStr
+    color  desyncCol
+    string rejCause
+    color  rejCol
+    color  valueColor
+    color  neutralDbgColor
+
+// @description Performance block display values.
+export type PerfDisplay
+    string wrStr
+    color  wrCol
+    string totalTrades
+    string winsLosses
+    string netR
+    color  netRCol
+    string equityR
+    color  equityRCol
+    string maxDD
+    color  maxDDCol
+    color  valueColor
+    color  labelColor
+
+// @function Renders the primary decision block (all modes).
+// @returns Next row index
+export render_primary(table readTbl, int startRow, PrimaryDisplay p, color headerColor, color labelColor, color neutralColor) =>
+    int r = startRow
+
+    // Header + Direction
+    table.cell(readTbl, 0, r, "Trading Assistant", text_color = headerColor, text_size = size.small, text_halign = text.align_left)
+    table.cell(readTbl, 1, r, p.dirStr, text_color = p.dirColor, text_size = size.small)
+    r += 1
+
+    r := tbl.table_kv(readTbl, r, "Setup State", p.phaseStr, labelColor, p.phaseColor)
+    r := tbl.table_kv_left(readTbl, r, "Trader Action", p.actionStr, labelColor, p.actionColor)
+    r := tbl.table_kv_left(readTbl, r, "Next Required", p.nextRequired, labelColor, neutralColor)
+    r := tbl.table_kv(readTbl, r, "Setup Quality", p.confStr, labelColor, p.confColor)
+    r := tbl.table_kv_left(readTbl, r, "Sensitivity Mode", p.modeStr, labelColor, p.modeColor)
+
+    if p.hasPending
+        r := tbl.table_kv_left(readTbl, r, "Pending Activation", p.pendingStr, labelColor, p.pendingColor)
+
+    r := tbl.table_kv(readTbl, r, "Session", p.sessStr, labelColor, p.sessColor)
+    r := tbl.table_kv(readTbl, r, "Price Location", p.pdStatus, labelColor, p.pdColor)
+    r
+
+// @function Renders the setup context block (Analyst+Debug modes).
+// @returns Next row index
+export render_context(table readTbl, int startRow, ContextDisplay c, bool isTrader, color headerColor, color labelColor, color bgColor) =>
+    int r = startRow
+    if not isTrader
+        r := tbl.table_section(readTbl, r, "Setup Context", headerColor, bgColor)
+        r := tbl.table_kv_tiny(readTbl, r, "Liquidity Event", c.liqEventStr, labelColor, c.liqEventCol)
+        r := tbl.table_kv_tiny(readTbl, r, "Structure", c.structStr, labelColor, c.structCol)
+        r := tbl.table_kv_tiny(readTbl, r, "Imbalance", c.imbStr, labelColor, c.imbCol)
+        r := tbl.table_kv_tiny(readTbl, r, "OB Confluence", c.obStr, labelColor, c.obCol)
+        r := tbl.table_kv_tiny(readTbl, r, "Reclaim", c.rclStatusStr, labelColor, c.rclStatusCol)
+        r := tbl.table_kv_tiny(readTbl, r, "Displacement", c.dispStatusStr, labelColor, c.dispStatusCol)
+    r
+
+// @function Renders scores + liquidity rows (all modes).
+// @returns Next row index
+export render_scores(table readTbl, int startRow, PrimaryDisplay p, color labelColor, color negColor, color posColor) =>
+    int r = startRow
+    r := tbl.table_kv(readTbl, r, "Long / Short Score", p.scoreStr, labelColor, p.scoreColor)
+    r := tbl.table_kv(readTbl, r, "Buy-Side Liquidity", p.bslStr, labelColor, negColor)
+    r := tbl.table_kv(readTbl, r, "Sell-Side Liquidity", p.sslStr, labelColor, posColor)
+    r
+
+// @function Renders strategy eligibility rows.
+// @returns Next row index
+export render_strategy(table readTbl, int startRow, ContextDisplay c, bool isTrader, color labelColor) =>
+    int r = startRow
+    if not isTrader
+        r := tbl.table_kv_tiny(readTbl, r, "ICT 2022 Eligibility", c.ictLongDetail + "  |  " + c.ictShortDetail, labelColor, c.ictCol)
+        r := tbl.table_kv_tiny(readTbl, r, "Silver Bullet Eligibility", c.sbLongDetail + "  |  " + c.sbShortDetail, labelColor, c.sbCol)
+        r := tbl.table_kv_tiny(readTbl, r, "Continuation Context", c.contStr, labelColor, c.contCol)
+    else
+        r := tbl.table_kv(readTbl, r, "Strategy Status", c.stratStr, labelColor, c.stratCol)
+    r
+
+// @function Renders the advanced diagnostics block (Debug only).
+// @returns Next row index
+export render_advanced(table readTbl, int startRow, AdvancedDisplay a, color headerColor, color labelColor, color bgColor) =>
+    int r = startRow
+    r := tbl.table_section(readTbl, r, "Advanced", headerColor, bgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Confluence Chain", a.chainStr, labelColor, a.chainCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Sequence Status", a.seqStr, labelColor, a.seqCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Best Sell-Side Sweep", a.sslInfo, labelColor, a.sslInfoCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Best Buy-Side Sweep", a.bslInfo, labelColor, a.bslInfoCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Sweep Quality", a.sweepQualStr, labelColor, a.neutralColor)
+    r := tbl.table_kv_tiny(readTbl, r, "EQ Clusters", a.eqInfo, labelColor, a.neutralColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Active Sweeps", a.activeSweepCount, labelColor, a.neutralColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Nearest Ext Liq", a.extLiqStr, labelColor, a.neutralColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Nearest HTF Liq", a.htfLiqStr, labelColor, a.neutralColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Nearest RN Liq", a.rnLiqStr, labelColor, a.neutralColor)
+    r
+
+// @function Renders the lifecycle diagnostics block (Debug only).
+// @returns Next row index
+export render_lifecycle(table readTbl, int startRow, LifecycleDisplay lc, color headerColor, color labelColor, color bgColor) =>
+    int r = startRow
+    r := tbl.table_section(readTbl, r, "Lifecycle", headerColor, bgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Lifecycle Stage", lc.lcStageStr, labelColor, lc.lcStageCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Lifecycle Reason", lc.lcReasonStr, labelColor, lc.valueColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Lifecycle L/S", lc.lcBothStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Activation Gate", lc.lcActStr, labelColor, lc.lcActCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Mode Qualification", lc.modeQualStr, labelColor, lc.modeQualCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Mode Block", lc.modeBlkStr, labelColor, lc.modeBlkCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Reclaim Stage", lc.rclDbgStr, labelColor, lc.rclDbgCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Reclaim Detail", lc.rclReasonDbg, labelColor, lc.rclDbgCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Extension Filter", lc.extDbgStr, labelColor, lc.extDbgCol)
+    r := tbl.table_kv_tiny(readTbl, r, "MSS Stage", lc.mssDbgStr, labelColor, lc.mssDbgCol)
+    r := tbl.table_kv_tiny(readTbl, r, "MSS Detail", lc.mssReasonDbg, labelColor, lc.mssDbgCol)
+    r := tbl.table_kv_tiny(readTbl, r, "MSS Mode Pass", lc.mssPassDbg, labelColor, lc.mssPassCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Disp Stage", lc.dispDbgStr, labelColor, lc.dispDbgCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Disp Detail", lc.dispReasonDbg, labelColor, lc.dispDbgCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Disp Mode Pass", lc.dispPassDbg, labelColor, lc.dispPassCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Activation Path", lc.actPathStr, labelColor, lc.actPathCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Pending Freshness", lc.freshDbgStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Mode Thresholds", lc.modeThrStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Pending Long", lc.pendDbgL, labelColor, lc.pendDbgLCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Pending Short", lc.pendDbgS, labelColor, lc.pendDbgSCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Pending Windows", lc.pendWinStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Delayed Activation", lc.delayActStr, labelColor, lc.delayActCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Integrity", lc.desyncStr, labelColor, lc.desyncCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Rejection Cause", lc.rejCause, labelColor, lc.rejCol)
+    r
+
+// @function Renders the performance section.
+// @returns Next row index
+export render_performance(table readTbl, int startRow, PerfDisplay p, bool showContext, color headerColor, color bgColor) =>
+    int r = startRow
+    r := tbl.table_section(readTbl, r, "Performance", headerColor, bgColor)
+    r := tbl.table_kv(readTbl, r, "Win Rate", p.wrStr, p.labelColor, p.wrCol)
+
+    if showContext
+        r := tbl.table_kv(readTbl, r, "Total Trades", p.totalTrades, p.labelColor, p.valueColor)
+        r := tbl.table_kv(readTbl, r, "Wins / Losses", p.winsLosses, p.labelColor, p.valueColor)
+
+    r := tbl.table_kv(readTbl, r, "Net R", p.netR, p.labelColor, p.netRCol)
+
+    if showContext
+        r := tbl.table_kv(readTbl, r, "Equity R", p.equityR, p.labelColor, p.equityRCol)
+
+    r := tbl.table_kv(readTbl, r, "Max Drawdown", p.maxDD, p.labelColor, p.maxDDCol)
+    r

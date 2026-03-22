@@ -1,0 +1,623 @@
+// =====================================================================
+// REFACTOR GUIDE — Production-Grade Modular Architecture
+// =====================================================================
+// This file documents the EXACT changes to apply to version1-improving-dev.pine
+// to integrate the new library architecture. It is structured as:
+//   1. Import declarations (add at top of main)
+//   2. Removed functions (delete from main)
+//   3. Replaced call sites (modify in main)
+//   4. New precomputation code (add before dashboard rendering)
+//   5. Invariant refactor plan (internal main split)
+//
+// IMPORTANT: Replace {username} and {version} in imports with your
+// TradingView username and the published library version number.
+// =====================================================================
+
+// =====================================================================
+// STEP 1: ADD IMPORTS (insert after line 3, before "// --- Constants ---")
+// =====================================================================
+
+import {username}/tv_format_utils/{version} as fmt
+import {username}/tv_render_utils/{version} as ren
+import {username}/tv_dashboard_utils/{version} as tbl
+import {username}/tv_readiness_ui/{version} as rdash
+import {username}/tv_market_intel_ui/{version} as intel
+
+// =====================================================================
+// STEP 2: DELETE THESE FUNCTIONS FROM MAIN
+// (they are now in libraries)
+// =====================================================================
+
+// DELETE lines 4156-4158: resolve_pos()
+// resolve_pos(string pos) =>
+//     pos == "top_right" ? position.top_right : ...
+// REPLACE ALL CALLS with: fmt.resolve_pos(...)
+
+// DELETE lines 4162-4163: format_grade_word()
+// format_grade_word(string grade) =>
+//     grade == "A" ? "high quality" : ...
+// REPLACE ALL CALLS with: fmt.format_grade_word(...)
+
+// DELETE lines 4165-4166: format_confidence()
+// format_confidence(int score) =>
+//     score >= 85 ? "High conviction" : ...
+// REPLACE ALL CALLS with: fmt.format_confidence(...)
+
+// DELETE lines 4168-4170: format_score_bias()
+// format_score_bias(int sL, int sS) =>
+//     int diff = sL - sS ...
+// REPLACE ALL CALLS with: fmt.format_score_bias(...)
+
+// DELETE lines 4085-4121: render_level()
+// render_level(float val, bool show, color col, ...) =>
+//     var line l = na ...
+// REPLACE ALL CALLS with: ren.render_level(...)
+
+// =====================================================================
+// STEP 3: REPLACE render_level CALL SITES
+// (lines 4134-4154 — replace render_level with ren.render_level)
+// =====================================================================
+
+// BEFORE (lines 4134-4154):
+//     render_level(pdh, showPDH, pdhColor, "PDH", ...)
+//     render_level(pdl, showPDL, pdlColor, "PDL", ...)
+//     ...etc...
+
+// AFTER:
+//     ren.render_level(pdh, showPDH, pdhColor, "PDH", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+//     ren.render_level(pdl, showPDL, pdlColor, "PDL", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+//     ren.render_level(pwh, showPWH, pwhColor, "PWH", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+//     ren.render_level(pwl, showPWL, pwlColor, "PWL", htfDisplayMode, htfSegLen, htfSegOffset, htfLineStyleInput, htfLineWidth, htfShowLabels)
+//     ren.render_level(asia.lastHigh, showAsiaH, asiaHColor, "Asia High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+//     ren.render_level(asia.lastLow, showAsiaL, asiaLColor, "Asia Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+//     ren.render_level(london.lastHigh, showLonH, lonHColor, "London High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+//     ren.render_level(london.lastLow, showLonL, lonLColor, "London Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+//     ren.render_level(ny.isActive ? ny.high : ny.lastHigh, showNYH, nyHColor, "NY High", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+//     ren.render_level(ny.isActive ? ny.low : ny.lastLow, showNYL, nyLColor, "NY Low", sessDisplayMode, sessSegLen, 0, sessLineStyleInput, 1, true)
+//     ...EQ cluster levels same pattern...
+
+// =====================================================================
+// STEP 4: REPLACE candidate preview (lines 4919-4978)
+// Split into: gating logic (stays in main) + rendering (uses library)
+// =====================================================================
+
+// REPLACE update_candidate_preview with this refactored version:
+
+update_candidate_preview(SetupState s, bool pickLong, bool dominantLiquidityBlocked, box cTpIn, box cSlIn, label cLblIn) =>
+    box cTp = cTpIn
+    box cSl = cSlIn
+    label cLbl = cLblIn
+
+    // === GATING LOGIC (proprietary — stays in main) ===
+    bool hasPendingCandidate = (s.pendingLongActive and s.pendingLongCanStillActivate) or (s.pendingShortActive and s.pendingShortCanStillActivate)
+    bool domExtended = pickLong ? s.extensionBlockedLong : s.extensionBlockedShort
+    bool domPendingStale = pickLong ? (s.pendingLongActive and not s.pendingStructFreshLong) : (s.pendingShortActive and not s.pendingStructFreshShort)
+    bool domReclaimFailed = pickLong ? s.reclaimFailedLong : s.reclaimFailedShort
+    bool domMssFailed = pickLong ? s.mssFailedLong : s.mssFailedShort
+    bool domMssStale = pickLong ? (not s.mssFreshLong) : (not s.mssFreshShort)
+    bool domDispFailed = pickLong ? s.disp.failedLong : s.disp.failedShort
+    bool domDispWeak = pickLong ? s.disp.weakLong : s.disp.weakShort
+    bool domDispStale = pickLong ? (not s.disp.freshLong) : (not s.disp.freshShort)
+    bool qualityPreviewOk = not domExtended and not domPendingStale and not domReclaimFailed and not domMssFailed and not domMssStale and not domDispFailed and not domDispStale
+
+    bool showPreview = showSetups and showCandidatePreview and (s.dominantMeetsModeCandidate or hasPendingCandidate) and qualityPreviewOk and na(activeTrade) and not s.isExpired and not s.isConflicted and not s.isDegraded and not dominantLiquidityBlocked and not s.lifecycleIsDesynced
+
+    if showPreview
+        // === COMPUTE RENDERING PARAMETERS (proprietary decisions) ===
+        float projRisk = atr * 1.5
+        float entry = close
+        bool isLongCandidate = s.isPotentialLong
+        float sl = isLongCandidate ? entry - projRisk : entry + projRisk
+        float tp = isLongCandidate ? entry + projRisk * 2.0 : entry - projRisk * 2.0
+        int width = activeSetupSize == "Large" ? activeMinWidth * 2 : activeSetupSize == "Normal" ? activeMinWidth : 10
+        color candTpCol = isLongCandidate ? longTpColor : shortTpColor
+        color candSlCol = isLongCandidate ? longSlColor : shortSlColor
+        string pendSuffix = hasPendingCandidate and not s.dominantMeetsModeCandidate ? " [PENDING]" : ""
+
+        // === RENDERING (delegated to library) ===
+        [cTp2, cSl2, cLbl2] = ren.draw_preview(cTp, cSl, cLbl, isLongCandidate, entry, sl, tp, width, s.score, s.sequenceValid, pendSuffix, candTpCol, candSlCol, setupLabelColor, activeTransp, activeBorderWidth)
+        cTp := cTp2
+        cSl := cSl2
+        cLbl := cLbl2
+    else
+        // === CLEAR (delegated to library) ===
+        [cTp2, cSl2, cLbl2] = ren.clear_preview(cTp, cSl, cLbl)
+        cTp := cTp2
+        cSl := cSl2
+        cLbl := cLbl2
+    [cTp, cSl, cLbl]
+
+// =====================================================================
+// STEP 5: REPLACE readiness dashboard rendering (lines 4187-4815)
+// Delete the entire render_readiness_dashboard function.
+// Replace with: precomputation in main + library render calls.
+// =====================================================================
+
+// DELETE: The entire render_readiness_dashboard function (lines 4197-4785)
+
+// REPLACE the rendering block (lines 4787-4814) with:
+
+if showReadiness and barstate.islast
+    bool isTrader = dashMode == "Trader"
+    bool isAnalyst = dashMode == "Analyst"
+    bool isDebug = dashMode == "Debug"
+    bool showContext = isAnalyst or isDebug
+    bool showAdvanced = isDebug
+
+    int maxR = isDebug ? 80 : isAnalyst ? 36 : 18
+    readTable := table.new(fmt.resolve_pos(readinessPos), 2, maxR, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
+
+    // === PRECOMPUTE PRIMARY DISPLAY VALUES (proprietary decisions stay here) ===
+    string dirStr = liveSetup.isConflicted ? "◆ BOTH" : liveSetup.isPotentialLong ? "▲ LONG" : "▼ SHORT"
+    color dirColor = liveSetup.isConflicted ? color.yellow : liveSetup.isPotentialLong ? uiPosColor : uiNegColor
+    color phaseColor = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.isConflicted ? color.yellow : lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : uiNeutralColor
+    bool domPendStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
+    string actionStr = format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade), liveSetup.dominantBlockedByMode, liveSetup.dominantModeBlockReason, domPendStale)
+    color actionColor = str.contains(actionStr, "desync") or str.contains(actionStr, "error") ? color.red : str.contains(actionStr, "ready") or str.contains(actionStr, "Trade active") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") or str.contains(actionStr, "invalidated") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") ? color.orange : uiNeutralColor
+    string confStr = fmt.format_confidence(liveSetup.score) + " (" + str.tostring(liveSetup.score) + ")"
+    color confColor = liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 50 ? color.orange : liveSetup.score >= 30 ? uiNeutralColor : uiLabelText
+    string sessStr = activeSessName + (isSilverBullet ? " (Silver Bullet)" : isKillzone ? " (Kill Zone)" : "")
+    color sessColor = isSilverBullet ? uiPosColor : isKillzone ? color.orange : uiLabelText
+    color pdColor = pdStatus == "Discount" ? uiPosColor : uiNegColor
+    string biasStr = fmt.format_score_bias(liveSetup.scoreLong, liveSetup.scoreShort)
+    string scoreStr = str.tostring(liveSetup.scoreLong) + " / " + str.tostring(liveSetup.scoreShort)
+    if showContext
+        scoreStr := scoreStr + "  ·  " + biasStr
+
+    // Mode string
+    string modeStr = sensitivityMode
+    color modeColor = uiNeutralColor
+    if liveSetup.dominantBlockedByMode
+        modeStr := sensitivityMode + " — " + liveSetup.dominantModeBlockReason
+        modeColor := color.orange
+
+    // Pending
+    bool hasPending = liveSetup.pendingLongActive or liveSetup.pendingShortActive
+    string pendingStr = ""
+    color pendingColor = uiLabelText
+    if hasPending
+        bool pendL = liveSetup.pendingLongActive
+        int pendExpiry = pendL ? liveSetup.pendingLongExpiryBar : liveSetup.pendingShortExpiryBar
+        int barsLeft = pendExpiry - bar_index
+        string pendDir = pendL ? "LONG" : "SHORT"
+        pendingStr := pendDir + " pending (" + str.tostring(math.max(0, barsLeft)) + " bars left)"
+        pendingColor := barsLeft > 2 ? color.orange : barsLeft > 0 ? #e65100 : uiNegColor
+
+    // Build PrimaryDisplay DTO
+    rdash.PrimaryDisplay prim = rdash.PrimaryDisplay.new(
+         dirStr, dirColor, liveSetup.phase, phaseColor,
+         actionStr, actionColor, liveSetup.missing, uiNeutralColor,
+         confStr, confColor, modeStr, modeColor,
+         hasPending, pendingStr, pendingColor,
+         sessStr, sessColor, pdStatus, pdColor,
+         scoreStr, phaseColor,
+         na(nearestBSL) ? "—" : str.tostring(nearestBSL, "#.#####") + " (" + nearestBSLName + ")", uiNegColor,
+         na(nearestSSL) ? "—" : str.tostring(nearestSSL, "#.#####") + " (" + nearestSSLName + ")", uiPosColor)
+
+    int r = rdash.render_primary(readTable, 0, prim, uiHeaderText, uiLabelText, uiNeutralColor)
+
+    // === PRECOMPUTE CONTEXT DISPLAY VALUES ===
+    // (Liquidity event, structure, imbalance, OB, reclaim, displacement)
+    bool domMssValid_ = pickLong ? liveSetup.mssValidLong : liveSetup.mssValidShort
+    bool domMssStrong_ = pickLong ? liveSetup.mssStrongLong : liveSetup.mssStrongShort
+    bool domMssFailed_ = pickLong ? liveSetup.mssFailedLong : liveSetup.mssFailedShort
+    bool domMssDetected_ = pickLong ? liveSetup.mssDetectedLong : liveSetup.mssDetectedShort
+
+    string liqEventStr = "No meaningful liquidity sweep yet"
+    color liqEventCol = uiLabelText
+    if liveSetup.isPotentialLong and sweptSSL
+        liqEventStr := "Sell-side swept: " + bestSweepNameSSL + " (" + fmt.format_grade_word(bestSweepGradeSSL) + ")"
+        liqEventCol := bestSweepGradeSSL == "A" ? uiPosColor : bestSweepGradeSSL == "B" ? color.orange : uiLabelText
+    else if not liveSetup.isPotentialLong and sweptBSL
+        liqEventStr := "Buy-side swept: " + bestSweepNameBSL + " (" + fmt.format_grade_word(bestSweepGradeBSL) + ")"
+        liqEventCol := bestSweepGradeBSL == "A" ? uiPosColor : bestSweepGradeBSL == "B" ? color.orange : uiLabelText
+
+    string structStr = "No structure shift yet"
+    color structCol = uiLabelText
+    if domMssFailed_
+        structStr := "MSS failed — structure shift not confirmed"
+        structCol := uiNegColor
+    else if domMssStrong_
+        structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift confirmed (strong)"
+        structCol := uiPosColor
+    else if domMssValid_
+        structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift confirmed (valid)"
+        structCol := color.orange
+    else if domMssDetected_
+        structStr := "Weak break — structure shift not confirmed"
+        structCol := uiNeutralColor
+    else if liveSetup.mssGrade != ""
+        structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift detected (" + fmt.format_grade_word(liveSetup.mssGrade) + ")"
+        structCol := liveSetup.mssGrade == "A" ? uiPosColor : color.orange
+
+    string imbStr = "—"
+    color imbCol = uiLabelText
+    if liveSetup.isDegraded
+        imbStr := "Imbalance zone was filled — setup weakened"
+        imbCol := uiNegColor
+    else if liveSetup.fvgGrade != ""
+        imbStr := "Fresh " + (liveSetup.isPotentialLong ? "bullish" : "bearish") + " imbalance present (" + fmt.format_grade_word(liveSetup.fvgGrade) + ")"
+        imbCol := liveSetup.fvgGrade == "A" ? uiPosColor : color.orange
+    else if liveSetup.mssGrade != ""
+        imbStr := "No fresh imbalance yet — waiting"
+        imbCol := color.orange
+
+    bool obConf = liveSetup.hasOBConfluence
+    string obStr = obConf ? "Order block confluence present" : "No clean OB confluence"
+    color obCol = obConf ? uiPosColor : uiLabelText
+
+    bool domRclFailed = pickLong ? liveSetup.reclaimFailedLong : liveSetup.reclaimFailedShort
+    bool domRclValid = pickLong ? liveSetup.reclaimValidLong : liveSetup.reclaimValidShort
+    bool domRclStrong = pickLong ? liveSetup.reclaimStrongLong : liveSetup.reclaimStrongShort
+    bool domRclDetected = pickLong ? liveSetup.reclaimDetectedLong : liveSetup.reclaimDetectedShort
+    bool domSwept = pickLong ? sweptSSL : sweptBSL
+    string rclStatusStr = domRclFailed ? "Reclaim failed — setup degraded" : domRclStrong ? "Reclaim visible — watch for structure shift" : domRclValid ? "Reclaim visible — developing" : domRclDetected ? "Early reclaim — needs confirmation" : domSwept ? "Sweep confirmed — waiting for reclaim" : "—"
+    color rclStatusCol = domRclFailed ? uiNegColor : domRclStrong ? uiPosColor : domRclValid ? color.orange : domRclDetected ? uiNeutralColor : uiLabelText
+
+    bool domDispFailed2 = pickLong ? liveSetup.disp.failedLong : liveSetup.disp.failedShort
+    bool domDispStrong2 = pickLong ? liveSetup.disp.strongLong : liveSetup.disp.strongShort
+    bool domDispValid2 = pickLong ? liveSetup.disp.validLong : liveSetup.disp.validShort
+    bool domDispWeak2 = pickLong ? liveSetup.disp.weakLong : liveSetup.disp.weakShort
+    bool domDispDetected2 = pickLong ? liveSetup.disp.detectedLong : liveSetup.disp.detectedShort
+    string dispStatusStr = domDispFailed2 ? "Displacement failed — setup degraded" : domDispStrong2 ? "Strong displacement confirmed" : domDispValid2 ? "Displacement confirmed — developing" : domDispWeak2 ? "Weak push — displacement not confirmed" : domDispDetected2 ? "Push detected — awaiting confirmation" : domMssValid_ ? "MSS confirmed — waiting for displacement" : "—"
+    color dispStatusCol = domDispFailed2 ? uiNegColor : domDispStrong2 ? uiPosColor : domDispValid2 ? color.orange : domDispWeak2 ? uiNeutralColor : uiLabelText
+
+    // Strategy eligibility precomputation
+    string ictLongDetail = "Long: " + (ictGateLong ? "Valid" : "Invalid") + " — " + ictGateLongInfo + (ictHasValidExternalLong ? " [ext]" : "")
+    string ictShortDetail = "Short: " + (ictGateShort ? "Valid" : "Invalid") + " — " + ictGateShortInfo + (ictHasValidExternalShort ? " [ext]" : "")
+    color ictCol = ictGateLong and ictGateShort ? uiPosColor : (ictGateLong or ictGateShort ? color.orange : uiNegColor)
+    string sbLongDetail = "Long: " + (sbGateLong ? "Valid" : "Invalid") + " — " + sbGateLongInfo + (sbHasSessionSweepLong ? " [sess]" : "")
+    string sbShortDetail = "Short: " + (sbGateShort ? "Valid" : "Invalid") + " — " + sbGateShortInfo + (sbHasSessionSweepShort ? " [sess]" : "")
+    color sbCol = sbGateLong and sbGateShort ? uiPosColor : (sbGateLong or sbGateShort ? color.orange : uiNegColor)
+    string contStr = "Long: " + (continuationLiquidityLong ? "Valid" : "None") + "  |  Short: " + (continuationLiquidityShort ? "Valid" : "None")
+    color contCol = continuationLiquidityLong or continuationLiquidityShort ? uiNeutralColor : uiLabelText
+
+    // Trader-mode compressed strategy
+    string ictSummary = ictGateLong and ictGateShort ? "Both eligible" : ictGateLong ? "Long eligible" : ictGateShort ? "Short eligible" : "Not eligible"
+    string sbSummary = sbGateLong and sbGateShort ? "Both eligible" : sbGateLong ? "Long eligible" : sbGateShort ? "Short eligible" : "Not eligible"
+    string stratStr = "ICT 2022: " + ictSummary + "  |  SB: " + sbSummary
+    color stratCol = (ictGateLong or ictGateShort or sbGateLong or sbGateShort) ? uiNeutralColor : uiLabelText
+
+    rdash.ContextDisplay ctx = rdash.ContextDisplay.new(
+         liqEventStr, liqEventCol, structStr, structCol, imbStr, imbCol,
+         obStr, obCol, rclStatusStr, rclStatusCol, dispStatusStr, dispStatusCol,
+         ictLongDetail, ictShortDetail, ictCol, sbLongDetail, sbShortDetail, sbCol,
+         contStr, contCol, stratStr, stratCol)
+
+    r := rdash.render_context(readTable, r, ctx, isTrader, uiHeaderText, uiLabelText, uiBg)
+    r := rdash.render_scores(readTable, r, prim, showContext, uiLabelText, uiNegColor, uiPosColor)
+    r := rdash.render_strategy(readTable, r, ctx, isTrader, uiLabelText)
+
+    // === PRECOMPUTE ADVANCED DISPLAY (Debug only) ===
+    if showAdvanced
+        // --- Confluence Chain ---
+        string chainStr = ""
+        if liveSetup.sweepGrade != ""
+            chainStr := "Sweep(" + liveSetup.sweepGrade + ")"
+        if liveSetup.mssGrade != ""
+            chainStr := chainStr + " → MSS(" + liveSetup.mssGrade + ")"
+        if liveSetup.fvgGrade != ""
+            chainStr := chainStr + " → FVG(" + liveSetup.fvgGrade + ")"
+        if liveSetup.hasOBConfluence
+            chainStr := chainStr + " +OB"
+        if liveSetup.isDegraded
+            chainStr := chainStr + " ✗MIT"
+        if liveSetup.isExpired
+            chainStr := chainStr + " ✗EXP"
+        if chainStr == ""
+            chainStr := "—"
+
+        // --- Sequence Status ---
+        string seqStr = liveSetup.isConflicted ? "Conflicted" : liveSetup.isExpired ? "Expired" : liveSetup.isDegraded ? "Degraded" : liveSetup.sequenceValid ? "Valid" : "Incomplete"
+        color seqColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : liveSetup.sequenceValid ? uiPosColor : uiNegColor
+
+        // --- Best Sell-Side Sweep ---
+        string sslScope = bestSweepSrcSSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtSSL or is_htf_liquidity_source(bestSweepSrcSSL)) ? "EXT" : "INT")
+        string sslInfo = sweptSSL ? bestSweepNameSSL + " " + bestSweepGradeSSL + " [" + bestSweepTypeSSL + " · " + source_category_label(bestSweepSrcSSL, "") + " · " + sslScope + (bestSweepInducementSSL ? " · IND" : "") + "]" : "None"
+        color sslInfoCol = sweptSSL ? (bestSweepGradeSSL == "A" ? uiPosColor : bestSweepGradeSSL == "B" ? color.orange : uiLabelText) : uiLabelText
+
+        // --- Best Buy-Side Sweep ---
+        string bslScope = bestSweepSrcBSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtBSL or is_htf_liquidity_source(bestSweepSrcBSL)) ? "EXT" : "INT")
+        string bslInfo = sweptBSL ? bestSweepNameBSL + " " + bestSweepGradeBSL + " [" + bestSweepTypeBSL + " · " + source_category_label(bestSweepSrcBSL, "") + " · " + bslScope + (bestSweepInducementBSL ? " · IND" : "") + "]" : "None"
+        color bslInfoCol = sweptBSL ? (bestSweepGradeBSL == "A" ? uiPosColor : bestSweepGradeBSL == "B" ? color.orange : uiLabelText) : uiLabelText
+
+        // --- Sweep Quality ---
+        string sweepQualStr = "SSL: " + str.tostring(math.round(sweepQualitySSL)) + "  |  BSL: " + str.tostring(math.round(sweepQualityBSL))
+
+        // --- EQ Clusters ---
+        string eqInfo = ""
+        if not na(eqhLevel)
+            eqInfo := "EQH×" + str.tostring(eqhCount) + " @" + str.tostring(eqhLevel, "#.##") + " [" + str.tostring(math.round(eqhScore)) + "]"
+        if not na(eqlLevel)
+            eqInfo := eqInfo + (eqInfo != "" ? "  |  " : "") + "EQL×" + str.tostring(eqlCount) + " @" + str.tostring(eqlLevel, "#.##") + " [" + str.tostring(math.round(eqlScore)) + "]"
+        if eqInfo == ""
+            eqInfo := "—"
+
+        // --- Ext / HTF / RN Liquidity ---
+        string extLiqStr = ""
+        if not na(nearestExtBSL)
+            extLiqStr := "BSL: " + str.tostring(nearestExtBSL, "#.#####")
+        if not na(nearestExtSSL)
+            extLiqStr := extLiqStr + (extLiqStr != "" ? "  |  " : "") + "SSL: " + str.tostring(nearestExtSSL, "#.#####")
+        if extLiqStr == ""
+            extLiqStr := "—"
+
+        string htfLiqStr = ""
+        if not na(nearestHTFBSL)
+            htfLiqStr := "BSL: " + str.tostring(nearestHTFBSL, "#.#####")
+        if not na(nearestHTFSSL)
+            htfLiqStr := htfLiqStr + (htfLiqStr != "" ? "  |  " : "") + "SSL: " + str.tostring(nearestHTFSSL, "#.#####")
+        if htfLiqStr == ""
+            htfLiqStr := "—"
+
+        string rnLiqStr = ""
+        if not na(nearestRoundBSL)
+            rnLiqStr := "BSL: " + str.tostring(nearestRoundBSL, "#.#####")
+        if not na(nearestRoundSSL)
+            rnLiqStr := rnLiqStr + (rnLiqStr != "" ? "  |  " : "") + "SSL: " + str.tostring(nearestRoundSSL, "#.#####")
+        if rnLiqStr == ""
+            rnLiqStr := "—"
+
+        rdash.AdvancedDisplay adv = rdash.AdvancedDisplay.new(
+             chainStr, phaseColor,
+             seqStr, seqColor,
+             sslInfo, sslInfoCol,
+             bslInfo, bslInfoCol,
+             sweepQualStr, eqInfo,
+             str.tostring(array.size(activeSweeps)),
+             extLiqStr, htfLiqStr, rnLiqStr,
+             uiNeutralColor)
+
+        r := rdash.render_advanced(readTable, r, adv, uiHeaderText, uiLabelText, uiBg)
+
+        // === PRECOMPUTE LIFECYCLE DISPLAY (Debug only) ===
+
+        // --- Lifecycle Stage ---
+        string lcStageStr = lifecycle_name(liveSetup.lifecycleDominant) + " (" + str.tostring(liveSetup.lifecycleDominant) + ")"
+        color lcStageCol = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : uiNeutralColor
+
+        // --- Lifecycle Reason + Both sides ---
+        string lcBothStr = "L: " + lifecycle_name(liveSetup.lifecycleLong) + " (" + str.tostring(liveSetup.lifecycleLong) + ")  |  S: " + lifecycle_name(liveSetup.lifecycleShort) + " (" + str.tostring(liveSetup.lifecycleShort) + ")"
+
+        // --- Activation Gate ---
+        string lcActStr = "Can activate: " + (liveSetup.lifecycleCanActivateDominant ? "YES" : "NO")
+        color lcActCol = liveSetup.lifecycleCanActivateDominant ? uiPosColor : uiLabelText
+
+        // --- Mode Qualification ---
+        string modeQualStr = "L: " + (liveSetup.longMeetsModeCandidate ? "cand" : "—") + "/" + (liveSetup.longMeetsModeActivation ? "act" : "—") + (liveSetup.longHasReclaimProxy ? "/rcl" : "") + "  |  S: " + (liveSetup.shortMeetsModeCandidate ? "cand" : "—") + "/" + (liveSetup.shortMeetsModeActivation ? "act" : "—") + (liveSetup.shortHasReclaimProxy ? "/rcl" : "")
+        color modeQualCol = liveSetup.dominantMeetsModeActivation ? uiPosColor : liveSetup.dominantMeetsModeCandidate ? color.orange : uiLabelText
+
+        // --- Mode Block ---
+        string modeBlkStr = liveSetup.dominantBlockedByMode ? liveSetup.dominantModeBlockReason : "No mode block"
+        color modeBlkCol = liveSetup.dominantBlockedByMode ? color.orange : uiPosColor
+
+        // --- Reclaim Stage ---
+        string rclStageL = liveSetup.reclaimFailedLong ? "FAILED" : liveSetup.reclaimStrongLong ? "STRONG" : liveSetup.reclaimValidLong ? "VALID" : liveSetup.reclaimDetectedLong ? "WEAK" : "NONE"
+        string rclStageS = liveSetup.reclaimFailedShort ? "FAILED" : liveSetup.reclaimStrongShort ? "STRONG" : liveSetup.reclaimValidShort ? "VALID" : liveSetup.reclaimDetectedShort ? "WEAK" : "NONE"
+        string rclDbgStr = "L: " + rclStageL + " (" + str.tostring(math.round(liveSetup.reclaimScoreLong)) + ") " + str.tostring(liveSetup.reclaimAcceptBarsLong) + "bars  |  S: " + rclStageS + " (" + str.tostring(math.round(liveSetup.reclaimScoreShort)) + ") " + str.tostring(liveSetup.reclaimAcceptBarsShort) + "bars"
+        color rclDbgCol = (liveSetup.reclaimFailedLong or liveSetup.reclaimFailedShort) ? uiNegColor : (liveSetup.reclaimValidLong or liveSetup.reclaimValidShort) ? uiPosColor : (liveSetup.reclaimDetectedLong or liveSetup.reclaimDetectedShort) ? color.orange : uiLabelText
+
+        // --- Reclaim Detail ---
+        string rclReasonDbg = "L: " + liveSetup.reclaimStageReasonLong + "  |  S: " + liveSetup.reclaimStageReasonShort
+
+        // --- Extension Filter ---
+        string extDbgStr = "L: " + (liveSetup.extensionBlockedLong ? "BLOCKED " + liveSetup.extensionReasonLong : "OK") + "  |  S: " + (liveSetup.extensionBlockedShort ? "BLOCKED " + liveSetup.extensionReasonShort : "OK")
+        color extDbgCol = (liveSetup.extensionBlockedLong or liveSetup.extensionBlockedShort) ? color.orange : uiPosColor
+
+        // --- MSS Stage ---
+        string mssStageL = liveSetup.mssFailedLong ? "FAILED" : liveSetup.mssStrongLong ? "STRONG" : liveSetup.mssValidLong ? "VALID" : liveSetup.mssDetectedLong ? "WEAK" : "NONE"
+        string mssStageS = liveSetup.mssFailedShort ? "FAILED" : liveSetup.mssStrongShort ? "STRONG" : liveSetup.mssValidShort ? "VALID" : liveSetup.mssDetectedShort ? "WEAK" : "NONE"
+        string mssDbgStr = "L: " + mssStageL + " (" + str.tostring(math.round(liveSetup.mssScoreLong)) + ") sig=" + str.tostring(liveSetup.mssTriggerSigLong) + " " + liveSetup.mssTriggerTypeLong + (liveSetup.mssBodyConfirmedLong ? " body✓" : "") + "  |  S: " + mssStageS + " (" + str.tostring(math.round(liveSetup.mssScoreShort)) + ") sig=" + str.tostring(liveSetup.mssTriggerSigShort) + " " + liveSetup.mssTriggerTypeShort + (liveSetup.mssBodyConfirmedShort ? " body✓" : "")
+        color mssDbgCol = (liveSetup.mssFailedLong or liveSetup.mssFailedShort) ? uiNegColor : (liveSetup.mssValidLong or liveSetup.mssValidShort) ? uiPosColor : (liveSetup.mssDetectedLong or liveSetup.mssDetectedShort) ? color.orange : uiLabelText
+
+        // --- MSS Detail + Mode Pass ---
+        string mssReasonDbg = "L: " + liveSetup.mssReasonLong + "  |  S: " + liveSetup.mssReasonShort
+        string mssPassDbg = "L: " + (liveSetup.mssQualityPassLong ? "PASS" : "FAIL") + "  |  S: " + (liveSetup.mssQualityPassShort ? "PASS" : "FAIL")
+        color mssPassCol = (liveSetup.mssQualityPassLong or liveSetup.mssQualityPassShort) ? uiNeutralColor : uiLabelText
+
+        // --- Displacement Stage ---
+        string dispStageL = liveSetup.disp.failedLong ? "FAILED" : liveSetup.disp.strongLong ? "STRONG" : liveSetup.disp.validLong ? "VALID" : liveSetup.disp.weakLong ? "WEAK" : liveSetup.disp.detectedLong ? "DET" : "NONE"
+        string dispStageS = liveSetup.disp.failedShort ? "FAILED" : liveSetup.disp.strongShort ? "STRONG" : liveSetup.disp.validShort ? "VALID" : liveSetup.disp.weakShort ? "WEAK" : liveSetup.disp.detectedShort ? "DET" : "NONE"
+        string dispDbgStr = "L: " + dispStageL + " (" + str.tostring(math.round(liveSetup.disp.scoreLong)) + ") " + str.tostring(liveSetup.disp.rangeAtrLong, "#.#") + "×ATR body=" + str.tostring(math.round(liveSetup.disp.bodyDomLong * 100)) + "%" + (liveSetup.disp.hasImbalanceLong ? " FVG" : "") + (liveSetup.disp.retainedLong ? " ✓ret" : "") + "  |  S: " + dispStageS + " (" + str.tostring(math.round(liveSetup.disp.scoreShort)) + ") " + str.tostring(liveSetup.disp.rangeAtrShort, "#.#") + "×ATR body=" + str.tostring(math.round(liveSetup.disp.bodyDomShort * 100)) + "%" + (liveSetup.disp.hasImbalanceShort ? " FVG" : "") + (liveSetup.disp.retainedShort ? " ✓ret" : "")
+        color dispDbgCol = (liveSetup.disp.failedLong or liveSetup.disp.failedShort) ? uiNegColor : (liveSetup.disp.validLong or liveSetup.disp.validShort) ? uiPosColor : (liveSetup.disp.detectedLong or liveSetup.disp.detectedShort) ? color.orange : uiLabelText
+
+        // --- Displacement Detail + Mode Pass ---
+        string dispReasonDbg = "L: " + liveSetup.disp.reasonLong + "  |  S: " + liveSetup.disp.reasonShort
+        string dispPassDbg = "L: " + (dispPassL ? "PASS" : "FAIL") + (dispPassStrongL ? " [strong]" : "") + "  |  S: " + (dispPassS ? "PASS" : "FAIL") + (dispPassStrongS ? " [strong]" : "")
+        color dispPassCol = (dispPassL or dispPassS) ? uiNeutralColor : uiLabelText
+
+        // --- Activation Path ---
+        string actPathStr = liveSetup.activationPathDominant != "" ? liveSetup.activationPathDominant : "blocked"
+        color actPathCol = liveSetup.activationPathDominant != "" ? uiPosColor : uiLabelText
+
+        // --- Pending Freshness + Mode Thresholds ---
+        string freshDbgStr = "L: " + liveSetup.freshnessReasonLong + "  |  S: " + liveSetup.freshnessReasonShort
+        string modeThrStr = "Min cand: " + lifecycle_name(mode_min_lifecycle_for_candidate(sensitivityMode)) + "  |  Min act: " + lifecycle_name(mode_min_lifecycle_for_activation(sensitivityMode))
+
+        // --- Pending Activation Debug ---
+        string pendDbgL = _pendingLongActive ? "ACTIVE sig=" + str.tostring(_pendingLongSignalBar) + " exp=" + str.tostring(_pendingLongExpiryBar) + " lc=" + lifecycle_name(_pendingLongInitialLC) + " [" + _pendingLongMode + "]" : "—"
+        string pendDbgS = _pendingShortActive ? "ACTIVE sig=" + str.tostring(_pendingShortSignalBar) + " exp=" + str.tostring(_pendingShortExpiryBar) + " lc=" + lifecycle_name(_pendingShortInitialLC) + " [" + _pendingShortMode + "]" : "—"
+        color pendDbgLCol = _pendingLongActive ? color.orange : uiLabelText
+        color pendDbgSCol = _pendingShortActive ? color.orange : uiLabelText
+
+        // --- Pending Windows ---
+        string pendWinStr = "AGG=" + str.tostring(mode_pending_activation_bars("Aggressive")) + "  BAL=" + str.tostring(mode_pending_activation_bars("Balanced")) + "  CON=" + str.tostring(mode_pending_activation_bars("Conservative")) + "  (current: " + str.tostring(mode_pending_activation_bars(sensitivityMode)) + ")"
+
+        // --- Delayed Activation ---
+        string delayActStr = liveSetup.pendingLongActivatedThisBar ? "LONG activated via delayed" : liveSetup.pendingShortActivatedThisBar ? "SHORT activated via delayed" : "No delayed activation"
+        color delayActCol = (liveSetup.pendingLongActivatedThisBar or liveSetup.pendingShortActivatedThisBar) ? uiPosColor : uiLabelText
+
+        // --- Integrity / Desync ---
+        string desyncStr = liveSetup.lifecycleIsDesynced ? "DESYNC: " + liveSetup.lifecycleDesyncReason : "OK — no invariant violations"
+        color desyncCol = liveSetup.lifecycleIsDesynced ? color.red : uiPosColor
+
+        // --- Rejection Cause ---
+        string rejCause = "none"
+        bool domSide = pickLong
+        int domLc = domSide ? liveSetup.lifecycleLong : liveSetup.lifecycleShort
+        if domLc >= LC_MSS_CONFIRMED and not (domSide ? modeActL : modeActS)
+            bool rclBlk = not (domSide ? rclPassL : rclPassS)
+            bool mssBlk = not (domSide ? mssQPassL : mssQPassS)
+            bool dispBlk = not (domSide ? dispPassL : dispPassS)
+            bool extBlk = domSide ? extBlockL : extBlockS
+            bool dispFailBlk = domSide ? dispFailedL2 : dispFailedS2
+            if rclBlk
+                rejCause := "reclaim"
+            else if mssBlk
+                rejCause := "MSS quality"
+            else if dispFailBlk
+                rejCause := "disp failed"
+            else if dispBlk
+                rejCause := "disp quality"
+            else if extBlk
+                rejCause := "extension"
+            else
+                rejCause := "lifecycle/bridge"
+        else if domLc < LC_MSS_CONFIRMED
+            rejCause := domLc <= LC_SWEEP_CONFIRMED ? "pre-MSS" : "min lifecycle"
+        color rejCol = rejCause == "none" ? uiPosColor : color.orange
+
+        rdash.LifecycleDisplay lc = rdash.LifecycleDisplay.new(
+             lcStageStr, lcStageCol,
+             liveSetup.lifecycleReasonDominant,
+             lcBothStr, lcActStr, lcActCol,
+             modeQualStr, modeQualCol,
+             modeBlkStr, modeBlkCol,
+             rclDbgStr, rclDbgCol, rclReasonDbg,
+             extDbgStr, extDbgCol,
+             mssDbgStr, mssDbgCol, mssReasonDbg,
+             mssPassDbg, mssPassCol,
+             dispDbgStr, dispDbgCol, dispReasonDbg,
+             dispPassDbg, dispPassCol,
+             actPathStr, actPathCol,
+             freshDbgStr, modeThrStr,
+             pendDbgL, pendDbgLCol,
+             pendDbgS, pendDbgSCol,
+             pendWinStr,
+             delayActStr, delayActCol,
+             desyncStr, desyncCol,
+             rejCause, rejCol,
+             uiValueText, uiNeutralColor)
+
+        r := rdash.render_lifecycle(readTable, r, lc, uiHeaderText, uiLabelText, uiBg)
+
+    // === PERFORMANCE SECTION ===
+    float wr = mainStats.totalTrades > 0 ? (float(mainStats.wins) / mainStats.totalTrades) * 100 : 0
+    rdash.PerfDisplay perf = rdash.PerfDisplay.new(
+         fmt.format_percent(wr), wr >= 50 ? uiPosColor : uiNegColor,
+         str.tostring(mainStats.totalTrades),
+         str.tostring(mainStats.wins) + " / " + str.tostring(mainStats.losses),
+         fmt.format_r(mainStats.totalR), mainStats.totalR >= 0 ? uiPosColor : uiNegColor,
+         fmt.format_r(mainStats.equityR), mainStats.equityR >= 0 ? uiPosColor : uiNegColor,
+         fmt.format_r(mainStats.maxDrawdownR), mainStats.maxDrawdownR < 0 ? uiNegColor : uiLabelText,
+         uiValueText, uiLabelText)
+
+    r := rdash.render_performance(readTable, r, perf, showContext, uiHeaderText, uiBg)
+
+// =====================================================================
+// STEP 6: REPLACE market intelligence dashboard (lines 4815-4911)
+// =====================================================================
+
+// DELETE render_market_intel_dashboard function (lines 4822-4909)
+// REPLACE the call site (lines 4910-4911) with:
+
+if showMarketIntelDash and barstate.islast
+    // Precompute trend data
+    bool htf1Bull = htf1Price > htf1Ema
+    bool htf2Bull = htf2Price > htf2Ema
+    bool curBull = close > emaBias
+    int trendScore = (htf1Bull ? 1 : 0) + (htf2Bull ? 1 : 0) + (curBull ? 1 : 0)
+    string alignment = trendScore == 3 ? "Strong Bullish" : trendScore == 0 ? "Strong Bearish" : trendScore == 2 ? "Bullish Alignment" : "Bearish Alignment"
+    color alignCol = trendScore >= 2 ? uiPosColor : (trendScore == 0 ? uiNegColor : uiNeutralColor)
+
+    // Build AlertEntry array from alertLogs
+    intel.AlertEntry[] alertEntries = array.new<intel.AlertEntry>()
+    if array.size(alertLogs) > 0
+        for i = 0 to array.size(alertLogs) - 1
+            AlertLog al = array.get(alertLogs, i)
+            array.push(alertEntries, intel.AlertEntry.new(al.timeStr, al.signalType, al.price, al.col))
+
+    // Build OBEntry array from obArray
+    intel.OBEntry[] obEntries = array.new<intel.OBEntry>()
+    if array.size(obArray) > 0
+        for i = array.size(obArray) - 1 to 0
+            SmartZone szOb = array.get(obArray, i)
+            if not szOb.mitigated
+                color c = szOb.isBull ? uiPosColor : uiNegColor
+                string t = szOb.isBull ? "BULL" : "BEAR"
+                string p = str.format("{0,number,#.##}-{1,number,#.##}", szOb.bottom, szOb.top)
+                string a = str.tostring(bar_index - szOb.startBar) + " bars"
+                array.push(obEntries, intel.OBEntry.new(t, c, p, a))
+
+    intel.render_market_intel(marketIntelTable,
+         uiHeaderText, uiLabelText, uiValueText, uiBg,
+         uiPosColor, uiNegColor, uiNeutralColor,
+         alignment, alignCol,
+         trendHTF2, htf2Bull, trendHTF1, htf1Bull,
+         timeframe.period, curBull,
+         alertEntries, maxAlertRows,
+         obEntries, maxScannerRows)
+
+// =====================================================================
+// STEP 7: REPLACE table position resolution
+// (line 4793 and line 4819)
+// =====================================================================
+
+// Line 4793: table.new(resolve_pos(readinessPos), ...)
+// REPLACE WITH: table.new(fmt.resolve_pos(readinessPos), ...)
+
+// Line 4819: var table marketIntelTable = table.new(resolve_pos(marketIntelPos), ...)
+// REPLACE WITH: var table marketIntelTable = table.new(fmt.resolve_pos(marketIntelPos), ...)
+
+// =====================================================================
+// STEP 8: INVARIANT REFACTOR PLAN (internal main split)
+// Keep validate_invariants() in main, but split into chapter helpers.
+// =====================================================================
+
+// The current validate_invariants() function (lines 3612-4053) is ~440 lines.
+// Split it into internal chapter-specific helpers:
+
+// validate_pending_invariants(s, ...) =>
+//     // P1-P7 invariants (lines 3705-3773)
+//     ...
+//
+// validate_quality_invariants(s, ...) =>
+//     // Q1-Q5 invariants (lines 3775-3820)
+//     ...
+//
+// validate_reclaim_invariants(s, ...) =>
+//     // R1-R5 invariants (lines 3821-3878)
+//     ...
+//
+// validate_mss_invariants(s, ...) =>
+//     // M1-M7 invariants (lines 3879-3955)
+//     ...
+//
+// validate_displacement_invariants(s, ...) =>
+//     // D1-D8 invariants (lines 3957-4032)
+//     ...
+//
+// apply_lifecycle_authoritative_overrides(s, ...) =>
+//     // Lines 4033-4053
+//     ...
+//
+// Then the master validate_invariants() becomes:
+// validate_invariants(s, ...) =>
+//     // Reconcile active trade (lines 3648-3653)
+//     // Core invariants 3, 5 (lines 3658-3672)
+//     // Mode invariants M1, M2 (lines 3674-3703)
+//     [_pLA, _pLCA, _pLR, _pSA, _pSCA, _pSR] = validate_pending_invariants(...)
+//     validate_quality_invariants(...)
+//     validate_reclaim_invariants(...)
+//     validate_mss_invariants(...)
+//     validate_displacement_invariants(...)
+//     apply_lifecycle_authoritative_overrides(...)
+//     [_pLA, _pLCA, _pLR, _pSA, _pSCA, _pSR]
+//
+// IMPORTANT: All sub-functions stay INSIDE main_indicator.pine.
+// They share the same SetupState reference and mutate it directly.
+// This is purely for maintainability, not security.
+
+// =====================================================================
+// END OF REFACTOR GUIDE
+// =====================================================================

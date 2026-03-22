@@ -1,0 +1,244 @@
+// =====================================================================
+// REFACTOR DOCUMENTATION PACKAGE
+// Production-Grade Modular Architecture — SMC v5
+// =====================================================================
+
+// =====================================================================
+// 1. FILE STRUCTURE
+// =====================================================================
+//
+// backend/src/main/resources/pine/prod/
+// ├── version1-improving-dev.pine          ← MAIN indicator (invite-only)
+// ├── tv_format_utils.pine                 ← Library: pure formatting helpers
+// ├── tv_dashboard_utils.pine              ← Library: generic table row plumbing
+// ├── tv_render_utils.pine                 ← Library: line/label/box rendering
+// ├── tv_readiness_ui.pine                 ← Library: readiness dashboard renderer
+// ├── tv_market_intel_ui.pine              ← Library: market intel dashboard renderer
+// ├── REFACTOR_GUIDE.pine                  ← Step-by-step implementation guide
+// └── REFACTOR_DOCS.pine                   ← This file (documentation)
+
+// =====================================================================
+// 2. RESPONSIBILITY MAP (per file)
+// =====================================================================
+//
+// ┌────────────────────────────┬──────────────────────────────────────────────────┐
+// │ File                       │ Responsibility                                   │
+// ├────────────────────────────┼──────────────────────────────────────────────────┤
+// │ version1-improving-dev     │ ALL trading logic: lifecycle progression,        │
+// │ (main indicator)           │ invariant validation, reclaim/MSS/displacement   │
+// │                            │ detection & scoring & gating, mode-sensitive     │
+// │                            │ activation, strategy eligibility, signal         │
+// │                            │ generation, activeTrade sync, webhook payloads,  │
+// │                            │ performance tracking, display DTO precomputation,│
+// │                            │ format_action(), input parameters, request.*     │
+// ├────────────────────────────┼──────────────────────────────────────────────────┤
+// │ tv_format_utils            │ Pure string formatting: position resolution,     │
+// │                            │ grade word mapping, confidence labels, score     │
+// │                            │ bias text, generic value/percent/R formatters    │
+// ├────────────────────────────┼──────────────────────────────────────────────────┤
+// │ tv_dashboard_utils         │ Generic table cell plumbing: section headers,    │
+// │                            │ key-value rows (normal/tiny/left-aligned),       │
+// │                            │ 3-column layouts (merge, header, data, empty)    │
+// ├────────────────────────────┼──────────────────────────────────────────────────┤
+// │ tv_render_utils             │ Chart-overlay primitives: horizontal level       │
+// │                            │ rendering with var lifecycle, line style          │
+// │                            │ resolution, safe delete helpers (line/label/box),│
+// │                            │ candidate preview box draw/clear                 │
+// ├────────────────────────────┼──────────────────────────────────────────────────┤
+// │ tv_readiness_ui            │ Readiness dashboard display plumbing: receives   │
+// │                            │ precomputed display DTOs (PrimaryDisplay,        │
+// │                            │ ContextDisplay, AdvancedDisplay,                 │
+// │                            │ LifecycleDisplay, PerfDisplay), renders table    │
+// │                            │ rows via tv_dashboard_utils helpers              │
+// ├────────────────────────────┼──────────────────────────────────────────────────┤
+// │ tv_market_intel_ui         │ Market intel display plumbing: receives          │
+// │                            │ precomputed trend/alert/OB data, renders         │
+// │                            │ 3-column table via tv_dashboard_utils helpers    │
+// └────────────────────────────┴──────────────────────────────────────────────────┘
+
+// =====================================================================
+// 3. MIGRATION MAP
+// =====================================================================
+//
+// ┌─────────────────────────────────┬────────────────────────┬────────┬──────────────────────────────────────┐
+// │ Function / Block                │ New Location           │ Action │ Reason                               │
+// ├─────────────────────────────────┼────────────────────────┼────────┼──────────────────────────────────────┤
+// │ resolve_pos()                   │ tv_format_utils        │ MOVED  │ Pure string→constant mapping          │
+// │ format_grade_word()             │ tv_format_utils        │ MOVED  │ Pure string→string mapping            │
+// │ format_confidence()             │ tv_format_utils        │ MOVED  │ Pure score→label mapping              │
+// │ format_score_bias()             │ tv_format_utils        │ MOVED  │ Pure diff→label mapping               │
+// │ value_or_dash() [NEW]           │ tv_format_utils        │ NEW    │ Consolidates na ? "—" : val pattern   │
+// │ format_percent() [NEW]          │ tv_format_utils        │ NEW    │ Consolidates str.format % pattern     │
+// │ format_r() [NEW]                │ tv_format_utils        │ NEW    │ Consolidates str.format R pattern     │
+// ├─────────────────────────────────┼────────────────────────┼────────┼──────────────────────────────────────┤
+// │ render_level()                  │ tv_render_utils        │ MOVED  │ Generic line/label lifecycle          │
+// │ resolve_line_style() [NEW]      │ tv_render_utils        │ NEW    │ Extracted from render_level()         │
+// │ safe_delete_line() [NEW]        │ tv_render_utils        │ NEW    │ Consolidates not-na-then-delete       │
+// │ safe_delete_label() [NEW]       │ tv_render_utils        │ NEW    │ Consolidates not-na-then-delete       │
+// │ safe_delete_box() [NEW]         │ tv_render_utils        │ NEW    │ Consolidates not-na-then-delete       │
+// │ draw_preview() [NEW]            │ tv_render_utils        │ NEW    │ Box/label rendering from candidate    │
+// │ clear_preview() [NEW]           │ tv_render_utils        │ NEW    │ Box/label deletion from candidate     │
+// ├─────────────────────────────────┼────────────────────────┼────────┼──────────────────────────────────────┤
+// │ table_header() [NEW]            │ tv_dashboard_utils     │ NEW    │ Replaces inline table.cell() headers  │
+// │ table_section() [NEW]           │ tv_dashboard_utils     │ NEW    │ Replaces inline ─── section ───       │
+// │ table_kv() [NEW]                │ tv_dashboard_utils     │ NEW    │ Replaces inline key/value rows        │
+// │ table_kv_left() [NEW]           │ tv_dashboard_utils     │ NEW    │ Left-aligned variant                  │
+// │ table_kv_tiny() [NEW]           │ tv_dashboard_utils     │ NEW    │ Tiny-size variant                     │
+// │ table_merge_row() [NEW]         │ tv_dashboard_utils     │ NEW    │ 3-col merged header                   │
+// │ table_section3() [NEW]          │ tv_dashboard_utils     │ NEW    │ 3-col section divider                 │
+// │ table_header3() [NEW]           │ tv_dashboard_utils     │ NEW    │ 3-col column headers                  │
+// │ table_row3() [NEW]              │ tv_dashboard_utils     │ NEW    │ 3-col data row                        │
+// │ table_empty3() [NEW]            │ tv_dashboard_utils     │ NEW    │ 3-col "no data" row                   │
+// │ table_kv3() [NEW]               │ tv_dashboard_utils     │ NEW    │ 3-col key/value (2-data+empty)        │
+// ├─────────────────────────────────┼────────────────────────┼────────┼──────────────────────────────────────┤
+// │ PrimaryDisplay [NEW UDT]        │ tv_readiness_ui        │ NEW    │ Display DTO for primary block         │
+// │ ContextDisplay [NEW UDT]        │ tv_readiness_ui        │ NEW    │ Display DTO for context block         │
+// │ AdvancedDisplay [NEW UDT]       │ tv_readiness_ui        │ NEW    │ Display DTO for advanced block        │
+// │ LifecycleDisplay [NEW UDT]      │ tv_readiness_ui        │ NEW    │ Display DTO for lifecycle block       │
+// │ PerfDisplay [NEW UDT]           │ tv_readiness_ui        │ NEW    │ Display DTO for performance block     │
+// │ render_primary() [NEW]          │ tv_readiness_ui        │ NEW    │ Renders primary block from DTO        │
+// │ render_context() [NEW]          │ tv_readiness_ui        │ NEW    │ Renders context block from DTO        │
+// │ render_scores() [NEW]           │ tv_readiness_ui        │ NEW    │ Renders score+liquidity rows          │
+// │ render_strategy() [NEW]         │ tv_readiness_ui        │ NEW    │ Renders strategy eligibility          │
+// │ render_advanced() [NEW]         │ tv_readiness_ui        │ NEW    │ Renders advanced diagnostics          │
+// │ render_lifecycle() [NEW]        │ tv_readiness_ui        │ NEW    │ Renders lifecycle diagnostics         │
+// │ render_performance() [NEW]      │ tv_readiness_ui        │ NEW    │ Renders performance section           │
+// ├─────────────────────────────────┼────────────────────────┼────────┼──────────────────────────────────────┤
+// │ AlertEntry [NEW UDT]            │ tv_market_intel_ui     │ NEW    │ Alert log display entry               │
+// │ OBEntry [NEW UDT]               │ tv_market_intel_ui     │ NEW    │ Order block display entry             │
+// │ render_market_intel() [NEW]     │ tv_market_intel_ui     │ NEW    │ Renders entire market intel panel     │
+// ├─────────────────────────────────┼────────────────────────┼────────┼──────────────────────────────────────┤
+// │ render_readiness_dashboard()    │ DELETED from main      │ DELETE │ Replaced by DTO precompute + library  │
+// │ render_market_intel_dashboard() │ DELETED from main      │ DELETE │ Replaced by precompute + library      │
+// ├─────────────────────────────────┼────────────────────────┼────────┼──────────────────────────────────────┤
+// │ format_action()                 │ STAYS in main          │ KEPT   │ Lifecycle-aware, accesses SetupState  │
+// │ update_candidate_preview()      │ STAYS in main (gating) │ SPLIT  │ Gating=main, rendering=tv_render_utils│
+// │ validate_invariants()           │ STAYS in main          │ KEPT   │ Proprietary invariant logic           │
+// │ (internal chapter split)        │ (5 sub-functions, main)│ PLAN   │ Maintainability, not security         │
+// │ lifecycle_name()                │ STAYS in main          │ KEPT   │ Used in lifecycle-aware precomputation│
+// │ lifecycle_is_terminal()         │ STAYS in main          │ KEPT   │ Lifecycle stage classification        │
+// │ mode_min_lifecycle_*()          │ STAYS in main          │ KEPT   │ Mode policy functions                 │
+// │ mode_pending_activation_bars()  │ STAYS in main          │ KEPT   │ Mode policy functions                 │
+// │ source_category_label()         │ STAYS in main          │ KEPT   │ Uses SRC_* constants (proprietary)    │
+// │ is_htf_liquidity_source()       │ STAYS in main          │ KEPT   │ Uses SRC_* constants (proprietary)    │
+// └─────────────────────────────────┴────────────────────────┴────────┴──────────────────────────────────────┘
+
+// =====================================================================
+// 4. COMPILE-SAFETY REVIEW
+// =====================================================================
+//
+// Pine Script v6 Constraint Checklist:
+//
+// ✓ No input.*() calls in any library
+//     All libraries use only parameters; no input.int/float/string/bool.
+//
+// ✓ No request.security() calls in any library
+//     All HTF/MTF data is fetched in main and passed via parameters.
+//
+// ✓ No nested UDT .new() in default field values
+//     All UDT fields are primitive (string, color, bool, int, float).
+//     No type fields reference other UDTs except arrays of simple UDTs.
+//
+// ✓ No function calls in type default fields
+//     All UDT fields use Pine defaults (na for each type).
+//
+// ✓ var keyword in library functions
+//     render_level() uses `var line l = na` and `var label lbl = na`.
+//     Pine v6 scopes var per unique call site — each import site gets
+//     its own persistent state. This is correct and safe.
+//
+// ✓ Export visibility
+//     All library functions and UDTs use `export` keyword.
+//     No non-exported helpers exist in libraries (all are generic).
+//
+// ✓ Import chain depth
+//     tv_readiness_ui imports tv_dashboard_utils (depth 1).
+//     tv_market_intel_ui imports tv_dashboard_utils (depth 1).
+//     Main imports all 5 libraries directly.
+//     Maximum depth = 2 (main → readiness_ui → dashboard_utils).
+//     Pine v6 supports this without issues.
+//
+// ✓ Array parameters in library functions
+//     render_market_intel() accepts AlertEntry[] and OBEntry[] arrays.
+//     Pine v6 supports array<UDT> parameters in exported functions.
+//
+// ✓ Table reference passing
+//     All render functions accept `table` as first parameter.
+//     Pine v6 allows passing table references to library functions.
+//
+// ✓ Color parameter handling
+//     All colors are passed as `color` type parameters.
+//     No color constants are hardcoded in libraries except transparent
+//     (#00000000) used for invisible label backgrounds in render_utils.
+//
+// ✓ Token budget estimate
+//     Moved to libraries: ~800-900 lines of display/rendering code
+//     - render_readiness_dashboard(): ~600 lines of table.cell() calls
+//     - render_market_intel_dashboard(): ~90 lines
+//     - render_level(): ~40 lines
+//     - resolve_pos/format_*: ~15 lines
+//     - Candidate preview box rendering: ~25 lines
+//     Added to main: ~200 lines of DTO precomputation
+//     Net savings in main indicator: ~600-700 lines / ~3000-3500 tokens
+
+// =====================================================================
+// 5. EDGE-PROTECTION NOTE
+// =====================================================================
+//
+// The following proprietary components remain EXCLUSIVELY in the main
+// invite-only indicator and are NEVER exposed through any library:
+//
+// SCORING & THRESHOLDS:
+// - Confluence scoring weights and formulas
+// - Mode-specific threshold tables (Aggressive/Balanced/Conservative)
+// - Quality score computations (sweep, reclaim, MSS, displacement)
+// - Activation gate thresholds and lifecycle minimums
+//
+// DETECTION ENGINES:
+// - Liquidity sweep detection and grading (A/B/C)
+// - Market Structure Shift (MSS) detection, body confirmation logic
+// - Displacement detection (range/ATR ratio, body dominance, retention)
+// - Reclaim detection (score accumulation, acceptance bar counting)
+// - FVG detection and mitigation tracking
+// - Order Block identification and confluence checking
+//
+// STATE MACHINES:
+// - Lifecycle state machine (LC_IDLE → LC_ENTRY_ARMED progression)
+// - Pending activation windows and delayed activation logic
+// - Desync detection and invariant enforcement
+// - Setup expiry, degradation, and conflict resolution
+//
+// STRATEGY LOGIC:
+// - ICT 2022 eligibility gate computations
+// - Silver Bullet session-based sweep requirements
+// - Continuation context evaluation
+// - Dominant-side resolution and score arbitration
+//
+// SIGNAL GENERATION:
+// - Trade entry/exit signal creation
+// - Webhook JSON payload construction
+// - SL/TP computation and trade resolution
+// - Performance tracking and equity curve
+//
+// What libraries CAN see:
+// - Pre-rendered text strings (e.g., "Bullish shift confirmed (strong)")
+// - Pre-resolved colors (e.g., uiPosColor for a passing condition)
+// - Pre-formatted numbers (e.g., "85%" not the raw score)
+// - Structural flags (e.g., hasPending=true, isTrader=false)
+//
+// Libraries CANNOT reverse-engineer:
+// - What score threshold produced "High conviction"
+// - What lifecycle stage maps to which action text
+// - How mode qualification is determined
+// - What conditions gate activation vs pending
+// - Any detection algorithm parameters or weights
+//
+// The Display DTO pattern ensures a strict one-way data flow:
+//   Main (proprietary logic) → DTO (opaque display values) → Library (generic rendering)
+// This architectural boundary is enforced by the fact that DTOs contain
+// ONLY rendered output (strings, colors, booleans) — never raw scores,
+// thresholds, or intermediate computation values.
+
+// =====================================================================
+// END OF DOCUMENTATION
+// =====================================================================

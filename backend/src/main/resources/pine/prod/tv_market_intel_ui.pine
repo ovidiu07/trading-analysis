@@ -1,0 +1,92 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+// @description Market Intelligence dashboard renderer.
+// Renders MTF trend alignment, alert history, and active order block scanner.
+// Contains ONLY display plumbing — all values are precomputed by the caller.
+library("tv_market_intel_ui", overlay = true)
+
+import Devtailor/tv_dashboard_utils/1 as tbl
+
+// @description Precomputed alert log entry for display.
+export type AlertEntry
+    string timeStr
+    string signalType
+    float  price
+    color  col
+
+// @description Precomputed order block entry for display.
+export type OBEntry
+    string typeStr      // "BULL" or "BEAR"
+    color  typeColor
+    string rangeStr     // e.g., "1.2345-1.2400"
+    string ageStr       // e.g., "15 bars"
+
+// @function Renders the complete Market Intelligence dashboard from precomputed values.
+// @param intelTbl Table reference (3-column)
+// @param headerColor Header text color
+// @param labelColor Label text color
+// @param valueColor Value text color
+// @param bgColor Background color
+// @param posColor Positive/bullish color
+// @param negColor Negative/bearish color
+// @param alignment Trend alignment text (e.g., "Strong Bullish")
+// @param alignColor Alignment text color
+// @param htf2Label HTF2 timeframe label
+// @param htf2Bull Whether HTF2 is bullish
+// @param htf1Label HTF1 timeframe label
+// @param htf1Bull Whether HTF1 is bullish
+// @param curLabel Current timeframe label
+// @param curBull Whether current TF is bullish
+// @param alerts Array of AlertEntry (precomputed, most recent first)
+// @param maxAlertRows Maximum alert rows to display
+// @param obs Array of OBEntry (precomputed, most recent first)
+// @param maxOBRows Maximum OB rows to display
+export render_market_intel(table intelTbl,
+     color headerColor, color labelColor, color valueColor, color bgColor,
+     color posColor, color negColor,
+     string alignment, color alignColor,
+     string htf2Label, bool htf2Bull,
+     string htf1Label, bool htf1Bull,
+     string curLabel, bool curBull,
+     AlertEntry[] alerts, int maxAlertRows,
+     OBEntry[] obs, int maxOBRows) =>
+
+    int row = 0
+
+    // --- Section A: Header ---
+    row := tbl.table_merge_row(intelTbl, row, "Market Intelligence", headerColor)
+
+    // --- Section B: MTF Trend ---
+    row := tbl.table_kv3(intelTbl, row, "Alignment", alignment, labelColor, alignColor, bgColor)
+    row := tbl.table_kv3(intelTbl, row, "HTF 2 (" + htf2Label + ")", htf2Bull ? "BULL" : "BEAR", labelColor, htf2Bull ? posColor : negColor, bgColor)
+    row := tbl.table_kv3(intelTbl, row, "HTF 1 (" + htf1Label + ")", htf1Bull ? "BULL" : "BEAR", labelColor, htf1Bull ? posColor : negColor, bgColor)
+    row := tbl.table_kv3(intelTbl, row, "Current (" + curLabel + ")", curBull ? "BULL" : "BEAR", labelColor, curBull ? posColor : negColor, bgColor)
+
+    // --- Section C: Alert History ---
+    row := tbl.table_section3(intelTbl, row, "Alert History", headerColor)
+    row := tbl.table_header3(intelTbl, row, "Time (NY)", "Signal", "Price", labelColor)
+
+    if array.size(alerts) > 0
+        int alertCount = math.min(array.size(alerts), maxAlertRows)
+        for i = 0 to alertCount - 1
+            AlertEntry al = array.get(alerts, i)
+            row := tbl.table_row3(intelTbl, row, al.timeStr, al.signalType, str.tostring(al.price, "#.#####"), labelColor, al.col, valueColor)
+    else
+        row := tbl.table_empty3(intelTbl, row, "No signals yet", labelColor)
+
+    // --- Section D: Active Order Blocks ---
+    row := tbl.table_section3(intelTbl, row, "Active OBs", headerColor)
+    row := tbl.table_header3(intelTbl, row, "Type", "Range", "Age", labelColor)
+
+    int obCount = 0
+    if array.size(obs) > 0
+        for i = 0 to array.size(obs) - 1
+            if obCount < maxOBRows
+                OBEntry ob = array.get(obs, i)
+                row := tbl.table_row3(intelTbl, row, ob.typeStr, ob.rangeStr, ob.ageStr, ob.typeColor, valueColor, labelColor)
+                obCount += 1
+
+    if obCount == 0
+        row := tbl.table_empty3(intelTbl, row, "No active OBs", labelColor)
+
+    row

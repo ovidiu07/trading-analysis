@@ -1,0 +1,50 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+// @description Generic formatting and display text helpers for trading dashboards.
+// Contains ONLY pure formatting logic — no trading edge, no secret thresholds, no state.
+library("tv_format_utils", overlay = true)
+
+// @function Resolves a position string to a Pine table position constant.
+// @param pos Position string: "top_right", "top_left", "bottom_right", "bottom_left"
+// @returns Pine position constant
+export resolve_pos(string pos) =>
+    pos == "top_right" ? position.top_right : pos == "top_left" ? position.top_left : pos == "bottom_right" ? position.bottom_right : position.bottom_left
+
+// @function Converts a letter grade to a human-readable quality word.
+// @param grade Grade letter: "A", "B", "C"
+// @returns Quality description string
+export format_grade_word(string grade) =>
+    grade == "A" ? "high quality" : grade == "B" ? "moderate quality" : grade == "C" ? "low quality" : "—"
+
+// @function Converts a numeric confidence score to a human-readable confidence level.
+// @param score Score value (0-100)
+// @returns Confidence level string
+export format_confidence(int score) =>
+    score >= 85 ? "High conviction" : score >= 70 ? "Strong" : score >= 50 ? "Good" : score >= 30 ? "Moderate" : "Low"
+
+// @function Generates a bias description string from long/short scores.
+// @param sL Long score
+// @param sS Short score
+// @returns Bias description string
+export format_score_bias(int sL, int sS) =>
+    int diff = sL - sS
+    math.abs(diff) < 5 ? "Neutral" : diff >= 20 ? "Strong long bias" : diff >= 10 ? "Long bias" : diff > 0 ? "Slight long bias" : diff <= -20 ? "Strong short bias" : diff <= -10 ? "Short bias" : "Slight short bias"
+
+// @function Returns the value formatted as a string, or a dash if na.
+// @param val Float value
+// @param fmt Format string (e.g., "#.#####")
+// @returns Formatted string or "—"
+export value_or_dash(float val, string fmt) =>
+    na(val) ? "—" : str.tostring(val, fmt)
+
+// @function Formats a float as a percentage string.
+// @param val Value (0-100 range)
+// @returns Formatted percentage string like "75.2%"
+export format_percent(float val) =>
+    str.format("{0,number,#.##}%", val)
+
+// @function Formats a float as an R-multiple string.
+// @param val R-value
+// @returns Formatted R string like "2.50R"
+export format_r(float val) =>
+    str.format("{0,number,#.##}R", val)
