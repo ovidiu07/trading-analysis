@@ -1,0 +1,270 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Devtailor
+//@version=6
+// @description Liquidity source helpers, sweep scoring/classification, and summary functions.
+library("tv_liquidity_engine", overlay = true)
+
+import Devtailor/tv_core_types/1 as T
+
+// Re-alias constants locally
+int SRC_SESSION     = T.SRC_SESSION()
+int SRC_PDH_PDL     = T.SRC_PDH_PDL()
+int SRC_PWH_PWL     = T.SRC_PWH_PWL()
+int SRC_PIVOT_EXT   = T.SRC_PIVOT_EXT()
+int SRC_PIVOT_INT   = T.SRC_PIVOT_INT()
+int SRC_EQH_EQL     = T.SRC_EQH_EQL()
+int SRC_ROUND_NUM   = T.SRC_ROUND_NUM()
+int SRC_PIVOT_HTF_1 = T.SRC_PIVOT_HTF_1()
+int SRC_PIVOT_HTF_2 = T.SRC_PIVOT_HTF_2()
+int SRC_PIVOT_HTF_3 = T.SRC_PIVOT_HTF_3()
+
+int SWEEP_SHALLOW       = T.SWEEP_SHALLOW()
+int SWEEP_CLEAN_RAID    = T.SWEEP_CLEAN_RAID()
+int SWEEP_DEEP_STOP_RUN = T.SWEEP_DEEP_STOP_RUN()
+int SWEEP_EXT_LIQ_GRAB  = T.SWEEP_EXT_LIQ_GRAB()
+int SWEEP_INT_LIQ_SWEEP = T.SWEEP_INT_LIQ_SWEEP()
+int SWEEP_SESSION       = T.SWEEP_SESSION()
+int SWEEP_HTF           = T.SWEEP_HTF()
+
+// =====================================================================
+// SOURCE HELPERS
+// =====================================================================
+
+export level_is_near(float lhs, float rhs, float tol) =>
+    not na(lhs) and not na(rhs) and math.abs(lhs - rhs) <= tol
+
+export is_htf_liquidity_source(int srcType) =>
+    srcType == SRC_PDH_PDL or srcType == SRC_PWH_PWL or srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
+
+export source_category_label(int srcType, string lvlName) =>
+    string label = "Liquidity"
+    if srcType == SRC_PWH_PWL
+        label := "Weekly Level"
+    else if srcType == SRC_PDH_PDL
+        label := "Daily Level"
+    else if srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
+        label := "HTF Pivot"
+    else if srcType == SRC_SESSION
+        label := "Session Level"
+    else if srcType == SRC_EQH_EQL
+        label := "EQ Cluster"
+    else if srcType == SRC_ROUND_NUM
+        label := "Round Number"
+    else if srcType == SRC_PIVOT_EXT
+        label := "External Pivot"
+    else if srcType == SRC_PIVOT_INT
+        label := "Internal Pivot"
+    if (srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3) and lvlName != ""
+        label := label + " (" + lvlName + ")"
+    label
+
+export source_phase_tag(int srcType, bool isExt) =>
+    string tag = isExt ? " [Ext]" : " [Int]"
+    if srcType == SRC_PWH_PWL
+        tag := " [W]"
+    else if srcType == SRC_PDH_PDL
+        tag := " [D]"
+    else if srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
+        tag := " [HTF Pivot]"
+    else if srcType == SRC_EQH_EQL
+        tag := " [EQ]"
+    else if srcType == SRC_SESSION
+        tag := " [Sess]"
+    else if srcType == SRC_ROUND_NUM
+        tag := " [RN]"
+    tag
+
+// =====================================================================
+// SWEEP CLASSIFICATION & SCORING
+// =====================================================================
+
+// Classify sweep type based on metrics and source
+// Returns: [sweepType, sweepTypeStr]
+export classify_sweep_type(float depthAtr, bool isExt, bool isHTF_, bool isSess, bool isCluster_, int srcType) =>
+    int sType = SWEEP_SHALLOW
+    string sStr = "Shallow"
+    if isHTF_
+        sType := SWEEP_HTF
+        sStr := "HTF Sweep"
+    else if isExt and depthAtr > 0.3
+        sType := SWEEP_EXT_LIQ_GRAB
+        sStr := "Ext. Liq Grab"
+    else if isSess
+        sType := SWEEP_SESSION
+        sStr := "Session Sweep"
+    else if isCluster_ and not isExt
+        sType := SWEEP_INT_LIQ_SWEEP
+        sStr := "Cluster Sweep"
+    else if not isExt
+        sType := SWEEP_INT_LIQ_SWEEP
+        sStr := srcType == SRC_ROUND_NUM ? "Round Number Sweep" : "Internal Sweep"
+    if depthAtr > 1.5
+        sType := SWEEP_DEEP_STOP_RUN
+        sStr := "Deep Stop Run"
+    else if depthAtr > 0.2 and depthAtr <= 1.5 and sType == SWEEP_SHALLOW
+        sType := SWEEP_CLEAN_RAID
+        sStr := "Clean Raid"
+    [sType, sStr]
+
+// Compute multi-dimensional quality score
+export compute_sweep_quality(float depthAtr, float wickPenRatio, float rejStr, bool hasRej, bool hasDisp, int srcPri, bool isExt, bool isHTF_, bool isCluster_, int clusterN, bool inKz, bool inSb, float sessW, float freshness, int sweepT) =>
+    float q = 0.0
+    q += math.min(depthAtr * 15.0, 20.0)
+    if hasRej
+        q += 10.0 + rejStr * 10.0
+    if hasDisp
+        q += 15.0
+    q += (srcPri / 100.0) * 15.0
+    if isExt
+        q *= 1.15
+    else
+        q *= 0.85
+    if isHTF_
+        q += 8.0
+    q += (sessW - 0.7) * 8.33
+    if isCluster_
+        q += 4.0 + math.min(clusterN - 2, 3) * 1.33
+    q += freshness * 10.0
+    if inSb
+        q += 5.0
+    else if inKz
+        q += 3.0
+    if sweepT == SWEEP_DEEP_STOP_RUN
+        q -= 5.0
+    if wickPenRatio < 0.1 and not hasDisp
+        q -= 5.0
+    math.max(0.0, math.min(100.0, q))
+
+// Grade from score
+export get_sweep_grade(float q) =>
+    string g = q >= 70.0 ? "A" : q >= 45.0 ? "B" : q >= 25.0 ? "C" : "Reject"
+    g
+
+// =====================================================================
+// SUMMARY FUNCTIONS (pure — iterate over arrays passed as parameters)
+// =====================================================================
+
+// Summarize active sweeps: find best SSL and BSL sweeps
+export summarize_active_sweeps(T.LiqSweep[] sweeps) =>
+    bool _sweptSSL = false
+    bool _sweptBSL = false
+    float _sweepQualitySSL = 0.0
+    float _sweepQualityBSL = 0.0
+    int _bestSweepBarSSL = na
+    int _bestSweepBarBSL = na
+    string _bestSweepTypeSSL = ""
+    string _bestSweepGradeSSL = ""
+    string _bestSweepNameSSL = ""
+    bool   _bestSweepExtSSL = false
+    int    _bestSweepSrcSSL = 0
+    bool   _bestSweepInducementSSL = false
+    string _bestSweepTypeBSL = ""
+    string _bestSweepGradeBSL = ""
+    string _bestSweepNameBSL = ""
+    bool   _bestSweepExtBSL = false
+    int    _bestSweepSrcBSL = 0
+    bool   _bestSweepInducementBSL = false
+    float _bestSweepLevelSSL = na
+    float _bestSweepLevelBSL = na
+    float _bestSweepDepthSSL = na
+    float _bestSweepDepthBSL = na
+
+    if array.size(sweeps) > 0
+        for i = 0 to array.size(sweeps) - 1
+            T.LiqSweep s = array.get(sweeps, i)
+            if not s.isActionable and not s.isConsumed
+                continue
+            if s.isSSL
+                _sweptSSL := true
+                if s.qualityScore > _sweepQualitySSL
+                    _sweepQualitySSL := s.qualityScore
+                    _bestSweepBarSSL := s.sweepBar
+                    _bestSweepTypeSSL := s.sweepTypeStr
+                    _bestSweepGradeSSL := s.grade
+                    _bestSweepNameSSL := s.levelName
+                    _bestSweepExtSSL := s.isExternal
+                    _bestSweepSrcSSL := s.sourceType
+                    _bestSweepInducementSSL := s.isInducementLike
+                    _bestSweepLevelSSL := s.levelPrice
+                    _bestSweepDepthSSL := s.sweepDepth
+            else
+                _sweptBSL := true
+                if s.qualityScore > _sweepQualityBSL
+                    _sweepQualityBSL := s.qualityScore
+                    _bestSweepBarBSL := s.sweepBar
+                    _bestSweepTypeBSL := s.sweepTypeStr
+                    _bestSweepGradeBSL := s.grade
+                    _bestSweepNameBSL := s.levelName
+                    _bestSweepExtBSL := s.isExternal
+                    _bestSweepSrcBSL := s.sourceType
+                    _bestSweepInducementBSL := s.isInducementLike
+                    _bestSweepLevelBSL := s.levelPrice
+                    _bestSweepDepthBSL := s.sweepDepth
+
+    [_sweptSSL, _sweptBSL, _sweepQualitySSL, _sweepQualityBSL, _bestSweepBarSSL, _bestSweepBarBSL,
+     _bestSweepTypeSSL, _bestSweepGradeSSL, _bestSweepNameSSL, _bestSweepExtSSL, _bestSweepSrcSSL, _bestSweepInducementSSL,
+     _bestSweepTypeBSL, _bestSweepGradeBSL, _bestSweepNameBSL, _bestSweepExtBSL, _bestSweepSrcBSL, _bestSweepInducementBSL,
+     _bestSweepLevelSSL, _bestSweepLevelBSL, _bestSweepDepthSSL, _bestSweepDepthBSL]
+
+// Summarize liquidity map: find nearest levels by category
+// Uses `close` built-in for proximity comparison + SRC_ROUND_NUM constant
+export summarize_liquidity_map(T.LiqLevel[] levels) =>
+    float _nearestBSL = na
+    float _nearestSSL = na
+    float _nearestExtBSL = na
+    float _nearestExtSSL = na
+    float _nearestIntBSL = na
+    float _nearestIntSSL = na
+    float _nearestSessBSL = na
+    float _nearestSessSSL = na
+    float _nearestHTFBSL = na
+    float _nearestHTFSSL = na
+    float _nearestClusterBSL = na
+    float _nearestClusterSSL = na
+    float _nearestRoundBSL = na
+    float _nearestRoundSSL = na
+    string _nearestBSLName = ""
+    string _nearestSSLName = ""
+
+    if array.size(levels) > 0
+        for i = 0 to array.size(levels) - 1
+            T.LiqLevel lvl = array.get(levels, i)
+            if na(lvl.price)
+                continue
+            if lvl.isSSL and lvl.price < close
+                if na(_nearestSSL) or lvl.price > _nearestSSL
+                    _nearestSSL := lvl.price
+                    _nearestSSLName := lvl.name
+                if lvl.isExternal and (na(_nearestExtSSL) or lvl.price > _nearestExtSSL)
+                    _nearestExtSSL := lvl.price
+                if not lvl.isExternal and (na(_nearestIntSSL) or lvl.price > _nearestIntSSL)
+                    _nearestIntSSL := lvl.price
+                if lvl.isSession and (na(_nearestSessSSL) or lvl.price > _nearestSessSSL)
+                    _nearestSessSSL := lvl.price
+                if lvl.isHTF and (na(_nearestHTFSSL) or lvl.price > _nearestHTFSSL)
+                    _nearestHTFSSL := lvl.price
+                if lvl.isCluster and (na(_nearestClusterSSL) or lvl.price > _nearestClusterSSL)
+                    _nearestClusterSSL := lvl.price
+                if lvl.sourceType == SRC_ROUND_NUM and (na(_nearestRoundSSL) or lvl.price > _nearestRoundSSL)
+                    _nearestRoundSSL := lvl.price
+            else if not lvl.isSSL and lvl.price > close
+                if na(_nearestBSL) or lvl.price < _nearestBSL
+                    _nearestBSL := lvl.price
+                    _nearestBSLName := lvl.name
+                if lvl.isExternal and (na(_nearestExtBSL) or lvl.price < _nearestExtBSL)
+                    _nearestExtBSL := lvl.price
+                if not lvl.isExternal and (na(_nearestIntBSL) or lvl.price < _nearestIntBSL)
+                    _nearestIntBSL := lvl.price
+                if lvl.isSession and (na(_nearestSessBSL) or lvl.price < _nearestSessBSL)
+                    _nearestSessBSL := lvl.price
+                if lvl.isHTF and (na(_nearestHTFBSL) or lvl.price < _nearestHTFBSL)
+                    _nearestHTFBSL := lvl.price
+                if lvl.isCluster and (na(_nearestClusterBSL) or lvl.price < _nearestClusterBSL)
+                    _nearestClusterBSL := lvl.price
+                if lvl.sourceType == SRC_ROUND_NUM and (na(_nearestRoundBSL) or lvl.price < _nearestRoundBSL)
+                    _nearestRoundBSL := lvl.price
+
+    [_nearestBSL, _nearestSSL, _nearestExtBSL, _nearestExtSSL, _nearestIntBSL, _nearestIntSSL,
+     _nearestSessBSL, _nearestSessSSL, _nearestHTFBSL, _nearestHTFSSL,
+     _nearestClusterBSL, _nearestClusterSSL, _nearestRoundBSL, _nearestRoundSSL,
+     _nearestBSLName, _nearestSSLName]

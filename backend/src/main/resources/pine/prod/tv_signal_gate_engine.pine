@@ -1,0 +1,90 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Devtailor
+//@version=6
+// @description ICT and Silver Bullet liquidity gate functions.
+// These were extracted from main with added parameters for sweep array and sensitivity mode.
+library("tv_signal_gate_engine", overlay = true)
+
+import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_liquidity_engine/1 as liq
+
+// Re-alias constants locally
+int SRC_SESSION   = T.SRC_SESSION()
+int SRC_PIVOT_INT = T.SRC_PIVOT_INT()
+
+// ICT liquidity gate: validates sweep quality for ICT 2022 strategy.
+// Parameters: sweeps and sensMode are passed explicitly (were globals in main).
+// Returns: [ok, detail, hasValidExternal]
+export ict_liquidity_gate(bool isLong, int mssBar_, float mssDisp, T.LiqSweep[] sweeps, string sensMode) =>
+    bool ok = false
+    bool hasValidExternal = false
+    string detail = "No qualifying liquidity sweep detected"
+    float bestQ = -1.0
+    bool sawAnySweep = false
+    bool sawInternalOnly = false
+    bool sawWeakMajor = false
+    bool sawOutOfSequence = false
+    if array.size(sweeps) > 0
+        for i = 0 to array.size(sweeps) - 1
+            T.LiqSweep s = array.get(sweeps, i)
+            bool sideOk = s.isSSL == isLong
+            bool liveOk = s.isActionable or s.isConsumed
+            if sideOk and liveOk
+                sawAnySweep := true
+                bool orderOk = na(mssBar_) or s.sweepBar <= mssBar_
+                bool htfSweep = liq.is_htf_liquidity_source(s.sourceType)
+                bool strongSession = s.sourceType == SRC_SESSION and s.qualityScore >= 55.0
+                bool strongExternal = s.isExternal and s.sourceType != SRC_SESSION and s.sourceType != SRC_PIVOT_INT and s.qualityScore >= 35.0
+                bool aggressiveInternal = sensMode == "Aggressive" and s.sourceType == SRC_PIVOT_INT and s.qualityScore >= 72.0 and mssDisp >= 1.2 and (s.hasRejection or s.hasDisplacement)
+                bool hardQualified = htfSweep or strongSession or strongExternal or aggressiveInternal
+                if orderOk and (htfSweep or strongSession or strongExternal)
+                    hasValidExternal := true
+                if not orderOk
+                    sawOutOfSequence := true
+                else if s.sourceType == SRC_PIVOT_INT and not aggressiveInternal
+                    sawInternalOnly := true
+                else if not hardQualified
+                    sawWeakMajor := true
+
+                if orderOk and hardQualified and s.qualityScore > bestQ
+                    ok := true
+                    bestQ := s.qualityScore
+                    detail := s.levelName + " — " + liq.source_category_label(s.sourceType, "")
+                    if s.isInducementLike
+                        detail := detail + " (preconditioned by inducement)"
+    if not ok
+        detail := not sawAnySweep ? "No liquidity sweep detected" : sawOutOfSequence ? "Sweep came after structure shift (wrong sequence)" : sawInternalOnly ? "Only internal liquidity swept — need external" : sawWeakMajor ? "Sweep quality insufficient for this strategy" : detail
+    [ok, detail, hasValidExternal]
+
+// Silver Bullet liquidity gate: validates sweep quality for Silver Bullet strategy.
+// Parameters: sweeps passed explicitly (was global in main).
+// Returns: [ok, detail, hasValidSessionSweep]
+export silver_bullet_liquidity_gate(bool isLong, T.LiqSweep[] sweeps) =>
+    bool ok = false
+    bool hasValidSessionSweep = false
+    string detail = "No qualifying sweep in Silver Bullet window"
+    float bestQ = -1.0
+    bool sawWindowSweep = false
+    bool sawWeakWindowSweep = false
+    int sbWindowBars = math.max(1, int(math.round(3600.0 / timeframe.in_seconds(timeframe.period)))) + 1
+    if array.size(sweeps) > 0
+        for i = 0 to array.size(sweeps) - 1
+            T.LiqSweep s = array.get(sweeps, i)
+            bool sideOk = s.isSSL == isLong
+            bool liveOk = s.isActionable or s.isConsumed
+            bool windowFresh = (bar_index - s.sweepBar) <= sbWindowBars
+            if sideOk and liveOk and s.inSilverBullet and windowFresh
+                sawWindowSweep := true
+                bool validSession = s.sourceType == SRC_SESSION and s.qualityScore >= 42.0
+                bool validExternal = (s.isExternal or liq.is_htf_liquidity_source(s.sourceType)) and s.qualityScore >= 35.0
+                if validSession
+                    hasValidSessionSweep := true
+                if (validSession or validExternal) and s.qualityScore > bestQ
+                    ok := true
+                    bestQ := s.qualityScore
+                    detail := s.levelName + " — " + liq.source_category_label(s.sourceType, "")
+                else if not (validSession or validExternal)
+                    sawWeakWindowSweep := true
+    if not ok
+        detail := not sawWindowSweep ? "No qualifying liquidity in Silver Bullet window" : sawWeakWindowSweep ? "Silver Bullet window sweep not structural enough" : detail
+    [ok, detail, hasValidSessionSweep]

@@ -1,0 +1,150 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Devtailor
+//@version=6
+// @description Lifecycle naming, mode policy helpers, and format_action for SMC trading system.
+library("tv_lifecycle_mode", overlay = true)
+
+import Devtailor/tv_core_types/1 as T
+
+// Re-alias constants locally for readability
+int LC_NONE                   = T.LC_NONE()
+int LC_LIQUIDITY_IDENTIFIED   = T.LC_LIQUIDITY_IDENTIFIED()
+int LC_SWEEP_CONFIRMED        = T.LC_SWEEP_CONFIRMED()
+int LC_RECLAIM_VISIBLE        = T.LC_RECLAIM_VISIBLE()
+int LC_MSS_CONFIRMED          = T.LC_MSS_CONFIRMED()
+int LC_DISPLACEMENT_CONFIRMED = T.LC_DISPLACEMENT_CONFIRMED()
+int LC_ENTRY_ARMED            = T.LC_ENTRY_ARMED()
+int LC_ENTRY_TRIGGERED        = T.LC_ENTRY_TRIGGERED()
+int LC_ACTIVE                 = T.LC_ACTIVE()
+int LC_EXPIRED                = T.LC_EXPIRED()
+int LC_INVALIDATED            = T.LC_INVALIDATED()
+int LC_DESYNC                 = T.LC_DESYNC()
+
+// =====================================================================
+// LIFECYCLE HELPERS (Chapter 1)
+// =====================================================================
+
+export lifecycle_name(int lc) =>
+    lc == LC_NONE ? "No setup"
+     : lc == LC_LIQUIDITY_IDENTIFIED ? "Liquidity identified"
+     : lc == LC_SWEEP_CONFIRMED ? "Liquidity swept"
+     : lc == LC_RECLAIM_VISIBLE ? "Reclaim visible"
+     : lc == LC_MSS_CONFIRMED ? "Structure confirmed"
+     : lc == LC_DISPLACEMENT_CONFIRMED ? "Displacement confirmed"
+     : lc == LC_ENTRY_ARMED ? "Setup ready"
+     : lc == LC_ENTRY_TRIGGERED ? "Entry triggered"
+     : lc == LC_ACTIVE ? "Trade active"
+     : lc == LC_EXPIRED ? "Setup expired"
+     : lc == LC_INVALIDATED ? "Setup invalidated"
+     : lc == LC_DESYNC ? "State desync" : "Unknown"
+
+export lifecycle_allows_activation(int lc) =>
+    lc == LC_ENTRY_TRIGGERED or lc == LC_ACTIVE
+
+export lifecycle_is_preconfirmation(int lc) =>
+    lc <= LC_SWEEP_CONFIRMED
+
+export lifecycle_is_terminal(int lc) =>
+    lc == LC_EXPIRED or lc == LC_INVALIDATED or lc == LC_DESYNC
+
+export lifecycle_action_text(int lc) =>
+    lc == LC_NONE ? "Stand aside — no setup"
+     : lc == LC_LIQUIDITY_IDENTIFIED ? "Monitor liquidity — prepare for sweep"
+     : lc == LC_SWEEP_CONFIRMED ? "Wait for structure shift"
+     : lc == LC_RECLAIM_VISIBLE ? "Wait for confirmed structure shift"
+     : lc == LC_MSS_CONFIRMED ? "Wait for displacement / entry development"
+     : lc == LC_DISPLACEMENT_CONFIRMED ? "Wait for entry zone"
+     : lc == LC_ENTRY_ARMED ? "Setup ready — monitor trigger"
+     : lc == LC_ENTRY_TRIGGERED ? "Entry triggered — validate activation"
+     : lc == LC_ACTIVE ? "Trade active — manage position"
+     : lc == LC_EXPIRED ? "No trade — setup expired"
+     : lc == LC_INVALIDATED ? "No trade — setup invalidated"
+     : lc == LC_DESYNC ? "State error — setup/trade desync" : "Unknown state"
+
+export lifecycle_next_required(int lc, bool isLong, float pivotVal, float reqLevel) =>
+    string side = isLong ? "bullish" : "bearish"
+    string liqSide = isLong ? "sell-side" : "buy-side"
+    string result = ""
+    if lc == LC_NONE
+        result := "Identify " + liqSide + " liquidity to target"
+    else if lc == LC_LIQUIDITY_IDENTIFIED
+        result := "Wait for " + liqSide + " liquidity sweep" + (na(reqLevel) ? "" : " at " + str.tostring(reqLevel, "#.#####"))
+    else if lc == LC_SWEEP_CONFIRMED
+        result := "Need " + side + " structure shift" + (na(pivotVal) ? "" : " — break " + (isLong ? "above " : "below ") + str.tostring(pivotVal, "#.#####"))
+    else if lc == LC_RECLAIM_VISIBLE
+        result := "Need confirmed " + side + " structure shift"
+    else if lc == LC_MSS_CONFIRMED
+        result := "Need fresh " + side + " displacement / imbalance"
+    else if lc == LC_DISPLACEMENT_CONFIRMED
+        result := "Need " + side + " imbalance / entry zone formation"
+    else if lc == LC_ENTRY_ARMED
+        result := "Monitor retrace / trigger into entry zone"
+    else if lc == LC_ENTRY_TRIGGERED
+        result := "Validate entry conditions for activation"
+    else if lc == LC_ACTIVE
+        result := "Manage active position"
+    else if lc == LC_EXPIRED
+        result := "Setup expired — wait for fresh sequence"
+    else if lc == LC_INVALIDATED
+        result := "Setup invalidated — wait for fresh sequence"
+    else if lc == LC_DESYNC
+        result := "Internal state contradiction detected"
+    result
+
+// =====================================================================
+// MODE POLICY HELPERS (Chapter 2)
+// =====================================================================
+
+export mode_min_lifecycle_for_candidate(string mode) =>
+    mode == "Aggressive" ? LC_MSS_CONFIRMED : mode == "Conservative" ? LC_ENTRY_ARMED : LC_DISPLACEMENT_CONFIRMED
+
+export mode_min_lifecycle_for_activation(string mode) =>
+    mode == "Aggressive" ? LC_ENTRY_TRIGGERED : mode == "Conservative" ? LC_ENTRY_ARMED : LC_ENTRY_ARMED
+
+export mode_requires_retrace_for_activation(string mode) =>
+    mode != "Aggressive"
+
+export mode_allows_direct_signal_activation(string mode) =>
+    mode == "Aggressive"
+
+export mode_requires_displacement(string mode) =>
+    mode == mode  // always true; param retained for future mode-specific gating
+
+export mode_requires_reclaim_proxy(string mode) =>
+    mode == mode  // always true; param retained for future mode-specific gating
+
+export mode_name_short(string mode) =>
+    mode == "Aggressive" ? "AGG" : mode == "Conservative" ? "CON" : "BAL"
+
+// =====================================================================
+// DELAYED ACTIVATION WINDOW POLICY (Chapter 2.1)
+// =====================================================================
+
+export mode_pending_activation_bars(string mode) =>
+    mode == "Aggressive" ? 2 : mode == "Conservative" ? 7 : 5
+
+export pending_setup_is_fresh(int signalBar, int expiryBar) =>
+    bar_index >= signalBar and bar_index <= expiryBar
+
+export pending_setup_has_expired(int expiryBar) =>
+    bar_index > expiryBar
+
+// =====================================================================
+// FORMAT ACTION (lifecycle-aware action text with override conditions)
+// =====================================================================
+
+export format_action(int lcDom, bool isDesynced, bool isConflicted, bool isLong, bool gateBlocked, bool hasActiveTrade, bool modeBlocked, string modeBlockRsn, bool pendingStale) =>
+    if isDesynced
+        "State error — setup/trade desync"
+    else if isConflicted
+        "Stand aside — both sides active, no clear edge"
+    else if hasActiveTrade and lcDom >= LC_ACTIVE
+        isLong ? "Trade active — manage long position" : "Trade active — manage short position"
+    else if pendingStale
+        "Pending setup stale — wait for fresh structure"
+    else if modeBlocked and lcDom >= LC_MSS_CONFIRMED
+        modeBlockRsn
+    else if gateBlocked and lcDom >= LC_MSS_CONFIRMED and lcDom < LC_ENTRY_TRIGGERED
+        "Setup blocked — check strategy eligibility"
+    else
+        lifecycle_action_text(lcDom)

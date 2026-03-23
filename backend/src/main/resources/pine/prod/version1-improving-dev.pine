@@ -7,6 +7,12 @@ import Devtailor/tv_render_utils/1 as ren
 import Devtailor/tv_dashboard_utils/1 as tbl
 import Devtailor/tv_readiness_ui/1 as rdash
 import Devtailor/tv_market_intel_ui/1 as intel
+import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_lifecycle_mode/1 as lm
+import Devtailor/tv_structure_engine/1 as se
+import Devtailor/tv_liquidity_engine/1 as liq
+import Devtailor/tv_pending_trade_state/1 as pts
+import Devtailor/tv_signal_gate_engine/1 as sg
 
 // --- Constants ---
 string NY_TZ = "America/New_York"
@@ -15,72 +21,8 @@ color BEAR_COLOR = #f23645
 color NEUTRAL_COLOR = #5b9cf6
 
 // --- User Defined Types ---
-type Trade
-    string  strategyName
-    bool    isLong
-    float   entryPrice
-    float   stopPrice
-    float   tp1Price
-    float   tp2Price
-    int     entryBar
-    bool    isActive = false
-    bool    isTp1Hit = false
-    box     tpBox    = na
-    box     slBox    = na
-
-type AlertLog
-    string  timeStr
-    string  signalType
-    float   price
-    color   col
-
-type Stats
-    int     totalTrades = 0
-    int     wins = 0
-    int     losses = 0
-    float   totalR = 0.0
-    float   equityR = 0.0
-    float   maxDrawdownR = 0.0
-    float   peakEquityR = 0.0
-
-type SessionData
-    string name
-    string timeRange
-    bool   isActive = false
-    float  high = na
-    float  low = na
-    float  lastHigh = na
-    float  lastLow = na
-
-type DispState
-    bool    detectedLong = false
-    bool    detectedShort = false
-    bool    weakLong = false
-    bool    weakShort = false
-    bool    validLong = false
-    bool    validShort = false
-    bool    strongLong = false
-    bool    strongShort = false
-    bool    freshLong = true
-    bool    freshShort = true
-    bool    failedLong = false
-    bool    failedShort = false
-    float   scoreLong = 0.0
-    float   scoreShort = 0.0
-    string  reasonLong = ""
-    string  reasonShort = ""
-    string  failReasonLong = ""
-    string  failReasonShort = ""
-    float   rangeAtrLong = 0.0
-    float   rangeAtrShort = 0.0
-    float   bodyDomLong = 0.0
-    float   bodyDomShort = 0.0
-    bool    hasImbalanceLong = false
-    bool    hasImbalanceShort = false
-    int     fvgGradeLong = 0
-    int     fvgGradeShort = 0
-    bool    retainedLong = false
-    bool    retainedShort = false
+// Trade, AlertLog, Stats, SessionData, DispState, LiqLevel, LiqSweep, SmartZone
+// are now imported from tv_core_types (alias T)
 
 type SetupState
     string  phase = "Monitoring"
@@ -221,27 +163,15 @@ type SetupState
     bool    mssBodyConfirmedLong = false
     bool    mssBodyConfirmedShort = false
     // Chapter 5: Displacement Quality Engine (nested UDT)
-    DispState disp = na
+    T.DispState disp = na
     // Chapter 5: Rejection cause visibility (Debug mode)
     string  rejectionCauseLong = ""
     string  rejectionCauseShort = ""
 
-type SmartZone
-    box   boxId
-    float top
-    float bottom
-    bool  isBull
-    bool  mitigated = false
-    bool  isInverted = false
-    int   startBar
-    float ce = na
-    bool  ceRespected = false
-    bool  ceBroken = false
-    int   touchCount = 0
-    float gapSize = na
+// SmartZone type now imported from tv_core_types (alias T)
 
 new_disp_state() =>
-    DispState.new()
+    T.DispState.new()
 
 new_setup_state() =>
     SetupState s = SetupState.new()
@@ -307,56 +237,7 @@ int LC_EXPIRED                 = 9   // Setup aged out
 int LC_INVALIDATED             = 10  // Setup structurally negated
 int LC_DESYNC                  = 11  // Contradictory state detected
 
-// --- Liquidity Level Type ---
-// Represents a monitored liquidity source with classification metadata
-type LiqLevel
-    string  name           // Human-readable name
-    float   price          // Level price
-    int     sourceType     // SRC_* constant
-    int     priority       // PRI_* score
-    bool    isExternal     // External vs internal liquidity
-    bool    isSSL          // true = sell-side (below), false = buy-side (above)
-    bool    isHTF          // Weekly/Daily = true
-    bool    isSession      // Session-derived level
-    bool    isCluster      // Part of EQH/EQL cluster
-    int     clusterCount   // Number of touches in cluster (0 if not cluster)
-    int     createdBar     // Bar when level was registered
-
-// --- Liquidity Sweep Type (expanded) ---
-type LiqSweep
-    // Identity
-    string  levelName
-    float   levelPrice
-    int     sourceType      // SRC_* constant
-    int     sourcePriority  // PRI_* score
-    bool    isExternal      // External vs internal
-    bool    isSSL           // Sell-side vs buy-side
-    // Sweep metrics
-    float   sweepDepth
-    float   sweepDepthAtr
-    float   wickPenetrationRatio   // wick beyond level / total range
-    float   rejectionStrength      // body reclaim ratio (0-1)
-    bool    hasRejection
-    bool    hasDisplacement
-    // Classification
-    int     sweepType       // SWEEP_* constant
-    string  sweepTypeStr    // Human-readable sweep type
-    string  grade           // "A" / "B" / "C" / "Reject"
-    float   qualityScore    // Composite 0-100
-    // Lifecycle
-    int     sweepBar
-    int     lifecycleState  // LIFE_* constant
-    bool    isActionable    // Still usable for setup
-    bool    isConsumed      // Used by MSS/setup
-    // Context
-    bool    isHTF           // Weekly/Daily level sweep
-    bool    isSessionSweep  // Session extreme sweep
-    bool    isClusterSweep  // EQH/EQL cluster sweep
-    int     clusterCount    // Persist cluster significance through lifecycle updates
-    bool    isInducementLike
-    bool    inKillzone      // Swept during killzone
-    bool    inSilverBullet  // Swept during SB window
-    string  sessionAtSweep  // Session name when swept
+// LiqLevel and LiqSweep types now imported from tv_core_types (alias T)
 
 // --- Inputs ---
 var string G_SENS = "Signal Sensitivity"
@@ -498,14 +379,14 @@ float sensAtrMult = sensitivityMode == "Aggressive" ? 1.0 : sensitivityMode == "
 int sensPivotLen = sensitivityMode == "Aggressive" ? 2 : sensitivityMode == "Conservative" ? 5 : 3
 
 // --- Session Engine ---
-var asia    = SessionData.new("Asia", "2000-0000")
-var london  = SessionData.new("London", "0200-1100")
-var ny      = SessionData.new("New York", "0800-1700")
-var overlap = SessionData.new("London/NY Overlap", "0800-1100")
-var sbLon   = SessionData.new("SB London", "0300-0400")
-var sbAm    = SessionData.new("SB AM", "1000-1100")
+var asia    = T.SessionData.new("Asia", "2000-0000")
+var london  = T.SessionData.new("London", "0200-1100")
+var ny      = T.SessionData.new("New York", "0800-1700")
+var overlap = T.SessionData.new("London/NY Overlap", "0800-1100")
+var sbLon   = T.SessionData.new("SB London", "0300-0400")
+var sbAm    = T.SessionData.new("SB AM", "1000-1100")
 
-update_session(SessionData s) =>
+update_session(T.SessionData s) =>
     inSess = not na(time(timeframe.period, s.timeRange, NY_TZ))
     if inSess
         if not s.isActive
@@ -699,8 +580,8 @@ if not na(lastMssBearBar) and (bar_index - lastMssBearBar) > mssMaxAge
     lastMssBearDispStrength := na
 
 // --- SMC Elements (FVG & OB) ---
-var SmartZone[] fvgArray = array.new<SmartZone>()
-var SmartZone[] obArray = array.new<SmartZone>()
+var T.SmartZone[] fvgArray = array.new<T.SmartZone>()
+var T.SmartZone[] obArray = array.new<T.SmartZone>()
 
 // =====================================================================
 // FVG ENGINE — Clean-room reimplementation of Lux-style detection behavior
@@ -826,14 +707,14 @@ if not na(lastBearFvgBar) and (bar_index - lastBearFvgBar) > fvgMaxAge
     lastBearFvgMitigated := false
 
 // Returns: 0 = no overlap, 1 = merge (expand existing), 2 = near-duplicate (skip)
-check_fvg_overlap(SmartZone[] arr, float newTop, float newBottom, bool newIsBull) =>
+check_fvg_overlap(T.SmartZone[] arr, float newTop, float newBottom, bool newIsBull) =>
     int result = 0
     int mergeIdx = -1
     float newSize = newTop - newBottom
     if array.size(arr) > 0 and newSize > 0
         int startIdx = math.max(0, array.size(arr) - 8)
         for i = array.size(arr) - 1 to startIdx
-            SmartZone existing = array.get(arr, i)
+            T.SmartZone existing = array.get(arr, i)
             if existing.isBull == newIsBull and not existing.mitigated
                 float exSize = existing.top - existing.bottom
                 if exSize > 0
@@ -854,8 +735,8 @@ check_fvg_overlap(SmartZone[] arr, float newTop, float newBottom, bool newIsBull
 
 
 // Merge: expand existing zone to encompass both
-merge_fvg(SmartZone[] arr, int idx, float newTop, float newBottom, color bgCol) =>
-    SmartZone existing = array.get(arr, idx)
+merge_fvg(T.SmartZone[] arr, int idx, float newTop, float newBottom, color bgCol) =>
+    T.SmartZone existing = array.get(arr, idx)
     float mergedTop = math.max(existing.top, newTop)
     float mergedBot = math.min(existing.bottom, newBottom)
     existing.top := mergedTop
@@ -879,7 +760,7 @@ if showFVG
         if overlapResult == 0
             float fvgCE = (fvgTop + fvgBot) / 2.0
             box b = box.new(bar_index - 2, fvgTop, bar_index + fvgExtendBars, fvgBot, bgcolor = bullFvgColor, border_color = color.new(bullFvgColor, 50), border_style = line.style_dotted)
-            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, true, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize))
+            array.push(fvgArray, T.SmartZone.new(b, fvgTop, fvgBot, true, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize))
         else if overlapResult == 1
             merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bullFvgColor)
 
@@ -890,7 +771,7 @@ if showFVG
         if overlapResult == 0
             float fvgCE = (fvgTop + fvgBot) / 2.0
             box b = box.new(bar_index - 2, fvgTop, bar_index + fvgExtendBars, fvgBot, bgcolor = bearFvgColor, border_color = color.new(bearFvgColor, 50), border_style = line.style_dotted)
-            array.push(fvgArray, SmartZone.new(b, fvgTop, fvgBot, false, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize))
+            array.push(fvgArray, T.SmartZone.new(b, fvgTop, fvgBot, false, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize))
         else if overlapResult == 1
             merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bearFvgColor)
 
@@ -908,7 +789,7 @@ if showOB
             float t = high[bar_index - obBar]
             float b_ = low[bar_index - obBar]
             box bx = box.new(obBar, t, bar_index, b_, bgcolor = bullObColor, border_color = color.new(bullObColor, 50))
-            array.push(obArray, SmartZone.new(bx, t, b_, true, false, false, obBar, na, false, false, 0, na))
+            array.push(obArray, T.SmartZone.new(bx, t, b_, true, false, false, obBar, na, false, false, 0, na))
 
     if mssBear
         int obBar = na
@@ -920,13 +801,13 @@ if showOB
             float t = high[bar_index - obBar]
             float b_ = low[bar_index - obBar]
             box bx = box.new(obBar, t, bar_index, b_, bgcolor = bearObColor, border_color = color.new(bearObColor, 50))
-            array.push(obArray, SmartZone.new(bx, t, b_, false, false, false, obBar, na, false, false, 0, na))
+            array.push(obArray, T.SmartZone.new(bx, t, b_, false, false, false, obBar, na, false, false, 0, na))
 
 // Mitigation & Inversion Logic (LuxAlgo-inspired: close-based mitigation for FVGs)
-update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
+update_zones(T.SmartZone[] arr, int maxCount, bool isFVG) =>
     if array.size(arr) > 0
         for i = array.size(arr) - 1 to 0
-            SmartZone sz = array.get(arr, i)
+            T.SmartZone sz= array.get(arr, i)
             if not sz.mitigated
                 box.set_right(sz.boxId, bar_index)
 
@@ -979,7 +860,7 @@ update_zones(SmartZone[] arr, int maxCount, bool isFVG) =>
                     box.delete(sz.boxId)
 
         if array.size(arr) > maxCount
-            SmartZone old = array.shift(arr)
+            T.SmartZone old = array.shift(arr)
             box.delete(old.boxId)
 
 update_zones(fvgArray, maxZones, true)
@@ -1029,41 +910,40 @@ if not na(pLo)
         array.shift(recentSwingLows)
         array.shift(recentSwingLowBars)
 
-level_is_near(float lhs, float rhs, float tol) =>
-    not na(lhs) and not na(rhs) and math.abs(lhs - rhs) <= tol
+// liq.level_is_near() moved to tv_liquidity_engine library (liq.*)
 
 cluster_context_bonus(float price_, bool isSSL_) =>
     float bonus = 0.0
     float tol = eqhTolerance * 1.5
     if isSSL_
-        if level_is_near(price_, pdl, tol)
+        if liq.level_is_near(price_, pdl, tol)
             bonus += 5.0
-        if level_is_near(price_, pwl, tol)
+        if liq.level_is_near(price_, pwl, tol)
             bonus += 6.0
-        if level_is_near(price_, htfPivot1Low, tol)
+        if liq.level_is_near(price_, htfPivot1Low, tol)
             bonus += 3.0
-        if level_is_near(price_, htfPivot2Low, tol)
+        if liq.level_is_near(price_, htfPivot2Low, tol)
             bonus += 4.0
-        if level_is_near(price_, htfPivot3Low, tol)
+        if liq.level_is_near(price_, htfPivot3Low, tol)
             bonus += 5.0
-        if level_is_near(price_, asia.lastLow, tol) or level_is_near(price_, london.lastLow, tol) or level_is_near(price_, ny.lastLow, tol)
+        if liq.level_is_near(price_, asia.lastLow, tol) or liq.level_is_near(price_, london.lastLow, tol) or liq.level_is_near(price_, ny.lastLow, tol)
             bonus += 3.0
-        if level_is_near(price_, rangeLow50, tol * 2.0)
+        if liq.level_is_near(price_, rangeLow50, tol * 2.0)
             bonus += 4.0
     else
-        if level_is_near(price_, pdh, tol)
+        if liq.level_is_near(price_, pdh, tol)
             bonus += 5.0
-        if level_is_near(price_, pwh, tol)
+        if liq.level_is_near(price_, pwh, tol)
             bonus += 6.0
-        if level_is_near(price_, htfPivot1High, tol)
+        if liq.level_is_near(price_, htfPivot1High, tol)
             bonus += 3.0
-        if level_is_near(price_, htfPivot2High, tol)
+        if liq.level_is_near(price_, htfPivot2High, tol)
             bonus += 4.0
-        if level_is_near(price_, htfPivot3High, tol)
+        if liq.level_is_near(price_, htfPivot3High, tol)
             bonus += 5.0
-        if level_is_near(price_, asia.lastHigh, tol) or level_is_near(price_, london.lastHigh, tol) or level_is_near(price_, ny.lastHigh, tol)
+        if liq.level_is_near(price_, asia.lastHigh, tol) or liq.level_is_near(price_, london.lastHigh, tol) or liq.level_is_near(price_, ny.lastHigh, tol)
             bonus += 3.0
-        if level_is_near(price_, rangeHigh50, tol * 2.0)
+        if liq.level_is_near(price_, rangeHigh50, tol * 2.0)
             bonus += 4.0
     bonus
 
@@ -1156,49 +1036,10 @@ int eqlPriority = not na(eqlLevel) ? cluster_priority_from_score(eqlCount, eqlLa
 
 // --- Build Liquidity Level Registry ---
 // Constructs LiqLevel objects for all monitored sources each bar
-var LiqLevel[] liqLevels = array.new<LiqLevel>()
+var T.LiqLevel[] liqLevels = array.new<T.LiqLevel>()
 array.clear(liqLevels)
 
-is_htf_liquidity_source(int srcType) =>
-    srcType == SRC_PDH_PDL or srcType == SRC_PWH_PWL or srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
-
-source_category_label(int srcType, string lvlName) =>
-    string label = "Liquidity"
-    if srcType == SRC_PWH_PWL
-        label := "Weekly Level"
-    else if srcType == SRC_PDH_PDL
-        label := "Daily Level"
-    else if srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
-        label := "HTF Pivot"
-    else if srcType == SRC_SESSION
-        label := "Session Level"
-    else if srcType == SRC_EQH_EQL
-        label := "EQ Cluster"
-    else if srcType == SRC_ROUND_NUM
-        label := "Round Number"
-    else if srcType == SRC_PIVOT_EXT
-        label := "External Pivot"
-    else if srcType == SRC_PIVOT_INT
-        label := "Internal Pivot"
-    if (srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3) and lvlName != ""
-        label := label + " (" + lvlName + ")"
-    label
-
-source_phase_tag(int srcType, bool isExt) =>
-    string tag = isExt ? " [Ext]" : " [Int]"
-    if srcType == SRC_PWH_PWL
-        tag := " [W]"
-    else if srcType == SRC_PDH_PDL
-        tag := " [D]"
-    else if srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
-        tag := " [HTF Pivot]"
-    else if srcType == SRC_EQH_EQL
-        tag := " [EQ]"
-    else if srcType == SRC_SESSION
-        tag := " [Sess]"
-    else if srcType == SRC_ROUND_NUM
-        tag := " [RN]"
-    tag
+// Liquidity source helpers moved to tv_liquidity_engine library (liq.*)
 
 round_grid_base(float price_, float step_) =>
     step_ > 0 ? math.floor(price_ / step_) * step_ : na
@@ -1212,13 +1053,13 @@ float roundSubBelow = roundSubBase
 float roundSubAbove = not na(roundSubBase) ? roundSubBase + roundSubStep : na
 
 // Helper: add level if valid
-add_liq_level(LiqLevel[] arr, string name_, float price_, int srcType, int pri, bool ext, bool ssl, bool htf, bool sess, bool cluster, int clusterN) =>
+add_liq_level(T.LiqLevel[] arr, string name_, float price_, int srcType, int pri, bool ext, bool ssl, bool htf, bool sess, bool cluster, int clusterN) =>
     if not na(price_)
-        array.push(arr, LiqLevel.new(name_, price_, srcType, pri, ext, ssl, htf, sess, cluster, clusterN, bar_index))
+        array.push(arr, T.LiqLevel.new(name_, price_, srcType, pri, ext, ssl, htf, sess, cluster, clusterN, bar_index))
 
 
 // --- Build Liquidity Level Registry (extracted to function) ---
-build_liquidity_registry(LiqLevel[] arr) =>
+build_liquidity_registry(T.LiqLevel[] arr) =>
     // Session levels (only completed sessions — no developing)
     add_liq_level(arr, "Asia High",   asia.isActive ? na : asia.lastHigh,     SRC_SESSION, PRI_SESSION, true, false, false, true, false, 0)
     add_liq_level(arr, "Asia Low",    asia.isActive ? na : asia.lastLow,      SRC_SESSION, PRI_SESSION, true, true,  false, true, false, 0)
@@ -1274,84 +1115,15 @@ get_session_weight() =>
 float sessionWeight = get_session_weight()
 
 // --- Sweep Detection Engine v2 ---
-var LiqSweep[] activeSweeps = array.new<LiqSweep>()
+var T.LiqSweep[] activeSweeps = array.new<T.LiqSweep>()
 int sweepMaxAge = sensitivityMode == "Aggressive" ? 30 : sensitivityMode == "Conservative" ? 70 : 50
 int sweepMaxCount = 8
 
-// Classify sweep type based on metrics and source
-classify_sweep_type(float depthAtr, bool isExt, bool isHTF_, bool isSess, bool isCluster_, int srcType) =>
-    int sType = SWEEP_SHALLOW
-    string sStr = "Shallow"
-    if isHTF_
-        sType := SWEEP_HTF
-        sStr := "HTF Sweep"
-    else if isExt and depthAtr > 0.3
-        sType := SWEEP_EXT_LIQ_GRAB
-        sStr := "Ext. Liq Grab"
-    else if isSess
-        sType := SWEEP_SESSION
-        sStr := "Session Sweep"
-    else if not isExt
-        sType := SWEEP_INT_LIQ_SWEEP
-        sStr := "Internal Sweep"
-    // Override by depth
-    if depthAtr > 1.5
-        sType := SWEEP_DEEP_STOP_RUN
-        sStr := "Deep Stop Run"
-    else if depthAtr > 0.2 and depthAtr <= 1.5 and sType == SWEEP_SHALLOW
-        sType := SWEEP_CLEAN_RAID
-        sStr := "Clean Raid"
-    [sType, sStr]
-
-// Compute multi-dimensional quality score
-compute_sweep_quality(float depthAtr, float wickPenRatio, float rejStr, bool hasRej, bool hasDisp, int srcPri, bool isExt, bool isHTF_, bool isCluster_, int clusterN, bool inKz, bool inSb, float sessW, float freshness, int sweepT) =>
-    float q = 0.0
-    // 1. Penetration quality (max 20)
-    q += math.min(depthAtr * 15.0, 20.0)
-    // 2. Rejection strength (max 20)
-    if hasRej
-        q += 10.0 + rejStr * 10.0
-    // 3. Displacement follow-through (max 15)
-    if hasDisp
-        q += 15.0
-    // 4. Source priority (max 15) — normalized from 0-100 priority to 0-15
-    q += (srcPri / 100.0) * 15.0
-    // 5. External vs internal multiplier
-    if isExt
-        q *= 1.15
-    else
-        q *= 0.85
-    // 6. HTF bonus (max 8)
-    if isHTF_
-        q += 8.0
-    // 7. Session timing (max 5)
-    q += (sessW - 0.7) * 8.33   // Maps 0.7-1.3 → 0-5
-    // 8. Cluster liquidity bonus (max 8)
-    if isCluster_
-        q += 4.0 + math.min(clusterN - 2, 3) * 1.33
-    // 9. Freshness (max 10)
-    q += freshness * 10.0
-    // 10. Kill zone / Silver Bullet bonus
-    if inSb
-        q += 5.0
-    else if inKz
-        q += 3.0
-    // 11. Deep stop-run penalty (overextended = risky)
-    if sweepT == SWEEP_DEEP_STOP_RUN
-        q -= 5.0
-    // 12. Weak wick penetration penalty
-    if wickPenRatio < 0.1 and not hasDisp
-        q -= 5.0
-    math.max(0.0, math.min(100.0, q))
-
-// Grade from score
-get_sweep_grade(float q) =>
-    string g = q >= 70.0 ? "A" : q >= 45.0 ? "B" : q >= 25.0 ? "C" : "Reject"
-    g
+// Sweep classification, scoring, and summary functions moved to tv_liquidity_engine library (liq.*)
 
 // Check sweep against a LiqLevel
-check_sweep_level(LiqLevel lvl) =>
-    LiqSweep result = na
+check_sweep_level(T.LiqLevel lvl) =>
+    T.LiqSweep result = na
     if not na(lvl) and not na(lvl.price)
         bool isSSL_ = lvl.isSSL
         float level = lvl.price
@@ -1375,12 +1147,12 @@ check_sweep_level(LiqLevel lvl) =>
             float rejStr = rejection ? bodyRatio : 0.0
             bool disp = isSSL_ ? isDispBull : isDispBear
 
-            [sType, sStr] = classify_sweep_type(depthAtr, lvl.isExternal, lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.sourceType)
+            [sType, sStr] = liq.classify_sweep_type(depthAtr, lvl.isExternal, lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.sourceType)
             float freshness = 1.0
-            float q = compute_sweep_quality(depthAtr, wickPen, rejStr, rejection, disp, lvl.priority, lvl.isExternal, lvl.isHTF, lvl.isCluster, lvl.clusterCount, isKillzone, isSilverBullet, sessionWeight, freshness, sType)
-            string grade = get_sweep_grade(q)
+            float q = liq.compute_sweep_quality(depthAtr, wickPen, rejStr, rejection, disp, lvl.priority, lvl.isExternal, lvl.isHTF, lvl.isCluster, lvl.clusterCount, isKillzone, isSilverBullet, sessionWeight, freshness, sType)
+            string grade = liq.get_sweep_grade(q)
 
-            result := LiqSweep.new(
+            result := T.LiqSweep.new(
                  lvl.name, level, lvl.sourceType, lvl.priority,
                  lvl.isExternal, isSSL_,
                  depth, depthAtr, wickPen, rejStr, rejection, disp,
@@ -1393,11 +1165,11 @@ check_sweep_level(LiqLevel lvl) =>
 // --- Run sweep checks against all registered levels ---
 
 // --- Sweep Detection + Lifecycle Engine (extracted to function) ---
-update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCount_) =>
+update_sweep_engine(T.LiqSweep[] sweeps, T.LiqLevel[] levels, int maxAge, int maxCount_) =>
     if array.size(levels) > 0
         for i = 0 to array.size(levels) - 1
-            LiqLevel lvl = array.get(levels, i)
-            LiqSweep sw = check_sweep_level(lvl)
+            T.LiqLevel lvl = array.get(levels, i)
+            T.LiqSweep sw = check_sweep_level(lvl)
             if not na(sw) and sw.isActionable
                 // --- Advanced Deduplication ---
                 // Check for near-duplicate: same side, similar price, recent
@@ -1405,7 +1177,7 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
                 int replaceIdx = -1
                 if array.size(sweeps) > 0
                     for j = array.size(sweeps) - 1 to math.max(0, array.size(sweeps) - 8)
-                        LiqSweep existing = array.get(sweeps, j)
+                        T.LiqSweep existing = array.get(sweeps, j)
                         bool sameSide = existing.isSSL == sw.isSSL
                         bool sameName = existing.levelName == sw.levelName
                         bool nearPrice = math.abs(existing.levelPrice - sw.levelPrice) < atr * 0.3
@@ -1425,7 +1197,7 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
                     array.push(sweeps, sw)
                 else if replaceIdx >= 0
                     // Stronger sweep replaces weaker on same level
-                    LiqSweep old = array.get(sweeps, replaceIdx)
+                    T.LiqSweep old = array.get(sweeps, replaceIdx)
                     sw.lifecycleState := old.lifecycleState == LIFE_CONFIRMED ? LIFE_CONFIRMED : (sw.hasRejection or sw.hasDisplacement ? LIFE_CONFIRMED : LIFE_ACTIVE)
                     array.set(sweeps, replaceIdx, sw)
     
@@ -1435,12 +1207,12 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
     if enableInducementTag and array.size(sweeps) > 1
         int inducementWindow = sensitivityMode == "Aggressive" ? 6 : sensitivityMode == "Conservative" ? 10 : 8
         for i = 0 to array.size(sweeps) - 1
-            LiqSweep major = array.get(sweeps, i)
-            bool majorSweep = (major.isExternal or is_htf_liquidity_source(major.sourceType) or major.sourceType == SRC_SESSION) and major.qualityScore >= 40
+            T.LiqSweep major = array.get(sweeps, i)
+            bool majorSweep = (major.isExternal or liq.is_htf_liquidity_source(major.sourceType) or major.sourceType == SRC_SESSION) and major.qualityScore >= 40
             if majorSweep
                 for j = 0 to array.size(sweeps) - 1
                     if i != j
-                        LiqSweep minor = array.get(sweeps, j)
+                        T.LiqSweep minor = array.get(sweeps, j)
                         bool sameSide = minor.isSSL == major.isSSL
                         bool minorInternal = minor.sourceType == SRC_PIVOT_INT or (not minor.isExternal and minor.sourcePriority < major.sourcePriority)
                         bool shortLead = minor.sweepBar <= major.sweepBar and (major.sweepBar - minor.sweepBar) <= inducementWindow
@@ -1450,14 +1222,14 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
                             minor.sweepType := SWEEP_INDUCEMENT
                             minor.sweepTypeStr := "Inducement"
                             minor.qualityScore := math.max(0.0, minor.qualityScore - 8.0)
-                            minor.grade := get_sweep_grade(minor.qualityScore)
+                            minor.grade := liq.get_sweep_grade(minor.qualityScore)
                             array.set(sweeps, j, minor)
     
     // --- Lifecycle Management ---
     // Expire stale sweeps, cap count, manage states
     if array.size(sweeps) > 0
         for i = array.size(sweeps) - 1 to 0
-            LiqSweep s = array.get(sweeps, i)
+            T.LiqSweep s= array.get(sweeps, i)
             int age = bar_index - s.sweepBar
             // Stale detection
             if age > maxAge
@@ -1469,9 +1241,9 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
                 s.isActionable := false
             // Recalculate quality with updated freshness
             float freshness = 1.0 - (float(age) / maxAge)
-            float updatedQ = compute_sweep_quality(s.sweepDepthAtr, s.wickPenetrationRatio, s.rejectionStrength, s.hasRejection, s.hasDisplacement, s.sourcePriority, s.isExternal, s.isHTF, s.isClusterSweep, s.clusterCount, s.inKillzone, s.inSilverBullet, 1.0, freshness, s.sweepType)
+            float updatedQ = liq.compute_sweep_quality(s.sweepDepthAtr, s.wickPenetrationRatio, s.rejectionStrength, s.hasRejection, s.hasDisplacement, s.sourcePriority, s.isExternal, s.isHTF, s.isClusterSweep, s.clusterCount, s.inKillzone, s.inSilverBullet, 1.0, freshness, s.sweepType)
             s.qualityScore := updatedQ
-            s.grade := get_sweep_grade(updatedQ)
+            s.grade := liq.get_sweep_grade(updatedQ)
             if updatedQ < 15.0
                 s.isActionable := false
             array.set(sweeps, i, s)
@@ -1482,7 +1254,7 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
         int worstIdx = 0
         float worstQ = 999.0
         for i = 0 to array.size(sweeps) - 1
-            LiqSweep s = array.get(sweeps, i)
+            T.LiqSweep s= array.get(sweeps, i)
             if s.qualityScore < worstQ
                 worstQ := s.qualityScore
                 worstIdx := i
@@ -1492,7 +1264,7 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
     if mssBull
         if array.size(sweeps) > 0
             for i = array.size(sweeps) - 1 to 0
-                LiqSweep s = array.get(sweeps, i)
+                T.LiqSweep s= array.get(sweeps, i)
                 if s.isSSL and s.lifecycleState != LIFE_CONSUMED
                     s.lifecycleState := LIFE_CONSUMED
                     s.isConsumed := true
@@ -1500,7 +1272,7 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
     if mssBear
         if array.size(sweeps) > 0
             for i = array.size(sweeps) - 1 to 0
-                LiqSweep s = array.get(sweeps, i)
+                T.LiqSweep s= array.get(sweeps, i)
                 if not s.isSSL and s.lifecycleState != LIFE_CONSUMED
                     s.lifecycleState := LIFE_CONSUMED
                     s.isConsumed := true
@@ -1508,227 +1280,32 @@ update_sweep_engine(LiqSweep[] sweeps, LiqLevel[] levels, int maxAge, int maxCou
 
 update_sweep_engine(activeSweeps, liqLevels, sweepMaxAge, sweepMaxCount)
 
-// --- Derived Sweep State (extracted to function) ---
-summarize_active_sweeps(LiqSweep[] sweeps) =>
-    bool _sweptSSL = false
-    bool _sweptBSL = false
-    float _sweepQualitySSL = 0.0
-    float _sweepQualityBSL = 0.0
-    int _bestSweepBarSSL = na
-    int _bestSweepBarBSL = na
-    string _bestSweepTypeSSL = ""
-    string _bestSweepGradeSSL = ""
-    string _bestSweepNameSSL = ""
-    bool   _bestSweepExtSSL = false
-    int    _bestSweepSrcSSL = 0
-    bool   _bestSweepInducementSSL = false
-    string _bestSweepTypeBSL = ""
-    string _bestSweepGradeBSL = ""
-    string _bestSweepNameBSL = ""
-    bool   _bestSweepExtBSL = false
-    int    _bestSweepSrcBSL = 0
-    bool   _bestSweepInducementBSL = false
-    float _bestSweepLevelSSL = na
-    float _bestSweepLevelBSL = na
-    float _bestSweepDepthSSL = na
-    float _bestSweepDepthBSL = na
-
-    if array.size(sweeps) > 0
-        for i = 0 to array.size(sweeps) - 1
-            LiqSweep s = array.get(sweeps, i)
-            if not s.isActionable and not s.isConsumed
-                continue
-            if s.isSSL
-                _sweptSSL := true
-                if s.qualityScore > _sweepQualitySSL
-                    _sweepQualitySSL := s.qualityScore
-                    _bestSweepBarSSL := s.sweepBar
-                    _bestSweepTypeSSL := s.sweepTypeStr
-                    _bestSweepGradeSSL := s.grade
-                    _bestSweepNameSSL := s.levelName
-                    _bestSweepExtSSL := s.isExternal
-                    _bestSweepSrcSSL := s.sourceType
-                    _bestSweepInducementSSL := s.isInducementLike
-                    _bestSweepLevelSSL := s.levelPrice
-                    _bestSweepDepthSSL := s.sweepDepth
-            else
-                _sweptBSL := true
-                if s.qualityScore > _sweepQualityBSL
-                    _sweepQualityBSL := s.qualityScore
-                    _bestSweepBarBSL := s.sweepBar
-                    _bestSweepTypeBSL := s.sweepTypeStr
-                    _bestSweepGradeBSL := s.grade
-                    _bestSweepNameBSL := s.levelName
-                    _bestSweepExtBSL := s.isExternal
-                    _bestSweepSrcBSL := s.sourceType
-                    _bestSweepInducementBSL := s.isInducementLike
-                    _bestSweepLevelBSL := s.levelPrice
-                    _bestSweepDepthBSL := s.sweepDepth
-
-    [_sweptSSL, _sweptBSL, _sweepQualitySSL, _sweepQualityBSL, _bestSweepBarSSL, _bestSweepBarBSL,
-     _bestSweepTypeSSL, _bestSweepGradeSSL, _bestSweepNameSSL, _bestSweepExtSSL, _bestSweepSrcSSL, _bestSweepInducementSSL,
-     _bestSweepTypeBSL, _bestSweepGradeBSL, _bestSweepNameBSL, _bestSweepExtBSL, _bestSweepSrcBSL, _bestSweepInducementBSL,
-     _bestSweepLevelSSL, _bestSweepLevelBSL, _bestSweepDepthSSL, _bestSweepDepthBSL]
-
 [sweptSSL, sweptBSL, sweepQualitySSL, sweepQualityBSL, bestSweepBarSSL, bestSweepBarBSL,
  bestSweepTypeSSL, bestSweepGradeSSL, bestSweepNameSSL, bestSweepExtSSL, bestSweepSrcSSL, bestSweepInducementSSL,
  bestSweepTypeBSL, bestSweepGradeBSL, bestSweepNameBSL, bestSweepExtBSL, bestSweepSrcBSL, bestSweepInducementBSL,
- bestSweepLevelSSL, bestSweepLevelBSL, bestSweepDepthSSL, bestSweepDepthBSL] = summarize_active_sweeps(activeSweeps)
+ bestSweepLevelSSL, bestSweepLevelBSL, bestSweepDepthSSL, bestSweepDepthBSL] = liq.summarize_active_sweeps(activeSweeps)
 // Premium / Discount
 int rangeLookback = 50
 float pdArray = (ta.highest(rangeLookback) + ta.lowest(rangeLookback)) / 2
 string pdStatus = close > pdArray ? "Premium" : "Discount"
 
 
-// --- Enriched Liquidity Level Map (extracted to function) ---
-summarize_liquidity_map(LiqLevel[] levels) =>
-    float _nearestBSL = na
-    float _nearestSSL = na
-    float _nearestExtBSL = na
-    float _nearestExtSSL = na
-    float _nearestIntBSL = na
-    float _nearestIntSSL = na
-    float _nearestSessBSL = na
-    float _nearestSessSSL = na
-    float _nearestHTFBSL = na
-    float _nearestHTFSSL = na
-    float _nearestClusterBSL = na
-    float _nearestClusterSSL = na
-    float _nearestRoundBSL = na
-    float _nearestRoundSSL = na
-    string _nearestBSLName = ""
-    string _nearestSSLName = ""
-
-    if array.size(levels) > 0
-        for i = 0 to array.size(levels) - 1
-            LiqLevel lvl = array.get(levels, i)
-            if na(lvl.price)
-                continue
-            if lvl.isSSL and lvl.price < close
-                // SSL: nearest = highest below price
-                if na(_nearestSSL) or lvl.price > _nearestSSL
-                    _nearestSSL := lvl.price
-                    _nearestSSLName := lvl.name
-                if lvl.isExternal and (na(_nearestExtSSL) or lvl.price > _nearestExtSSL)
-                    _nearestExtSSL := lvl.price
-                if not lvl.isExternal and (na(_nearestIntSSL) or lvl.price > _nearestIntSSL)
-                    _nearestIntSSL := lvl.price
-                if lvl.isSession and (na(_nearestSessSSL) or lvl.price > _nearestSessSSL)
-                    _nearestSessSSL := lvl.price
-                if lvl.isHTF and (na(_nearestHTFSSL) or lvl.price > _nearestHTFSSL)
-                    _nearestHTFSSL := lvl.price
-                if lvl.isCluster and (na(_nearestClusterSSL) or lvl.price > _nearestClusterSSL)
-                    _nearestClusterSSL := lvl.price
-                if lvl.sourceType == SRC_ROUND_NUM and (na(_nearestRoundSSL) or lvl.price > _nearestRoundSSL)
-                    _nearestRoundSSL := lvl.price
-            else if not lvl.isSSL and lvl.price > close
-                // BSL: nearest = lowest above price
-                if na(_nearestBSL) or lvl.price < _nearestBSL
-                    _nearestBSL := lvl.price
-                    _nearestBSLName := lvl.name
-                if lvl.isExternal and (na(_nearestExtBSL) or lvl.price < _nearestExtBSL)
-                    _nearestExtBSL := lvl.price
-                if not lvl.isExternal and (na(_nearestIntBSL) or lvl.price < _nearestIntBSL)
-                    _nearestIntBSL := lvl.price
-                if lvl.isSession and (na(_nearestSessBSL) or lvl.price < _nearestSessBSL)
-                    _nearestSessBSL := lvl.price
-                if lvl.isHTF and (na(_nearestHTFBSL) or lvl.price < _nearestHTFBSL)
-                    _nearestHTFBSL := lvl.price
-                if lvl.isCluster and (na(_nearestClusterBSL) or lvl.price < _nearestClusterBSL)
-                    _nearestClusterBSL := lvl.price
-                if lvl.sourceType == SRC_ROUND_NUM and (na(_nearestRoundBSL) or lvl.price < _nearestRoundBSL)
-                    _nearestRoundBSL := lvl.price
-
-    [_nearestBSL, _nearestSSL, _nearestExtBSL, _nearestExtSSL, _nearestIntBSL, _nearestIntSSL,
-     _nearestSessBSL, _nearestSessSSL, _nearestHTFBSL, _nearestHTFSSL,
-     _nearestClusterBSL, _nearestClusterSSL, _nearestRoundBSL, _nearestRoundSSL,
-     _nearestBSLName, _nearestSSLName]
-
 [nearestBSL, nearestSSL, nearestExtBSL, nearestExtSSL, nearestIntBSL, nearestIntSSL,
  nearestSessBSL, nearestSessSSL, nearestHTFBSL, nearestHTFSSL,
  nearestClusterBSL, nearestClusterSSL, nearestRoundBSL, nearestRoundSSL,
- nearestBSLName, nearestSSLName] = summarize_liquidity_map(liqLevels)
+ nearestBSLName, nearestSSLName] = liq.summarize_liquidity_map(liqLevels)
 // reqL/reqS: backward-compatible required sweep levels
 float reqL = nearestSSL
 float reqS = nearestBSL
 
-ict_liquidity_gate(bool isLong, int mssBar_, float mssDisp) =>
-    bool ok = false
-    bool hasValidExternal = false
-    string detail = "No qualifying liquidity sweep detected"
-    float bestQ = -1.0
-    bool sawAnySweep = false
-    bool sawInternalOnly = false
-    bool sawWeakMajor = false
-    bool sawOutOfSequence = false
-    if array.size(activeSweeps) > 0
-        for i = 0 to array.size(activeSweeps) - 1
-            LiqSweep s = array.get(activeSweeps, i)
-            bool sideOk = s.isSSL == isLong
-            bool liveOk = s.isActionable or s.isConsumed
-            if sideOk and liveOk
-                sawAnySweep := true
-                bool orderOk = na(mssBar_) or s.sweepBar <= mssBar_
-                bool htfSweep = is_htf_liquidity_source(s.sourceType)
-                bool strongSession = s.sourceType == SRC_SESSION and s.qualityScore >= 55.0
-                bool strongExternal = s.isExternal and s.sourceType != SRC_SESSION and s.sourceType != SRC_PIVOT_INT and s.qualityScore >= 35.0
-                bool aggressiveInternal = sensitivityMode == "Aggressive" and s.sourceType == SRC_PIVOT_INT and s.qualityScore >= 72.0 and mssDisp >= 1.2 and (s.hasRejection or s.hasDisplacement)
-                bool hardQualified = htfSweep or strongSession or strongExternal or aggressiveInternal
-                if orderOk and (htfSweep or strongSession or strongExternal)
-                    hasValidExternal := true
-                if not orderOk
-                    sawOutOfSequence := true
-                else if s.sourceType == SRC_PIVOT_INT and not aggressiveInternal
-                    sawInternalOnly := true
-                else if not hardQualified
-                    sawWeakMajor := true
-
-                if orderOk and hardQualified and s.qualityScore > bestQ
-                    ok := true
-                    bestQ := s.qualityScore
-                    detail := s.levelName + " — " + source_category_label(s.sourceType, "")
-                    if s.isInducementLike
-                        detail := detail + " (preconditioned by inducement)"
-    if not ok
-        detail := not sawAnySweep ? "No liquidity sweep detected" : sawOutOfSequence ? "Sweep came after structure shift (wrong sequence)" : sawInternalOnly ? "Only internal liquidity swept — need external" : sawWeakMajor ? "Sweep quality insufficient for this strategy" : detail
-    [ok, detail, hasValidExternal]
-
-silver_bullet_liquidity_gate(bool isLong) =>
-    bool ok = false
-    bool hasValidSessionSweep = false
-    string detail = "No qualifying sweep in Silver Bullet window"
-    float bestQ = -1.0
-    bool sawWindowSweep = false
-    bool sawWeakWindowSweep = false
-    int sbWindowBars = math.max(1, int(math.round(3600.0 / timeframe.in_seconds(timeframe.period)))) + 1
-    if array.size(activeSweeps) > 0
-        for i = 0 to array.size(activeSweeps) - 1
-            LiqSweep s = array.get(activeSweeps, i)
-            bool sideOk = s.isSSL == isLong
-            bool liveOk = s.isActionable or s.isConsumed
-            bool windowFresh = (bar_index - s.sweepBar) <= sbWindowBars
-            if sideOk and liveOk and s.inSilverBullet and windowFresh
-                sawWindowSweep := true
-                bool validSession = s.sourceType == SRC_SESSION and s.qualityScore >= 42.0
-                bool validExternal = (s.isExternal or is_htf_liquidity_source(s.sourceType)) and s.qualityScore >= 35.0
-                if validSession
-                    hasValidSessionSweep := true
-                if (validSession or validExternal) and s.qualityScore > bestQ
-                    ok := true
-                    bestQ := s.qualityScore
-                    detail := s.levelName + " — " + source_category_label(s.sourceType, "")
-                else if not (validSession or validExternal)
-                    sawWeakWindowSweep := true
-    if not ok
-        detail := not sawWindowSweep ? "No qualifying liquidity in Silver Bullet window" : sawWeakWindowSweep ? "Silver Bullet window sweep not structural enough" : detail
-    [ok, detail, hasValidSessionSweep]
+// ICT and Silver Bullet liquidity gates moved to tv_signal_gate_engine library (sg.*)
 
 // --- OB Confluence Check: is price near an unmitigated OB? ---
 bool obBullConfluence = false
 bool obBearConfluence = false
 if array.size(obArray) > 0
     for i = 0 to array.size(obArray) - 1
-        SmartZone ob = array.get(obArray, i)
+        T.SmartZone ob= array.get(obArray, i)
         if not ob.mitigated
             if ob.isBull and low <= ob.top and close >= ob.bottom
                 obBullConfluence := true
@@ -1740,1027 +1317,22 @@ if array.size(obArray) > 0
 // --- SETUP LIFECYCLE HELPERS (Chapter 1: State Machine Integrity) ---
 // =====================================================================
 
-lifecycle_name(int lc) =>
-    lc == LC_NONE ? "No setup"
-     : lc == LC_LIQUIDITY_IDENTIFIED ? "Liquidity identified"
-     : lc == LC_SWEEP_CONFIRMED ? "Liquidity swept"
-     : lc == LC_RECLAIM_VISIBLE ? "Reclaim visible"
-     : lc == LC_MSS_CONFIRMED ? "Structure confirmed"
-     : lc == LC_DISPLACEMENT_CONFIRMED ? "Displacement confirmed"
-     : lc == LC_ENTRY_ARMED ? "Setup ready"
-     : lc == LC_ENTRY_TRIGGERED ? "Entry triggered"
-     : lc == LC_ACTIVE ? "Trade active"
-     : lc == LC_EXPIRED ? "Setup expired"
-     : lc == LC_INVALIDATED ? "Setup invalidated"
-     : lc == LC_DESYNC ? "State desync" : "Unknown"
-
-lifecycle_allows_activation(int lc) =>
-    lc == LC_ENTRY_TRIGGERED or lc == LC_ACTIVE
-
-lifecycle_is_preconfirmation(int lc) =>
-    lc <= LC_SWEEP_CONFIRMED
-
-lifecycle_is_terminal(int lc) =>
-    lc == LC_EXPIRED or lc == LC_INVALIDATED or lc == LC_DESYNC
-
-lifecycle_action_text(int lc) =>
-    lc == LC_NONE ? "Stand aside — no setup"
-     : lc == LC_LIQUIDITY_IDENTIFIED ? "Monitor liquidity — prepare for sweep"
-     : lc == LC_SWEEP_CONFIRMED ? "Wait for structure shift"
-     : lc == LC_RECLAIM_VISIBLE ? "Wait for confirmed structure shift"
-     : lc == LC_MSS_CONFIRMED ? "Wait for displacement / entry development"
-     : lc == LC_DISPLACEMENT_CONFIRMED ? "Wait for entry zone"
-     : lc == LC_ENTRY_ARMED ? "Setup ready — monitor trigger"
-     : lc == LC_ENTRY_TRIGGERED ? "Entry triggered — validate activation"
-     : lc == LC_ACTIVE ? "Trade active — manage position"
-     : lc == LC_EXPIRED ? "No trade — setup expired"
-     : lc == LC_INVALIDATED ? "No trade — setup invalidated"
-     : lc == LC_DESYNC ? "State error — setup/trade desync" : "Unknown state"
-
-lifecycle_next_required(int lc, bool isLong, float pivotVal, float reqLevel) =>
-    string side = isLong ? "bullish" : "bearish"
-    string liqSide = isLong ? "sell-side" : "buy-side"
-    string result = ""
-    if lc == LC_NONE
-        result := "Identify " + liqSide + " liquidity to target"
-    else if lc == LC_LIQUIDITY_IDENTIFIED
-        result := "Wait for " + liqSide + " liquidity sweep" + (na(reqLevel) ? "" : " at " + str.tostring(reqLevel, "#.#####"))
-    else if lc == LC_SWEEP_CONFIRMED
-        result := "Need " + side + " structure shift" + (na(pivotVal) ? "" : " — break " + (isLong ? "above " : "below ") + str.tostring(pivotVal, "#.#####"))
-    else if lc == LC_RECLAIM_VISIBLE
-        result := "Need confirmed " + side + " structure shift"
-    else if lc == LC_MSS_CONFIRMED
-        result := "Need fresh " + side + " displacement / imbalance"
-    else if lc == LC_DISPLACEMENT_CONFIRMED
-        result := "Need " + side + " imbalance / entry zone formation"
-    else if lc == LC_ENTRY_ARMED
-        result := "Monitor retrace / trigger into entry zone"
-    else if lc == LC_ENTRY_TRIGGERED
-        result := "Validate entry conditions for activation"
-    else if lc == LC_ACTIVE
-        result := "Manage active position"
-    else if lc == LC_EXPIRED
-        result := "Setup expired — wait for fresh sequence"
-    else if lc == LC_INVALIDATED
-        result := "Setup invalidated — wait for fresh sequence"
-    else if lc == LC_DESYNC
-        result := "Internal state contradiction detected"
-    result
-
-// =====================================================================
-// --- SENSITIVITY MODE EXECUTION POLICY (Chapter 2) ---
-// =====================================================================
-
-// Mode policy helpers — central source of truth for mode behavior
-mode_min_lifecycle_for_candidate(string mode) =>
-    mode == "Aggressive" ? LC_MSS_CONFIRMED : mode == "Conservative" ? LC_ENTRY_ARMED : LC_DISPLACEMENT_CONFIRMED
-
-mode_min_lifecycle_for_activation(string mode) =>
-    mode == "Aggressive" ? LC_ENTRY_TRIGGERED : mode == "Conservative" ? LC_ENTRY_ARMED : LC_ENTRY_ARMED
-
-mode_requires_retrace_for_activation(string mode) =>
-    mode != "Aggressive"
-
-mode_allows_direct_signal_activation(string mode) =>
-    mode == "Aggressive"
-
-mode_requires_displacement(string _mode) =>
-    true
-
-mode_requires_reclaim_proxy(string _mode) =>
-    true
-
-mode_name_short(string mode) =>
-    mode == "Aggressive" ? "AGG" : mode == "Conservative" ? "CON" : "BAL"
+// Lifecycle helpers and mode policy functions moved to tv_lifecycle_mode library (lm.*)
 
 // =====================================================================
 // --- CHAPTER 2.2: QUALITY RECOVERY PATCH — Transitional Quality Helpers ---
 // =====================================================================
 
-// =====================================================================
-// --- CHAPTER 3: RECLAIM STAGE EVALUATOR ---
-// Formal structural reclaim assessment after liquidity sweep.
-// Replaces crude reclaim proxy with graded, acceptance-aware, failable model.
-// Returns: [detected, weak, valid, strong_, failed, score, reason, newAccept, threshold]
-// =====================================================================
-evaluate_reclaim_stage(bool isLong, int sweepBar_, float sweepLevel_, float sweepDepth_,
-                       float atrVal, int prevAccept, bool prevFailed, int prevSweepRef) =>
-    bool detected = false
-    bool weak = false
-    bool valid = false
-    bool strong_ = false
-    bool failed = prevFailed
-    float score = 0.0
-    string reason = "No sweep context"
-    int acceptBars = 0
-    float threshold = na
+// se.evaluate_reclaim_stage() and se.reclaim_mode_pass() moved to tv_structure_engine library (se.*)
 
-    if not na(sweepBar_) and not na(sweepLevel_) and atrVal > 0
-        int age = bar_index - sweepBar_
-        // Compute sweep extreme: for long, the low that swept below level; for short, the high above
-        float sweepExtreme = na
-        if not na(sweepDepth_)
-            sweepExtreme := isLong ? sweepLevel_ - sweepDepth_ : sweepLevel_ + sweepDepth_
+// MSS evaluation functions moved to tv_structure_engine library (se.*)
 
-        if age >= 0 and age <= 50
-            // --- Reclaim threshold computation ---
-            // Primary: the swept liquidity level itself (must be reclaimed)
-            float primaryThresh = sweepLevel_
-            // Secondary: midpoint between sweep extreme and sweep level (early recovery reference)
-            float midThresh = not na(sweepExtreme) ? (sweepExtreme + sweepLevel_) / 2.0 : sweepLevel_
-            // Recovery band: minimum meaningful recovery = 40% of sweep depth from extreme
-            float recoveryBand = not na(sweepExtreme) and not na(sweepDepth_) and sweepDepth_ > 0 ?
-                 sweepExtreme + (isLong ? 1 : -1) * sweepDepth_ * 0.4 : midThresh
-            threshold := primaryThresh
+// Displacement evaluation functions moved to tv_structure_engine library (se.*)
 
-            // --- Directional checks ---
-            bool abovePrimary = isLong ? close > primaryThresh : close < primaryThresh
-            bool aboveMid = isLong ? close > midThresh : close < midThresh
-            bool aboveRecovBand = isLong ? close > recoveryBand : close < recoveryBand
-            bool dirCandle = isLong ? close > open : close < open
+// Pending trade evaluation functions moved to tv_pending_trade_state library (pts.*)
 
-            // --- Reset tracking on new sweep ---
-            bool sameRef = not na(prevSweepRef) and prevSweepRef == sweepBar_
-            if not sameRef
-                // New sweep — reset acceptance, clear failure
-                acceptBars := 0
-                failed := false
-            else
-                acceptBars := prevAccept
+// Pending activation window helpers moved to tv_lifecycle_mode library (lm.*)
 
-            // --- Reclaim detection ---
-            if abovePrimary
-                detected := true
-                // Accumulate acceptance bars
-                acceptBars := acceptBars + 1
-            else if aboveRecovBand or aboveMid
-                detected := true
-                // Early/partial reclaim — don't accumulate acceptance
-                if not abovePrimary and acceptBars > 0
-                    // Was above, now lost primary but still in recovery band
-                    acceptBars := math.max(0, acceptBars - 1)
-
-            // --- Score computation (0-100) ---
-            // 1. Recovery distance from sweep extreme (0-25)
-            float recoveryDist = 0.0
-            if not na(sweepExtreme)
-                recoveryDist := isLong ? (close - sweepExtreme) / atrVal : (sweepExtreme - close) / atrVal
-            score += math.min(math.max(recoveryDist * 10.0, 0.0), 25.0)
-
-            // 2. Primary threshold acceptance (0-20)
-            score += abovePrimary ? 15.0 : (aboveMid ? 6.0 : (aboveRecovBand ? 3.0 : 0.0))
-            score += dirCandle ? 5.0 : 0.0
-
-            // 3. Acceptance bar count (0-20) — sustained holds are more meaningful
-            score += math.min(float(acceptBars) * 6.0, 20.0)
-
-            // 4. No re-sweep of extreme (0-15)
-            bool noRetest = true
-            if age >= 2
-                int checkBars = math.min(age, 5)
-                for i = 0 to checkBars - 1
-                    bool retested = not na(sweepExtreme) ?
-                         (isLong ? low[i] <= sweepExtreme : high[i] >= sweepExtreme) :
-                         (isLong ? low[i] <= sweepLevel_ - atrVal * 0.3 : high[i] >= sweepLevel_ + atrVal * 0.3)
-                    if retested
-                        noRetest := false
-            score += noRetest ? 15.0 : 0.0
-
-            // 5. Age freshness (0-10) — reclaim soon after sweep is more meaningful
-            score += math.max(0.0, 10.0 - float(age) * 0.25)
-
-            // 6. Multi-bar holding bonus (0-10)
-            if acceptBars >= 2
-                bool priorHeld = isLong ? close[1] > primaryThresh : close[1] < primaryThresh
-                score += priorHeld ? 10.0 : 4.0
-
-            score := math.min(score, 100.0)
-
-            // --- Grade reclaim ---
-            if detected
-                weak := score < 35.0
-                valid := score >= 35.0
-                strong_ := score >= 60.0
-
-            // --- Failed reclaim detection ---
-            if not failed and sameRef and prevAccept >= 2
-                // Had meaningful acceptance, now check for loss
-                bool lostPrimary = isLong ? close < primaryThresh - atrVal * 0.15 : close > primaryThresh + atrVal * 0.15
-                if lostPrimary
-                    failed := true
-                    detected := false
-                    valid := false
-                    strong_ := false
-                    reason := "Reclaim lost after " + str.tostring(prevAccept) + " acceptance bars"
-
-            if not failed and sameRef
-                // Check for new extreme beyond sweep (invalidates reclaim entirely)
-                bool newExtreme = not na(sweepExtreme) ?
-                     (isLong ? low < sweepExtreme - atrVal * 0.1 : high > sweepExtreme + atrVal * 0.1) :
-                     (isLong ? low < sweepLevel_ - atrVal * 0.5 : high > sweepLevel_ + atrVal * 0.5)
-                if newExtreme
-                    failed := true
-                    detected := false
-                    valid := false
-                    strong_ := false
-                    reason := "New extreme beyond sweep — reclaim invalidated"
-
-            // --- Build reason string ---
-            if not failed
-                if strong_
-                    reason := "Strong (" + str.tostring(math.round(score)) + ") — " + str.tostring(acceptBars) + " bars accepted"
-                else if valid
-                    reason := "Valid (" + str.tostring(math.round(score)) + ") — " + str.tostring(acceptBars) + " bars"
-                else if weak and detected
-                    reason := "Weak (" + str.tostring(math.round(score)) + ") — early recovery"
-                else if not detected
-                    reason := "No reclaim yet (age " + str.tostring(age) + ")"
-        else
-            // Sweep too old for reclaim tracking
-            reason := "Sweep aged out (" + str.tostring(age) + " bars)"
-            failed := true
-
-    [detected, weak, valid, strong_, failed, score, reason, acceptBars, threshold]
-
-// Mode-dependent reclaim pass: maps formal reclaim grades to mode thresholds (Chapter 3)
-reclaim_mode_pass(bool detected_, bool valid_, bool strong_, float score_, string mode) =>
-    bool pass = false
-    if mode == "Aggressive"
-        pass := detected_ and score_ >= 15.0
-    else if mode == "Conservative"
-        pass := strong_ or score_ >= 55.0
-    else // Balanced
-        pass := valid_ or score_ >= 35.0
-    pass
-
-// =====================================================================
-// --- CHAPTER 4: MSS / STRUCTURE SHIFT VALIDATION ---
-// Formal structural shift assessment after sweep + reclaim.
-// Replaces lightweight MSS quality shortcuts with graded, significance-aware,
-// break-quality-validated, failable MSS truth.
-// NOTE: This chapter improves structural truth and setup quality. Performance
-// gains remain limited by the current generic entry/SL/TP scaffold.
-// =====================================================================
-
-// --- Part B+C: Trigger Level Significance Classification ---
-// Evaluates whether the pivot being broken is meaningful protected structure
-// or trivial internal noise.
-// Returns: [triggerType, significance, sigScore]
-// significance: 0=trivial, 1=internal-relevant, 2=protected, 3=strongly-protected
-classify_mss_trigger(bool isLong, float triggerLevel, int triggerBar, bool triggerIsExternal,
-                      float sweepLevel_, float atrVal, float rangeSpan_, float rangeHigh_, float rangeLow_) =>
-    string trigType = "unknown"
-    int significance = 0
-    float sigScore = 0.0
-    if not na(triggerLevel) and not na(triggerBar) and atrVal > 0
-        int pivotAge = bar_index - triggerBar
-        float distFromSweep = not na(sweepLevel_) ? math.abs(triggerLevel - sweepLevel_) / atrVal : 0.0
-        float rangePos = rangeSpan_ > 0 ? (triggerLevel - rangeLow_) / rangeSpan_ : 0.5
-        // 1. Pivot age freshness (0-20)
-        sigScore += math.max(0.0, 20.0 - float(pivotAge) * 0.3)
-        // 2. External vs internal (0-20)
-        if triggerIsExternal
-            sigScore += 20.0
-            trigType := "protected-external"
-        else
-            float edgeDist = rangeSpan_ > 0 ? (isLong ? (rangeHigh_ - triggerLevel) / rangeSpan_ : (triggerLevel - rangeLow_) / rangeSpan_) : 0.5
-            if edgeDist < 0.3
-                sigScore += 14.0
-                trigType := "protected-range"
-            else
-                sigScore += 6.0
-                trigType := "internal"
-        // 3. Distance from sweep (0-15)
-        if distFromSweep > 0.5
-            sigScore += math.min(distFromSweep * 5.0, 15.0)
-        else if distFromSweep > 0.2
-            sigScore += 5.0
-        // 4. Pivot prominence via post-pivot depth (0-20)
-        float postPivotMove = isLong ? (triggerLevel - rangeLow_) : (rangeHigh_ - triggerLevel)
-        float swingDepth = atrVal > 0 ? postPivotMove / atrVal : 0.0
-        sigScore += math.min(swingDepth * 4.0, 20.0)
-        // 5. Range position appropriateness (0-10)
-        bool posOk = isLong ? rangePos > 0.35 : rangePos < 0.65
-        sigScore += posOk ? 10.0 : 3.0
-        // 6. Micro-pivot penalty
-        if swingDepth < 0.3
-            sigScore -= 10.0
-        sigScore := math.max(0.0, math.min(100.0, sigScore))
-        // Classify tier
-        if sigScore >= 65.0
-            significance := 3
-            if trigType == "internal"
-                trigType := "protected"
-        else if sigScore >= 45.0
-            significance := 2
-        else if sigScore >= 25.0
-            significance := 1
-        else
-            significance := 0
-    [trigType, significance, sigScore]
-
-// --- Part D: Break Quality Evaluation ---
-// Assesses whether the structure break is decisive or a weak wick-through.
-// Returns: [bodyConfirmed, followThrough, decisive, weak, qualityScore]
-evaluate_break_quality(bool isLong, float triggerLevel, float breakClose, float breakOpen,
-                        float breakHigh, float breakLow, float atrVal) =>
-    bool bodyConfirmed = false
-    bool followThrough = false
-    bool decisive = false
-    bool weak = true
-    float qualityScore = 0.0
-    if not na(triggerLevel) and atrVal > 0
-        float breakRange = breakHigh - breakLow
-        float breakBody = math.abs(breakClose - breakOpen)
-        // 1. Close beyond trigger (25)
-        bool closedThrough = isLong ? breakClose > triggerLevel : breakClose < triggerLevel
-        if closedThrough
-            qualityScore += 25.0
-        // 2. Body size relative to ATR (0-20)
-        float bodyAtrRatio = breakBody / atrVal
-        qualityScore += math.min(bodyAtrRatio * 15.0, 20.0)
-        // 3. Body confirmation: correct direction + meaningful body
-        bodyConfirmed := closedThrough and (isLong ? breakClose > breakOpen : breakClose < breakOpen) and breakBody > atrVal * 0.3
-        if bodyConfirmed
-            qualityScore += 15.0
-        // 4. Close location in candle range (0-15)
-        float closeRatio = breakRange > 0 ? (isLong ? (breakClose - breakLow) / breakRange : (breakHigh - breakClose) / breakRange) : 0.5
-        qualityScore += closeRatio * 15.0
-        // 5. Break distance beyond level (0-15)
-        float breakDist = isLong ? (breakClose - triggerLevel) / atrVal : (triggerLevel - breakClose) / atrVal
-        if breakDist > 0
-            qualityScore += math.min(breakDist * 15.0, 15.0)
-        else
-            qualityScore -= 10.0
-        // 6. Barely-through penalty
-        if math.abs(breakDist) < 0.1 and not bodyConfirmed
-            qualityScore -= 10.0
-        // 7. Follow-through hint
-        followThrough := closedThrough and bodyConfirmed and bodyAtrRatio > 0.5
-        if followThrough
-            qualityScore += 10.0
-        qualityScore := math.max(0.0, math.min(100.0, qualityScore))
-        decisive := qualityScore >= 60.0
-        weak := qualityScore < 35.0
-    [bodyConfirmed, followThrough, decisive, weak, qualityScore]
-
-// --- Part A+E: Formal MSS Stage Evaluator ---
-// Main authority for structure-shift truth. Replaces evaluate_mss_quality().
-// Returns: [detected, weak, valid, strong_, fresh, failed, score, reason, failReason,
-//           breakLevel, bodyConfirmed, trigType, trigSig, followBars, breakQualScore]
-evaluate_mss_stage(bool isLong, int sweepBar_, bool reclaimDetected_, bool reclaimValid_,
-                    int mssBar_, float mssDisp_, float triggerLevel, int triggerBar,
-                    bool triggerIsExternal, float sweepLevel_, float atrVal,
-                    float rangeSpan_, float rangeHigh_, float rangeLow_,
-                    string mode, int prevMssRefBar, float prevMssScore, bool prevMssFailed,
-                    int prevFollowBars, bool prevBodyConf, float prevBreakQScore) =>
-    bool detected = false
-    bool mssWeak = false
-    bool valid = false
-    bool strong_ = false
-    bool fresh = true
-    bool failed = prevMssFailed
-    float score = 0.0
-    string reason = "No MSS context"
-    string failReason = ""
-    float breakLvl = na
-    bool bodyConf = prevBodyConf
-    string trigType = ""
-    int trigSig = 0
-    int followBars = prevFollowBars
-    float breakQScore = prevBreakQScore
-    if not na(mssBar_) and atrVal > 0
-        int mssAge = bar_index - mssBar_
-        bool afterSweep = not na(sweepBar_) and mssBar_ >= sweepBar_
-        // Reset on new MSS event
-        bool newMss = na(prevMssRefBar) or mssBar_ != prevMssRefBar
-        if newMss
-            failed := false
-            followBars := 0
-            bodyConf := false
-            breakQScore := 0.0
-        // --- Trigger significance (Part B+C) ---
-        [tType, tSig, tScore] = classify_mss_trigger(isLong, triggerLevel, triggerBar, triggerIsExternal, sweepLevel_, atrVal, rangeSpan_, rangeHigh_, rangeLow_)
-        trigType := tType
-        trigSig := tSig
-        // --- Break quality (Part D) — on fresh MSS bar ---
-        if newMss and mssAge <= 2
-            [bConf, _bFollow, _bDecisive, _bWeak, bScore] = evaluate_break_quality(isLong, triggerLevel, close[mssAge], open[mssAge], high[mssAge], low[mssAge], atrVal)
-            bodyConf := bConf
-            breakQScore := bScore
-        breakLvl := triggerLevel
-        // --- Sequence validation ---
-        float seqScore = 0.0
-        if afterSweep
-            seqScore += 15.0
-            if reclaimDetected_
-                seqScore += 10.0
-            if reclaimValid_
-                seqScore += 5.0
-        else if not na(sweepBar_)
-            seqScore -= 10.0
-        // --- Freshness (Part E) ---
-        int mssMaxFresh = mode == "Aggressive" ? 35 : mode == "Conservative" ? 18 : 25
-        fresh := mssAge <= mssMaxFresh
-        if not fresh and not failed
-            failed := true
-            failReason := "MSS stale (" + str.tostring(mssAge) + " bars)"
-        // --- Follow-through tracking ---
-        if not newMss and not failed and mssAge >= 1 and not na(triggerLevel)
-            bool holdingBreak = isLong ? close > triggerLevel : close < triggerLevel
-            if holdingBreak
-                followBars := followBars + 1
-            else if followBars > 0
-                followBars := followBars - 1
-        // --- MSS failure detection (Part E) ---
-        if not failed and not newMss and mssAge >= 2 and not na(triggerLevel)
-            bool lostBreak = isLong ? close < triggerLevel - atrVal * 0.15 : close > triggerLevel + atrVal * 0.15
-            if lostBreak and followBars <= 1
-                failed := true
-                failReason := "Break lost — price recrossed trigger"
-        // --- Composite score ---
-        score += math.min(tScore * 0.3, 30.0)
-        score += math.min(breakQScore * 0.3, 30.0)
-        score += math.max(0.0, math.min(seqScore, 20.0))
-        float dispScore = not na(mssDisp_) ? math.min(mssDisp_ * 10.0, 15.0) : 0.0
-        score += dispScore
-        score += math.min(float(followBars) * 2.0, 5.0)
-        if mssAge > math.round(mssMaxFresh * 0.5)
-            float decay = float(mssAge - math.round(mssMaxFresh * 0.5)) / float(mssMaxFresh) * 15.0
-            score -= decay
-        score := math.max(0.0, math.min(100.0, score))
-        // --- Grading ---
-        detected := not failed
-        if detected
-            mssWeak := score < 35.0 or trigSig == 0
-            valid := score >= 35.0 and trigSig >= 1
-            strong_ := score >= 60.0 and trigSig >= 2 and bodyConf
-        if failed
-            detected := false
-            valid := false
-            strong_ := false
-            reason := "MSS failed: " + failReason
-        else if strong_
-            reason := "Strong MSS (" + str.tostring(math.round(score)) + ") — " + trigType
-        else if valid
-            reason := "Valid MSS (" + str.tostring(math.round(score)) + ") — " + trigType
-        else if detected and mssWeak
-            reason := "Weak MSS (" + str.tostring(math.round(score)) + ") — " + (trigSig == 0 ? "trivial trigger" : "low quality break")
-        else
-            reason := na(sweepBar_) ? "No sweep context" : not afterSweep ? "MSS before sweep" : "No MSS detected"
-    [detected, mssWeak, valid, strong_, fresh, failed, score, reason, failReason, breakLvl, bodyConf, trigType, trigSig, followBars, breakQScore]
-
-// Mode-dependent MSS pass: maps formal MSS grades to mode thresholds (Chapter 4)
-// Returns: [pass, passStrong]
-mss_mode_pass(bool detected_, bool valid_, bool strong_, float score_, int trigSig_, string mode) =>
-    bool pass = false
-    bool passStrong = false
-    if mode == "Aggressive"
-        pass := detected_ and score_ >= 20.0
-        passStrong := valid_ and score_ >= 50.0
-    else if mode == "Conservative"
-        pass := valid_ and trigSig_ >= 2 and score_ >= 50.0
-        passStrong := strong_ and trigSig_ >= 2 and score_ >= 65.0
-    else // Balanced
-        pass := valid_ and trigSig_ >= 1 and score_ >= 35.0
-        passStrong := strong_ or (valid_ and score_ >= 55.0 and trigSig_ >= 2)
-    [pass, passStrong]
-
-// Extension filter: blocks chased entries too far from structural anchor.
-// Returns: [isExtended, distanceAtr, reason]
-compute_extension_block(bool isLong, int mssBar_, float pivotVal, float atrVal, string mode, float reqLevel) =>
-    bool isExtended = false
-    float distAtr = 0.0
-    string reason = ""
-    if atrVal > 0
-        float anchor = not na(pivotVal) ? pivotVal : reqLevel
-        if not na(anchor)
-            distAtr := isLong ? (close - anchor) / atrVal : (anchor - close) / atrVal
-            float maxExt = mode == "Aggressive" ? 1.5 : mode == "Conservative" ? 0.7 : 1.0
-            if distAtr > maxExt
-                isExtended := true
-                reason := str.tostring(distAtr, "#.##") + " ATR > " + str.tostring(maxExt, "#.#") + " max"
-        if not isExtended and not na(mssBar_)
-            int barsSince = bar_index - mssBar_
-            int maxBars = mode == "Aggressive" ? 15 : mode == "Conservative" ? 8 : 12
-            if barsSince > maxBars
-                isExtended := true
-                reason := str.tostring(barsSince) + " bars since MSS > " + str.tostring(maxBars)
-    [isExtended, distAtr, reason]
-
-// MSS quality gate: ensures MSS is meaningful, fresh, and post-sweep.
-// Returns: [qualityPass, qualityStrong, reason]
-evaluate_mss_quality(int sweepBar_, int mssBar_, float mssDisp_, float atrVal, string mode) =>
-    bool qualityPass = false
-    bool qualityStrong = false
-    string reason = ""
-    if not na(mssBar_) and not na(sweepBar_)
-        bool afterSweep = mssBar_ >= sweepBar_
-        int mssAge = bar_index - mssBar_
-        int mssMaxFresh = mode == "Aggressive" ? 30 : mode == "Conservative" ? 15 : 20
-        bool isFresh = mssAge <= mssMaxFresh
-        float minDisp = mode == "Aggressive" ? 0.4 : mode == "Conservative" ? 1.0 : 0.7
-        bool dispOk = not na(mssDisp_) and mssDisp_ >= minDisp
-        if not afterSweep
-            reason := "MSS before sweep"
-        else if not isFresh
-            reason := "MSS stale (" + str.tostring(mssAge) + " bars)"
-        else if not dispOk
-            reason := "Disp " + str.tostring(nz(mssDisp_), "#.##") + " < " + str.tostring(minDisp, "#.#")
-        else
-            qualityPass := true
-            qualityStrong := mssAge <= math.round(mssMaxFresh / 2) and mssDisp_ >= minDisp * 1.5
-            reason := "OK" + (qualityStrong ? " [strong]" : "")
-    else
-        reason := na(mssBar_) ? "No MSS" : "No sweep"
-    [qualityPass, qualityStrong, reason]
-
-// =====================================================================
-// --- CHAPTER 5: DISPLACEMENT QUALITY ENGINE ---
-// Formal structural displacement assessment after valid MSS.
-// Displacement = commitment after or through the structure break.
-// This is distinct from MSS (the break itself).
-// Returns graded displacement truth for lifecycle, mode, and pending logic.
-// =====================================================================
-
-// Chapter 5: Evaluate displacement quality after valid MSS.
-// Returns: [detected, weak, valid, strong_, fresh, failed, score, reason, failReason,
-//           dispBar, rangeAtr, bodyDom, closeQuality, followBars, hasImbalance,
-//           fvgGrade_, retained, originPrice, extremePrice]
-evaluate_displacement_stage(bool isLong, int mssBar_, float mssDisp_, float mssBreakLvl_,
-                            bool mssValid_, bool mssFailed_,
-                            int fvgBar_, int fvgGrade_, bool fvgMitigated_,
-                            float atrVal, string mode,
-                            int prevDispRefBar, float prevDispScore, bool prevDispFailed,
-                            int prevFollowBars, float prevOrigin, float prevExtreme,
-                            int prevDispMssRef) =>
-    bool detected = false
-    bool dispWeak = false
-    bool valid = false
-    bool strong_ = false
-    bool fresh = true
-    bool failed = prevDispFailed
-    float score = 0.0
-    string reason = "No displacement context"
-    string failReason = ""
-    int dispBar = na
-    float rangeAtr = 0.0
-    float bodyDom = 0.0
-    float closeQual = 0.0
-    int followBars = prevFollowBars
-    bool hasImbalance = false
-    int fvgGrOut = 0
-    bool retained = false
-    float originPrice = prevOrigin
-    float extremePrice = prevExtreme
-
-    if not na(mssBar_) and atrVal > 0 and not mssFailed_
-        int mssAge = bar_index - mssBar_
-        // Reset on new MSS event (displacement tracks per-MSS)
-        bool newMss = na(prevDispMssRef) or mssBar_ != prevDispMssRef
-        if newMss
-            failed := false
-            followBars := 0
-            originPrice := na
-            extremePrice := na
-            score := 0.0
-
-        // --- Part A: Find the displacement candle(s) after MSS ---
-        // Look at bars from MSS onward for the best displacement bar
-        int lookback = math.min(mssAge, 8)
-        float bestRangeAtr = 0.0
-        float bestBodyDom = 0.0
-        float bestCloseQual = 0.0
-        int bestDispBar = na
-        float bestOrigin = na
-        float bestExtreme = na
-        bool foundDisp = false
-
-        if lookback >= 0
-            for i = lookback to 0
-                float barOpen = open[i]
-                float barClose = close[i]
-                float barHigh = high[i]
-                float barLow = low[i]
-                float barBody = math.abs(barClose - barOpen)
-                float barRange = barHigh - barLow
-                if barRange <= 0
-                    continue
-                bool dirOk = isLong ? barClose > barOpen : barClose < barOpen
-                if not dirOk
-                    continue
-                float rAtr = barRange / atrVal
-                float bDom = barBody / barRange
-                // Close quality: how near the close is to the expansion extreme
-                float cQual = isLong ? (barClose - barLow) / barRange : (barHigh - barClose) / barRange
-                // Must be meaningfully sized (at least 0.4 ATR range)
-                if rAtr < 0.4
-                    continue
-                // Composite bar quality
-                float barQ = rAtr * 0.4 + bDom * 0.35 + cQual * 0.25
-                if barQ > bestRangeAtr * 0.4 + bestBodyDom * 0.35 + bestCloseQual * 0.25 or not foundDisp
-                    bestRangeAtr := rAtr
-                    bestBodyDom := bDom
-                    bestCloseQual := cQual
-                    bestDispBar := bar_index - i
-                    bestOrigin := isLong ? barLow : barHigh
-                    bestExtreme := isLong ? barHigh : barLow
-                    foundDisp := true
-
-        if foundDisp
-            dispBar := bestDispBar
-            rangeAtr := bestRangeAtr
-            bodyDom := bestBodyDom
-            closeQual := bestCloseQual
-            if newMss or na(originPrice)
-                originPrice := bestOrigin
-                extremePrice := bestExtreme
-            else
-                // Update extreme if price pushed further
-                extremePrice := isLong ? math.max(nz(extremePrice), bestExtreme) : math.min(nz(extremePrice, 1e18), bestExtreme)
-
-        // --- Part B: Score displacement quality components (0-100) ---
-        float compScore = 0.0
-
-        // 1. Range expansion vs ATR (max 20)
-        float rangeScore = math.min(rangeAtr * 10.0, 20.0)
-        compScore += rangeScore
-
-        // 2. Body dominance (max 20) — penalize wick-heavy fakes
-        float bodyScore = bodyDom >= 0.75 ? 20.0 : bodyDom >= 0.6 ? 15.0 : bodyDom >= 0.45 ? 10.0 : 5.0
-        compScore += bodyScore
-
-        // 3. Close quality (max 15) — close near expansion extreme
-        float closeScore = closeQual >= 0.8 ? 15.0 : closeQual >= 0.6 ? 10.0 : closeQual >= 0.4 ? 5.0 : 0.0
-        compScore += closeScore
-
-        // 4. Commitment beyond MSS break level (max 15)
-        float commitScore = 0.0
-        if not na(mssBreakLvl_) and atrVal > 0
-            float beyondBreak = isLong ? (close - mssBreakLvl_) / atrVal : (mssBreakLvl_ - close) / atrVal
-            commitScore := beyondBreak > 1.0 ? 15.0 : beyondBreak > 0.5 ? 10.0 : beyondBreak > 0.15 ? 5.0 : 0.0
-        compScore += commitScore
-
-        // 5. Imbalance/FVG support (max 15)
-        float imbScore = 0.0
-        bool fvgAfterMss = not na(fvgBar_) and fvgBar_ >= mssBar_
-        bool fvgFresh = not na(fvgBar_) and (bar_index - fvgBar_) <= 25
-        if fvgAfterMss and fvgFresh and not fvgMitigated_
-            hasImbalance := true
-            fvgGrOut := fvgGrade_
-            imbScore := fvgGrade_ >= 3 ? 15.0 : fvgGrade_ >= 2 ? 10.0 : 5.0
-        else if fvgAfterMss and fvgMitigated_
-            imbScore := -5.0  // Mitigated FVG penalty
-        // Absence of FVG with very strong push — partial credit
-        if not hasImbalance and rangeAtr >= 1.5 and bodyDom >= 0.65
-            imbScore := math.max(imbScore, 3.0)
-        compScore += imbScore
-
-        // 6. Multi-bar follow-through (max 10)
-        if not newMss and not failed and mssAge >= 1
-            bool holdingBeyond = isLong ? close > nz(mssBreakLvl_) : close < nz(mssBreakLvl_, 1e18)
-            if holdingBeyond
-                followBars := followBars + 1
-            else if followBars > 0
-                followBars := followBars - 1
-        float ftScore = math.min(float(followBars) * 2.5, 10.0)
-        compScore += ftScore
-
-        // 7. Immediate rejection / snapback penalty (max -15)
-        float snapbackPenalty = 0.0
-        if not na(originPrice) and not na(extremePrice) and atrVal > 0
-            float totalMove = math.abs(extremePrice - originPrice)
-            float retraceFromExtreme = isLong ? (extremePrice - close) : (close - extremePrice)
-            if totalMove > 0 and retraceFromExtreme > 0
-                float retraceRatio = retraceFromExtreme / totalMove
-                if retraceRatio > 0.8
-                    snapbackPenalty := -15.0
-                else if retraceRatio > 0.6
-                    snapbackPenalty := -10.0
-                else if retraceRatio > 0.4
-                    snapbackPenalty := -5.0
-        compScore += snapbackPenalty
-
-        // --- Part C: Use existing mssDisp as supplementary signal ---
-        float dispBonus = not na(mssDisp_) ? math.min(mssDisp_ * 3.0, 5.0) : 0.0
-        compScore += dispBonus
-
-        // --- Freshness decay ---
-        int dispMaxFresh = mode == "Aggressive" ? 30 : mode == "Conservative" ? 15 : 22
-        if mssAge > math.round(dispMaxFresh * 0.5) and mssAge <= dispMaxFresh
-            float decay = float(mssAge - math.round(dispMaxFresh * 0.5)) / float(dispMaxFresh) * 12.0
-            compScore -= decay
-        fresh := mssAge <= dispMaxFresh
-
-        // --- Stale displacement failure ---
-        if not fresh and not failed
-            failed := true
-            failReason := "Displacement stale (" + str.tostring(mssAge) + " bars since MSS)"
-
-        // --- Snapback failure detection ---
-        if not failed and not newMss and mssAge >= 2 and not na(originPrice)
-            bool lostDisp = isLong ? close < originPrice + atrVal * 0.1 : close > originPrice - atrVal * 0.1
-            if lostDisp and followBars <= 1
-                failed := true
-                failReason := "Displacement failed — price snapped back to origin"
-
-        // --- FVG immediate mitigation failure ---
-        if not failed and hasImbalance and fvgMitigated_ and not na(fvgBar_) and (bar_index - fvgBar_) <= 3
-            failed := true
-            failReason := "Displacement imbalance mitigated immediately"
-
-        // --- Clamp and assign ---
-        score := math.max(0.0, math.min(100.0, compScore))
-
-        // --- Grading ---
-        if not failed and foundDisp and mssValid_
-            detected := true
-            dispWeak := score < 30.0
-            valid := score >= 30.0
-            strong_ := score >= 60.0 and bodyDom >= 0.6 and rangeAtr >= 0.8
-            retained := not na(mssBreakLvl_) and (isLong ? close > mssBreakLvl_ : close < mssBreakLvl_)
-
-        // --- Reason construction ---
-        if failed
-            detected := false
-            valid := false
-            strong_ := false
-            reason := "Displacement failed: " + failReason
-        else if strong_
-            reason := "Strong displacement (" + str.tostring(math.round(score)) + ") — " + str.tostring(rangeAtr, "#.#") + "×ATR, body " + str.tostring(math.round(bodyDom * 100)) + "%"
-        else if valid and not dispWeak
-            reason := "Valid displacement (" + str.tostring(math.round(score)) + ") — " + str.tostring(rangeAtr, "#.#") + "×ATR"
-        else if detected and dispWeak
-            reason := "Weak push (" + str.tostring(math.round(score)) + ") — displacement not confirmed"
-        else if mssFailed_
-            reason := "MSS failed — no displacement context"
-        else if not foundDisp
-            reason := "No directional push found after MSS"
-        else if not mssValid_
-            reason := "MSS not validated — displacement pending"
-    else
-        if mssFailed_
-            reason := "MSS failed — displacement blocked"
-            failed := true
-        else if na(mssBar_)
-            reason := "No MSS context"
-
-    [detected, dispWeak, valid, strong_, fresh, failed, score, reason, failReason,
-     dispBar, rangeAtr, bodyDom, closeQual, followBars, hasImbalance, fvgGrOut,
-     retained, originPrice, extremePrice]
-
-// Chapter 5: Mode-dependent displacement pass: maps formal displacement grades to mode thresholds.
-// Returns: [pass, passStrong]
-displacement_mode_pass(bool detected_, bool valid_, bool strong_, float score_, bool failed_, string mode) =>
-    bool pass = false
-    bool passStrong = false
-    if not failed_
-        if mode == "Aggressive"
-            pass := detected_ and score_ >= 15.0
-            passStrong := valid_ and score_ >= 45.0
-        else if mode == "Conservative"
-            pass := valid_ and not strong_ ? score_ >= 50.0 : strong_
-            passStrong := strong_ and score_ >= 65.0
-        else // Balanced
-            pass := valid_ and score_ >= 30.0
-            passStrong := strong_ or (valid_ and score_ >= 55.0)
-    [pass, passStrong]
-
-// Displacement/FVG bridge: compensates for incomplete entry-arming.
-// Chapter 5: Now wraps formal displacement evaluator outputs for backward compatibility.
-// Returns: [bridgePass, bridgeStrong, reason]
-evaluate_displacement_bridge(float mssDisp_, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, int mssBar_, string mode, bool dispValid_, bool dispStrong_, bool dispFailed_, float dispScore_) =>
-    // Chapter 5: Bridge now derived from formal displacement evaluator.
-    // dispValid_/dispStrong_/dispFailed_/dispScore_ come from evaluate_displacement_stage().
-    bool bridgePass = false
-    bool bridgeStrong = false
-    string reason = ""
-    if dispFailed_
-        reason := "Bridge fail — displacement failed"
-    else
-        // Primary authority: formal displacement evaluator
-        [dPass, dPassStrong] = displacement_mode_pass(not dispFailed_, dispValid_, dispStrong_, dispScore_, dispFailed_, mode)
-        bridgePass := dPass
-        bridgeStrong := dPassStrong
-        // Fallback: legacy mssDisp for transitional compatibility (will be removed in future)
-        if not bridgePass
-            float minDisp = mode == "Conservative" ? 1.5 : mode == "Balanced" ? 1.0 : 0.5
-            bool legacyOk = not na(mssDisp_) and mssDisp_ >= minDisp
-            bool hasFreshFvg = not na(fvgBar_) and fvgGrade_ >= 2 and not fvgMitigated
-            bool fvgAfterMss = hasFreshFvg and not na(mssBar_) and fvgBar_ >= mssBar_
-            if legacyOk and (seqOk or (fvgAfterMss and (bar_index - fvgBar_) <= 20))
-                bridgePass := true
-                reason := "Bridge OK [legacy fallback]"
-        if bridgePass and reason == ""
-            reason := "Bridge OK" + (bridgeStrong ? " [strong]" : "") + " (disp=" + str.tostring(math.round(dispScore_)) + ")"
-        else if not bridgePass
-            reason := "Bridge fail — disp score " + str.tostring(math.round(dispScore_)) + " insufficient for " + mode
-    [bridgePass, bridgeStrong, reason]
-
-// Pending structural freshness: blocks stale pending setups.
-// Returns: [fresh, stale, reason]
-// Chapter 4: mssFailed_ added to block on failed MSS
-// Chapter 5: Added dispFailed_ parameter for displacement failure invalidation
-pending_is_structurally_fresh(int signalBar, int mssBar_, int fvgBar_, bool degraded, bool isExtended, string mode, bool mssFailed_, bool dispFailed_) =>
-    bool fresh = true
-    bool stale = false
-    string reason = "Structurally fresh"
-    int age = bar_index - signalBar
-    int maxFresh = mode == "Aggressive" ? 5 : mode == "Conservative" ? 4 : 5
-    if age > maxFresh
-        fresh := false
-        stale := true
-        reason := "Age " + str.tostring(age) + " > " + str.tostring(maxFresh) + " bars"
-    if fresh and not na(mssBar_)
-        int mssAge = bar_index - mssBar_
-        int mssMaxFresh = mode == "Conservative" ? 15 : mode == "Balanced" ? 25 : 35
-        if mssAge > mssMaxFresh
-            fresh := false
-            stale := true
-            reason := "MSS aged (" + str.tostring(mssAge) + " bars)"
-    if fresh and degraded
-        fresh := false
-        stale := true
-        reason := "Setup degraded"
-    if fresh and isExtended
-        fresh := false
-        stale := true
-        reason := "Price too extended"
-    if fresh and mssFailed_
-        fresh := false
-        stale := true
-        reason := "MSS failed — structure invalidated"
-    if fresh and dispFailed_
-        fresh := false
-        stale := true
-        reason := "Displacement failed — setup invalidated"
-    [fresh, stale, reason]
-
-// Central mode qualification function (Chapter 2.2 + Chapter 4: MSS-truth-aware).
-// Returns: [meetsModeCandidate, meetsModeActivation, blockReason, allowDirectPromotion, activationPath]
-// Chapter 5: Added dispPass/dispStrong/dispFailed/dispScore for formal displacement truth
-evaluate_mode_execution(string mode, int lifecycle, bool swept, float sweepQ, bool hasMss, float mssDisp_, bool hasFvg, int fvgGrade_, bool seqOk, bool expired, bool degraded, bool reclaimPass, float reclaimStr, bool reclaimStrong, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass, bool bridgeStrong, int score, int mssTrigSig, bool dispPass_, bool dispStrong_, bool dispFailed_, float dispScore_) =>
-    int minCandidate = mode_min_lifecycle_for_candidate(mode)
-    bool meetsCandidate = lifecycle >= minCandidate and not expired and not degraded
-    bool meetsActivation = false
-    bool allowDirect = mode_allows_direct_signal_activation(mode)
-    string blockReason = ""
-    string actPath = ""
-
-    // All modes: reject sweep-only
-    if lifecycle <= LC_SWEEP_CONFIRMED
-        meetsCandidate := false
-        blockReason := "Sweep-only — need structure shift"
-
-    // Extension filter: block candidate for non-Aggressive if too extended
-    if meetsCandidate and isExtended and mode != "Aggressive"
-        meetsCandidate := false
-        blockReason := mode_name_short(mode) + " blocked — entry too extended"
-
-    if not meetsCandidate
-        if blockReason == ""
-            blockReason := mode_name_short(mode) + " needs " + lifecycle_name(minCandidate)
-    else
-        // --- Activation qualification (Chapter 2.2+5: quality-gate + displacement-truth driven) ---
-        if mode == "Aggressive"
-            // AGG: lifecycle >= ENTRY_TRIGGERED or promoted from DISPLACEMENT_CONFIRMED
-            // Chapter 5: AGG still accepts lighter displacement but rejects weak drift/fakes
-            bool standardOk = lifecycle >= LC_ENTRY_TRIGGERED and hasMss and reclaimPass
-            bool promoOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and reclaimPass and dispPass_ and not dispFailed_
-            if standardOk
-                meetsActivation := true
-                actPath := "AGG standard"
-            else if promoOk
-                meetsActivation := true
-                actPath := "AGG promo (disp=" + str.tostring(math.round(dispScore_)) + ")"
-            else
-                blockReason := "AGG: " + (not hasMss ? "no MSS" : not reclaimPass ? "reclaim " + str.tostring(math.round(reclaimStr)) + " insufficient" : dispFailed_ ? "displacement failed" : not dispPass_ ? "displacement insufficient (score=" + str.tostring(math.round(dispScore_)) + ")" : "lifecycle insufficient")
-
-        else if mode == "Balanced"
-            // BAL IDEAL: lifecycle >= ENTRY_ARMED + reclaim + MSS quality + displacement valid + not extended
-            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and mssQualPass and not isExtended and dispPass_ and not dispFailed_
-            // BAL BRIDGE: DISPLACEMENT_CONFIRMED + higher quality + displacement pass
-            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStr >= 40.0 and mssQualPass and bridgePass and not isExtended and dispPass_ and not dispFailed_
-            if idealOk
-                meetsActivation := true
-                actPath := "BAL ideal (disp=" + str.tostring(math.round(dispScore_)) + ")"
-            else if bridgeOk
-                meetsActivation := true
-                actPath := "BAL bridge (disp=" + str.tostring(math.round(dispScore_)) + ")"
-            else
-                blockReason := not reclaimPass ? "BAL: reclaim insufficient (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualPass ? "BAL: MSS quality insufficient" : dispFailed_ ? "BAL: displacement failed" : not dispPass_ ? "BAL: displacement quality insufficient (score=" + str.tostring(math.round(dispScore_)) + ")" : isExtended ? "BAL: entry too extended" : lifecycle < LC_ENTRY_ARMED and not bridgeOk ? "BAL: bridge conditions not met" : "BAL: activation not met"
-
-        else // Conservative
-            // CON IDEAL: lifecycle >= ENTRY_ARMED + strong reclaim + strong MSS + strong displacement + seqOk + protected trigger
-            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and reclaimStr >= 50.0 and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2 and dispStrong_ and not dispFailed_
-            // CON BRIDGE: DISPLACEMENT_CONFIRMED + ALL strong + protected trigger + strong displacement
-            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and bridgeStrong and not isExtended and (seqOk or (hasFvg and fvgGrade_ >= 2)) and mssTrigSig >= 2 and dispStrong_ and not dispFailed_
-            // CON FALLBACK: If displacement is not strong but very high quality valid, allow with stricter other requirements
-            bool fallbackOk = not idealOk and not bridgeOk and lifecycle >= LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2 and dispPass_ and dispScore_ >= 50.0 and not dispFailed_
-            if idealOk
-                meetsActivation := true
-                actPath := "CON ideal (disp=" + str.tostring(math.round(dispScore_)) + ")"
-            else if bridgeOk
-                meetsActivation := true
-                actPath := "CON bridge (disp=" + str.tostring(math.round(dispScore_)) + ")"
-            else if fallbackOk
-                meetsActivation := true
-                actPath := "CON fallback (disp=" + str.tostring(math.round(dispScore_)) + ")"
-            else
-                blockReason := not reclaimStrong and reclaimStr < 50.0 ? "CON: reclaim not strong (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualStrong ? "CON: MSS quality not strong" : mssTrigSig < 2 ? "CON: protected structure not broken (sig=" + str.tostring(mssTrigSig) + ")" : dispFailed_ ? "CON: displacement failed" : not dispStrong_ and dispScore_ < 50.0 ? "CON: displacement not strong (score=" + str.tostring(math.round(dispScore_)) + ")" : isExtended ? "CON: entry too extended" : not seqOk and lifecycle >= LC_ENTRY_ARMED ? "CON: requires complete sequence" : "CON: strong bridge not met"
-
-    // Non-aggressive never allow direct signal activation
-    if mode != "Aggressive"
-        allowDirect := false
-
-    [meetsCandidate, meetsActivation, blockReason, allowDirect, actPath]
-
-// =====================================================================
-// --- DELAYED ACTIVATION WINDOW POLICY (Chapter 2.1) ---
-// =====================================================================
-
-// Mode-specific pending activation window (bars after signal)
-// AGG=2 (fast confirmation), BAL=5 (moderate patience), CON=7 (patience-first)
-mode_pending_activation_bars(string mode) =>
-    mode == "Aggressive" ? 2 : mode == "Conservative" ? 7 : 5
-
-// Is the pending setup still within its activation window?
-pending_setup_is_fresh(int signalBar, int expiryBar) =>
-    bar_index >= signalBar and bar_index <= expiryBar
-
-// Has the pending setup's activation window expired?
-pending_setup_has_expired(int expiryBar) =>
-    bar_index > expiryBar
-
-// Evaluate whether a pending setup qualifies for delayed activation (Chapter 2.2).
-// Returns: [canActivateNow, updatedReason, shouldInvalidate]
-// Chapter 3: reclaimFailed | Chapter 4: mssFailed/mssFresh added
-// Chapter 5: Added dispPass_/dispFresh_/dispFailed_ for formal displacement truth in pending activation
-evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass, float reclaimStr, bool reclaimStrong, float dispStrength, bool seqOk, bool expired, bool degraded, string mode, int signalBar, int expiryBar, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass_, bool bridgeStrong_, bool pendingFresh, bool reclaimFailed_, bool mssFailed_, bool mssFresh_, bool dispPass_, bool dispFresh_, bool dispFailed_) =>
-    bool canActivate = false
-    string reason = ""
-    bool shouldInvalidate = false
-
-    // Chapter 3: failed reclaim invalidates pending setup
-    // Chapter 4: failed/stale MSS invalidates pending setup
-    // Chapter 5: failed displacement invalidates pending setup
-    if reclaimFailed_
-        shouldInvalidate := true
-        reason := "Pending invalidated — reclaim failed"
-    else if mssFailed_
-        shouldInvalidate := true
-        reason := "Pending invalidated — MSS failed"
-    else if not mssFresh_
-        shouldInvalidate := true
-        reason := "Pending invalidated — MSS stale"
-    else if dispFailed_
-        shouldInvalidate := true
-        reason := "Pending invalidated — displacement failed"
-    else if not dispFresh_
-        shouldInvalidate := true
-        reason := "Pending invalidated — displacement stale"
-    else if not pending_setup_is_fresh(signalBar, expiryBar)
-        shouldInvalidate := pending_setup_has_expired(expiryBar)
-        reason := shouldInvalidate ? "Pending window expired" : "Pending not yet active"
-    else if expired or degraded
-        shouldInvalidate := true
-        reason := expired ? "Setup expired" : "Setup degraded"
-    else if not pendingFresh
-        shouldInvalidate := true
-        reason := "Pending structurally stale"
-    else if isExtended
-        shouldInvalidate := true
-        reason := "Price too extended for pending"
-    else
-        if mode == "Aggressive"
-            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
-            // Chapter 5: AGG requires displacement pass for pending
-            if lifecycleOk and reclaimPass and dispPass_
-                canActivate := true
-                reason := "AGG pending confirmed"
-            else
-                reason := not lifecycleOk ? "Pending: lifecycle insufficient" : not reclaimPass ? "Pending: reclaim lost" : "Pending: displacement insufficient"
-        else if mode == "Balanced"
-            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
-            // Chapter 5: BAL requires displacement pass + bridge
-            bool qualityOk = reclaimPass and mssQualPass and bridgePass_ and dispPass_
-            if lifecycleOk and qualityOk
-                canActivate := true
-                reason := "BAL pending: quality confirmed"
-            else
-                reason := not lifecycleOk ? "Pending: lifecycle " + lifecycle_name(currentLifecycle) : not reclaimPass ? "Pending: reclaim insufficient" : not mssQualPass ? "Pending: MSS quality insufficient" : not dispPass_ ? "Pending: displacement insufficient" : "Pending: bridge insufficient"
-        else // Conservative
-            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
-            // Chapter 5: CON requires strong displacement + bridge
-            bool qualityOk = reclaimStrong and mssQualStrong and bridgeStrong_ and dispPass_
-            bool seqGate = seqOk or (not na(dispStrength) and dispStrength >= 1.5)
-            if lifecycleOk and qualityOk and seqGate
-                canActivate := true
-                reason := "CON pending: strong quality confirmed"
-            else
-                reason := not lifecycleOk ? "Pending: lifecycle insufficient" : not reclaimStrong ? "Pending: reclaim not strong" : not mssQualStrong ? "Pending: MSS not strong" : not dispPass_ ? "Pending: displacement not strong" : not seqGate ? "Pending: sequence insufficient" : "Pending: bridge not strong"
-
-    [canActivate, reason, shouldInvalidate]
 
 // Determine lifecycle stage from raw setup data + eval_side outputs
 // Chapter 3: reclaim-aware | Chapter 4: MSS-truth-aware | Chapter 5: displacement-truth-aware
@@ -2820,9 +1392,9 @@ determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int f
             reason := "Searching for liquidity"
     else
         reason := "No setup context"
-    string lcName = lifecycle_name(lc)
-    string nextReq = lifecycle_next_required(lc, isLong, pivotVal, reqLevel)
-    bool canActivate = lifecycle_allows_activation(lc)
+    string lcName = lm.lifecycle_name(lc)
+    string nextReq = lm.lifecycle_next_required(lc, isLong, pivotVal, reqLevel)
+    bool canActivate = lm.lifecycle_allows_activation(lc)
     [lc, lcName, nextReq, canActivate, reason]
 
 SetupState liveSetup = new_setup_state()
@@ -2887,7 +1459,7 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
         if not sweepIsExt and sweepSrcType == SRC_PIVOT_INT
             sc -= 3.0
 
-        string srcLabel = source_phase_tag(sweepSrcType, sweepIsExt)
+        string srcLabel = liq.source_phase_tag(sweepSrcType, sweepIsExt)
         ph := "Liquidity swept"
 
         // Sweep staleness penalty
@@ -3010,8 +1582,8 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
 [scoreShort, phaseShort, missingShort, swGradeS, msGradeS, fgGradeS, seqOkS, trigS, expiredS, degradedS] = eval_side(false, marketBias, pdStatus, isKillzone, isSilverBullet, sweptBSL, sweepQualityBSL, bestSweepBarBSL, bestSweepGradeBSL, bestSweepExtBSL, bestSweepSrcBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, obBearConfluence, lastPLo, reqS, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
 
 // --- Chapter 3: Reclaim Stage Evaluation (runs each bar) ---
-[rclDetL, rclWeakL2, rclValidL2, rclStrongL2, rclFailedL2, rclScoreL2, rclReasonL2, rclAcceptL2, rclThreshL2] = evaluate_reclaim_stage(true, bestSweepBarSSL, bestSweepLevelSSL, bestSweepDepthSSL, atr, _rclAcceptL, _rclFailedL, _rclSweepRefL)
-[rclDetS, rclWeakS2, rclValidS2, rclStrongS2, rclFailedS2, rclScoreS2, rclReasonS2, rclAcceptS2, rclThreshS2] = evaluate_reclaim_stage(false, bestSweepBarBSL, bestSweepLevelBSL, bestSweepDepthBSL, atr, _rclAcceptS, _rclFailedS, _rclSweepRefS)
+[rclDetL, rclWeakL2, rclValidL2, rclStrongL2, rclFailedL2, rclScoreL2, rclReasonL2, rclAcceptL2, rclThreshL2] = se.evaluate_reclaim_stage(true, bestSweepBarSSL, bestSweepLevelSSL, bestSweepDepthSSL, atr, _rclAcceptL, _rclFailedL, _rclSweepRefL)
+[rclDetS, rclWeakS2, rclValidS2, rclStrongS2, rclFailedS2, rclScoreS2, rclReasonS2, rclAcceptS2, rclThreshS2] = se.evaluate_reclaim_stage(false, bestSweepBarBSL, bestSweepLevelBSL, bestSweepDepthBSL, atr, _rclAcceptS, _rclFailedS, _rclSweepRefS)
 
 // Update persistent reclaim state
 // Reset detection bar on new sweep (must check BEFORE updating sweep ref)
@@ -3033,9 +1605,9 @@ if rclDetS and na(_rclDetBarS)
     _rclDetBarS := bar_index
 
 // --- Chapter 4: MSS Stage Evaluation (runs each bar, like reclaim) ---
-[mssDetL, mssWeakL2, mssValidL2, mssStrongL2, mssFreshL2, mssFailedL2, mssScoreL2, mssReasonL2, mssFailReasonL2, mssBreakLvlL2, mssBodyConfL2, mssTrigTypeL2, mssTrigSigL2, mssFollowBarsL2, mssBreakQScoreL2] = evaluate_mss_stage(true, bestSweepBarSSL, rclDetL, rclValidL2, lastMssBullBar, lastMssBullDispStrength, lastPHi, lastPHiBar, pivotHiIsExternal, bestSweepLevelSSL, atr, rangeSpan, rangeHigh50, rangeLow50, sensitivityMode, _mssRefBarL, _mssScorePersistL, _mssFailedPersistL, _mssFollowBarsL, _mssBodyConfL, _mssBreakQScoreL)
+[mssDetL, mssWeakL2, mssValidL2, mssStrongL2, mssFreshL2, mssFailedL2, mssScoreL2, mssReasonL2, mssFailReasonL2, mssBreakLvlL2, mssBodyConfL2, mssTrigTypeL2, mssTrigSigL2, mssFollowBarsL2, mssBreakQScoreL2] = se.evaluate_mss_stage(true, bestSweepBarSSL, rclDetL, rclValidL2, lastMssBullBar, lastMssBullDispStrength, lastPHi, lastPHiBar, pivotHiIsExternal, bestSweepLevelSSL, atr, rangeSpan, rangeHigh50, rangeLow50, sensitivityMode, _mssRefBarL, _mssScorePersistL, _mssFailedPersistL, _mssFollowBarsL, _mssBodyConfL, _mssBreakQScoreL)
 
-[mssDetS, mssWeakS2, mssValidS2, mssStrongS2, mssFreshS2, mssFailedS2, mssScoreS2, mssReasonS2, mssFailReasonS2, mssBreakLvlS2, mssBodyConfS2, mssTrigTypeS2, mssTrigSigS2, mssFollowBarsS2, mssBreakQScoreS2] = evaluate_mss_stage(false, bestSweepBarBSL, rclDetS, rclValidS2, lastMssBearBar, lastMssBearDispStrength, lastPLo, lastPLoBar, pivotLoIsExternal, bestSweepLevelBSL, atr, rangeSpan, rangeHigh50, rangeLow50, sensitivityMode, _mssRefBarS, _mssScorePersistS, _mssFailedPersistS, _mssFollowBarsS, _mssBodyConfS, _mssBreakQScoreS)
+[mssDetS, mssWeakS2, mssValidS2, mssStrongS2, mssFreshS2, mssFailedS2, mssScoreS2, mssReasonS2, mssFailReasonS2, mssBreakLvlS2, mssBodyConfS2, mssTrigTypeS2, mssTrigSigS2, mssFollowBarsS2, mssBreakQScoreS2] = se.evaluate_mss_stage(false, bestSweepBarBSL, rclDetS, rclValidS2, lastMssBearBar, lastMssBearDispStrength, lastPLo, lastPLoBar, pivotLoIsExternal, bestSweepLevelBSL, atr, rangeSpan, rangeHigh50, rangeLow50, sensitivityMode, _mssRefBarS, _mssScorePersistS, _mssFailedPersistS, _mssFollowBarsS, _mssBodyConfS, _mssBreakQScoreS)
 
 // Update persistent MSS state
 _mssRefBarL := not na(lastMssBullBar) ? lastMssBullBar : _mssRefBarL
@@ -3056,9 +1628,9 @@ _mssBreakQScoreL := mssBreakQScoreL2
 _mssBreakQScoreS := mssBreakQScoreS2
 
 // --- Chapter 5: Displacement Stage Evaluation (runs each bar, after MSS) ---
-[dispDetL2, dispWeakL2, dispValidL2, dispStrongL2, dispFreshL2, dispFailedL2, dispScoreL2, dispReasonL2, dispFailReasonL2, dispBarL2, dispRangeAtrL2, dispBodyDomL2, dispCloseQualL2, dispFollowBarsL2, dispHasImbL2, dispFvgGradeL2, dispRetainedL2, dispOriginL2, dispExtremeL2] = evaluate_displacement_stage(true, lastMssBullBar, lastMssBullDispStrength, mssBreakLvlL2, mssValidL2, mssFailedL2, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, atr, sensitivityMode, _dispRefBarL, _dispScorePersistL, _dispFailedPersistL, _dispFollowBarsL, _dispOriginL, _dispExtremeL, _dispMssRefL)
+[dispDetL2, dispWeakL2, dispValidL2, dispStrongL2, dispFreshL2, dispFailedL2, dispScoreL2, dispReasonL2, dispFailReasonL2, dispBarL2, dispRangeAtrL2, dispBodyDomL2, dispCloseQualL2, dispFollowBarsL2, dispHasImbL2, dispFvgGradeL2, dispRetainedL2, dispOriginL2, dispExtremeL2] = se.evaluate_displacement_stage(true, lastMssBullBar, lastMssBullDispStrength, mssBreakLvlL2, mssValidL2, mssFailedL2, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, atr, sensitivityMode, _dispRefBarL, _dispScorePersistL, _dispFailedPersistL, _dispFollowBarsL, _dispOriginL, _dispExtremeL, _dispMssRefL)
 
-[dispDetS2, dispWeakS2, dispValidS2, dispStrongS2, dispFreshS2, dispFailedS2, dispScoreS2, dispReasonS2, dispFailReasonS2, dispBarS2, dispRangeAtrS2, dispBodyDomS2, dispCloseQualS2, dispFollowBarsS2, dispHasImbS2, dispFvgGradeS2, dispRetainedS2, dispOriginS2, dispExtremeS2] = evaluate_displacement_stage(false, lastMssBearBar, lastMssBearDispStrength, mssBreakLvlS2, mssValidS2, mssFailedS2, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, atr, sensitivityMode, _dispRefBarS, _dispScorePersistS, _dispFailedPersistS, _dispFollowBarsS, _dispOriginS, _dispExtremeS, _dispMssRefS)
+[dispDetS2, dispWeakS2, dispValidS2, dispStrongS2, dispFreshS2, dispFailedS2, dispScoreS2, dispReasonS2, dispFailReasonS2, dispBarS2, dispRangeAtrS2, dispBodyDomS2, dispCloseQualS2, dispFollowBarsS2, dispHasImbS2, dispFvgGradeS2, dispRetainedS2, dispOriginS2, dispExtremeS2] = se.evaluate_displacement_stage(false, lastMssBearBar, lastMssBearDispStrength, mssBreakLvlS2, mssValidS2, mssFailedS2, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, atr, sensitivityMode, _dispRefBarS, _dispScorePersistS, _dispFailedPersistS, _dispFollowBarsS, _dispOriginS, _dispExtremeS, _dispMssRefS)
 
 // Update persistent displacement state
 _dispMssRefL := not na(lastMssBullBar) ? lastMssBullBar : _dispMssRefL
@@ -3077,8 +1649,8 @@ _dispExtremeL := dispExtremeL2
 _dispExtremeS := dispExtremeS2
 
 // Chapter 5: Displacement mode pass (for mode qualification and bridge)
-[dispPassL, dispPassStrongL] = displacement_mode_pass(dispDetL2, dispValidL2, dispStrongL2, dispScoreL2, dispFailedL2, sensitivityMode)
-[dispPassS, dispPassStrongS] = displacement_mode_pass(dispDetS2, dispValidS2, dispStrongS2, dispScoreS2, dispFailedS2, sensitivityMode)
+[dispPassL, dispPassStrongL] = se.displacement_mode_pass(dispDetL2, dispValidL2, dispStrongL2, dispScoreL2, dispFailedL2, sensitivityMode)
+[dispPassS, dispPassStrongS] = se.displacement_mode_pass(dispDetS2, dispValidS2, dispStrongS2, dispScoreS2, dispFailedS2, sensitivityMode)
 
 // --- Lifecycle Determination (Chapter 1 + Chapter 3 + Chapter 4 + Chapter 5: displacement-truth-aware) ---
 [lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr, rclDetL, rclValidL2, rclFailedL2, mssValidL2, mssStrongL2, mssFailedL2, dispValidL2, dispStrongL2, dispFailedL2)
@@ -3144,16 +1716,16 @@ if isConflicted
     liveSetup.lifecycleNextRequiredDominant := "Both sides active — stand aside"
     liveSetup.lifecycleCanActivateDominant := false
 // --- Strategy Detection ---
-[ictGateLong, ictGateLongInfo, ictHasValidExternalLong] = ict_liquidity_gate(true, lastMssBullBar, lastMssBullDispStrength)
+[ictGateLong, ictGateLongInfo, ictHasValidExternalLong] = sg.ict_liquidity_gate(true, lastMssBullBar, lastMssBullDispStrength, activeSweeps, sensitivityMode)
 
-[ictGateShort, ictGateShortInfo, ictHasValidExternalShort] = ict_liquidity_gate(false, lastMssBearBar, lastMssBearDispStrength)
+[ictGateShort, ictGateShortInfo, ictHasValidExternalShort] = sg.ict_liquidity_gate(false, lastMssBearBar, lastMssBearDispStrength, activeSweeps, sensitivityMode)
 
-[sbGateLong, sbGateLongInfo, sbHasSessionSweepLong] = silver_bullet_liquidity_gate(true)
+[sbGateLong, sbGateLongInfo, sbHasSessionSweepLong] = sg.silver_bullet_liquidity_gate(true, activeSweeps)
 
-[sbGateShort, sbGateShortInfo, sbHasSessionSweepShort] = silver_bullet_liquidity_gate(false)
+[sbGateShort, sbGateShortInfo, sbHasSessionSweepShort] = sg.silver_bullet_liquidity_gate(false, activeSweeps)
 
-bool continuationLiquidityLong = sweptSSL and (bestSweepSrcSSL == SRC_PIVOT_INT or bestSweepExtSSL or bestSweepSrcSSL == SRC_EQH_EQL or bestSweepSrcSSL == SRC_ROUND_NUM or is_htf_liquidity_source(bestSweepSrcSSL))
-bool continuationLiquidityShort = sweptBSL and (bestSweepSrcBSL == SRC_PIVOT_INT or bestSweepExtBSL or bestSweepSrcBSL == SRC_EQH_EQL or bestSweepSrcBSL == SRC_ROUND_NUM or is_htf_liquidity_source(bestSweepSrcBSL))
+bool continuationLiquidityLong = sweptSSL and (bestSweepSrcSSL == SRC_PIVOT_INT or bestSweepExtSSL or bestSweepSrcSSL == SRC_EQH_EQL or bestSweepSrcSSL == SRC_ROUND_NUM or liq.is_htf_liquidity_source(bestSweepSrcSSL))
+bool continuationLiquidityShort = sweptBSL and (bestSweepSrcBSL == SRC_PIVOT_INT or bestSweepExtBSL or bestSweepSrcBSL == SRC_EQH_EQL or bestSweepSrcBSL == SRC_ROUND_NUM or liq.is_htf_liquidity_source(bestSweepSrcBSL))
 
 bool sig2022B = mssBull and ictGateLong and enableICT2022
 bool sig2022S = mssBear and ictGateShort and enableICT2022
@@ -3177,17 +1749,17 @@ if dominantLiquidityBlocked and liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED
     liveSetup.lifecycleNextRequiredDominant := liveSetup.missing
 
 // --- Alert History Engine ---
-var AlertLog[] alertLogs = array.new<AlertLog>()
+var T.AlertLog[] alertLogs = array.new<T.AlertLog>()
 if (sig2022B or sigSBB or sig2022S or sigSBS)
     string sig = (sig2022B or sigSBB) ? "BUY" : "SELL"
     color c = (sig2022B or sigSBB) ? uiPosColor : uiNegColor
-    array.unshift(alertLogs, AlertLog.new(str.format_time(time, "HH:mm", NY_TZ), sig, close, c))
+    array.unshift(alertLogs, T.AlertLog.new(str.format_time(time, "HH:mm", NY_TZ), sig, close, c))
     if array.size(alertLogs) > maxAlertRows
         array.pop(alertLogs)
 
 // --- Trade Management ---
-var Stats mainStats = Stats.new()
-var Trade activeTrade = na
+var T.Stats mainStats = T.Stats.new()
+var T.Trade activeTrade = na
 var box[] historicalBoxes = array.new_box()
 
 // Chapter 2.1: Persistent pending activation state (survives across bars)
@@ -3208,16 +1780,7 @@ var string _pendingShortReason = ""
 var bool   _pendingLongCanStillActivate = false
 var bool   _pendingShortCanStillActivate = false
 
-method update_stats(Stats s, float rEarned, bool isWin) =>
-    s.totalTrades += 1
-    s.totalR += rEarned
-    s.equityR += rEarned
-    if isWin
-        s.wins += 1
-    else
-        s.losses += 1
-    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
-    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+// Stats.update_stats() method moved to tv_pending_trade_state library (pts.*)
 
 bool isSignalB = sig2022B or sigSBB
 bool isSignalS = sig2022S or sigSBS
@@ -3227,29 +1790,29 @@ bool isSignalS = sig2022S or sigSBS
 // =====================================================================
 
 // Chapter 3: Map formal reclaim stage outputs to mode-dependent pass/fail
-bool rclPassL = reclaim_mode_pass(rclDetL, rclValidL2, rclStrongL2, rclScoreL2, sensitivityMode)
+bool rclPassL = se.reclaim_mode_pass(rclDetL, rclValidL2, rclStrongL2, rclScoreL2, sensitivityMode)
 float rclStrL = rclScoreL2
 string rclReasonL = rclReasonL2
 bool rclWeakL = rclWeakL2
 bool rclStrongL = rclStrongL2
-bool rclPassS = reclaim_mode_pass(rclDetS, rclValidS2, rclStrongS2, rclScoreS2, sensitivityMode)
+bool rclPassS = se.reclaim_mode_pass(rclDetS, rclValidS2, rclStrongS2, rclScoreS2, sensitivityMode)
 float rclStrS = rclScoreS2
 string rclReasonS = rclReasonS2
 bool rclWeakS = rclWeakS2
 bool rclStrongS = rclStrongS2
 
-[extBlockL, extDistL, extReasonL] = compute_extension_block(true, lastMssBullBar, lastPHi, atr, sensitivityMode, reqL)
-[extBlockS, extDistS, extReasonS] = compute_extension_block(false, lastMssBearBar, lastPLo, atr, sensitivityMode, reqS)
+[extBlockL, extDistL, extReasonL] = se.compute_extension_block(true, lastMssBullBar, lastPHi, atr, sensitivityMode, reqL)
+[extBlockS, extDistS, extReasonS] = se.compute_extension_block(false, lastMssBearBar, lastPLo, atr, sensitivityMode, reqS)
 
 // Chapter 4: MSS quality now sourced from formal MSS evaluator via mss_mode_pass
-[mssQPassL, mssQStrongL] = mss_mode_pass(mssDetL, mssValidL2, mssStrongL2, mssScoreL2, mssTrigSigL2, sensitivityMode)
+[mssQPassL, mssQStrongL] = se.mss_mode_pass(mssDetL, mssValidL2, mssStrongL2, mssScoreL2, mssTrigSigL2, sensitivityMode)
 string mssQReasonL = mssReasonL2
-[mssQPassS, mssQStrongS] = mss_mode_pass(mssDetS, mssValidS2, mssStrongS2, mssScoreS2, mssTrigSigS2, sensitivityMode)
+[mssQPassS, mssQStrongS] = se.mss_mode_pass(mssDetS, mssValidS2, mssStrongS2, mssScoreS2, mssTrigSigS2, sensitivityMode)
 string mssQReasonS = mssReasonS2
 
 // Chapter 5: Bridge now wraps formal displacement evaluator
-[bridgePassL, bridgeStrongL, bridgeReasonL] = evaluate_displacement_bridge(lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, lastMssBullBar, sensitivityMode, dispValidL2, dispStrongL2, dispFailedL2, dispScoreL2)
-[bridgePassS, bridgeStrongS, bridgeReasonS] = evaluate_displacement_bridge(lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, lastMssBearBar, sensitivityMode, dispValidS2, dispStrongS2, dispFailedS2, dispScoreS2)
+[bridgePassL, bridgeStrongL, bridgeReasonL] = se.evaluate_displacement_bridge(lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, lastMssBullBar, sensitivityMode, dispValidL2, dispStrongL2, dispFailedL2, dispScoreL2)
+[bridgePassS, bridgeStrongS, bridgeReasonS] = se.evaluate_displacement_bridge(lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, lastMssBearBar, sensitivityMode, dispValidS2, dispStrongS2, dispFailedS2, dispScoreS2)
 
 // Chapter 3: Failed reclaim blocks activation for all modes
 // Override reclaim pass if reclaim has failed
@@ -3264,14 +1827,14 @@ bool reclaimProxyShort = rclPassS
 
 // Evaluate mode qualification with quality data (Chapter 3+4: reclaim + MSS truth)
 // Chapter 5: evaluate_mode_execution now receives formal displacement truth
-[modeCandL, modeActL, modeBlockL, modeDirectL, modePathL] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleLong, sweptSSL, sweepQualitySSL, not na(lastMssBullBar), lastMssBullDispStrength, not na(lastBullFvgBar) and lastBullFvgGrade > 0, lastBullFvgGrade, seqOkL, expiredL, degradedL, rclPassL, rclStrL, rclStrongL, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, scoreLong, mssTrigSigL2, dispPassL, dispPassStrongL, dispFailedL2, dispScoreL2)
+[modeCandL, modeActL, modeBlockL, modeDirectL, modePathL] = pts.evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleLong, sweptSSL, sweepQualitySSL, not na(lastMssBullBar), lastMssBullDispStrength, not na(lastBullFvgBar) and lastBullFvgGrade > 0, lastBullFvgGrade, seqOkL, expiredL, degradedL, rclPassL, rclStrL, rclStrongL, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, scoreLong, mssTrigSigL2, dispPassL, dispPassStrongL, dispFailedL2, dispScoreL2)
 
-[modeCandS, modeActS, modeBlockS, modeDirectS, modePathS] = evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleShort, sweptBSL, sweepQualityBSL, not na(lastMssBearBar), lastMssBearDispStrength, not na(lastBearFvgBar) and lastBearFvgGrade > 0, lastBearFvgGrade, seqOkS, expiredS, degradedS, rclPassS, rclStrS, rclStrongS, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, scoreShort, mssTrigSigS2, dispPassS, dispPassStrongS, dispFailedS2, dispScoreS2)
+[modeCandS, modeActS, modeBlockS, modeDirectS, modePathS] = pts.evaluate_mode_execution(sensitivityMode, liveSetup.lifecycleShort, sweptBSL, sweepQualityBSL, not na(lastMssBearBar), lastMssBearDispStrength, not na(lastBearFvgBar) and lastBearFvgGrade > 0, lastBearFvgGrade, seqOkS, expiredS, degradedS, rclPassS, rclStrS, rclStrongS, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, scoreShort, mssTrigSigS2, dispPassS, dispPassStrongS, dispFailedS2, dispScoreS2)
 
 // Populate SetupState mode fields
 liveSetup.sensitivityModeActive := sensitivityMode
-liveSetup.modeMinCandidateLifecycle := mode_min_lifecycle_for_candidate(sensitivityMode)
-liveSetup.modeMinActivationLifecycle := mode_min_lifecycle_for_activation(sensitivityMode)
+liveSetup.modeMinCandidateLifecycle := lm.mode_min_lifecycle_for_candidate(sensitivityMode)
+liveSetup.modeMinActivationLifecycle := lm.mode_min_lifecycle_for_activation(sensitivityMode)
 liveSetup.longMeetsModeCandidate := modeCandL
 liveSetup.shortMeetsModeCandidate := modeCandS
 liveSetup.longMeetsModeActivation := modeActL
@@ -3380,7 +1943,7 @@ if isSignalB and liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and liveSetup.lifec
     bool canPromoteAggL = sensitivityMode == "Aggressive" and reclaimProxyLong and sweptSSL and not na(lastMssBullBar) and dispPassL and not dispFailedL2 and not expiredL and not degradedL
     if canPromoteAggL
         liveSetup.lifecycleLong := LC_ENTRY_TRIGGERED
-        liveSetup.lifecycleNameLong := lifecycle_name(LC_ENTRY_TRIGGERED)
+        liveSetup.lifecycleNameLong := lm.lifecycle_name(LC_ENTRY_TRIGGERED)
         liveSetup.lifecycleCanActivateLong := true
         modeActL := true
         modeBlockL := ""
@@ -3389,13 +1952,13 @@ if isSignalB and liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and liveSetup.lifec
     // Chapter 5: Balanced/Conservative promote to DISPLACEMENT_CONFIRMED only with formal displacement validity
     else if sensitivityMode != "Aggressive" and modeCandL and liveSetup.lifecycleLong < LC_DISPLACEMENT_CONFIRMED and dispValidL2 and not dispFailedL2
         liveSetup.lifecycleLong := LC_DISPLACEMENT_CONFIRMED
-        liveSetup.lifecycleNameLong := lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
+        liveSetup.lifecycleNameLong := lm.lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
 
 if isSignalS and liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and liveSetup.lifecycleShort < LC_ENTRY_TRIGGERED
     bool canPromoteAggS = sensitivityMode == "Aggressive" and reclaimProxyShort and sweptBSL and not na(lastMssBearBar) and dispPassS and not dispFailedS2 and not expiredS and not degradedS
     if canPromoteAggS
         liveSetup.lifecycleShort := LC_ENTRY_TRIGGERED
-        liveSetup.lifecycleNameShort := lifecycle_name(LC_ENTRY_TRIGGERED)
+        liveSetup.lifecycleNameShort := lm.lifecycle_name(LC_ENTRY_TRIGGERED)
         liveSetup.lifecycleCanActivateShort := true
         modeActS := true
         modeBlockS := ""
@@ -3403,12 +1966,12 @@ if isSignalS and liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and liveSetup.life
         liveSetup.shortModeBlockReason := ""
     else if sensitivityMode != "Aggressive" and modeCandS and liveSetup.lifecycleShort < LC_DISPLACEMENT_CONFIRMED and dispValidS2 and not dispFailedS2
         liveSetup.lifecycleShort := LC_DISPLACEMENT_CONFIRMED
-        liveSetup.lifecycleNameShort := lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
+        liveSetup.lifecycleNameShort := lm.lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
 
 // Update dominant lifecycle after signal promotion
 if (isSignalB and pickLong) or (isSignalS and not pickLong)
     liveSetup.lifecycleDominant := pickLong ? liveSetup.lifecycleLong : liveSetup.lifecycleShort
-    liveSetup.lifecycleNameDominant := lifecycle_name(liveSetup.lifecycleDominant)
+    liveSetup.lifecycleNameDominant := lm.lifecycle_name(liveSetup.lifecycleDominant)
     liveSetup.lifecycleCanActivateDominant := pickLong ? liveSetup.lifecycleCanActivateLong : liveSetup.lifecycleCanActivateShort
     // Re-evaluate dominant mode qualification after promotion
     liveSetup.dominantMeetsModeActivation := pickLong ? modeActL : modeActS
@@ -3417,7 +1980,7 @@ if (isSignalB and pickLong) or (isSignalS and not pickLong)
 
 // --- Trade Activation with Lifecycle + Mode Guard (Chapter 1+2+2.1) ---
 // PATH 1: Immediate activation (signal bar, same as before for Aggressive)
-bool signalLifecycleOk = (isSignalB and lifecycle_allows_activation(liveSetup.lifecycleLong)) or (isSignalS and lifecycle_allows_activation(liveSetup.lifecycleShort))
+bool signalLifecycleOk = (isSignalB and lm.lifecycle_allows_activation(liveSetup.lifecycleLong)) or (isSignalS and lm.lifecycle_allows_activation(liveSetup.lifecycleShort))
 bool signalModeOk = (isSignalB and modeActL) or (isSignalS and modeActS)
 bool canActivateImmediate = signalLifecycleOk and signalModeOk
 
@@ -3429,15 +1992,15 @@ string pendingActivationReason = ""
 
 // Chapter 2.2+4: Compute pending freshness before delayed activation evaluation
 // Chapter 5: pending freshness now considers displacement failure
-[pendFreshL, pendStaleL, pendFreshReasonL] = pending_is_structurally_fresh(_pendingLongActive ? _pendingLongSignalBar : bar_index, lastMssBullBar, lastBullFvgBar, degradedL, extBlockL, sensitivityMode, mssFailedL2, dispFailedL2)
-[pendFreshS, pendStaleS, pendFreshReasonS] = pending_is_structurally_fresh(_pendingShortActive ? _pendingShortSignalBar : bar_index, lastMssBearBar, lastBearFvgBar, degradedS, extBlockS, sensitivityMode, mssFailedS2, dispFailedS2)
+[pendFreshL, pendStaleL, pendFreshReasonL] = pts.pending_is_structurally_fresh(_pendingLongActive ? _pendingLongSignalBar : bar_index, lastMssBullBar, lastBullFvgBar, degradedL, extBlockL, sensitivityMode, mssFailedL2, dispFailedL2)
+[pendFreshS, pendStaleS, pendFreshReasonS] = pts.pending_is_structurally_fresh(_pendingShortActive ? _pendingShortSignalBar : bar_index, lastMssBearBar, lastBearFvgBar, degradedS, extBlockS, sensitivityMode, mssFailedS2, dispFailedS2)
 liveSetup.pendingStructFreshLong := pendFreshL
 liveSetup.pendingStructFreshShort := pendFreshS
 liveSetup.freshnessReasonLong := pendFreshReasonL
 liveSetup.freshnessReasonShort := pendFreshReasonS
 
 if _pendingLongActive and na(activeTrade)
-    [canActPL, reasonPL, shouldInvPL] = evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL, rclFailedL2, mssFailedL2, mssFreshL2, dispPassL, dispFreshL2, dispFailedL2)
+    [canActPL, reasonPL, shouldInvPL] = pts.evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL, rclFailedL2, mssFailedL2, mssFreshL2, dispPassL, dispFreshL2, dispFailedL2)
     if shouldInvPL
         _pendingLongActive := false
         _pendingLongCanStillActivate := false
@@ -3451,7 +2014,7 @@ if _pendingLongActive and na(activeTrade)
 
 // Evaluate pending short
 if _pendingShortActive and na(activeTrade) and not pendingActivatedLong
-    [canActPS, reasonPS, shouldInvPS] = evaluate_pending_activation(false, liveSetup.lifecycleShort, rclPassS, rclStrS, rclStrongS, lastMssBearDispStrength, seqOkS, expiredS, degradedS, _pendingShortMode, _pendingShortSignalBar, _pendingShortExpiryBar, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, pendFreshS, rclFailedS2, mssFailedS2, mssFreshS2, dispPassS, dispFreshS2, dispFailedS2)
+    [canActPS, reasonPS, shouldInvPS] = pts.evaluate_pending_activation(false, liveSetup.lifecycleShort, rclPassS, rclStrS, rclStrongS, lastMssBearDispStrength, seqOkS, expiredS, degradedS, _pendingShortMode, _pendingShortSignalBar, _pendingShortExpiryBar, extBlockS, mssQPassS, mssQStrongS, bridgePassS, bridgeStrongS, pendFreshS, rclFailedS2, mssFailedS2, mssFreshS2, dispPassS, dispFreshS2, dispFailedS2)
     if shouldInvPS
         _pendingShortActive := false
         _pendingShortCanStillActivate := false
@@ -3477,40 +2040,40 @@ if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
         // Signal qualifies for pending if lifecycle is past sweep and mode candidate passes
         bool pendingCandidateL = liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and modeCandL and not expiredL and not degradedL
         if pendingCandidateL
-            int windowBars = mode_pending_activation_bars(sensitivityMode)
+            int windowBars = lm.mode_pending_activation_bars(sensitivityMode)
             _pendingLongActive := true
             _pendingLongSignalBar := bar_index
             _pendingLongExpiryBar := bar_index + windowBars
             _pendingLongSource := sig2022B ? "ICT 2022" : "SB"
             _pendingLongInitialLC := liveSetup.lifecycleLong
             _pendingLongMode := sensitivityMode
-            _pendingLongReason := mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBars) + " bars)"
+            _pendingLongReason := lm.mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBars) + " bars)"
             _pendingLongCanStillActivate := true
     if isSignalS and not _pendingShortActive
         bool pendingCandidateS = liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and modeCandS and not expiredS and not degradedS
         if pendingCandidateS
-            int windowBarsS = mode_pending_activation_bars(sensitivityMode)
+            int windowBarsS = lm.mode_pending_activation_bars(sensitivityMode)
             _pendingShortActive := true
             _pendingShortSignalBar := bar_index
             _pendingShortExpiryBar := bar_index + windowBarsS
             _pendingShortSource := sig2022S ? "ICT 2022" : "SB"
             _pendingShortInitialLC := liveSetup.lifecycleShort
             _pendingShortMode := sensitivityMode
-            _pendingShortReason := mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBarsS) + " bars)"
+            _pendingShortReason := lm.mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBarsS) + " bars)"
             _pendingShortCanStillActivate := true
 
     // Diagnostic: explain why immediate activation was blocked
     if signalLifecycleOk and not signalModeOk
         liveSetup.dominantBlockedByMode := true
         liveSetup.dominantModeBlockReason := isSignalB ? modeBlockL : modeBlockS
-    else if mode_allows_direct_signal_activation(sensitivityMode) and not signalLifecycleOk
+    else if lm.mode_allows_direct_signal_activation(sensitivityMode) and not signalLifecycleOk
         liveSetup.lifecycleIsDesynced := true
-        liveSetup.lifecycleDesyncReason := "AGG: signal blocked at " + (isSignalB ? lifecycle_name(liveSetup.lifecycleLong) : lifecycle_name(liveSetup.lifecycleShort))
+        liveSetup.lifecycleDesyncReason := "AGG: signal blocked at " + (isSignalB ? lm.lifecycle_name(liveSetup.lifecycleLong) : lm.lifecycle_name(liveSetup.lifecycleShort))
     else
         liveSetup.dominantBlockedByMode := true
         string modeReason = isSignalB ? modeBlockL : modeBlockS
         if modeReason == ""
-            modeReason := mode_name_short(sensitivityMode) + " mode: pending activation stored (" + str.tostring(mode_pending_activation_bars(sensitivityMode)) + " bar window)"
+            modeReason := lm.mode_name_short(sensitivityMode) + " mode: pending activation stored (" + str.tostring(lm.mode_pending_activation_bars(sensitivityMode)) + " bar window)"
         liveSetup.dominantModeBlockReason := modeReason
 
 // Clear pending state after successful delayed activation
@@ -3553,7 +2116,7 @@ if na(activeTrade) and canActivateTrade
         color slCol = activateLong ? longSlColor : shortSlColor
         tpB := box.new(bar_index, activateLong ? tp2 : close, bar_index, activateLong ? close : tp2, bgcolor = color.new(tpCol, activeTransp), border_color = tpCol, border_width = activeBorderWidth)
         slB := box.new(bar_index, activateLong ? close : sl, bar_index, activateLong ? sl : close, bgcolor = color.new(slCol, activeTransp), border_color = slCol, border_width = activeBorderWidth)
-    activeTrade := Trade.new(tradeSource, activateLong, close, sl, tp1, tp2, bar_index, true, false, tpB, slB)
+    activeTrade := T.Trade.new(tradeSource, activateLong, close, sl, tp1, tp2, bar_index, true, false, tpB, slB)
 
 if not na(activeTrade)
     bool closed = false
@@ -3615,7 +2178,7 @@ if not na(activeTrade)
 
 
 // --- Post-Trade Lifecycle Reconciliation & Invariant Validation (extracted to function) ---
-validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
+validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
      bool seqOkL, bool seqOkS, int lcLong, int lcShort,
      string sensitivityMode, bool isSignalB, bool isSignalS,
      bool pendingActivatedLong, bool pendingActivatedShort, bool activatingViaDelayed,
@@ -3654,7 +2217,7 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
     // If activeTrade exists, lifecycle dominant must be ACTIVE
     if not na(activeTrade)
         s.lifecycleDominant := LC_ACTIVE
-        s.lifecycleNameDominant := lifecycle_name(LC_ACTIVE)
+        s.lifecycleNameDominant := lm.lifecycle_name(LC_ACTIVE)
         s.lifecycleNextRequiredDominant := "Manage active position"
         s.lifecycleCanActivateDominant := true
     
@@ -3662,39 +2225,39 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
     // Detect impossible state combinations and flag as DESYNC
     
     // Invariant 3: Pre-confirmation lifecycle but sequenceValid reports true
-    if lifecycle_is_preconfirmation(s.lifecycleLong) and seqOkL
+    if lm.lifecycle_is_preconfirmation(s.lifecycleLong) and seqOkL
         s.lifecycleIsDesynced := true
-        s.lifecycleDesyncReason := "Long: pre-confirmation lifecycle (" + lifecycle_name(s.lifecycleLong) + ") but sequence valid"
+        s.lifecycleDesyncReason := "Long: pre-confirmation lifecycle (" + lm.lifecycle_name(s.lifecycleLong) + ") but sequence valid"
         s.lifecycleDominant := LC_DESYNC
-    if lifecycle_is_preconfirmation(s.lifecycleShort) and seqOkS
+    if lm.lifecycle_is_preconfirmation(s.lifecycleShort) and seqOkS
         s.lifecycleIsDesynced := true
-        s.lifecycleDesyncReason := "Short: pre-confirmation lifecycle (" + lifecycle_name(s.lifecycleShort) + ") but sequence valid"
+        s.lifecycleDesyncReason := "Short: pre-confirmation lifecycle (" + lm.lifecycle_name(s.lifecycleShort) + ") but sequence valid"
         s.lifecycleDominant := LC_DESYNC
     
     // Invariant 5: Dominant says can activate but lifecycle below ENTRY_ARMED
     if s.lifecycleCanActivateDominant and s.lifecycleDominant < LC_ENTRY_ARMED and s.lifecycleDominant != LC_ACTIVE
         s.lifecycleIsDesynced := true
-        s.lifecycleDesyncReason := "canActivate=true at lifecycle=" + lifecycle_name(s.lifecycleDominant)
+        s.lifecycleDesyncReason := "canActivate=true at lifecycle=" + lm.lifecycle_name(s.lifecycleDominant)
         s.lifecycleDominant := LC_DESYNC
     
     // --- Chapter 2 Mode Invariants ---
     
     // Invariant M1: Trade activated this bar while pre-promotion lifecycle below mode minimum
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
-        int modeMinAct = mode_min_lifecycle_for_activation(sensitivityMode)
+        int modeMinAct = lm.mode_min_lifecycle_for_activation(sensitivityMode)
         int prePromotionLc = pickLong ? lcLong : lcShort
         if prePromotionLc < modeMinAct and prePromotionLc != LC_ACTIVE
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := mode_name_short(sensitivityMode) + ": trade activated at " + lifecycle_name(prePromotionLc) + ", min=" + lifecycle_name(modeMinAct)
+            s.lifecycleDesyncReason := lm.mode_name_short(sensitivityMode) + ": trade activated at " + lm.lifecycle_name(prePromotionLc) + ", min=" + lm.lifecycle_name(modeMinAct)
             s.lifecycleDominant := LC_DESYNC
     
     // Invariant M2: Signal promoted to ENTRY_TRIGGERED with canActivate in non-Aggressive mode
-    if not s.lifecycleIsDesynced and not mode_allows_direct_signal_activation(sensitivityMode)
+    if not s.lifecycleIsDesynced and not lm.mode_allows_direct_signal_activation(sensitivityMode)
         bool badPromoL = isSignalB and s.lifecycleLong == LC_ENTRY_TRIGGERED and s.lifecycleCanActivateLong
         bool badPromoS = isSignalS and s.lifecycleShort == LC_ENTRY_TRIGGERED and s.lifecycleCanActivateShort
         if badPromoL or badPromoS
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := mode_name_short(sensitivityMode) + ": signal promoted to ENTRY_TRIGGERED with canActivate (disallowed)"
+            s.lifecycleDesyncReason := lm.mode_name_short(sensitivityMode) + ": signal promoted to ENTRY_TRIGGERED with canActivate (disallowed)"
             s.lifecycleDominant := LC_DESYNC
     
     // Invariant M3: Candidate preview would show while mode candidate qualification fails
@@ -3705,7 +2268,7 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
     bool hasPendingStored = _pLA or _pSA
     if not s.lifecycleIsDesynced and s.dominantBlockedByMode and s.lifecycleCanActivateDominant and s.lifecycleDominant != LC_ACTIVE and not hasPendingStored
         s.lifecycleIsDesynced := true
-        s.lifecycleDesyncReason := mode_name_short(sensitivityMode) + ": canActivate=true but mode blocks (" + s.dominantModeBlockReason + ")"
+        s.lifecycleDesyncReason := lm.mode_name_short(sensitivityMode) + ": canActivate=true but mode blocks (" + s.dominantModeBlockReason + ")"
         s.lifecycleDominant := LC_DESYNC
     
     // --- Chapter 2.1 Pending Activation Invariants ---
@@ -3719,11 +2282,11 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
     
     // Invariant P2: Pending active for a mode that allows direct signal activation (AGG shouldn't need pending)
     if not s.lifecycleIsDesynced
-        if _pLA and mode_allows_direct_signal_activation(pndLongMode)
+        if _pLA and lm.mode_allows_direct_signal_activation(pndLongMode)
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "P2: pending long stored for AGG mode (should activate immediately)"
             s.lifecycleDominant := LC_DESYNC
-        if not s.lifecycleIsDesynced and _pSA and mode_allows_direct_signal_activation(pndShortMode)
+        if not s.lifecycleIsDesynced and _pSA and lm.mode_allows_direct_signal_activation(pndShortMode)
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "P2: pending short stored for AGG mode (should activate immediately)"
             s.lifecycleDominant := LC_DESYNC
@@ -3771,11 +2334,11 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
     if not s.lifecycleIsDesynced
         if _pLA and pndLongInitialLC < LC_MSS_CONFIRMED
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := "P7: pending long stored at " + lifecycle_name(pndLongInitialLC) + " (below MSS_CONFIRMED)"
+            s.lifecycleDesyncReason := "P7: pending long stored at " + lm.lifecycle_name(pndLongInitialLC) + " (below MSS_CONFIRMED)"
             s.lifecycleDominant := LC_DESYNC
         if not s.lifecycleIsDesynced and _pSA and pndShortInitialLC < LC_MSS_CONFIRMED
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := "P7: pending short stored at " + lifecycle_name(pndShortInitialLC) + " (below MSS_CONFIRMED)"
+            s.lifecycleDesyncReason := "P7: pending short stored at " + lm.lifecycle_name(pndShortInitialLC) + " (below MSS_CONFIRMED)"
             s.lifecycleDominant := LC_DESYNC
     
     // --- Chapter 2.2 Quality Invariants ---
@@ -3813,7 +2376,7 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         bool domRclPass = activeTrade.isLong ? rclPassL : rclPassS
         if not domRclPass and sensitivityMode != "Aggressive"
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := "Q4: " + mode_name_short(sensitivityMode) + " activated without reclaim pass"
+            s.lifecycleDesyncReason := "Q4: " + lm.mode_name_short(sensitivityMode) + " activated without reclaim pass"
             s.lifecycleDominant := LC_DESYNC
     
     // Invariant Q5: MSS quality insufficient but activation permitted (non-Aggressive)
@@ -3821,7 +2384,7 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         bool domMssQPass = activeTrade.isLong ? mssQPassL : mssQPassS
         if not domMssQPass
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := "Q5: " + mode_name_short(sensitivityMode) + " activated without MSS quality pass"
+            s.lifecycleDesyncReason := "Q5: " + lm.mode_name_short(sensitivityMode) + " activated without MSS quality pass"
             s.lifecycleDominant := LC_DESYNC
     
     // --- Chapter 3: Reclaim Stage Invariants ---
@@ -3877,10 +2440,10 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
             // Downgrade to SWEEP_CONFIRMED instead of desync (soft correction)
             if advLNoRecl
                 s.lifecycleLong := LC_SWEEP_CONFIRMED
-                s.lifecycleNameLong := lifecycle_name(LC_SWEEP_CONFIRMED)
+                s.lifecycleNameLong := lm.lifecycle_name(LC_SWEEP_CONFIRMED)
             if advSNoRecl
                 s.lifecycleShort := LC_SWEEP_CONFIRMED
-                s.lifecycleNameShort := lifecycle_name(LC_SWEEP_CONFIRMED)
+                s.lifecycleNameShort := lm.lifecycle_name(LC_SWEEP_CONFIRMED)
     
     // --- Chapter 4: MSS Integrity Invariants ---
     
@@ -3892,10 +2455,10 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
             // Soft correction: downgrade to RECLAIM_VISIBLE or SWEEP_CONFIRMED
             if mssLcDesyncL
                 s.lifecycleLong := rclDetL ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
-                s.lifecycleNameLong := lifecycle_name(s.lifecycleLong)
+                s.lifecycleNameLong := lm.lifecycle_name(s.lifecycleLong)
             if mssLcDesyncS
                 s.lifecycleShort := rclDetS ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
-                s.lifecycleNameShort := lifecycle_name(s.lifecycleShort)
+                s.lifecycleNameShort := lm.lifecycle_name(s.lifecycleShort)
     
     // Invariant M2: activation allowed while mssFailed is true
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
@@ -3911,7 +2474,7 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         int domMssTrigSig2 = activeTrade.isLong ? mssTrigSigL2 : mssTrigSigS2
         if not domMssQPass2
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := "M3: " + mode_name_short(sensitivityMode) + " activated without MSS mode pass"
+            s.lifecycleDesyncReason := "M3: " + lm.mode_name_short(sensitivityMode) + " activated without MSS mode pass"
             s.lifecycleDominant := LC_DESYNC
         else if sensitivityMode == "Conservative" and domMssTrigSig2 < 2
             s.lifecycleIsDesynced := true
@@ -3935,10 +2498,10 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         bool advSNoMss = s.lifecycleShort >= LC_MSS_CONFIRMED and not mssValidS2 and not na(lastMssBearBar) and not mssFailedS2
         if advLNoMss
             s.lifecycleLong := rclDetL ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
-            s.lifecycleNameLong := lifecycle_name(s.lifecycleLong)
+            s.lifecycleNameLong := lm.lifecycle_name(s.lifecycleLong)
         if advSNoMss
             s.lifecycleShort := rclDetS ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
-            s.lifecycleNameShort := lifecycle_name(s.lifecycleShort)
+            s.lifecycleNameShort := lm.lifecycle_name(s.lifecycleShort)
     
     // Invariant M6: LC_DISPLACEMENT_CONFIRMED while underlying MSS is invalid or stale
     if not s.lifecycleIsDesynced
@@ -3946,10 +2509,10 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         bool dispNoMssS = s.lifecycleShort == LC_DISPLACEMENT_CONFIRMED and (mssFailedS2 or not mssFreshS2)
         if dispNoMssL
             s.lifecycleLong := LC_SWEEP_CONFIRMED
-            s.lifecycleNameLong := lifecycle_name(LC_SWEEP_CONFIRMED)
+            s.lifecycleNameLong := lm.lifecycle_name(LC_SWEEP_CONFIRMED)
         if dispNoMssS
             s.lifecycleShort := LC_SWEEP_CONFIRMED
-            s.lifecycleNameShort := lifecycle_name(LC_SWEEP_CONFIRMED)
+            s.lifecycleNameShort := lm.lifecycle_name(LC_SWEEP_CONFIRMED)
     
     // Invariant M7: Conservative activates on MSS quality weaker than Balanced
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Conservative"
@@ -3969,10 +2532,10 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         if dispLcDesyncL
             // Soft correction: downgrade to MSS_CONFIRMED
             s.lifecycleLong := LC_MSS_CONFIRMED
-            s.lifecycleNameLong := lifecycle_name(LC_MSS_CONFIRMED)
+            s.lifecycleNameLong := lm.lifecycle_name(LC_MSS_CONFIRMED)
         if dispLcDesyncS
             s.lifecycleShort := LC_MSS_CONFIRMED
-            s.lifecycleNameShort := lifecycle_name(LC_MSS_CONFIRMED)
+            s.lifecycleNameShort := lm.lifecycle_name(LC_MSS_CONFIRMED)
     
     // Invariant D2: activation allowed while dispFailed is true
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
@@ -3987,7 +2550,7 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         bool domDispPass3 = activeTrade.isLong ? dispPassL : dispPassS
         if not domDispPass3
             s.lifecycleIsDesynced := true
-            s.lifecycleDesyncReason := "D3: " + mode_name_short(sensitivityMode) + " activated without displacement mode pass"
+            s.lifecycleDesyncReason := "D3: " + lm.mode_name_short(sensitivityMode) + " activated without displacement mode pass"
             s.lifecycleDominant := LC_DESYNC
     
     // Invariant D4: pending setup alive while displacement has failed
@@ -4008,10 +2571,10 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         bool advDispSNoEvidence = s.lifecycleShort == LC_DISPLACEMENT_CONFIRMED and not dispValidS2 and dispFailedS2
         if advDispLNoEvidence
             s.lifecycleLong := LC_MSS_CONFIRMED
-            s.lifecycleNameLong := lifecycle_name(LC_MSS_CONFIRMED)
+            s.lifecycleNameLong := lm.lifecycle_name(LC_MSS_CONFIRMED)
         if advDispSNoEvidence
             s.lifecycleShort := LC_MSS_CONFIRMED
-            s.lifecycleNameShort := lifecycle_name(LC_MSS_CONFIRMED)
+            s.lifecycleNameShort := lm.lifecycle_name(LC_MSS_CONFIRMED)
     
     // Invariant D6: Conservative activates on displacement quality weaker than Balanced
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Conservative"
@@ -4028,10 +2591,10 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         bool entryArmedBadDispS = s.lifecycleShort == LC_ENTRY_ARMED and dispFailedS2
         if entryArmedBadDispL
             s.lifecycleLong := LC_MSS_CONFIRMED
-            s.lifecycleNameLong := lifecycle_name(LC_MSS_CONFIRMED)
+            s.lifecycleNameLong := lm.lifecycle_name(LC_MSS_CONFIRMED)
         if entryArmedBadDispS
             s.lifecycleShort := LC_MSS_CONFIRMED
-            s.lifecycleNameShort := lifecycle_name(LC_MSS_CONFIRMED)
+            s.lifecycleNameShort := lm.lifecycle_name(LC_MSS_CONFIRMED)
     
     // Invariant D8: LC_DISPLACEMENT_CONFIRMED while underlying MSS is invalid (extends M6 with displacement)
     // Already handled by existing M6 invariant — no additional logic needed here.
@@ -4041,7 +2604,7 @@ validate_invariants(SetupState s, Trade activeTrade, bool pickLong,
         s.phase := "State desync"
         s.missing := s.lifecycleDesyncReason
         s.sequenceValid := false
-        s.lifecycleNameDominant := lifecycle_name(LC_DESYNC)
+        s.lifecycleNameDominant := lm.lifecycle_name(LC_DESYNC)
     else if not s.isConflicted
         s.phase := s.lifecycleNameDominant
         // Chapter 2.1: Show pending status in Next Required when pending is active
@@ -4092,7 +2655,7 @@ bool eqhSwept = false
 bool eqlSwept = false
 if array.size(activeSweeps) > 0
     for i = 0 to array.size(activeSweeps) - 1
-        LiqSweep s = array.get(activeSweeps, i)
+        T.LiqSweep s= array.get(activeSweeps, i)
         if s.sourceType == SRC_EQH_EQL
             if s.isSSL
                 eqlSwept := true
@@ -4121,20 +2684,7 @@ if barstate.islast
     ren.render_level(eqhLevel, showEqClusters and eqhCount >= 2, color.new(eqhColor, eqhTransp), eqhText, "Short Segment", eqClusterSegLen, eqClusterOffset, "Dotted", eqhWidth, eqClusterShowLabels)
     ren.render_level(eqlLevel, showEqClusters and eqlCount >= 2, color.new(eqlColor, eqlTransp), eqlText, "Short Segment", eqClusterSegLen, eqClusterOffset, "Dotted", eqlWidth, eqClusterShowLabels)
 
-// Lifecycle-driven format_action (Chapter 1+2.2: Quality-aware)
-format_action(int lcDom, bool isDesynced, bool isConflicted, bool isLong, bool gateBlocked, bool hasActiveTrade, bool modeBlocked, string modeBlockRsn, bool pendingStale) =>
-    if isDesynced
-        "State error — setup/trade desync"
-    else if isConflicted
-        "Stand aside — both sides active, no clear edge"
-    else if pendingStale
-        "Pending setup stale — wait for fresh structure"
-    else if modeBlocked and lcDom >= LC_MSS_CONFIRMED
-        modeBlockRsn
-    else if gateBlocked and lcDom >= LC_MSS_CONFIRMED and lcDom < LC_ENTRY_TRIGGERED
-        "Setup blocked — check strategy eligibility"
-    else
-        lifecycle_action_text(lcDom)
+// lm.format_action() moved to tv_lifecycle_mode library (lm.*)
 
 // =====================================================================
 // --- DASHBOARD 1: Trading Assistant ---
@@ -4160,9 +2710,9 @@ if showReadiness and barstate.islast
     // === PRECOMPUTE PRIMARY DISPLAY VALUES (proprietary decisions stay here) ===
     string dirStr = liveSetup.isConflicted ? "◆ BOTH" : liveSetup.isPotentialLong ? "▲ LONG" : "▼ SHORT"
     color dirColor = liveSetup.isConflicted ? color.yellow : liveSetup.isPotentialLong ? uiPosColor : uiNegColor
-    color phaseColor = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.isConflicted ? color.yellow : lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : uiNeutralColor
+    color phaseColor = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.isConflicted ? color.yellow : lm.lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : uiNeutralColor
     bool domPendStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
-    string actionStr = format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade), liveSetup.dominantBlockedByMode, liveSetup.dominantModeBlockReason, domPendStale)
+    string actionStr = lm.format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade), liveSetup.dominantBlockedByMode, liveSetup.dominantModeBlockReason, domPendStale)
     color actionColor = str.contains(actionStr, "desync") or str.contains(actionStr, "error") ? color.red : str.contains(actionStr, "ready") or str.contains(actionStr, "Trade active") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") or str.contains(actionStr, "invalidated") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") ? color.orange : uiNeutralColor
     string confStr = fmt.format_confidence(liveSetup.score) + " (" + str.tostring(liveSetup.score) + ")"
     color confColor = liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 50 ? color.orange : liveSetup.score >= 30 ? uiNeutralColor : uiLabelText
@@ -4321,13 +2871,13 @@ if showReadiness and barstate.islast
         color seqColor = liveSetup.isConflicted ? color.yellow : liveSetup.isExpired ? color.gray : liveSetup.isDegraded ? color.orange : liveSetup.sequenceValid ? uiPosColor : uiNegColor
 
         // --- Best Sell-Side Sweep ---
-        string sslScope = bestSweepSrcSSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtSSL or is_htf_liquidity_source(bestSweepSrcSSL)) ? "EXT" : "INT")
-        string sslInfo = sweptSSL ? bestSweepNameSSL + " " + bestSweepGradeSSL + " [" + bestSweepTypeSSL + " · " + source_category_label(bestSweepSrcSSL, "") + " · " + sslScope + (bestSweepInducementSSL ? " · IND" : "") + "]" : "None"
+        string sslScope = bestSweepSrcSSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtSSL or liq.is_htf_liquidity_source(bestSweepSrcSSL)) ? "EXT" : "INT")
+        string sslInfo = sweptSSL ? bestSweepNameSSL + " " + bestSweepGradeSSL + " [" + bestSweepTypeSSL + " · " + liq.source_category_label(bestSweepSrcSSL, "") + " · " + sslScope + (bestSweepInducementSSL ? " · IND" : "") + "]" : "None"
         color sslInfoCol = sweptSSL ? (bestSweepGradeSSL == "A" ? uiPosColor : bestSweepGradeSSL == "B" ? color.orange : uiLabelText) : uiLabelText
 
         // --- Best Buy-Side Sweep ---
-        string bslScope = bestSweepSrcBSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtBSL or is_htf_liquidity_source(bestSweepSrcBSL)) ? "EXT" : "INT")
-        string bslInfo = sweptBSL ? bestSweepNameBSL + " " + bestSweepGradeBSL + " [" + bestSweepTypeBSL + " · " + source_category_label(bestSweepSrcBSL, "") + " · " + bslScope + (bestSweepInducementBSL ? " · IND" : "") + "]" : "None"
+        string bslScope = bestSweepSrcBSL == SRC_ROUND_NUM ? "RN" : ((bestSweepExtBSL or liq.is_htf_liquidity_source(bestSweepSrcBSL)) ? "EXT" : "INT")
+        string bslInfo = sweptBSL ? bestSweepNameBSL + " " + bestSweepGradeBSL + " [" + bestSweepTypeBSL + " · " + liq.source_category_label(bestSweepSrcBSL, "") + " · " + bslScope + (bestSweepInducementBSL ? " · IND" : "") + "]" : "None"
         color bslInfoCol = sweptBSL ? (bestSweepGradeBSL == "A" ? uiPosColor : bestSweepGradeBSL == "B" ? color.orange : uiLabelText) : uiLabelText
 
         // --- Sweep Quality ---
@@ -4380,10 +2930,10 @@ if showReadiness and barstate.islast
         r := rdash.render_advanced(readTable, r, adv, uiHeaderText, uiLabelText, uiBg)
 
         // === PRECOMPUTE LIFECYCLE DISPLAY (Debug only) ===
-        string lcStageStr = lifecycle_name(liveSetup.lifecycleDominant) + " (" + str.tostring(liveSetup.lifecycleDominant) + ")"
-        color lcStageCol = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : uiNeutralColor
+        string lcStageStr = lm.lifecycle_name(liveSetup.lifecycleDominant) + " (" + str.tostring(liveSetup.lifecycleDominant) + ")"
+        color lcStageCol = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : lm.lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : uiNeutralColor
 
-        string lcBothStr = "L: " + lifecycle_name(liveSetup.lifecycleLong) + " (" + str.tostring(liveSetup.lifecycleLong) + ")  |  S: " + lifecycle_name(liveSetup.lifecycleShort) + " (" + str.tostring(liveSetup.lifecycleShort) + ")"
+        string lcBothStr = "L: " + lm.lifecycle_name(liveSetup.lifecycleLong) + " (" + str.tostring(liveSetup.lifecycleLong) + ")  |  S: " + lm.lifecycle_name(liveSetup.lifecycleShort) + " (" + str.tostring(liveSetup.lifecycleShort) + ")"
 
         string lcActStr = "Can activate: " + (liveSetup.lifecycleCanActivateDominant ? "YES" : "NO")
         color lcActCol = liveSetup.lifecycleCanActivateDominant ? uiPosColor : uiLabelText
@@ -4426,14 +2976,14 @@ if showReadiness and barstate.islast
         color actPathCol = liveSetup.activationPathDominant != "" ? uiPosColor : uiLabelText
 
         string freshDbgStr = "L: " + liveSetup.freshnessReasonLong + "  |  S: " + liveSetup.freshnessReasonShort
-        string modeThrStr = "Min cand: " + lifecycle_name(mode_min_lifecycle_for_candidate(sensitivityMode)) + "  |  Min act: " + lifecycle_name(mode_min_lifecycle_for_activation(sensitivityMode))
+        string modeThrStr = "Min cand: " + lm.lifecycle_name(lm.mode_min_lifecycle_for_candidate(sensitivityMode)) + "  |  Min act: " + lm.lifecycle_name(lm.mode_min_lifecycle_for_activation(sensitivityMode))
 
-        string pendDbgL = _pendingLongActive ? "ACTIVE sig=" + str.tostring(_pendingLongSignalBar) + " exp=" + str.tostring(_pendingLongExpiryBar) + " lc=" + lifecycle_name(_pendingLongInitialLC) + " [" + _pendingLongMode + "]" : "—"
-        string pendDbgS = _pendingShortActive ? "ACTIVE sig=" + str.tostring(_pendingShortSignalBar) + " exp=" + str.tostring(_pendingShortExpiryBar) + " lc=" + lifecycle_name(_pendingShortInitialLC) + " [" + _pendingShortMode + "]" : "—"
+        string pendDbgL = _pendingLongActive ? "ACTIVE sig=" + str.tostring(_pendingLongSignalBar) + " exp=" + str.tostring(_pendingLongExpiryBar) + " lc=" + lm.lifecycle_name(_pendingLongInitialLC) + " [" + _pendingLongMode + "]" : "—"
+        string pendDbgS = _pendingShortActive ? "ACTIVE sig=" + str.tostring(_pendingShortSignalBar) + " exp=" + str.tostring(_pendingShortExpiryBar) + " lc=" + lm.lifecycle_name(_pendingShortInitialLC) + " [" + _pendingShortMode + "]" : "—"
         color pendDbgLCol = _pendingLongActive ? color.orange : uiLabelText
         color pendDbgSCol = _pendingShortActive ? color.orange : uiLabelText
 
-        string pendWinStr = "AGG=" + str.tostring(mode_pending_activation_bars("Aggressive")) + "  BAL=" + str.tostring(mode_pending_activation_bars("Balanced")) + "  CON=" + str.tostring(mode_pending_activation_bars("Conservative")) + "  (current: " + str.tostring(mode_pending_activation_bars(sensitivityMode)) + ")"
+        string pendWinStr = "AGG=" + str.tostring(lm.mode_pending_activation_bars("Aggressive")) + "  BAL=" + str.tostring(lm.mode_pending_activation_bars("Balanced")) + "  CON=" + str.tostring(lm.mode_pending_activation_bars("Conservative")) + "  (current: " + str.tostring(lm.mode_pending_activation_bars(sensitivityMode)) + ")"
 
         string delayActStr = liveSetup.pendingLongActivatedThisBar ? "LONG activated via delayed" : liveSetup.pendingShortActivatedThisBar ? "SHORT activated via delayed" : "No delayed activation"
         color delayActCol = (liveSetup.pendingLongActivatedThisBar or liveSetup.pendingShortActivatedThisBar) ? uiPosColor : uiLabelText
@@ -4523,14 +3073,14 @@ if showMarketIntelDash and barstate.islast
     intel.AlertEntry[] alertEntries = array.new<intel.AlertEntry>()
     if array.size(alertLogs) > 0
         for i = 0 to array.size(alertLogs) - 1
-            AlertLog al = array.get(alertLogs, i)
+            T.AlertLog al =array.get(alertLogs, i)
             array.push(alertEntries, intel.AlertEntry.new(al.timeStr, al.signalType, al.price, al.col))
 
     // Build OBEntry array from obArray
     intel.OBEntry[] obEntries = array.new<intel.OBEntry>()
     if array.size(obArray) > 0
         for i = array.size(obArray) - 1 to 0
-            SmartZone szOb = array.get(obArray, i)
+            T.SmartZone szOb = array.get(obArray, i)
             if not szOb.mitigated
                 color c = szOb.isBull ? uiPosColor : uiNegColor
                 string t = szOb.isBull ? "BULL" : "BEAR"

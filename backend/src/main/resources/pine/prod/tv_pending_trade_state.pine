@@ -1,0 +1,202 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Devtailor
+//@version=6
+// @description Pending trade evaluation, mode execution qualification, and Stats method.
+library("tv_pending_trade_state", overlay = true)
+
+import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_lifecycle_mode/1 as lm
+
+// Re-alias constants locally
+int LC_NONE                   = T.LC_NONE()
+int LC_SWEEP_CONFIRMED        = T.LC_SWEEP_CONFIRMED()
+int LC_MSS_CONFIRMED          = T.LC_MSS_CONFIRMED()
+int LC_DISPLACEMENT_CONFIRMED = T.LC_DISPLACEMENT_CONFIRMED()
+int LC_ENTRY_ARMED            = T.LC_ENTRY_ARMED()
+int LC_ENTRY_TRIGGERED        = T.LC_ENTRY_TRIGGERED()
+
+// Pending structural freshness: blocks stale pending setups.
+// Returns: [fresh, stale, reason]
+export pending_is_structurally_fresh(int signalBar, int mssBar_, int fvgBar_, bool degraded, bool isExtended, string mode, bool mssFailed_, bool dispFailed_) =>
+    bool fresh = true
+    bool stale = false
+    string reason = "Structurally fresh"
+    int age = bar_index - signalBar
+    int maxFresh = mode == "Aggressive" ? 5 : mode == "Conservative" ? 4 : 5
+    if age > maxFresh
+        fresh := false
+        stale := true
+        reason := "Age " + str.tostring(age) + " > " + str.tostring(maxFresh) + " bars"
+    if fresh and not na(mssBar_)
+        int mssAge = bar_index - mssBar_
+        int mssMaxFresh = mode == "Conservative" ? 15 : mode == "Balanced" ? 25 : 35
+        if mssAge > mssMaxFresh
+            fresh := false
+            stale := true
+            reason := "MSS aged (" + str.tostring(mssAge) + " bars)"
+    if fresh and not na(fvgBar_)
+        int fvgAge = bar_index - fvgBar_
+        int fvgMaxFresh = mode == "Conservative" ? 12 : mode == "Balanced" ? 20 : 30
+        if fvgAge > fvgMaxFresh
+            fresh := false
+            stale := true
+            reason := "FVG aged (" + str.tostring(fvgAge) + " bars)"
+    if fresh and degraded
+        fresh := false
+        stale := true
+        reason := "Setup degraded"
+    if fresh and isExtended
+        fresh := false
+        stale := true
+        reason := "Price too extended"
+    if fresh and mssFailed_
+        fresh := false
+        stale := true
+        reason := "MSS failed — structure invalidated"
+    if fresh and dispFailed_
+        fresh := false
+        stale := true
+        reason := "Displacement failed — setup invalidated"
+    [fresh, stale, reason]
+
+// Central mode qualification function (Chapter 2.2 + Chapter 4 + Chapter 5).
+// Returns: [meetsModeCandidate, meetsModeActivation, blockReason, allowDirectPromotion, activationPath]
+export evaluate_mode_execution(string mode, int lifecycle, bool swept, float sweepQ, bool hasMss, float mssDisp_, bool hasFvg, int fvgGrade_, bool seqOk, bool expired, bool degraded, bool reclaimPass, float reclaimStr, bool reclaimStrong, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass, bool bridgeStrong, int score, int mssTrigSig, bool dispPass_, bool dispStrong_, bool dispFailed_, float dispScore_) =>
+    int minCandidate = lm.mode_min_lifecycle_for_candidate(mode)
+    bool meetsCandidate = lifecycle >= minCandidate and not expired and not degraded
+    bool meetsActivation = false
+    bool allowDirect = lm.mode_allows_direct_signal_activation(mode)
+    string blockReason = ""
+    string actPath = ""
+
+    if lifecycle <= LC_SWEEP_CONFIRMED
+        meetsCandidate := false
+        blockReason := swept and sweepQ > 0 ? "Sweep-only (Q=" + str.tostring(math.round(sweepQ)) + ") — need structure shift" : "Sweep-only — need structure shift"
+
+    if meetsCandidate and isExtended and mode != "Aggressive"
+        meetsCandidate := false
+        blockReason := lm.mode_name_short(mode) + " blocked — entry too extended"
+
+    if not meetsCandidate
+        if blockReason == ""
+            blockReason := lm.mode_name_short(mode) + " needs " + lm.lifecycle_name(minCandidate)
+    else
+        if mode == "Aggressive"
+            bool standardOk = lifecycle >= LC_ENTRY_TRIGGERED and hasMss and reclaimPass
+            bool promoOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and reclaimPass and dispPass_ and not dispFailed_
+            if standardOk
+                meetsActivation := true
+                actPath := "AGG standard (score=" + str.tostring(score) + ", mssDisp=" + str.tostring(math.round(mssDisp_ * 100) / 100) + ")"
+            else if promoOk
+                meetsActivation := true
+                actPath := "AGG promo (disp=" + str.tostring(math.round(dispScore_)) + ")"
+            else
+                blockReason := "AGG: " + (not hasMss ? "no MSS" : not reclaimPass ? "reclaim " + str.tostring(math.round(reclaimStr)) + " insufficient" : dispFailed_ ? "displacement failed" : not dispPass_ ? "displacement insufficient (score=" + str.tostring(math.round(dispScore_)) + ")" : "lifecycle insufficient")
+
+        else if mode == "Balanced"
+            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and mssQualPass and not isExtended and dispPass_ and not dispFailed_
+            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStr >= 40.0 and mssQualPass and bridgePass and not isExtended and dispPass_ and not dispFailed_
+            if idealOk
+                meetsActivation := true
+                actPath := "BAL ideal (disp=" + str.tostring(math.round(dispScore_)) + ")"
+            else if bridgeOk
+                meetsActivation := true
+                actPath := "BAL bridge (disp=" + str.tostring(math.round(dispScore_)) + ")"
+            else
+                blockReason := not reclaimPass ? "BAL: reclaim insufficient (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualPass ? "BAL: MSS quality insufficient" : dispFailed_ ? "BAL: displacement failed" : not dispPass_ ? "BAL: displacement quality insufficient (score=" + str.tostring(math.round(dispScore_)) + ")" : isExtended ? "BAL: entry too extended" : lifecycle < LC_ENTRY_ARMED and not bridgeOk ? "BAL: bridge conditions not met" : "BAL: activation not met"
+
+        else // Conservative
+            bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and reclaimStr >= 50.0 and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2 and dispStrong_ and not dispFailed_
+            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and bridgeStrong and not isExtended and (seqOk or (hasFvg and fvgGrade_ >= 2)) and mssTrigSig >= 2 and dispStrong_ and not dispFailed_
+            bool fallbackOk = not idealOk and not bridgeOk and lifecycle >= LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2 and dispPass_ and dispScore_ >= 50.0 and not dispFailed_
+            if idealOk
+                meetsActivation := true
+                actPath := "CON ideal (disp=" + str.tostring(math.round(dispScore_)) + ")"
+            else if bridgeOk
+                meetsActivation := true
+                actPath := "CON bridge (disp=" + str.tostring(math.round(dispScore_)) + ")"
+            else if fallbackOk
+                meetsActivation := true
+                actPath := "CON fallback (disp=" + str.tostring(math.round(dispScore_)) + ")"
+            else
+                blockReason := not reclaimStrong and reclaimStr < 50.0 ? "CON: reclaim not strong (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualStrong ? "CON: MSS quality not strong" : mssTrigSig < 2 ? "CON: protected structure not broken (sig=" + str.tostring(mssTrigSig) + ")" : dispFailed_ ? "CON: displacement failed" : not dispStrong_ and dispScore_ < 50.0 ? "CON: displacement not strong (score=" + str.tostring(math.round(dispScore_)) + ")" : isExtended ? "CON: entry too extended" : not seqOk and lifecycle >= LC_ENTRY_ARMED ? "CON: requires complete sequence" : "CON: strong bridge not met"
+
+    if mode != "Aggressive"
+        allowDirect := false
+
+    [meetsCandidate, meetsActivation, blockReason, allowDirect, actPath]
+
+// Evaluate whether a pending setup qualifies for delayed activation (Chapter 2.2).
+// Returns: [canActivateNow, updatedReason, shouldInvalidate]
+export evaluate_pending_activation(bool isLong, int currentLifecycle, bool reclaimPass, float reclaimStr, bool reclaimStrong, float dispStrength, bool seqOk, bool expired, bool degraded, string mode, int signalBar, int expiryBar, bool isExtended, bool mssQualPass, bool mssQualStrong, bool bridgePass_, bool bridgeStrong_, bool pendingFresh, bool reclaimFailed_, bool mssFailed_, bool mssFresh_, bool dispPass_, bool dispFresh_, bool dispFailed_) =>
+    bool canActivate = false
+    string reason = ""
+    bool shouldInvalidate = false
+
+    if reclaimFailed_
+        shouldInvalidate := true
+        reason := "Pending invalidated — reclaim failed (str=" + str.tostring(math.round(reclaimStr)) + ")"
+    else if mssFailed_
+        shouldInvalidate := true
+        reason := "Pending invalidated — MSS failed"
+    else if not mssFresh_
+        shouldInvalidate := true
+        reason := "Pending invalidated — MSS stale"
+    else if dispFailed_
+        shouldInvalidate := true
+        reason := "Pending invalidated — displacement failed"
+    else if not dispFresh_
+        shouldInvalidate := true
+        reason := "Pending invalidated — displacement stale"
+    else if not lm.pending_setup_is_fresh(signalBar, expiryBar)
+        shouldInvalidate := lm.pending_setup_has_expired(expiryBar)
+        reason := shouldInvalidate ? "Pending window expired" : "Pending not yet active"
+    else if expired or degraded
+        shouldInvalidate := true
+        reason := expired ? "Setup expired" : "Setup degraded"
+    else if not pendingFresh
+        shouldInvalidate := true
+        reason := "Pending structurally stale"
+    else if isExtended
+        shouldInvalidate := true
+        reason := "Price too extended for pending"
+    else
+        string side = isLong ? "long" : "short"
+        if mode == "Aggressive"
+            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
+            if lifecycleOk and reclaimPass and dispPass_
+                canActivate := true
+                reason := "AGG pending " + side + " confirmed"
+            else
+                reason := not lifecycleOk ? "Pending: lifecycle insufficient" : not reclaimPass ? "Pending: reclaim lost (" + str.tostring(math.round(reclaimStr)) + ")" : "Pending: displacement insufficient"
+        else if mode == "Balanced"
+            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
+            bool qualityOk = reclaimPass and mssQualPass and bridgePass_ and dispPass_
+            if lifecycleOk and qualityOk
+                canActivate := true
+                reason := "BAL pending " + side + ": quality confirmed"
+            else
+                reason := not lifecycleOk ? "Pending: lifecycle " + lm.lifecycle_name(currentLifecycle) : not reclaimPass ? "Pending: reclaim insufficient (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualPass ? "Pending: MSS quality insufficient" : not dispPass_ ? "Pending: displacement insufficient" : "Pending: bridge insufficient"
+        else // Conservative
+            bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
+            bool qualityOk = reclaimStrong and mssQualStrong and bridgeStrong_ and dispPass_
+            bool seqGate = seqOk or (not na(dispStrength) and dispStrength >= 1.5)
+            if lifecycleOk and qualityOk and seqGate
+                canActivate := true
+                reason := "CON pending " + side + ": strong quality confirmed"
+            else
+                reason := not lifecycleOk ? "Pending: lifecycle insufficient" : not reclaimStrong ? "Pending: reclaim not strong" : not mssQualStrong ? "Pending: MSS not strong" : not dispPass_ ? "Pending: displacement not strong" : not seqGate ? "Pending: sequence insufficient" : "Pending: bridge not strong"
+
+    [canActivate, reason, shouldInvalidate]
+
+// Stats update method
+export method update_stats(T.Stats s, float rEarned, bool isWin) =>
+    s.totalTrades += 1
+    s.totalR += rEarned
+    s.equityR += rEarned
+    if isWin
+        s.wins += 1
+    else
+        s.losses += 1
+    s.peakEquityR := math.max(s.peakEquityR, s.equityR)
+    s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
