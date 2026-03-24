@@ -4,7 +4,7 @@
 // @description Liquidity source helpers, sweep scoring/classification, and summary functions.
 library("tv_liquidity_engine", overlay = true)
 
-import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_core_types/2 as T
 
 // Re-alias constants locally
 int SRC_SESSION     = T.SRC_SESSION()

@@ -5,15 +5,15 @@ indicator("SMC & ICT Multi-Strategy [Pro Visuals]", overlay = true, max_boxes_co
 import Devtailor/tv_format_utils/1 as fmt
 import Devtailor/tv_render_utils/1 as ren
 import Devtailor/tv_dashboard_utils/1 as tbl
-import Devtailor/tv_readiness_ui/1 as rdash
+import Devtailor/tv_readiness_ui/2 as rdash
 import Devtailor/tv_market_intel_ui/1 as intel
-import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_core_types/2 as T
 import Devtailor/tv_lifecycle_mode/1 as lm
 import Devtailor/tv_structure_engine/1 as se
-import Devtailor/tv_liquidity_engine/1 as liq
-import Devtailor/tv_pending_trade_state/1 as pts
-import Devtailor/tv_signal_gate_engine/1 as sg
-import Devtailor/tv_entry_authority/1 as ea
+import Devtailor/tv_liquidity_engine/2 as liq
+import Devtailor/tv_pending_trade_state/2 as pts
+import Devtailor/tv_signal_gate_engine/2 as sg
+import Devtailor/tv_entry_authority/2 as ea
 
 // --- Constants ---
 string NY_TZ = "America/New_York"
@@ -1115,7 +1115,7 @@ build_liquidity_registry(T.LiqLevel[] arr) =>
     add_liq_level(arr, "London Low",  london.isActive ? na : london.lastLow,  SRC_SESSION, PRI_SESSION + 5, true, true,  false, true, false, 0)
     add_liq_level(arr, "NY High",     ny.isActive ? na : ny.lastHigh,         SRC_SESSION, PRI_SESSION + 10, true, false, false, true, false, 0)
     add_liq_level(arr, "NY Low",      ny.isActive ? na : ny.lastLow,          SRC_SESSION, PRI_SESSION + 10, true, true,  false, true, false, 0)
-    
+
     // HTF levels
     add_liq_level(arr, "PDH", pdh, SRC_PDH_PDL, PRI_PDH_PDL, true, false, true, false, false, 0)
     add_liq_level(arr, "PDL", pdl, SRC_PDH_PDL, PRI_PDH_PDL, true, true,  true, false, false, 0)
@@ -1127,15 +1127,15 @@ build_liquidity_registry(T.LiqLevel[] arr) =>
     add_liq_level(arr, "HTF " + liqPivotTf2 + " Low", htfPivot2Low, SRC_PIVOT_HTF_2, PRI_PIVOT_HTF_2, true, true,  true, false, false, 0)
     add_liq_level(arr, "HTF " + liqPivotTf3 + " High", enableHtfPivot3 ? htfPivot3High : na, SRC_PIVOT_HTF_3, PRI_PIVOT_HTF_3, true, false, true, false, false, 0)
     add_liq_level(arr, "HTF " + liqPivotTf3 + " Low", enableHtfPivot3 ? htfPivot3Low : na, SRC_PIVOT_HTF_3, PRI_PIVOT_HTF_3, true, true,  true, false, false, 0)
-    
+
     // Structural pivots (classified by internal/external)
     add_liq_level(arr, "Pivot High", lastPHi, pivotHiIsExternal ? SRC_PIVOT_EXT : SRC_PIVOT_INT, pivotHiIsExternal ? PRI_PIVOT_EXT : PRI_PIVOT_INT, pivotHiIsExternal, false, false, false, false, 0)
     add_liq_level(arr, "Pivot Low",  lastPLo, pivotLoIsExternal ? SRC_PIVOT_EXT : SRC_PIVOT_INT, pivotLoIsExternal ? PRI_PIVOT_EXT : PRI_PIVOT_INT, pivotLoIsExternal, true,  false, false, false, 0)
-    
+
     // Equal highs/lows clusters
     add_liq_level(arr, "EQH", eqhLevel, SRC_EQH_EQL, eqhPriority, true, false, false, false, true, eqhCount)
     add_liq_level(arr, "EQL", eqlLevel, SRC_EQH_EQL, eqlPriority, true, true,  false, false, true, eqlCount)
-    
+
     // Optional psychological levels
     add_liq_level(arr, "RN " + str.tostring(roundMainAbove, "#.#####"), enableRoundNumbers ? roundMainAbove : na, SRC_ROUND_NUM, PRI_ROUND_NUM, false, false, false, false, false, 0)
     add_liq_level(arr, "RN " + str.tostring(roundMainBelow, "#.#####"), enableRoundNumbers ? roundMainBelow : na, SRC_ROUND_NUM, PRI_ROUND_NUM, false, true,  false, false, false, 0)
@@ -1248,7 +1248,7 @@ update_sweep_engine(T.LiqSweep[] sweeps, T.LiqLevel[] levels, int maxAge, int ma
                     T.LiqSweep old = array.get(sweeps, replaceIdx)
                     sw.lifecycleState := old.lifecycleState == LIFE_CONFIRMED ? LIFE_CONFIRMED : (sw.hasRejection or sw.hasDisplacement ? LIFE_CONFIRMED : LIFE_ACTIVE)
                     array.set(sweeps, replaceIdx, sw)
-    
+
     // --- Inducement Detection (deterministic only) ---
     // Tag a smaller internal sweep only after a larger same-side external/HTF/session event
     // is actually taken shortly after it. This keeps inducement as metadata, not prophecy.
@@ -1272,7 +1272,7 @@ update_sweep_engine(T.LiqSweep[] sweeps, T.LiqLevel[] levels, int maxAge, int ma
                             minor.qualityScore := math.max(0.0, minor.qualityScore - 8.0)
                             minor.grade := liq.get_sweep_grade(minor.qualityScore)
                             array.set(sweeps, j, minor)
-    
+
     // --- Lifecycle Management ---
     // Expire stale sweeps, cap count, manage states
     if array.size(sweeps) > 0
@@ -1295,7 +1295,7 @@ update_sweep_engine(T.LiqSweep[] sweeps, T.LiqLevel[] levels, int maxAge, int ma
             if updatedQ < 15.0
                 s.isActionable := false
             array.set(sweeps, i, s)
-    
+
     // Cap sweep count — keep best by quality
     while array.size(sweeps) > maxCount_
         // Find and remove lowest quality
@@ -1307,7 +1307,7 @@ update_sweep_engine(T.LiqSweep[] sweeps, T.LiqLevel[] levels, int maxAge, int ma
                 worstQ := s.qualityScore
                 worstIdx := i
         array.remove(sweeps, worstIdx)
-    
+
     // --- Consume sweeps on MSS (lifecycle transition) ---
     if mssBull
         if array.size(sweeps) > 0
@@ -2127,21 +2127,34 @@ liveSetup.structurallyValidLong := eaStructValidL
 liveSetup.structurallyValidShort := eaStructValidS
 liveSetup.structurallyValidDominant := pickLong ? eaStructValidL : eaStructValidS
 
+// --- Chapter 6: Invalidate pending when EA is terminal for that side ---
+// If entry authority evaluates to EXPIRED or INVALIDATED, the pending setup
+// for that side is no longer structurally coherent and must be cleared.
+if _pendingLongActive and ea.ea_is_terminal(eaLong)
+    _pendingLongActive := false
+    _pendingLongCanStillActivate := false
+    _pendingLongReason := "EA: " + ea.ea_name(eaLong) + " — " + eaReasonL
+if _pendingShortActive and ea.ea_is_terminal(eaShort)
+    _pendingShortActive := false
+    _pendingShortCanStillActivate := false
+    _pendingShortReason := "EA: " + ea.ea_name(eaShort) + " — " + eaReasonS
+// Also invalidate pending when EA says BLOCKED with structural failure categories
+if _pendingLongActive and eaLong == EA_BLOCKED and (ebLong == EB_RECLAIM_FAILED or ebLong == EB_MSS_FAILED or ebLong == EB_DISP_FAILED or ebLong == EB_CONFLICTED)
+    _pendingLongActive := false
+    _pendingLongCanStillActivate := false
+    _pendingLongReason := "EA blocked: " + ea.eb_name(ebLong)
+if _pendingShortActive and eaShort == EA_BLOCKED and (ebShort == EB_RECLAIM_FAILED or ebShort == EB_MSS_FAILED or ebShort == EB_DISP_FAILED or ebShort == EB_CONFLICTED)
+    _pendingShortActive := false
+    _pendingShortCanStillActivate := false
+    _pendingShortReason := "EA blocked: " + ea.eb_name(ebShort)
+
 // --- Chapter 6: Derive activation decisions from entry authority ---
-// Legacy compatibility: immediate activation uses entry authority
-bool signalLifecycleOk = (isSignalB and lm.lifecycle_allows_activation(liveSetup.lifecycleLong)) or (isSignalS and lm.lifecycle_allows_activation(liveSetup.lifecycleShort))
-bool signalModeOk = (isSignalB and modeActL) or (isSignalS and modeActS)
-// Entry authority is now the canonical activation gate
-bool canActivateImmediate = signalLifecycleOk and signalModeOk
-// Entry authority cross-check: only allow immediate if EA agrees
-bool eaAllowsImmediate = (isSignalB and eaLong == EA_TRIGGERABLE and epLong == EP_IMMEDIATE) or (isSignalS and eaShort == EA_TRIGGERABLE and epShort == EP_IMMEDIATE)
-// If legacy says yes but EA says no, EA wins (structural truth prevails)
-if canActivateImmediate and not eaAllowsImmediate
-    canActivateImmediate := false
-// If EA says triggerable via retrace (delayed), ensure delayed path is also active
+// Entry authority is the canonical and sole activation gate.
+// Immediate: EA must say TRIGGERABLE with IMMEDIATE path for the signal side.
+bool canActivateImmediate = (isSignalB and eaLong == EA_TRIGGERABLE and epLong == EP_IMMEDIATE) or (isSignalS and eaShort == EA_TRIGGERABLE and epShort == EP_IMMEDIATE)
+// Delayed: EA must say TRIGGERABLE with RETRACE path for the pending side.
 bool eaAllowsDelayed = (pendingActivatedLong and eaLong == EA_TRIGGERABLE and epLong == EP_RETRACE) or (pendingActivatedShort and eaShort == EA_TRIGGERABLE and epShort == EP_RETRACE)
-if canActivateDelayed and not eaAllowsDelayed
-    canActivateDelayed := false
+canActivateDelayed := canActivateDelayed and eaAllowsDelayed
 
 bool canActivateTrade = canActivateImmediate or canActivateDelayed
 bool activatingViaDelayed = canActivateDelayed and not canActivateImmediate
@@ -2154,8 +2167,11 @@ bool activateShort = canActivateImmediate ? isSignalS : pendingActivatedShort
 // Chapter 6: Use entry authority state to decide pending storage eligibility
 if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
     if isSignalB and not _pendingLongActive
-        // Chapter 6: Entry authority states that allow pending storage
-        bool pendingCandidateL = ea.ea_allows_pending(eaLong) or (eaLong == EA_BLOCKED and ebLong == EB_MODE_QUALITY) or (liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and modeCandL and not expiredL and not degradedL)
+        // Chapter 6: Entry authority states that allow pending storage.
+        // ea_allows_pending covers PENDING_RETRACE, PENDING_CONFIRMATION, ARMED, READY.
+        // Also allow when blocked by mode quality (setup is real but mode says wait)
+        // or when structurally valid (mode candidate passes, setup progressing).
+        bool pendingCandidateL = ea.ea_allows_pending(eaLong) or (eaLong == EA_BLOCKED and ebLong == EB_MODE_QUALITY) or (eaLong == EA_STRUCT_VALID and modeCandL)
         if pendingCandidateL
             int windowBars = lm.mode_pending_activation_bars(sensitivityMode)
             _pendingLongActive := true
@@ -2167,7 +2183,8 @@ if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
             _pendingLongReason := lm.mode_name_short(sensitivityMode) + " pending: " + eaReasonL + " (" + str.tostring(windowBars) + " bars)"
             _pendingLongCanStillActivate := true
     if isSignalS and not _pendingShortActive
-        bool pendingCandidateS = ea.ea_allows_pending(eaShort) or (eaShort == EA_BLOCKED and ebShort == EB_MODE_QUALITY) or (liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and modeCandS and not expiredS and not degradedS)
+        // Chapter 6: Same EA-driven pending eligibility for short side
+        bool pendingCandidateS = ea.ea_allows_pending(eaShort) or (eaShort == EA_BLOCKED and ebShort == EB_MODE_QUALITY) or (eaShort == EA_STRUCT_VALID and modeCandS)
         if pendingCandidateS
             int windowBarsS = lm.mode_pending_activation_bars(sensitivityMode)
             _pendingShortActive := true
@@ -2180,18 +2197,17 @@ if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
             _pendingShortCanStillActivate := true
 
     // Diagnostic: explain why immediate activation was blocked (Chapter 6: use entry authority reason)
-    if signalLifecycleOk and not signalModeOk
+    int sigEA = isSignalB ? eaLong : eaShort
+    string sigEAReason = isSignalB ? eaReasonL : eaReasonS
+    if ea.ea_is_terminal(sigEA) or sigEA == EA_BLOCKED or sigEA == EA_LATE
         liveSetup.dominantBlockedByMode := true
-        liveSetup.dominantModeBlockReason := isSignalB ? modeBlockL : modeBlockS
-    else if lm.mode_allows_direct_signal_activation(sensitivityMode) and not signalLifecycleOk
-        liveSetup.lifecycleIsDesynced := true
-        liveSetup.lifecycleDesyncReason := "AGG: signal blocked at " + (isSignalB ? lm.lifecycle_name(liveSetup.lifecycleLong) : lm.lifecycle_name(liveSetup.lifecycleShort))
-    else
+        liveSetup.dominantModeBlockReason := sigEAReason
+    else if sigEA == EA_PENDING_RETRACE or sigEA == EA_PENDING_CONFIRMATION
         liveSetup.dominantBlockedByMode := true
-        string modeReason = isSignalB ? modeBlockL : modeBlockS
-        if modeReason == ""
-            modeReason := lm.mode_name_short(sensitivityMode) + " mode: pending activation stored (" + str.tostring(lm.mode_pending_activation_bars(sensitivityMode)) + " bar window)"
-        liveSetup.dominantModeBlockReason := modeReason
+        liveSetup.dominantModeBlockReason := lm.mode_name_short(sensitivityMode) + " mode: pending activation stored (" + str.tostring(lm.mode_pending_activation_bars(sensitivityMode)) + " bar window)"
+    else if sigEA == EA_STRUCT_VALID or sigEA == EA_FORMING
+        liveSetup.dominantBlockedByMode := true
+        liveSetup.dominantModeBlockReason := sigEAReason
 
 // Clear pending state after successful delayed activation
 if pendingActivatedLong
@@ -2331,17 +2347,17 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
     // --- POST-TRADE LIFECYCLE RECONCILIATION & INVARIANT VALIDATION ---
     // (Chapter 1: State Machine Integrity)
     // =====================================================================
-    
+
     // If activeTrade exists, lifecycle dominant must be ACTIVE
     if not na(activeTrade)
         s.lifecycleDominant := LC_ACTIVE
         s.lifecycleNameDominant := lm.lifecycle_name(LC_ACTIVE)
         s.lifecycleNextRequiredDominant := "Manage active position"
         s.lifecycleCanActivateDominant := true
-    
+
     // --- Invariant Validation ---
     // Detect impossible state combinations and flag as DESYNC
-    
+
     // Invariant 3: Pre-confirmation lifecycle but sequenceValid reports true
     if lm.lifecycle_is_preconfirmation(s.lifecycleLong) and seqOkL
         s.lifecycleIsDesynced := true
@@ -2351,15 +2367,15 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         s.lifecycleIsDesynced := true
         s.lifecycleDesyncReason := "Short: pre-confirmation lifecycle (" + lm.lifecycle_name(s.lifecycleShort) + ") but sequence valid"
         s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant 5: Dominant says can activate but lifecycle below ENTRY_ARMED
     if s.lifecycleCanActivateDominant and s.lifecycleDominant < LC_ENTRY_ARMED and s.lifecycleDominant != LC_ACTIVE
         s.lifecycleIsDesynced := true
         s.lifecycleDesyncReason := "canActivate=true at lifecycle=" + lm.lifecycle_name(s.lifecycleDominant)
         s.lifecycleDominant := LC_DESYNC
-    
+
     // --- Chapter 2 Mode Invariants ---
-    
+
     // Invariant M1: Trade activated this bar while pre-promotion lifecycle below mode minimum
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
         int modeMinAct = lm.mode_min_lifecycle_for_activation(sensitivityMode)
@@ -2368,7 +2384,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := lm.mode_name_short(sensitivityMode) + ": trade activated at " + lm.lifecycle_name(prePromotionLc) + ", min=" + lm.lifecycle_name(modeMinAct)
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant M2: Signal promoted to ENTRY_TRIGGERED with canActivate in non-Aggressive mode
     if not s.lifecycleIsDesynced and not lm.mode_allows_direct_signal_activation(sensitivityMode)
         bool badPromoL = isSignalB and s.lifecycleLong == LC_ENTRY_TRIGGERED and s.lifecycleCanActivateLong
@@ -2377,10 +2393,10 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := lm.mode_name_short(sensitivityMode) + ": signal promoted to ENTRY_TRIGGERED with canActivate (disallowed)"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant M3: Candidate preview would show while mode candidate qualification fails
     // (Enforced at render time; flagged here for debug visibility only — no desync)
-    
+
     // Invariant M4: Lifecycle/action implies readiness while mode block reason exists
     // Chapter 2.1: Exempt when a pending activation is stored (mode block is expected on signal bar)
     bool hasPendingStored = _pLA or _pSA
@@ -2388,16 +2404,16 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         s.lifecycleIsDesynced := true
         s.lifecycleDesyncReason := lm.mode_name_short(sensitivityMode) + ": canActivate=true but mode blocks (" + s.dominantModeBlockReason + ")"
         s.lifecycleDominant := LC_DESYNC
-    
+
     // --- Chapter 2.1 Pending Activation Invariants ---
-    
+
     // Invariant P1: Delayed activation fired but no activeTrade created
     if not s.lifecycleIsDesynced and (pendingActivatedLong or pendingActivatedShort) and na(activeTrade)
         // This would indicate the activation path was taken but trade creation failed
         s.lifecycleIsDesynced := true
         s.lifecycleDesyncReason := "P1: delayed activation succeeded but no trade created"
         s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant P2: Pending active for a mode that allows direct signal activation (AGG shouldn't need pending)
     if not s.lifecycleIsDesynced
         if _pLA and lm.mode_allows_direct_signal_activation(pndLongMode)
@@ -2408,7 +2424,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "P2: pending short stored for AGG mode (should activate immediately)"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant P3: Pending expiry bar is before signal bar (impossible window)
     if not s.lifecycleIsDesynced
         if _pLA and pndLongExpiryBar <= pndLongSignalBar
@@ -2419,13 +2435,13 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "P3: pending short expiry (" + str.tostring(pndShortExpiryBar) + ") <= signal (" + str.tostring(pndShortSignalBar) + ")"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant P4: Both pending long and short active simultaneously
     if not s.lifecycleIsDesynced and _pLA and _pSA
         s.lifecycleIsDesynced := true
         s.lifecycleDesyncReason := "P4: both pending long and short active simultaneously"
         s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant P5: Delayed activation on same bar as signal (should have been immediate)
     if not s.lifecycleIsDesynced
         if pendingActivatedLong and pndLongSignalBar == bar_index
@@ -2436,7 +2452,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "P5: delayed short activation on signal bar (should be immediate)"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant P6: Trade activated via delayed path but activeTrade direction mismatch
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and activatingViaDelayed
         if pendingActivatedLong and not activeTrade.isLong
@@ -2447,7 +2463,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "P6: delayed short activation created long trade"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant P7: Pending initial lifecycle below MSS_CONFIRMED (shouldn't have been stored)
     if not s.lifecycleIsDesynced
         if _pLA and pndLongInitialLC < LC_MSS_CONFIRMED
@@ -2458,9 +2474,9 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "P7: pending short stored at " + lm.lifecycle_name(pndShortInitialLC) + " (below MSS_CONFIRMED)"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // --- Chapter 2.2 Quality Invariants ---
-    
+
     // Invariant Q1: Balanced activation while extension filter says blocked
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Balanced"
         bool domExt = activeTrade.isLong ? extBlockL : extBlockS
@@ -2468,7 +2484,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "Q1: BAL activated while extension filter blocked"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant Q2: Conservative activation without stronger quality than Balanced
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Conservative"
         float domRclStr = activeTrade.isLong ? rclStrL : rclStrS
@@ -2477,7 +2493,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "Q2: CON activated without strong quality (reclaim=" + str.tostring(math.round(domRclStr)) + ")"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant Q3: Pending setup valid while freshness helper says stale
     if not s.lifecycleIsDesynced
         if _pLA and _pLCA and not pendFreshL
@@ -2488,7 +2504,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             _pSA := false
             _pSCA := false
             _pSR := "Q3: pending invalidated — structurally stale"
-    
+
     // Invariant Q4: Reclaim quality insufficient but activation permitted
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
         bool domRclPass = activeTrade.isLong ? rclPassL : rclPassS
@@ -2496,7 +2512,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "Q4: " + lm.mode_name_short(sensitivityMode) + " activated without reclaim pass"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant Q5: MSS quality insufficient but activation permitted (non-Aggressive)
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode != "Aggressive"
         bool domMssQPass = activeTrade.isLong ? mssQPassL : mssQPassS
@@ -2504,9 +2520,9 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "Q5: " + lm.mode_name_short(sensitivityMode) + " activated without MSS quality pass"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // --- Chapter 3: Reclaim Stage Invariants ---
-    
+
     // Invariant R1: lifecycle = LC_RECLAIM_VISIBLE while reclaimDetected is false
     if not s.lifecycleIsDesynced
         bool rclDesyncL = s.lifecycleLong == LC_RECLAIM_VISIBLE and not rclDetL
@@ -2515,7 +2531,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "R1: LC_RECLAIM_VISIBLE without reclaim detected (" + (rclDesyncL ? "long" : "short") + ")"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant R2: activation allowed while reclaimFailed is true
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
         bool domRclFailed_ = activeTrade.isLong ? rclFailedL2 : rclFailedS2
@@ -2523,7 +2539,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "R2: trade activated while reclaim failed"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant R3: Balanced/Conservative activation with reclaim below mode minimum
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode != "Aggressive"
         bool domRclValid_ = activeTrade.isLong ? rclValidL2 : rclValidS2
@@ -2538,7 +2554,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "R3: BAL activated without valid reclaim"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant R4: pending setup alive while reclaim has clearly failed
     if not s.lifecycleIsDesynced
         if _pLA and _pLCA and rclFailedL2
@@ -2549,7 +2565,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             _pSA := false
             _pSCA := false
             _pSR := "R4: pending invalidated — reclaim failed"
-    
+
     // Invariant R5: lifecycle advanced past sweep without reclaim evidence
     if not s.lifecycleIsDesynced
         bool advLNoRecl = s.lifecycleLong >= LC_RECLAIM_VISIBLE and s.lifecycleLong <= LC_MSS_CONFIRMED and not rclDetL and not na(bestSweepBarSSL) and na(lastMssBullBar)
@@ -2562,9 +2578,9 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             if advSNoRecl
                 s.lifecycleShort := LC_SWEEP_CONFIRMED
                 s.lifecycleNameShort := lm.lifecycle_name(LC_SWEEP_CONFIRMED)
-    
+
     // --- Chapter 4: MSS Integrity Invariants ---
-    
+
     // Invariant M1: lifecycle = LC_MSS_CONFIRMED while mssValid is false (and not failed)
     if not s.lifecycleIsDesynced
         bool mssLcDesyncL = s.lifecycleLong == LC_MSS_CONFIRMED and not mssValidL2 and not mssFailedL2 and not na(lastMssBullBar)
@@ -2577,7 +2593,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             if mssLcDesyncS
                 s.lifecycleShort := rclDetS ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
                 s.lifecycleNameShort := lm.lifecycle_name(s.lifecycleShort)
-    
+
     // Invariant M2: activation allowed while mssFailed is true
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
         bool domMssFailed2 = activeTrade.isLong ? mssFailedL2 : mssFailedS2
@@ -2585,7 +2601,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "M2: trade activated while MSS failed"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant M3: Balanced/Conservative activation with MSS below mode minimum quality
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode != "Aggressive"
         bool domMssQPass2 = activeTrade.isLong ? mssQPassL : mssQPassS
@@ -2598,7 +2614,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "M3: CON activated with trigger sig=" + str.tostring(domMssTrigSig2) + " (need >= 2)"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant M4: pending setup alive while MSS has clearly failed
     if not s.lifecycleIsDesynced
         if _pLA and _pLCA and mssFailedL2
@@ -2609,7 +2625,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             _pSA := false
             _pSCA := false
             _pSR := "M4: pending invalidated — MSS failed"
-    
+
     // Invariant M5: lifecycle advanced past reclaim without valid MSS evidence
     if not s.lifecycleIsDesynced
         bool advLNoMss = s.lifecycleLong >= LC_MSS_CONFIRMED and not mssValidL2 and not na(lastMssBullBar) and not mssFailedL2
@@ -2620,7 +2636,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         if advSNoMss
             s.lifecycleShort := rclDetS ? LC_RECLAIM_VISIBLE : LC_SWEEP_CONFIRMED
             s.lifecycleNameShort := lm.lifecycle_name(s.lifecycleShort)
-    
+
     // Invariant M6: LC_DISPLACEMENT_CONFIRMED while underlying MSS is invalid or stale
     if not s.lifecycleIsDesynced
         bool dispNoMssL = s.lifecycleLong == LC_DISPLACEMENT_CONFIRMED and (mssFailedL2 or not mssFreshL2)
@@ -2631,7 +2647,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         if dispNoMssS
             s.lifecycleShort := LC_SWEEP_CONFIRMED
             s.lifecycleNameShort := lm.lifecycle_name(LC_SWEEP_CONFIRMED)
-    
+
     // Invariant M7: Conservative activates on MSS quality weaker than Balanced
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Conservative"
         bool domMssStrong2 = activeTrade.isLong ? mssQStrongL : mssQStrongS
@@ -2640,9 +2656,9 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "M7: CON activated with weak MSS (score=" + str.tostring(math.round(domMssScore2)) + ")"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // --- Chapter 5: Displacement Integrity Invariants ---
-    
+
     // Invariant D1: lifecycle = LC_DISPLACEMENT_CONFIRMED while dispValid is false
     if not s.lifecycleIsDesynced
         bool dispLcDesyncL = s.lifecycleLong == LC_DISPLACEMENT_CONFIRMED and not dispValidL2 and not dispFailedL2
@@ -2654,7 +2670,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         if dispLcDesyncS
             s.lifecycleShort := LC_MSS_CONFIRMED
             s.lifecycleNameShort := lm.lifecycle_name(LC_MSS_CONFIRMED)
-    
+
     // Invariant D2: activation allowed while dispFailed is true
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index
         bool domDispFailed3 = activeTrade.isLong ? dispFailedL2 : dispFailedS2
@@ -2662,7 +2678,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "D2: trade activated while displacement failed"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant D3: Balanced/Conservative activation with displacement below mode minimum quality
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode != "Aggressive"
         bool domDispPass3 = activeTrade.isLong ? dispPassL : dispPassS
@@ -2670,7 +2686,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "D3: " + lm.mode_name_short(sensitivityMode) + " activated without displacement mode pass"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant D4: pending setup alive while displacement has failed
     if not s.lifecycleIsDesynced
         if _pLA and _pLCA and dispFailedL2
@@ -2681,7 +2697,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             _pSA := false
             _pSCA := false
             _pSR := "D4: pending invalidated — displacement failed"
-    
+
     // Invariant D5: lifecycle advanced past MSS without valid displacement evidence
     // (LC_DISPLACEMENT_CONFIRMED requires dispValid)
     if not s.lifecycleIsDesynced
@@ -2693,7 +2709,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         if advDispSNoEvidence
             s.lifecycleShort := LC_MSS_CONFIRMED
             s.lifecycleNameShort := lm.lifecycle_name(LC_MSS_CONFIRMED)
-    
+
     // Invariant D6: Conservative activates on displacement quality weaker than Balanced
     if not s.lifecycleIsDesynced and not na(activeTrade) and activeTrade.entryBar == bar_index and sensitivityMode == "Conservative"
         bool domDispStrong3 = activeTrade.isLong ? dispPassStrongL : dispPassStrongS
@@ -2702,7 +2718,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.lifecycleIsDesynced := true
             s.lifecycleDesyncReason := "D6: CON activated with weak displacement (score=" + str.tostring(math.round(domDispScore3)) + ")"
             s.lifecycleDominant := LC_DESYNC
-    
+
     // Invariant D7: LC_ENTRY_ARMED while underlying displacement is invalid/stale/failed
     if not s.lifecycleIsDesynced
         bool entryArmedBadDispL = s.lifecycleLong == LC_ENTRY_ARMED and dispFailedL2
@@ -2713,7 +2729,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         if entryArmedBadDispS
             s.lifecycleShort := LC_MSS_CONFIRMED
             s.lifecycleNameShort := lm.lifecycle_name(LC_MSS_CONFIRMED)
-    
+
     // Invariant D8: LC_DISPLACEMENT_CONFIRMED while underlying MSS is invalid (extends M6 with displacement)
     // Already handled by existing M6 invariant — no additional logic needed here.
 
@@ -2735,35 +2751,61 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         s.lifecycleDesyncReason := eaDesyncReason
         s.lifecycleDominant := LC_DESYNC
 
-    // --- Backward-Compatible Field Overrides (lifecycle + entry authority authoritative) ---
+    // EA2: Pending active while entry authority is terminal or structurally-blocked (defensive)
+    if not s.lifecycleIsDesynced
+        if _pLA and (ea.ea_is_terminal(s.entryAuthorityLong) or (s.entryAuthorityLong == EA_BLOCKED and (s.blockCategoryLong == EB_MSS_FAILED or s.blockCategoryLong == EB_RECLAIM_FAILED or s.blockCategoryLong == EB_DISP_FAILED)))
+            _pLA := false
+            _pLCA := false
+            _pLR := "EA2: pending invalidated — EA=" + ea.ea_name(s.entryAuthorityLong)
+        if _pSA and (ea.ea_is_terminal(s.entryAuthorityShort) or (s.entryAuthorityShort == EA_BLOCKED and (s.blockCategoryShort == EB_MSS_FAILED or s.blockCategoryShort == EB_RECLAIM_FAILED or s.blockCategoryShort == EB_DISP_FAILED)))
+            _pSA := false
+            _pSCA := false
+            _pSR := "EA2: pending invalidated — EA=" + ea.ea_name(s.entryAuthorityShort)
+
+    // EA3: Lifecycle says armed/triggered but EA says blocked/expired/invalidated (lifecycle must yield)
+    if not s.lifecycleIsDesynced
+        if s.lifecycleLong >= LC_ENTRY_ARMED and s.lifecycleLong <= LC_ENTRY_TRIGGERED and ea.ea_is_terminal(s.entryAuthorityLong)
+            s.lifecycleLong := s.entryAuthorityLong == EA_EXPIRED ? LC_EXPIRED : LC_INVALIDATED
+            s.lifecycleNameLong := lm.lifecycle_name(s.lifecycleLong)
+        if s.lifecycleShort >= LC_ENTRY_ARMED and s.lifecycleShort <= LC_ENTRY_TRIGGERED and ea.ea_is_terminal(s.entryAuthorityShort)
+            s.lifecycleShort := s.entryAuthorityShort == EA_EXPIRED ? LC_EXPIRED : LC_INVALIDATED
+            s.lifecycleNameShort := lm.lifecycle_name(s.lifecycleShort)
+
+    // --- Entry Authority Authoritative Field Overrides ---
     if s.lifecycleIsDesynced
         s.phase := "State desync"
         s.missing := s.lifecycleDesyncReason
         s.sequenceValid := false
         s.lifecycleNameDominant := lm.lifecycle_name(LC_DESYNC)
     else if not s.isConflicted
-        // Chapter 6: Use entry authority state for phase display when available
-        if domEA >= EA_READY
+        // Chapter 6: Entry authority is the canonical phase display source.
+        // EA_STRUCT_VALID and above are meaningful Chapter 6 states.
+        // NONE and FORMING fall back to lifecycle name (they agree).
+        if domEA >= EA_STRUCT_VALID
+            s.phase := ea.ea_name(domEA)
+        else if domEA == EA_FORMING
             s.phase := ea.ea_name(domEA)
         else
             s.phase := s.lifecycleNameDominant
-        // Chapter 6: Show entry authority reason as primary guidance
+
+        // Chapter 6: Entry authority reason is the canonical "missing/next" guidance.
+        // Pending activation overlay takes priority when a pending is actively waiting.
+        string domEAReason = pickLong ? s.entryReasonLong : s.entryReasonShort
         if _pLA or _pSA
             bool pendL2 = _pLA
             int barsRemaining = (pendL2 ? pndLongExpiryBar : pndShortExpiryBar) - bar_index
             string pendSide = pendL2 ? "Long" : "Short"
             s.missing := pendSide + " pending activation (" + str.tostring(math.max(0, barsRemaining)) + " bars remaining)"
-        else if domEA == EA_BLOCKED or domEA == EA_LATE
-            // Chapter 6: entry authority provides the authoritative block/late reason
-            s.missing := pickLong ? s.entryReasonLong : s.entryReasonShort
-        else if s.dominantBlockedByMode and not dominantLiquidityBlocked
-            s.missing := s.dominantModeBlockReason
-        else if not dominantLiquidityBlocked
-            // Chapter 6: prefer entry authority reason when structurally valid
-            if domEA >= EA_STRUCT_VALID and domEA <= EA_TRIGGERABLE
-                s.missing := pickLong ? s.entryReasonLong : s.entryReasonShort
-            else
-                s.missing := s.lifecycleNextRequiredDominant
+        else if domEA >= EA_STRUCT_VALID
+            // EA reason is authoritative for all structurally-aware states
+            s.missing := domEAReason
+        else if dominantLiquidityBlocked
+            // Liquidity blocked states retain their own messaging
+            s.missing := s.missing
+        else if domEA == EA_FORMING and domEAReason != ""
+            s.missing := domEAReason
+        else
+            s.missing := s.lifecycleNextRequiredDominant
         s.sequenceValid := s.lifecycleDominant >= LC_ENTRY_ARMED
 
     [_pLA, _pLCA, _pLR, _pSA, _pSCA, _pSR]
@@ -2870,12 +2912,15 @@ if showReadiness and barstate.islast
          : domEADash == EA_FORMING ? uiNeutralColor
          : uiLabelText
     bool domPendStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
-    // Chapter 6: Action text from entry authority when it has meaningful state, otherwise legacy fallback
+    // Chapter 6: Entry authority drives action text for all states.
+    // Desync and conflict override EA since they represent system-level faults.
     string actionStr = ""
-    if domEADash >= EA_STRUCT_VALID or domEADash == EA_ACTIVE
-        actionStr := ea.ea_action_text(domEADash, liveSetup.isPotentialLong)
+    if liveSetup.lifecycleIsDesynced
+        actionStr := "System desync — check diagnostics"
+    else if liveSetup.isConflicted
+        actionStr := "Both sides active — stand aside"
     else
-        actionStr := lm.format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade), liveSetup.dominantBlockedByMode, liveSetup.dominantModeBlockReason, domPendStale)
+        actionStr := ea.ea_action_text(domEADash, liveSetup.isPotentialLong)
     color actionColor = str.contains(actionStr, "desync") or str.contains(actionStr, "error") ? color.red : str.contains(actionStr, "triggerable") or str.contains(actionStr, "armed") or str.contains(actionStr, "Trade active") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") or str.contains(actionStr, "invalidated") or str.contains(actionStr, "Blocked") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") or str.contains(actionStr, "Await") or str.contains(actionStr, "ready") ? color.orange : uiNeutralColor
     string confStr = fmt.format_confidence(liveSetup.score) + " (" + str.tostring(liveSetup.score) + ")"
     color confColor = liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 50 ? color.orange : liveSetup.score >= 30 ? uiNeutralColor : uiLabelText
@@ -3135,8 +3180,9 @@ if showReadiness and barstate.islast
         string dispPassDbg = "L: " + (dispPassL ? "PASS" : "FAIL") + (dispPassStrongL ? " [strong]" : "") + "  |  S: " + (dispPassS ? "PASS" : "FAIL") + (dispPassStrongS ? " [strong]" : "")
         color dispPassCol = (dispPassL or dispPassS) ? uiNeutralColor : uiLabelText
 
-        string actPathStr = liveSetup.activationPathDominant != "" ? liveSetup.activationPathDominant : "blocked"
-        color actPathCol = liveSetup.activationPathDominant != "" ? uiPosColor : uiLabelText
+        // Chapter 6: Activation path now driven by entry authority path with mode path fallback
+        string actPathStr = liveSetup.entryPathDominant != EP_NONE ? ea.ep_name(liveSetup.entryPathDominant) + " (" + liveSetup.activationPathDominant + ")" : liveSetup.activationPathDominant != "" ? liveSetup.activationPathDominant : "blocked"
+        color actPathCol = liveSetup.entryPathDominant == EP_IMMEDIATE ? uiPosColor : liveSetup.entryPathDominant == EP_RETRACE or liveSetup.entryPathDominant == EP_PENDING ? color.orange : liveSetup.activationPathDominant != "" ? uiNeutralColor : uiLabelText
 
         string freshDbgStr = "L: " + liveSetup.freshnessReasonLong + "  |  S: " + liveSetup.freshnessReasonShort
         string modeThrStr = "Min cand: " + lm.lifecycle_name(lm.mode_min_lifecycle_for_candidate(sensitivityMode)) + "  |  Min act: " + lm.lifecycle_name(lm.mode_min_lifecycle_for_activation(sensitivityMode))
@@ -3212,6 +3258,12 @@ if showReadiness and barstate.islast
              delayActStr, delayActCol,
              desyncStr, desyncCol,
              rejCause, rejCol,
+             eaStateDbg, eaStateDbgCol,
+             eaBothDbg,
+             eaPathDbg, eaPathDbgCol,
+             eaBlockDbg, eaBlockDbgCol,
+             eaReasonDbg,
+             eaStructDbg, eaStructDbgCol,
              uiValueText, uiNeutralColor)
 
         r := rdash.render_lifecycle(readTable, r, lcDisp, uiHeaderText, uiLabelText, uiBg)
@@ -3296,7 +3348,11 @@ update_candidate_preview(SetupState s, bool pickLong, bool dominantLiquidityBloc
     bool domDispStale = pickLong ? (not s.disp.freshLong) : (not s.disp.freshShort)
     bool qualityPreviewOk = not domExtended and not domPendingStale and not domReclaimFailed and not domMssFailed and not domMssStale and not domDispFailed and not domDispStale
 
-    bool showPreview = showSetups and showCandidatePreview and (s.dominantMeetsModeCandidate or hasPendingCandidate) and qualityPreviewOk and na(activeTrade) and not s.isExpired and not s.isConflicted and not s.isDegraded and not dominantLiquidityBlocked and not s.lifecycleIsDesynced
+    // Chapter 6: Entry authority must permit preview — terminal, blocked (structural), or NONE/FORMING states suppress it
+    int domEAPreview = s.entryAuthorityDominant
+    bool eaPermitsPreview = not ea.ea_is_terminal(domEAPreview) and domEAPreview != EA_NONE and domEAPreview != EA_BLOCKED
+
+    bool showPreview = showSetups and showCandidatePreview and (s.dominantMeetsModeCandidate or hasPendingCandidate) and qualityPreviewOk and eaPermitsPreview and na(activeTrade) and not s.isConflicted and not dominantLiquidityBlocked and not s.lifecycleIsDesynced
 
     if showPreview
         // === COMPUTE RENDERING PARAMETERS (proprietary decisions) ===

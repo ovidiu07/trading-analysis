@@ -4,7 +4,7 @@
 // @description Pending trade evaluation, mode execution qualification, and Stats method.
 library("tv_pending_trade_state", overlay = true)
 
-import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_core_types/2 as T
 import Devtailor/tv_lifecycle_mode/1 as lm
 
 // Re-alias constants locally

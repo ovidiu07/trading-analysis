@@ -6,7 +6,7 @@
 // All functions are pure — they use only parameters, no persistent state.
 library("tv_entry_authority", overlay = true)
 
-import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_core_types/2 as T
 
 // Re-alias constants locally
 int LC_NONE                   = T.LC_NONE()
