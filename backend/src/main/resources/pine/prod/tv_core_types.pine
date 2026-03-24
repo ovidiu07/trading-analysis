@@ -67,6 +67,42 @@ export LC_EXPIRED()                => 9
 export LC_INVALIDATED()            => 10
 export LC_DESYNC()                 => 11
 
+// --- Entry Authority States (Chapter 6) ---
+// Canonical entry classification — separates structural validity from execution readiness
+export EA_NONE()                   => 0   // No setup context
+export EA_FORMING()                => 1   // Setup forming, structural sequence incomplete
+export EA_STRUCT_VALID()           => 2   // Structurally valid but not execution-ready
+export EA_READY()                  => 3   // Execution-ready, not yet armed (mode/quality pass)
+export EA_ARMED()                  => 4   // Armed, trigger zone reachable
+export EA_TRIGGERABLE()            => 5   // Entry trigger condition met this bar
+export EA_PENDING_RETRACE()        => 6   // Valid, awaiting retrace/delayed entry
+export EA_PENDING_CONFIRMATION()   => 7   // Awaiting additional confirmation before entry
+export EA_BLOCKED()                => 8   // Structurally valid but execution blocked
+export EA_LATE()                   => 9   // Setup degraded by time/extension, maybe still tradable
+export EA_EXPIRED()                => 10  // Setup aged out completely
+export EA_INVALIDATED()            => 11  // Setup structurally negated
+export EA_ACTIVE()                 => 12  // Trade active from this setup
+
+// --- Entry Path Types (Chapter 6) ---
+// Which execution path is currently in effect for this setup
+export EP_NONE()                   => 0   // No path available
+export EP_IMMEDIATE()              => 1   // Direct activation on signal bar
+export EP_RETRACE()                => 2   // Delayed activation via retrace into zone
+export EP_PENDING()                => 3   // Stored pending, awaiting structural conditions
+
+// --- Entry Block Categories (Chapter 6) ---
+// Why execution is blocked despite potential structural validity
+export EB_NONE()                   => 0   // No block
+export EB_MODE_QUALITY()           => 1   // Mode quality thresholds not met
+export EB_GATE_STRATEGY()          => 2   // Strategy gate (ICT/SB) rejected
+export EB_EXTENSION()              => 3   // Price too extended from anchor
+export EB_FRESHNESS()              => 4   // Setup or components stale
+export EB_RECLAIM_FAILED()         => 5   // Reclaim lost after acceptance
+export EB_MSS_FAILED()             => 6   // MSS invalidated
+export EB_DISP_FAILED()            => 7   // Displacement failed
+export EB_CONFLICTED()             => 8   // Both sides active, no clear edge
+export EB_ACTIVE_TRADE()           => 9   // Already in a trade
+
 // =====================================================================
 // EXPORTED TYPES
 // =====================================================================

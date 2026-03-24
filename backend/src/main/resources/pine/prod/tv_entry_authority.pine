@@ -1,0 +1,497 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © Devtailor
+//@version=6
+// @description Entry Authority Model (Chapter 6): pure evaluator that classifies setup tradability.
+// Separates structural validity from execution readiness from actual entry authorization.
+// All functions are pure — they use only parameters, no persistent state.
+library("tv_entry_authority", overlay = true)
+
+import Devtailor/tv_core_types/1 as T
+
+// Re-alias constants locally
+int LC_NONE                   = T.LC_NONE()
+int LC_LIQUIDITY_IDENTIFIED   = T.LC_LIQUIDITY_IDENTIFIED()
+int LC_SWEEP_CONFIRMED        = T.LC_SWEEP_CONFIRMED()
+int LC_RECLAIM_VISIBLE        = T.LC_RECLAIM_VISIBLE()
+int LC_MSS_CONFIRMED          = T.LC_MSS_CONFIRMED()
+int LC_DISPLACEMENT_CONFIRMED = T.LC_DISPLACEMENT_CONFIRMED()
+int LC_ENTRY_ARMED            = T.LC_ENTRY_ARMED()
+int LC_ENTRY_TRIGGERED        = T.LC_ENTRY_TRIGGERED()
+int LC_ACTIVE                 = T.LC_ACTIVE()
+int LC_EXPIRED                = T.LC_EXPIRED()
+int LC_INVALIDATED            = T.LC_INVALIDATED()
+int LC_DESYNC                 = T.LC_DESYNC()
+
+int EA_NONE                   = 0
+int EA_FORMING                = 1
+int EA_STRUCT_VALID           = 2
+int EA_READY                  = 3
+int EA_ARMED                  = 4
+int EA_TRIGGERABLE            = 5
+int EA_PENDING_RETRACE        = 6
+int EA_PENDING_CONFIRMATION   = 7
+int EA_BLOCKED                = 8
+int EA_LATE                   = 9
+int EA_EXPIRED                = 10
+int EA_INVALIDATED            = 11
+int EA_ACTIVE                 = 12
+
+int EP_NONE                   = 0
+int EP_IMMEDIATE              = 1
+int EP_RETRACE                = 2
+int EP_PENDING                = 3
+
+int EB_NONE                   = 0
+int EB_MODE_QUALITY           = 1
+int EB_GATE_STRATEGY          = 2
+int EB_EXTENSION              = 3
+int EB_FRESHNESS              = 4
+int EB_RECLAIM_FAILED         = 5
+int EB_MSS_FAILED             = 6
+int EB_DISP_FAILED            = 7
+int EB_CONFLICTED             = 8
+int EB_ACTIVE_TRADE           = 9
+
+// =====================================================================
+// ENTRY AUTHORITY STATE NAMING
+// =====================================================================
+
+// Human-readable name for an entry authority state.
+export ea_name(int ea) =>
+    ea == EA_NONE ? "No setup"
+     : ea == EA_FORMING ? "Setup forming"
+     : ea == EA_STRUCT_VALID ? "Structurally valid"
+     : ea == EA_READY ? "Execution ready"
+     : ea == EA_ARMED ? "Entry armed"
+     : ea == EA_TRIGGERABLE ? "Entry triggerable"
+     : ea == EA_PENDING_RETRACE ? "Pending retrace"
+     : ea == EA_PENDING_CONFIRMATION ? "Pending confirmation"
+     : ea == EA_BLOCKED ? "Blocked"
+     : ea == EA_LATE ? "Late / degraded"
+     : ea == EA_EXPIRED ? "Expired"
+     : ea == EA_INVALIDATED ? "Invalidated"
+     : ea == EA_ACTIVE ? "Trade active"
+     : "Unknown"
+
+// Human-readable name for an entry path type.
+export ep_name(int ep) =>
+    ep == EP_NONE ? "None"
+     : ep == EP_IMMEDIATE ? "Immediate"
+     : ep == EP_RETRACE ? "Retrace"
+     : ep == EP_PENDING ? "Pending"
+     : "Unknown"
+
+// Human-readable name for a block category.
+export eb_name(int eb) =>
+    eb == EB_NONE ? "None"
+     : eb == EB_MODE_QUALITY ? "Mode quality"
+     : eb == EB_GATE_STRATEGY ? "Strategy gate"
+     : eb == EB_EXTENSION ? "Extended"
+     : eb == EB_FRESHNESS ? "Stale"
+     : eb == EB_RECLAIM_FAILED ? "Reclaim failed"
+     : eb == EB_MSS_FAILED ? "MSS failed"
+     : eb == EB_DISP_FAILED ? "Displacement failed"
+     : eb == EB_CONFLICTED ? "Conflicted"
+     : eb == EB_ACTIVE_TRADE ? "Active trade"
+     : "Unknown"
+
+// Action guidance derived from entry authority state.
+export ea_action_text(int ea, bool isLong) =>
+    string side = isLong ? "long" : "short"
+    ea == EA_NONE ? "Stand aside — no setup"
+     : ea == EA_FORMING ? "Monitor — setup forming"
+     : ea == EA_STRUCT_VALID ? "Setup valid — not yet execution-ready"
+     : ea == EA_READY ? "Execution ready — monitor for trigger"
+     : ea == EA_ARMED ? "Entry armed — watch trigger zone"
+     : ea == EA_TRIGGERABLE ? "Entry triggerable — validate " + side + " activation"
+     : ea == EA_PENDING_RETRACE ? "Await retrace entry for " + side
+     : ea == EA_PENDING_CONFIRMATION ? "Await confirmation for " + side
+     : ea == EA_BLOCKED ? "Setup blocked — check eligibility"
+     : ea == EA_LATE ? "Setup late — reduced conviction"
+     : ea == EA_EXPIRED ? "No trade — setup expired"
+     : ea == EA_INVALIDATED ? "No trade — setup invalidated"
+     : ea == EA_ACTIVE ? "Trade active — manage " + side + " position"
+     : "Unknown state"
+
+// Whether this entry authority state permits activation (immediate or delayed).
+export ea_allows_activation(int ea) =>
+    ea == EA_TRIGGERABLE or ea == EA_ACTIVE
+
+// Whether this entry authority state permits storing a pending setup.
+export ea_allows_pending(int ea) =>
+    ea == EA_PENDING_RETRACE or ea == EA_PENDING_CONFIRMATION or ea == EA_ARMED or ea == EA_READY
+
+// Whether this entry authority state indicates a structurally valid setup.
+export ea_is_structurally_valid(int ea) =>
+    ea >= EA_STRUCT_VALID and ea <= EA_LATE
+
+// Whether this entry authority state is terminal (no further progression possible).
+export ea_is_terminal(int ea) =>
+    ea == EA_EXPIRED or ea == EA_INVALIDATED
+
+// =====================================================================
+// LAYER A: STRUCTURAL VALIDITY ASSESSMENT
+// =====================================================================
+// Determines if a setup has enough structural evidence to be considered real.
+// This is pure structural truth — no mode/gate/execution concerns.
+// Returns: [isStructValid, structReason]
+
+export assess_structural_validity(int lifecycle, bool seqOk, bool swept, bool mssValid_,
+     bool mssFailed_, bool reclaimDetected_, bool reclaimFailed_,
+     bool dispValid_, bool dispFailed_, bool expired_, bool degraded_) =>
+    bool valid = false
+    string reason = ""
+    if lifecycle == LC_DESYNC
+        reason := "State desync — structural truth unknown"
+    else if expired_
+        reason := "Setup expired — structural sequence timed out"
+    else if degraded_
+        reason := "Setup degraded — imbalance zone filled"
+    else if mssFailed_
+        reason := "MSS failed — structure shift invalidated"
+    else if reclaimFailed_
+        reason := "Reclaim failed — post-sweep recovery lost"
+    else if dispFailed_
+        reason := "Displacement failed — directional commitment lost"
+    else if seqOk and mssValid_
+        valid := true
+        reason := "Full sequence valid: sweep → MSS → FVG"
+    else if swept and mssValid_ and dispValid_
+        valid := true
+        reason := "Structural chain valid: sweep → MSS → displacement"
+    else if swept and mssValid_
+        valid := true
+        reason := "Partial structure: sweep → MSS confirmed"
+    else if swept and reclaimDetected_ and not reclaimFailed_
+        reason := "Developing: sweep → reclaim visible, awaiting MSS"
+    else if swept
+        reason := "Sweep confirmed, awaiting structure shift"
+    else if lifecycle == LC_LIQUIDITY_IDENTIFIED
+        reason := "Liquidity identified, awaiting sweep"
+    else
+        reason := "No structural setup context"
+    [valid, reason]
+
+
+// =====================================================================
+// LAYER B: EXECUTION READINESS ASSESSMENT
+// =====================================================================
+// Given structural validity, determines if the setup is mature enough
+// to prepare for execution. Considers quality gates, freshness, extension.
+// Returns: [isReady, readyReason]
+
+export assess_execution_readiness(bool structValid, string mode,
+     bool modeCandidate, bool modeActivation,
+     bool reclaimPass_, bool mssFresh_, bool dispFresh_,
+     bool isExtended_, bool pendingFresh_,
+     bool gateBlocked_, string gateBlockReason_) =>
+    bool ready = false
+    string reason = ""
+    if not structValid
+        reason := "Not structurally valid"
+    else if gateBlocked_
+        reason := "Strategy gate blocked: " + gateBlockReason_
+    else if isExtended_
+        reason := "Price too extended from structural anchor"
+    else if not mssFresh_
+        reason := "MSS stale — structure aged out"
+    else if not dispFresh_
+        reason := "Displacement stale — commitment aged out"
+    else if not reclaimPass_
+        reason := "Reclaim quality insufficient for " + mode
+    else if not modeCandidate
+        reason := mode + " mode: minimum lifecycle not met"
+    else if not modeActivation
+        reason := mode + " mode: activation quality not met"
+    else if not pendingFresh_
+        reason := "Pending setup structurally stale"
+    else
+        ready := true
+        reason := "Execution ready — " + mode + " quality pass"
+    [ready, reason]
+
+
+// =====================================================================
+// LAYER C: ENTRY AUTHORITY CLASSIFICATION
+// =====================================================================
+// The central evaluator. Takes all inputs from structural validity,
+// execution readiness, mode qualification, gates, pending state,
+// active trade state, and signal conditions to produce a single
+// canonical entry authority state.
+//
+// Returns: [entryState, entryPath, blockCategory, blockReason, structValid]
+
+export evaluate_entry_authority(
+     // Lifecycle & structural inputs
+     int lifecycle, bool seqOk, bool swept,
+     bool mssValid_, bool mssFailed_, bool mssFresh_,
+     bool reclaimFailed_, bool reclaimPass_,
+     bool dispValid_, bool dispFailed_, bool dispFresh_,
+     bool expired_, bool degraded_,
+     // Mode qualification inputs
+     string mode, bool modeCandidate, bool modeActivation, string modeBlockReason_,
+     bool modeAllowsDirect,
+     // Gate inputs
+     bool gateBlocked_, string gateBlockReason_,
+     // Extension & freshness
+     bool isExtended_, bool pendingFresh_,
+     // Signal state (current bar)
+     bool hasSignalThisBar, bool isConflicted_,
+     // Pending state
+     bool hasPendingStored, bool pendingCanActivate, bool pendingExpired_,
+     // Active trade
+     bool hasActiveTrade) =>
+
+    int ea = EA_NONE
+    int ep = EP_NONE
+    int eb = EB_NONE
+    string reason = ""
+
+    // --- Priority 1: Terminal / override states ---
+    if hasActiveTrade
+        ea := EA_ACTIVE
+        ep := EP_NONE
+        eb := EB_NONE
+        reason := "Trade active"
+
+    else if isConflicted_
+        ea := EA_BLOCKED
+        ep := EP_NONE
+        eb := EB_CONFLICTED
+        reason := "Both sides active — no clear edge"
+
+    // --- Priority 2: Structural invalidation ---
+    else if lifecycle == LC_DESYNC
+        ea := EA_INVALIDATED
+        reason := "State desync — entry authority suspended"
+
+    else if expired_
+        ea := EA_EXPIRED
+        reason := "Setup expired"
+
+    else if degraded_
+        ea := EA_INVALIDATED
+        reason := "Setup degraded — imbalance filled"
+
+    else if mssFailed_
+        ea := EA_INVALIDATED
+        eb := EB_MSS_FAILED
+        reason := "MSS failed — structure shift invalidated"
+
+    else if reclaimFailed_
+        ea := EA_INVALIDATED
+        eb := EB_RECLAIM_FAILED
+        reason := "Reclaim failed — post-sweep recovery lost"
+
+    else if dispFailed_
+        ea := EA_INVALIDATED
+        eb := EB_DISP_FAILED
+        reason := "Displacement failed — directional commitment lost"
+
+    // --- Priority 3: No structural basis ---
+    else if lifecycle <= LC_LIQUIDITY_IDENTIFIED
+        ea := lifecycle == LC_NONE ? EA_NONE : EA_FORMING
+        reason := lifecycle == LC_NONE ? "No setup context" : "Liquidity identified, awaiting sweep"
+
+    else if lifecycle == LC_SWEEP_CONFIRMED and not mssValid_
+        ea := EA_FORMING
+        reason := "Sweep confirmed, awaiting structure shift"
+
+    else if lifecycle == LC_RECLAIM_VISIBLE and not mssValid_
+        ea := EA_FORMING
+        reason := "Reclaim visible, awaiting structure shift"
+
+    // --- Priority 4: Structurally valid but execution blocked ---
+    else if not mssFresh_
+        ea := EA_LATE
+        eb := EB_FRESHNESS
+        reason := "MSS stale — structure aged out"
+
+    else if not dispFresh_ and dispValid_
+        ea := EA_LATE
+        eb := EB_FRESHNESS
+        reason := "Displacement stale — commitment aged out"
+
+    else if isExtended_ and mode != "Aggressive"
+        ea := EA_BLOCKED
+        eb := EB_EXTENSION
+        reason := "Price too extended from structural anchor"
+
+    else if gateBlocked_ and not modeActivation
+        ea := EA_BLOCKED
+        eb := EB_GATE_STRATEGY
+        reason := "Strategy gate: " + gateBlockReason_
+
+    else if not modeCandidate
+        // Structural evidence exists but mode minimum lifecycle not met
+        ea := EA_STRUCT_VALID
+        reason := mode + " mode: minimum lifecycle not reached"
+
+    else if not reclaimPass_
+        ea := EA_BLOCKED
+        eb := EB_MODE_QUALITY
+        reason := "Reclaim quality insufficient for " + mode
+
+    else if not modeActivation
+        // Mode candidate passes but activation doesn't
+        // Check if this is a quality block or lifecycle position issue
+        if lifecycle >= LC_DISPLACEMENT_CONFIRMED
+            ea := EA_BLOCKED
+            eb := EB_MODE_QUALITY
+            reason := modeBlockReason_ != "" ? modeBlockReason_ : mode + " activation quality not met"
+        else
+            ea := EA_STRUCT_VALID
+            reason := "Awaiting further structural progression"
+
+    // --- Priority 5: Execution-ready states ---
+    // Mode activation passes — now classify the entry authority level
+
+    // Immediate trigger: signal this bar + mode allows immediate + lifecycle permits
+    else if hasSignalThisBar and modeAllowsDirect and lifecycle >= LC_ENTRY_TRIGGERED
+        ea := EA_TRIGGERABLE
+        ep := EP_IMMEDIATE
+        reason := "Entry triggerable — immediate activation"
+
+    else if hasSignalThisBar and modeAllowsDirect and modeActivation
+        ea := EA_TRIGGERABLE
+        ep := EP_IMMEDIATE
+        reason := "Entry triggerable — aggressive promotion"
+
+    // Pending activation fires: stored pending + conditions met
+    else if hasPendingStored and pendingCanActivate
+        ea := EA_TRIGGERABLE
+        ep := EP_RETRACE
+        reason := "Entry triggerable — delayed activation"
+
+    // Signal this bar but mode requires retrace (Balanced/Conservative)
+    else if hasSignalThisBar and not modeAllowsDirect and modeActivation
+        ea := EA_PENDING_RETRACE
+        ep := EP_PENDING
+        reason := mode + ": signal stored, awaiting retrace activation"
+
+    else if hasSignalThisBar and not modeAllowsDirect and modeCandidate
+        ea := EA_PENDING_CONFIRMATION
+        ep := EP_PENDING
+        reason := mode + ": signal stored, awaiting confirmation"
+
+    // Pending stored from prior bar, still valid but not yet triggered
+    else if hasPendingStored and not pendingExpired_ and pendingFresh_
+        ea := EA_PENDING_RETRACE
+        ep := EP_PENDING
+        reason := "Pending active — awaiting retrace entry"
+
+    else if hasPendingStored and not pendingExpired_ and not pendingFresh_
+        ea := EA_LATE
+        eb := EB_FRESHNESS
+        ep := EP_PENDING
+        reason := "Pending structurally stale"
+
+    else if hasPendingStored and pendingExpired_
+        ea := EA_EXPIRED
+        reason := "Pending window expired"
+
+    // Armed: full sequence, mode passes, no signal yet
+    else if seqOk and swept and mssValid_ and lifecycle >= LC_ENTRY_ARMED
+        ea := EA_ARMED
+        ep := modeAllowsDirect ? EP_IMMEDIATE : EP_RETRACE
+        reason := "Entry armed — full sequence, monitor trigger"
+
+    // Ready: mode activation passes, structural validity, but not fully armed
+    else if modeActivation and lifecycle >= LC_DISPLACEMENT_CONFIRMED
+        ea := EA_READY
+        ep := modeAllowsDirect ? EP_IMMEDIATE : EP_RETRACE
+        reason := "Execution ready — awaiting entry zone"
+
+    // Structurally valid, candidate passes, but not yet ready
+    else if modeCandidate
+        ea := EA_STRUCT_VALID
+        reason := "Structurally valid — awaiting execution readiness"
+
+    else
+        ea := EA_FORMING
+        reason := "Setup developing"
+
+    // --- Late/extension overlay for non-blocked states ---
+    if ea >= EA_READY and ea <= EA_ARMED and isExtended_ and mode == "Aggressive"
+        ea := EA_LATE
+        eb := EB_EXTENSION
+        reason := "AGG: setup extended but structurally valid"
+
+    [ea, ep, eb, reason, ea >= EA_STRUCT_VALID and ea <= EA_LATE]
+
+
+// =====================================================================
+// LAYER D: ACTIVE TRADE PROMOTION GUARD
+// =====================================================================
+// Final check before allowing a trade to be created.
+// Returns true only if entry authority is in a state that permits activation.
+
+export can_promote_to_active(int entryState, int entryPath, bool hasActiveTrade) =>
+    not hasActiveTrade and entryState == EA_TRIGGERABLE and (entryPath == EP_IMMEDIATE or entryPath == EP_RETRACE)
+
+
+// =====================================================================
+// ENTRY AUTHORITY INVARIANT CHECKS
+// =====================================================================
+// Validates that entry authority state is consistent with underlying inputs.
+// Returns: [isValid, desyncReason]
+
+export validate_entry_authority(int ea, int ep, int eb, int lifecycle,
+     bool hasActiveTrade, bool modeActivation, bool modeCandidate,
+     bool mssFailed_, bool reclaimFailed_, bool dispFailed_,
+     bool expired_, bool isConflicted_) =>
+    bool valid = true
+    string reason = ""
+
+    // EA_ACTIVE must have an active trade
+    if ea == EA_ACTIVE and not hasActiveTrade
+        valid := false
+        reason := "EA6: EA_ACTIVE without active trade"
+
+    // Active trade exists but EA is not ACTIVE
+    else if hasActiveTrade and ea != EA_ACTIVE
+        valid := false
+        reason := "EA6: active trade exists but EA=" + ea_name(ea)
+
+    // EA_TRIGGERABLE must have a valid path
+    else if ea == EA_TRIGGERABLE and ep == EP_NONE
+        valid := false
+        reason := "EA6: EA_TRIGGERABLE without entry path"
+
+    // EA_TRIGGERABLE requires mode activation
+    else if ea == EA_TRIGGERABLE and not modeActivation
+        valid := false
+        reason := "EA6: EA_TRIGGERABLE without mode activation pass"
+
+    // EA_BLOCKED must carry a block category
+    else if ea == EA_BLOCKED and eb == EB_NONE
+        valid := false
+        reason := "EA6: EA_BLOCKED without block category"
+
+    // Conflicted state must produce EA_BLOCKED
+    else if isConflicted_ and not hasActiveTrade and ea != EA_BLOCKED
+        valid := false
+        reason := "EA6: conflicted inputs but EA=" + ea_name(ea)
+
+    // Cannot be READY/ARMED/TRIGGERABLE with failed structural components
+    else if ea >= EA_READY and ea <= EA_TRIGGERABLE
+        if mssFailed_
+            valid := false
+            reason := "EA6: " + ea_name(ea) + " with MSS failed"
+        else if reclaimFailed_
+            valid := false
+            reason := "EA6: " + ea_name(ea) + " with reclaim failed"
+        else if dispFailed_
+            valid := false
+            reason := "EA6: " + ea_name(ea) + " with displacement failed"
+        else if expired_
+            valid := false
+            reason := "EA6: " + ea_name(ea) + " with expired setup"
+        else if not modeCandidate
+            valid := false
+            reason := "EA6: " + ea_name(ea) + " without mode candidacy"
+        else if lifecycle < LC_MSS_CONFIRMED
+            valid := false
+            reason := "EA6: " + ea_name(ea) + " with lifecycle=" + str.tostring(lifecycle) + " below MSS_CONFIRMED"
+
+    [valid, reason]

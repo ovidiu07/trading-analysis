@@ -128,6 +128,17 @@ export type LifecycleDisplay
     color  desyncCol
     string rejCause
     color  rejCol
+    // Chapter 6: Entry Authority
+    string eaStateStr
+    color  eaStateCol
+    string eaBothStr
+    string eaPathStr
+    color  eaPathCol
+    string eaBlockStr
+    color  eaBlockCol
+    string eaReasonStr
+    string eaStructStr
+    color  eaStructCol
     color  valueColor
     color  neutralDbgColor
 
@@ -250,6 +261,14 @@ export render_lifecycle(table readTbl, int startRow, LifecycleDisplay lc, color 
     r := tbl.table_kv_tiny(readTbl, r, "Delayed Activation", lc.delayActStr, labelColor, lc.delayActCol)
     r := tbl.table_kv_tiny(readTbl, r, "Integrity", lc.desyncStr, labelColor, lc.desyncCol)
     r := tbl.table_kv_tiny(readTbl, r, "Rejection Cause", lc.rejCause, labelColor, lc.rejCol)
+    // Chapter 6: Entry Authority section
+    r := tbl.table_section(readTbl, r, "Entry Authority", headerColor, bgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "EA State", lc.eaStateStr, labelColor, lc.eaStateCol)
+    r := tbl.table_kv_tiny(readTbl, r, "EA L/S", lc.eaBothStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "EA Path", lc.eaPathStr, labelColor, lc.eaPathCol)
+    r := tbl.table_kv_tiny(readTbl, r, "EA Block", lc.eaBlockStr, labelColor, lc.eaBlockCol)
+    r := tbl.table_kv_tiny(readTbl, r, "EA Reason", lc.eaReasonStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Structural Valid", lc.eaStructStr, labelColor, lc.eaStructCol)
     r
 
 // @function Renders the performance section.

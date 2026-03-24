@@ -13,6 +13,7 @@ import Devtailor/tv_structure_engine/1 as se
 import Devtailor/tv_liquidity_engine/1 as liq
 import Devtailor/tv_pending_trade_state/1 as pts
 import Devtailor/tv_signal_gate_engine/1 as sg
+import Devtailor/tv_entry_authority/1 as ea
 
 // --- Constants ---
 string NY_TZ = "America/New_York"
@@ -167,6 +168,22 @@ type SetupState
     // Chapter 5: Rejection cause visibility (Debug mode)
     string  rejectionCauseLong = ""
     string  rejectionCauseShort = ""
+    // Chapter 6: Entry Authority Model
+    int     entryAuthorityLong = 0
+    int     entryAuthorityShort = 0
+    int     entryAuthorityDominant = 0
+    int     entryPathLong = 0
+    int     entryPathShort = 0
+    int     entryPathDominant = 0
+    int     blockCategoryLong = 0
+    int     blockCategoryShort = 0
+    int     blockCategoryDominant = 0
+    string  entryReasonLong = ""
+    string  entryReasonShort = ""
+    string  entryReasonDominant = ""
+    bool    structurallyValidLong = false
+    bool    structurallyValidShort = false
+    bool    structurallyValidDominant = false
 
 // SmartZone type now imported from tv_core_types (alias T)
 
@@ -177,6 +194,37 @@ new_setup_state() =>
     SetupState s = SetupState.new()
     s.disp := new_disp_state()
     s
+
+// --- Entry Authority Constants (Chapter 6) ---
+int EA_NONE                    = 0
+int EA_FORMING                 = 1
+int EA_STRUCT_VALID            = 2
+int EA_READY                   = 3
+int EA_ARMED                   = 4
+int EA_TRIGGERABLE             = 5
+int EA_PENDING_RETRACE         = 6
+int EA_PENDING_CONFIRMATION    = 7
+int EA_BLOCKED                 = 8
+int EA_LATE                    = 9
+int EA_EXPIRED                 = 10
+int EA_INVALIDATED             = 11
+int EA_ACTIVE                  = 12
+
+int EP_NONE         = 0
+int EP_IMMEDIATE    = 1
+int EP_RETRACE      = 2
+int EP_PENDING      = 3
+
+int EB_NONE              = 0
+int EB_MODE_QUALITY      = 1
+int EB_GATE_STRATEGY     = 2
+int EB_EXTENSION         = 3
+int EB_FRESHNESS         = 4
+int EB_RECLAIM_FAILED    = 5
+int EB_MSS_FAILED        = 6
+int EB_DISP_FAILED       = 7
+int EB_CONFLICTED        = 8
+int EB_ACTIVE_TRADE      = 9
 
 // --- Liquidity Source Constants ---
 // Source types (int enum for Pine efficiency)
@@ -1978,26 +2026,29 @@ if (isSignalB and pickLong) or (isSignalS and not pickLong)
     liveSetup.dominantBlockedByMode := not (pickLong ? modeActL : modeActS) and liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED
     liveSetup.dominantModeBlockReason := pickLong ? modeBlockL : modeBlockS
 
-// --- Trade Activation with Lifecycle + Mode Guard (Chapter 1+2+2.1) ---
-// PATH 1: Immediate activation (signal bar, same as before for Aggressive)
-bool signalLifecycleOk = (isSignalB and lm.lifecycle_allows_activation(liveSetup.lifecycleLong)) or (isSignalS and lm.lifecycle_allows_activation(liveSetup.lifecycleShort))
-bool signalModeOk = (isSignalB and modeActL) or (isSignalS and modeActS)
-bool canActivateImmediate = signalLifecycleOk and signalModeOk
-
-// PATH 2: Delayed activation (pending setup from prior bar, no current signal required)
-// Evaluate pending long
-bool pendingActivatedLong = false
-bool pendingActivatedShort = false
-string pendingActivationReason = ""
-
-// Chapter 2.2+4: Compute pending freshness before delayed activation evaluation
-// Chapter 5: pending freshness now considers displacement failure
+// =====================================================================
+// --- CHAPTER 6: ENTRY AUTHORITY EVALUATION ---
+// =====================================================================
+// Compute pending freshness first (needed by entry authority)
 [pendFreshL, pendStaleL, pendFreshReasonL] = pts.pending_is_structurally_fresh(_pendingLongActive ? _pendingLongSignalBar : bar_index, lastMssBullBar, lastBullFvgBar, degradedL, extBlockL, sensitivityMode, mssFailedL2, dispFailedL2)
 [pendFreshS, pendStaleS, pendFreshReasonS] = pts.pending_is_structurally_fresh(_pendingShortActive ? _pendingShortSignalBar : bar_index, lastMssBearBar, lastBearFvgBar, degradedS, extBlockS, sensitivityMode, mssFailedS2, dispFailedS2)
 liveSetup.pendingStructFreshLong := pendFreshL
 liveSetup.pendingStructFreshShort := pendFreshS
 liveSetup.freshnessReasonLong := pendFreshReasonL
 liveSetup.freshnessReasonShort := pendFreshReasonS
+
+// Gate blocked status per side
+bool gateLongBlocked = pickLong and ((enableICT2022 and mssBull and not ictGateLong) or (enableSilverBullet and inSB and bullFvgAligned and not sbGateLong))
+bool gateShortBlocked = not pickLong and ((enableICT2022 and mssBear and not ictGateShort) or (enableSilverBullet and inSB and bearFvgAligned and not sbGateShort))
+string gateLongReason = gateLongBlocked ? (enableICT2022 and mssBull and not ictGateLong ? ictGateLongInfo : sbGateLongInfo) : ""
+string gateShortReason = gateShortBlocked ? (enableICT2022 and mssBear and not ictGateShort ? ictGateShortInfo : sbGateShortInfo) : ""
+
+// Pending activation evaluation (needed before EA evaluation)
+bool pendingActivatedLong = false
+bool pendingActivatedShort = false
+string pendingActivationReason = ""
+bool pendingExpiredL = _pendingLongActive and lm.pending_setup_has_expired(_pendingLongExpiryBar)
+bool pendingExpiredS = _pendingShortActive and lm.pending_setup_has_expired(_pendingShortExpiryBar)
 
 if _pendingLongActive and na(activeTrade)
     [canActPL, reasonPL, shouldInvPL] = pts.evaluate_pending_activation(true, liveSetup.lifecycleLong, rclPassL, rclStrL, rclStrongL, lastMssBullDispStrength, seqOkL, expiredL, degradedL, _pendingLongMode, _pendingLongSignalBar, _pendingLongExpiryBar, extBlockL, mssQPassL, mssQStrongL, bridgePassL, bridgeStrongL, pendFreshL, rclFailedL2, mssFailedL2, mssFreshL2, dispPassL, dispFreshL2, dispFailedL2)
@@ -2027,6 +2078,71 @@ if _pendingShortActive and na(activeTrade) and not pendingActivatedLong
         _pendingShortReason := reasonPS
 
 bool canActivateDelayed = pendingActivatedLong or pendingActivatedShort
+
+// --- Chapter 6: Evaluate Entry Authority for both sides ---
+// Long side entry authority
+[eaLong, epLong, ebLong, eaReasonL, eaStructValidL] = ea.evaluate_entry_authority(
+     liveSetup.lifecycleLong, seqOkL, sweptSSL,
+     mssValidL2, mssFailedL2, mssFreshL2,
+     rclFailedL2, rclPassL,
+     dispValidL2, dispFailedL2, dispFreshL2,
+     expiredL, degradedL,
+     sensitivityMode, modeCandL, modeActL, modeBlockL,
+     lm.mode_allows_direct_signal_activation(sensitivityMode),
+     gateLongBlocked, gateLongReason,
+     extBlockL, pendFreshL,
+     isSignalB, isConflicted,
+     _pendingLongActive, pendingActivatedLong, pendingExpiredL,
+     not na(activeTrade))
+
+// Short side entry authority
+[eaShort, epShort, ebShort, eaReasonS, eaStructValidS] = ea.evaluate_entry_authority(
+     liveSetup.lifecycleShort, seqOkS, sweptBSL,
+     mssValidS2, mssFailedS2, mssFreshS2,
+     rclFailedS2, rclPassS,
+     dispValidS2, dispFailedS2, dispFreshS2,
+     expiredS, degradedS,
+     sensitivityMode, modeCandS, modeActS, modeBlockS,
+     lm.mode_allows_direct_signal_activation(sensitivityMode),
+     gateShortBlocked, gateShortReason,
+     extBlockS, pendFreshS,
+     isSignalS, isConflicted,
+     _pendingShortActive, pendingActivatedShort, pendingExpiredS,
+     not na(activeTrade))
+
+// Populate SetupState entry authority fields
+liveSetup.entryAuthorityLong := eaLong
+liveSetup.entryAuthorityShort := eaShort
+liveSetup.entryAuthorityDominant := pickLong ? eaLong : eaShort
+liveSetup.entryPathLong := epLong
+liveSetup.entryPathShort := epShort
+liveSetup.entryPathDominant := pickLong ? epLong : epShort
+liveSetup.blockCategoryLong := ebLong
+liveSetup.blockCategoryShort := ebShort
+liveSetup.blockCategoryDominant := pickLong ? ebLong : ebShort
+liveSetup.entryReasonLong := eaReasonL
+liveSetup.entryReasonShort := eaReasonS
+liveSetup.entryReasonDominant := pickLong ? eaReasonL : eaReasonS
+liveSetup.structurallyValidLong := eaStructValidL
+liveSetup.structurallyValidShort := eaStructValidS
+liveSetup.structurallyValidDominant := pickLong ? eaStructValidL : eaStructValidS
+
+// --- Chapter 6: Derive activation decisions from entry authority ---
+// Legacy compatibility: immediate activation uses entry authority
+bool signalLifecycleOk = (isSignalB and lm.lifecycle_allows_activation(liveSetup.lifecycleLong)) or (isSignalS and lm.lifecycle_allows_activation(liveSetup.lifecycleShort))
+bool signalModeOk = (isSignalB and modeActL) or (isSignalS and modeActS)
+// Entry authority is now the canonical activation gate
+bool canActivateImmediate = signalLifecycleOk and signalModeOk
+// Entry authority cross-check: only allow immediate if EA agrees
+bool eaAllowsImmediate = (isSignalB and eaLong == EA_TRIGGERABLE and epLong == EP_IMMEDIATE) or (isSignalS and eaShort == EA_TRIGGERABLE and epShort == EP_IMMEDIATE)
+// If legacy says yes but EA says no, EA wins (structural truth prevails)
+if canActivateImmediate and not eaAllowsImmediate
+    canActivateImmediate := false
+// If EA says triggerable via retrace (delayed), ensure delayed path is also active
+bool eaAllowsDelayed = (pendingActivatedLong and eaLong == EA_TRIGGERABLE and epLong == EP_RETRACE) or (pendingActivatedShort and eaShort == EA_TRIGGERABLE and epShort == EP_RETRACE)
+if canActivateDelayed and not eaAllowsDelayed
+    canActivateDelayed := false
+
 bool canActivateTrade = canActivateImmediate or canActivateDelayed
 bool activatingViaDelayed = canActivateDelayed and not canActivateImmediate
 
@@ -2035,10 +2151,11 @@ bool activateLong = canActivateImmediate ? isSignalB : pendingActivatedLong
 bool activateShort = canActivateImmediate ? isSignalS : pendingActivatedShort
 
 // Signal fired but cannot activate — store as pending for delayed activation (Chapter 2.1 Part C)
+// Chapter 6: Use entry authority state to decide pending storage eligibility
 if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
     if isSignalB and not _pendingLongActive
-        // Signal qualifies for pending if lifecycle is past sweep and mode candidate passes
-        bool pendingCandidateL = liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and modeCandL and not expiredL and not degradedL
+        // Chapter 6: Entry authority states that allow pending storage
+        bool pendingCandidateL = ea.ea_allows_pending(eaLong) or (eaLong == EA_BLOCKED and ebLong == EB_MODE_QUALITY) or (liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and modeCandL and not expiredL and not degradedL)
         if pendingCandidateL
             int windowBars = lm.mode_pending_activation_bars(sensitivityMode)
             _pendingLongActive := true
@@ -2047,10 +2164,10 @@ if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
             _pendingLongSource := sig2022B ? "ICT 2022" : "SB"
             _pendingLongInitialLC := liveSetup.lifecycleLong
             _pendingLongMode := sensitivityMode
-            _pendingLongReason := lm.mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBars) + " bars)"
+            _pendingLongReason := lm.mode_name_short(sensitivityMode) + " pending: " + eaReasonL + " (" + str.tostring(windowBars) + " bars)"
             _pendingLongCanStillActivate := true
     if isSignalS and not _pendingShortActive
-        bool pendingCandidateS = liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and modeCandS and not expiredS and not degradedS
+        bool pendingCandidateS = ea.ea_allows_pending(eaShort) or (eaShort == EA_BLOCKED and ebShort == EB_MODE_QUALITY) or (liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and modeCandS and not expiredS and not degradedS)
         if pendingCandidateS
             int windowBarsS = lm.mode_pending_activation_bars(sensitivityMode)
             _pendingShortActive := true
@@ -2059,10 +2176,10 @@ if (isSignalB or isSignalS) and na(activeTrade) and not canActivateImmediate
             _pendingShortSource := sig2022S ? "ICT 2022" : "SB"
             _pendingShortInitialLC := liveSetup.lifecycleShort
             _pendingShortMode := sensitivityMode
-            _pendingShortReason := lm.mode_name_short(sensitivityMode) + " pending: awaiting delayed activation (" + str.tostring(windowBarsS) + " bars)"
+            _pendingShortReason := lm.mode_name_short(sensitivityMode) + " pending: " + eaReasonS + " (" + str.tostring(windowBarsS) + " bars)"
             _pendingShortCanStillActivate := true
 
-    // Diagnostic: explain why immediate activation was blocked
+    // Diagnostic: explain why immediate activation was blocked (Chapter 6: use entry authority reason)
     if signalLifecycleOk and not signalModeOk
         liveSetup.dominantBlockedByMode := true
         liveSetup.dominantModeBlockReason := isSignalB ? modeBlockL : modeBlockS
@@ -2102,7 +2219,8 @@ liveSetup.pendingShortCanStillActivate := _pendingShortCanStillActivate
 liveSetup.pendingLongActivatedThisBar := pendingActivatedLong
 liveSetup.pendingShortActivatedThisBar := pendingActivatedShort
 
-if na(activeTrade) and canActivateTrade
+// Chapter 6: Trade creation gated by entry authority promotion guard
+if na(activeTrade) and canActivateTrade and ea.can_promote_to_active(pickLong ? eaLong : eaShort, pickLong ? epLong : epShort, not na(activeTrade))
     // Determine trade source name for delayed activations
     string tradeSource = activatingViaDelayed ? (activateLong ? _pendingLongSource : _pendingShortSource) : (sig2022B or sig2022S ? "ICT 2022" : "SB")
     float sl = activateLong ? low[1] - (atr * 0.5) : high[1] + (atr * 0.5)
@@ -2598,25 +2716,54 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
     
     // Invariant D8: LC_DISPLACEMENT_CONFIRMED while underlying MSS is invalid (extends M6 with displacement)
     // Already handled by existing M6 invariant — no additional logic needed here.
-    
-    // --- Backward-Compatible Field Overrides (lifecycle-authoritative) ---
+
+    // --- Chapter 6: Entry Authority Invariants ---
+    // EA1: validate entry authority state consistency
+    int domEA = pickLong ? s.entryAuthorityLong : s.entryAuthorityShort
+    int domEP = pickLong ? s.entryPathLong : s.entryPathShort
+    int domEB = pickLong ? s.blockCategoryLong : s.blockCategoryShort
+    bool domMssF_ = pickLong ? mssFailedL2 : mssFailedS2
+    bool domRclF_ = pickLong ? rclFailedL2 : rclFailedS2
+    bool domDispF_ = pickLong ? dispFailedL2 : dispFailedS2
+    bool domModeAct_ = pickLong ? (s.longMeetsModeActivation) : (s.shortMeetsModeActivation)
+    bool domModeCand_ = pickLong ? (s.longMeetsModeCandidate) : (s.shortMeetsModeCandidate)
+    bool domExpired_ = s.isExpired
+
+    [eaValid, eaDesyncReason] = ea.validate_entry_authority(domEA, domEP, domEB, s.lifecycleDominant, not na(activeTrade), domModeAct_, domModeCand_, domMssF_, domRclF_, domDispF_, domExpired_, s.isConflicted)
+    if not s.lifecycleIsDesynced and not eaValid
+        s.lifecycleIsDesynced := true
+        s.lifecycleDesyncReason := eaDesyncReason
+        s.lifecycleDominant := LC_DESYNC
+
+    // --- Backward-Compatible Field Overrides (lifecycle + entry authority authoritative) ---
     if s.lifecycleIsDesynced
         s.phase := "State desync"
         s.missing := s.lifecycleDesyncReason
         s.sequenceValid := false
         s.lifecycleNameDominant := lm.lifecycle_name(LC_DESYNC)
     else if not s.isConflicted
-        s.phase := s.lifecycleNameDominant
-        // Chapter 2.1: Show pending status in Next Required when pending is active
+        // Chapter 6: Use entry authority state for phase display when available
+        if domEA >= EA_READY
+            s.phase := ea.ea_name(domEA)
+        else
+            s.phase := s.lifecycleNameDominant
+        // Chapter 6: Show entry authority reason as primary guidance
         if _pLA or _pSA
             bool pendL2 = _pLA
             int barsRemaining = (pendL2 ? pndLongExpiryBar : pndShortExpiryBar) - bar_index
             string pendSide = pendL2 ? "Long" : "Short"
             s.missing := pendSide + " pending activation (" + str.tostring(math.max(0, barsRemaining)) + " bars remaining)"
+        else if domEA == EA_BLOCKED or domEA == EA_LATE
+            // Chapter 6: entry authority provides the authoritative block/late reason
+            s.missing := pickLong ? s.entryReasonLong : s.entryReasonShort
         else if s.dominantBlockedByMode and not dominantLiquidityBlocked
             s.missing := s.dominantModeBlockReason
         else if not dominantLiquidityBlocked
-            s.missing := s.lifecycleNextRequiredDominant
+            // Chapter 6: prefer entry authority reason when structurally valid
+            if domEA >= EA_STRUCT_VALID and domEA <= EA_TRIGGERABLE
+                s.missing := pickLong ? s.entryReasonLong : s.entryReasonShort
+            else
+                s.missing := s.lifecycleNextRequiredDominant
         s.sequenceValid := s.lifecycleDominant >= LC_ENTRY_ARMED
 
     [_pLA, _pLCA, _pLR, _pSA, _pSCA, _pSR]
@@ -2704,16 +2851,32 @@ if showReadiness and barstate.islast
     bool showContext = isAnalyst or isDebug
     bool showAdvanced = isDebug
 
-    int maxR = isDebug ? 80 : isAnalyst ? 36 : 18
+    int maxR = isDebug ? 90 : isAnalyst ? 36 : 18
     readTable := table.new(fmt.resolve_pos(readinessPos), 2, maxR, bgcolor = uiBg, border_width = 1, border_color = uiBorder)
 
-    // === PRECOMPUTE PRIMARY DISPLAY VALUES (proprietary decisions stay here) ===
+    // === PRECOMPUTE PRIMARY DISPLAY VALUES (Chapter 6: entry authority drives phase + action) ===
     string dirStr = liveSetup.isConflicted ? "◆ BOTH" : liveSetup.isPotentialLong ? "▲ LONG" : "▼ SHORT"
     color dirColor = liveSetup.isConflicted ? color.yellow : liveSetup.isPotentialLong ? uiPosColor : uiNegColor
-    color phaseColor = liveSetup.lifecycleIsDesynced ? color.red : liveSetup.isConflicted ? color.yellow : lm.lifecycle_is_terminal(liveSetup.lifecycleDominant) ? color.gray : liveSetup.lifecycleDominant >= LC_ENTRY_ARMED ? uiPosColor : liveSetup.lifecycleDominant >= LC_MSS_CONFIRMED ? color.orange : uiNeutralColor
+    // Chapter 6: Phase color derives from entry authority state
+    int domEADash = liveSetup.entryAuthorityDominant
+    color phaseColor = liveSetup.lifecycleIsDesynced ? color.red
+         : liveSetup.isConflicted ? color.yellow
+         : ea.ea_is_terminal(domEADash) ? color.gray
+         : domEADash == EA_ACTIVE ? uiPosColor
+         : domEADash == EA_TRIGGERABLE or domEADash == EA_ARMED ? uiPosColor
+         : domEADash == EA_READY ? color.orange
+         : domEADash == EA_BLOCKED or domEADash == EA_LATE ? uiNegColor
+         : domEADash >= EA_STRUCT_VALID ? uiNeutralColor
+         : domEADash == EA_FORMING ? uiNeutralColor
+         : uiLabelText
     bool domPendStale = pickLong ? (liveSetup.pendingLongActive and not liveSetup.pendingStructFreshLong) : (liveSetup.pendingShortActive and not liveSetup.pendingStructFreshShort)
-    string actionStr = lm.format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade), liveSetup.dominantBlockedByMode, liveSetup.dominantModeBlockReason, domPendStale)
-    color actionColor = str.contains(actionStr, "desync") or str.contains(actionStr, "error") ? color.red : str.contains(actionStr, "ready") or str.contains(actionStr, "Trade active") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") or str.contains(actionStr, "invalidated") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") ? color.orange : uiNeutralColor
+    // Chapter 6: Action text from entry authority when it has meaningful state, otherwise legacy fallback
+    string actionStr = ""
+    if domEADash >= EA_STRUCT_VALID or domEADash == EA_ACTIVE
+        actionStr := ea.ea_action_text(domEADash, liveSetup.isPotentialLong)
+    else
+        actionStr := lm.format_action(liveSetup.lifecycleDominant, liveSetup.lifecycleIsDesynced, liveSetup.isConflicted, liveSetup.isPotentialLong, dominantLiquidityBlocked, not na(activeTrade), liveSetup.dominantBlockedByMode, liveSetup.dominantModeBlockReason, domPendStale)
+    color actionColor = str.contains(actionStr, "desync") or str.contains(actionStr, "error") ? color.red : str.contains(actionStr, "triggerable") or str.contains(actionStr, "armed") or str.contains(actionStr, "Trade active") ? uiPosColor : str.contains(actionStr, "No trade") or str.contains(actionStr, "blocked") or str.contains(actionStr, "invalidated") or str.contains(actionStr, "Blocked") ? uiNegColor : str.contains(actionStr, "Stand aside") ? uiLabelText : str.contains(actionStr, "Wait") or str.contains(actionStr, "Monitor") or str.contains(actionStr, "Await") or str.contains(actionStr, "ready") ? color.orange : uiNeutralColor
     string confStr = fmt.format_confidence(liveSetup.score) + " (" + str.tostring(liveSetup.score) + ")"
     color confColor = liveSetup.score >= 70 ? uiPosColor : liveSetup.score >= 50 ? color.orange : liveSetup.score >= 30 ? uiNeutralColor : uiLabelText
     string sessStr = activeSessName + (isSilverBullet ? " (Silver Bullet)" : isKillzone ? " (Kill Zone)" : "")
@@ -3016,6 +3179,18 @@ if showReadiness and barstate.islast
         else if domLc < LC_MSS_CONFIRMED
             rejCause := domLc <= LC_SWEEP_CONFIRMED ? "pre-MSS" : "min lifecycle"
         color rejCol = rejCause == "none" ? uiPosColor : color.orange
+
+        // Chapter 6: Entry Authority debug precomputation
+        string eaStateDbg = ea.ea_name(liveSetup.entryAuthorityDominant) + " (" + str.tostring(liveSetup.entryAuthorityDominant) + ")"
+        color eaStateDbgCol = liveSetup.entryAuthorityDominant == EA_TRIGGERABLE or liveSetup.entryAuthorityDominant == EA_ARMED ? uiPosColor : liveSetup.entryAuthorityDominant == EA_ACTIVE ? uiPosColor : liveSetup.entryAuthorityDominant == EA_READY ? color.orange : liveSetup.entryAuthorityDominant == EA_BLOCKED or liveSetup.entryAuthorityDominant == EA_LATE ? uiNegColor : ea.ea_is_terminal(liveSetup.entryAuthorityDominant) ? color.gray : uiNeutralColor
+        string eaBothDbg = "L: " + ea.ea_name(liveSetup.entryAuthorityLong) + " (" + str.tostring(liveSetup.entryAuthorityLong) + ")  |  S: " + ea.ea_name(liveSetup.entryAuthorityShort) + " (" + str.tostring(liveSetup.entryAuthorityShort) + ")"
+        string eaPathDbg = ea.ep_name(liveSetup.entryPathDominant)
+        color eaPathDbgCol = liveSetup.entryPathDominant == EP_IMMEDIATE ? uiPosColor : liveSetup.entryPathDominant == EP_RETRACE ? color.orange : liveSetup.entryPathDominant == EP_PENDING ? uiNeutralColor : uiLabelText
+        string eaBlockDbg = liveSetup.blockCategoryDominant != EB_NONE ? ea.eb_name(liveSetup.blockCategoryDominant) : "None"
+        color eaBlockDbgCol = liveSetup.blockCategoryDominant != EB_NONE ? color.orange : uiPosColor
+        string eaReasonDbg = liveSetup.entryReasonDominant
+        string eaStructDbg = "L: " + (liveSetup.structurallyValidLong ? "VALID" : "—") + "  |  S: " + (liveSetup.structurallyValidShort ? "VALID" : "—")
+        color eaStructDbgCol = (liveSetup.structurallyValidLong or liveSetup.structurallyValidShort) ? uiPosColor : uiLabelText
 
         rdash.LifecycleDisplay lcDisp = rdash.LifecycleDisplay.new(
              lcStageStr, lcStageCol,
