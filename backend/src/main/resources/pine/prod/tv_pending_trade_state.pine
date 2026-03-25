@@ -4,7 +4,7 @@
 // @description Pending trade evaluation, mode execution qualification, and Stats method.
 library("tv_pending_trade_state", overlay = true)
 
-import Devtailor/tv_core_types/2 as T
+import Devtailor/tv_core_types/4 as T
 import Devtailor/tv_lifecycle_mode/1 as lm
 
 // Re-alias constants locally
@@ -14,6 +14,46 @@ int LC_MSS_CONFIRMED          = T.LC_MSS_CONFIRMED()
 int LC_DISPLACEMENT_CONFIRMED = T.LC_DISPLACEMENT_CONFIRMED()
 int LC_ENTRY_ARMED            = T.LC_ENTRY_ARMED()
 int LC_ENTRY_TRIGGERED        = T.LC_ENTRY_TRIGGERED()
+
+// Chapter 7: Opportunity state aliases
+int OPP_NONE             = T.OPP_NONE()
+int OPP_FORMING          = T.OPP_FORMING()
+int OPP_FRESH            = T.OPP_FRESH()
+int OPP_PENDING_FRESH    = T.OPP_PENDING_FRESH()
+int OPP_PENDING_DELAYED  = T.OPP_PENDING_DELAYED()
+int OPP_READY            = T.OPP_READY()
+int OPP_LATE_ACCEPTABLE  = T.OPP_LATE_ACCEPTABLE()
+int OPP_LATE_RISKY       = T.OPP_LATE_RISKY()
+int OPP_MISSED           = T.OPP_MISSED()
+int OPP_STALE            = T.OPP_STALE()
+int OPP_EXPIRED          = T.OPP_EXPIRED()
+int OPP_INVALIDATED      = T.OPP_INVALIDATED()
+int OPP_BLOCKED          = T.OPP_BLOCKED()
+int OPP_ACTIVE           = T.OPP_ACTIVE()
+int OPP_COMPLETE         = T.OPP_COMPLETE()
+
+// Entry authority aliases for Chapter 7
+int EA_NONE                = T.EA_NONE()
+int EA_FORMING             = T.EA_FORMING()
+int EA_STRUCT_VALID        = T.EA_STRUCT_VALID()
+int EA_READY               = T.EA_READY()
+int EA_ARMED               = T.EA_ARMED()
+int EA_TRIGGERABLE         = T.EA_TRIGGERABLE()
+int EA_PENDING_RETRACE     = T.EA_PENDING_RETRACE()
+int EA_PENDING_CONFIRMATION = T.EA_PENDING_CONFIRMATION()
+int EA_BLOCKED             = T.EA_BLOCKED()
+int EA_LATE                = T.EA_LATE()
+int EA_EXPIRED             = T.EA_EXPIRED()
+int EA_INVALIDATED         = T.EA_INVALIDATED()
+int EA_ACTIVE              = T.EA_ACTIVE()
+
+// Block category aliases
+int EB_EXTENSION           = T.EB_EXTENSION()
+int EB_FRESHNESS           = T.EB_FRESHNESS()
+int EB_RECLAIM_FAILED      = T.EB_RECLAIM_FAILED()
+int EB_MSS_FAILED          = T.EB_MSS_FAILED()
+int EB_DISP_FAILED         = T.EB_DISP_FAILED()
+int EB_CONFLICTED          = T.EB_CONFLICTED()
 
 // Pending structural freshness: blocks stale pending setups.
 // Returns: [fresh, stale, reason]
@@ -200,3 +240,286 @@ export method update_stats(T.Stats s, float rEarned, bool isWin) =>
         s.losses += 1
     s.peakEquityR := math.max(s.peakEquityR, s.equityR)
     s.maxDrawdownR := math.min(s.maxDrawdownR, s.equityR - s.peakEquityR)
+
+// =====================================================================
+// CHAPTER 7: OPPORTUNITY STATE MODEL
+// =====================================================================
+// Classifies post-setup timing quality. Sits between entry authority
+// (execution gate) and trade execution. Answers: "If not executed
+// immediately, what is the opportunity state now?"
+//
+// Entry authority (Ch6) says WHETHER execution is authorized.
+// Opportunity state (Ch7) says HOW GOOD the timing opportunity is.
+
+// Human-readable name for an opportunity state.
+export opp_name(int opp) =>
+    opp == OPP_NONE ? "No opportunity"
+     : opp == OPP_FORMING ? "Forming"
+     : opp == OPP_FRESH ? "Fresh"
+     : opp == OPP_PENDING_FRESH ? "Pending fresh"
+     : opp == OPP_PENDING_DELAYED ? "Pending delayed"
+     : opp == OPP_READY ? "Ready"
+     : opp == OPP_LATE_ACCEPTABLE ? "Late (acceptable)"
+     : opp == OPP_LATE_RISKY ? "Late (risky)"
+     : opp == OPP_MISSED ? "Missed"
+     : opp == OPP_STALE ? "Stale"
+     : opp == OPP_EXPIRED ? "Expired"
+     : opp == OPP_INVALIDATED ? "Invalidated"
+     : opp == OPP_BLOCKED ? "Blocked"
+     : opp == OPP_ACTIVE ? "Active"
+     : opp == OPP_COMPLETE ? "Complete"
+     : "Unknown"
+
+// Whether this opportunity state allows professional entry.
+export opp_allows_entry(int opp) =>
+    opp == OPP_FRESH or opp == OPP_PENDING_FRESH or opp == OPP_PENDING_DELAYED or opp == OPP_READY or opp == OPP_LATE_ACCEPTABLE
+
+// Whether this opportunity state is terminal (no further progression to entry).
+export opp_is_terminal(int opp) =>
+    opp == OPP_MISSED or opp == OPP_STALE or opp == OPP_EXPIRED or opp == OPP_INVALIDATED or opp == OPP_COMPLETE
+
+// Whether this opportunity should suppress pending activation.
+export opp_should_invalidate_pending(int opp) =>
+    opp == OPP_MISSED or opp == OPP_STALE or opp == OPP_EXPIRED or opp == OPP_INVALIDATED
+
+// Whether this opportunity state explicitly forbids chasing.
+// Chase-forbidden = terminal states + risky late + blocked.
+// LATE_ACCEPTABLE may allow chase in Aggressive mode only (handled by evaluator).
+export opp_is_chase_forbidden(int opp) =>
+    opp == OPP_MISSED or opp == OPP_STALE or opp == OPP_EXPIRED or opp == OPP_INVALIDATED or opp == OPP_LATE_RISKY or opp == OPP_BLOCKED or opp == OPP_COMPLETE
+
+// =====================================================================
+// CHAPTER 7: CORE EVALUATOR
+// =====================================================================
+// Evaluates opportunity state for one side (long or short).
+// Uses entry authority state as foundation, then layers timing quality.
+//
+// Key inputs:
+//   entryAuth: current entry authority state (from Ch6)
+//   blockCat: block category (from Ch6)
+//   structValid: structural validity (from Ch6)
+//   pendingActive: whether a pending setup exists for this side
+//   pendingSignalBar: bar when pending was stored
+//   pendingExpiryBar: bar when pending expires
+//   pendingFresh: structural freshness of pending (from freshness helper)
+//   mssFresh: MSS freshness
+//   dispFresh: displacement freshness
+//   isExtended: extension filter
+//   mode: sensitivity mode
+//   signalAge: bars since relevant signal/MSS event
+//   mssAge: bars since MSS event
+//   lifecycle: current lifecycle stage
+//   hasActiveTrade: whether a trade is active
+//
+// Returns: [oppState, oppReason, chaseAllowed]
+
+export evaluate_opportunity_state(
+     int entryAuth, int blockCat, bool structValid,
+     bool pendingActive, int pendingSignalBar, int pendingExpiryBar,
+     bool pendingFresh, bool pendingCanActivate,
+     bool mssFresh_, bool dispFresh_,
+     bool isExtended_, bool mssFailed_, bool reclaimFailed_, bool dispFailed_,
+     bool expired_, bool degraded_,
+     string mode, int lifecycle,
+     int mssBar_, int signalBar_,
+     bool hasActiveTrade, bool tradeClosedThisSetup) =>
+
+    int opp = OPP_NONE
+    string reason = ""
+    bool chaseOk = false
+
+    // --- Priority 1: Active trade ---
+    if hasActiveTrade
+        opp := OPP_ACTIVE
+        reason := "Trade active — opportunity being realized"
+        chaseOk := false
+
+    // --- Priority 1b: Completed trade from this setup ---
+    else if tradeClosedThisSetup
+        opp := OPP_COMPLETE
+        reason := "Trade completed — opportunity concluded"
+
+    // --- Priority 2: Structural invalidation (terminal) ---
+    else if entryAuth == EA_INVALIDATED
+        opp := OPP_INVALIDATED
+        reason := mssFailed_ ? "MSS failed — structure destroyed"
+             : reclaimFailed_ ? "Reclaim failed — recovery lost"
+             : dispFailed_ ? "Displacement failed — commitment lost"
+             : degraded_ ? "Setup degraded — imbalance filled"
+             : "Setup structurally invalidated"
+
+    else if entryAuth == EA_EXPIRED
+        opp := OPP_EXPIRED
+        reason := expired_ ? "Setup aged out completely"
+             : pendingActive and pendingExpiryBar > 0 and bar_index > pendingExpiryBar ? "Pending window expired"
+             : "Timing window elapsed"
+
+    // --- Priority 3: No setup context ---
+    else if entryAuth == EA_NONE
+        opp := OPP_NONE
+        reason := "No setup context"
+
+    else if entryAuth == EA_FORMING
+        opp := OPP_FORMING
+        reason := "Setup developing — opportunity not yet real"
+
+    // --- Priority 4: Triggerable (immediate or delayed) ---
+    else if entryAuth == EA_TRIGGERABLE
+        opp := OPP_READY
+        // Lifecycle-aware: if entry is triggered, distinguish from merely armed
+        reason := lifecycle >= LC_ENTRY_TRIGGERED ? "Execution triggered — take the trade"
+             : lifecycle >= LC_ENTRY_ARMED ? "Execution authorized — opportunity ready"
+             : "Execution authorized — setup mature"
+        chaseOk := true
+
+    // --- Priority 5: Active pending states ---
+    else if pendingActive
+        // Compute timing metrics
+        int pendAge = pendingSignalBar > 0 ? bar_index - pendingSignalBar : 0
+        int windowSize = pendingExpiryBar > 0 and pendingSignalBar > 0 ? pendingExpiryBar - pendingSignalBar : 5
+        float pendProgress = windowSize > 0 ? float(pendAge) / float(windowSize) : 1.0
+
+        // Mode-dependent lateness thresholds
+        float lateThreshold = mode == "Aggressive" ? 0.6 : mode == "Conservative" ? 0.4 : 0.5
+        float missedThreshold = mode == "Aggressive" ? 1.0 : mode == "Conservative" ? 0.7 : 0.85
+
+        // Structure-aware: extension makes lateness worse
+        float extensionPenalty = isExtended_ ? 0.2 : 0.0
+        // Activation-aware: if pending can no longer activate, accelerate decay
+        float activationPenalty = pendingCanActivate ? 0.0 : 0.3
+        float effectiveProgress = pendProgress + extensionPenalty + activationPenalty
+
+        if not pendingFresh
+            // Structurally stale — even if within window
+            opp := OPP_STALE
+            reason := "Pending structurally stale — no longer professional entry"
+        else if not pendingCanActivate
+            // Pending exists but cannot activate — missed regardless of timing
+            opp := OPP_MISSED
+            reason := "Pending can no longer activate — opportunity passed"
+        else if not mssFresh_
+            opp := OPP_STALE
+            reason := "MSS aged out — opportunity stale"
+        else if not dispFresh_
+            opp := OPP_STALE
+            reason := "Displacement aged out — opportunity stale"
+        else if effectiveProgress >= missedThreshold
+            opp := OPP_MISSED
+            reason := "Optimal entry window passed" + (isExtended_ ? " (extended)" : "") + " — do not chase"
+        else if effectiveProgress >= lateThreshold
+            // Check if mode tolerates this lateness
+            if isExtended_ and mode != "Aggressive"
+                opp := OPP_LATE_RISKY
+                reason := "Late + extended — chase risk high"
+            else if mode == "Conservative"
+                opp := OPP_LATE_RISKY
+                reason := "Late for conservative — reduced conviction"
+                chaseOk := false
+            else
+                opp := OPP_LATE_ACCEPTABLE
+                reason := "Late but within tolerance — reduced conviction"
+                chaseOk := mode == "Aggressive"
+        else if pendAge <= 1
+            opp := OPP_PENDING_FRESH
+            reason := "Pending fresh — ideal retrace window"
+            chaseOk := true
+        else
+            opp := OPP_PENDING_DELAYED
+            reason := "Pending delayed — still acceptable"
+            chaseOk := true
+
+    // --- Priority 6: Entry authority says LATE ---
+    else if entryAuth == EA_LATE
+        // Differentiate late severity
+        if blockCat == EB_FRESHNESS
+            // MSS or displacement stale
+            if not mssFresh_ or not dispFresh_
+                opp := OPP_STALE
+                reason := not mssFresh_ ? "MSS aged out — opportunity stale" : "Displacement aged out — opportunity stale"
+            else
+                opp := OPP_LATE_RISKY
+                reason := "Structurally valid but timing degraded"
+        else if blockCat == EB_EXTENSION
+            if mode == "Aggressive"
+                opp := OPP_LATE_ACCEPTABLE
+                reason := "Extended but aggressive may still participate"
+                chaseOk := true
+            else
+                opp := OPP_LATE_RISKY
+                reason := "Price extended — chase risk high for " + mode
+        else
+            // Generic late
+            if isExtended_ and mode != "Aggressive"
+                opp := OPP_MISSED
+                reason := "Late + extended — optimal entry gone"
+            else
+                opp := OPP_LATE_ACCEPTABLE
+                reason := "Setup late — reduced conviction"
+                chaseOk := mode == "Aggressive"
+
+    // --- Priority 7: Blocked ---
+    // EA says BLOCKED — opportunity reflects the block. A blocked setup is not
+    // an acceptable entry regardless of mode. Chase is never allowed from blocked.
+    else if entryAuth == EA_BLOCKED
+        if blockCat == EB_RECLAIM_FAILED or blockCat == EB_MSS_FAILED or blockCat == EB_DISP_FAILED
+            opp := OPP_INVALIDATED
+            reason := "Blocked by structural failure"
+        else if blockCat == EB_CONFLICTED
+            opp := OPP_BLOCKED
+            reason := "Both sides active — no clear edge"
+        else if blockCat == EB_EXTENSION
+            // Extension block is a BLOCKED state, not a late-acceptable one.
+            // Aggressive may tolerate extension at the EA level (EA_LATE + EB_EXTENSION),
+            // but once EA has classified it as BLOCKED, the opportunity is blocked.
+            opp := OPP_BLOCKED
+            reason := "Price too extended — blocked for " + mode
+        else
+            opp := OPP_BLOCKED
+            reason := "Execution blocked — mode/gate requirements not met"
+
+    // --- Priority 8: Pending retrace/confirmation (EA says pending but no pending stored yet) ---
+    else if entryAuth == EA_PENDING_RETRACE or entryAuth == EA_PENDING_CONFIRMATION
+        opp := OPP_PENDING_FRESH
+        reason := "Awaiting retrace/confirmation — fresh opportunity"
+        chaseOk := true
+
+    // --- Priority 9: Armed / Ready / Struct valid ---
+    else if entryAuth == EA_ARMED
+        opp := OPP_READY
+        reason := "Entry armed — trigger zone reachable"
+        chaseOk := true
+
+    else if entryAuth == EA_READY
+        opp := OPP_FRESH
+        reason := lifecycle >= LC_ENTRY_TRIGGERED ? "Execution ready and triggered — high conviction"
+             : "Execution ready — fresh opportunity"
+        chaseOk := true
+
+    else if entryAuth == EA_STRUCT_VALID
+        // Structurally valid but not execution-ready
+        // Check if this is merely early (forming) or if timing has degraded
+        bool hasMssRef = not na(mssBar_) and mssBar_ > 0
+        int mssAge = hasMssRef ? bar_index - mssBar_ : 0
+        int mssLateAge = mode == "Aggressive" ? 25 : mode == "Conservative" ? 10 : 18
+        // Signal age provides secondary timing dimension
+        bool hasSigRef = not na(signalBar_) and signalBar_ > 0
+        int sigAge = hasSigRef ? bar_index - signalBar_ : 0
+        bool sigAging = hasSigRef and sigAge > mssLateAge
+        // Lifecycle-aware: if lifecycle hasn't advanced past displacement, still forming
+        bool lifecycleAdvanced = lifecycle >= LC_DISPLACEMENT_CONFIRMED
+        if hasMssRef and mssAge > mssLateAge and structValid and lifecycleAdvanced
+            opp := sigAging ? OPP_LATE_RISKY : OPP_LATE_ACCEPTABLE
+            reason := sigAging ? "Structure valid but both MSS and signal aging — risky"
+                 : "Structurally valid but timing aging — monitor only"
+        else if hasMssRef and mssAge > mssLateAge and structValid
+            opp := OPP_LATE_ACCEPTABLE
+            reason := "Structurally valid but timing aging — lifecycle not advanced"
+        else
+            opp := OPP_FORMING
+            reason := "Structurally valid — awaiting execution readiness"
+
+    else
+        opp := OPP_NONE
+        reason := "No classifiable opportunity"
+
+    [opp, reason, chaseOk]

@@ -5,8 +5,8 @@
 // These were extracted from main with added parameters for sweep array and sensitivity mode.
 library("tv_signal_gate_engine", overlay = true)
 
-import Devtailor/tv_core_types/2 as T
-import Devtailor/tv_liquidity_engine/2 as liq
+import Devtailor/tv_core_types/4 as T
+import Devtailor/tv_liquidity_engine/4 as liq
 
 // Re-alias constants locally
 int SRC_SESSION   = T.SRC_SESSION()

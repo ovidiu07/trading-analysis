@@ -103,6 +103,25 @@ export EB_DISP_FAILED()            => 7   // Displacement failed
 export EB_CONFLICTED()             => 8   // Both sides active, no clear edge
 export EB_ACTIVE_TRADE()           => 9   // Already in a trade
 
+// --- Opportunity State Constants (Chapter 7) ---
+// Post-setup timing quality classification — sits between entry authority and trade execution.
+// Answers: "If not executed immediately, what is the opportunity state now?"
+export OPP_NONE()                  => 0   // No setup context, no opportunity
+export OPP_FORMING()               => 1   // Setup developing, opportunity not yet real
+export OPP_FRESH()                 => 2   // Fresh, structurally valid, actionable now
+export OPP_PENDING_FRESH()         => 3   // Pending retrace/confirmation, timing still ideal
+export OPP_PENDING_DELAYED()       => 4   // Pending, delayed but still acceptable entry
+export OPP_READY()                 => 5   // Execution-ready, trigger zone reachable
+export OPP_LATE_ACCEPTABLE()       => 6   // Late but maybe tradable with reduced conviction
+export OPP_LATE_RISKY()            => 7   // Late, risky to chase — structure valid but timing poor
+export OPP_MISSED()                => 8   // Optimal entry window gone — do not chase
+export OPP_STALE()                 => 9   // Structurally valid but decayed beyond professional entry
+export OPP_EXPIRED()               => 10  // Timing window fully elapsed
+export OPP_INVALIDATED()           => 11  // Structure failed — opportunity destroyed
+export OPP_BLOCKED()               => 12  // Blocked by filter/mode/gate — cannot execute
+export OPP_ACTIVE()                => 13  // Trade taken, opportunity is being realized
+export OPP_COMPLETE()              => 14  // Trade closed, opportunity context concluded
+
 // =====================================================================
 // EXPORTED TYPES
 // =====================================================================
@@ -230,3 +249,5 @@ export type SmartZone
     bool  ceBroken = false
     int   touchCount = 0
     float gapSize = na
+    int   startTime = na        // Time-based left anchor (bar open time at zone origin)
+    int   endTime = na          // Time-based right anchor (computed at creation)

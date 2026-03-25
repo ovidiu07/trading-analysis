@@ -139,6 +139,13 @@ export type LifecycleDisplay
     string eaReasonStr
     string eaStructStr
     color  eaStructCol
+    // Chapter 7: Opportunity State
+    string oppStateStr
+    color  oppStateCol
+    string oppBothStr
+    string oppReasonStr
+    string oppChaseStr
+    color  oppChaseCol
     color  valueColor
     color  neutralDbgColor
 
@@ -269,6 +276,12 @@ export render_lifecycle(table readTbl, int startRow, LifecycleDisplay lc, color 
     r := tbl.table_kv_tiny(readTbl, r, "EA Block", lc.eaBlockStr, labelColor, lc.eaBlockCol)
     r := tbl.table_kv_tiny(readTbl, r, "EA Reason", lc.eaReasonStr, labelColor, lc.neutralDbgColor)
     r := tbl.table_kv_tiny(readTbl, r, "Structural Valid", lc.eaStructStr, labelColor, lc.eaStructCol)
+    // Chapter 7: Opportunity State section
+    r := tbl.table_section(readTbl, r, "Opportunity State", headerColor, bgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Opp State", lc.oppStateStr, labelColor, lc.oppStateCol)
+    r := tbl.table_kv_tiny(readTbl, r, "Opp L/S", lc.oppBothStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Opp Reason", lc.oppReasonStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Chase Allowed", lc.oppChaseStr, labelColor, lc.oppChaseCol)
     r
 
 // @function Renders the performance section.
