@@ -25,6 +25,22 @@ color NEUTRAL_COLOR = #5b9cf6
 // Trade, AlertLog, Stats, SessionData, DispState, LiqLevel, LiqSweep, SmartZone
 // are now imported from tv_core_types (alias T)
 
+// Chapter 7: Opportunity state nested UDT.
+// Consolidates all opportunity fields into a single external element reference
+// to stay within Pine Script's 254-element limit for SetupState.new().
+type OppState
+    int     stateLong = 0
+    int     stateShort = 0
+    string  reasonLong = ""
+    string  reasonShort = ""
+    bool    chaseLong = false
+    bool    chaseShort = false
+    int     stateDom = 0             // Canonical dominant-side state (set after invariants)
+    string  reasonDom = ""
+    bool    chaseDom = false
+    string  timingDom = ""           // Timing quality: "fresh"/"delayed"/"late"/"missed" etc.
+    bool    missedDom = false        // True when dominant opportunity is past actionable window
+
 type SetupState
     string  phase = "Monitoring"
     int     score = 0
@@ -184,20 +200,8 @@ type SetupState
     bool    structurallyValidLong = false
     bool    structurallyValidShort = false
     bool    structurallyValidDominant = false
-    // Chapter 7: Opportunity State Model
-    int     opportunityStateLong = 0
-    int     opportunityStateShort = 0
-    string  opportunityReasonLong = ""
-    string  opportunityReasonShort = ""
-    bool    chaseAllowedLong = false
-    bool    chaseAllowedShort = false
-    // Chapter 7: Dominant-side canonical opportunity state
-    // Populated after invariant corrections — avoids repeated ad-hoc pickLong derivation.
-    int     opportunityStateDominant = 0
-    string  opportunityReasonDominant = ""
-    bool    chaseAllowedDominant = false
-    string  opportunityTimingDominant = ""    // Timing quality: "fresh"/"delayed"/"late"/"missed"/"stale"/"expired"/etc.
-    bool    opportunityMissedDominant = false // True when dominant opportunity is past actionable window
+    // Chapter 7: Opportunity State Model (nested UDT — 1 external element vs 18)
+    OppState opp = na
 
 // SmartZone type now imported from tv_core_types (alias T)
 
@@ -207,6 +211,7 @@ new_disp_state() =>
 new_setup_state() =>
     SetupState s = SetupState.new()
     s.disp := new_disp_state()
+    s.opp := OppState.new()
     s
 
 // --- Entry Authority Constants (Chapter 6) ---
@@ -2339,12 +2344,12 @@ var bool _tradeClosedFromSetupS = false
      not na(activeTrade), _tradeClosedFromSetupS)
 
 // Populate SetupState Chapter 7 fields
-liveSetup.opportunityStateLong := oppLong
-liveSetup.opportunityStateShort := oppShort
-liveSetup.opportunityReasonLong := oppReasonL
-liveSetup.opportunityReasonShort := oppReasonS
-liveSetup.chaseAllowedLong := chaseOkL
-liveSetup.chaseAllowedShort := chaseOkS
+liveSetup.opp.stateLong := oppLong
+liveSetup.opp.stateShort := oppShort
+liveSetup.opp.reasonLong := oppReasonL
+liveSetup.opp.reasonShort := oppReasonS
+liveSetup.opp.chaseLong := chaseOkL
+liveSetup.opp.chaseShort := chaseOkS
 
 // Chapter 7: Opportunity-aware pending invalidation
 // If opportunity evaluator says this pending is missed/stale, invalidate it
@@ -2931,38 +2936,38 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
     // OPP-I1: Opportunity says fresh/ready but entry authority is terminal
     // Both sides checked independently.
     if not s.lifecycleIsDesynced
-        if (s.opportunityStateLong == OPP_FRESH or s.opportunityStateLong == OPP_READY or s.opportunityStateLong == OPP_PENDING_FRESH) and ea.ea_is_terminal(s.entryAuthorityLong)
-            s.opportunityStateLong := s.entryAuthorityLong == EA_EXPIRED ? OPP_EXPIRED : OPP_INVALIDATED
-            s.opportunityReasonLong := "OPP-I1: opportunity " + pts.opp_name(OPP_FRESH) + " contradicts EA=" + ea.ea_name(s.entryAuthorityLong)
-            s.chaseAllowedLong := false
-        if (s.opportunityStateShort == OPP_FRESH or s.opportunityStateShort == OPP_READY or s.opportunityStateShort == OPP_PENDING_FRESH) and ea.ea_is_terminal(s.entryAuthorityShort)
-            s.opportunityStateShort := s.entryAuthorityShort == EA_EXPIRED ? OPP_EXPIRED : OPP_INVALIDATED
-            s.opportunityReasonShort := "OPP-I1: opportunity contradicts EA=" + ea.ea_name(s.entryAuthorityShort)
-            s.chaseAllowedShort := false
+        if (s.opp.stateLong == OPP_FRESH or s.opp.stateLong == OPP_READY or s.opp.stateLong == OPP_PENDING_FRESH) and ea.ea_is_terminal(s.entryAuthorityLong)
+            s.opp.stateLong := s.entryAuthorityLong == EA_EXPIRED ? OPP_EXPIRED : OPP_INVALIDATED
+            s.opp.reasonLong := "OPP-I1: opportunity " + pts.opp_name(OPP_FRESH) + " contradicts EA=" + ea.ea_name(s.entryAuthorityLong)
+            s.opp.chaseLong := false
+        if (s.opp.stateShort == OPP_FRESH or s.opp.stateShort == OPP_READY or s.opp.stateShort == OPP_PENDING_FRESH) and ea.ea_is_terminal(s.entryAuthorityShort)
+            s.opp.stateShort := s.entryAuthorityShort == EA_EXPIRED ? OPP_EXPIRED : OPP_INVALIDATED
+            s.opp.reasonShort := "OPP-I1: opportunity contradicts EA=" + ea.ea_name(s.entryAuthorityShort)
+            s.opp.chaseShort := false
 
     // OPP-I2: Opportunity says missed/expired/stale but pending remains active and executable
     // Both sides checked independently.
     if not s.lifecycleIsDesynced
-        if _pLA and _pLCA and (s.opportunityStateLong == OPP_MISSED or s.opportunityStateLong == OPP_EXPIRED or s.opportunityStateLong == OPP_STALE)
+        if _pLA and _pLCA and (s.opp.stateLong == OPP_MISSED or s.opp.stateLong == OPP_EXPIRED or s.opp.stateLong == OPP_STALE)
             _pLA := false
             _pLCA := false
-            _pLR := "OPP-I2: pending invalidated — opportunity=" + pts.opp_name(s.opportunityStateLong)
-        if _pSA and _pSCA and (s.opportunityStateShort == OPP_MISSED or s.opportunityStateShort == OPP_EXPIRED or s.opportunityStateShort == OPP_STALE)
+            _pLR := "OPP-I2: pending invalidated — opportunity=" + pts.opp_name(s.opp.stateLong)
+        if _pSA and _pSCA and (s.opp.stateShort == OPP_MISSED or s.opp.stateShort == OPP_EXPIRED or s.opp.stateShort == OPP_STALE)
             _pSA := false
             _pSCA := false
-            _pSR := "OPP-I2: pending invalidated — opportunity=" + pts.opp_name(s.opportunityStateShort)
+            _pSR := "OPP-I2: pending invalidated — opportunity=" + pts.opp_name(s.opp.stateShort)
 
     // OPP-I3: Active trade exists while opportunity says missed/expired instead of active
     // Corrects the dominant side to OPP_ACTIVE when a trade is live.
     if not s.lifecycleIsDesynced and not na(activeTrade)
         if activeTrade.isLong
-            if s.opportunityStateLong == OPP_MISSED or s.opportunityStateLong == OPP_EXPIRED or s.opportunityStateLong == OPP_STALE
-                s.opportunityStateLong := OPP_ACTIVE
-                s.opportunityReasonLong := "OPP-I3: corrected — trade active"
+            if s.opp.stateLong == OPP_MISSED or s.opp.stateLong == OPP_EXPIRED or s.opp.stateLong == OPP_STALE
+                s.opp.stateLong := OPP_ACTIVE
+                s.opp.reasonLong := "OPP-I3: corrected — trade active"
         else
-            if s.opportunityStateShort == OPP_MISSED or s.opportunityStateShort == OPP_EXPIRED or s.opportunityStateShort == OPP_STALE
-                s.opportunityStateShort := OPP_ACTIVE
-                s.opportunityReasonShort := "OPP-I3: corrected — trade active"
+            if s.opp.stateShort == OPP_MISSED or s.opp.stateShort == OPP_EXPIRED or s.opp.stateShort == OPP_STALE
+                s.opp.stateShort := OPP_ACTIVE
+                s.opp.reasonShort := "OPP-I3: corrected — trade active"
 
     // OPP-I4: Opportunity says chase forbidden while delayed activation still allowed
     // Main-body suppression at canActivateDelayed uses opp_is_chase_forbidden.
@@ -2971,45 +2976,45 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
     // OPP-I5: Structurally invalidated setup still classified as merely late
     // Both sides checked independently.
     if not s.lifecycleIsDesynced
-        if (mssFailedL2 or rclFailedL2 or dispFailedL2) and (s.opportunityStateLong == OPP_LATE_ACCEPTABLE or s.opportunityStateLong == OPP_LATE_RISKY)
-            s.opportunityStateLong := OPP_INVALIDATED
-            s.opportunityReasonLong := "OPP-I5: structural failure overrides late classification"
-            s.chaseAllowedLong := false
-        if (mssFailedS2 or rclFailedS2 or dispFailedS2) and (s.opportunityStateShort == OPP_LATE_ACCEPTABLE or s.opportunityStateShort == OPP_LATE_RISKY)
-            s.opportunityStateShort := OPP_INVALIDATED
-            s.opportunityReasonShort := "OPP-I5: structural failure overrides late classification"
-            s.chaseAllowedShort := false
+        if (mssFailedL2 or rclFailedL2 or dispFailedL2) and (s.opp.stateLong == OPP_LATE_ACCEPTABLE or s.opp.stateLong == OPP_LATE_RISKY)
+            s.opp.stateLong := OPP_INVALIDATED
+            s.opp.reasonLong := "OPP-I5: structural failure overrides late classification"
+            s.opp.chaseLong := false
+        if (mssFailedS2 or rclFailedS2 or dispFailedS2) and (s.opp.stateShort == OPP_LATE_ACCEPTABLE or s.opp.stateShort == OPP_LATE_RISKY)
+            s.opp.stateShort := OPP_INVALIDATED
+            s.opp.reasonShort := "OPP-I5: structural failure overrides late classification"
+            s.opp.chaseShort := false
 
     // OPP-I6: Chase allowed but opportunity state is chase-forbidden
     // Ensures chaseAllowed flag is always coherent with opportunity classification.
     if not s.lifecycleIsDesynced
-        if s.chaseAllowedLong and pts.opp_is_chase_forbidden(s.opportunityStateLong)
-            s.chaseAllowedLong := false
-        if s.chaseAllowedShort and pts.opp_is_chase_forbidden(s.opportunityStateShort)
-            s.chaseAllowedShort := false
+        if s.opp.chaseLong and pts.opp_is_chase_forbidden(s.opp.stateLong)
+            s.opp.chaseLong := false
+        if s.opp.chaseShort and pts.opp_is_chase_forbidden(s.opp.stateShort)
+            s.opp.chaseShort := false
 
     // =====================================================================
     // Chapter 7: Canonical dominant-side opportunity state
     // Populated AFTER all invariant corrections so dominant state is truthful.
     // Downstream code should use these instead of ad-hoc pickLong derivation.
     // =====================================================================
-    s.opportunityStateDominant := pickLong ? s.opportunityStateLong : s.opportunityStateShort
-    s.opportunityReasonDominant := pickLong ? s.opportunityReasonLong : s.opportunityReasonShort
-    s.chaseAllowedDominant := pickLong ? s.chaseAllowedLong : s.chaseAllowedShort
-    s.opportunityMissedDominant := s.opportunityStateDominant == OPP_MISSED or s.opportunityStateDominant == OPP_STALE or s.opportunityStateDominant == OPP_EXPIRED
-    s.opportunityTimingDominant := s.opportunityStateDominant == OPP_FRESH or s.opportunityStateDominant == OPP_READY ? "fresh"
-         : s.opportunityStateDominant == OPP_PENDING_FRESH ? "fresh"
-         : s.opportunityStateDominant == OPP_PENDING_DELAYED ? "delayed"
-         : s.opportunityStateDominant == OPP_LATE_ACCEPTABLE ? "late"
-         : s.opportunityStateDominant == OPP_LATE_RISKY ? "late-risky"
-         : s.opportunityStateDominant == OPP_MISSED ? "missed"
-         : s.opportunityStateDominant == OPP_STALE ? "stale"
-         : s.opportunityStateDominant == OPP_EXPIRED ? "expired"
-         : s.opportunityStateDominant == OPP_INVALIDATED ? "invalidated"
-         : s.opportunityStateDominant == OPP_BLOCKED ? "blocked"
-         : s.opportunityStateDominant == OPP_ACTIVE ? "active"
-         : s.opportunityStateDominant == OPP_COMPLETE ? "complete"
-         : s.opportunityStateDominant == OPP_FORMING ? "forming"
+    s.opp.stateDom := pickLong ? s.opp.stateLong : s.opp.stateShort
+    s.opp.reasonDom := pickLong ? s.opp.reasonLong : s.opp.reasonShort
+    s.opp.chaseDom := pickLong ? s.opp.chaseLong : s.opp.chaseShort
+    s.opp.missedDom := s.opp.stateDom == OPP_MISSED or s.opp.stateDom == OPP_STALE or s.opp.stateDom == OPP_EXPIRED
+    s.opp.timingDom := s.opp.stateDom == OPP_FRESH or s.opp.stateDom == OPP_READY ? "fresh"
+         : s.opp.stateDom == OPP_PENDING_FRESH ? "fresh"
+         : s.opp.stateDom == OPP_PENDING_DELAYED ? "delayed"
+         : s.opp.stateDom == OPP_LATE_ACCEPTABLE ? "late"
+         : s.opp.stateDom == OPP_LATE_RISKY ? "late-risky"
+         : s.opp.stateDom == OPP_MISSED ? "missed"
+         : s.opp.stateDom == OPP_STALE ? "stale"
+         : s.opp.stateDom == OPP_EXPIRED ? "expired"
+         : s.opp.stateDom == OPP_INVALIDATED ? "invalidated"
+         : s.opp.stateDom == OPP_BLOCKED ? "blocked"
+         : s.opp.stateDom == OPP_ACTIVE ? "active"
+         : s.opp.stateDom == OPP_COMPLETE ? "complete"
+         : s.opp.stateDom == OPP_FORMING ? "forming"
          : "none"
 
     // OPP-I4: Chase-forbidden dominant opportunity while delayed activation survived
@@ -3018,15 +3023,15 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
     // Note: this modifies liveSetup but cannot modify canActivateDelayed directly
     // since it's a local in the caller. The main-body suppression handles the runtime
     // effect; this invariant ensures the canonical state is coherent for messaging.
-    if not s.lifecycleIsDesynced and s.opportunityMissedDominant
+    if not s.lifecycleIsDesynced and s.opp.missedDom
         if _pLA and _pLCA and pickLong
             _pLA := false
             _pLCA := false
-            _pLR := "OPP-I4: pending invalidated — dominant opportunity=" + pts.opp_name(s.opportunityStateDominant)
+            _pLR := "OPP-I4: pending invalidated — dominant opportunity=" + pts.opp_name(s.opp.stateDom)
         if _pSA and _pSCA and not pickLong
             _pSA := false
             _pSCA := false
-            _pSR := "OPP-I4: pending invalidated — dominant opportunity=" + pts.opp_name(s.opportunityStateDominant)
+            _pSR := "OPP-I4: pending invalidated — dominant opportunity=" + pts.opp_name(s.opp.stateDom)
 
     // --- Entry Authority Authoritative Field Overrides ---
     if s.lifecycleIsDesynced
@@ -3048,7 +3053,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
         // Chapter 6+7: Entry authority reason is the canonical "missing/next" guidance.
         // Chapter 7 opportunity state qualifies pending messaging via canonical dominant fields.
         string domEAReason = pickLong ? s.entryReasonLong : s.entryReasonShort
-        int domOppInv = s.opportunityStateDominant
+        int domOppInv = s.opp.stateDom
         if _pLA or _pSA
             bool pendL2 = _pLA
             int barsRemaining = (pendL2 ? pndLongExpiryBar : pndShortExpiryBar) - bar_index
@@ -3062,7 +3067,7 @@ validate_invariants(SetupState s, T.Trade activeTrade, bool pickLong,
             s.missing := pendSide + " pending activation (" + str.tostring(math.max(0, barsRemaining)) + " bars remaining)" + oppSuffix
         else if pts.opp_is_terminal(domOppInv) and domOppInv != OPP_COMPLETE
             // Chapter 7: Terminal opportunity states override EA messaging
-            s.missing := pickLong ? s.opportunityReasonLong : s.opportunityReasonShort
+            s.missing := pickLong ? s.opp.reasonLong : s.opp.reasonShort
         else if domEA >= EA_STRUCT_VALID
             // EA reason is authoritative for all structurally-aware states
             s.missing := domEAReason
@@ -3216,7 +3221,7 @@ if showReadiness and barstate.islast
         int barsLeft = pendExpiry - bar_index
         string pendDir = pendL ? "LONG" : "SHORT"
         // Chapter 7: Use opportunity state to qualify pending display
-        int pendOpp = pendL ? liveSetup.opportunityStateLong : liveSetup.opportunityStateShort
+        int pendOpp = pendL ? liveSetup.opp.stateLong : liveSetup.opp.stateShort
         string oppQual = pendOpp == OPP_PENDING_FRESH ? " [fresh]"
              : pendOpp == OPP_PENDING_DELAYED ? " [delayed]"
              : pendOpp == OPP_LATE_ACCEPTABLE ? " [late]"
@@ -3520,8 +3525,8 @@ if showReadiness and barstate.islast
         color eaStructDbgCol = (liveSetup.structurallyValidLong or liveSetup.structurallyValidShort) ? uiPosColor : uiLabelText
 
         // Chapter 7: Opportunity State debug precomputation (uses canonical dominant fields)
-        int domOppDbg = liveSetup.opportunityStateDominant
-        string oppStateDbg = pts.opp_name(domOppDbg) + " (" + str.tostring(domOppDbg) + ")" + " [" + liveSetup.opportunityTimingDominant + "]"
+        int domOppDbg = liveSetup.opp.stateDom
+        string oppStateDbg = pts.opp_name(domOppDbg) + " (" + str.tostring(domOppDbg) + ")" + " [" + liveSetup.opp.timingDom + "]"
         color oppStateDbgCol = domOppDbg == OPP_READY or domOppDbg == OPP_FRESH ? uiPosColor
              : domOppDbg == OPP_ACTIVE ? uiPosColor
              : domOppDbg == OPP_PENDING_FRESH ? color.orange
@@ -3532,10 +3537,10 @@ if showReadiness and barstate.islast
              : domOppDbg == OPP_BLOCKED ? uiNegColor
              : domOppDbg == OPP_COMPLETE ? uiLabelText
              : uiNeutralColor
-        string oppBothDbg = "L: " + pts.opp_name(liveSetup.opportunityStateLong) + " (" + str.tostring(liveSetup.opportunityStateLong) + ")  |  S: " + pts.opp_name(liveSetup.opportunityStateShort) + " (" + str.tostring(liveSetup.opportunityStateShort) + ")"
-        string oppReasonDbg = liveSetup.opportunityReasonDominant
-        string oppChaseDbg = "L: " + (liveSetup.chaseAllowedLong ? "YES" : "NO") + "  |  S: " + (liveSetup.chaseAllowedShort ? "YES" : "NO") + "  |  Dom: " + (liveSetup.chaseAllowedDominant ? "YES" : "NO")
-        color oppChaseDbgCol = liveSetup.chaseAllowedDominant ? uiPosColor : uiNegColor
+        string oppBothDbg = "L: " + pts.opp_name(liveSetup.opp.stateLong) + " (" + str.tostring(liveSetup.opp.stateLong) + ")  |  S: " + pts.opp_name(liveSetup.opp.stateShort) + " (" + str.tostring(liveSetup.opp.stateShort) + ")"
+        string oppReasonDbg = liveSetup.opp.reasonDom
+        string oppChaseDbg = "L: " + (liveSetup.opp.chaseLong ? "YES" : "NO") + "  |  S: " + (liveSetup.opp.chaseShort ? "YES" : "NO") + "  |  Dom: " + (liveSetup.opp.chaseDom ? "YES" : "NO")
+        color oppChaseDbgCol = liveSetup.opp.chaseDom ? uiPosColor : uiNegColor
 
         rdash.LifecycleDisplay lcDisp = rdash.LifecycleDisplay.new(
              lcStageStr, lcStageCol,
@@ -3656,7 +3661,7 @@ update_candidate_preview(SetupState s, bool pickLong, bool dominantLiquidityBloc
 
     // Chapter 7: Suppress preview when opportunity is clearly gone or blocked
     // Uses canonical dominant opportunity state (set after invariant corrections).
-    bool oppPermitsPreview = not pts.opp_is_chase_forbidden(s.opportunityStateDominant) and s.opportunityStateDominant != OPP_COMPLETE
+    bool oppPermitsPreview = not pts.opp_is_chase_forbidden(s.opp.stateDom) and s.opp.stateDom != OPP_COMPLETE
 
     bool showPreview = showSetups and showCandidatePreview and (s.dominantMeetsModeCandidate or hasPendingCandidate) and qualityPreviewOk and eaPermitsPreview and oppPermitsPreview and na(activeTrade) and not s.isConflicted and not dominantLiquidityBlocked and not s.lifecycleIsDesynced
 
