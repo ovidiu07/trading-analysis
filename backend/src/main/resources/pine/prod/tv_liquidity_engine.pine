@@ -17,6 +17,7 @@ int SRC_ROUND_NUM   = T.SRC_ROUND_NUM()
 int SRC_PIVOT_HTF_1 = T.SRC_PIVOT_HTF_1()
 int SRC_PIVOT_HTF_2 = T.SRC_PIVOT_HTF_2()
 int SRC_PIVOT_HTF_3 = T.SRC_PIVOT_HTF_3()
+int SRC_DEVELOPING  = T.SRC_DEVELOPING()
 
 int SWEEP_SHALLOW       = T.SWEEP_SHALLOW()
 int SWEEP_CLEAN_RAID    = T.SWEEP_CLEAN_RAID()
@@ -268,3 +269,193 @@ export summarize_liquidity_map(T.LiqLevel[] levels) =>
      _nearestSessBSL, _nearestSessSSL, _nearestHTFBSL, _nearestHTFSSL,
      _nearestClusterBSL, _nearestClusterSSL, _nearestRoundBSL, _nearestRoundSSL,
      _nearestBSLName, _nearestSSLName]
+
+// =====================================================================
+// CHAPTER 8: LIQUIDITY HIERARCHY — PRIORITY-BASED TARGET SELECTION
+// =====================================================================
+// The simple nearest-price selection above is insufficient for professional
+// SMC/ICT work. The hierarchy layer adds:
+//   1. Consumed-level awareness (already-swept levels deprioritized)
+//   2. Composite scoring (priority + proximity + externality + source quality)
+//   3. Inducement detection (internal level between price and external target)
+//   4. Nearest-relevant vs highest-priority separation
+// =====================================================================
+
+// Check if a level price matches any recent sweep on the same side.
+// Used to deprioritize levels that have already been taken out.
+export is_level_consumed(float levelPrice, bool isSSL_, T.LiqSweep[] sweeps, float tolerance) =>
+    bool consumed = false
+    if array.size(sweeps) > 0
+        for i = 0 to array.size(sweeps) - 1
+            T.LiqSweep s = array.get(sweeps, i)
+            if s.isSSL == isSSL_ and math.abs(s.levelPrice - levelPrice) <= tolerance
+                consumed := true
+                break
+    consumed
+
+// Compute hierarchy priority score for a single liquidity level.
+// Balances source priority, proximity, externality, and consumed state
+// into a single comparable score. Higher = more relevant target.
+//
+// Scoring bands:
+//   Source priority: 0-40 (scaled from raw 0-100 priority)
+//   Proximity:       -15 to +30 (ATR-distance based)
+//   Externality:     0-10
+//   HTF bonus:       0-8
+//   Session bonus:   0-5
+//   Cluster bonus:   0-6
+//   Consumed:        -30
+//   Weak source:     -8 to -10
+export hierarchy_level_score(float price_, int priority_, bool isExternal_, bool isHTF_, bool isSession_, bool isCluster_, int sourceType_, bool isConsumed_, float atrVal) =>
+    float score = 0.0
+    // Source priority contribution (0-40): institutional weight of the level's origin
+    score += (float(priority_) / 100.0) * 40.0
+    // Proximity score (-15 to +30): closer levels are more immediately relevant
+    float distAtr = atrVal > 0 ? math.abs(price_ - close) / atrVal : 10.0
+    if distAtr < 0.5
+        score += 30.0
+    else if distAtr < 1.0
+        score += 25.0
+    else if distAtr < 2.0
+        score += 18.0
+    else if distAtr < 3.5
+        score += 12.0
+    else if distAtr < 5.0
+        score += 5.0
+    else
+        score -= math.min((distAtr - 5.0) * 2.0, 15.0)
+    // Externality bonus: external levels define dealing range boundaries
+    if isExternal_
+        score += 10.0
+    // HTF bonus: higher-timeframe confluence adds conviction
+    if isHTF_
+        score += 8.0
+    // Session bonus: institutional session levels
+    if isSession_
+        score += 5.0
+    // Cluster bonus: concentrated liquidity pools (EQH/EQL)
+    if isCluster_
+        score += 6.0
+    // Consumed penalty: already-swept levels are less relevant as upcoming targets
+    if isConsumed_
+        score -= 30.0
+    // Weak source penalties
+    if sourceType_ == SRC_ROUND_NUM
+        score -= 8.0
+    if sourceType_ == SRC_DEVELOPING
+        score -= 10.0
+    score
+
+// Select hierarchy-aware liquidity targets for both BSL and SSL sides.
+//
+// Goes beyond simple nearest-price selection to evaluate which level is
+// the most strategically relevant target based on composite scoring.
+// Also detects if the simple nearest level is likely inducement
+// (internal level sitting between price and the true external target).
+//
+// Returns 18-tuple:
+//   Nearest relevant (non-consumed, non-developing):
+//     [nearRelBSL, nearRelSSL, nearRelBSLName, nearRelSSLName]
+//   Highest-priority (composite hierarchy score):
+//     [hiPriBSL, hiPriSSL, hiPriBSLName, hiPriSSLName,
+//      hiPriSrcBSL, hiPriSrcSSL, hiPriExtBSL, hiPriExtSSL]
+//   Inducement detection:
+//     [nearIsInducBSL, nearIsInducSSL]
+//   Nearest unconsumed external (for inducement target identification):
+//     [nearExtBSL, nearExtSSL, nearExtBSLName, nearExtSSLName]
+export select_hierarchy_targets(T.LiqLevel[] levels, float atrVal, T.LiqSweep[] sweeps) =>
+    float consumedTol = atrVal * 0.2
+
+    // === BSL candidates (levels above price — buy-side liquidity) ===
+    float _nearRelBSL = na
+    string _nearRelBSLName = ""
+    float _hiPriBSL = na
+    string _hiPriBSLName = ""
+    float _hiPriScoreBSL = -999.0
+    int _hiPriSrcBSL = 0
+    bool _hiPriExtBSL = false
+    float _nearIntBSL = na
+    float _nearExtBSL = na
+    string _nearExtBSLName = ""
+
+    // === SSL candidates (levels below price — sell-side liquidity) ===
+    float _nearRelSSL = na
+    string _nearRelSSLName = ""
+    float _hiPriSSL = na
+    string _hiPriSSLName = ""
+    float _hiPriScoreSSL = -999.0
+    int _hiPriSrcSSL = 0
+    bool _hiPriExtSSL = false
+    float _nearIntSSL = na
+    float _nearExtSSL = na
+    string _nearExtSSLName = ""
+
+    if array.size(levels) > 0
+        for i = 0 to array.size(levels) - 1
+            T.LiqLevel lvl = array.get(levels, i)
+            if na(lvl.price)
+                continue
+
+            bool consumed = is_level_consumed(lvl.price, lvl.isSSL, sweeps, consumedTol)
+            bool isDeveloping = lvl.sourceType == SRC_DEVELOPING
+            float hScore = hierarchy_level_score(lvl.price, lvl.priority, lvl.isExternal, lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.sourceType, consumed, atrVal)
+
+            if lvl.isSSL and lvl.price < close
+                // --- SSL side ---
+                // Nearest relevant: skip consumed and developing levels
+                if not consumed and not isDeveloping
+                    if na(_nearRelSSL) or lvl.price > _nearRelSSL
+                        _nearRelSSL := lvl.price
+                        _nearRelSSLName := lvl.name
+                // Highest-priority by composite hierarchy score
+                if hScore > _hiPriScoreSSL
+                    _hiPriScoreSSL := hScore
+                    _hiPriSSL := lvl.price
+                    _hiPriSSLName := lvl.name
+                    _hiPriSrcSSL := lvl.sourceType
+                    _hiPriExtSSL := lvl.isExternal
+                // Nearest internal SSL (for inducement detection)
+                if not lvl.isExternal and not consumed and (na(_nearIntSSL) or lvl.price > _nearIntSSL)
+                    _nearIntSSL := lvl.price
+                // Nearest unconsumed external SSL (the "true target" behind inducement)
+                if lvl.isExternal and not consumed and (na(_nearExtSSL) or lvl.price > _nearExtSSL)
+                    _nearExtSSL := lvl.price
+                    _nearExtSSLName := lvl.name
+
+            else if not lvl.isSSL and lvl.price > close
+                // --- BSL side ---
+                if not consumed and not isDeveloping
+                    if na(_nearRelBSL) or lvl.price < _nearRelBSL
+                        _nearRelBSL := lvl.price
+                        _nearRelBSLName := lvl.name
+                if hScore > _hiPriScoreBSL
+                    _hiPriScoreBSL := hScore
+                    _hiPriBSL := lvl.price
+                    _hiPriBSLName := lvl.name
+                    _hiPriSrcBSL := lvl.sourceType
+                    _hiPriExtBSL := lvl.isExternal
+                if not lvl.isExternal and not consumed and (na(_nearIntBSL) or lvl.price < _nearIntBSL)
+                    _nearIntBSL := lvl.price
+                if lvl.isExternal and not consumed and (na(_nearExtBSL) or lvl.price < _nearExtBSL)
+                    _nearExtBSL := lvl.price
+                    _nearExtBSLName := lvl.name
+
+    // --- Inducement Detection ---
+    // Pattern: nearest level is internal, but an external target exists beyond it.
+    // The internal level is "inducement" — market makers take it out before the real move.
+    // This is a core ICT concept for distinguishing noise from true targets.
+    bool _nearIsInducBSL = false
+    if not na(_nearIntBSL) and not na(_nearExtBSL) and _nearIntBSL < _nearExtBSL
+        float extDistAtr = atrVal > 0 ? (_nearExtBSL - close) / atrVal : 999.0
+        _nearIsInducBSL := extDistAtr < 6.0
+
+    bool _nearIsInducSSL = false
+    if not na(_nearIntSSL) and not na(_nearExtSSL) and _nearIntSSL > _nearExtSSL
+        float extDistAtr = atrVal > 0 ? (close - _nearExtSSL) / atrVal : 999.0
+        _nearIsInducSSL := extDistAtr < 6.0
+
+    [_nearRelBSL, _nearRelSSL, _nearRelBSLName, _nearRelSSLName,
+     _hiPriBSL, _hiPriSSL, _hiPriBSLName, _hiPriSSLName,
+     _hiPriSrcBSL, _hiPriSrcSSL, _hiPriExtBSL, _hiPriExtSSL,
+     _nearIsInducBSL, _nearIsInducSSL,
+     _nearExtBSL, _nearExtSSL, _nearExtBSLName, _nearExtSSLName]

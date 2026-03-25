@@ -6,7 +6,7 @@
 library("tv_signal_gate_engine", overlay = true)
 
 import Devtailor/tv_core_types/4 as T
-import Devtailor/tv_liquidity_engine/4 as liq
+import Devtailor/tv_liquidity_engine/5 as liq
 
 // Re-alias constants locally
 int SRC_SESSION   = T.SRC_SESSION()

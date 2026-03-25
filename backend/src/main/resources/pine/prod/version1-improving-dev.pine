@@ -10,9 +10,9 @@ import Devtailor/tv_market_intel_ui/1 as intel
 import Devtailor/tv_core_types/4 as T
 import Devtailor/tv_lifecycle_mode/1 as lm
 import Devtailor/tv_structure_engine/1 as se
-import Devtailor/tv_liquidity_engine/4 as liq
+import Devtailor/tv_liquidity_engine/5 as liq
 import Devtailor/tv_pending_trade_state/5 as pts
-import Devtailor/tv_signal_gate_engine/4 as sg
+import Devtailor/tv_signal_gate_engine/5 as sg
 import Devtailor/tv_entry_authority/4 as ea
 
 // --- Constants ---
@@ -494,6 +494,26 @@ update_session(sbAm)
 string activeSessName = overlap.isActive ? overlap.name : ny.isActive ? ny.name : london.isActive ? london.name : asia.isActive ? asia.name : "Inter-Session"
 bool isKillzone = sbLon.isActive or sbAm.isActive or overlap.isActive
 bool isSilverBullet = sbLon.isActive or sbAm.isActive
+
+// Chapter 8: Session completion tracking — detects active→inactive transitions
+// Used for session staleness awareness in liquidity hierarchy
+var bool _asiaPrevActive = false
+var bool _londonPrevActive = false
+var bool _nyPrevActive = false
+var int _asiaEndBar = na
+var int _londonEndBar = na
+var int _nyEndBar = na
+
+if _asiaPrevActive and not asia.isActive
+    _asiaEndBar := bar_index
+if _londonPrevActive and not london.isActive
+    _londonEndBar := bar_index
+if _nyPrevActive and not ny.isActive
+    _nyEndBar := bar_index
+
+_asiaPrevActive := asia.isActive
+_londonPrevActive := london.isActive
+_nyPrevActive := ny.isActive
 
 // --- HTF Liquidity ---
 float pdh = request.security(syminfo.tickerid, "D", high[1], lookahead = barmerge.lookahead_on)
@@ -1182,14 +1202,36 @@ add_liq_level(T.LiqLevel[] arr, string name_, float price_, int srcType, int pri
 
 
 // --- Build Liquidity Level Registry (extracted to function) ---
+// Chapter 8: Session staleness threshold — levels older than ~24h are deprioritized
+int _secsPerBar = timeframe.in_seconds(timeframe.period)
+int _sessMaxFreshBars = _secsPerBar > 0 ? math.round(86400.0 / _secsPerBar) : 300
+
 build_liquidity_registry(T.LiqLevel[] arr) =>
-    // Session levels (only completed sessions — no developing)
-    add_liq_level(arr, "Asia High",   asia.isActive ? na : asia.lastHigh,     SRC_SESSION, PRI_SESSION, true, false, false, true, false, 0)
-    add_liq_level(arr, "Asia Low",    asia.isActive ? na : asia.lastLow,      SRC_SESSION, PRI_SESSION, true, true,  false, true, false, 0)
-    add_liq_level(arr, "London High", london.isActive ? na : london.lastHigh, SRC_SESSION, PRI_SESSION + 5, true, false, false, true, false, 0)
-    add_liq_level(arr, "London Low",  london.isActive ? na : london.lastLow,  SRC_SESSION, PRI_SESSION + 5, true, true,  false, true, false, 0)
-    add_liq_level(arr, "NY High",     ny.isActive ? na : ny.lastHigh,         SRC_SESSION, PRI_SESSION + 10, true, false, false, true, false, 0)
-    add_liq_level(arr, "NY Low",      ny.isActive ? na : ny.lastLow,          SRC_SESSION, PRI_SESSION + 10, true, true,  false, true, false, 0)
+    // Chapter 8: Session staleness — reduce priority for stale completed sessions
+    int asiaStalePen = not na(_asiaEndBar) and (bar_index - _asiaEndBar) > _sessMaxFreshBars ? 20 : 0
+    int londonStalePen = not na(_londonEndBar) and (bar_index - _londonEndBar) > _sessMaxFreshBars ? 20 : 0
+    int nyStalePen = not na(_nyEndBar) and (bar_index - _nyEndBar) > _sessMaxFreshBars ? 20 : 0
+
+    // Completed session levels (with staleness adjustment)
+    add_liq_level(arr, "Asia High",   asia.isActive ? na : asia.lastHigh,     SRC_SESSION, math.max(30, PRI_SESSION - asiaStalePen), true, false, false, true, false, 0)
+    add_liq_level(arr, "Asia Low",    asia.isActive ? na : asia.lastLow,      SRC_SESSION, math.max(30, PRI_SESSION - asiaStalePen), true, true,  false, true, false, 0)
+    add_liq_level(arr, "London High", london.isActive ? na : london.lastHigh, SRC_SESSION, math.max(30, PRI_SESSION + 5 - londonStalePen), true, false, false, true, false, 0)
+    add_liq_level(arr, "London Low",  london.isActive ? na : london.lastLow,  SRC_SESSION, math.max(30, PRI_SESSION + 5 - londonStalePen), true, true,  false, true, false, 0)
+    add_liq_level(arr, "NY High",     ny.isActive ? na : ny.lastHigh,         SRC_SESSION, math.max(30, PRI_SESSION + 10 - nyStalePen), true, false, false, true, false, 0)
+    add_liq_level(arr, "NY Low",      ny.isActive ? na : ny.lastLow,          SRC_SESSION, math.max(30, PRI_SESSION + 10 - nyStalePen), true, true,  false, true, false, 0)
+
+    // Chapter 8: Developing session levels (active session extremes — lower confidence)
+    // These allow the hierarchy to consider in-progress session H/L as potential liquidity.
+    // Marked as SRC_DEVELOPING with low priority; isExternal=false since still forming.
+    if asia.isActive and not na(asia.high)
+        add_liq_level(arr, "Asia High (dev)", asia.high, SRC_DEVELOPING, PRI_DEVELOPING + 5, false, false, false, true, false, 0)
+        add_liq_level(arr, "Asia Low (dev)",  asia.low,  SRC_DEVELOPING, PRI_DEVELOPING + 5, false, true,  false, true, false, 0)
+    if london.isActive and not na(london.high)
+        add_liq_level(arr, "London High (dev)", london.high, SRC_DEVELOPING, PRI_DEVELOPING + 10, false, false, false, true, false, 0)
+        add_liq_level(arr, "London Low (dev)",  london.low,  SRC_DEVELOPING, PRI_DEVELOPING + 10, false, true,  false, true, false, 0)
+    if ny.isActive and not na(ny.high)
+        add_liq_level(arr, "NY High (dev)", ny.high, SRC_DEVELOPING, PRI_DEVELOPING + 15, false, false, false, true, false, 0)
+        add_liq_level(arr, "NY Low (dev)",  ny.low,  SRC_DEVELOPING, PRI_DEVELOPING + 15, false, true,  false, true, false, 0)
 
     // HTF levels
     add_liq_level(arr, "PDH", pdh, SRC_PDH_PDL, PRI_PDH_PDL, true, false, true, false, false, 0)
@@ -1417,9 +1459,20 @@ string pdStatus = close > pdArray ? "Premium" : "Discount"
  nearestSessBSL, nearestSessSSL, nearestHTFBSL, nearestHTFSSL,
  nearestClusterBSL, nearestClusterSSL, nearestRoundBSL, nearestRoundSSL,
  nearestBSLName, nearestSSLName] = liq.summarize_liquidity_map(liqLevels)
-// reqL/reqS: backward-compatible required sweep levels
-float reqL = nearestSSL
-float reqS = nearestBSL
+// Chapter 8: Hierarchy-aware liquidity target selection
+// Evaluates all levels by composite score (priority + proximity + externality + consumed state)
+// to select strategically relevant BSL/SSL targets and detect inducement patterns.
+[nearRelBSL, nearRelSSL, nearRelBSLName, nearRelSSLName,
+ hiPriBSL, hiPriSSL, hiPriBSLName, hiPriSSLName,
+ hiPriSrcBSL, hiPriSrcSSL, hiPriExtBSL, hiPriExtSSL,
+ nearIsInducBSL, nearIsInducSSL,
+ hNearExtBSL, hNearExtSSL, hNearExtBSLName, hNearExtSSLName] = liq.select_hierarchy_targets(liqLevels, atr, activeSweeps)
+
+// Chapter 8: Use nearest-relevant as required sweep levels.
+// This filters out consumed and developing levels, giving the nearest structurally
+// significant target. Falls back to simple nearest if hierarchy produces no result.
+float reqL = not na(nearRelSSL) ? nearRelSSL : nearestSSL
+float reqS = not na(nearRelBSL) ? nearRelBSL : nearestBSL
 
 // ICT and Silver Bullet liquidity gates moved to tv_signal_gate_engine library (sg.*)
 
@@ -1459,7 +1512,8 @@ if array.size(obArray) > 0
 
 // Determine lifecycle stage from raw setup data + eval_side outputs
 // Chapter 3: reclaim-aware | Chapter 4: MSS-truth-aware | Chapter 5: displacement-truth-aware
-determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal, bool reclaimDetected_, bool reclaimValid_, bool reclaimFailed_, bool mssValid_, bool mssStrong_, bool mssFailed_, bool dispValid_, bool dispStrong_, bool dispFailed_) =>
+// Chapter 8: Added sweepIsInducement_ parameter for inducement-aware lifecycle context
+determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int fvgBar_, int fvgGrade_, bool fvgMitigated, bool seqOk, bool expired, bool degraded, float reqLevel, float pivotVal, bool isLong, float atrVal, bool reclaimDetected_, bool reclaimValid_, bool reclaimFailed_, bool mssValid_, bool mssStrong_, bool mssFailed_, bool dispValid_, bool dispStrong_, bool dispFailed_, bool sweepIsInducement_) =>
     int lc = LC_NONE
     string reason = ""
     if expired
@@ -1505,7 +1559,11 @@ determine_lifecycle(bool swept, int sweepBar_, int mssBar_, float mssDisp, int f
         reason := reclaimValid_ ? "Valid reclaim visible — watch for structure shift" : "Early reclaim visible — awaiting confirmation"
     else if swept
         lc := LC_SWEEP_CONFIRMED
-        reason := reclaimFailed_ ? "Liquidity swept — reclaim failed, awaiting fresh structure" : "Liquidity swept — awaiting structure shift"
+        // Chapter 8: Inducement-aware sweep context
+        if sweepIsInducement_
+            reason := "Inducement swept — look for external liquidity sweep for stronger setup authority"
+        else
+            reason := reclaimFailed_ ? "Liquidity swept — reclaim failed, awaiting fresh structure" : "Liquidity swept — awaiting structure shift"
     else if not na(reqLevel) and not na(atrVal) and atrVal > 0
         float proximity = math.abs(close - reqLevel) / atrVal
         if proximity < 3.0
@@ -1704,6 +1762,27 @@ eval_side(bool isLong, string bias, string pd, bool kz, bool sb, bool swept, flo
 [scoreLong, phaseLong, missingLong, swGradeL, msGradeL, fgGradeL, seqOkL, trigL, expiredL, degradedL] = eval_side(true, marketBias, pdStatus, isKillzone, isSilverBullet, sweptSSL, sweepQualitySSL, bestSweepBarSSL, bestSweepGradeSSL, bestSweepExtSSL, bestSweepSrcSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, obBullConfluence, lastPHi, reqL, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
 [scoreShort, phaseShort, missingShort, swGradeS, msGradeS, fgGradeS, seqOkS, trigS, expiredS, degradedS] = eval_side(false, marketBias, pdStatus, isKillzone, isSilverBullet, sweptBSL, sweepQualityBSL, bestSweepBarBSL, bestSweepGradeBSL, bestSweepExtBSL, bestSweepSrcBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, obBearConfluence, lastPLo, reqS, atr, activeSessName, sweepMaxAge, mssMaxAge, fvgMaxAge)
 
+// --- Chapter 8: Hierarchy-Aware Narrative Enrichment ---
+// Annotate pre-sweep guidance when nearest SSL/BSL is likely inducement.
+// Tells the trader: the closest level is bait — the real target is the external level behind it.
+bool longPreSweep = phaseLong == "Approaching liquidity" or phaseLong == "Liquidity nearby" or phaseLong == "Liquidity imminent" or phaseLong == "Scanning"
+bool shortPreSweep = phaseShort == "Approaching liquidity" or phaseShort == "Liquidity nearby" or phaseShort == "Liquidity imminent" or phaseShort == "Scanning"
+
+if nearIsInducSSL and longPreSweep and not na(hNearExtSSL)
+    missingLong := missingLong + " — nearest SSL may be inducement; external target: " + hNearExtSSLName + " at " + str.tostring(hNearExtSSL, "#.#####")
+if nearIsInducBSL and shortPreSweep and not na(hNearExtBSL)
+    missingShort := missingShort + " — nearest BSL may be inducement; external target: " + hNearExtBSLName + " at " + str.tostring(hNearExtBSL, "#.#####")
+
+// Enrich swept-phase narrative with hierarchy source context
+if phaseLong == "Liquidity swept" and hiPriSrcSSL > 0
+    string srcTagL = liq.source_phase_tag(hiPriSrcSSL, hiPriExtSSL)
+    if not str.contains(missingLong, srcTagL)
+        missingLong := missingLong + " " + srcTagL
+if phaseShort == "Liquidity swept" and hiPriSrcBSL > 0
+    string srcTagS = liq.source_phase_tag(hiPriSrcBSL, hiPriExtBSL)
+    if not str.contains(missingShort, srcTagS)
+        missingShort := missingShort + " " + srcTagS
+
 // --- Chapter 3: Reclaim Stage Evaluation (runs each bar) ---
 [rclDetL, rclWeakL2, rclValidL2, rclStrongL2, rclFailedL2, rclScoreL2, rclReasonL2, rclAcceptL2, rclThreshL2] = se.evaluate_reclaim_stage(true, bestSweepBarSSL, bestSweepLevelSSL, bestSweepDepthSSL, atr, _rclAcceptL, _rclFailedL, _rclSweepRefL)
 [rclDetS, rclWeakS2, rclValidS2, rclStrongS2, rclFailedS2, rclScoreS2, rclReasonS2, rclAcceptS2, rclThreshS2] = se.evaluate_reclaim_stage(false, bestSweepBarBSL, bestSweepLevelBSL, bestSweepDepthBSL, atr, _rclAcceptS, _rclFailedS, _rclSweepRefS)
@@ -1776,8 +1855,8 @@ _dispExtremeS := dispExtremeS2
 [dispPassS, dispPassStrongS] = se.displacement_mode_pass(dispDetS2, dispValidS2, dispStrongS2, dispScoreS2, dispFailedS2, sensitivityMode)
 
 // --- Lifecycle Determination (Chapter 1 + Chapter 3 + Chapter 4 + Chapter 5: displacement-truth-aware) ---
-[lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr, rclDetL, rclValidL2, rclFailedL2, mssValidL2, mssStrongL2, mssFailedL2, dispValidL2, dispStrongL2, dispFailedL2)
-[lcShort, lcNameShort, lcNextReqShort, lcCanActShort, lcReasonShort] = determine_lifecycle(sweptBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, expiredS, degradedS, reqS, lastPLo, false, atr, rclDetS, rclValidS2, rclFailedS2, mssValidS2, mssStrongS2, mssFailedS2, dispValidS2, dispStrongS2, dispFailedS2)
+[lcLong, lcNameLong, lcNextReqLong, lcCanActLong, lcReasonLong] = determine_lifecycle(sweptSSL, bestSweepBarSSL, lastMssBullBar, lastMssBullDispStrength, lastBullFvgBar, lastBullFvgGrade, lastBullFvgMitigated, seqOkL, expiredL, degradedL, reqL, lastPHi, true, atr, rclDetL, rclValidL2, rclFailedL2, mssValidL2, mssStrongL2, mssFailedL2, dispValidL2, dispStrongL2, dispFailedL2, bestSweepInducementSSL)
+[lcShort, lcNameShort, lcNextReqShort, lcCanActShort, lcReasonShort] = determine_lifecycle(sweptBSL, bestSweepBarBSL, lastMssBearBar, lastMssBearDispStrength, lastBearFvgBar, lastBearFvgGrade, lastBearFvgMitigated, seqOkS, expiredS, degradedS, reqS, lastPLo, false, atr, rclDetS, rclValidS2, rclFailedS2, mssValidS2, mssStrongS2, mssFailedS2, dispValidS2, dispStrongS2, dispFailedS2, bestSweepInducementBSL)
 
 // --- Setup State Population (inlined to avoid external element limit) ---
 liveSetup := new_setup_state()
@@ -1788,8 +1867,9 @@ float adjScoreShort = scoreShort * biasMultShort
 bool isConflicted = seqOkL and seqOkS and math.abs(adjScoreLong - adjScoreShort) < 15
 bool pickLong = adjScoreLong >= adjScoreShort
 
-liveSetup.nearestBSL := nearestBSL
-liveSetup.nearestSSL := nearestSSL
+// Chapter 8: Use hierarchy nearest-relevant for dashboard display (falls back to simple nearest)
+liveSetup.nearestBSL := not na(nearRelBSL) ? nearRelBSL : nearestBSL
+liveSetup.nearestSSL := not na(nearRelSSL) ? nearRelSSL : nearestSSL
 liveSetup.scoreLong := scoreLong
 liveSetup.scoreShort := scoreShort
 liveSetup.phaseLong := phaseLong
@@ -3245,8 +3325,8 @@ if showReadiness and barstate.islast
          hasPending, pendingStr, pendingColor,
          sessStr, sessColor, pdStatus, pdColor,
          scoreStr, phaseColor,
-         na(nearestBSL) ? "—" : str.tostring(nearestBSL, "#.#####") + " (" + nearestBSLName + ")", uiNegColor,
-         na(nearestSSL) ? "—" : str.tostring(nearestSSL, "#.#####") + " (" + nearestSSLName + ")", uiPosColor)
+         na(nearestBSL) ? "—" : str.tostring(nearestBSL, "#.#####") + " (" + nearestBSLName + ")" + (nearIsInducBSL ? " [Induc]" : ""), uiNegColor,
+         na(nearestSSL) ? "—" : str.tostring(nearestSSL, "#.#####") + " (" + nearestSSLName + ")" + (nearIsInducSSL ? " [Induc]" : ""), uiPosColor)
 
     int r = rdash.render_primary(readTable, 0, prim, uiHeaderText, uiLabelText, uiNeutralColor)
 
