@@ -1,12 +1,12 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 // © Devtailor
 //@version=6
-// @description Liquidity source helpers, sweep scoring/classification, and summary functions.
+// @description Improved Trader-Grade Liquidity Engine. Handles sophisticated sweep classification, tiered scoring, and institutional target selection (SMC/ICT style).
 library("tv_liquidity_engine", overlay = true)
 
 import Devtailor/tv_core_types/4 as T
 
-// Re-alias constants locally
+// --- Constants: Source Types ---
 int SRC_SESSION     = T.SRC_SESSION()
 int SRC_PDH_PDL     = T.SRC_PDH_PDL()
 int SRC_PWH_PWL     = T.SRC_PWH_PWL()
@@ -19,6 +19,7 @@ int SRC_PIVOT_HTF_2 = T.SRC_PIVOT_HTF_2()
 int SRC_PIVOT_HTF_3 = T.SRC_PIVOT_HTF_3()
 int SRC_DEVELOPING  = T.SRC_DEVELOPING()
 
+// --- Constants: Sweep Types ---
 int SWEEP_SHALLOW       = T.SWEEP_SHALLOW()
 int SWEEP_CLEAN_RAID    = T.SWEEP_CLEAN_RAID()
 int SWEEP_DEEP_STOP_RUN = T.SWEEP_DEEP_STOP_RUN()
@@ -27,15 +28,24 @@ int SWEEP_INT_LIQ_SWEEP = T.SWEEP_INT_LIQ_SWEEP()
 int SWEEP_SESSION       = T.SWEEP_SESSION()
 int SWEEP_HTF           = T.SWEEP_HTF()
 
+// --- Constants: Tiers ---
+string TIER_MAJOR    = "Major"      // HTF/Weekly/Monthly/External
+string TIER_STRUCT   = "Structural" // Daily/Session/Major Internal
+string TIER_MINOR    = "Minor"      // Local Pivots/Round Numbers
+string TIER_INDUC    = "Inducement" // Traps/Low Probability
+
 // =====================================================================
-// SOURCE HELPERS
+// 1. SOURCE INTELLIGENCE & TIERING
 // =====================================================================
 
-export level_is_near(float lhs, float rhs, float tol) =>
-    not na(lhs) and not na(rhs) and math.abs(lhs - rhs) <= tol
-
-export is_htf_liquidity_source(int srcType) =>
-    srcType == SRC_PDH_PDL or srcType == SRC_PWH_PWL or srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
+// Map source types to institutional significance tiers
+export get_liquidity_tier(int srcType, bool isExt) =>
+    string tier = TIER_MINOR
+    if srcType == SRC_PWH_PWL or srcType == SRC_PIVOT_HTF_3 or (srcType == SRC_PIVOT_HTF_2 and isExt)
+        tier := TIER_MAJOR
+    else if srcType == SRC_PDH_PDL or srcType == SRC_SESSION or srcType == SRC_PIVOT_EXT or srcType == SRC_EQH_EQL
+        tier := TIER_STRUCT
+    tier
 
 export source_category_label(int srcType, string lvlName) =>
     string label = "Liquidity"
@@ -55,407 +65,250 @@ export source_category_label(int srcType, string lvlName) =>
         label := "External Pivot"
     else if srcType == SRC_PIVOT_INT
         label := "Internal Pivot"
+
     if (srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3) and lvlName != ""
         label := label + " (" + lvlName + ")"
     label
 
-export source_phase_tag(int srcType, bool isExt) =>
-    string tag = isExt ? " [Ext]" : " [Int]"
-    if srcType == SRC_PWH_PWL
-        tag := " [W]"
-    else if srcType == SRC_PDH_PDL
-        tag := " [D]"
-    else if srcType == SRC_PIVOT_HTF_1 or srcType == SRC_PIVOT_HTF_2 or srcType == SRC_PIVOT_HTF_3
-        tag := " [HTF Pivot]"
-    else if srcType == SRC_EQH_EQL
-        tag := " [EQ]"
-    else if srcType == SRC_SESSION
-        tag := " [Sess]"
-    else if srcType == SRC_ROUND_NUM
-        tag := " [RN]"
-    tag
-
 // =====================================================================
-// SWEEP CLASSIFICATION & SCORING
+// 2. SWEEP CLASSIFICATION & QUALITY (The "Trader" Logic)
 // =====================================================================
 
-// Classify sweep type based on metrics and source
-// Returns: [sweepType, sweepTypeStr]
-export classify_sweep_type(float depthAtr, bool isExt, bool isHTF_, bool isSess, bool isCluster_, int srcType) =>
+// Improved classification based on structural intent
+export classify_sweep_type(float depthAtr, bool isExt, bool isHTF_, bool isSess, bool isCluster_, int srcType, bool hasDisp) =>
     int sType = SWEEP_SHALLOW
     string sStr = "Shallow"
+
     if isHTF_
         sType := SWEEP_HTF
         sStr := "HTF Sweep"
-    else if isExt and depthAtr > 0.3
+    else if isExt and hasDisp
         sType := SWEEP_EXT_LIQ_GRAB
-        sStr := "Ext. Liq Grab"
+        sStr := "External Liquidity Raid"
     else if isSess
         sType := SWEEP_SESSION
         sStr := "Session Sweep"
-    else if isCluster_ and not isExt
+    else if isCluster_
         sType := SWEEP_INT_LIQ_SWEEP
-        sStr := "Cluster Sweep"
-    else if not isExt
+        sStr := "Pool Sweep"
+    else
         sType := SWEEP_INT_LIQ_SWEEP
-        sStr := srcType == SRC_ROUND_NUM ? "Round Number Sweep" : "Internal Sweep"
-    if depthAtr > 1.5
+        sStr := "Internal Sweep"
+
+    // Contextual Overrides
+    if depthAtr > 1.8 // Too deep, likely a break of structure (BOS) not a sweep
         sType := SWEEP_DEEP_STOP_RUN
-        sStr := "Deep Stop Run"
-    else if depthAtr > 0.2 and depthAtr <= 1.5 and sType == SWEEP_SHALLOW
+        sStr := "Stop Run / Trend"
+    else if hasDisp and depthAtr > 0.15
         sType := SWEEP_CLEAN_RAID
         sStr := "Clean Raid"
+
     [sType, sStr]
 
-// Compute multi-dimensional quality score
-export compute_sweep_quality(float depthAtr, float wickPenRatio, float rejStr, bool hasRej, bool hasDisp, int srcPri, bool isExt, bool isHTF_, bool isCluster_, int clusterN, bool inKz, bool inSb, float sessW, float freshness, int sweepT) =>
+// Multi-dimensional quality scoring with interaction effects
+export compute_sweep_quality(float depthAtr, float wickPenRatio, float rejStr, bool hasRej, bool hasDisp, int srcPri, bool isExt, bool isHTF_, bool isCluster_, bool inKz, float freshness, int sweepT) =>
     float q = 0.0
-    q += math.min(depthAtr * 15.0, 20.0)
-    if hasRej
-        q += 10.0 + rejStr * 10.0
-    if hasDisp
-        q += 15.0
-    q += (srcPri / 100.0) * 15.0
-    if isExt
-        q *= 1.15
-    else
-        q *= 0.85
+
+    // 1. Base Multiplier (Structural significance)
+    float multiplier = 1.0
     if isHTF_
-        q += 8.0
-    q += (sessW - 0.7) * 8.33
+        multiplier := multiplier * 1.25
+    if isExt
+        multiplier := multiplier * 1.15
+    if inKz
+        multiplier := multiplier * 1.10
     if isCluster_
-        q += 4.0 + math.min(clusterN - 2, 3) * 1.33
-    q += freshness * 10.0
-    if inSb
-        q += 5.0
-    else if inKz
-        q += 3.0
-    if sweepT == SWEEP_DEEP_STOP_RUN
-        q -= 5.0
-    if wickPenRatio < 0.1 and not hasDisp
-        q -= 5.0
+        multiplier := multiplier * 1.05
+
+    // 2. Execution Quality (Interactive logic)
+    // Displacement is the "Golden Variable" for a trader
+    float execScore = 0.0
+    if hasDisp
+        execScore := 40.0 * (1.0 + rejStr) // Displacement + Rejection strength = massive boost
+    else if hasRej
+        execScore := 20.0 + (rejStr * 15.0)
+
+    // Penalize deep runs without rejection (likely trending)
+    if sweepT == SWEEP_DEEP_STOP_RUN and not hasRej
+        multiplier := multiplier * 0.5
+
+    // 3. Raw Components
+    float sourceScore = (srcPri / 100.0) * 20.0
+    float proximityScore = freshness * 15.0
+    float depthScore = math.min(depthAtr * 10.0, 15.0)
+
+    // 4. Combine
+    q := (execScore + sourceScore + proximityScore + depthScore) * multiplier
+
+    // 5. Final Constraints
+    if wickPenRatio < 0.05 and not hasDisp
+        q := q * 0.7 // "Paper thin" sweep with no momentum is suspicious
+
     math.max(0.0, math.min(100.0, q))
 
-// Grade from score
 export get_sweep_grade(float q) =>
-    string g = q >= 70.0 ? "A" : q >= 45.0 ? "B" : q >= 25.0 ? "C" : "Reject"
-    g
+    q >= 75.0 ? "A+" : q >= 60.0 ? "A" : q >= 40.0 ? "B" : q >= 20.0 ? "C" : "D (Low Prob)"
 
 // =====================================================================
-// SUMMARY FUNCTIONS (pure — iterate over arrays passed as parameters)
+// 3. RELEVANCE & HIERARCHY (Target Selection)
 // =====================================================================
 
-// Summarize active sweeps: find best SSL and BSL sweeps
-export summarize_active_sweeps(T.LiqSweep[] sweeps) =>
-    bool _sweptSSL = false
-    bool _sweptBSL = false
-    float _sweepQualitySSL = 0.0
-    float _sweepQualityBSL = 0.0
-    int _bestSweepBarSSL = na
-    int _bestSweepBarBSL = na
-    string _bestSweepTypeSSL = ""
-    string _bestSweepGradeSSL = ""
-    string _bestSweepNameSSL = ""
-    bool   _bestSweepExtSSL = false
-    int    _bestSweepSrcSSL = 0
-    bool   _bestSweepInducementSSL = false
-    string _bestSweepTypeBSL = ""
-    string _bestSweepGradeBSL = ""
-    string _bestSweepNameBSL = ""
-    bool   _bestSweepExtBSL = false
-    int    _bestSweepSrcBSL = 0
-    bool   _bestSweepInducementBSL = false
-    float _bestSweepLevelSSL = na
-    float _bestSweepLevelBSL = na
-    float _bestSweepDepthSSL = na
-    float _bestSweepDepthBSL = na
-
-    if array.size(sweeps) > 0
-        for i = 0 to array.size(sweeps) - 1
-            T.LiqSweep s = array.get(sweeps, i)
-            if not s.isActionable and not s.isConsumed
-                continue
-            if s.isSSL
-                _sweptSSL := true
-                if s.qualityScore > _sweepQualitySSL
-                    _sweepQualitySSL := s.qualityScore
-                    _bestSweepBarSSL := s.sweepBar
-                    _bestSweepTypeSSL := s.sweepTypeStr
-                    _bestSweepGradeSSL := s.grade
-                    _bestSweepNameSSL := s.levelName
-                    _bestSweepExtSSL := s.isExternal
-                    _bestSweepSrcSSL := s.sourceType
-                    _bestSweepInducementSSL := s.isInducementLike
-                    _bestSweepLevelSSL := s.levelPrice
-                    _bestSweepDepthSSL := s.sweepDepth
-            else
-                _sweptBSL := true
-                if s.qualityScore > _sweepQualityBSL
-                    _sweepQualityBSL := s.qualityScore
-                    _bestSweepBarBSL := s.sweepBar
-                    _bestSweepTypeBSL := s.sweepTypeStr
-                    _bestSweepGradeBSL := s.grade
-                    _bestSweepNameBSL := s.levelName
-                    _bestSweepExtBSL := s.isExternal
-                    _bestSweepSrcBSL := s.sourceType
-                    _bestSweepInducementBSL := s.isInducementLike
-                    _bestSweepLevelBSL := s.levelPrice
-                    _bestSweepDepthBSL := s.sweepDepth
-
-    [_sweptSSL, _sweptBSL, _sweepQualitySSL, _sweepQualityBSL, _bestSweepBarSSL, _bestSweepBarBSL,
-     _bestSweepTypeSSL, _bestSweepGradeSSL, _bestSweepNameSSL, _bestSweepExtSSL, _bestSweepSrcSSL, _bestSweepInducementSSL,
-     _bestSweepTypeBSL, _bestSweepGradeBSL, _bestSweepNameBSL, _bestSweepExtBSL, _bestSweepSrcBSL, _bestSweepInducementBSL,
-     _bestSweepLevelSSL, _bestSweepLevelBSL, _bestSweepDepthSSL, _bestSweepDepthBSL]
-
-// Summarize liquidity map: find nearest levels by category
-// Uses `close` built-in for proximity comparison + SRC_ROUND_NUM constant
-export summarize_liquidity_map(T.LiqLevel[] levels) =>
-    float _nearestBSL = na
-    float _nearestSSL = na
-    float _nearestExtBSL = na
-    float _nearestExtSSL = na
-    float _nearestIntBSL = na
-    float _nearestIntSSL = na
-    float _nearestSessBSL = na
-    float _nearestSessSSL = na
-    float _nearestHTFBSL = na
-    float _nearestHTFSSL = na
-    float _nearestClusterBSL = na
-    float _nearestClusterSSL = na
-    float _nearestRoundBSL = na
-    float _nearestRoundSSL = na
-    string _nearestBSLName = ""
-    string _nearestSSLName = ""
-
-    if array.size(levels) > 0
-        for i = 0 to array.size(levels) - 1
-            T.LiqLevel lvl = array.get(levels, i)
-            if na(lvl.price)
-                continue
-            if lvl.isSSL and lvl.price < close
-                if na(_nearestSSL) or lvl.price > _nearestSSL
-                    _nearestSSL := lvl.price
-                    _nearestSSLName := lvl.name
-                if lvl.isExternal and (na(_nearestExtSSL) or lvl.price > _nearestExtSSL)
-                    _nearestExtSSL := lvl.price
-                if not lvl.isExternal and (na(_nearestIntSSL) or lvl.price > _nearestIntSSL)
-                    _nearestIntSSL := lvl.price
-                if lvl.isSession and (na(_nearestSessSSL) or lvl.price > _nearestSessSSL)
-                    _nearestSessSSL := lvl.price
-                if lvl.isHTF and (na(_nearestHTFSSL) or lvl.price > _nearestHTFSSL)
-                    _nearestHTFSSL := lvl.price
-                if lvl.isCluster and (na(_nearestClusterSSL) or lvl.price > _nearestClusterSSL)
-                    _nearestClusterSSL := lvl.price
-                if lvl.sourceType == SRC_ROUND_NUM and (na(_nearestRoundSSL) or lvl.price > _nearestRoundSSL)
-                    _nearestRoundSSL := lvl.price
-            else if not lvl.isSSL and lvl.price > close
-                if na(_nearestBSL) or lvl.price < _nearestBSL
-                    _nearestBSL := lvl.price
-                    _nearestBSLName := lvl.name
-                if lvl.isExternal and (na(_nearestExtBSL) or lvl.price < _nearestExtBSL)
-                    _nearestExtBSL := lvl.price
-                if not lvl.isExternal and (na(_nearestIntBSL) or lvl.price < _nearestIntBSL)
-                    _nearestIntBSL := lvl.price
-                if lvl.isSession and (na(_nearestSessBSL) or lvl.price < _nearestSessBSL)
-                    _nearestSessBSL := lvl.price
-                if lvl.isHTF and (na(_nearestHTFBSL) or lvl.price < _nearestHTFBSL)
-                    _nearestHTFBSL := lvl.price
-                if lvl.isCluster and (na(_nearestClusterBSL) or lvl.price < _nearestClusterBSL)
-                    _nearestClusterBSL := lvl.price
-                if lvl.sourceType == SRC_ROUND_NUM and (na(_nearestRoundBSL) or lvl.price < _nearestRoundBSL)
-                    _nearestRoundBSL := lvl.price
-
-    [_nearestBSL, _nearestSSL, _nearestExtBSL, _nearestExtSSL, _nearestIntBSL, _nearestIntSSL,
-     _nearestSessBSL, _nearestSessSSL, _nearestHTFBSL, _nearestHTFSSL,
-     _nearestClusterBSL, _nearestClusterSSL, _nearestRoundBSL, _nearestRoundSSL,
-     _nearestBSLName, _nearestSSLName]
-
-// =====================================================================
-// CHAPTER 8: LIQUIDITY HIERARCHY — PRIORITY-BASED TARGET SELECTION
-// =====================================================================
-// The simple nearest-price selection above is insufficient for professional
-// SMC/ICT work. The hierarchy layer adds:
-//   1. Consumed-level awareness (already-swept levels deprioritized)
-//   2. Composite scoring (priority + proximity + externality + source quality)
-//   3. Inducement detection (internal level between price and external target)
-//   4. Nearest-relevant vs highest-priority separation
-// =====================================================================
-
-// Check if a level price matches any recent sweep on the same side.
-// Used to deprioritize levels that have already been taken out.
-export is_level_consumed(float levelPrice, bool isSSL_, T.LiqSweep[] sweeps, float tolerance) =>
-    bool consumed = false
-    if array.size(sweeps) > 0
-        for i = 0 to array.size(sweeps) - 1
-            T.LiqSweep s = array.get(sweeps, i)
-            if s.isSSL == isSSL_ and math.abs(s.levelPrice - levelPrice) <= tolerance
-                consumed := true
-                break
-    consumed
-
-// Compute hierarchy priority score for a single liquidity level.
-// Balances source priority, proximity, externality, and consumed state
-// into a single comparable score. Higher = more relevant target.
-//
-// Scoring bands:
-//   Source priority: 0-40 (scaled from raw 0-100 priority)
-//   Proximity:       -15 to +30 (ATR-distance based)
-//   Externality:     0-10
-//   HTF bonus:       0-8
-//   Session bonus:   0-5
-//   Cluster bonus:   0-6
-//   Consumed:        -30
-//   Weak source:     -8 to -10
-export hierarchy_level_score(float price_, int priority_, bool isExternal_, bool isHTF_, bool isSession_, bool isCluster_, int sourceType_, bool isConsumed_, float atrVal) =>
+// Calculate level relevance with decay and tier weight
+export hierarchy_level_score(float price_, int priority_, bool isExt, bool isHTF, bool isSess, bool isClust, int srcType, bool isConsumed, float atrVal, int ageBars) =>
     float score = 0.0
-    // Source priority contribution (0-40): institutional weight of the level's origin
-    score += (float(priority_) / 100.0) * 40.0
-    // Proximity score (-15 to +30): closer levels are more immediately relevant
+
+    // Tier-based Base Score
+    string tier = get_liquidity_tier(srcType, isExt)
+    score := score + (tier == TIER_MAJOR ? 50.0 : tier == TIER_STRUCT ? 30.0 : 10.0)
+
+    // Proximity (The "Magnet" Effect)
     float distAtr = atrVal > 0 ? math.abs(price_ - close) / atrVal : 10.0
-    if distAtr < 0.5
-        score += 30.0
-    else if distAtr < 1.0
-        score += 25.0
-    else if distAtr < 2.0
-        score += 18.0
-    else if distAtr < 3.5
-        score += 12.0
-    else if distAtr < 5.0
-        score += 5.0
-    else
-        score -= math.min((distAtr - 5.0) * 2.0, 15.0)
-    // Externality bonus: external levels define dealing range boundaries
-    if isExternal_
-        score += 10.0
-    // HTF bonus: higher-timeframe confluence adds conviction
-    if isHTF_
-        score += 8.0
-    // Session bonus: institutional session levels
-    if isSession_
-        score += 5.0
-    // Cluster bonus: concentrated liquidity pools (EQH/EQL)
-    if isCluster_
-        score += 6.0
-    // Consumed penalty: already-swept levels are less relevant as upcoming targets
-    if isConsumed_
-        score -= 30.0
-    // Weak source penalties
-    if sourceType_ == SRC_ROUND_NUM
-        score -= 8.0
-    if sourceType_ == SRC_DEVELOPING
-        score -= 10.0
+    score := score + math.max(0.0, 30.0 - (distAtr * 5.0))
+
+    // Time-based Decay (Institutional levels decay slower)
+    float decayFactor = tier == TIER_MAJOR ? 0.001 : tier == TIER_STRUCT ? 0.005 : 0.02
+    score := score * math.max(0.2, 1.0 - (ageBars * decayFactor))
+
+    // Interaction Bonuses
+    if isClust
+        score := score + 12.0 // EQH/EQL are magnets
+    if isHTF
+        score := score + 8.0
+    if isSess
+        score := score + 5.0
+
+    // Heavy Penalties
+    if isConsumed
+        score := score - 40.0
+    if srcType == SRC_ROUND_NUM
+        score := score - 5.0
+
     score
 
-// Select hierarchy-aware liquidity targets for both BSL and SSL sides.
-//
-// Goes beyond simple nearest-price selection to evaluate which level is
-// the most strategically relevant target based on composite scoring.
-// Also detects if the simple nearest level is likely inducement
-// (internal level sitting between price and the true external target).
-//
-// Returns 18-tuple:
-//   Nearest relevant (non-consumed, non-developing):
-//     [nearRelBSL, nearRelSSL, nearRelBSLName, nearRelSSLName]
-//   Highest-priority (composite hierarchy score):
-//     [hiPriBSL, hiPriSSL, hiPriBSLName, hiPriSSLName,
-//      hiPriSrcBSL, hiPriSrcSSL, hiPriExtBSL, hiPriExtSSL]
-//   Inducement detection:
-//     [nearIsInducBSL, nearIsInducSSL]
-//   Nearest unconsumed external (for inducement target identification):
-//     [nearExtBSL, nearExtSSL, nearExtBSLName, nearExtSSLName]
-export select_hierarchy_targets(T.LiqLevel[] levels, float atrVal, T.LiqSweep[] sweeps) =>
-    float consumedTol = atrVal * 0.2
+// Select tactical targets: Separates "Nearest", "Inducement", and "The Draw"
+export select_hierarchy_targets(T.LiqLevel[] levels, float atrVal, T.LiqSweep[] sweeps, int currentBar) =>
+    float consumedTol = atrVal * 0.15
 
-    // === BSL candidates (levels above price — buy-side liquidity) ===
-    float _nearRelBSL = na
-    string _nearRelBSLName = ""
-    float _hiPriBSL = na
-    string _hiPriBSLName = ""
-    float _hiPriScoreBSL = -999.0
-    int _hiPriSrcBSL = 0
-    bool _hiPriExtBSL = false
-    float _nearIntBSL = na
-    float _nearExtBSL = na
-    string _nearExtBSLName = ""
+    // Results BSL
+    float bslNearest = na
+    float bslDraw = na
+    float bslInduce = na
+    string bslDrawName = ""
+    string bslInduceName = ""
+    float bslMaxScore = -999.0
 
-    // === SSL candidates (levels below price — sell-side liquidity) ===
-    float _nearRelSSL = na
-    string _nearRelSSLName = ""
-    float _hiPriSSL = na
-    string _hiPriSSLName = ""
-    float _hiPriScoreSSL = -999.0
-    int _hiPriSrcSSL = 0
-    bool _hiPriExtSSL = false
-    float _nearIntSSL = na
-    float _nearExtSSL = na
-    string _nearExtSSLName = ""
+    // Results SSL
+    float sslNearest = na
+    float sslDraw = na
+    float sslInduce = na
+    string sslDrawName = ""
+    string sslInduceName = ""
+    float sslMaxScore = -999.0
+
+    if array.size(levels) > 0
+        for i = 0 to array.size(levels) - 1
+            T.LiqLevel lvl = array.get(levels, i)
+            if na(lvl.price) or lvl.sourceType == SRC_DEVELOPING
+                continue
+
+            // 1. Evaluate Context
+            bool consumed = false
+            if array.size(sweeps) > 0
+                for j = 0 to array.size(sweeps) - 1
+                    T.LiqSweep s = array.get(sweeps, j)
+                    if s.isSSL == lvl.isSSL and math.abs(s.levelPrice - lvl.price) <= consumedTol
+                        consumed := true
+                        break
+
+            // Age context is provided as 0 here, but interface supports it.
+            float hScore = hierarchy_level_score(lvl.price, lvl.priority, lvl.isExternal, lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.sourceType, consumed, atrVal, 0)
+
+            if not lvl.isSSL and lvl.price > close
+                // --- Buy Side ---
+                if na(bslNearest) or lvl.price < bslNearest
+                    bslNearest := lvl.price
+
+                if hScore > bslMaxScore and not consumed
+                    bslMaxScore := hScore
+                    bslDraw := lvl.price
+                    bslDrawName := lvl.name
+
+            else if lvl.isSSL and lvl.price < close
+                // --- Sell Side ---
+                if na(sslNearest) or lvl.price > sslNearest
+                    sslNearest := lvl.price
+
+                if hScore > sslMaxScore and not consumed
+                    sslMaxScore := hScore
+                    sslDraw := lvl.price
+                    sslDrawName := lvl.name
+
+    // 2. Inducement Logic: Is the nearest level "bait" for a larger target?
+    if not na(bslNearest) and not na(bslDraw) and bslNearest < bslDraw
+        if bslMaxScore > 40.0 // The draw is strong enough to pull through the nearest level
+            bslInduce := bslNearest
+            bslInduceName := "Inducement"
+
+    if not na(sslNearest) and not na(sslDraw) and sslNearest > sslDraw
+        if sslMaxScore > 40.0
+            sslInduce := sslNearest
+            sslInduceName := "Inducement"
+
+    [bslNearest, bslDraw, bslInduce, bslDrawName, bslInduceName,
+     sslNearest, sslDraw, sslInduce, sslDrawName, sslInduceName]
+
+// =====================================================================
+// 4. SUMMARY FUNCTIONS
+// =====================================================================
+
+export summarize_active_sweeps(T.LiqSweep[] sweeps) =>
+    bool hasSSL = false
+    bool hasBSL = false
+    float qSSL = 0.0
+    float qBSL = 0.0
+    string typeSSL = ""
+    string typeBSL = ""
+    string gradeSSL = ""
+    string gradeBSL = ""
+
+    if array.size(sweeps) > 0
+        for i = 0 to array.size(sweeps) - 1
+            T.LiqSweep s = array.get(sweeps, i)
+            if not s.isActionable or s.isConsumed
+                continue
+            if s.isSSL
+                if s.qualityScore > qSSL
+                    hasSSL := true
+                    qSSL := s.qualityScore
+                    typeSSL := s.sweepTypeStr
+                    gradeSSL := s.grade
+            else
+                if s.qualityScore > qBSL
+                    hasBSL := true
+                    qBSL := s.qualityScore
+                    typeBSL := s.sweepTypeStr
+                    gradeBSL := s.grade
+
+    [hasSSL, hasBSL, qSSL, qBSL, typeSSL, typeBSL, gradeSSL, gradeBSL]
+
+export summarize_liquidity_map(T.LiqLevel[] levels) =>
+    float _nearBSL = na
+    float _nearSSL = na
+    int _countBSL = 0
+    int _countSSL = 0
 
     if array.size(levels) > 0
         for i = 0 to array.size(levels) - 1
             T.LiqLevel lvl = array.get(levels, i)
             if na(lvl.price)
                 continue
+            if not lvl.isSSL and lvl.price > close
+                _countBSL := _countBSL + 1
+                if na(_nearBSL) or lvl.price < _nearBSL
+                    _nearBSL := lvl.price
+            else if lvl.isSSL and lvl.price < close
+                _countSSL := _countSSL + 1
+                if na(_nearSSL) or lvl.price > _nearSSL
+                    _nearSSL := lvl.price
 
-            bool consumed = is_level_consumed(lvl.price, lvl.isSSL, sweeps, consumedTol)
-            bool isDeveloping = lvl.sourceType == SRC_DEVELOPING
-            float hScore = hierarchy_level_score(lvl.price, lvl.priority, lvl.isExternal, lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.sourceType, consumed, atrVal)
-
-            if lvl.isSSL and lvl.price < close
-                // --- SSL side ---
-                // Nearest relevant: skip consumed and developing levels
-                if not consumed and not isDeveloping
-                    if na(_nearRelSSL) or lvl.price > _nearRelSSL
-                        _nearRelSSL := lvl.price
-                        _nearRelSSLName := lvl.name
-                // Highest-priority by composite hierarchy score
-                if hScore > _hiPriScoreSSL
-                    _hiPriScoreSSL := hScore
-                    _hiPriSSL := lvl.price
-                    _hiPriSSLName := lvl.name
-                    _hiPriSrcSSL := lvl.sourceType
-                    _hiPriExtSSL := lvl.isExternal
-                // Nearest internal SSL (for inducement detection)
-                if not lvl.isExternal and not consumed and (na(_nearIntSSL) or lvl.price > _nearIntSSL)
-                    _nearIntSSL := lvl.price
-                // Nearest unconsumed external SSL (the "true target" behind inducement)
-                if lvl.isExternal and not consumed and (na(_nearExtSSL) or lvl.price > _nearExtSSL)
-                    _nearExtSSL := lvl.price
-                    _nearExtSSLName := lvl.name
-
-            else if not lvl.isSSL and lvl.price > close
-                // --- BSL side ---
-                if not consumed and not isDeveloping
-                    if na(_nearRelBSL) or lvl.price < _nearRelBSL
-                        _nearRelBSL := lvl.price
-                        _nearRelBSLName := lvl.name
-                if hScore > _hiPriScoreBSL
-                    _hiPriScoreBSL := hScore
-                    _hiPriBSL := lvl.price
-                    _hiPriBSLName := lvl.name
-                    _hiPriSrcBSL := lvl.sourceType
-                    _hiPriExtBSL := lvl.isExternal
-                if not lvl.isExternal and not consumed and (na(_nearIntBSL) or lvl.price < _nearIntBSL)
-                    _nearIntBSL := lvl.price
-                if lvl.isExternal and not consumed and (na(_nearExtBSL) or lvl.price < _nearExtBSL)
-                    _nearExtBSL := lvl.price
-                    _nearExtBSLName := lvl.name
-
-    // --- Inducement Detection ---
-    // Pattern: nearest level is internal, but an external target exists beyond it.
-    // The internal level is "inducement" — market makers take it out before the real move.
-    // This is a core ICT concept for distinguishing noise from true targets.
-    bool _nearIsInducBSL = false
-    if not na(_nearIntBSL) and not na(_nearExtBSL) and _nearIntBSL < _nearExtBSL
-        float extDistAtr = atrVal > 0 ? (_nearExtBSL - close) / atrVal : 999.0
-        _nearIsInducBSL := extDistAtr < 6.0
-
-    bool _nearIsInducSSL = false
-    if not na(_nearIntSSL) and not na(_nearExtSSL) and _nearIntSSL > _nearExtSSL
-        float extDistAtr = atrVal > 0 ? (close - _nearExtSSL) / atrVal : 999.0
-        _nearIsInducSSL := extDistAtr < 6.0
-
-    [_nearRelBSL, _nearRelSSL, _nearRelBSLName, _nearRelSSLName,
-     _hiPriBSL, _hiPriSSL, _hiPriBSLName, _hiPriSSLName,
-     _hiPriSrcBSL, _hiPriSrcSSL, _hiPriExtBSL, _hiPriExtSSL,
-     _nearIsInducBSL, _nearIsInducSSL,
-     _nearExtBSL, _nearExtSSL, _nearExtBSLName, _nearExtSSLName]
+    [_nearBSL, _nearSSL, _countBSL, _countSSL]
