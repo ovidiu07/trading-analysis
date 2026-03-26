@@ -140,174 +140,178 @@ export ea_is_terminal(int ea) =>
 _eval_phase_overrides(bool hasActiveTrade, bool isConflicted, int lifecycle) =>
     int ea = EA_NONE
     int eb = EB_NONE
-    string reason = ""
+    string res = ""
     bool active = false
 
     if hasActiveTrade
         ea := EA_ACTIVE
         eb := EB_NONE
-        reason := "Trade active"
+        res := "Trade active"
         active := true
     else if isConflicted
         ea := EA_BLOCKED
         eb := EB_CONFLICTED
-        reason := "Both sides active — conflicted"
+        res := "Both sides active — conflicted"
         active := true
     else if lifecycle == LC_DESYNC
         ea := EA_INVALIDATED
         eb := EB_NONE
-        reason := "State desync — authority suspended"
+        res := "State desync — authority suspended"
         active := true
 
-    [ea, eb, reason, active]
+    [ea, eb, res, active]
 
 // Phase 2: Structural Failures & Expiry
 _eval_phase_failures(bool expired, bool degraded, bool mssFailed, bool reclaimFailed, bool dispFailed) =>
     int ea = EA_NONE
     int eb = EB_NONE
-    string reason = ""
+    string res = ""
     bool active = false
 
     if expired
         ea := EA_EXPIRED
-        reason := "Setup expired"
+        res := "Setup expired"
         active := true
     else if degraded
         ea := EA_INVALIDATED
-        reason := "Setup degraded — imbalance filled"
+        res := "Setup degraded — imbalance filled"
         active := true
     else if mssFailed
         ea := EA_INVALIDATED
         eb := EB_MSS_FAILED
-        reason := "MSS failed — structure invalidated"
+        res := "MSS failed — structure lost"
         active := true
     else if reclaimFailed
         ea := EA_INVALIDATED
         eb := EB_RECLAIM_FAILED
-        reason := "Reclaim failed — recovery lost"
+        res := "Reclaim failed — recovery lost"
         active := true
     else if dispFailed
         ea := EA_INVALIDATED
         eb := EB_DISP_FAILED
-        reason := "Displacement failed — commitment lost"
+        res := "Displacement failed — commitment lost"
         active := true
 
-    [ea, eb, reason, active]
+    [ea, eb, res, active]
 
-// Phase 3: Execution Blocks & Quality
-_eval_phase_readiness(string mode, bool modeCandidate, bool modeActivation, string modeBlockReason,
-     bool gateBlocked, string gateBlockReason, bool isExtended, bool mssFresh, bool dispFresh, bool reclaimPass, int lifecycle) =>
+// Phase 3: Readiness & Blocked States
+_eval_phase_readiness(int lifecycle, bool mssValid, string mode, bool modeCandidate, bool modeActivation, string modeBlockReason,
+     bool gateBlocked, string gateBlockReason, bool isExtended, bool mssFresh, bool dispFresh, bool reclaimPass) =>
     int ea = EA_NONE
     int eb = EB_NONE
-    string reason = ""
+    string res = ""
     bool active = false
 
-    if not mssFresh
+    // Forming states (early lifecycle)
+    if lifecycle <= LC_LIQUIDITY_IDENTIFIED
+        ea := (lifecycle == LC_NONE ? EA_NONE : EA_FORMING)
+        res := (lifecycle == LC_NONE ? "No setup context" : "Liquidity identified, awaiting sweep")
+        active := true
+    else if (lifecycle == LC_SWEEP_CONFIRMED or lifecycle == LC_RECLAIM_VISIBLE) and not mssValid
+        ea := EA_FORMING
+        res := "Awaiting structure shift"
+        active := true
+
+    // Readiness blocks
+    else if not mssFresh
         ea := EA_LATE
         eb := EB_FRESHNESS
-        reason := "MSS stale — structure aged out"
+        res := "MSS stale — structure aged out"
         active := true
     else if not dispFresh and lifecycle >= LC_DISPLACEMENT_CONFIRMED
         ea := EA_LATE
         eb := EB_FRESHNESS
-        reason := "Displacement stale — commitment aged out"
+        res := "Displacement stale — commitment aged out"
         active := true
     else if isExtended and mode != "Aggressive"
         ea := EA_BLOCKED
         eb := EB_EXTENSION
-        reason := "Price too extended from anchor"
+        res := "Price too extended from anchor"
         active := true
     else if gateBlocked and not modeActivation
         ea := EA_BLOCKED
         eb := EB_GATE_STRATEGY
-        reason := "Strategy gate: " + gateBlockReason
+        res := "Strategy gate: " + gateBlockReason
         active := true
     else if not reclaimPass
         ea := EA_BLOCKED
         eb := EB_MODE_QUALITY
-        reason := "Reclaim quality insufficient"
+        res := "Reclaim quality insufficient"
         active := true
     else if not modeCandidate
         ea := EA_STRUCT_VALID
-        reason := mode + " mode: minimum lifecycle not met"
+        res := mode + " mode: minimum lifecycle not met"
         active := true
     else if not modeActivation
         if lifecycle >= LC_DISPLACEMENT_CONFIRMED
             ea := EA_BLOCKED
             eb := EB_MODE_QUALITY
-            reason := (modeBlockReason != "" ? modeBlockReason : mode + " quality not met")
+            res := (modeBlockReason != "" ? modeBlockReason : mode + " quality not met")
             active := true
         else
             ea := EA_STRUCT_VALID
-            reason := "Awaiting structural progression"
+            res := "Awaiting structural progression"
             active := true
 
-    [ea, eb, reason, active]
+    [ea, eb, res, active]
 
-// Phase 4: Activation & Final Classification
+// Phase 4: Activation & Classification
 _eval_phase_activation(bool hasSignalThisBar, bool modeAllowsDirect, int lifecycle, bool modeActivation,
      bool hasPendingStored, bool pendingCanActivate, bool pendingFresh, bool pendingExpired,
      bool seqOk, bool swept, bool mssValid, bool modeCandidate, string mode, bool isExtended) =>
     int ea = EA_FORMING
     int ep = EP_NONE
     int eb = EB_NONE
-    string reason = "Setup developing"
+    string res = "Setup developing"
 
     if hasSignalThisBar and modeAllowsDirect and (lifecycle >= LC_ENTRY_TRIGGERED or modeActivation)
         ea := EA_TRIGGERABLE
         ep := EP_IMMEDIATE
-        reason := "Entry triggerable — immediate"
-
+        res := "Entry triggerable — immediate"
     else if hasPendingStored and pendingCanActivate
         ea := EA_TRIGGERABLE
         ep := EP_RETRACE
-        reason := "Entry triggerable — delayed"
-
+        res := "Entry triggerable — delayed"
     else if hasSignalThisBar and not modeAllowsDirect
         ep := EP_PENDING
         if modeActivation
             ea := EA_PENDING_RETRACE
-            reason := mode + ": signal stored, awaiting retrace"
+            res := mode + ": signal stored, awaiting retrace"
         else
             ea := EA_PENDING_CONFIRMATION
-            reason := mode + ": signal stored, awaiting confirmation"
-
+            res := mode + ": signal stored, awaiting confirmation"
     else if hasPendingStored and not pendingExpired
         if pendingFresh
             ea := EA_PENDING_RETRACE
             ep := EP_PENDING
-            reason := "Pending active — awaiting retrace"
+            res := "Pending active — awaiting retrace"
         else
             ea := EA_LATE
             ep := EP_PENDING
             eb := EB_FRESHNESS
-            reason := "Pending structurally stale"
-
+            res := "Pending structurally stale"
     else if hasPendingStored and pendingExpired
         ea := EA_EXPIRED
-        reason := "Pending window expired"
-
+        res := "Pending window expired"
     else if seqOk and swept and mssValid and lifecycle >= LC_ENTRY_ARMED
         ea := EA_ARMED
         ep := (modeAllowsDirect ? EP_IMMEDIATE : EP_RETRACE)
-        reason := "Entry armed — monitor trigger"
-
+        res := "Entry armed — monitor trigger"
     else if modeActivation and lifecycle >= LC_DISPLACEMENT_CONFIRMED
         ea := EA_READY
         ep := (modeAllowsDirect ? EP_IMMEDIATE : EP_RETRACE)
-        reason := "Execution ready — awaiting zone"
-
+        res := "Execution ready — awaiting zone"
     else if modeCandidate
         ea := EA_STRUCT_VALID
-        reason := "Structurally valid — awaiting readiness"
+        res := "Structurally valid — awaiting readiness"
 
     // Late/Extended check for non-blocked aggressive setups
     if ea >= EA_READY and ea <= EA_ARMED and isExtended and mode == "Aggressive"
         ea := EA_LATE
         eb := EB_EXTENSION
-        reason := "AGG: extended but structurally valid"
+        res := "AGG: extended but structurally valid"
 
-    [ea, ep, eb, reason]
+    [ea, ep, eb, res]
 
 // =====================================================================
 // EXPORTED EVALUATORS
@@ -336,7 +340,7 @@ export assess_structural_validity(int lifecycle, bool seqOk, bool swept, bool ms
         reason := "Full sequence valid"
     else if swept and mssValid_ and dispValid_
         valid := true
-        reason := "Chain valid: Sweep → MSS → Disp"
+        reason := "Chain valid"
     else if swept and mssValid_
         valid := true
         reason := "Partial: Sweep → MSS confirmed"
@@ -381,7 +385,7 @@ export assess_execution_readiness(bool structValid, string mode,
         reason := "Execution ready"
     [ready, reason]
 
-// Layer C: Central Evaluator
+// Layer C: Central Evaluator (Orchestrator)
 export evaluate_entry_authority(
      int lifecycle, bool seqOk, bool swept,
      bool mssValid_, bool mssFailed_, bool mssFresh_,
@@ -396,41 +400,34 @@ export evaluate_entry_authority(
      bool hasPendingStored, bool pendingCanActivate, bool pendingExpired_,
      bool hasActiveTrade) =>
 
-    // Initialize result variables
+    // Result placeholders
     int finalEA = EA_NONE
     int finalEP = EP_NONE
     int finalEB = EB_NONE
     string finalRes = ""
     bool finalSV = false
 
-    // Phase 1: Overrides (Terminal)
+    // Phase 1: Overrides
     [ea1, eb1, res1, active1] = _eval_phase_overrides(hasActiveTrade, isConflicted_, lifecycle)
-
-    // Phase 2: Structural Failures
-    [ea2, eb2, res2, active2] = _eval_phase_failures(expired_, degraded_, mssFailed_, reclaimFailed_, dispFailed_)
-
-    // Selection Dispatcher
     if active1
-        finalEA := ea1, finalEB := eb1, finalRes := res1
-    else if active2
-        finalEA := ea2, finalEB := eb2, finalRes := res2
-    else if lifecycle <= LC_LIQUIDITY_IDENTIFIED
-        finalEA := (lifecycle == LC_NONE ? EA_NONE : EA_FORMING)
-        finalRes := (lifecycle == LC_NONE ? "No setup context" : "Liquidity identified, awaiting sweep")
-    else if (lifecycle == LC_SWEEP_CONFIRMED or lifecycle == LC_RECLAIM_VISIBLE) and not mssValid_
-        finalEA := EA_FORMING, finalRes := "Awaiting structure shift"
+        finalEA := ea1, finalEP := EP_NONE, finalEB := eb1, finalRes := res1, finalSV := false
     else
-        // Phase 3: Readiness Blocks
-        [ea3, eb3, res3, active3] = _eval_phase_readiness(mode, modeCandidate, modeActivation, modeBlockReason_,
-                                     gateBlocked_, gateBlockReason_, isExtended_, mssFresh_, dispFresh_, reclaimPass_, lifecycle)
-        if active3
-            finalEA := ea3, finalEB := eb3, finalRes := res3, finalSV := true
+        // Phase 2: Structural Failures
+        [ea2, eb2, res2, active2] = _eval_phase_failures(expired_, degraded_, mssFailed_, reclaimFailed_, dispFailed_)
+        if active2
+            finalEA := ea2, finalEP := EP_NONE, finalEB := eb2, finalRes := res2, finalSV := false
         else
-            // Phase 4: Activation
-            [ea4, ep4, eb4, res4] = _eval_phase_activation(hasSignalThisBar, modeAllowsDirect, lifecycle, modeActivation,
-                                     hasPendingStored, pendingCanActivate, pendingFresh_, pendingExpired_,
-                                     seqOk, swept, mssValid_, modeCandidate, mode, isExtended_)
-            finalEA := ea4, finalEP := ep4, finalEB := eb4, finalRes := res4, finalSV := true
+            // Phase 3: Readiness & Blocks
+            [ea3, eb3, res3, active3] = _eval_phase_readiness(lifecycle, mssValid_, mode, modeCandidate, modeActivation, modeBlockReason_,
+                                         gateBlocked_, gateBlockReason_, isExtended_, mssFresh_, dispFresh_, reclaimPass_)
+            if active3
+                finalEA := ea3, finalEP := EP_NONE, finalEB := eb3, finalRes := res3, finalSV := true
+            else
+                // Phase 4: Activation Logic
+                [ea4, ep4, eb4, res4] = _eval_phase_activation(hasSignalThisBar, modeAllowsDirect, lifecycle, modeActivation,
+                                             hasPendingStored, pendingCanActivate, pendingFresh_, pendingExpired_,
+                                             seqOk, swept, mssValid_, modeCandidate, mode, isExtended_)
+                finalEA := ea4, finalEP := ep4, finalEB := eb4, finalRes := res4, finalSV := true
 
     [finalEA, finalEP, finalEB, finalRes, finalSV]
 
@@ -451,35 +448,46 @@ export validate_entry_authority(int ea, int ep, int eb, int lifecycle,
 
     // 1. Trade Sync
     if ea == EA_ACTIVE and not hasActiveTrade
-        valid := false, reason := "EA_ACTIVE without trade"
+        valid := false
+        reason := "EA_ACTIVE without active trade"
     else if hasActiveTrade and ea != EA_ACTIVE
-        valid := false, reason := "Trade exists but EA=" + ea_name(ea)
+        valid := false
+        reason := "Trade active but EA=" + ea_name(ea)
 
-    // 2. Path vs State Consistency
+    // 2. Path Integrity & Capability
+    else if (ea == EA_PENDING_RETRACE or ea == EA_PENDING_CONFIRMATION) and ep == EP_NONE
+        valid := false
+        reason := "Pending state requires valid EP"
+    else if (ea == EA_READY or ea == EA_ARMED) and ep == EP_NONE
+        valid := false
+        reason := "Execution-ready state requires valid EP"
     else if ea == EA_TRIGGERABLE and (ep != EP_IMMEDIATE and ep != EP_RETRACE)
-        valid := false, reason := "EA_TRIGGERABLE must have executable path"
-    else if (ea == EA_PENDING_RETRACE or ea == EA_PENDING_CONFIRMATION) and ep != EP_PENDING
-        valid := false, reason := "Pending state must have EP_PENDING"
-    else if (ea == EA_ARMED or ea == EA_READY) and ep == EP_NONE
-        valid := false, reason := "Readiness state requires path"
+        valid := false
+        reason := "EA_TRIGGERABLE requires activation path"
 
-    // 3. Block Category Consistency
-    else if ea == EA_BLOCKED and eb == EB_NONE
-        valid := false, reason := "EA_BLOCKED requires block category"
-    else if ea == EA_LATE and (eb != EB_FRESHNESS and eb != EB_EXTENSION)
-        valid := false, reason := "EA_LATE requires freshness or extension category"
+    // 3. Activation Guard for Blocks/Expiries
+    else if (ea == EA_BLOCKED or ea == EA_LATE or ea == EA_EXPIRED or ea == EA_INVALIDATED) and (ep == EP_IMMEDIATE or ep == EP_RETRACE)
+        valid := false
+        reason := "Blocked/Terminal state cannot be activation-capable"
 
     // 4. Structural Logic
     else if ea >= EA_READY and ea <= EA_TRIGGERABLE
         if mssFailed_ or reclaimFailed_ or dispFailed_ or expired_
-            valid := false, reason := "Valid EA with structural failure"
+            valid := false
+            reason := "Valid EA with structural failure"
         else if not modeCandidate
-            valid := false, reason := "Valid EA without mode candidacy"
+            valid := false
+            reason := "Valid EA without candidacy"
         else if lifecycle < LC_MSS_CONFIRMED
-            valid := false, reason := "State " + ea_name(ea) + " requires MSS_CONFIRMED"
+            valid := false
+            reason := "Readiness requires MSS_CONFIRMED"
 
-    // 5. Conflict Resolution
+    // 5. Category/Conflict
+    else if ea == EA_BLOCKED and eb == EB_NONE
+        valid := false
+        reason := "EA_BLOCKED requires category"
     else if isConflicted_ and not hasActiveTrade and (ea != EA_BLOCKED or eb != EB_CONFLICTED)
-        valid := false, reason := "Conflict mismatch"
+        valid := false
+        reason := "Conflict mismatch"
 
     [valid, reason]
