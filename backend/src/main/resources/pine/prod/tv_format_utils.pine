@@ -4,47 +4,109 @@
 // Contains ONLY pure formatting logic — no trading edge, no secret thresholds, no state.
 library("tv_format_utils", overlay = true)
 
+// --- Position & UI Helpers ---
+
 // @function Resolves a position string to a Pine table position constant.
 // @param pos Position string: "top_right", "top_left", "bottom_right", "bottom_left"
 // @returns Pine position constant
 export resolve_pos(string pos) =>
     pos == "top_right" ? position.top_right : pos == "top_left" ? position.top_left : pos == "bottom_right" ? position.bottom_right : position.bottom_left
 
+// --- Wording & Sentiment Helpers ---
+
 // @function Converts a letter grade to a human-readable quality word.
 // @param grade Grade letter: "A", "B", "C"
+// @param compact If true, returns shorter labels.
 // @returns Quality description string
-export format_grade_word(string grade) =>
-    grade == "A" ? "high quality" : grade == "B" ? "moderate quality" : grade == "C" ? "low quality" : "—"
+export format_quality(string grade, bool compact = false) =>
+    grade == "A" ? (compact ? "High" : "High Quality") :
+     grade == "B" ? (compact ? "Mid"  : "Moderate Quality") :
+     grade == "C" ? (compact ? "Low"  : "Low Quality") : "—"
 
 // @function Converts a numeric confidence score to a human-readable confidence level.
 // @param score Score value (0-100)
+// @param compact If true, returns shorter labels.
 // @returns Confidence level string
-export format_confidence(int score) =>
-    score >= 85 ? "High conviction" : score >= 70 ? "Strong" : score >= 50 ? "Good" : score >= 30 ? "Moderate" : "Low"
+export format_confidence(int score, bool compact = false) =>
+    score >= 85 ? (compact ? "HIGH" : "High") :
+     score >= 70 ? (compact ? "STR"  : "Strong") :
+     score >= 50 ? (compact ? "MOD"  : "Moderate") :
+     score >= 30 ? (compact ? "LOW"  : "Low") : (compact ? "WEAK" : "Weak")
 
 // @function Generates a bias description string from long/short scores.
 // @param sL Long score
 // @param sS Short score
+// @param compact If true, returns shorter labels (e.g. "STR BULL").
 // @returns Bias description string
-export format_score_bias(int sL, int sS) =>
+export format_bias(int sL, int sS, bool compact = false) =>
     int diff = sL - sS
-    math.abs(diff) < 5 ? "Neutral" : diff >= 20 ? "Strong long bias" : diff >= 10 ? "Long bias" : diff > 0 ? "Slight long bias" : diff <= -20 ? "Strong short bias" : diff <= -10 ? "Short bias" : "Slight short bias"
+    bool neut = math.abs(diff) < 5
+    if neut
+        compact ? "NEUT" : "Neutral"
+    else if diff >= 20
+        compact ? "STR BULL" : "Strong Bullish"
+    else if diff >= 10
+        compact ? "BULL" : "Bullish"
+    else if diff > 0
+        compact ? "SL BULL" : "Slight Bullish"
+    else if diff <= -20
+        compact ? "STR BEAR" : "Strong Bearish"
+    else if diff <= -10
+        compact ? "BEAR" : "Bearish"
+    else
+        compact ? "SL BEAR" : "Slight Bearish"
+
+// @function Returns a simple Bullish/Bearish label.
+// @param isBull Boolean condition for bullishness.
+// @param compact If true, returns "BULL"/"BEAR".
+// @returns Directional string
+export format_dir(bool isBull, bool compact = false) =>
+    isBull ? (compact ? "BULL" : "Bullish") : (compact ? "BEAR" : "Bearish")
+
+// @function Returns a Pass/Fail style label.
+// @param condition Boolean condition.
+// @param compact If true, returns symbol markers.
+// @returns Status string
+export format_check(bool condition, bool compact = false) =>
+    condition ? (compact ? "✓" : "Pass") : (compact ? "✗" : "Fail")
+
+// --- Numeric & String Fallbacks ---
 
 // @function Returns the value formatted as a string, or a dash if na.
 // @param val Float value
 // @param fmt Format string (e.g., "#.#####")
 // @returns Formatted string or "—"
-export value_or_dash(float val, string fmt) =>
+export val_or_dash(float val, string fmt = "#.##") =>
     na(val) ? "—" : str.tostring(val, fmt)
+
+// @function Returns the string or a dash if the input is empty or na.
+// @param val Input string
+// @returns String or "—"
+export str_or_dash(string val) =>
+    val == "" or na(val) ? "—" : val
 
 // @function Formats a float as a percentage string.
 // @param val Value (0-100 range)
 // @returns Formatted percentage string like "75.2%"
-export format_percent(float val) =>
-    str.format("{0,number,#.##}%", val)
+export format_pct(float val) =>
+    na(val) ? "—" : str.format("{0,number,#.##}%", val)
 
 // @function Formats a float as an R-multiple string.
 // @param val R-value
 // @returns Formatted R string like "2.50R"
 export format_r(float val) =>
-    str.format("{0,number,#.##}R", val)
+    na(val) ? "—" : str.format("{0,number,#.##}R", val)
+
+// --- Time & Age Helpers ---
+
+// @function Formats bar-age into a readable "freshness" string.
+// @param bars Number of bars since event.
+// @param compact If true, returns "12b" instead of "12 bars ago".
+// @returns Age string
+export format_age(int bars, bool compact = false) =>
+    if na(bars) or bars < 0
+        "—"
+    else if bars == 0
+        compact ? "Now" : "Current"
+    else
+        compact ? str.format("{0}b", bars) : str.format("{0} bars ago", bars)

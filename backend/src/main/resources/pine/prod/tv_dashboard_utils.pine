@@ -1,147 +1,78 @@
-// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
 // @description Generic table rendering plumbing for trading dashboards.
-// Contains ONLY UI layout helpers — no trading logic, no secret data.
-// Eliminates repeated table.cell() boilerplate across dashboard renderers.
+// Contains ONLY UI layout helpers — no trading logic.
 library("tv_dashboard_utils", overlay = true)
 
+// --- 2-Column Primitives ---
+
 // @function Renders a section header row spanning two columns.
-// @param tbl Table reference
-// @param row Row index
-// @param title Section title text
-// @param headerColor Header text color
-// @param bgColor Background color
-// @returns Next row index (row + 1)
-export table_header(table tbl, int row, string title, color headerColor, color bgColor) =>
-    table.cell(tbl, 0, row, title, text_color = headerColor, text_size = size.small, text_halign = text.align_left)
+export table_header(table tbl, int row, string title, color headerColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, title, text_color = headerColor, text_size = size.small, text_halign = text.align_left, bgcolor = bgColor)
     table.cell(tbl, 1, row, "", bgcolor = bgColor)
     row + 1
 
 // @function Renders a section divider row (─── Title ───) spanning two columns.
-// @param tbl Table reference
-// @param row Row index
-// @param title Section title
-// @param headerColor Header text color
-// @param bgColor Background color
-// @returns Next row index (row + 1)
-export table_section(table tbl, int row, string title, color headerColor, color bgColor) =>
-    table.cell(tbl, 0, row, "─── " + title + " ───", text_color = headerColor, text_size = size.tiny, text_halign = text.align_left)
+export table_section(table tbl, int row, string title, color headerColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, "─── " + title + " ───", text_color = headerColor, text_size = size.tiny, text_halign = text.align_left, bgcolor = bgColor)
     table.cell(tbl, 1, row, "", bgcolor = bgColor)
     row + 1
 
-// @function Renders a key/value row at normal size.
-// @param tbl Table reference
-// @param row Row index
-// @param key Label text
-// @param val Value text
-// @param keyColor Key text color
-// @param valColor Value text color
-// @returns Next row index (row + 1)
-export table_kv(table tbl, int row, string key, string val, color keyColor, color valColor) =>
-    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.small, text_halign = text.align_left)
-    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.small)
+// @function Renders an emphasized key/value row (High Priority).
+export table_kv_emph(table tbl, int row, string key, string val, color keyColor, color valColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.small, text_halign = text.align_left, bgcolor = bgColor)
+    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.small, bgcolor = bgColor)
     row + 1
 
-// @function Renders a key/value row at normal size with left-aligned value.
-// @param tbl Table reference
-// @param row Row index
-// @param key Label text
-// @param val Value text
-// @param keyColor Key text color
-// @param valColor Value text color
-// @returns Next row index (row + 1)
-export table_kv_left(table tbl, int row, string key, string val, color keyColor, color valColor) =>
-    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.small, text_halign = text.align_left)
-    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.small, text_halign = text.align_left)
+// @function Renders a standard key/value row.
+export table_kv(table tbl, int row, string key, string val, color keyColor, color valColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.small, text_halign = text.align_left, bgcolor = bgColor)
+    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.small, bgcolor = bgColor)
     row + 1
 
-// @function Renders a key/value row at tiny size.
-// @param tbl Table reference
-// @param row Row index
-// @param key Label text
-// @param val Value text
-// @param keyColor Key text color
-// @param valColor Value text color
-// @returns Next row index (row + 1)
-export table_kv_tiny(table tbl, int row, string key, string val, color keyColor, color valColor) =>
-    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.tiny)
+// @function Renders a muted key/value row (Low Priority).
+export table_kv_muted(table tbl, int row, string key, string val, color keyColor, color valColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.tiny, text_halign = text.align_left, bgcolor = bgColor)
+    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.tiny, bgcolor = bgColor)
     row + 1
 
-// @function Renders a merged section title row spanning 3 columns (for 3-column tables).
-// @param tbl Table reference
-// @param row Row index
-// @param title Title text
-// @param headerColor Header text color
-// @returns Next row index (row + 1)
-export table_merge_row(table tbl, int row, string title, color headerColor) =>
-    table.cell(tbl, 0, row, title, text_color = headerColor, text_size = size.small, text_halign = text.align_left)
+// @function Renders a merged guidance message (Next steps / Requirements).
+export table_guidance(table tbl, int row, string msg, color msgColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, "→ " + msg, text_color = msgColor, text_size = size.tiny, text_halign = text.align_left, bgcolor = bgColor)
+    table.merge_cells(tbl, 0, row, 1, row)
+    row + 1
+
+// --- 3-Column Primitives ---
+
+// @function Renders a 3-column header row.
+export table_header3(table tbl, int row, string h1, string h2, string h3, color headerColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, h1, text_color = headerColor, text_size = size.tiny, bgcolor = bgColor)
+    table.cell(tbl, 1, row, h2, text_color = headerColor, text_size = size.tiny, bgcolor = bgColor)
+    table.cell(tbl, 2, row, h3, text_color = headerColor, text_size = size.tiny, bgcolor = bgColor)
+    row + 1
+
+// @function Renders an emphasized 3-column row (Highlighted).
+export table_row3_emph(table tbl, int row, string c1, string c2, string c3, color c1Color, color c2Color, color c3Color, color bgColor = na) =>
+    table.cell(tbl, 0, row, c1, text_color = c1Color, text_size = size.small, bgcolor = bgColor)
+    table.cell(tbl, 1, row, c2, text_color = c2Color, text_size = size.small, bgcolor = bgColor)
+    table.cell(tbl, 2, row, c3, text_color = c3Color, text_size = size.small, bgcolor = bgColor)
+    row + 1
+
+// @function Renders a standard 3-column data row.
+export table_row3(table tbl, int row, string c1, string c2, string c3, color c1Color, color c2Color, color c3Color, color bgColor = na) =>
+    table.cell(tbl, 0, row, c1, text_color = c1Color, text_size = size.tiny, bgcolor = bgColor)
+    table.cell(tbl, 1, row, c2, text_color = c2Color, text_size = size.tiny, bgcolor = bgColor)
+    table.cell(tbl, 2, row, c3, text_color = c3Color, text_size = size.tiny, bgcolor = bgColor)
+    row + 1
+
+// @function Renders a muted 3-column data row.
+export table_row3_muted(table tbl, int row, string c1, string c2, string c3, color c1Color, color c2Color, color c3Color, color bgColor = na) =>
+    table.cell(tbl, 0, row, c1, text_color = color.new(c1Color, 40), text_size = size.tiny, bgcolor = bgColor)
+    table.cell(tbl, 1, row, c2, text_color = color.new(c2Color, 40), text_size = size.tiny, bgcolor = bgColor)
+    table.cell(tbl, 2, row, c3, text_color = color.new(c3Color, 40), text_size = size.tiny, bgcolor = bgColor)
+    row + 1
+
+// @function Renders a single-cell merged "no data" message for 3-column layouts.
+export table_empty3(table tbl, int row, string msg, color msgColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, msg, text_color = msgColor, text_size = size.tiny, bgcolor = bgColor)
     table.merge_cells(tbl, 0, row, 2, row)
-    row + 1
-
-// @function Renders a section divider for 3-column tables.
-// @param tbl Table reference
-// @param row Row index
-// @param title Section title
-// @param headerColor Header text color
-// @returns Next row index (row + 1)
-export table_section3(table tbl, int row, string title, color headerColor) =>
-    table.cell(tbl, 0, row, "─── " + title + " ───", text_color = headerColor, text_size = size.tiny, text_halign = text.align_left)
-    table.merge_cells(tbl, 0, row, 2, row)
-    row + 1
-
-// @function Renders a 3-column header row for tables (e.g., alert history, OB scanner).
-// @param tbl Table reference
-// @param row Row index
-// @param h1 Header 1
-// @param h2 Header 2
-// @param h3 Header 3
-// @param headerColor Header text color
-// @returns Next row index (row + 1)
-export table_header3(table tbl, int row, string h1, string h2, string h3, color headerColor) =>
-    table.cell(tbl, 0, row, h1, text_color = headerColor, text_size = size.tiny)
-    table.cell(tbl, 1, row, h2, text_color = headerColor, text_size = size.tiny)
-    table.cell(tbl, 2, row, h3, text_color = headerColor, text_size = size.tiny)
-    row + 1
-
-// @function Renders a 3-column data row.
-// @param tbl Table reference
-// @param row Row index
-// @param c1 Column 1 text
-// @param c2 Column 2 text
-// @param c3 Column 3 text
-// @param c1Color Column 1 color
-// @param c2Color Column 2 color
-// @param c3Color Column 3 color
-// @returns Next row index (row + 1)
-export table_row3(table tbl, int row, string c1, string c2, string c3, color c1Color, color c2Color, color c3Color) =>
-    table.cell(tbl, 0, row, c1, text_color = c1Color, text_size = size.tiny)
-    table.cell(tbl, 1, row, c2, text_color = c2Color, text_size = size.tiny)
-    table.cell(tbl, 2, row, c3, text_color = c3Color, text_size = size.tiny)
-    row + 1
-
-// @function Renders a single-cell merged "no data" row spanning 3 columns.
-// @param tbl Table reference
-// @param row Row index
-// @param msg Message text
-// @param msgColor Text color
-// @returns Next row index (row + 1)
-export table_empty3(table tbl, int row, string msg, color msgColor) =>
-    table.cell(tbl, 0, row, msg, text_color = msgColor, text_size = size.tiny)
-    table.merge_cells(tbl, 0, row, 2, row)
-    row + 1
-
-// @function Renders a 3-column row with empty third cell (for 2-data-column tables in 3-col layout).
-// @param tbl Table reference
-// @param row Row index
-// @param key Label text
-// @param val Value text
-// @param keyColor Key text color
-// @param valColor Value text color
-// @param bgColor Background color for empty cell
-// @returns Next row index (row + 1)
-export table_kv3(table tbl, int row, string key, string val, color keyColor, color valColor, color bgColor) =>
-    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.tiny, text_halign = text.align_left)
-    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.tiny)
-    table.cell(tbl, 2, row, "", bgcolor = bgColor)
     row + 1

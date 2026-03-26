@@ -1,59 +1,58 @@
-// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
 // @description Generic line/label/box rendering helpers for chart-overlay indicators.
 // Contains ONLY visual rendering primitives — no trading logic, no edge decisions.
 library("tv_render_utils", overlay = true)
 
-// @function Renders a horizontal price level with optional label. Manages line/label lifecycle (create/update/delete).
-//           Uses `var` internally for persistent state — each unique call site gets its own line/label pair.
-// @param val Price level value
-// @param show Whether to show this level
-// @param col Line and label color
-// @param txt Label text
-// @param mode Display mode: "Full Width" or "Short Segment"
-// @param segLen Segment length in bars (for Short Segment mode)
-// @param offset Segment right offset in bars
-// @param styleStr Line style: "Solid", "Dashed", "Dotted"
-// @param width Line width
-// @param showLabel Whether to show the label
-// @returns [line, label] — the managed line and label objects
+// --- Internal Helpers ---
+
+_clamp(int val, int minV, int maxV) =>
+    math.max(minV, math.min(maxV, val))
+
+_resolve_style(string s) =>
+    switch s
+        "Dashed" => line.style_dashed
+        "Dotted" => line.style_dotted
+        => line.style_solid
+
+_apply_transp(color c, int t) =>
+    color.new(c, _clamp(t, 0, 100))
+
+// --- Section 1: Live & Projected Renderers ---
+// These functions are designed for "Current State" visuals (e.g., current price levels, pending signals).
+
+// @function Renders a horizontal price level with optional label. Uses internal `var` for call-site persistence.
 export render_level(float val, bool show, color col, string txt, string mode, int segLen, int offset, string styleStr, int width, bool showLabel) =>
     var line l = na
     var label lbl = na
 
+    int cWidth  = _clamp(width, 1, 5)
+    int cSegLen = _clamp(segLen, 1, 500)
+    int cOffset = _clamp(offset, 0, 100)
+    line.style cStyle = _resolve_style(styleStr)
+
     if show and not na(val)
-        int x1 = mode == "Full Width" ? bar_index - 500 : bar_index - segLen + offset
-        int x2 = bar_index + offset
+        int x1 = mode == "Full Width" ? bar_index - 500 : bar_index - cSegLen + cOffset
+        int x2 = bar_index + cOffset
+
         if na(l)
-            if styleStr == "Solid"
-                l := line.new(x1, val, x2, val, color = col, style = line.style_solid, width = width)
-            else if styleStr == "Dashed"
-                l := line.new(x1, val, x2, val, color = col, style = line.style_dashed, width = width)
-            else
-                l := line.new(x1, val, x2, val, color = col, style = line.style_dotted, width = width)
-            if showLabel
-                lbl := label.new(x2, val, txt, color = #00000000, textcolor = col, style = label.style_label_left, size = size.small)
+            l := line.new(x1, val, x2, val, color = col, style = cStyle, width = cWidth)
         else
             line.set_xy1(l, x1, val)
             line.set_xy2(l, x2, val)
             line.set_color(l, col)
-            if styleStr == "Solid"
-                line.set_style(l, line.style_solid)
-            else if styleStr == "Dashed"
-                line.set_style(l, line.style_dashed)
+            line.set_style(l, cStyle)
+            line.set_width(l, cWidth)
+
+        if showLabel
+            if na(lbl)
+                lbl := label.new(x2 + 1, val, txt, color = #00000000, textcolor = col, style = label.style_label_left, size = size.small)
             else
-                line.set_style(l, line.style_dotted)
-            line.set_width(l, width)
-            if showLabel
-                if na(lbl)
-                    lbl := label.new(x2, val, txt, color = #00000000, textcolor = col, style = label.style_label_left, size = size.small)
-                else
-                    label.set_xy(lbl, x2, val)
-                    label.set_text(lbl, txt)
-                    label.set_textcolor(lbl, col)
-            else if not na(lbl)
-                label.delete(lbl)
-                lbl := na
+                label.set_xy(lbl, x2 + 1, val)
+                label.set_text(lbl, txt)
+                label.set_textcolor(lbl, col)
+        else if not na(lbl)
+            label.delete(lbl)
+            lbl := na
     else
         if not na(l)
             line.delete(l)
@@ -63,87 +62,101 @@ export render_level(float val, bool show, color col, string txt, string mode, in
             lbl := na
     [l, lbl]
 
-// @function Safely deletes a line if it exists, returning na.
-// @param l Line to delete
-// @returns na (always)
-export safe_delete_line(line l) =>
-    if not na(l)
-        line.delete(l)
-    line(na)
-
-// @function Safely deletes a label if it exists, returning na.
-// @param lbl Label to delete
-// @returns na (always)
-export safe_delete_label(label lbl) =>
-    if not na(lbl)
-        label.delete(lbl)
-    label(na)
-
-// @function Safely deletes a box if it exists, returning na.
-// @param b Box to delete
-// @returns na (always)
-export safe_delete_box(box b) =>
-    if not na(b)
-        box.delete(b)
-    box(na)
-
-// @function Draws or updates candidate preview boxes and label.
-//           This is the RENDERING ONLY portion — gating/eligibility must be computed by the caller.
-// @param cTpIn Existing TP box (or na to create new)
-// @param cSlIn Existing SL box (or na to create new)
-// @param cLblIn Existing label (or na to create new)
-// @param isLong Whether this is a long candidate
-// @param entry Entry price
-// @param sl Stop loss price
-// @param tp Take profit price
-// @param width Box width in bars
-// @param score Setup score for label
-// @param seqValid Whether sequence is valid (for checkmark)
-// @param pendSuffix Suffix for pending state (e.g., " [PENDING]")
-// @param tpColor TP zone color
-// @param slColor SL zone color
-// @param lblColor Label text color
-// @param transp Transparency value
-// @param borderWidth Border width
-// @returns [box, box, label] — updated TP box, SL box, and label
+// @function Draws/updates candidate preview boxes. Designed for temporary "Pending" setup visualization.
 export draw_preview(box cTpIn, box cSlIn, label cLblIn, bool isLong, float entry, float sl, float tp, int width, int score, bool seqValid, string pendSuffix, color tpColor, color slColor, color lblColor, int transp, int borderWidth) =>
     box cTp = cTpIn
     box cSl = cSlIn
     label cLbl = cLblIn
+
+    int cWidth = _clamp(width, 1, 100)
+    int cTransp = _clamp(transp, 0, 90)
+    int cBWidth = _clamp(borderWidth, 1, 5)
+
     string candDir = isLong ? "▲ " : "▼ "
     string lblText = candDir + "Candidate (" + str.tostring(score) + "%" + (seqValid ? " ✓" : "") + ")" + pendSuffix
 
     if na(cTp)
-        cTp := box.new(bar_index, isLong ? tp : entry, bar_index + width, isLong ? entry : tp, bgcolor = color.new(tpColor, transp + 5), border_color = tpColor, border_width = borderWidth)
-        cSl := box.new(bar_index, isLong ? entry : sl, bar_index + width, isLong ? sl : entry, bgcolor = color.new(slColor, transp + 5), border_color = slColor, border_width = borderWidth)
-        cLbl := label.new(bar_index + width, entry, lblText, color = #00000000, textcolor = lblColor, style = label.style_label_left, size = size.small)
+        cTp := box.new(bar_index, isLong ? tp : entry, bar_index + cWidth, isLong ? entry : tp, bgcolor = _apply_transp(tpColor, cTransp + 5), border_color = tpColor, border_width = cBWidth)
     else
         box.set_lefttop(cTp, bar_index, isLong ? tp : entry)
-        box.set_rightbottom(cTp, bar_index + width, isLong ? entry : tp)
-        box.set_bgcolor(cTp, color.new(tpColor, transp + 5))
+        box.set_rightbottom(cTp, bar_index + cWidth, isLong ? entry : tp)
+        box.set_bgcolor(cTp, _apply_transp(tpColor, cTransp + 5))
         box.set_border_color(cTp, tpColor)
+
+    if na(cSl)
+        cSl := box.new(bar_index, isLong ? entry : sl, bar_index + cWidth, isLong ? sl : entry, bgcolor = _apply_transp(slColor, cTransp + 5), border_color = slColor, border_width = cBWidth)
+    else
         box.set_lefttop(cSl, bar_index, isLong ? entry : sl)
-        box.set_rightbottom(cSl, bar_index + width, isLong ? sl : entry)
-        box.set_bgcolor(cSl, color.new(slColor, transp + 5))
+        box.set_rightbottom(cSl, bar_index + cWidth, isLong ? sl : entry)
+        box.set_bgcolor(cSl, _apply_transp(slColor, cTransp + 5))
         box.set_border_color(cSl, slColor)
-        label.set_xy(cLbl, bar_index + width, entry)
+
+    if na(cLbl)
+        cLbl := label.new(bar_index + cWidth + 1, entry, lblText, color = #00000000, textcolor = lblColor, style = label.style_label_left, size = size.small)
+    else
+        label.set_xy(cLbl, bar_index + cWidth + 1, entry)
         label.set_text(cLbl, lblText)
         label.set_textcolor(cLbl, lblColor)
+
     [cTp, cSl, cLbl]
 
-// @function Clears (deletes) candidate preview boxes and label.
-// @param cTpIn TP box to delete
-// @param cSlIn SL box to delete
-// @param cLblIn Label to delete
-// @returns [box(na), box(na), label(na)]
+// --- Section 2: Historical & Anchored Renderers ---
+// These functions are designed for persistent historical objects (e.g., past zones, signal markers).
+
+// @function Lifecycle-managed anchored box. Creates or updates a box at fixed coordinates.
+export render_managed_box(box bIn, int x1, float y1, int x2, float y2, color bg, color border, int bWidth, int transp) =>
+    box b = bIn
+    color bgColor = _apply_transp(bg, transp)
+    int borderWidth = _clamp(bWidth, 0, 5)
+
+    if na(b)
+        b := box.new(x1, y1, x2, y2, bgcolor = bgColor, border_color = border, border_width = borderWidth)
+    else
+        box.set_lefttop(b, x1, y1)
+        box.set_rightbottom(b, x2, y2)
+        box.set_bgcolor(b, bgColor)
+        box.set_border_color(b, border)
+        box.set_border_width(b, borderWidth)
+    b
+
+// @function Lifecycle-managed historical tag.
+export render_managed_tag(label lblIn, int x, float y, string txt, color bg, color txtCol, string style = label.style_label_center) =>
+    label lbl = lblIn
+    if na(lbl)
+        lbl := label.new(x, y, txt, color = bg, textcolor = txtCol, style = style, size = size.small)
+    else
+        label.set_xy(lbl, x, y)
+        label.set_text(lbl, txt)
+        label.set_color(lbl, bg)
+        label.set_textcolor(lbl, txtCol)
+    lbl
+
+// @function High-level helper for a "Historical Zone" (Box + Label).
+//           Ideal for marking significant historical price areas.
+export render_historical_zone(box bIn, label lblIn, int x1, float y1, int x2, float y2, string txt, color col, int transp) =>
+    box b = render_managed_box(bIn, x1, y1, x2, y2, col, col, 1, transp)
+    // Place label at the right-edge center of the box
+    label lbl = render_managed_tag(lblIn, x2, (y1 + y2) / 2, txt, #00000000, col, label.style_label_left)
+    [b, lbl]
+
+// --- Section 3: Lifecycle & Cleanup Helpers ---
+
+// @function Safely deletes a group of visual objects.
+export delete_group(line l = na, label lbl = na, box b = na) =>
+    if not na(l)
+        line.delete(l)
+    if not na(lbl)
+        label.delete(lbl)
+    if not na(b)
+        box.delete(b)
+    na
+
+export safe_delete_line(line l) => not na(l) ? line.delete(l) : na
+export safe_delete_label(label lbl) => not na(lbl) ? label.delete(lbl) : na
+export safe_delete_box(box b) => not na(b) ? box.delete(b) : na
+
 export clear_preview(box cTpIn, box cSlIn, label cLblIn) =>
-    box cTp = na
-    box cSl = na
-    label cLbl = na
-    if not na(cTpIn)
-        box.delete(cTpIn)
-    if not na(cSlIn)
-        box.delete(cSlIn)
-    if not na(cLblIn)
-        label.delete(cLblIn)
-    [cTp, cSl, cLbl]
+    safe_delete_box(cTpIn)
+    safe_delete_box(cSlIn)
+    safe_delete_label(cLblIn)
+    [box(na), box(na), label(na)]

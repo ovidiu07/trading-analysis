@@ -7,6 +7,8 @@ library("tv_market_intel_ui", overlay = true)
 
 import Devtailor/tv_dashboard_utils/1 as tbl
 
+// --- Types ---
+
 // @description Precomputed alert log entry for display.
 export type AlertEntry
     string timeStr
@@ -20,6 +22,29 @@ export type OBEntry
     color  typeColor
     string rangeStr     // e.g., "1.2345-1.2400"
     string ageStr       // e.g., "15 bars"
+
+// --- Internal Helpers ---
+
+// @function Returns a descriptive alignment note based on trend agreement.
+get_alignment_note(bool htf2, bool htf1, bool cur) =>
+    int score = (htf2 ? 1 : 0) + (htf1 ? 1 : 0) + (cur ? 1 : 0)
+    string note = switch score
+        3 => "High Agreement"
+        0 => "High Agreement"
+        =>   "Directional"
+
+    // If there's a mix that isn't clearly directional toward HTF
+    if (htf2 != htf1)
+        note := "Conflicted"
+
+    note
+
+// @function Standardizes bias text for display.
+get_bias_text(bool bull) => bull ? "BULLISH" : "BEARISH"
+
+// @function Formats price consistently.
+format_price(float price) =>
+    str.tostring(price, "#.#####")
 
 // @function Renders the complete Market Intelligence dashboard from precomputed values.
 // @param intelTbl Table reference (3-column)
@@ -52,41 +77,51 @@ export render_market_intel(table intelTbl,
      OBEntry[] obs, int maxOBRows) =>
 
     int row = 0
+    int safeMaxAlerts = math.max(0, maxAlertRows)
+    int safeMaxOBs    = math.max(0, maxOBRows)
 
     // --- Section A: Header ---
     row := tbl.table_merge_row(intelTbl, row, "Market Intelligence", headerColor)
 
-    // --- Section B: MTF Trend ---
+    // --- Section B: MTF Trend Alignment ---
+    // Alignment Summary
     row := tbl.table_kv3(intelTbl, row, "Alignment", alignment, labelColor, alignColor, bgColor)
-    row := tbl.table_kv3(intelTbl, row, "HTF 2 (" + htf2Label + ")", htf2Bull ? "BULL" : "BEAR", labelColor, htf2Bull ? posColor : negColor, bgColor)
-    row := tbl.table_kv3(intelTbl, row, "HTF 1 (" + htf1Label + ")", htf1Bull ? "BULL" : "BEAR", labelColor, htf1Bull ? posColor : negColor, bgColor)
-    row := tbl.table_kv3(intelTbl, row, "Current (" + curLabel + ")", curBull ? "BULL" : "BEAR", labelColor, curBull ? posColor : negColor, bgColor)
+
+    // Helper Note
+    string alignNote = get_alignment_note(htf2Bull, htf1Bull, curBull)
+    row := tbl.table_kv3(intelTbl, row, "Status", alignNote, labelColor, valueColor, bgColor)
+
+    // Timeframe Roles
+    row := tbl.table_kv3(intelTbl, row, "Anchor (" + htf2Label + ")", get_bias_text(htf2Bull), labelColor, htf2Bull ? posColor : negColor, bgColor)
+    row := tbl.table_kv3(intelTbl, row, "Confirm (" + htf1Label + ")", get_bias_text(htf1Bull), labelColor, htf1Bull ? posColor : negColor, bgColor)
+    row := tbl.table_kv3(intelTbl, row, "Trigger (" + curLabel + ")",  get_bias_text(curBull),  labelColor, curBull ? posColor : negColor, bgColor)
 
     // --- Section C: Alert History ---
-    row := tbl.table_section3(intelTbl, row, "Alert History", headerColor)
-    row := tbl.table_header3(intelTbl, row, "Time (NY)", "Signal", "Price", labelColor)
+    row := tbl.table_section3(intelTbl, row, "Recent Alerts", headerColor)
+    row := tbl.table_header3(intelTbl, row, "Time", "Signal", "Price", labelColor)
 
-    if array.size(alerts) > 0
-        int alertCount = math.min(array.size(alerts), maxAlertRows)
+    if array.size(alerts) > 0 and safeMaxAlerts > 0
+        int alertCount = math.min(array.size(alerts), safeMaxAlerts)
         for i = 0 to alertCount - 1
             AlertEntry al = array.get(alerts, i)
-            row := tbl.table_row3(intelTbl, row, al.timeStr, al.signalType, str.tostring(al.price, "#.#####"), labelColor, al.col, valueColor)
+            row := tbl.table_row3(intelTbl, row, al.timeStr, al.signalType, format_price(al.price), labelColor, al.col, valueColor)
     else
-        row := tbl.table_empty3(intelTbl, row, "No signals yet", labelColor)
+        row := tbl.table_empty3(intelTbl, row, "No recent signals", labelColor)
 
     // --- Section D: Active Order Blocks ---
-    row := tbl.table_section3(intelTbl, row, "Active OBs", headerColor)
-    row := tbl.table_header3(intelTbl, row, "Type", "Range", "Age", labelColor)
+    row := tbl.table_section3(intelTbl, row, "Active Order Blocks", headerColor)
+    row := tbl.table_header3(intelTbl, row, "Bias", "Price Range", "Age", labelColor)
 
     int obCount = 0
-    if array.size(obs) > 0
-        for i = 0 to array.size(obs) - 1
-            if obCount < maxOBRows
+    if array.size(obs) > 0 and safeMaxOBs > 0
+        int totalObs = array.size(obs)
+        for i = 0 to totalObs - 1
+            if obCount < safeMaxOBs
                 OBEntry ob = array.get(obs, i)
                 row := tbl.table_row3(intelTbl, row, ob.typeStr, ob.rangeStr, ob.ageStr, ob.typeColor, valueColor, labelColor)
                 obCount += 1
 
     if obCount == 0
-        row := tbl.table_empty3(intelTbl, row, "No active OBs", labelColor)
+        row := tbl.table_empty3(intelTbl, row, "No active zones", labelColor)
 
     row

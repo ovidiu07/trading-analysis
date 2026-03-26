@@ -124,6 +124,7 @@ export type LifecycleDisplay
     string pendWinStr
     string delayActStr
     color  delayActCol
+
     string desyncStr
     color  desyncCol
     string rejCause
@@ -169,22 +170,27 @@ export type PerfDisplay
 export render_primary(table readTbl, int startRow, PrimaryDisplay p, color headerColor, color labelColor, color neutralColor) =>
     int r = startRow
 
-    // Header + Direction
-    table.cell(readTbl, 0, r, "Trading Assistant", text_color = headerColor, text_size = size.small, text_halign = text.align_left)
+    // --- Header ---
+    table.cell(readTbl, 0, r, "TRADING STATUS", text_color = headerColor, text_size = size.small, text_halign = text.align_left)
     table.cell(readTbl, 1, r, p.dirStr, text_color = p.dirColor, text_size = size.small)
     r += 1
 
-    r := tbl.table_kv(readTbl, r, "Setup State", p.phaseStr, labelColor, p.phaseColor)
-    r := tbl.table_kv_left(readTbl, r, "Trader Action", p.actionStr, labelColor, p.actionColor)
-    r := tbl.table_kv_left(readTbl, r, "Next Required", p.nextRequired, labelColor, neutralColor)
-    r := tbl.table_kv(readTbl, r, "Setup Quality", p.confStr, labelColor, p.confColor)
-    r := tbl.table_kv_left(readTbl, r, "Sensitivity Mode", p.modeStr, labelColor, p.modeColor)
+    // --- High Hierarchy: Execution Guidance ---
+    // Action is the single most important piece of info
+    r := tbl.table_kv_left(readTbl, r, "Action", p.actionStr, labelColor, p.actionColor)
+    r := tbl.table_kv_left(readTbl, r, "Next Watch", p.nextRequired, labelColor, neutralColor)
+    r := tbl.table_kv(readTbl, r, "Status", p.phaseStr, labelColor, p.phaseColor)
 
     if p.hasPending
-        r := tbl.table_kv_left(readTbl, r, "Pending Activation", p.pendingStr, labelColor, p.pendingColor)
+        r := tbl.table_kv_left(readTbl, r, "⚠️ Blocker", p.pendingStr, labelColor, p.pendingColor)
 
-    r := tbl.table_kv(readTbl, r, "Session", p.sessStr, labelColor, p.sessColor)
-    r := tbl.table_kv(readTbl, r, "Price Location", p.pdStatus, labelColor, p.pdColor)
+    // --- Secondary Info: Setup Quality & Mode ---
+    r := tbl.table_kv_tiny(readTbl, r, "Quality", p.confStr, labelColor, p.confColor)
+    r := tbl.table_kv_tiny(readTbl, r, "Sensitivity", p.modeStr, labelColor, p.modeColor)
+
+    // --- Tertiary Context: Market Environment ---
+    r := tbl.table_kv_tiny(readTbl, r, "Session", p.sessStr, labelColor, p.sessColor)
+    r := tbl.table_kv_tiny(readTbl, r, "PD Array", p.pdStatus, labelColor, p.pdColor)
     r
 
 // @function Renders the setup context block (Analyst+Debug modes).
@@ -192,13 +198,19 @@ export render_primary(table readTbl, int startRow, PrimaryDisplay p, color heade
 export render_context(table readTbl, int startRow, ContextDisplay c, bool isTrader, color headerColor, color labelColor, color bgColor) =>
     int r = startRow
     if not isTrader
-        r := tbl.table_section(readTbl, r, "Setup Context", headerColor, bgColor)
-        r := tbl.table_kv_tiny(readTbl, r, "Liquidity Event", c.liqEventStr, labelColor, c.liqEventCol)
-        r := tbl.table_kv_tiny(readTbl, r, "Structure", c.structStr, labelColor, c.structCol)
+        r := tbl.table_section(readTbl, r, "Confluence", headerColor, bgColor)
+
+        // Key Context - Standard weight for scannability
+        r := tbl.table_kv(readTbl, r, "Liquidity", c.liqEventStr, labelColor, c.liqEventCol)
+        r := tbl.table_kv(readTbl, r, "Structure", c.structStr, labelColor, c.structCol)
+
+        // Execution Signals - High decision value
+        r := tbl.table_kv(readTbl, r, "Reclaim", c.rclStatusStr, labelColor, c.rclStatusCol)
+        r := tbl.table_kv(readTbl, r, "Displacement", c.dispStatusStr, labelColor, c.dispStatusCol)
+
+        // Supporting Details - Tiny weight to reduce noise
         r := tbl.table_kv_tiny(readTbl, r, "Imbalance", c.imbStr, labelColor, c.imbCol)
-        r := tbl.table_kv_tiny(readTbl, r, "OB Confluence", c.obStr, labelColor, c.obCol)
-        r := tbl.table_kv_tiny(readTbl, r, "Reclaim", c.rclStatusStr, labelColor, c.rclStatusCol)
-        r := tbl.table_kv_tiny(readTbl, r, "Displacement", c.dispStatusStr, labelColor, c.dispStatusCol)
+        r := tbl.table_kv_tiny(readTbl, r, "Order Block", c.obStr, labelColor, c.obCol)
     r
 
 // @function Renders scores + liquidity rows (all modes).
