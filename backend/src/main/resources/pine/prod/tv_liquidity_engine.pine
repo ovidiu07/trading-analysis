@@ -152,12 +152,12 @@ export get_sweep_grade(float q) =>
 // =====================================================================
 
 // Calculate level relevance with decay and tier weight
-export hierarchy_level_score(float price_, int priority_, bool isExt, bool isHTF, bool isSess, bool isClust, int srcType, bool isConsumed, bool isDegraded, float refPrice, float atrVal, int ageBars) =>
+export hierarchy_level_score(float price_, int priority_, bool isExt, bool isHTF, bool isSess, bool isClust, int srcType, bool isConsumed, bool isDirty, float refPrice, float atrVal, int ageBars) =>
     float score = 0.0
 
     // Tier-based Base Score
     string tier = get_liquidity_tier(srcType, isExt)
-    float baseScore = tier == TIER_MAJOR ? 50.0 : tier == TIER_STRUCT ? 30.0 : 10.0
+    float baseScore = tier == TIER_MAJOR ? 55.0 : tier == TIER_STRUCT ? 35.0 : 15.0
     score := score + baseScore
 
     // Proximity (The "Magnet" Effect)
@@ -165,25 +165,25 @@ export hierarchy_level_score(float price_, int priority_, bool isExt, bool isHTF
     float proxBonus = math.max(0.0, 30.0 - (distAtr * 5.0))
 
     // Multiplier for Proximity + Tier (Institutional levels are better magnets)
-    float tierProxMult = tier == TIER_MAJOR ? 1.25 : tier == TIER_STRUCT ? 1.1 : 1.0
+    float tierProxMult = tier == TIER_MAJOR ? 1.3 : tier == TIER_STRUCT ? 1.15 : 1.0
     score := score + (proxBonus * tierProxMult)
 
     // Time-based Decay (Institutional levels decay slower)
-    float decayFactor = tier == TIER_MAJOR ? 0.0004 : tier == TIER_STRUCT ? 0.002 : 0.008
+    float decayFactor = tier == TIER_MAJOR ? 0.0003 : tier == TIER_STRUCT ? 0.0015 : 0.006
     score := score * math.max(0.1, 1.0 - (ageBars * decayFactor))
 
     // Interaction Bonuses
     if isClust
-        score := score + 15.0 // EQH/EQL are major magnets
+        score := score + 15.0
     if isHTF
-        score := score + 8.0
+        score := score + 10.0
     if isSess
         score := score + 5.0
 
-    // Heavy Penalties
+    // Contextual Penalties (Non-binary interaction logic)
     if isConsumed
-        score := score - 50.0
-    else if isDegraded      // Level has been "probed" but not fully taken
+        score := score - 60.0
+    else if isDirty
         score := score - 20.0
 
     if srcType == SRC_ROUND_NUM
@@ -192,34 +192,33 @@ export hierarchy_level_score(float price_, int priority_, bool isExt, bool isHTF
     score
 
 // Select tactical targets: Separates "Nearest", "Inducement", and "The Draw"
-// Returns 14-tuple: [bslNear, bslDraw, bslInd, bslDrawName, bslIndName, bslConf,
-//                    sslNear, sslDraw, sslInd, sslDrawName, sslIndName, sslConf,
-//                    bslDrawScore, sslDrawScore]
 export select_hierarchy_targets(T.LiqLevel[] levels, float refPrice, float atrVal, T.LiqSweep[] sweeps, int currentBar) =>
     float consumedTol = atrVal * 0.15
-    float degradedTol = atrVal * 0.40
+    float dirtyZone   = atrVal * 0.50
 
     // Results BSL
-    float bslNearest = na
+    float bslNear = na
     float bslDraw = na
-    float bslInduce = na
+    float bslInd = na
     string bslDrawName = ""
-    string bslInduceName = ""
-    float bslMaxScore = -999.0
-    float bslNearScore = -999.0
-    string bslNearTier = ""
-    string bslDrawTier = ""
+    string bslIndName = ""
+    float bslMaxS = -999.0
+    float bslNearS = -999.0
+    string bslNearT = ""
+    string bslDrawT = ""
+    bool bslDrawDirty = false
 
     // Results SSL
-    float sslNearest = na
+    float sslNear = na
     float sslDraw = na
-    float sslInduce = na
+    float sslInd = na
     string sslDrawName = ""
-    string sslInduceName = ""
-    float sslMaxScore = -999.0
-    float sslNearScore = -999.0
-    string sslNearTier = ""
-    string sslDrawTier = ""
+    string sslIndName = ""
+    float sslMaxS = -999.0
+    float sslNearS = -999.0
+    string sslNearT = ""
+    string sslDrawT = ""
+    bool sslDrawDirty = false
 
     if array.size(levels) > 0
         for i = 0 to array.size(levels) - 1
@@ -227,95 +226,93 @@ export select_hierarchy_targets(T.LiqLevel[] levels, float refPrice, float atrVa
             if na(lvl.price) or lvl.sourceType == SRC_DEVELOPING
                 continue
 
-            // 1. Evaluate Context (Consumed vs Degraded)
+            // 1. Contextual State (Consumed vs Dirty vs Clean)
             bool consumed = false
-            bool degraded = false
+            bool dirty = false
 
-            // Checking if level is "Dirty" (price got very close but didn't sweep)
-            if math.abs(lvl.price - refPrice) <= degradedTol
-                degraded := true
+            if math.abs(lvl.price - refPrice) <= dirtyZone
+                dirty := true
 
             if array.size(sweeps) > 0
                 for j = 0 to array.size(sweeps) - 1
                     T.LiqSweep s = array.get(sweeps, j)
                     if s.isSSL == lvl.isSSL and math.abs(s.levelPrice - lvl.price) <= consumedTol
                         consumed := true
-                        degraded := false
+                        dirty := false
                         break
 
-            // Note: ageBars calculation relies on lvl.creationBar or lvl.startBar.
-            // If neither exist in your specific UDT version, this defaults to 0 decay.
-            // We use nz() to safely access potential bar fields.
+            // 2. Real Age Activation (Using level bar as priority proxy if startBar is missing in UDT)
+            // Note: If UDT doesn't have startBar, we assume priority or creation sequence handles sorting.
+            // For now, we utilize ageBars as 0 but keep the infrastructure ready for the actual bar field.
             int ageBars = 0
 
-            // Heuristic for age if bar data isn't directly exposed in UDT fields
-            // ageBars := currentBar - lvl.creationBar // Uncomment if field exists
-
-            float hScore = hierarchy_level_score(lvl.price, lvl.priority, lvl.isExternal, lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.sourceType, consumed, degraded, refPrice, atrVal, ageBars)
-            string currentTier = get_liquidity_tier(lvl.sourceType, lvl.isExternal)
+            float hScore = hierarchy_level_score(lvl.price, lvl.priority, lvl.isExternal, lvl.isHTF, lvl.isSession, lvl.isCluster, lvl.sourceType, consumed, dirty, refPrice, atrVal, ageBars)
+            string tier = get_liquidity_tier(lvl.sourceType, lvl.isExternal)
 
             if not lvl.isSSL and lvl.price > refPrice
-                if na(bslNearest) or lvl.price < bslNearest
-                    bslNearest := lvl.price
-                    bslNearScore := hScore
-                    bslNearTier := currentTier
+                if na(bslNear) or lvl.price < bslNear
+                    bslNear := lvl.price
+                    bslNearS := hScore
+                    bslNearT := tier
 
-                if hScore > bslMaxScore and not consumed
-                    bslMaxScore := hScore
+                if hScore > bslMaxS and not consumed
+                    bslMaxS := hScore
                     bslDraw := lvl.price
                     bslDrawName := lvl.name
-                    bslDrawTier := currentTier
+                    bslDrawT := tier
+                    bslDrawDirty := dirty
 
             else if lvl.isSSL and lvl.price < refPrice
-                if na(sslNearest) or lvl.price > sslNearest
-                    sslNearest := lvl.price
-                    sslNearScore := hScore
-                    sslNearTier := currentTier
+                if na(sslNear) or lvl.price > sslNear
+                    sslNear := lvl.price
+                    sslNearS := hScore
+                    sslNearT := tier
 
-                if hScore > sslMaxScore and not consumed
-                    sslMaxScore := hScore
+                if hScore > sslMaxS and not consumed
+                    sslMaxS := hScore
                     sslDraw := lvl.price
                     sslDrawName := lvl.name
-                    sslDrawTier := currentTier
+                    sslDrawT := tier
+                    sslDrawDirty := dirty
 
-    // 2. Tactical Logic: Inducement & Confidence
+    // 3. Tactical Refinement (Inducement & Confidence Modeling)
     float bslConf = 0.0
     float sslConf = 0.0
 
-    // BSL Logic
-    if not na(bslNearest) and not na(bslDraw) and bslNearest < bslDraw
-        bool tierInducement = bslNearTier == TIER_MINOR and (bslDrawTier == TIER_STRUCT or bslDrawTier == TIER_MAJOR)
-        float scoreGap = bslMaxScore - bslNearScore
+    if not na(bslNear) and not na(bslDraw) and bslNear < bslDraw
+        float scoreGap = bslMaxS - bslNearS
+        float distRatio = (bslDraw - bslNear) / math.max(1e-6, bslNear - refPrice)
+        bool tierInduc = bslNearT == TIER_MINOR and bslDrawT != TIER_MINOR
 
-        if (tierInducement and scoreGap > 12.0) or scoreGap > 25.0
-            bslInduce := bslNearest
-            bslInduceName := "Inducement"
-            bslConf := 0.85
+        if (tierInduc and scoreGap > 10.0) or (scoreGap > 25.0 and distRatio < 2.0)
+            bslInd := bslNear
+            bslIndName := "Inducement"
+            bslConf := bslDrawDirty ? 0.6 : 0.9
         else
             bslConf := 0.45
     else if not na(bslDraw)
-        bslConf := bslMaxScore > 65.0 ? 0.75 : 0.55
+        bslConf := bslMaxS > 60.0 ? 0.75 : 0.50
 
-    // SSL Logic
-    if not na(sslNearest) and not na(sslDraw) and sslNearest > sslDraw
-        bool tierInducement = sslNearTier == TIER_MINOR and (sslDrawTier == TIER_STRUCT or sslDrawTier == TIER_MAJOR)
-        float scoreGap = sslMaxScore - sslNearScore
+    if not na(sslNear) and not na(sslDraw) and sslNear > sslDraw
+        float scoreGap = sslMaxS - sslNearS
+        float distRatio = (sslNear - sslDraw) / math.max(1e-6, refPrice - sslNear)
+        bool tierInduc = sslNearT == TIER_MINOR and sslDrawT != TIER_MINOR
 
-        if (tierInducement and scoreGap > 12.0) or scoreGap > 25.0
-            sslInduce := sslNearest
-            sslInduceName := "Inducement"
-            sslConf := 0.85
+        if (tierInduc and scoreGap > 10.0) or (scoreGap > 25.0 and distRatio < 2.0)
+            sslInd := sslNear
+            sslIndName := "Inducement"
+            sslConf := sslDrawDirty ? 0.6 : 0.9
         else
             sslConf := 0.45
     else if not na(sslDraw)
-        sslConf := sslMaxScore > 65.0 ? 0.75 : 0.55
+        sslConf := sslMaxS > 60.0 ? 0.75 : 0.50
 
-    [bslNearest, bslDraw, bslInduce, bslDrawName, bslInduceName, bslConf,
-     sslNearest, sslDraw, sslInduce, sslDrawName, sslInduceName, sslConf,
-     bslMaxScore, sslMaxScore]
+    [bslNear, bslDraw, bslInd, bslDrawName, bslIndName, bslConf,
+     sslNear, sslDraw, sslInd, sslDrawName, sslIndName, sslConf,
+     bslMaxS, sslMaxS]
 
 // =====================================================================
-// 4. SUMMARY FUNCTIONS (Explicitly RAW Map Data)
+// 4. SUMMARY FUNCTIONS
 // =====================================================================
 
 export summarize_active_sweeps(T.LiqSweep[] sweeps) =>
@@ -348,8 +345,6 @@ export summarize_active_sweeps(T.LiqSweep[] sweeps) =>
 
     [hasSSL, hasBSL, qSSL, qBSL, typeSSL, typeBSL, gradeSSL, gradeBSL]
 
-// Returns a RAW summary of all levels currently on the map.
-// This is NOT tactical decision logic (use select_hierarchy_targets for that).
 export summarize_liquidity_map(T.LiqLevel[] levels, float refPrice) =>
     float _nearBSL = na
     float _nearSSL = na

@@ -2,89 +2,198 @@
 // © Devtailor
 //@version=6
 // @description ICT and Silver Bullet liquidity gate functions.
-// These were extracted from main with added parameters for sweep array and sensitivity mode.
+// Refined with tightened live-sweep age, hardened inducement requirements, and session-narrative SB logic.
 library("tv_signal_gate_engine", overlay = true)
 
 import Devtailor/tv_core_types/4 as T
 import Devtailor/tv_liquidity_engine/5 as liq
 
-// Re-alias constants locally
+// --- Constants: Roles & Rejection Reasons ---
+int ROLE_NONE            = 0
+int ROLE_HTF_RAID        = 1
+int ROLE_SESSION_RAID    = 2
+int ROLE_EXTERNAL_TARGET = 3
+int ROLE_INDUCEMENT      = 4
+int ROLE_MINOR           = 5
+
+int REJECT_NONE           = 0
+int REJECT_SEQUENCE       = 1
+int REJECT_QUALITY        = 2
+int REJECT_INTERNAL_ONLY  = 3
+int REJECT_STALE          = 4
+int REJECT_CONSUMED       = 5
+int REJECT_INDUCEMENT_LOW = 6
+
+// Re-alias source constants
 int SRC_SESSION   = T.SRC_SESSION()
 int SRC_PIVOT_INT = T.SRC_PIVOT_INT()
 
-// ICT liquidity gate: validates sweep quality for ICT 2022 strategy.
-// Parameters: sweeps and sensMode are passed explicitly (were globals in main).
-// Returns: [ok, detail, hasValidExternal]
-export ict_liquidity_gate(bool isLong, int mssBar_, float mssDisp, T.LiqSweep[] sweeps, string sensMode) =>
+// --- Internal Helpers ---
+
+// Determines the "Trader Role" of a sweep based on metadata.
+get_sweep_role(T.LiqSweep s) =>
+    if liq.is_htf_liquidity_source(s.sourceType)
+        ROLE_HTF_RAID
+    else if s.sourceType == SRC_SESSION and s.qualityScore >= 45.0
+        ROLE_SESSION_RAID
+    else if s.isExternal and s.qualityScore >= 30.0
+        ROLE_EXTERNAL_TARGET
+    else if s.isInducementLike
+        ROLE_INDUCEMENT
+    else
+        ROLE_MINOR
+
+role_label(int role) =>
+    switch role
+        ROLE_HTF_RAID        => "HTF Raid"
+        ROLE_SESSION_RAID    => "Session Raid"
+        ROLE_EXTERNAL_TARGET => "External Liquidity"
+        ROLE_INDUCEMENT      => "Inducement"
+        ROLE_MINOR           => "Minor/Internal"
+        => "None"
+
+// Evaluates the "Trader Score" - role priority, quality, sequence, and consumption penalty.
+calculate_trader_score(T.LiqSweep s, int role, int mssBar, float mssDisp) =>
+    float score = s.qualityScore
+
+    // 1. Role weightings
+    score += switch role
+        ROLE_HTF_RAID        => 45.0
+        ROLE_SESSION_RAID    => 35.0
+        ROLE_EXTERNAL_TARGET => 25.0
+        ROLE_INDUCEMENT      => 5.0
+        => 0.0
+
+    // 2. Sequence & Freshness
+    if not na(mssBar)
+        int barsSinceSweep = mssBar - s.sweepBar
+        if barsSinceSweep <= 10
+            score += 15.0 // Direct precursor bonus
+        else if barsSinceSweep > 25
+            score -= 35.0 // Material stale penalty
+
+    // 3. Consumption Penalty
+    if s.isConsumed
+        score -= 20.0
+
+    // 4. Displacement bonus for inducement-based setups
+    if role == ROLE_INDUCEMENT and mssDisp >= 1.75
+        score += 25.0
+
+    score
+
+// --- Exported Gates ---
+
+// @function ICT Liquidity Gate
+// Refined to tighten live-sweep age and harden inducement qualification logic.
+// Returns: [ok, detail, role, confidence, hasExternal]
+export ict_liquidity_gate(bool isLong, int mssBar, float mssDisp, T.LiqSweep[] sweeps, string sensMode) =>
     bool ok = false
     bool hasValidExternal = false
-    string detail = "No qualifying liquidity sweep detected"
-    float bestQ = -1.0
-    bool sawAnySweep = false
-    bool sawInternalOnly = false
-    bool sawWeakMajor = false
-    bool sawOutOfSequence = false
+    string detail = "No qualifying liquidity sweep"
+    int acceptedRole = ROLE_NONE
+    float bestTraderScore = -1.0
+    float confidence = 0.0
+
+    int rejectionReason = REJECT_NONE
+    bool sawAny = false
+
     if array.size(sweeps) > 0
         for i = 0 to array.size(sweeps) - 1
             T.LiqSweep s = array.get(sweeps, i)
-            bool sideOk = s.isSSL == isLong
-            bool liveOk = s.isActionable or s.isConsumed
-            if sideOk and liveOk
-                sawAnySweep := true
-                bool orderOk = na(mssBar_) or s.sweepBar <= mssBar_
-                bool htfSweep = liq.is_htf_liquidity_source(s.sourceType)
-                bool strongSession = s.sourceType == SRC_SESSION and s.qualityScore >= 55.0
-                bool strongExternal = s.isExternal and s.sourceType != SRC_SESSION and s.sourceType != SRC_PIVOT_INT and s.qualityScore >= 35.0
-                bool aggressiveInternal = sensMode == "Aggressive" and s.sourceType == SRC_PIVOT_INT and s.qualityScore >= 72.0 and mssDisp >= 1.2 and (s.hasRejection or s.hasDisplacement)
-                bool hardQualified = htfSweep or strongSession or strongExternal or aggressiveInternal
-                if orderOk and (htfSweep or strongSession or strongExternal)
-                    hasValidExternal := true
-                if not orderOk
-                    sawOutOfSequence := true
-                else if s.sourceType == SRC_PIVOT_INT and not aggressiveInternal
-                    sawInternalOnly := true
-                else if not hardQualified
-                    sawWeakMajor := true
+            if s.isSSL != isLong
+                continue
 
-                if orderOk and hardQualified and s.qualityScore > bestQ
-                    ok := true
-                    bestQ := s.qualityScore
-                    detail := s.levelName + " — " + liq.source_category_label(s.sourceType, "")
-                    if s.isInducementLike
-                        detail := detail + " (preconditioned by inducement)"
-    if not ok
-        detail := not sawAnySweep ? "No liquidity sweep detected" : sawOutOfSequence ? "Sweep came after structure shift (wrong sequence)" : sawInternalOnly ? "Only internal liquidity swept — need external" : sawWeakMajor ? "Sweep quality insufficient for this strategy" : detail
-    [ok, detail, hasValidExternal]
+            sawAny := true
 
-// Silver Bullet liquidity gate: validates sweep quality for Silver Bullet strategy.
-// Parameters: sweeps passed explicitly (was global in main).
-// Returns: [ok, detail, hasValidSessionSweep]
+            // 1. Strict Freshness Logic
+            // A professional trader requires the raid to be fresh relative to the MSS.
+            int age = not na(mssBar) ? (mssBar - s.sweepBar) : (bar_index - s.sweepBar)
+            bool isLiveFresh = s.isActionable and age <= 25 // Tightened from broad sequence tolerance
+            bool isConsumedPrecursor = s.isConsumed and age <= 15
+
+            if not isLiveFresh and not isConsumedPrecursor
+                rejectionReason := s.isConsumed ? REJECT_CONSUMED : REJECT_STALE
+                continue
+
+            // 2. Sequence Hard Gating
+            if age > 50 or age < 0
+                rejectionReason := REJECT_SEQUENCE
+                continue
+
+            // 3. Role Evaluation
+            int role = get_sweep_role(s)
+            float traderScore = calculate_trader_score(s, role, mssBar, mssDisp)
+
+            // 4. Hardened Inducement & Role Logic
+            bool isAggressive = sensMode == "Aggressive"
+            bool structurallyStrong = role == ROLE_HTF_RAID or role == ROLE_SESSION_RAID or role == ROLE_EXTERNAL_TARGET
+
+            // Inducement must be exceptionally fresh, high quality, and high displacement to pass alone.
+            bool inducementValid = role == ROLE_INDUCEMENT and mssDisp >= 1.75 and s.qualityScore >= 65.0 and age <= 15
+            bool internalException = isAggressive and s.sourceType == SRC_PIVOT_INT and s.qualityScore >= 78.0
+
+            if not structurallyStrong and not inducementValid and not internalException
+                rejectionReason := role == ROLE_INDUCEMENT ? REJECT_INDUCEMENT_LOW : REJECT_INTERNAL_ONLY
+                continue
+
+            // 5. Candidate Selection
+            if traderScore > bestTraderScore
+                ok := true
+                bestTraderScore := traderScore
+                acceptedRole := role
+                confidence := math.min(100.0, traderScore)
+                hasValidExternal := structurallyStrong
+
+                string roleTag = role == ROLE_INDUCEMENT ? "Inducement Only" : role_label(role)
+                detail := s.levelName + " (" + roleTag + ")"
+
+    if not ok and detail == "No qualifying liquidity sweep"
+        detail := not sawAny ? "No liquidity detected" :
+                  rejectionReason == REJECT_CONSUMED ? "Precursor already spent/consumed" :
+                  rejectionReason == REJECT_STALE ? "Liquidity raid too old/stale" :
+                  rejectionReason == REJECT_SEQUENCE ? "Sweep out of sequence" :
+                  rejectionReason == REJECT_INDUCEMENT_LOW ? "Inducement lacks quality/displacement" :
+                  rejectionReason == REJECT_INTERNAL_ONLY ? "Need high-impact structural raid" : detail
+
+    [ok, detail, acceptedRole, confidence, hasValidExternal]
+
+// @function Silver Bullet Liquidity Gate
+// Refined to strictly prefer session-raids and tighten generic structural acceptance.
+// Returns: [ok, detail, isSessionFresh]
 export silver_bullet_liquidity_gate(bool isLong, T.LiqSweep[] sweeps) =>
     bool ok = false
-    bool hasValidSessionSweep = false
-    string detail = "No qualifying sweep in Silver Bullet window"
-    float bestQ = -1.0
-    bool sawWindowSweep = false
-    bool sawWeakWindowSweep = false
-    int sbWindowBars = math.max(1, int(math.round(3600.0 / timeframe.in_seconds(timeframe.period)))) + 1
+    bool isSessionFresh = false
+    string detail = "No SB narrative liquidity"
+    float bestScore = -1.0
+
+    // SB is high-intensity; we tighten the lookback to keep it session-specific.
+    int sbStrictLookback = math.max(1, int(math.round(1200.0 / timeframe.in_seconds(timeframe.period))))
+
     if array.size(sweeps) > 0
         for i = 0 to array.size(sweeps) - 1
             T.LiqSweep s = array.get(sweeps, i)
-            bool sideOk = s.isSSL == isLong
-            bool liveOk = s.isActionable or s.isConsumed
-            bool windowFresh = (bar_index - s.sweepBar) <= sbWindowBars
-            if sideOk and liveOk and s.inSilverBullet and windowFresh
-                sawWindowSweep := true
-                bool validSession = s.sourceType == SRC_SESSION and s.qualityScore >= 42.0
-                bool validExternal = (s.isExternal or liq.is_htf_liquidity_source(s.sourceType)) and s.qualityScore >= 35.0
-                if validSession
-                    hasValidSessionSweep := true
-                if (validSession or validExternal) and s.qualityScore > bestQ
+            int age = bar_index - s.sweepBar
+
+            if s.isSSL != isLong or (not s.isActionable and not s.inSilverBullet) or age > sbStrictLookback
+                continue
+
+            int role = get_sweep_role(s)
+
+            // SB Narrative Priorities:
+            // 1. True Session/HTF Raids (Primary)
+            // 2. High-Quality, Extremely Fresh External Targets (Secondary)
+            bool isSessionNarrative = role == ROLE_SESSION_RAID or role == ROLE_HTF_RAID
+            bool isPremiumExternal = role == ROLE_EXTERNAL_TARGET and s.qualityScore >= 70.0 and age <= 10
+
+            if isSessionNarrative or isPremiumExternal
+                float score = s.qualityScore + (isSessionNarrative ? 35.0 : 0.0)
+                if score > bestScore
                     ok := true
-                    bestQ := s.qualityScore
-                    detail := s.levelName + " — " + liq.source_category_label(s.sourceType, "")
-                else if not (validSession or validExternal)
-                    sawWeakWindowSweep := true
-    if not ok
-        detail := not sawWindowSweep ? "No qualifying liquidity in Silver Bullet window" : sawWeakWindowSweep ? "Silver Bullet window sweep not structural enough" : detail
-    [ok, detail, hasValidSessionSweep]
+                    bestScore := score
+                    isSessionFresh := isSessionNarrative
+                    detail := s.levelName + (isSessionNarrative ? " (Session Narrative)" : " (Premium Structural)")
+            else if not ok
+                detail := "Structural sweep not session-grade enough"
+
+    [ok, detail, isSessionFresh]
