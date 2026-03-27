@@ -10,10 +10,10 @@ import Devtailor/tv_market_intel_ui/2 as intel
 import Devtailor/tv_core_types/4 as T
 import Devtailor/tv_lifecycle_mode/3 as lm
 import Devtailor/tv_structure_engine/1 as se
-import Devtailor/tv_liquidity_engine/5 as liq
+import Devtailor/tv_liquidity_engine/6 as liq
 import Devtailor/tv_pending_trade_state/6 as pts
-import Devtailor/tv_signal_gate_engine/6 as sg
-import Devtailor/tv_entry_authority/5 as ea
+import Devtailor/tv_signal_gate_engine/7 as sg
+import Devtailor/tv_entry_authority/6 as ea
 
 // --- Constants ---
 string NY_TZ = "America/New_York"
@@ -1910,9 +1910,9 @@ if isConflicted
     liveSetup.lifecycleNextRequiredDominant := "Both sides active — stand aside"
     liveSetup.lifecycleCanActivateDominant := false
 // --- Strategy Detection ---
-[ictGateLong, ictGateLongInfo, ictHasValidExternalLong] = sg.ict_liquidity_gate(true, lastMssBullBar, lastMssBullDispStrength, activeSweeps, sensitivityMode)
+[ictGateLong, ictGateLongInfo, ictGateLongRole, ictGateLongConfidence, ictHasValidExternalLong] = sg.ict_liquidity_gate(true, lastMssBullBar, lastMssBullDispStrength, activeSweeps, sensitivityMode)
 
-[ictGateShort, ictGateShortInfo, ictHasValidExternalShort] = sg.ict_liquidity_gate(false, lastMssBearBar, lastMssBearDispStrength, activeSweeps, sensitivityMode)
+[ictGateShort, ictGateShortInfo, ictGateShortRole, ictGateShortConfidence, ictHasValidExternalShort] = sg.ict_liquidity_gate(false, lastMssBearBar, lastMssBearDispStrength, activeSweeps, sensitivityMode)
 
 [sbGateLong, sbGateLongInfo, sbHasSessionSweepLong] = sg.silver_bullet_liquidity_gate(true, activeSweeps)
 
@@ -3270,7 +3270,7 @@ if showReadiness and barstate.islast
     string sessStr = activeSessName + (isSilverBullet ? " (Silver Bullet)" : isKillzone ? " (Kill Zone)" : "")
     color sessColor = isSilverBullet ? uiPosColor : isKillzone ? color.orange : uiLabelText
     color pdColor = pdStatus == "Discount" ? uiPosColor : uiNegColor
-    string biasStr = fmt.format_score_bias(liveSetup.scoreLong, liveSetup.scoreShort)
+    string biasStr = fmt.format_bias(liveSetup.scoreLong, liveSetup.scoreShort)
     string scoreStr = str.tostring(liveSetup.scoreLong) + " / " + str.tostring(liveSetup.scoreShort)
     if showContext
         scoreStr := scoreStr + "  ·  " + biasStr
@@ -3330,10 +3330,10 @@ if showReadiness and barstate.islast
     string liqEventStr = "No meaningful liquidity sweep yet"
     color liqEventCol = uiLabelText
     if liveSetup.isPotentialLong and sweptSSL
-        liqEventStr := "Sell-side swept: " + bestSweepNameSSL + " (" + fmt.format_grade_word(bestSweepGradeSSL) + ")"
+        liqEventStr := "Sell-side swept: " + bestSweepNameSSL + " (" + fmt.format_quality(bestSweepGradeSSL) + ")"
         liqEventCol := bestSweepGradeSSL == "A" ? uiPosColor : bestSweepGradeSSL == "B" ? color.orange : uiLabelText
     else if not liveSetup.isPotentialLong and sweptBSL
-        liqEventStr := "Buy-side swept: " + bestSweepNameBSL + " (" + fmt.format_grade_word(bestSweepGradeBSL) + ")"
+        liqEventStr := "Buy-side swept: " + bestSweepNameBSL + " (" + fmt.format_quality(bestSweepGradeBSL) + ")"
         liqEventCol := bestSweepGradeBSL == "A" ? uiPosColor : bestSweepGradeBSL == "B" ? color.orange : uiLabelText
 
     string structStr = "No structure shift yet"
@@ -3351,7 +3351,7 @@ if showReadiness and barstate.islast
         structStr := "Weak break — structure shift not confirmed"
         structCol := uiNeutralColor
     else if liveSetup.mssGrade != ""
-        structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift detected (" + fmt.format_grade_word(liveSetup.mssGrade) + ")"
+        structStr := (liveSetup.isPotentialLong ? "Bullish" : "Bearish") + " shift detected (" + fmt.format_quality(liveSetup.mssGrade) + ")"
         structCol := liveSetup.mssGrade == "A" ? uiPosColor : color.orange
 
     string imbStr = "—"
@@ -3360,7 +3360,7 @@ if showReadiness and barstate.islast
         imbStr := "Imbalance zone was filled — setup weakened"
         imbCol := uiNegColor
     else if liveSetup.fvgGrade != ""
-        imbStr := "Fresh " + (liveSetup.isPotentialLong ? "bullish" : "bearish") + " imbalance present (" + fmt.format_grade_word(liveSetup.fvgGrade) + ")"
+        imbStr := "Fresh " + (liveSetup.isPotentialLong ? "bullish" : "bearish") + " imbalance present (" + fmt.format_quality(liveSetup.fvgGrade) + ")"
         imbCol := liveSetup.fvgGrade == "A" ? uiPosColor : color.orange
     else if liveSetup.mssGrade != ""
         imbStr := "No fresh imbalance yet — waiting"

@@ -6,7 +6,7 @@
 library("tv_signal_gate_engine", overlay = true)
 
 import Devtailor/tv_core_types/4 as T
-import Devtailor/tv_liquidity_engine/5 as liq
+import Devtailor/tv_liquidity_engine/6 as liq
 
 // --- Constants: Roles & Rejection Reasons ---
 int ROLE_NONE            = 0
@@ -32,7 +32,10 @@ int SRC_PIVOT_INT = T.SRC_PIVOT_INT()
 
 // Determines the "Trader Role" of a sweep based on metadata.
 get_sweep_role(T.LiqSweep s) =>
-    if liq.is_htf_liquidity_source(s.sourceType)
+    string tier = liq.get_liquidity_tier(s.sourceType, s.isExternal)
+    bool isHtfLike = tier == "Major" and s.sourceType != SRC_SESSION
+
+    if isHtfLike
         ROLE_HTF_RAID
     else if s.sourceType == SRC_SESSION and s.qualityScore >= 45.0
         ROLE_SESSION_RAID
