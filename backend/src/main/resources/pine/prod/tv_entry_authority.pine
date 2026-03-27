@@ -196,7 +196,7 @@ _eval_phase_failures(bool expired, bool degraded, bool mssFailed, bool reclaimFa
 
 // Phase 3: Readiness & Blocked States
 _eval_phase_readiness(int lifecycle, bool mssValid, string mode, bool modeCandidate, bool modeActivation, string modeBlockReason,
-     bool gateBlocked, string gateBlockReason, bool isExtended, bool mssFresh, bool dispFresh, bool reclaimPass) =>
+     bool gateBlocked, string gateBlockReason, bool isExtended, bool mssFresh, bool dispFresh, bool reclaimPass, bool dispValid) =>
     int ea = EA_NONE
     int eb = EB_NONE
     string res = ""
@@ -218,7 +218,7 @@ _eval_phase_readiness(int lifecycle, bool mssValid, string mode, bool modeCandid
         eb := EB_FRESHNESS
         res := "MSS stale — structure aged out"
         active := true
-    else if not dispFresh and lifecycle >= LC_DISPLACEMENT_CONFIRMED
+    else if not dispFresh and (lifecycle >= LC_DISPLACEMENT_CONFIRMED or dispValid)
         ea := EA_LATE
         eb := EB_FRESHNESS
         res := "Displacement stale — commitment aged out"
@@ -243,7 +243,7 @@ _eval_phase_readiness(int lifecycle, bool mssValid, string mode, bool modeCandid
         res := mode + " mode: minimum lifecycle not met"
         active := true
     else if not modeActivation
-        if lifecycle >= LC_DISPLACEMENT_CONFIRMED
+        if lifecycle >= LC_DISPLACEMENT_CONFIRMED or dispValid
             ea := EA_BLOCKED
             eb := EB_MODE_QUALITY
             res := (modeBlockReason != "" ? modeBlockReason : mode + " quality not met")
@@ -258,7 +258,7 @@ _eval_phase_readiness(int lifecycle, bool mssValid, string mode, bool modeCandid
 // Phase 4: Activation & Classification
 _eval_phase_activation(bool hasSignalThisBar, bool modeAllowsDirect, int lifecycle, bool modeActivation,
      bool hasPendingStored, bool pendingCanActivate, bool pendingFresh, bool pendingExpired,
-     bool seqOk, bool swept, bool mssValid, bool modeCandidate, string mode, bool isExtended) =>
+     bool seqOk, bool swept, bool mssValid, bool modeCandidate, string mode, bool isExtended, bool dispValid) =>
     int ea = EA_FORMING
     int ep = EP_NONE
     int eb = EB_NONE
@@ -297,7 +297,7 @@ _eval_phase_activation(bool hasSignalThisBar, bool modeAllowsDirect, int lifecyc
         ea := EA_ARMED
         ep := (modeAllowsDirect ? EP_IMMEDIATE : EP_RETRACE)
         res := "Entry armed — monitor trigger"
-    else if modeActivation and lifecycle >= LC_DISPLACEMENT_CONFIRMED
+    else if modeActivation and (lifecycle >= LC_DISPLACEMENT_CONFIRMED or dispValid)
         ea := EA_READY
         ep := (modeAllowsDirect ? EP_IMMEDIATE : EP_RETRACE)
         res := "Execution ready — awaiting zone"
@@ -419,14 +419,14 @@ export evaluate_entry_authority(
         else
             // Phase 3: Readiness & Blocks
             [ea3, eb3, res3, active3] = _eval_phase_readiness(lifecycle, mssValid_, mode, modeCandidate, modeActivation, modeBlockReason_,
-                                         gateBlocked_, gateBlockReason_, isExtended_, mssFresh_, dispFresh_, reclaimPass_)
+                                         gateBlocked_, gateBlockReason_, isExtended_, mssFresh_, dispFresh_, reclaimPass_, dispValid_)
             if active3
                 finalEA := ea3, finalEP := EP_NONE, finalEB := eb3, finalRes := res3, finalSV := true
             else
                 // Phase 4: Activation Logic
                 [ea4, ep4, eb4, res4] = _eval_phase_activation(hasSignalThisBar, modeAllowsDirect, lifecycle, modeActivation,
                                              hasPendingStored, pendingCanActivate, pendingFresh_, pendingExpired_,
-                                             seqOk, swept, mssValid_, modeCandidate, mode, isExtended_)
+                                             seqOk, swept, mssValid_, modeCandidate, mode, isExtended_, dispValid_)
                 finalEA := ea4, finalEP := ep4, finalEB := eb4, finalRes := res4, finalSV := true
 
     [finalEA, finalEP, finalEB, finalRes, finalSV]
@@ -478,6 +478,9 @@ export validate_entry_authority(int ea, int ep, int eb, int lifecycle,
         else if not modeCandidate
             valid := false
             reason := "Valid EA without candidacy"
+        else if not modeActivation
+            valid := false
+            reason := "Valid EA without mode activation"
         else if lifecycle < LC_MSS_CONFIRMED
             valid := false
             reason := "Readiness requires MSS_CONFIRMED"
