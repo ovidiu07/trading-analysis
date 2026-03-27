@@ -2,12 +2,12 @@
 //@version=6
 indicator("SMC & ICT Multi-Strategy [Pro Visuals]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
 
+import Devtailor/tv_core_types/4 as T
 import Devtailor/tv_format_utils/2 as fmt
 import Devtailor/tv_render_utils/2 as ren
 import Devtailor/tv_dashboard_utils/3 as tbl
 import Devtailor/tv_readiness_ui/5 as rdash
 import Devtailor/tv_market_intel_ui/2 as intel
-import Devtailor/tv_core_types/4 as T
 import Devtailor/tv_lifecycle_mode/3 as lm
 import Devtailor/tv_structure_engine/1 as se
 import Devtailor/tv_liquidity_engine/6 as liq
@@ -15,26 +15,29 @@ import Devtailor/tv_pending_trade_state/6 as pts
 import Devtailor/tv_signal_gate_engine/7 as sg
 import Devtailor/tv_entry_authority/6 as ea
 
-// --- Constants ---
+// --- Indicator-Local Constants ---
 string NY_TZ = "America/New_York"
 color BULL_COLOR = #089981
 color BEAR_COLOR = #f23645
 color NEUTRAL_COLOR = #5b9cf6
 
 // --- User Defined Types ---
-// Trade, AlertLog, Stats, SessionData, DispState, LiqLevel, LiqSweep, SmartZone
-// are now imported from tv_core_types (alias T)
+// Shared domain types come from tv_core_types (alias T).
+// Keep only orchestration state local to this indicator.
 
 // Chapter 7: Opportunity state nested UDT.
-// Consolidates all opportunity fields into a single external element reference
+// Consolidates timing / chase state into a single external element reference
 // to stay within Pine Script's 254-element limit for SetupState.new().
+// Enum-backed fields keep primitive defaults here because UDT defaults cannot call library exports.
 type OppState
+    // Side-specific opportunity state
     int     stateLong = 0
     int     stateShort = 0
     string  reasonLong = ""
     string  reasonShort = ""
     bool    chaseLong = false
     bool    chaseShort = false
+    // Canonical dominant-side opportunity state
     int     stateDom = 0             // Canonical dominant-side state (set after invariants)
     string  reasonDom = ""
     bool    chaseDom = false
@@ -42,33 +45,41 @@ type OppState
     bool    missedDom = false        // True when dominant opportunity is past actionable window
 
 type SetupState
+    // Chapter 0: Dashboard headline / shared context
     string  phase = "Monitoring"
     int     score = 0
     string  missing = "Searching for context..."
+    bool    isPotentialLong = false
+    bool    isPotentialShort = false
+
+    // Chapter 0.1: Shared price anchors
     float   nearestBSL = na
     float   nearestSSL = na
     float   requiredSweep = na
     float   triggerLevel = na
     float   invalidationLevel = na
-    bool    isPotentialLong = false
-    bool    isPotentialShort = false
-    // Phase 1+2: Quality & sequence tracking
+
+    // Chapter 0.2: Side scorecards
     int     scoreLong = 0
     int     scoreShort = 0
     string  phaseLong = "Monitoring"
     string  phaseShort = "Monitoring"
     string  missingLong = ""
     string  missingShort = ""
+
+    // Chapter 0.3: Quality / sequence snapshot
     string  sweepGrade = ""
     string  mssGrade = ""
     string  fvgGrade = ""
     bool    sequenceValid = false
     bool    hasOBConfluence = false
-    // Phase 5: Lifecycle
+
+    // Chapter 0.4: Global health flags
     bool    isExpired = false
     bool    isConflicted = false
     bool    isDegraded = false
-    // Chapter 1: Setup Lifecycle
+
+    // Chapter 1: Setup lifecycle state machine
     int     lifecycleLong = 0
     int     lifecycleShort = 0
     int     lifecycleDominant = 0
@@ -86,6 +97,7 @@ type SetupState
     bool    lifecycleCanActivateDominant = false
     bool    lifecycleIsDesynced = false
     string  lifecycleDesyncReason = ""
+
     // Chapter 2: Sensitivity Mode Execution Policy
     string  sensitivityModeActive = ""
     int     modeMinCandidateLifecycle = 0
@@ -102,6 +114,7 @@ type SetupState
     string  shortModeBlockReason = ""
     bool    longHasReclaimProxy = false
     bool    shortHasReclaimProxy = false
+
     // Chapter 2.1: Pending Activation State
     bool    pendingLongActive = false
     bool    pendingShortActive = false
@@ -121,6 +134,7 @@ type SetupState
     bool    pendingShortCanStillActivate = false
     bool    pendingLongActivatedThisBar = false
     bool    pendingShortActivatedThisBar = false
+
     // Chapter 2.2: Quality Recovery Patch
     float   reclaimStrengthLong = 0.0
     float   reclaimStrengthShort = 0.0
@@ -141,6 +155,7 @@ type SetupState
     string  freshnessReasonLong = ""
     string  freshnessReasonShort = ""
     string  activationPathDominant = ""
+
     // Chapter 3: Reclaim Stage
     bool    reclaimDetectedLong = false
     bool    reclaimDetectedShort = false
@@ -156,6 +171,7 @@ type SetupState
     string  reclaimStageReasonShort = ""
     int     reclaimAcceptBarsLong = 0
     int     reclaimAcceptBarsShort = 0
+
     // Chapter 4: MSS / Structure Shift Validation
     bool    mssDetectedLong = false
     bool    mssDetectedShort = false
@@ -179,11 +195,14 @@ type SetupState
     int     mssTriggerSigShort = 0
     bool    mssBodyConfirmedLong = false
     bool    mssBodyConfirmedShort = false
+
     // Chapter 5: Displacement Quality Engine (nested UDT)
     T.DispState disp = na
-    // Chapter 5: Rejection cause visibility (Debug mode)
+
+    // Chapter 5.1: Rejection cause visibility (debug)
     string  rejectionCauseLong = ""
     string  rejectionCauseShort = ""
+
     // Chapter 6: Entry Authority Model
     int     entryAuthorityLong = 0
     int     entryAuthorityShort = 0
@@ -200,7 +219,8 @@ type SetupState
     bool    structurallyValidLong = false
     bool    structurallyValidShort = false
     bool    structurallyValidDominant = false
-    // Chapter 7: Opportunity State Model (nested UDT — 1 external element vs 18)
+
+    // Chapter 7: Opportunity State Model (nested UDT)
     OppState opp = na
 
 // SmartZone type now imported from tv_core_types (alias T)
@@ -210,120 +230,121 @@ new_disp_state() =>
 
 new_setup_state() =>
     SetupState s = SetupState.new()
+    // Keep nested UDT construction explicit so the local orchestration state stays auditable.
     s.disp := new_disp_state()
     s.opp := OppState.new()
     s
 
-// --- Entry Authority Constants (Chapter 6) ---
-int EA_NONE                    = 0
-int EA_FORMING                 = 1
-int EA_STRUCT_VALID            = 2
-int EA_READY                   = 3
-int EA_ARMED                   = 4
-int EA_TRIGGERABLE             = 5
-int EA_PENDING_RETRACE         = 6
-int EA_PENDING_CONFIRMATION    = 7
-int EA_BLOCKED                 = 8
-int EA_LATE                    = 9
-int EA_EXPIRED                 = 10
-int EA_INVALIDATED             = 11
-int EA_ACTIVE                  = 12
+// --- Shared Domain Aliases (tv_core_types) ---
+// Keep local call sites unchanged while centralizing shared enums in tv_core_types.
 
-int EP_NONE         = 0
-int EP_IMMEDIATE    = 1
-int EP_RETRACE      = 2
-int EP_PENDING      = 3
+// Chapter 6: Entry Authority
+int EA_NONE                    = T.EA_NONE()
+int EA_FORMING                 = T.EA_FORMING()
+int EA_STRUCT_VALID            = T.EA_STRUCT_VALID()
+int EA_READY                   = T.EA_READY()
+int EA_ARMED                   = T.EA_ARMED()
+int EA_TRIGGERABLE             = T.EA_TRIGGERABLE()
+int EA_PENDING_RETRACE         = T.EA_PENDING_RETRACE()
+int EA_PENDING_CONFIRMATION    = T.EA_PENDING_CONFIRMATION()
+int EA_BLOCKED                 = T.EA_BLOCKED()
+int EA_LATE                    = T.EA_LATE()
+int EA_EXPIRED                 = T.EA_EXPIRED()
+int EA_INVALIDATED             = T.EA_INVALIDATED()
+int EA_ACTIVE                  = T.EA_ACTIVE()
 
-int EB_NONE              = 0
-int EB_MODE_QUALITY      = 1
-int EB_GATE_STRATEGY     = 2
-int EB_EXTENSION         = 3
-int EB_FRESHNESS         = 4
-int EB_RECLAIM_FAILED    = 5
-int EB_MSS_FAILED        = 6
-int EB_DISP_FAILED       = 7
-int EB_CONFLICTED        = 8
-int EB_ACTIVE_TRADE      = 9
+int EP_NONE                    = T.EP_NONE()
+int EP_IMMEDIATE               = T.EP_IMMEDIATE()
+int EP_RETRACE                 = T.EP_RETRACE()
+int EP_PENDING                 = T.EP_PENDING()
 
-// --- Chapter 7: Opportunity State Constants ---
-int OPP_NONE             = 0
-int OPP_FORMING          = 1
-int OPP_FRESH            = 2
-int OPP_PENDING_FRESH    = 3
-int OPP_PENDING_DELAYED  = 4
-int OPP_READY            = 5
-int OPP_LATE_ACCEPTABLE  = 6
-int OPP_LATE_RISKY       = 7
-int OPP_MISSED           = 8
-int OPP_STALE            = 9
-int OPP_EXPIRED          = 10
-int OPP_INVALIDATED      = 11
-int OPP_BLOCKED          = 12
-int OPP_ACTIVE           = 13
-int OPP_COMPLETE         = 14
+int EB_NONE                    = T.EB_NONE()
+int EB_MODE_QUALITY            = T.EB_MODE_QUALITY()
+int EB_GATE_STRATEGY           = T.EB_GATE_STRATEGY()
+int EB_EXTENSION               = T.EB_EXTENSION()
+int EB_FRESHNESS               = T.EB_FRESHNESS()
+int EB_RECLAIM_FAILED          = T.EB_RECLAIM_FAILED()
+int EB_MSS_FAILED              = T.EB_MSS_FAILED()
+int EB_DISP_FAILED             = T.EB_DISP_FAILED()
+int EB_CONFLICTED              = T.EB_CONFLICTED()
+int EB_ACTIVE_TRADE            = T.EB_ACTIVE_TRADE()
 
-// --- Liquidity Source Constants ---
-// Source types (int enum for Pine efficiency)
-int SRC_SESSION     = 1   // Asia/London/NY high or low
-int SRC_PDH_PDL     = 2   // Previous day high/low
-int SRC_PWH_PWL     = 3   // Previous week high/low
-int SRC_PIVOT_EXT   = 4   // External structure pivot
-int SRC_PIVOT_INT   = 5   // Internal structure pivot
-int SRC_EQH_EQL     = 6   // Equal highs / equal lows cluster
-int SRC_DEVELOPING  = 7   // Developing session level (lower trust)
-int SRC_PIVOT_HTF_1 = 8   // Configured HTF pivot tier 1
-int SRC_PIVOT_HTF_2 = 9   // Configured HTF pivot tier 2
-int SRC_PIVOT_HTF_3 = 10  // Optional configured HTF pivot tier 3
-int SRC_ROUND_NUM   = 11  // Psychological / round-number liquidity
+// Chapter 7: Opportunity State
+int OPP_NONE                   = T.OPP_NONE()
+int OPP_FORMING                = T.OPP_FORMING()
+int OPP_FRESH                  = T.OPP_FRESH()
+int OPP_PENDING_FRESH          = T.OPP_PENDING_FRESH()
+int OPP_PENDING_DELAYED        = T.OPP_PENDING_DELAYED()
+int OPP_READY                  = T.OPP_READY()
+int OPP_LATE_ACCEPTABLE        = T.OPP_LATE_ACCEPTABLE()
+int OPP_LATE_RISKY             = T.OPP_LATE_RISKY()
+int OPP_MISSED                 = T.OPP_MISSED()
+int OPP_STALE                  = T.OPP_STALE()
+int OPP_EXPIRED                = T.OPP_EXPIRED()
+int OPP_INVALIDATED            = T.OPP_INVALIDATED()
+int OPP_BLOCKED                = T.OPP_BLOCKED()
+int OPP_ACTIVE                 = T.OPP_ACTIVE()
+int OPP_COMPLETE               = T.OPP_COMPLETE()
 
-// Source priority scores (higher = more important)
-int PRI_PWH_PWL     = 100
-int PRI_PDH_PDL     = 80
-int PRI_EQH_EQL     = 70
-int PRI_SESSION     = 60
-int PRI_PIVOT_EXT   = 50
-int PRI_PIVOT_INT   = 25
-int PRI_DEVELOPING  = 15
-int PRI_PIVOT_HTF_1 = 68
-int PRI_PIVOT_HTF_2 = 78
-int PRI_PIVOT_HTF_3 = 88
-int PRI_ROUND_NUM   = 35
+// Liquidity sources and priority weights
+int SRC_SESSION                = T.SRC_SESSION()
+int SRC_PDH_PDL                = T.SRC_PDH_PDL()
+int SRC_PWH_PWL                = T.SRC_PWH_PWL()
+int SRC_PIVOT_EXT              = T.SRC_PIVOT_EXT()
+int SRC_PIVOT_INT              = T.SRC_PIVOT_INT()
+int SRC_EQH_EQL                = T.SRC_EQH_EQL()
+int SRC_DEVELOPING             = T.SRC_DEVELOPING()
+int SRC_PIVOT_HTF_1            = T.SRC_PIVOT_HTF_1()
+int SRC_PIVOT_HTF_2            = T.SRC_PIVOT_HTF_2()
+int SRC_PIVOT_HTF_3            = T.SRC_PIVOT_HTF_3()
+int SRC_ROUND_NUM              = T.SRC_ROUND_NUM()
 
-// Sweep type classification
-int SWEEP_SHALLOW        = 1   // Tiny penetration, low confidence
-int SWEEP_CLEAN_RAID     = 2   // Good penetration + rejection
-int SWEEP_DEEP_STOP_RUN  = 3   // Very deep, exhaustion risk
-int SWEEP_EXT_LIQ_GRAB   = 4   // Major external level swept
-int SWEEP_INT_LIQ_SWEEP  = 5   // Internal level swept
-int SWEEP_SESSION        = 6   // Session extreme swept
-int SWEEP_HTF            = 7   // PDH/PDL/PWH/PWL swept
-int SWEEP_INDUCEMENT     = 8   // Small level taken before bigger target
+int PRI_PWH_PWL                = T.PRI_PWH_PWL()
+int PRI_PDH_PDL                = T.PRI_PDH_PDL()
+int PRI_EQH_EQL                = T.PRI_EQH_EQL()
+int PRI_SESSION                = T.PRI_SESSION()
+int PRI_PIVOT_EXT              = T.PRI_PIVOT_EXT()
+int PRI_PIVOT_INT              = T.PRI_PIVOT_INT()
+int PRI_DEVELOPING             = T.PRI_DEVELOPING()
+int PRI_PIVOT_HTF_1            = T.PRI_PIVOT_HTF_1()
+int PRI_PIVOT_HTF_2            = T.PRI_PIVOT_HTF_2()
+int PRI_PIVOT_HTF_3            = T.PRI_PIVOT_HTF_3()
+int PRI_ROUND_NUM              = T.PRI_ROUND_NUM()
 
-// Sweep lifecycle states
-int LIFE_DETECTED        = 1
-int LIFE_ACTIVE          = 2
-int LIFE_CONFIRMED       = 3   // Validated by rejection/displacement
-int LIFE_CONSUMED        = 4   // Used by MSS/setup
-int LIFE_STALE           = 5
-int LIFE_INVALIDATED     = 6
+// Sweep classification and lifecycle
+int SWEEP_SHALLOW              = T.SWEEP_SHALLOW()
+int SWEEP_CLEAN_RAID           = T.SWEEP_CLEAN_RAID()
+int SWEEP_DEEP_STOP_RUN        = T.SWEEP_DEEP_STOP_RUN()
+int SWEEP_EXT_LIQ_GRAB         = T.SWEEP_EXT_LIQ_GRAB()
+int SWEEP_INT_LIQ_SWEEP        = T.SWEEP_INT_LIQ_SWEEP()
+int SWEEP_SESSION              = T.SWEEP_SESSION()
+int SWEEP_HTF                  = T.SWEEP_HTF()
+int SWEEP_INDUCEMENT           = T.SWEEP_INDUCEMENT()
 
-// --- Setup Lifecycle Constants (Chapter 1: State Machine Integrity) ---
-int LC_NONE                    = 0   // No meaningful setup context
-int LC_LIQUIDITY_IDENTIFIED    = 1   // Liquidity nearby but not swept
-int LC_SWEEP_CONFIRMED         = 2   // Liquidity swept, no structure shift yet
-int LC_RECLAIM_VISIBLE         = 3   // Post-sweep recovery visible, MSS not confirmed
-int LC_MSS_CONFIRMED           = 4   // MSS confirmed after sweep
-int LC_DISPLACEMENT_CONFIRMED  = 5   // MSS + strong displacement confirmed
-int LC_ENTRY_ARMED             = 6   // Full sequence complete (sweep→MSS→FVG), entry zone exists
-int LC_ENTRY_TRIGGERED         = 7   // Entry criteria triggered, trade can activate
-int LC_ACTIVE                  = 8   // Valid active trade
-int LC_EXPIRED                 = 9   // Setup aged out
-int LC_INVALIDATED             = 10  // Setup structurally negated
-int LC_DESYNC                  = 11  // Contradictory state detected
+int LIFE_DETECTED              = T.LIFE_DETECTED()
+int LIFE_ACTIVE                = T.LIFE_ACTIVE()
+int LIFE_CONFIRMED             = T.LIFE_CONFIRMED()
+int LIFE_CONSUMED              = T.LIFE_CONSUMED()
+int LIFE_STALE                 = T.LIFE_STALE()
+int LIFE_INVALIDATED           = T.LIFE_INVALIDATED()
+
+// Chapter 1: Setup lifecycle state machine integrity
+int LC_NONE                    = T.LC_NONE()
+int LC_LIQUIDITY_IDENTIFIED    = T.LC_LIQUIDITY_IDENTIFIED()
+int LC_SWEEP_CONFIRMED         = T.LC_SWEEP_CONFIRMED()
+int LC_RECLAIM_VISIBLE         = T.LC_RECLAIM_VISIBLE()
+int LC_MSS_CONFIRMED           = T.LC_MSS_CONFIRMED()
+int LC_DISPLACEMENT_CONFIRMED  = T.LC_DISPLACEMENT_CONFIRMED()
+int LC_ENTRY_ARMED             = T.LC_ENTRY_ARMED()
+int LC_ENTRY_TRIGGERED         = T.LC_ENTRY_TRIGGERED()
+int LC_ACTIVE                  = T.LC_ACTIVE()
+int LC_EXPIRED                 = T.LC_EXPIRED()
+int LC_INVALIDATED             = T.LC_INVALIDATED()
+int LC_DESYNC                  = T.LC_DESYNC()
 
 // LiqLevel and LiqSweep types now imported from tv_core_types (alias T)
 
-// --- Inputs ---
+// --- Base Inputs ---
 var string G_SENS = "Signal Sensitivity"
 string sensitivityMode = input.string("Balanced", "Sensitivity Mode", options = ["Aggressive", "Balanced", "Conservative"], tooltip = "Adjusts pivot lookback and displacement requirements for signals.", group = G_SENS)
 
