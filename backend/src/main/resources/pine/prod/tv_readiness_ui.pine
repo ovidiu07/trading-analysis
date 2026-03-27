@@ -5,7 +5,7 @@
 // The main indicator computes all text, colors, and flags, then passes them here.
 library("tv_readiness_ui", overlay = true)
 
-import Devtailor/tv_dashboard_utils/1 as tbl
+import Devtailor/tv_dashboard_utils/3 as tbl
 
 // =====================================================================
 // DISPLAY DTOs — carry precomputed display values from main to UI layer.
@@ -177,20 +177,20 @@ export render_primary(table readTbl, int startRow, PrimaryDisplay p, color heade
 
     // --- High Hierarchy: Execution Guidance ---
     // Action is the single most important piece of info
-    r := tbl.table_kv_left(readTbl, r, "Action", p.actionStr, labelColor, p.actionColor)
-    r := tbl.table_kv_left(readTbl, r, "Next Watch", p.nextRequired, labelColor, neutralColor)
+    r := tbl.table_kv(readTbl, r, "Action", p.actionStr, labelColor, p.actionColor)
+    r := tbl.table_kv(readTbl, r, "Next Watch", p.nextRequired, labelColor, neutralColor)
     r := tbl.table_kv(readTbl, r, "Status", p.phaseStr, labelColor, p.phaseColor)
 
     if p.hasPending
-        r := tbl.table_kv_left(readTbl, r, "⚠️ Blocker", p.pendingStr, labelColor, p.pendingColor)
+        r := tbl.table_kv(readTbl, r, "⚠️ Blocker", p.pendingStr, labelColor, p.pendingColor)
 
     // --- Secondary Info: Setup Quality & Mode ---
-    r := tbl.table_kv_tiny(readTbl, r, "Quality", p.confStr, labelColor, p.confColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Sensitivity", p.modeStr, labelColor, p.modeColor)
+    r := tbl.table_kv(readTbl, r, "Quality", p.confStr, labelColor, p.confColor)
+    r := tbl.table_kv(readTbl, r, "Sensitivity", p.modeStr, labelColor, p.modeColor)
 
     // --- Tertiary Context: Market Environment ---
-    r := tbl.table_kv_tiny(readTbl, r, "Session", p.sessStr, labelColor, p.sessColor)
-    r := tbl.table_kv_tiny(readTbl, r, "PD Array", p.pdStatus, labelColor, p.pdColor)
+    r := tbl.table_kv(readTbl, r, "Session", p.sessStr, labelColor, p.sessColor)
+    r := tbl.table_kv(readTbl, r, "PD Array", p.pdStatus, labelColor, p.pdColor)
     r
 
 // @function Renders the setup context block (Analyst+Debug modes).
@@ -209,8 +209,8 @@ export render_context(table readTbl, int startRow, ContextDisplay c, bool isTrad
         r := tbl.table_kv(readTbl, r, "Displacement", c.dispStatusStr, labelColor, c.dispStatusCol)
 
         // Supporting Details - Tiny weight to reduce noise
-        r := tbl.table_kv_tiny(readTbl, r, "Imbalance", c.imbStr, labelColor, c.imbCol)
-        r := tbl.table_kv_tiny(readTbl, r, "Order Block", c.obStr, labelColor, c.obCol)
+        r := tbl.table_kv(readTbl, r, "Imbalance", c.imbStr, labelColor, c.imbCol)
+        r := tbl.table_kv(readTbl, r, "Order Block", c.obStr, labelColor, c.obCol)
     r
 
 // @function Renders scores + liquidity rows (all modes).
@@ -227,9 +227,9 @@ export render_scores(table readTbl, int startRow, PrimaryDisplay p, color labelC
 export render_strategy(table readTbl, int startRow, ContextDisplay c, bool isTrader, color labelColor) =>
     int r = startRow
     if not isTrader
-        r := tbl.table_kv_tiny(readTbl, r, "ICT 2022 Eligibility", c.ictLongDetail + "  |  " + c.ictShortDetail, labelColor, c.ictCol)
-        r := tbl.table_kv_tiny(readTbl, r, "Silver Bullet Eligibility", c.sbLongDetail + "  |  " + c.sbShortDetail, labelColor, c.sbCol)
-        r := tbl.table_kv_tiny(readTbl, r, "Continuation Context", c.contStr, labelColor, c.contCol)
+        r := tbl.table_kv(readTbl, r, "ICT 2022 Eligibility", c.ictLongDetail + "  |  " + c.ictShortDetail, labelColor, c.ictCol)
+        r := tbl.table_kv(readTbl, r, "Silver Bullet Eligibility", c.sbLongDetail + "  |  " + c.sbShortDetail, labelColor, c.sbCol)
+        r := tbl.table_kv(readTbl, r, "Continuation Context", c.contStr, labelColor, c.contCol)
     else
         r := tbl.table_kv(readTbl, r, "Strategy Status", c.stratStr, labelColor, c.stratCol)
     r
@@ -239,16 +239,16 @@ export render_strategy(table readTbl, int startRow, ContextDisplay c, bool isTra
 export render_advanced(table readTbl, int startRow, AdvancedDisplay a, color headerColor, color labelColor, color bgColor) =>
     int r = startRow
     r := tbl.table_section(readTbl, r, "Advanced", headerColor, bgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Confluence Chain", a.chainStr, labelColor, a.chainCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Sequence Status", a.seqStr, labelColor, a.seqCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Best Sell-Side Sweep", a.sslInfo, labelColor, a.sslInfoCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Best Buy-Side Sweep", a.bslInfo, labelColor, a.bslInfoCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Sweep Quality", a.sweepQualStr, labelColor, a.neutralColor)
-    r := tbl.table_kv_tiny(readTbl, r, "EQ Clusters", a.eqInfo, labelColor, a.neutralColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Active Sweeps", a.activeSweepCount, labelColor, a.neutralColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Nearest Ext Liq", a.extLiqStr, labelColor, a.neutralColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Nearest HTF Liq", a.htfLiqStr, labelColor, a.neutralColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Nearest RN Liq", a.rnLiqStr, labelColor, a.neutralColor)
+    r := tbl.table_kv(readTbl, r, "Confluence Chain", a.chainStr, labelColor, a.chainCol)
+    r := tbl.table_kv(readTbl, r, "Sequence Status", a.seqStr, labelColor, a.seqCol)
+    r := tbl.table_kv(readTbl, r, "Best Sell-Side Sweep", a.sslInfo, labelColor, a.sslInfoCol)
+    r := tbl.table_kv(readTbl, r, "Best Buy-Side Sweep", a.bslInfo, labelColor, a.bslInfoCol)
+    r := tbl.table_kv(readTbl, r, "Sweep Quality", a.sweepQualStr, labelColor, a.neutralColor)
+    r := tbl.table_kv(readTbl, r, "EQ Clusters", a.eqInfo, labelColor, a.neutralColor)
+    r := tbl.table_kv(readTbl, r, "Active Sweeps", a.activeSweepCount, labelColor, a.neutralColor)
+    r := tbl.table_kv(readTbl, r, "Nearest Ext Liq", a.extLiqStr, labelColor, a.neutralColor)
+    r := tbl.table_kv(readTbl, r, "Nearest HTF Liq", a.htfLiqStr, labelColor, a.neutralColor)
+    r := tbl.table_kv(readTbl, r, "Nearest RN Liq", a.rnLiqStr, labelColor, a.neutralColor)
     r
 
 // @function Renders the lifecycle diagnostics block (Debug only).
@@ -256,44 +256,44 @@ export render_advanced(table readTbl, int startRow, AdvancedDisplay a, color hea
 export render_lifecycle(table readTbl, int startRow, LifecycleDisplay lc, color headerColor, color labelColor, color bgColor) =>
     int r = startRow
     r := tbl.table_section(readTbl, r, "Lifecycle", headerColor, bgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Lifecycle Stage", lc.lcStageStr, labelColor, lc.lcStageCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Lifecycle Reason", lc.lcReasonStr, labelColor, lc.valueColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Lifecycle L/S", lc.lcBothStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Activation Gate", lc.lcActStr, labelColor, lc.lcActCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Mode Qualification", lc.modeQualStr, labelColor, lc.modeQualCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Mode Block", lc.modeBlkStr, labelColor, lc.modeBlkCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Reclaim Stage", lc.rclDbgStr, labelColor, lc.rclDbgCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Reclaim Detail", lc.rclReasonDbg, labelColor, lc.rclDbgCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Extension Filter", lc.extDbgStr, labelColor, lc.extDbgCol)
-    r := tbl.table_kv_tiny(readTbl, r, "MSS Stage", lc.mssDbgStr, labelColor, lc.mssDbgCol)
-    r := tbl.table_kv_tiny(readTbl, r, "MSS Detail", lc.mssReasonDbg, labelColor, lc.mssDbgCol)
-    r := tbl.table_kv_tiny(readTbl, r, "MSS Mode Pass", lc.mssPassDbg, labelColor, lc.mssPassCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Disp Stage", lc.dispDbgStr, labelColor, lc.dispDbgCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Disp Detail", lc.dispReasonDbg, labelColor, lc.dispDbgCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Disp Mode Pass", lc.dispPassDbg, labelColor, lc.dispPassCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Activation Path", lc.actPathStr, labelColor, lc.actPathCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Pending Freshness", lc.freshDbgStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Mode Thresholds", lc.modeThrStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Pending Long", lc.pendDbgL, labelColor, lc.pendDbgLCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Pending Short", lc.pendDbgS, labelColor, lc.pendDbgSCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Pending Windows", lc.pendWinStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Delayed Activation", lc.delayActStr, labelColor, lc.delayActCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Integrity", lc.desyncStr, labelColor, lc.desyncCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Rejection Cause", lc.rejCause, labelColor, lc.rejCol)
+    r := tbl.table_kv(readTbl, r, "Lifecycle Stage", lc.lcStageStr, labelColor, lc.lcStageCol)
+    r := tbl.table_kv(readTbl, r, "Lifecycle Reason", lc.lcReasonStr, labelColor, lc.valueColor)
+    r := tbl.table_kv(readTbl, r, "Lifecycle L/S", lc.lcBothStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "Activation Gate", lc.lcActStr, labelColor, lc.lcActCol)
+    r := tbl.table_kv(readTbl, r, "Mode Qualification", lc.modeQualStr, labelColor, lc.modeQualCol)
+    r := tbl.table_kv(readTbl, r, "Mode Block", lc.modeBlkStr, labelColor, lc.modeBlkCol)
+    r := tbl.table_kv(readTbl, r, "Reclaim Stage", lc.rclDbgStr, labelColor, lc.rclDbgCol)
+    r := tbl.table_kv(readTbl, r, "Reclaim Detail", lc.rclReasonDbg, labelColor, lc.rclDbgCol)
+    r := tbl.table_kv(readTbl, r, "Extension Filter", lc.extDbgStr, labelColor, lc.extDbgCol)
+    r := tbl.table_kv(readTbl, r, "MSS Stage", lc.mssDbgStr, labelColor, lc.mssDbgCol)
+    r := tbl.table_kv(readTbl, r, "MSS Detail", lc.mssReasonDbg, labelColor, lc.mssDbgCol)
+    r := tbl.table_kv(readTbl, r, "MSS Mode Pass", lc.mssPassDbg, labelColor, lc.mssPassCol)
+    r := tbl.table_kv(readTbl, r, "Disp Stage", lc.dispDbgStr, labelColor, lc.dispDbgCol)
+    r := tbl.table_kv(readTbl, r, "Disp Detail", lc.dispReasonDbg, labelColor, lc.dispDbgCol)
+    r := tbl.table_kv(readTbl, r, "Disp Mode Pass", lc.dispPassDbg, labelColor, lc.dispPassCol)
+    r := tbl.table_kv(readTbl, r, "Activation Path", lc.actPathStr, labelColor, lc.actPathCol)
+    r := tbl.table_kv(readTbl, r, "Pending Freshness", lc.freshDbgStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "Mode Thresholds", lc.modeThrStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "Pending Long", lc.pendDbgL, labelColor, lc.pendDbgLCol)
+    r := tbl.table_kv(readTbl, r, "Pending Short", lc.pendDbgS, labelColor, lc.pendDbgSCol)
+    r := tbl.table_kv(readTbl, r, "Pending Windows", lc.pendWinStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "Delayed Activation", lc.delayActStr, labelColor, lc.delayActCol)
+    r := tbl.table_kv(readTbl, r, "Integrity", lc.desyncStr, labelColor, lc.desyncCol)
+    r := tbl.table_kv(readTbl, r, "Rejection Cause", lc.rejCause, labelColor, lc.rejCol)
     // Chapter 6: Entry Authority section
     r := tbl.table_section(readTbl, r, "Entry Authority", headerColor, bgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "EA State", lc.eaStateStr, labelColor, lc.eaStateCol)
-    r := tbl.table_kv_tiny(readTbl, r, "EA L/S", lc.eaBothStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "EA Path", lc.eaPathStr, labelColor, lc.eaPathCol)
-    r := tbl.table_kv_tiny(readTbl, r, "EA Block", lc.eaBlockStr, labelColor, lc.eaBlockCol)
-    r := tbl.table_kv_tiny(readTbl, r, "EA Reason", lc.eaReasonStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Structural Valid", lc.eaStructStr, labelColor, lc.eaStructCol)
+    r := tbl.table_kv(readTbl, r, "EA State", lc.eaStateStr, labelColor, lc.eaStateCol)
+    r := tbl.table_kv(readTbl, r, "EA L/S", lc.eaBothStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "EA Path", lc.eaPathStr, labelColor, lc.eaPathCol)
+    r := tbl.table_kv(readTbl, r, "EA Block", lc.eaBlockStr, labelColor, lc.eaBlockCol)
+    r := tbl.table_kv(readTbl, r, "EA Reason", lc.eaReasonStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "Structural Valid", lc.eaStructStr, labelColor, lc.eaStructCol)
     // Chapter 7: Opportunity State section
     r := tbl.table_section(readTbl, r, "Opportunity State", headerColor, bgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Opp State", lc.oppStateStr, labelColor, lc.oppStateCol)
-    r := tbl.table_kv_tiny(readTbl, r, "Opp L/S", lc.oppBothStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Opp Reason", lc.oppReasonStr, labelColor, lc.neutralDbgColor)
-    r := tbl.table_kv_tiny(readTbl, r, "Chase Allowed", lc.oppChaseStr, labelColor, lc.oppChaseCol)
+    r := tbl.table_kv(readTbl, r, "Opp State", lc.oppStateStr, labelColor, lc.oppStateCol)
+    r := tbl.table_kv(readTbl, r, "Opp L/S", lc.oppBothStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "Opp Reason", lc.oppReasonStr, labelColor, lc.neutralDbgColor)
+    r := tbl.table_kv(readTbl, r, "Chase Allowed", lc.oppChaseStr, labelColor, lc.oppChaseCol)
     r
 
 // @function Renders the performance section.

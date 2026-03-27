@@ -390,7 +390,7 @@ export evaluate_entry_authority(
      int lifecycle, bool seqOk, bool swept,
      bool mssValid_, bool mssFailed_, bool mssFresh_,
      bool reclaimFailed_, bool reclaimPass_,
-     bool dispValid_, bool dispFailed_, bool dispFresh_,
+     bool dispFailed_, bool dispFresh_,
      bool expired_, bool degraded_,
      string mode, bool modeCandidate, bool modeActivation, string modeBlockReason_,
      bool modeAllowsDirect,
@@ -440,7 +440,7 @@ export can_promote_to_active(int entryState, int entryPath, bool hasActiveTrade)
 // =====================================================================
 
 export validate_entry_authority(int ea, int ep, int eb, int lifecycle,
-     bool hasActiveTrade, bool modeActivation, bool modeCandidate,
+     bool hasActiveTrade, bool modeCandidate,
      bool mssFailed_, bool reclaimFailed_, bool dispFailed_,
      bool expired_, bool isConflicted_) =>
     bool valid = true

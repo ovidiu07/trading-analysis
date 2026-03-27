@@ -5,7 +5,7 @@
 // Contains ONLY display plumbing — all values are precomputed by the caller.
 library("tv_market_intel_ui", overlay = true)
 
-import Devtailor/tv_dashboard_utils/1 as tbl
+import Devtailor/tv_dashboard_utils/3 as tbl
 
 // --- Types ---
 

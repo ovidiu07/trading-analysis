@@ -4,7 +4,7 @@
 // @description Lifecycle naming, mode policy helpers, and format_action for SMC trading system.
 library("tv_lifecycle_mode", overlay = true)
 
-import Devtailor/tv_core_types/1 as T
+import Devtailor/tv_core_types/4 as T
 
 // Re-alias constants locally for readability
 int LC_NONE                   = T.LC_NONE()

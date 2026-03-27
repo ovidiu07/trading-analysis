@@ -76,3 +76,22 @@ export table_empty3(table tbl, int row, string msg, color msgColor, color bgColo
     table.cell(tbl, 0, row, msg, text_color = msgColor, text_size = size.tiny, bgcolor = bgColor)
     table.merge_cells(tbl, 0, row, 2, row)
     row + 1
+
+// @function Renders a full-width merged header row for 3-column layouts.
+export table_merge_row(table tbl, int row, string title, color headerColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, title, text_color = headerColor, text_size = size.small, text_halign = text.align_left, bgcolor = bgColor)
+    table.merge_cells(tbl, 0, row, 2, row)
+    row + 1
+
+// @function Renders a section divider row (─── Title ───) spanning three columns.
+export table_section3(table tbl, int row, string title, color headerColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, "─── " + title + " ───", text_color = headerColor, text_size = size.tiny, text_halign = text.align_left, bgcolor = bgColor)
+    table.merge_cells(tbl, 0, row, 2, row)
+    row + 1
+
+// @function Renders a key/value row in 3-column layout (key in col 0, value merged across cols 1-2).
+export table_kv3(table tbl, int row, string key, string val, color keyColor, color valColor, color bgColor = na) =>
+    table.cell(tbl, 0, row, key, text_color = keyColor, text_size = size.tiny, text_halign = text.align_left, bgcolor = bgColor)
+    table.cell(tbl, 1, row, val, text_color = valColor, text_size = size.tiny, text_halign = text.align_left, bgcolor = bgColor)
+    table.merge_cells(tbl, 1, row, 2, row)
+    row + 1

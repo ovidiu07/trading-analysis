@@ -2,18 +2,18 @@
 //@version=6
 indicator("SMC & ICT Multi-Strategy [Pro Visuals]", overlay = true, max_boxes_count = 500, max_lines_count = 500, max_labels_count = 500)
 
-import Devtailor/tv_format_utils/1 as fmt
-import Devtailor/tv_render_utils/1 as ren
-import Devtailor/tv_dashboard_utils/1 as tbl
-import Devtailor/tv_readiness_ui/3 as rdash
-import Devtailor/tv_market_intel_ui/1 as intel
+import Devtailor/tv_format_utils/2 as fmt
+import Devtailor/tv_render_utils/2 as ren
+import Devtailor/tv_dashboard_utils/3 as tbl
+import Devtailor/tv_readiness_ui/5 as rdash
+import Devtailor/tv_market_intel_ui/2 as intel
 import Devtailor/tv_core_types/4 as T
-import Devtailor/tv_lifecycle_mode/1 as lm
+import Devtailor/tv_lifecycle_mode/3 as lm
 import Devtailor/tv_structure_engine/1 as se
 import Devtailor/tv_liquidity_engine/5 as liq
-import Devtailor/tv_pending_trade_state/5 as pts
-import Devtailor/tv_signal_gate_engine/5 as sg
-import Devtailor/tv_entry_authority/4 as ea
+import Devtailor/tv_pending_trade_state/6 as pts
+import Devtailor/tv_signal_gate_engine/6 as sg
+import Devtailor/tv_entry_authority/5 as ea
 
 // --- Constants ---
 string NY_TZ = "America/New_York"
@@ -853,155 +853,146 @@ merge_fvg(T.SmartZone[] arr, int idx, float newTop, float newBottom, color bgCol
 
 
 
-// FVG Visual Rendering — uses zone bounds from the detection engine (fvgTopRaw/fvgBotRaw)
-// so that MTF-detected FVGs render at the correct price levels.
-// Overlap merge logic is preserved: same-direction nearby FVGs are merged to reduce clutter.
+// ── ZONE CREATION HELPERS ───────────────────────────────────────────────
+// Shared box-creation logic for FVG and OB historical zones.
+// All zones use xloc.bar_time — geometry is frozen at creation.
 //
 // RENDERING COORDINATE POLICY — HISTORICAL ANCHORED ZONES:
-//   FVG boxes use xloc.bar_time (time-based x coordinates) so they are immune
-//   to bar_index shifts when the chart loads more history or re-executes.
-//   Left anchor = event time (time[2], where the gap originates).
-//   Right anchor = left + (fvgExtendBars + 2) * timeframe_ms (fixed at creation).
+//   Time-based x coordinates are immune to bar_index shifts when the chart
+//   loads more history, re-executes, or is panned/zoomed.
+//   Left anchor  = event origin time (stored in SmartZone.startTime).
+//   Right anchor = computed at creation  (stored in SmartZone.endTime).
 //   No continuous right-extension. Geometry is frozen at creation.
-int _tfMs = timeframe.in_seconds(timeframe.period) * 1000
-if showFVG
-    if bullFVG
-        float fvgTop = fvgTopRaw
-        float fvgBot = fvgBotRaw
-        [overlapResult, mergeIdx] = check_fvg_overlap(fvgArray, fvgTop, fvgBot, true)
-        if overlapResult == 0
-            float fvgCE = (fvgTop + fvgBot) / 2.0
-            int fvgLeftTime = time[2]
-            int fvgRightTime = fvgLeftTime + (fvgExtendBars + 2) * _tfMs
-            box b = box.new(fvgLeftTime, fvgTop, fvgRightTime, fvgBot, bgcolor = bullFvgColor, border_color = color.new(bullFvgColor, 50), border_style = line.style_dotted, xloc = xloc.bar_time)
-            array.push(fvgArray, T.SmartZone.new(b, fvgTop, fvgBot, true, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize, fvgLeftTime, fvgRightTime))
-        else if overlapResult == 1
-            merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bullFvgColor)
-
-    if bearFVG
-        float fvgTop = fvgTopRaw
-        float fvgBot = fvgBotRaw
-        [overlapResult, mergeIdx] = check_fvg_overlap(fvgArray, fvgTop, fvgBot, false)
-        if overlapResult == 0
-            float fvgCE = (fvgTop + fvgBot) / 2.0
-            int fvgLeftTime = time[2]
-            int fvgRightTime = fvgLeftTime + (fvgExtendBars + 2) * _tfMs
-            box b = box.new(fvgLeftTime, fvgTop, fvgRightTime, fvgBot, bgcolor = bearFvgColor, border_color = color.new(bearFvgColor, 50), border_style = line.style_dotted, xloc = xloc.bar_time)
-            array.push(fvgArray, T.SmartZone.new(b, fvgTop, fvgBot, false, false, false, bar_index - 2, fvgCE, false, false, 0, fvgGapSize, fvgLeftTime, fvgRightTime))
-        else if overlapResult == 1
-            merge_fvg(fvgArray, mergeIdx, fvgTop, fvgBot, bearFvgColor)
-
-
-
-// OB Detection (Last opposite candle before MSS)
-// RENDERING COORDINATE POLICY — HISTORICAL ANCHORED ZONES:
-//   OB boxes use xloc.bar_time (time-based x coordinates) so they are immune
-//   to bar_index shifts. Left = OB candle open time, Right = left + fvgExtendBars * tfMs.
-//   Geometry is frozen at creation.
-if showOB
-    if mssBull
-        int obBar = na
-        for i = 1 to 20
-            if close[i] < open[i]
-                obBar := bar_index - i
-                break
-        if not na(obBar)
-            int obLookback = bar_index - obBar
-            float t = high[obLookback]
-            float b_ = low[obLookback]
-            int obLeftTime = time[obLookback]
-            int obRightTime = obLeftTime + fvgExtendBars * _tfMs
-            box bx = box.new(obLeftTime, t, obRightTime, b_, bgcolor = bullObColor, border_color = color.new(bullObColor, 50), xloc = xloc.bar_time)
-            array.push(obArray, T.SmartZone.new(bx, t, b_, true, false, false, obBar, na, false, false, 0, na, obLeftTime, obRightTime))
-
-    if mssBear
-        int obBar = na
-        for i = 1 to 20
-            if close[i] > open[i]
-                obBar := bar_index - i
-                break
-        if not na(obBar)
-            int obLookback = bar_index - obBar
-            float t = high[obLookback]
-            float b_ = low[obLookback]
-            int obLeftTime = time[obLookback]
-            int obRightTime = obLeftTime + fvgExtendBars * _tfMs
-            box bx = box.new(obLeftTime, t, obRightTime, b_, bgcolor = bearObColor, border_color = color.new(bearObColor, 50), xloc = xloc.bar_time)
-            array.push(obArray, T.SmartZone.new(bx, t, b_, false, false, false, obBar, na, false, false, 0, na, obLeftTime, obRightTime))
-
-// Mitigation & Inversion Logic (LuxAlgo-inspired: close-based mitigation for FVGs)
-// =====================================================================
-// RENDERING POLICY — ZONE LIFECYCLE:
-//   FVG / OB boxes are HISTORICAL ANCHORED zones using xloc.bar_time.
-//   Their geometry is fixed at creation time and never changes
-//   (except color/style on inversion). On mitigation, boxes are deleted.
-//
-//   Time-based anchoring ensures zones do NOT drift when:
-//   - The chart loads more historical bars (bar_index shift)
-//   - The script re-executes on new bars
-//   - The chart is panned or zoomed
-//
-//   Left anchor: event time (stored in SmartZone.startTime)
-//   Right anchor: computed at creation (stored in SmartZone.endTime)
 //
 //   Live/projected visuals (candidate preview, active trade SL/TP boxes)
 //   remain xloc.bar_index and DO update their right edge every bar.
-// =====================================================================
+// ────────────────────────────────────────────────────────────────────────
+
+// Create a new FVG SmartZone box and push it onto the tracking array.
+//   leftTime  = time[2] — origin of the 3-candle gap pattern
+//   rightTime = leftTime + (fvgExtendBars + 2) * tfMs
+create_fvg_box(T.SmartZone[] arr, float zTop, float zBot, bool isBull, color bgCol, int leftTime, int rightTime, float gapSz) =>
+    float ce = (zTop + zBot) / 2.0
+    box b = box.new(leftTime, zTop, rightTime, zBot, bgcolor = bgCol, border_color = color.new(bgCol, 50), border_style = line.style_dotted, xloc = xloc.bar_time)
+    array.push(arr, T.SmartZone.new(b, zTop, zBot, isBull, false, false, bar_index - 2, ce, false, false, 0, gapSz, leftTime, rightTime))
+
+// Run overlap check → create / merge / skip for a single FVG detection event.
+process_fvg(T.SmartZone[] arr, float zTop, float zBot, bool isBull, color bgCol, float gapSz, int tfMs) =>
+    [overlapResult, mergeIdx] = check_fvg_overlap(arr, zTop, zBot, isBull)
+    if overlapResult == 0
+        int leftTime  = time[2]
+        int rightTime = leftTime + (fvgExtendBars + 2) * tfMs
+        create_fvg_box(arr, zTop, zBot, isBull, bgCol, leftTime, rightTime, gapSz)
+    else if overlapResult == 1
+        merge_fvg(arr, mergeIdx, zTop, zBot, bgCol)
+
+// Find the last opposite-direction candle before an MSS (Order Block origin).
+//   Bull OB = last bearish candle;  Bear OB = last bullish candle.
+find_ob_candle(bool isBull) =>
+    int obBar = na
+    for i = 1 to 20
+        bool isOpposite = isBull ? close[i] < open[i] : close[i] > open[i]
+        if isOpposite
+            obBar := bar_index - i
+            break
+    obBar
+
+// Create a new OB SmartZone box from the identified OB candle.
+//   leftTime = OB candle open time;  rightTime = leftTime + fvgExtendBars * tfMs
+create_ob_box(T.SmartZone[] arr, int obBar, bool isBull, color bgCol, int tfMs) =>
+    int lookback  = bar_index - obBar
+    float zTop    = high[lookback]
+    float zBot    = low[lookback]
+    int leftTime  = time[lookback]
+    int rightTime = leftTime + fvgExtendBars * tfMs
+    box bx = box.new(leftTime, zTop, rightTime, zBot, bgcolor = bgCol, border_color = color.new(bgCol, 50), xloc = xloc.bar_time)
+    array.push(arr, T.SmartZone.new(bx, zTop, zBot, isBull, false, false, obBar, na, false, false, 0, na, leftTime, rightTime))
+
+// Check if price has breached a zone boundary.
+//   FVG: close-based (LuxAlgo style).  OB: wick-based (high/low).
+//   `inverted` flips effective polarity — an inverted bull zone acts as bear resistance.
+check_zone_breach(T.SmartZone sz, bool isFVG, bool inverted) =>
+    bool effectiveBull = inverted ? not sz.isBull : sz.isBull
+    // Bull zone breached when price crosses below bottom.
+    // Bear zone breached when price crosses above top.
+    effectiveBull
+     ? (isFVG ? close < sz.bottom : low < sz.bottom)
+     : (isFVG ? close > sz.top    : high > sz.top)
+
+
+// ── FVG RENDERING ──────────────────────────────────────────────────────
+// Uses zone bounds from detection engine (fvgTopRaw/fvgBotRaw) so that
+// MTF-detected FVGs render at correct price levels.
+// Overlap merge logic: same-direction nearby FVGs are merged to reduce clutter.
+int _tfMs = timeframe.in_seconds(timeframe.period) * 1000
+
+if showFVG
+    if bullFVG
+        process_fvg(fvgArray, fvgTopRaw, fvgBotRaw, true,  bullFvgColor, fvgGapSize, _tfMs)
+    if bearFVG
+        process_fvg(fvgArray, fvgTopRaw, fvgBotRaw, false, bearFvgColor, fvgGapSize, _tfMs)
+
+
+// ── OB RENDERING ───────────────────────────────────────────────────────
+// OB = last opposite candle before MSS. Same time-anchored policy as FVGs.
+if showOB
+    if mssBull
+        int obBar = find_ob_candle(true)
+        if not na(obBar)
+            create_ob_box(obArray, obBar, true,  bullObColor, _tfMs)
+    if mssBear
+        int obBar = find_ob_candle(false)
+        if not na(obBar)
+            create_ob_box(obArray, obBar, false, bearObColor, _tfMs)
+
+
+// ── ZONE LIFECYCLE: MITIGATION & INVERSION ─────────────────────────────
+// Processes all active zones each bar. Three possible outcomes per zone:
+//   1. CE touch recorded  (FVG only — tracks price entering the gap)
+//   2. Inversion           (FVG + showIFVG — zone flips polarity, visual restyled)
+//   3. Mitigation          (zone fully breached — box deleted, marked mitigated)
+//
+// Breach semantics:
+//   FVG: close-based (LuxAlgo style — confirmed commitment, not just wick)
+//   OB:  wick-based  (demand/supply zones react to any touch)
+//
+// Historical anchored zones: right edge is frozen at creation. No set_right here.
+// ────────────────────────────────────────────────────────────────────────
 update_zones(T.SmartZone[] arr, int maxCount, bool isFVG) =>
     if array.size(arr) > 0
         for i = array.size(arr) - 1 to 0
-            T.SmartZone sz= array.get(arr, i)
+            T.SmartZone sz = array.get(arr, i)
             if not sz.mitigated
-                // Historical anchored: right edge is frozen at creation. No set_right here.
-
                 bool justMitigated = false
 
                 if not sz.isInverted
-                    if sz.isBull
-                        // Track CE touch (price enters the FVG)
-                        if isFVG and not na(sz.ce) and low <= sz.ce and not sz.ceRespected
+                    // ── Step 1: CE touch tracking (FVG only) ──
+                    if isFVG and not na(sz.ce) and not sz.ceRespected
+                        bool ceTouched = sz.isBull ? low <= sz.ce : high >= sz.ce
+                        if ceTouched
                             sz.ceRespected := true
                             sz.touchCount += 1
-                        // Check for inversion: close fully through bottom
-                        if isFVG and showIFVG and close < sz.bottom
-                            sz.isInverted := true
-                            box.set_bgcolor(sz.boxId, bearIfvgColor)
-                            box.set_border_style(sz.boxId, line.style_solid)
-                        // FVG mitigation: CLOSE below bottom (LuxAlgo style — not just wick touch)
-                        // OB mitigation: wick touch (unchanged — OBs are demand/supply zones)
-                        else if isFVG and close < sz.bottom
-                            justMitigated := true
-                        else if not isFVG and low < sz.bottom
-                            justMitigated := true
+
+                    // ── Step 2: Inversion check (FVG + showIFVG enabled) ──
+                    // Close fully through the breach side → flip polarity instead of deleting.
+                    if isFVG and showIFVG and check_zone_breach(sz, true, false)
+                        sz.isInverted := true
+                        color invCol = sz.isBull ? bearIfvgColor : bullIfvgColor
+                        box.set_bgcolor(sz.boxId, invCol)
+                        box.set_border_style(sz.boxId, line.style_solid)
                     else
-                        // Track CE touch
-                        if isFVG and not na(sz.ce) and high >= sz.ce and not sz.ceRespected
-                            sz.ceRespected := true
-                            sz.touchCount += 1
-                        // Check for inversion: close fully through top
-                        if isFVG and showIFVG and close > sz.top
-                            sz.isInverted := true
-                            box.set_bgcolor(sz.boxId, bullIfvgColor)
-                            box.set_border_style(sz.boxId, line.style_solid)
-                        // FVG mitigation: CLOSE above top (LuxAlgo style)
-                        else if isFVG and close > sz.top
-                            justMitigated := true
-                        else if not isFVG and high > sz.top
-                            justMitigated := true
+                        // ── Step 3: Normal mitigation ──
+                        justMitigated := check_zone_breach(sz, isFVG, false)
                 else
-                    // Mitigation for Inverted Zones (close-based for FVGs, touch for OBs)
-                    if sz.isBull // Was originally Bullish, now Bearish IFVG (Resistance)
-                        if (isFVG and close > sz.top) or (not isFVG and high > sz.top)
-                            justMitigated := true
-                    else // Was originally Bearish, now Bullish IFVG (Support)
-                        if (isFVG and close < sz.bottom) or (not isFVG and low < sz.bottom)
-                            justMitigated := true
+                    // ── Inverted zone mitigation (effective polarity is flipped) ──
+                    justMitigated := check_zone_breach(sz, isFVG, true)
 
                 // On mitigation: delete the box entirely (no ghost lines)
                 if justMitigated
                     sz.mitigated := true
                     box.delete(sz.boxId)
 
+        // Evict oldest zones when array exceeds capacity
         if array.size(arr) > maxCount
             T.SmartZone old = array.shift(arr)
             box.delete(old.boxId)

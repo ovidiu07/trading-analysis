@@ -28,7 +28,7 @@ export render_level(float val, bool show, color col, string txt, string mode, in
     int cWidth  = _clamp(width, 1, 5)
     int cSegLen = _clamp(segLen, 1, 500)
     int cOffset = _clamp(offset, 0, 100)
-    line.style cStyle = _resolve_style(styleStr)
+    string cStyle = _resolve_style(styleStr)
 
     if show and not na(val)
         int x1 = mode == "Full Width" ? bar_index - 500 : bar_index - cSegLen + cOffset
@@ -149,11 +149,22 @@ export delete_group(line l = na, label lbl = na, box b = na) =>
         label.delete(lbl)
     if not na(b)
         box.delete(b)
-    na
+    bool(na)
 
-export safe_delete_line(line l) => not na(l) ? line.delete(l) : na
-export safe_delete_label(label lbl) => not na(lbl) ? label.delete(lbl) : na
-export safe_delete_box(box b) => not na(b) ? box.delete(b) : na
+export safe_delete_line(line l) =>
+    if not na(l)
+        line.delete(l)
+    bool(na)
+
+export safe_delete_label(label lbl) =>
+    if not na(lbl)
+        label.delete(lbl)
+    bool(na)
+
+export safe_delete_box(box b) =>
+    if not na(b)
+        box.delete(b)
+    bool(na)
 
 export clear_preview(box cTpIn, box cSlIn, label cLblIn) =>
     safe_delete_box(cTpIn)
