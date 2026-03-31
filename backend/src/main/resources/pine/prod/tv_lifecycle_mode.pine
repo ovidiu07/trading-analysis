@@ -122,7 +122,7 @@ export mode_name_short(string mode) =>
 // =====================================================================
 
 export mode_pending_activation_bars(string mode) =>
-    mode == "Aggressive" ? 2 : mode == "Conservative" ? 7 : 5
+    mode == "Aggressive" ? 2 : mode == "Conservative" ? 8 : 7
 
 export pending_setup_is_fresh(int signalBar, int expiryBar) =>
     bar_index >= signalBar and bar_index <= expiryBar

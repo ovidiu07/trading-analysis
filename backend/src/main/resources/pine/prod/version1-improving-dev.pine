@@ -8,11 +8,11 @@ import Devtailor/tv_render_utils/2 as ren
 import Devtailor/tv_dashboard_utils/3 as tbl
 import Devtailor/tv_readiness_ui/5 as rdash
 import Devtailor/tv_market_intel_ui/2 as intel
-import Devtailor/tv_lifecycle_mode/3 as lm
-import Devtailor/tv_structure_engine/1 as se
+import Devtailor/tv_lifecycle_mode/5 as lm
+import Devtailor/tv_structure_engine/3 as se
 import Devtailor/tv_liquidity_engine/6 as liq
-import Devtailor/tv_pending_trade_state/6 as pts
-import Devtailor/tv_signal_gate_engine/7 as sg
+import Devtailor/tv_pending_trade_state/8 as pts
+import Devtailor/tv_signal_gate_engine/9 as sg
 import Devtailor/tv_entry_authority/6 as ea
 
 // --- Indicator-Local Constants ---
@@ -679,8 +679,8 @@ float htfPivot3Low = enableHtfPivot3 ? get_last_confirmed_pivot_low(liqPivotTf3,
 // BOS (continuation) vs MSS (reversal)
 bool bosBull = ta.crossover(close, lastPHi) and isDispBull
 bool bosBear = ta.crossunder(close, lastPLo) and isDispBear
-bool mssBull = ta.crossover(close, lastPHi) and isDispBull and not na(prevPLo) and low[1] < prevPLo
-bool mssBear = ta.crossunder(close, lastPLo) and isDispBear and not na(prevPHi) and high[1] > prevPHi
+bool mssBull = ta.crossover(close, lastPHi) and isDispBull and not na(prevPLo) and (low[1] < prevPLo or low[2] < prevPLo)
+bool mssBear = ta.crossunder(close, lastPLo) and isDispBear and not na(prevPHi) and (high[1] > prevPHi or high[2] > prevPHi)
 
 // --- Sequence Tracking: persistent bar timestamps for Sweep → MSS → FVG ordering ---
 var int lastMssBullBar = na
@@ -2365,8 +2365,9 @@ if isSignalB and liveSetup.lifecycleLong >= LC_MSS_CONFIRMED and liveSetup.lifec
         modeBlockL := ""
         liveSetup.longMeetsModeActivation := true
         liveSetup.longModeBlockReason := ""
-    // Chapter 5: Balanced/Conservative promote to DISPLACEMENT_CONFIRMED only with formal displacement validity
-    else if sensitivityMode != "Aggressive" and modeCandL and liveSetup.lifecycleLong < LC_DISPLACEMENT_CONFIRMED and dispValidL2 and not dispFailedL2
+    // Chapter 5: Balanced/Conservative promote to DISPLACEMENT_CONFIRMED when displacement is not failed
+    // (downstream mode qualification re-validates displacement quality before activation)
+    else if sensitivityMode != "Aggressive" and modeCandL and liveSetup.lifecycleLong < LC_DISPLACEMENT_CONFIRMED and not dispFailedL2 and (dispValidL2 or dispPassL)
         liveSetup.lifecycleLong := LC_DISPLACEMENT_CONFIRMED
         liveSetup.lifecycleNameLong := lm.lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
 
@@ -2380,7 +2381,8 @@ if isSignalS and liveSetup.lifecycleShort >= LC_MSS_CONFIRMED and liveSetup.life
         modeBlockS := ""
         liveSetup.shortMeetsModeActivation := true
         liveSetup.shortModeBlockReason := ""
-    else if sensitivityMode != "Aggressive" and modeCandS and liveSetup.lifecycleShort < LC_DISPLACEMENT_CONFIRMED and dispValidS2 and not dispFailedS2
+    // Chapter 5: Balanced/Conservative promote to DISPLACEMENT_CONFIRMED when displacement is not failed
+    else if sensitivityMode != "Aggressive" and modeCandS and liveSetup.lifecycleShort < LC_DISPLACEMENT_CONFIRMED and not dispFailedS2 and (dispValidS2 or dispPassS)
         liveSetup.lifecycleShort := LC_DISPLACEMENT_CONFIRMED
         liveSetup.lifecycleNameShort := lm.lifecycle_name(LC_DISPLACEMENT_CONFIRMED)
 

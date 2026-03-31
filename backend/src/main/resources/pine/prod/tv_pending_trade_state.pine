@@ -205,21 +205,21 @@ export pending_is_structurally_fresh(int signalBar, int mssBar_, int fvgBar_, bo
     bool stale = false
     string reason = "Structurally fresh"
     int age = bar_index - signalBar
-    int maxFresh = mode == "Aggressive" ? 5 : mode == "Conservative" ? 4 : 5
+    int maxFresh = mode == "Aggressive" ? 5 : mode == "Conservative" ? 5 : 7
     if age > maxFresh
         fresh := false
         stale := true
         reason := "Age " + str.tostring(age) + " > " + str.tostring(maxFresh) + " bars"
     if fresh and not na(mssBar_)
         int mssAge = bar_index - mssBar_
-        int mssMaxFresh = mode == "Conservative" ? 15 : mode == "Balanced" ? 25 : 35
+        int mssMaxFresh = mode == "Conservative" ? 18 : mode == "Balanced" ? 30 : 40
         if mssAge > mssMaxFresh
             fresh := false
             stale := true
             reason := "MSS aged (" + str.tostring(mssAge) + " bars)"
     if fresh and not na(fvgBar_)
         int fvgAge = bar_index - fvgBar_
-        int fvgMaxFresh = mode == "Conservative" ? 12 : mode == "Balanced" ? 20 : 30
+        int fvgMaxFresh = mode == "Conservative" ? 15 : mode == "Balanced" ? 25 : 35
         if fvgAge > fvgMaxFresh
             fresh := false
             stale := true
@@ -277,7 +277,7 @@ export evaluate_mode_execution(string mode, int lifecycle, bool swept, float swe
 
         else if mode == "Balanced"
             bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and mssQualPass and not isExtended and dispPass_ and not dispFailed_
-            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStr >= 40.0 and mssQualPass and bridgePass and not isExtended and dispPass_ and not dispFailed_
+            bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStr >= 35.0 and mssQualPass and bridgePass and not isExtended and dispPass_ and not dispFailed_
             if idealOk
                 meetsActivation := true
                 actPath := "BAL ideal (disp=" + str.tostring(math.round(dispScore_)) + ")"
@@ -290,7 +290,7 @@ export evaluate_mode_execution(string mode, int lifecycle, bool swept, float swe
         else // Conservative
             bool idealOk = lifecycle >= LC_ENTRY_ARMED and reclaimPass and reclaimStr >= 50.0 and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2 and dispStrong_ and not dispFailed_
             bool bridgeOk = lifecycle >= LC_DISPLACEMENT_CONFIRMED and lifecycle < LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and bridgeStrong and not isExtended and (seqOk or (hasFvg and fvgGrade_ >= 2)) and mssTrigSig >= 2 and dispStrong_ and not dispFailed_
-            bool fallbackOk = not idealOk and not bridgeOk and lifecycle >= LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2 and dispPass_ and dispScore_ >= 50.0 and not dispFailed_
+            bool fallbackOk = not idealOk and not bridgeOk and lifecycle >= LC_ENTRY_ARMED and reclaimStrong and mssQualStrong and not isExtended and seqOk and mssTrigSig >= 2 and dispPass_ and dispScore_ >= 45.0 and not dispFailed_
             if idealOk
                 meetsActivation := true
                 actPath := "CON ideal (disp=" + str.tostring(math.round(dispScore_)) + ")"
@@ -352,16 +352,17 @@ export evaluate_pending_activation(bool isLong, int currentLifecycle, bool recla
                 reason := not lifecycleOk ? "Pending: lifecycle insufficient" : not reclaimPass ? "Pending: reclaim lost (" + str.tostring(math.round(reclaimStr)) + ")" : "Pending: displacement insufficient"
         else if mode == "Balanced"
             bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
-            bool qualityOk = reclaimPass and mssQualPass and bridgePass_ and dispPass_
-            if lifecycleOk and qualityOk
+            bool qualityOk = reclaimPass and mssQualPass and dispPass_
+            bool fullQualityOk = qualityOk and bridgePass_
+            if lifecycleOk and (fullQualityOk or (qualityOk and reclaimStr >= 40.0))
                 canActivate := true
-                reason := "BAL pending " + side + ": quality confirmed"
+                reason := "BAL pending " + side + ": quality confirmed" + (not bridgePass_ ? " [bridge waived]" : "")
             else
                 reason := not lifecycleOk ? "Pending: lifecycle " + lm.lifecycle_name(currentLifecycle) : not reclaimPass ? "Pending: reclaim insufficient (" + str.tostring(math.round(reclaimStr)) + ")" : not mssQualPass ? "Pending: MSS quality insufficient" : not dispPass_ ? "Pending: displacement insufficient" : "Pending: bridge insufficient"
         else // Conservative
             bool lifecycleOk = currentLifecycle >= LC_DISPLACEMENT_CONFIRMED
             bool qualityOk = reclaimStrong and mssQualStrong and bridgeStrong_ and dispPass_
-            bool seqGate = seqOk or (not na(dispStrength) and dispStrength >= 1.5)
+            bool seqGate = seqOk or (not na(dispStrength) and dispStrength >= 1.2)
             if lifecycleOk and qualityOk and seqGate
                 canActivate := true
                 reason := "CON pending " + side + ": strong quality confirmed"

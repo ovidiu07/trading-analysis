@@ -112,8 +112,8 @@ export ict_liquidity_gate(bool isLong, int mssBar, float mssDisp, T.LiqSweep[] s
             // 1. Strict Freshness Logic
             // A professional trader requires the raid to be fresh relative to the MSS.
             int age = not na(mssBar) ? (mssBar - s.sweepBar) : (bar_index - s.sweepBar)
-            bool isLiveFresh = s.isActionable and age <= 25 // Tightened from broad sequence tolerance
-            bool isConsumedPrecursor = s.isConsumed and age <= 15
+            bool isLiveFresh = s.isActionable and age <= 30 // Widened slightly for more trade opportunities
+            bool isConsumedPrecursor = s.isConsumed and age <= 20
 
             if not isLiveFresh and not isConsumedPrecursor
                 rejectionReason := s.isConsumed ? REJECT_CONSUMED : REJECT_STALE
@@ -133,8 +133,8 @@ export ict_liquidity_gate(bool isLong, int mssBar, float mssDisp, T.LiqSweep[] s
             bool structurallyStrong = role == ROLE_HTF_RAID or role == ROLE_SESSION_RAID or role == ROLE_EXTERNAL_TARGET
 
             // Inducement must be exceptionally fresh, high quality, and high displacement to pass alone.
-            bool inducementValid = role == ROLE_INDUCEMENT and mssDisp >= 1.75 and s.qualityScore >= 65.0 and age <= 15
-            bool internalException = isAggressive and s.sourceType == SRC_PIVOT_INT and s.qualityScore >= 78.0
+            bool inducementValid = role == ROLE_INDUCEMENT and mssDisp >= 1.5 and s.qualityScore >= 55.0 and age <= 20
+            bool internalException = isAggressive and s.sourceType == SRC_PIVOT_INT and s.qualityScore >= 70.0
 
             if not structurallyStrong and not inducementValid and not internalException
                 rejectionReason := role == ROLE_INDUCEMENT ? REJECT_INDUCEMENT_LOW : REJECT_INTERNAL_ONLY
@@ -187,7 +187,7 @@ export silver_bullet_liquidity_gate(bool isLong, T.LiqSweep[] sweeps) =>
             // 1. True Session/HTF Raids (Primary)
             // 2. High-Quality, Extremely Fresh External Targets (Secondary)
             bool isSessionNarrative = role == ROLE_SESSION_RAID or role == ROLE_HTF_RAID
-            bool isPremiumExternal = role == ROLE_EXTERNAL_TARGET and s.qualityScore >= 70.0 and age <= 10
+            bool isPremiumExternal = role == ROLE_EXTERNAL_TARGET and s.qualityScore >= 60.0 and age <= 15
 
             if isSessionNarrative or isPremiumExternal
                 float score = s.qualityScore + (isSessionNarrative ? 35.0 : 0.0)

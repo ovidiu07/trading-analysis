@@ -132,9 +132,9 @@ export reclaim_mode_pass(bool detected_, bool valid_, bool strong_, float score_
     if mode == "Aggressive"
         pass := detected_ and score_ >= 15.0
     else if mode == "Conservative"
-        pass := strong_ or score_ >= 55.0
+        pass := strong_ or score_ >= 50.0
     else // Balanced
-        pass := valid_ or score_ >= 35.0
+        pass := valid_ or score_ >= 30.0
     pass
 
 // =====================================================================
@@ -275,7 +275,7 @@ export evaluate_mss_stage(bool isLong, int sweepBar_, bool reclaimDetected_, boo
                 seqScore += 5.0
         else if not na(sweepBar_)
             seqScore -= 10.0
-        int mssMaxFresh = mode == "Aggressive" ? 35 : mode == "Conservative" ? 18 : 25
+        int mssMaxFresh = mode == "Aggressive" ? 40 : mode == "Conservative" ? 22 : 30
         fresh := mssAge <= mssMaxFresh
         if not fresh and not failed
             failed := true
@@ -332,11 +332,11 @@ export mss_mode_pass(bool detected_, bool valid_, bool strong_, float score_, in
         pass := detected_ and score_ >= 20.0
         passStrong := valid_ and score_ >= 50.0
     else if mode == "Conservative"
-        pass := valid_ and trigSig_ >= 2 and score_ >= 50.0
-        passStrong := strong_ and trigSig_ >= 2 and score_ >= 65.0
+        pass := valid_ and trigSig_ >= 2 and score_ >= 45.0
+        passStrong := strong_ and trigSig_ >= 2 and score_ >= 60.0
     else // Balanced
-        pass := valid_ and trigSig_ >= 1 and score_ >= 35.0
-        passStrong := strong_ or (valid_ and score_ >= 55.0 and trigSig_ >= 2)
+        pass := valid_ and trigSig_ >= 1 and score_ >= 30.0
+        passStrong := strong_ or (valid_ and score_ >= 50.0 and trigSig_ >= 2)
     [pass, passStrong]
 
 // Extension filter: blocks chased entries too far from structural anchor.
@@ -349,13 +349,13 @@ export compute_extension_block(bool isLong, int mssBar_, float pivotVal, float a
         float anchor = not na(pivotVal) ? pivotVal : reqLevel
         if not na(anchor)
             distAtr := isLong ? (close - anchor) / atrVal : (anchor - close) / atrVal
-            float maxExt = mode == "Aggressive" ? 1.5 : mode == "Conservative" ? 0.7 : 1.0
+            float maxExt = mode == "Aggressive" ? 1.5 : mode == "Conservative" ? 0.85 : 1.2
             if distAtr > maxExt
                 isExtended := true
                 reason := str.tostring(distAtr, "#.##") + " ATR > " + str.tostring(maxExt, "#.#") + " max"
         if not isExtended and not na(mssBar_)
             int barsSince = bar_index - mssBar_
-            int maxBars = mode == "Aggressive" ? 15 : mode == "Conservative" ? 8 : 12
+            int maxBars = mode == "Aggressive" ? 15 : mode == "Conservative" ? 10 : 15
             if barsSince > maxBars
                 isExtended := true
                 reason := str.tostring(barsSince) + " bars since MSS > " + str.tostring(maxBars)
@@ -459,7 +459,7 @@ export evaluate_displacement_stage(bool isLong, int mssBar_, float mssDisp_, flo
                 float rAtr = barRange / atrVal
                 float bDom = barBody / barRange
                 float cQual = isLong ? (barClose - barLow) / barRange : (barHigh - barClose) / barRange
-                if rAtr < 0.4
+                if rAtr < 0.3
                     continue
                 float barQ = rAtr * 0.4 + bDom * 0.35 + cQual * 0.25
                 if barQ > bestRangeAtr * 0.4 + bestBodyDom * 0.35 + bestCloseQual * 0.25 or not foundDisp
@@ -538,7 +538,7 @@ export evaluate_displacement_stage(bool isLong, int mssBar_, float mssDisp_, flo
         float dispBonus = not na(mssDisp_) ? math.min(mssDisp_ * 3.0, 5.0) : 0.0
         compScore += dispBonus
 
-        int dispMaxFresh = mode == "Aggressive" ? 30 : mode == "Conservative" ? 15 : 22
+        int dispMaxFresh = mode == "Aggressive" ? 35 : mode == "Conservative" ? 18 : 26
         if mssAge > math.round(dispMaxFresh * 0.5) and mssAge <= dispMaxFresh
             float decay = float(mssAge - math.round(dispMaxFresh * 0.5)) / float(dispMaxFresh) * 12.0
             compScore -= decay
@@ -607,10 +607,10 @@ export displacement_mode_pass(bool detected_, bool valid_, bool strong_, float s
             pass := detected_ and score_ >= 15.0
             passStrong := valid_ and score_ >= 45.0
         else if mode == "Conservative"
-            pass := valid_ and not strong_ ? score_ >= 50.0 : strong_
-            passStrong := strong_ and score_ >= 65.0
+            pass := valid_ and not strong_ ? score_ >= 45.0 : strong_
+            passStrong := strong_ and score_ >= 60.0
         else // Balanced
-            pass := valid_ and score_ >= 30.0
+            pass := valid_ and score_ >= 25.0
             passStrong := strong_ or (valid_ and score_ >= 55.0)
     [pass, passStrong]
 
@@ -627,11 +627,11 @@ export evaluate_displacement_bridge(float mssDisp_, int fvgBar_, int fvgGrade_, 
         bridgePass := dPass
         bridgeStrong := dPassStrong
         if not bridgePass
-            float minDisp = mode == "Conservative" ? 1.5 : mode == "Balanced" ? 1.0 : 0.5
+            float minDisp = mode == "Conservative" ? 1.3 : mode == "Balanced" ? 0.8 : 0.5
             bool legacyOk = not na(mssDisp_) and mssDisp_ >= minDisp
             bool hasFreshFvg = not na(fvgBar_) and fvgGrade_ >= 2 and not fvgMitigated
             bool fvgAfterMss = hasFreshFvg and not na(mssBar_) and fvgBar_ >= mssBar_
-            if legacyOk and (seqOk or (fvgAfterMss and (bar_index - fvgBar_) <= 20))
+            if legacyOk and (seqOk or (fvgAfterMss and (bar_index - fvgBar_) <= 25))
                 bridgePass := true
                 reason := "Bridge OK [legacy fallback]"
         if bridgePass and reason == ""
