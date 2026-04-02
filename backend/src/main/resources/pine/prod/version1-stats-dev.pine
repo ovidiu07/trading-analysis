@@ -1,0 +1,259 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("Institutional SMC + SD Trade Stats", shorttitle="SMC Stats Pro", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// --- Groups ---
+G_KZ    = "Killzones & Sessions"
+G_VP    = "Volume Profile (Daily)"
+G_FVG   = "Fair Value Gaps (SMC)"
+G_PROJ  = "SD Projections & Targets"
+G_STATS = "Trade Statistics Settings"
+G_SMC   = "SMC Engine"
+G_DASH  = "Dashboard Settings"
+G_LVLS  = "Important Market Levels"
+
+// --- Constants ---
+COLOR_BULL = #08ffd6
+COLOR_BEAR = #ff0015
+
+// --- Types ---
+type fvg_data
+    float max
+    float min
+    bool  isBull
+    int   startTime
+
+// --- Inputs ---
+showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
+asiaSession  = input.session("0000-0900:1234567", "Asia Session", group=G_KZ)
+colorAsia    = input.color(color.new(#5b9cf6, 85), "Asia Color", group=G_KZ)
+
+showLondon   = input.bool(true, "London Killzone", group=G_KZ)
+londonSess   = input.session("0700-1000:1234567", "London Session", group=G_KZ)
+colorLon     = input.color(color.new(#089981, 93), "London Color", group=G_KZ)
+
+showNY       = input.bool(true, "NY Killzone", group=G_KZ)
+nySess       = input.session("1200-1500:1234567", "NY Session", group=G_KZ)
+colorNYK     = input.color(color.new(#f23645, 93), "NY Color", group=G_KZ)
+
+showVP       = input.bool(true, "Show Daily POC", group=G_VP)
+colorPOC     = input.color(color.orange, "POC Color", group=G_VP)
+
+showFVG      = input.bool(true, "Detect Fair Value Gaps", group=G_FVG)
+fvgThreshold = input.float(0, "Threshold %", minval=0, maxval=100, step=0.1, group=G_FVG)
+fvgAuto      = input.bool(false, "Auto Threshold", group=G_FVG)
+fvgExtend    = input.int(20, "Extend Bars", minval=0, group=G_FVG)
+showLastFVG  = input.int(0, "Show Only Last X Unmitigated", minval=0, group=G_FVG)
+mitigationL  = input.bool(true, "Show Mitigation Levels", group=G_FVG)
+bullFVGColor = input.color(color.new(#089981, 80), "Bullish FVG", group=G_FVG)
+bearFVGColor = input.color(color.new(#f23645, 80), "Bearish FVG", group=G_FVG)
+
+showProj     = input.bool(true, "Show SD Targets", group=G_PROJ)
+colorProj    = input.color(color.new(#5b9cf6, 30), "Projection Color", group=G_PROJ)
+
+showStatsTbl = input.bool(true, "Show Stats Table", group=G_STATS)
+stopModel    = input.string("Sweep Extreme", "Stop Model", options=["Sweep Extreme", "MSS Candle Extreme"], group=G_STATS)
+
+showSMC      = input.bool(true, "SFP & MSS Detection", group=G_SMC)
+volConfirm   = input.bool(true, "Require Volume on Sweeps", group=G_SMC)
+dispMult     = input.float(1.4, "Disp. Multiplier", step=0.1, group=G_SMC)
+swingLen     = input.int(3, "Swing Strength", minval=1, group=G_SMC)
+
+showDash     = input.bool(true, "Show Bias Dashboard", group=G_DASH)
+dashPos      = input.string("Top Right", "Position", options=["Top Right", "Bottom Right", "Top Left"], group=G_DASH)
+
+showPDH  = input.bool(true, "PDH (Prev Day High)", group=G_LVLS)
+showPDL  = input.bool(true, "PDL (Prev Day Low)", group=G_LVLS)
+showPDC  = input.bool(false, "PDC (Prev Day Close)", group=G_LVLS)
+showDO   = input.bool(true, "DO (Daily Open)", group=G_LVLS)
+showPWH  = input.bool(false, "PWH (Prev Week High)", group=G_LVLS)
+showPWL  = input.bool(false, "PWL (Prev Week Low)", group=G_LVLS)
+showPMH  = input.bool(false, "PMH (Prev Month High)", group=G_LVLS)
+showPML  = input.bool(false, "PML (Prev Month Low)", group=G_LVLS)
+
+colorPDLvl = input.color(color.new(color.gray, 30), "Daily Levels Color", group=G_LVLS)
+colorPWLvl = input.color(color.new(#5b9cf6, 30), "Weekly Levels Color", group=G_LVLS)
+colorPMLvl = input.color(color.new(#ff9800, 30), "Monthly Levels Color", group=G_LVLS)
+
+// --- Calculations ---
+isNewDay = ta.change(time("D")) != 0
+avgVol   = ta.sma(volume, 20)
+highVol  = volume > avgVol
+
+[pdh, pdl, pdc, dO] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1], open[0]], lookahead=barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+
+inAsia   = not na(time(timeframe.period, asiaSession, "UTC"))
+inLondon = not na(time(timeframe.period, londonSess, "UTC"))
+inNY     = not na(time(timeframe.period, nySess, "UTC"))
+
+bgcolor(showLondon and inLondon ? colorLon : na)
+bgcolor(showNY and inNY ? colorNYK : na)
+
+var float asiaH = na
+var float asiaL = na
+if inAsia and not inAsia[1]
+    asiaH := high
+    asiaL := low
+else if inAsia
+    asiaH := math.max(high, nz(asiaH, high))
+    asiaL := math.min(low, nz(asiaL, low))
+
+var float dPOC = na
+if isNewDay or highVol
+    dPOC := hl2
+
+plot(showVP ? dPOC : na, "Daily POC", colorPOC, 2, plot.style_linebr)
+
+plot(showPDH ? pdh : na, "PDH", colorPDLvl, 1, plot.style_linebr)
+plot(showPDL ? pdl : na, "PDL", colorPDLvl, 1, plot.style_linebr)
+plot(showPDC ? pdc : na, "PDC", colorPDLvl, 1, plot.style_circles)
+plot(showDO  ? dO  : na, "DO",  colorPDLvl, 1, plot.style_linebr)
+plot(showPWH ? pwh : na, "PWH", colorPWLvl, 2, plot.style_linebr)
+plot(showPWL ? pwl : na, "PWL", colorPWLvl, 2, plot.style_linebr)
+plot(showPMH ? pmh : na, "PMH", colorPMLvl, 2, plot.style_linebr)
+plot(showPML ? pml : na, "PML", colorPMLvl, 2, plot.style_linebr)
+
+if barstate.islast
+    if showPDH and not na(pdh)
+        label.delete(label.new(bar_index + 2, pdh, "PDH", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
+    if showPDL and not na(pdl)
+        label.delete(label.new(bar_index + 2, pdl, "PDL", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
+    if showPDC and not na(pdc)
+        label.delete(label.new(bar_index + 2, pdc, "PDC", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
+    if showDO and not na(dO)
+        label.delete(label.new(bar_index + 2, dO, "DO", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
+    if showPWH and not na(pwh)
+        label.delete(label.new(bar_index + 2, pwh, "PWH", xloc.bar_index, yloc.price, color.new(colorPWLvl, 0), label.style_label_left, color.white, size.small)[1])
+    if showPWL and not na(pwl)
+        label.delete(label.new(bar_index + 2, pwl, "PWL", xloc.bar_index, yloc.price, color.new(colorPWLvl, 0), label.style_label_left, color.white, size.small)[1])
+    if showPMH and not na(pmh)
+        label.delete(label.new(bar_index + 2, pmh, "PMH", xloc.bar_index, yloc.price, color.new(colorPMLvl, 0), label.style_label_left, color.white, size.small)[1])
+    if showPML and not na(pml)
+        label.delete(label.new(bar_index + 2, pml, "PML", xloc.bar_index, yloc.price, color.new(colorPMLvl, 0), label.style_label_left, color.white, size.small)[1])
+
+// --- FVG Engine ---
+var fvg_records = array.new<fvg_data>(0)
+var fvg_boxes   = array.new<box>(0)
+
+fvgAutoThreshold = ta.cum((high - low) / low) / (bar_index + 1)
+fvgThresholdVal = fvgAuto ? fvgAutoThreshold : fvgThreshold / 100
+
+if showFVG
+    bool isBullFVG = low > high[2] and close[1] > high[2] and (low - high[2]) / high[2] > fvgThresholdVal
+    bool isBearFVG = high < low[2] and close[1] < low[2] and (low[2] - high) / high > fvgThresholdVal
+
+    if isBullFVG
+        fvg_records.unshift(fvg_data.new(low, high[2], true, time))
+        fvg_boxes.unshift(box.new(bar_index-2, low, bar_index + fvgExtend, high[2], border_color=na, bgcolor=bullFVGColor))
+
+    if isBearFVG
+        fvg_records.unshift(fvg_data.new(low[2], high, false, time))
+        fvg_boxes.unshift(box.new(bar_index-2, low[2], bar_index + fvgExtend, high, border_color=na, bgcolor=bearFVGColor))
+
+    if fvg_records.size() > 0
+        for i = fvg_records.size() - 1 to 0
+            get_fvg = fvg_records.get(i)
+            mitigated = false
+            if get_fvg.isBull
+                if close < get_fvg.min
+                    mitigated := true
+                    if mitigationL
+                        line.new(get_fvg.startTime, get_fvg.min, time, get_fvg.min, xloc.bar_time, color=bullFVGColor, style=line.style_dashed)
+            else
+                if close > get_fvg.max
+                    mitigated := true
+                    if mitigationL
+                        line.new(get_fvg.startTime, get_fvg.max, time, get_fvg.max, xloc.bar_time, color=bearFVGColor, style=line.style_dashed)
+            if mitigated
+                fvg_records.remove(i)
+                box.delete(fvg_boxes.remove(i))
+
+// --- SMC & SD Stats ---
+var bool waitS = false
+var bool waitL = false
+var float sExtH = na
+var float sExtL = na
+var float lSwh = na
+var float lSwl = na
+var string structureStatus = "Neutral"
+
+avgBody = ta.sma(math.abs(close - open), 20)
+disp    = math.abs(close - open) > (avgBody * dispMult)
+
+swH = ta.pivothigh(high, swingLen, swingLen)
+swL = ta.pivotlow(low, swingLen, swingLen)
+if not na(swH)
+    lSwh := swH
+if not na(swL)
+    lSwl := swL
+
+isSFP_H = (high > pdh and close < pdh) or (high > asiaH and close < asiaH)
+isSFP_L = (low < pdl and close > pdl) or (low < asiaL and close > asiaL)
+
+vSFP_H = isSFP_H and (high - close) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
+vSFP_L = isSFP_L and (close - low) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
+
+if vSFP_H
+    label.new(bar_index, high, "V-SWEEP", color=#00000000, textcolor=COLOR_BEAR, style=label.style_label_down, size=size.tiny)
+    waitS := true, waitL := false, sExtH := high
+if vSFP_L
+    label.new(bar_index, low, "V-SWEEP", color=#00000000, textcolor=COLOR_BULL, style=label.style_label_up, size=size.tiny)
+    waitL := true, waitS := false, sExtL := low
+
+mssS = waitS and close < lSwl and disp
+mssL = waitL and close > lSwh and disp
+
+// --- Stats Logic ---
+var int tSetups = 0
+var int w10 = 0
+var int l10 = 0
+var bool active = false
+var bool bull = false
+var float tSL = na
+var float t10 = na
+
+if mssS and not active
+    active := true, bull := false, tSetups += 1
+    tSL := (stopModel == "Sweep Extreme") ? sExtH : high
+    t10 := lSwl - (sExtH - lSwl)
+    waitS := false, structureStatus := "Bearish"
+    if showProj
+        line.new(bar_index, t10, bar_index+15, t10, color=COLOR_BEAR, style=line.style_dashed)
+    label.new(bar_index, low, "INST. ENTRY ↘", color=COLOR_BEAR, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+if mssL and not active
+    active := true, bull := true, tSetups += 1
+    tSL := (stopModel == "Sweep Extreme") ? sExtL : low
+    t10 := lSwh + (lSwh - sExtL)
+    waitL := false, structureStatus := "Bullish"
+    if showProj
+        line.new(bar_index, t10, bar_index+15, t10, color=COLOR_BULL, style=line.style_dashed)
+    label.new(bar_index, high, "INST. ENTRY ↗", color=COLOR_BULL, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+if active
+    if bull
+        if low < tSL
+            active := false, l10 += 1
+        else if high > t10
+            w10 += 1, active := false
+    else
+        if high > tSL
+            active := false, l10 += 1
+        else if low < t10
+            w10 += 1, active := false
+
+// --- Dashboard ---
+if showDash and barstate.islast
+    pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
+    var table tb = table.new(pos_tbl, 2, 3, bgcolor=#1e222d, border_color=#373a46, border_width=1)
+    table.cell(tb, 0, 0, "Bias", text_color=color.white)
+    table.cell(tb, 1, 0, structureStatus, text_color=(structureStatus == "Bullish") ? COLOR_BULL : COLOR_BEAR)
+    table.cell(tb, 0, 1, "Total Setups", text_color=color.white)
+    table.cell(tb, 1, 1, str.tostring(tSetups), text_color=color.white)
+
+    tot = w10 + l10
+    winrate = tot == 0 ? "0%" : str.tostring(math.round(w10 / tot * 100)) + "%"
+    table.cell(tb, 0, 2, "Winrate", text_color=color.white)
+    table.cell(tb, 1, 2, winrate, text_color=COLOR_BULL)
