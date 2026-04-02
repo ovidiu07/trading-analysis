@@ -70,10 +70,12 @@ showPWH  = input.bool(false, "PWH (Prev Week High)", group=G_LVLS)
 showPWL  = input.bool(false, "PWL (Prev Week Low)", group=G_LVLS)
 showPMH  = input.bool(false, "PMH (Prev Month High)", group=G_LVLS)
 showPML  = input.bool(false, "PML (Prev Month Low)", group=G_LVLS)
+showNYMid = input.bool(true, "NY Midnight Open", group=G_LVLS)
 
 colorPDLvl = input.color(color.new(color.gray, 30), "Daily Levels Color", group=G_LVLS)
 colorPWLvl = input.color(color.new(#5b9cf6, 30), "Weekly Levels Color", group=G_LVLS)
 colorPMLvl = input.color(color.new(#ff9800, 30), "Monthly Levels Color", group=G_LVLS)
+colorNYMid = input.color(color.gray, "NY Midnight Color", group=G_LVLS)
 
 // --- Calculations ---
 isNewDay = ta.change(time("D")) != 0
@@ -84,6 +86,11 @@ highVol  = volume > avgVol
 [pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead=barmerge.lookahead_on)
 
+isNewDayNY = hour(time, "America/New_York") == 0 and minute(time, "America/New_York") == 0
+var float nyMidnight = na
+if isNewDayNY
+    nyMidnight := open
+
 inAsia   = not na(time(timeframe.period, asiaSession, "UTC"))
 inLondon = not na(time(timeframe.period, londonSess, "UTC"))
 inNY     = not na(time(timeframe.period, nySess, "UTC"))
@@ -93,12 +100,19 @@ bgcolor(showNY and inNY ? colorNYK : na)
 
 var float asiaH = na
 var float asiaL = na
+var box asiaBox = na
 if inAsia and not inAsia[1]
     asiaH := high
     asiaL := low
+    if showAsia
+        asiaBox := box.new(bar_index, asiaH, bar_index, asiaL, border_color=colorAsia, bgcolor=color.new(colorAsia, 90))
 else if inAsia
     asiaH := math.max(high, nz(asiaH, high))
     asiaL := math.min(low, nz(asiaL, low))
+    if showAsia and not na(asiaBox)
+        box.set_top(asiaBox, asiaH)
+        box.set_bottom(asiaBox, asiaL)
+        box.set_right(asiaBox, bar_index)
 
 var float dPOC = na
 if isNewDay or highVol
@@ -106,32 +120,52 @@ if isNewDay or highVol
 
 plot(showVP ? dPOC : na, "Daily POC", colorPOC, 2, plot.style_linebr)
 
-plot(showPDH ? pdh : na, "PDH", colorPDLvl, 1, plot.style_linebr)
-plot(showPDL ? pdl : na, "PDL", colorPDLvl, 1, plot.style_linebr)
-plot(showPDC ? pdc : na, "PDC", colorPDLvl, 1, plot.style_circles)
-plot(showDO  ? dO  : na, "DO",  colorPDLvl, 1, plot.style_linebr)
-plot(showPWH ? pwh : na, "PWH", colorPWLvl, 2, plot.style_linebr)
-plot(showPWL ? pwl : na, "PWL", colorPWLvl, 2, plot.style_linebr)
-plot(showPMH ? pmh : na, "PMH", colorPMLvl, 2, plot.style_linebr)
-plot(showPML ? pml : na, "PML", colorPMLvl, 2, plot.style_linebr)
+f_updateLevel(show, val, txt, clr, l, lb, width) =>
+    if show and not na(val)
+        levelLeft = math.max(bar_index - 50, 0)
+        levelRight = bar_index + 10
+        line.set_xy1(l, levelLeft, val)
+        line.set_xy2(l, levelRight, val)
+        line.set_color(l, clr)
+        line.set_width(l, width)
+        label.set_xy(lb, levelRight, val)
+        label.set_textcolor(lb, clr)
+        label.set_text(lb, txt + " (" + str.tostring(val, format.mintick) + ")")
+    else
+        line.set_y1(l, na)
+        line.set_y2(l, na)
+        label.set_y(lb, na)
+        label.set_text(lb, "")
+
+var line lnPDH = line.new(na, na, na, na)
+var label lbPDH = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnPDL = line.new(na, na, na, na)
+var label lbPDL = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnPDC = line.new(na, na, na, na)
+var label lbPDC = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnDO = line.new(na, na, na, na)
+var label lbDO = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnPWH = line.new(na, na, na, na)
+var label lbPWH = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnPWL = line.new(na, na, na, na)
+var label lbPWL = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnPMH = line.new(na, na, na, na)
+var label lbPMH = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnPML = line.new(na, na, na, na)
+var label lbPML = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var line lnNYMid = line.new(na, na, na, na)
+var label lbNYMid = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
 
 if barstate.islast
-    if showPDH and not na(pdh)
-        label.delete(label.new(bar_index + 2, pdh, "PDH", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
-    if showPDL and not na(pdl)
-        label.delete(label.new(bar_index + 2, pdl, "PDL", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
-    if showPDC and not na(pdc)
-        label.delete(label.new(bar_index + 2, pdc, "PDC", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
-    if showDO and not na(dO)
-        label.delete(label.new(bar_index + 2, dO, "DO", xloc.bar_index, yloc.price, color.new(colorPDLvl, 0), label.style_label_left, color.white, size.small)[1])
-    if showPWH and not na(pwh)
-        label.delete(label.new(bar_index + 2, pwh, "PWH", xloc.bar_index, yloc.price, color.new(colorPWLvl, 0), label.style_label_left, color.white, size.small)[1])
-    if showPWL and not na(pwl)
-        label.delete(label.new(bar_index + 2, pwl, "PWL", xloc.bar_index, yloc.price, color.new(colorPWLvl, 0), label.style_label_left, color.white, size.small)[1])
-    if showPMH and not na(pmh)
-        label.delete(label.new(bar_index + 2, pmh, "PMH", xloc.bar_index, yloc.price, color.new(colorPMLvl, 0), label.style_label_left, color.white, size.small)[1])
-    if showPML and not na(pml)
-        label.delete(label.new(bar_index + 2, pml, "PML", xloc.bar_index, yloc.price, color.new(colorPMLvl, 0), label.style_label_left, color.white, size.small)[1])
+    f_updateLevel(showPDH, pdh, "PDH", colorPDLvl, lnPDH, lbPDH, 1)
+    f_updateLevel(showPDL, pdl, "PDL", colorPDLvl, lnPDL, lbPDL, 1)
+    f_updateLevel(showPDC, pdc, "PDC", colorPDLvl, lnPDC, lbPDC, 1)
+    f_updateLevel(showDO, dO, "DO", colorPDLvl, lnDO, lbDO, 1)
+    f_updateLevel(showPWH, pwh, "PWH", colorPWLvl, lnPWH, lbPWH, 2)
+    f_updateLevel(showPWL, pwl, "PWL", colorPWLvl, lnPWL, lbPWL, 2)
+    f_updateLevel(showPMH, pmh, "PMH", colorPMLvl, lnPMH, lbPMH, 2)
+    f_updateLevel(showPML, pml, "PML", colorPMLvl, lnPML, lbPML, 2)
+    f_updateLevel(showNYMid, nyMidnight, "NY-Mid", colorNYMid, lnNYMid, lbNYMid, 1)
 
 // --- FVG Engine ---
 var fvg_records = array.new<fvg_data>(0)
