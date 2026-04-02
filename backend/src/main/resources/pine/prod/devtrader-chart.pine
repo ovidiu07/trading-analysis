@@ -1,6 +1,6 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
-indicator("Institutional SMC DevTrader", shorttitle="Devtrader - Chart analysis", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+indicator("Institutional SMC DevTrader", shorttitle="Devtrader - Chart analysis", overlay=true, max_bars_back=5000, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
 
 // --- Groups ---
 G_KZ    = "Killzones & Sessions"
@@ -40,6 +40,14 @@ type reaction_zone
     bool   isInvalidated
     string narrative     // description for label
 
+type liq_pool
+    string side          // "BSL" or "SSL"
+    string poolType      // "MAJOR", "MINOR", "SESS", "EQ"
+    float  price
+    int    sourceBar
+    bool   isSwept
+    string poolLabel
+
 // --- Inputs ---
 showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
 asiaSession  = input.session("0000-0900:1234567", "Asia Session", group=G_KZ)
@@ -72,22 +80,25 @@ showStatsTbl = input.bool(true, "Show Stats Table", group=G_STATS)
 stopModel    = input.string("Sweep Extreme", "Stop Model", options=["Sweep Extreme", "MSS Candle Extreme"], group=G_STATS)
 
 showSMC      = input.bool(true, "SFP & MSS Detection", group=G_SMC)
-volConfirm   = input.bool(true, "Require Volume on Sweeps", group=G_SMC)
+majorSweeps  = input.bool(true, "External Liquidity Only", group=G_SMC, tooltip="Only detect sweeps on External levels (Major, EQ, or Session). Ignores minor internal structure.")
+wickThresh   = input.float(0.70, "Min. Rejection Wick %", minval=0.4, maxval=1.0, step=0.05, group=G_SMC, tooltip="Minimum wick percentage relative to candle range.")
+reclaimLvl   = input.float(0.15, "Reclaim Threshold %", minval=0.0, step=0.05, group=G_SMC, tooltip="How far back inside the level the price must close (relative to range). Higher = Stronger Reclaim.")
+sweepMaxDepth = input.float(0.8, "Max Sweep Depth (ATR)", minval=0.1, step=0.1, group=G_SMC, tooltip="Limit how far price can pierce the level before it's considered a failed breakout attempt rather than a sweep.")
+ageExpiry    = input.int(800, "Level Expiry (Bars)", minval=100, group=G_SMC, tooltip="Levels older than this are considered 'fragile/stale' for sweeps.")
+kzBoost      = input.bool(true, "Killzone Priority", group=G_SMC, tooltip="Increases sweep score if it occurs in London/NY sessions.")
+volConfirm   = input.bool(true, "Require Volume Confirmation", group=G_SMC)
+useMajorMSS  = input.bool(true, "Major Structure MSS Only", group=G_SMC, tooltip="Require MSS to break a Major pivot rather than a minor internal one.")
 dispMult     = input.float(1.4, "Disp. Multiplier", step=0.1, group=G_SMC)
 swingLen     = input.int(3, "Swing Strength", minval=1, group=G_SMC)
 
-liqPivotLen      = input.int(14, "Pivot Lookback", minval=1, group=G_LIQ)
-liqAreaMode      = input.string("Wick Extremity", "Swing Area", options=["Wick Extremity", "Full Range"], group=G_LIQ)
-liqIntraPrecision = input.bool(false, "Intrabar Precision", inline="liqIntra", group=G_LIQ)
-liqIntrabarTf    = input.timeframe("1", "", inline="liqIntra", group=G_LIQ)
-liqFilterMode    = input.string("Count", "Filter Areas By", options=["Count", "Volume"], inline="liqFilter", group=G_LIQ)
-liqFilterValue   = input.float(0, "", inline="liqFilter", group=G_LIQ)
-showSwingHigh    = input.bool(true, "Swing High", inline="liqHigh", group=G_LIQ)
-liqHighLineColor = input.color(color.red, "", inline="liqHigh", group=G_LIQ)
-liqHighAreaColor = input.color(color.new(color.red, 50), "Area", inline="liqHigh", group=G_LIQ)
-showSwingLow     = input.bool(true, "Swing Low", inline="liqLow", group=G_LIQ)
-liqLowLineColor  = input.color(color.teal, "", inline="liqLow", group=G_LIQ)
-liqLowAreaColor  = input.color(color.new(color.teal, 50), "Area", inline="liqLow", group=G_LIQ)
+liqPivotLen      = input.int(14, "Base Pivot Lookback", minval=1, group=G_LIQ)
+autoLiqPivot     = input.bool(true, "Auto-Optimize Lookback", group=G_LIQ, tooltip="Adjusts the pivot lookback based on current ATR volatility. High volatility increases lookback to filter noise; low volatility decreases it to catch tighter pivots.")
+
+showEQ           = input.bool(true, "Show EQH / EQL", group=G_LIQ)
+eqThreshold      = input.float(0.1, "EQ Threshold %", minval=0, step=0.01, group=G_LIQ)
+showLiquidityLabels = input.bool(true, "Show Liquidity Labels", group=G_LIQ)
+liqMajorColor    = input.color(color.new(#ff0015, 30), "Major Liquidity", group=G_LIQ)
+liqMinorColor    = input.color(color.new(#5b9cf6, 50), "Minor Liquidity", group=G_LIQ)
 liqLabelSize     = input.string("Tiny", "Labels Size", options=["Tiny", "Small", "Normal"], group=G_LIQ)
 
 showDash     = input.bool(true, "Show Bias Dashboard", group=G_DASH)
@@ -108,13 +119,15 @@ colorPWLvl = input.color(color.new(#5b9cf6, 30), "Weekly Levels Color", group=G_
 colorPMLvl = input.color(color.new(#ff9800, 30), "Monthly Levels Color", group=G_LVLS)
 colorNYMid = input.color(color.gray, "NY Midnight Color", group=G_LVLS)
 
-showRZ       = input.bool(true, "Show Reaction Zones", group=G_RZ)
-maxRZPerSide = input.int(1, "Max Zones per Side", minval=1, maxval=2, group=G_RZ)
-showRZLabels = input.bool(true, "Show Zone Labels", group=G_RZ)
-showRZCE     = input.bool(true, "Show Equilibrium (CE)", group=G_RZ)
-showRZDebug  = input.bool(false, "Show Selection Debug", group=G_RZ)
-rzBullColor  = input.color(color.new(#08ffd6, 70), "Bullish Zone Color", group=G_RZ)
-rzBearColor  = input.color(color.new(#ff0015, 70), "Bearish Zone Color", group=G_RZ)
+showRZ           = input.bool(true, "Show Reaction Zones", group=G_RZ)
+rzProximityMult = input.float(3.0, "Actionable Proximity (ATR Mult)", minval=0.5, step=0.5, group=G_RZ, tooltip="Only show zones within this ATR distance from current price.")
+rzMergeZones    = input.bool(true, "Merge Overlapping Zones", group=G_RZ)
+showRZLabels    = input.bool(true, "Show Zone Labels", group=G_RZ)
+showRZCE        = input.bool(true, "Show Equilibrium (CE)", group=G_RZ)
+showRZDebug     = input.bool(false, "Show Selection Debug", group=G_RZ)
+rzEntryColor    = input.color(color.new(#08ffd6, 60), "Entry Zone Color", group=G_RZ)
+rzTargetColor   = input.color(color.new(#5b9cf6, 80), "Target Zone Color", group=G_RZ)
+rzBearColor     = input.color(color.new(#ff0015, 60), "Bearish Zone Color", group=G_RZ)
 
 // --- HTF Settings ---
 G_HTF        = "Higher Timeframe Structure"
@@ -126,9 +139,13 @@ htf2SwingLen = input.int(5, "HTF 2 Swing Strength", group=G_HTF)
 htfColor1    = input.color(color.new(#5b9cf6, 30), "HTF 1 Level Color", group=G_HTF)
 htfColor2    = input.color(color.new(#ff9800, 30), "HTF 2 Level Color", group=G_HTF)
 
-
-
 // --- Calculations ---
+// Liquidity pools keep historical source bars and later reuse them as drawing anchors.
+// Reserve a deeper buffer so line/label rendering from old pools does not exceed Pine's inferred history.
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
 isNewDay = ta.change(time("D")) != 0
 avgVol   = ta.sma(volume, 20)
 highVol  = volume > avgVol
@@ -179,8 +196,6 @@ plot(showHTF ? lastHtf1PL : na, "HTF 1 Low", htfColor1, 1, plot.style_linebr)
 plot(showHTF ? lastHtf2PH : na, "HTF 2 High", htfColor2, 1, plot.style_linebr)
 plot(showHTF ? lastHtf2PL : na, "HTF 2 Low", htfColor2, 1, plot.style_linebr)
 
-
-
 var float asiaH = na
 var float asiaL = na
 var box asiaBox = na
@@ -203,7 +218,10 @@ if isNewDay or highVol
 
 plot(showVP ? dPOC : na, "Daily POC", colorPOC, 2, plot.style_linebr)
 
-f_updateLevel(show, val, txt, clr, l, lb, width) =>
+f_liqLabelSize() =>
+    liqLabelSize == "Tiny" ? size.tiny : liqLabelSize == "Small" ? size.small : size.normal
+
+f_updateLevel(bool show, float val, string txt, color clr, line l, label lb, int width) =>
     if show and not na(val)
         levelLeft = math.max(bar_index - 50, 0)
         levelRight = bar_index + 10
@@ -250,80 +268,68 @@ if barstate.islast
     f_updateLevel(showPML, pml, "PML", colorPMLvl, lnPML, lbPML, 2)
     f_updateLevel(showNYMid, nyMidnight, "NY-Mid", colorNYMid, lnNYMid, lbNYMid, 1)
 
-get_data() =>
-    [high, low, volume]
+// --- Advanced Liquidity Engine ---
+var liq_pools = array.new<liq_pool>(0)
 
-[liqHighData, liqLowData, liqVolData] = request.security_lower_tf(syminfo.tickerid, liqIntrabarTf, get_data())
+// Volatility-Based Auto Optimization
+atrVal = ta.atr(14)
+max_bars_back(atrVal, 1000)
+volScale = atrVal / nz(ta.sma(atrVal, 200), atrVal)
+dynLen = autoLiqPivot ? math.max(5, math.min(40, math.round(liqPivotLen * volScale))) : liqPivotLen
 
-f_liqMetric(count, vol) =>
-    liqFilterMode == "Count" ? float(count) : vol
+majPH = ta.pivothigh(high, dynLen * 2, dynLen * 2)
+majPL = ta.pivotlow(low, dynLen * 2, dynLen * 2)
+minPH = ta.pivothigh(high, dynLen, dynLen)
+minPL = ta.pivotlow(low, dynLen, dynLen)
 
-f_liqLabelText(count, vol) =>
-    liqFilterMode == "Count" ? str.tostring(count) : str.tostring(vol, format.volume)
+if barstate.isconfirmed
+    if not na(majPH)
+        liq_pools.push(liq_pool.new("BSL", "MAJOR", majPH, bar_index - dynLen*2, false, "MAJOR BSL"))
+    if not na(majPL)
+        liq_pools.push(liq_pool.new("SSL", "MAJOR", majPL, bar_index - dynLen*2, false, "MAJOR SSL"))
+    if not na(minPH) and na(majPH)
+        liq_pools.push(liq_pool.new("BSL", "MINOR", minPH, bar_index - dynLen, false, "MINOR BSL"))
+    if not na(minPL) and na(majPL)
+        liq_pools.push(liq_pool.new("SSL", "MINOR", minPL, bar_index - dynLen, false, "MINOR SSL"))
 
-f_liqLabelSize() =>
-    liqLabelSize == "Tiny" ? size.tiny : liqLabelSize == "Small" ? size.small : size.normal
 
-get_counts(reset, top, btm) =>
-    var int count = 0
-    var float vol = 0.0
+    if showEQ and liq_pools.size() > 1
+        for i = liq_pools.size() - 1 to 1
+            p1 = liq_pools.get(i)
+            for j = i - 1 to 0
+                p2 = liq_pools.get(j)
+                if p1.side == p2.side and not p1.isSwept and not p2.isSwept
+                    if math.abs(p1.price - p2.price) / p2.price * 100 <= eqThreshold
+                        p1.poolType := "EQ", p2.poolType := "EQ"
+                        p1.poolLabel := p1.side == "BSL" ? "EQH" : "EQL"
+                        p2.poolLabel := p1.poolLabel
 
-    if reset
-        count := 0
-        vol := 0.0
-    else if not na(top) and not na(btm) and bar_index > liqPivotLen
-        areaTouched = low[liqPivotLen] < top and high[liqPivotLen] > btm
+if inAsia and not inAsia[1]
+    liq_pools.push(liq_pool.new("BSL", "SESS", asiaH, bar_index, false, "ASIA H"))
+    liq_pools.push(liq_pool.new("SSL", "SESS", asiaL, bar_index, false, "ASIA L"))
+if isNewDay
+    liq_pools.push(liq_pool.new("BSL", "SESS", pdh, bar_index, false, "PDH"))
+    liq_pools.push(liq_pool.new("SSL", "SESS", pdl, bar_index, false, "PDL"))
 
-        if liqIntraPrecision and array.size(liqVolData[liqPivotLen]) > 0
-            for [idx, element] in liqVolData[liqPivotLen]
-                ltfLow = array.get(liqLowData[liqPivotLen], idx)
-                ltfHigh = array.get(liqHighData[liqPivotLen], idx)
-                vol += ltfLow < top and ltfHigh > btm ? element : 0
-        else
-            vol += areaTouched ? volume[liqPivotLen] : 0
+if liq_pools.size() > 0
+    for i = 0 to liq_pools.size() - 1
+        pool = liq_pools.get(i)
+        if not pool.isSwept
+            if (pool.side == "BSL" and high > pool.price) or (pool.side == "SSL" and low < pool.price)
+                pool.isSwept := true
 
-        count += areaTouched ? 1 : 0
+if liq_pools.size() > 50
+    liq_pools.remove(0)
 
-    [count, vol]
-
-set_label(show, crossed, count, vol, x, y, css, lblStyle) =>
-    var label lbl = label.new(na, na, "", color=#00000000)
-    target = f_liqMetric(count, vol)
-
-    if show and not na(y) and target >= liqFilterValue and not crossed
-        label.set_xy(lbl, x, y)
-        label.set_text(lbl, f_liqLabelText(count, vol))
-        label.set_textcolor(lbl, css)
-        label.set_style(lbl, lblStyle)
-        label.set_size(lbl, f_liqLabelSize())
-        label.set_color(lbl, #00000000)
-    else
-        label.set_text(lbl, "")
-
-set_level(show, crossed, x, value, count, vol, css) =>
-    var line lvl = line.new(na, na, na, na)
-    target = f_liqMetric(count, vol)
-    levelColor = target >= liqFilterValue ? css : color.new(css, 80)
-
-    if show and not na(value)
-        line.set_xy1(lvl, x, value)
-        line.set_xy2(lvl, crossed ? bar_index : bar_index + 3, value)
-        line.set_style(lvl, crossed ? line.style_dashed : line.style_solid)
-        line.set_color(lvl, levelColor)
-    else
-        line.set_color(lvl, na)
-
-set_zone(show, crossed, x, top, btm, count, vol, css) =>
-    var box bx = box.new(na, na, na, na, border_color=na)
-    target = f_liqMetric(count, vol)
-    zoneColor = target >= liqFilterValue ? css : color.new(css, 92)
-
-    if show and not na(top) and not na(btm)
-        box.set_lefttop(bx, x, top)
-        box.set_rightbottom(bx, crossed ? bar_index : bar_index + 3, btm)
-        box.set_bgcolor(bx, zoneColor)
-    else
-        box.set_bgcolor(bx, na)
+if barstate.islast and liq_pools.size() > 0
+    for i = 0 to liq_pools.size() - 1
+        p = liq_pools.get(i)
+        if not p.isSwept
+            isMaj = p.poolType == "MAJOR" or p.poolType == "EQ" or p.poolType == "SESS"
+            clr = isMaj ? liqMajorColor : liqMinorColor
+            line.new(p.sourceBar, p.price, bar_index + 5, p.price, color=clr, style=isMaj ? line.style_solid : line.style_dashed)
+            if showLiquidityLabels
+                label.new(bar_index + 5, p.price, p.poolLabel, color=#00000000, textcolor=clr, style=label.style_label_left, size=f_liqLabelSize())
 
 // --- FVG Engine ---
 var fvg_records = array.new<fvg_data>(0)
@@ -337,11 +343,11 @@ if showFVG
     bool isBearFVG = high < low[2] and close[1] < low[2] and (low[2] - high) / high > fvgThresholdVal
 
     if isBullFVG
-        fvg_records.unshift(fvg_data.new(low, high[2], true, time))
+        fvg_records.unshift(fvg_data.new(low, high[2], true, time, bar_index))
         fvg_boxes.unshift(box.new(bar_index-2, low, bar_index + fvgExtend, high[2], border_color=na, bgcolor=bullFVGColor))
 
     if isBearFVG
-        fvg_records.unshift(fvg_data.new(low[2], high, false, time))
+        fvg_records.unshift(fvg_data.new(low[2], high, false, time, bar_index))
         fvg_boxes.unshift(box.new(bar_index-2, low[2], bar_index + fvgExtend, high, border_color=na, bgcolor=bearFVGColor))
 
     if fvg_records.size() > 0
@@ -369,6 +375,10 @@ var float sExtH = na
 var float sExtL = na
 var float lSwh = na
 var float lSwl = na
+var float majSwh = na
+var float majSwl = na
+var float anchorMSS_L = na
+var float anchorMSS_S = na
 var string structureStatus = "Neutral"
 var int tSetups = 0
 var int w10 = 0
@@ -377,87 +387,105 @@ var bool active = false
 var bool bull = false
 var float tSL = na
 var float t10 = na
-var float ph_top = na
-var float ph_btm = na
-var bool ph_crossed = false
-var int ph_x1 = 0
-var float pl_top = na
-var float pl_btm = na
-var bool pl_crossed = false
-var int pl_x1 = 0
 
 avgBody = ta.sma(math.abs(close - open), 20)
 disp    = math.abs(close - open) > (avgBody * dispMult)
 
 swH = ta.pivothigh(high, swingLen, swingLen)
 swL = ta.pivotlow(low, swingLen, swingLen)
+majH = ta.pivothigh(high, swingLen * 3, swingLen * 3)
+majL = ta.pivotlow(low, swingLen * 3, swingLen * 3)
+
 if not na(swH)
     lSwh := swH
 if not na(swL)
     lSwl := swL
+if not na(majH)
+    majSwh := majH
+if not na(majL)
+    majSwl := majL
+// --- High-Fidelity Sweep Engine ---
+bool swpBSL = false
+bool swpSSL = false
+string swpTxt = ""
+float sweepGrade = 0.0
 
-ph = ta.pivothigh(high, liqPivotLen, liqPivotLen)
-pl = ta.pivotlow(low, liqPivotLen, liqPivotLen)
-newPh = not na(ph)
-newPl = not na(pl)
+if liq_pools.size() > 0
+    for i = 0 to liq_pools.size() - 1
+        p_s = liq_pools.get(i)
 
-[phCount, phVol] = get_counts(newPh, ph_top, ph_btm)
-[plCount, plVol] = get_counts(newPl, pl_top, pl_btm)
+        // 1. Expiry & Type Check
+        isExpired = (bar_index - p_s.sourceBar) > ageExpiry
+        isExternal = (p_s.poolType == "MAJOR" or p_s.poolType == "EQ" or p_s.poolType == "SESS")
 
-if newPh
-    ph_top := high[liqPivotLen]
-    ph_btm := liqAreaMode == "Wick Extremity" ? math.max(close[liqPivotLen], open[liqPivotLen]) : low[liqPivotLen]
-    ph_x1 := bar_index - liqPivotLen
-    ph_crossed := false
-else if not na(ph_top)
-    ph_crossed := close > ph_top ? true : ph_crossed
+        if not p_s.isSwept and not isExpired
+            if not majorSweeps or isExternal
+                // 2. Proximity & Raid Logic
+                isRaidBSL = high >= p_s.price and close < p_s.price
+                isRaidSSL = low <= p_s.price and close > p_s.price
 
-if newPl
-    pl_top := liqAreaMode == "Wick Extremity" ? math.min(close[liqPivotLen], open[liqPivotLen]) : high[liqPivotLen]
-    pl_btm := low[liqPivotLen]
-    pl_x1 := bar_index - liqPivotLen
-    pl_crossed := false
-else if not na(pl_btm)
-    pl_crossed := close < pl_btm ? true : pl_crossed
+                if isRaidBSL or isRaidSSL
+                    candleRange = high - low
+                    depth = isRaidBSL ? (high - p_s.price) : (p_s.price - low)
+                    reclaim = isRaidBSL ? (p_s.price - close) : (close - p_s.price)
 
-set_zone(showSwingHigh, ph_crossed, ph_x1, ph_top, ph_btm, phCount, phVol, liqHighAreaColor)
-set_level(showSwingHigh, ph_crossed, ph_x1, ph_top, phCount, phVol, liqHighLineColor)
-set_label(showSwingHigh, ph_crossed, phCount, phVol, ph_x1, ph_top, liqHighLineColor, label.style_label_down)
+                    // 3. Quality Metrics
+                    depthValid = depth <= (atrVal * sweepMaxDepth)
+                    reclaimValid = (reclaim / (candleRange > 0 ? candleRange : 1)) >= reclaimLvl
+                    wickValid = (isRaidBSL ? (high - close) : (close - low)) / (candleRange > 0 ? candleRange : 1) >= wickThresh
 
-set_zone(showSwingLow, pl_crossed, pl_x1, pl_top, pl_btm, plCount, plVol, liqLowAreaColor)
-set_level(showSwingLow, pl_crossed, pl_x1, pl_btm, plCount, plVol, liqLowLineColor)
-set_label(showSwingLow, pl_crossed, plCount, plVol, pl_x1, pl_btm, liqLowLineColor, label.style_label_up)
+                    if depthValid and reclaimValid and wickValid
+                        // 4. Scoring Factor
+                        grade = 0.0
+                        grade += isExternal ? 40.0 : 0.0
+                        grade += (kzBoost and (inLondon or inNY)) ? 30.0 : 0.0
+                        grade += (volConfirm and highVol) ? 30.0 : 0.0
 
-phQualified = f_liqMetric(phCount, phVol) >= liqFilterValue
-plQualified = f_liqMetric(plCount, plVol) >= liqFilterValue
+                        if grade >= 40.0
+                            if isRaidBSL
+                                swpBSL := true, swpTxt := p_s.poolLabel, sweepGrade := grade
+                                anchorMSS_S := useMajorMSS ? majSwl : lSwl
+                            else
+                                swpSSL := true, swpTxt := p_s.poolLabel, sweepGrade := grade
+                                anchorMSS_L := useMajorMSS ? majSwh : lSwh
+                            break
 
-bearSweep = showSMC and showSwingHigh and phQualified and not ph_crossed and not na(ph_top) and high >= ph_top and close < ph_top and (high - close) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
-bullSweep = showSMC and showSwingLow and plQualified and not pl_crossed and not na(pl_btm) and low <= pl_btm and close > pl_btm and (close - low) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
-
-if waitS and ph_crossed
-    waitS := false
-if waitL and pl_crossed
-    waitL := false
-
+bearSweep = showSMC and swpBSL
+bullSweep = showSMC and swpSSL
 if bearSweep and not active and not waitS
-    label.new(bar_index, high, "V-SWEEP", color=#00000000, textcolor=COLOR_BEAR, style=label.style_label_down, size=size.tiny)
+    label.new(bar_index, high, "RAID: " + swpTxt, color=#00000000, textcolor=COLOR_BEAR, style=label.style_label_down, size=size.tiny)
     waitS := true, waitL := false, sExtH := high
 if bullSweep and not active and not waitL
-    label.new(bar_index, low, "V-SWEEP", color=#00000000, textcolor=COLOR_BULL, style=label.style_label_up, size=size.tiny)
+    label.new(bar_index, low, "RAID: " + swpTxt, color=#00000000, textcolor=COLOR_BULL, style=label.style_label_up, size=size.tiny)
     waitL := true, waitS := false, sExtL := low
 
-mssS = showSMC and waitS and not na(lSwl) and close < lSwl and disp
-mssL = showSMC and waitL and not na(lSwh) and close > lSwh and disp
+bool mssS = showSMC and waitS and not na(anchorMSS_S) and close < anchorMSS_S and disp
+bool mssL = showSMC and waitL and not na(anchorMSS_L) and close > anchorMSS_L and disp
+
+string shiftType = ""
+if mssS
+    shiftType := structureStatus == "Bullish" ? "CHOCH ↘" : "BOS ↘"
+if mssL
+    shiftType := structureStatus == "Bearish" ? "CHOCH ↗" : "BOS ↗"
 
 // --- Stats Logic ---
 if mssS and not active
     active := true, bull := false, tSetups += 1
     tSL := (stopModel == "Sweep Extreme") ? sExtH : high
-    t10 := lSwl - (sExtH - lSwl)
+    t10 := anchorMSS_S - (sExtH - anchorMSS_S)
     waitS := false, structureStatus := "Bearish"
     if showProj
         line.new(bar_index, t10, bar_index+15, t10, color=COLOR_BEAR, style=line.style_dashed)
-    label.new(bar_index, low, "INST. ENTRY ↘", color=COLOR_BEAR, textcolor=color.white, style=label.style_label_down, size=size.small)
+    label.new(bar_index, low, "ENTRY [" + shiftType + "]", color=COLOR_BEAR, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+if mssL and not active
+    active := true, bull := true, tSetups += 1
+    tSL := (stopModel == "Sweep Extreme") ? sExtL : low
+    t10 := anchorMSS_L + (anchorMSS_L - sExtL)
+    waitL := false, structureStatus := "Bullish"
+    if showProj
+        line.new(bar_index, t10, bar_index+15, t10, color=COLOR_BULL, style=line.style_dashed)
+    label.new(bar_index, high, "ENTRY [" + shiftType + "]", color=COLOR_BULL, textcolor=color.white, style=label.style_label_up, size=size.small)
 
 if mssL and not active
     active := true, bull := true, tSetups += 1
@@ -480,8 +508,7 @@ if active
         else if low < t10
             w10 += 1, active := false
 
-// --- Reaction Zone Ranking Engine ---
-var rz_candidates = array.new<reaction_zone>(0)
+// --- Reaction Zone Narrative Engine ---
 var int lastMssBarL = 0
 var int lastMssBarS = 0
 if mssL
@@ -489,86 +516,113 @@ if mssL
 if mssS
     lastMssBarS := bar_index
 
-// Identify Candidates
+var rz_candidates = array.new<reaction_zone>(0)
+rzAtr = ta.atr(14)
+
 if showRZ
     array.clear(rz_candidates)
 
-    // 1. Fresh post-shift FVGs
+    // Check if narrative is active (Recent MSS within 60 bars)
+    isNarrativeL = lastMssBarL > (bar_index - 60)
+    isNarrativeS = lastMssBarS > (bar_index - 60)
+
+    // 1. Fresh post-shift FVGs (Priority 1)
     if fvg_records.size() > 0
         for i = 0 to fvg_records.size() - 1
-            f = fvg_records.get(i)
-            if f.isBull and lastMssBarL > 0 and f.startBar >= lastMssBarL - 5
-                rz_candidates.push(reaction_zone.new("Long", "FVG", f.max, f.min, (f.max+f.min)/2, f.startBar, 1, 100.0, false, false, "BULL FVG"))
-            else if not f.isBull and lastMssBarS > 0 and f.startBar >= lastMssBarS - 5
-                rz_candidates.push(reaction_zone.new("Short", "FVG", f.max, f.min, (f.max+f.min)/2, f.startBar, 1, 100.0, false, false, "BEAR FVG"))
+            f_dat = fvg_records.get(i)
+            isLinkedL = isNarrativeL and f_dat.startBar >= lastMssBarL - 5 and f_dat.startBar <= lastMssBarL + 8
+            isLinkedS = isNarrativeS and f_dat.startBar >= lastMssBarS - 5 and f_dat.startBar <= lastMssBarS + 8
 
-    // 2. Structural OB (approximate from swing)
-    if not na(lSwh) and lastMssBarL > 0
+            if f_dat.isBull and isLinkedL
+                rz_candidates.push(reaction_zone.new("Long", "FVG", f_dat.max, f_dat.min, (f_dat.max+f_dat.min)/2, f_dat.startBar, 1, 100.0, false, false, "BULL FVG"))
+            else if not f_dat.isBull and isLinkedS
+                rz_candidates.push(reaction_zone.new("Short", "FVG", f_dat.max, f_dat.min, (f_dat.max+f_dat.min)/2, f_dat.startBar, 1, 100.0, false, false, "BEAR FVG"))
+
+    // 2. Structural OB (Priority 2)
+    if isNarrativeL and not na(lSwh)
         rz_candidates.push(reaction_zone.new("Long", "OB", lSwh, lSwh - (high[1]-low[1]), lSwh, lastMssBarL, 2, 90.0, false, false, "BULL OB"))
-    if not na(lSwl) and lastMssBarS > 0
+    if isNarrativeS and not na(lSwl)
         rz_candidates.push(reaction_zone.new("Short", "OB", lSwl + (high[1]-low[1]), lSwl, lSwl, lastMssBarS, 2, 90.0, false, false, "BEAR OB"))
 
-    // 3. Sweep Reclaim
+    // 3. Sweep Reclaim (Priority 3)
     if waitL and not na(sExtL)
         rz_candidates.push(reaction_zone.new("Long", "SWEEP", sExtL + syminfo.mintick*10, sExtL, sExtL + syminfo.mintick*5, bar_index, 3, 80.0, false, false, "SWEEP RECLAIM"))
     if waitS and not na(sExtH)
         rz_candidates.push(reaction_zone.new("Short", "SWEEP", sExtH, sExtH - syminfo.mintick*10, sExtH - syminfo.mintick*5, bar_index, 3, 80.0, false, false, "SWEEP RECLAIM"))
 
-    // 4. Targets / HTF
-    if not na(pdh)
-        rz_candidates.push(reaction_zone.new("Short", "EXT", pdh + syminfo.mintick*5, pdh - syminfo.mintick*5, pdh, bar_index, 5, 60.0, false, false, "PDH REACT"))
-    if not na(pdl)
-        rz_candidates.push(reaction_zone.new("Long", "EXT", pdl + syminfo.mintick*5, pdl - syminfo.mintick*5, pdl, bar_index, 5, 60.0, false, false, "PDL REACT"))
-    if not na(lastHtf1PH)
-        rz_candidates.push(reaction_zone.new("Short", "EXT", lastHtf1PH + syminfo.mintick*5, lastHtf1PH - syminfo.mintick*5, lastHtf1PH, bar_index, 4, 70.0, false, false, "HTF1 TARGET"))
-    if not na(lastHtf1PL)
-        rz_candidates.push(reaction_zone.new("Long", "EXT", lastHtf1PL + syminfo.mintick*5, lastHtf1PL - syminfo.mintick*5, lastHtf1PL, bar_index, 4, 70.0, false, false, "HTF1 TARGET"))
-    if not na(lastHtf2PH)
-        rz_candidates.push(reaction_zone.new("Short", "EXT", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 4, 75.0, false, false, "HTF2 TARGET"))
-    if not na(lastHtf2PL)
-        rz_candidates.push(reaction_zone.new("Long", "EXT", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 4, 75.0, false, false, "HTF2 TARGET"))
+    // 4. Target / HTF Levels (Priority 4)
+    if not na(lastHtf2PH) and high < lastHtf2PH
+        rz_candidates.push(reaction_zone.new("Short", "EXT", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 4, 70.0, false, false, "HTF TARGET"))
+    if not na(lastHtf2PL) and low > lastHtf2PL
+        rz_candidates.push(reaction_zone.new("Long", "EXT", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 4, 70.0, false, false, "HTF TARGET"))
 
+    // --- Filter: Proximity (ATR) ---
+    if rz_candidates.size() > 0
+        for i = rz_candidates.size() - 1 to 0
+            z_p = rz_candidates.get(i)
+            if math.abs(z_p.ce - close) > (rzAtr * rzProximityMult)
+                rz_candidates.remove(i)
 
-// Sort and Filter Top Zones
+    // --- Logic: Merge Overlapping Zones ---
+    if rzMergeZones and rz_candidates.size() > 1
+        for i = 0 to math.min(20, rz_candidates.size() - 2)
+            z1 = rz_candidates.get(i)
+            for j = i + 1 to rz_candidates.size() - 1
+                z2 = rz_candidates.get(j)
+                if z1.side == z2.side
+                    isOverlap = math.max(z1.bottom, z2.bottom) <= math.min(z1.top, z2.top)
+                    if isOverlap
+                        newT = math.max(z1.top, z2.top)
+                        newB = math.min(z1.bottom, z2.bottom)
+                        rz_candidates.set(i, reaction_zone.new(z1.side, "CONFLUENCE", newT, newB, (newT+newB)/2, z1.sourceBar, 1, 110.0, false, false, "CONFLUENCE"))
+                        rz_candidates.remove(j)
+                        break
+
+// Filter Top 1 per side
 f_getTopZone(side) =>
     reaction_zone best = na
     int bestRank = 99
     float bestScore = -1.0
     if rz_candidates.size() > 0
         for i = 0 to rz_candidates.size() - 1
-            z = rz_candidates.get(i)
-            if z.side == side
-                if z.priorityRank < bestRank or (z.priorityRank == bestRank and z.score > bestScore)
-                    best := z
-                    bestRank := z.priorityRank
-                    bestScore := z.score
+            z_c = rz_candidates.get(i)
+            if z_c.side == side
+                if z_c.priorityRank < bestRank or (z_c.priorityRank == bestRank and z_c.score > bestScore)
+                    best := z_c
+                    bestRank := z_c.priorityRank
+                    bestScore := z_c.score
     best
 
 reaction_zone topLong  = f_getTopZone("Long")
 reaction_zone topShort = f_getTopZone("Short")
 
 // Visual Rendering Logic
-update_rz_vis(z, side, b, l, lb) =>
+update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
     if not na(z)
-        clr = side == "Long" ? rzBullColor : rzBearColor
-        box.set_lefttop(b, bar_index - 20, z.top)
-        box.set_rightbottom(b, bar_index + 5, z.bottom)
-        box.set_bgcolor(b, color.new(clr, 85))
-        box.set_border_color(b, clr)
+        isEntry = (z.zoneType == "FVG" or z.zoneType == "OB" or z.zoneType == "SWEEP" or z.zoneType == "CONFLUENCE")
+        baseClr = side == "Long" ? rzEntryColor : rzBearColor
+        if not isEntry
+            baseClr := rzTargetColor
+
+        box.set_lefttop(b, bar_index - 15, z.top)
+        box.set_rightbottom(b, bar_index + 8, z.bottom)
+        box.set_bgcolor(b, color.new(baseClr, isEntry ? 70 : 85))
+        box.set_border_color(b, color.new(baseClr, isEntry ? 30 : 60))
+        box.set_border_style(b, isEntry ? line.style_solid : line.style_dotted)
 
         if showRZCE
-            line.set_xy1(l, bar_index - 20, z.ce)
-            line.set_xy2(l, bar_index + 5, z.ce)
-            line.set_color(l, clr)
+            line.set_xy1(l, bar_index - 15, z.ce)
+            line.set_xy2(l, bar_index + 8, z.ce)
+            line.set_color(l, color.new(baseClr, 40))
             line.set_style(l, line.style_dashed)
         else
             line.set_xy1(l, na, na)
 
         if showRZLabels
-            label.set_xy(lb, bar_index + 5, z.ce)
-            label.set_text(lb, z.narrative + (showRZDebug ? "\nP:" + str.tostring(z.priorityRank) : ""))
-            label.set_textcolor(lb, clr)
-            label.set_style(lb, side == "Long" ? label.style_label_left : label.style_label_left)
+            label.set_xy(lb, bar_index + 8, z.ce)
+            label.set_text(lb, z.narrative + (isEntry ? " [ENTRY]" : " [TARGET]"))
+            label.set_textcolor(lb, baseClr)
+            label.set_style(lb, label.style_label_left)
         else
             label.set_text(lb, "")
     else
@@ -589,7 +643,6 @@ if barstate.islast
     update_rz_vis(topLong, "Long", bLong, lLong, lbLong)
     update_rz_vis(topShort, "Short", bShort, lShort, lbShort)
 
-// --- Dashboard ---
 // --- Dashboard ---
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
@@ -612,12 +665,10 @@ if showDash and barstate.islast
     table.cell(tb, 0, 3, "NY Midnight", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 3, bT3, text_color=color.white, bgcolor=bC3, text_size=size.small)
 
-    // HTF 1 Bias
     h1C = htf1Bias == "BULL" ? COLOR_BULL : htf1Bias == "BEAR" ? COLOR_BEAR : COLOR_NEUT
     table.cell(tb, 0, 4, "HTF 1 (" + htf1Tf + ")", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 4, htf1Bias, text_color=color.white, bgcolor=h1C, text_size=size.small)
 
-    // HTF 2 Bias
     h2C = htf2Bias == "BULL" ? COLOR_BULL : htf2Bias == "BEAR" ? COLOR_BEAR : COLOR_NEUT
     table.cell(tb, 0, 5, "HTF 2 (" + htf2Tf + ")", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 5, htf2Bias, text_color=color.white, bgcolor=h2C, text_size=size.small)
@@ -638,4 +689,3 @@ if showDash and barstate.islast
     winrate = tot == 0 ? "0%" : str.tostring(math.round(w10 / tot * 100)) + "%"
     table.cell(tb, 0, 9, "Winrate", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 9, winrate, text_color=COLOR_BULL, bgcolor=#1e222d, text_size=size.small)
-
