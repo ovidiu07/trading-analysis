@@ -12,6 +12,7 @@ G_SMC   = "SMC Engine"
 G_LIQ   = "Liquidity Swing Engine"
 G_DASH  = "Dashboard Settings"
 G_LVLS  = "Important Market Levels"
+G_RZ    = "High-Prob Reaction Zones"
 
 // --- Constants ---
 COLOR_BULL = #08ffd6
@@ -24,6 +25,20 @@ type fvg_data
     float min
     bool  isBull
     int   startTime
+    int   startBar
+
+type reaction_zone
+    string side          // "Long" or "Short"
+    string zoneType      // "FVG", "OB", "SWEEP", "INT", "EXT", "SESS"
+    float  top
+    float  bottom
+    float  ce
+    int    sourceBar
+    int    priorityRank  // 1 to 6 (1 is highest)
+    float  score
+    bool   isMitigated
+    bool   isInvalidated
+    string narrative     // description for label
 
 // --- Inputs ---
 showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
@@ -93,6 +108,26 @@ colorPWLvl = input.color(color.new(#5b9cf6, 30), "Weekly Levels Color", group=G_
 colorPMLvl = input.color(color.new(#ff9800, 30), "Monthly Levels Color", group=G_LVLS)
 colorNYMid = input.color(color.gray, "NY Midnight Color", group=G_LVLS)
 
+showRZ       = input.bool(true, "Show Reaction Zones", group=G_RZ)
+maxRZPerSide = input.int(1, "Max Zones per Side", minval=1, maxval=2, group=G_RZ)
+showRZLabels = input.bool(true, "Show Zone Labels", group=G_RZ)
+showRZCE     = input.bool(true, "Show Equilibrium (CE)", group=G_RZ)
+showRZDebug  = input.bool(false, "Show Selection Debug", group=G_RZ)
+rzBullColor  = input.color(color.new(#08ffd6, 70), "Bullish Zone Color", group=G_RZ)
+rzBearColor  = input.color(color.new(#ff0015, 70), "Bearish Zone Color", group=G_RZ)
+
+// --- HTF Settings ---
+G_HTF        = "Higher Timeframe Structure"
+showHTF      = input.bool(true, "Show HTF Structure", group=G_HTF)
+htf1Tf       = input.timeframe("60", "HTF 1 Timeframe", group=G_HTF)
+htf1SwingLen = input.int(5, "HTF 1 Swing Strength", group=G_HTF)
+htf2Tf       = input.timeframe("240", "HTF 2 Timeframe", group=G_HTF)
+htf2SwingLen = input.int(5, "HTF 2 Swing Strength", group=G_HTF)
+htfColor1    = input.color(color.new(#5b9cf6, 30), "HTF 1 Level Color", group=G_HTF)
+htfColor2    = input.color(color.new(#ff9800, 30), "HTF 2 Level Color", group=G_HTF)
+
+
+
 // --- Calculations ---
 isNewDay = ta.change(time("D")) != 0
 avgVol   = ta.sma(volume, 20)
@@ -113,6 +148,38 @@ inNY     = not na(time(timeframe.period, nySess, "UTC"))
 
 bgcolor(showLondon and inLondon ? colorLon : na)
 bgcolor(showNY and inNY ? colorNYK : na)
+
+// --- HTF Structure Logic ---
+f_getHtfSwings(len) =>
+    [ta.pivothigh(high, len, len), ta.pivotlow(low, len, len)]
+
+[htf1PH, htf1PL] = request.security(syminfo.tickerid, htf1Tf, f_getHtfSwings(htf1SwingLen), lookahead=barmerge.lookahead_on)
+[htf2PH, htf2PL] = request.security(syminfo.tickerid, htf2Tf, f_getHtfSwings(htf2SwingLen), lookahead=barmerge.lookahead_on)
+
+var float lastHtf1PH = na
+var float lastHtf1PL = na
+var float lastHtf2PH = na
+var float lastHtf2PL = na
+
+if not na(htf1PH)
+    lastHtf1PH := htf1PH
+if not na(htf1PL)
+    lastHtf1PL := htf1PL
+if not na(htf2PH)
+    lastHtf2PH := htf2PH
+if not na(htf2PL)
+    lastHtf2PL := htf2PL
+
+// HTF Bias Calculation
+htf1Bias = close > lastHtf1PH ? "BULL" : close < lastHtf1PL ? "BEAR" : "NEUT"
+htf2Bias = close > lastHtf2PH ? "BULL" : close < lastHtf2PL ? "BEAR" : "NEUT"
+
+plot(showHTF ? lastHtf1PH : na, "HTF 1 High", htfColor1, 1, plot.style_linebr)
+plot(showHTF ? lastHtf1PL : na, "HTF 1 Low", htfColor1, 1, plot.style_linebr)
+plot(showHTF ? lastHtf2PH : na, "HTF 2 High", htfColor2, 1, plot.style_linebr)
+plot(showHTF ? lastHtf2PL : na, "HTF 2 Low", htfColor2, 1, plot.style_linebr)
+
+
 
 var float asiaH = na
 var float asiaL = na
@@ -413,10 +480,120 @@ if active
         else if low < t10
             w10 += 1, active := false
 
+// --- Reaction Zone Ranking Engine ---
+var rz_candidates = array.new<reaction_zone>(0)
+var int lastMssBarL = 0
+var int lastMssBarS = 0
+if mssL
+    lastMssBarL := bar_index
+if mssS
+    lastMssBarS := bar_index
+
+// Identify Candidates
+if showRZ
+    array.clear(rz_candidates)
+
+    // 1. Fresh post-shift FVGs
+    if fvg_records.size() > 0
+        for i = 0 to fvg_records.size() - 1
+            f = fvg_records.get(i)
+            if f.isBull and lastMssBarL > 0 and f.startBar >= lastMssBarL - 5
+                rz_candidates.push(reaction_zone.new("Long", "FVG", f.max, f.min, (f.max+f.min)/2, f.startBar, 1, 100.0, false, false, "BULL FVG"))
+            else if not f.isBull and lastMssBarS > 0 and f.startBar >= lastMssBarS - 5
+                rz_candidates.push(reaction_zone.new("Short", "FVG", f.max, f.min, (f.max+f.min)/2, f.startBar, 1, 100.0, false, false, "BEAR FVG"))
+
+    // 2. Structural OB (approximate from swing)
+    if not na(lSwh) and lastMssBarL > 0
+        rz_candidates.push(reaction_zone.new("Long", "OB", lSwh, lSwh - (high[1]-low[1]), lSwh, lastMssBarL, 2, 90.0, false, false, "BULL OB"))
+    if not na(lSwl) and lastMssBarS > 0
+        rz_candidates.push(reaction_zone.new("Short", "OB", lSwl + (high[1]-low[1]), lSwl, lSwl, lastMssBarS, 2, 90.0, false, false, "BEAR OB"))
+
+    // 3. Sweep Reclaim
+    if waitL and not na(sExtL)
+        rz_candidates.push(reaction_zone.new("Long", "SWEEP", sExtL + syminfo.mintick*10, sExtL, sExtL + syminfo.mintick*5, bar_index, 3, 80.0, false, false, "SWEEP RECLAIM"))
+    if waitS and not na(sExtH)
+        rz_candidates.push(reaction_zone.new("Short", "SWEEP", sExtH, sExtH - syminfo.mintick*10, sExtH - syminfo.mintick*5, bar_index, 3, 80.0, false, false, "SWEEP RECLAIM"))
+
+    // 4. Targets / HTF
+    if not na(pdh)
+        rz_candidates.push(reaction_zone.new("Short", "EXT", pdh + syminfo.mintick*5, pdh - syminfo.mintick*5, pdh, bar_index, 5, 60.0, false, false, "PDH REACT"))
+    if not na(pdl)
+        rz_candidates.push(reaction_zone.new("Long", "EXT", pdl + syminfo.mintick*5, pdl - syminfo.mintick*5, pdl, bar_index, 5, 60.0, false, false, "PDL REACT"))
+    if not na(lastHtf1PH)
+        rz_candidates.push(reaction_zone.new("Short", "EXT", lastHtf1PH + syminfo.mintick*5, lastHtf1PH - syminfo.mintick*5, lastHtf1PH, bar_index, 4, 70.0, false, false, "HTF1 TARGET"))
+    if not na(lastHtf1PL)
+        rz_candidates.push(reaction_zone.new("Long", "EXT", lastHtf1PL + syminfo.mintick*5, lastHtf1PL - syminfo.mintick*5, lastHtf1PL, bar_index, 4, 70.0, false, false, "HTF1 TARGET"))
+    if not na(lastHtf2PH)
+        rz_candidates.push(reaction_zone.new("Short", "EXT", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 4, 75.0, false, false, "HTF2 TARGET"))
+    if not na(lastHtf2PL)
+        rz_candidates.push(reaction_zone.new("Long", "EXT", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 4, 75.0, false, false, "HTF2 TARGET"))
+
+
+// Sort and Filter Top Zones
+f_getTopZone(side) =>
+    reaction_zone best = na
+    int bestRank = 99
+    float bestScore = -1.0
+    if rz_candidates.size() > 0
+        for i = 0 to rz_candidates.size() - 1
+            z = rz_candidates.get(i)
+            if z.side == side
+                if z.priorityRank < bestRank or (z.priorityRank == bestRank and z.score > bestScore)
+                    best := z
+                    bestRank := z.priorityRank
+                    bestScore := z.score
+    best
+
+reaction_zone topLong  = f_getTopZone("Long")
+reaction_zone topShort = f_getTopZone("Short")
+
+// Visual Rendering Logic
+update_rz_vis(z, side, b, l, lb) =>
+    if not na(z)
+        clr = side == "Long" ? rzBullColor : rzBearColor
+        box.set_lefttop(b, bar_index - 20, z.top)
+        box.set_rightbottom(b, bar_index + 5, z.bottom)
+        box.set_bgcolor(b, color.new(clr, 85))
+        box.set_border_color(b, clr)
+
+        if showRZCE
+            line.set_xy1(l, bar_index - 20, z.ce)
+            line.set_xy2(l, bar_index + 5, z.ce)
+            line.set_color(l, clr)
+            line.set_style(l, line.style_dashed)
+        else
+            line.set_xy1(l, na, na)
+
+        if showRZLabels
+            label.set_xy(lb, bar_index + 5, z.ce)
+            label.set_text(lb, z.narrative + (showRZDebug ? "\nP:" + str.tostring(z.priorityRank) : ""))
+            label.set_textcolor(lb, clr)
+            label.set_style(lb, side == "Long" ? label.style_label_left : label.style_label_left)
+        else
+            label.set_text(lb, "")
+    else
+        box.set_bgcolor(b, na)
+        box.set_border_color(b, na)
+        line.set_xy1(l, na, na)
+        label.set_text(lb, "")
+
+var box bLong = box.new(na, na, na, na, border_color=na)
+var line lLong = line.new(na, na, na, na)
+var label lbLong = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+
+var box bShort = box.new(na, na, na, na, border_color=na)
+var line lShort = line.new(na, na, na, na)
+var label lbShort = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+
+if barstate.islast
+    update_rz_vis(topLong, "Long", bLong, lLong, lbLong)
+    update_rz_vis(topShort, "Short", bShort, lShort, lbShort)
+
+// --- Dashboard ---
 // --- Dashboard ---
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
-    var table tb = table.new(pos_tbl, 2, 8, bgcolor=#1e222d, border_color=#373a46, border_width=1)
+    var table tb = table.new(pos_tbl, 2, 10, bgcolor=#1e222d, border_color=#373a46, border_width=1)
     table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
     table.cell(tb, 1, 0, "STATUS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
 
@@ -435,19 +612,30 @@ if showDash and barstate.islast
     table.cell(tb, 0, 3, "NY Midnight", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 3, bT3, text_color=color.white, bgcolor=bC3, text_size=size.small)
 
+    // HTF 1 Bias
+    h1C = htf1Bias == "BULL" ? COLOR_BULL : htf1Bias == "BEAR" ? COLOR_BEAR : COLOR_NEUT
+    table.cell(tb, 0, 4, "HTF 1 (" + htf1Tf + ")", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 4, htf1Bias, text_color=color.white, bgcolor=h1C, text_size=size.small)
+
+    // HTF 2 Bias
+    h2C = htf2Bias == "BULL" ? COLOR_BULL : htf2Bias == "BEAR" ? COLOR_BEAR : COLOR_NEUT
+    table.cell(tb, 0, 5, "HTF 2 (" + htf2Tf + ")", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 5, htf2Bias, text_color=color.white, bgcolor=h2C, text_size=size.small)
+
     msC = structureStatus == "Bullish" ? COLOR_BULL : structureStatus == "Bearish" ? COLOR_BEAR : #787b86
-    table.cell(tb, 0, 4, "Structure", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 4, structureStatus, text_color=color.white, bgcolor=msC, text_size=size.small)
+    table.cell(tb, 0, 6, "LTF Structure", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 6, structureStatus, text_color=color.white, bgcolor=msC, text_size=size.small)
 
-    overAll = (close > dO and structureStatus == "Bullish") ? "STRONG BULL" : (close < dO and structureStatus == "Bearish") ? "STRONG BEAR" : "CONSOLIDATING"
-    overC = (close > dO and structureStatus == "Bullish") ? COLOR_BULL : (close < dO and structureStatus == "Bearish") ? COLOR_BEAR : COLOR_NEUT
-    table.cell(tb, 0, 5, "Overall Bias", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 5, overAll, text_color=color.white, bgcolor=overC, text_size=size.small)
+    overAll = (close > dO and structureStatus == "Bullish" and htf2Bias == "BULL") ? "STRONG BULL" : (close < dO and structureStatus == "Bearish" and htf2Bias == "BEAR") ? "STRONG BEAR" : "CONSOLIDATING"
+    overC = (close > dO and structureStatus == "Bullish" and htf2Bias == "BULL") ? COLOR_BULL : (close < dO and structureStatus == "Bearish" and htf2Bias == "BEAR") ? COLOR_BEAR : COLOR_NEUT
+    table.cell(tb, 0, 7, "Overall Bias", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 7, overAll, text_color=color.white, bgcolor=overC, text_size=size.small)
 
-    table.cell(tb, 0, 6, "Total Setups", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 6, str.tostring(tSetups), text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 0, 8, "Total Setups", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 8, str.tostring(tSetups), text_color=color.white, bgcolor=#1e222d, text_size=size.small)
 
     tot = w10 + l10
     winrate = tot == 0 ? "0%" : str.tostring(math.round(w10 / tot * 100)) + "%"
-    table.cell(tb, 0, 7, "Winrate", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 7, winrate, text_color=COLOR_BULL, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 0, 9, "Winrate", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 9, winrate, text_color=COLOR_BULL, bgcolor=#1e222d, text_size=size.small)
+
