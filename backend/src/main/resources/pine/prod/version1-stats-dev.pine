@@ -1,6 +1,6 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
-indicator("Institutional SMC + SD Trade Stats", shorttitle="SMC Stats Pro", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+indicator("Institutional SMC DevTrader", shorttitle="Devtrader - Chart analysis", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
 
 // --- Groups ---
 G_KZ    = "Killzones & Sessions"
@@ -9,12 +9,14 @@ G_FVG   = "Fair Value Gaps (SMC)"
 G_PROJ  = "SD Projections & Targets"
 G_STATS = "Trade Statistics Settings"
 G_SMC   = "SMC Engine"
+G_LIQ   = "Liquidity Swing Engine"
 G_DASH  = "Dashboard Settings"
 G_LVLS  = "Important Market Levels"
 
 // --- Constants ---
 COLOR_BULL = #08ffd6
 COLOR_BEAR = #ff0015
+COLOR_NEUT = #5b9cf6
 
 // --- Types ---
 type fvg_data
@@ -59,6 +61,20 @@ volConfirm   = input.bool(true, "Require Volume on Sweeps", group=G_SMC)
 dispMult     = input.float(1.4, "Disp. Multiplier", step=0.1, group=G_SMC)
 swingLen     = input.int(3, "Swing Strength", minval=1, group=G_SMC)
 
+liqPivotLen      = input.int(14, "Pivot Lookback", minval=1, group=G_LIQ)
+liqAreaMode      = input.string("Wick Extremity", "Swing Area", options=["Wick Extremity", "Full Range"], group=G_LIQ)
+liqIntraPrecision = input.bool(false, "Intrabar Precision", inline="liqIntra", group=G_LIQ)
+liqIntrabarTf    = input.timeframe("1", "", inline="liqIntra", group=G_LIQ)
+liqFilterMode    = input.string("Count", "Filter Areas By", options=["Count", "Volume"], inline="liqFilter", group=G_LIQ)
+liqFilterValue   = input.float(0, "", inline="liqFilter", group=G_LIQ)
+showSwingHigh    = input.bool(true, "Swing High", inline="liqHigh", group=G_LIQ)
+liqHighLineColor = input.color(color.red, "", inline="liqHigh", group=G_LIQ)
+liqHighAreaColor = input.color(color.new(color.red, 50), "Area", inline="liqHigh", group=G_LIQ)
+showSwingLow     = input.bool(true, "Swing Low", inline="liqLow", group=G_LIQ)
+liqLowLineColor  = input.color(color.teal, "", inline="liqLow", group=G_LIQ)
+liqLowAreaColor  = input.color(color.new(color.teal, 50), "Area", inline="liqLow", group=G_LIQ)
+liqLabelSize     = input.string("Tiny", "Labels Size", options=["Tiny", "Small", "Normal"], group=G_LIQ)
+
 showDash     = input.bool(true, "Show Bias Dashboard", group=G_DASH)
 dashPos      = input.string("Top Right", "Position", options=["Top Right", "Bottom Right", "Top Left"], group=G_DASH)
 
@@ -83,7 +99,7 @@ avgVol   = ta.sma(volume, 20)
 highVol  = volume > avgVol
 
 [pdh, pdl, pdc, dO] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1], open[0]], lookahead=barmerge.lookahead_on)
-[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+[pwh, pwl, wO] = request.security(syminfo.tickerid, "W", [high[1], low[1], open[0]], lookahead=barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead=barmerge.lookahead_on)
 
 isNewDayNY = hour(time, "America/New_York") == 0 and minute(time, "America/New_York") == 0
@@ -167,6 +183,81 @@ if barstate.islast
     f_updateLevel(showPML, pml, "PML", colorPMLvl, lnPML, lbPML, 2)
     f_updateLevel(showNYMid, nyMidnight, "NY-Mid", colorNYMid, lnNYMid, lbNYMid, 1)
 
+get_data() =>
+    [high, low, volume]
+
+[liqHighData, liqLowData, liqVolData] = request.security_lower_tf(syminfo.tickerid, liqIntrabarTf, get_data())
+
+f_liqMetric(count, vol) =>
+    liqFilterMode == "Count" ? float(count) : vol
+
+f_liqLabelText(count, vol) =>
+    liqFilterMode == "Count" ? str.tostring(count) : str.tostring(vol, format.volume)
+
+f_liqLabelSize() =>
+    liqLabelSize == "Tiny" ? size.tiny : liqLabelSize == "Small" ? size.small : size.normal
+
+get_counts(reset, top, btm) =>
+    var int count = 0
+    var float vol = 0.0
+
+    if reset
+        count := 0
+        vol := 0.0
+    else if not na(top) and not na(btm) and bar_index > liqPivotLen
+        areaTouched = low[liqPivotLen] < top and high[liqPivotLen] > btm
+
+        if liqIntraPrecision and array.size(liqVolData[liqPivotLen]) > 0
+            for [idx, element] in liqVolData[liqPivotLen]
+                ltfLow = array.get(liqLowData[liqPivotLen], idx)
+                ltfHigh = array.get(liqHighData[liqPivotLen], idx)
+                vol += ltfLow < top and ltfHigh > btm ? element : 0
+        else
+            vol += areaTouched ? volume[liqPivotLen] : 0
+
+        count += areaTouched ? 1 : 0
+
+    [count, vol]
+
+set_label(show, crossed, count, vol, x, y, css, lblStyle) =>
+    var label lbl = label.new(na, na, "", color=#00000000)
+    target = f_liqMetric(count, vol)
+
+    if show and not na(y) and target >= liqFilterValue and not crossed
+        label.set_xy(lbl, x, y)
+        label.set_text(lbl, f_liqLabelText(count, vol))
+        label.set_textcolor(lbl, css)
+        label.set_style(lbl, lblStyle)
+        label.set_size(lbl, f_liqLabelSize())
+        label.set_color(lbl, #00000000)
+    else
+        label.set_text(lbl, "")
+
+set_level(show, crossed, x, value, count, vol, css) =>
+    var line lvl = line.new(na, na, na, na)
+    target = f_liqMetric(count, vol)
+    levelColor = target >= liqFilterValue ? css : color.new(css, 80)
+
+    if show and not na(value)
+        line.set_xy1(lvl, x, value)
+        line.set_xy2(lvl, crossed ? bar_index : bar_index + 3, value)
+        line.set_style(lvl, crossed ? line.style_dashed : line.style_solid)
+        line.set_color(lvl, levelColor)
+    else
+        line.set_color(lvl, na)
+
+set_zone(show, crossed, x, top, btm, count, vol, css) =>
+    var box bx = box.new(na, na, na, na, border_color=na)
+    target = f_liqMetric(count, vol)
+    zoneColor = target >= liqFilterValue ? css : color.new(css, 92)
+
+    if show and not na(top) and not na(btm)
+        box.set_lefttop(bx, x, top)
+        box.set_rightbottom(bx, crossed ? bar_index : bar_index + 3, btm)
+        box.set_bgcolor(bx, zoneColor)
+    else
+        box.set_bgcolor(bx, na)
+
 // --- FVG Engine ---
 var fvg_records = array.new<fvg_data>(0)
 var fvg_boxes   = array.new<box>(0)
@@ -212,6 +303,21 @@ var float sExtL = na
 var float lSwh = na
 var float lSwl = na
 var string structureStatus = "Neutral"
+var int tSetups = 0
+var int w10 = 0
+var int l10 = 0
+var bool active = false
+var bool bull = false
+var float tSL = na
+var float t10 = na
+var float ph_top = na
+var float ph_btm = na
+var bool ph_crossed = false
+var int ph_x1 = 0
+var float pl_top = na
+var float pl_btm = na
+var bool pl_crossed = false
+var int pl_x1 = 0
 
 avgBody = ta.sma(math.abs(close - open), 20)
 disp    = math.abs(close - open) > (avgBody * dispMult)
@@ -223,31 +329,60 @@ if not na(swH)
 if not na(swL)
     lSwl := swL
 
-isSFP_H = (high > pdh and close < pdh) or (high > asiaH and close < asiaH)
-isSFP_L = (low < pdl and close > pdl) or (low < asiaL and close > asiaL)
+ph = ta.pivothigh(high, liqPivotLen, liqPivotLen)
+pl = ta.pivotlow(low, liqPivotLen, liqPivotLen)
+newPh = not na(ph)
+newPl = not na(pl)
 
-vSFP_H = isSFP_H and (high - close) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
-vSFP_L = isSFP_L and (close - low) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
+[phCount, phVol] = get_counts(newPh, ph_top, ph_btm)
+[plCount, plVol] = get_counts(newPl, pl_top, pl_btm)
 
-if vSFP_H
+if newPh
+    ph_top := high[liqPivotLen]
+    ph_btm := liqAreaMode == "Wick Extremity" ? math.max(close[liqPivotLen], open[liqPivotLen]) : low[liqPivotLen]
+    ph_x1 := bar_index - liqPivotLen
+    ph_crossed := false
+else if not na(ph_top)
+    ph_crossed := close > ph_top ? true : ph_crossed
+
+if newPl
+    pl_top := liqAreaMode == "Wick Extremity" ? math.min(close[liqPivotLen], open[liqPivotLen]) : high[liqPivotLen]
+    pl_btm := low[liqPivotLen]
+    pl_x1 := bar_index - liqPivotLen
+    pl_crossed := false
+else if not na(pl_btm)
+    pl_crossed := close < pl_btm ? true : pl_crossed
+
+set_zone(showSwingHigh, ph_crossed, ph_x1, ph_top, ph_btm, phCount, phVol, liqHighAreaColor)
+set_level(showSwingHigh, ph_crossed, ph_x1, ph_top, phCount, phVol, liqHighLineColor)
+set_label(showSwingHigh, ph_crossed, phCount, phVol, ph_x1, ph_top, liqHighLineColor, label.style_label_down)
+
+set_zone(showSwingLow, pl_crossed, pl_x1, pl_top, pl_btm, plCount, plVol, liqLowAreaColor)
+set_level(showSwingLow, pl_crossed, pl_x1, pl_btm, plCount, plVol, liqLowLineColor)
+set_label(showSwingLow, pl_crossed, plCount, plVol, pl_x1, pl_btm, liqLowLineColor, label.style_label_up)
+
+phQualified = f_liqMetric(phCount, phVol) >= liqFilterValue
+plQualified = f_liqMetric(plCount, plVol) >= liqFilterValue
+
+bearSweep = showSMC and showSwingHigh and phQualified and not ph_crossed and not na(ph_top) and high >= ph_top and close < ph_top and (high - close) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
+bullSweep = showSMC and showSwingLow and plQualified and not pl_crossed and not na(pl_btm) and low <= pl_btm and close > pl_btm and (close - low) / (high - low > 0 ? high - low : 1) > 0.7 and (not volConfirm or highVol)
+
+if waitS and ph_crossed
+    waitS := false
+if waitL and pl_crossed
+    waitL := false
+
+if bearSweep and not active and not waitS
     label.new(bar_index, high, "V-SWEEP", color=#00000000, textcolor=COLOR_BEAR, style=label.style_label_down, size=size.tiny)
     waitS := true, waitL := false, sExtH := high
-if vSFP_L
+if bullSweep and not active and not waitL
     label.new(bar_index, low, "V-SWEEP", color=#00000000, textcolor=COLOR_BULL, style=label.style_label_up, size=size.tiny)
     waitL := true, waitS := false, sExtL := low
 
-mssS = waitS and close < lSwl and disp
-mssL = waitL and close > lSwh and disp
+mssS = showSMC and waitS and not na(lSwl) and close < lSwl and disp
+mssL = showSMC and waitL and not na(lSwh) and close > lSwh and disp
 
 // --- Stats Logic ---
-var int tSetups = 0
-var int w10 = 0
-var int l10 = 0
-var bool active = false
-var bool bull = false
-var float tSL = na
-var float t10 = na
-
 if mssS and not active
     active := true, bull := false, tSetups += 1
     tSL := (stopModel == "Sweep Extreme") ? sExtH : high
@@ -281,13 +416,38 @@ if active
 // --- Dashboard ---
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
-    var table tb = table.new(pos_tbl, 2, 3, bgcolor=#1e222d, border_color=#373a46, border_width=1)
-    table.cell(tb, 0, 0, "Bias", text_color=color.white)
-    table.cell(tb, 1, 0, structureStatus, text_color=(structureStatus == "Bullish") ? COLOR_BULL : COLOR_BEAR)
-    table.cell(tb, 0, 1, "Total Setups", text_color=color.white)
-    table.cell(tb, 1, 1, str.tostring(tSetups), text_color=color.white)
+    var table tb = table.new(pos_tbl, 2, 8, bgcolor=#1e222d, border_color=#373a46, border_width=1)
+    table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+    table.cell(tb, 1, 0, "STATUS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+
+    bT1 = close > dO ? "BULL" : "BEAR"
+    bC1 = close > dO ? COLOR_BULL : COLOR_BEAR
+    table.cell(tb, 0, 1, "Daily Open", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 1, bT1, text_color=color.white, bgcolor=bC1, text_size=size.small)
+
+    bT2 = close > wO ? "BULL" : "BEAR"
+    bC2 = close > wO ? COLOR_BULL : COLOR_BEAR
+    table.cell(tb, 0, 2, "Weekly Open", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 2, bT2, text_color=color.white, bgcolor=bC2, text_size=size.small)
+
+    bT3 = na(nyMidnight) ? "N/A" : close > nyMidnight ? "BULL" : "BEAR"
+    bC3 = na(nyMidnight) ? COLOR_NEUT : close > nyMidnight ? COLOR_BULL : COLOR_BEAR
+    table.cell(tb, 0, 3, "NY Midnight", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 3, bT3, text_color=color.white, bgcolor=bC3, text_size=size.small)
+
+    msC = structureStatus == "Bullish" ? COLOR_BULL : structureStatus == "Bearish" ? COLOR_BEAR : #787b86
+    table.cell(tb, 0, 4, "Structure", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 4, structureStatus, text_color=color.white, bgcolor=msC, text_size=size.small)
+
+    overAll = (close > dO and structureStatus == "Bullish") ? "STRONG BULL" : (close < dO and structureStatus == "Bearish") ? "STRONG BEAR" : "CONSOLIDATING"
+    overC = (close > dO and structureStatus == "Bullish") ? COLOR_BULL : (close < dO and structureStatus == "Bearish") ? COLOR_BEAR : COLOR_NEUT
+    table.cell(tb, 0, 5, "Overall Bias", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 5, overAll, text_color=color.white, bgcolor=overC, text_size=size.small)
+
+    table.cell(tb, 0, 6, "Total Setups", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 6, str.tostring(tSetups), text_color=color.white, bgcolor=#1e222d, text_size=size.small)
 
     tot = w10 + l10
     winrate = tot == 0 ? "0%" : str.tostring(math.round(w10 / tot * 100)) + "%"
-    table.cell(tb, 0, 2, "Winrate", text_color=color.white)
-    table.cell(tb, 1, 2, winrate, text_color=COLOR_BULL)
+    table.cell(tb, 0, 7, "Winrate", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 1, 7, winrate, text_color=COLOR_BULL, bgcolor=#1e222d, text_size=size.small)
