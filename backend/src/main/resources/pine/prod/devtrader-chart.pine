@@ -53,6 +53,12 @@ type liq_pool
     int    clusterSize
     int    lastTouchBar
     int    lastRefreshBar
+    int    pendingSweepBar
+    float  pendingSweepExtreme
+    int    pendingSweepExtremeBar
+    float  pendingWickRatio
+    int    takenBar
+    int    lastFailureBar
 
 type liq_render_row
     float  price
@@ -104,6 +110,15 @@ volConfirm   = input.bool(true, "Require Volume Confirmation", group=G_SMC)
 useMajorMSS  = input.bool(true, "Major Structure MSS Only", group=G_SMC, tooltip="Require MSS to break a Major pivot rather than a minor internal one.")
 dispMult     = input.float(1.4, "Disp. Multiplier", step=0.1, group=G_SMC)
 swingLen     = input.int(3, "Swing Strength", minval=1, group=G_SMC)
+breakoutBullColor = input.color(COLOR_BULL, "Breakout Bull Color", group=G_SMC)
+breakoutBearColor = input.color(COLOR_BEAR, "Breakout Bear Color", group=G_SMC)
+breakoutLabelSize = input.string("Tiny", "Breakout Label Size", options=["Tiny", "Small", "Normal"], group=G_SMC)
+raidBullColor = input.color(COLOR_BULL, "Raid Bull Color", group=G_SMC)
+raidBearColor = input.color(COLOR_BEAR, "Raid Bear Color", group=G_SMC)
+raidLabelSize = input.string("Tiny", "Raid Label Size", options=["Tiny", "Small", "Normal"], group=G_SMC)
+sweepMssTimeoutBars = input.int(6, "Sweep To MSS Timeout (Bars)", minval=1, group=G_SMC, tooltip="Hide sweep reclaim entry zones if no MSS confirms within this many bars.")
+showSweepTimeoutNote = input.bool(false, "Show Sweep Timeout Note", group=G_SMC, tooltip="If enabled, prints one small note when a sweep reclaim setup expires without MSS confirmation.")
+breakoutCooldownBars = input.int(8, "Breakout Cooldown (Bars)", minval=1, group=G_SMC, tooltip="Suppress repeated breakout labels on the same liquidity cluster for this many bars.")
 
 liqPivotLen      = input.int(14, "Base Pivot Lookback", minval=1, group=G_LIQ)
 autoLiqPivot     = input.bool(true, "Auto-Optimize Lookback", group=G_LIQ, tooltip="Adjusts the pivot lookback based on current ATR volatility. High volatility increases lookback to filter noise; low volatility decreases it to catch tighter pivots.")
@@ -234,8 +249,44 @@ if isNewDay or highVol
 
 plot(showVP ? dPOC : na, "Daily POC", colorPOC, 2, plot.style_linebr)
 
+var bool pdhConsumed = false
+var bool pdlConsumed = false
+var bool pwhConsumed = false
+var bool pwlConsumed = false
+var bool pmhConsumed = false
+var bool pmlConsumed = false
+
+if isNewDay
+    pdhConsumed := false
+    pdlConsumed := false
+if isNewWeek
+    pwhConsumed := false
+    pwlConsumed := false
+if isNewMonth
+    pmhConsumed := false
+    pmlConsumed := false
+
+if not na(pdh) and high >= pdh
+    pdhConsumed := true
+if not na(pdl) and low <= pdl
+    pdlConsumed := true
+if not na(pwh) and high >= pwh
+    pwhConsumed := true
+if not na(pwl) and low <= pwl
+    pwlConsumed := true
+if not na(pmh) and high >= pmh
+    pmhConsumed := true
+if not na(pml) and low <= pml
+    pmlConsumed := true
+
 f_liqLabelSize() =>
     liqLabelSize == "Tiny" ? size.tiny : liqLabelSize == "Small" ? size.small : size.normal
+
+f_breakoutLabelSize() =>
+    breakoutLabelSize == "Tiny" ? size.tiny : breakoutLabelSize == "Small" ? size.small : size.normal
+
+f_raidLabelSize() =>
+    raidLabelSize == "Tiny" ? size.tiny : raidLabelSize == "Small" ? size.small : size.normal
 
 f_updateLevel(bool show, float val, string txt, color clr, line l, label lb, int width) =>
     if show and not na(val)
@@ -274,14 +325,14 @@ var line lnNYMid = line.new(na, na, na, na)
 var label lbNYMid = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
 
 if barstate.islast
-    f_updateLevel(showPDH, pdh, "PDH", colorPDLvl, lnPDH, lbPDH, 1)
-    f_updateLevel(showPDL, pdl, "PDL", colorPDLvl, lnPDL, lbPDL, 1)
+    f_updateLevel(showPDH and not pdhConsumed, pdh, "PDH", colorPDLvl, lnPDH, lbPDH, 1)
+    f_updateLevel(showPDL and not pdlConsumed, pdl, "PDL", colorPDLvl, lnPDL, lbPDL, 1)
     f_updateLevel(showPDC, pdc, "PDC", colorPDLvl, lnPDC, lbPDC, 1)
     f_updateLevel(showDO, dO, "DO", colorPDLvl, lnDO, lbDO, 1)
-    f_updateLevel(showPWH, pwh, "PWH", colorPWLvl, lnPWH, lbPWH, 2)
-    f_updateLevel(showPWL, pwl, "PWL", colorPWLvl, lnPWL, lbPWL, 2)
-    f_updateLevel(showPMH, pmh, "PMH", colorPMLvl, lnPMH, lbPMH, 2)
-    f_updateLevel(showPML, pml, "PML", colorPMLvl, lnPML, lbPML, 2)
+    f_updateLevel(showPWH and not pwhConsumed, pwh, "PWH", colorPWLvl, lnPWH, lbPWH, 2)
+    f_updateLevel(showPWL and not pwlConsumed, pwl, "PWL", colorPWLvl, lnPWL, lbPWL, 2)
+    f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", colorPMLvl, lnPMH, lbPMH, 2)
+    f_updateLevel(showPML and not pmlConsumed, pml, "PML", colorPMLvl, lnPML, lbPML, 2)
     f_updateLevel(showNYMid, nyMidnight, "NY-Mid", colorNYMid, lnNYMid, lbNYMid, 1)
 
 // --- Advanced Liquidity Engine ---
@@ -350,7 +401,7 @@ f_liqUpsertNamedPool(string side, string poolType, float price, int sourceBar, s
                 pool = liq_pools.get(i)
                 if pool.baseLabel == label
                     liq_pools.remove(i)
-        liq_pools.push(liq_pool.new(side, poolType, poolType, price, sourceBar, false, label, label, 0, 1, int(na), sourceBar))
+        liq_pools.push(liq_pool.new(side, poolType, poolType, price, sourceBar, false, label, label, 0, 1, int(na), sourceBar, int(na), na, int(na), na, int(na), int(na)))
 
 majPH = ta.pivothigh(high, dynLen * 2, dynLen * 2)
 majPL = ta.pivotlow(low, dynLen * 2, dynLen * 2)
@@ -359,9 +410,9 @@ minPL = ta.pivotlow(low, dynLen, dynLen)
 
 if barstate.isconfirmed
     if not na(majPH)
-        liq_pools.push(liq_pool.new("BSL", "MAJOR", "MAJOR", majPH, bar_index - dynLen * 2, false, "MAJOR BSL", "MAJOR BSL", 0, 1, int(na), bar_index - dynLen * 2))
+        liq_pools.push(liq_pool.new("BSL", "MAJOR", "MAJOR", majPH, bar_index - dynLen * 2, false, "MAJOR BSL", "MAJOR BSL", 0, 1, int(na), bar_index - dynLen * 2, int(na), na, int(na), na, int(na), int(na)))
     if not na(majPL)
-        liq_pools.push(liq_pool.new("SSL", "MAJOR", "MAJOR", majPL, bar_index - dynLen * 2, false, "MAJOR SSL", "MAJOR SSL", 0, 1, int(na), bar_index - dynLen * 2))
+        liq_pools.push(liq_pool.new("SSL", "MAJOR", "MAJOR", majPL, bar_index - dynLen * 2, false, "MAJOR SSL", "MAJOR SSL", 0, 1, int(na), bar_index - dynLen * 2, int(na), na, int(na), na, int(na), int(na)))
     if not na(minPH) and na(majPH)
         bool mergedMinorHigh = false
         int bestMinorHighIdx = na
@@ -382,7 +433,7 @@ if barstate.isconfirmed
             pool.lastRefreshBar := bar_index - dynLen
             mergedMinorHigh := true
         if not mergedMinorHigh
-            liq_pools.push(liq_pool.new("BSL", "MINOR", "MINOR", minPH, bar_index - dynLen, false, "MINOR BSL", "MINOR BSL", 0, 1, int(na), bar_index - dynLen))
+            liq_pools.push(liq_pool.new("BSL", "MINOR", "MINOR", minPH, bar_index - dynLen, false, "MINOR BSL", "MINOR BSL", 0, 1, int(na), bar_index - dynLen, int(na), na, int(na), na, int(na), int(na)))
     if not na(minPL) and na(majPL)
         bool mergedMinorLow = false
         int bestMinorLowIdx = na
@@ -403,7 +454,7 @@ if barstate.isconfirmed
             pool.lastRefreshBar := bar_index - dynLen
             mergedMinorLow := true
         if not mergedMinorLow
-            liq_pools.push(liq_pool.new("SSL", "MINOR", "MINOR", minPL, bar_index - dynLen, false, "MINOR SSL", "MINOR SSL", 0, 1, int(na), bar_index - dynLen))
+            liq_pools.push(liq_pool.new("SSL", "MINOR", "MINOR", minPL, bar_index - dynLen, false, "MINOR SSL", "MINOR SSL", 0, 1, int(na), bar_index - dynLen, int(na), na, int(na), na, int(na), int(na)))
 
 if not inAsia and inAsia[1] and not na(asiaH) and not na(asiaL)
     f_liqUpsertNamedPool("BSL", "SESS", asiaH, bar_index - 1, "ASIA H")
@@ -424,8 +475,9 @@ if liq_pools.size() > 0
         if not pool.isSwept
             touchTol = f_liqTouchTolerance(pool.price)
             isTouch = (pool.side == "BSL" and high >= pool.price - touchTol and high <= pool.price) or (pool.side == "SSL" and low <= pool.price + touchTol and low >= pool.price)
-            if (pool.side == "BSL" and high > pool.price) or (pool.side == "SSL" and low < pool.price)
-                pool.isSwept := true
+            isTaken = (pool.side == "BSL" and high >= pool.price) or (pool.side == "SSL" and low <= pool.price)
+            if isTaken and na(pool.takenBar)
+                pool.takenBar := bar_index
                 pool.lastRefreshBar := bar_index
             else if isTouch and (na(pool.lastTouchBar) or pool.lastTouchBar != bar_index)
                 pool.touchCount += 1
@@ -441,12 +493,12 @@ if liq_pools.size() > 0
     if showEQ and liq_pools.size() > 1
         for i = 0 to liq_pools.size() - 1
             p1 = liq_pools.get(i)
-            if not p1.isSwept
+            if not p1.isSwept and na(p1.takenBar)
                 int eqMatches = 0
                 for j = 0 to liq_pools.size() - 1
                     if i != j
                         p2 = liq_pools.get(j)
-                        if not p2.isSwept and p1.side == p2.side
+                        if not p2.isSwept and na(p2.takenBar) and p1.side == p2.side
                             eqDistPct = math.abs(p1.price - p2.price) / (p1.price == 0 ? 1 : p1.price) * 100
                             if eqDistPct <= eqThreshold
                                 eqMatches += 1
@@ -478,7 +530,7 @@ if barstate.islast
     if liq_pools.size() > 0
         for i = 0 to liq_pools.size() - 1
             p = liq_pools.get(i)
-            if not p.isSwept and not f_liqHasDedicatedOverlay(p)
+            if not p.isSwept and na(p.takenBar) and not f_liqHasDedicatedOverlay(p)
                 int rowIdx = na
                 mergeTol = f_liqRenderMergeTolerance(p.price)
                 rowPriority = f_liqRenderPriority(p)
@@ -572,6 +624,24 @@ var float majSwh = na
 var float majSwl = na
 var float anchorMSS_L = na
 var float anchorMSS_S = na
+var int waitStartBarL = na
+var int waitStartBarS = na
+var float waitSweepLevelL = na
+var float waitSweepLevelS = na
+var float waitSweepTolL = na
+var float waitSweepTolS = na
+var string waitRaidTextL = ""
+var string waitRaidTextS = ""
+var label waitRaidLabelL = na
+var label waitRaidLabelS = na
+var int lastBreakoutBarBSL = na
+var int lastBreakoutBarSSL = na
+var float lastBreakoutPriceBSL = na
+var float lastBreakoutPriceSSL = na
+var float lastBreakoutTolBSL = na
+var float lastBreakoutTolSSL = na
+var label lastBreakoutLabelBSL = na
+var label lastBreakoutLabelSSL = na
 var string structureStatus = "Neutral"
 var int tSetups = 0
 var int w10 = 0
@@ -602,6 +672,25 @@ bool swpBSL = false
 bool swpSSL = false
 string swpTxt = ""
 float sweepGrade = 0.0
+float sweepExtreme = na
+float bestSweepPrice = na
+float bestSweepTol = na
+string bestSweepSide = ""
+int bestSweepIdx = na
+int sweepLabelBar = na
+float sweepLabelPrice = na
+int sweepConfirmBars = 2
+float minSweepGrade = majorSweeps ? 40.0 : 20.0
+float maxBreakoutDepth = atrVal * (sweepMaxDepth * 1.25)
+float breakoutGrade = 0.0
+float bestBreakoutPrice = na
+float bestBreakoutTol = na
+string bestBreakoutSide = ""
+int bestBreakoutIdx = na
+int breakoutLabelBar = na
+float breakoutLabelPrice = na
+string brkTxt = ""
+float minBreakoutGrade = majorSweeps ? 55.0 : 35.0
 
 if liq_pools.size() > 0
     for i = 0 to liq_pools.size() - 1
@@ -613,46 +702,288 @@ if liq_pools.size() > 0
 
         if not p_s.isSwept and not isExpired
             if not majorSweeps or isExternal
-                // 2. Proximity & Raid Logic
-                isRaidBSL = high >= p_s.price and close < p_s.price
-                isRaidSSL = low <= p_s.price and close > p_s.price
+                isBSLPool = p_s.side == "BSL"
+                raidNow = isBSLPool ? high >= p_s.price : low <= p_s.price
+                closeInsideNow = isBSLPool ? close < p_s.price : close > p_s.price
+                closeOutsideNow = isBSLPool ? close > p_s.price : close < p_s.price
+                raidExtremeNow = isBSLPool ? high : low
+                candleRange = high - low
+                safeRange = candleRange > 0 ? candleRange : 1.0
+                depthNow = isBSLPool ? math.max(high - p_s.price, 0) : math.max(p_s.price - low, 0)
+                reclaimNow = isBSLPool ? (p_s.price - close) : (close - p_s.price)
+                wickRatioNow = isBSLPool ? (high - close) / safeRange : (close - low) / safeRange
 
-                if isRaidBSL or isRaidSSL
-                    candleRange = high - low
-                    depth = isRaidBSL ? (high - p_s.price) : (p_s.price - low)
-                    reclaim = isRaidBSL ? (p_s.price - close) : (close - p_s.price)
+                hadPending = not na(p_s.pendingSweepBar)
+                int pendingAge = hadPending ? bar_index - p_s.pendingSweepBar : na
+                pendingActive = hadPending and pendingAge <= sweepConfirmBars
 
-                    // 3. Quality Metrics
-                    depthValid = depth <= (atrVal * sweepMaxDepth)
-                    reclaimValid = (reclaim / (candleRange > 0 ? candleRange : 1)) >= reclaimLvl
-                    wickValid = (isRaidBSL ? (high - close) : (close - low)) / (candleRange > 0 ? candleRange : 1) >= wickThresh
+                if hadPending and not pendingActive and not closeOutsideNow
+                    p_s.isSwept := true
+                    p_s.pendingSweepBar := int(na)
+                    p_s.pendingSweepExtreme := na
+                    p_s.pendingSweepExtremeBar := int(na)
+                    p_s.pendingWickRatio := na
+                    p_s.lastRefreshBar := bar_index
+                else
+                    combinedExtreme = pendingActive ? nz(p_s.pendingSweepExtreme, p_s.price) : p_s.price
+                    combinedExtremeBar = pendingActive ? nz(p_s.pendingSweepExtremeBar, p_s.pendingSweepBar) : bar_index
+                    combinedWick = pendingActive ? nz(p_s.pendingWickRatio, 0.0) : 0.0
+                    if raidNow
+                        priorExtreme = pendingActive ? nz(p_s.pendingSweepExtreme, p_s.price) : p_s.price
+                        combinedExtreme := isBSLPool ? math.max(combinedExtreme, raidExtremeNow) : math.min(combinedExtreme, raidExtremeNow)
+                        moreExtremeNow = isBSLPool ? raidExtremeNow >= priorExtreme : raidExtremeNow <= priorExtreme
+                        if moreExtremeNow
+                            combinedExtremeBar := bar_index
+                        combinedWick := math.max(combinedWick, wickRatioNow)
 
-                    if depthValid and reclaimValid and wickValid
-                        // 4. Scoring Factor
-                        grade = 0.0
-                        grade += isExternal ? 40.0 : 0.0
-                        grade += (kzBoost and (inLondon or inNY)) ? 30.0 : 0.0
-                        grade += (volConfirm and highVol) ? 30.0 : 0.0
-                        grade += math.min(p_s.touchCount, 3) * 5.0
-                        grade += math.min(p_s.clusterSize - 1, 3) * 5.0
+                    effectiveDepth = isBSLPool ? math.max(combinedExtreme - p_s.price, 0) : math.max(p_s.price - combinedExtreme, 0)
+                    clusterTol = f_liqClusterTolerance(p_s.price)
+                    edgeTol = f_liqTouchTolerance(p_s.price)
+                    int clusterCount = 0
+                    int sweptClusterCount = 0
+                    float clusterEdgePrice = p_s.price
+                    int clusterEdgeIdx = i
+                    float clusterEdgeRank = f_liqRetentionScore(p_s)
+                    if liq_pools.size() > 0 and (raidNow or pendingActive or hadPending)
+                        for j = 0 to liq_pools.size() - 1
+                            p_c = liq_pools.get(j)
+                            cExpired = (bar_index - p_c.lastRefreshBar) > ageExpiry
+                            cPending = not na(p_c.pendingSweepBar) and (bar_index - p_c.pendingSweepBar) <= sweepConfirmBars
+                            cHadPending = not na(p_c.pendingSweepBar)
+                            cExpiredPending = cHadPending and not cPending
+                            cRaided = p_c.side == "BSL" ? high >= p_c.price : low <= p_c.price
+                            cEligible = na(p_c.takenBar) or cPending or cExpiredPending or cRaided
+                            if not p_c.isSwept and not cExpired and cEligible and p_c.side == p_s.side and math.abs(p_c.price - p_s.price) <= clusterTol
+                                clusterCount += 1
+                                cRank = f_liqRetentionScore(p_c)
+                                moreExtreme = isBSLPool ? p_c.price > (clusterEdgePrice + edgeTol) : p_c.price < (clusterEdgePrice - edgeTol)
+                                sameExtreme = math.abs(p_c.price - clusterEdgePrice) <= edgeTol
+                                if moreExtreme or (sameExtreme and cRank > clusterEdgeRank)
+                                    clusterEdgePrice := p_c.price
+                                    clusterEdgeIdx := j
+                                    clusterEdgeRank := cRank
+                                if cRaided or cPending or cExpiredPending
+                                    sweptClusterCount += 1
+                    atClusterEdge = isBSLPool ? combinedExtreme >= (clusterEdgePrice - edgeTol) : combinedExtreme <= (clusterEdgePrice + edgeTol)
+                    clusterRep = liq_pools.get(clusterEdgeIdx)
+                    depthValid = effectiveDepth <= (atrVal * sweepMaxDepth)
+                    reclaimValid = closeInsideNow and (reclaimNow / safeRange) >= reclaimLvl
+                    wickValid = combinedWick >= wickThresh
+                    confirmNow = closeInsideNow and (raidNow or pendingActive)
+                    breakoutDispNow = (isBSLPool ? close > open : close < open) and math.abs(close - open) > (avgBody * dispMult)
+                    breakoutAcceptance = isBSLPool ? math.max(close - clusterEdgePrice, 0) : math.max(clusterEdgePrice - close, 0)
+                    breakoutAcceptanceValid = breakoutAcceptance >= math.max(edgeTol, atrVal * 0.03)
+                    breakoutMeaningful = clusterRep.baseType == "HTF" or clusterRep.baseType == "SESS" or clusterRep.baseType == "MAJOR" or clusterRep.touchCount > 0 or clusterRep.clusterSize > 1 or sweptClusterCount > 1
+                    breakoutCandidate = closeOutsideNow and atClusterEdge and breakoutAcceptanceValid and breakoutMeaningful and ((hadPending and not pendingActive) or (effectiveDepth > maxBreakoutDepth and breakoutDispNow))
 
-                        if grade >= 40.0
-                            if isRaidBSL
-                                swpBSL := true, swpTxt := f_liqDisplayLabel(p_s), sweepGrade := grade
-                                anchorMSS_S := useMajorMSS ? majSwl : lSwl
-                            else
-                                swpSSL := true, swpTxt := f_liqDisplayLabel(p_s), sweepGrade := grade
-                                anchorMSS_L := useMajorMSS ? majSwh : lSwh
-                            break
+                    if confirmNow and depthValid and reclaimValid and wickValid
+                        if atClusterEdge
+                            grade = isExternal ? 40.0 : 20.0
+                            grade += (kzBoost and (inLondon or inNY)) ? 20.0 : 0.0
+                            grade += (volConfirm and highVol) ? 20.0 : 0.0
+                            grade += math.min(clusterRep.touchCount, 3) * 5.0
+                            grade += math.min(clusterRep.clusterSize - 1, 3) * 5.0
+                            grade += math.min(sweptClusterCount - 1, 4) * 10.0
+
+                            if grade >= minSweepGrade and grade > sweepGrade
+                                sweepGrade := grade
+                                sweepExtreme := combinedExtreme
+                                bestSweepPrice := clusterEdgePrice
+                                bestSweepTol := clusterTol
+                                bestSweepSide := p_s.side
+                                bestSweepIdx := clusterEdgeIdx
+                                sweepLabelBar := combinedExtremeBar
+                                sweepLabelPrice := combinedExtreme
+                                swpTxt := f_liqDisplayLabel(clusterRep) + (sweptClusterCount > 1 ? " +" + str.tostring(sweptClusterCount - 1) : "")
+                        else if raidNow or pendingActive
+                            p_s.pendingSweepBar := na(p_s.pendingSweepBar) ? bar_index : p_s.pendingSweepBar
+                            p_s.pendingSweepExtreme := combinedExtreme
+                            p_s.pendingSweepExtremeBar := combinedExtremeBar
+                            p_s.pendingWickRatio := combinedWick
+                    else if breakoutCandidate
+                        brkGrade = isExternal ? 45.0 : 20.0
+                        brkGrade += (kzBoost and (inLondon or inNY)) ? 10.0 : 0.0
+                        brkGrade += (volConfirm and highVol) ? 10.0 : 0.0
+                        brkGrade += breakoutDispNow ? 20.0 : 0.0
+                        brkGrade += math.min(clusterRep.touchCount, 3) * 5.0
+                        brkGrade += math.min(clusterRep.clusterSize - 1, 3) * 5.0
+                        brkGrade += math.min(sweptClusterCount - 1, 3) * 8.0
+                        brkGrade += (hadPending and not pendingActive) ? 15.0 : 0.0
+                        if brkGrade >= minBreakoutGrade and brkGrade > breakoutGrade
+                            breakoutGrade := brkGrade
+                            bestBreakoutPrice := clusterEdgePrice
+                            bestBreakoutTol := clusterTol
+                            bestBreakoutSide := p_s.side
+                            bestBreakoutIdx := clusterEdgeIdx
+                            breakoutLabelBar := bar_index
+                            breakoutLabelPrice := clusterEdgePrice
+                            brkTxt := f_liqDisplayLabel(clusterRep) + (sweptClusterCount > 1 ? " +" + str.tostring(sweptClusterCount - 1) : "")
+                        else
+                            p_s.isSwept := true
+                            p_s.pendingSweepBar := int(na)
+                            p_s.pendingSweepExtreme := na
+                            p_s.pendingSweepExtremeBar := int(na)
+                            p_s.pendingWickRatio := na
+                            p_s.lastFailureBar := bar_index
+                            p_s.lastRefreshBar := bar_index
+                    else
+                        if raidNow and effectiveDepth > maxBreakoutDepth
+                            p_s.isSwept := true
+                            p_s.pendingSweepBar := int(na)
+                            p_s.pendingSweepExtreme := na
+                            p_s.pendingSweepExtremeBar := int(na)
+                            p_s.pendingWickRatio := na
+                            p_s.lastRefreshBar := bar_index
+                        else if raidNow or pendingActive
+                            p_s.pendingSweepBar := na(p_s.pendingSweepBar) ? bar_index : p_s.pendingSweepBar
+                            p_s.pendingSweepExtreme := combinedExtreme
+                            p_s.pendingSweepExtremeBar := combinedExtremeBar
+                            p_s.pendingWickRatio := combinedWick
+
+if not na(bestSweepIdx)
+    if bestSweepSide == "BSL"
+        swpBSL := true
+        anchorMSS_S := useMajorMSS ? majSwl : lSwl
+    else
+        swpSSL := true
+        anchorMSS_L := useMajorMSS ? majSwh : lSwh
+
+    if liq_pools.size() > 0
+        for i = 0 to liq_pools.size() - 1
+            p_m = liq_pools.get(i)
+            mPending = not na(p_m.pendingSweepBar) and (bar_index - p_m.pendingSweepBar) <= sweepConfirmBars
+            mRaided = p_m.side == "BSL" ? high >= p_m.price : low <= p_m.price
+            sameCluster = not p_m.isSwept and p_m.side == bestSweepSide and math.abs(p_m.price - bestSweepPrice) <= bestSweepTol
+            if sameCluster and (mRaided or mPending)
+                p_m.isSwept := true
+                p_m.pendingSweepBar := int(na)
+                p_m.pendingSweepExtreme := na
+                p_m.pendingSweepExtremeBar := int(na)
+                p_m.pendingWickRatio := na
+                p_m.lastRefreshBar := bar_index
+
+if not na(bestBreakoutIdx)
+    if liq_pools.size() > 0
+        for i = 0 to liq_pools.size() - 1
+            p_b = liq_pools.get(i)
+            sameCluster = not p_b.isSwept and p_b.side == bestBreakoutSide and math.abs(p_b.price - bestBreakoutPrice) <= bestBreakoutTol
+            if sameCluster
+                p_b.isSwept := true
+                p_b.pendingSweepBar := int(na)
+                p_b.pendingSweepExtreme := na
+                p_b.pendingSweepExtremeBar := int(na)
+                p_b.pendingWickRatio := na
+                p_b.lastFailureBar := bar_index
+                p_b.lastRefreshBar := bar_index
+
+    if bestBreakoutSide == "BSL" and waitS and not na(waitSweepLevelS) and math.abs(bestBreakoutPrice - waitSweepLevelS) <= math.max(bestBreakoutTol, nz(waitSweepTolS, bestBreakoutTol))
+        if not na(waitRaidLabelS)
+            label.delete(waitRaidLabelS)
+        waitS := false
+        waitStartBarS := int(na)
+        waitSweepLevelS := na
+        waitSweepTolS := na
+        waitRaidTextS := ""
+        waitRaidLabelS := na
+        anchorMSS_S := na
+        sExtH := na
+    if bestBreakoutSide == "SSL" and waitL and not na(waitSweepLevelL) and math.abs(bestBreakoutPrice - waitSweepLevelL) <= math.max(bestBreakoutTol, nz(waitSweepTolL, bestBreakoutTol))
+        if not na(waitRaidLabelL)
+            label.delete(waitRaidLabelL)
+        waitL := false
+        waitStartBarL := int(na)
+        waitSweepLevelL := na
+        waitSweepTolL := na
+        waitRaidTextL := ""
+        waitRaidLabelL := na
+        anchorMSS_L := na
+        sExtL := na
+
+    breakoutIsBSL = bestBreakoutSide == "BSL"
+    recentBreakout = breakoutIsBSL ? (not na(lastBreakoutBarBSL) and (bar_index - lastBreakoutBarBSL) <= breakoutCooldownBars) : (not na(lastBreakoutBarSSL) and (bar_index - lastBreakoutBarSSL) <= breakoutCooldownBars)
+    moreExtremeBreakout = breakoutIsBSL ? (na(lastBreakoutPriceBSL) or bestBreakoutPrice >= lastBreakoutPriceBSL) : (na(lastBreakoutPriceSSL) or bestBreakoutPrice <= lastBreakoutPriceSSL)
+    if showSMC and (not recentBreakout or moreExtremeBreakout)
+        if breakoutIsBSL and recentBreakout and not na(lastBreakoutLabelBSL)
+            label.delete(lastBreakoutLabelBSL)
+        if not breakoutIsBSL and recentBreakout and not na(lastBreakoutLabelSSL)
+            label.delete(lastBreakoutLabelSSL)
+        label newBreakoutLabel = label.new(breakoutLabelBar, breakoutLabelPrice, "BREAKOUT: " + brkTxt, color=#00000000, textcolor=breakoutIsBSL ? breakoutBullColor : breakoutBearColor, style=breakoutIsBSL ? label.style_label_up : label.style_label_down, size=f_breakoutLabelSize())
+        if breakoutIsBSL
+            lastBreakoutBarBSL := bar_index
+            lastBreakoutPriceBSL := bestBreakoutPrice
+            lastBreakoutTolBSL := bestBreakoutTol
+            lastBreakoutLabelBSL := newBreakoutLabel
+        else
+            lastBreakoutBarSSL := bar_index
+            lastBreakoutPriceSSL := bestBreakoutPrice
+            lastBreakoutTolSSL := bestBreakoutTol
+            lastBreakoutLabelSSL := newBreakoutLabel
 
 bearSweep = showSMC and swpBSL
 bullSweep = showSMC and swpSSL
 if bearSweep and not active and not waitS
-    label.new(bar_index, high, "RAID: " + swpTxt, color=#00000000, textcolor=COLOR_BEAR, style=label.style_label_down, size=size.tiny)
-    waitS := true, waitL := false, sExtH := high
+    waitRaidLabelS := label.new(sweepLabelBar, nz(sweepLabelPrice, sweepExtreme), "RAID: " + swpTxt, color=#00000000, textcolor=raidBearColor, style=label.style_label_down, size=f_raidLabelSize())
+    waitRaidTextS := swpTxt
+    waitSweepLevelS := bestSweepPrice
+    waitSweepTolS := bestSweepTol
+    waitS := true, waitL := false, sExtH := sweepExtreme, waitStartBarS := bar_index, waitStartBarL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, anchorMSS_L := na
 if bullSweep and not active and not waitL
-    label.new(bar_index, low, "RAID: " + swpTxt, color=#00000000, textcolor=COLOR_BULL, style=label.style_label_up, size=size.tiny)
-    waitL := true, waitS := false, sExtL := low
+    waitRaidLabelL := label.new(sweepLabelBar, nz(sweepLabelPrice, sweepExtreme), "RAID: " + swpTxt, color=#00000000, textcolor=raidBullColor, style=label.style_label_up, size=f_raidLabelSize())
+    waitRaidTextL := swpTxt
+    waitSweepLevelL := bestSweepPrice
+    waitSweepTolL := bestSweepTol
+    waitL := true, waitS := false, sExtL := sweepExtreme, waitStartBarL := bar_index, waitStartBarS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, anchorMSS_S := na
+
+bearRaidRange = high - low
+bearRaidSafeRange = bearRaidRange > 0 ? bearRaidRange : 1.0
+bearRaidReclaim = nz(waitSweepLevelS, high) - close
+bearRaidWick = (high - close) / bearRaidSafeRange
+bool bearRaidUpgrade = waitS and not active and not na(waitSweepLevelS) and high >= waitSweepLevelS and high > nz(sExtH, waitSweepLevelS) and close < waitSweepLevelS and math.max(high - waitSweepLevelS, 0) <= (atrVal * sweepMaxDepth) and (bearRaidReclaim / bearRaidSafeRange) >= reclaimLvl and bearRaidWick >= wickThresh
+if bearRaidUpgrade
+    if not na(waitRaidLabelS)
+        label.delete(waitRaidLabelS)
+    waitRaidLabelS := label.new(bar_index, high, "RAID: " + waitRaidTextS, color=#00000000, textcolor=raidBearColor, style=label.style_label_down, size=f_raidLabelSize())
+    sExtH := high
+    waitStartBarS := bar_index
+    anchorMSS_S := useMajorMSS ? majSwl : lSwl
+
+bullRaidRange = high - low
+bullRaidSafeRange = bullRaidRange > 0 ? bullRaidRange : 1.0
+bullRaidReclaim = close - nz(waitSweepLevelL, low)
+bullRaidWick = (close - low) / bullRaidSafeRange
+bool bullRaidUpgrade = waitL and not active and not na(waitSweepLevelL) and low <= waitSweepLevelL and low < nz(sExtL, waitSweepLevelL) and close > waitSweepLevelL and math.max(waitSweepLevelL - low, 0) <= (atrVal * sweepMaxDepth) and (bullRaidReclaim / bullRaidSafeRange) >= reclaimLvl and bullRaidWick >= wickThresh
+if bullRaidUpgrade
+    if not na(waitRaidLabelL)
+        label.delete(waitRaidLabelL)
+    waitRaidLabelL := label.new(bar_index, low, "RAID: " + waitRaidTextL, color=#00000000, textcolor=raidBullColor, style=label.style_label_up, size=f_raidLabelSize())
+    sExtL := low
+    waitStartBarL := bar_index
+    anchorMSS_L := useMajorMSS ? majSwh : lSwh
+
+bool sweepWaitExpiredS = waitS and not na(waitStartBarS) and (bar_index - waitStartBarS) > sweepMssTimeoutBars
+bool sweepWaitExpiredL = waitL and not na(waitStartBarL) and (bar_index - waitStartBarL) > sweepMssTimeoutBars
+if sweepWaitExpiredS
+    if showSweepTimeoutNote
+        label.new(bar_index, sExtH, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
+    waitS := false
+    waitStartBarS := int(na)
+    waitSweepLevelS := na
+    waitSweepTolS := na
+    waitRaidTextS := ""
+    waitRaidLabelS := na
+    anchorMSS_S := na
+    sExtH := na
+if sweepWaitExpiredL
+    if showSweepTimeoutNote
+        label.new(bar_index, sExtL, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
+    waitL := false
+    waitStartBarL := int(na)
+    waitSweepLevelL := na
+    waitSweepTolL := na
+    waitRaidTextL := ""
+    waitRaidLabelL := na
+    anchorMSS_L := na
+    sExtL := na
 
 bool mssS = showSMC and waitS and not na(anchorMSS_S) and close < anchorMSS_S and disp
 bool mssL = showSMC and waitL and not na(anchorMSS_L) and close > anchorMSS_L and disp
@@ -668,7 +999,7 @@ if mssS and not active
     active := true, bull := false, tSetups += 1
     tSL := (stopModel == "Sweep Extreme") ? sExtH : high
     t10 := anchorMSS_S - (sExtH - anchorMSS_S)
-    waitS := false, structureStatus := "Bearish"
+    waitS := false, waitStartBarS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, structureStatus := "Bearish"
     if showProj
         line.new(bar_index, t10, bar_index+15, t10, color=COLOR_BEAR, style=line.style_dashed)
     label.new(bar_index, low, "ENTRY [" + shiftType + "]", color=COLOR_BEAR, textcolor=color.white, style=label.style_label_down, size=size.small)
@@ -677,7 +1008,7 @@ if mssL and not active
     active := true, bull := true, tSetups += 1
     tSL := (stopModel == "Sweep Extreme") ? sExtL : low
     t10 := anchorMSS_L + (anchorMSS_L - sExtL)
-    waitL := false, structureStatus := "Bullish"
+    waitL := false, waitStartBarL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, structureStatus := "Bullish"
     if showProj
         line.new(bar_index, t10, bar_index+15, t10, color=COLOR_BULL, style=line.style_dashed)
     label.new(bar_index, high, "ENTRY [" + shiftType + "]", color=COLOR_BULL, textcolor=color.white, style=label.style_label_up, size=size.small)
@@ -686,7 +1017,7 @@ if mssL and not active
     active := true, bull := true, tSetups += 1
     tSL := (stopModel == "Sweep Extreme") ? sExtL : low
     t10 := lSwh + (lSwh - sExtL)
-    waitL := false, structureStatus := "Bullish"
+    waitL := false, waitStartBarL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, structureStatus := "Bullish"
     if showProj
         line.new(bar_index, t10, bar_index+15, t10, color=COLOR_BULL, style=line.style_dashed)
     label.new(bar_index, high, "INST. ENTRY ↗", color=COLOR_BULL, textcolor=color.white, style=label.style_label_up, size=size.small)
@@ -741,9 +1072,9 @@ if showRZ
 
     // 3. Sweep Reclaim (Priority 3)
     if waitL and not na(sExtL)
-        rz_candidates.push(reaction_zone.new("Long", "SWEEP", sExtL + syminfo.mintick*10, sExtL, sExtL + syminfo.mintick*5, bar_index, 3, 80.0, false, false, "SWEEP RECLAIM"))
+        rz_candidates.push(reaction_zone.new("Long", "SWEEP", sExtL + syminfo.mintick*10, sExtL, sExtL + syminfo.mintick*5, nz(waitStartBarL, bar_index), 3, 80.0, false, false, "SWEEP RECLAIM (AGGR)"))
     if waitS and not na(sExtH)
-        rz_candidates.push(reaction_zone.new("Short", "SWEEP", sExtH, sExtH - syminfo.mintick*10, sExtH - syminfo.mintick*5, bar_index, 3, 80.0, false, false, "SWEEP RECLAIM"))
+        rz_candidates.push(reaction_zone.new("Short", "SWEEP", sExtH, sExtH - syminfo.mintick*10, sExtH - syminfo.mintick*5, nz(waitStartBarS, bar_index), 3, 80.0, false, false, "SWEEP RECLAIM (AGGR)"))
 
     // 4. Target / HTF Levels (Priority 4)
     if not na(lastHtf2PH) and high < lastHtf2PH
