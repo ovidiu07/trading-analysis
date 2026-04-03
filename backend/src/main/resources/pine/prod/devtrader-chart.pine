@@ -42,8 +42,8 @@ type reaction_zone
 
 type liq_pool
     string side          // "BSL" or "SSL"
-    string poolType      // Dynamic type: "MAJOR", "MINOR", "SESS", "HTF", "EQ"
-    string baseType      // Source type before dynamic EQ relabeling
+    string poolType      // "EXTERNAL", "INTERNAL", "SESSION", "PERIOD", "EQ"
+    string baseType      // "SWING", "SESSION", "PERIOD", "EQ"
     float  price
     int    sourceBar
     bool   isSwept
@@ -59,14 +59,24 @@ type liq_pool
     float  pendingWickRatio
     int    takenBar
     int    lastFailureBar
+    int    creationTime
+    string sourceTF
+    float  structuralRank
+    int    timesTagged
+    float  cleanlinessScore
+    string sessionContext
+    bool   isInducementCandidate
+    string state         // "FRESH", "TAGGED", "SWEPT", "CONSUMED"
 
 type liq_render_row
+    string side
     float  price
     int    sourceBar
     bool   isMajor
     string primaryText
     float  priority
     int    mergedCount
+    string state
 
 // --- Inputs ---
 showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
@@ -122,9 +132,18 @@ breakoutCooldownBars = input.int(8, "Breakout Cooldown (Bars)", minval=1, group=
 
 liqPivotLen      = input.int(14, "Base Pivot Lookback", minval=1, group=G_LIQ)
 autoLiqPivot     = input.bool(true, "Auto-Optimize Lookback", group=G_LIQ, tooltip="Adjusts the pivot lookback based on current ATR volatility. High volatility increases lookback to filter noise; low volatility decreases it to catch tighter pivots.")
+liqRangeLookback = input.int(50, "Structural Range Lookback", minval=20, group=G_LIQ, tooltip="Range used to classify swing liquidity as external or internal.")
+liqExtBoundaryPct = input.float(0.15, "External Boundary %", minval=0.05, maxval=0.40, step=0.01, group=G_LIQ, tooltip="A swing is external only when it sits near the active dealing-range boundary.")
 
 showEQ           = input.bool(true, "Show Liquidity Clusters", group=G_LIQ, tooltip="Promote equal-high / equal-low groupings into directional BSL / SSL cluster labels.")
 eqThreshold      = input.float(0.1, "EQ Threshold %", minval=0, step=0.01, group=G_LIQ)
+eqLocalLookback  = input.int(12, "EQ Local Lookback", minval=6, maxval=40, group=G_LIQ)
+eqStructuralLookback = input.int(32, "EQ Structural Lookback", minval=10, maxval=80, group=G_LIQ)
+eqClusterMaxAge  = input.int(220, "EQ Max Age (Bars)", minval=40, maxval=1000, group=G_LIQ)
+liqMaxLevelsPerSide = input.int(2, "Active Levels Per Side", minval=1, maxval=5, group=G_LIQ, tooltip="Maximum number of liquidity levels shown above and below price in trader mode.")
+showSweptLiquidity = input.bool(false, "Show Recent Swept Context", group=G_LIQ, tooltip="Keep at most one recent swept level per side when it still matters for the active narrative.")
+liqContextAtr = input.float(1.5, "Swept Context Distance (ATR)", minval=0.5, step=0.25, group=G_LIQ, tooltip="Hide swept context levels that are too far away from current price.")
+liqShowDebugMetrics = input.bool(false, "Show Label Metrics", group=G_LIQ, tooltip="Append touch/state diagnostics to liquidity labels. Disable for clean trader view.")
 showLiquidityLabels = input.bool(true, "Show Liquidity Labels", group=G_LIQ)
 liqMajorColor    = input.color(color.new(#ff0015, 30), "Major Liquidity", group=G_LIQ)
 liqMinorColor    = input.color(color.new(#5b9cf6, 50), "Minor Liquidity", group=G_LIQ)
@@ -243,6 +262,24 @@ else if inAsia
         box.set_bottom(asiaBox, asiaL)
         box.set_right(asiaBox, bar_index)
 
+var float londonH = na
+var float londonL = na
+if inLondon and not inLondon[1]
+    londonH := high
+    londonL := low
+else if inLondon
+    londonH := math.max(high, nz(londonH, high))
+    londonL := math.min(low, nz(londonL, low))
+
+var float nySessH = na
+var float nySessL = na
+if inNY and not inNY[1]
+    nySessH := high
+    nySessL := low
+else if inNY
+    nySessH := math.max(high, nz(nySessH, high))
+    nySessL := math.min(low, nz(nySessL, low))
+
 var float dPOC = na
 if isNewDay or highVol
     dPOC := hl2
@@ -339,15 +376,27 @@ if barstate.islast
 var liq_pools = array.new<liq_pool>(0)
 var liq_render_lines = array.new_line(0)
 var liq_render_labels = array.new_label(0)
+var recentSwingHighs = array.new_float(0)
+var recentSwingHighBars = array.new_int(0)
+var recentSwingLows = array.new_float(0)
+var recentSwingLowBars = array.new_int(0)
 
 // Volatility-Based Auto Optimization
 atrVal = ta.atr(14)
 max_bars_back(atrVal, 1000)
 volScale = atrVal / nz(ta.sma(atrVal, 200), atrVal)
 dynLen = autoLiqPivot ? math.max(5, math.min(40, math.round(liqPivotLen * volScale))) : liqPivotLen
+float chartTfSec = math.max(float(timeframe.in_seconds(timeframe.period)), 60.0)
+float liqRangeHigh = ta.highest(high, liqRangeLookback)
+float liqRangeLow = ta.lowest(low, liqRangeLookback)
+float liqRangeSpan = math.max(liqRangeHigh - liqRangeLow, syminfo.mintick * 20)
+float liqExtThreshold = liqRangeSpan * liqExtBoundaryPct
+
+f_liqCurrentSessionContext() =>
+    inLondon ? "London" : inNY ? "New York" : inAsia ? "Asia" : "Off Session"
 
 f_liqIsExternal(string poolType) =>
-    poolType == "MAJOR" or poolType == "SESS" or poolType == "HTF" or poolType == "EQ"
+    poolType == "EXTERNAL" or poolType == "SESSION" or poolType == "PERIOD" or poolType == "EQ"
 
 f_liqClusterTolerance(float price) =>
     math.max(syminfo.mintick * 4, math.min(atrVal * 0.10, price * 0.0025))
@@ -355,23 +404,80 @@ f_liqClusterTolerance(float price) =>
 f_liqTouchTolerance(float price) =>
     math.max(syminfo.mintick * 2, math.min(atrVal * 0.04, price * 0.0010))
 
+f_liqSourceSeconds(liq_pool pool) =>
+    pool.baseType == "PERIOD" ? (pool.sourceTF == "M" ? 2592000.0 : pool.sourceTF == "W" ? 604800.0 : 86400.0) : pool.baseType == "SESSION" ? 21600.0 : pool.baseType == "EQ" ? chartTfSec * 6.0 : chartTfSec
+
+f_liqAgeUnits(liq_pool pool) =>
+    float ageSec = math.max(float(time - pool.creationTime) / 1000.0, 0.0)
+    float sourceSec = math.max(f_liqSourceSeconds(pool), 60.0)
+    float eventPenalty = math.max(pool.timesTagged - 1, 0) * 0.35 + (pool.isSwept ? 0.75 : 0.0) + (pool.state == "CONSUMED" ? 0.75 : pool.state == "SWEPT" ? 0.35 : 0.0)
+    ageSec / sourceSec + eventPenalty
+
+f_liqExpiryUnits(liq_pool pool) =>
+    float baseUnits = pool.poolType == "PERIOD" ? (pool.sourceTF == "M" ? 10.0 : pool.sourceTF == "W" ? 6.0 : 3.0) : pool.poolType == "SESSION" ? 2.0 : pool.poolType == "EQ" ? 4.0 : pool.poolType == "EXTERNAL" ? 5.0 : 2.5
+    float scale = math.max(ageExpiry / 400.0, 0.5)
+    baseUnits * scale
+
+f_liqIsExpired(liq_pool pool) =>
+    f_liqAgeUnits(pool) > f_liqExpiryUnits(pool)
+
+f_liqCalculatedCleanliness(liq_pool pool) =>
+    float score = 72.0
+    score += math.min(pool.clusterSize - 1, 3) * 7.0
+    score -= math.max(pool.timesTagged - 1, 0) * 8.0
+    score -= math.max(f_liqAgeUnits(pool) - 1.0, 0.0) * 6.0
+    score -= pool.poolType == "INTERNAL" ? 8.0 : 0.0
+    score -= pool.state == "CONSUMED" ? 30.0 : pool.state == "SWEPT" ? 12.0 : pool.state == "TAGGED" ? 5.0 : 0.0
+    math.max(0.0, math.min(100.0, score))
+
+f_liqFreshnessScore(liq_pool pool) =>
+    float score = pool.structuralRank
+    score += pool.poolType == "EQ" ? 10.0 : 0.0
+    score += math.min(pool.clusterSize - 1, 3) * 4.0
+    score -= f_liqAgeUnits(pool) * 12.0
+    score -= math.max(pool.timesTagged - 1, 0) * 6.0
+    score -= pool.state == "CONSUMED" ? 25.0 : pool.state == "SWEPT" ? 10.0 : 0.0
+    math.max(0.0, math.min(100.0, score))
+
 f_liqRetentionScore(liq_pool pool) =>
-    ageBars = bar_index - pool.lastRefreshBar
-    baseScore = pool.baseType == "HTF" ? 120.0 : pool.baseType == "SESS" ? 95.0 : pool.baseType == "MAJOR" ? 80.0 : 30.0
-    baseScore += (pool.poolType == "EQ" ? 20.0 : 0.0)
-    baseScore += (not pool.isSwept ? 25.0 : -60.0)
-    baseScore += math.min(pool.touchCount, 4) * 8.0
-    baseScore += math.min(pool.clusterSize - 1, 4) * 6.0
-    baseScore -= ageBars * (pool.baseType == "MINOR" ? 0.20 : 0.08)
-    baseScore
+    pool.structuralRank + f_liqFreshnessScore(pool) * 0.60 + f_liqCalculatedCleanliness(pool) * 0.40
+
+f_liqCompactBaseLabel(liq_pool pool) =>
+    string txt = pool.baseLabel
+    if pool.baseType == "SWING"
+        txt := pool.poolType == "EXTERNAL" ? (pool.side == "BSL" ? "Ext BSL" : "Ext SSL") : (pool.side == "BSL" ? "Int BSL" : "Int SSL")
+    else if pool.baseType == "EQ"
+        txt := pool.side == "BSL" ? "EQH" : "EQL"
+    else if pool.baseLabel == "LONDON H"
+        txt := "London H"
+    else if pool.baseLabel == "LONDON L"
+        txt := "London L"
+    else if pool.baseLabel == "NY H"
+        txt := "NY H"
+    else if pool.baseLabel == "NY L"
+        txt := "NY L"
+    else if pool.baseLabel == "ASIA H"
+        txt := "Asia H"
+    else if pool.baseLabel == "ASIA L"
+        txt := "Asia L"
+    txt
 
 f_liqDisplayLabel(liq_pool pool) =>
-    txt = pool.poolLabel
-    isClusterLabel = str.contains(pool.poolLabel, "CLUSTER")
-    if pool.clusterSize > 1 and not isClusterLabel
-        txt += " x" + str.tostring(pool.clusterSize)
-    if pool.touchCount > 0
-        txt += " T" + str.tostring(pool.touchCount)
+    txt = f_liqCompactBaseLabel(pool)
+    if liqShowDebugMetrics
+        bool isClusterLabel = pool.poolType == "EQ"
+        if pool.clusterSize > 1 and not isClusterLabel
+            txt += " x" + str.tostring(pool.clusterSize)
+        if pool.timesTagged > 0
+            txt += " T" + str.tostring(pool.timesTagged)
+        if pool.isInducementCandidate
+            txt += " IND"
+        if pool.state == "TAGGED"
+            txt += " [TAG]"
+        else if pool.state == "SWEPT"
+            txt += " [SWP]"
+        else if pool.state == "CONSUMED"
+            txt += " [CON]"
     txt
 
 f_liqLabelSpacing() =>
@@ -381,10 +487,31 @@ f_liqRenderMergeTolerance(float price) =>
     math.max(syminfo.mintick * 8, math.min(atrVal * 0.02, price * 0.0004))
 
 f_liqRenderPriority(liq_pool pool) =>
-    score = f_liqIsExternal(pool.poolType) ? 100.0 : 20.0
-    score += pool.baseType == "HTF" ? 25.0 : pool.baseType == "SESS" ? 15.0 : pool.baseType == "MAJOR" ? 10.0 : 0.0
-    score += math.min(pool.touchCount, 3) * 2.0
-    score += math.min(pool.clusterSize - 1, 3) * 2.0
+    score = pool.structuralRank
+    score += f_liqFreshnessScore(pool) * 0.35
+    score += f_liqCalculatedCleanliness(pool) * 0.15
+    score
+
+f_liqDistanceAtr(liq_pool pool) =>
+    atrVal > 0 ? math.abs(pool.price - close) / atrVal : 999.0
+
+f_liqIsRenderableActive(liq_pool pool) =>
+    bool activeState = pool.state == "FRESH" or pool.state == "TAGGED"
+    bool importantType = pool.poolType == "PERIOD" or pool.poolType == "SESSION" or pool.poolType == "EQ" or pool.poolType == "EXTERNAL"
+    bool internalActionable = pool.poolType == "INTERNAL" and pool.isInducementCandidate and f_liqDistanceAtr(pool) <= 1.0
+    activeState and (importantType or internalActionable)
+
+f_liqIsRenderableSwept(liq_pool pool) =>
+    showSweptLiquidity and pool.state == "SWEPT" and (bar_index - nz(pool.lastRefreshBar, pool.sourceBar)) <= sweepMssTimeoutBars and f_liqDistanceAtr(pool) <= liqContextAtr
+
+f_liqShouldRenderPool(liq_pool pool) =>
+    pool.state != "CONSUMED" and (f_liqIsRenderableActive(pool) or f_liqIsRenderableSwept(pool))
+
+f_liqVisualScore(liq_pool pool) =>
+    float distAtr = f_liqDistanceAtr(pool)
+    float score = f_liqRenderPriority(pool)
+    score += math.max(0.0, 18.0 - distAtr * 5.0)
+    score += pool.state == "TAGGED" ? 5.0 : pool.state == "SWEPT" ? -8.0 : 0.0
     score
 
 f_liqHasDedicatedOverlay(liq_pool pool) =>
@@ -395,14 +522,159 @@ f_liqHasDedicatedOverlay(liq_pool pool) =>
      (pool.baseLabel == "PMH" and showPMH) or
      (pool.baseLabel == "PML" and showPML)
 
-f_liqUpsertNamedPool(string side, string poolType, float price, int sourceBar, string label) =>
+f_newLiqPool(string side, string poolType, string baseType, float price, int sourceBar, int creationTime, string label, string baseLabel, string sourceTF, float structuralRank, string sessionContext, float cleanlinessScore, bool isInducementCandidate) =>
+    liq_pool.new(side, poolType, baseType, price, sourceBar, false, label, baseLabel, 0, 1, int(na), sourceBar, int(na), na, int(na), na, int(na), int(na), creationTime, sourceTF, structuralRank, 0, cleanlinessScore, sessionContext, isInducementCandidate, "FRESH")
+
+f_liqRemoveNamedPool(string label) =>
+    if liq_pools.size() > 0
+        for i = liq_pools.size() - 1 to 0
+            pool = liq_pools.get(i)
+            if pool.baseLabel == label
+                liq_pools.remove(i)
+    true
+
+f_liqUpsertNamedPool(string side, string poolType, string baseType, float price, int sourceBar, string label, string sourceTF, float structuralRank, string sessionContext, float cleanlinessScore, bool isInducementCandidate, bool preserveState) =>
     if not na(price)
+        int existingIdx = na
         if liq_pools.size() > 0
-            for i = liq_pools.size() - 1 to 0
+            for i = 0 to liq_pools.size() - 1
                 pool = liq_pools.get(i)
                 if pool.baseLabel == label
-                    liq_pools.remove(i)
-        liq_pools.push(liq_pool.new(side, poolType, poolType, price, sourceBar, false, label, label, 0, 1, int(na), sourceBar, int(na), na, int(na), na, int(na), int(na)))
+                    existingIdx := i
+                    break
+        if preserveState and not na(existingIdx)
+            pool = liq_pools.get(existingIdx)
+            bool sameNarrativeLevel = math.abs(pool.price - price) <= f_liqClusterTolerance(price)
+            if sameNarrativeLevel
+                pool.side := side
+                pool.poolType := poolType
+                pool.baseType := baseType
+                pool.price := price
+                pool.sourceBar := sourceBar
+                pool.poolLabel := label
+                pool.baseLabel := label
+                pool.sourceTF := sourceTF
+                pool.structuralRank := structuralRank
+                pool.sessionContext := sessionContext
+                pool.cleanlinessScore := cleanlinessScore
+                pool.isInducementCandidate := isInducementCandidate
+            else
+                liq_pools.remove(existingIdx)
+                liq_pools.push(f_newLiqPool(side, poolType, baseType, price, sourceBar, time, label, label, sourceTF, structuralRank, sessionContext, cleanlinessScore, isInducementCandidate))
+        else
+            f_liqRemoveNamedPool(label)
+            liq_pools.push(f_newLiqPool(side, poolType, baseType, price, sourceBar, time, label, label, sourceTF, structuralRank, sessionContext, cleanlinessScore, isInducementCandidate))
+    true
+
+f_liqUpsertSwingPool(string side, float price, int sourceBar, float seedRank, bool externalSeed) =>
+    if not na(price)
+        bool merged = false
+        int bestIdx = na
+        float bestDist = 10e10
+        float tol = f_liqClusterTolerance(price)
+        if liq_pools.size() > 0
+            for i = 0 to liq_pools.size() - 1
+                pool = liq_pools.get(i)
+                if pool.baseType == "SWING" and pool.side == side and pool.state != "CONSUMED"
+                    dist = math.abs(pool.price - price)
+                    if dist <= tol and dist < bestDist
+                        bestIdx := i
+                        bestDist := dist
+        if not na(bestIdx)
+            pool = liq_pools.get(bestIdx)
+            pool.price := side == "BSL" ? math.max(pool.price, price) : math.min(pool.price, price)
+            pool.clusterSize += 1
+            pool.lastRefreshBar := sourceBar
+            pool.structuralRank := math.max(pool.structuralRank, seedRank)
+            pool.sessionContext := f_liqCurrentSessionContext()
+            pool.cleanlinessScore := math.min(pool.cleanlinessScore + 6.0, 100.0)
+            merged := true
+        if not merged
+            string startingType = externalSeed ? "EXTERNAL" : "INTERNAL"
+            string startingLabel = startingType + " " + side
+            liq_pools.push(f_newLiqPool(side, startingType, "SWING", price, sourceBar, time, startingLabel, "SWING " + side, timeframe.period, seedRank, f_liqCurrentSessionContext(), 72.0, false))
+    true
+
+f_pushRecentSwing(float[] priceArr, int[] barArr, float price, int swingBar) =>
+    if not na(price)
+        array.push(priceArr, price)
+        array.push(barArr, swingBar)
+        int maxKeep = math.max(eqStructuralLookback * 3, 40)
+        while array.size(priceArr) > maxKeep
+            array.shift(priceArr)
+            array.shift(barArr)
+    true
+
+f_eqTolerance(float refPrice) =>
+    math.max(f_liqTouchTolerance(refPrice), refPrice * (eqThreshold / 100.0))
+
+find_eq_cluster(float[] priceArr, int[] barArr, int lookbackN) =>
+    float bestPrice = na
+    int bestCount = 0
+    int bestLastBar = na
+    float bestScore = 0.0
+    int available = array.size(priceArr)
+    if available >= 2
+        int startIdx = math.max(0, available - lookbackN)
+        int localStartIdx = math.max(0, available - eqLocalLookback)
+        for i = available - 1 to startIdx
+            float refPrice = array.get(priceArr, i)
+            float tol = f_eqTolerance(refPrice)
+            int matchCount = 0
+            int localTouches = 0
+            float sumPrice = 0.0
+            float minMatch = na
+            float maxMatch = na
+            int firstTouchBar = na
+            int lastTouchBar = na
+            for j = startIdx to available - 1
+                float cmpPrice = array.get(priceArr, j)
+                int cmpBar = array.get(barArr, j)
+                if math.abs(cmpPrice - refPrice) <= tol
+                    matchCount += 1
+                    sumPrice += cmpPrice
+                    minMatch := na(minMatch) ? cmpPrice : math.min(minMatch, cmpPrice)
+                    maxMatch := na(maxMatch) ? cmpPrice : math.max(maxMatch, cmpPrice)
+                    if j >= localStartIdx
+                        localTouches += 1
+                    firstTouchBar := na(firstTouchBar) ? cmpBar : math.min(firstTouchBar, cmpBar)
+                    lastTouchBar := na(lastTouchBar) ? cmpBar : math.max(lastTouchBar, cmpBar)
+            if matchCount >= 2 and not na(lastTouchBar) and not na(firstTouchBar)
+                int ageBars = bar_index - lastTouchBar
+                int spanBars = lastTouchBar - firstTouchBar
+                if ageBars <= eqClusterMaxAge and spanBars <= eqClusterMaxAge
+                    float avgPrice = sumPrice / matchCount
+                    float dispersionPct = avgPrice != 0 ? (nz(maxMatch, avgPrice) - nz(minMatch, avgPrice)) / avgPrice * 100.0 : 0.0
+                    float recencyScore = math.max(0.0, 20.0 * (1.0 - float(ageBars) / eqClusterMaxAge))
+                    float similarityScore = math.max(0.0, 20.0 - (dispersionPct / math.max(eqThreshold, 0.01)) * 8.0)
+                    float repeatScore = matchCount * 14.0 + localTouches * 6.0
+                    float spanPenalty = math.max(0.0, float(spanBars - eqLocalLookback) * 0.15)
+                    float distAtr = atrVal > 0 ? math.abs(avgPrice - close) / atrVal : 0.0
+                    float locationScore = math.max(0.0, 10.0 - math.max(distAtr - 4.0, 0.0) * 2.0)
+                    float score = repeatScore + recencyScore + similarityScore + locationScore - spanPenalty
+                    if score > bestScore or (score == bestScore and (na(bestLastBar) or lastTouchBar > bestLastBar))
+                        bestPrice := avgPrice
+                        bestCount := matchCount
+                        bestLastBar := lastTouchBar
+                        bestScore := score
+    [bestPrice, bestCount, bestLastBar, bestScore]
+
+select_cluster(float localPrice, int localCount, int localBar, float localScore, float structuralPrice, int structuralCount, int structuralBar, float structuralScore) =>
+    float chosenPrice = na
+    int chosenCount = 0
+    int chosenBar = na
+    float chosenScore = 0.0
+    if not na(localPrice) or not na(structuralPrice)
+        bool useStructural = false
+        if na(localPrice)
+            useStructural := true
+        else if not na(structuralPrice)
+            useStructural := structuralScore > localScore + 4.0 or (structuralCount > localCount and structuralScore >= localScore)
+        chosenPrice := useStructural ? structuralPrice : localPrice
+        chosenCount := useStructural ? structuralCount : localCount
+        chosenBar := useStructural ? structuralBar : localBar
+        chosenScore := useStructural ? structuralScore : localScore
+    [chosenPrice, chosenCount, chosenBar, chosenScore]
 
 majPH = ta.pivothigh(high, dynLen * 2, dynLen * 2)
 majPL = ta.pivotlow(low, dynLen * 2, dynLen * 2)
@@ -411,103 +683,112 @@ minPL = ta.pivotlow(low, dynLen, dynLen)
 
 if barstate.isconfirmed
     if not na(majPH)
-        liq_pools.push(liq_pool.new("BSL", "MAJOR", "MAJOR", majPH, bar_index - dynLen * 2, false, "MAJOR BSL", "MAJOR BSL", 0, 1, int(na), bar_index - dynLen * 2, int(na), na, int(na), na, int(na), int(na)))
+        int majorHighBar = bar_index - dynLen * 2
+        bool majorHighExternal = majPH >= (liqRangeHigh - liqExtThreshold)
+        f_liqUpsertSwingPool("BSL", majPH, majorHighBar, majorHighExternal ? 82.0 : 60.0, majorHighExternal)
+        f_pushRecentSwing(recentSwingHighs, recentSwingHighBars, majPH, majorHighBar)
     if not na(majPL)
-        liq_pools.push(liq_pool.new("SSL", "MAJOR", "MAJOR", majPL, bar_index - dynLen * 2, false, "MAJOR SSL", "MAJOR SSL", 0, 1, int(na), bar_index - dynLen * 2, int(na), na, int(na), na, int(na), int(na)))
+        int majorLowBar = bar_index - dynLen * 2
+        bool majorLowExternal = majPL <= (liqRangeLow + liqExtThreshold)
+        f_liqUpsertSwingPool("SSL", majPL, majorLowBar, majorLowExternal ? 82.0 : 60.0, majorLowExternal)
+        f_pushRecentSwing(recentSwingLows, recentSwingLowBars, majPL, majorLowBar)
     if not na(minPH) and na(majPH)
-        bool mergedMinorHigh = false
-        int bestMinorHighIdx = na
-        float bestMinorHighDist = 10e10
-        float minorHighTol = f_liqClusterTolerance(minPH)
-        if liq_pools.size() > 0
-            for i = 0 to liq_pools.size() - 1
-                pool = liq_pools.get(i)
-                if not pool.isSwept and pool.side == "BSL" and pool.baseType == "MINOR"
-                    dist = math.abs(pool.price - minPH)
-                    if dist <= minorHighTol and dist < bestMinorHighDist
-                        bestMinorHighIdx := i
-                        bestMinorHighDist := dist
-        if not na(bestMinorHighIdx)
-            pool = liq_pools.get(bestMinorHighIdx)
-            pool.price := math.max(pool.price, minPH)
-            pool.clusterSize += 1
-            pool.lastRefreshBar := bar_index - dynLen
-            mergedMinorHigh := true
-        if not mergedMinorHigh
-            liq_pools.push(liq_pool.new("BSL", "MINOR", "MINOR", minPH, bar_index - dynLen, false, "MINOR BSL", "MINOR BSL", 0, 1, int(na), bar_index - dynLen, int(na), na, int(na), na, int(na), int(na)))
+        int minorHighBar = bar_index - dynLen
+        bool minorHighExternal = minPH >= (liqRangeHigh - liqExtThreshold)
+        f_liqUpsertSwingPool("BSL", minPH, minorHighBar, minorHighExternal ? 72.0 : 42.0, minorHighExternal)
+        f_pushRecentSwing(recentSwingHighs, recentSwingHighBars, minPH, minorHighBar)
     if not na(minPL) and na(majPL)
-        bool mergedMinorLow = false
-        int bestMinorLowIdx = na
-        float bestMinorLowDist = 10e10
-        float minorLowTol = f_liqClusterTolerance(minPL)
-        if liq_pools.size() > 0
-            for i = 0 to liq_pools.size() - 1
-                pool = liq_pools.get(i)
-                if not pool.isSwept and pool.side == "SSL" and pool.baseType == "MINOR"
-                    dist = math.abs(pool.price - minPL)
-                    if dist <= minorLowTol and dist < bestMinorLowDist
-                        bestMinorLowIdx := i
-                        bestMinorLowDist := dist
-        if not na(bestMinorLowIdx)
-            pool = liq_pools.get(bestMinorLowIdx)
-            pool.price := math.min(pool.price, minPL)
-            pool.clusterSize += 1
-            pool.lastRefreshBar := bar_index - dynLen
-            mergedMinorLow := true
-        if not mergedMinorLow
-            liq_pools.push(liq_pool.new("SSL", "MINOR", "MINOR", minPL, bar_index - dynLen, false, "MINOR SSL", "MINOR SSL", 0, 1, int(na), bar_index - dynLen, int(na), na, int(na), na, int(na), int(na)))
+        int minorLowBar = bar_index - dynLen
+        bool minorLowExternal = minPL <= (liqRangeLow + liqExtThreshold)
+        f_liqUpsertSwingPool("SSL", minPL, minorLowBar, minorLowExternal ? 72.0 : 42.0, minorLowExternal)
+        f_pushRecentSwing(recentSwingLows, recentSwingLowBars, minPL, minorLowBar)
 
 if not inAsia and inAsia[1] and not na(asiaH) and not na(asiaL)
-    f_liqUpsertNamedPool("BSL", "SESS", asiaH, bar_index - 1, "ASIA H")
-    f_liqUpsertNamedPool("SSL", "SESS", asiaL, bar_index - 1, "ASIA L")
+    f_liqUpsertNamedPool("BSL", "SESSION", "SESSION", asiaH, bar_index - 1, "ASIA H", timeframe.period, 68.0, "Asia", 78.0, false, false)
+    f_liqUpsertNamedPool("SSL", "SESSION", "SESSION", asiaL, bar_index - 1, "ASIA L", timeframe.period, 68.0, "Asia", 78.0, false, false)
+if not inLondon and inLondon[1] and not na(londonH) and not na(londonL)
+    f_liqUpsertNamedPool("BSL", "SESSION", "SESSION", londonH, bar_index - 1, "LONDON H", timeframe.period, 74.0, "London", 82.0, false, false)
+    f_liqUpsertNamedPool("SSL", "SESSION", "SESSION", londonL, bar_index - 1, "LONDON L", timeframe.period, 74.0, "London", 82.0, false, false)
+if not inNY and inNY[1] and not na(nySessH) and not na(nySessL)
+    f_liqUpsertNamedPool("BSL", "SESSION", "SESSION", nySessH, bar_index - 1, "NY H", timeframe.period, 78.0, "New York", 84.0, false, false)
+    f_liqUpsertNamedPool("SSL", "SESSION", "SESSION", nySessL, bar_index - 1, "NY L", timeframe.period, 78.0, "New York", 84.0, false, false)
 if isNewDay and not na(pdh) and not na(pdl)
-    f_liqUpsertNamedPool("BSL", "SESS", pdh, bar_index, "PDH")
-    f_liqUpsertNamedPool("SSL", "SESS", pdl, bar_index, "PDL")
+    f_liqUpsertNamedPool("BSL", "PERIOD", "PERIOD", pdh, bar_index, "PDH", "D", 86.0, "Prev Day", 84.0, false, false)
+    f_liqUpsertNamedPool("SSL", "PERIOD", "PERIOD", pdl, bar_index, "PDL", "D", 86.0, "Prev Day", 84.0, false, false)
 if isNewWeek and not na(pwh) and not na(pwl)
-    f_liqUpsertNamedPool("BSL", "HTF", pwh, bar_index, "PWH")
-    f_liqUpsertNamedPool("SSL", "HTF", pwl, bar_index, "PWL")
+    f_liqUpsertNamedPool("BSL", "PERIOD", "PERIOD", pwh, bar_index, "PWH", "W", 92.0, "Prev Week", 88.0, false, false)
+    f_liqUpsertNamedPool("SSL", "PERIOD", "PERIOD", pwl, bar_index, "PWL", "W", 92.0, "Prev Week", 88.0, false, false)
 if isNewMonth and not na(pmh) and not na(pml)
-    f_liqUpsertNamedPool("BSL", "HTF", pmh, bar_index, "PMH")
-    f_liqUpsertNamedPool("SSL", "HTF", pml, bar_index, "PML")
+    f_liqUpsertNamedPool("BSL", "PERIOD", "PERIOD", pmh, bar_index, "PMH", "M", 98.0, "Prev Month", 92.0, false, false)
+    f_liqUpsertNamedPool("SSL", "PERIOD", "PERIOD", pml, bar_index, "PML", "M", 98.0, "Prev Month", 92.0, false, false)
+
+[eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqLocalLookback)
+[eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqStructuralLookback)
+[eqhLevel, eqhCount, eqhLastBar, eqhScore] = select_cluster(eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore, eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore)
+[eqlLocalLevel, eqlLocalCount, eqlLocalBar, eqlLocalScore] = find_eq_cluster(recentSwingLows, recentSwingLowBars, eqLocalLookback)
+[eqlStructLevel, eqlStructCount, eqlStructBar, eqlStructScore] = find_eq_cluster(recentSwingLows, recentSwingLowBars, eqStructuralLookback)
+[eqlLevel, eqlCount, eqlLastBar, eqlScore] = select_cluster(eqlLocalLevel, eqlLocalCount, eqlLocalBar, eqlLocalScore, eqlStructLevel, eqlStructCount, eqlStructBar, eqlStructScore)
+
+if showEQ and not na(eqhLevel)
+    float eqhRank = math.min(96.0, 70.0 + math.min(eqhCount, 4) * 4.0 + math.min(eqhScore, 40.0) * 0.25)
+    f_liqUpsertNamedPool("BSL", "EQ", "EQ", eqhLevel, nz(eqhLastBar, bar_index), "EQH", timeframe.period, eqhRank, "Cluster", math.min(eqhScore, 100.0), false, true)
+else
+    f_liqRemoveNamedPool("EQH")
+if showEQ and not na(eqlLevel)
+    float eqlRank = math.min(96.0, 70.0 + math.min(eqlCount, 4) * 4.0 + math.min(eqlScore, 40.0) * 0.25)
+    f_liqUpsertNamedPool("SSL", "EQ", "EQ", eqlLevel, nz(eqlLastBar, bar_index), "EQL", timeframe.period, eqlRank, "Cluster", math.min(eqlScore, 100.0), false, true)
+else
+    f_liqRemoveNamedPool("EQL")
 
 if liq_pools.size() > 0
     for i = 0 to liq_pools.size() - 1
         pool = liq_pools.get(i)
-        if not pool.isSwept
-            touchTol = f_liqTouchTolerance(pool.price)
-            isTouch = (pool.side == "BSL" and high >= pool.price - touchTol and high <= pool.price) or (pool.side == "SSL" and low <= pool.price + touchTol and low >= pool.price)
-            isTaken = (pool.side == "BSL" and high >= pool.price) or (pool.side == "SSL" and low <= pool.price)
-            if isTaken and na(pool.takenBar)
-                pool.takenBar := bar_index
-                pool.lastRefreshBar := bar_index
-            else if isTouch and (na(pool.lastTouchBar) or pool.lastTouchBar != bar_index)
-                pool.touchCount += 1
-                pool.lastTouchBar := bar_index
-                pool.lastRefreshBar := bar_index
+        if pool.baseType == "SWING"
+            bool boundaryPool = pool.side == "BSL" ? pool.price >= (liqRangeHigh - liqExtThreshold) : pool.price <= (liqRangeLow + liqExtThreshold)
+            pool.poolType := boundaryPool ? "EXTERNAL" : "INTERNAL"
+            pool.poolLabel := (boundaryPool ? "EXTERNAL " : "INTERNAL ") + pool.side
+            pool.structuralRank := boundaryPool ? math.max(pool.structuralRank, 72.0) : math.min(pool.structuralRank, 58.0)
+            if liqRangeSpan > 0
+                float relPos = (pool.price - liqRangeLow) / liqRangeSpan
+                pool.isInducementCandidate := pool.poolType == "INTERNAL" and ((pool.side == "BSL" and relPos > 0.55 and relPos < 0.95) or (pool.side == "SSL" and relPos < 0.45 and relPos > 0.05))
+        else if pool.baseType == "SESSION"
+            pool.poolType := "SESSION"
+            pool.poolLabel := pool.baseLabel
+            pool.structuralRank := str.contains(pool.baseLabel, "NY") ? 78.0 : str.contains(pool.baseLabel, "LONDON") ? 74.0 : 68.0
+            pool.isInducementCandidate := false
+        else if pool.baseType == "PERIOD"
+            pool.poolType := "PERIOD"
+            pool.poolLabel := pool.baseLabel
+            pool.structuralRank := pool.sourceTF == "M" ? 98.0 : pool.sourceTF == "W" ? 92.0 : 86.0
+            pool.isInducementCandidate := false
+        else if pool.baseType == "EQ"
+            pool.poolType := "EQ"
+            pool.poolLabel := pool.baseLabel
+            pool.isInducementCandidate := false
+        pool.cleanlinessScore := f_liqCalculatedCleanliness(pool)
 
-if liq_pools.size() > 0
     for i = 0 to liq_pools.size() - 1
         pool = liq_pools.get(i)
-        pool.poolType := pool.baseType
-        pool.poolLabel := pool.baseLabel
+        touchTol = f_liqTouchTolerance(pool.price)
+        isTouch = (pool.side == "BSL" and high >= pool.price - touchTol and high <= pool.price) or (pool.side == "SSL" and low <= pool.price + touchTol and low >= pool.price)
+        isTaken = (pool.side == "BSL" and high >= pool.price) or (pool.side == "SSL" and low <= pool.price)
+        closeInside = (pool.side == "BSL" and close < pool.price) or (pool.side == "SSL" and close > pool.price)
+        closeOutside = (pool.side == "BSL" and close > pool.price) or (pool.side == "SSL" and close < pool.price)
+        acceptedOutside = closeOutside and ((pool.side == "BSL" and (close - pool.price) >= touchTol) or (pool.side == "SSL" and (pool.price - close) >= touchTol))
+        if (isTouch or isTaken) and (na(pool.lastTouchBar) or pool.lastTouchBar != bar_index)
+            pool.timesTagged += 1
+            pool.touchCount := pool.timesTagged
+            pool.lastTouchBar := bar_index
+            pool.lastRefreshBar := bar_index
+        if isTaken and na(pool.takenBar)
+            pool.takenBar := bar_index
+        if isTaken
+            pool.state := closeInside ? "SWEPT" : acceptedOutside ? "CONSUMED" : "TAGGED"
+        else if isTouch and pool.state == "FRESH"
+            pool.state := "TAGGED"
+        pool.cleanlinessScore := f_liqCalculatedCleanliness(pool)
 
-    if showEQ and liq_pools.size() > 1
-        for i = 0 to liq_pools.size() - 1
-            p1 = liq_pools.get(i)
-            if not p1.isSwept and na(p1.takenBar)
-                int eqMatches = 0
-                for j = 0 to liq_pools.size() - 1
-                    if i != j
-                        p2 = liq_pools.get(j)
-                        if not p2.isSwept and na(p2.takenBar) and p1.side == p2.side
-                            eqDistPct = math.abs(p1.price - p2.price) / (p1.price == 0 ? 1 : p1.price) * 100
-                            if eqDistPct <= eqThreshold
-                                eqMatches += 1
-                if eqMatches > 0
-                    p1.poolType := "EQ"
-                    p1.poolLabel := p1.side == "BSL" ? "BSL CLUSTER" : "SSL CLUSTER"
-
-while liq_pools.size() > 50
+while liq_pools.size() > 80
     int dropIdx = 0
     float dropScore = f_liqRetentionScore(liq_pools.get(0))
     for i = 1 to liq_pools.size() - 1
@@ -531,18 +812,18 @@ if barstate.islast
     if liq_pools.size() > 0
         for i = 0 to liq_pools.size() - 1
             p = liq_pools.get(i)
-            if not p.isSwept and na(p.takenBar) and not f_liqHasDedicatedOverlay(p)
+            if f_liqShouldRenderPool(p) and not f_liqHasDedicatedOverlay(p)
                 int rowIdx = na
                 mergeTol = f_liqRenderMergeTolerance(p.price)
-                rowPriority = f_liqRenderPriority(p)
+                rowPriority = f_liqVisualScore(p)
                 if renderRows.size() > 0
                     for j = 0 to renderRows.size() - 1
                         row = renderRows.get(j)
-                        if math.abs(row.price - p.price) <= mergeTol
+                        if row.side == p.side and math.abs(row.price - p.price) <= mergeTol
                             rowIdx := j
                             break
                 if na(rowIdx)
-                    array.push(renderRows, liq_render_row.new(p.price, p.sourceBar, f_liqIsExternal(p.poolType), f_liqDisplayLabel(p), rowPriority, 1))
+                    array.push(renderRows, liq_render_row.new(p.side, p.price, p.sourceBar, f_liqIsExternal(p.poolType), f_liqDisplayLabel(p), rowPriority, 1, p.state))
                 else
                     row = renderRows.get(rowIdx)
                     row.sourceBar := math.min(row.sourceBar, p.sourceBar)
@@ -552,25 +833,59 @@ if barstate.islast
                         row.priority := rowPriority
                         row.price := p.price
                         row.primaryText := f_liqDisplayLabel(p)
+                        row.state := p.state
 
     if renderRows.size() > 1
         for i = 0 to renderRows.size() - 2
             for j = i + 1 to renderRows.size() - 1
                 r1 = renderRows.get(i)
                 r2 = renderRows.get(j)
-                if r1.price < r2.price
+                if r1.priority < r2.priority
                     renderRows.set(i, r2)
                     renderRows.set(j, r1)
+
+    selectedRows = array.new<liq_render_row>(0)
+    int selectedBSL = 0
+    int selectedSSL = 0
+    int selectedSweptBSL = 0
+    int selectedSweptSSL = 0
+    if renderRows.size() > 0
+        for i = 0 to renderRows.size() - 1
+            row = renderRows.get(i)
+            bool isSweptRow = row.state == "SWEPT"
+            bool sideHasRoom = row.side == "BSL" ? selectedBSL < liqMaxLevelsPerSide : selectedSSL < liqMaxLevelsPerSide
+            bool sweptHasRoom = not isSweptRow or (row.side == "BSL" ? selectedSweptBSL == 0 : selectedSweptSSL == 0)
+            if sideHasRoom and sweptHasRoom
+                array.push(selectedRows, row)
+                if row.side == "BSL"
+                    selectedBSL += 1
+                    if isSweptRow
+                        selectedSweptBSL += 1
+                else
+                    selectedSSL += 1
+                    if isSweptRow
+                        selectedSweptSSL += 1
+
+    if selectedRows.size() > 1
+        for i = 0 to selectedRows.size() - 2
+            for j = i + 1 to selectedRows.size() - 1
+                r1 = selectedRows.get(i)
+                r2 = selectedRows.get(j)
+                if r1.price < r2.price
+                    selectedRows.set(i, r2)
+                    selectedRows.set(j, r1)
 
     float prevRowPrice = na
     int stackedOffset = 0
     float spacing = f_liqLabelSpacing()
-    if renderRows.size() > 0
-        for i = 0 to renderRows.size() - 1
-            row = renderRows.get(i)
+    if selectedRows.size() > 0
+        for i = 0 to selectedRows.size() - 1
+            row = selectedRows.get(i)
             displayText = row.primaryText
             clr = row.isMajor ? liqMajorColor : liqMinorColor
-            array.push(liq_render_lines, line.new(row.sourceBar, row.price, bar_index + 5, row.price, color=clr, style=row.isMajor ? line.style_solid : line.style_dashed))
+            clr := row.state == "CONSUMED" ? color.new(clr, 65) : row.state == "SWEPT" ? color.new(clr, 40) : row.state == "TAGGED" ? color.new(clr, 20) : clr
+            lineStyle = row.state == "CONSUMED" ? line.style_dotted : row.state == "SWEPT" ? line.style_dashed : row.isMajor ? line.style_solid : line.style_dashed
+            array.push(liq_render_lines, line.new(row.sourceBar, row.price, bar_index + 5, row.price, color=clr, style=lineStyle))
             if showLiquidityLabels
                 isNearPrev = not na(prevRowPrice) and math.abs(prevRowPrice - row.price) <= spacing
                 stackedOffset := isNearPrev ? stackedOffset + 2 : 0
@@ -720,7 +1035,7 @@ if liq_pools.size() > 0
         p_s = liq_pools.get(i)
 
         // 1. Expiry & Type Check
-        isExpired = (bar_index - p_s.lastRefreshBar) > ageExpiry
+        isExpired = f_liqIsExpired(p_s)
         isExternal = f_liqIsExternal(p_s.poolType)
 
         if not p_s.isSwept and not isExpired
@@ -742,6 +1057,7 @@ if liq_pools.size() > 0
 
                 if hadPending and not pendingActive and not closeOutsideNow
                     p_s.isSwept := true
+                    p_s.state := "SWEPT"
                     p_s.pendingSweepBar := int(na)
                     p_s.pendingSweepExtreme := na
                     p_s.pendingSweepExtremeBar := int(na)
@@ -770,12 +1086,12 @@ if liq_pools.size() > 0
                     if liq_pools.size() > 0 and (raidNow or pendingActive or hadPending)
                         for j = 0 to liq_pools.size() - 1
                             p_c = liq_pools.get(j)
-                            cExpired = (bar_index - p_c.lastRefreshBar) > ageExpiry
+                            cExpired = f_liqIsExpired(p_c)
                             cPending = not na(p_c.pendingSweepBar) and (bar_index - p_c.pendingSweepBar) <= sweepConfirmBars
                             cHadPending = not na(p_c.pendingSweepBar)
                             cExpiredPending = cHadPending and not cPending
                             cRaided = p_c.side == "BSL" ? high >= p_c.price : low <= p_c.price
-                            cEligible = na(p_c.takenBar) or cPending or cExpiredPending or cRaided
+                            cEligible = p_c.state != "CONSUMED" or cPending or cExpiredPending or cRaided
                             if not p_c.isSwept and not cExpired and cEligible and p_c.side == p_s.side and math.abs(p_c.price - p_s.price) <= clusterTol
                                 clusterCount += 1
                                 cRank = f_liqRetentionScore(p_c)
@@ -796,7 +1112,7 @@ if liq_pools.size() > 0
                     breakoutDispNow = (isBSLPool ? close > open : close < open) and math.abs(close - open) > (avgBody * dispMult)
                     breakoutAcceptance = isBSLPool ? math.max(close - clusterEdgePrice, 0) : math.max(clusterEdgePrice - close, 0)
                     breakoutAcceptanceValid = breakoutAcceptance >= math.max(edgeTol, atrVal * 0.03)
-                    breakoutMeaningful = clusterRep.baseType == "HTF" or clusterRep.baseType == "SESS" or clusterRep.baseType == "MAJOR" or clusterRep.touchCount > 0 or clusterRep.clusterSize > 1 or sweptClusterCount > 1
+                    breakoutMeaningful = f_liqIsExternal(clusterRep.poolType) or clusterRep.structuralRank >= 70.0 or clusterRep.timesTagged > 0 or clusterRep.clusterSize > 1 or sweptClusterCount > 1
                     breakoutCandidate = closeOutsideNow and atClusterEdge and breakoutAcceptanceValid and breakoutMeaningful and ((hadPending and not pendingActive) or (effectiveDepth > maxBreakoutDepth and breakoutDispNow))
 
                     if confirmNow and depthValid and reclaimValid and wickValid
@@ -843,6 +1159,7 @@ if liq_pools.size() > 0
                             brkTxt := f_liqDisplayLabel(clusterRep)
                         else
                             p_s.isSwept := true
+                            p_s.state := "CONSUMED"
                             p_s.pendingSweepBar := int(na)
                             p_s.pendingSweepExtreme := na
                             p_s.pendingSweepExtremeBar := int(na)
@@ -852,6 +1169,7 @@ if liq_pools.size() > 0
                     else
                         if raidNow and effectiveDepth > maxBreakoutDepth
                             p_s.isSwept := true
+                            p_s.state := "CONSUMED"
                             p_s.pendingSweepBar := int(na)
                             p_s.pendingSweepExtreme := na
                             p_s.pendingSweepExtremeBar := int(na)
@@ -879,6 +1197,7 @@ if not na(bestSweepIdx)
             sameCluster = not p_m.isSwept and p_m.side == bestSweepSide and math.abs(p_m.price - bestSweepPrice) <= bestSweepTol
             if sameCluster and (mRaided or mPending)
                 p_m.isSwept := true
+                p_m.state := "SWEPT"
                 p_m.pendingSweepBar := int(na)
                 p_m.pendingSweepExtreme := na
                 p_m.pendingSweepExtremeBar := int(na)
@@ -892,6 +1211,7 @@ if not na(bestBreakoutIdx)
             sameCluster = not p_b.isSwept and p_b.side == bestBreakoutSide and math.abs(p_b.price - bestBreakoutPrice) <= bestBreakoutTol
             if sameCluster
                 p_b.isSwept := true
+                p_b.state := "CONSUMED"
                 p_b.pendingSweepBar := int(na)
                 p_b.pendingSweepExtreme := na
                 p_b.pendingSweepExtremeBar := int(na)
