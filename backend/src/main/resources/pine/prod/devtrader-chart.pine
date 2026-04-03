@@ -42,8 +42,8 @@ type reaction_zone
 
 type liq_pool
     string side          // "BSL" or "SSL"
-    string poolType      // "EXTERNAL", "INTERNAL", "SESSION", "PERIOD", "EQ"
-    string baseType      // "SWING", "SESSION", "PERIOD", "EQ"
+    string poolType      // "EXTERNAL", "INTERNAL", "SESSION", "DEV_SESSION", "PERIOD", "EQ"
+    string baseType      // "SWING", "SESSION", "DEV_SESSION", "PERIOD", "EQ"
     float  price
     int    sourceBar
     bool   isSwept
@@ -82,6 +82,7 @@ type liq_render_row
 showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
 asiaSession  = input.session("0000-0900:1234567", "Asia Session", group=G_KZ)
 colorAsia    = input.color(color.new(#5b9cf6, 85), "Asia Color", group=G_KZ)
+showDevelopingSessionLevels = input.bool(false, "Show Developing Session H/L", group=G_KZ, tooltip="Plots the current session high/low as developing references. These are informational only and are not treated as confirmed liquidity.")
 
 showLondon   = input.bool(true, "London Killzone", group=G_KZ)
 londonSess   = input.session("0700-1000:1234567", "London Session", group=G_KZ)
@@ -91,8 +92,8 @@ showNY       = input.bool(true, "NY Killzone", group=G_KZ)
 nySess       = input.session("1200-1500:1234567", "NY Session", group=G_KZ)
 colorNYK     = input.color(color.new(#f23645, 93), "NY Color", group=G_KZ)
 
-showVP       = input.bool(true, "Show Daily POC", group=G_VP)
-colorPOC     = input.color(color.orange, "POC Color", group=G_VP)
+showVP       = input.bool(true, "Show Daily Reference", group=G_VP)
+colorPOC     = input.color(color.orange, "Reference Color", group=G_VP)
 
 showFVG      = input.bool(true, "Detect Fair Value Gaps", group=G_FVG)
 fvgThreshold = input.float(0, "Threshold %", minval=0, maxval=100, step=0.1, group=G_FVG)
@@ -249,9 +250,11 @@ plot(showHTF ? lastHtf2PL : na, "HTF 2 Low", htfColor2, 1, plot.style_linebr)
 var float asiaH = na
 var float asiaL = na
 var box asiaBox = na
+var int asiaStartBar = na
 if inAsia and not inAsia[1]
     asiaH := high
     asiaL := low
+    asiaStartBar := bar_index
     if showAsia
         asiaBox := box.new(bar_index, asiaH, bar_index, asiaL, border_color=colorAsia, bgcolor=color.new(colorAsia, 90))
 else if inAsia
@@ -264,18 +267,22 @@ else if inAsia
 
 var float londonH = na
 var float londonL = na
+var int londonStartBar = na
 if inLondon and not inLondon[1]
     londonH := high
     londonL := low
+    londonStartBar := bar_index
 else if inLondon
     londonH := math.max(high, nz(londonH, high))
     londonL := math.min(low, nz(londonL, low))
 
 var float nySessH = na
 var float nySessL = na
+var int nySessStartBar = na
 if inNY and not inNY[1]
     nySessH := high
     nySessL := low
+    nySessStartBar := bar_index
 else if inNY
     nySessH := math.max(high, nz(nySessH, high))
     nySessL := math.min(low, nz(nySessL, low))
@@ -284,7 +291,7 @@ var float dPOC = na
 if isNewDay or highVol
     dPOC := hl2
 
-plot(showVP ? dPOC : na, "Daily POC", colorPOC, 2, plot.style_linebr)
+plot(showVP ? dPOC : na, "Daily Reference", colorPOC, 2, plot.style_linebr)
 
 var bool pdhConsumed = false
 var bool pdlConsumed = false
@@ -395,6 +402,12 @@ float liqExtThreshold = liqRangeSpan * liqExtBoundaryPct
 f_liqCurrentSessionContext() =>
     inLondon ? "London" : inNY ? "New York" : inAsia ? "Asia" : "Off Session"
 
+f_liqIsDevelopingSession(liq_pool pool) =>
+    pool.baseType == "DEV_SESSION"
+
+f_liqIsEventEligible(liq_pool pool) =>
+    not f_liqIsDevelopingSession(pool)
+
 f_liqIsExternal(string poolType) =>
     poolType == "EXTERNAL" or poolType == "SESSION" or poolType == "PERIOD" or poolType == "EQ"
 
@@ -405,7 +418,7 @@ f_liqTouchTolerance(float price) =>
     math.max(syminfo.mintick * 2, math.min(atrVal * 0.04, price * 0.0010))
 
 f_liqSourceSeconds(liq_pool pool) =>
-    pool.baseType == "PERIOD" ? (pool.sourceTF == "M" ? 2592000.0 : pool.sourceTF == "W" ? 604800.0 : 86400.0) : pool.baseType == "SESSION" ? 21600.0 : pool.baseType == "EQ" ? chartTfSec * 6.0 : chartTfSec
+    pool.baseType == "PERIOD" ? (pool.sourceTF == "M" ? 2592000.0 : pool.sourceTF == "W" ? 604800.0 : 86400.0) : (pool.baseType == "SESSION" or pool.baseType == "DEV_SESSION") ? 21600.0 : pool.baseType == "EQ" ? chartTfSec * 6.0 : chartTfSec
 
 f_liqAgeUnits(liq_pool pool) =>
     float ageSec = math.max(float(time - pool.creationTime) / 1000.0, 0.0)
@@ -414,7 +427,7 @@ f_liqAgeUnits(liq_pool pool) =>
     ageSec / sourceSec + eventPenalty
 
 f_liqExpiryUnits(liq_pool pool) =>
-    float baseUnits = pool.poolType == "PERIOD" ? (pool.sourceTF == "M" ? 10.0 : pool.sourceTF == "W" ? 6.0 : 3.0) : pool.poolType == "SESSION" ? 2.0 : pool.poolType == "EQ" ? 4.0 : pool.poolType == "EXTERNAL" ? 5.0 : 2.5
+    float baseUnits = pool.poolType == "PERIOD" ? (pool.sourceTF == "M" ? 10.0 : pool.sourceTF == "W" ? 6.0 : 3.0) : pool.poolType == "SESSION" ? 2.0 : pool.poolType == "DEV_SESSION" ? 0.75 : pool.poolType == "EQ" ? 4.0 : pool.poolType == "EXTERNAL" ? 5.0 : 2.5
     float scale = math.max(ageExpiry / 400.0, 0.5)
     baseUnits * scale
 
@@ -448,18 +461,30 @@ f_liqCompactBaseLabel(liq_pool pool) =>
         txt := pool.poolType == "EXTERNAL" ? (pool.side == "BSL" ? "Ext BSL" : "Ext SSL") : (pool.side == "BSL" ? "Int BSL" : "Int SSL")
     else if pool.baseType == "EQ"
         txt := pool.side == "BSL" ? "EQH" : "EQL"
+    else if pool.baseLabel == "DEV LONDON H"
+        txt := "Dev London H"
+    else if pool.baseLabel == "DEV LONDON L"
+        txt := "Dev London L"
+    else if pool.baseLabel == "DEV NY H"
+        txt := "Dev NY H"
+    else if pool.baseLabel == "DEV NY L"
+        txt := "Dev NY L"
+    else if pool.baseLabel == "DEV ASIA H"
+        txt := "Dev Asia H"
+    else if pool.baseLabel == "DEV ASIA L"
+        txt := "Dev Asia L"
     else if pool.baseLabel == "LONDON H"
-        txt := "London H"
+        txt := inLondon ? "Prev London H" : "London H"
     else if pool.baseLabel == "LONDON L"
-        txt := "London L"
+        txt := inLondon ? "Prev London L" : "London L"
     else if pool.baseLabel == "NY H"
-        txt := "NY H"
+        txt := inNY ? "Prev NY H" : "NY H"
     else if pool.baseLabel == "NY L"
-        txt := "NY L"
+        txt := inNY ? "Prev NY L" : "NY L"
     else if pool.baseLabel == "ASIA H"
-        txt := "Asia H"
+        txt := inAsia ? "Prev Asia H" : "Asia H"
     else if pool.baseLabel == "ASIA L"
-        txt := "Asia L"
+        txt := inAsia ? "Prev Asia L" : "Asia L"
     txt
 
 f_liqDisplayLabel(liq_pool pool) =>
@@ -498,8 +523,9 @@ f_liqDistanceAtr(liq_pool pool) =>
 f_liqIsRenderableActive(liq_pool pool) =>
     bool activeState = pool.state == "FRESH" or pool.state == "TAGGED"
     bool importantType = pool.poolType == "PERIOD" or pool.poolType == "SESSION" or pool.poolType == "EQ" or pool.poolType == "EXTERNAL"
+    bool developingSessionVisible = pool.poolType == "DEV_SESSION" and showDevelopingSessionLevels
     bool internalActionable = pool.poolType == "INTERNAL" and pool.isInducementCandidate and f_liqDistanceAtr(pool) <= 1.0
-    activeState and (importantType or internalActionable)
+    activeState and (importantType or internalActionable or developingSessionVisible)
 
 f_liqIsRenderableSwept(liq_pool pool) =>
     showSweptLiquidity and pool.state == "SWEPT" and (bar_index - nz(pool.lastRefreshBar, pool.sourceBar)) <= sweepMssTimeoutBars and f_liqDistanceAtr(pool) <= liqContextAtr
@@ -511,6 +537,7 @@ f_liqVisualScore(liq_pool pool) =>
     float distAtr = f_liqDistanceAtr(pool)
     float score = f_liqRenderPriority(pool)
     score += math.max(0.0, 18.0 - distAtr * 5.0)
+    score += pool.poolType == "DEV_SESSION" ? -12.0 : 0.0
     score += pool.state == "TAGGED" ? 5.0 : pool.state == "SWEPT" ? -8.0 : 0.0
     score
 
@@ -703,6 +730,27 @@ if barstate.isconfirmed
         f_liqUpsertSwingPool("SSL", minPL, minorLowBar, minorLowExternal ? 72.0 : 42.0, minorLowExternal)
         f_pushRecentSwing(recentSwingLows, recentSwingLowBars, minPL, minorLowBar)
 
+if showDevelopingSessionLevels and inAsia and not na(asiaH) and not na(asiaL)
+    f_liqUpsertNamedPool("BSL", "DEV_SESSION", "DEV_SESSION", asiaH, nz(asiaStartBar, bar_index), "DEV ASIA H", timeframe.period, 52.0, "Asia", 66.0, false, true)
+    f_liqUpsertNamedPool("SSL", "DEV_SESSION", "DEV_SESSION", asiaL, nz(asiaStartBar, bar_index), "DEV ASIA L", timeframe.period, 52.0, "Asia", 66.0, false, true)
+else
+    f_liqRemoveNamedPool("DEV ASIA H")
+    f_liqRemoveNamedPool("DEV ASIA L")
+
+if showDevelopingSessionLevels and inLondon and not na(londonH) and not na(londonL)
+    f_liqUpsertNamedPool("BSL", "DEV_SESSION", "DEV_SESSION", londonH, nz(londonStartBar, bar_index), "DEV LONDON H", timeframe.period, 56.0, "London", 68.0, false, true)
+    f_liqUpsertNamedPool("SSL", "DEV_SESSION", "DEV_SESSION", londonL, nz(londonStartBar, bar_index), "DEV LONDON L", timeframe.period, 56.0, "London", 68.0, false, true)
+else
+    f_liqRemoveNamedPool("DEV LONDON H")
+    f_liqRemoveNamedPool("DEV LONDON L")
+
+if showDevelopingSessionLevels and inNY and not na(nySessH) and not na(nySessL)
+    f_liqUpsertNamedPool("BSL", "DEV_SESSION", "DEV_SESSION", nySessH, nz(nySessStartBar, bar_index), "DEV NY H", timeframe.period, 58.0, "New York", 70.0, false, true)
+    f_liqUpsertNamedPool("SSL", "DEV_SESSION", "DEV_SESSION", nySessL, nz(nySessStartBar, bar_index), "DEV NY L", timeframe.period, 58.0, "New York", 70.0, false, true)
+else
+    f_liqRemoveNamedPool("DEV NY H")
+    f_liqRemoveNamedPool("DEV NY L")
+
 if not inAsia and inAsia[1] and not na(asiaH) and not na(asiaL)
     f_liqUpsertNamedPool("BSL", "SESSION", "SESSION", asiaH, bar_index - 1, "ASIA H", timeframe.period, 68.0, "Asia", 78.0, false, false)
     f_liqUpsertNamedPool("SSL", "SESSION", "SESSION", asiaL, bar_index - 1, "ASIA L", timeframe.period, 68.0, "Asia", 78.0, false, false)
@@ -756,6 +804,11 @@ if liq_pools.size() > 0
             pool.poolLabel := pool.baseLabel
             pool.structuralRank := str.contains(pool.baseLabel, "NY") ? 78.0 : str.contains(pool.baseLabel, "LONDON") ? 74.0 : 68.0
             pool.isInducementCandidate := false
+        else if pool.baseType == "DEV_SESSION"
+            pool.poolType := "DEV_SESSION"
+            pool.poolLabel := pool.baseLabel
+            pool.structuralRank := str.contains(pool.baseLabel, "DEV NY") ? 58.0 : str.contains(pool.baseLabel, "DEV LONDON") ? 56.0 : 52.0
+            pool.isInducementCandidate := false
         else if pool.baseType == "PERIOD"
             pool.poolType := "PERIOD"
             pool.poolLabel := pool.baseLabel
@@ -769,23 +822,36 @@ if liq_pools.size() > 0
 
     for i = 0 to liq_pools.size() - 1
         pool = liq_pools.get(i)
-        touchTol = f_liqTouchTolerance(pool.price)
-        isTouch = (pool.side == "BSL" and high >= pool.price - touchTol and high <= pool.price) or (pool.side == "SSL" and low <= pool.price + touchTol and low >= pool.price)
-        isTaken = (pool.side == "BSL" and high >= pool.price) or (pool.side == "SSL" and low <= pool.price)
-        closeInside = (pool.side == "BSL" and close < pool.price) or (pool.side == "SSL" and close > pool.price)
-        closeOutside = (pool.side == "BSL" and close > pool.price) or (pool.side == "SSL" and close < pool.price)
-        acceptedOutside = closeOutside and ((pool.side == "BSL" and (close - pool.price) >= touchTol) or (pool.side == "SSL" and (pool.price - close) >= touchTol))
-        if (isTouch or isTaken) and (na(pool.lastTouchBar) or pool.lastTouchBar != bar_index)
-            pool.timesTagged += 1
-            pool.touchCount := pool.timesTagged
-            pool.lastTouchBar := bar_index
+        if f_liqIsDevelopingSession(pool)
+            pool.isSwept := false
+            pool.state := "FRESH"
             pool.lastRefreshBar := bar_index
-        if isTaken and na(pool.takenBar)
-            pool.takenBar := bar_index
-        if isTaken
-            pool.state := closeInside ? "SWEPT" : acceptedOutside ? "CONSUMED" : "TAGGED"
-        else if isTouch and pool.state == "FRESH"
-            pool.state := "TAGGED"
+            pool.pendingSweepBar := int(na)
+            pool.pendingSweepExtreme := na
+            pool.pendingSweepExtremeBar := int(na)
+            pool.pendingWickRatio := na
+            pool.lastTouchBar := int(na)
+            pool.takenBar := int(na)
+            pool.timesTagged := 0
+            pool.touchCount := 0
+        else
+            touchTol = f_liqTouchTolerance(pool.price)
+            isTouch = (pool.side == "BSL" and high >= pool.price - touchTol and high <= pool.price) or (pool.side == "SSL" and low <= pool.price + touchTol and low >= pool.price)
+            isTaken = (pool.side == "BSL" and high >= pool.price) or (pool.side == "SSL" and low <= pool.price)
+            closeInside = (pool.side == "BSL" and close < pool.price) or (pool.side == "SSL" and close > pool.price)
+            closeOutside = (pool.side == "BSL" and close > pool.price) or (pool.side == "SSL" and close < pool.price)
+            acceptedOutside = closeOutside and ((pool.side == "BSL" and (close - pool.price) >= touchTol) or (pool.side == "SSL" and (pool.price - close) >= touchTol))
+            if (isTouch or isTaken) and (na(pool.lastTouchBar) or pool.lastTouchBar != bar_index)
+                pool.timesTagged += 1
+                pool.touchCount := pool.timesTagged
+                pool.lastTouchBar := bar_index
+                pool.lastRefreshBar := bar_index
+            if isTaken and na(pool.takenBar)
+                pool.takenBar := bar_index
+            if isTaken
+                pool.state := closeInside ? "SWEPT" : acceptedOutside ? "CONSUMED" : "TAGGED"
+            else if isTouch and pool.state == "FRESH"
+                pool.state := "TAGGED"
         pool.cleanlinessScore := f_liqCalculatedCleanliness(pool)
 
 while liq_pools.size() > 80
@@ -1037,8 +1103,9 @@ if liq_pools.size() > 0
         // 1. Expiry & Type Check
         isExpired = f_liqIsExpired(p_s)
         isExternal = f_liqIsExternal(p_s.poolType)
+        isEventEligible = f_liqIsEventEligible(p_s)
 
-        if not p_s.isSwept and not isExpired
+        if not p_s.isSwept and not isExpired and isEventEligible
             if not majorSweeps or isExternal
                 isBSLPool = p_s.side == "BSL"
                 raidNow = isBSLPool ? high >= p_s.price : low <= p_s.price
@@ -1092,7 +1159,7 @@ if liq_pools.size() > 0
                             cExpiredPending = cHadPending and not cPending
                             cRaided = p_c.side == "BSL" ? high >= p_c.price : low <= p_c.price
                             cEligible = p_c.state != "CONSUMED" or cPending or cExpiredPending or cRaided
-                            if not p_c.isSwept and not cExpired and cEligible and p_c.side == p_s.side and math.abs(p_c.price - p_s.price) <= clusterTol
+                            if not p_c.isSwept and not cExpired and cEligible and f_liqIsEventEligible(p_c) and p_c.side == p_s.side and math.abs(p_c.price - p_s.price) <= clusterTol
                                 clusterCount += 1
                                 cRank = f_liqRetentionScore(p_c)
                                 moreExtreme = isBSLPool ? p_c.price > (clusterEdgePrice + edgeTol) : p_c.price < (clusterEdgePrice - edgeTol)
@@ -1194,7 +1261,7 @@ if not na(bestSweepIdx)
             p_m = liq_pools.get(i)
             mPending = not na(p_m.pendingSweepBar) and (bar_index - p_m.pendingSweepBar) <= sweepConfirmBars
             mRaided = p_m.side == "BSL" ? high >= p_m.price : low <= p_m.price
-            sameCluster = not p_m.isSwept and p_m.side == bestSweepSide and math.abs(p_m.price - bestSweepPrice) <= bestSweepTol
+            sameCluster = f_liqIsEventEligible(p_m) and not p_m.isSwept and p_m.side == bestSweepSide and math.abs(p_m.price - bestSweepPrice) <= bestSweepTol
             if sameCluster and (mRaided or mPending)
                 p_m.isSwept := true
                 p_m.state := "SWEPT"
@@ -1208,7 +1275,7 @@ if not na(bestBreakoutIdx)
     if liq_pools.size() > 0
         for i = 0 to liq_pools.size() - 1
             p_b = liq_pools.get(i)
-            sameCluster = not p_b.isSwept and p_b.side == bestBreakoutSide and math.abs(p_b.price - bestBreakoutPrice) <= bestBreakoutTol
+            sameCluster = f_liqIsEventEligible(p_b) and not p_b.isSwept and p_b.side == bestBreakoutSide and math.abs(p_b.price - bestBreakoutPrice) <= bestBreakoutTol
             if sameCluster
                 p_b.isSwept := true
                 p_b.state := "CONSUMED"
@@ -1529,17 +1596,17 @@ if showDash and barstate.islast
     table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
     table.cell(tb, 1, 0, "STATUS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
 
-    bT1 = close > dO ? "BULL" : "BEAR"
+    bT1 = close > dO ? "ABOVE" : "BELOW"
     bC1 = close > dO ? COLOR_BULL : COLOR_BEAR
     table.cell(tb, 0, 1, "Daily Open", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 1, bT1, text_color=color.white, bgcolor=bC1, text_size=size.small)
 
-    bT2 = close > wO ? "BULL" : "BEAR"
+    bT2 = close > wO ? "ABOVE" : "BELOW"
     bC2 = close > wO ? COLOR_BULL : COLOR_BEAR
     table.cell(tb, 0, 2, "Weekly Open", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 2, bT2, text_color=color.white, bgcolor=bC2, text_size=size.small)
 
-    bT3 = na(nyMidnight) ? "N/A" : close > nyMidnight ? "BULL" : "BEAR"
+    bT3 = na(nyMidnight) ? "N/A" : close > nyMidnight ? "ABOVE" : "BELOW"
     bC3 = na(nyMidnight) ? COLOR_NEUT : close > nyMidnight ? COLOR_BULL : COLOR_BEAR
     table.cell(tb, 0, 3, "NY Midnight", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 3, bT3, text_color=color.white, bgcolor=bC3, text_size=size.small)
@@ -1556,9 +1623,9 @@ if showDash and barstate.islast
     table.cell(tb, 0, 6, "LTF Structure", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 6, structureStatus, text_color=color.white, bgcolor=msC, text_size=size.small)
 
-    overAll = (close > dO and structureStatus == "Bullish" and htf2Bias == "BULL") ? "STRONG BULL" : (close < dO and structureStatus == "Bearish" and htf2Bias == "BEAR") ? "STRONG BEAR" : "CONSOLIDATING"
+    overAll = (close > dO and structureStatus == "Bullish" and htf2Bias == "BULL") ? "BULL CONTEXT" : (close < dO and structureStatus == "Bearish" and htf2Bias == "BEAR") ? "BEAR CONTEXT" : "MIXED"
     overC = (close > dO and structureStatus == "Bullish" and htf2Bias == "BULL") ? COLOR_BULL : (close < dO and structureStatus == "Bearish" and htf2Bias == "BEAR") ? COLOR_BEAR : COLOR_NEUT
-    table.cell(tb, 0, 7, "Overall Bias", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 0, 7, "Overall Context", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
     table.cell(tb, 1, 7, overAll, text_color=color.white, bgcolor=overC, text_size=size.small)
 
     table.cell(tb, 0, 8, "Total Setups", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
