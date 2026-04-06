@@ -155,6 +155,8 @@ ageExpiry    = input.int(800, "Level Expiry (Bars)", minval=100, group=G_SMC, to
 kzBoost      = input.bool(true, "Killzone Priority", group=G_SMC, tooltip="Increases sweep score if it occurs in London/NY sessions.")
 volConfirm   = input.bool(true, "Require Volume Confirmation", group=G_SMC)
 showSweepClassTags = input.bool(true, "Show Sweep Class Tags", group=G_SMC, tooltip="Adds compact sweep classification tags such as [CS], [ASR], [NDR], and [CB] to raid and breakout labels.")
+showRaidCallouts = input.bool(false, "Show Raid Callouts", group=G_SMC, tooltip="Disabled by default to keep the chart clean. When enabled, prints RAID guide labels for sweep entries.")
+showBreakoutCallouts = input.bool(false, "Show Breakout Callouts", group=G_SMC, tooltip="Disabled by default to keep the chart clean. When enabled, prints BREAKOUT guide labels.")
 newsRangeAtrMult = input.float(2.2, "News Spike Range ATR", minval=1.0, step=0.1, group=G_SMC, tooltip="Bars larger than this ATR multiple are treated as news/displacement spikes in sweep classification.")
 newsVolMult = input.float(1.8, "News Spike Volume Mult", minval=1.0, step=0.1, group=G_SMC, tooltip="Bars with both large range and this relative volume are treated as news/displacement spikes.")
 useMajorMSS  = input.bool(true, "Major Structure MSS Only", group=G_SMC, tooltip="Require MSS to break a Major pivot rather than a minor internal one.")
@@ -852,8 +854,14 @@ f_isDarkTheme() =>
 f_themeTextColor() =>
     f_isDarkTheme() ? color.white : color.black
 
+f_themeInvertedTextColor() =>
+    f_isDarkTheme() ? color.black : color.white
+
 f_themePanelColor() =>
     f_isDarkTheme() ? color.new(#111827, 8) : color.new(#f3f4f6, 8)
+
+f_themeInvertedPanelColor() =>
+    f_isDarkTheme() ? color.white : #111827
 
 f_contrastTextColor(color bgClr) =>
     f_colorLuma(bgClr) < 140 ? color.white : color.black
@@ -936,7 +944,7 @@ f_updateLevel(bool show, float val, string txt, color clr, line l, label lb, int
         line.set_color(l, clr)
         line.set_width(l, width)
         label.set_xy(lb, levelRight, val)
-        label.set_textcolor(lb, clr)
+        label.set_textcolor(lb, f_themeTextColor())
         label.set_color(lb, f_themePanelColor())
         label.set_text(lb, txt + " (" + str.tostring(val, format.mintick) + ")")
     else
@@ -1594,7 +1602,7 @@ if barstate.islast
                 stackedOffset := isNearPrev ? stackedOffset + 4 : 0
                 prevRowPrice := row.price
                 int renderOffset = stackedOffset + f_liqLabelExtraOffset(displayText)
-                color labelTextClr = f_liqLabelUsesThemeText(displayText) ? f_themeTextColor() : clr
+                color labelTextClr = f_themeTextColor()
                 array.push(liq_render_labels, label.new(bar_index + 5 + renderOffset, row.price, displayText, color=f_themePanelColor(), textcolor=labelTextClr, style=label.style_label_left, size=f_liqLabelSize()))
 
 // --- FVG Engine ---
@@ -2272,7 +2280,7 @@ if not na(bestBreakoutIdx)
     breakoutIsBSL = bestBreakoutSide == "BSL"
     recentBreakout = breakoutIsBSL ? (not na(lastBreakoutBarBSL) and (bar_index - lastBreakoutBarBSL) <= breakoutCooldownBars) : (not na(lastBreakoutBarSSL) and (bar_index - lastBreakoutBarSSL) <= breakoutCooldownBars)
     moreExtremeBreakout = breakoutIsBSL ? (na(lastBreakoutPriceBSL) or bestBreakoutPrice >= lastBreakoutPriceBSL) : (na(lastBreakoutPriceSSL) or bestBreakoutPrice <= lastBreakoutPriceSSL)
-    if showSMC and (not recentBreakout or moreExtremeBreakout)
+    if showSMC and showBreakoutCallouts and (not recentBreakout or moreExtremeBreakout)
         if breakoutIsBSL and recentBreakout and not na(lastBreakoutLabelBSL)
             label.delete(lastBreakoutLabelBSL)
         if breakoutIsBSL and recentBreakout and not na(lastBreakoutGuideBSL)
@@ -2308,8 +2316,9 @@ if bearSweep and not active and not waitS
         line.delete(waitRaidGuideS)
     float bearRaidAnchor = nz(sweepLabelPrice, sweepExtreme)
     float bearRaidGuideY = bearRaidAnchor + f_eventGuideOffset()
-    waitRaidGuideS := line.new(sweepLabelBar, bearRaidAnchor, sweepLabelBar, bearRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
-    waitRaidLabelS := label.new(sweepLabelBar + 1, bearRaidGuideY, f_eventCalloutText("RAID", swpTxt, bestSweepPrice), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
+    if showRaidCallouts
+        waitRaidGuideS := line.new(sweepLabelBar, bearRaidAnchor, sweepLabelBar, bearRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+        waitRaidLabelS := label.new(sweepLabelBar + 1, bearRaidGuideY, f_eventCalloutText("RAID", swpTxt, bestSweepPrice), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     waitRaidTextS := swpTxt
     waitSweepLevelS := bestSweepPrice
     waitSweepTolS := bestSweepTol
@@ -2324,8 +2333,9 @@ if bullSweep and not active and not waitL
         line.delete(waitRaidGuideL)
     float bullRaidAnchor = nz(sweepLabelPrice, sweepExtreme)
     float bullRaidGuideY = bullRaidAnchor - f_eventGuideOffset()
-    waitRaidGuideL := line.new(sweepLabelBar, bullRaidAnchor, sweepLabelBar, bullRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
-    waitRaidLabelL := label.new(sweepLabelBar + 1, bullRaidGuideY, f_eventCalloutText("RAID", swpTxt, bestSweepPrice), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
+    if showRaidCallouts
+        waitRaidGuideL := line.new(sweepLabelBar, bullRaidAnchor, sweepLabelBar, bullRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+        waitRaidLabelL := label.new(sweepLabelBar + 1, bullRaidGuideY, f_eventCalloutText("RAID", swpTxt, bestSweepPrice), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     waitRaidTextL := swpTxt
     waitSweepLevelL := bestSweepPrice
     waitSweepTolL := bestSweepTol
@@ -2343,8 +2353,9 @@ if bearRaidUpgrade
     if not na(waitRaidGuideS)
         line.delete(waitRaidGuideS)
     float bearRaidGuideY = high + f_eventGuideOffset()
-    waitRaidGuideS := line.new(bar_index, high, bar_index, bearRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
-    waitRaidLabelS := label.new(bar_index + 1, bearRaidGuideY, f_eventCalloutText("RAID", waitRaidTextS, waitSweepLevelS), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
+    if showRaidCallouts
+        waitRaidGuideS := line.new(bar_index, high, bar_index, bearRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+        waitRaidLabelS := label.new(bar_index + 1, bearRaidGuideY, f_eventCalloutText("RAID", waitRaidTextS, waitSweepLevelS), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     sExtH := high
     waitStartBarS := bar_index
     waitStartTimeS := time
@@ -2360,8 +2371,9 @@ if bullRaidUpgrade
     if not na(waitRaidGuideL)
         line.delete(waitRaidGuideL)
     float bullRaidGuideY = low - f_eventGuideOffset()
-    waitRaidGuideL := line.new(bar_index, low, bar_index, bullRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
-    waitRaidLabelL := label.new(bar_index + 1, bullRaidGuideY, f_eventCalloutText("RAID", waitRaidTextL, waitSweepLevelL), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
+    if showRaidCallouts
+        waitRaidGuideL := line.new(bar_index, low, bar_index, bullRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+        waitRaidLabelL := label.new(bar_index + 1, bullRaidGuideY, f_eventCalloutText("RAID", waitRaidTextL, waitSweepLevelL), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     sExtL := low
     waitStartBarL := bar_index
     waitStartTimeL := time
@@ -2787,6 +2799,7 @@ update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
     if not na(z)
         isEntry = (z.zoneType == "FVG" or z.zoneType == "OB" or z.zoneType == "SWEEP" or z.zoneType == "CONFLUENCE")
         isWatch = z.zoneType == "SWEEP_CTX"
+        isHtfTarget = z.narrative == "HTF TARGET"
         baseClr = side == "Long" ? rzEntryColor : rzBearColor
         if isWatch
             baseClr := rzTargetColor
@@ -2808,10 +2821,13 @@ update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
             line.set_xy1(l, na, na)
 
         if showRZLabels
-            label.set_xy(lb, bar_index + 8, z.ce)
+            int rzLabelOffset = isHtfTarget ? 12 : 8
+            color rzLabelText = isHtfTarget ? f_themeInvertedTextColor() : (isEntry ? baseClr : f_themeTextColor())
+            color rzLabelBg = isHtfTarget ? f_themeInvertedPanelColor() : f_themePanelColor()
+            label.set_xy(lb, bar_index + rzLabelOffset, z.ce)
             label.set_text(lb, z.narrative + (isEntry ? (side == "Long" ? " [LONG SETUP]" : " [SHORT SETUP]") : isWatch ? " [WATCH]" : " [TARGET]"))
-            label.set_textcolor(lb, baseClr)
-            label.set_color(lb, f_themePanelColor())
+            label.set_textcolor(lb, rzLabelText)
+            label.set_color(lb, rzLabelBg)
             label.set_style(lb, label.style_label_left)
         else
             label.set_text(lb, "")
@@ -3409,11 +3425,11 @@ if barstate.islast
         color hintBg = color.new(f_bigMoveStateColor(bigMoveSnapshot.state), f_isDarkTheme() ? 78 : 82)
         float hintY = high + math.max(atrVal, syminfo.mintick * 20) * 1.6
         string hintText = "BIG MOVE TIMING\nNow: " + bigMoveSnapshot.nowText + "\nLiquidity: " + bigMoveSnapshot.liquidityText + "\nNext: " + bigMoveSnapshot.nextText
-        label.set_xy(bigMoveHintLabel, bar_index + 2, hintY)
+        label.set_xy(bigMoveHintLabel, bar_index + 6, hintY)
         label.set_text(bigMoveHintLabel, hintText)
         label.set_textcolor(bigMoveHintLabel, f_themeTextColor())
         label.set_color(bigMoveHintLabel, hintBg)
-        label.set_style(bigMoveHintLabel, label.style_label_left)
+        label.set_style(bigMoveHintLabel, label.style_label_right)
     else
         label.set_xy(bigMoveHintLabel, na, na)
         label.set_text(bigMoveHintLabel, "")
