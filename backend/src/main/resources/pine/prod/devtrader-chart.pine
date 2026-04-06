@@ -85,43 +85,25 @@ type liq_render_row
     string state
 
 type big_move_event
-    int    startBar
-    int    endBar
     int    eventBar
     int    eventTime
     string eventType
     string direction
-    float  highPrice
-    float  lowPrice
-    float  cePrice
-    float  rangeAtr
-    float  bodyPct
-    float  wickPct
     float  relVolume
     float  score
     string sessionName
     string killzoneName
     string sessionPhase
-    int    hourBucket
     int    minuteBucket
     bool   hadLiquidityConfluence
     bool   hadFvgConfluence
     bool   hadSweepConfluence
-    string narrative
 
 type big_move_timing_snapshot
-    string topWindow
-    string topKillzone
-    string bestAvgKillzone
-    string dominantType
-    string bias
-    string currentState
-    string currentBucketName
-    float  currentBucketHitRate
-    int    qualifyingEvents
-    float  avgRelVolume
-    float  avgScore
-    bool   spikeDominantNow
+    string state
+    string nowText
+    string liquidityText
+    string nextText
 
 // --- Inputs ---
 showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
@@ -154,6 +136,14 @@ colorProj    = input.color(color.new(#5b9cf6, 30), "Projection Color", group=G_P
 
 showStatsTbl = input.bool(true, "Show Stats Table", group=G_STATS)
 stopModel    = input.string("Sweep Extreme", "Stop Model", options=["Sweep Extreme", "MSS Candle Extreme"], group=G_STATS)
+ltfEntrySwingLen = input.int(2, "Lower-TF MSS Swing Strength", minval=1, group=G_STATS)
+ltfEntryDispMult = input.float(1.15, "Lower-TF MSS Disp. Mult", minval=1.0, step=0.05, group=G_STATS)
+showEntryTradeMap = input.bool(true, "Show Entry Risk/Reward Areas", group=G_STATS, tooltip="Shade the live trade's profit and invalidation areas instead of relying only on entry labels.")
+showHistoricalSetups = input.bool(true, "Keep Recent Past Setups", group=G_STATS, tooltip="Preserve recent completed setup maps on the chart so previous long/short executions remain visible.")
+maxHistoricalSetups = input.int(6, "Past Setups To Keep", minval=1, maxval=20, group=G_STATS)
+showEntryLabels = input.bool(false, "Show Entry Labels", group=G_STATS, tooltip="Disabled by default to keep the chart clean. When enabled, shows a small LONG/SHORT badge only on the live entry, not on preserved historical setups.")
+tradeMinRR = input.float(2.0, "Minimum Target R", minval=1.0, step=0.25, group=G_STATS)
+tradeTargetWindowAtr = input.float(8.0, "Target Liquidity Window (ATR)", minval=2.0, step=0.5, group=G_STATS)
 
 showSMC      = input.bool(true, "SFP & MSS Detection", group=G_SMC)
 majorSweeps  = input.bool(true, "External Liquidity Only", group=G_SMC, tooltip="Only detect sweeps on external liquidity (major, EQ, session, or HTF levels). Ignores minor internal structure.")
@@ -170,11 +160,7 @@ newsVolMult = input.float(1.8, "News Spike Volume Mult", minval=1.0, step=0.1, g
 useMajorMSS  = input.bool(true, "Major Structure MSS Only", group=G_SMC, tooltip="Require MSS to break a Major pivot rather than a minor internal one.")
 dispMult     = input.float(1.4, "Disp. Multiplier", step=0.1, group=G_SMC)
 swingLen     = input.int(3, "Swing Strength", minval=1, group=G_SMC)
-breakoutBullColor = input.color(COLOR_BULL, "Breakout Bull Color", group=G_SMC)
-breakoutBearColor = input.color(COLOR_BEAR, "Breakout Bear Color", group=G_SMC)
 breakoutLabelSize = input.string("Tiny", "Breakout Label Size", options=["Tiny", "Small", "Normal"], group=G_SMC)
-raidBullColor = input.color(COLOR_BULL, "Raid Bull Color", group=G_SMC)
-raidBearColor = input.color(COLOR_BEAR, "Raid Bear Color", group=G_SMC)
 raidLabelSize = input.string("Tiny", "Raid Label Size", options=["Tiny", "Small", "Normal"], group=G_SMC)
 sweepMssTimeoutBars = input.int(6, "Sweep To MSS Timeout (Bars)", minval=1, group=G_SMC, tooltip="Hide sweep reclaim entry zones if no MSS confirms within this many bars.")
 showSweepTimeoutNote = input.bool(false, "Show Sweep Timeout Note", group=G_SMC, tooltip="If enabled, prints one small note when a sweep reclaim setup expires without MSS confirmation.")
@@ -240,13 +226,9 @@ bigMoveUseLiquidityBoost = input.bool(true, "Use Liquidity Confluence", group=G_
 bigMoveUseFvgBoost = input.bool(true, "Use FVG / Imbalance Confluence", group=G_BMM)
 bigMoveClusterBars = input.int(3, "Cluster Consecutive Bars", minval=1, maxval=10, group=G_BMM)
 bigMoveMaxStored = input.int(80, "Max Stored Historical Events", minval=20, maxval=300, group=G_BMM)
-showBigMoveZones = input.bool(true, "Show Historical Event Zones", group=G_BMM)
-showBigMoveLabels = input.bool(true, "Show Event Labels", group=G_BMM)
-showBigMoveTimingTable = input.bool(true, "Show Timing Statistics", group=G_BMM)
-showFutureTimingHints = input.bool(true, "Show Future High-Probability Timing Hints", group=G_BMM)
+showBigMoveTimingTable = input.bool(true, "Show Timing Table", group=G_BMM)
+showBigMoveBanner = input.bool(true, "Show Timing Banner", group=G_BMM)
 bigMoveMinScore = input.float(58.0, "Minimum Event Score", minval=0.0, maxval=100.0, step=1.0, group=G_BMM)
-bigMoveFadeOldEvents = input.bool(true, "Fade Older Events", group=G_BMM)
-bigMoveShowTopN = input.int(10, "Only Show Top N Events", minval=1, maxval=30, group=G_BMM)
 bigMoveTimingTablePos = input.string("Bottom Left", "Timing Table Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=G_BMM)
 
 // --- HTF Settings ---
@@ -391,10 +373,9 @@ f_htfExecutionNarrative(int state, float pdPos, bool nearHighLiq, bool nearLowLi
         "Reduce conviction until HTF resolves"
 
 f_htfDashboardNarrative(int state, string action, int structureDir, float pdPos, bool nearHighLiq, bool nearLowLiq, float confidence) =>
-    "Bias: " + f_htfStateNarrative(state) +
-     "\nFlow: " + f_htfActionNarrative(action) +
-     "\nLocation: " + f_htfLocationNarrative(structureDir, pdPos, nearHighLiq, nearLowLiq) +
-     "\nRead: " + f_htfExecutionNarrative(state, pdPos, nearHighLiq, nearLowLiq) + " | " + str.tostring(math.round(confidence)) + "/100"
+    "Bias: " + f_htfStateShort(state) + " | " + str.tostring(math.round(confidence)) + "/100" +
+     "\nFlow: " + action +
+     "\nRead: " + f_htfExecutionNarrative(state, pdPos, nearHighLiq, nearLowLiq)
 
 f_htfCompositeBiasNarrative(float compositeBias, bool longStrong, bool shortStrong) =>
     longStrong ? "Bullish aligned" :
@@ -862,16 +843,101 @@ f_breakoutLabelSize() =>
 f_raidLabelSize() =>
     raidLabelSize == "Tiny" ? size.tiny : raidLabelSize == "Small" ? size.small : size.normal
 
-f_updateLevel(bool show, float val, string txt, color clr, line l, label lb, int width) =>
+f_colorLuma(color clr) =>
+    color.r(clr) * 0.299 + color.g(clr) * 0.587 + color.b(clr) * 0.114
+
+f_isDarkTheme() =>
+    f_colorLuma(chart.bg_color) < 140
+
+f_themeTextColor() =>
+    f_isDarkTheme() ? color.white : color.black
+
+f_themePanelColor() =>
+    f_isDarkTheme() ? color.new(#111827, 8) : color.new(#f3f4f6, 8)
+
+f_contrastTextColor(color bgClr) =>
+    f_colorLuma(bgClr) < 140 ? color.white : color.black
+
+f_entryLabelBg(bool isBull) =>
+    color.new(isBull ? COLOR_BULL : COLOR_BEAR, f_isDarkTheme() ? 12 : 18)
+
+f_eventGuideOffset() =>
+    math.max(atrVal * 0.18, syminfo.mintick * 25)
+
+f_timeframeStrFromSeconds(int secs) =>
+    int mins = int(math.max(1.0, math.round(float(secs) / 60.0)))
+    str.tostring(mins)
+
+f_timeframeLabelFromSeconds(int secs) =>
+    int mins = int(math.max(1.0, math.round(float(secs) / 60.0)))
+    mins >= 60 and mins % 60 == 0 ? str.tostring(int(mins / 60)) + "h" : str.tostring(mins) + "m"
+
+f_autoLtfSeconds(int baseSecs) =>
+    if baseSecs <= 60
+        60
+    else
+        int ladderSecs = int(math.floor(float(baseSecs) / 180.0)) * 60
+        ladderSecs := math.max(60, ladderSecs)
+        math.min(baseSecs - 60, ladderSecs)
+
+f_liqLabelUsesThemeText(string displayText) =>
+    string head4 = str.length(displayText) >= 4 ? str.substring(displayText, 0, 4) : displayText
+    displayText == "EQH" or displayText == "EQL" or head4 == "HTF1" or head4 == "HTF2"
+
+f_liqLabelExtraOffset(string displayText) =>
+    f_liqLabelUsesThemeText(displayText) ? 8 : 0
+
+f_eventCalloutText(string prefix, string eventText, float eventPrice) =>
+    prefix + ": " + eventText + (not na(eventPrice) ? " @ " + str.tostring(eventPrice, format.mintick) : "")
+
+f_bigMovePriceLabel(string label, float price) =>
+    str.length(label) > 0 and not na(price) ? label + " @ " + str.tostring(price, format.mintick) : label
+
+var array<box> pastRewardBoxes = array.new_box(0)
+var array<box> pastRiskBoxes = array.new_box(0)
+var array<line> pastEntryLines = array.new_line(0)
+f_prunePastSetups() =>
+    while array.size(pastRewardBoxes) > maxHistoricalSetups
+        box oldReward = array.shift(pastRewardBoxes)
+        if not na(oldReward)
+            box.delete(oldReward)
+    while array.size(pastRiskBoxes) > maxHistoricalSetups
+        box oldRisk = array.shift(pastRiskBoxes)
+        if not na(oldRisk)
+            box.delete(oldRisk)
+    while array.size(pastEntryLines) > maxHistoricalSetups
+        line oldLine = array.shift(pastEntryLines)
+        if not na(oldLine)
+            line.delete(oldLine)
+    true
+
+f_storePastSetup(bool isLong, float entryPrice, float stopPrice, float targetPrice, int startBar, int endBar) =>
+    if showHistoricalSetups and showProj and not na(entryPrice) and not na(stopPrice) and not na(targetPrice) and not na(startBar) and not na(endBar)
+        int rightBar = math.max(endBar, startBar + 1)
+        float rewardTop = isLong ? targetPrice : entryPrice
+        float rewardBottom = isLong ? entryPrice : targetPrice
+        float riskTop = isLong ? entryPrice : stopPrice
+        float riskBottom = isLong ? stopPrice : entryPrice
+        box rewardBox = box.new(startBar, rewardTop, rightBar, rewardBottom, bgcolor=color.new(COLOR_BULL, f_isDarkTheme() ? 84 : 88), border_color=color.new(COLOR_BULL, 58), border_width=1)
+        box riskBox = box.new(startBar, riskTop, rightBar, riskBottom, bgcolor=color.new(COLOR_BEAR, f_isDarkTheme() ? 86 : 90), border_color=color.new(COLOR_BEAR, 60), border_width=1)
+        line entryLine = line.new(startBar, entryPrice, rightBar, entryPrice, color=color.new(f_themeTextColor(), 18), style=line.style_dotted, width=1)
+        array.push(pastRewardBoxes, rewardBox)
+        array.push(pastRiskBoxes, riskBox)
+        array.push(pastEntryLines, entryLine)
+        f_prunePastSetups()
+    true
+
+f_updateLevel(bool show, float val, string txt, color clr, line l, label lb, int width, int xOffsetBars) =>
     if show and not na(val)
         levelLeft = math.max(bar_index - 50, 0)
-        levelRight = bar_index + 10
+        levelRight = bar_index + 10 + xOffsetBars
         line.set_xy1(l, levelLeft, val)
         line.set_xy2(l, levelRight, val)
         line.set_color(l, clr)
         line.set_width(l, width)
         label.set_xy(lb, levelRight, val)
         label.set_textcolor(lb, clr)
+        label.set_color(lb, f_themePanelColor())
         label.set_text(lb, txt + " (" + str.tostring(val, format.mintick) + ")")
     else
         line.set_y1(l, na)
@@ -899,15 +965,15 @@ var line lnNYMid = line.new(na, na, na, na)
 var label lbNYMid = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
 
 if barstate.islast
-    f_updateLevel(showPDH and not pdhConsumed, pdh, "PDH", colorPDLvl, lnPDH, lbPDH, 1)
-    f_updateLevel(showPDL and not pdlConsumed, pdl, "PDL", colorPDLvl, lnPDL, lbPDL, 1)
-    f_updateLevel(showPDC, pdc, "PDC", colorPDLvl, lnPDC, lbPDC, 1)
-    f_updateLevel(showDO, dO, "DO", colorPDLvl, lnDO, lbDO, 1)
-    f_updateLevel(showPWH and not pwhConsumed, pwh, "PWH", colorPWLvl, lnPWH, lbPWH, 2)
-    f_updateLevel(showPWL and not pwlConsumed, pwl, "PWL", colorPWLvl, lnPWL, lbPWL, 2)
-    f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", colorPMLvl, lnPMH, lbPMH, 2)
-    f_updateLevel(showPML and not pmlConsumed, pml, "PML", colorPMLvl, lnPML, lbPML, 2)
-    f_updateLevel(showNYMid, nyMidnight, "NY-Mid", colorNYMid, lnNYMid, lbNYMid, 1)
+    f_updateLevel(showPDH and not pdhConsumed, pdh, "PDH", colorPDLvl, lnPDH, lbPDH, 1, 0)
+    f_updateLevel(showPDL and not pdlConsumed, pdl, "PDL", colorPDLvl, lnPDL, lbPDL, 1, 0)
+    f_updateLevel(showPDC, pdc, "PDC", colorPDLvl, lnPDC, lbPDC, 1, 3)
+    f_updateLevel(showDO, dO, "DO", colorPDLvl, lnDO, lbDO, 1, 6)
+    f_updateLevel(showPWH and not pwhConsumed, pwh, "PWH", colorPWLvl, lnPWH, lbPWH, 2, 9)
+    f_updateLevel(showPWL and not pwlConsumed, pwl, "PWL", colorPWLvl, lnPWL, lbPWL, 2, 12)
+    f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", colorPMLvl, lnPMH, lbPMH, 2, 15)
+    f_updateLevel(showPML and not pmlConsumed, pml, "PML", colorPMLvl, lnPML, lbPML, 2, 18)
+    f_updateLevel(showNYMid, nyMidnight, "NY Midnight", colorNYMid, lnNYMid, lbNYMid, 1, 21)
 
 // --- Advanced Liquidity Engine ---
 var liq_pools = array.new<liq_pool>(0)
@@ -1525,9 +1591,11 @@ if barstate.islast
             array.push(liq_render_lines, line.new(renderLeftBar, row.price, bar_index + 5, row.price, color=clr, style=lineStyle))
             if showLiquidityLabels
                 isNearPrev = not na(prevRowPrice) and math.abs(prevRowPrice - row.price) <= spacing
-                stackedOffset := isNearPrev ? stackedOffset + 2 : 0
+                stackedOffset := isNearPrev ? stackedOffset + 4 : 0
                 prevRowPrice := row.price
-                array.push(liq_render_labels, label.new(bar_index + 5 + stackedOffset, row.price, displayText, color=#00000000, textcolor=clr, style=label.style_label_left, size=f_liqLabelSize()))
+                int renderOffset = stackedOffset + f_liqLabelExtraOffset(displayText)
+                color labelTextClr = f_liqLabelUsesThemeText(displayText) ? f_themeTextColor() : clr
+                array.push(liq_render_labels, label.new(bar_index + 5 + renderOffset, row.price, displayText, color=f_themePanelColor(), textcolor=labelTextClr, style=label.style_label_left, size=f_liqLabelSize()))
 
 // --- FVG Engine ---
 var fvg_records = array.new<fvg_data>(0)
@@ -1676,10 +1744,14 @@ var float waitSweepLevelL = na
 var float waitSweepLevelS = na
 var float waitSweepTolL = na
 var float waitSweepTolS = na
+var int waitStartTimeL = na
+var int waitStartTimeS = na
 var string waitRaidTextL = ""
 var string waitRaidTextS = ""
 var label waitRaidLabelL = na
 var label waitRaidLabelS = na
+var line waitRaidGuideL = na
+var line waitRaidGuideS = na
 var int lastBreakoutBarBSL = na
 var int lastBreakoutBarSSL = na
 var float lastBreakoutPriceBSL = na
@@ -1688,16 +1760,24 @@ var float lastBreakoutTolBSL = na
 var float lastBreakoutTolSSL = na
 var label lastBreakoutLabelBSL = na
 var label lastBreakoutLabelSSL = na
+var line lastBreakoutGuideBSL = na
+var line lastBreakoutGuideSSL = na
+var int lastLtfBlockedTimeS = na
+var int lastLtfBlockedTimeL = na
 var string structureStatus = "Neutral"
 var int tSetups = 0
 var int w10 = 0
 var int l10 = 0
 var bool active = false
 var bool bull = false
+var float activeEntryPrice = na
 var float tSL = na
 var float t10 = na
 var int activeProjStartBar = na
 var line activeProjLine = line.new(na, na, na, na)
+var line activeEntryLine = line.new(na, na, na, na)
+var box activeRewardBox = box.new(na, na, na, na, border_color=na)
+var box activeRiskBox = box.new(na, na, na, na, border_color=na)
 var float protectedHigh = na
 var float protectedLow = na
 var int protectedHighBar = na
@@ -1738,6 +1818,54 @@ f_getLatestPivotBefore(array<float> priceArr, array<int> barArr, int refBar) =>
 
 f_structureBaseStatus(int trend) =>
     trend == 1 ? "Bullish (Protected)" : trend == -1 ? "Bearish (Protected)" : "Neutral"
+
+f_ltfBullMssTime() =>
+    float lRange = high - low
+    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
+    float lBody = math.abs(close - open)
+    float lAvgBody = ta.sma(math.abs(close - open), 20)
+    float lAtr = ta.atr(14)
+    float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
+    float lLastPivotHigh = ta.valuewhen(not na(lPivotHigh), lPivotHigh, 0)
+    bool lBullImpulse = close > open and lBody > lAvgBody * ltfEntryDispMult and ((high - close) / lSafeRange) <= 0.25 and (low > high[2] or lRange >= lAtr * 0.75)
+    bool lBullMss = not na(lLastPivotHigh) and close > lLastPivotHigh and lBullImpulse
+    int(ta.valuewhen(lBullMss, time, 0))
+
+f_ltfBearMssTime() =>
+    float lRange = high - low
+    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
+    float lBody = math.abs(close - open)
+    float lAvgBody = ta.sma(math.abs(close - open), 20)
+    float lAtr = ta.atr(14)
+    float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
+    float lLastPivotLow = ta.valuewhen(not na(lPivotLow), lPivotLow, 0)
+    bool lBearImpulse = close < open and lBody > lAvgBody * ltfEntryDispMult and ((close - low) / lSafeRange) <= 0.25 and (high < low[2] or lRange >= lAtr * 0.75)
+    bool lBearMss = not na(lLastPivotLow) and close < lLastPivotLow and lBearImpulse
+    int(ta.valuewhen(lBearMss, time, 0))
+
+f_ltfBullMssPrice() =>
+    float lRange = high - low
+    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
+    float lBody = math.abs(close - open)
+    float lAvgBody = ta.sma(math.abs(close - open), 20)
+    float lAtr = ta.atr(14)
+    float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
+    float lLastPivotHigh = ta.valuewhen(not na(lPivotHigh), lPivotHigh, 0)
+    bool lBullImpulse = close > open and lBody > lAvgBody * ltfEntryDispMult and ((high - close) / lSafeRange) <= 0.25 and (low > high[2] or lRange >= lAtr * 0.75)
+    bool lBullMss = not na(lLastPivotHigh) and close > lLastPivotHigh and lBullImpulse
+    ta.valuewhen(lBullMss, close, 0)
+
+f_ltfBearMssPrice() =>
+    float lRange = high - low
+    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
+    float lBody = math.abs(close - open)
+    float lAvgBody = ta.sma(math.abs(close - open), 20)
+    float lAtr = ta.atr(14)
+    float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
+    float lLastPivotLow = ta.valuewhen(not na(lPivotLow), lPivotLow, 0)
+    bool lBearImpulse = close < open and lBody > lAvgBody * ltfEntryDispMult and ((close - low) / lSafeRange) <= 0.25 and (high < low[2] or lRange >= lAtr * 0.75)
+    bool lBearMss = not na(lLastPivotLow) and close < lLastPivotLow and lBearImpulse
+    ta.valuewhen(lBearMss, close, 0)
 
 f_resolveBearStructureRefs(int narrativeRefBar, int sweepBar, float protectedLowRef, int protectedLowRefBar) =>
     int primaryBar = na(narrativeRefBar) ? sweepBar : narrativeRefBar
@@ -1807,6 +1935,21 @@ if not na(majL)
         protectedHigh := majSwh
         protectedHighBar := majSwhBar
         activeDealingLeg := -1
+
+int chartTfSecs = int(timeframe.in_seconds(timeframe.period))
+int ltfEntrySecs = f_autoLtfSeconds(chartTfSecs)
+string ltfEntryTf = f_timeframeStrFromSeconds(ltfEntrySecs)
+string ltfEntryLabel = f_timeframeLabelFromSeconds(ltfEntrySecs)
+bool ltfEntryTfValid = ltfEntrySecs > 0 and chartTfSecs > 0 and ltfEntrySecs < chartTfSecs
+int ltfBullMssTime = int(na)
+int ltfBearMssTime = int(na)
+float ltfBullEntryPrice = na
+float ltfBearEntryPrice = na
+if ltfEntryTfValid
+    ltfBullMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssTime(), lookahead=barmerge.lookahead_off)
+    ltfBearMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssTime(), lookahead=barmerge.lookahead_off)
+    ltfBullEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssPrice(), lookahead=barmerge.lookahead_off)
+    ltfBearEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssPrice(), lookahead=barmerge.lookahead_off)
 // --- High-Fidelity Sweep Engine ---
 bool swpBSL = false
 bool swpSSL = false
@@ -2079,16 +2222,19 @@ if not na(bestBreakoutIdx)
                 p_b.pendingWickRatio := na
                 p_b.lastFailureBar := bar_index
                 p_b.lastRefreshBar := bar_index
-
     if bestBreakoutSide == "BSL" and waitS and not na(waitSweepLevelS) and math.abs(bestBreakoutPrice - waitSweepLevelS) <= math.max(bestBreakoutTol, nz(waitSweepTolS, bestBreakoutTol))
         if not na(waitRaidLabelS)
             label.delete(waitRaidLabelS)
+        if not na(waitRaidGuideS)
+            line.delete(waitRaidGuideS)
         waitS := false
         waitStartBarS := int(na)
+        waitStartTimeS := int(na)
         waitSweepLevelS := na
         waitSweepTolS := na
         waitRaidTextS := ""
         waitRaidLabelS := na
+        waitRaidGuideS := na
         anchorMSS_S := na
         internalRefS := na
         internalRefBarS := na
@@ -2102,12 +2248,16 @@ if not na(bestBreakoutIdx)
     if bestBreakoutSide == "SSL" and waitL and not na(waitSweepLevelL) and math.abs(bestBreakoutPrice - waitSweepLevelL) <= math.max(bestBreakoutTol, nz(waitSweepTolL, bestBreakoutTol))
         if not na(waitRaidLabelL)
             label.delete(waitRaidLabelL)
+        if not na(waitRaidGuideL)
+            line.delete(waitRaidGuideL)
         waitL := false
         waitStartBarL := int(na)
+        waitStartTimeL := int(na)
         waitSweepLevelL := na
         waitSweepTolL := na
         waitRaidTextL := ""
         waitRaidLabelL := na
+        waitRaidGuideL := na
         anchorMSS_L := na
         internalRefL := na
         internalRefBarL := na
@@ -2125,36 +2275,62 @@ if not na(bestBreakoutIdx)
     if showSMC and (not recentBreakout or moreExtremeBreakout)
         if breakoutIsBSL and recentBreakout and not na(lastBreakoutLabelBSL)
             label.delete(lastBreakoutLabelBSL)
+        if breakoutIsBSL and recentBreakout and not na(lastBreakoutGuideBSL)
+            line.delete(lastBreakoutGuideBSL)
         if not breakoutIsBSL and recentBreakout and not na(lastBreakoutLabelSSL)
             label.delete(lastBreakoutLabelSSL)
-        label newBreakoutLabel = label.new(breakoutLabelBar, breakoutLabelPrice, "BREAKOUT: " + brkTxt, color=#00000000, textcolor=breakoutIsBSL ? breakoutBullColor : breakoutBearColor, style=breakoutIsBSL ? label.style_label_up : label.style_label_down, size=f_breakoutLabelSize())
+        if not breakoutIsBSL and recentBreakout and not na(lastBreakoutGuideSSL)
+            line.delete(lastBreakoutGuideSSL)
+        float breakoutGuideY = breakoutIsBSL ? breakoutLabelPrice + f_eventGuideOffset() : breakoutLabelPrice - f_eventGuideOffset()
+        line newBreakoutGuide = line.new(breakoutLabelBar, breakoutLabelPrice, breakoutLabelBar, breakoutGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+        label newBreakoutLabel = label.new(breakoutLabelBar + 1, breakoutGuideY, f_eventCalloutText("BREAKOUT", brkTxt, bestBreakoutPrice), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_breakoutLabelSize())
         if breakoutIsBSL
             lastBreakoutBarBSL := bar_index
             lastBreakoutPriceBSL := bestBreakoutPrice
             lastBreakoutTolBSL := bestBreakoutTol
             lastBreakoutLabelBSL := newBreakoutLabel
+            lastBreakoutGuideBSL := newBreakoutGuide
         else
             lastBreakoutBarSSL := bar_index
             lastBreakoutPriceSSL := bestBreakoutPrice
             lastBreakoutTolSSL := bestBreakoutTol
             lastBreakoutLabelSSL := newBreakoutLabel
+            lastBreakoutGuideSSL := newBreakoutGuide
 
 bearSweep = showSMC and swpBSL
 bullSweep = showSMC and swpSSL
 if bearSweep and not active and not waitS
-    waitRaidLabelS := label.new(sweepLabelBar, nz(sweepLabelPrice, sweepExtreme), "RAID: " + swpTxt, color=#00000000, textcolor=raidBearColor, style=label.style_label_down, size=f_raidLabelSize())
+    if not na(waitRaidLabelL)
+        label.delete(waitRaidLabelL)
+    if not na(waitRaidGuideL)
+        line.delete(waitRaidGuideL)
+    if not na(waitRaidGuideS)
+        line.delete(waitRaidGuideS)
+    float bearRaidAnchor = nz(sweepLabelPrice, sweepExtreme)
+    float bearRaidGuideY = bearRaidAnchor + f_eventGuideOffset()
+    waitRaidGuideS := line.new(sweepLabelBar, bearRaidAnchor, sweepLabelBar, bearRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+    waitRaidLabelS := label.new(sweepLabelBar + 1, bearRaidGuideY, f_eventCalloutText("RAID", swpTxt, bestSweepPrice), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     waitRaidTextS := swpTxt
     waitSweepLevelS := bestSweepPrice
     waitSweepTolS := bestSweepTol
-    waitS := true, waitL := false, sExtH := sweepExtreme, waitStartBarS := bar_index, waitStartBarL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, anchorMSS_L := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
-    structureStatus := "Awaiting Bearish Internal Shift"
+    waitS := true, waitL := false, sExtH := sweepExtreme, waitStartBarS := bar_index, waitStartTimeS := time, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, waitRaidGuideL := na, anchorMSS_L := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
+    structureStatus := ltfEntryTfValid ? "Awaiting " + ltfEntryLabel + " bear ladder" : "Awaiting Bearish Internal Shift"
 if bullSweep and not active and not waitL
-    waitRaidLabelL := label.new(sweepLabelBar, nz(sweepLabelPrice, sweepExtreme), "RAID: " + swpTxt, color=#00000000, textcolor=raidBullColor, style=label.style_label_up, size=f_raidLabelSize())
+    if not na(waitRaidLabelS)
+        label.delete(waitRaidLabelS)
+    if not na(waitRaidGuideS)
+        line.delete(waitRaidGuideS)
+    if not na(waitRaidGuideL)
+        line.delete(waitRaidGuideL)
+    float bullRaidAnchor = nz(sweepLabelPrice, sweepExtreme)
+    float bullRaidGuideY = bullRaidAnchor - f_eventGuideOffset()
+    waitRaidGuideL := line.new(sweepLabelBar, bullRaidAnchor, sweepLabelBar, bullRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+    waitRaidLabelL := label.new(sweepLabelBar + 1, bullRaidGuideY, f_eventCalloutText("RAID", swpTxt, bestSweepPrice), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     waitRaidTextL := swpTxt
     waitSweepLevelL := bestSweepPrice
     waitSweepTolL := bestSweepTol
-    waitL := true, waitS := false, sExtL := sweepExtreme, waitStartBarL := bar_index, waitStartBarS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, anchorMSS_S := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
-    structureStatus := "Awaiting Bullish Internal Shift"
+    waitL := true, waitS := false, sExtL := sweepExtreme, waitStartBarL := bar_index, waitStartTimeL := time, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, waitRaidGuideS := na, anchorMSS_S := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
+    structureStatus := ltfEntryTfValid ? "Awaiting " + ltfEntryLabel + " bull ladder" : "Awaiting Bullish Internal Shift"
 
 bearRaidRange = high - low
 bearRaidSafeRange = bearRaidRange > 0 ? bearRaidRange : 1.0
@@ -2164,9 +2340,14 @@ bool bearRaidUpgrade = waitS and not active and not internalShiftDoneS and not n
 if bearRaidUpgrade
     if not na(waitRaidLabelS)
         label.delete(waitRaidLabelS)
-    waitRaidLabelS := label.new(bar_index, high, "RAID: " + waitRaidTextS, color=#00000000, textcolor=raidBearColor, style=label.style_label_down, size=f_raidLabelSize())
+    if not na(waitRaidGuideS)
+        line.delete(waitRaidGuideS)
+    float bearRaidGuideY = high + f_eventGuideOffset()
+    waitRaidGuideS := line.new(bar_index, high, bar_index, bearRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+    waitRaidLabelS := label.new(bar_index + 1, bearRaidGuideY, f_eventCalloutText("RAID", waitRaidTextS, waitSweepLevelS), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     sExtH := high
     waitStartBarS := bar_index
+    waitStartTimeS := time
 
 bullRaidRange = high - low
 bullRaidSafeRange = bullRaidRange > 0 ? bullRaidRange : 1.0
@@ -2176,9 +2357,14 @@ bool bullRaidUpgrade = waitL and not active and not internalShiftDoneL and not n
 if bullRaidUpgrade
     if not na(waitRaidLabelL)
         label.delete(waitRaidLabelL)
-    waitRaidLabelL := label.new(bar_index, low, "RAID: " + waitRaidTextL, color=#00000000, textcolor=raidBullColor, style=label.style_label_up, size=f_raidLabelSize())
+    if not na(waitRaidGuideL)
+        line.delete(waitRaidGuideL)
+    float bullRaidGuideY = low - f_eventGuideOffset()
+    waitRaidGuideL := line.new(bar_index, low, bar_index, bullRaidGuideY, color=color.new(f_themeTextColor(), 45), style=line.style_dotted, width=2)
+    waitRaidLabelL := label.new(bar_index + 1, bullRaidGuideY, f_eventCalloutText("RAID", waitRaidTextL, waitSweepLevelL), color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_left, size=f_raidLabelSize())
     sExtL := low
     waitStartBarL := bar_index
+    waitStartTimeL := time
 
 bool sweepWaitExpiredS = waitS and not na(waitStartBarS) and (bar_index - waitStartBarS) > sweepMssTimeoutBars
 bool sweepWaitExpiredL = waitL and not na(waitStartBarL) and (bar_index - waitStartBarL) > sweepMssTimeoutBars
@@ -2187,10 +2373,14 @@ if sweepWaitExpiredS
         label.new(bar_index, sExtH, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
     waitS := false
     waitStartBarS := int(na)
+    waitStartTimeS := int(na)
     waitSweepLevelS := na
     waitSweepTolS := na
     waitRaidTextS := ""
     waitRaidLabelS := na
+    if not na(waitRaidGuideS)
+        line.delete(waitRaidGuideS)
+    waitRaidGuideS := na
     anchorMSS_S := na
     internalRefS := na
     internalRefBarS := na
@@ -2206,10 +2396,14 @@ if sweepWaitExpiredL
         label.new(bar_index, sExtL, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
     waitL := false
     waitStartBarL := int(na)
+    waitStartTimeL := int(na)
     waitSweepLevelL := na
     waitSweepTolL := na
     waitRaidTextL := ""
     waitRaidLabelL := na
+    if not na(waitRaidGuideL)
+        line.delete(waitRaidGuideL)
+    waitRaidGuideL := na
     anchorMSS_L := na
     internalRefL := na
     internalRefBarL := na
@@ -2258,24 +2452,24 @@ if internalBreakS
     anchorMSS_S := internalRefS
     structureStatus := "Bearish (Internal)"
     if not externalBreakS
-        label.new(bar_index, high, "INTERNAL SHIFT ↘", color=#00000000, textcolor=breakoutBearColor, style=label.style_label_down, size=f_breakoutLabelSize())
+        label.new(bar_index, high, "INTERNAL SHIFT ↘", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_down, size=f_breakoutLabelSize())
 if internalBreakL
     internalShiftDoneL := true
     anchorMSS_L := internalRefL
     structureStatus := "Bullish (Internal)"
     if not externalBreakL
-        label.new(bar_index, low, "INTERNAL SHIFT ↗", color=#00000000, textcolor=breakoutBullColor, style=label.style_label_up, size=f_breakoutLabelSize())
+        label.new(bar_index, low, "INTERNAL SHIFT ↗", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_up, size=f_breakoutLabelSize())
 
 if externalBreakS
     externalShiftDoneS := true
     structureTrend := -1
     structureStatus := trendAtSweepS == -1 ? "Bearish (BOS)" : "Bearish (External)"
-    label.new(bar_index, high, trendAtSweepS == -1 ? "CONTINUATION BOS ↘" : "EXTERNAL SHIFT ↘", color=#00000000, textcolor=breakoutBearColor, style=label.style_label_down, size=f_breakoutLabelSize())
+    label.new(bar_index, high, trendAtSweepS == -1 ? "CONTINUATION BOS ↘" : "EXTERNAL SHIFT ↘", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_down, size=f_breakoutLabelSize())
 if externalBreakL
     externalShiftDoneL := true
     structureTrend := 1
     structureStatus := trendAtSweepL == 1 ? "Bullish (BOS)" : "Bullish (External)"
-    label.new(bar_index, low, trendAtSweepL == 1 ? "CONTINUATION BOS ↗" : "EXTERNAL SHIFT ↗", color=#00000000, textcolor=breakoutBullColor, style=label.style_label_up, size=f_breakoutLabelSize())
+    label.new(bar_index, low, trendAtSweepL == 1 ? "CONTINUATION BOS ↗" : "EXTERNAL SHIFT ↗", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_up, size=f_breakoutLabelSize())
 
 bool mssS = showSMC and (useMajorMSS ? externalBreakS : internalBreakS)
 bool mssL = showSMC and (useMajorMSS ? externalBreakL : internalBreakL)
@@ -2286,28 +2480,121 @@ if mssS
 if mssL
     shiftType := useMajorMSS ? (trendAtSweepL == 1 ? "CONTINUATION BOS ↗" : "EXTERNAL SHIFT ↗") : "INTERNAL SHIFT ↗"
 
+bool ltfBearEntryReady = ltfEntryTfValid and waitS and not active and not blockShortEntry and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS and not na(sExtH)
+bool ltfBullEntryReady = ltfEntryTfValid and waitL and not active and not blockLongEntry and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL and not na(sExtL)
+
+f_tradeTargetPrice(bool isBullTrade, float entryPrice, float stopPrice) =>
+    float risk = math.abs(entryPrice - stopPrice)
+    float minTarget = isBullTrade ? entryPrice + risk * tradeMinRR : entryPrice - risk * tradeMinRR
+    bool foundLiq = false
+    float liqPrice = na
+    float bestScore = -100000.0
+    if not na(entryPrice) and atrVal > 0 and liq_pools.size() > 0
+        for i = 0 to liq_pools.size() - 1
+            pool = liq_pools.get(i)
+            bool sameSide = pool.side == (isBullTrade ? "BSL" : "SSL")
+            bool stillActive = f_liqIsEventEligible(pool) and not pool.isSwept and pool.state != "CONSUMED"
+            bool meaningful = f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 70.0
+            if sameSide and stillActive and meaningful
+                float dist = isBullTrade ? pool.price - entryPrice : entryPrice - pool.price
+                bool aheadOfEntry = dist > math.max(f_liqTouchTolerance(entryPrice) * 0.35, syminfo.mintick * 5)
+                bool insideWindow = dist <= atrVal * tradeTargetWindowAtr
+                if aheadOfEntry and insideWindow
+                    float score = f_liqRetentionScore(pool) - (dist / atrVal) * 8.0 + (pool.poolType == "EQ" ? 6.0 : 0.0)
+                    if score > bestScore
+                        bestScore := score
+                        liqPrice := pool.price
+                        foundLiq := true
+    if foundLiq
+        bool liqBeatsFloor = isBullTrade ? liqPrice >= minTarget : liqPrice <= minTarget
+        liqBeatsFloor ? liqPrice : minTarget
+    else
+        minTarget
+
 // --- Stats Logic ---
-if mssS and not active and not blockShortEntry
+if ltfBearEntryReady
+    float shortEntryPx = na(ltfBearEntryPrice) ? close : ltfBearEntryPrice
+    float shortStop = sExtH
+    if not na(shortStop) and shortStop > shortEntryPx
+        active := true, bull := false, tSetups += 1
+        activeEntryPrice := shortEntryPx
+        tSL := shortStop
+        t10 := f_tradeTargetPrice(false, shortEntryPx, shortStop)
+        activeProjStartBar := bar_index
+        if not na(waitRaidLabelS)
+            label.delete(waitRaidLabelS)
+        if not na(waitRaidGuideS)
+            line.delete(waitRaidGuideS)
+        waitS := false, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, waitRaidGuideS := na, anchorMSS_S := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
+        color shortEntryBg = f_entryLabelBg(false)
+        if showEntryLabels
+            label.new(bar_index, low, "SHORT " + ltfEntryLabel, color=shortEntryBg, textcolor=f_contrastTextColor(shortEntryBg), style=label.style_label_down, size=size.tiny)
+        structureStatus := "Bearish (" + ltfEntryLabel + " ladder done)"
+else if waitS and not active and blockShortEntry and ltfEntryTfValid and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS
+    structureStatus := "Bearish " + ltfEntryLabel + " ladder (HTF blocked)"
+    if lastLtfBlockedTimeS != ltfBearMssTime
+        label.new(bar_index, low, "LTF ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
+        lastLtfBlockedTimeS := ltfBearMssTime
+
+if ltfBullEntryReady
+    float longEntryPx = na(ltfBullEntryPrice) ? close : ltfBullEntryPrice
+    float longStop = sExtL
+    if not na(longStop) and longStop < longEntryPx
+        active := true, bull := true, tSetups += 1
+        activeEntryPrice := longEntryPx
+        tSL := longStop
+        t10 := f_tradeTargetPrice(true, longEntryPx, longStop)
+        activeProjStartBar := bar_index
+        if not na(waitRaidLabelL)
+            label.delete(waitRaidLabelL)
+        if not na(waitRaidGuideL)
+            line.delete(waitRaidGuideL)
+        waitL := false, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, waitRaidGuideL := na, anchorMSS_L := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
+        color longEntryBg = f_entryLabelBg(true)
+        if showEntryLabels
+            label.new(bar_index, high, "LONG " + ltfEntryLabel, color=longEntryBg, textcolor=f_contrastTextColor(longEntryBg), style=label.style_label_up, size=size.tiny)
+        structureStatus := "Bullish (" + ltfEntryLabel + " ladder done)"
+else if waitL and not active and blockLongEntry and ltfEntryTfValid and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL
+    structureStatus := "Bullish " + ltfEntryLabel + " ladder (HTF blocked)"
+    if lastLtfBlockedTimeL != ltfBullMssTime
+        label.new(bar_index, high, "LTF ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
+        lastLtfBlockedTimeL := ltfBullMssTime
+
+if not ltfEntryTfValid and mssS and not active and not blockShortEntry
     active := true, bull := false, tSetups += 1
+    activeEntryPrice := close
     tSL := (stopModel == "Sweep Extreme") ? sExtH : high
-    float entryRefS = useMajorMSS ? externalRefS : internalRefS
-    t10 := entryRefS - (sExtH - entryRefS)
+    float shortEntryPx = close
+    t10 := f_tradeTargetPrice(false, shortEntryPx, tSL)
     activeProjStartBar := bar_index
-    waitS := false, waitStartBarS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, anchorMSS_S := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
-    label.new(bar_index, low, "ENTRY [" + shiftType + "]", color=COLOR_BEAR, textcolor=color.white, style=label.style_label_down, size=size.small)
-else if mssS and not active and blockShortEntry
+    if not na(waitRaidLabelS)
+        label.delete(waitRaidLabelS)
+    if not na(waitRaidGuideS)
+        line.delete(waitRaidGuideS)
+    waitS := false, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, waitRaidGuideS := na, anchorMSS_S := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
+    color shortEntryBg = f_entryLabelBg(false)
+    if showEntryLabels
+        label.new(bar_index, low, "SHORT MSS", color=shortEntryBg, textcolor=f_contrastTextColor(shortEntryBg), style=label.style_label_down, size=size.tiny)
+else if not ltfEntryTfValid and mssS and not active and blockShortEntry
     structureStatus := "Bearish MSS (HTF Blocked)"
     label.new(bar_index, low, "ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
 
-if mssL and not active and not blockLongEntry
+if not ltfEntryTfValid and mssL and not active and not blockLongEntry
     active := true, bull := true, tSetups += 1
+    activeEntryPrice := close
     tSL := (stopModel == "Sweep Extreme") ? sExtL : low
-    float entryRefL = useMajorMSS ? externalRefL : internalRefL
-    t10 := entryRefL + (entryRefL - sExtL)
+    float longEntryPx = close
+    t10 := f_tradeTargetPrice(true, longEntryPx, tSL)
     activeProjStartBar := bar_index
-    waitL := false, waitStartBarL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, anchorMSS_L := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
-    label.new(bar_index, high, "ENTRY [" + shiftType + "]", color=COLOR_BULL, textcolor=color.white, style=label.style_label_up, size=size.small)
-else if mssL and not active and blockLongEntry
+    if not na(waitRaidLabelL)
+        label.delete(waitRaidLabelL)
+    if not na(waitRaidGuideL)
+        line.delete(waitRaidGuideL)
+    waitL := false, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, waitRaidGuideL := na, anchorMSS_L := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
+    color longEntryBg = f_entryLabelBg(true)
+    if showEntryLabels
+        label.new(bar_index, high, "LONG MSS", color=longEntryBg, textcolor=f_contrastTextColor(longEntryBg), style=label.style_label_up, size=size.tiny)
+else if not ltfEntryTfValid and mssL and not active and blockLongEntry
     structureStatus := "Bullish MSS (HTF Blocked)"
     label.new(bar_index, high, "ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
 
@@ -2320,21 +2607,55 @@ else
     line.set_xy1(activeProjLine, na, na)
     line.set_xy2(activeProjLine, na, na)
 
+if active and showProj and showEntryTradeMap and not na(t10) and not na(tSL) and not na(activeProjStartBar) and not na(activeEntryPrice)
+    int tradeMapRight = bar_index + 12
+    float rewardTop = bull ? t10 : activeEntryPrice
+    float rewardBottom = bull ? activeEntryPrice : t10
+    float riskTop = bull ? activeEntryPrice : tSL
+    float riskBottom = bull ? tSL : activeEntryPrice
+    box.set_lefttop(activeRewardBox, activeProjStartBar, rewardTop)
+    box.set_rightbottom(activeRewardBox, tradeMapRight, rewardBottom)
+    box.set_bgcolor(activeRewardBox, color.new(COLOR_BULL, f_isDarkTheme() ? 80 : 84))
+    box.set_border_color(activeRewardBox, color.new(COLOR_BULL, 45))
+    box.set_border_style(activeRewardBox, line.style_solid)
+    box.set_lefttop(activeRiskBox, activeProjStartBar, riskTop)
+    box.set_rightbottom(activeRiskBox, tradeMapRight, riskBottom)
+    box.set_bgcolor(activeRiskBox, color.new(COLOR_BEAR, f_isDarkTheme() ? 82 : 86))
+    box.set_border_color(activeRiskBox, color.new(COLOR_BEAR, 50))
+    box.set_border_style(activeRiskBox, line.style_solid)
+    line.set_xy1(activeEntryLine, activeProjStartBar, activeEntryPrice)
+    line.set_xy2(activeEntryLine, tradeMapRight, activeEntryPrice)
+    line.set_color(activeEntryLine, f_themeTextColor())
+    line.set_style(activeEntryLine, line.style_dotted)
+else
+    box.set_bgcolor(activeRewardBox, na)
+    box.set_border_color(activeRewardBox, na)
+    box.set_bgcolor(activeRiskBox, na)
+    box.set_border_color(activeRiskBox, na)
+    line.set_xy1(activeEntryLine, na, na)
+    line.set_xy2(activeEntryLine, na, na)
+
 if active
     if bull
         if low < tSL
-            active := false, activeProjStartBar := int(na), l10 += 1
+            f_storePastSetup(true, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
+            active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na), l10 += 1
         else if high > t10
-            w10 += 1, active := false, activeProjStartBar := int(na)
+            f_storePastSetup(true, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
+            w10 += 1, active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na)
     else
         if high > tSL
-            active := false, activeProjStartBar := int(na), l10 += 1
+            f_storePastSetup(false, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
+            active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na), l10 += 1
         else if low < t10
-            w10 += 1, active := false, activeProjStartBar := int(na)
+            f_storePastSetup(false, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
+            w10 += 1, active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na)
 
 if not active or not showProj
     line.set_xy1(activeProjLine, na, na)
     line.set_xy2(activeProjLine, na, na)
+    line.set_xy1(activeEntryLine, na, na)
+    line.set_xy2(activeEntryLine, na, na)
 
 // --- Reaction Zone Narrative Engine ---
 f_findActiveLiquidityBeyond(string liqSide, float anchorPrice, float maxWindowAtr) =>
@@ -2488,8 +2809,9 @@ update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
 
         if showRZLabels
             label.set_xy(lb, bar_index + 8, z.ce)
-            label.set_text(lb, z.narrative + (isEntry ? " [ENTRY]" : isWatch ? " [WATCH]" : " [TARGET]"))
+            label.set_text(lb, z.narrative + (isEntry ? (side == "Long" ? " [LONG SETUP]" : " [SHORT SETUP]") : isWatch ? " [WATCH]" : " [TARGET]"))
             label.set_textcolor(lb, baseClr)
+            label.set_color(lb, f_themePanelColor())
             label.set_style(lb, label.style_label_left)
         else
             label.set_text(lb, "")
@@ -2513,10 +2835,7 @@ if barstate.islast
 
 // --- Big Move / Spike Memory Engine ---
 var bigMoveEvents = array.new<big_move_event>(0)
-var bigMoveBoxes = array.new_box(0)
-var bigMoveCeLines = array.new_line(0)
-var bigMoveLabels = array.new_label(0)
-var label bigMoveHintLabel = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var label bigMoveHintLabel = label.new(na, na, "", style=label.style_label_left, size=size.small)
 var bool bigMoveClusterActive = false
 var string bigMoveClusterType = ""
 var string bigMoveClusterDirection = ""
@@ -2527,8 +2846,6 @@ var int bigMoveClusterTime = na
 var float bigMoveClusterHigh = na
 var float bigMoveClusterLow = na
 var float bigMoveClusterRangeAtr = 0.0
-var float bigMoveClusterBodyPct = 0.0
-var float bigMoveClusterWickPct = 0.0
 var float bigMoveClusterRelVol = 0.0
 var float bigMoveClusterBestScore = 0.0
 var string bigMoveClusterSession = ""
@@ -2537,20 +2854,10 @@ var string bigMoveClusterPhase = ""
 var bool bigMoveClusterLiq = false
 var bool bigMoveClusterFvg = false
 var bool bigMoveClusterSweep = false
-var string bigMoveClusterNarrative = ""
-var big_move_timing_snapshot bigMoveSnapshot = big_move_timing_snapshot.new("—", "—", "—", "—", "—", "LOW PROBABILITY", "—", 0.0, 0, 0.0, 0.0, false)
+var big_move_timing_snapshot bigMoveSnapshot = big_move_timing_snapshot.new("QUIET", "QUIET | Off-session | No timing edge; use core model only.", "No nearby major liquidity", "Next: wait for price to reach a major pool.")
 
 f_bigMoveTablePos() =>
     bigMoveTimingTablePos == "Top Right" ? position.top_right : bigMoveTimingTablePos == "Top Left" ? position.top_left : bigMoveTimingTablePos == "Bottom Right" ? position.bottom_right : position.bottom_left
-
-f_bigMovePad2(int val) =>
-    val < 10 ? "0" + str.tostring(val) : str.tostring(val)
-
-f_bigMoveBucketName(int idx) =>
-    int bucket = int(math.max(0, math.min(95, idx)))
-    int hh = int(math.floor(bucket / 4))
-    int mm = (bucket % 4) * 15
-    f_bigMovePad2(hh) + ":" + f_bigMovePad2(mm) + " UTC"
 
 f_bigMoveTrimSessionString(string sess) =>
     int colonIdx = str.pos(sess, ":")
@@ -2583,17 +2890,11 @@ f_bigMoveKillzoneName() =>
 f_bigMoveCurrentSessionPhase() =>
     inLondon ? f_bigMoveResolveSessionPhase(londonSess, "UTC", true) : inNY ? f_bigMoveResolveSessionPhase(nySess, "UTC", true) : inAsia ? f_bigMoveResolveSessionPhase(asiaSession, "UTC", true) : inLondonSweepWindow ? f_bigMoveResolveSessionPhase("0700-1100:1234567", "Europe/London", true) : inNYSweepWindow ? f_bigMoveResolveSessionPhase("0830-1100:1234567", "America/New_York", true) : "OFF"
 
-f_bigMoveHourBucket(int ts) =>
-    hour(ts, "UTC")
-
 f_bigMoveQuarterBucket(int ts) =>
     hour(ts, "UTC") * 4 + int(math.floor(minute(ts, "UTC") / 15))
 
 f_bigMoveKillzoneIndex(string name) =>
     name == "London Sweep" ? 0 : name == "NY Sweep" ? 1 : name == "London" ? 2 : name == "New York" ? 3 : name == "Asia" ? 4 : 5
-
-f_bigMoveKillzoneLabel(int idx) =>
-    idx == 0 ? "London Sweep" : idx == 1 ? "NY Sweep" : idx == 2 ? "London" : idx == 3 ? "New York" : idx == 4 ? "Asia" : "Inter-Session"
 
 f_bigMovePhaseIndex(string phase) =>
     phase == "OPEN" ? 0 : phase == "MID" ? 1 : phase == "CLOSE" ? 2 : 3
@@ -2601,22 +2902,8 @@ f_bigMovePhaseIndex(string phase) =>
 f_bigMovePhaseLabel(int idx) =>
     idx == 0 ? "Open" : idx == 1 ? "Mid" : idx == 2 ? "Close" : "Off"
 
-f_bigMoveBuildEvent(int startBar, int endBar, int eventBar, int eventTime, string eventType, string direction, float highPrice, float lowPrice, float rangeAtr, float bodyPct, float wickPct, float relVolume, float score, string sessionName, string killzoneName, string sessionPhase, bool hadLiquidityConfluence, bool hadFvgConfluence, bool hadSweepConfluence, string narrative) =>
-    big_move_event.new(startBar, endBar, eventBar, eventTime, eventType, direction, highPrice, lowPrice, (highPrice + lowPrice) * 0.5, rangeAtr, bodyPct, wickPct, relVolume, score, sessionName, killzoneName, sessionPhase, f_bigMoveHourBucket(eventTime), f_bigMoveQuarterBucket(eventTime), hadLiquidityConfluence, hadFvgConfluence, hadSweepConfluence, narrative)
-
-f_bigMoveNarrative(string eventType, string direction, string killzoneName, string sessionName, string sessionPhase, string liqLabel, string fvgLabel, bool sweepFound) =>
-    string ctx = killzoneName != "Inter-Session" ? killzoneName : sessionName
-    string txt = eventType + " | " + ctx
-    if sessionPhase != "OFF"
-        txt += " " + sessionPhase
-    txt += " | " + direction
-    if str.length(liqLabel) > 0
-        txt += " | " + liqLabel
-    if str.length(fvgLabel) > 0
-        txt += " | " + fvgLabel
-    if sweepFound
-        txt += " | SWEEP"
-    txt
+f_bigMoveBuildEvent(int eventBar, int eventTime, string eventType, string direction, float relVolume, float score, string sessionName, string killzoneName, string sessionPhase, bool hadLiquidityConfluence, bool hadFvgConfluence, bool hadSweepConfluence) =>
+    big_move_event.new(eventBar, eventTime, eventType, direction, relVolume, score, sessionName, killzoneName, sessionPhase, f_bigMoveQuarterBucket(eventTime), hadLiquidityConfluence, hadFvgConfluence, hadSweepConfluence)
 
 f_bigMoveLiquidityConfluence(float zoneHigh, float zoneLow, string direction) =>
     bool found = false
@@ -2642,18 +2929,51 @@ f_bigMoveLiquidityConfluence(float zoneHigh, float zoneLow, string direction) =>
 f_bigMoveNearImportantLiquidity() =>
     bool near = false
     string bestLabel = ""
+    float bestPrice = na
+    string recentSweepLabel = ""
+    float recentSweepPrice = na
+    string recentSweepSide = ""
     float bestDist = 10e10
+    float bestSweepDist = 10e10
+    bool aboveFound = false
+    string aboveLabel = ""
+    float abovePrice = na
+    float aboveDist = 10e10
+    bool belowFound = false
+    string belowLabel = ""
+    float belowPrice = na
+    float belowDist = 10e10
     if liq_pools.size() > 0 and atrVal > 0
         for i = 0 to liq_pools.size() - 1
             pool = liq_pools.get(i)
-            bool meaningful = f_liqIsEventEligible(pool) and not f_liqIsExpired(pool) and pool.state != "CONSUMED" and (f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 74.0)
-            if meaningful
-                float dist = math.abs(pool.price - close)
-                if dist <= atrVal * 0.35 and dist < bestDist
-                    bestDist := dist
-                    bestLabel := f_liqCompactBaseLabel(pool)
-                    near := true
-    [near, bestLabel]
+            bool important = f_liqIsEventEligible(pool) and not f_liqIsExpired(pool) and (f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 74.0)
+            float dist = math.abs(pool.price - close)
+            bool recentSweep = important and not na(pool.takenBar) and (bar_index - pool.takenBar) <= 3 and dist <= atrVal * 1.25
+            if recentSweep and dist < bestSweepDist
+                bestSweepDist := dist
+                recentSweepLabel := (pool.side == "BSL" ? "BSL taken: " : "SSL taken: ") + f_liqCompactBaseLabel(pool)
+                recentSweepPrice := pool.price
+                recentSweepSide := pool.side
+            bool meaningful = important and pool.state != "CONSUMED"
+            if meaningful and dist <= atrVal * 0.35 and dist < bestDist
+                bestDist := dist
+                bestLabel := f_liqCompactBaseLabel(pool)
+                bestPrice := pool.price
+                near := true
+            float directionTol = math.max(f_liqTouchTolerance(pool.price) * 0.35, syminfo.mintick * 5)
+            float aboveDelta = pool.price - close
+            float belowDelta = close - pool.price
+            if meaningful and pool.side == "BSL" and aboveDelta > directionTol and aboveDelta < aboveDist
+                aboveDist := aboveDelta
+                aboveLabel := f_liqCompactBaseLabel(pool)
+                abovePrice := pool.price
+                aboveFound := true
+            if meaningful and pool.side == "SSL" and belowDelta > directionTol and belowDelta < belowDist
+                belowDist := belowDelta
+                belowLabel := f_liqCompactBaseLabel(pool)
+                belowPrice := pool.price
+                belowFound := true
+    [near, bestLabel, bestPrice, recentSweepLabel, recentSweepPrice, recentSweepSide, aboveFound, aboveLabel, abovePrice, belowFound, belowLabel, belowPrice]
 
 f_bigMoveFvgConfluence(float zoneHigh, float zoneLow, string direction) =>
     bool found = false
@@ -2716,8 +3036,7 @@ f_bigMoveStoreEvent(big_move_event evt) =>
         bool merged = false
         if bigMoveEvents.size() > 0
             lastEvt = bigMoveEvents.get(0)
-            float mergeTol = atrVal > 0 ? atrVal * 0.35 : syminfo.mintick * 25
-            bool sameNarrative = lastEvt.direction == evt.direction and lastEvt.eventType == evt.eventType and math.abs(lastEvt.cePrice - evt.cePrice) <= mergeTol and math.abs(lastEvt.eventBar - evt.eventBar) <= bigMoveClusterBars
+            bool sameNarrative = lastEvt.direction == evt.direction and lastEvt.eventType == evt.eventType and lastEvt.killzoneName == evt.killzoneName and math.abs(lastEvt.eventBar - evt.eventBar) <= bigMoveClusterBars
             if sameNarrative
                 if evt.score >= lastEvt.score
                     bigMoveEvents.set(0, evt)
@@ -2744,22 +3063,17 @@ f_bigMovePruneEvents() =>
         bigMoveEvents.remove(dropIdx)
     true
 
-f_bigMoveEventPriority(big_move_event evt) =>
-    evt.score + (evt.hadLiquidityConfluence ? 6.0 : 0.0) + (evt.hadFvgConfluence ? 3.0 : 0.0) + (evt.hadSweepConfluence ? 2.0 : 0.0) - float(bar_index - evt.eventBar) * 0.08
+f_bigMoveStateColor(string state) =>
+    str.pos(state, "ACTIVE: LONG") == 0 ? COLOR_BULL :
+     str.pos(state, "ACTIVE: SHORT") == 0 ? COLOR_BEAR :
+     str.pos(state, "TRIGGER") == 0 ? #ffd166 :
+     state == "READY: EXPANSION" ? COLOR_BULL :
+     state == "READY: SPIKE RISK" ? color.orange :
+     state == "WATCH" ? #ffd166 :
+     color.silver
 
-f_bigMoveEventColor(big_move_event evt) =>
-    evt.eventType == "SPIKE" ? (evt.direction == "BULL" ? COLOR_NEUT : color.orange) : (evt.direction == "BULL" ? COLOR_BULL : COLOR_BEAR)
-
-f_bigMoveHintColor(string state) =>
-    state == "HIGH EXPANSION WINDOW" ? COLOR_BULL : state == "HIGH SPIKE RISK WINDOW" ? color.orange : state == "WATCH" ? COLOR_NEUT : color.silver
-
-f_bigMoveAggregateTimingStats(bool nearLiquidity, float currentRelVol) =>
+f_bigMoveAggregateTimingStats(bool nearLiquidity, string nearLiquidityLabel, float nearLiquidityPrice, string recentSweepLabel, float recentSweepPrice, string recentSweepSide, bool hasAboveLiquidity, string aboveLiquidityLabel, float aboveLiquidityPrice, bool hasBelowLiquidity, string belowLiquidityLabel, float belowLiquidityPrice, float currentRelVol) =>
     kzCounts = array.new_int(6, 0)
-    kzHighCounts = array.new_int(6, 0)
-    kzBullCounts = array.new_int(6, 0)
-    kzBearCounts = array.new_int(6, 0)
-    kzSpikeCounts = array.new_int(6, 0)
-    kzExpansionCounts = array.new_int(6, 0)
     kzScoreSums = array.new_float(6, 0.0)
     phaseCounts = array.new_int(4, 0)
     phaseScoreSums = array.new_float(4, 0.0)
@@ -2769,40 +3083,14 @@ f_bigMoveAggregateTimingStats(bool nearLiquidity, float currentRelVol) =>
     bucketExpansionCounts = array.new_int(96, 0)
     bucketScoreSums = array.new_float(96, 0.0)
     int eventCount = 0
-    int bullCount = 0
-    int bearCount = 0
-    int expansionCount = 0
-    int spikeCount = 0
-    float totalScore = 0.0
-    float totalRelVol = 0.0
     if bigMoveEvents.size() > 0
         for i = 0 to bigMoveEvents.size() - 1
             evt = bigMoveEvents.get(i)
             if bar_index - evt.eventBar <= bigMoveLookback
                 eventCount += 1
-                totalScore += evt.score
-                totalRelVol += evt.relVolume
-                if evt.direction == "BULL"
-                    bullCount += 1
-                else
-                    bearCount += 1
-                if evt.eventType == "EXPANSION"
-                    expansionCount += 1
-                else
-                    spikeCount += 1
                 int kzIdx = f_bigMoveKillzoneIndex(evt.killzoneName)
                 array.set(kzCounts, kzIdx, array.get(kzCounts, kzIdx) + 1)
                 array.set(kzScoreSums, kzIdx, array.get(kzScoreSums, kzIdx) + evt.score)
-                if evt.score >= bigMoveMinScore
-                    array.set(kzHighCounts, kzIdx, array.get(kzHighCounts, kzIdx) + 1)
-                if evt.direction == "BULL"
-                    array.set(kzBullCounts, kzIdx, array.get(kzBullCounts, kzIdx) + 1)
-                else
-                    array.set(kzBearCounts, kzIdx, array.get(kzBearCounts, kzIdx) + 1)
-                if evt.eventType == "EXPANSION"
-                    array.set(kzExpansionCounts, kzIdx, array.get(kzExpansionCounts, kzIdx) + 1)
-                else
-                    array.set(kzSpikeCounts, kzIdx, array.get(kzSpikeCounts, kzIdx) + 1)
                 int phaseIdx = f_bigMovePhaseIndex(evt.sessionPhase)
                 array.set(phaseCounts, phaseIdx, array.get(phaseCounts, phaseIdx) + 1)
                 array.set(phaseScoreSums, phaseIdx, array.get(phaseScoreSums, phaseIdx) + evt.score)
@@ -2815,71 +3103,72 @@ f_bigMoveAggregateTimingStats(bool nearLiquidity, float currentRelVol) =>
                     array.set(bucketExpansionCounts, bucketIdx, array.get(bucketExpansionCounts, bucketIdx) + 1)
                 else
                     array.set(bucketSpikeCounts, bucketIdx, array.get(bucketSpikeCounts, bucketIdx) + 1)
-    string topKillzone = "—"
-    string bestAvgKillzone = "—"
-    int topKillCount = 0
-    float bestKillAvg = -1.0
-    int topPhaseIdx = na
-    int topPhaseCount = 0
-    float topPhaseAvg = -1.0
-    for i = 0 to 5
-        int kzCount = array.get(kzCounts, i)
-        float kzAvg = kzCount > 0 ? array.get(kzScoreSums, i) / kzCount : 0.0
-        if kzCount > topKillCount
-            topKillCount := kzCount
-            topKillzone := f_bigMoveKillzoneLabel(i)
-        if kzCount > 0 and kzAvg > bestKillAvg
-            bestKillAvg := kzAvg
-            bestAvgKillzone := f_bigMoveKillzoneLabel(i)
-    for i = 0 to 3
-        int phaseCount = array.get(phaseCounts, i)
-        float phaseAvg = phaseCount > 0 ? array.get(phaseScoreSums, i) / phaseCount : 0.0
-        if phaseCount > topPhaseCount or (phaseCount == topPhaseCount and phaseAvg > topPhaseAvg)
-            topPhaseCount := phaseCount
-            topPhaseAvg := phaseAvg
-            topPhaseIdx := i
-    int topBucketIdx = na
-    int topBucketHigh = 0
-    float topBucketAvg = -1.0
-    for i = 0 to 95
-        int bucketCount = array.get(bucketCounts, i)
-        int bucketHigh = array.get(bucketHighCounts, i)
-        float bucketAvg = bucketCount > 0 ? array.get(bucketScoreSums, i) / bucketCount : 0.0
-        if bucketHigh > topBucketHigh or (bucketHigh == topBucketHigh and bucketAvg > topBucketAvg)
-            topBucketHigh := bucketHigh
-            topBucketAvg := bucketAvg
-            topBucketIdx := i
-    string topWindow = topKillCount > 0 ? topKillzone + (not na(topPhaseIdx) and topPhaseIdx < 3 ? " " + f_bigMovePhaseLabel(topPhaseIdx) : "") : not na(topBucketIdx) ? f_bigMoveBucketName(topBucketIdx) : "—"
-    string dominantType = expansionCount == spikeCount ? "Mixed" : expansionCount > spikeCount ? "Expansion" : "Spike"
-    string bias = bullCount == bearCount ? "Balanced" : bullCount > bearCount ? "Bullish" : "Bearish"
-    float avgScore = eventCount > 0 ? totalScore / eventCount : 0.0
-    float avgRelVol = eventCount > 0 ? totalRelVol / eventCount : 0.0
     int curBucketIdx = f_bigMoveQuarterBucket(time)
     int curBucketCount = array.get(bucketCounts, curBucketIdx)
     int curBucketHigh = array.get(bucketHighCounts, curBucketIdx)
     float curBucketAvg = curBucketCount > 0 ? array.get(bucketScoreSums, curBucketIdx) / curBucketCount : 0.0
     int curBucketSpike = array.get(bucketSpikeCounts, curBucketIdx)
     int curBucketExpansion = array.get(bucketExpansionCounts, curBucketIdx)
-    int curKillIdx = f_bigMoveKillzoneIndex(f_bigMoveKillzoneName())
+    string currentKillzone = f_bigMoveKillzoneName()
+    int curKillIdx = f_bigMoveKillzoneIndex(currentKillzone)
     int curKillCount = array.get(kzCounts, curKillIdx)
     float curKillAvg = curKillCount > 0 ? array.get(kzScoreSums, curKillIdx) / curKillCount : 0.0
-    int curPhaseIdx = f_bigMovePhaseIndex(f_bigMoveCurrentSessionPhase())
+    string currentPhase = f_bigMoveCurrentSessionPhase()
+    int curPhaseIdx = f_bigMovePhaseIndex(currentPhase)
     int curPhaseCount = array.get(phaseCounts, curPhaseIdx)
     float curPhaseAvg = curPhaseCount > 0 ? array.get(phaseScoreSums, curPhaseIdx) / curPhaseCount : 0.0
     int freqThreshold = eventCount >= 30 ? 3 : eventCount >= 12 ? 2 : 1
     bool strongBucket = curBucketHigh >= freqThreshold or (curBucketCount >= 2 and curBucketAvg >= bigMoveMinScore + 6.0)
-    bool strongKillzone = curKillCount >= 1 and curKillAvg >= bigMoveMinScore and f_bigMoveKillzoneName() != "Inter-Session"
+    bool strongKillzone = curKillCount >= 1 and curKillAvg >= bigMoveMinScore and currentKillzone != "Inter-Session"
     bool strongPhase = curPhaseCount >= freqThreshold or (curPhaseCount >= 1 and curPhaseAvg >= bigMoveMinScore + 4.0 and curPhaseIdx < 3)
     bool volReady = currentRelVol >= 0.9
-    bool liqReady = not bigMoveUseLiquidityBoost or nearLiquidity
+    bool liqReady = not bigMoveUseLiquidityBoost or nearLiquidity or str.length(recentSweepLabel) > 0
     bool spikeDominantNow = curBucketSpike > curBucketExpansion
-    string currentState = "LOW PROBABILITY"
-    if strongBucket and strongKillzone and strongPhase and volReady and liqReady
-        currentState := spikeDominantNow ? "HIGH SPIKE RISK WINDOW" : "HIGH EXPANSION WINDOW"
-    else if (curBucketHigh >= 1 and volReady) or (strongKillzone and nearLiquidity) or (curPhaseIdx < 3 and curPhaseCount >= 1 and curPhaseAvg >= bigMoveMinScore) or (curBucketCount >= 1 and curBucketAvg >= bigMoveMinScore)
-        currentState := "WATCH"
-    float hitRate = curBucketCount > 0 ? float(curBucketHigh) / curBucketCount * 100.0 : 0.0
-    big_move_timing_snapshot.new(topWindow, topKillzone, bestAvgKillzone, dominantType, bias, currentState, f_bigMoveBucketName(curBucketIdx), hitRate, eventCount, avgRelVol, avgScore, spikeDominantNow)
+    bool watchState = (curBucketHigh >= 1 and volReady) or (strongKillzone and liqReady) or (curPhaseIdx < 3 and curPhaseCount >= 1 and curPhaseAvg >= bigMoveMinScore) or (curBucketCount >= 1 and curBucketAvg >= bigMoveMinScore)
+    string currentWindow = currentKillzone == "Inter-Session" ? "Inter-session / off killzone" : currentKillzone + (curPhaseIdx < 3 ? " " + f_bigMovePhaseLabel(curPhaseIdx) : "")
+    string state = "QUIET"
+    string playbook = "No timing edge; use core model only."
+    bool bullishPressure = active ? bull : (waitL or mssL or (structureTrend == 1 and htfCompositeBias >= 15))
+    bool bearishPressure = active ? not bull : (waitS or mssS or (structureTrend == -1 and htfCompositeBias <= -15))
+    bool bullTriggerTaken = recentSweepSide == "SSL" or swpSSL or waitL or mssL
+    bool bearTriggerTaken = recentSweepSide == "BSL" or swpBSL or waitS or mssS
+    string nearText = nearLiquidity and str.length(nearLiquidityLabel) > 0 ? f_bigMovePriceLabel(nearLiquidityLabel, nearLiquidityPrice) : ""
+    string recentSweepText = str.length(recentSweepLabel) > 0 ? f_bigMovePriceLabel(recentSweepLabel, recentSweepPrice) : ""
+    string aboveText = hasAboveLiquidity ? f_bigMovePriceLabel(aboveLiquidityLabel, aboveLiquidityPrice) : ""
+    string belowText = hasBelowLiquidity ? f_bigMovePriceLabel(belowLiquidityLabel, belowLiquidityPrice) : ""
+    if active and not na(t10)
+        state := bull ? "ACTIVE: LONG" : "ACTIVE: SHORT"
+        playbook := "Trade active; manage toward target."
+    else if waitL or waitS
+        state := waitL ? "TRIGGER: LONG LADDER" : "TRIGGER: SHORT LADDER"
+        playbook := "Sweep confirmed; wait " + ltfEntryLabel + " ladder MSS."
+    else if strongBucket and strongKillzone and strongPhase and volReady and liqReady
+        state := spikeDominantNow ? "READY: SPIKE RISK" : "READY: EXPANSION"
+        playbook := spikeDominantNow ? "Raid-prone; wait sweep + reclaim." : "Expansion-prone; wait sweep + displacement."
+    else if watchState
+        state := "WATCH"
+        playbook := liqReady ? "Timing live; wait trigger." : "Timing live, but let price reach liquidity."
+    string liquidityText = recentSweepText != "" and nearText != "" ? recentSweepText + " | now at " + nearText :
+     recentSweepText != "" ? recentSweepText :
+     bearishPressure and not bearTriggerTaken and aboveText != "" ? "Need BSL taken first: " + aboveText :
+     bullishPressure and not bullTriggerTaken and belowText != "" ? "Need SSL taken first: " + belowText :
+     nearText != "" ? "At / near " + nearText :
+     bearishPressure and bearTriggerTaken and belowText != "" ? "Post-BSL objective: " + belowText :
+     bullishPressure and bullTriggerTaken and aboveText != "" ? "Post-SSL objective: " + aboveText :
+     aboveText != "" and belowText != "" ? "Above BSL: " + aboveText + " | Below SSL: " + belowText :
+     "No major liquidity mapped"
+    string nextText = active and not na(t10) ? "Next: manage " + (bull ? "upside" : "downside") + " objective " + str.tostring(t10, format.mintick) + " with stop " + str.tostring(tSL, format.mintick) :
+     waitL ? "Next: bullish " + ltfEntryLabel + " MSS ladder, then target " + (aboveText != "" ? aboveText : "the next BSL pool") :
+     waitS ? "Next: bearish " + ltfEntryLabel + " MSS ladder, then target " + (belowText != "" ? belowText : "the next SSL pool") :
+     bearishPressure and not bearTriggerTaken and aboveText != "" ? "Next: stalk shorts only after price raids " + aboveText :
+     bullishPressure and not bullTriggerTaken and belowText != "" ? "Next: stalk longs only after price raids " + belowText :
+     bullishPressure and bullTriggerTaken and aboveText != "" ? "Next: upside objective " + aboveText :
+     bearishPressure and bearTriggerTaken and belowText != "" ? "Next: downside objective " + belowText :
+     nearText != "" ? "Next: react only if price cleanly rejects or accepts " + nearText :
+     aboveText != "" and belowText != "" ? "Next: let price raid the nearest major pool before expecting the move." :
+     "Next: wait for price to reach a major session or HTF pool."
+    string nowText = state + " | " + currentWindow + " | " + playbook
+    big_move_timing_snapshot.new(state, nowText, liquidityText, nextText)
 
 if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
     f_bigMovePruneEvents()
@@ -2934,8 +3223,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
     string candidateDirection = ""
     float candidateScore = -1.0
     float candidateRangeAtr = 0.0
-    float candidateBodyPct = 0.0
-    float candidateWickPct = 0.0
     float candidateRelVol = 0.0
     string candidateSession = ""
     string candidateKillzone = ""
@@ -2943,7 +3230,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
     bool candidateLiq = false
     bool candidateFvg = false
     bool candidateSweep = false
-    string candidateNarrative = ""
 
     if bullExpansionBase
         float bullExpansionScore = f_bigMoveScore("EXPANSION", bigMoveRangeAtrVal, bigMoveBodyPctVal, math.max(bigMoveUpperWickPct, bigMoveLowerWickPct), bigMoveBullCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bullLiqBoost, bullFvgBoost, bullSweepFound, bigMoveRepeatBonus, 1)
@@ -2953,8 +3239,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateDirection := "BULL"
             candidateScore := bullExpansionScore
             candidateRangeAtr := bigMoveRangeAtrVal
-            candidateBodyPct := bigMoveBodyPctVal
-            candidateWickPct := math.max(bigMoveUpperWickPct, bigMoveLowerWickPct)
             candidateRelVol := bigMoveRelVolVal
             candidateSession := bigMoveSessionName
             candidateKillzone := bigMoveKillzoneName
@@ -2962,7 +3246,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateLiq := bullLiqFound
             candidateFvg := bullFvgFound
             candidateSweep := bullSweepFound
-            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bullLiqLabel, bullFvgLabel, bullSweepFound)
 
     if bearExpansionBase
         float bearExpansionScore = f_bigMoveScore("EXPANSION", bigMoveRangeAtrVal, bigMoveBodyPctVal, math.max(bigMoveUpperWickPct, bigMoveLowerWickPct), bigMoveBearCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bearLiqBoost, bearFvgBoost, bearSweepFound, bigMoveRepeatBonus, 1)
@@ -2972,8 +3255,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateDirection := "BEAR"
             candidateScore := bearExpansionScore
             candidateRangeAtr := bigMoveRangeAtrVal
-            candidateBodyPct := bigMoveBodyPctVal
-            candidateWickPct := math.max(bigMoveUpperWickPct, bigMoveLowerWickPct)
             candidateRelVol := bigMoveRelVolVal
             candidateSession := bigMoveSessionName
             candidateKillzone := bigMoveKillzoneName
@@ -2981,7 +3262,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateLiq := bearLiqFound
             candidateFvg := bearFvgFound
             candidateSweep := bearSweepFound
-            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bearLiqLabel, bearFvgLabel, bearSweepFound)
 
     if bullSpikeBase
         float bullSpikeScore = f_bigMoveScore("SPIKE", bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveLowerWickPct, bigMoveBullCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bullLiqBoost, bullFvgBoost, bullSweepFound, bigMoveRepeatBonus, 1)
@@ -2991,8 +3271,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateDirection := "BULL"
             candidateScore := bullSpikeScore
             candidateRangeAtr := bigMoveRangeAtrVal
-            candidateBodyPct := bigMoveBodyPctVal
-            candidateWickPct := bigMoveLowerWickPct
             candidateRelVol := bigMoveRelVolVal
             candidateSession := bigMoveSessionName
             candidateKillzone := bigMoveKillzoneName
@@ -3000,7 +3278,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateLiq := bullLiqFound
             candidateFvg := bullFvgFound
             candidateSweep := bullSweepFound
-            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bullLiqLabel, bullFvgLabel, bullSweepFound)
 
     if bearSpikeBase
         float bearSpikeScore = f_bigMoveScore("SPIKE", bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveUpperWickPct, bigMoveBearCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bearLiqBoost, bearFvgBoost, bearSweepFound, bigMoveRepeatBonus, 1)
@@ -3010,8 +3287,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateDirection := "BEAR"
             candidateScore := bearSpikeScore
             candidateRangeAtr := bigMoveRangeAtrVal
-            candidateBodyPct := bigMoveBodyPctVal
-            candidateWickPct := bigMoveUpperWickPct
             candidateRelVol := bigMoveRelVolVal
             candidateSession := bigMoveSessionName
             candidateKillzone := bigMoveKillzoneName
@@ -3019,7 +3294,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             candidateLiq := bearLiqFound
             candidateFvg := bearFvgFound
             candidateSweep := bearSweepFound
-            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bearLiqLabel, bearFvgLabel, bearSweepFound)
 
     bool hasCandidate = candidateScore >= 0
     if hasCandidate
@@ -3038,20 +3312,17 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
                 bigMoveClusterBestScore := candidateScore
                 bigMoveClusterBestBar := bar_index
                 bigMoveClusterTime := time
-                bigMoveClusterBodyPct := candidateBodyPct
-                bigMoveClusterWickPct := candidateWickPct
                 bigMoveClusterRelVol := candidateRelVol
                 bigMoveClusterSession := candidateSession
                 bigMoveClusterKillzone := candidateKillzone
                 bigMoveClusterPhase := candidatePhase
-                bigMoveClusterNarrative := candidateNarrative
         else
             if bigMoveClusterActive
                 int clusterBarsCount = math.max(bigMoveClusterEndBar - bigMoveClusterStartBar + 1, 1)
                 float clusterSpanAtr = atrVal > 0 ? (bigMoveClusterHigh - bigMoveClusterLow) / atrVal : bigMoveClusterRangeAtr
                 float finalRangeAtr = math.max(bigMoveClusterRangeAtr, clusterSpanAtr)
                 float finalScore = math.min(100.0, bigMoveClusterBestScore + math.min(6.0, float(clusterBarsCount - 1) * 2.0) + math.max(0.0, finalRangeAtr - bigMoveClusterRangeAtr) * 4.0)
-                big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterStartBar, bigMoveClusterEndBar, bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterHigh, bigMoveClusterLow, finalRangeAtr, bigMoveClusterBodyPct, bigMoveClusterWickPct, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep, bigMoveClusterNarrative)
+                big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep)
                 f_bigMoveStoreEvent(committed)
             bigMoveClusterActive := true
             bigMoveClusterType := candidateType
@@ -3063,8 +3334,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             bigMoveClusterHigh := high
             bigMoveClusterLow := low
             bigMoveClusterRangeAtr := candidateRangeAtr
-            bigMoveClusterBodyPct := candidateBodyPct
-            bigMoveClusterWickPct := candidateWickPct
             bigMoveClusterRelVol := candidateRelVol
             bigMoveClusterBestScore := candidateScore
             bigMoveClusterSession := candidateSession
@@ -3073,13 +3342,12 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
             bigMoveClusterLiq := candidateLiq
             bigMoveClusterFvg := candidateFvg
             bigMoveClusterSweep := candidateSweep
-            bigMoveClusterNarrative := candidateNarrative
     else if bigMoveClusterActive and bar_index > bigMoveClusterEndBar
         int clusterBarsCount = math.max(bigMoveClusterEndBar - bigMoveClusterStartBar + 1, 1)
         float clusterSpanAtr = atrVal > 0 ? (bigMoveClusterHigh - bigMoveClusterLow) / atrVal : bigMoveClusterRangeAtr
         float finalRangeAtr = math.max(bigMoveClusterRangeAtr, clusterSpanAtr)
         float finalScore = math.min(100.0, bigMoveClusterBestScore + math.min(6.0, float(clusterBarsCount - 1) * 2.0) + math.max(0.0, finalRangeAtr - bigMoveClusterRangeAtr) * 4.0)
-        big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterStartBar, bigMoveClusterEndBar, bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterHigh, bigMoveClusterLow, finalRangeAtr, bigMoveClusterBodyPct, bigMoveClusterWickPct, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep, bigMoveClusterNarrative)
+        big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep)
         f_bigMoveStoreEvent(committed)
         bigMoveClusterActive := false
         bigMoveClusterType := ""
@@ -3091,8 +3359,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
         bigMoveClusterHigh := na
         bigMoveClusterLow := na
         bigMoveClusterRangeAtr := 0.0
-        bigMoveClusterBodyPct := 0.0
-        bigMoveClusterWickPct := 0.0
         bigMoveClusterRelVol := 0.0
         bigMoveClusterBestScore := 0.0
         bigMoveClusterSession := ""
@@ -3101,7 +3367,6 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
         bigMoveClusterLiq := false
         bigMoveClusterFvg := false
         bigMoveClusterSweep := false
-        bigMoveClusterNarrative := ""
 
     f_bigMovePruneEvents()
 
@@ -3110,7 +3375,7 @@ if enableBigMoveMemory and barstate.islast and barstate.isconfirmed and bigMoveC
     float clusterSpanAtr = atrVal > 0 ? (bigMoveClusterHigh - bigMoveClusterLow) / atrVal : bigMoveClusterRangeAtr
     float finalRangeAtr = math.max(bigMoveClusterRangeAtr, clusterSpanAtr)
     float finalScore = math.min(100.0, bigMoveClusterBestScore + math.min(6.0, float(clusterBarsCount - 1) * 2.0) + math.max(0.0, finalRangeAtr - bigMoveClusterRangeAtr) * 4.0)
-    big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterStartBar, bigMoveClusterEndBar, bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterHigh, bigMoveClusterLow, finalRangeAtr, bigMoveClusterBodyPct, bigMoveClusterWickPct, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep, bigMoveClusterNarrative)
+    big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep)
     f_bigMoveStoreEvent(committed)
     f_bigMovePruneEvents()
     bigMoveClusterActive := false
@@ -3123,8 +3388,6 @@ if enableBigMoveMemory and barstate.islast and barstate.isconfirmed and bigMoveC
     bigMoveClusterHigh := na
     bigMoveClusterLow := na
     bigMoveClusterRangeAtr := 0.0
-    bigMoveClusterBodyPct := 0.0
-    bigMoveClusterWickPct := 0.0
     bigMoveClusterRelVol := 0.0
     bigMoveClusterBestScore := 0.0
     bigMoveClusterSession := ""
@@ -3133,118 +3396,53 @@ if enableBigMoveMemory and barstate.islast and barstate.isconfirmed and bigMoveC
     bigMoveClusterLiq := false
     bigMoveClusterFvg := false
     bigMoveClusterSweep := false
-    bigMoveClusterNarrative := ""
 
 if barstate.islast
     float bigMoveCurrentRelVol = na(volume) or na(avgVol) or avgVol <= 0 ? 1.0 : volume / avgVol
-    [bigMoveNearLiquidity, bigMoveNearLiquidityLabel] = f_bigMoveNearImportantLiquidity()
+    [bigMoveNearLiquidity, bigMoveNearLiquidityLabel, bigMoveNearLiquidityPrice, bigMoveRecentSweepLabel, bigMoveRecentSweepPrice, bigMoveRecentSweepSide, bigMoveHasAboveLiquidity, bigMoveAboveLiquidityLabel, bigMoveAboveLiquidityPrice, bigMoveHasBelowLiquidity, bigMoveBelowLiquidityLabel, bigMoveBelowLiquidityPrice] = f_bigMoveNearImportantLiquidity()
     if enableBigMoveMemory
-        bigMoveSnapshot := f_bigMoveAggregateTimingStats(bigMoveNearLiquidity, bigMoveCurrentRelVol)
+        bigMoveSnapshot := f_bigMoveAggregateTimingStats(bigMoveNearLiquidity, bigMoveNearLiquidityLabel, bigMoveNearLiquidityPrice, bigMoveRecentSweepLabel, bigMoveRecentSweepPrice, bigMoveRecentSweepSide, bigMoveHasAboveLiquidity, bigMoveAboveLiquidityLabel, bigMoveAboveLiquidityPrice, bigMoveHasBelowLiquidity, bigMoveBelowLiquidityLabel, bigMoveBelowLiquidityPrice, bigMoveCurrentRelVol)
     else
-        bigMoveSnapshot := big_move_timing_snapshot.new("—", "—", "—", "—", "—", "LOW PROBABILITY", "—", 0.0, 0, 0.0, 0.0, false)
+        bigMoveSnapshot := big_move_timing_snapshot.new("OFF", "Big Move Memory disabled.", "—", "Next: enable Big Move Memory.")
 
-    if bigMoveBoxes.size() > 0
-        for i = bigMoveBoxes.size() - 1 to 0
-            box.delete(bigMoveBoxes.get(i))
-        array.clear(bigMoveBoxes)
-    if bigMoveCeLines.size() > 0
-        for i = bigMoveCeLines.size() - 1 to 0
-            line.delete(bigMoveCeLines.get(i))
-        array.clear(bigMoveCeLines)
-    if bigMoveLabels.size() > 0
-        for i = bigMoveLabels.size() - 1 to 0
-            label.delete(bigMoveLabels.get(i))
-        array.clear(bigMoveLabels)
-
-    if enableBigMoveMemory and (showBigMoveZones or showBigMoveLabels) and bigMoveEvents.size() > 0
-        selectedIdx = array.new_int(0)
-        int availableEvents = bigMoveEvents.size()
-        int maxSelections = int(math.min(bigMoveShowTopN, availableEvents))
-        if maxSelections > 0
-            for slot = 0 to maxSelections - 1
-                int bestIdx = na
-                float bestPriority = -100000.0
-                for i = 0 to availableEvents - 1
-                    bool alreadySelected = false
-                    if selectedIdx.size() > 0
-                        for j = 0 to selectedIdx.size() - 1
-                            if selectedIdx.get(j) == i
-                                alreadySelected := true
-                                break
-                    if not alreadySelected
-                        evt = bigMoveEvents.get(i)
-                        if bar_index - evt.eventBar <= bigMoveLookback and evt.score >= bigMoveMinScore
-                            float priority = f_bigMoveEventPriority(evt)
-                            if priority > bestPriority
-                                bestPriority := priority
-                                bestIdx := i
-                if not na(bestIdx)
-                    selectedIdx.push(bestIdx)
-
-        if selectedIdx.size() > 0
-            for i = 0 to selectedIdx.size() - 1
-                evt = bigMoveEvents.get(selectedIdx.get(i))
-                float ageRatio = bigMoveLookback > 0 ? float(bar_index - evt.eventBar) / bigMoveLookback : 0.0
-                int fade = bigMoveFadeOldEvents ? int(math.min(55.0, math.round(ageRatio * 55.0))) : 0
-                color baseClr = f_bigMoveEventColor(evt)
-                color fillClr = color.new(baseClr, math.min(95, (evt.eventType == "EXPANSION" ? 78 : 84) + fade))
-                color borderClr = color.new(baseClr, math.min(90, 26 + fade))
-                color ceClr = color.new(baseClr, math.min(88, 38 + fade))
-                color textClr = color.new(baseClr, math.min(75, fade * 2))
-                string ctxLabel = evt.killzoneName != "Inter-Session" ? evt.killzoneName : evt.sessionName
-                string labelText = evt.eventType + " " + str.tostring(math.round(evt.score)) + " | " + ctxLabel + " | " + evt.direction
-                if showBigMoveZones
-                    bigMoveBoxes.push(box.new(evt.startBar, evt.highPrice, evt.endBar, evt.lowPrice, bgcolor=fillClr, border_color=borderClr))
-                    bigMoveCeLines.push(line.new(evt.startBar, evt.cePrice, evt.endBar, evt.cePrice, color=ceClr, style=line.style_dashed))
-                if showBigMoveLabels
-                    bigMoveLabels.push(label.new(evt.endBar, evt.cePrice, labelText, color=#00000000, textcolor=textClr, style=label.style_label_left, size=size.tiny))
-
-    if enableBigMoveMemory and showFutureTimingHints
-        color hintClr = f_bigMoveHintColor(bigMoveSnapshot.currentState)
+    if enableBigMoveMemory and showBigMoveBanner
+        color hintBg = color.new(f_bigMoveStateColor(bigMoveSnapshot.state), f_isDarkTheme() ? 78 : 82)
         float hintY = high + math.max(atrVal, syminfo.mintick * 20) * 1.6
-        string hintText = "BIG MOVE MEMORY: " + bigMoveSnapshot.currentState + " | " + bigMoveSnapshot.currentBucketName + " | " + str.tostring(math.round(bigMoveSnapshot.currentBucketHitRate)) + "%"
-        if bigMoveNearLiquidity and str.length(bigMoveNearLiquidityLabel) > 0
-            hintText += " | " + bigMoveNearLiquidityLabel
+        string hintText = "BIG MOVE TIMING\nNow: " + bigMoveSnapshot.nowText + "\nLiquidity: " + bigMoveSnapshot.liquidityText + "\nNext: " + bigMoveSnapshot.nextText
         label.set_xy(bigMoveHintLabel, bar_index + 2, hintY)
         label.set_text(bigMoveHintLabel, hintText)
-        label.set_textcolor(bigMoveHintLabel, hintClr)
+        label.set_textcolor(bigMoveHintLabel, f_themeTextColor())
+        label.set_color(bigMoveHintLabel, hintBg)
         label.set_style(bigMoveHintLabel, label.style_label_left)
     else
         label.set_xy(bigMoveHintLabel, na, na)
         label.set_text(bigMoveHintLabel, "")
 
-var table bigMoveTable = table.new(f_bigMoveTablePos(), 2, 10, bgcolor=#1e222d, border_color=#373a46, border_width=1)
+var table bigMoveTable = table.new(f_bigMoveTablePos(), 2, 4, bgcolor=#1e222d, border_color=#373a46, border_width=1)
 if showBigMoveTimingTable and enableBigMoveMemory and barstate.islast
-    color stateClr = f_bigMoveHintColor(bigMoveSnapshot.currentState)
-    table.cell(bigMoveTable, 0, 0, "Big Move Memory", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
-    table.cell(bigMoveTable, 1, 0, "Timing", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
-    table.cell(bigMoveTable, 0, 1, "Top Window", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 1, bigMoveSnapshot.topWindow, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 0, 2, "Top Killzone", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 2, bigMoveSnapshot.topKillzone, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 0, 3, "Best Avg KZ", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 3, bigMoveSnapshot.bestAvgKillzone, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 0, 4, "Avg Event Score", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 4, str.tostring(bigMoveSnapshot.avgScore, "#.0"), text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 0, 5, "Dominant Type", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 5, bigMoveSnapshot.dominantType, text_color=bigMoveSnapshot.dominantType == "Spike" ? color.orange : bigMoveSnapshot.dominantType == "Expansion" ? COLOR_BULL : COLOR_NEUT, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 0, 6, "Bull/Bear Bias", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 6, bigMoveSnapshot.bias, text_color=bigMoveSnapshot.bias == "Bullish" ? COLOR_BULL : bigMoveSnapshot.bias == "Bearish" ? COLOR_BEAR : COLOR_NEUT, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 0, 7, "Current State", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 7, bigMoveSnapshot.currentState, text_color=color.white, bgcolor=stateClr, text_size=size.small)
-    table.cell(bigMoveTable, 0, 8, "Bucket Hit Rate", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 8, str.tostring(math.round(bigMoveSnapshot.currentBucketHitRate)) + "% @ " + bigMoveSnapshot.currentBucketName, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 0, 9, "Events / Avg RV", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(bigMoveTable, 1, 9, str.tostring(bigMoveSnapshot.qualifyingEvents) + " | " + str.tostring(bigMoveSnapshot.avgRelVolume, "#.##") + "x", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    color panelBg = f_themePanelColor()
+    color panelText = f_themeTextColor()
+    table.cell(bigMoveTable, 0, 0, "Big Move Timing", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+    table.cell(bigMoveTable, 1, 0, "Trader Read", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+    table.cell(bigMoveTable, 0, 1, "Now", text_color=panelText, bgcolor=panelBg, text_size=size.small)
+    table.cell(bigMoveTable, 1, 1, bigMoveSnapshot.nowText, text_color=panelText, bgcolor=panelBg, text_size=size.tiny)
+    table.cell(bigMoveTable, 0, 2, "Liquidity", text_color=panelText, bgcolor=panelBg, text_size=size.small)
+    table.cell(bigMoveTable, 1, 2, bigMoveSnapshot.liquidityText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
+    table.cell(bigMoveTable, 0, 3, "Next", text_color=panelText, bgcolor=panelBg, text_size=size.small)
+    table.cell(bigMoveTable, 1, 3, bigMoveSnapshot.nextText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
+else if barstate.islast
+    table.clear(bigMoveTable, 0, 0, 1, 3)
 
 // --- Dashboard ---
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
     var table tb = table.new(pos_tbl, 2, 10, bgcolor=#1e222d, border_color=#373a46, border_width=1)
-    color dashCellBg = chart.fg_color
-    color dashCellText = chart.bg_color
-    table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=dashCellBg, text_color=dashCellText, text_size=size.small)
-    table.cell(tb, 1, 0, "TRADER READ", bgcolor=dashCellBg, text_color=dashCellText, text_size=size.small)
+    color dashHeaderBg = chart.fg_color
+    color dashHeaderText = chart.bg_color
+    color dashCellBg = f_themePanelColor()
+    color dashCellText = f_themeTextColor()
+    table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
+    table.cell(tb, 1, 0, "TRADER READ", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
 
     bT1 = close > dO ? "ABOVE" : "BELOW"
     table.cell(tb, 0, 1, "Daily Open", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
