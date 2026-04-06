@@ -13,11 +13,17 @@ G_LIQ   = "Liquidity Swing Engine"
 G_DASH  = "Dashboard Settings"
 G_LVLS  = "Important Market Levels"
 G_RZ    = "High-Prob Reaction Zones"
+G_BMM   = "Big Move / Spike Memory"
 
 // --- Constants ---
 COLOR_BULL = #08ffd6
 COLOR_BEAR = #ff0015
 COLOR_NEUT = #5b9cf6
+HTF_STATE_BEAR_REV = -2
+HTF_STATE_BEAR_CONT = -1
+HTF_STATE_RANGE = 0
+HTF_STATE_BULL_CONT = 1
+HTF_STATE_BULL_REV = 2
 
 // --- Types ---
 type fvg_data
@@ -77,6 +83,45 @@ type liq_render_row
     float  priority
     int    mergedCount
     string state
+
+type big_move_event
+    int    startBar
+    int    endBar
+    int    eventBar
+    int    eventTime
+    string eventType
+    string direction
+    float  highPrice
+    float  lowPrice
+    float  cePrice
+    float  rangeAtr
+    float  bodyPct
+    float  wickPct
+    float  relVolume
+    float  score
+    string sessionName
+    string killzoneName
+    string sessionPhase
+    int    hourBucket
+    int    minuteBucket
+    bool   hadLiquidityConfluence
+    bool   hadFvgConfluence
+    bool   hadSweepConfluence
+    string narrative
+
+type big_move_timing_snapshot
+    string topWindow
+    string topKillzone
+    string bestAvgKillzone
+    string dominantType
+    string bias
+    string currentState
+    string currentBucketName
+    float  currentBucketHitRate
+    int    qualifyingEvents
+    float  avgRelVolume
+    float  avgScore
+    bool   spikeDominantNow
 
 // --- Inputs ---
 showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
@@ -184,6 +229,26 @@ rzEntryColor    = input.color(color.new(#08ffd6, 60), "Entry Zone Color", group=
 rzTargetColor   = input.color(color.new(#5b9cf6, 80), "Target Zone Color", group=G_RZ)
 rzBearColor     = input.color(color.new(#ff0015, 60), "Bearish Zone Color", group=G_RZ)
 
+enableBigMoveMemory = input.bool(true, "Enable Big Move / Spike Memory", group=G_BMM)
+bigMoveLookback = input.int(500, "Lookback Bars", minval=50, maxval=5000, step=50, group=G_BMM)
+bigMoveMinRangeAtr = input.float(1.4, "Min Expansion Range (ATR)", minval=0.5, step=0.1, group=G_BMM)
+bigMoveMinBodyPct = input.float(0.55, "Min Body % of Candle", minval=0.1, maxval=1.0, step=0.05, group=G_BMM)
+spikeMinWickPct = input.float(0.45, "Min Spike Wick % of Candle", minval=0.1, maxval=1.0, step=0.05, group=G_BMM)
+bigMoveVolMult = input.float(1.5, "Relative Volume Multiplier", minval=1.0, step=0.1, group=G_BMM)
+bigMoveUseKillzoneBoost = input.bool(true, "Use Killzone Confluence", group=G_BMM)
+bigMoveUseLiquidityBoost = input.bool(true, "Use Liquidity Confluence", group=G_BMM)
+bigMoveUseFvgBoost = input.bool(true, "Use FVG / Imbalance Confluence", group=G_BMM)
+bigMoveClusterBars = input.int(3, "Cluster Consecutive Bars", minval=1, maxval=10, group=G_BMM)
+bigMoveMaxStored = input.int(80, "Max Stored Historical Events", minval=20, maxval=300, group=G_BMM)
+showBigMoveZones = input.bool(true, "Show Historical Event Zones", group=G_BMM)
+showBigMoveLabels = input.bool(true, "Show Event Labels", group=G_BMM)
+showBigMoveTimingTable = input.bool(true, "Show Timing Statistics", group=G_BMM)
+showFutureTimingHints = input.bool(true, "Show Future High-Probability Timing Hints", group=G_BMM)
+bigMoveMinScore = input.float(58.0, "Minimum Event Score", minval=0.0, maxval=100.0, step=1.0, group=G_BMM)
+bigMoveFadeOldEvents = input.bool(true, "Fade Older Events", group=G_BMM)
+bigMoveShowTopN = input.int(10, "Only Show Top N Events", minval=1, maxval=30, group=G_BMM)
+bigMoveTimingTablePos = input.string("Bottom Left", "Timing Table Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=G_BMM)
+
 // --- HTF Settings ---
 G_HTF        = "Higher Timeframe Structure"
 showHTF      = input.bool(true, "Show HTF Structure", group=G_HTF)
@@ -191,6 +256,11 @@ htf1Tf       = input.timeframe("60", "HTF 1 Timeframe", group=G_HTF)
 htf1SwingLen = input.int(5, "HTF 1 Swing Strength", group=G_HTF)
 htf2Tf       = input.timeframe("240", "HTF 2 Timeframe", group=G_HTF)
 htf2SwingLen = input.int(5, "HTF 2 Swing Strength", group=G_HTF)
+showHTFLiquidity = input.bool(true, "Inject HTF Liquidity Levels", group=G_HTF, tooltip="Publishes confirmed HTF dealing-range highs/lows into the lower-timeframe liquidity map so sweeps can interact with them.")
+useHTFEntryFilter = input.bool(true, "Block Strong Counter-HTF Entries", group=G_HTF, tooltip="Blocks LTF entries when the combined HTF context is strongly opposed.")
+htfMinConfidence = input.int(60, "HTF Confidence Threshold", minval=40, maxval=90, group=G_HTF, tooltip="Minimum combined HTF confidence required before the script treats the context as strongly directional.")
+htfDispBodyMult = input.float(1.15, "HTF Disp. Body Mult", minval=1.0, step=0.05, group=G_HTF, tooltip="Relative body expansion required on the latest confirmed HTF candle to count as meaningful displacement.")
+htfLiquidityProxAtr = input.float(0.75, "HTF Liquidity Proximity (ATR)", minval=0.25, step=0.25, group=G_HTF, tooltip="Distance to confirmed HTF liquidity, measured in HTF ATR, used when scoring reversal-candidate and continuation states.")
 htfColor1    = input.color(color.new(#5b9cf6, 30), "HTF 1 Level Color", group=G_HTF)
 htfColor2    = input.color(color.new(#ff9800, 30), "HTF 2 Level Color", group=G_HTF)
 
@@ -221,6 +291,8 @@ inLondon = not na(time(timeframe.period, londonSess, "UTC"))
 inNY     = not na(time(timeframe.period, nySess, "UTC"))
 inLondonSweepWindow = not na(time(timeframe.period, "0700-1100:1234567", "Europe/London"))
 inNYSweepWindow = not na(time(timeframe.period, "0830-1100:1234567", "America/New_York"))
+atrVal = ta.atr(14)
+max_bars_back(atrVal, 1000)
 
 bgcolor(showLondon and inLondon ? colorLon : na)
 bgcolor(showNY and inNY ? colorNYK : na)
@@ -229,31 +301,481 @@ bgcolor(showNY and inNY ? colorNYK : na)
 f_getHtfSwings(len) =>
     [ta.pivothigh(high, len, len), ta.pivotlow(low, len, len)]
 
-[htf1PH, htf1PL] = request.security(syminfo.tickerid, htf1Tf, f_getHtfSwings(htf1SwingLen), lookahead=barmerge.lookahead_on)
-[htf2PH, htf2PL] = request.security(syminfo.tickerid, htf2Tf, f_getHtfSwings(htf2SwingLen), lookahead=barmerge.lookahead_on)
+f_getHtfPivotHighTime(len) =>
+    not na(ta.pivothigh(high, len, len)) ? time[len] : na
+
+f_getHtfPivotLowTime(len) =>
+    not na(ta.pivotlow(low, len, len)) ? time[len] : na
+
+f_htfPdPos(float rangeHigh, float rangeLow, float refClose) =>
+    float span = math.max(rangeHigh - rangeLow, syminfo.mintick * 20)
+    math.max(0.0, math.min(1.0, (refClose - rangeLow) / span))
+
+f_htfPdLabel(float pdPos) =>
+    pdPos <= 0.35 ? "Discount" : pdPos >= 0.65 ? "Premium" : "EQ"
+
+f_htfStateName(int state) =>
+    state == HTF_STATE_BULL_CONT ? "HTF bullish continuation" :
+     state == HTF_STATE_BEAR_CONT ? "HTF bearish continuation" :
+     state == HTF_STATE_BULL_REV ? "HTF bullish reversal candidate" :
+     state == HTF_STATE_BEAR_REV ? "HTF bearish reversal candidate" :
+     "HTF ranging"
+
+f_htfStateShort(int state) =>
+    state == HTF_STATE_BULL_CONT ? "Bull cont" :
+     state == HTF_STATE_BEAR_CONT ? "Bear cont" :
+     state == HTF_STATE_BULL_REV ? "Bull rev cand" :
+     state == HTF_STATE_BEAR_REV ? "Bear rev cand" :
+     "Range"
+
+f_htfStateColor(int state, float confidence) =>
+    color base = state == HTF_STATE_BULL_CONT or state == HTF_STATE_BULL_REV ? COLOR_BULL :
+     state == HTF_STATE_BEAR_CONT or state == HTF_STATE_BEAR_REV ? COLOR_BEAR :
+     COLOR_NEUT
+    int fade = confidence >= 80 ? 0 : confidence >= 65 ? 12 : confidence >= 50 ? 24 : 38
+    color.new(base, fade)
+
+f_htfDirectionalBias(int state, float confidence) =>
+    state == HTF_STATE_BULL_CONT ? confidence :
+     state == HTF_STATE_BULL_REV ? confidence * 0.65 :
+     state == HTF_STATE_BEAR_CONT ? -confidence :
+     state == HTF_STATE_BEAR_REV ? -confidence * 0.65 :
+     0.0
+
+f_htfStateNarrative(int state) =>
+    state == HTF_STATE_BULL_CONT ? "Bullish continuation" :
+     state == HTF_STATE_BEAR_CONT ? "Bearish continuation" :
+     state == HTF_STATE_BULL_REV ? "Bullish reversal candidate" :
+     state == HTF_STATE_BEAR_REV ? "Bearish reversal candidate" :
+     "Range / transition"
+
+f_htfActionNarrative(string action) =>
+    action == "Continuation" ? "Fresh continuation break" :
+     action == "Reversal" ? "Fresh reversal through protected level" :
+     action == "Initiation" ? "New directional sequence" :
+     action == "Holding" ? "Holding structure, no fresh break" :
+     "No directional break"
+
+f_htfLocationNarrative(int structureDir, float pdPos, bool nearHighLiq, bool nearLowLiq) =>
+    if structureDir == 1
+        nearLowLiq ? "Discount, near protected low" :
+         nearHighLiq ? "Premium, near objective high" :
+         pdPos <= 0.35 ? "Discount, away from protected low" :
+         pdPos >= 0.65 ? "Premium, away from objective high" :
+         "Mid-range, between protected low and objective high"
+    else if structureDir == -1
+        nearHighLiq ? "Premium, near protected high" :
+         nearLowLiq ? "Discount, near objective low" :
+         pdPos >= 0.65 ? "Premium, away from protected high" :
+         pdPos <= 0.35 ? "Discount, away from objective low" :
+         "Mid-range, between protected high and objective low"
+    else
+        nearHighLiq ? "Near range high" : nearLowLiq ? "Near range low" : "Mid-range"
+
+f_htfExecutionNarrative(int state, float pdPos, bool nearHighLiq, bool nearLowLiq) =>
+    if state == HTF_STATE_BULL_CONT
+        nearLowLiq or pdPos <= 0.35 ? "Buy dips; avoid fresh shorts" :
+         nearHighLiq or pdPos >= 0.65 ? "Bullish, but longs are expensive" :
+         "Bullish; wait for discount or LTF reset"
+    else if state == HTF_STATE_BEAR_CONT
+        nearHighLiq or pdPos >= 0.65 ? "Sell rallies; avoid fresh longs" :
+         nearLowLiq or pdPos <= 0.35 ? "Bearish, but shorts are extended" :
+         "Bearish; wait for premium or LTF rally"
+    else if state == HTF_STATE_BULL_REV
+        nearLowLiq or pdPos <= 0.40 ? "Watch LTF long reversal only" :
+         "Bullish reversal only, not full trend trust"
+    else if state == HTF_STATE_BEAR_REV
+        nearHighLiq or pdPos >= 0.60 ? "Watch LTF short reversal only" :
+         "Bearish reversal only, not full trend trust"
+    else
+        "Reduce conviction until HTF resolves"
+
+f_htfDashboardNarrative(int state, string action, int structureDir, float pdPos, bool nearHighLiq, bool nearLowLiq, float confidence) =>
+    "Bias: " + f_htfStateNarrative(state) +
+     "\nFlow: " + f_htfActionNarrative(action) +
+     "\nLocation: " + f_htfLocationNarrative(structureDir, pdPos, nearHighLiq, nearLowLiq) +
+     "\nRead: " + f_htfExecutionNarrative(state, pdPos, nearHighLiq, nearLowLiq) + " | " + str.tostring(math.round(confidence)) + "/100"
+
+f_htfCompositeBiasNarrative(float compositeBias, bool longStrong, bool shortStrong) =>
+    longStrong ? "Bullish aligned" :
+     shortStrong ? "Bearish aligned" :
+     math.abs(compositeBias) >= 20 ? (compositeBias > 0 ? "Bullish lean" : "Bearish lean") :
+     "Mixed / ranging"
+
+f_htfCompositeStackNarrative(string tf1, float bias1, string tf2, float bias2) =>
+    string dir1 = bias1 > 0 ? "bullish" : bias1 < 0 ? "bearish" : "flat"
+    string dir2 = bias2 > 0 ? "bullish" : bias2 < 0 ? "bearish" : "flat"
+    float abs1 = math.abs(bias1)
+    float abs2 = math.abs(bias2)
+    if bias1 > 0 and bias2 > 0
+        "Stack: " + tf2 + " and " + tf1 + " bullish"
+    else if bias1 < 0 and bias2 < 0
+        "Stack: " + tf2 + " and " + tf1 + " bearish"
+    else if abs2 > abs1 + 5
+        "Conflict: " + tf2 + " " + dir2 + " > " + tf1 + " " + dir1
+    else if abs1 > abs2 + 5
+        "Conflict: " + tf1 + " " + dir1 + " > " + tf2 + " " + dir2
+    else
+        "Conflict: HTFs split, no dominant side"
+
+f_htfCompositeFilterNarrative(float compositeBias, bool blockLong, bool blockShort) =>
+    blockLong ? "Filter: block longs; shorts only on LTF confirm" :
+     blockShort ? "Filter: block shorts; longs only on LTF confirm" :
+     math.abs(compositeBias) >= 20 ? (compositeBias > 0 ? "Filter: prefer long LTF setups" : "Filter: prefer short LTF setups") :
+     "Filter: no hard HTF block"
+
+f_htfRecentDisp(int dirBias, float refOpen, float refHigh, float refLow, float refClose, float refAtr, float refAvgBody) =>
+    float refRange = refHigh - refLow
+    float safeRange = refRange > 0 ? refRange : syminfo.mintick
+    float body = math.abs(refClose - refOpen)
+    float bodyPct = body / safeRange
+    float closePos = (refClose - refLow) / safeRange
+    bool bullDisp = refClose > refOpen and refAtr > 0 and ((body > refAvgBody * htfDispBodyMult and bodyPct >= 0.55) or (refRange >= refAtr * 1.05 and closePos >= 0.75))
+    bool bearDisp = refClose < refOpen and refAtr > 0 and ((body > refAvgBody * htfDispBodyMult and bodyPct >= 0.55) or (refRange >= refAtr * 1.05 and closePos <= 0.25))
+    bullDisp ? 1 : bearDisp ? -1 : dirBias
+
+[htf1PHRaw, htf1PLRaw] = request.security(syminfo.tickerid, htf1Tf, f_getHtfSwings(htf1SwingLen), lookahead=barmerge.lookahead_off)
+[htf2PHRaw, htf2PLRaw] = request.security(syminfo.tickerid, htf2Tf, f_getHtfSwings(htf2SwingLen), lookahead=barmerge.lookahead_off)
+int htf1PHTime = request.security(syminfo.tickerid, htf1Tf, f_getHtfPivotHighTime(htf1SwingLen), lookahead=barmerge.lookahead_off)
+int htf1PLTime = request.security(syminfo.tickerid, htf1Tf, f_getHtfPivotLowTime(htf1SwingLen), lookahead=barmerge.lookahead_off)
+int htf2PHTime = request.security(syminfo.tickerid, htf2Tf, f_getHtfPivotHighTime(htf2SwingLen), lookahead=barmerge.lookahead_off)
+int htf2PLTime = request.security(syminfo.tickerid, htf2Tf, f_getHtfPivotLowTime(htf2SwingLen), lookahead=barmerge.lookahead_off)
+int htf1ConfirmedBarTime = request.security(syminfo.tickerid, htf1Tf, time[1], lookahead=barmerge.lookahead_off)
+int htf2ConfirmedBarTime = request.security(syminfo.tickerid, htf2Tf, time[1], lookahead=barmerge.lookahead_off)
+float htf1ConfirmedOpen = request.security(syminfo.tickerid, htf1Tf, open[1], lookahead=barmerge.lookahead_off)
+float htf1ConfirmedHigh = request.security(syminfo.tickerid, htf1Tf, high[1], lookahead=barmerge.lookahead_off)
+float htf1ConfirmedLow = request.security(syminfo.tickerid, htf1Tf, low[1], lookahead=barmerge.lookahead_off)
+float htf1ConfirmedClose = request.security(syminfo.tickerid, htf1Tf, close[1], lookahead=barmerge.lookahead_off)
+float htf1ConfirmedAtr = request.security(syminfo.tickerid, htf1Tf, ta.atr(14)[1], lookahead=barmerge.lookahead_off)
+float htf1BodyAvg = request.security(syminfo.tickerid, htf1Tf, ta.sma(math.abs(close - open), 20)[1], lookahead=barmerge.lookahead_off)
+float htf2ConfirmedOpen = request.security(syminfo.tickerid, htf2Tf, open[1], lookahead=barmerge.lookahead_off)
+float htf2ConfirmedHigh = request.security(syminfo.tickerid, htf2Tf, high[1], lookahead=barmerge.lookahead_off)
+float htf2ConfirmedLow = request.security(syminfo.tickerid, htf2Tf, low[1], lookahead=barmerge.lookahead_off)
+float htf2ConfirmedClose = request.security(syminfo.tickerid, htf2Tf, close[1], lookahead=barmerge.lookahead_off)
+float htf2ConfirmedAtr = request.security(syminfo.tickerid, htf2Tf, ta.atr(14)[1], lookahead=barmerge.lookahead_off)
+float htf2BodyAvg = request.security(syminfo.tickerid, htf2Tf, ta.sma(math.abs(close - open), 20)[1], lookahead=barmerge.lookahead_off)
 
 var float lastHtf1PH = na
 var float lastHtf1PL = na
 var float lastHtf2PH = na
 var float lastHtf2PL = na
+var float prevHtf1PH = na
+var float prevHtf1PL = na
+var float prevHtf2PH = na
+var float prevHtf2PL = na
+var int lastHtf1PHTime = na
+var int lastHtf1PLTime = na
+var int lastHtf2PHTime = na
+var int lastHtf2PLTime = na
+var float htf1ProtectedHigh = na
+var float htf1ProtectedLow = na
+var float htf2ProtectedHigh = na
+var float htf2ProtectedLow = na
+var int htf1StructureDir = HTF_STATE_RANGE
+var int htf2StructureDir = HTF_STATE_RANGE
+var int htf1State = HTF_STATE_RANGE
+var int htf2State = HTF_STATE_RANGE
+var float htf1Confidence = 0.0
+var float htf2Confidence = 0.0
+var float htf1PdPos = 0.5
+var float htf2PdPos = 0.5
+var string htf1PdLabel = "EQ"
+var string htf2PdLabel = "EQ"
+var int htf1DispBias = 0
+var int htf2DispBias = 0
+var string htf1Action = "Range"
+var string htf2Action = "Range"
+var bool htf1NearHighLiq = false
+var bool htf1NearLowLiq = false
+var bool htf2NearHighLiq = false
+var bool htf2NearLowLiq = false
 
-if not na(htf1PH)
-    lastHtf1PH := htf1PH
-if not na(htf1PL)
-    lastHtf1PL := htf1PL
-if not na(htf2PH)
-    lastHtf2PH := htf2PH
-if not na(htf2PL)
-    lastHtf2PL := htf2PL
+bool newHtf1ConfirmedBar = ta.change(htf1ConfirmedBarTime) != 0
+bool newHtf2ConfirmedBar = ta.change(htf2ConfirmedBarTime) != 0
 
-// HTF Bias Calculation
-htf1Bias = close > lastHtf1PH ? "BULL" : close < lastHtf1PL ? "BEAR" : "NEUT"
-htf2Bias = close > lastHtf2PH ? "BULL" : close < lastHtf2PL ? "BEAR" : "NEUT"
+if barstate.isfirst or newHtf1ConfirmedBar
+    if not na(htf1PHRaw) and (na(lastHtf1PHTime) or htf1PHTime != lastHtf1PHTime)
+        prevHtf1PH := lastHtf1PH
+        lastHtf1PH := htf1PHRaw
+        lastHtf1PHTime := htf1PHTime
+    if not na(htf1PLRaw) and (na(lastHtf1PLTime) or htf1PLTime != lastHtf1PLTime)
+        prevHtf1PL := lastHtf1PL
+        lastHtf1PL := htf1PLRaw
+        lastHtf1PLTime := htf1PLTime
 
-plot(showHTF ? lastHtf1PH : na, "HTF 1 High", htfColor1, 1, plot.style_linebr)
-plot(showHTF ? lastHtf1PL : na, "HTF 1 Low", htfColor1, 1, plot.style_linebr)
-plot(showHTF ? lastHtf2PH : na, "HTF 2 High", htfColor2, 1, plot.style_linebr)
-plot(showHTF ? lastHtf2PL : na, "HTF 2 Low", htfColor2, 1, plot.style_linebr)
+    float htf1RangeHigh = nz(lastHtf1PH, htf1ConfirmedHigh)
+    float htf1RangeLow = nz(lastHtf1PL, htf1ConfirmedLow)
+    float htf1AtrRef = not na(htf1ConfirmedAtr) and htf1ConfirmedAtr > 0 ? htf1ConfirmedAtr : atrVal > 0 ? atrVal : syminfo.mintick * 20
+    float htf1BreakTol = math.max(htf1AtrRef * 0.08, syminfo.mintick * 8)
+    int prevHtf1Dir = htf1StructureDir
+    bool htf1BullSequence = not na(prevHtf1PH) and not na(prevHtf1PL) and not na(lastHtf1PH) and not na(lastHtf1PL) and lastHtf1PH > prevHtf1PH and lastHtf1PL > prevHtf1PL
+    bool htf1BearSequence = not na(prevHtf1PH) and not na(prevHtf1PL) and not na(lastHtf1PH) and not na(lastHtf1PL) and lastHtf1PH < prevHtf1PH and lastHtf1PL < prevHtf1PL
+    htf1PdPos := f_htfPdPos(htf1RangeHigh, htf1RangeLow, htf1ConfirmedClose)
+    htf1PdLabel := f_htfPdLabel(htf1PdPos)
+    htf1DispBias := f_htfRecentDisp(htf1DispBias, htf1ConfirmedOpen, htf1ConfirmedHigh, htf1ConfirmedLow, htf1ConfirmedClose, htf1ConfirmedAtr, htf1BodyAvg)
+    htf1NearHighLiq := htf1AtrRef > 0 and not na(htf1RangeHigh) and math.abs(htf1ConfirmedClose - htf1RangeHigh) / htf1AtrRef <= htfLiquidityProxAtr
+    htf1NearLowLiq := htf1AtrRef > 0 and not na(htf1RangeLow) and math.abs(htf1ConfirmedClose - htf1RangeLow) / htf1AtrRef <= htfLiquidityProxAtr
+    float activeProtHigh1 = nz(htf1ProtectedHigh, nz(lastHtf1PH, htf1RangeHigh))
+    float activeProtLow1 = nz(htf1ProtectedLow, nz(lastHtf1PL, htf1RangeLow))
+    bool htf1BullCloseConfirm = not na(prevHtf1PH) and htf1ConfirmedClose > (prevHtf1PH + htf1BreakTol * 0.25)
+    bool htf1BearCloseConfirm = not na(prevHtf1PL) and htf1ConfirmedClose < (prevHtf1PL - htf1BreakTol * 0.25)
+    bool htf1BullProtectedBreak = prevHtf1Dir == -1 and not na(activeProtHigh1) and htf1ConfirmedClose > (activeProtHigh1 + htf1BreakTol * 0.25)
+    bool htf1BearProtectedBreak = prevHtf1Dir == 1 and not na(activeProtLow1) and htf1ConfirmedClose < (activeProtLow1 - htf1BreakTol * 0.25)
+    int nextHtf1Dir = prevHtf1Dir
+    string nextHtf1Action = "Range"
+    float nextProtHigh1 = activeProtHigh1
+    float nextProtLow1 = activeProtLow1
+    if prevHtf1Dir == 1
+        if htf1BearProtectedBreak
+            nextHtf1Dir := -1
+            nextHtf1Action := "Reversal"
+            nextProtHigh1 := nz(lastHtf1PH, htf1RangeHigh)
+            nextProtLow1 := nz(lastHtf1PL, htf1RangeLow)
+        else if htf1BullSequence and htf1BullCloseConfirm
+            nextHtf1Dir := 1
+            nextHtf1Action := "Continuation"
+            nextProtLow1 := nz(lastHtf1PL, activeProtLow1)
+            nextProtHigh1 := nz(lastHtf1PH, htf1RangeHigh)
+        else
+            nextHtf1Dir := 1
+            nextHtf1Action := "Holding"
+            nextProtLow1 := activeProtLow1
+            nextProtHigh1 := nz(lastHtf1PH, activeProtHigh1)
+    else if prevHtf1Dir == -1
+        if htf1BullProtectedBreak
+            nextHtf1Dir := 1
+            nextHtf1Action := "Reversal"
+            nextProtLow1 := nz(lastHtf1PL, htf1RangeLow)
+            nextProtHigh1 := nz(lastHtf1PH, htf1RangeHigh)
+        else if htf1BearSequence and htf1BearCloseConfirm
+            nextHtf1Dir := -1
+            nextHtf1Action := "Continuation"
+            nextProtHigh1 := nz(lastHtf1PH, activeProtHigh1)
+            nextProtLow1 := nz(lastHtf1PL, htf1RangeLow)
+        else
+            nextHtf1Dir := -1
+            nextHtf1Action := "Holding"
+            nextProtHigh1 := activeProtHigh1
+            nextProtLow1 := nz(lastHtf1PL, activeProtLow1)
+    else
+        if htf1BullSequence and htf1BullCloseConfirm
+            nextHtf1Dir := 1
+            nextHtf1Action := "Initiation"
+            nextProtLow1 := nz(lastHtf1PL, htf1RangeLow)
+            nextProtHigh1 := nz(lastHtf1PH, htf1RangeHigh)
+        else if htf1BearSequence and htf1BearCloseConfirm
+            nextHtf1Dir := -1
+            nextHtf1Action := "Initiation"
+            nextProtHigh1 := nz(lastHtf1PH, htf1RangeHigh)
+            nextProtLow1 := nz(lastHtf1PL, htf1RangeLow)
+        else
+            nextHtf1Dir := HTF_STATE_RANGE
+            nextHtf1Action := "Range"
+            nextProtHigh1 := nz(lastHtf1PH, htf1RangeHigh)
+            nextProtLow1 := nz(lastHtf1PL, htf1RangeLow)
+    bool htf1JustBullReversal = nextHtf1Dir == 1 and prevHtf1Dir == -1 and nextHtf1Action == "Reversal"
+    bool htf1JustBearReversal = nextHtf1Dir == -1 and prevHtf1Dir == 1 and nextHtf1Action == "Reversal"
+    htf1Action := nextHtf1Action
+    htf1ProtectedHigh := nextProtHigh1
+    htf1ProtectedLow := nextProtLow1
+    int nextHtf1State = HTF_STATE_RANGE
+    if nextHtf1Dir == 1
+        nextHtf1State := htf1JustBullReversal ? HTF_STATE_BULL_REV : htf1DispBias == -1 and htf1PdPos >= 0.60 and htf1NearHighLiq ? HTF_STATE_BEAR_REV : HTF_STATE_BULL_CONT
+    else if nextHtf1Dir == -1
+        nextHtf1State := htf1JustBearReversal ? HTF_STATE_BEAR_REV : htf1DispBias == 1 and htf1PdPos <= 0.40 and htf1NearLowLiq ? HTF_STATE_BULL_REV : HTF_STATE_BEAR_CONT
+    else
+        nextHtf1State := htf1DispBias == 1 and htf1PdPos <= 0.35 and htf1NearLowLiq ? HTF_STATE_BULL_REV : htf1DispBias == -1 and htf1PdPos >= 0.65 and htf1NearHighLiq ? HTF_STATE_BEAR_REV : HTF_STATE_RANGE
+
+    float nextHtf1Confidence = 18.0
+    if nextHtf1State == HTF_STATE_BULL_CONT
+        nextHtf1Confidence += 24.0
+        nextHtf1Confidence += htf1Action == "Continuation" ? 12.0 : htf1Action == "Holding" ? 8.0 : htf1Action == "Initiation" ? 6.0 : 4.0
+        nextHtf1Confidence += htf1PdPos <= 0.35 ? 16.0 : htf1PdPos <= 0.55 ? 10.0 : 4.0
+        nextHtf1Confidence += htf1DispBias == 1 ? 16.0 : htf1DispBias == 0 ? 5.0 : -8.0
+        nextHtf1Confidence += htf1NearLowLiq ? 10.0 : htf1NearHighLiq ? 2.0 : 6.0
+        nextHtf1Confidence += htf1BullCloseConfirm ? 10.0 : 4.0
+    else if nextHtf1State == HTF_STATE_BEAR_CONT
+        nextHtf1Confidence += 24.0
+        nextHtf1Confidence += htf1Action == "Continuation" ? 12.0 : htf1Action == "Holding" ? 8.0 : htf1Action == "Initiation" ? 6.0 : 4.0
+        nextHtf1Confidence += htf1PdPos >= 0.65 ? 16.0 : htf1PdPos >= 0.45 ? 10.0 : 4.0
+        nextHtf1Confidence += htf1DispBias == -1 ? 16.0 : htf1DispBias == 0 ? 5.0 : -8.0
+        nextHtf1Confidence += htf1NearHighLiq ? 10.0 : htf1NearLowLiq ? 2.0 : 6.0
+        nextHtf1Confidence += htf1BearCloseConfirm ? 10.0 : 4.0
+    else if nextHtf1State == HTF_STATE_BULL_REV
+        nextHtf1Confidence += htf1JustBullReversal ? 22.0 : 14.0
+        nextHtf1Confidence += htf1PdPos <= 0.35 ? 14.0 : htf1PdPos <= 0.50 ? 10.0 : 6.0
+        nextHtf1Confidence += htf1DispBias == 1 ? 18.0 : 4.0
+        nextHtf1Confidence += htf1NearLowLiq ? 14.0 : 2.0
+        nextHtf1Confidence += (htf1BullProtectedBreak or htf1BullCloseConfirm) ? 12.0 : nextHtf1Dir == -1 ? 8.0 : 4.0
+        nextHtf1Confidence += nextHtf1Dir == 1 ? 8.0 : 4.0
+    else if nextHtf1State == HTF_STATE_BEAR_REV
+        nextHtf1Confidence += htf1JustBearReversal ? 22.0 : 14.0
+        nextHtf1Confidence += htf1PdPos >= 0.65 ? 14.0 : htf1PdPos >= 0.50 ? 10.0 : 6.0
+        nextHtf1Confidence += htf1DispBias == -1 ? 18.0 : 4.0
+        nextHtf1Confidence += htf1NearHighLiq ? 14.0 : 2.0
+        nextHtf1Confidence += (htf1BearProtectedBreak or htf1BearCloseConfirm) ? 12.0 : nextHtf1Dir == 1 ? 8.0 : 4.0
+        nextHtf1Confidence += nextHtf1Dir == -1 ? 8.0 : 4.0
+    else
+        nextHtf1Confidence += 10.0
+        nextHtf1Confidence += math.abs(htf1PdPos - 0.5) <= 0.12 ? 10.0 : 4.0
+        nextHtf1Confidence += htf1DispBias == 0 ? 8.0 : 3.0
+        nextHtf1Confidence += (htf1NearHighLiq or htf1NearLowLiq) ? 6.0 : 2.0
+        nextHtf1Confidence += prevHtf1Dir == HTF_STATE_RANGE ? 6.0 : 2.0
+
+    htf1StructureDir := nextHtf1Dir
+    htf1State := nextHtf1State
+    htf1Confidence := math.max(0.0, math.min(100.0, nextHtf1Confidence))
+
+if barstate.isfirst or newHtf2ConfirmedBar
+    if not na(htf2PHRaw) and (na(lastHtf2PHTime) or htf2PHTime != lastHtf2PHTime)
+        prevHtf2PH := lastHtf2PH
+        lastHtf2PH := htf2PHRaw
+        lastHtf2PHTime := htf2PHTime
+    if not na(htf2PLRaw) and (na(lastHtf2PLTime) or htf2PLTime != lastHtf2PLTime)
+        prevHtf2PL := lastHtf2PL
+        lastHtf2PL := htf2PLRaw
+        lastHtf2PLTime := htf2PLTime
+
+    float htf2RangeHigh = nz(lastHtf2PH, htf2ConfirmedHigh)
+    float htf2RangeLow = nz(lastHtf2PL, htf2ConfirmedLow)
+    float htf2AtrRef = not na(htf2ConfirmedAtr) and htf2ConfirmedAtr > 0 ? htf2ConfirmedAtr : atrVal > 0 ? atrVal : syminfo.mintick * 20
+    float htf2BreakTol = math.max(htf2AtrRef * 0.08, syminfo.mintick * 8)
+    int prevHtf2Dir = htf2StructureDir
+    bool htf2BullSequence = not na(prevHtf2PH) and not na(prevHtf2PL) and not na(lastHtf2PH) and not na(lastHtf2PL) and lastHtf2PH > prevHtf2PH and lastHtf2PL > prevHtf2PL
+    bool htf2BearSequence = not na(prevHtf2PH) and not na(prevHtf2PL) and not na(lastHtf2PH) and not na(lastHtf2PL) and lastHtf2PH < prevHtf2PH and lastHtf2PL < prevHtf2PL
+    htf2PdPos := f_htfPdPos(htf2RangeHigh, htf2RangeLow, htf2ConfirmedClose)
+    htf2PdLabel := f_htfPdLabel(htf2PdPos)
+    htf2DispBias := f_htfRecentDisp(htf2DispBias, htf2ConfirmedOpen, htf2ConfirmedHigh, htf2ConfirmedLow, htf2ConfirmedClose, htf2ConfirmedAtr, htf2BodyAvg)
+    htf2NearHighLiq := htf2AtrRef > 0 and not na(htf2RangeHigh) and math.abs(htf2ConfirmedClose - htf2RangeHigh) / htf2AtrRef <= htfLiquidityProxAtr
+    htf2NearLowLiq := htf2AtrRef > 0 and not na(htf2RangeLow) and math.abs(htf2ConfirmedClose - htf2RangeLow) / htf2AtrRef <= htfLiquidityProxAtr
+    float activeProtHigh2 = nz(htf2ProtectedHigh, nz(lastHtf2PH, htf2RangeHigh))
+    float activeProtLow2 = nz(htf2ProtectedLow, nz(lastHtf2PL, htf2RangeLow))
+    bool htf2BullCloseConfirm = not na(prevHtf2PH) and htf2ConfirmedClose > (prevHtf2PH + htf2BreakTol * 0.25)
+    bool htf2BearCloseConfirm = not na(prevHtf2PL) and htf2ConfirmedClose < (prevHtf2PL - htf2BreakTol * 0.25)
+    bool htf2BullProtectedBreak = prevHtf2Dir == -1 and not na(activeProtHigh2) and htf2ConfirmedClose > (activeProtHigh2 + htf2BreakTol * 0.25)
+    bool htf2BearProtectedBreak = prevHtf2Dir == 1 and not na(activeProtLow2) and htf2ConfirmedClose < (activeProtLow2 - htf2BreakTol * 0.25)
+    int nextHtf2Dir = prevHtf2Dir
+    string nextHtf2Action = "Range"
+    float nextProtHigh2 = activeProtHigh2
+    float nextProtLow2 = activeProtLow2
+    if prevHtf2Dir == 1
+        if htf2BearProtectedBreak
+            nextHtf2Dir := -1
+            nextHtf2Action := "Reversal"
+            nextProtHigh2 := nz(lastHtf2PH, htf2RangeHigh)
+            nextProtLow2 := nz(lastHtf2PL, htf2RangeLow)
+        else if htf2BullSequence and htf2BullCloseConfirm
+            nextHtf2Dir := 1
+            nextHtf2Action := "Continuation"
+            nextProtLow2 := nz(lastHtf2PL, activeProtLow2)
+            nextProtHigh2 := nz(lastHtf2PH, htf2RangeHigh)
+        else
+            nextHtf2Dir := 1
+            nextHtf2Action := "Holding"
+            nextProtLow2 := activeProtLow2
+            nextProtHigh2 := nz(lastHtf2PH, activeProtHigh2)
+    else if prevHtf2Dir == -1
+        if htf2BullProtectedBreak
+            nextHtf2Dir := 1
+            nextHtf2Action := "Reversal"
+            nextProtLow2 := nz(lastHtf2PL, htf2RangeLow)
+            nextProtHigh2 := nz(lastHtf2PH, htf2RangeHigh)
+        else if htf2BearSequence and htf2BearCloseConfirm
+            nextHtf2Dir := -1
+            nextHtf2Action := "Continuation"
+            nextProtHigh2 := nz(lastHtf2PH, activeProtHigh2)
+            nextProtLow2 := nz(lastHtf2PL, htf2RangeLow)
+        else
+            nextHtf2Dir := -1
+            nextHtf2Action := "Holding"
+            nextProtHigh2 := activeProtHigh2
+            nextProtLow2 := nz(lastHtf2PL, activeProtLow2)
+    else
+        if htf2BullSequence and htf2BullCloseConfirm
+            nextHtf2Dir := 1
+            nextHtf2Action := "Initiation"
+            nextProtLow2 := nz(lastHtf2PL, htf2RangeLow)
+            nextProtHigh2 := nz(lastHtf2PH, htf2RangeHigh)
+        else if htf2BearSequence and htf2BearCloseConfirm
+            nextHtf2Dir := -1
+            nextHtf2Action := "Initiation"
+            nextProtHigh2 := nz(lastHtf2PH, htf2RangeHigh)
+            nextProtLow2 := nz(lastHtf2PL, htf2RangeLow)
+        else
+            nextHtf2Dir := HTF_STATE_RANGE
+            nextHtf2Action := "Range"
+            nextProtHigh2 := nz(lastHtf2PH, htf2RangeHigh)
+            nextProtLow2 := nz(lastHtf2PL, htf2RangeLow)
+    bool htf2JustBullReversal = nextHtf2Dir == 1 and prevHtf2Dir == -1 and nextHtf2Action == "Reversal"
+    bool htf2JustBearReversal = nextHtf2Dir == -1 and prevHtf2Dir == 1 and nextHtf2Action == "Reversal"
+    htf2Action := nextHtf2Action
+    htf2ProtectedHigh := nextProtHigh2
+    htf2ProtectedLow := nextProtLow2
+    int nextHtf2State = HTF_STATE_RANGE
+    if nextHtf2Dir == 1
+        nextHtf2State := htf2JustBullReversal ? HTF_STATE_BULL_REV : htf2DispBias == -1 and htf2PdPos >= 0.60 and htf2NearHighLiq ? HTF_STATE_BEAR_REV : HTF_STATE_BULL_CONT
+    else if nextHtf2Dir == -1
+        nextHtf2State := htf2JustBearReversal ? HTF_STATE_BEAR_REV : htf2DispBias == 1 and htf2PdPos <= 0.40 and htf2NearLowLiq ? HTF_STATE_BULL_REV : HTF_STATE_BEAR_CONT
+    else
+        nextHtf2State := htf2DispBias == 1 and htf2PdPos <= 0.35 and htf2NearLowLiq ? HTF_STATE_BULL_REV : htf2DispBias == -1 and htf2PdPos >= 0.65 and htf2NearHighLiq ? HTF_STATE_BEAR_REV : HTF_STATE_RANGE
+
+    float nextHtf2Confidence = 18.0
+    if nextHtf2State == HTF_STATE_BULL_CONT
+        nextHtf2Confidence += 26.0
+        nextHtf2Confidence += htf2Action == "Continuation" ? 12.0 : htf2Action == "Holding" ? 8.0 : htf2Action == "Initiation" ? 6.0 : 4.0
+        nextHtf2Confidence += htf2PdPos <= 0.35 ? 16.0 : htf2PdPos <= 0.55 ? 10.0 : 4.0
+        nextHtf2Confidence += htf2DispBias == 1 ? 16.0 : htf2DispBias == 0 ? 5.0 : -8.0
+        nextHtf2Confidence += htf2NearLowLiq ? 10.0 : htf2NearHighLiq ? 2.0 : 6.0
+        nextHtf2Confidence += htf2BullCloseConfirm ? 10.0 : 4.0
+    else if nextHtf2State == HTF_STATE_BEAR_CONT
+        nextHtf2Confidence += 26.0
+        nextHtf2Confidence += htf2Action == "Continuation" ? 12.0 : htf2Action == "Holding" ? 8.0 : htf2Action == "Initiation" ? 6.0 : 4.0
+        nextHtf2Confidence += htf2PdPos >= 0.65 ? 16.0 : htf2PdPos >= 0.45 ? 10.0 : 4.0
+        nextHtf2Confidence += htf2DispBias == -1 ? 16.0 : htf2DispBias == 0 ? 5.0 : -8.0
+        nextHtf2Confidence += htf2NearHighLiq ? 10.0 : htf2NearLowLiq ? 2.0 : 6.0
+        nextHtf2Confidence += htf2BearCloseConfirm ? 10.0 : 4.0
+    else if nextHtf2State == HTF_STATE_BULL_REV
+        nextHtf2Confidence += htf2JustBullReversal ? 23.0 : 15.0
+        nextHtf2Confidence += htf2PdPos <= 0.35 ? 14.0 : htf2PdPos <= 0.50 ? 10.0 : 6.0
+        nextHtf2Confidence += htf2DispBias == 1 ? 18.0 : 4.0
+        nextHtf2Confidence += htf2NearLowLiq ? 14.0 : 2.0
+        nextHtf2Confidence += (htf2BullProtectedBreak or htf2BullCloseConfirm) ? 12.0 : nextHtf2Dir == -1 ? 8.0 : 4.0
+        nextHtf2Confidence += nextHtf2Dir == 1 ? 8.0 : 4.0
+    else if nextHtf2State == HTF_STATE_BEAR_REV
+        nextHtf2Confidence += htf2JustBearReversal ? 23.0 : 15.0
+        nextHtf2Confidence += htf2PdPos >= 0.65 ? 14.0 : htf2PdPos >= 0.50 ? 10.0 : 6.0
+        nextHtf2Confidence += htf2DispBias == -1 ? 18.0 : 4.0
+        nextHtf2Confidence += htf2NearHighLiq ? 14.0 : 2.0
+        nextHtf2Confidence += (htf2BearProtectedBreak or htf2BearCloseConfirm) ? 12.0 : nextHtf2Dir == 1 ? 8.0 : 4.0
+        nextHtf2Confidence += nextHtf2Dir == -1 ? 8.0 : 4.0
+    else
+        nextHtf2Confidence += 10.0
+        nextHtf2Confidence += math.abs(htf2PdPos - 0.5) <= 0.12 ? 10.0 : 4.0
+        nextHtf2Confidence += htf2DispBias == 0 ? 8.0 : 3.0
+        nextHtf2Confidence += (htf2NearHighLiq or htf2NearLowLiq) ? 6.0 : 2.0
+        nextHtf2Confidence += prevHtf2Dir == HTF_STATE_RANGE ? 6.0 : 2.0
+
+    htf2StructureDir := nextHtf2Dir
+    htf2State := nextHtf2State
+    htf2Confidence := math.max(0.0, math.min(100.0, nextHtf2Confidence))
+
+float htf1DirectionalBias = f_htfDirectionalBias(htf1State, htf1Confidence)
+float htf2DirectionalBias = f_htfDirectionalBias(htf2State, htf2Confidence)
+float htfCompositeBias = htf1DirectionalBias * 0.75 + htf2DirectionalBias
+bool htfLongStrong = htfCompositeBias >= htfMinConfidence
+bool htfShortStrong = htfCompositeBias <= -htfMinConfidence
+string htf1Display = f_htfDashboardNarrative(htf1State, htf1Action, htf1StructureDir, htf1PdPos, htf1NearHighLiq, htf1NearLowLiq, htf1Confidence)
+string htf2Display = f_htfDashboardNarrative(htf2State, htf2Action, htf2StructureDir, htf2PdPos, htf2NearHighLiq, htf2NearLowLiq, htf2Confidence)
+string htfCompositeState = htfLongStrong ? "HTF bullish aligned" : htfShortStrong ? "HTF bearish aligned" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "HTF bullish lean" : "HTF bearish lean") : "HTF mixed/ranging"
+color htfCompositeColor = htfLongStrong ? f_htfStateColor(HTF_STATE_BULL_CONT, math.abs(htfCompositeBias)) : htfShortStrong ? f_htfStateColor(HTF_STATE_BEAR_CONT, math.abs(htfCompositeBias)) : color.new(COLOR_NEUT, 30)
+bool blockLongEntry = useHTFEntryFilter and htfShortStrong
+bool blockShortEntry = useHTFEntryFilter and htfLongStrong
+string htfCompositeDashboard = f_htfCompositeStackNarrative(htf1Tf, htf1DirectionalBias, htf2Tf, htf2DirectionalBias) + "\nBias: " + f_htfCompositeBiasNarrative(htfCompositeBias, htfLongStrong, htfShortStrong) + "\n" + f_htfCompositeFilterNarrative(htfCompositeBias, blockLongEntry, blockShortEntry)
+
+plot(showHTF ? lastHtf1PH : na, "HTF 1 Range High", htfColor1, 1, plot.style_linebr)
+plot(showHTF ? lastHtf1PL : na, "HTF 1 Range Low", htfColor1, 1, plot.style_linebr)
+plot(showHTF ? lastHtf2PH : na, "HTF 2 Range High", htfColor2, 1, plot.style_linebr)
+plot(showHTF ? lastHtf2PL : na, "HTF 2 Range Low", htfColor2, 1, plot.style_linebr)
 
 var float asiaH = na
 var float asiaL = na
@@ -397,8 +919,6 @@ var recentSwingLows = array.new_float(0)
 var recentSwingLowBars = array.new_int(0)
 
 // Volatility-Based Auto Optimization
-atrVal = ta.atr(14)
-max_bars_back(atrVal, 1000)
 volScale = atrVal / nz(ta.sma(atrVal, 200), atrVal)
 dynLen = autoLiqPivot ? math.max(5, math.min(40, math.round(liqPivotLen * volScale))) : liqPivotLen
 float chartTfSec = math.max(float(timeframe.in_seconds(timeframe.period)), 60.0)
@@ -417,7 +937,7 @@ f_liqIsEventEligible(liq_pool pool) =>
     not f_liqIsDevelopingSession(pool)
 
 f_liqIsExternal(string poolType) =>
-    poolType == "EXTERNAL" or poolType == "SESSION" or poolType == "PERIOD" or poolType == "EQ"
+    poolType == "EXTERNAL" or poolType == "SESSION" or poolType == "PERIOD" or poolType == "EQ" or poolType == "HTF"
 
 f_liqClusterTolerance(float price) =>
     math.max(syminfo.mintick * 4, math.min(atrVal * 0.10, price * 0.0025))
@@ -426,7 +946,7 @@ f_liqTouchTolerance(float price) =>
     math.max(syminfo.mintick * 2, math.min(atrVal * 0.04, price * 0.0010))
 
 f_liqSourceSeconds(liq_pool pool) =>
-    pool.baseType == "PERIOD" ? (pool.sourceTF == "M" ? 2592000.0 : pool.sourceTF == "W" ? 604800.0 : 86400.0) : (pool.baseType == "SESSION" or pool.baseType == "DEV_SESSION") ? 21600.0 : pool.baseType == "EQ" ? chartTfSec * 6.0 : chartTfSec
+    pool.baseType == "PERIOD" ? (pool.sourceTF == "M" ? 2592000.0 : pool.sourceTF == "W" ? 604800.0 : 86400.0) : pool.baseType == "HTF" ? (pool.sourceTF == htf2Tf ? math.max(float(timeframe.in_seconds(htf2Tf)), chartTfSec * 24.0) : math.max(float(timeframe.in_seconds(htf1Tf)), chartTfSec * 8.0)) : (pool.baseType == "SESSION" or pool.baseType == "DEV_SESSION") ? 21600.0 : pool.baseType == "EQ" ? chartTfSec * 6.0 : chartTfSec
 
 f_liqAgeUnits(liq_pool pool) =>
     float ageSec = math.max(float(time - pool.creationTime) / 1000.0, 0.0)
@@ -435,7 +955,7 @@ f_liqAgeUnits(liq_pool pool) =>
     ageSec / sourceSec + eventPenalty
 
 f_liqExpiryUnits(liq_pool pool) =>
-    float baseUnits = pool.poolType == "PERIOD" ? (pool.sourceTF == "M" ? 10.0 : pool.sourceTF == "W" ? 6.0 : 3.0) : pool.poolType == "SESSION" ? 2.0 : pool.poolType == "DEV_SESSION" ? 0.75 : pool.poolType == "EQ" ? 4.0 : pool.poolType == "EXTERNAL" ? 5.0 : 2.5
+    float baseUnits = pool.poolType == "PERIOD" ? (pool.sourceTF == "M" ? 10.0 : pool.sourceTF == "W" ? 6.0 : 3.0) : pool.poolType == "HTF" ? (pool.sourceTF == htf2Tf ? 8.0 : 6.0) : pool.poolType == "SESSION" ? 2.0 : pool.poolType == "DEV_SESSION" ? 0.75 : pool.poolType == "EQ" ? 4.0 : pool.poolType == "EXTERNAL" ? 5.0 : 2.5
     float scale = math.max(ageExpiry / 400.0, 0.5)
     baseUnits * scale
 
@@ -469,6 +989,14 @@ f_liqCompactBaseLabel(liq_pool pool) =>
         txt := pool.poolType == "EXTERNAL" ? (pool.side == "BSL" ? "Ext BSL" : "Ext SSL") : (pool.side == "BSL" ? "Int BSL" : "Int SSL")
     else if pool.baseType == "EQ"
         txt := pool.side == "BSL" ? "EQH" : "EQL"
+    else if pool.baseLabel == "HTF1 HIGH"
+        txt := htf1StructureDir == 1 ? "HTF1 Obj High" : htf1StructureDir == -1 ? "HTF1 Prot High" : "HTF1 Range High"
+    else if pool.baseLabel == "HTF1 LOW"
+        txt := htf1StructureDir == 1 ? "HTF1 Prot Low" : htf1StructureDir == -1 ? "HTF1 Obj Low" : "HTF1 Range Low"
+    else if pool.baseLabel == "HTF2 HIGH"
+        txt := htf2StructureDir == 1 ? "HTF2 Obj High" : htf2StructureDir == -1 ? "HTF2 Prot High" : "HTF2 Range High"
+    else if pool.baseLabel == "HTF2 LOW"
+        txt := htf2StructureDir == 1 ? "HTF2 Prot Low" : htf2StructureDir == -1 ? "HTF2 Obj Low" : "HTF2 Range Low"
     else if pool.baseLabel == "DEV LONDON H"
         txt := "Dev London H"
     else if pool.baseLabel == "DEV LONDON L"
@@ -534,7 +1062,7 @@ f_liqDistanceAtr(liq_pool pool) =>
 
 f_liqIsRenderableActive(liq_pool pool) =>
     bool activeState = pool.state == "FRESH" or pool.state == "TAGGED"
-    bool importantType = pool.poolType == "PERIOD" or pool.poolType == "SESSION" or pool.poolType == "EQ" or pool.poolType == "EXTERNAL"
+    bool importantType = pool.poolType == "PERIOD" or pool.poolType == "SESSION" or pool.poolType == "EQ" or pool.poolType == "EXTERNAL" or pool.poolType == "HTF"
     bool developingSessionVisible = pool.poolType == "DEV_SESSION" and showDevelopingSessionLevels
     bool internalActionable = pool.poolType == "INTERNAL" and pool.isInducementCandidate and f_liqDistanceAtr(pool) <= 1.0
     activeState and (importantType or internalActionable or developingSessionVisible)
@@ -563,6 +1091,14 @@ f_liqHasDedicatedOverlay(liq_pool pool) =>
 
 f_newLiqPool(string side, string poolType, string baseType, float price, int sourceBar, int creationTime, string label, string baseLabel, string sourceTF, float structuralRank, string sessionContext, float cleanlinessScore, bool isInducementCandidate) =>
     liq_pool.new(side, poolType, baseType, price, sourceBar, false, label, baseLabel, 0, 1, int(na), sourceBar, int(na), na, int(na), na, int(na), int(na), creationTime, sourceTF, structuralRank, 0, cleanlinessScore, sessionContext, isInducementCandidate, "FRESH")
+
+f_htfLiqRank(string tf, float conf) =>
+    float baseRank = tf == htf2Tf ? 90.0 : 84.0
+    float ceiling = tf == htf2Tf ? 98.0 : 94.0
+    math.min(ceiling, baseRank + conf * 0.12)
+
+f_htfLiqCleanliness(float conf) =>
+    math.min(100.0, 76.0 + conf * 0.18)
 
 f_liqRemoveNamedPool(string label) =>
     if liq_pools.size() > 0
@@ -782,6 +1318,23 @@ if isNewMonth and not na(pmh) and not na(pml)
     f_liqUpsertNamedPool("BSL", "PERIOD", "PERIOD", pmh, bar_index, "PMH", "M", 98.0, "Prev Month", 92.0, false, false)
     f_liqUpsertNamedPool("SSL", "PERIOD", "PERIOD", pml, bar_index, "PML", "M", 98.0, "Prev Month", 92.0, false, false)
 
+if showHTFLiquidity and not na(lastHtf1PH)
+    f_liqUpsertNamedPool("BSL", "HTF", "HTF", lastHtf1PH, bar_index, "HTF1 HIGH", htf1Tf, f_htfLiqRank(htf1Tf, htf1Confidence), f_htfStateName(htf1State), f_htfLiqCleanliness(htf1Confidence), false, true)
+else
+    f_liqRemoveNamedPool("HTF1 HIGH")
+if showHTFLiquidity and not na(lastHtf1PL)
+    f_liqUpsertNamedPool("SSL", "HTF", "HTF", lastHtf1PL, bar_index, "HTF1 LOW", htf1Tf, f_htfLiqRank(htf1Tf, htf1Confidence), f_htfStateName(htf1State), f_htfLiqCleanliness(htf1Confidence), false, true)
+else
+    f_liqRemoveNamedPool("HTF1 LOW")
+if showHTFLiquidity and not na(lastHtf2PH)
+    f_liqUpsertNamedPool("BSL", "HTF", "HTF", lastHtf2PH, bar_index, "HTF2 HIGH", htf2Tf, f_htfLiqRank(htf2Tf, htf2Confidence), f_htfStateName(htf2State), f_htfLiqCleanliness(htf2Confidence), false, true)
+else
+    f_liqRemoveNamedPool("HTF2 HIGH")
+if showHTFLiquidity and not na(lastHtf2PL)
+    f_liqUpsertNamedPool("SSL", "HTF", "HTF", lastHtf2PL, bar_index, "HTF2 LOW", htf2Tf, f_htfLiqRank(htf2Tf, htf2Confidence), f_htfStateName(htf2State), f_htfLiqCleanliness(htf2Confidence), false, true)
+else
+    f_liqRemoveNamedPool("HTF2 LOW")
+
 [eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqLocalLookback)
 [eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqStructuralLookback)
 [eqhLevel, eqhCount, eqhLastBar, eqhScore] = select_cluster(eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore, eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore)
@@ -825,6 +1378,11 @@ if liq_pools.size() > 0
             pool.poolType := "PERIOD"
             pool.poolLabel := pool.baseLabel
             pool.structuralRank := pool.sourceTF == "M" ? 98.0 : pool.sourceTF == "W" ? 92.0 : 86.0
+            pool.isInducementCandidate := false
+        else if pool.baseType == "HTF"
+            pool.poolType := "HTF"
+            pool.poolLabel := pool.baseLabel
+            pool.structuralRank := f_htfLiqRank(pool.sourceTF, pool.sourceTF == htf2Tf ? htf2Confidence : htf1Confidence)
             pool.isInducementCandidate := false
         else if pool.baseType == "EQ"
             pool.poolType := "EQ"
@@ -1035,7 +1593,7 @@ f_liqRangePos(float price) =>
     liqRangeSpan > 0 ? (price - liqRangeLow) / liqRangeSpan : 0.5
 
 f_sweepLiquidityScore(liq_pool pool) =>
-    pool.poolType == "PERIOD" ? 18.0 : pool.poolType == "SESSION" ? 16.0 : pool.poolType == "EQ" ? 14.0 : pool.poolType == "EXTERNAL" ? 12.0 : 4.0
+    pool.poolType == "HTF" ? 20.0 : pool.poolType == "PERIOD" ? 18.0 : pool.poolType == "SESSION" ? 16.0 : pool.poolType == "EQ" ? 14.0 : pool.poolType == "EXTERNAL" ? 12.0 : 4.0
 
 f_sweepSessionIsLogical(liq_pool pool) =>
     if pool.baseType == "SESSION"
@@ -1384,10 +1942,12 @@ if liq_pools.size() > 0
                 float pdScore = f_sweepPdScore(isBSLPool, clusterEdgePrice)
                 float sessionScore = (kzBoost ? f_sweepSessionScore(clusterRep) : 0.0)
                 float liquidityScore = f_sweepLiquidityScore(clusterRep)
+                float htfSweepNarrativeBias = isBSLPool ? -htfCompositeBias : htfCompositeBias
+                float htfAlignmentScore = math.max(-14.0, math.min(14.0, htfSweepNarrativeBias * 0.12))
                 float volumeScore = (volConfirm and highVol) ? 4.0 : 0.0
                 float retapPenalty = lowQualityRetap ? -18.0 : math.max(clusterRep.timesTagged - 1, 0) * -4.0
                 float coherencePenalty = coherentWindow ? 0.0 : -22.0
-                float rawSweepScore = penetrationScore + timeScore + closeScore + rejectionScore + pdScore + sessionScore + liquidityScore + volumeScore + retapPenalty + coherencePenalty
+                float rawSweepScore = penetrationScore + timeScore + closeScore + rejectionScore + pdScore + sessionScore + liquidityScore + htfAlignmentScore + volumeScore + retapPenalty + coherencePenalty
                 rawSweepScore += f_sweepSessionIsLogical(clusterRep) ? 0.0 : -10.0
                 rawSweepScore += disorderlyNews ? -18.0 : 0.0
                 rawSweepScore := f_clamp(rawSweepScore, 0.0, 100.0)
@@ -1405,7 +1965,9 @@ if liq_pools.size() > 0
 
                 float breakoutScore = 0.0
                 if continuationBreak and not lowQualityRetap and not disorderlyNews
-                    breakoutScore := liquidityScore + sessionScore + (breakoutDispNow ? 18.0 : 8.0) + math.min(math.max(body / safeRange, 0.0), 1.0) * 12.0 + math.min(depthAtr, 1.5) * 10.0 + (pendingExpired ? 10.0 : 0.0)
+                    float htfBreakoutBias = isBSLPool ? htfCompositeBias : -htfCompositeBias
+                    float htfBreakoutScore = math.max(-12.0, math.min(12.0, htfBreakoutBias * 0.10))
+                    breakoutScore := liquidityScore + sessionScore + htfBreakoutScore + (breakoutDispNow ? 18.0 : 8.0) + math.min(math.max(body / safeRange, 0.0), 1.0) * 12.0 + math.min(depthAtr, 1.5) * 10.0 + (pendingExpired ? 10.0 : 0.0)
                     breakoutScore += f_sweepSessionIsLogical(clusterRep) ? 0.0 : -6.0
                     breakoutScore += clusterRep.timesTagged >= 3 ? -6.0 : 0.0
                     breakoutScore := f_clamp(breakoutScore, 0.0, 100.0)
@@ -1725,7 +2287,7 @@ if mssL
     shiftType := useMajorMSS ? (trendAtSweepL == 1 ? "CONTINUATION BOS ↗" : "EXTERNAL SHIFT ↗") : "INTERNAL SHIFT ↗"
 
 // --- Stats Logic ---
-if mssS and not active
+if mssS and not active and not blockShortEntry
     active := true, bull := false, tSetups += 1
     tSL := (stopModel == "Sweep Extreme") ? sExtH : high
     float entryRefS = useMajorMSS ? externalRefS : internalRefS
@@ -1733,8 +2295,11 @@ if mssS and not active
     activeProjStartBar := bar_index
     waitS := false, waitStartBarS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitRaidTextS := "", waitRaidLabelS := na, anchorMSS_S := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
     label.new(bar_index, low, "ENTRY [" + shiftType + "]", color=COLOR_BEAR, textcolor=color.white, style=label.style_label_down, size=size.small)
+else if mssS and not active and blockShortEntry
+    structureStatus := "Bearish MSS (HTF Blocked)"
+    label.new(bar_index, low, "ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
 
-if mssL and not active
+if mssL and not active and not blockLongEntry
     active := true, bull := true, tSetups += 1
     tSL := (stopModel == "Sweep Extreme") ? sExtL : low
     float entryRefL = useMajorMSS ? externalRefL : internalRefL
@@ -1742,6 +2307,9 @@ if mssL and not active
     activeProjStartBar := bar_index
     waitL := false, waitStartBarL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitRaidTextL := "", waitRaidLabelL := na, anchorMSS_L := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
     label.new(bar_index, high, "ENTRY [" + shiftType + "]", color=COLOR_BULL, textcolor=color.white, style=label.style_label_up, size=size.small)
+else if mssL and not active and blockLongEntry
+    structureStatus := "Bullish MSS (HTF Blocked)"
+    label.new(bar_index, high, "ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
 
 if active and showProj and not na(t10) and not na(activeProjStartBar)
     line.set_xy1(activeProjLine, activeProjStartBar, t10)
@@ -1943,51 +2511,772 @@ if barstate.islast
     update_rz_vis(topLong, "Long", bLong, lLong, lbLong)
     update_rz_vis(topShort, "Short", bShort, lShort, lbShort)
 
+// --- Big Move / Spike Memory Engine ---
+var bigMoveEvents = array.new<big_move_event>(0)
+var bigMoveBoxes = array.new_box(0)
+var bigMoveCeLines = array.new_line(0)
+var bigMoveLabels = array.new_label(0)
+var label bigMoveHintLabel = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var bool bigMoveClusterActive = false
+var string bigMoveClusterType = ""
+var string bigMoveClusterDirection = ""
+var int bigMoveClusterStartBar = na
+var int bigMoveClusterEndBar = na
+var int bigMoveClusterBestBar = na
+var int bigMoveClusterTime = na
+var float bigMoveClusterHigh = na
+var float bigMoveClusterLow = na
+var float bigMoveClusterRangeAtr = 0.0
+var float bigMoveClusterBodyPct = 0.0
+var float bigMoveClusterWickPct = 0.0
+var float bigMoveClusterRelVol = 0.0
+var float bigMoveClusterBestScore = 0.0
+var string bigMoveClusterSession = ""
+var string bigMoveClusterKillzone = ""
+var string bigMoveClusterPhase = ""
+var bool bigMoveClusterLiq = false
+var bool bigMoveClusterFvg = false
+var bool bigMoveClusterSweep = false
+var string bigMoveClusterNarrative = ""
+var big_move_timing_snapshot bigMoveSnapshot = big_move_timing_snapshot.new("—", "—", "—", "—", "—", "LOW PROBABILITY", "—", 0.0, 0, 0.0, 0.0, false)
+
+f_bigMoveTablePos() =>
+    bigMoveTimingTablePos == "Top Right" ? position.top_right : bigMoveTimingTablePos == "Top Left" ? position.top_left : bigMoveTimingTablePos == "Bottom Right" ? position.bottom_right : position.bottom_left
+
+f_bigMovePad2(int val) =>
+    val < 10 ? "0" + str.tostring(val) : str.tostring(val)
+
+f_bigMoveBucketName(int idx) =>
+    int bucket = int(math.max(0, math.min(95, idx)))
+    int hh = int(math.floor(bucket / 4))
+    int mm = (bucket % 4) * 15
+    f_bigMovePad2(hh) + ":" + f_bigMovePad2(mm) + " UTC"
+
+f_bigMoveTrimSessionString(string sess) =>
+    int colonIdx = str.pos(sess, ":")
+    colonIdx >= 0 ? str.substring(sess, 0, colonIdx) : sess
+
+f_bigMoveMinuteFromPart(string hhmm) =>
+    int hh = int(str.tonumber(str.substring(hhmm, 0, 2)))
+    int mm = int(str.tonumber(str.substring(hhmm, 2, 4)))
+    hh * 60 + mm
+
+f_bigMoveResolveSessionPhase(string sess, string tz, bool isActive) =>
+    string phase = "OFF"
+    if isActive
+        string cleanSess = f_bigMoveTrimSessionString(sess)
+        int startMin = f_bigMoveMinuteFromPart(str.substring(cleanSess, 0, 4))
+        int endMin = f_bigMoveMinuteFromPart(str.substring(cleanSess, 5, 9))
+        int curMin = hour(time, tz) * 60 + minute(time, tz)
+        int span = endMin >= startMin ? endMin - startMin : 1440 - startMin + endMin
+        int elapsed = curMin >= startMin ? curMin - startMin : 1440 - startMin + curMin
+        float progress = span > 0 ? float(math.min(math.max(elapsed, 0), span)) / float(span) : 0.5
+        phase := progress < 0.33 ? "OPEN" : progress > 0.66 ? "CLOSE" : "MID"
+    phase
+
+f_bigMoveSessionName() =>
+    inLondon ? "London" : inNY ? "New York" : inAsia ? "Asia" : "Inter-Session"
+
+f_bigMoveKillzoneName() =>
+    inLondonSweepWindow ? "London Sweep" : inNYSweepWindow ? "NY Sweep" : inLondon ? "London" : inNY ? "New York" : inAsia ? "Asia" : "Inter-Session"
+
+f_bigMoveCurrentSessionPhase() =>
+    inLondon ? f_bigMoveResolveSessionPhase(londonSess, "UTC", true) : inNY ? f_bigMoveResolveSessionPhase(nySess, "UTC", true) : inAsia ? f_bigMoveResolveSessionPhase(asiaSession, "UTC", true) : inLondonSweepWindow ? f_bigMoveResolveSessionPhase("0700-1100:1234567", "Europe/London", true) : inNYSweepWindow ? f_bigMoveResolveSessionPhase("0830-1100:1234567", "America/New_York", true) : "OFF"
+
+f_bigMoveHourBucket(int ts) =>
+    hour(ts, "UTC")
+
+f_bigMoveQuarterBucket(int ts) =>
+    hour(ts, "UTC") * 4 + int(math.floor(minute(ts, "UTC") / 15))
+
+f_bigMoveKillzoneIndex(string name) =>
+    name == "London Sweep" ? 0 : name == "NY Sweep" ? 1 : name == "London" ? 2 : name == "New York" ? 3 : name == "Asia" ? 4 : 5
+
+f_bigMoveKillzoneLabel(int idx) =>
+    idx == 0 ? "London Sweep" : idx == 1 ? "NY Sweep" : idx == 2 ? "London" : idx == 3 ? "New York" : idx == 4 ? "Asia" : "Inter-Session"
+
+f_bigMovePhaseIndex(string phase) =>
+    phase == "OPEN" ? 0 : phase == "MID" ? 1 : phase == "CLOSE" ? 2 : 3
+
+f_bigMovePhaseLabel(int idx) =>
+    idx == 0 ? "Open" : idx == 1 ? "Mid" : idx == 2 ? "Close" : "Off"
+
+f_bigMoveBuildEvent(int startBar, int endBar, int eventBar, int eventTime, string eventType, string direction, float highPrice, float lowPrice, float rangeAtr, float bodyPct, float wickPct, float relVolume, float score, string sessionName, string killzoneName, string sessionPhase, bool hadLiquidityConfluence, bool hadFvgConfluence, bool hadSweepConfluence, string narrative) =>
+    big_move_event.new(startBar, endBar, eventBar, eventTime, eventType, direction, highPrice, lowPrice, (highPrice + lowPrice) * 0.5, rangeAtr, bodyPct, wickPct, relVolume, score, sessionName, killzoneName, sessionPhase, f_bigMoveHourBucket(eventTime), f_bigMoveQuarterBucket(eventTime), hadLiquidityConfluence, hadFvgConfluence, hadSweepConfluence, narrative)
+
+f_bigMoveNarrative(string eventType, string direction, string killzoneName, string sessionName, string sessionPhase, string liqLabel, string fvgLabel, bool sweepFound) =>
+    string ctx = killzoneName != "Inter-Session" ? killzoneName : sessionName
+    string txt = eventType + " | " + ctx
+    if sessionPhase != "OFF"
+        txt += " " + sessionPhase
+    txt += " | " + direction
+    if str.length(liqLabel) > 0
+        txt += " | " + liqLabel
+    if str.length(fvgLabel) > 0
+        txt += " | " + fvgLabel
+    if sweepFound
+        txt += " | SWEEP"
+    txt
+
+f_bigMoveLiquidityConfluence(float zoneHigh, float zoneLow, string direction) =>
+    bool found = false
+    float bestBoost = 0.0
+    string bestLabel = ""
+    if liq_pools.size() > 0 and atrVal > 0
+        for i = 0 to liq_pools.size() - 1
+            pool = liq_pools.get(i)
+            bool actionable = f_liqIsEventEligible(pool) and not f_liqIsExpired(pool)
+            bool stateRelevant = pool.state != "CONSUMED" or nz(pool.lastTouchBar, -1) == bar_index or nz(pool.takenBar, -1) == bar_index
+            if actionable and stateRelevant
+                float tol = math.max(f_liqTouchTolerance(pool.price) * 1.5, atrVal * 0.12)
+                bool overlaps = zoneLow <= (pool.price + tol) and zoneHigh >= (pool.price - tol)
+                bool directionalPool = direction == "BULL" ? (pool.side == "SSL" or pool.price <= zoneLow + tol) : (pool.side == "BSL" or pool.price >= zoneHigh - tol)
+                if overlaps and directionalPool
+                    float boost = math.min(18.0, 5.0 + f_liqRetentionScore(pool) * 0.11 + (f_liqIsExternal(pool.poolType) ? 3.0 : 0.0) + (pool.poolType == "EQ" ? 2.0 : 0.0))
+                    if boost > bestBoost
+                        bestBoost := boost
+                        bestLabel := f_liqCompactBaseLabel(pool)
+                        found := true
+    [found, bestBoost, bestLabel]
+
+f_bigMoveNearImportantLiquidity() =>
+    bool near = false
+    string bestLabel = ""
+    float bestDist = 10e10
+    if liq_pools.size() > 0 and atrVal > 0
+        for i = 0 to liq_pools.size() - 1
+            pool = liq_pools.get(i)
+            bool meaningful = f_liqIsEventEligible(pool) and not f_liqIsExpired(pool) and pool.state != "CONSUMED" and (f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 74.0)
+            if meaningful
+                float dist = math.abs(pool.price - close)
+                if dist <= atrVal * 0.35 and dist < bestDist
+                    bestDist := dist
+                    bestLabel := f_liqCompactBaseLabel(pool)
+                    near := true
+    [near, bestLabel]
+
+f_bigMoveFvgConfluence(float zoneHigh, float zoneLow, string direction) =>
+    bool found = false
+    float boost = 0.0
+    string label = ""
+    bool createdImbalance = direction == "BULL" ? low > high[2] : high < low[2]
+    if createdImbalance
+        found := true
+        boost := 8.0
+        label := "New imbalance"
+    if fvg_records.size() > 0 and atrVal > 0
+        int maxScan = int(math.min(fvg_records.size(), 10))
+        for i = 0 to maxScan - 1
+            f_dat = fvg_records.get(i)
+            bool sameDir = direction == "BULL" ? f_dat.isBull : not f_dat.isBull
+            bool recent = bar_index - f_dat.startBar <= 30
+            bool overlap = zoneLow <= f_dat.max and zoneHigh >= f_dat.min
+            bool nearLaunch = math.abs(((zoneHigh + zoneLow) * 0.5) - ((f_dat.max + f_dat.min) * 0.5)) <= atrVal * 0.75
+            if sameDir and recent and (overlap or nearLaunch)
+                found := true
+                float candidateBoost = createdImbalance ? 12.0 : 7.0
+                if candidateBoost > boost
+                    boost := candidateBoost
+                    label := createdImbalance ? "Fresh imbalance + FVG" : "Fresh FVG"
+                break
+    [found, boost, label]
+
+f_bigMoveSweepConfluence(string direction) =>
+    direction == "BULL" ? (swpSSL or waitL or mssL) : (swpBSL or waitS or mssS)
+
+f_bigMoveTimeRepeatabilityBonus(int minuteBucket, string killzoneName) =>
+    int bucketHits = 0
+    int killzoneHits = 0
+    if bigMoveEvents.size() > 0
+        for i = 0 to bigMoveEvents.size() - 1
+            evt = bigMoveEvents.get(i)
+            if bar_index - evt.eventBar <= bigMoveLookback and evt.score >= bigMoveMinScore
+                if evt.minuteBucket == minuteBucket
+                    bucketHits += 1
+                if evt.killzoneName == killzoneName
+                    killzoneHits += 1
+    math.min(8.0, bucketHits * 1.25 + killzoneHits * 0.5)
+
+f_bigMoveScore(string eventType, float rangeAtr, float bodyPct, float wickPct, float closeExtremePct, float relVol, string sessionName, string killzoneName, float liquidityBoost, float fvgBoost, bool sweepConfluence, float repeatBonus, int clusterCount) =>
+    float rangeScore = math.min(28.0, math.max(0.0, (rangeAtr - bigMoveMinRangeAtr) / math.max(bigMoveMinRangeAtr, 0.1) * 18.0 + 10.0))
+    float impulseScore = eventType == "EXPANSION" ? math.min(24.0, bodyPct * 24.0 + math.max(0.0, 0.28 - closeExtremePct) * 18.0) : math.min(14.0, (1.0 - bodyPct) * 8.0 + math.max(0.0, 0.60 - closeExtremePct) * 10.0)
+    float wickScore = eventType == "SPIKE" ? math.min(18.0, math.max(0.0, wickPct - spikeMinWickPct) * 28.0 + 6.0) : math.max(0.0, 8.0 - wickPct * 10.0)
+    float volScore = relVol >= bigMoveVolMult ? math.min(14.0, 6.0 + (relVol - bigMoveVolMult) * 8.0) : math.max(-10.0, (relVol / math.max(bigMoveVolMult, 1.0) - 1.0) * 18.0)
+    float sessionScore = 0.0
+    if bigMoveUseKillzoneBoost
+        sessionScore := killzoneName == "London Sweep" or killzoneName == "NY Sweep" ? 12.0 : sessionName == "London" or sessionName == "New York" ? 7.0 : sessionName == "Asia" ? 3.0 : -5.0
+    float sweepScore = sweepConfluence ? 7.0 : 0.0
+    float clusterScore = math.min(6.0, math.max(clusterCount - 1, 0) * 2.5)
+    float noisePenalty = eventType == "EXPANSION" and wickPct > 0.40 ? -8.0 : eventType == "SPIKE" and bodyPct > 0.68 ? -6.0 : 0.0
+    float score = rangeScore + impulseScore + wickScore + volScore + sessionScore + liquidityBoost + fvgBoost + sweepScore + repeatBonus + clusterScore + noisePenalty
+    math.max(0.0, math.min(100.0, score))
+
+f_bigMoveStoreEvent(big_move_event evt) =>
+    if evt.score >= bigMoveMinScore
+        bool merged = false
+        if bigMoveEvents.size() > 0
+            lastEvt = bigMoveEvents.get(0)
+            float mergeTol = atrVal > 0 ? atrVal * 0.35 : syminfo.mintick * 25
+            bool sameNarrative = lastEvt.direction == evt.direction and lastEvt.eventType == evt.eventType and math.abs(lastEvt.cePrice - evt.cePrice) <= mergeTol and math.abs(lastEvt.eventBar - evt.eventBar) <= bigMoveClusterBars
+            if sameNarrative
+                if evt.score >= lastEvt.score
+                    bigMoveEvents.set(0, evt)
+                merged := true
+        if not merged
+            bigMoveEvents.unshift(evt)
+    true
+
+f_bigMovePruneEvents() =>
+    if bigMoveEvents.size() > 0
+        for i = bigMoveEvents.size() - 1 to 0
+            evt = bigMoveEvents.get(i)
+            if bar_index - evt.eventBar > bigMoveLookback
+                bigMoveEvents.remove(i)
+    while bigMoveEvents.size() > bigMoveMaxStored
+        int dropIdx = 0
+        float lowestRetention = 10e10
+        for i = 0 to bigMoveEvents.size() - 1
+            evt = bigMoveEvents.get(i)
+            float retention = evt.score - float(bar_index - evt.eventBar) * 0.15 + (evt.hadLiquidityConfluence ? 6.0 : 0.0) + (evt.hadFvgConfluence ? 3.0 : 0.0)
+            if retention < lowestRetention
+                lowestRetention := retention
+                dropIdx := i
+        bigMoveEvents.remove(dropIdx)
+    true
+
+f_bigMoveEventPriority(big_move_event evt) =>
+    evt.score + (evt.hadLiquidityConfluence ? 6.0 : 0.0) + (evt.hadFvgConfluence ? 3.0 : 0.0) + (evt.hadSweepConfluence ? 2.0 : 0.0) - float(bar_index - evt.eventBar) * 0.08
+
+f_bigMoveEventColor(big_move_event evt) =>
+    evt.eventType == "SPIKE" ? (evt.direction == "BULL" ? COLOR_NEUT : color.orange) : (evt.direction == "BULL" ? COLOR_BULL : COLOR_BEAR)
+
+f_bigMoveHintColor(string state) =>
+    state == "HIGH EXPANSION WINDOW" ? COLOR_BULL : state == "HIGH SPIKE RISK WINDOW" ? color.orange : state == "WATCH" ? COLOR_NEUT : color.silver
+
+f_bigMoveAggregateTimingStats(bool nearLiquidity, float currentRelVol) =>
+    kzCounts = array.new_int(6, 0)
+    kzHighCounts = array.new_int(6, 0)
+    kzBullCounts = array.new_int(6, 0)
+    kzBearCounts = array.new_int(6, 0)
+    kzSpikeCounts = array.new_int(6, 0)
+    kzExpansionCounts = array.new_int(6, 0)
+    kzScoreSums = array.new_float(6, 0.0)
+    phaseCounts = array.new_int(4, 0)
+    phaseScoreSums = array.new_float(4, 0.0)
+    bucketCounts = array.new_int(96, 0)
+    bucketHighCounts = array.new_int(96, 0)
+    bucketSpikeCounts = array.new_int(96, 0)
+    bucketExpansionCounts = array.new_int(96, 0)
+    bucketScoreSums = array.new_float(96, 0.0)
+    int eventCount = 0
+    int bullCount = 0
+    int bearCount = 0
+    int expansionCount = 0
+    int spikeCount = 0
+    float totalScore = 0.0
+    float totalRelVol = 0.0
+    if bigMoveEvents.size() > 0
+        for i = 0 to bigMoveEvents.size() - 1
+            evt = bigMoveEvents.get(i)
+            if bar_index - evt.eventBar <= bigMoveLookback
+                eventCount += 1
+                totalScore += evt.score
+                totalRelVol += evt.relVolume
+                if evt.direction == "BULL"
+                    bullCount += 1
+                else
+                    bearCount += 1
+                if evt.eventType == "EXPANSION"
+                    expansionCount += 1
+                else
+                    spikeCount += 1
+                int kzIdx = f_bigMoveKillzoneIndex(evt.killzoneName)
+                array.set(kzCounts, kzIdx, array.get(kzCounts, kzIdx) + 1)
+                array.set(kzScoreSums, kzIdx, array.get(kzScoreSums, kzIdx) + evt.score)
+                if evt.score >= bigMoveMinScore
+                    array.set(kzHighCounts, kzIdx, array.get(kzHighCounts, kzIdx) + 1)
+                if evt.direction == "BULL"
+                    array.set(kzBullCounts, kzIdx, array.get(kzBullCounts, kzIdx) + 1)
+                else
+                    array.set(kzBearCounts, kzIdx, array.get(kzBearCounts, kzIdx) + 1)
+                if evt.eventType == "EXPANSION"
+                    array.set(kzExpansionCounts, kzIdx, array.get(kzExpansionCounts, kzIdx) + 1)
+                else
+                    array.set(kzSpikeCounts, kzIdx, array.get(kzSpikeCounts, kzIdx) + 1)
+                int phaseIdx = f_bigMovePhaseIndex(evt.sessionPhase)
+                array.set(phaseCounts, phaseIdx, array.get(phaseCounts, phaseIdx) + 1)
+                array.set(phaseScoreSums, phaseIdx, array.get(phaseScoreSums, phaseIdx) + evt.score)
+                int bucketIdx = int(math.max(0, math.min(95, evt.minuteBucket)))
+                array.set(bucketCounts, bucketIdx, array.get(bucketCounts, bucketIdx) + 1)
+                array.set(bucketScoreSums, bucketIdx, array.get(bucketScoreSums, bucketIdx) + evt.score)
+                if evt.score >= bigMoveMinScore
+                    array.set(bucketHighCounts, bucketIdx, array.get(bucketHighCounts, bucketIdx) + 1)
+                if evt.eventType == "EXPANSION"
+                    array.set(bucketExpansionCounts, bucketIdx, array.get(bucketExpansionCounts, bucketIdx) + 1)
+                else
+                    array.set(bucketSpikeCounts, bucketIdx, array.get(bucketSpikeCounts, bucketIdx) + 1)
+    string topKillzone = "—"
+    string bestAvgKillzone = "—"
+    int topKillCount = 0
+    float bestKillAvg = -1.0
+    int topPhaseIdx = na
+    int topPhaseCount = 0
+    float topPhaseAvg = -1.0
+    for i = 0 to 5
+        int kzCount = array.get(kzCounts, i)
+        float kzAvg = kzCount > 0 ? array.get(kzScoreSums, i) / kzCount : 0.0
+        if kzCount > topKillCount
+            topKillCount := kzCount
+            topKillzone := f_bigMoveKillzoneLabel(i)
+        if kzCount > 0 and kzAvg > bestKillAvg
+            bestKillAvg := kzAvg
+            bestAvgKillzone := f_bigMoveKillzoneLabel(i)
+    for i = 0 to 3
+        int phaseCount = array.get(phaseCounts, i)
+        float phaseAvg = phaseCount > 0 ? array.get(phaseScoreSums, i) / phaseCount : 0.0
+        if phaseCount > topPhaseCount or (phaseCount == topPhaseCount and phaseAvg > topPhaseAvg)
+            topPhaseCount := phaseCount
+            topPhaseAvg := phaseAvg
+            topPhaseIdx := i
+    int topBucketIdx = na
+    int topBucketHigh = 0
+    float topBucketAvg = -1.0
+    for i = 0 to 95
+        int bucketCount = array.get(bucketCounts, i)
+        int bucketHigh = array.get(bucketHighCounts, i)
+        float bucketAvg = bucketCount > 0 ? array.get(bucketScoreSums, i) / bucketCount : 0.0
+        if bucketHigh > topBucketHigh or (bucketHigh == topBucketHigh and bucketAvg > topBucketAvg)
+            topBucketHigh := bucketHigh
+            topBucketAvg := bucketAvg
+            topBucketIdx := i
+    string topWindow = topKillCount > 0 ? topKillzone + (not na(topPhaseIdx) and topPhaseIdx < 3 ? " " + f_bigMovePhaseLabel(topPhaseIdx) : "") : not na(topBucketIdx) ? f_bigMoveBucketName(topBucketIdx) : "—"
+    string dominantType = expansionCount == spikeCount ? "Mixed" : expansionCount > spikeCount ? "Expansion" : "Spike"
+    string bias = bullCount == bearCount ? "Balanced" : bullCount > bearCount ? "Bullish" : "Bearish"
+    float avgScore = eventCount > 0 ? totalScore / eventCount : 0.0
+    float avgRelVol = eventCount > 0 ? totalRelVol / eventCount : 0.0
+    int curBucketIdx = f_bigMoveQuarterBucket(time)
+    int curBucketCount = array.get(bucketCounts, curBucketIdx)
+    int curBucketHigh = array.get(bucketHighCounts, curBucketIdx)
+    float curBucketAvg = curBucketCount > 0 ? array.get(bucketScoreSums, curBucketIdx) / curBucketCount : 0.0
+    int curBucketSpike = array.get(bucketSpikeCounts, curBucketIdx)
+    int curBucketExpansion = array.get(bucketExpansionCounts, curBucketIdx)
+    int curKillIdx = f_bigMoveKillzoneIndex(f_bigMoveKillzoneName())
+    int curKillCount = array.get(kzCounts, curKillIdx)
+    float curKillAvg = curKillCount > 0 ? array.get(kzScoreSums, curKillIdx) / curKillCount : 0.0
+    int curPhaseIdx = f_bigMovePhaseIndex(f_bigMoveCurrentSessionPhase())
+    int curPhaseCount = array.get(phaseCounts, curPhaseIdx)
+    float curPhaseAvg = curPhaseCount > 0 ? array.get(phaseScoreSums, curPhaseIdx) / curPhaseCount : 0.0
+    int freqThreshold = eventCount >= 30 ? 3 : eventCount >= 12 ? 2 : 1
+    bool strongBucket = curBucketHigh >= freqThreshold or (curBucketCount >= 2 and curBucketAvg >= bigMoveMinScore + 6.0)
+    bool strongKillzone = curKillCount >= 1 and curKillAvg >= bigMoveMinScore and f_bigMoveKillzoneName() != "Inter-Session"
+    bool strongPhase = curPhaseCount >= freqThreshold or (curPhaseCount >= 1 and curPhaseAvg >= bigMoveMinScore + 4.0 and curPhaseIdx < 3)
+    bool volReady = currentRelVol >= 0.9
+    bool liqReady = not bigMoveUseLiquidityBoost or nearLiquidity
+    bool spikeDominantNow = curBucketSpike > curBucketExpansion
+    string currentState = "LOW PROBABILITY"
+    if strongBucket and strongKillzone and strongPhase and volReady and liqReady
+        currentState := spikeDominantNow ? "HIGH SPIKE RISK WINDOW" : "HIGH EXPANSION WINDOW"
+    else if (curBucketHigh >= 1 and volReady) or (strongKillzone and nearLiquidity) or (curPhaseIdx < 3 and curPhaseCount >= 1 and curPhaseAvg >= bigMoveMinScore) or (curBucketCount >= 1 and curBucketAvg >= bigMoveMinScore)
+        currentState := "WATCH"
+    float hitRate = curBucketCount > 0 ? float(curBucketHigh) / curBucketCount * 100.0 : 0.0
+    big_move_timing_snapshot.new(topWindow, topKillzone, bestAvgKillzone, dominantType, bias, currentState, f_bigMoveBucketName(curBucketIdx), hitRate, eventCount, avgRelVol, avgScore, spikeDominantNow)
+
+if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
+    f_bigMovePruneEvents()
+
+    float bigMoveRange = high - low
+    float bigMoveSafeRange = bigMoveRange > 0 ? bigMoveRange : syminfo.mintick
+    float bigMoveBody = math.abs(close - open)
+    float bigMoveBodyPctVal = bigMoveBody / bigMoveSafeRange
+    float bigMoveUpperWickPct = (high - math.max(open, close)) / bigMoveSafeRange
+    float bigMoveLowerWickPct = (math.min(open, close) - low) / bigMoveSafeRange
+    float bigMoveRangeAtrVal = atrVal > 0 ? bigMoveRange / atrVal : 0.0
+    float bigMoveRelVolVal = na(volume) or na(avgVol) or avgVol <= 0 ? 1.0 : volume / avgVol
+    float bigMoveBullCloseExtreme = (high - close) / bigMoveSafeRange
+    float bigMoveBearCloseExtreme = (close - low) / bigMoveSafeRange
+    string bigMoveSessionName = f_bigMoveSessionName()
+    string bigMoveKillzoneName = f_bigMoveKillzoneName()
+    string bigMoveSessionPhase = f_bigMoveCurrentSessionPhase()
+    int bigMoveMinuteBucket = f_bigMoveQuarterBucket(time)
+    float bigMoveRepeatBonus = f_bigMoveTimeRepeatabilityBonus(bigMoveMinuteBucket, bigMoveKillzoneName)
+
+    bool bullExpansionBase = bigMoveRangeAtrVal >= bigMoveMinRangeAtr and bigMoveBodyPctVal >= bigMoveMinBodyPct and close > open and bigMoveBullCloseExtreme <= 0.25 and (disp or bullStructureImpulse or bullImbalanceCreated or close > high[1])
+    bool bearExpansionBase = bigMoveRangeAtrVal >= bigMoveMinRangeAtr and bigMoveBodyPctVal >= bigMoveMinBodyPct and close < open and bigMoveBearCloseExtreme <= 0.25 and (disp or bearStructureImpulse or bearImbalanceCreated or close < low[1])
+    bool bullSpikeBase = bigMoveRangeAtrVal >= bigMoveMinRangeAtr * 0.85 and bigMoveLowerWickPct >= spikeMinWickPct and close >= (low + bigMoveRange * 0.55) and (bigMoveRelVolVal >= bigMoveVolMult * 0.85 or inLondonSweepWindow or inNYSweepWindow)
+    bool bearSpikeBase = bigMoveRangeAtrVal >= bigMoveMinRangeAtr * 0.85 and bigMoveUpperWickPct >= spikeMinWickPct and close <= (high - bigMoveRange * 0.55) and (bigMoveRelVolVal >= bigMoveVolMult * 0.85 or inLondonSweepWindow or inNYSweepWindow)
+
+    bool bullNeedContext = bullExpansionBase or bullSpikeBase
+    bool bearNeedContext = bearExpansionBase or bearSpikeBase
+    bool bullLiqFound = false
+    float bullLiqBoost = 0.0
+    string bullLiqLabel = ""
+    bool bearLiqFound = false
+    float bearLiqBoost = 0.0
+    string bearLiqLabel = ""
+    bool bullFvgFound = false
+    float bullFvgBoost = 0.0
+    string bullFvgLabel = ""
+    bool bearFvgFound = false
+    float bearFvgBoost = 0.0
+    string bearFvgLabel = ""
+    if bullNeedContext and bigMoveUseLiquidityBoost
+        [bullLiqFound, bullLiqBoost, bullLiqLabel] = f_bigMoveLiquidityConfluence(high, low, "BULL")
+    if bearNeedContext and bigMoveUseLiquidityBoost
+        [bearLiqFound, bearLiqBoost, bearLiqLabel] = f_bigMoveLiquidityConfluence(high, low, "BEAR")
+    if bullNeedContext and bigMoveUseFvgBoost
+        [bullFvgFound, bullFvgBoost, bullFvgLabel] = f_bigMoveFvgConfluence(high, low, "BULL")
+    if bearNeedContext and bigMoveUseFvgBoost
+        [bearFvgFound, bearFvgBoost, bearFvgLabel] = f_bigMoveFvgConfluence(high, low, "BEAR")
+    bool bullSweepFound = bullNeedContext ? f_bigMoveSweepConfluence("BULL") : false
+    bool bearSweepFound = bearNeedContext ? f_bigMoveSweepConfluence("BEAR") : false
+
+    string candidateType = ""
+    string candidateDirection = ""
+    float candidateScore = -1.0
+    float candidateRangeAtr = 0.0
+    float candidateBodyPct = 0.0
+    float candidateWickPct = 0.0
+    float candidateRelVol = 0.0
+    string candidateSession = ""
+    string candidateKillzone = ""
+    string candidatePhase = ""
+    bool candidateLiq = false
+    bool candidateFvg = false
+    bool candidateSweep = false
+    string candidateNarrative = ""
+
+    if bullExpansionBase
+        float bullExpansionScore = f_bigMoveScore("EXPANSION", bigMoveRangeAtrVal, bigMoveBodyPctVal, math.max(bigMoveUpperWickPct, bigMoveLowerWickPct), bigMoveBullCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bullLiqBoost, bullFvgBoost, bullSweepFound, bigMoveRepeatBonus, 1)
+        bool bullExpansionMeaningful = bullExpansionScore >= (bigMoveMinScore - 8.0) and (bigMoveKillzoneName != "Inter-Session" or bullLiqFound or bullFvgFound or bullSweepFound or bigMoveRelVolVal >= bigMoveVolMult * 1.15)
+        if bullExpansionMeaningful and bullExpansionScore > candidateScore
+            candidateType := "EXPANSION"
+            candidateDirection := "BULL"
+            candidateScore := bullExpansionScore
+            candidateRangeAtr := bigMoveRangeAtrVal
+            candidateBodyPct := bigMoveBodyPctVal
+            candidateWickPct := math.max(bigMoveUpperWickPct, bigMoveLowerWickPct)
+            candidateRelVol := bigMoveRelVolVal
+            candidateSession := bigMoveSessionName
+            candidateKillzone := bigMoveKillzoneName
+            candidatePhase := bigMoveSessionPhase
+            candidateLiq := bullLiqFound
+            candidateFvg := bullFvgFound
+            candidateSweep := bullSweepFound
+            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bullLiqLabel, bullFvgLabel, bullSweepFound)
+
+    if bearExpansionBase
+        float bearExpansionScore = f_bigMoveScore("EXPANSION", bigMoveRangeAtrVal, bigMoveBodyPctVal, math.max(bigMoveUpperWickPct, bigMoveLowerWickPct), bigMoveBearCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bearLiqBoost, bearFvgBoost, bearSweepFound, bigMoveRepeatBonus, 1)
+        bool bearExpansionMeaningful = bearExpansionScore >= (bigMoveMinScore - 8.0) and (bigMoveKillzoneName != "Inter-Session" or bearLiqFound or bearFvgFound or bearSweepFound or bigMoveRelVolVal >= bigMoveVolMult * 1.15)
+        if bearExpansionMeaningful and bearExpansionScore > candidateScore
+            candidateType := "EXPANSION"
+            candidateDirection := "BEAR"
+            candidateScore := bearExpansionScore
+            candidateRangeAtr := bigMoveRangeAtrVal
+            candidateBodyPct := bigMoveBodyPctVal
+            candidateWickPct := math.max(bigMoveUpperWickPct, bigMoveLowerWickPct)
+            candidateRelVol := bigMoveRelVolVal
+            candidateSession := bigMoveSessionName
+            candidateKillzone := bigMoveKillzoneName
+            candidatePhase := bigMoveSessionPhase
+            candidateLiq := bearLiqFound
+            candidateFvg := bearFvgFound
+            candidateSweep := bearSweepFound
+            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bearLiqLabel, bearFvgLabel, bearSweepFound)
+
+    if bullSpikeBase
+        float bullSpikeScore = f_bigMoveScore("SPIKE", bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveLowerWickPct, bigMoveBullCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bullLiqBoost, bullFvgBoost, bullSweepFound, bigMoveRepeatBonus, 1)
+        bool bullSpikeMeaningful = bullSpikeScore >= (bigMoveMinScore - 10.0) and (bullLiqFound or bullSweepFound or bigMoveKillzoneName != "Inter-Session" or bigMoveRelVolVal >= bigMoveVolMult)
+        if bullSpikeMeaningful and bullSpikeScore > candidateScore
+            candidateType := "SPIKE"
+            candidateDirection := "BULL"
+            candidateScore := bullSpikeScore
+            candidateRangeAtr := bigMoveRangeAtrVal
+            candidateBodyPct := bigMoveBodyPctVal
+            candidateWickPct := bigMoveLowerWickPct
+            candidateRelVol := bigMoveRelVolVal
+            candidateSession := bigMoveSessionName
+            candidateKillzone := bigMoveKillzoneName
+            candidatePhase := bigMoveSessionPhase
+            candidateLiq := bullLiqFound
+            candidateFvg := bullFvgFound
+            candidateSweep := bullSweepFound
+            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bullLiqLabel, bullFvgLabel, bullSweepFound)
+
+    if bearSpikeBase
+        float bearSpikeScore = f_bigMoveScore("SPIKE", bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveUpperWickPct, bigMoveBearCloseExtreme, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bearLiqBoost, bearFvgBoost, bearSweepFound, bigMoveRepeatBonus, 1)
+        bool bearSpikeMeaningful = bearSpikeScore >= (bigMoveMinScore - 10.0) and (bearLiqFound or bearSweepFound or bigMoveKillzoneName != "Inter-Session" or bigMoveRelVolVal >= bigMoveVolMult)
+        if bearSpikeMeaningful and bearSpikeScore > candidateScore
+            candidateType := "SPIKE"
+            candidateDirection := "BEAR"
+            candidateScore := bearSpikeScore
+            candidateRangeAtr := bigMoveRangeAtrVal
+            candidateBodyPct := bigMoveBodyPctVal
+            candidateWickPct := bigMoveUpperWickPct
+            candidateRelVol := bigMoveRelVolVal
+            candidateSession := bigMoveSessionName
+            candidateKillzone := bigMoveKillzoneName
+            candidatePhase := bigMoveSessionPhase
+            candidateLiq := bearLiqFound
+            candidateFvg := bearFvgFound
+            candidateSweep := bearSweepFound
+            candidateNarrative := f_bigMoveNarrative(candidateType, candidateDirection, candidateKillzone, candidateSession, candidatePhase, bearLiqLabel, bearFvgLabel, bearSweepFound)
+
+    bool hasCandidate = candidateScore >= 0
+    if hasCandidate
+        bool clusterCompatible = bigMoveClusterActive and candidateDirection == bigMoveClusterDirection and (bar_index - bigMoveClusterEndBar) <= 1 and (bar_index - bigMoveClusterStartBar + 1) <= bigMoveClusterBars and (candidateType == bigMoveClusterType or candidateScore >= bigMoveClusterBestScore - 8.0)
+        if clusterCompatible
+            bigMoveClusterEndBar := bar_index
+            bigMoveClusterHigh := math.max(bigMoveClusterHigh, high)
+            bigMoveClusterLow := math.min(bigMoveClusterLow, low)
+            float clusterSpanAtr = atrVal > 0 ? (bigMoveClusterHigh - bigMoveClusterLow) / atrVal : candidateRangeAtr
+            bigMoveClusterRangeAtr := math.max(bigMoveClusterRangeAtr, math.max(candidateRangeAtr, clusterSpanAtr))
+            bigMoveClusterLiq := bigMoveClusterLiq or candidateLiq
+            bigMoveClusterFvg := bigMoveClusterFvg or candidateFvg
+            bigMoveClusterSweep := bigMoveClusterSweep or candidateSweep
+            if candidateScore >= bigMoveClusterBestScore
+                bigMoveClusterType := candidateType
+                bigMoveClusterBestScore := candidateScore
+                bigMoveClusterBestBar := bar_index
+                bigMoveClusterTime := time
+                bigMoveClusterBodyPct := candidateBodyPct
+                bigMoveClusterWickPct := candidateWickPct
+                bigMoveClusterRelVol := candidateRelVol
+                bigMoveClusterSession := candidateSession
+                bigMoveClusterKillzone := candidateKillzone
+                bigMoveClusterPhase := candidatePhase
+                bigMoveClusterNarrative := candidateNarrative
+        else
+            if bigMoveClusterActive
+                int clusterBarsCount = math.max(bigMoveClusterEndBar - bigMoveClusterStartBar + 1, 1)
+                float clusterSpanAtr = atrVal > 0 ? (bigMoveClusterHigh - bigMoveClusterLow) / atrVal : bigMoveClusterRangeAtr
+                float finalRangeAtr = math.max(bigMoveClusterRangeAtr, clusterSpanAtr)
+                float finalScore = math.min(100.0, bigMoveClusterBestScore + math.min(6.0, float(clusterBarsCount - 1) * 2.0) + math.max(0.0, finalRangeAtr - bigMoveClusterRangeAtr) * 4.0)
+                big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterStartBar, bigMoveClusterEndBar, bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterHigh, bigMoveClusterLow, finalRangeAtr, bigMoveClusterBodyPct, bigMoveClusterWickPct, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep, bigMoveClusterNarrative)
+                f_bigMoveStoreEvent(committed)
+            bigMoveClusterActive := true
+            bigMoveClusterType := candidateType
+            bigMoveClusterDirection := candidateDirection
+            bigMoveClusterStartBar := bar_index
+            bigMoveClusterEndBar := bar_index
+            bigMoveClusterBestBar := bar_index
+            bigMoveClusterTime := time
+            bigMoveClusterHigh := high
+            bigMoveClusterLow := low
+            bigMoveClusterRangeAtr := candidateRangeAtr
+            bigMoveClusterBodyPct := candidateBodyPct
+            bigMoveClusterWickPct := candidateWickPct
+            bigMoveClusterRelVol := candidateRelVol
+            bigMoveClusterBestScore := candidateScore
+            bigMoveClusterSession := candidateSession
+            bigMoveClusterKillzone := candidateKillzone
+            bigMoveClusterPhase := candidatePhase
+            bigMoveClusterLiq := candidateLiq
+            bigMoveClusterFvg := candidateFvg
+            bigMoveClusterSweep := candidateSweep
+            bigMoveClusterNarrative := candidateNarrative
+    else if bigMoveClusterActive and bar_index > bigMoveClusterEndBar
+        int clusterBarsCount = math.max(bigMoveClusterEndBar - bigMoveClusterStartBar + 1, 1)
+        float clusterSpanAtr = atrVal > 0 ? (bigMoveClusterHigh - bigMoveClusterLow) / atrVal : bigMoveClusterRangeAtr
+        float finalRangeAtr = math.max(bigMoveClusterRangeAtr, clusterSpanAtr)
+        float finalScore = math.min(100.0, bigMoveClusterBestScore + math.min(6.0, float(clusterBarsCount - 1) * 2.0) + math.max(0.0, finalRangeAtr - bigMoveClusterRangeAtr) * 4.0)
+        big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterStartBar, bigMoveClusterEndBar, bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterHigh, bigMoveClusterLow, finalRangeAtr, bigMoveClusterBodyPct, bigMoveClusterWickPct, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep, bigMoveClusterNarrative)
+        f_bigMoveStoreEvent(committed)
+        bigMoveClusterActive := false
+        bigMoveClusterType := ""
+        bigMoveClusterDirection := ""
+        bigMoveClusterStartBar := na
+        bigMoveClusterEndBar := na
+        bigMoveClusterBestBar := na
+        bigMoveClusterTime := na
+        bigMoveClusterHigh := na
+        bigMoveClusterLow := na
+        bigMoveClusterRangeAtr := 0.0
+        bigMoveClusterBodyPct := 0.0
+        bigMoveClusterWickPct := 0.0
+        bigMoveClusterRelVol := 0.0
+        bigMoveClusterBestScore := 0.0
+        bigMoveClusterSession := ""
+        bigMoveClusterKillzone := ""
+        bigMoveClusterPhase := ""
+        bigMoveClusterLiq := false
+        bigMoveClusterFvg := false
+        bigMoveClusterSweep := false
+        bigMoveClusterNarrative := ""
+
+    f_bigMovePruneEvents()
+
+if enableBigMoveMemory and barstate.islast and barstate.isconfirmed and bigMoveClusterActive and bigMoveClusterEndBar == bar_index
+    int clusterBarsCount = math.max(bigMoveClusterEndBar - bigMoveClusterStartBar + 1, 1)
+    float clusterSpanAtr = atrVal > 0 ? (bigMoveClusterHigh - bigMoveClusterLow) / atrVal : bigMoveClusterRangeAtr
+    float finalRangeAtr = math.max(bigMoveClusterRangeAtr, clusterSpanAtr)
+    float finalScore = math.min(100.0, bigMoveClusterBestScore + math.min(6.0, float(clusterBarsCount - 1) * 2.0) + math.max(0.0, finalRangeAtr - bigMoveClusterRangeAtr) * 4.0)
+    big_move_event committed = f_bigMoveBuildEvent(bigMoveClusterStartBar, bigMoveClusterEndBar, bigMoveClusterBestBar, bigMoveClusterTime, bigMoveClusterType, bigMoveClusterDirection, bigMoveClusterHigh, bigMoveClusterLow, finalRangeAtr, bigMoveClusterBodyPct, bigMoveClusterWickPct, bigMoveClusterRelVol, finalScore, bigMoveClusterSession, bigMoveClusterKillzone, bigMoveClusterPhase, bigMoveClusterLiq, bigMoveClusterFvg, bigMoveClusterSweep, bigMoveClusterNarrative)
+    f_bigMoveStoreEvent(committed)
+    f_bigMovePruneEvents()
+    bigMoveClusterActive := false
+    bigMoveClusterType := ""
+    bigMoveClusterDirection := ""
+    bigMoveClusterStartBar := na
+    bigMoveClusterEndBar := na
+    bigMoveClusterBestBar := na
+    bigMoveClusterTime := na
+    bigMoveClusterHigh := na
+    bigMoveClusterLow := na
+    bigMoveClusterRangeAtr := 0.0
+    bigMoveClusterBodyPct := 0.0
+    bigMoveClusterWickPct := 0.0
+    bigMoveClusterRelVol := 0.0
+    bigMoveClusterBestScore := 0.0
+    bigMoveClusterSession := ""
+    bigMoveClusterKillzone := ""
+    bigMoveClusterPhase := ""
+    bigMoveClusterLiq := false
+    bigMoveClusterFvg := false
+    bigMoveClusterSweep := false
+    bigMoveClusterNarrative := ""
+
+if barstate.islast
+    float bigMoveCurrentRelVol = na(volume) or na(avgVol) or avgVol <= 0 ? 1.0 : volume / avgVol
+    [bigMoveNearLiquidity, bigMoveNearLiquidityLabel] = f_bigMoveNearImportantLiquidity()
+    if enableBigMoveMemory
+        bigMoveSnapshot := f_bigMoveAggregateTimingStats(bigMoveNearLiquidity, bigMoveCurrentRelVol)
+    else
+        bigMoveSnapshot := big_move_timing_snapshot.new("—", "—", "—", "—", "—", "LOW PROBABILITY", "—", 0.0, 0, 0.0, 0.0, false)
+
+    if bigMoveBoxes.size() > 0
+        for i = bigMoveBoxes.size() - 1 to 0
+            box.delete(bigMoveBoxes.get(i))
+        array.clear(bigMoveBoxes)
+    if bigMoveCeLines.size() > 0
+        for i = bigMoveCeLines.size() - 1 to 0
+            line.delete(bigMoveCeLines.get(i))
+        array.clear(bigMoveCeLines)
+    if bigMoveLabels.size() > 0
+        for i = bigMoveLabels.size() - 1 to 0
+            label.delete(bigMoveLabels.get(i))
+        array.clear(bigMoveLabels)
+
+    if enableBigMoveMemory and (showBigMoveZones or showBigMoveLabels) and bigMoveEvents.size() > 0
+        selectedIdx = array.new_int(0)
+        int availableEvents = bigMoveEvents.size()
+        int maxSelections = int(math.min(bigMoveShowTopN, availableEvents))
+        if maxSelections > 0
+            for slot = 0 to maxSelections - 1
+                int bestIdx = na
+                float bestPriority = -100000.0
+                for i = 0 to availableEvents - 1
+                    bool alreadySelected = false
+                    if selectedIdx.size() > 0
+                        for j = 0 to selectedIdx.size() - 1
+                            if selectedIdx.get(j) == i
+                                alreadySelected := true
+                                break
+                    if not alreadySelected
+                        evt = bigMoveEvents.get(i)
+                        if bar_index - evt.eventBar <= bigMoveLookback and evt.score >= bigMoveMinScore
+                            float priority = f_bigMoveEventPriority(evt)
+                            if priority > bestPriority
+                                bestPriority := priority
+                                bestIdx := i
+                if not na(bestIdx)
+                    selectedIdx.push(bestIdx)
+
+        if selectedIdx.size() > 0
+            for i = 0 to selectedIdx.size() - 1
+                evt = bigMoveEvents.get(selectedIdx.get(i))
+                float ageRatio = bigMoveLookback > 0 ? float(bar_index - evt.eventBar) / bigMoveLookback : 0.0
+                int fade = bigMoveFadeOldEvents ? int(math.min(55.0, math.round(ageRatio * 55.0))) : 0
+                color baseClr = f_bigMoveEventColor(evt)
+                color fillClr = color.new(baseClr, math.min(95, (evt.eventType == "EXPANSION" ? 78 : 84) + fade))
+                color borderClr = color.new(baseClr, math.min(90, 26 + fade))
+                color ceClr = color.new(baseClr, math.min(88, 38 + fade))
+                color textClr = color.new(baseClr, math.min(75, fade * 2))
+                string ctxLabel = evt.killzoneName != "Inter-Session" ? evt.killzoneName : evt.sessionName
+                string labelText = evt.eventType + " " + str.tostring(math.round(evt.score)) + " | " + ctxLabel + " | " + evt.direction
+                if showBigMoveZones
+                    bigMoveBoxes.push(box.new(evt.startBar, evt.highPrice, evt.endBar, evt.lowPrice, bgcolor=fillClr, border_color=borderClr))
+                    bigMoveCeLines.push(line.new(evt.startBar, evt.cePrice, evt.endBar, evt.cePrice, color=ceClr, style=line.style_dashed))
+                if showBigMoveLabels
+                    bigMoveLabels.push(label.new(evt.endBar, evt.cePrice, labelText, color=#00000000, textcolor=textClr, style=label.style_label_left, size=size.tiny))
+
+    if enableBigMoveMemory and showFutureTimingHints
+        color hintClr = f_bigMoveHintColor(bigMoveSnapshot.currentState)
+        float hintY = high + math.max(atrVal, syminfo.mintick * 20) * 1.6
+        string hintText = "BIG MOVE MEMORY: " + bigMoveSnapshot.currentState + " | " + bigMoveSnapshot.currentBucketName + " | " + str.tostring(math.round(bigMoveSnapshot.currentBucketHitRate)) + "%"
+        if bigMoveNearLiquidity and str.length(bigMoveNearLiquidityLabel) > 0
+            hintText += " | " + bigMoveNearLiquidityLabel
+        label.set_xy(bigMoveHintLabel, bar_index + 2, hintY)
+        label.set_text(bigMoveHintLabel, hintText)
+        label.set_textcolor(bigMoveHintLabel, hintClr)
+        label.set_style(bigMoveHintLabel, label.style_label_left)
+    else
+        label.set_xy(bigMoveHintLabel, na, na)
+        label.set_text(bigMoveHintLabel, "")
+
+var table bigMoveTable = table.new(f_bigMoveTablePos(), 2, 10, bgcolor=#1e222d, border_color=#373a46, border_width=1)
+if showBigMoveTimingTable and enableBigMoveMemory and barstate.islast
+    color stateClr = f_bigMoveHintColor(bigMoveSnapshot.currentState)
+    table.cell(bigMoveTable, 0, 0, "Big Move Memory", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+    table.cell(bigMoveTable, 1, 0, "Timing", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+    table.cell(bigMoveTable, 0, 1, "Top Window", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 1, bigMoveSnapshot.topWindow, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 0, 2, "Top Killzone", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 2, bigMoveSnapshot.topKillzone, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 0, 3, "Best Avg KZ", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 3, bigMoveSnapshot.bestAvgKillzone, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 0, 4, "Avg Event Score", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 4, str.tostring(bigMoveSnapshot.avgScore, "#.0"), text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 0, 5, "Dominant Type", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 5, bigMoveSnapshot.dominantType, text_color=bigMoveSnapshot.dominantType == "Spike" ? color.orange : bigMoveSnapshot.dominantType == "Expansion" ? COLOR_BULL : COLOR_NEUT, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 0, 6, "Bull/Bear Bias", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 6, bigMoveSnapshot.bias, text_color=bigMoveSnapshot.bias == "Bullish" ? COLOR_BULL : bigMoveSnapshot.bias == "Bearish" ? COLOR_BEAR : COLOR_NEUT, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 0, 7, "Current State", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 7, bigMoveSnapshot.currentState, text_color=color.white, bgcolor=stateClr, text_size=size.small)
+    table.cell(bigMoveTable, 0, 8, "Bucket Hit Rate", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 8, str.tostring(math.round(bigMoveSnapshot.currentBucketHitRate)) + "% @ " + bigMoveSnapshot.currentBucketName, text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 0, 9, "Events / Avg RV", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(bigMoveTable, 1, 9, str.tostring(bigMoveSnapshot.qualifyingEvents) + " | " + str.tostring(bigMoveSnapshot.avgRelVolume, "#.##") + "x", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+
 // --- Dashboard ---
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
     var table tb = table.new(pos_tbl, 2, 10, bgcolor=#1e222d, border_color=#373a46, border_width=1)
-    table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
-    table.cell(tb, 1, 0, "STATUS", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+    color dashCellBg = chart.fg_color
+    color dashCellText = chart.bg_color
+    table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=dashCellBg, text_color=dashCellText, text_size=size.small)
+    table.cell(tb, 1, 0, "TRADER READ", bgcolor=dashCellBg, text_color=dashCellText, text_size=size.small)
 
     bT1 = close > dO ? "ABOVE" : "BELOW"
-    bC1 = close > dO ? COLOR_BULL : COLOR_BEAR
-    table.cell(tb, 0, 1, "Daily Open", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 1, bT1, text_color=color.white, bgcolor=bC1, text_size=size.small)
+    table.cell(tb, 0, 1, "Daily Open", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 1, bT1, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
     bT2 = close > wO ? "ABOVE" : "BELOW"
-    bC2 = close > wO ? COLOR_BULL : COLOR_BEAR
-    table.cell(tb, 0, 2, "Weekly Open", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 2, bT2, text_color=color.white, bgcolor=bC2, text_size=size.small)
+    table.cell(tb, 0, 2, "Weekly Open", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 2, bT2, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
     bT3 = na(nyMidnight) ? "N/A" : close > nyMidnight ? "ABOVE" : "BELOW"
-    bC3 = na(nyMidnight) ? COLOR_NEUT : close > nyMidnight ? COLOR_BULL : COLOR_BEAR
-    table.cell(tb, 0, 3, "NY Midnight", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 3, bT3, text_color=color.white, bgcolor=bC3, text_size=size.small)
+    table.cell(tb, 0, 3, "NY Midnight", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 3, bT3, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
-    h1C = htf1Bias == "BULL" ? COLOR_BULL : htf1Bias == "BEAR" ? COLOR_BEAR : COLOR_NEUT
-    table.cell(tb, 0, 4, "HTF 1 (" + htf1Tf + ")", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 4, htf1Bias, text_color=color.white, bgcolor=h1C, text_size=size.small)
+    table.cell(tb, 0, 4, "HTF 1 (" + htf1Tf + ")", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 4, htf1Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.tiny)
 
-    h2C = htf2Bias == "BULL" ? COLOR_BULL : htf2Bias == "BEAR" ? COLOR_BEAR : COLOR_NEUT
-    table.cell(tb, 0, 5, "HTF 2 (" + htf2Tf + ")", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 5, htf2Bias, text_color=color.white, bgcolor=h2C, text_size=size.small)
+    table.cell(tb, 0, 5, "HTF 2 (" + htf2Tf + ")", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 5, htf2Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.tiny)
 
-    bool structureBull = str.contains(structureStatus, "Bullish")
-    bool structureBear = str.contains(structureStatus, "Bearish")
-    msC = structureBull ? COLOR_BULL : structureBear ? COLOR_BEAR : #787b86
-    table.cell(tb, 0, 6, "LTF Structure", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 6, structureStatus, text_color=color.white, bgcolor=msC, text_size=size.small)
+    bool structureBull = structureTrend == 1
+    bool structureBear = structureTrend == -1
+    table.cell(tb, 0, 6, "LTF Structure", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 6, structureStatus, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
-    overAll = (close > dO and structureBull and htf2Bias == "BULL") ? "BULL CONTEXT" : (close < dO and structureBear and htf2Bias == "BEAR") ? "BEAR CONTEXT" : "MIXED"
-    overC = (close > dO and structureBull and htf2Bias == "BULL") ? COLOR_BULL : (close < dO and structureBear and htf2Bias == "BEAR") ? COLOR_BEAR : COLOR_NEUT
-    table.cell(tb, 0, 7, "Overall Context", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 7, overAll, text_color=color.white, bgcolor=overC, text_size=size.small)
+    overAll = close > dO and structureBull and htfLongStrong ? "Stack: daily + LTF + HTF bullish\nBias: Bullish aligned\nFilter: longs allowed; fade weak shorts" : close < dO and structureBear and htfShortStrong ? "Stack: daily + LTF + HTF bearish\nBias: Bearish aligned\nFilter: shorts allowed; fade weak longs" : htfCompositeDashboard
+    table.cell(tb, 0, 7, "Overall Context", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 7, overAll, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.tiny)
 
-    table.cell(tb, 0, 8, "Total Setups", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 8, str.tostring(tSetups), text_color=color.white, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 0, 8, "Total Setups", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 8, str.tostring(tSetups), text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
     tot = w10 + l10
     winrate = tot == 0 ? "0%" : str.tostring(math.round(w10 / tot * 100)) + "%"
-    table.cell(tb, 0, 9, "Winrate", text_color=color.white, bgcolor=#1e222d, text_size=size.small)
-    table.cell(tb, 1, 9, winrate, text_color=COLOR_BULL, bgcolor=#1e222d, text_size=size.small)
+    table.cell(tb, 0, 9, "Winrate", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    table.cell(tb, 1, 9, winrate, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
