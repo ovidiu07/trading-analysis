@@ -141,7 +141,11 @@ ltfEntryDispMult = input.float(1.15, "Lower-TF MSS Disp. Mult", minval=1.0, step
 showEntryTradeMap = input.bool(true, "Show Entry Risk/Reward Areas", group=G_STATS, tooltip="Shade the live trade's profit and invalidation areas instead of relying only on entry labels.")
 showHistoricalSetups = input.bool(true, "Keep Recent Past Setups", group=G_STATS, tooltip="Preserve recent completed setup maps on the chart so previous long/short executions remain visible.")
 maxHistoricalSetups = input.int(6, "Past Setups To Keep", minval=1, maxval=20, group=G_STATS)
+historicalSetupMinBars = input.int(6, "Past Setup Min Width (Bars)", minval=1, maxval=50, group=G_STATS, tooltip="Keeps fast TP/SL outcomes visible by extending saved setup maps for at least this many bars.")
+showHistoricalOutcomeMarks = input.bool(true, "Show Past Outcome Marks", group=G_STATS, tooltip="Annotate completed setups with TP, SL, or BE markers. Disable this if you want only the historical risk/reward maps.")
 showEntryLabels = input.bool(false, "Show Entry Labels", group=G_STATS, tooltip="Disabled by default to keep the chart clean. When enabled, shows a small LONG/SHORT badge only on the live entry, not on preserved historical setups.")
+enableBreakEvenRule = input.bool(false, "Enable Auto Break-Even", group=G_STATS, tooltip="Optional lifecycle rule: after price reaches the configured R multiple, move the stop to entry so the trade can close as BE instead of SL.")
+breakEvenTriggerR = input.float(1.0, "Break-Even Trigger (R)", minval=0.25, step=0.25, group=G_STATS)
 tradeMinRR = input.float(2.0, "Minimum Target R", minval=1.0, step=0.25, group=G_STATS)
 tradeTargetWindowAtr = input.float(8.0, "Target Liquidity Window (ATR)", minval=2.0, step=0.5, group=G_STATS)
 
@@ -229,9 +233,9 @@ bigMoveUseFvgBoost = input.bool(true, "Use FVG / Imbalance Confluence", group=G_
 bigMoveClusterBars = input.int(3, "Cluster Consecutive Bars", minval=1, maxval=10, group=G_BMM)
 bigMoveMaxStored = input.int(80, "Max Stored Historical Events", minval=20, maxval=300, group=G_BMM)
 showBigMoveTimingTable = input.bool(true, "Show Timing Table", group=G_BMM)
-showBigMoveBanner = input.bool(true, "Show Timing Banner", group=G_BMM)
+showBigMoveBanner = input.bool(false, "Show Timing Banner", group=G_BMM)
 bigMoveMinScore = input.float(58.0, "Minimum Event Score", minval=0.0, maxval=100.0, step=1.0, group=G_BMM)
-bigMoveTimingTablePos = input.string("Bottom Left", "Timing Table Position", options=["Top Right", "Top Left", "Bottom Right", "Bottom Left"], group=G_BMM)
+bigMoveTimingTablePos = input.string("Middle Right", "Timing Table Position", options=["Top Right", "Top Left", "Middle Right", "Bottom Right", "Bottom Left"], group=G_BMM)
 
 // --- HTF Settings ---
 G_HTF        = "Higher Timeframe Structure"
@@ -242,6 +246,9 @@ htf2Tf       = input.timeframe("240", "HTF 2 Timeframe", group=G_HTF)
 htf2SwingLen = input.int(5, "HTF 2 Swing Strength", group=G_HTF)
 showHTFLiquidity = input.bool(true, "Inject HTF Liquidity Levels", group=G_HTF, tooltip="Publishes confirmed HTF dealing-range highs/lows into the lower-timeframe liquidity map so sweeps can interact with them.")
 useHTFEntryFilter = input.bool(true, "Block Strong Counter-HTF Entries", group=G_HTF, tooltip="Blocks LTF entries when the combined HTF context is strongly opposed.")
+useDirectionalLiquidityEntryFilter = input.bool(true, "Block Counter-Trend Entries With Opposing Liquidity", group=G_HTF, tooltip="Blocks shorts when the broader context is still bullish and meaningful BSL remains above, and blocks longs when bearish context still has meaningful SSL below.")
+entryDirectionalBiasThreshold = input.int(15, "Counter-Trend Bias Threshold", minval=5, maxval=50, group=G_HTF, tooltip="Bias level used by the directional-liquidity entry filter before it treats the market as broadly bullish or bearish.")
+entryLiquidityConflictWindowAtr = input.float(6.0, "Counter-Liquidity Window (ATR)", minval=1.0, step=0.5, group=G_HTF, tooltip="How far from the planned entry the script checks for unresolved opposing liquidity before allowing a counter-trend setup.")
 htfMinConfidence = input.int(60, "HTF Confidence Threshold", minval=40, maxval=90, group=G_HTF, tooltip="Minimum combined HTF confidence required before the script treats the context as strongly directional.")
 htfDispBodyMult = input.float(1.15, "HTF Disp. Body Mult", minval=1.0, step=0.05, group=G_HTF, tooltip="Relative body expansion required on the latest confirmed HTF candle to count as meaningful displacement.")
 htfLiquidityProxAtr = input.float(0.75, "HTF Liquidity Proximity (ATR)", minval=0.25, step=0.25, group=G_HTF, tooltip="Distance to confirmed HTF liquidity, measured in HTF ATR, used when scoring reversal-candidate and continuation states.")
@@ -866,6 +873,12 @@ f_themeInvertedPanelColor() =>
 f_contrastTextColor(color bgClr) =>
     f_colorLuma(bgClr) < 140 ? color.white : color.black
 
+f_tradeOutcomeColor(string outcome) =>
+    outcome == "TP" ? COLOR_BULL : outcome == "BE" ? color.silver : COLOR_BEAR
+
+f_tradeOutcomePrice(string outcome, float entryPrice, float stopPrice, float targetPrice) =>
+    outcome == "TP" ? targetPrice : outcome == "BE" ? entryPrice : stopPrice
+
 f_entryLabelBg(bool isBull) =>
     color.new(isBull ? COLOR_BULL : COLOR_BEAR, f_isDarkTheme() ? 12 : 18)
 
@@ -904,6 +917,7 @@ f_bigMovePriceLabel(string label, float price) =>
 var array<box> pastRewardBoxes = array.new_box(0)
 var array<box> pastRiskBoxes = array.new_box(0)
 var array<line> pastEntryLines = array.new_line(0)
+var array<label> pastOutcomeLabels = array.new_label(0)
 f_prunePastSetups() =>
     while array.size(pastRewardBoxes) > maxHistoricalSetups
         box oldReward = array.shift(pastRewardBoxes)
@@ -917,11 +931,15 @@ f_prunePastSetups() =>
         line oldLine = array.shift(pastEntryLines)
         if not na(oldLine)
             line.delete(oldLine)
+    while array.size(pastOutcomeLabels) > maxHistoricalSetups
+        label oldOutcome = array.shift(pastOutcomeLabels)
+        if not na(oldOutcome)
+            label.delete(oldOutcome)
     true
 
-f_storePastSetup(bool isLong, float entryPrice, float stopPrice, float targetPrice, int startBar, int endBar) =>
+f_storePastSetup(bool isLong, float entryPrice, float stopPrice, float targetPrice, int startBar, int endBar, string outcomeText) =>
     if showHistoricalSetups and showProj and not na(entryPrice) and not na(stopPrice) and not na(targetPrice) and not na(startBar) and not na(endBar)
-        int rightBar = math.max(endBar, startBar + 1)
+        int rightBar = math.max(endBar, startBar + historicalSetupMinBars)
         float rewardTop = isLong ? targetPrice : entryPrice
         float rewardBottom = isLong ? entryPrice : targetPrice
         float riskTop = isLong ? entryPrice : stopPrice
@@ -929,9 +947,15 @@ f_storePastSetup(bool isLong, float entryPrice, float stopPrice, float targetPri
         box rewardBox = box.new(startBar, rewardTop, rightBar, rewardBottom, bgcolor=color.new(COLOR_BULL, f_isDarkTheme() ? 84 : 88), border_color=color.new(COLOR_BULL, 58), border_width=1)
         box riskBox = box.new(startBar, riskTop, rightBar, riskBottom, bgcolor=color.new(COLOR_BEAR, f_isDarkTheme() ? 86 : 90), border_color=color.new(COLOR_BEAR, 60), border_width=1)
         line entryLine = line.new(startBar, entryPrice, rightBar, entryPrice, color=color.new(f_themeTextColor(), 18), style=line.style_dotted, width=1)
+        label outcomeTag = na
+        if showHistoricalOutcomeMarks and str.length(outcomeText) > 0
+            color outcomeBg = f_tradeOutcomeColor(outcomeText)
+            float outcomePrice = f_tradeOutcomePrice(outcomeText, entryPrice, stopPrice, targetPrice)
+            outcomeTag := label.new(rightBar, outcomePrice, outcomeText, color=outcomeBg, textcolor=f_contrastTextColor(outcomeBg), style=label.style_label_left, size=size.tiny)
         array.push(pastRewardBoxes, rewardBox)
         array.push(pastRiskBoxes, riskBox)
         array.push(pastEntryLines, entryLine)
+        array.push(pastOutcomeLabels, outcomeTag)
         f_prunePastSetups()
     true
 
@@ -1776,11 +1800,14 @@ var string structureStatus = "Neutral"
 var int tSetups = 0
 var int w10 = 0
 var int l10 = 0
+var int be10 = 0
 var bool active = false
 var bool bull = false
 var float activeEntryPrice = na
+var float activeInitialStop = na
 var float tSL = na
 var float t10 = na
+var bool activeBreakEvenArmed = false
 var int activeProjStartBar = na
 var line activeProjLine = line.new(na, na, na, na)
 var line activeEntryLine = line.new(na, na, na, na)
@@ -2492,8 +2519,25 @@ if mssS
 if mssL
     shiftType := useMajorMSS ? (trendAtSweepL == 1 ? "CONTINUATION BOS ↗" : "EXTERNAL SHIFT ↗") : "INTERNAL SHIFT ↗"
 
-bool ltfBearEntryReady = ltfEntryTfValid and waitS and not active and not blockShortEntry and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS and not na(sExtH)
-bool ltfBullEntryReady = ltfEntryTfValid and waitL and not active and not blockLongEntry and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL and not na(sExtL)
+f_nearestDirectionalLiquidity(float anchorPrice, bool wantAbove, string liqSide, float maxWindowAtr) =>
+    bool found = false
+    float bestPrice = na
+    string bestLabel = ""
+    float bestDist = 10e10
+    if not na(anchorPrice) and atrVal > 0 and liq_pools.size() > 0
+        float anchorTol = math.max(f_liqTouchTolerance(anchorPrice) * 0.35, syminfo.mintick * 5)
+        for i = 0 to liq_pools.size() - 1
+            pool = liq_pools.get(i)
+            bool meaningful = f_liqIsEventEligible(pool) and not pool.isSwept and pool.state != "CONSUMED" and (f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 70.0)
+            if meaningful and pool.side == liqSide
+                float dist = wantAbove ? pool.price - anchorPrice : anchorPrice - pool.price
+                bool directional = dist > anchorTol and dist <= atrVal * maxWindowAtr
+                if directional and dist < bestDist
+                    bestDist := dist
+                    bestPrice := pool.price
+                    bestLabel := f_liqCompactBaseLabel(pool)
+                    found := true
+    [found, bestPrice, bestLabel, bestDist]
 
 f_tradeTargetPrice(bool isBullTrade, float entryPrice, float stopPrice) =>
     float risk = math.abs(entryPrice - stopPrice)
@@ -2523,6 +2567,23 @@ f_tradeTargetPrice(bool isBullTrade, float entryPrice, float stopPrice) =>
     else
         minTarget
 
+float shortConflictAnchor = na(ltfBearEntryPrice) ? close : ltfBearEntryPrice
+float longConflictAnchor = na(ltfBullEntryPrice) ? close : ltfBullEntryPrice
+[shortTargetFound, shortTargetPrice, shortTargetLabel, shortTargetDist] = f_nearestDirectionalLiquidity(shortConflictAnchor, false, "SSL", entryLiquidityConflictWindowAtr)
+[shortCounterFound, shortCounterPrice, shortCounterLabel, shortCounterDist] = f_nearestDirectionalLiquidity(shortConflictAnchor, true, "BSL", entryLiquidityConflictWindowAtr)
+[longTargetFound, longTargetPrice, longTargetLabel, longTargetDist] = f_nearestDirectionalLiquidity(longConflictAnchor, true, "BSL", entryLiquidityConflictWindowAtr)
+[longCounterFound, longCounterPrice, longCounterLabel, longCounterDist] = f_nearestDirectionalLiquidity(longConflictAnchor, false, "SSL", entryLiquidityConflictWindowAtr)
+bool bullishExecutionContext = htfCompositeBias >= entryDirectionalBiasThreshold or (close > dO and close > wO and not htfShortStrong)
+bool bearishExecutionContext = htfCompositeBias <= -entryDirectionalBiasThreshold or (close < dO and close < wO and not htfLongStrong)
+bool blockShortLiquidityConflict = useDirectionalLiquidityEntryFilter and bullishExecutionContext and shortCounterFound and (not shortTargetFound or shortCounterDist <= shortTargetDist * 1.15)
+bool blockLongLiquidityConflict = useDirectionalLiquidityEntryFilter and bearishExecutionContext and longCounterFound and (not longTargetFound or longCounterDist <= longTargetDist * 1.15)
+bool shortEntryBlocked = blockShortEntry or blockShortLiquidityConflict
+bool longEntryBlocked = blockLongEntry or blockLongLiquidityConflict
+string shortBlockReason = blockShortEntry ? "HTF: " + htfCompositeState : blockShortLiquidityConflict ? "Liquidity above: " + f_bigMovePriceLabel(shortCounterLabel, shortCounterPrice) : ""
+string longBlockReason = blockLongEntry ? "HTF: " + htfCompositeState : blockLongLiquidityConflict ? "Liquidity below: " + f_bigMovePriceLabel(longCounterLabel, longCounterPrice) : ""
+bool ltfBearEntryReady = ltfEntryTfValid and waitS and not active and not shortEntryBlocked and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS and not na(sExtH)
+bool ltfBullEntryReady = ltfEntryTfValid and waitL and not active and not longEntryBlocked and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL and not na(sExtL)
+
 // --- Stats Logic ---
 if ltfBearEntryReady
     float shortEntryPx = na(ltfBearEntryPrice) ? close : ltfBearEntryPrice
@@ -2530,8 +2591,10 @@ if ltfBearEntryReady
     if not na(shortStop) and shortStop > shortEntryPx
         active := true, bull := false, tSetups += 1
         activeEntryPrice := shortEntryPx
+        activeInitialStop := shortStop
         tSL := shortStop
         t10 := f_tradeTargetPrice(false, shortEntryPx, shortStop)
+        activeBreakEvenArmed := false
         activeProjStartBar := bar_index
         if not na(waitRaidLabelS)
             label.delete(waitRaidLabelS)
@@ -2542,10 +2605,10 @@ if ltfBearEntryReady
         if showEntryLabels
             label.new(bar_index, low, "SHORT " + ltfEntryLabel, color=shortEntryBg, textcolor=f_contrastTextColor(shortEntryBg), style=label.style_label_down, size=size.tiny)
         structureStatus := "Bearish (" + ltfEntryLabel + " ladder done)"
-else if waitS and not active and blockShortEntry and ltfEntryTfValid and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS
-    structureStatus := "Bearish " + ltfEntryLabel + " ladder (HTF blocked)"
+else if waitS and not active and shortEntryBlocked and ltfEntryTfValid and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS
+    structureStatus := "Bearish " + ltfEntryLabel + " ladder (blocked)"
     if lastLtfBlockedTimeS != ltfBearMssTime
-        label.new(bar_index, low, "LTF ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
+        label.new(bar_index, low, "LTF ENTRY BLOCKED [" + shortBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
         lastLtfBlockedTimeS := ltfBearMssTime
 
 if ltfBullEntryReady
@@ -2554,8 +2617,10 @@ if ltfBullEntryReady
     if not na(longStop) and longStop < longEntryPx
         active := true, bull := true, tSetups += 1
         activeEntryPrice := longEntryPx
+        activeInitialStop := longStop
         tSL := longStop
         t10 := f_tradeTargetPrice(true, longEntryPx, longStop)
+        activeBreakEvenArmed := false
         activeProjStartBar := bar_index
         if not na(waitRaidLabelL)
             label.delete(waitRaidLabelL)
@@ -2566,18 +2631,20 @@ if ltfBullEntryReady
         if showEntryLabels
             label.new(bar_index, high, "LONG " + ltfEntryLabel, color=longEntryBg, textcolor=f_contrastTextColor(longEntryBg), style=label.style_label_up, size=size.tiny)
         structureStatus := "Bullish (" + ltfEntryLabel + " ladder done)"
-else if waitL and not active and blockLongEntry and ltfEntryTfValid and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL
-    structureStatus := "Bullish " + ltfEntryLabel + " ladder (HTF blocked)"
+else if waitL and not active and longEntryBlocked and ltfEntryTfValid and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL
+    structureStatus := "Bullish " + ltfEntryLabel + " ladder (blocked)"
     if lastLtfBlockedTimeL != ltfBullMssTime
-        label.new(bar_index, high, "LTF ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
+        label.new(bar_index, high, "LTF ENTRY BLOCKED [" + longBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
         lastLtfBlockedTimeL := ltfBullMssTime
 
-if not ltfEntryTfValid and mssS and not active and not blockShortEntry
+if not ltfEntryTfValid and mssS and not active and not shortEntryBlocked
     active := true, bull := false, tSetups += 1
     activeEntryPrice := close
+    activeInitialStop := (stopModel == "Sweep Extreme") ? sExtH : high
     tSL := (stopModel == "Sweep Extreme") ? sExtH : high
     float shortEntryPx = close
     t10 := f_tradeTargetPrice(false, shortEntryPx, tSL)
+    activeBreakEvenArmed := false
     activeProjStartBar := bar_index
     if not na(waitRaidLabelS)
         label.delete(waitRaidLabelS)
@@ -2587,16 +2654,18 @@ if not ltfEntryTfValid and mssS and not active and not blockShortEntry
     color shortEntryBg = f_entryLabelBg(false)
     if showEntryLabels
         label.new(bar_index, low, "SHORT MSS", color=shortEntryBg, textcolor=f_contrastTextColor(shortEntryBg), style=label.style_label_down, size=size.tiny)
-else if not ltfEntryTfValid and mssS and not active and blockShortEntry
-    structureStatus := "Bearish MSS (HTF Blocked)"
-    label.new(bar_index, low, "ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
+else if not ltfEntryTfValid and mssS and not active and shortEntryBlocked
+    structureStatus := "Bearish MSS (Blocked)"
+    label.new(bar_index, low, "ENTRY BLOCKED [" + shortBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
 
-if not ltfEntryTfValid and mssL and not active and not blockLongEntry
+if not ltfEntryTfValid and mssL and not active and not longEntryBlocked
     active := true, bull := true, tSetups += 1
     activeEntryPrice := close
+    activeInitialStop := (stopModel == "Sweep Extreme") ? sExtL : low
     tSL := (stopModel == "Sweep Extreme") ? sExtL : low
     float longEntryPx = close
     t10 := f_tradeTargetPrice(true, longEntryPx, tSL)
+    activeBreakEvenArmed := false
     activeProjStartBar := bar_index
     if not na(waitRaidLabelL)
         label.delete(waitRaidLabelL)
@@ -2606,9 +2675,9 @@ if not ltfEntryTfValid and mssL and not active and not blockLongEntry
     color longEntryBg = f_entryLabelBg(true)
     if showEntryLabels
         label.new(bar_index, high, "LONG MSS", color=longEntryBg, textcolor=f_contrastTextColor(longEntryBg), style=label.style_label_up, size=size.tiny)
-else if not ltfEntryTfValid and mssL and not active and blockLongEntry
-    structureStatus := "Bullish MSS (HTF Blocked)"
-    label.new(bar_index, high, "ENTRY BLOCKED [HTF: " + htfCompositeState + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
+else if not ltfEntryTfValid and mssL and not active and longEntryBlocked
+    structureStatus := "Bullish MSS (Blocked)"
+    label.new(bar_index, high, "ENTRY BLOCKED [" + longBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
 
 if active and showProj and not na(t10) and not na(activeProjStartBar)
     line.set_xy1(activeProjLine, activeProjStartBar, t10)
@@ -2647,21 +2716,40 @@ else
     line.set_xy1(activeEntryLine, na, na)
     line.set_xy2(activeEntryLine, na, na)
 
+if active and enableBreakEvenRule and not activeBreakEvenArmed and not na(activeInitialStop) and not na(activeEntryPrice)
+    float initialRisk = math.abs(activeEntryPrice - activeInitialStop)
+    if initialRisk > syminfo.mintick * 2
+        float beTrigger = bull ? activeEntryPrice + initialRisk * breakEvenTriggerR : activeEntryPrice - initialRisk * breakEvenTriggerR
+        bool beReached = bull ? high >= beTrigger : low <= beTrigger
+        if beReached
+            tSL := activeEntryPrice
+            activeBreakEvenArmed := true
+
 if active
     if bull
         if low < tSL
-            f_storePastSetup(true, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
-            active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na), l10 += 1
+            string outcome = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2 ? "BE" : "SL"
+            f_storePastSetup(true, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, outcome)
+            if outcome == "BE"
+                be10 += 1
+            else
+                l10 += 1
+            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
         else if high > t10
-            f_storePastSetup(true, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
-            w10 += 1, active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na)
+            f_storePastSetup(true, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, "TP")
+            w10 += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
     else
         if high > tSL
-            f_storePastSetup(false, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
-            active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na), l10 += 1
+            string outcome = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2 ? "BE" : "SL"
+            f_storePastSetup(false, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, outcome)
+            if outcome == "BE"
+                be10 += 1
+            else
+                l10 += 1
+            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
         else if low < t10
-            f_storePastSetup(false, activeEntryPrice, tSL, t10, nz(activeProjStartBar, bar_index), bar_index)
-            w10 += 1, active := false, activeEntryPrice := na, tSL := na, t10 := na, activeProjStartBar := int(na)
+            f_storePastSetup(false, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, "TP")
+            w10 += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
 
 if not active or not showProj
     line.set_xy1(activeProjLine, na, na)
@@ -2711,6 +2799,8 @@ if showRZ
     // Check if narrative is active (Recent MSS within 60 bars)
     isNarrativeL = lastMssBarL > (bar_index - 60)
     isNarrativeS = lastMssBarS > (bar_index - 60)
+    bool longTargetBias = active ? bull : (waitL or mssL or structureTrend == 1 or htfCompositeBias >= 15)
+    bool shortTargetBias = active ? not bull : (waitS or mssS or structureTrend == -1 or htfCompositeBias <= -15)
 
     // 1. Fresh post-shift FVGs (Priority 1)
     if fvg_records.size() > 0
@@ -2731,7 +2821,7 @@ if showRZ
         rz_candidates.push(reaction_zone.new("Short", "OB", lSwl + (high[1]-low[1]), lSwl, lSwl, lastMssBarS, 2, 90.0, false, false, "BEAR OB"))
 
     // 3. Sweep Reclaim (Priority 3)
-    if waitL and not na(sExtL)
+    if waitL and not na(sExtL) and not longEntryBlocked
         [longDeeperActive, longDeeperPrice, longDeeperLabel] = f_findActiveLiquidityBeyond("SSL", sExtL, rzIncompleteSweepWindowAtr)
         bool longSweepIncomplete = rzDowngradeIncompleteSweep and longDeeperActive
         string longSweepNarrative = longSweepIncomplete ? "INTERMEDIATE SWEEP | Deeper " + longDeeperLabel + " active" : "SWEEP RECLAIM (AGGR)"
@@ -2739,7 +2829,7 @@ if showRZ
         int longSweepPriority = 3
         float longSweepScore = longSweepIncomplete ? 68.0 : 80.0
         rz_candidates.push(reaction_zone.new("Long", longSweepType, sExtL + syminfo.mintick*10, sExtL, sExtL + syminfo.mintick*5, nz(waitStartBarL, bar_index), longSweepPriority, longSweepScore, false, false, longSweepNarrative))
-    if waitS and not na(sExtH)
+    if waitS and not na(sExtH) and not shortEntryBlocked
         [shortDeeperActive, shortDeeperPrice, shortDeeperLabel] = f_findActiveLiquidityBeyond("BSL", sExtH, rzIncompleteSweepWindowAtr)
         bool shortSweepIncomplete = rzDowngradeIncompleteSweep and shortDeeperActive
         string shortSweepNarrative = shortSweepIncomplete ? "INTERMEDIATE SWEEP | Higher " + shortDeeperLabel + " active" : "SWEEP RECLAIM (AGGR)"
@@ -2748,11 +2838,15 @@ if showRZ
         float shortSweepScore = shortSweepIncomplete ? 68.0 : 80.0
         rz_candidates.push(reaction_zone.new("Short", shortSweepType, sExtH, sExtH - syminfo.mintick*10, sExtH - syminfo.mintick*5, nz(waitStartBarS, bar_index), shortSweepPriority, shortSweepScore, false, false, shortSweepNarrative))
 
-    // 4. Target / HTF Levels (Priority 4)
+    // 4. HTF Targets / POIs
+    if shortTargetBias and not na(lastHtf2PL) and low > lastHtf2PL
+        rz_candidates.push(reaction_zone.new("Short", "HTF_TARGET", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 4, 78.0, false, false, "HTF SHORT TARGET"))
     if not na(lastHtf2PH) and high < lastHtf2PH
-        rz_candidates.push(reaction_zone.new("Short", "EXT", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 4, 70.0, false, false, "HTF TARGET"))
+        rz_candidates.push(reaction_zone.new("Short", "HTF_POI", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 5, 70.0, false, false, "HTF SHORT POI"))
+    if longTargetBias and not na(lastHtf2PH) and high < lastHtf2PH
+        rz_candidates.push(reaction_zone.new("Long", "HTF_TARGET", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 4, 78.0, false, false, "HTF LONG TARGET"))
     if not na(lastHtf2PL) and low > lastHtf2PL
-        rz_candidates.push(reaction_zone.new("Long", "EXT", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 4, 70.0, false, false, "HTF TARGET"))
+        rz_candidates.push(reaction_zone.new("Long", "HTF_POI", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 5, 70.0, false, false, "HTF LONG POI"))
 
     // --- Filter: Proximity (ATR) ---
     if rz_candidates.size() > 0
@@ -2799,11 +2893,14 @@ update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
     if not na(z)
         isEntry = (z.zoneType == "FVG" or z.zoneType == "OB" or z.zoneType == "SWEEP" or z.zoneType == "CONFLUENCE")
         isWatch = z.zoneType == "SWEEP_CTX"
-        isHtfTarget = z.narrative == "HTF TARGET"
+        isHtfTarget = z.zoneType == "HTF_TARGET"
+        isHtfPoi = z.zoneType == "HTF_POI"
         baseClr = side == "Long" ? rzEntryColor : rzBearColor
         if isWatch
             baseClr := rzTargetColor
-        else if not isEntry
+        else if isHtfTarget
+            baseClr := rzTargetColor
+        else if not isEntry and not isHtfPoi
             baseClr := rzTargetColor
 
         box.set_lefttop(b, bar_index - 15, z.top)
@@ -2821,11 +2918,12 @@ update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
             line.set_xy1(l, na, na)
 
         if showRZLabels
-            int rzLabelOffset = isHtfTarget ? 12 : 8
-            color rzLabelText = isHtfTarget ? f_themeInvertedTextColor() : (isEntry ? baseClr : f_themeTextColor())
-            color rzLabelBg = isHtfTarget ? f_themeInvertedPanelColor() : f_themePanelColor()
+            string rzSuffix = isEntry ? (side == "Long" ? " [LONG SETUP]" : " [SHORT SETUP]") : isWatch ? " [WATCH]" : isHtfTarget ? " [TARGET]" : isHtfPoi ? " [HTF POI]" : " [CONTEXT]"
+            int rzLabelOffset = (isHtfTarget or isHtfPoi) ? 12 : 8
+            color rzLabelText = (isHtfTarget or isHtfPoi) ? f_themeInvertedTextColor() : (isEntry ? baseClr : f_themeTextColor())
+            color rzLabelBg = (isHtfTarget or isHtfPoi) ? f_themeInvertedPanelColor() : f_themePanelColor()
             label.set_xy(lb, bar_index + rzLabelOffset, z.ce)
-            label.set_text(lb, z.narrative + (isEntry ? (side == "Long" ? " [LONG SETUP]" : " [SHORT SETUP]") : isWatch ? " [WATCH]" : " [TARGET]"))
+            label.set_text(lb, z.narrative + rzSuffix)
             label.set_textcolor(lb, rzLabelText)
             label.set_color(lb, rzLabelBg)
             label.set_style(lb, label.style_label_left)
@@ -2873,7 +2971,11 @@ var bool bigMoveClusterSweep = false
 var big_move_timing_snapshot bigMoveSnapshot = big_move_timing_snapshot.new("QUIET", "QUIET | Off-session | No timing edge; use core model only.", "No nearby major liquidity", "Next: wait for price to reach a major pool.")
 
 f_bigMoveTablePos() =>
-    bigMoveTimingTablePos == "Top Right" ? position.top_right : bigMoveTimingTablePos == "Top Left" ? position.top_left : bigMoveTimingTablePos == "Bottom Right" ? position.bottom_right : position.bottom_left
+    bigMoveTimingTablePos == "Top Right" ? position.top_right :
+     bigMoveTimingTablePos == "Top Left" ? position.top_left :
+     bigMoveTimingTablePos == "Middle Right" ? position.middle_right :
+     bigMoveTimingTablePos == "Bottom Right" ? position.bottom_right :
+     position.bottom_left
 
 f_bigMoveTrimSessionString(string sess) =>
     int colonIdx = str.pos(sess, ":")
@@ -3154,16 +3256,16 @@ f_bigMoveAggregateTimingStats(bool nearLiquidity, string nearLiquidityLabel, flo
     string belowText = hasBelowLiquidity ? f_bigMovePriceLabel(belowLiquidityLabel, belowLiquidityPrice) : ""
     if active and not na(t10)
         state := bull ? "ACTIVE: LONG" : "ACTIVE: SHORT"
-        playbook := "Trade active; manage toward target."
+        playbook := "Position live; do not chase, manage toward target."
     else if waitL or waitS
         state := waitL ? "TRIGGER: LONG LADDER" : "TRIGGER: SHORT LADDER"
-        playbook := "Sweep confirmed; wait " + ltfEntryLabel + " ladder MSS."
+        playbook := "Prerequisite sweep done; execute only after the " + ltfEntryLabel + " ladder MSS."
     else if strongBucket and strongKillzone and strongPhase and volReady and liqReady
         state := spikeDominantNow ? "READY: SPIKE RISK" : "READY: EXPANSION"
-        playbook := spikeDominantNow ? "Raid-prone; wait sweep + reclaim." : "Expansion-prone; wait sweep + displacement."
+        playbook := spikeDominantNow ? "Timing window is live, but expect raids first; do not chase." : "Timing window is live; wait sweep + displacement, not anticipation."
     else if watchState
         state := "WATCH"
-        playbook := liqReady ? "Timing live; wait trigger." : "Timing live, but let price reach liquidity."
+        playbook := liqReady ? "Timing window is active, but no entry until the trigger forms." : "Timing window is active, but let price reach the pool first."
     string liquidityText = recentSweepText != "" and nearText != "" ? recentSweepText + " | now at " + nearText :
      recentSweepText != "" ? recentSweepText :
      bearishPressure and not bearTriggerTaken and aboveText != "" ? "Need BSL taken first: " + aboveText :
@@ -3424,7 +3526,7 @@ if barstate.islast
     if enableBigMoveMemory and showBigMoveBanner
         color hintBg = color.new(f_bigMoveStateColor(bigMoveSnapshot.state), f_isDarkTheme() ? 78 : 82)
         float hintY = high + math.max(atrVal, syminfo.mintick * 20) * 1.6
-        string hintText = "BIG MOVE TIMING\nNow: " + bigMoveSnapshot.nowText + "\nLiquidity: " + bigMoveSnapshot.liquidityText + "\nNext: " + bigMoveSnapshot.nextText
+        string hintText = "BIG MOVE TIMING\nRegime: " + bigMoveSnapshot.nowText + "\nKey Pool: " + bigMoveSnapshot.liquidityText + "\nAction: " + bigMoveSnapshot.nextText
         label.set_xy(bigMoveHintLabel, bar_index + 6, hintY)
         label.set_text(bigMoveHintLabel, hintText)
         label.set_textcolor(bigMoveHintLabel, f_themeTextColor())
@@ -3439,12 +3541,12 @@ if showBigMoveTimingTable and enableBigMoveMemory and barstate.islast
     color panelBg = f_themePanelColor()
     color panelText = f_themeTextColor()
     table.cell(bigMoveTable, 0, 0, "Big Move Timing", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
-    table.cell(bigMoveTable, 1, 0, "Trader Read", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
-    table.cell(bigMoveTable, 0, 1, "Now", text_color=panelText, bgcolor=panelBg, text_size=size.small)
+    table.cell(bigMoveTable, 1, 0, "Trader Use", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
+    table.cell(bigMoveTable, 0, 1, "Regime", text_color=panelText, bgcolor=panelBg, text_size=size.small)
     table.cell(bigMoveTable, 1, 1, bigMoveSnapshot.nowText, text_color=panelText, bgcolor=panelBg, text_size=size.tiny)
-    table.cell(bigMoveTable, 0, 2, "Liquidity", text_color=panelText, bgcolor=panelBg, text_size=size.small)
+    table.cell(bigMoveTable, 0, 2, "Key Pool", text_color=panelText, bgcolor=panelBg, text_size=size.small)
     table.cell(bigMoveTable, 1, 2, bigMoveSnapshot.liquidityText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
-    table.cell(bigMoveTable, 0, 3, "Next", text_color=panelText, bgcolor=panelBg, text_size=size.small)
+    table.cell(bigMoveTable, 0, 3, "Action", text_color=panelText, bgcolor=panelBg, text_size=size.small)
     table.cell(bigMoveTable, 1, 3, bigMoveSnapshot.nextText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
 else if barstate.islast
     table.clear(bigMoveTable, 0, 0, 1, 3)
