@@ -6,7 +6,6 @@ indicator("Devtrader - Chart analysis", shorttitle="Devtrader - Chart analysis",
 G_KZ    = "Killzones & Sessions"
 G_VP    = "Volume Profile (Daily)"
 G_FVG   = "Fair Value Gaps (SMC)"
-G_PROJ  = "SD Projections & Targets"
 G_STATS = "Trade Statistics Settings"
 G_SMC   = "SMC Engine"
 G_LIQ   = "Liquidity Swing Engine"
@@ -14,6 +13,7 @@ G_DASH  = "Dashboard Settings"
 G_LVLS  = "Important Market Levels"
 G_RZ    = "High-Prob Reaction Zones"
 G_BMM   = "Big Move / Spike Memory"
+G_OC    = "Overlay HTF Candles"
 
 // --- Constants ---
 COLOR_BULL = #08ffd6
@@ -25,6 +25,7 @@ HTF_STATE_RANGE = 0
 HTF_STATE_BULL_CONT = 1
 HTF_STATE_BULL_REV = 2
 LUX_MAX_PIVOTS = 50
+OVERLAY_CANDLE_MAX = 8
 
 // --- Types ---
 type fvg_data
@@ -137,7 +138,6 @@ nySess       = input.session("1200-1500:1234567", "NY Session", group=G_KZ)
 colorNYK     = input.color(color.new(#f23645, 93), "NY Color", group=G_KZ)
 
 showVP       = input.bool(true, "Show Daily Reference", group=G_VP)
-colorPOC     = input.color(color.orange, "Reference Color", group=G_VP)
 
 showFVG      = input.bool(true, "Detect Fair Value Gaps", group=G_FVG)
 fvgThreshold = input.float(0, "Threshold %", minval=0, maxval=100, step=0.1, group=G_FVG)
@@ -147,18 +147,9 @@ mitigationL  = input.bool(true, "Show Mitigation Levels", group=G_FVG)
 bullFVGColor = input.color(color.new(#089981, 80), "Bullish FVG", group=G_FVG)
 bearFVGColor = input.color(color.new(#f23645, 80), "Bearish FVG", group=G_FVG)
 
-showProj     = input.bool(true, "Show SD Targets", group=G_PROJ)
-colorProj    = input.color(color.new(#5b9cf6, 30), "Projection Color", group=G_PROJ)
-
 stopModel    = input.string("Sweep Extreme", "Stop Model", options=["Sweep Extreme", "MSS Candle Extreme"], group=G_STATS)
 ltfEntrySwingLen = input.int(2, "Lower-TF MSS Swing Strength", minval=1, group=G_STATS)
 ltfEntryDispMult = input.float(1.15, "Lower-TF MSS Disp. Mult", minval=1.0, step=0.05, group=G_STATS)
-showEntryTradeMap = input.bool(true, "Show Entry Risk/Reward Areas", group=G_STATS, tooltip="Shade the live trade's profit and invalidation areas instead of relying only on entry labels.")
-showHistoricalSetups = input.bool(true, "Keep Recent Past Setups", group=G_STATS, tooltip="Preserve recent completed setup maps on the chart so previous long/short executions remain visible.")
-maxHistoricalSetups = input.int(6, "Past Setups To Keep", minval=1, maxval=20, group=G_STATS)
-historicalSetupMinBars = input.int(6, "Past Setup Min Width (Bars)", minval=1, maxval=50, group=G_STATS, tooltip="Keeps fast TP/SL outcomes visible by extending saved setup maps for at least this many bars.")
-showHistoricalOutcomeMarks = input.bool(true, "Show Past Outcome Marks", group=G_STATS, tooltip="Annotate completed setups with TP, SL, or BE markers. Disable this if you want only the historical risk/reward maps.")
-showEntryLabels = input.bool(false, "Show Entry Labels", group=G_STATS, tooltip="Disabled by default to keep the chart clean. When enabled, shows a small LONG/SHORT badge only on the live entry, not on preserved historical setups.")
 enableBreakEvenRule = input.bool(false, "Enable Auto Break-Even", group=G_STATS, tooltip="Optional lifecycle rule: after price reaches the configured R multiple, move the stop to entry so the trade can close as BE instead of SL.")
 breakEvenTriggerR = input.float(1.0, "Break-Even Trigger (R)", minval=0.25, step=0.25, group=G_STATS)
 tradeMinRR = input.float(2.0, "Minimum Target R", minval=1.0, step=0.25, group=G_STATS)
@@ -202,8 +193,6 @@ showSweptLiquidity = input.bool(false, "Show Recent Swept Context", group=G_LIQ,
 liqContextAtr = input.float(1.5, "Swept Context Distance (ATR)", minval=0.5, step=0.25, group=G_LIQ, tooltip="Hide swept context levels that are too far away from current price.")
 liqShowDebugMetrics = input.bool(false, "Show Label Metrics", group=G_LIQ, tooltip="Append touch/state diagnostics to liquidity labels. Disable for clean trader view.")
 showLiquidityLabels = input.bool(true, "Show Liquidity Labels", group=G_LIQ)
-liqMajorColor    = input.color(color.new(#ff0015, 30), "Major Liquidity", group=G_LIQ)
-liqMinorColor    = input.color(color.new(#5b9cf6, 50), "Minor Liquidity", group=G_LIQ)
 liqLabelSize     = input.string("Tiny", "Labels Size", options=["Tiny", "Small", "Normal"], group=G_LIQ)
 enableLuxLiquidity = input.bool(true, "Enable Lux-Style Cluster Liquidity", group=G_LIQ, tooltip="Adds Lux-style repeated-pivot liquidity clustering for classic buyside and sellside pools.")
 luxInjectIntoMap = input.bool(true, "Use Lux Zones In Liquidity Map", group=G_LIQ, tooltip="Publishes active Lux-style clusters into the main liquidity engine so sweep, targeting, and narrative logic can use them.")
@@ -229,11 +218,6 @@ showPWL  = input.bool(false, "PWL (Prev Week Low)", group=G_LVLS)
 showPMH  = input.bool(false, "PMH (Prev Month High)", group=G_LVLS)
 showPML  = input.bool(false, "PML (Prev Month Low)", group=G_LVLS)
 showNYMid = input.bool(true, "NY Midnight Open", group=G_LVLS)
-
-colorPDLvl = input.color(color.new(color.gray, 30), "Daily Levels Color", group=G_LVLS)
-colorPWLvl = input.color(color.new(#5b9cf6, 30), "Weekly Levels Color", group=G_LVLS)
-colorPMLvl = input.color(color.new(#ff9800, 30), "Monthly Levels Color", group=G_LVLS)
-colorNYMid = input.color(color.gray, "NY Midnight Color", group=G_LVLS)
 
 showRZ           = input.bool(true, "Show Reaction Zones", group=G_RZ)
 rzProximityMult = input.float(3.0, "Actionable Proximity (ATR Mult)", minval=0.5, step=0.5, group=G_RZ, tooltip="Only show zones within this ATR distance from current price.")
@@ -261,6 +245,19 @@ showBigMoveTimingTable = input.bool(true, "Show Timing Table", group=G_BMM)
 bigMoveMinScore = input.float(58.0, "Minimum Event Score", minval=0.0, maxval=100.0, step=1.0, group=G_BMM)
 bigMoveTimingTablePos = input.string("Middle Right", "Timing Table Position", options=["Top Right", "Top Left", "Middle Right", "Bottom Right", "Bottom Left"], group=G_BMM)
 
+showOverlayCandles = input.bool(false, "Show Right-Side HTF Candles", group=G_OC)
+overlayCandleTf = input.timeframe("D", "Overlay Candle Timeframe", group=G_OC)
+overlayCandleCount = input.int(4, "Number Of Candles", minval=1, maxval=OVERLAY_CANDLE_MAX, group=G_OC)
+overlayCandleWidthBarsInput = input.int(5, "Body Width (Bars)", minval=1, group=G_OC, tooltip="Even values are rounded up to the next odd number so the wick remains centered.")
+overlayCandleGapBars = input.int(2, "Gap (Bars)", minval=0, group=G_OC)
+overlayCandleLeadBars = input.int(5, "Right Offset (Bars)", minval=0, group=G_OC)
+overlayCandleWickWidth = input.int(2, "Wick Width (Px)", minval=1, maxval=10, group=G_OC)
+overlayCandleBorderWidth = input.int(2, "Border Width (Px)", minval=1, maxval=10, group=G_OC)
+overlayCandleColorSource = input.string("Canvas Theme", "Color Source", options=["Canvas Theme", "Manual"], group=G_OC, tooltip="Pine does not expose the chart's exact bull/bear candle colors. Canvas Theme adapts automatically to the current chart canvas; Manual lets you match custom chart candle colors exactly.")
+overlayBullBodyColor = input.color(#089981, "Manual Bull Body", group=G_OC)
+overlayBearBodyColor = input.color(#f23645, "Manual Bear Body", group=G_OC)
+overlayBorderWickColor = input.color(color.black, "Manual Border / Wick", group=G_OC)
+
 // --- HTF Settings ---
 G_HTF        = "Higher Timeframe Structure"
 showHTF      = input.bool(true, "Show HTF Structure", group=G_HTF)
@@ -276,8 +273,6 @@ entryLiquidityConflictWindowAtr = input.float(6.0, "Counter-Liquidity Window (AT
 htfMinConfidence = input.int(60, "HTF Confidence Threshold", minval=40, maxval=90, group=G_HTF, tooltip="Minimum combined HTF confidence required before the script treats the context as strongly directional.")
 htfDispBodyMult = input.float(1.15, "HTF Disp. Body Mult", minval=1.0, step=0.05, group=G_HTF, tooltip="Relative body expansion required on the latest confirmed HTF candle to count as meaningful displacement.")
 htfLiquidityProxAtr = input.float(0.75, "HTF Liquidity Proximity (ATR)", minval=0.25, step=0.25, group=G_HTF, tooltip="Distance to confirmed HTF liquidity, measured in HTF ATR, used when scoring reversal-candidate and continuation states.")
-htfColor1    = input.color(color.new(#5b9cf6, 30), "HTF 1 Level Color", group=G_HTF)
-htfColor2    = input.color(color.new(#ff9800, 30), "HTF 2 Level Color", group=G_HTF)
 
 // --- Calculations ---
 // Liquidity pools keep historical source bars and later reuse them as drawing anchors.
@@ -291,10 +286,33 @@ isNewWeek = ta.change(time("W")) != 0
 isNewMonth = ta.change(time("M")) != 0
 avgVol   = ta.sma(volume, 20)
 highVol  = volume > avgVol
+int overlayCandleWidthBars = overlayCandleWidthBarsInput % 2 == 0 ? overlayCandleWidthBarsInput + 1 : overlayCandleWidthBarsInput
+int overlayCandleHalfBars = int((overlayCandleWidthBars - 1) / 2)
 
 [pdh, pdl, pdc, dO] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1], open[0]], lookahead=barmerge.lookahead_on)
 [pwh, pwl, wO] = request.security(syminfo.tickerid, "W", [high[1], low[1], open[0]], lookahead=barmerge.lookahead_on)
 [pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+
+[overlayO0, overlayH0, overlayL0, overlayC0,
+ overlayO1, overlayH1, overlayL1, overlayC1,
+ overlayO2, overlayH2, overlayL2, overlayC2,
+ overlayO3, overlayH3, overlayL3, overlayC3,
+ overlayO4, overlayH4, overlayL4, overlayC4,
+ overlayO5, overlayH5, overlayL5, overlayC5,
+ overlayO6, overlayH6, overlayL6, overlayC6,
+ overlayO7, overlayH7, overlayL7, overlayC7] = request.security(
+     syminfo.tickerid,
+     overlayCandleTf,
+     [open, high, low, close,
+      open[1], high[1], low[1], close[1],
+      open[2], high[2], low[2], close[2],
+      open[3], high[3], low[3], close[3],
+      open[4], high[4], low[4], close[4],
+      open[5], high[5], low[5], close[5],
+      open[6], high[6], low[6], close[6],
+      open[7], high[7], low[7], close[7]],
+     gaps=barmerge.gaps_off,
+     lookahead=barmerge.lookahead_on)
 
 isNewDayNY = hour(time, "America/New_York") == 0 and minute(time, "America/New_York") == 0
 var float nyMidnight = na
@@ -380,6 +398,9 @@ f_htfDashboardNarrative(int state, string action, int structureDir, float pdPos,
      "\nFlow: " + action +
      "\nRead: " + f_htfExecutionNarrative(state, pdPos, nearHighLiq, nearLowLiq)
 
+f_htfReadOnlyNarrative(int state, float pdPos, bool nearHighLiq, bool nearLowLiq) =>
+    "Read: " + f_htfExecutionNarrative(state, pdPos, nearHighLiq, nearLowLiq)
+
 f_htfCompositeBiasNarrative(float compositeBias, bool longStrong, bool shortStrong) =>
     longStrong ? "Bullish aligned" :
      shortStrong ? "Bearish aligned" :
@@ -407,6 +428,10 @@ f_htfCompositeFilterNarrative(float compositeBias, bool blockLong, bool blockSho
      blockShort ? "Filter: block shorts; longs only on LTF confirm" :
      math.abs(compositeBias) >= 20 ? (compositeBias > 0 ? "Filter: prefer long LTF setups" : "Filter: prefer short LTF setups") :
      "Filter: no hard HTF block"
+
+f_htfCompositeDashboardNarrative(float compositeBias, bool longStrong, bool shortStrong, bool blockLong, bool blockShort) =>
+    "Bias: " + f_htfCompositeBiasNarrative(compositeBias, longStrong, shortStrong) +
+     "\n" + f_htfCompositeFilterNarrative(compositeBias, blockLong, blockShort)
 
 f_htfRecentDisp(int dirBias, float refOpen, float refHigh, float refLow, float refClose, float refAtr, float refAvgBody) =>
     float refRange = refHigh - refLow
@@ -675,18 +700,13 @@ float htf2DirectionalBias = f_htfDirectionalBias(htf2State, htf2Confidence)
 float htfCompositeBias = htf1DirectionalBias * 0.75 + htf2DirectionalBias
 bool htfLongStrong = htfCompositeBias >= htfMinConfidence
 bool htfShortStrong = htfCompositeBias <= -htfMinConfidence
-string htf1Display = f_htfDashboardNarrative(htf1State, htf1Action, htf1StructureDir, htf1PdPos, htf1NearHighLiq, htf1NearLowLiq, htf1Confidence)
-string htf2Display = f_htfDashboardNarrative(htf2State, htf2Action, htf2StructureDir, htf2PdPos, htf2NearHighLiq, htf2NearLowLiq, htf2Confidence)
+string htf1Display = f_htfReadOnlyNarrative(htf1State, htf1PdPos, htf1NearHighLiq, htf1NearLowLiq)
+string htf2Display = f_htfReadOnlyNarrative(htf2State, htf2PdPos, htf2NearHighLiq, htf2NearLowLiq)
 string htfCompositeState = htfLongStrong ? "HTF bullish aligned" : htfShortStrong ? "HTF bearish aligned" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "HTF bullish lean" : "HTF bearish lean") : "HTF mixed/ranging"
 color htfCompositeColor = htfLongStrong ? f_htfStateColor(HTF_STATE_BULL_CONT, math.abs(htfCompositeBias)) : htfShortStrong ? f_htfStateColor(HTF_STATE_BEAR_CONT, math.abs(htfCompositeBias)) : color.new(COLOR_NEUT, 30)
 bool blockLongEntry = useHTFEntryFilter and htfShortStrong
 bool blockShortEntry = useHTFEntryFilter and htfLongStrong
-string htfCompositeDashboard = f_htfCompositeStackNarrative(htf1Tf, htf1DirectionalBias, htf2Tf, htf2DirectionalBias) + "\nBias: " + f_htfCompositeBiasNarrative(htfCompositeBias, htfLongStrong, htfShortStrong) + "\n" + f_htfCompositeFilterNarrative(htfCompositeBias, blockLongEntry, blockShortEntry)
-
-plot(showHTF ? lastHtf1PH : na, "HTF 1 Range High", htfColor1, 1, plot.style_linebr)
-plot(showHTF ? lastHtf1PL : na, "HTF 1 Range Low", htfColor1, 1, plot.style_linebr)
-plot(showHTF ? lastHtf2PH : na, "HTF 2 Range High", htfColor2, 1, plot.style_linebr)
-plot(showHTF ? lastHtf2PL : na, "HTF 2 Range Low", htfColor2, 1, plot.style_linebr)
+string htfCompositeDashboard = f_htfCompositeDashboardNarrative(htfCompositeBias, htfLongStrong, htfShortStrong, blockLongEntry, blockShortEntry)
 
 var float asiaH = na
 var float asiaL = na
@@ -731,8 +751,6 @@ else if inNY
 var float dPOC = na
 if isNewDay or highVol
     dPOC := hl2
-
-plot(showVP ? dPOC : na, "Daily Reference", colorPOC, 2, plot.style_linebr)
 
 var bool pdhConsumed = false
 var bool pdlConsumed = false
@@ -788,17 +806,16 @@ f_themePanelColor() =>
 f_themeInvertedPanelColor() =>
     f_isDarkTheme() ? color.white : #111827
 
-f_contrastTextColor(color bgClr) =>
-    f_colorLuma(bgClr) < 140 ? color.white : color.black
+f_defaultLevelColor() =>
+    f_isDarkTheme() ? color.white : color.black
 
-f_tradeOutcomeColor(string outcome) =>
-    outcome == "TP" ? COLOR_BULL : outcome == "BE" ? color.silver : COLOR_BEAR
+f_defaultLevelLabelBg() =>
+    f_themePanelColor()
 
-f_tradeOutcomePrice(string outcome, float entryPrice, float stopPrice, float targetPrice) =>
-    outcome == "TP" ? targetPrice : outcome == "BE" ? entryPrice : stopPrice
-
-f_entryLabelBg(bool isBull) =>
-    color.new(isBull ? COLOR_BULL : COLOR_BEAR, f_isDarkTheme() ? 12 : 18)
+f_levelRenderColor(string state, bool isMajor) =>
+    color base = f_defaultLevelColor()
+    int transparency = state == "CONSUMED" ? 78 : state == "SWEPT" ? 58 : state == "TAGGED" ? (isMajor ? 20 : 35) : (isMajor ? 0 : 18)
+    color.new(base, transparency)
 
 f_timeframeStrFromSeconds(int secs) =>
     int mins = int(math.max(1.0, math.round(float(secs) / 60.0)))
@@ -816,72 +833,123 @@ f_autoLtfSeconds(int baseSecs) =>
         ladderSecs := math.max(60, ladderSecs)
         math.min(baseSecs - 60, ladderSecs)
 
-f_liqLabelUsesThemeText(string displayText) =>
-    string head4 = str.length(displayText) >= 4 ? str.substring(displayText, 0, 4) : displayText
-    displayText == "EQH" or displayText == "EQL" or head4 == "HTF1" or head4 == "HTF2"
-
 f_liqLabelExtraOffset(string displayText) =>
-    f_liqLabelUsesThemeText(displayText) ? 8 : 0
+    string head4 = str.length(displayText) >= 4 ? str.substring(displayText, 0, 4) : displayText
+    (displayText == "EQH" or displayText == "EQL" or head4 == "HTF1" or head4 == "HTF2") ? 8 : 0
 
 f_bigMovePriceLabel(string label, float price) =>
     str.length(label) > 0 and not na(price) ? label + " @ " + str.tostring(price, format.mintick) : label
 
-var array<box> pastRewardBoxes = array.new_box(0)
-var array<box> pastRiskBoxes = array.new_box(0)
-var array<line> pastEntryLines = array.new_line(0)
-var array<label> pastOutcomeLabels = array.new_label(0)
-f_prunePastSetups() =>
-    while array.size(pastRewardBoxes) > maxHistoricalSetups
-        box oldReward = array.shift(pastRewardBoxes)
-        if not na(oldReward)
-            box.delete(oldReward)
-    while array.size(pastRiskBoxes) > maxHistoricalSetups
-        box oldRisk = array.shift(pastRiskBoxes)
-        if not na(oldRisk)
-            box.delete(oldRisk)
-    while array.size(pastEntryLines) > maxHistoricalSetups
-        line oldLine = array.shift(pastEntryLines)
-        if not na(oldLine)
-            line.delete(oldLine)
-    while array.size(pastOutcomeLabels) > maxHistoricalSetups
-        label oldOutcome = array.shift(pastOutcomeLabels)
-        if not na(oldOutcome)
-            label.delete(oldOutcome)
+f_overlayBullBodyColor() =>
+    overlayCandleColorSource == "Manual" ? overlayBullBodyColor : #089981
+
+f_overlayBearBodyColor() =>
+    overlayCandleColorSource == "Manual" ? overlayBearBodyColor : #f23645
+
+f_overlayBorderWickColor() =>
+    overlayCandleColorSource == "Manual" ? overlayBorderWickColor : chart.fg_color
+
+f_overlayO(int idx) =>
+    idx == 0 ? overlayO0 : idx == 1 ? overlayO1 : idx == 2 ? overlayO2 : idx == 3 ? overlayO3 : idx == 4 ? overlayO4 : idx == 5 ? overlayO5 : idx == 6 ? overlayO6 : overlayO7
+
+f_overlayH(int idx) =>
+    idx == 0 ? overlayH0 : idx == 1 ? overlayH1 : idx == 2 ? overlayH2 : idx == 3 ? overlayH3 : idx == 4 ? overlayH4 : idx == 5 ? overlayH5 : idx == 6 ? overlayH6 : overlayH7
+
+f_overlayL(int idx) =>
+    idx == 0 ? overlayL0 : idx == 1 ? overlayL1 : idx == 2 ? overlayL2 : idx == 3 ? overlayL3 : idx == 4 ? overlayL4 : idx == 5 ? overlayL5 : idx == 6 ? overlayL6 : overlayL7
+
+f_overlayC(int idx) =>
+    idx == 0 ? overlayC0 : idx == 1 ? overlayC1 : idx == 2 ? overlayC2 : idx == 3 ? overlayC3 : idx == 4 ? overlayC4 : idx == 5 ? overlayC5 : idx == 6 ? overlayC6 : overlayC7
+
+f_overlayAvailableCount() =>
+    int count = 0
+    for i = 0 to OVERLAY_CANDLE_MAX - 1
+        count += na(f_overlayO(i)) or na(f_overlayH(i)) or na(f_overlayL(i)) or na(f_overlayC(i)) ? 0 : 1
+    count
+
+f_overlayHideCandle(box body, line wickTop, line wickBottom, line borderTop, line borderBottom, line borderLeft, line borderRight) =>
+    box.set_bgcolor(body, na)
+    box.set_border_color(body, na)
+    line.set_xy1(wickTop, na, na)
+    line.set_xy2(wickTop, na, na)
+    line.set_xy1(wickBottom, na, na)
+    line.set_xy2(wickBottom, na, na)
+    line.set_xy1(borderTop, na, na)
+    line.set_xy2(borderTop, na, na)
+    line.set_xy1(borderBottom, na, na)
+    line.set_xy2(borderBottom, na, na)
+    line.set_xy1(borderLeft, na, na)
+    line.set_xy2(borderLeft, na, na)
+    line.set_xy1(borderRight, na, na)
+    line.set_xy2(borderRight, na, na)
     true
 
-f_storePastSetup(bool isLong, float entryPrice, float stopPrice, float targetPrice, int startBar, int endBar, string outcomeText) =>
-    if showHistoricalSetups and showProj and not na(entryPrice) and not na(stopPrice) and not na(targetPrice) and not na(startBar) and not na(endBar)
-        int rightBar = math.max(endBar, startBar + historicalSetupMinBars)
-        float rewardTop = isLong ? targetPrice : entryPrice
-        float rewardBottom = isLong ? entryPrice : targetPrice
-        float riskTop = isLong ? entryPrice : stopPrice
-        float riskBottom = isLong ? stopPrice : entryPrice
-        box rewardBox = box.new(startBar, rewardTop, rightBar, rewardBottom, bgcolor=color.new(COLOR_BULL, f_isDarkTheme() ? 84 : 88), border_color=color.new(COLOR_BULL, 58), border_width=1)
-        box riskBox = box.new(startBar, riskTop, rightBar, riskBottom, bgcolor=color.new(COLOR_BEAR, f_isDarkTheme() ? 86 : 90), border_color=color.new(COLOR_BEAR, 60), border_width=1)
-        line entryLine = line.new(startBar, entryPrice, rightBar, entryPrice, color=color.new(f_themeTextColor(), 18), style=line.style_dotted, width=1)
-        label outcomeTag = na
-        if showHistoricalOutcomeMarks and str.length(outcomeText) > 0
-            color outcomeBg = f_tradeOutcomeColor(outcomeText)
-            float outcomePrice = f_tradeOutcomePrice(outcomeText, entryPrice, stopPrice, targetPrice)
-            outcomeTag := label.new(rightBar, outcomePrice, outcomeText, color=outcomeBg, textcolor=f_contrastTextColor(outcomeBg), style=label.style_label_left, size=size.tiny)
-        array.push(pastRewardBoxes, rewardBox)
-        array.push(pastRiskBoxes, riskBox)
-        array.push(pastEntryLines, entryLine)
-        array.push(pastOutcomeLabels, outcomeTag)
-        f_prunePastSetups()
+f_overlayDrawCandle(box body, line wickTop, line wickBottom, line borderTop, line borderBottom, line borderLeft, line borderRight, int slot, float o, float h, float l, float c) =>
+    if not na(o) and not na(h) and not na(l) and not na(c)
+        int left = bar_index + overlayCandleLeadBars + slot * (overlayCandleWidthBars + overlayCandleGapBars)
+        int right = left + overlayCandleWidthBars - 1
+        int mid = left + overlayCandleHalfBars
+        float hiBody = math.max(o, c)
+        float loBody = math.min(o, c)
+        float eps = syminfo.mintick * 0.001
+        color bodyColor = c >= o ? f_overlayBullBodyColor() : f_overlayBearBodyColor()
+        color borderWickColor = f_overlayBorderWickColor()
+
+        box.set_lefttop(body, left, hiBody)
+        box.set_rightbottom(body, right, loBody)
+        box.set_bgcolor(body, bodyColor)
+        box.set_border_color(body, na)
+
+        line.set_xy1(wickTop, mid, h)
+        line.set_xy2(wickTop, mid, hiBody)
+        line.set_color(wickTop, borderWickColor)
+        line.set_width(wickTop, overlayCandleWickWidth)
+
+        line.set_xy1(wickBottom, mid, loBody)
+        line.set_xy2(wickBottom, mid, l)
+        line.set_color(wickBottom, borderWickColor)
+        line.set_width(wickBottom, overlayCandleWickWidth)
+
+        line.set_xy1(borderTop, left, hiBody)
+        line.set_xy2(borderTop, right, hiBody)
+        line.set_color(borderTop, borderWickColor)
+        line.set_width(borderTop, overlayCandleBorderWidth)
+
+        line.set_xy1(borderBottom, left, loBody)
+        line.set_xy2(borderBottom, right, loBody)
+        line.set_color(borderBottom, borderWickColor)
+        line.set_width(borderBottom, overlayCandleBorderWidth)
+
+        line.set_xy1(borderLeft, left, hiBody + eps)
+        line.set_xy2(borderLeft, left, loBody - eps)
+        line.set_color(borderLeft, borderWickColor)
+        line.set_width(borderLeft, overlayCandleBorderWidth)
+
+        line.set_xy1(borderRight, right, hiBody + eps)
+        line.set_xy2(borderRight, right, loBody - eps)
+        line.set_color(borderRight, borderWickColor)
+        line.set_width(borderRight, overlayCandleBorderWidth)
+    else
+        f_overlayHideCandle(body, wickTop, wickBottom, borderTop, borderBottom, borderLeft, borderRight)
     true
 
-f_updateLevel(bool show, float val, string txt, color clr, line l, label lb, int width, int xOffsetBars) =>
+plot(showHTF ? lastHtf1PH : na, "HTF 1 Range High", f_defaultLevelColor(), 1, plot.style_linebr)
+plot(showHTF ? lastHtf1PL : na, "HTF 1 Range Low", f_defaultLevelColor(), 1, plot.style_linebr)
+plot(showHTF ? lastHtf2PH : na, "HTF 2 Range High", f_defaultLevelColor(), 2, plot.style_linebr)
+plot(showHTF ? lastHtf2PL : na, "HTF 2 Range Low", f_defaultLevelColor(), 2, plot.style_linebr)
+plot(showVP ? dPOC : na, "Daily Reference", f_defaultLevelColor(), 2, plot.style_linebr)
+
+f_updateLevel(bool show, float val, string txt, line l, label lb, int width, int xOffsetBars) =>
     if show and not na(val)
         levelLeft = math.max(bar_index - 50, 0)
         levelRight = bar_index + 10 + xOffsetBars
         line.set_xy1(l, levelLeft, val)
         line.set_xy2(l, levelRight, val)
-        line.set_color(l, clr)
+        line.set_color(l, f_defaultLevelColor())
         line.set_width(l, width)
         label.set_xy(lb, levelRight, val)
-        label.set_textcolor(lb, f_themeTextColor())
-        label.set_color(lb, f_themePanelColor())
+        label.set_textcolor(lb, f_defaultLevelColor())
+        label.set_color(lb, f_defaultLevelLabelBg())
         label.set_text(lb, txt + " (" + str.tostring(val, format.mintick) + ")")
     else
         line.set_y1(l, na)
@@ -907,17 +975,48 @@ var line lnPML = line.new(na, na, na, na)
 var label lbPML = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
 var line lnNYMid = line.new(na, na, na, na)
 var label lbNYMid = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
+var array<box> overlayBodies = array.new_box(0)
+var array<line> overlayWickTops = array.new_line(0)
+var array<line> overlayWickBottoms = array.new_line(0)
+var array<line> overlayBorderTops = array.new_line(0)
+var array<line> overlayBorderBottoms = array.new_line(0)
+var array<line> overlayBorderLefts = array.new_line(0)
+var array<line> overlayBorderRights = array.new_line(0)
+
+if barstate.isfirst
+    for _ = 0 to OVERLAY_CANDLE_MAX - 1
+        array.push(overlayBodies, box.new(na, na, na, na, xloc=xloc.bar_index, border_color=color(na), bgcolor=color(na)))
+        array.push(overlayWickTops, line.new(na, na, na, na, xloc=xloc.bar_index, extend=extend.none, color=color(na)))
+        array.push(overlayWickBottoms, line.new(na, na, na, na, xloc=xloc.bar_index, extend=extend.none, color=color(na)))
+        array.push(overlayBorderTops, line.new(na, na, na, na, xloc=xloc.bar_index, extend=extend.none, color=color(na)))
+        array.push(overlayBorderBottoms, line.new(na, na, na, na, xloc=xloc.bar_index, extend=extend.none, color=color(na)))
+        array.push(overlayBorderLefts, line.new(na, na, na, na, xloc=xloc.bar_index, extend=extend.none, color=color(na)))
+        array.push(overlayBorderRights, line.new(na, na, na, na, xloc=xloc.bar_index, extend=extend.none, color=color(na)))
 
 if barstate.islast
-    f_updateLevel(showPDH and not pdhConsumed, pdh, "PDH", colorPDLvl, lnPDH, lbPDH, 1, 0)
-    f_updateLevel(showPDL and not pdlConsumed, pdl, "PDL", colorPDLvl, lnPDL, lbPDL, 1, 0)
-    f_updateLevel(showPDC, pdc, "PDC", colorPDLvl, lnPDC, lbPDC, 1, 3)
-    f_updateLevel(showDO, dO, "DO", colorPDLvl, lnDO, lbDO, 1, 6)
-    f_updateLevel(showPWH and not pwhConsumed, pwh, "PWH", colorPWLvl, lnPWH, lbPWH, 2, 9)
-    f_updateLevel(showPWL and not pwlConsumed, pwl, "PWL", colorPWLvl, lnPWL, lbPWL, 2, 12)
-    f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", colorPMLvl, lnPMH, lbPMH, 2, 15)
-    f_updateLevel(showPML and not pmlConsumed, pml, "PML", colorPMLvl, lnPML, lbPML, 2, 18)
-    f_updateLevel(showNYMid, nyMidnight, "NY Midnight", colorNYMid, lnNYMid, lbNYMid, 1, 21)
+    f_updateLevel(showPDH and not pdhConsumed, pdh, "PDH", lnPDH, lbPDH, 1, 0)
+    f_updateLevel(showPDL and not pdlConsumed, pdl, "PDL", lnPDL, lbPDL, 1, 0)
+    f_updateLevel(showPDC, pdc, "PDC", lnPDC, lbPDC, 1, 3)
+    f_updateLevel(showDO, dO, "DO", lnDO, lbDO, 1, 6)
+    f_updateLevel(showPWH and not pwhConsumed, pwh, "PWH", lnPWH, lbPWH, 2, 9)
+    f_updateLevel(showPWL and not pwlConsumed, pwl, "PWL", lnPWL, lbPWL, 2, 12)
+    f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", lnPMH, lbPMH, 2, 15)
+    f_updateLevel(showPML and not pmlConsumed, pml, "PML", lnPML, lbPML, 2, 18)
+    f_updateLevel(showNYMid, nyMidnight, "NY Midnight", lnNYMid, lbNYMid, 1, 21)
+    int overlaySlotsToDraw = showOverlayCandles ? math.min(math.min(overlayCandleCount, f_overlayAvailableCount()), OVERLAY_CANDLE_MAX) : 0
+    for slot = 0 to OVERLAY_CANDLE_MAX - 1
+        box body = array.get(overlayBodies, slot)
+        line wickTop = array.get(overlayWickTops, slot)
+        line wickBottom = array.get(overlayWickBottoms, slot)
+        line borderTop = array.get(overlayBorderTops, slot)
+        line borderBottom = array.get(overlayBorderBottoms, slot)
+        line borderLeft = array.get(overlayBorderLefts, slot)
+        line borderRight = array.get(overlayBorderRights, slot)
+        if slot < overlaySlotsToDraw
+            int overlayIdx = overlaySlotsToDraw - 1 - slot
+            f_overlayDrawCandle(body, wickTop, wickBottom, borderTop, borderBottom, borderLeft, borderRight, slot, f_overlayO(overlayIdx), f_overlayH(overlayIdx), f_overlayL(overlayIdx), f_overlayC(overlayIdx))
+        else
+            f_overlayHideCandle(body, wickTop, wickBottom, borderTop, borderBottom, borderLeft, borderRight)
 
 // --- Advanced Liquidity Engine ---
 var liq_pools = array.new<liq_pool>(0)
@@ -1806,18 +1905,16 @@ if barstate.islast
         for i = 0 to selectedRows.size() - 1
             row = selectedRows.get(i)
             displayText = row.primaryText
-            clr = row.isMajor ? liqMajorColor : liqMinorColor
-            clr := row.state == "CONSUMED" ? color.new(clr, 65) : row.state == "SWEPT" ? color.new(clr, 40) : row.state == "TAGGED" ? color.new(clr, 20) : clr
+            clr = f_levelRenderColor(row.state, row.isMajor)
             lineStyle = row.state == "CONSUMED" ? line.style_dotted : row.state == "SWEPT" ? line.style_dashed : row.isMajor ? line.style_solid : line.style_dashed
             int renderLeftBar = f_liqRenderLeftBar(row.sourceBar)
-            array.push(liq_render_lines, line.new(renderLeftBar, row.price, bar_index + 5, row.price, color=clr, style=lineStyle))
+            array.push(liq_render_lines, line.new(renderLeftBar, row.price, bar_index + 5, row.price, color=clr, style=lineStyle, width=row.isMajor ? 2 : 1))
             if showLiquidityLabels
                 isNearPrev = not na(prevRowPrice) and math.abs(prevRowPrice - row.price) <= spacing
                 stackedOffset := isNearPrev ? stackedOffset + 4 : 0
                 prevRowPrice := row.price
                 int renderOffset = stackedOffset + f_liqLabelExtraOffset(displayText)
-                color labelTextClr = f_themeTextColor()
-                array.push(liq_render_labels, label.new(bar_index + 5 + renderOffset, row.price, displayText, color=f_themePanelColor(), textcolor=labelTextClr, style=label.style_label_left, size=f_liqLabelSize()))
+                array.push(liq_render_labels, label.new(bar_index + 5 + renderOffset, row.price, displayText, color=f_defaultLevelLabelBg(), textcolor=f_defaultLevelColor(), style=label.style_label_left, size=f_liqLabelSize()))
 
 // --- FVG Engine ---
 var fvg_records = array.new<fvg_data>(0)
@@ -1961,8 +2058,6 @@ var float waitStopAnchorL = na
 var float waitStopAnchorS = na
 var int waitStartTimeL = na
 var int waitStartTimeS = na
-var int lastLtfBlockedTimeS = na
-var int lastLtfBlockedTimeL = na
 var string structureStatus = "Neutral"
 var int tSetups = 0
 var int w10 = 0
@@ -1975,11 +2070,6 @@ var float activeInitialStop = na
 var float tSL = na
 var float t10 = na
 var bool activeBreakEvenArmed = false
-var int activeProjStartBar = na
-var line activeProjLine = line.new(na, na, na, na)
-var line activeEntryLine = line.new(na, na, na, na)
-var box activeRewardBox = box.new(na, na, na, na, border_color=na)
-var box activeRiskBox = box.new(na, na, na, na, border_color=na)
 var float protectedHigh = na
 var float protectedLow = na
 var int protectedHighBar = na
@@ -2699,8 +2789,6 @@ bool blockShortLiquidityConflict = useDirectionalLiquidityEntryFilter and bullis
 bool blockLongLiquidityConflict = useDirectionalLiquidityEntryFilter and bearishExecutionContext and longCounterFound and (not longTargetFound or longCounterDist <= longTargetDist * 1.15)
 bool shortEntryBlocked = blockShortEntry or blockShortLiquidityConflict
 bool longEntryBlocked = blockLongEntry or blockLongLiquidityConflict
-string shortBlockReason = blockShortEntry ? "HTF: " + htfCompositeState : blockShortLiquidityConflict ? "Liquidity above: " + f_bigMovePriceLabel(shortCounterLabel, shortCounterPrice) : ""
-string longBlockReason = blockLongEntry ? "HTF: " + htfCompositeState : blockLongLiquidityConflict ? "Liquidity below: " + f_bigMovePriceLabel(longCounterLabel, longCounterPrice) : ""
 bool ltfBearEntryReady = ltfEntryTfValid and waitS and not active and not shortEntryBlocked and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS and not na(waitStopAnchorS)
 bool ltfBullEntryReady = ltfEntryTfValid and waitL and not active and not longEntryBlocked and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL and not na(waitStopAnchorL)
 
@@ -2715,18 +2803,11 @@ if ltfBearEntryReady
         tSL := shortStop
         t10 := f_tradeTargetPrice(false, shortEntryPx, shortStop)
         activeBreakEvenArmed := false
-        activeProjStartBar := bar_index
         waitS := false, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
         waitStopAnchorS := na
-        color shortEntryBg = f_entryLabelBg(false)
-        if showEntryLabels
-            label.new(bar_index, low, "SHORT " + ltfEntryLabel, color=shortEntryBg, textcolor=f_contrastTextColor(shortEntryBg), style=label.style_label_down, size=size.tiny)
         structureStatus := "Bearish (" + ltfEntryLabel + " ladder done)"
 else if waitS and not active and shortEntryBlocked and ltfEntryTfValid and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS
     structureStatus := "Bearish " + ltfEntryLabel + " ladder (blocked)"
-    if lastLtfBlockedTimeS != ltfBearMssTime
-        label.new(bar_index, low, "LTF ENTRY BLOCKED [" + shortBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
-        lastLtfBlockedTimeS := ltfBearMssTime
 
 if ltfBullEntryReady
     float longEntryPx = na(ltfBullEntryPrice) ? close : ltfBullEntryPrice
@@ -2738,18 +2819,11 @@ if ltfBullEntryReady
         tSL := longStop
         t10 := f_tradeTargetPrice(true, longEntryPx, longStop)
         activeBreakEvenArmed := false
-        activeProjStartBar := bar_index
         waitL := false, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
         waitStopAnchorL := na
-        color longEntryBg = f_entryLabelBg(true)
-        if showEntryLabels
-            label.new(bar_index, high, "LONG " + ltfEntryLabel, color=longEntryBg, textcolor=f_contrastTextColor(longEntryBg), style=label.style_label_up, size=size.tiny)
         structureStatus := "Bullish (" + ltfEntryLabel + " ladder done)"
 else if waitL and not active and longEntryBlocked and ltfEntryTfValid and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL
     structureStatus := "Bullish " + ltfEntryLabel + " ladder (blocked)"
-    if lastLtfBlockedTimeL != ltfBullMssTime
-        label.new(bar_index, high, "LTF ENTRY BLOCKED [" + longBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
-        lastLtfBlockedTimeL := ltfBullMssTime
 
 if not ltfEntryTfValid and mssS and not active and not shortEntryBlocked
     float shortSweepStop = na(waitStopAnchorS) ? ((stopModel == "Sweep Extreme") ? sExtH : high) : waitStopAnchorS
@@ -2760,15 +2834,10 @@ if not ltfEntryTfValid and mssS and not active and not shortEntryBlocked
     float shortEntryPx = close
     t10 := f_tradeTargetPrice(false, shortEntryPx, tSL)
     activeBreakEvenArmed := false
-    activeProjStartBar := bar_index
     waitS := false, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
     waitStopAnchorS := na
-    color shortEntryBg = f_entryLabelBg(false)
-    if showEntryLabels
-        label.new(bar_index, low, "SHORT MSS", color=shortEntryBg, textcolor=f_contrastTextColor(shortEntryBg), style=label.style_label_down, size=size.tiny)
 else if not ltfEntryTfValid and mssS and not active and shortEntryBlocked
     structureStatus := "Bearish MSS (Blocked)"
-    label.new(bar_index, low, "ENTRY BLOCKED [" + shortBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
 
 if not ltfEntryTfValid and mssL and not active and not longEntryBlocked
     float longSweepStop = na(waitStopAnchorL) ? ((stopModel == "Sweep Extreme") ? sExtL : low) : waitStopAnchorL
@@ -2779,52 +2848,10 @@ if not ltfEntryTfValid and mssL and not active and not longEntryBlocked
     float longEntryPx = close
     t10 := f_tradeTargetPrice(true, longEntryPx, tSL)
     activeBreakEvenArmed := false
-    activeProjStartBar := bar_index
     waitL := false, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
     waitStopAnchorL := na
-    color longEntryBg = f_entryLabelBg(true)
-    if showEntryLabels
-        label.new(bar_index, high, "LONG MSS", color=longEntryBg, textcolor=f_contrastTextColor(longEntryBg), style=label.style_label_up, size=size.tiny)
 else if not ltfEntryTfValid and mssL and not active and longEntryBlocked
     structureStatus := "Bullish MSS (Blocked)"
-    label.new(bar_index, high, "ENTRY BLOCKED [" + longBlockReason + "]", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
-
-if active and showProj and not na(t10) and not na(activeProjStartBar)
-    line.set_xy1(activeProjLine, activeProjStartBar, t10)
-    line.set_xy2(activeProjLine, bar_index + 15, t10)
-    line.set_color(activeProjLine, bull ? COLOR_BULL : COLOR_BEAR)
-    line.set_style(activeProjLine, line.style_dashed)
-else
-    line.set_xy1(activeProjLine, na, na)
-    line.set_xy2(activeProjLine, na, na)
-
-if active and showProj and showEntryTradeMap and not na(t10) and not na(tSL) and not na(activeProjStartBar) and not na(activeEntryPrice)
-    int tradeMapRight = bar_index + 12
-    float rewardTop = bull ? t10 : activeEntryPrice
-    float rewardBottom = bull ? activeEntryPrice : t10
-    float riskTop = bull ? activeEntryPrice : tSL
-    float riskBottom = bull ? tSL : activeEntryPrice
-    box.set_lefttop(activeRewardBox, activeProjStartBar, rewardTop)
-    box.set_rightbottom(activeRewardBox, tradeMapRight, rewardBottom)
-    box.set_bgcolor(activeRewardBox, color.new(COLOR_BULL, f_isDarkTheme() ? 80 : 84))
-    box.set_border_color(activeRewardBox, color.new(COLOR_BULL, 45))
-    box.set_border_style(activeRewardBox, line.style_solid)
-    box.set_lefttop(activeRiskBox, activeProjStartBar, riskTop)
-    box.set_rightbottom(activeRiskBox, tradeMapRight, riskBottom)
-    box.set_bgcolor(activeRiskBox, color.new(COLOR_BEAR, f_isDarkTheme() ? 82 : 86))
-    box.set_border_color(activeRiskBox, color.new(COLOR_BEAR, 50))
-    box.set_border_style(activeRiskBox, line.style_solid)
-    line.set_xy1(activeEntryLine, activeProjStartBar, activeEntryPrice)
-    line.set_xy2(activeEntryLine, tradeMapRight, activeEntryPrice)
-    line.set_color(activeEntryLine, f_themeTextColor())
-    line.set_style(activeEntryLine, line.style_dotted)
-else
-    box.set_bgcolor(activeRewardBox, na)
-    box.set_border_color(activeRewardBox, na)
-    box.set_bgcolor(activeRiskBox, na)
-    box.set_border_color(activeRiskBox, na)
-    line.set_xy1(activeEntryLine, na, na)
-    line.set_xy2(activeEntryLine, na, na)
 
 if active and enableBreakEvenRule and not activeBreakEvenArmed and not na(activeInitialStop) and not na(activeEntryPrice)
     float initialRisk = math.abs(activeEntryPrice - activeInitialStop)
@@ -2839,33 +2866,23 @@ if active
     if bull
         if low < tSL
             string outcome = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2 ? "BE" : "SL"
-            f_storePastSetup(true, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, outcome)
             if outcome == "BE"
                 be10 += 1
             else
                 l10 += 1
-            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
+            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false
         else if high > t10
-            f_storePastSetup(true, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, "TP")
-            w10 += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
+            w10 += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false
     else
         if high > tSL
             string outcome = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2 ? "BE" : "SL"
-            f_storePastSetup(false, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, outcome)
             if outcome == "BE"
                 be10 += 1
             else
                 l10 += 1
-            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
+            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false
         else if low < t10
-            f_storePastSetup(false, activeEntryPrice, nz(activeInitialStop, tSL), t10, nz(activeProjStartBar, bar_index), bar_index, "TP")
-            w10 += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeProjStartBar := int(na)
-
-if not active or not showProj
-    line.set_xy1(activeProjLine, na, na)
-    line.set_xy2(activeProjLine, na, na)
-    line.set_xy1(activeEntryLine, na, na)
-    line.set_xy2(activeEntryLine, na, na)
+            w10 += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false
 
 // --- Reaction Zone Narrative Engine ---
 f_findActiveLiquidityBeyond(string liqSide, float anchorPrice, float maxWindowAtr) =>
@@ -3036,8 +3053,8 @@ update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
             line.set_xy1(l, na, na)
 
         if showRZLabels
-            string rzSuffix = isEntry ? (side == "Long" ? " [LONG SETUP]" : " [SHORT SETUP]") : isWatch ? " [WATCH]" : isHtfTarget ? " [TARGET]" : isHtfPoi ? " [HTF POI]" : " [CONTEXT]"
-            int rzLabelOffset = (isHtfTarget or isHtfPoi) ? 12 : 8
+            string rzSuffix = isEntry ? (side == "Long" ? " [LONG SETUP]" : " [SHORT SETUP]") : isWatch ? " [WATCH]" : (isHtfTarget or isHtfPoi) ? "" : " [CONTEXT]"
+            int rzLabelOffset = (isHtfTarget or isHtfPoi) ? 16 : 10
             color rzLabelText = (isHtfTarget or isHtfPoi) ? f_themeInvertedTextColor() : (isEntry ? baseClr : f_themeTextColor())
             color rzLabelBg = (isHtfTarget or isHtfPoi) ? f_themeInvertedPanelColor() : f_themePanelColor()
             label.set_xy(lb, bar_index + rzLabelOffset, z.ce)
@@ -3617,7 +3634,7 @@ if showBigMoveTimingTable and enableBigMoveMemory and barstate.islast
     table.cell(bigMoveTable, 0, 0, "Big Move Timing", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
     table.cell(bigMoveTable, 1, 0, "Trader Use", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
     table.cell(bigMoveTable, 0, 1, "Regime", text_color=panelText, bgcolor=panelBg, text_size=size.small)
-    table.cell(bigMoveTable, 1, 1, bigMoveSnapshot.nowText, text_color=panelText, bgcolor=panelBg, text_size=size.tiny)
+    table.cell(bigMoveTable, 1, 1, bigMoveSnapshot.nowText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
     table.cell(bigMoveTable, 0, 2, "Key Pool", text_color=panelText, bgcolor=panelBg, text_size=size.small)
     table.cell(bigMoveTable, 1, 2, bigMoveSnapshot.liquidityText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
     table.cell(bigMoveTable, 0, 3, "Action", text_color=panelText, bgcolor=panelBg, text_size=size.small)
@@ -3631,8 +3648,8 @@ if showDash and barstate.islast
     var table tb = table.new(pos_tbl, 2, 10, bgcolor=#1e222d, border_color=#373a46, border_width=1)
     color dashHeaderBg = chart.fg_color
     color dashHeaderText = chart.bg_color
-    color dashCellBg = f_themePanelColor()
-    color dashCellText = f_themeTextColor()
+    color dashCellBg = chart.fg_color
+    color dashCellText = chart.bg_color
     table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
     table.cell(tb, 1, 0, "TRADER READ", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
 
@@ -3649,19 +3666,19 @@ if showDash and barstate.islast
     table.cell(tb, 1, 3, bT3, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
     table.cell(tb, 0, 4, "HTF 1 (" + htf1Tf + ")", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 4, htf1Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.tiny)
+    table.cell(tb, 1, 4, htf1Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
     table.cell(tb, 0, 5, "HTF 2 (" + htf2Tf + ")", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 5, htf2Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.tiny)
+    table.cell(tb, 1, 5, htf2Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
     bool structureBull = structureTrend == 1
     bool structureBear = structureTrend == -1
     table.cell(tb, 0, 6, "LTF Structure", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
     table.cell(tb, 1, 6, structureStatus, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
-    overAll = close > dO and structureBull and htfLongStrong ? "Stack: daily + LTF + HTF bullish\nBias: Bullish aligned\nFilter: longs allowed; fade weak shorts" : close < dO and structureBear and htfShortStrong ? "Stack: daily + LTF + HTF bearish\nBias: Bearish aligned\nFilter: shorts allowed; fade weak longs" : htfCompositeDashboard
+    overAll = close > dO and structureBull and htfLongStrong ? "Bias: Bullish aligned\nFilter: longs allowed; fade weak shorts" : close < dO and structureBear and htfShortStrong ? "Bias: Bearish aligned\nFilter: shorts allowed; fade weak longs" : htfCompositeDashboard
     table.cell(tb, 0, 7, "Overall Context", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 7, overAll, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.tiny)
+    table.cell(tb, 1, 7, overAll, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
 
     table.cell(tb, 0, 8, "Total Setups", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
     table.cell(tb, 1, 8, str.tostring(tSetups), text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
