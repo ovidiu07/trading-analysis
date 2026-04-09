@@ -139,6 +139,7 @@ breakEvenTriggerR = input.float(1.0, "Break-Even Trigger (R)", minval=0.25, step
 tradeMinRR = input.float(2.0, "Minimum Target R", minval=1.0, step=0.25, group=G_STATS)
 tradeTargetWindowAtr = input.float(8.0, "Target Liquidity Window (ATR)", minval=2.0, step=0.5, group=G_STATS)
 targetModel = input.string("Next Liquidity", "Target Model", options=["Next Liquidity", "Next Liquidity + RR Floor"], group=G_STATS, tooltip="Professional sweep-to-MSS execution should normally pay into the next meaningful opposing liquidity. RR floor mode stretches the target only when you want to override that first objective.")
+showTradePlans = input.bool(true, "Show Setup SL / TP", group=G_STATS, tooltip="Draws entry, stop, and target plans for active trades and current entry-ready setups.")
 ltfRequiresPostSweepPivot = input.bool(true, "LTF MSS Requires Post-Sweep Pivot", group=G_STATS, tooltip="Only arm the lower-timeframe MSS entry when the pivot being broken formed after the sweep started. This enforces sweep -> rebuild -> MSS -> entry.")
 ltfMssDelayBars = input.int(2, "LTF MSS Delay Bars", minval=0, maxval=10, group=G_STATS, tooltip="Minimum number of lower-timeframe bars that must print after the sweep before an LTF MSS can qualify. This filters out immediate micro breaks inside the same reaction burst.")
 ltfMssMinLegAtr = input.float(0.15, "LTF MSS Min Leg (ATR)", minval=0.05, step=0.05, group=G_STATS, tooltip="Minimum lower-timeframe swing distance between the post-sweep reclaim pivot and the break pivot. Higher values remove micro-noise MSS breaks.")
@@ -174,6 +175,7 @@ msSwingHighColor = input.color(color.new(COLOR_BEAR, 0), "Swing High Bullet Colo
 msSwingLowColor = input.color(color.new(COLOR_BULL, 0), "Swing Low Bullet Color", group=G_MS)
 showMsProtectedLevels = input.bool(false, "Show MS Protected Levels", group=G_MS)
 showMsChochBos = input.bool(false, "Show MS CHoCH / BOS Levels", group=G_MS, tooltip="Draws CHoCH and BOS levels in the market-structure-sweeps style, including live extension levels on the last bar.")
+showMsIdm = input.bool(true, "Show MS Inducement / Reclaim", group=G_MS, tooltip="Shows the active inducement level and IDM reclaim events adapted from market-structure-sweeps.")
 msBullChochColor = input.color(color.black, "Bullish CHoCH Color", group=G_MS)
 msBearChochColor = input.color(color.black, "Bearish CHoCH Color", group=G_MS)
 msBullBosColor = input.color(color.black, "Bullish BOS Color", group=G_MS)
@@ -181,6 +183,9 @@ msBearBosColor = input.color(color.black, "Bearish BOS Color", group=G_MS)
 msBosRequiresInternalPullback = input.bool(true, "BOS Requires New Internal Pullback", group=G_MS, tooltip="Prevents BOS from printing on every incremental continuation break. Requires a fresh internal swing after the last CHoCH/BOS event, closer to market-structure-sweeps behavior.")
 msBosDisplacementMult = input.float(0.85, "BOS Break Body Mult", minval=0.5, step=0.05, group=G_MS, tooltip="Minimum body expansion versus average body for BOS candles. Higher values make BOS prints tighter and less frequent.")
 msMinStructureSpacingBars = input.int(2, "Min Bars Between MS Events", minval=1, maxval=10, group=G_MS, tooltip="Hard spacing gate for CHoCH/BOS prints. Default 2 prevents new structure labels from printing one candle after the last event.")
+msBosMinRefAgeBars = input.int(2, "Min BOS Ref Age (Bars)", minval=1, maxval=20, group=G_MS, tooltip="Prevents BOS from printing against an external reference formed only one candle ago.")
+msIdmTakeMode = input.string("wick_then_close", "MS IDM Take Mode", options=["wick", "close", "wick_then_close"], group=G_MS, tooltip="How inducement is considered taken before BOS can print.")
+msIdmReclaimBars = input.int(2, "MS IDM Reclaim Bars", minval=1, maxval=5, group=G_MS, tooltip="Maximum bars allowed for an IDM wick sweep to reclaim the level.")
 msCompactStructureLabels = input.bool(true, "Use Compact Structure Labels", group=G_MS)
 enableDebugTelemetry = input.bool(false, "Show Unified Debug Telemetry", group=G_MS, tooltip="Displays lightweight last-bar diagnostics for chosen liquidity, sweep grading, structure alignment, and block reasons.")
 
@@ -1697,6 +1702,24 @@ f_msInternalSwings() =>
 f_msBiasText(int bias) =>
     bias == 1 ? "Bullish" : bias == -1 ? "Bearish" : "Neutral"
 
+f_msEventLabel(string baseText, bool aligned) =>
+    aligned ? baseText + "+" : baseText
+
+f_msPushInternalPivot(array<float> valArr, array<int> barArr, array<float> atrArr, array<int> volArr, float pivotVal, int pivotBar, float pivotAtr, bool volOk, int maxItems) =>
+    if not na(pivotVal) and not na(pivotBar)
+        bool isDuplicate = array.size(barArr) > 0 and array.get(barArr, array.size(barArr) - 1) == pivotBar
+        if not isDuplicate
+            array.push(valArr, pivotVal)
+            array.push(barArr, pivotBar)
+            array.push(atrArr, pivotAtr)
+            array.push(volArr, volOk ? 1 : 0)
+            while array.size(valArr) > maxItems
+                array.shift(valArr)
+                array.shift(barArr)
+                array.shift(atrArr)
+                array.shift(volArr)
+    true
+
 f_unifiedSweepGrade(float baseScore, bool reclaimOk, bool volumeOk, bool sessionOk, bool msConfirmed, string mode) =>
     string grade = "Invalid"
     if reclaimOk and baseScore >= 50.0
@@ -1717,6 +1740,21 @@ f_entryBlockReason(bool hardHtfBlock, bool liquidityBlock, bool msBlock, bool ms
      liquidityBlock ? "Blocked: counter-liquidity is closer than the directional objective" :
      msBlock ? (msOpposed ? "Blocked: " + side + " sweep conflicts with broader market structure" : "Blocked: " + ladderLabel + " trigger formed without market-structure confirmation") :
      ""
+
+f_resetWaitState() =>
+    [false, int(na), int(na), float(na), float(na), float(na), false, false, false, "", float(na)]
+
+f_resetStructureRefs() =>
+    [float(na), int(na), float(na), int(na), false, false, false]
+
+f_startWaitState(float level, float tol, float baseScore, bool volumeOk, bool sessionOk, bool reclaimOk, string poolLabel, float stopAnchor) =>
+    [true, bar_index, time, level, tol, baseScore, volumeOk, sessionOk, reclaimOk, poolLabel, stopAnchor]
+
+f_activateTradeState(bool nextBull, float entryPx, float stopPx, float targetPx) =>
+    [true, nextBull, entryPx, stopPx, stopPx, targetPx, false, bar_index]
+
+f_clearTradeState() =>
+    [false, float(na), float(na), float(na), float(na), false, int(na)]
 
 // --- SMC & SD Stats ---
 var bool waitS = false
@@ -1831,8 +1869,27 @@ var int ms_lastBearBosBar = na
 var string ms_lastEventType = "None"
 var bool ms_topCrossed = false
 var bool ms_btmCrossed = false
+var array<float> ms_internalLowVals = array.new_float(0)
+var array<int> ms_internalLowBars = array.new_int(0)
+var array<float> ms_internalLowAtr = array.new_float(0)
+var array<int> ms_internalLowVolOk = array.new_int(0)
+var array<float> ms_internalHighVals = array.new_float(0)
+var array<int> ms_internalHighBars = array.new_int(0)
+var array<float> ms_internalHighAtr = array.new_float(0)
+var array<int> ms_internalHighVolOk = array.new_int(0)
+var float ms_idmLevel = na
+var int ms_idmBar = na
+var float ms_idmScore = na
+var int ms_idmState = 0
+var bool ms_idmTaken = false
+var bool ms_idmStrong = false
+var bool ms_idmPendingSweep = false
+var int ms_idmPendingBar = na
+var float ms_idmPendingExtreme = na
+var string ms_idmTakeTag = ""
 var line ms_extChoch = line.new(na, na, na, na, style=line.style_dashed)
 var line ms_extBos = line.new(na, na, na, na)
+var line ms_extIdm = line.new(na, na, na, na, style=line.style_dotted)
 
 f_pushStructurePivot(array<float> priceArr, array<int> barArr, float pivotPrice, int pivotBar, int maxItems) =>
     if not na(pivotPrice) and not na(pivotBar)
@@ -1989,6 +2046,18 @@ f_resolveBullStructureRefs(int narrativeRefBar, int sweepBar, float protectedHig
             majorRefBar := protectedHighRefBar
     [minorRef, minorRefBar, majorRef, majorRefBar]
 
+f_ltfEntrySignals(bool ltfEntryTfValid, string ltfEntryTf, int waitStartTimeL, int waitStartTimeS) =>
+    int ltfBullMssTime = int(na)
+    int ltfBearMssTime = int(na)
+    float ltfBullEntryPrice = na
+    float ltfBearEntryPrice = na
+    if ltfEntryTfValid
+        ltfBullMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssTime(waitStartTimeL), lookahead=barmerge.lookahead_off)
+        ltfBearMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssTime(waitStartTimeS), lookahead=barmerge.lookahead_off)
+        ltfBullEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssPrice(waitStartTimeL), lookahead=barmerge.lookahead_off)
+        ltfBearEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssPrice(waitStartTimeS), lookahead=barmerge.lookahead_off)
+    [ltfBullMssTime, ltfBearMssTime, ltfBullEntryPrice, ltfBearEntryPrice]
+
 avgBody = ta.sma(math.abs(close - open), 20)
 disp    = math.abs(close - open) > (avgBody * dispMult)
 
@@ -2028,8 +2097,7 @@ if not na(majL)
 [msMajorSwingHigh, msMajorSwingHighBar, msMajorSwingLow, msMajorSwingLowBar] = f_msMajorSwings()
 [msInternalSwingHigh, msInternalSwingHighBar, msInternalSwingLow, msInternalSwingLowBar] = f_msInternalSwings()
 
-color msMajorHighPlotColor = msSwingHighColor
-color msMajorLowPlotColor = msSwingLowColor
+float msInternalRangeBase = ta.sma(high - low, 20)
 float msBullChochLevel = ms_lastSwingHigh
 int msBullChochBar = ms_lastSwingHighBar
 float msBearChochLevel = ms_lastSwingLow
@@ -2047,32 +2115,75 @@ if not na(msMajorSwingLow)
 if not na(msInternalSwingHigh)
     ms_lastInternalHigh := msInternalSwingHigh
     ms_lastInternalHighBar := msInternalSwingHighBar
+    float msHighPivotAtr = math.max(nz(atrVal[msInternalSwingLen], atrVal), syminfo.mintick)
+    float msHighPivotRange = nz(high[msInternalSwingLen] - low[msInternalSwingLen], high - low)
+    float msHighRangeBase = math.max(nz(msInternalRangeBase[msInternalSwingLen], msHighPivotRange), syminfo.mintick)
+    bool msHighVolOk = msHighPivotRange >= msHighRangeBase * 1.15
+    float msPrevInternalLow = na
+    if array.size(ms_internalLowBars) > 0
+        for i = array.size(ms_internalLowBars) - 1 to 0
+            int scanBar = array.get(ms_internalLowBars, i)
+            if scanBar < msInternalSwingHighBar
+                msPrevInternalLow := array.get(ms_internalLowVals, i)
+                break
+    float msHighRetrace = not na(msPrevInternalLow) ? msInternalSwingHigh - msPrevInternalLow : na
+    bool msHighDistinct = array.size(ms_internalHighBars) == 0 or msInternalSwingHighBar > array.get(ms_internalHighBars, array.size(ms_internalHighBars) - 1)
+    bool msHighMeaningful = (na(msHighRetrace) or msHighRetrace >= msHighPivotAtr * 0.35) and msHighDistinct
+    if msHighMeaningful
+        f_msPushInternalPivot(ms_internalHighVals, ms_internalHighBars, ms_internalHighAtr, ms_internalHighVolOk, msInternalSwingHigh, msInternalSwingHighBar, msHighPivotAtr, msHighVolOk, 40)
 if not na(msInternalSwingLow)
     ms_lastInternalLow := msInternalSwingLow
     ms_lastInternalLowBar := msInternalSwingLowBar
+    float msLowPivotAtr = math.max(nz(atrVal[msInternalSwingLen], atrVal), syminfo.mintick)
+    float msLowPivotRange = nz(high[msInternalSwingLen] - low[msInternalSwingLen], high - low)
+    float msLowRangeBase = math.max(nz(msInternalRangeBase[msInternalSwingLen], msLowPivotRange), syminfo.mintick)
+    bool msLowVolOk = msLowPivotRange >= msLowRangeBase * 1.15
+    float msPrevInternalHigh = na
+    if array.size(ms_internalHighBars) > 0
+        for i = array.size(ms_internalHighBars) - 1 to 0
+            int scanBar = array.get(ms_internalHighBars, i)
+            if scanBar < msInternalSwingLowBar
+                msPrevInternalHigh := array.get(ms_internalHighVals, i)
+                break
+    float msLowRetrace = not na(msPrevInternalHigh) ? msPrevInternalHigh - msInternalSwingLow : na
+    bool msLowDistinct = array.size(ms_internalLowBars) == 0 or msInternalSwingLowBar > array.get(ms_internalLowBars, array.size(ms_internalLowBars) - 1)
+    bool msLowMeaningful = (na(msLowRetrace) or msLowRetrace >= msLowPivotAtr * 0.35) and msLowDistinct
+    if msLowMeaningful
+        f_msPushInternalPivot(ms_internalLowVals, ms_internalLowBars, ms_internalLowAtr, ms_internalLowVolOk, msInternalSwingLow, msInternalSwingLowBar, msLowPivotAtr, msLowVolOk, 40)
 
 float msBreakTol = math.max(atrVal * 0.03, syminfo.mintick * 4)
-float msBosHighRef = nz(ms_externalHigh, ms_lastSwingHigh)
-float msBosLowRef = nz(ms_externalLow, ms_lastSwingLow)
-int msBosHighRefBar = na(ms_externalHighBar) ? ms_lastSwingHighBar : ms_externalHighBar
-int msBosLowRefBar = na(ms_externalLowBar) ? ms_lastSwingLowBar : ms_externalLowBar
+float msIdmTouchTolerance = math.max(syminfo.mintick, atrVal * 0.02)
 float msBosRange = high - low
 float msBosSafeRange = msBosRange > 0 ? msBosRange : syminfo.mintick
 float msBosBody = math.abs(close - open)
 bool msBullBosImpulse = close > open and msBosBody > avgBody * msBosDisplacementMult and ((high - close) / msBosSafeRange) <= 0.35
 bool msBearBosImpulse = close < open and msBosBody > avgBody * msBosDisplacementMult and ((close - low) / msBosSafeRange) <= 0.35
-bool ms_bullBosPullbackReady = not msBosRequiresInternalPullback or (not na(ms_lastInternalLow) and ms_lastInternalLowBar > nz(ms_lastStructureEventBar, -1))
-bool ms_bearBosPullbackReady = not msBosRequiresInternalPullback or (not na(ms_lastInternalHigh) and ms_lastInternalHighBar > nz(ms_lastStructureEventBar, -1))
+bool msBullConfluenceAligned = not blockLongEntry and (htfCompositeBias >= 0 or close >= dO)
+bool msBearConfluenceAligned = not blockShortEntry and (htfCompositeBias <= 0 or close <= dO)
 bool msStructureSpacingOk = na(ms_lastStructureEventBar) or (bar_index - ms_lastStructureEventBar) >= msMinStructureSpacingBars
 bool ms_bullChochEvent = false
 bool ms_bearChochEvent = false
 bool ms_bullBosEvent = false
 bool ms_bearBosEvent = false
+string msBullChochLabel = "CHoCH"
+string msBearChochLabel = "CHoCH"
+string msBullBosLabel = "BOS"
+string msBearBosLabel = "BOS"
 
-if msStructureSpacingOk and not na(ms_lastSwingHigh) and close > (ms_lastSwingHigh + msBreakTol) and not ms_topCrossed
-    ms_bullChochEvent := true
-    ms_structureBias := 1
+bool msBullBreakCandidate = not na(ms_lastSwingHigh) and close > (ms_lastSwingHigh + msBreakTol) and not ms_topCrossed
+bool msBearBreakCandidate = not na(ms_lastSwingLow) and close < (ms_lastSwingLow - msBreakTol) and not ms_btmCrossed
+if msBullBreakCandidate
     ms_topCrossed := true
+if msBearBreakCandidate
+    ms_btmCrossed := true
+
+bool msBullBiasChange = msStructureSpacingOk and msBullBreakCandidate and ms_structureBias != 1
+bool msBearBiasChange = msStructureSpacingOk and msBearBreakCandidate and ms_structureBias != -1
+ms_bullChochEvent := msBullBiasChange
+ms_bearChochEvent := msBearBiasChange
+
+if ms_bullChochEvent
+    ms_structureBias := 1
     ms_btmCrossed := false
     ms_protectedLow := ms_lastSwingLow
     ms_protectedLowBar := ms_lastSwingLowBar
@@ -2080,15 +2191,24 @@ if msStructureSpacingOk and not na(ms_lastSwingHigh) and close > (ms_lastSwingHi
     ms_externalLowBar := ms_protectedLowBar
     ms_externalHigh := high
     ms_externalHighBar := bar_index
+    ms_idmTaken := false
+    ms_idmLevel := na
+    ms_idmBar := na
+    ms_idmScore := na
+    ms_idmState := 4
+    ms_idmStrong := false
+    ms_idmPendingSweep := false
+    ms_idmPendingBar := na
+    ms_idmPendingExtreme := na
+    ms_idmTakeTag := ""
+    msBullChochLabel := f_msEventLabel("CHoCH", msBullConfluenceAligned and msBullBosImpulse)
     ms_lastBullChochBar := bar_index
     ms_recentBullEventBar := bar_index
     ms_lastStructureEventBar := bar_index
-    ms_lastEventType := "Bullish CHoCH"
+    ms_lastEventType := msBullChochLabel == "CHoCH+" ? "Bullish CHoCH+" : "Bullish CHoCH"
 
-if msStructureSpacingOk and not na(ms_lastSwingLow) and close < (ms_lastSwingLow - msBreakTol) and not ms_btmCrossed
-    ms_bearChochEvent := true
+if ms_bearChochEvent
     ms_structureBias := -1
-    ms_btmCrossed := true
     ms_topCrossed := false
     ms_protectedHigh := ms_lastSwingHigh
     ms_protectedHighBar := ms_lastSwingHighBar
@@ -2096,41 +2216,247 @@ if msStructureSpacingOk and not na(ms_lastSwingLow) and close < (ms_lastSwingLow
     ms_externalHighBar := ms_protectedHighBar
     ms_externalLow := low
     ms_externalLowBar := bar_index
+    ms_idmTaken := false
+    ms_idmLevel := na
+    ms_idmBar := na
+    ms_idmScore := na
+    ms_idmState := 4
+    ms_idmStrong := false
+    ms_idmPendingSweep := false
+    ms_idmPendingBar := na
+    ms_idmPendingExtreme := na
+    ms_idmTakeTag := ""
+    msBearChochLabel := f_msEventLabel("CHoCH", msBearConfluenceAligned and msBearBosImpulse)
     ms_lastBearChochBar := bar_index
     ms_recentBearEventBar := bar_index
     ms_lastStructureEventBar := bar_index
-    ms_lastEventType := "Bearish CHoCH"
+    ms_lastEventType := msBearChochLabel == "CHoCH+" ? "Bearish CHoCH+" : "Bearish CHoCH"
 
 bool ms_bullProtectedIntact = na(ms_protectedLow) or close >= (ms_protectedLow - msBreakTol)
 bool ms_bearProtectedIntact = na(ms_protectedHigh) or close <= (ms_protectedHigh + msBreakTol)
 
-if msStructureSpacingOk and ms_structureBias == 1 and not ms_bullChochEvent and ms_bullBosPullbackReady and not na(msBosHighRef) and close > (msBosHighRef + msBreakTol) and ms_bullProtectedIntact and msBullBosImpulse
+float msPrevIdmLevel = ms_idmLevel
+int msPrevIdmBar = ms_idmBar
+if not ms_idmTaken and ms_structureBias != 0
+    float msSelectedLevel = na
+    int msSelectedBar = na
+    float msSelectedScore = na
+    float msSelectedAtr = na
+    int msSelectedAge = na
+    if ms_structureBias == 1 and ms_bullProtectedIntact and not na(ms_protectedLow) and not na(ms_externalHigh)
+        float msBullLegRange = ms_externalHigh - ms_protectedLow
+        if msBullLegRange > syminfo.mintick and array.size(ms_internalLowVals) > 0
+            for i = 0 to array.size(ms_internalLowVals) - 1
+                float candidateLevel = array.get(ms_internalLowVals, i)
+                int candidateBar = array.get(ms_internalLowBars, i)
+                float candidateAtr = math.max(array.get(ms_internalLowAtr, i), syminfo.mintick)
+                int candidateAge = bar_index - candidateBar
+                float distFromProtected = candidateLevel - ms_protectedLow
+                float distToExternal = ms_externalHigh - candidateLevel
+                float legPosition = distFromProtected / msBullLegRange
+                bool insideLeg = candidateBar > nz(ms_protectedLowBar, -1) and candidateLevel > ms_protectedLow and candidateLevel < ms_externalHigh
+                bool ageOk = candidateAge <= 90
+                bool spacingOk = distFromProtected >= candidateAtr * 0.45 and distToExternal >= candidateAtr * 0.35 and legPosition > 0.10 and legPosition < 0.85
+                float prevHighLevel = na
+                if array.size(ms_internalHighBars) > 0
+                    for j = array.size(ms_internalHighBars) - 1 to 0
+                        int highBar = array.get(ms_internalHighBars, j)
+                        if highBar < candidateBar
+                            prevHighLevel := array.get(ms_internalHighVals, j)
+                            break
+                float retraceSize = not na(prevHighLevel) ? prevHighLevel - candidateLevel : na
+                bool retraceOk = not na(retraceSize) and retraceSize >= math.max(candidateAtr * 0.35, msBullLegRange * 0.18)
+                float impulseAway = ms_externalHigh - candidateLevel
+                bool impulseOk = impulseAway >= candidateAtr * 1.0
+                if insideLeg and ageOk and spacingOk and retraceOk and impulseOk
+                    bool bosConfirmed = not na(prevHighLevel) and ms_externalHigh > prevHighLevel + candidateAtr * 0.15
+                    float recencyScore = 25.0 * f_clamp(1.0 - float(candidateAge) / 90.0, 0.0, 1.0)
+                    float departureScore = 25.0 * f_clamp(impulseAway / math.max(candidateAtr * 2.0, syminfo.mintick), 0.0, 1.0)
+                    float retraceScore = 20.0 * f_clamp(retraceSize / math.max(math.max(candidateAtr * 0.70, msBullLegRange * 0.36), syminfo.mintick), 0.0, 1.0)
+                    float positionScore = 15.0 * (1.0 - f_clamp(math.abs(legPosition - 0.5) / 0.5, 0.0, 1.0))
+                    float spacingScore = 10.0 * f_clamp(math.min(distFromProtected, distToExternal) / (candidateAtr * 2.0), 0.0, 1.0)
+                    float contextScore = array.get(ms_internalLowVolOk, i) == 1 ? 6.0 : 0.0
+                    float bosScore = bosConfirmed ? 10.0 : 0.0
+                    float candidateScore = recencyScore + departureScore + retraceScore + positionScore + spacingScore + contextScore + bosScore
+                    if na(msSelectedScore) or candidateScore > msSelectedScore or (math.abs(candidateScore - msSelectedScore) < 0.001 and candidateBar > msSelectedBar)
+                        msSelectedLevel := candidateLevel
+                        msSelectedBar := candidateBar
+                        msSelectedScore := candidateScore
+                        msSelectedAtr := candidateAtr
+                        msSelectedAge := candidateAge
+    if ms_structureBias == -1 and ms_bearProtectedIntact and not na(ms_protectedHigh) and not na(ms_externalLow)
+        float msBearLegRange = ms_protectedHigh - ms_externalLow
+        if msBearLegRange > syminfo.mintick and array.size(ms_internalHighVals) > 0
+            for i = 0 to array.size(ms_internalHighVals) - 1
+                float candidateLevel = array.get(ms_internalHighVals, i)
+                int candidateBar = array.get(ms_internalHighBars, i)
+                float candidateAtr = math.max(array.get(ms_internalHighAtr, i), syminfo.mintick)
+                int candidateAge = bar_index - candidateBar
+                float distFromProtected = ms_protectedHigh - candidateLevel
+                float distToExternal = candidateLevel - ms_externalLow
+                float legPosition = distFromProtected / msBearLegRange
+                bool insideLeg = candidateBar > nz(ms_protectedHighBar, -1) and candidateLevel < ms_protectedHigh and candidateLevel > ms_externalLow
+                bool ageOk = candidateAge <= 90
+                bool spacingOk = distFromProtected >= candidateAtr * 0.45 and distToExternal >= candidateAtr * 0.35 and legPosition > 0.10 and legPosition < 0.85
+                float prevLowLevel = na
+                if array.size(ms_internalLowBars) > 0
+                    for j = array.size(ms_internalLowBars) - 1 to 0
+                        int lowBar = array.get(ms_internalLowBars, j)
+                        if lowBar < candidateBar
+                            prevLowLevel := array.get(ms_internalLowVals, j)
+                            break
+                float retraceSize = not na(prevLowLevel) ? candidateLevel - prevLowLevel : na
+                bool retraceOk = not na(retraceSize) and retraceSize >= math.max(candidateAtr * 0.35, msBearLegRange * 0.18)
+                float impulseAway = candidateLevel - ms_externalLow
+                bool impulseOk = impulseAway >= candidateAtr * 1.0
+                if insideLeg and ageOk and spacingOk and retraceOk and impulseOk
+                    bool bosConfirmed = not na(prevLowLevel) and ms_externalLow < prevLowLevel - candidateAtr * 0.15
+                    float recencyScore = 25.0 * f_clamp(1.0 - float(candidateAge) / 90.0, 0.0, 1.0)
+                    float departureScore = 25.0 * f_clamp(impulseAway / math.max(candidateAtr * 2.0, syminfo.mintick), 0.0, 1.0)
+                    float retraceScore = 20.0 * f_clamp(retraceSize / math.max(math.max(candidateAtr * 0.70, msBearLegRange * 0.36), syminfo.mintick), 0.0, 1.0)
+                    float positionScore = 15.0 * (1.0 - f_clamp(math.abs(legPosition - 0.5) / 0.5, 0.0, 1.0))
+                    float spacingScore = 10.0 * f_clamp(math.min(distFromProtected, distToExternal) / (candidateAtr * 2.0), 0.0, 1.0)
+                    float contextScore = array.get(ms_internalHighVolOk, i) == 1 ? 6.0 : 0.0
+                    float bosScore = bosConfirmed ? 10.0 : 0.0
+                    float candidateScore = recencyScore + departureScore + retraceScore + positionScore + spacingScore + contextScore + bosScore
+                    if na(msSelectedScore) or candidateScore > msSelectedScore or (math.abs(candidateScore - msSelectedScore) < 0.001 and candidateBar > msSelectedBar)
+                        msSelectedLevel := candidateLevel
+                        msSelectedBar := candidateBar
+                        msSelectedScore := candidateScore
+                        msSelectedAtr := candidateAtr
+                        msSelectedAge := candidateAge
+    if not na(msSelectedLevel)
+        ms_idmLevel := msSelectedLevel
+        ms_idmBar := msSelectedBar
+        ms_idmScore := msSelectedScore
+        float msAdvanceAtr = ms_structureBias == 1 ? (ms_externalHigh - msSelectedLevel) / math.max(msSelectedAtr, syminfo.mintick) : (msSelectedLevel - ms_externalLow) / math.max(msSelectedAtr, syminfo.mintick)
+        bool msIdmStale = msSelectedAge > 35 or msAdvanceAtr > 3.0
+        ms_idmState := msIdmStale ? 2 : 1
+        ms_idmStrong := msSelectedScore >= 68.0 and not msIdmStale
+    else
+        ms_idmLevel := na
+        ms_idmBar := na
+        ms_idmScore := na
+        ms_idmState := 4
+        ms_idmStrong := false
+    bool msIdmChanged = ms_idmBar != msPrevIdmBar or na(ms_idmLevel) != na(msPrevIdmLevel) or (not na(ms_idmLevel) and not na(msPrevIdmLevel) and math.abs(ms_idmLevel - msPrevIdmLevel) > syminfo.mintick * 0.5)
+    if msIdmChanged
+        ms_idmPendingSweep := false
+        ms_idmPendingBar := na
+        ms_idmPendingExtreme := na
+        ms_idmTakeTag := ""
+else if ms_idmTaken
+    ms_idmState := 3
+
+bool ms_idmTakeEvent = false
+string ms_idmTakeEventLabel = ""
+if not ms_idmTaken and not na(ms_idmLevel)
+    if ms_structureBias == 1
+        bool bullWickSweep = low < ms_idmLevel - msIdmTouchTolerance
+        bool bullCloseThrough = close < ms_idmLevel - msIdmTouchTolerance
+        bool bullReclaim = close > ms_idmLevel + msIdmTouchTolerance
+        if msIdmTakeMode == "wick"
+            if bullWickSweep
+                ms_idmTakeEvent := true
+                ms_idmTakeEventLabel := "IDM Sweep"
+        else if msIdmTakeMode == "close"
+            if bullCloseThrough
+                ms_idmTakeEvent := true
+                ms_idmTakeEventLabel := "IDM Close"
+        else
+            if bullWickSweep
+                ms_idmPendingSweep := true
+                ms_idmPendingBar := bar_index
+                ms_idmPendingExtreme := na(ms_idmPendingExtreme) ? low : math.min(ms_idmPendingExtreme, low)
+            if ms_idmPendingSweep and bullReclaim
+                ms_idmTakeEvent := true
+                ms_idmTakeEventLabel := "IDM Reclaim"
+            else if ms_idmPendingSweep and bar_index - ms_idmPendingBar > msIdmReclaimBars
+                ms_idmPendingSweep := false
+                ms_idmPendingBar := na
+                ms_idmPendingExtreme := na
+    else if ms_structureBias == -1
+        bool bearWickSweep = high > ms_idmLevel + msIdmTouchTolerance
+        bool bearCloseThrough = close > ms_idmLevel + msIdmTouchTolerance
+        bool bearReclaim = close < ms_idmLevel - msIdmTouchTolerance
+        if msIdmTakeMode == "wick"
+            if bearWickSweep
+                ms_idmTakeEvent := true
+                ms_idmTakeEventLabel := "IDM Sweep"
+        else if msIdmTakeMode == "close"
+            if bearCloseThrough
+                ms_idmTakeEvent := true
+                ms_idmTakeEventLabel := "IDM Close"
+        else
+            if bearWickSweep
+                ms_idmPendingSweep := true
+                ms_idmPendingBar := bar_index
+                ms_idmPendingExtreme := na(ms_idmPendingExtreme) ? high : math.max(ms_idmPendingExtreme, high)
+            if ms_idmPendingSweep and bearReclaim
+                ms_idmTakeEvent := true
+                ms_idmTakeEventLabel := "IDM Reclaim"
+            else if ms_idmPendingSweep and bar_index - ms_idmPendingBar > msIdmReclaimBars
+                ms_idmPendingSweep := false
+                ms_idmPendingBar := na
+                ms_idmPendingExtreme := na
+
+if ms_idmTakeEvent
+    ms_idmTaken := true
+    ms_idmState := 3
+    ms_idmTakeTag := ms_idmTakeEventLabel
+    ms_idmPendingSweep := false
+    ms_idmPendingBar := na
+    ms_idmPendingExtreme := na
+    ms_lastEventType := (ms_structureBias == 1 ? "Bullish " : "Bearish ") + ms_idmTakeEventLabel
+    if showMsIdm
+        color msIdmEventColor = color.new(f_defaultLevelColor(), 38)
+        line.new(ms_idmBar, ms_idmLevel, bar_index, ms_idmLevel, color=msIdmEventColor, style=line.style_dotted, width=1)
+        label.new(bar_index, ms_idmLevel, ms_idmTakeEventLabel, color=color(na), style=ms_structureBias == 1 ? label.style_label_up : label.style_label_down, textcolor=msIdmEventColor, size=size.tiny)
+
+float msBosHighRef = ms_externalHigh
+float msBosLowRef = ms_externalLow
+int msBosHighRefBar = ms_externalHighBar
+int msBosLowRefBar = ms_externalLowBar
+bool ms_bullBosPullbackReady = not msBosRequiresInternalPullback or ms_idmTaken or (not na(ms_idmBar) and ms_idmBar > nz(ms_lastStructureEventBar, -1))
+bool ms_bearBosPullbackReady = not msBosRequiresInternalPullback or ms_idmTaken or (not na(ms_idmBar) and ms_idmBar > nz(ms_lastStructureEventBar, -1))
+
+if msStructureSpacingOk and ms_structureBias == 1 and not ms_bullChochEvent and ms_idmTaken and ms_bullBosPullbackReady and not na(msBosHighRef) and not na(msBosHighRefBar) and (bar_index - msBosHighRefBar) >= msBosMinRefAgeBars and close > (msBosHighRef + msBreakTol) and ms_bullProtectedIntact and msBullBosImpulse
     ms_bullBosEvent := true
-    if not na(ms_lastInternalLow) and ms_lastInternalLowBar > nz(ms_lastStructureEventBar, -1)
-        ms_protectedLow := ms_lastInternalLow
-        ms_protectedLowBar := ms_lastInternalLowBar
-    ms_externalHigh := high
-    ms_externalHighBar := bar_index
+    msBullBosLabel := f_msEventLabel("BOS", msBullConfluenceAligned and ms_idmStrong)
+    ms_protectedLow := ms_idmLevel
+    ms_protectedLowBar := ms_idmBar
     ms_externalLow := ms_protectedLow
     ms_externalLowBar := ms_protectedLowBar
     ms_lastBullBosBar := bar_index
     ms_recentBullEventBar := bar_index
     ms_lastStructureEventBar := bar_index
-    ms_lastEventType := "Bullish BOS"
+    ms_lastEventType := msBullBosLabel == "BOS+" ? "Bullish BOS+" : "Bullish BOS"
+    ms_idmTaken := false
+    ms_idmLevel := na
+    ms_idmBar := na
+    ms_idmScore := na
+    ms_idmState := 4
+    ms_idmStrong := false
+    ms_idmTakeTag := ""
 
-if msStructureSpacingOk and ms_structureBias == -1 and not ms_bearChochEvent and ms_bearBosPullbackReady and not na(msBosLowRef) and close < (msBosLowRef - msBreakTol) and ms_bearProtectedIntact and msBearBosImpulse
+if msStructureSpacingOk and ms_structureBias == -1 and not ms_bearChochEvent and ms_idmTaken and ms_bearBosPullbackReady and not na(msBosLowRef) and not na(msBosLowRefBar) and (bar_index - msBosLowRefBar) >= msBosMinRefAgeBars and close < (msBosLowRef - msBreakTol) and ms_bearProtectedIntact and msBearBosImpulse
     ms_bearBosEvent := true
-    if not na(ms_lastInternalHigh) and ms_lastInternalHighBar > nz(ms_lastStructureEventBar, -1)
-        ms_protectedHigh := ms_lastInternalHigh
-        ms_protectedHighBar := ms_lastInternalHighBar
-    ms_externalLow := low
-    ms_externalLowBar := bar_index
+    msBearBosLabel := f_msEventLabel("BOS", msBearConfluenceAligned and ms_idmStrong)
+    ms_protectedHigh := ms_idmLevel
+    ms_protectedHighBar := ms_idmBar
     ms_externalHigh := ms_protectedHigh
     ms_externalHighBar := ms_protectedHighBar
     ms_lastBearBosBar := bar_index
     ms_recentBearEventBar := bar_index
     ms_lastStructureEventBar := bar_index
-    ms_lastEventType := "Bearish BOS"
+    ms_lastEventType := msBearBosLabel == "BOS+" ? "Bearish BOS+" : "Bearish BOS"
+    ms_idmTaken := false
+    ms_idmLevel := na
+    ms_idmBar := na
+    ms_idmScore := na
+    ms_idmState := 4
+    ms_idmStrong := false
+    ms_idmTakeTag := ""
 
 if ms_structureBias == 1
     float nextMsHigh = na(ms_externalHigh) ? high : math.max(ms_externalHigh, high)
@@ -2150,16 +2476,16 @@ else if ms_structureBias == -1
 if showMsChochBos
     if ms_bullChochEvent
         line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=msBullChochColor, style=line.style_dashed)
-        label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, "CHoCH", color=color(na), style=label.style_label_down, textcolor=msBullChochColor, size=size.tiny)
+        label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, msBullChochLabel, color=color(na), style=label.style_label_down, textcolor=msBullChochColor, size=size.tiny)
     if ms_bearChochEvent
         line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=msBearChochColor, style=line.style_dashed)
-        label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, "CHoCH", color=color(na), style=label.style_label_up, textcolor=msBearChochColor, size=size.tiny)
+        label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, msBearChochLabel, color=color(na), style=label.style_label_up, textcolor=msBearChochColor, size=size.tiny)
     if ms_bullBosEvent
         line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=msBullBosColor)
-        label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, "BOS", color=color(na), style=label.style_label_down, textcolor=msBullBosColor, size=size.tiny)
+        label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, msBullBosLabel, color=color(na), style=label.style_label_down, textcolor=msBullBosColor, size=size.tiny)
     if ms_bearBosEvent
         line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=msBearBosColor)
-        label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, "BOS", color=color(na), style=label.style_label_up, textcolor=msBearBosColor, size=size.tiny)
+        label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, msBearBosLabel, color=color(na), style=label.style_label_up, textcolor=msBearBosColor, size=size.tiny)
 
 if barstate.islast
     if showMsChochBos and ms_structureBias == 1
@@ -2200,20 +2526,23 @@ if barstate.islast
         line.set_color(ms_extChoch, na)
         line.set_color(ms_extBos, na)
 
+    if showMsIdm and not ms_idmTaken and not na(ms_idmLevel) and ms_idmState != 4
+        color activeIdmColor = ms_idmPendingSweep ? color.new(f_defaultLevelColor(), 44) : ms_idmState == 2 ? color.new(f_defaultLevelColor(), 72) : ms_idmStrong ? color.new(f_defaultLevelColor(), 18) : color.new(f_defaultLevelColor(), 38)
+        string activeIdmText = ms_idmPendingSweep ? "IDM (Swept)" : ms_idmState == 2 ? "IDM (Stale)" : ms_idmStrong ? "IDM (Strong)" : "IDM"
+        line.set_xy1(ms_extIdm, ms_idmBar, ms_idmLevel)
+        line.set_xy2(ms_extIdm, bar_index + 12, ms_idmLevel)
+        line.set_color(ms_extIdm, activeIdmColor)
+        line.set_width(ms_extIdm, ms_idmStrong ? 2 : 1)
+        f_registerRightLabel(ms_idmLevel, bar_index + 12, activeIdmText, 2)
+    else
+        line.set_color(ms_extIdm, na)
+
 int chartTfSecs = int(timeframe.in_seconds(timeframe.period))
 int ltfEntrySecs = f_autoLtfSeconds(chartTfSecs)
 string ltfEntryTf = f_timeframeStrFromSeconds(ltfEntrySecs)
 string ltfEntryLabel = f_timeframeLabelFromSeconds(ltfEntrySecs)
 bool ltfEntryTfValid = ltfEntrySecs > 0 and chartTfSecs > 0 and ltfEntrySecs < chartTfSecs
-int ltfBullMssTime = int(na)
-int ltfBearMssTime = int(na)
-float ltfBullEntryPrice = na
-float ltfBearEntryPrice = na
-if ltfEntryTfValid
-    ltfBullMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssTime(waitStartTimeL), lookahead=barmerge.lookahead_off)
-    ltfBearMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssTime(waitStartTimeS), lookahead=barmerge.lookahead_off)
-    ltfBullEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssPrice(waitStartTimeL), lookahead=barmerge.lookahead_off)
-    ltfBearEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssPrice(waitStartTimeS), lookahead=barmerge.lookahead_off)
+[ltfBullMssTime, ltfBearMssTime, ltfBullEntryPrice, ltfBearEntryPrice] = f_ltfEntrySignals(ltfEntryTfValid, ltfEntryTf, waitStartTimeL, waitStartTimeS)
 // --- High-Fidelity Sweep Engine ---
 bool swpBSL = false
 bool swpSSL = false
@@ -2492,75 +2821,31 @@ if not na(bestBreakoutIdx)
                 p_b.lastFailureBar := bar_index
                 p_b.lastRefreshBar := bar_index
     if bestBreakoutSide == "BSL" and waitS and not na(waitSweepLevelS) and math.abs(bestBreakoutPrice - waitSweepLevelS) <= math.max(bestBreakoutTol, nz(waitSweepTolS, bestBreakoutTol))
-        waitS := false
-        waitStartBarS := int(na)
-        waitStartTimeS := int(na)
-        waitSweepLevelS := na
-        waitSweepTolS := na
-        waitSweepBaseScoreS := na
-        waitSweepVolumeOkS := false
-        waitSweepSessionOkS := false
-        waitSweepReclaimOkS := false
-        waitSweepPoolLabelS := ""
-        internalRefS := na
-        internalRefBarS := na
-        externalRefS := na
-        externalRefBarS := na
-        internalShiftDoneS := false
-        externalShiftDoneS := false
-        localPivotDoneS := false
+        [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
+        [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
         sExtH := na
-        waitStopAnchorS := na
         structureStatus := f_structureBaseStatus(structureTrend)
     if bestBreakoutSide == "SSL" and waitL and not na(waitSweepLevelL) and math.abs(bestBreakoutPrice - waitSweepLevelL) <= math.max(bestBreakoutTol, nz(waitSweepTolL, bestBreakoutTol))
-        waitL := false
-        waitStartBarL := int(na)
-        waitStartTimeL := int(na)
-        waitSweepLevelL := na
-        waitSweepTolL := na
-        waitSweepBaseScoreL := na
-        waitSweepVolumeOkL := false
-        waitSweepSessionOkL := false
-        waitSweepReclaimOkL := false
-        waitSweepPoolLabelL := ""
-        internalRefL := na
-        internalRefBarL := na
-        externalRefL := na
-        externalRefBarL := na
-        internalShiftDoneL := false
-        externalShiftDoneL := false
-        localPivotDoneL := false
+        [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
+        [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
         sExtL := na
-        waitStopAnchorL := na
         structureStatus := f_structureBaseStatus(structureTrend)
 
 bearSweep = showSMC and swpBSL
 bullSweep = showSMC and swpSSL
 if bearSweep and not active and not waitS
     setupsDetectedCount += 1
-    waitSweepLevelS := bestSweepPrice
-    waitSweepTolS := bestSweepTol
-    waitSweepBaseScoreS := sweepGrade
-    waitSweepVolumeOkS := bestSweepVolumeOk
-    waitSweepSessionOkS := bestSweepSessionOk
-    waitSweepReclaimOkS := bestSweepReclaimOk
-    waitSweepPoolLabelS := bestSweepPoolLabel
-    waitS := true, waitL := false, sExtH := sweepExtreme, waitStartBarS := bar_index, waitStartTimeS := time, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
-    waitStopAnchorS := sweepExtreme
-    waitStopAnchorL := na
+    [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_startWaitState(bestSweepPrice, bestSweepTol, sweepGrade, bestSweepVolumeOk, bestSweepSessionOk, bestSweepReclaimOk, bestSweepPoolLabel, sweepExtreme)
+    [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
+    [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
+    sExtH := sweepExtreme
     structureStatus := ltfEntryTfValid ? "Bearish sweep validated; awaiting " + ltfEntryLabel + " ladder" : "Bearish sweep validated; awaiting internal shift"
 if bullSweep and not active and not waitL
     setupsDetectedCount += 1
-    waitSweepLevelL := bestSweepPrice
-    waitSweepTolL := bestSweepTol
-    waitSweepBaseScoreL := sweepGrade
-    waitSweepVolumeOkL := bestSweepVolumeOk
-    waitSweepSessionOkL := bestSweepSessionOk
-    waitSweepReclaimOkL := bestSweepReclaimOk
-    waitSweepPoolLabelL := bestSweepPoolLabel
-    waitL := true, waitS := false, sExtL := sweepExtreme, waitStartBarL := bar_index, waitStartTimeL := time, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
-    waitStopAnchorL := sweepExtreme
-    waitStopAnchorS := na
+    [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_startWaitState(bestSweepPrice, bestSweepTol, sweepGrade, bestSweepVolumeOk, bestSweepSessionOk, bestSweepReclaimOk, bestSweepPoolLabel, sweepExtreme)
+    [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
+    [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
+    sExtL := sweepExtreme
     structureStatus := ltfEntryTfValid ? "Bullish sweep validated; awaiting " + ltfEntryLabel + " ladder" : "Bullish sweep validated; awaiting internal shift"
 
 bearRaidRange = high - low
@@ -2591,49 +2876,17 @@ if sweepWaitExpiredS
     float expiredShortAnchor = na(waitStopAnchorS) ? sExtH : waitStopAnchorS
     if showSweepTimeoutNote
         label.new(bar_index, expiredShortAnchor, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
-    waitS := false
-    waitStartBarS := int(na)
-    waitStartTimeS := int(na)
-    waitSweepLevelS := na
-    waitSweepTolS := na
-    waitSweepBaseScoreS := na
-    waitSweepVolumeOkS := false
-    waitSweepSessionOkS := false
-    waitSweepReclaimOkS := false
-    waitSweepPoolLabelS := ""
-    internalRefS := na
-    internalRefBarS := na
-    externalRefS := na
-    externalRefBarS := na
-    internalShiftDoneS := false
-    externalShiftDoneS := false
-    localPivotDoneS := false
+    [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
+    [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
     sExtH := na
-    waitStopAnchorS := na
     structureStatus := f_structureBaseStatus(structureTrend)
 if sweepWaitExpiredL
     float expiredLongAnchor = na(waitStopAnchorL) ? sExtL : waitStopAnchorL
     if showSweepTimeoutNote
         label.new(bar_index, expiredLongAnchor, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
-    waitL := false
-    waitStartBarL := int(na)
-    waitStartTimeL := int(na)
-    waitSweepLevelL := na
-    waitSweepTolL := na
-    waitSweepBaseScoreL := na
-    waitSweepVolumeOkL := false
-    waitSweepSessionOkL := false
-    waitSweepReclaimOkL := false
-    waitSweepPoolLabelL := ""
-    internalRefL := na
-    internalRefBarL := na
-    externalRefL := na
-    externalRefBarL := na
-    internalShiftDoneL := false
-    externalShiftDoneL := false
-    localPivotDoneL := false
+    [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
+    [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
     sExtL := na
-    waitStopAnchorL := na
     structureStatus := f_structureBaseStatus(structureTrend)
 
 bool ms_bearChochSinceSweep = waitS and not na(ms_lastBearChochBar) and ms_lastBearChochBar >= nz(waitStartBarS, bar_index + 1)
@@ -2818,16 +3071,11 @@ if ltfBearEntryReady
     float shortEntryPx = na(ltfBearEntryPrice) ? close : ltfBearEntryPrice
     float shortStop = waitStopAnchorS
     if not na(shortStop) and shortStop > shortEntryPx
-        active := true, bull := false, tSetups += 1
+        tSetups += 1
         entriesTriggeredCount += 1
-        activeEntryPrice := shortEntryPx
-        activeInitialStop := shortStop
-        tSL := shortStop
-        t10 := f_tradeTargetPrice(false, shortEntryPx, shortStop)
-        activeBreakEvenArmed := false
-        activeEntryBar := bar_index
-        waitS := false, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitSweepBaseScoreS := na, waitSweepVolumeOkS := false, waitSweepSessionOkS := false, waitSweepReclaimOkS := false, waitSweepPoolLabelS := "", internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
-        waitStopAnchorS := na
+        [active, bull, activeEntryPrice, activeInitialStop, tSL, t10, activeBreakEvenArmed, activeEntryBar] = f_activateTradeState(false, shortEntryPx, shortStop, f_tradeTargetPrice(false, shortEntryPx, shortStop))
+        [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
+        [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
         structureStatus := "Bearish entry live after " + ltfEntryLabel + " ladder"
 else if waitS and not active and shortEntryBlocked and ltfEntryTfValid and not na(waitStartTimeS) and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS
     structureStatus := "Bearish " + ltfEntryLabel + " ladder blocked | " + shortEntryBlockReason
@@ -2836,53 +3084,38 @@ if ltfBullEntryReady
     float longEntryPx = na(ltfBullEntryPrice) ? close : ltfBullEntryPrice
     float longStop = waitStopAnchorL
     if not na(longStop) and longStop < longEntryPx
-        active := true, bull := true, tSetups += 1
+        tSetups += 1
         entriesTriggeredCount += 1
-        activeEntryPrice := longEntryPx
-        activeInitialStop := longStop
-        tSL := longStop
-        t10 := f_tradeTargetPrice(true, longEntryPx, longStop)
-        activeBreakEvenArmed := false
-        activeEntryBar := bar_index
-        waitL := false, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitSweepBaseScoreL := na, waitSweepVolumeOkL := false, waitSweepSessionOkL := false, waitSweepReclaimOkL := false, waitSweepPoolLabelL := "", internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
-        waitStopAnchorL := na
+        [active, bull, activeEntryPrice, activeInitialStop, tSL, t10, activeBreakEvenArmed, activeEntryBar] = f_activateTradeState(true, longEntryPx, longStop, f_tradeTargetPrice(true, longEntryPx, longStop))
+        [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
+        [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
         structureStatus := "Bullish entry live after " + ltfEntryLabel + " ladder"
 else if waitL and not active and longEntryBlocked and ltfEntryTfValid and not na(waitStartTimeL) and not na(ltfBullMssTime) and ltfBullMssTime >= waitStartTimeL
     structureStatus := "Bullish " + ltfEntryLabel + " ladder blocked | " + longEntryBlockReason
 
 if not ltfEntryTfValid and mssS and not active and not shortEntryBlocked
     float shortSweepStop = na(waitStopAnchorS) ? ((stopModel == "Sweep Extreme") ? sExtH : high) : waitStopAnchorS
-    active := true, bull := false, tSetups += 1
+    tSetups += 1
     entriesTriggeredCount += 1
-    activeEntryPrice := close
-    activeInitialStop := shortSweepStop
-    tSL := shortSweepStop
-    float shortEntryPx = close
-    t10 := f_tradeTargetPrice(false, shortEntryPx, tSL)
-    activeBreakEvenArmed := false
-    activeEntryBar := bar_index
-    waitS := false, waitStartBarS := int(na), waitStartTimeS := int(na), waitSweepLevelS := na, waitSweepTolS := na, waitSweepBaseScoreS := na, waitSweepVolumeOkS := false, waitSweepSessionOkS := false, waitSweepReclaimOkS := false, waitSweepPoolLabelS := "", internalRefS := na, internalRefBarS := na, externalRefS := na, externalRefBarS := na, internalShiftDoneS := false, externalShiftDoneS := false, localPivotDoneS := false
-    waitStopAnchorS := na
+    [active, bull, activeEntryPrice, activeInitialStop, tSL, t10, activeBreakEvenArmed, activeEntryBar] = f_activateTradeState(false, close, shortSweepStop, f_tradeTargetPrice(false, close, shortSweepStop))
+    [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
+    [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
 else if not ltfEntryTfValid and mssS and not active and shortEntryBlocked
     structureStatus := "Bearish MSS blocked | " + shortEntryBlockReason
 
 if not ltfEntryTfValid and mssL and not active and not longEntryBlocked
     float longSweepStop = na(waitStopAnchorL) ? ((stopModel == "Sweep Extreme") ? sExtL : low) : waitStopAnchorL
-    active := true, bull := true, tSetups += 1
+    tSetups += 1
     entriesTriggeredCount += 1
-    activeEntryPrice := close
-    activeInitialStop := longSweepStop
-    tSL := longSweepStop
-    float longEntryPx = close
-    t10 := f_tradeTargetPrice(true, longEntryPx, tSL)
-    activeBreakEvenArmed := false
-    activeEntryBar := bar_index
-    waitL := false, waitStartBarL := int(na), waitStartTimeL := int(na), waitSweepLevelL := na, waitSweepTolL := na, waitSweepBaseScoreL := na, waitSweepVolumeOkL := false, waitSweepSessionOkL := false, waitSweepReclaimOkL := false, waitSweepPoolLabelL := "", internalRefL := na, internalRefBarL := na, externalRefL := na, externalRefBarL := na, internalShiftDoneL := false, externalShiftDoneL := false, localPivotDoneL := false
-    waitStopAnchorL := na
+    [active, bull, activeEntryPrice, activeInitialStop, tSL, t10, activeBreakEvenArmed, activeEntryBar] = f_activateTradeState(true, close, longSweepStop, f_tradeTargetPrice(true, close, longSweepStop))
+    [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
+    [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
 else if not ltfEntryTfValid and mssL and not active and longEntryBlocked
     structureStatus := "Bullish MSS blocked | " + longEntryBlockReason
 
-if active and bar_index > nz(activeEntryBar, bar_index) and enableBreakEvenRule and not activeBreakEvenArmed and not na(activeInitialStop) and not na(activeEntryPrice)
+bool activeTradeManageable = active and bar_index > nz(activeEntryBar, bar_index)
+
+if activeTradeManageable and enableBreakEvenRule and not activeBreakEvenArmed and not na(activeInitialStop) and not na(activeEntryPrice)
     float initialRisk = math.abs(activeEntryPrice - activeInitialStop)
     if initialRisk > syminfo.mintick * 2
         float beTrigger = bull ? activeEntryPrice + initialRisk * breakEvenTriggerR : activeEntryPrice - initialRisk * breakEvenTriggerR
@@ -2891,31 +3124,22 @@ if active and bar_index > nz(activeEntryBar, bar_index) and enableBreakEvenRule 
             tSL := activeEntryPrice
             activeBreakEvenArmed := true
 
-if active and bar_index > nz(activeEntryBar, bar_index)
-    if bull
-        if low < tSL
-            string outcome = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2 ? "BE" : "SL"
-            if outcome == "BE"
-                be10 += 1
-                breakEvensCount += 1
-            else
-                l10 += 1
-                lossesCount += 1
-            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeEntryBar := na
-        else if high > t10
-            w10 += 1, winsCount += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeEntryBar := na
-    else
-        if high > tSL
-            string outcome = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2 ? "BE" : "SL"
-            if outcome == "BE"
-                be10 += 1
-                breakEvensCount += 1
-            else
-                l10 += 1
-                lossesCount += 1
-            active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeEntryBar := na
-        else if low < t10
-            w10 += 1, winsCount += 1, active := false, activeEntryPrice := na, activeInitialStop := na, tSL := na, t10 := na, activeBreakEvenArmed := false, activeEntryBar := na
+if activeTradeManageable
+    bool tradeHitStop = bull ? low < tSL : high > tSL
+    bool tradeHitTarget = bull ? high > t10 : low < t10
+    if tradeHitStop
+        bool isBreakEven = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2
+        if isBreakEven
+            be10 += 1
+            breakEvensCount += 1
+        else
+            l10 += 1
+            lossesCount += 1
+        [active, activeEntryPrice, activeInitialStop, tSL, t10, activeBreakEvenArmed, activeEntryBar] = f_clearTradeState()
+    else if tradeHitTarget
+        w10 += 1
+        winsCount += 1
+        [active, activeEntryPrice, activeInitialStop, tSL, t10, activeBreakEvenArmed, activeEntryBar] = f_clearTradeState()
 
 // --- Reaction Zone Narrative Engine ---
 f_findActiveLiquidityBeyond(string liqSide, float anchorPrice, float maxWindowAtr) =>
@@ -2945,123 +3169,127 @@ f_findActiveLiquidityBeyond(string liqSide, float anchorPrice, float maxWindowAt
 
 var int lastMssBarL = 0
 var int lastMssBarS = 0
+var rz_candidates = array.new<reaction_zone>(0)
+
+f_rzPush(string side, string zoneType, float top, float bottom, float ce, int sourceBar, int priorityRank, float score, string narrative) =>
+    rz_candidates.push(reaction_zone.new(side, zoneType, top, bottom, ce, sourceBar, priorityRank, score, false, false, narrative))
+    true
+
+f_rzMergeInto(int idx, reaction_zone baseZone, float top, float bottom, int priorityRank, float score, string narrative) =>
+    rz_candidates.set(idx, reaction_zone.new(baseZone.side, "CONFLUENCE", top, bottom, (top + bottom) / 2, baseZone.sourceBar, priorityRank, score, false, false, narrative))
+    true
+
+f_buildReactionZones(bool mssL, bool mssS, bool shortEntryBlocked, bool longEntryBlocked, bool msPostSweepStructureConfirmedS, bool msPostSweepStructureConfirmedL, string activeShortSweepGrade, string activeLongSweepGrade, float ltfBullEntryPrice, float ltfBearEntryPrice, float rzAtr) =>
+    if showRZ
+        array.clear(rz_candidates)
+
+        bool longStructureAligned = msPostSweepStructureConfirmedL or (structureTrend == 1 and ms_structureBias >= 0) or ms_structureBias == 1
+        bool shortStructureAligned = msPostSweepStructureConfirmedS or (structureTrend == -1 and ms_structureBias <= 0) or ms_structureBias == -1
+        bool longStructureConflict = ms_structureBias == -1 and not msPostSweepStructureConfirmedL
+        bool shortStructureConflict = ms_structureBias == 1 and not msPostSweepStructureConfirmedS
+        float longStructureZoneBoost = longStructureAligned ? 8.0 : longStructureConflict ? -14.0 : -4.0
+        float shortStructureZoneBoost = shortStructureAligned ? 8.0 : shortStructureConflict ? -14.0 : -4.0
+        bool isNarrativeL = lastMssBarL > (bar_index - 60) or waitL
+        bool isNarrativeS = lastMssBarS > (bar_index - 60) or waitS
+        int longNarrativeAnchor = waitL ? nz(waitStartBarL, lastMssBarL) : lastMssBarL
+        int shortNarrativeAnchor = waitS ? nz(waitStartBarS, lastMssBarS) : lastMssBarS
+        bool longTargetBias = active ? bull : (waitL or mssL or structureTrend == 1 or htfCompositeBias >= 15)
+        bool shortTargetBias = active ? not bull : (waitS or mssS or structureTrend == -1 or htfCompositeBias <= -15)
+
+        if fvg_records.size() > 0
+            for i = 0 to fvg_records.size() - 1
+                f_dat = fvg_records.get(i)
+                bool isLinkedL = isNarrativeL and f_dat.startBar >= longNarrativeAnchor - 5 and f_dat.startBar <= longNarrativeAnchor + 8
+                bool isLinkedS = isNarrativeS and f_dat.startBar >= shortNarrativeAnchor - 5 and f_dat.startBar <= shortNarrativeAnchor + 8
+
+                if f_dat.isBull and isLinkedL
+                    int longFvgPriority = longStructureAligned ? 1 : 2
+                    float longFvgScore = math.max(52.0, 96.0 + longStructureZoneBoost + (htfCompositeBias >= 0 ? 4.0 : -6.0))
+                    f_rzPush("Long", "FVG", f_dat.max, f_dat.min, (f_dat.max + f_dat.min) / 2, f_dat.startBar, longFvgPriority, longFvgScore, longStructureAligned ? "BULL FVG | unified shift aligned" : "BULL FVG | broader structure pending")
+                else if not f_dat.isBull and isLinkedS
+                    int shortFvgPriority = shortStructureAligned ? 1 : 2
+                    float shortFvgScore = math.max(52.0, 96.0 + shortStructureZoneBoost + (htfCompositeBias <= 0 ? 4.0 : -6.0))
+                    f_rzPush("Short", "FVG", f_dat.max, f_dat.min, (f_dat.max + f_dat.min) / 2, f_dat.startBar, shortFvgPriority, shortFvgScore, shortStructureAligned ? "BEAR FVG | unified shift aligned" : "BEAR FVG | broader structure pending")
+
+        if isNarrativeL and not na(lSwh)
+            int longReloadPriority = longStructureAligned ? 2 : 3
+            float longReloadScore = math.max(50.0, 84.0 + longStructureZoneBoost)
+            f_rzPush("Long", "OB", lSwh, lSwh - (high[1] - low[1]), lSwh, lastMssBarL, longReloadPriority, longReloadScore, longStructureAligned ? "BULL RELOAD RANGE" : "BULL RELOAD RANGE | structure pending")
+        if isNarrativeS and not na(lSwl)
+            int shortReloadPriority = shortStructureAligned ? 2 : 3
+            float shortReloadScore = math.max(50.0, 84.0 + shortStructureZoneBoost)
+            f_rzPush("Short", "OB", lSwl + (high[1] - low[1]), lSwl, lSwl, lastMssBarS, shortReloadPriority, shortReloadScore, shortStructureAligned ? "BEAR RELOAD RANGE" : "BEAR RELOAD RANGE | structure pending")
+
+        if waitL and not na(waitStopAnchorL) and not longEntryBlocked
+            [longDeeperActive, _, longDeeperLabel] = f_findActiveLiquidityBeyond("SSL", waitStopAnchorL, rzIncompleteSweepWindowAtr)
+            bool longSweepIncomplete = rzDowngradeIncompleteSweep and longDeeperActive
+            string longSweepNarrative = longSweepIncomplete ? "INTERMEDIATE SWEEP | Deeper " + longDeeperLabel + " active" : "SWEEP RECLAIM (Grade " + activeLongSweepGrade + ")"
+            string longSweepType = longSweepIncomplete ? "SWEEP_CTX" : "SWEEP"
+            int longSweepPriority = longSweepIncomplete ? 4 : (msPostSweepStructureConfirmedL ? 3 : 4)
+            float longSweepScore = longSweepIncomplete ? 66.0 : math.max(54.0, 74.0 + longStructureZoneBoost)
+            float longSweepBuffer = math.max(syminfo.mintick * 10, atrVal * 0.10)
+            float longEntryGuide = na(ltfBullEntryPrice) ? nz(waitSweepLevelL, waitStopAnchorL + longSweepBuffer) : ltfBullEntryPrice
+            float longSweepTop = math.max(longEntryGuide, waitStopAnchorL + longSweepBuffer)
+            float longSweepBottom = waitStopAnchorL
+            f_rzPush("Long", longSweepType, longSweepTop, longSweepBottom, (longSweepTop + longSweepBottom) / 2.0, nz(waitStartBarL, bar_index), longSweepPriority, longSweepScore, longSweepNarrative)
+        if waitS and not na(waitStopAnchorS) and not shortEntryBlocked
+            [shortDeeperActive, _, shortDeeperLabel] = f_findActiveLiquidityBeyond("BSL", waitStopAnchorS, rzIncompleteSweepWindowAtr)
+            bool shortSweepIncomplete = rzDowngradeIncompleteSweep and shortDeeperActive
+            string shortSweepNarrative = shortSweepIncomplete ? "INTERMEDIATE SWEEP | Higher " + shortDeeperLabel + " active" : "SWEEP RECLAIM (Grade " + activeShortSweepGrade + ")"
+            string shortSweepType = shortSweepIncomplete ? "SWEEP_CTX" : "SWEEP"
+            int shortSweepPriority = shortSweepIncomplete ? 4 : (msPostSweepStructureConfirmedS ? 3 : 4)
+            float shortSweepScore = shortSweepIncomplete ? 66.0 : math.max(54.0, 74.0 + shortStructureZoneBoost)
+            float shortSweepBuffer = math.max(syminfo.mintick * 10, atrVal * 0.10)
+            float shortEntryGuide = na(ltfBearEntryPrice) ? nz(waitSweepLevelS, waitStopAnchorS - shortSweepBuffer) : ltfBearEntryPrice
+            float shortSweepTop = waitStopAnchorS
+            float shortSweepBottom = math.min(shortEntryGuide, waitStopAnchorS - shortSweepBuffer)
+            f_rzPush("Short", shortSweepType, shortSweepTop, shortSweepBottom, (shortSweepTop + shortSweepBottom) / 2.0, nz(waitStartBarS, bar_index), shortSweepPriority, shortSweepScore, shortSweepNarrative)
+
+        if not na(ms_protectedLow)
+            f_rzPush("Long", "MS_PROTECTED", ms_protectedLow + syminfo.mintick * 5, ms_protectedLow - syminfo.mintick * 5, ms_protectedLow, nz(ms_protectedLowBar, bar_index), 5, 64.0 + (longStructureAligned ? 4.0 : -2.0), "MS PROTECTED LOW")
+        if not na(ms_protectedHigh)
+            f_rzPush("Short", "MS_PROTECTED", ms_protectedHigh + syminfo.mintick * 5, ms_protectedHigh - syminfo.mintick * 5, ms_protectedHigh, nz(ms_protectedHighBar, bar_index), 5, 64.0 + (shortStructureAligned ? 4.0 : -2.0), "MS PROTECTED HIGH")
+
+        if shortTargetBias and not na(lastHtf2PL) and low > lastHtf2PL
+            f_rzPush("Short", "HTF_TARGET", lastHtf2PL + syminfo.mintick * 5, lastHtf2PL - syminfo.mintick * 5, lastHtf2PL, bar_index, 4, 78.0, "HTF SHORT TARGET")
+        if not na(lastHtf2PH) and high < lastHtf2PH
+            f_rzPush("Short", "HTF_POI", lastHtf2PH + syminfo.mintick * 5, lastHtf2PH - syminfo.mintick * 5, lastHtf2PH, bar_index, 5, 70.0, "HTF SHORT POI")
+        if longTargetBias and not na(lastHtf2PH) and high < lastHtf2PH
+            f_rzPush("Long", "HTF_TARGET", lastHtf2PH + syminfo.mintick * 5, lastHtf2PH - syminfo.mintick * 5, lastHtf2PH, bar_index, 4, 78.0, "HTF LONG TARGET")
+        if not na(lastHtf2PL) and low > lastHtf2PL
+            f_rzPush("Long", "HTF_POI", lastHtf2PL + syminfo.mintick * 5, lastHtf2PL - syminfo.mintick * 5, lastHtf2PL, bar_index, 5, 70.0, "HTF LONG POI")
+
+        if rz_candidates.size() > 0
+            for i = rz_candidates.size() - 1 to 0
+                z_p = rz_candidates.get(i)
+                if math.abs(z_p.ce - close) > (rzAtr * rzProximityMult)
+                    rz_candidates.remove(i)
+
+        if rzMergeZones and rz_candidates.size() > 1
+            for i = 0 to math.min(20, rz_candidates.size() - 2)
+                z1 = rz_candidates.get(i)
+                for j = i + 1 to rz_candidates.size() - 1
+                    z2 = rz_candidates.get(j)
+                    if z1.side == z2.side
+                        bool isOverlap = math.max(z1.bottom, z2.bottom) <= math.min(z1.top, z2.top)
+                        bool meaningfulOverlap = (z1.priorityRank <= 3 and z2.priorityRank <= 3) or z1.zoneType == "HTF_TARGET" or z2.zoneType == "HTF_TARGET"
+                        if isOverlap and meaningfulOverlap
+                            float newT = math.max(z1.top, z2.top)
+                            float newB = math.min(z1.bottom, z2.bottom)
+                            int mergedPriority = math.min(z1.priorityRank, z2.priorityRank)
+                            float mergedScore = math.min(100.0, math.max(z1.score, z2.score) + 6.0)
+                            f_rzMergeInto(i, z1, newT, newB, mergedPriority, mergedScore, "EVIDENCE CONFLUENCE")
+                            rz_candidates.remove(j)
+                            break
+    true
+
 if mssL
     lastMssBarL := bar_index
 if mssS
     lastMssBarS := bar_index
 
-var rz_candidates = array.new<reaction_zone>(0)
 rzAtr = ta.atr(14)
-
-if showRZ
-    array.clear(rz_candidates)
-
-    // Check if narrative is active (Recent MSS within 60 bars)
-    bool longStructureAligned = msPostSweepStructureConfirmedL or (structureTrend == 1 and ms_structureBias >= 0) or ms_structureBias == 1
-    bool shortStructureAligned = msPostSweepStructureConfirmedS or (structureTrend == -1 and ms_structureBias <= 0) or ms_structureBias == -1
-    bool longStructureConflict = ms_structureBias == -1 and not msPostSweepStructureConfirmedL
-    bool shortStructureConflict = ms_structureBias == 1 and not msPostSweepStructureConfirmedS
-    float longStructureZoneBoost = longStructureAligned ? 8.0 : longStructureConflict ? -14.0 : -4.0
-    float shortStructureZoneBoost = shortStructureAligned ? 8.0 : shortStructureConflict ? -14.0 : -4.0
-    isNarrativeL = lastMssBarL > (bar_index - 60) or waitL
-    isNarrativeS = lastMssBarS > (bar_index - 60) or waitS
-    int longNarrativeAnchor = waitL ? nz(waitStartBarL, lastMssBarL) : lastMssBarL
-    int shortNarrativeAnchor = waitS ? nz(waitStartBarS, lastMssBarS) : lastMssBarS
-    bool longTargetBias = active ? bull : (waitL or mssL or structureTrend == 1 or htfCompositeBias >= 15)
-    bool shortTargetBias = active ? not bull : (waitS or mssS or structureTrend == -1 or htfCompositeBias <= -15)
-
-    // 1. Fresh post-shift FVGs (Priority 1)
-    if fvg_records.size() > 0
-        for i = 0 to fvg_records.size() - 1
-            f_dat = fvg_records.get(i)
-            isLinkedL = isNarrativeL and f_dat.startBar >= longNarrativeAnchor - 5 and f_dat.startBar <= longNarrativeAnchor + 8
-            isLinkedS = isNarrativeS and f_dat.startBar >= shortNarrativeAnchor - 5 and f_dat.startBar <= shortNarrativeAnchor + 8
-
-            if f_dat.isBull and isLinkedL
-                int longFvgPriority = longStructureAligned ? 1 : 2
-                float longFvgScore = math.max(52.0, 96.0 + longStructureZoneBoost + (htfCompositeBias >= 0 ? 4.0 : -6.0))
-                rz_candidates.push(reaction_zone.new("Long", "FVG", f_dat.max, f_dat.min, (f_dat.max+f_dat.min)/2, f_dat.startBar, longFvgPriority, longFvgScore, false, false, longStructureAligned ? "BULL FVG | unified shift aligned" : "BULL FVG | broader structure pending"))
-            else if not f_dat.isBull and isLinkedS
-                int shortFvgPriority = shortStructureAligned ? 1 : 2
-                float shortFvgScore = math.max(52.0, 96.0 + shortStructureZoneBoost + (htfCompositeBias <= 0 ? 4.0 : -6.0))
-                rz_candidates.push(reaction_zone.new("Short", "FVG", f_dat.max, f_dat.min, (f_dat.max+f_dat.min)/2, f_dat.startBar, shortFvgPriority, shortFvgScore, false, false, shortStructureAligned ? "BEAR FVG | unified shift aligned" : "BEAR FVG | broader structure pending"))
-
-    // 2. Structural reload range (Priority 2)
-    if isNarrativeL and not na(lSwh)
-        int longReloadPriority = longStructureAligned ? 2 : 3
-        float longReloadScore = math.max(50.0, 84.0 + longStructureZoneBoost)
-        rz_candidates.push(reaction_zone.new("Long", "OB", lSwh, lSwh - (high[1]-low[1]), lSwh, lastMssBarL, longReloadPriority, longReloadScore, false, false, longStructureAligned ? "BULL RELOAD RANGE" : "BULL RELOAD RANGE | structure pending"))
-    if isNarrativeS and not na(lSwl)
-        int shortReloadPriority = shortStructureAligned ? 2 : 3
-        float shortReloadScore = math.max(50.0, 84.0 + shortStructureZoneBoost)
-        rz_candidates.push(reaction_zone.new("Short", "OB", lSwl + (high[1]-low[1]), lSwl, lSwl, lastMssBarS, shortReloadPriority, shortReloadScore, false, false, shortStructureAligned ? "BEAR RELOAD RANGE" : "BEAR RELOAD RANGE | structure pending"))
-
-    // 3. Sweep Reclaim (Priority 3)
-    if waitL and not na(waitStopAnchorL) and not longEntryBlocked
-        [longDeeperActive, longDeeperPrice, longDeeperLabel] = f_findActiveLiquidityBeyond("SSL", waitStopAnchorL, rzIncompleteSweepWindowAtr)
-        bool longSweepIncomplete = rzDowngradeIncompleteSweep and longDeeperActive
-        string longSweepNarrative = longSweepIncomplete ? "INTERMEDIATE SWEEP | Deeper " + longDeeperLabel + " active" : "SWEEP RECLAIM (Grade " + activeLongSweepGrade + ")"
-        string longSweepType = longSweepIncomplete ? "SWEEP_CTX" : "SWEEP"
-        int longSweepPriority = longSweepIncomplete ? 4 : (msPostSweepStructureConfirmedL ? 3 : 4)
-        float longSweepScore = longSweepIncomplete ? 66.0 : math.max(54.0, 74.0 + longStructureZoneBoost)
-        float longSweepBuffer = math.max(syminfo.mintick * 10, atrVal * 0.10)
-        float longEntryGuide = na(ltfBullEntryPrice) ? nz(waitSweepLevelL, waitStopAnchorL + longSweepBuffer) : ltfBullEntryPrice
-        float longSweepTop = math.max(longEntryGuide, waitStopAnchorL + longSweepBuffer)
-        float longSweepBottom = waitStopAnchorL
-        rz_candidates.push(reaction_zone.new("Long", longSweepType, longSweepTop, longSweepBottom, (longSweepTop + longSweepBottom) / 2.0, nz(waitStartBarL, bar_index), longSweepPriority, longSweepScore, false, false, longSweepNarrative))
-    if waitS and not na(waitStopAnchorS) and not shortEntryBlocked
-        [shortDeeperActive, shortDeeperPrice, shortDeeperLabel] = f_findActiveLiquidityBeyond("BSL", waitStopAnchorS, rzIncompleteSweepWindowAtr)
-        bool shortSweepIncomplete = rzDowngradeIncompleteSweep and shortDeeperActive
-        string shortSweepNarrative = shortSweepIncomplete ? "INTERMEDIATE SWEEP | Higher " + shortDeeperLabel + " active" : "SWEEP RECLAIM (Grade " + activeShortSweepGrade + ")"
-        string shortSweepType = shortSweepIncomplete ? "SWEEP_CTX" : "SWEEP"
-        int shortSweepPriority = shortSweepIncomplete ? 4 : (msPostSweepStructureConfirmedS ? 3 : 4)
-        float shortSweepScore = shortSweepIncomplete ? 66.0 : math.max(54.0, 74.0 + shortStructureZoneBoost)
-        float shortSweepBuffer = math.max(syminfo.mintick * 10, atrVal * 0.10)
-        float shortEntryGuide = na(ltfBearEntryPrice) ? nz(waitSweepLevelS, waitStopAnchorS - shortSweepBuffer) : ltfBearEntryPrice
-        float shortSweepTop = waitStopAnchorS
-        float shortSweepBottom = math.min(shortEntryGuide, waitStopAnchorS - shortSweepBuffer)
-        rz_candidates.push(reaction_zone.new("Short", shortSweepType, shortSweepTop, shortSweepBottom, (shortSweepTop + shortSweepBottom) / 2.0, nz(waitStartBarS, bar_index), shortSweepPriority, shortSweepScore, false, false, shortSweepNarrative))
-
-    // 4. Protected structure as context POI
-    if not na(ms_protectedLow)
-        rz_candidates.push(reaction_zone.new("Long", "MS_PROTECTED", ms_protectedLow + syminfo.mintick * 5, ms_protectedLow - syminfo.mintick * 5, ms_protectedLow, nz(ms_protectedLowBar, bar_index), 5, 64.0 + (longStructureAligned ? 4.0 : -2.0), false, false, "MS PROTECTED LOW"))
-    if not na(ms_protectedHigh)
-        rz_candidates.push(reaction_zone.new("Short", "MS_PROTECTED", ms_protectedHigh + syminfo.mintick * 5, ms_protectedHigh - syminfo.mintick * 5, ms_protectedHigh, nz(ms_protectedHighBar, bar_index), 5, 64.0 + (shortStructureAligned ? 4.0 : -2.0), false, false, "MS PROTECTED HIGH"))
-
-    // 5. HTF Targets / POIs
-    if shortTargetBias and not na(lastHtf2PL) and low > lastHtf2PL
-        rz_candidates.push(reaction_zone.new("Short", "HTF_TARGET", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 4, 78.0, false, false, "HTF SHORT TARGET"))
-    if not na(lastHtf2PH) and high < lastHtf2PH
-        rz_candidates.push(reaction_zone.new("Short", "HTF_POI", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 5, 70.0, false, false, "HTF SHORT POI"))
-    if longTargetBias and not na(lastHtf2PH) and high < lastHtf2PH
-        rz_candidates.push(reaction_zone.new("Long", "HTF_TARGET", lastHtf2PH + syminfo.mintick*5, lastHtf2PH - syminfo.mintick*5, lastHtf2PH, bar_index, 4, 78.0, false, false, "HTF LONG TARGET"))
-    if not na(lastHtf2PL) and low > lastHtf2PL
-        rz_candidates.push(reaction_zone.new("Long", "HTF_POI", lastHtf2PL + syminfo.mintick*5, lastHtf2PL - syminfo.mintick*5, lastHtf2PL, bar_index, 5, 70.0, false, false, "HTF LONG POI"))
-
-    // --- Filter: Proximity (ATR) ---
-    if rz_candidates.size() > 0
-        for i = rz_candidates.size() - 1 to 0
-            z_p = rz_candidates.get(i)
-            if math.abs(z_p.ce - close) > (rzAtr * rzProximityMult)
-                rz_candidates.remove(i)
-
-    // --- Logic: Merge Overlapping Zones ---
-    if rzMergeZones and rz_candidates.size() > 1
-        for i = 0 to math.min(20, rz_candidates.size() - 2)
-            z1 = rz_candidates.get(i)
-            for j = i + 1 to rz_candidates.size() - 1
-                z2 = rz_candidates.get(j)
-                if z1.side == z2.side
-                    isOverlap = math.max(z1.bottom, z2.bottom) <= math.min(z1.top, z2.top)
-                    bool meaningfulOverlap = (z1.priorityRank <= 3 and z2.priorityRank <= 3) or z1.zoneType == "HTF_TARGET" or z2.zoneType == "HTF_TARGET"
-                    if isOverlap and meaningfulOverlap
-                        newT = math.max(z1.top, z2.top)
-                        newB = math.min(z1.bottom, z2.bottom)
-                        int mergedPriority = math.min(z1.priorityRank, z2.priorityRank)
-                        float mergedScore = math.min(100.0, math.max(z1.score, z2.score) + 6.0)
-                        rz_candidates.set(i, reaction_zone.new(z1.side, "CONFLUENCE", newT, newB, (newT+newB)/2, z1.sourceBar, mergedPriority, mergedScore, false, false, "EVIDENCE CONFLUENCE"))
-                        rz_candidates.remove(j)
-                        break
+f_buildReactionZones(mssL, mssS, shortEntryBlocked, longEntryBlocked, msPostSweepStructureConfirmedS, msPostSweepStructureConfirmedL, activeShortSweepGrade, activeLongSweepGrade, ltfBullEntryPrice, ltfBearEntryPrice, rzAtr)
 
 // Filter Top 1 per side
 f_getTopZone(side) =>
@@ -3130,66 +3358,101 @@ var line lLong = line.new(na, na, na, na)
 var box bShort = box.new(na, na, na, na, border_color=na)
 var line lShort = line.new(na, na, na, na)
 var box setupRiskBox = box.new(na, na, na, na, border_color=na)
+var box setupRewardBox = box.new(na, na, na, na, border_color=na)
+var line setupEntryLine = line.new(na, na, na, na, style=line.style_dashed)
 var line setupStopLine = line.new(na, na, na, na, style=line.style_dashed)
 var line setupTargetLine = line.new(na, na, na, na, style=line.style_dashed)
+var label setupPlanLabel = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
 
 f_hideSetupPreview() =>
     box.set_bgcolor(setupRiskBox, na)
     box.set_border_color(setupRiskBox, na)
+    box.set_bgcolor(setupRewardBox, na)
+    box.set_border_color(setupRewardBox, na)
+    line.set_xy1(setupEntryLine, na, na)
+    line.set_xy2(setupEntryLine, na, na)
     line.set_xy1(setupStopLine, na, na)
     line.set_xy2(setupStopLine, na, na)
     line.set_xy1(setupTargetLine, na, na)
     line.set_xy2(setupTargetLine, na, na)
+    label.set_text(setupPlanLabel, "")
     true
 
-f_renderSetupPreview(int setupLeft, int setupRight, float riskTop, float riskBottom, float stopPx, float targetPx) =>
+f_renderSetupPreview(bool isBull, int setupLeft, int setupRight, float entryPx, float stopPx, float targetPx, string planText) =>
+    float riskTop = math.max(entryPx, stopPx)
+    float riskBottom = math.min(entryPx, stopPx)
+    float rewardTop = math.max(entryPx, targetPx)
+    float rewardBottom = math.min(entryPx, targetPx)
     box.set_lefttop(setupRiskBox, setupLeft, riskTop)
     box.set_rightbottom(setupRiskBox, setupRight, riskBottom)
     box.set_bgcolor(setupRiskBox, color.new(COLOR_BEAR, 84))
-    box.set_border_color(setupRiskBox, color.new(COLOR_BEAR, 92))
+    box.set_border_color(setupRiskBox, color.new(COLOR_BEAR, 90))
+    box.set_lefttop(setupRewardBox, setupLeft, rewardTop)
+    box.set_rightbottom(setupRewardBox, setupRight, rewardBottom)
+    box.set_bgcolor(setupRewardBox, color.new(COLOR_BULL, 84))
+    box.set_border_color(setupRewardBox, color.new(COLOR_BULL, 90))
+    line.set_xy1(setupEntryLine, setupLeft, entryPx)
+    line.set_xy2(setupEntryLine, setupRight, entryPx)
+    line.set_color(setupEntryLine, color.new(f_defaultLevelColor(), 28))
+    line.set_width(setupEntryLine, 1)
     line.set_xy1(setupStopLine, setupLeft, stopPx)
     line.set_xy2(setupStopLine, setupRight, stopPx)
-    line.set_color(setupStopLine, color.new(COLOR_BEAR, 36))
-    line.set_width(setupStopLine, 1)
+    line.set_color(setupStopLine, color.new(COLOR_BEAR, 20))
+    line.set_width(setupStopLine, 2)
     line.set_xy1(setupTargetLine, setupLeft, targetPx)
     line.set_xy2(setupTargetLine, setupRight, targetPx)
-    line.set_color(setupTargetLine, color.new(rzTargetColor, 18))
-    line.set_width(setupTargetLine, 1)
+    line.set_color(setupTargetLine, color.new(COLOR_BULL, 20))
+    line.set_width(setupTargetLine, 2)
+    label.set_xy(setupPlanLabel, setupRight, isBull ? rewardTop : rewardBottom)
+    label.set_style(setupPlanLabel, isBull ? label.style_label_lower_left : label.style_label_upper_left)
+    label.set_color(setupPlanLabel, color.new(chart.bg_color, 10))
+    label.set_textcolor(setupPlanLabel, color.new(f_defaultLevelColor(), 10))
+    label.set_size(setupPlanLabel, size.tiny)
+    label.set_text(setupPlanLabel, planText + " | E " + str.tostring(entryPx, format.mintick) + " | SL " + str.tostring(stopPx, format.mintick) + " | TP " + str.tostring(targetPx, format.mintick))
     true
 
-if barstate.islast
-    update_rz_vis(topLong, "Long", bLong, lLong)
-    update_rz_vis(topShort, "Short", bShort, lShort)
-    bool longSetupPreview = showRZ and not active and waitL and not na(waitStopAnchorL) and not na(topLong) and f_rzIsEntryZone(topLong.zoneType) and (msPostSweepStructureConfirmedL or internalShiftDoneL or externalShiftDoneL)
-    bool shortSetupPreview = showRZ and not active and waitS and not na(waitStopAnchorS) and not na(topShort) and f_rzIsEntryZone(topShort.zoneType) and (msPostSweepStructureConfirmedS or internalShiftDoneS or externalShiftDoneS)
-    if longSetupPreview
-        float longEntryPx = topLong.ce
-        float longStopPx = waitStopAnchorL
-        float longTargetPx = f_tradeTargetPrice(true, longEntryPx, longStopPx)
-        bool longSetupValid = not na(longEntryPx) and not na(longStopPx) and not na(longTargetPx) and longStopPx < longEntryPx and longTargetPx > topLong.top
-        if longSetupValid
-            int setupLeft = math.max(nz(waitStartBarL, bar_index) - 1, 0)
-            int setupRight = bar_index + 8
-            float longRiskTop = math.max(topLong.bottom, longStopPx)
-            float longRiskBottom = math.min(topLong.bottom, longStopPx)
-            f_renderSetupPreview(setupLeft, setupRight, longRiskTop, longRiskBottom, longStopPx, longTargetPx)
+f_updateTopLevelVisuals(reaction_zone topLong, reaction_zone topShort, float ltfBullEntryPrice, float ltfBearEntryPrice, bool msPostSweepStructureConfirmedL, bool msPostSweepStructureConfirmedS) =>
+    if barstate.islast
+        update_rz_vis(topLong, "Long", bLong, lLong)
+        update_rz_vis(topShort, "Short", bShort, lShort)
+        bool liveTradePlan = showTradePlans and active and not na(activeEntryPrice) and not na(tSL) and not na(t10)
+        bool longSetupPreview = showTradePlans and not active and waitL and not na(waitStopAnchorL) and not na(topLong) and f_rzIsEntryZone(topLong.zoneType) and (msPostSweepStructureConfirmedL or internalShiftDoneL or externalShiftDoneL)
+        bool shortSetupPreview = showTradePlans and not active and waitS and not na(waitStopAnchorS) and not na(topShort) and f_rzIsEntryZone(topShort.zoneType) and (msPostSweepStructureConfirmedS or internalShiftDoneS or externalShiftDoneS)
+        if liveTradePlan
+            int setupLeft = math.max(nz(activeEntryBar, bar_index) - 1, 0)
+            int setupRight = bar_index + 10
+            bool liveValid = bull ? (tSL < activeEntryPrice and t10 > activeEntryPrice) : (tSL > activeEntryPrice and t10 < activeEntryPrice)
+            if liveValid
+                f_renderSetupPreview(bull, setupLeft, setupRight, activeEntryPrice, tSL, t10, bull ? "LONG LIVE" : "SHORT LIVE")
+            else
+                f_hideSetupPreview()
+        else if longSetupPreview
+            float longEntryPx = na(ltfBullEntryPrice) ? topLong.ce : ltfBullEntryPrice
+            float longStopPx = waitStopAnchorL
+            float longTargetPx = f_tradeTargetPrice(true, longEntryPx, longStopPx)
+            bool longSetupValid = not na(longEntryPx) and not na(longStopPx) and not na(longTargetPx) and longStopPx < longEntryPx and longTargetPx > longEntryPx
+            if longSetupValid
+                int setupLeft = math.max(nz(waitStartBarL, bar_index) - 1, 0)
+                int setupRight = bar_index + 10
+                f_renderSetupPreview(true, setupLeft, setupRight, longEntryPx, longStopPx, longTargetPx, "LONG PLAN")
+            else
+                f_hideSetupPreview()
+        else if shortSetupPreview
+            float shortEntryPx = na(ltfBearEntryPrice) ? topShort.ce : ltfBearEntryPrice
+            float shortStopPx = waitStopAnchorS
+            float shortTargetPx = f_tradeTargetPrice(false, shortEntryPx, shortStopPx)
+            bool shortSetupValid = not na(shortEntryPx) and not na(shortStopPx) and not na(shortTargetPx) and shortStopPx > shortEntryPx and shortTargetPx < shortEntryPx
+            if shortSetupValid
+                int setupLeft = math.max(nz(waitStartBarS, bar_index) - 1, 0)
+                int setupRight = bar_index + 10
+                f_renderSetupPreview(false, setupLeft, setupRight, shortEntryPx, shortStopPx, shortTargetPx, "SHORT PLAN")
+            else
+                f_hideSetupPreview()
         else
             f_hideSetupPreview()
-    else if shortSetupPreview
-        float shortEntryPx = topShort.ce
-        float shortStopPx = waitStopAnchorS
-        float shortTargetPx = f_tradeTargetPrice(false, shortEntryPx, shortStopPx)
-        bool shortSetupValid = not na(shortEntryPx) and not na(shortStopPx) and not na(shortTargetPx) and shortStopPx > shortEntryPx and shortTargetPx < topShort.bottom
-        if shortSetupValid
-            int setupLeft = math.max(nz(waitStartBarS, bar_index) - 1, 0)
-            int setupRight = bar_index + 8
-            float shortRiskTop = math.max(shortStopPx, topShort.top)
-            float shortRiskBottom = math.min(shortStopPx, topShort.top)
-            f_renderSetupPreview(setupLeft, setupRight, shortRiskTop, shortRiskBottom, shortStopPx, shortTargetPx)
-        else
-            f_hideSetupPreview()
-    else
-        f_hideSetupPreview()
+    true
+
+f_updateTopLevelVisuals(topLong, topShort, ltfBullEntryPrice, ltfBearEntryPrice, msPostSweepStructureConfirmedL, msPostSweepStructureConfirmedS)
 
 // --- Big Move / Spike Memory Engine ---
 var bigMoveEvents = array.new<big_move_event>(0)
@@ -3652,54 +3915,24 @@ if enableBigMoveMemory and barstate.isconfirmed and atrVal > 0 and bar_index > 5
     bool candidateFvg = false
     bool candidateSweep = false
 
-    [candType1, candDirection1, candScore1, candRangeAtr1, candRelVol1, candSession1, candKillzone1, candPhase1, candLiq1, candFvg1, candSweep1] = f_bigMoveSelectCandidate(bullExpansionBase, "EXPANSION", "BULL", math.max(bigMoveUpperWickPct, bigMoveLowerWickPct), bigMoveBullCloseExtreme, bullLiqFound, bullLiqBoost, bullFvgFound, bullFvgBoost, bullSweepFound, 8.0, true, bigMoveVolMult * 1.15, bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bigMoveSessionPhase, bigMoveRepeatBonus, candidateType, candidateDirection, candidateScore, candidateRangeAtr, candidateRelVol, candidateSession, candidateKillzone, candidatePhase, candidateLiq, candidateFvg, candidateSweep)
-    candidateType := candType1
-    candidateDirection := candDirection1
-    candidateScore := candScore1
-    candidateRangeAtr := candRangeAtr1
-    candidateRelVol := candRelVol1
-    candidateSession := candSession1
-    candidateKillzone := candKillzone1
-    candidatePhase := candPhase1
-    candidateLiq := candLiq1
-    candidateFvg := candFvg1
-    candidateSweep := candSweep1
-    [candType2, candDirection2, candScore2, candRangeAtr2, candRelVol2, candSession2, candKillzone2, candPhase2, candLiq2, candFvg2, candSweep2] = f_bigMoveSelectCandidate(bearExpansionBase, "EXPANSION", "BEAR", math.max(bigMoveUpperWickPct, bigMoveLowerWickPct), bigMoveBearCloseExtreme, bearLiqFound, bearLiqBoost, bearFvgFound, bearFvgBoost, bearSweepFound, 8.0, true, bigMoveVolMult * 1.15, bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bigMoveSessionPhase, bigMoveRepeatBonus, candidateType, candidateDirection, candidateScore, candidateRangeAtr, candidateRelVol, candidateSession, candidateKillzone, candidatePhase, candidateLiq, candidateFvg, candidateSweep)
-    candidateType := candType2
-    candidateDirection := candDirection2
-    candidateScore := candScore2
-    candidateRangeAtr := candRangeAtr2
-    candidateRelVol := candRelVol2
-    candidateSession := candSession2
-    candidateKillzone := candKillzone2
-    candidatePhase := candPhase2
-    candidateLiq := candLiq2
-    candidateFvg := candFvg2
-    candidateSweep := candSweep2
-    [candType3, candDirection3, candScore3, candRangeAtr3, candRelVol3, candSession3, candKillzone3, candPhase3, candLiq3, candFvg3, candSweep3] = f_bigMoveSelectCandidate(bullSpikeBase, "SPIKE", "BULL", bigMoveLowerWickPct, bigMoveBullCloseExtreme, bullLiqFound, bullLiqBoost, bullFvgFound, bullFvgBoost, bullSweepFound, 10.0, false, bigMoveVolMult, bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bigMoveSessionPhase, bigMoveRepeatBonus, candidateType, candidateDirection, candidateScore, candidateRangeAtr, candidateRelVol, candidateSession, candidateKillzone, candidatePhase, candidateLiq, candidateFvg, candidateSweep)
-    candidateType := candType3
-    candidateDirection := candDirection3
-    candidateScore := candScore3
-    candidateRangeAtr := candRangeAtr3
-    candidateRelVol := candRelVol3
-    candidateSession := candSession3
-    candidateKillzone := candKillzone3
-    candidatePhase := candPhase3
-    candidateLiq := candLiq3
-    candidateFvg := candFvg3
-    candidateSweep := candSweep3
-    [candType4, candDirection4, candScore4, candRangeAtr4, candRelVol4, candSession4, candKillzone4, candPhase4, candLiq4, candFvg4, candSweep4] = f_bigMoveSelectCandidate(bearSpikeBase, "SPIKE", "BEAR", bigMoveUpperWickPct, bigMoveBearCloseExtreme, bearLiqFound, bearLiqBoost, bearFvgFound, bearFvgBoost, bearSweepFound, 10.0, false, bigMoveVolMult, bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bigMoveSessionPhase, bigMoveRepeatBonus, candidateType, candidateDirection, candidateScore, candidateRangeAtr, candidateRelVol, candidateSession, candidateKillzone, candidatePhase, candidateLiq, candidateFvg, candidateSweep)
-    candidateType := candType4
-    candidateDirection := candDirection4
-    candidateScore := candScore4
-    candidateRangeAtr := candRangeAtr4
-    candidateRelVol := candRelVol4
-    candidateSession := candSession4
-    candidateKillzone := candKillzone4
-    candidatePhase := candPhase4
-    candidateLiq := candLiq4
-    candidateFvg := candFvg4
-    candidateSweep := candSweep4
+    float bigMoveExpansionWickPct = math.max(bigMoveUpperWickPct, bigMoveLowerWickPct)
+    for candidateIdx = 0 to 3
+        bool isBullCandidate = candidateIdx == 0 or candidateIdx == 2
+        bool isSpikeCandidate = candidateIdx >= 2
+        bool candidateBase = candidateIdx == 0 ? bullExpansionBase : candidateIdx == 1 ? bearExpansionBase : candidateIdx == 2 ? bullSpikeBase : bearSpikeBase
+        string candidateEventType = isSpikeCandidate ? "SPIKE" : "EXPANSION"
+        string candidateEventDirection = isBullCandidate ? "BULL" : "BEAR"
+        float candidateWickPct = isSpikeCandidate ? (isBullCandidate ? bigMoveLowerWickPct : bigMoveUpperWickPct) : bigMoveExpansionWickPct
+        float candidateCloseExtreme = isBullCandidate ? bigMoveBullCloseExtreme : bigMoveBearCloseExtreme
+        bool candidateLiqFoundNow = isBullCandidate ? bullLiqFound : bearLiqFound
+        float candidateLiqBoostNow = isBullCandidate ? bullLiqBoost : bearLiqBoost
+        bool candidateFvgFoundNow = isBullCandidate ? bullFvgFound : bearFvgFound
+        float candidateFvgBoostNow = isBullCandidate ? bullFvgBoost : bearFvgBoost
+        bool candidateSweepFoundNow = isBullCandidate ? bullSweepFound : bearSweepFound
+        float candidateScoreBuffer = isSpikeCandidate ? 10.0 : 8.0
+        bool candidateIncludeFvg = not isSpikeCandidate
+        float candidateRelVolThreshold = isSpikeCandidate ? bigMoveVolMult : bigMoveVolMult * 1.15
+        [candidateType, candidateDirection, candidateScore, candidateRangeAtr, candidateRelVol, candidateSession, candidateKillzone, candidatePhase, candidateLiq, candidateFvg, candidateSweep] = f_bigMoveSelectCandidate(candidateBase, candidateEventType, candidateEventDirection, candidateWickPct, candidateCloseExtreme, candidateLiqFoundNow, candidateLiqBoostNow, candidateFvgFoundNow, candidateFvgBoostNow, candidateSweepFoundNow, candidateScoreBuffer, candidateIncludeFvg, candidateRelVolThreshold, bigMoveRangeAtrVal, bigMoveBodyPctVal, bigMoveRelVolVal, bigMoveSessionName, bigMoveKillzoneName, bigMoveSessionPhase, bigMoveRepeatBonus, candidateType, candidateDirection, candidateScore, candidateRangeAtr, candidateRelVol, candidateSession, candidateKillzone, candidatePhase, candidateLiq, candidateFvg, candidateSweep)
 
     bool hasCandidate = candidateScore >= 0
     if hasCandidate
@@ -3770,7 +4003,7 @@ if showDash and barstate.islast
     string chosenLongLiquidityText = waitL and waitSweepPoolLabelL != "" and not na(waitSweepLevelL) ? waitSweepPoolLabelL + " " + str.tostring(waitSweepLevelL, format.mintick) : ""
     string liquidityContextText = chosenShortLiquidityText != "" ? "Chosen BSL: " + chosenShortLiquidityText : chosenLongLiquidityText != "" ? "Chosen SSL: " + chosenLongLiquidityText : aboveLiquidityText != "" and belowLiquidityText != "" ? "Above BSL: " + aboveLiquidityText + " | Below SSL: " + belowLiquidityText : aboveLiquidityText != "" ? "Above BSL: " + aboveLiquidityText : belowLiquidityText != "" ? "Below SSL: " + belowLiquidityText : "No nearby mapped liquidity"
     string htfBiasText = htfLongStrong ? "HTF bull" : htfShortStrong ? "HTF bear" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "HTF bull lean" : "HTF bear lean") : "HTF mixed"
-    string msStateText = ms_structureBias == 1 ? (ms_bullBosEvent or msContinuationConfirmedL ? "Bullish BOS confirmed" : ms_bullProtectedIntact ? "Bullish bias | protected low intact" : "Bullish bias | protected low damaged") : ms_structureBias == -1 ? (ms_bearBosEvent or msContinuationConfirmedS ? "Bearish BOS confirmed" : ms_bearProtectedIntact ? "Bearish bias | protected high intact" : "Bearish bias | protected high damaged") : "Neutral"
+    string msStateText = ms_structureBias == 1 ? (ms_bullBosEvent or msContinuationConfirmedL ? "Bullish BOS confirmed" : ms_idmTaken ? "Bullish IDM reclaim | awaiting BOS" : not na(ms_idmLevel) and ms_idmState == 2 ? "Bullish IDM stale" : not na(ms_idmLevel) and ms_idmStrong ? "Bullish IDM strong" : not na(ms_idmLevel) and ms_idmState == 1 ? "Bullish IDM active" : ms_bullProtectedIntact ? "Bullish bias | protected low intact" : "Bullish bias | protected low damaged") : ms_structureBias == -1 ? (ms_bearBosEvent or msContinuationConfirmedS ? "Bearish BOS confirmed" : ms_idmTaken ? "Bearish IDM reclaim | awaiting BOS" : not na(ms_idmLevel) and ms_idmState == 2 ? "Bearish IDM stale" : not na(ms_idmLevel) and ms_idmStrong ? "Bearish IDM strong" : not na(ms_idmLevel) and ms_idmState == 1 ? "Bearish IDM active" : ms_bearProtectedIntact ? "Bearish bias | protected high intact" : "Bearish bias | protected high damaged") : "Neutral"
     if waitS and msPostSweepStructureConfirmedS
         msStateText := msContinuationConfirmedS ? "Bearish BOS confirmed after sweep" : ms_bearChochSinceSweep ? "Bearish CHoCH confirmed after sweep" : "Bearish protected low broken after sweep"
     else if waitL and msPostSweepStructureConfirmedL
@@ -3781,7 +4014,8 @@ if showDash and barstate.islast
     string timingText = enableBigMoveMemory and showBigMoveTimingTable ? bigMoveSnapshot.state : "Timing off"
     string traderRead = active ? "Manage live position." : waitS ? (shortEntryBlocked ? shortEntryBlockReason : msConfirmationMode == "Balanced" and not msPostSweepStructureConfirmedS ? "Short valid; wait MS confirm or size down." : "Short ladder open; wait trigger.") : waitL ? (longEntryBlocked ? longEntryBlockReason : msConfirmationMode == "Balanced" and not msPostSweepStructureConfirmedL ? "Long valid; wait MS confirm or size down." : "Long ladder open; wait trigger.") : combinedDashboardBias >= 25 ? "Prefer longs on discount / sweep-support." : combinedDashboardBias <= -25 ? "Prefer shorts on premium / sweep-resistance." : "No strong agreement; wait cleaner sequence."
     int resolvedTrades = winsCount + lossesCount
-    string winrateText = resolvedTrades > 0 ? str.tostring((winsCount * 100.0) / resolvedTrades, "#.0") + "%" : "n/a"
+    float resolvedTradesSafe = math.max(float(resolvedTrades), 1.0)
+    string winrateText = resolvedTrades > 0 ? str.tostring((winsCount * 100.0) / resolvedTradesSafe, "#.0") + "%" : "n/a"
     string statsText = "WR " + winrateText + " | Det " + str.tostring(setupsDetectedCount) + " | Val " + str.tostring(setupsValidatedCount) + " | Ent " + str.tostring(entriesTriggeredCount) + " | W " + str.tostring(winsCount) + " / L " + str.tostring(lossesCount) + " / BE " + str.tostring(breakEvensCount) + " / Blk " + str.tostring(blockedTradesCount)
 
     table.cell(tb, 0, 0, "CONTEXT", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
@@ -3797,8 +4031,8 @@ if showDash and barstate.islast
 
 plot(showMsProtectedLevels ? ms_protectedHigh : na, "MS Protected High", color.new(COLOR_BEAR, 45), 2, plot.style_linebr)
 plot(showMsProtectedLevels ? ms_protectedLow : na, "MS Protected Low", color.new(COLOR_BULL, 45), 2, plot.style_linebr)
-plot(showMsSwings ? msMajorSwingHigh : na, "MS Swing High", msMajorHighPlotColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
-plot(showMsSwings ? msMajorSwingLow : na, "MS Swing Low", msMajorLowPlotColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
+plot(showMsSwings ? msMajorSwingHigh : na, "MS Swing High", msSwingHighColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
+plot(showMsSwings ? msMajorSwingLow : na, "MS Swing Low", msSwingLowColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 
 bool importantLiquidityReachedAlert = showSMC and (not na(bestSweepIdx) or not na(bestBreakoutIdx))
 bool validSweepConfirmedAlert = bearSweep or bullSweep
