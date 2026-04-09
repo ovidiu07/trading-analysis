@@ -168,10 +168,10 @@ showSweepTimeoutNote = input.bool(false, "Show Sweep Timeout Note", group=G_SMC,
 msMajorSwingLen = input.int(50, "Major Swing Confirmation", minval=2, group=G_MS, tooltip="Right-confirmed major swing length used for the imported market-structure map. This is a delayed confirmation layer, not a predictive pivot.")
 msInternalSwingLen = input.int(3, "Internal Swing Confirmation", minval=1, group=G_MS, tooltip="Smaller confirmed swings used only to refresh protected levels and continuation context.")
 msConfirmationMode = input.string("Balanced", "Confirmation Mode", options=["Aggressive", "Balanced", "Conservative"], group=G_MS, tooltip="Aggressive keeps devtrader primary. Balanced upgrades only aligned narratives to top quality. Conservative blocks entry until the market-structure layer confirms.")
-showMsSwings = input.bool(false, "Show Confirmed MS Swings", group=G_MS, tooltip="Plots swing confirmations only when the right-confirmed pivot actually becomes known.")
+showMsSwings = input.bool(false, "Show MS Swing Bullets", group=G_MS, tooltip="Plots confirmed swing bullets on the pivot bars like market-structure-sweeps. These are right-confirmed and appear only after the confirmation delay.")
+msSwingMarkerSize = input.int(4, "MS Swing Marker Size", minval=1, maxval=8, group=G_MS)
 showMsProtectedLevels = input.bool(false, "Show MS Protected Levels", group=G_MS)
-showMsChochBos = input.bool(false, "Show Raw MS CHoCH / BOS", group=G_MS, tooltip="Disabled by default to avoid duplicating the unified structure labels.")
-showOnlyUnifiedLabels = input.bool(true, "Show Unified Labels Only", group=G_MS, tooltip="Keeps the execution labels as the primary chart narrative and suppresses separate raw market-structure event labels.")
+showMsChochBos = input.bool(false, "Show MS CHoCH / BOS Levels", group=G_MS, tooltip="Draws CHoCH and BOS levels in the market-structure-sweeps style, including live extension levels on the last bar.")
 msCompactStructureLabels = input.bool(true, "Use Compact Structure Labels", group=G_MS)
 enableDebugTelemetry = input.bool(false, "Show Unified Debug Telemetry", group=G_MS, tooltip="Displays lightweight last-bar diagnostics for chosen liquidity, sweep grading, structure alignment, and block reasons.")
 
@@ -1791,6 +1791,10 @@ var int ms_lastBearBosBar = na
 var string ms_lastEventType = "None"
 var bool ms_topCrossed = false
 var bool ms_btmCrossed = false
+var line ms_extChoch = line.new(na, na, na, na, style=line.style_dashed)
+var line ms_extBos = line.new(na, na, na, na)
+var label ms_extChochLbl = label.new(na, na, "CHoCH", color=color.new(color.white, 100), size=size.tiny)
+var label ms_extBosLbl = label.new(na, na, "BOS", color=color.new(color.white, 100), size=size.tiny)
 
 f_pushStructurePivot(array<float> priceArr, array<int> barArr, float pivotPrice, int pivotBar, int maxItems) =>
     if not na(pivotPrice) and not na(pivotBar)
@@ -1986,18 +1990,21 @@ if not na(majL)
 [msMajorSwingHigh, msMajorSwingHighBar, msMajorSwingLow, msMajorSwingLowBar] = f_msMajorSwings()
 [msInternalSwingHigh, msInternalSwingHighBar, msInternalSwingLow, msInternalSwingLowBar] = f_msInternalSwings()
 
+color msMajorHighPlotColor = color.new(COLOR_BEAR, (waitS or ms_structureBias == -1 or htfCompositeBias <= -10) ? 0 : 45)
+color msMajorLowPlotColor = color.new(COLOR_BULL, (waitL or ms_structureBias == 1 or htfCompositeBias >= 10) ? 0 : 45)
+float msBullChochLevel = ms_lastSwingHigh
+int msBullChochBar = ms_lastSwingHighBar
+float msBearChochLevel = ms_lastSwingLow
+int msBearChochBar = ms_lastSwingLowBar
+
 if not na(msMajorSwingHigh)
     ms_lastSwingHigh := msMajorSwingHigh
     ms_lastSwingHighBar := msMajorSwingHighBar
     ms_topCrossed := false
-    if showMsSwings
-        label.new(bar_index, msMajorSwingHigh, msCompactStructureLabels ? "MS SH conf" : "MS swing high confirmed", color=#00000000, textcolor=color.new(COLOR_BEAR, 15), style=label.style_label_down, size=size.tiny)
 if not na(msMajorSwingLow)
     ms_lastSwingLow := msMajorSwingLow
     ms_lastSwingLowBar := msMajorSwingLowBar
     ms_btmCrossed := false
-    if showMsSwings
-        label.new(bar_index, msMajorSwingLow, msCompactStructureLabels ? "MS SL conf" : "MS swing low confirmed", color=#00000000, textcolor=color.new(COLOR_BULL, 15), style=label.style_label_up, size=size.tiny)
 
 if not na(msInternalSwingHigh)
     ms_lastInternalHigh := msInternalSwingHigh
@@ -2009,6 +2016,8 @@ if not na(msInternalSwingLow)
 float msBreakTol = math.max(atrVal * 0.03, syminfo.mintick * 4)
 float msBosHighRef = nz(ms_externalHigh, ms_lastSwingHigh)
 float msBosLowRef = nz(ms_externalLow, ms_lastSwingLow)
+int msBosHighRefBar = na(ms_externalHighBar) ? ms_lastSwingHighBar : ms_externalHighBar
+int msBosLowRefBar = na(ms_externalLowBar) ? ms_lastSwingLowBar : ms_externalLowBar
 bool ms_bullChochEvent = false
 bool ms_bearChochEvent = false
 bool ms_bullBosEvent = false
@@ -2092,15 +2101,70 @@ else if ms_structureBias == -1
     ms_externalHigh := ms_protectedHigh
     ms_externalHighBar := ms_protectedHighBar
 
-if showMsChochBos and not showOnlyUnifiedLabels
+if showMsChochBos
     if ms_bullChochEvent
-        label.new(bar_index, close, msCompactStructureLabels ? "MS CHoCH" : "MS bullish CHoCH (confirmed)", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_up, size=f_breakoutLabelSize())
+        line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=COLOR_BULL, style=line.style_dashed)
+        label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, "CHoCH", color=color(na), style=label.style_label_down, textcolor=COLOR_BULL, size=size.tiny)
     if ms_bearChochEvent
-        label.new(bar_index, close, msCompactStructureLabels ? "MS CHoCH" : "MS bearish CHoCH (confirmed)", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_down, size=f_breakoutLabelSize())
+        line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=COLOR_BEAR, style=line.style_dashed)
+        label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, "CHoCH", color=color(na), style=label.style_label_up, textcolor=COLOR_BEAR, size=size.tiny)
     if ms_bullBosEvent
-        label.new(bar_index, close, msCompactStructureLabels ? "MS BOS" : "MS bullish BOS (confirmed)", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_up, size=f_breakoutLabelSize())
+        line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=COLOR_BULL)
+        label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, "BOS", color=color(na), style=label.style_label_down, textcolor=COLOR_BULL, size=size.tiny)
     if ms_bearBosEvent
-        label.new(bar_index, close, msCompactStructureLabels ? "MS BOS" : "MS bearish BOS (confirmed)", color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_down, size=f_breakoutLabelSize())
+        line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=COLOR_BEAR)
+        label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, "BOS", color=color(na), style=label.style_label_up, textcolor=COLOR_BEAR, size=size.tiny)
+
+if barstate.islast
+    if showMsChochBos and ms_structureBias == 1
+        color bullBosColor = color.new(COLOR_BULL, htfCompositeBias >= 0 ? 0 : 25)
+        color bearChochColor = color.new(COLOR_BEAR, htfCompositeBias <= 0 ? 0 : 25)
+        if not na(ms_lastSwingLow)
+            line.set_xy1(ms_extChoch, ms_lastSwingLowBar, ms_lastSwingLow)
+            line.set_xy2(ms_extChoch, bar_index, ms_lastSwingLow)
+            line.set_color(ms_extChoch, bearChochColor)
+            label.set_xy(ms_extChochLbl, bar_index, ms_lastSwingLow)
+            label.set_style(ms_extChochLbl, label.style_label_up)
+            label.set_text(ms_extChochLbl, "CHoCH")
+            label.set_textcolor(ms_extChochLbl, bearChochColor)
+        else
+            line.set_color(ms_extChoch, na), label.set_textcolor(ms_extChochLbl, na)
+        if not na(msBosHighRef)
+            line.set_xy1(ms_extBos, msBosHighRefBar, msBosHighRef)
+            line.set_xy2(ms_extBos, bar_index, msBosHighRef)
+            line.set_color(ms_extBos, bullBosColor)
+            label.set_xy(ms_extBosLbl, bar_index, msBosHighRef)
+            label.set_style(ms_extBosLbl, label.style_label_down)
+            label.set_text(ms_extBosLbl, "BOS")
+            label.set_textcolor(ms_extBosLbl, bullBosColor)
+        else
+            line.set_color(ms_extBos, na), label.set_textcolor(ms_extBosLbl, na)
+    else if showMsChochBos and ms_structureBias == -1
+        color bullChochColor = color.new(COLOR_BULL, htfCompositeBias >= 0 ? 0 : 25)
+        color bearBosColor = color.new(COLOR_BEAR, htfCompositeBias <= 0 ? 0 : 25)
+        if not na(ms_lastSwingHigh)
+            line.set_xy1(ms_extChoch, ms_lastSwingHighBar, ms_lastSwingHigh)
+            line.set_xy2(ms_extChoch, bar_index, ms_lastSwingHigh)
+            line.set_color(ms_extChoch, bullChochColor)
+            label.set_xy(ms_extChochLbl, bar_index, ms_lastSwingHigh)
+            label.set_style(ms_extChochLbl, label.style_label_down)
+            label.set_text(ms_extChochLbl, "CHoCH")
+            label.set_textcolor(ms_extChochLbl, bullChochColor)
+        else
+            line.set_color(ms_extChoch, na), label.set_textcolor(ms_extChochLbl, na)
+        if not na(msBosLowRef)
+            line.set_xy1(ms_extBos, msBosLowRefBar, msBosLowRef)
+            line.set_xy2(ms_extBos, bar_index, msBosLowRef)
+            line.set_color(ms_extBos, bearBosColor)
+            label.set_xy(ms_extBosLbl, bar_index, msBosLowRef)
+            label.set_style(ms_extBosLbl, label.style_label_up)
+            label.set_text(ms_extBosLbl, "BOS")
+            label.set_textcolor(ms_extBosLbl, bearBosColor)
+        else
+            line.set_color(ms_extBos, na), label.set_textcolor(ms_extBosLbl, na)
+    else
+        line.set_color(ms_extChoch, na), label.set_textcolor(ms_extChochLbl, na)
+        line.set_color(ms_extBos, na), label.set_textcolor(ms_extBosLbl, na)
 
 int chartTfSecs = int(timeframe.in_seconds(timeframe.period))
 int ltfEntrySecs = f_autoLtfSeconds(chartTfSecs)
@@ -3666,6 +3730,8 @@ if showDash and barstate.islast
 
 plot(showMsProtectedLevels ? ms_protectedHigh : na, "MS Protected High", color.new(COLOR_BEAR, 45), 2, plot.style_linebr)
 plot(showMsProtectedLevels ? ms_protectedLow : na, "MS Protected Low", color.new(COLOR_BULL, 45), 2, plot.style_linebr)
+plot(showMsSwings ? msMajorSwingHigh : na, "MS Swing High", msMajorHighPlotColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
+plot(showMsSwings ? msMajorSwingLow : na, "MS Swing Low", msMajorLowPlotColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 
 bool importantLiquidityReachedAlert = showSMC and (not na(bestSweepIdx) or not na(bestBreakoutIdx))
 bool validSweepConfirmedAlert = bearSweep or bullSweep
