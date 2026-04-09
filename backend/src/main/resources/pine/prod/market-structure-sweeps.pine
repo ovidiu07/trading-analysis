@@ -28,6 +28,24 @@ idmVolatilityBoostInput       = input.bool(true, "Boost Expanding-Range Candidat
 idmVolatilityLookbackInput    = input.int(20, "Range Baseline Length", minval = 5, group = "IDM Engine")
 idmVolatilityMultInput        = input.float(1.15, "Range Expansion Multiplier", minval = 1.0, step = 0.05, group = "IDM Engine", tooltip = "Candidate receives a volatility bonus when its pivot bar range exceeds this multiple of the local average range.")
 
+// ST Recovery Confluence
+useStRecoveryConfluenceInput                 = input.bool(true, "Use Recovery Confluence", group = "ST Recovery Confluence", tooltip = "Adds a secondary volatility-adjusted pressure layer without changing the structure engine.")
+stAtrLengthInput                             = input.int(10, "ATR Length", minval = 1, group = "ST Recovery Confluence")
+stMultiplierInput                            = input.float(3.0, "Band Multiplier", minval = 0.1, step = 0.1, group = "ST Recovery Confluence")
+stRecoveryAlphaInput                         = input.float(5.0, "Recovery Alpha (%)", minval = 0.1, maxval = 100.0, step = 0.1, group = "ST Recovery Confluence", tooltip = "When the recovery trend is under pressure, the band blends toward price by this percentage.")
+stRecoveryThresholdInput                     = input.float(1.0, "Recovery Threshold (xATR)", minval = 0.0, step = 0.1, group = "ST Recovery Confluence", tooltip = "Recovery logic only tightens the band after price moves this far against the last switch price.")
+stUseMaFilterInput                           = input.bool(false, "Use MA Filter", group = "ST Recovery Confluence", tooltip = "Optional secondary filter for recovery flips. Disabled by default so structure remains dominant.")
+stFilterTypeInput                            = input.string("EMA", "MA Type", options = ["SMA", "EMA", "RMA", "WMA"], group = "ST Recovery Confluence")
+stFilterLenInput                             = input.int(200, "MA Length", minval = 1, group = "ST Recovery Confluence")
+stConfluenceWeightInput                      = input.float(12.0, "Confluence Weight", minval = 0.0, maxval = 25.0, step = 0.5, group = "ST Recovery Confluence", tooltip = "Modest score adjustment applied when recovery aligns or conflicts with structure.")
+stRequireAlignmentForBullBiasInput           = input.bool(false, "Require Alignment For Bull Bias", group = "ST Recovery Confluence", tooltip = "Only neutralizes the derived confluence bias. It does not change structure itself.")
+stRequireAlignmentForBearBiasInput           = input.bool(false, "Require Alignment For Bear Bias", group = "ST Recovery Confluence", tooltip = "Only neutralizes the derived confluence bias. It does not change structure itself.")
+requireRecoveryAlignmentForBosLabelInput     = input.bool(false, "Require Alignment For BOS Quality Tag", group = "ST Recovery Confluence", tooltip = "If enabled, conflicting recovery removes the BOS quality suffix but never removes the BOS print.")
+requireRecoveryAlignmentForStrongSignalInput = input.bool(false, "Require Alignment For Strong Signal", group = "ST Recovery Confluence", tooltip = "High-quality continuation tags require recovery alignment when enabled.")
+requireRecoveryAlignmentForContinuationTagInput = input.bool(false, "Require Alignment For Continuation Tag", group = "ST Recovery Confluence", tooltip = "If enabled, conflicting IDM continuation events keep their raw label without a confluence suffix.")
+stShowBandInput                              = input.bool(false, "Show Recovery Band", group = "ST Recovery Confluence")
+stShowStateInput                             = input.bool(true, "Show Confluence Dashboard", group = "ST Recovery Confluence")
+
 // Styling
 bullishColorInput = input.color(#089981, "Bullish Elements", group = "Style", tooltip = "Color for bullish structures.")
 bearishColorInput = input.color(#f23645, "Bearish Elements", group = "Style", tooltip = "Color for bearish structures.")
@@ -83,12 +101,92 @@ clamp01(value) =>
 midpointScore(position) =>
     1.0 - clamp01(math.abs(position - 0.5) / 0.5)
 
+maByType(filterType, source, length) =>
+    switch filterType
+        "SMA" => ta.sma(source, length)
+        "EMA" => ta.ema(source, length)
+        "RMA" => ta.rma(source, length)
+        "WMA" => ta.wma(source, length)
+        => source
+
+qualityText(direction, score, requireAligned, aligned) =>
+    bool strongAllowed = not requireAligned or aligned
+    string result = direction == 1 ? "Weak Bull" : "Weak Bear"
+    if direction == 1
+        if score >= 75.0 and strongAllowed
+            result := "High Quality Bull"
+        else if score >= 60.0
+            result := "Moderate Bull"
+    else
+        if score >= 75.0 and strongAllowed
+            result := "High Quality Bear"
+        else if score >= 60.0
+            result := "Moderate Bear"
+    result
+
+eventLabelWithConfluence(baseText, enabled, aligned, allowConflictTag) =>
+    string result = baseText
+    if enabled
+        if aligned
+            result := baseText + "+"
+        else if allowConflictTag
+            result := baseText + "?"
+    result
+
 // --- Core Logic ---
 float atrValue = ta.atr(atrLengthInput)
 float avgRange = ta.sma(high - low, idmVolatilityLookbackInput)
 int pivotOffset = idmDetectionPeriodInput
 float idmTouchTolerance = math.max(syminfo.mintick, atrValue * 0.02)
 bool idmSessionActiveNow = not na(time(timeframe.period, idmSessionInput))
+
+// Secondary recovery engine used only for confluence and tactical pressure.
+float stAtr = ta.atr(stAtrLengthInput)
+float stAlpha = stRecoveryAlphaInput / 100.0
+float stMaFilter = maByType(stFilterTypeInput, close, stFilterLenInput)
+bool stBullFilterOk = not stUseMaFilterInput or na(stMaFilter) or close > stMaFilter
+bool stBearFilterOk = not stUseMaFilterInput or na(stMaFilter) or close < stMaFilter
+
+var float stBand = na
+var float stSwitchPrice = na
+var int stTrend = 1
+
+float stSrc = hl2
+float stUpperBase = stSrc + stMultiplierInput * stAtr
+float stLowerBase = stSrc - stMultiplierInput * stAtr
+float stDeviation = stRecoveryThresholdInput * stAtr
+bool stIsAtLoss = not na(stSwitchPrice) and ((stTrend == 1 and (stSwitchPrice - close) > stDeviation) or (stTrend == -1 and (close - stSwitchPrice) > stDeviation))
+float stPrevBand = nz(stBand[1], stTrend == 1 ? stLowerBase : stUpperBase)
+
+if stTrend == 1
+    float stTargetBand = stIsAtLoss ? (stAlpha * close + (1.0 - stAlpha) * stPrevBand) : stLowerBase
+    stBand := math.max(stTargetBand, stPrevBand)
+
+    if close < stBand and stBearFilterOk
+        stTrend := -1
+        stBand := stUpperBase
+        stSwitchPrice := close
+else
+    float stTargetBand = stIsAtLoss ? (stAlpha * close + (1.0 - stAlpha) * stPrevBand) : stUpperBase
+    stBand := math.min(stTargetBand, stPrevBand)
+
+    if close > stBand and stBullFilterOk
+        stTrend := 1
+        stBand := stLowerBase
+        stSwitchPrice := close
+
+if barstate.isfirst
+    stSwitchPrice := close
+    stBand := stTrend == 1 ? stLowerBase : stUpperBase
+
+bool stTrendChanged = not na(stTrend[1]) and stTrend != stTrend[1]
+float stRecoveryBand = stBand
+float stRecoveryDistanceFromBand = math.abs(close - stRecoveryBand)
+float stRecoveryBandRange = math.max(stAtr * math.max(stMultiplierInput, 1.0), syminfo.mintick)
+float stRecoveryDistanceNorm = clamp01(stRecoveryDistanceFromBand / stRecoveryBandRange)
+float stRecoveryStateStrength = clamp01(stRecoveryDistanceNorm * 0.65 + (stTrend == nz(stTrend[1], stTrend) ? 0.20 : 0.0) + (stIsAtLoss ? 0.0 : 0.15))
+bool recoverySupportsBull = stTrend == 1
+bool recoverySupportsBear = stTrend == -1
 
 // Major Swings
 [top, topx, btm, btmx] = swings(chochDetectionPeriodInput)
@@ -220,8 +318,12 @@ if close < btmy and not btmCrossed
     os := 0
     btmCrossed := true
 
+bool structureChangedThisBar = ta.change(os) != 0
+bool bullChochEvent = structureChangedThisBar and os == 1
+bool bearChochEvent = structureChangedThisBar and os == 0
+
 // Update Max/Min for BOS and Sweeps
-if ta.change(os) != 0
+if structureChangedThisBar
     maxValue := high
     minValue := low
     maxX1 := bar_index
@@ -254,13 +356,17 @@ if ta.change(os) != 0
 
     // Draw CHoCH
     if os == 1 and showChochInput
+        string chochLabelText = eventLabelWithConfluence("CHoCH", useStRecoveryConfluenceInput, recoverySupportsBull, true)
         line.new(topx, topy, bar_index, topy, color = bullishColorInput, style = line.style_dashed)
-        label.new(int(math.avg(bar_index, topx)), topy, "CHoCH", color = color(na), style = label.style_label_down, textcolor = bullishColorInput, size = textSizeInput)
+        label.new(int(math.avg(bar_index, topx)), topy, chochLabelText, color = color(na), style = label.style_label_down, textcolor = bullishColorInput, size = textSizeInput)
     else if showChochInput
+        string chochLabelText = eventLabelWithConfluence("CHoCH", useStRecoveryConfluenceInput, recoverySupportsBear, true)
         line.new(btmx, btmy, bar_index, btmy, color = bearishColorInput, style = line.style_dashed)
-        label.new(int(math.avg(bar_index, btmx)), btmy, "CHoCH", color = color(na), style = label.style_label_up, textcolor = bearishColorInput, size = textSizeInput)
+        label.new(int(math.avg(bar_index, btmx)), btmy, chochLabelText, color = color(na), style = label.style_label_up, textcolor = bearishColorInput, size = textSizeInput)
 
 // --- Candidate-Based IDM Selection ---
+bool bullishProtectedIntact = na(protectedLowVal) or close >= protectedLowVal
+bool bearishProtectedIntact = na(protectedHighVal) or close <= protectedHighVal
 float previousIdmLevel = idmLevel
 int previousIdmX = idmX
 
@@ -270,9 +376,6 @@ if not idmTaken
     float selectedScore = na
     float selectedAtr = na
     int selectedAge = na
-
-    bool bullishProtectedIntact = na(protectedLowVal) or close >= protectedLowVal
-    bool bearishProtectedIntact = na(protectedHighVal) or close <= protectedHighVal
 
     if os == 1 and bullishProtectedIntact and not na(protectedLowVal) and not na(maxValue)
         float legRange = maxValue - protectedLowVal
@@ -462,14 +565,21 @@ if idmTakeEvent
     idmPendingBar := na
     idmPendingExtreme := na
     if showIdmInput
+        bool idmDirectionAligned = os == 1 ? recoverySupportsBull : recoverySupportsBear
+        string idmEventText = eventLabelWithConfluence(idmTakeEventLabel, useStRecoveryConfluenceInput, idmDirectionAligned, not requireRecoveryAlignmentForContinuationTagInput)
         line.new(idmX, idmLevel, bar_index, idmLevel, color = color.new(idmColorInput, 45), style = line.style_dotted, width = 1)
-        label.new(bar_index, idmLevel, idmTakeEventLabel, color = color(na), style = os == 1 ? label.style_label_up : label.style_label_down, textcolor = idmColorInput, size = textSizeInput)
+        label.new(bar_index, idmLevel, idmEventText, color = color(na), style = os == 1 ? label.style_label_up : label.style_label_down, textcolor = idmColorInput, size = textSizeInput)
 
 // --- BOS Logic ---
+bool bullBosEvent = false
+bool bearBosEvent = false
+
 if os == 1 and idmTaken and close > maxValue
+    bullBosEvent := true
     if showBosInput
+        string bosLabelText = eventLabelWithConfluence("BOS", useStRecoveryConfluenceInput, recoverySupportsBull, not requireRecoveryAlignmentForBosLabelInput)
         line.new(maxX1, maxValue, bar_index, maxValue, color = bullishColorInput)
-        label.new(int(math.avg(bar_index, maxX1)), maxValue, "BOS", color = color(na), style = label.style_label_down, textcolor = bullishColorInput, size = textSizeInput)
+        label.new(int(math.avg(bar_index, maxX1)), maxValue, bosLabelText, color = color(na), style = label.style_label_down, textcolor = bullishColorInput, size = textSizeInput)
     protectedLowVal := idmLevel
     protectedLowX := idmX
     externalLowVal := protectedLowVal
@@ -486,9 +596,11 @@ if os == 1 and idmTaken and close > maxValue
     idmTakeTag := ""
 
 if os == 0 and idmTaken and close < minValue
+    bearBosEvent := true
     if showBosInput
+        string bosLabelText = eventLabelWithConfluence("BOS", useStRecoveryConfluenceInput, recoverySupportsBear, not requireRecoveryAlignmentForBosLabelInput)
         line.new(minX1, minValue, bar_index, minValue, color = bearishColorInput)
-        label.new(int(math.avg(bar_index, minX1)), minValue, "BOS", color = color(na), style = label.style_label_up, textcolor = bearishColorInput, size = textSizeInput)
+        label.new(int(math.avg(bar_index, minX1)), minValue, bosLabelText, color = color(na), style = label.style_label_up, textcolor = bearishColorInput, size = textSizeInput)
     protectedHighVal := idmLevel
     protectedHighX := idmX
     externalHighVal := protectedHighVal
@@ -533,6 +645,94 @@ else
     externalHighVal := protectedHighVal
     externalHighX := protectedHighX
 
+bullishProtectedIntact := na(protectedLowVal) or close >= protectedLowVal
+bearishProtectedIntact := na(protectedHighVal) or close <= protectedHighVal
+
+int structureBias = os == 1 ? 1 : -1
+int recoveryBias = stTrend
+int confluenceBias = structureBias
+
+if useStRecoveryConfluenceInput
+    if structureBias == 1 and stRequireAlignmentForBullBiasInput and not recoverySupportsBull
+        confluenceBias := 0
+    if structureBias == -1 and stRequireAlignmentForBearBiasInput and not recoverySupportsBear
+        confluenceBias := 0
+
+bool confluenceAligned = useStRecoveryConfluenceInput and structureBias == recoveryBias
+bool confluenceConflict = useStRecoveryConfluenceInput and structureBias != recoveryBias
+bool bullPullbackPressure = useStRecoveryConfluenceInput and structureBias == 1 and recoveryBias == -1 and bullishProtectedIntact
+bool bearPullbackPressure = useStRecoveryConfluenceInput and structureBias == -1 and recoveryBias == 1 and bearishProtectedIntact
+
+float baseStructureScore = bullBosEvent or bearBosEvent ? 78.0 : bullChochEvent or bearChochEvent ? 60.0 : idmTaken ? 66.0 : idmStrong ? 62.0 : not na(idmLevel) and idmState == IDM_STATE_ACTIVE ? 58.0 : 54.0
+float alignmentContribution = useStRecoveryConfluenceInput ? confluenceAligned ? stConfluenceWeightInput : confluenceConflict ? -stConfluenceWeightInput * 0.85 : 0.0 : 0.0
+float recoveryFlipBonus = useStRecoveryConfluenceInput and stTrendChanged and structureBias == recoveryBias ? stConfluenceWeightInput * 0.45 : 0.0
+float recoveryPressurePenalty = useStRecoveryConfluenceInput and stIsAtLoss ? (confluenceConflict ? stConfluenceWeightInput * 0.50 : stConfluenceWeightInput * 0.20) : 0.0
+float strengthContribution = useStRecoveryConfluenceInput ? (confluenceAligned ? stRecoveryStateStrength * stConfluenceWeightInput * 0.35 : -stRecoveryStateStrength * stConfluenceWeightInput * 0.15) : 0.0
+float signalQualityScore = math.max(0.0, math.min(100.0, baseStructureScore + alignmentContribution + recoveryFlipBonus - recoveryPressurePenalty + strengthContribution))
+float stAlignmentScore = useStRecoveryConfluenceInput ? (confluenceAligned ? 1.0 : confluenceConflict ? -1.0 : 0.0) * (0.5 + stRecoveryStateStrength * 0.5) : 0.0
+
+string structureBiasText = os == 1 ? "Bullish" : "Bearish"
+if bullBosEvent
+    structureBiasText := "Bullish Continuation Confirmed"
+else if bearBosEvent
+    structureBiasText := "Bearish Continuation Confirmed"
+else if bullChochEvent
+    structureBiasText := "Bullish Pending Confirmation"
+else if bearChochEvent
+    structureBiasText := "Bearish Pending Confirmation"
+else if os == 1 and idmTaken
+    structureBiasText := "Bullish Pending BOS"
+else if os == 0 and idmTaken
+    structureBiasText := "Bearish Pending BOS"
+else if not na(idmLevel) and idmState != IDM_STATE_INVALID
+    structureBiasText := os == 1 ? "Bullish Continuation Candidate" : "Bearish Continuation Candidate"
+
+string recoveryBiasText = "Disabled"
+if useStRecoveryConfluenceInput
+    recoveryBiasText := recoveryBias == 1 ? "Bullish" : "Bearish"
+    if stIsAtLoss
+        recoveryBiasText := recoveryBias == 1 ? "Bullish (At Loss)" : "Bearish (At Loss)"
+
+string confluenceStateText = ""
+if not useStRecoveryConfluenceInput
+    confluenceStateText := structureBias == 1 ? "Structure-Led Bull" : "Structure-Led Bear"
+else if bullPullbackPressure
+    confluenceStateText := "Bull Pullback Pressure"
+else if bearPullbackPressure
+    confluenceStateText := "Bear Pullback Pressure"
+else if confluenceAligned and structureBias == 1
+    confluenceStateText := signalQualityScore >= 75.0 and not stIsAtLoss ? "Strong Bull Continuation" : "Bullish Aligned"
+else if confluenceAligned and structureBias == -1
+    confluenceStateText := signalQualityScore >= 75.0 and not stIsAtLoss ? "Strong Bear Continuation" : "Bearish Aligned"
+else if structureChangedThisBar or stTrendChanged
+    confluenceStateText := "Transition"
+else
+    confluenceStateText := "Conflict"
+
+string continuationQualityText = confluenceBias == 0 ? (structureBias == 1 ? "Weak Bull" : "Weak Bear") : qualityText(structureBias, signalQualityScore, requireRecoveryAlignmentForStrongSignalInput, confluenceAligned)
+if useStRecoveryConfluenceInput and confluenceConflict
+    continuationQualityText := structureBias == 1 ? "Weak Bull" : "Weak Bear"
+
+string protectedStructureText = os == 1 ? "Protected Low Intact" : "Protected High Intact"
+if os == 1 and not bullishProtectedIntact
+    protectedStructureText := "Protected Low Lost"
+if os == 0 and not bearishProtectedIntact
+    protectedStructureText := "Protected High Lost"
+
+string idmStatusText = "Invalid"
+if idmTaken
+    idmStatusText := "Taken / Await BOS"
+else if na(idmLevel)
+    idmStatusText := "None"
+else if idmPendingSweep
+    idmStatusText := "Swept / Reclaiming"
+else if idmState == IDM_STATE_STALE
+    idmStatusText := "Stale"
+else if idmStrong
+    idmStatusText := "Strong"
+else if idmState == IDM_STATE_ACTIVE
+    idmStatusText := "Active"
+
 // --- Visual Elements (Real-time Extensions) ---
 var line extChoch = line.new(na, na, na, na, style = line.style_dashed)
 var line extBos = line.new(na, na, na, na)
@@ -543,6 +743,7 @@ var label extChochLbl = label.new(na, na, "CHoCH", color = color.new(color.white
 var label extBosLbl = label.new(na, na, "BOS", color = color.new(color.white, 100), size = textSizeInput)
 var label extProtectedLbl = label.new(na, na, "Protected", color = color.new(color.white, 100), size = textSizeInput)
 var label extIdmLbl = label.new(na, na, "IDM", color = color.new(color.white, 100), size = textSizeInput, textcolor = idmColorInput)
+var table confluenceTable = stShowStateInput ? table.new(position.top_right, 2, 7, bgcolor = color.new(chart.bg_color, 10), border_width = 1, border_color = color.new(chart.fg_color, 75)) : na
 
 if barstate.islast
     if os == 1
@@ -602,6 +803,30 @@ if barstate.islast
         else
             extIdm.set_color(na), extIdmLbl.set_textcolor(na)
 
+if stShowStateInput and barstate.islast
+    color structureCellColor = structureBias == 1 ? bullishColorInput : bearishColorInput
+    color recoveryCellColor = recoveryBias == 1 ? bullishColorInput : bearishColorInput
+    color confluenceCellColor = not useStRecoveryConfluenceInput ? color.new(chart.fg_color, 70) : confluenceAligned ? (structureBias == 1 ? color.new(bullishColorInput, 15) : color.new(bearishColorInput, 15)) : bullPullbackPressure ? color.new(bullishColorInput, 65) : bearPullbackPressure ? color.new(bearishColorInput, 65) : color.new(color.orange, 35)
+    color qualityCellColor = continuationQualityText == "High Quality Bull" ? bullishColorInput : continuationQualityText == "High Quality Bear" ? bearishColorInput : continuationQualityText == "Moderate Bull" ? color.new(bullishColorInput, 25) : continuationQualityText == "Moderate Bear" ? color.new(bearishColorInput, 25) : color.new(color.orange, 20)
+    color protectedCellColor = os == 1 ? (bullishProtectedIntact ? color.new(bullishColorInput, 35) : color.new(color.orange, 25)) : (bearishProtectedIntact ? color.new(bearishColorInput, 35) : color.new(color.orange, 25))
+    color idmCellColor = idmTaken ? color.new(chart.fg_color, 35) : idmPendingSweep ? color.new(sweepsColorInput, 20) : idmState == IDM_STATE_STALE ? color.new(idmColorInput, 70) : idmStrong ? color.new(idmColorInput, 25) : idmState == IDM_STATE_ACTIVE ? color.new(idmColorInput, 45) : color.new(chart.fg_color, 70)
+
+    table.cell(confluenceTable, 0, 0, "Confluence", bgcolor = chart.fg_color, text_color = chart.bg_color, text_size = size.small)
+    table.cell(confluenceTable, 1, 0, "State", bgcolor = chart.fg_color, text_color = chart.bg_color, text_size = size.small)
+    table.cell(confluenceTable, 0, 1, "Structure Bias", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+    table.cell(confluenceTable, 1, 1, structureBiasText, text_color = color.white, bgcolor = structureCellColor, text_size = size.tiny)
+    table.cell(confluenceTable, 0, 2, "Recovery Bias", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+    table.cell(confluenceTable, 1, 2, recoveryBiasText, text_color = color.white, bgcolor = recoveryCellColor, text_size = size.tiny)
+    table.cell(confluenceTable, 0, 3, "Confluence", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+    table.cell(confluenceTable, 1, 3, confluenceStateText, text_color = color.white, bgcolor = confluenceCellColor, text_size = size.tiny)
+    table.cell(confluenceTable, 0, 4, "Continuation", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+    table.cell(confluenceTable, 1, 4, continuationQualityText, text_color = color.white, bgcolor = qualityCellColor, text_size = size.tiny)
+    table.cell(confluenceTable, 0, 5, "Protected", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+    table.cell(confluenceTable, 1, 5, protectedStructureText, text_color = color.white, bgcolor = protectedCellColor, text_size = size.tiny)
+    table.cell(confluenceTable, 0, 6, "IDM", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+    table.cell(confluenceTable, 1, 6, idmStatusText, text_color = color.white, bgcolor = idmCellColor, text_size = size.tiny)
+
 // --- Plots ---
+plot(useStRecoveryConfluenceInput and stShowBandInput ? stRecoveryBand : na, "Recovery Band", color = recoveryBias == 1 ? bullishColorInput : bearishColorInput, linewidth = 2)
 plot(showSwingsInput ? top : na, "Swing High", color.new(bearishColorInput, 50), markerSizeInput, plot.style_circles, offset = -chochDetectionPeriodInput)
 plot(showSwingsInput ? btm : na, "Swing Low", color.new(bullishColorInput, 50), markerSizeInput, plot.style_circles, offset = -chochDetectionPeriodInput)
