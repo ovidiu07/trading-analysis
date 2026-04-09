@@ -174,10 +174,10 @@ msSwingHighColor = input.color(color.new(COLOR_BEAR, 0), "Swing High Bullet Colo
 msSwingLowColor = input.color(color.new(COLOR_BULL, 0), "Swing Low Bullet Color", group=G_MS)
 showMsProtectedLevels = input.bool(false, "Show MS Protected Levels", group=G_MS)
 showMsChochBos = input.bool(false, "Show MS CHoCH / BOS Levels", group=G_MS, tooltip="Draws CHoCH and BOS levels in the market-structure-sweeps style, including live extension levels on the last bar.")
-msBullChochColor = input.color(color.new(COLOR_BULL, 0), "Bullish CHoCH Color", group=G_MS)
-msBearChochColor = input.color(color.new(COLOR_BEAR, 0), "Bearish CHoCH Color", group=G_MS)
-msBullBosColor = input.color(color.new(COLOR_BULL, 0), "Bullish BOS Color", group=G_MS)
-msBearBosColor = input.color(color.new(COLOR_BEAR, 0), "Bearish BOS Color", group=G_MS)
+msBullChochColor = input.color(color.black, "Bullish CHoCH Color", group=G_MS)
+msBearChochColor = input.color(color.black, "Bearish CHoCH Color", group=G_MS)
+msBullBosColor = input.color(color.black, "Bullish BOS Color", group=G_MS)
+msBearBosColor = input.color(color.black, "Bearish BOS Color", group=G_MS)
 msBosRequiresInternalPullback = input.bool(true, "BOS Requires New Internal Pullback", group=G_MS, tooltip="Prevents BOS from printing on every incremental continuation break. Requires a fresh internal swing after the last CHoCH/BOS event, closer to market-structure-sweeps behavior.")
 msBosDisplacementMult = input.float(0.85, "BOS Break Body Mult", minval=0.5, step=0.05, group=G_MS, tooltip="Minimum body expansion versus average body for BOS candles. Higher values make BOS prints tighter and less frequent.")
 msCompactStructureLabels = input.bool(true, "Use Compact Structure Labels", group=G_MS)
@@ -721,14 +721,8 @@ f_isDarkTheme() =>
 f_themeTextColor() =>
     f_isDarkTheme() ? color.white : color.black
 
-f_themeInvertedTextColor() =>
-    f_isDarkTheme() ? color.black : color.white
-
 f_themePanelColor() =>
     f_isDarkTheme() ? color.new(#111827, 8) : color.new(#f3f4f6, 8)
-
-f_themeInvertedPanelColor() =>
-    f_isDarkTheme() ? color.white : #111827
 
 f_defaultLevelColor() =>
     f_isDarkTheme() ? color.white : color.black
@@ -956,16 +950,16 @@ f_updateLevel(bool show, float val, string txt, line l, label lb) =>
         int levelRight = compactText == "DO" ? bar_index + 1 : bar_index + rightOffset
         line.set_xy1(l, levelLeft, val)
         line.set_xy2(l, levelRight, val)
-        line.set_color(l, color.new(f_defaultLevelColor(), tier == 1 ? 4 : tier == 2 ? 26 : 48))
-        line.set_width(l, tier == 1 ? 3 : tier == 2 ? 2 : 1)
+        line.set_color(l, color.new(f_defaultLevelColor(), tier == 1 ? 16 : tier == 2 ? 34 : 52))
+        line.set_width(l, tier == 1 ? 2 : 1)
         line.set_style(l, tier == 3 ? line.style_dotted : line.style_solid)
         if f_levelShouldShowLabel(compactText, val, tier)
             [labelY, shiftDir] = f_resolveLevelLabelY(val)
             label.set_xy(lb, levelRight, labelY)
-            label.set_textcolor(lb, color.new(f_defaultLevelColor(), tier == 3 ? 10 : 0))
-            label.set_color(lb, color.new(f_themePanelColor(), tier == 1 ? 0 : tier == 2 ? 8 : 16))
+            label.set_textcolor(lb, color.new(f_defaultLevelColor(), tier == 1 ? 26 : tier == 2 ? 36 : 48))
+            label.set_color(lb, color.new(chart.bg_color, tier == 1 ? 18 : tier == 2 ? 28 : 40))
             label.set_style(lb, shiftDir > 0 ? label.style_label_lower_left : shiftDir < 0 ? label.style_label_upper_left : label.style_label_left)
-            label.set_size(lb, tier == 1 ? size.small : size.tiny)
+            label.set_size(lb, size.tiny)
             label.set_text(lb, compactText + " " + str.tostring(val, format.mintick))
             f_incLevelLabelStats(tier)
         else
@@ -1519,17 +1513,17 @@ if barstate.islast
             else if row.isMajor and tier > 2
                 tier := 2
             int stateFade = row.state == "CONSUMED" ? 28 : row.state == "SWEPT" ? 14 : row.state == "TAGGED" ? 6 : 0
-            int baseAlpha = tier == 1 ? 8 : tier == 2 ? 26 : 48
+            int baseAlpha = tier == 1 ? 18 : tier == 2 ? 34 : 52
             int majorBonus = row.isMajor and tier == 1 ? -4 : 0
             color clr = color.new(f_defaultLevelColor(), math.max(0, math.min(88, baseAlpha + stateFade + majorBonus)))
             lineStyle = row.state == "CONSUMED" ? line.style_dotted : row.state == "SWEPT" ? line.style_dashed : tier == 3 ? line.style_dotted : row.isMajor ? line.style_solid : line.style_dashed
             int anchorBar = na(row.sourceBar) ? bar_index : row.sourceBar
             int renderLeftBar = adaptiveLevelExtensions ? math.max(math.max(anchorBar, bar_index - f_levelLeftSpanBars(row.price, tier, row.state == "SWEPT")), 0) : math.max(math.max(anchorBar, bar_index - math.max(liqRangeLookback * 8, 800)), 0)
             int renderRightBar = bar_index + (adaptiveLevelExtensions ? (tier == 1 ? 9 : tier == 2 ? 7 : 5) : 10)
-            array.push(liq_render_lines, line.new(renderLeftBar, row.price, renderRightBar, row.price, color=clr, style=lineStyle, width=tier == 1 ? 3 : tier == 2 ? 2 : 1))
+            array.push(liq_render_lines, line.new(renderLeftBar, row.price, renderRightBar, row.price, color=clr, style=lineStyle, width=tier == 1 ? 2 : 1))
             if showLiquidityLabels and f_levelShouldShowLabel(displayText, row.price, tier)
                 [labelY, shiftDir] = f_resolveLevelLabelY(row.price)
-                array.push(liq_render_labels, label.new(renderRightBar, labelY, displayText + " " + str.tostring(row.price, format.mintick), color=color.new(f_themePanelColor(), tier == 1 ? 0 : tier == 2 ? 8 : 16), textcolor=color.new(f_defaultLevelColor(), tier == 3 ? 10 : 0), style=shiftDir > 0 ? label.style_label_lower_left : shiftDir < 0 ? label.style_label_upper_left : label.style_label_left, size=tier == 1 ? size.small : tier == 2 ? (liqLabelSize == "Tiny" ? size.tiny : liqLabelSize == "Small" ? size.small : size.normal) : size.tiny))
+                array.push(liq_render_labels, label.new(renderRightBar, labelY, displayText + " " + str.tostring(row.price, format.mintick), color=color.new(chart.bg_color, tier == 1 ? 18 : tier == 2 ? 28 : 40), textcolor=color.new(f_defaultLevelColor(), tier == 1 ? 22 : tier == 2 ? 34 : 46), style=shiftDir > 0 ? label.style_label_lower_left : shiftDir < 0 ? label.style_label_upper_left : label.style_label_left, size=size.tiny))
                 f_incLevelLabelStats(tier)
 
 // --- FVG Engine ---
@@ -3094,13 +3088,14 @@ update_rz_vis(reaction_zone z, string side, box b, line l, label lb) =>
         if showRZLabels
             string rzSuffix = isEntry ? (side == "Long" ? " [LONG SETUP]" : " [SHORT SETUP]") : isWatch ? " [WATCH]" : (isHtfTarget or isHtfPoi) ? "" : " [CONTEXT]"
             int rzLabelOffset = (isHtfTarget or isHtfPoi) ? 16 : 10
-            color rzLabelText = (isHtfTarget or isHtfPoi) ? f_themeInvertedTextColor() : (isEntry ? baseClr : f_themeTextColor())
-            color rzLabelBg = (isHtfTarget or isHtfPoi) ? f_themeInvertedPanelColor() : f_themePanelColor()
-            label.set_xy(lb, bar_index + rzLabelOffset, z.ce)
+            color rzLabelText = (isHtfTarget or isHtfPoi) ? color.new(f_themeTextColor(), 18) : (isEntry ? color.new(baseClr, 10) : color.new(f_themeTextColor(), 22))
+            color rzLabelBg = color.new(chart.bg_color, isHtfTarget or isHtfPoi ? 18 : 26)
+            [rzLabelY, rzShiftDir] = f_resolveLevelLabelY(z.ce)
+            label.set_xy(lb, bar_index + rzLabelOffset, rzLabelY)
             label.set_text(lb, z.narrative + rzSuffix)
             label.set_textcolor(lb, rzLabelText)
             label.set_color(lb, rzLabelBg)
-            label.set_style(lb, label.style_label_left)
+            label.set_style(lb, rzShiftDir > 0 ? label.style_label_lower_left : rzShiftDir < 0 ? label.style_label_upper_left : label.style_label_left)
         else
             label.set_text(lb, "")
     else
@@ -3142,13 +3137,6 @@ var bool bigMoveClusterLiq = false
 var bool bigMoveClusterFvg = false
 var bool bigMoveClusterSweep = false
 var big_move_timing_snapshot bigMoveSnapshot = big_move_timing_snapshot.new("QUIET", "QUIET | Off-session | No timing edge; use core model only.", "No nearby major liquidity", "Next: wait for price to reach a major pool.")
-
-f_bigMoveTablePos() =>
-    bigMoveTimingTablePos == "Top Right" ? position.top_right :
-     bigMoveTimingTablePos == "Top Left" ? position.top_left :
-     bigMoveTimingTablePos == "Middle Right" ? position.middle_right :
-     bigMoveTimingTablePos == "Bottom Right" ? position.bottom_right :
-     position.bottom_left
 
 f_bigMoveTrimSessionString(string sess) =>
     int colonIdx = str.pos(sess, ":")
@@ -3666,21 +3654,6 @@ if barstate.islast
     else
         bigMoveSnapshot := big_move_timing_snapshot.new("OFF", "Big Move Memory disabled.", "—", "Next: enable Big Move Memory.")
 
-var table bigMoveTable = table.new(f_bigMoveTablePos(), 2, 4, bgcolor=#1e222d, border_color=#373a46, border_width=1)
-if showBigMoveTimingTable and enableBigMoveMemory and barstate.islast
-    color panelBg = f_themePanelColor()
-    color panelText = f_themeTextColor()
-    table.cell(bigMoveTable, 0, 0, "Big Move Timing", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
-    table.cell(bigMoveTable, 1, 0, "Trader Use", bgcolor=chart.fg_color, text_color=chart.bg_color, text_size=size.small)
-    table.cell(bigMoveTable, 0, 1, "Regime", text_color=panelText, bgcolor=panelBg, text_size=size.small)
-    table.cell(bigMoveTable, 1, 1, bigMoveSnapshot.nowText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
-    table.cell(bigMoveTable, 0, 2, "Key Pool", text_color=panelText, bgcolor=panelBg, text_size=size.small)
-    table.cell(bigMoveTable, 1, 2, bigMoveSnapshot.liquidityText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
-    table.cell(bigMoveTable, 0, 3, "Action", text_color=panelText, bgcolor=panelBg, text_size=size.small)
-    table.cell(bigMoveTable, 1, 3, bigMoveSnapshot.nextText, text_color=panelText, bgcolor=panelBg, text_size=size.small)
-else if barstate.islast
-    table.clear(bigMoveTable, 0, 0, 1, 3)
-
 f_dashRow(table t, int row, string leftTxt, string rightTxt, color rightColor, color cellBg, color cellText) =>
     table.cell(t, 0, row, leftTxt, text_color=cellText, bgcolor=cellBg, text_size=size.small)
     table.cell(t, 1, row, rightTxt, text_color=rightColor, bgcolor=cellBg, text_size=size.small)
@@ -3705,43 +3678,38 @@ if barstate.islast
 // --- Dashboard ---
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
-    color dashBorder = f_isDarkTheme() ? color.new(#475569, 30) : color.new(#94a3b8, 30)
-    var table tb = table.new(pos_tbl, 2, 9, bgcolor=f_themePanelColor(), border_color=dashBorder, border_width=1)
-    table.clear(tb, 0, 0, 1, 8)
+    color dashBorder = color.new(chart.fg_color, 78)
+    var table tb = table.new(pos_tbl, 2, 8, bgcolor=chart.bg_color, border_color=dashBorder, border_width=1)
+    table.clear(tb, 0, 0, 1, 7)
 
-    color dashHeaderBg = f_themeInvertedPanelColor()
-    color dashHeaderText = f_themeInvertedTextColor()
-    color dashCellBg = f_themePanelColor()
+    color dashHeaderBg = chart.bg_color
+    color dashHeaderText = f_themeTextColor()
+    color dashCellBg = chart.bg_color
     color dashCellText = f_themeTextColor()
-    bool aboveDo = close > dO
-    bool aboveWo = close > wO
-    string nyMidPos = na(nyMidnight) ? "N/A" : close > nyMidnight ? "Above" : "Below"
-    string sessionPosition = "DO " + (aboveDo ? "Above" : "Below") + " | WO " + (aboveWo ? "Above" : "Below") + " | NY " + nyMidPos
     string liquidityContextText = waitS and waitSweepPoolLabelS != "" ? "Chosen BSL: " + waitSweepPoolLabelS : waitL and waitSweepPoolLabelL != "" ? "Chosen SSL: " + waitSweepPoolLabelL : shortCounterFound and longCounterFound ? "Above BSL: " + shortCounterLabel + " | Below SSL: " + longCounterLabel : shortCounterFound ? "Above BSL: " + shortCounterLabel : longCounterFound ? "Below SSL: " + longCounterLabel : "No nearby mapped liquidity"
-    string devStructureText = sessionPosition + "\nDevtrader: " + structureStatus
+    string htfBiasText = htfLongStrong ? "HTF bull" : htfShortStrong ? "HTF bear" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "HTF bull lean" : "HTF bear lean") : "HTF mixed"
     string msStateText = ms_structureBias == 1 ? (ms_bullBosEvent or msContinuationConfirmedL ? "Bullish BOS confirmed" : ms_bullProtectedIntact ? "Bullish bias | protected low intact" : "Bullish bias | protected low damaged") : ms_structureBias == -1 ? (ms_bearBosEvent or msContinuationConfirmedS ? "Bearish BOS confirmed" : ms_bearProtectedIntact ? "Bearish bias | protected high intact" : "Bearish bias | protected high damaged") : "Neutral"
     if waitS and msPostSweepStructureConfirmedS
         msStateText := msContinuationConfirmedS ? "Bearish BOS confirmed after sweep" : ms_bearChochSinceSweep ? "Bearish CHoCH confirmed after sweep" : "Bearish protected low broken after sweep"
     else if waitL and msPostSweepStructureConfirmedL
         msStateText := msContinuationConfirmedL ? "Bullish BOS confirmed after sweep" : ms_bullChochSinceSweep ? "Bullish CHoCH confirmed after sweep" : "Bullish protected high broken after sweep"
+    string biasText = htfBiasText + " | " + (ms_structureBias == 1 ? (ms_bullProtectedIntact ? "MS bull intact" : "MS bull damaged") : ms_structureBias == -1 ? (ms_bearProtectedIntact ? "MS bear intact" : "MS bear damaged") : "MS neutral")
     float combinedDashboardBias = htfCompositeBias + (structureTrend == 1 ? 12.0 : structureTrend == -1 ? -12.0 : 0.0) + (ms_structureBias == 1 ? 10.0 : ms_structureBias == -1 ? -10.0 : 0.0)
-    string unifiedContext = active ? (bull ? "Bullish execution live" : "Bearish execution live") : waitS ? (msPostSweepStructureConfirmedS ? "Bearish reversal narrative aligned" : msSweepContextConflictS ? "Mixed: bearish sweep valid, broader structure still bullish" : "Bearish sweep valid; broader structure still rebuilding") : waitL ? (msPostSweepStructureConfirmedL ? "Bullish reversal narrative aligned" : msSweepContextConflictL ? "Mixed: bullish sweep valid, broader structure still bearish" : "Bullish sweep valid; broader structure still rebuilding") : combinedDashboardBias >= 30 ? "Bullish lean with partial alignment" : combinedDashboardBias <= -30 ? "Bearish lean with partial alignment" : "Mixed / conflicting context"
-    string traderRead = active ? "Manage the live position; do not treat the dashboard as a new signal." : waitS ? (shortEntryBlocked ? shortEntryBlockReason : msConfirmationMode == "Balanced" and not msPostSweepStructureConfirmedS ? "Bearish sweep is valid, but size down until CHoCH/BOS confirms." : "Bearish ladder path is open; wait for the clean trigger.") : waitL ? (longEntryBlocked ? longEntryBlockReason : msConfirmationMode == "Balanced" and not msPostSweepStructureConfirmedL ? "Bullish sweep is valid, but size down until CHoCH/BOS confirms." : "Bullish ladder path is open; wait for the clean trigger.") : combinedDashboardBias >= 25 ? "Prefer longs only when price trades back to discount or sweeps into support." : combinedDashboardBias <= -25 ? "Prefer shorts only when price trades back to premium or sweeps into resistance." : "No strong agreement; trade only the cleanest sweep-to-shift sequences."
-    color msStateColor = ms_structureBias == 1 ? color.new(COLOR_BULL, 0) : ms_structureBias == -1 ? color.new(COLOR_BEAR, 0) : color.new(COLOR_NEUT, 0)
-    color unifiedColor = active ? color.new(bull ? COLOR_BULL : COLOR_BEAR, 0) : unifiedContext == "Mixed / conflicting context" or str.contains(unifiedContext, "Mixed:") ? color.new(COLOR_NEUT, 0) : combinedDashboardBias >= 20 ? color.new(COLOR_BULL, 0) : combinedDashboardBias <= -20 ? color.new(COLOR_BEAR, 0) : color.new(COLOR_NEUT, 0)
-    string statsText = "Detected " + str.tostring(setupsDetectedCount) + " | Validated " + str.tostring(setupsValidatedCount) + " | Entries " + str.tostring(entriesTriggeredCount) + "\nWins " + str.tostring(winsCount) + " | Losses " + str.tostring(lossesCount) + " | BE " + str.tostring(breakEvensCount) + " | Blocked " + str.tostring(blockedTradesCount)
+    string structureText = structureStatus + (msStateText != "Neutral" ? " | " + msStateText : "")
+    string timingText = enableBigMoveMemory and showBigMoveTimingTable ? bigMoveSnapshot.state : "Timing off"
+    string traderRead = active ? "Manage live position." : waitS ? (shortEntryBlocked ? shortEntryBlockReason : msConfirmationMode == "Balanced" and not msPostSweepStructureConfirmedS ? "Short valid; wait MS confirm or size down." : "Short ladder open; wait trigger.") : waitL ? (longEntryBlocked ? longEntryBlockReason : msConfirmationMode == "Balanced" and not msPostSweepStructureConfirmedL ? "Long valid; wait MS confirm or size down." : "Long ladder open; wait trigger.") : combinedDashboardBias >= 25 ? "Prefer longs on discount / sweep-support." : combinedDashboardBias <= -25 ? "Prefer shorts on premium / sweep-resistance." : "No strong agreement; wait cleaner sequence."
+    string statsText = "Det " + str.tostring(setupsDetectedCount) + " | Val " + str.tostring(setupsValidatedCount) + " | Ent " + str.tostring(entriesTriggeredCount) + " | W " + str.tostring(winsCount) + " / L " + str.tostring(lossesCount) + " / BE " + str.tostring(breakEvensCount) + " / Blk " + str.tostring(blockedTradesCount)
 
-    table.cell(tb, 0, 0, "MARKET CONTEXT", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
-    table.cell(tb, 1, 0, "TRADER READ", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
+    table.cell(tb, 0, 0, "CONTEXT", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
+    table.cell(tb, 1, 0, "STATUS", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
 
-    f_dashRow(tb, 1, "HTF Bias", htfCompositeDashboard + "\nHTF1: " + htf1Display + "\nHTF2: " + htf2Display, htfCompositeColor, dashCellBg, dashCellText)
-    f_dashRow(tb, 2, "Liquidity Context", liquidityContextText, dashCellText, dashCellBg, dashCellText)
-    f_dashRow(tb, 3, "Sweep State", sweepStateText, waitS ? color.new(COLOR_BEAR, 0) : waitL ? color.new(COLOR_BULL, 0) : dashCellText, dashCellBg, dashCellText)
-    f_dashRow(tb, 4, "Devtrader Structure", devStructureText, dashCellText, dashCellBg, dashCellText)
-    f_dashRow(tb, 5, "Market Structure", msStateText, msStateColor, dashCellBg, dashCellText)
-    f_dashRow(tb, 6, "Unified Context", unifiedContext, unifiedColor, dashCellBg, dashCellText)
-    f_dashRow(tb, 7, "Trader Read", traderRead, dashCellText, dashCellBg, dashCellText)
-    f_dashRow(tb, 8, "Stats", statsText, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 1, "Bias", biasText, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 2, "Liquidity", liquidityContextText, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 3, "Sweep", sweepStateText, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 4, "Structure", structureText, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 5, "Timing", timingText, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 6, "Read", traderRead, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 7, "Stats", statsText, dashCellText, dashCellBg, dashCellText)
 
 plot(showMsProtectedLevels ? ms_protectedHigh : na, "MS Protected High", color.new(COLOR_BEAR, 45), 2, plot.style_linebr)
 plot(showMsProtectedLevels ? ms_protectedLow : na, "MS Protected Low", color.new(COLOR_BULL, 45), 2, plot.style_linebr)
