@@ -1,0 +1,607 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © LuxAlgo
+
+//@version=6
+indicator("Market Structure with Inducements & Sweeps", "LuxAlgo - Market Structure with Inducements & Sweeps", overlay = true, max_lines_count = 500, max_labels_count = 500)
+
+// --- Settings ---
+chochDetectionPeriodInput = input.int(50, "CHoCH Detection Period", minval = 1, tooltip = "Lookback period used to detect major swing points for Change of Character (CHoCH).")
+idmDetectionPeriodInput   = input.int(3, "IDM Detection Period", minval = 1, tooltip = "Lookback period used to detect minor internal swings for Inducement (IDM).")
+
+// IDM Engine
+atrLengthInput                = input.int(14, "ATR Length", minval = 1, group = "IDM Engine", tooltip = "ATR reference used for spacing, impulse, and noise filters.")
+idmTakeModeInput              = input.string("wick_then_close", "IDM Take Mode", options = ["wick", "close", "wick_then_close"], group = "IDM Engine", tooltip = "wick: any sweep through the level. close: body close through the level. wick_then_close: sweep the level first, then reclaim it within the reclaim window.")
+idmReclaimBarsInput           = input.int(2, "Wick-Then-Close Reclaim Bars", minval = 1, maxval = 5, group = "IDM Engine", tooltip = "Maximum bars allowed for a wick sweep to reclaim the inducement level.")
+idmMinProtectedAtrInput       = input.float(0.45, "Min Distance From Protected Structure (ATR)", minval = 0.1, step = 0.05, group = "IDM Engine", tooltip = "Reject candidates that are too close to the protected high/low.")
+idmMinLegRetraceInput         = input.float(0.18, "Min Pullback Of Dealing Leg", minval = 0.05, maxval = 0.50, step = 0.01, group = "IDM Engine", tooltip = "Minimum retracement size, relative to the active dealing leg, required for an internal pivot to qualify as inducement.")
+idmMinExternalAtrInput        = input.float(0.35, "Min Distance From Expansion Edge (ATR)", minval = 0.1, step = 0.05, group = "IDM Engine", tooltip = "Reject candidates that sit too close to the current external expansion high/low.")
+idmNoiseAtrInput              = input.float(0.35, "Min Internal Swing Size (ATR)", minval = 0.1, step = 0.05, group = "IDM Engine", tooltip = "ATR-aware noise filter applied to internal swing retracements.")
+idmImpulseAtrInput            = input.float(1.0, "Min Impulse Away (ATR)", minval = 0.2, step = 0.1, group = "IDM Engine", tooltip = "Minimum impulse away from an internal swing required before it can act as inducement.")
+idmInternalBosBonusInput      = input.bool(true, "Score Internal BOS Confirmation", group = "IDM Engine", tooltip = "Reward candidates that lead into a local internal break in the trend direction.")
+idmInternalBosBreakAtrInput   = input.float(0.15, "Internal BOS Break Buffer (ATR)", minval = 0.0, step = 0.05, group = "IDM Engine", tooltip = "ATR buffer used when checking whether a candidate led into an internal structural break.")
+idmStaleBarsInput             = input.int(35, "Stale After Bars", minval = 5, group = "IDM Engine", tooltip = "Downgrade inducement once it becomes too old.")
+idmMaxAgeBarsInput            = input.int(90, "Max Candidate Age", minval = 10, group = "IDM Engine", tooltip = "Completely ignore very old internal pivots.")
+idmStaleAdvanceAtrInput       = input.float(3.0, "Stale After Expansion (ATR)", minval = 0.5, step = 0.25, group = "IDM Engine", tooltip = "Downgrade inducement once the dealing leg has expanded too far without using it.")
+idmSessionFilterInput         = input.bool(false, "Require Session Confluence", group = "IDM Engine", tooltip = "Only allow inducement candidates that formed during the specified session.")
+idmSessionInput               = input.session("0700-1200:1234567", "IDM Session", group = "IDM Engine")
+idmVolatilityBoostInput       = input.bool(true, "Boost Expanding-Range Candidates", group = "IDM Engine", tooltip = "Add score to candidates that formed during above-average range expansion.")
+idmVolatilityLookbackInput    = input.int(20, "Range Baseline Length", minval = 5, group = "IDM Engine")
+idmVolatilityMultInput        = input.float(1.15, "Range Expansion Multiplier", minval = 1.0, step = 0.05, group = "IDM Engine", tooltip = "Candidate receives a volatility bonus when its pivot bar range exceeds this multiple of the local average range.")
+
+// Styling
+bullishColorInput = input.color(#089981, "Bullish Elements", group = "Style", tooltip = "Color for bullish structures.")
+bearishColorInput = input.color(#f23645, "Bearish Elements", group = "Style", tooltip = "Color for bearish structures.")
+
+showChochInput     = input.bool(true, "Show CHoCH", group = "Style")
+showBosInput       = input.bool(true, "Show BOS", group = "Style")
+showProtectedInput = input.bool(true, "Show Protected Structure", group = "Style")
+
+showIdmInput      = input.bool(true, "Show Inducements", inline = "idm", group = "Style")
+idmColorInput     = input.color(color.gray, "", inline = "idm", group = "Style")
+
+showSweepsInput   = input.bool(true, "Show Sweeps", inline = "sweeps", group = "Style")
+sweepsColorInput  = input.color(color.gray, "", inline = "sweeps", group = "Style")
+
+showSwingsInput   = input.bool(true, "Show Swings", group = "Style")
+
+// Size Adjustments
+textSizeInput     = input.string("tiny", "Text Size", options = ["tiny", "small", "normal", "large", "huge"], group = "Style")
+markerSizeInput   = input.int(5, "Swing Marker Size", minval = 1, group = "Style")
+
+// --- Constants ---
+int IDM_STATE_NONE    = 0
+int IDM_STATE_ACTIVE  = 1
+int IDM_STATE_STALE   = 2
+int IDM_STATE_TAKEN   = 3
+int IDM_STATE_INVALID = 4
+
+int maxTrackedInternalSwings = 40
+float strongIdmScoreThreshold = 68.0
+
+// --- Functions ---
+swings(len) =>
+    var int os = 0
+    var int topx = na
+    var int btmx = na
+
+    float upper = ta.highest(len)
+    float lower = ta.lowest(len)
+
+    os := high[len] > upper ? 0 : low[len] < lower ? 1 : os[1]
+
+    float top = os == 0 and os[1] != 0 ? high[len] : na
+    topx := os == 0 and os[1] != 0 ? bar_index[len] : topx
+
+    float btm = os == 1 and os[1] != 1 ? low[len] : na
+    btmx := os == 1 and os[1] != 1 ? bar_index[len] : btmx
+
+    [top, topx, btm, btmx]
+
+clamp01(value) =>
+    math.max(0.0, math.min(1.0, value))
+
+midpointScore(position) =>
+    1.0 - clamp01(math.abs(position - 0.5) / 0.5)
+
+// --- Core Logic ---
+float atrValue = ta.atr(atrLengthInput)
+float avgRange = ta.sma(high - low, idmVolatilityLookbackInput)
+int pivotOffset = idmDetectionPeriodInput
+float idmTouchTolerance = math.max(syminfo.mintick, atrValue * 0.02)
+bool idmSessionActiveNow = not na(time(timeframe.period, idmSessionInput))
+
+// Major Swings
+[top, topx, btm, btmx] = swings(chochDetectionPeriodInput)
+// Internal Swings for IDM
+[sTop, sTopX, sBtm, sBtmX] = swings(idmDetectionPeriodInput)
+
+// Internal swing storage used by the candidate-based IDM engine.
+var array<float> internalLowVals = array.new_float()
+var array<int> internalLowBars = array.new_int()
+var array<float> internalLowAtr = array.new_float()
+var array<int> internalLowSessionOk = array.new_int()
+var array<int> internalLowVolOk = array.new_int()
+
+var array<float> internalHighVals = array.new_float()
+var array<int> internalHighBars = array.new_int()
+var array<float> internalHighAtr = array.new_float()
+var array<int> internalHighSessionOk = array.new_int()
+var array<int> internalHighVolOk = array.new_int()
+
+if not na(sBtm)
+    float lowPivotAtr = math.max(nz(atrValue[pivotOffset], atrValue), syminfo.mintick)
+    float lowPivotRange = nz(high[pivotOffset] - low[pivotOffset], high - low)
+    float lowRangeBaseline = math.max(nz(avgRange[pivotOffset], lowPivotRange), syminfo.mintick)
+    bool lowVolOk = lowPivotRange >= lowRangeBaseline * idmVolatilityMultInput
+    bool lowSessionOk = idmSessionActiveNow[pivotOffset] == true
+    float prevInternalHighForLow = na
+    if array.size(internalHighBars) > 0
+        int highCount = array.size(internalHighBars)
+        for i = 0 to highCount - 1
+            int idx = highCount - 1 - i
+            int scanBar = array.get(internalHighBars, idx)
+            if scanBar < sBtmX
+                prevInternalHighForLow := array.get(internalHighVals, idx)
+                break
+    float lowRetraceSize = not na(prevInternalHighForLow) ? prevInternalHighForLow - sBtm : na
+    bool lowDistinct = array.size(internalLowBars) == 0 or sBtmX > array.get(internalLowBars, array.size(internalLowBars) - 1)
+    bool lowMeaningful = (na(lowRetraceSize) or lowRetraceSize >= lowPivotAtr * idmNoiseAtrInput) and lowDistinct
+    if lowMeaningful
+        array.push(internalLowVals, sBtm)
+        array.push(internalLowBars, sBtmX)
+        array.push(internalLowAtr, lowPivotAtr)
+        array.push(internalLowSessionOk, lowSessionOk ? 1 : 0)
+        array.push(internalLowVolOk, lowVolOk ? 1 : 0)
+        if array.size(internalLowVals) > maxTrackedInternalSwings
+            array.shift(internalLowVals)
+            array.shift(internalLowBars)
+            array.shift(internalLowAtr)
+            array.shift(internalLowSessionOk)
+            array.shift(internalLowVolOk)
+
+if not na(sTop)
+    float highPivotAtr = math.max(nz(atrValue[pivotOffset], atrValue), syminfo.mintick)
+    float highPivotRange = nz(high[pivotOffset] - low[pivotOffset], high - low)
+    float highRangeBaseline = math.max(nz(avgRange[pivotOffset], highPivotRange), syminfo.mintick)
+    bool highVolOk = highPivotRange >= highRangeBaseline * idmVolatilityMultInput
+    bool highSessionOk = idmSessionActiveNow[pivotOffset] == true
+    float prevInternalLowForHigh = na
+    if array.size(internalLowBars) > 0
+        int lowCount = array.size(internalLowBars)
+        for i = 0 to lowCount - 1
+            int idx = lowCount - 1 - i
+            int scanBar = array.get(internalLowBars, idx)
+            if scanBar < sTopX
+                prevInternalLowForHigh := array.get(internalLowVals, idx)
+                break
+    float highRetraceSize = not na(prevInternalLowForHigh) ? sTop - prevInternalLowForHigh : na
+    bool highDistinct = array.size(internalHighBars) == 0 or sTopX > array.get(internalHighBars, array.size(internalHighBars) - 1)
+    bool highMeaningful = (na(highRetraceSize) or highRetraceSize >= highPivotAtr * idmNoiseAtrInput) and highDistinct
+    if highMeaningful
+        array.push(internalHighVals, sTop)
+        array.push(internalHighBars, sTopX)
+        array.push(internalHighAtr, highPivotAtr)
+        array.push(internalHighSessionOk, highSessionOk ? 1 : 0)
+        array.push(internalHighVolOk, highVolOk ? 1 : 0)
+        if array.size(internalHighVals) > maxTrackedInternalSwings
+            array.shift(internalHighVals)
+            array.shift(internalHighBars)
+            array.shift(internalHighAtr)
+            array.shift(internalHighSessionOk)
+            array.shift(internalHighVolOk)
+
+var int os = 0
+var bool topCrossed = false
+var bool btmCrossed = false
+
+var float maxValue = na
+var float minValue = na
+var int maxX1 = na
+var int minX1 = na
+
+var float topy = na
+var float btmy = na
+
+// Explicit structure references.
+var float protectedLowVal = na
+var int protectedLowX = na
+var float protectedHighVal = na
+var int protectedHighX = na
+var float externalHighVal = na
+var int externalHighX = na
+var float externalLowVal = na
+var int externalLowX = na
+
+// Active IDM state.
+var float idmLevel = na
+var int idmX = na
+var float idmScore = na
+var int idmState = IDM_STATE_NONE
+var bool idmTaken = false
+var bool idmStrong = false
+var bool idmPendingSweep = false
+var int idmPendingBar = na
+var float idmPendingExtreme = na
+var string idmTakeTag = ""
+
+// CHoCH Detection
+if not na(top)
+    topy := top
+    topCrossed := false
+if not na(btm)
+    btmy := btm
+    btmCrossed := false
+
+// Test for CHoCH
+if close > topy and not topCrossed
+    os := 1
+    topCrossed := true
+if close < btmy and not btmCrossed
+    os := 0
+    btmCrossed := true
+
+// Update Max/Min for BOS and Sweeps
+if ta.change(os) != 0
+    maxValue := high
+    minValue := low
+    maxX1 := bar_index
+    minX1 := bar_index
+    idmTaken := false
+    idmLevel := na
+    idmX := na
+    idmScore := na
+    idmState := IDM_STATE_INVALID
+    idmStrong := false
+    idmPendingSweep := false
+    idmPendingBar := na
+    idmPendingExtreme := na
+    idmTakeTag := ""
+
+    if os == 1
+        protectedLowVal := btmy
+        protectedLowX := btmx
+        externalLowVal := btmy
+        externalLowX := btmx
+        externalHighVal := high
+        externalHighX := bar_index
+    else
+        protectedHighVal := topy
+        protectedHighX := topx
+        externalHighVal := topy
+        externalHighX := topx
+        externalLowVal := low
+        externalLowX := bar_index
+
+    // Draw CHoCH
+    if os == 1 and showChochInput
+        line.new(topx, topy, bar_index, topy, color = bullishColorInput, style = line.style_dashed)
+        label.new(int(math.avg(bar_index, topx)), topy, "CHoCH", color = color(na), style = label.style_label_down, textcolor = bullishColorInput, size = textSizeInput)
+    else if showChochInput
+        line.new(btmx, btmy, bar_index, btmy, color = bearishColorInput, style = line.style_dashed)
+        label.new(int(math.avg(bar_index, btmx)), btmy, "CHoCH", color = color(na), style = label.style_label_up, textcolor = bearishColorInput, size = textSizeInput)
+
+// --- Candidate-Based IDM Selection ---
+float previousIdmLevel = idmLevel
+int previousIdmX = idmX
+
+if not idmTaken
+    float selectedLevel = na
+    int selectedBar = na
+    float selectedScore = na
+    float selectedAtr = na
+    int selectedAge = na
+
+    bool bullishProtectedIntact = na(protectedLowVal) or close >= protectedLowVal
+    bool bearishProtectedIntact = na(protectedHighVal) or close <= protectedHighVal
+
+    if os == 1 and bullishProtectedIntact and not na(protectedLowVal) and not na(maxValue)
+        float legRange = maxValue - protectedLowVal
+        if legRange > syminfo.mintick and array.size(internalLowVals) > 0
+            for i = 0 to array.size(internalLowVals) - 1
+                float candidateLevel = array.get(internalLowVals, i)
+                int candidateBar = array.get(internalLowBars, i)
+                float candidateAtr = math.max(array.get(internalLowAtr, i), syminfo.mintick)
+                int candidateAge = bar_index - candidateBar
+                float distFromProtected = candidateLevel - protectedLowVal
+                float distToExternal = maxValue - candidateLevel
+                float legPosition = distFromProtected / legRange
+                bool insideLeg = candidateBar > protectedLowX and candidateLevel > protectedLowVal and candidateLevel < maxValue
+                bool ageOk = candidateAge <= idmMaxAgeBarsInput
+                bool spacingOk = distFromProtected >= candidateAtr * idmMinProtectedAtrInput and distToExternal >= candidateAtr * idmMinExternalAtrInput and legPosition > 0.10 and legPosition < 0.85
+
+                float prevHighLevel = na
+                if array.size(internalHighBars) > 0
+                    int highCount = array.size(internalHighBars)
+                    for j = 0 to highCount - 1
+                        int idx = highCount - 1 - j
+                        int highBar = array.get(internalHighBars, idx)
+                        if highBar < candidateBar
+                            prevHighLevel := array.get(internalHighVals, idx)
+                            break
+
+                float retraceSize = not na(prevHighLevel) ? prevHighLevel - candidateLevel : na
+                bool retraceOk = not na(retraceSize) and retraceSize >= math.max(candidateAtr * idmNoiseAtrInput, legRange * idmMinLegRetraceInput)
+                float impulseAway = maxValue - candidateLevel
+                bool impulseOk = impulseAway >= candidateAtr * idmImpulseAtrInput
+                bool sessionOk = not idmSessionFilterInput or array.get(internalLowSessionOk, i) == 1
+
+                if insideLeg and ageOk and spacingOk and retraceOk and impulseOk and sessionOk
+                    bool bosConfirmed = not na(prevHighLevel) and maxValue > prevHighLevel + candidateAtr * idmInternalBosBreakAtrInput
+                    float recencyScore = 25.0 * clamp01(1.0 - candidateAge / idmMaxAgeBarsInput)
+                    float departureScore = 25.0 * clamp01(impulseAway / (candidateAtr * math.max(idmImpulseAtrInput * 2.0, 1.0)))
+                    float retraceScore = 20.0 * clamp01(retraceSize / math.max(math.max(candidateAtr * idmNoiseAtrInput * 2.0, legRange * idmMinLegRetraceInput * 2.0), syminfo.mintick))
+                    float positionScore = 15.0 * midpointScore(legPosition)
+                    float spacingScore = 10.0 * clamp01(math.min(distFromProtected, distToExternal) / (candidateAtr * 2.0))
+                    float contextScore = array.get(internalLowSessionOk, i) == 1 ? 4.0 : 0.0
+                    contextScore += idmVolatilityBoostInput and array.get(internalLowVolOk, i) == 1 ? 6.0 : 0.0
+                    float bosScore = idmInternalBosBonusInput and bosConfirmed ? 10.0 : 0.0
+                    float candidateScore = recencyScore + departureScore + retraceScore + positionScore + spacingScore + contextScore + bosScore
+
+                    if na(selectedScore) or candidateScore > selectedScore or (math.abs(candidateScore - selectedScore) < 0.001 and candidateBar > selectedBar)
+                        selectedLevel := candidateLevel
+                        selectedBar := candidateBar
+                        selectedScore := candidateScore
+                        selectedAtr := candidateAtr
+                        selectedAge := candidateAge
+
+    if os == 0 and bearishProtectedIntact and not na(protectedHighVal) and not na(minValue)
+        float legRange = protectedHighVal - minValue
+        if legRange > syminfo.mintick and array.size(internalHighVals) > 0
+            for i = 0 to array.size(internalHighVals) - 1
+                float candidateLevel = array.get(internalHighVals, i)
+                int candidateBar = array.get(internalHighBars, i)
+                float candidateAtr = math.max(array.get(internalHighAtr, i), syminfo.mintick)
+                int candidateAge = bar_index - candidateBar
+                float distFromProtected = protectedHighVal - candidateLevel
+                float distToExternal = candidateLevel - minValue
+                float legPosition = distFromProtected / legRange
+                bool insideLeg = candidateBar > protectedHighX and candidateLevel < protectedHighVal and candidateLevel > minValue
+                bool ageOk = candidateAge <= idmMaxAgeBarsInput
+                bool spacingOk = distFromProtected >= candidateAtr * idmMinProtectedAtrInput and distToExternal >= candidateAtr * idmMinExternalAtrInput and legPosition > 0.10 and legPosition < 0.85
+
+                float prevLowLevel = na
+                if array.size(internalLowBars) > 0
+                    int lowCount = array.size(internalLowBars)
+                    for j = 0 to lowCount - 1
+                        int idx = lowCount - 1 - j
+                        int lowBar = array.get(internalLowBars, idx)
+                        if lowBar < candidateBar
+                            prevLowLevel := array.get(internalLowVals, idx)
+                            break
+
+                float retraceSize = not na(prevLowLevel) ? candidateLevel - prevLowLevel : na
+                bool retraceOk = not na(retraceSize) and retraceSize >= math.max(candidateAtr * idmNoiseAtrInput, legRange * idmMinLegRetraceInput)
+                float impulseAway = candidateLevel - minValue
+                bool impulseOk = impulseAway >= candidateAtr * idmImpulseAtrInput
+                bool sessionOk = not idmSessionFilterInput or array.get(internalHighSessionOk, i) == 1
+
+                if insideLeg and ageOk and spacingOk and retraceOk and impulseOk and sessionOk
+                    bool bosConfirmed = not na(prevLowLevel) and minValue < prevLowLevel - candidateAtr * idmInternalBosBreakAtrInput
+                    float recencyScore = 25.0 * clamp01(1.0 - candidateAge / idmMaxAgeBarsInput)
+                    float departureScore = 25.0 * clamp01(impulseAway / (candidateAtr * math.max(idmImpulseAtrInput * 2.0, 1.0)))
+                    float retraceScore = 20.0 * clamp01(retraceSize / math.max(math.max(candidateAtr * idmNoiseAtrInput * 2.0, legRange * idmMinLegRetraceInput * 2.0), syminfo.mintick))
+                    float positionScore = 15.0 * midpointScore(legPosition)
+                    float spacingScore = 10.0 * clamp01(math.min(distFromProtected, distToExternal) / (candidateAtr * 2.0))
+                    float contextScore = array.get(internalHighSessionOk, i) == 1 ? 4.0 : 0.0
+                    contextScore += idmVolatilityBoostInput and array.get(internalHighVolOk, i) == 1 ? 6.0 : 0.0
+                    float bosScore = idmInternalBosBonusInput and bosConfirmed ? 10.0 : 0.0
+                    float candidateScore = recencyScore + departureScore + retraceScore + positionScore + spacingScore + contextScore + bosScore
+
+                    if na(selectedScore) or candidateScore > selectedScore or (math.abs(candidateScore - selectedScore) < 0.001 and candidateBar > selectedBar)
+                        selectedLevel := candidateLevel
+                        selectedBar := candidateBar
+                        selectedScore := candidateScore
+                        selectedAtr := candidateAtr
+                        selectedAge := candidateAge
+
+    if not na(selectedLevel)
+        idmLevel := selectedLevel
+        idmX := selectedBar
+        idmScore := selectedScore
+        float advanceAtr = os == 1 ? (maxValue - selectedLevel) / math.max(selectedAtr, syminfo.mintick) : (selectedLevel - minValue) / math.max(selectedAtr, syminfo.mintick)
+        bool idmIsStale = selectedAge > idmStaleBarsInput or advanceAtr > idmStaleAdvanceAtrInput
+        idmState := idmIsStale ? IDM_STATE_STALE : IDM_STATE_ACTIVE
+        idmStrong := selectedScore >= strongIdmScoreThreshold and not idmIsStale
+    else
+        idmLevel := na
+        idmX := na
+        idmScore := na
+        idmState := IDM_STATE_INVALID
+        idmStrong := false
+
+    bool idmCandidateChanged = idmX != previousIdmX or na(idmLevel) != na(previousIdmLevel) or (not na(idmLevel) and not na(previousIdmLevel) and math.abs(idmLevel - previousIdmLevel) > syminfo.mintick * 0.5)
+    if idmCandidateChanged
+        idmPendingSweep := false
+        idmPendingBar := na
+        idmPendingExtreme := na
+        idmTakeTag := ""
+else
+    idmState := IDM_STATE_TAKEN
+
+// --- IDM Take Detection ---
+bool idmTakeEvent = false
+string idmTakeEventLabel = ""
+
+if not idmTaken and not na(idmLevel)
+    if os == 1
+        bool bullWickSweep = low < idmLevel - idmTouchTolerance
+        bool bullCloseThrough = close < idmLevel - idmTouchTolerance
+        bool bullReclaim = close > idmLevel + idmTouchTolerance
+
+        if idmTakeModeInput == "wick"
+            if bullWickSweep
+                idmTakeEvent := true
+                idmTakeEventLabel := "IDM Sweep"
+        else if idmTakeModeInput == "close"
+            if bullCloseThrough
+                idmTakeEvent := true
+                idmTakeEventLabel := "IDM Close"
+        else
+            if bullWickSweep
+                idmPendingSweep := true
+                idmPendingBar := bar_index
+                idmPendingExtreme := na(idmPendingExtreme) ? low : math.min(idmPendingExtreme, low)
+            if idmPendingSweep and bullReclaim
+                idmTakeEvent := true
+                idmTakeEventLabel := "IDM Reclaim"
+            else if idmPendingSweep and bar_index - idmPendingBar > idmReclaimBarsInput
+                idmPendingSweep := false
+                idmPendingBar := na
+                idmPendingExtreme := na
+    else
+        bool bearWickSweep = high > idmLevel + idmTouchTolerance
+        bool bearCloseThrough = close > idmLevel + idmTouchTolerance
+        bool bearReclaim = close < idmLevel - idmTouchTolerance
+
+        if idmTakeModeInput == "wick"
+            if bearWickSweep
+                idmTakeEvent := true
+                idmTakeEventLabel := "IDM Sweep"
+        else if idmTakeModeInput == "close"
+            if bearCloseThrough
+                idmTakeEvent := true
+                idmTakeEventLabel := "IDM Close"
+        else
+            if bearWickSweep
+                idmPendingSweep := true
+                idmPendingBar := bar_index
+                idmPendingExtreme := na(idmPendingExtreme) ? high : math.max(idmPendingExtreme, high)
+            if idmPendingSweep and bearReclaim
+                idmTakeEvent := true
+                idmTakeEventLabel := "IDM Reclaim"
+            else if idmPendingSweep and bar_index - idmPendingBar > idmReclaimBarsInput
+                idmPendingSweep := false
+                idmPendingBar := na
+                idmPendingExtreme := na
+
+if idmTakeEvent
+    idmTaken := true
+    idmState := IDM_STATE_TAKEN
+    idmTakeTag := idmTakeEventLabel
+    idmPendingSweep := false
+    idmPendingBar := na
+    idmPendingExtreme := na
+    if showIdmInput
+        line.new(idmX, idmLevel, bar_index, idmLevel, color = color.new(idmColorInput, 45), style = line.style_dotted, width = 1)
+        label.new(bar_index, idmLevel, idmTakeEventLabel, color = color(na), style = os == 1 ? label.style_label_up : label.style_label_down, textcolor = idmColorInput, size = textSizeInput)
+
+// --- BOS Logic ---
+if os == 1 and idmTaken and close > maxValue
+    if showBosInput
+        line.new(maxX1, maxValue, bar_index, maxValue, color = bullishColorInput)
+        label.new(int(math.avg(bar_index, maxX1)), maxValue, "BOS", color = color(na), style = label.style_label_down, textcolor = bullishColorInput, size = textSizeInput)
+    protectedLowVal := idmLevel
+    protectedLowX := idmX
+    externalLowVal := protectedLowVal
+    externalLowX := protectedLowX
+    idmTaken := false
+    idmLevel := na
+    idmX := na
+    idmScore := na
+    idmState := IDM_STATE_INVALID
+    idmStrong := false
+    idmPendingSweep := false
+    idmPendingBar := na
+    idmPendingExtreme := na
+    idmTakeTag := ""
+
+if os == 0 and idmTaken and close < minValue
+    if showBosInput
+        line.new(minX1, minValue, bar_index, minValue, color = bearishColorInput)
+        label.new(int(math.avg(bar_index, minX1)), minValue, "BOS", color = color(na), style = label.style_label_up, textcolor = bearishColorInput, size = textSizeInput)
+    protectedHighVal := idmLevel
+    protectedHighX := idmX
+    externalHighVal := protectedHighVal
+    externalHighX := protectedHighX
+    idmTaken := false
+    idmLevel := na
+    idmX := na
+    idmScore := na
+    idmState := IDM_STATE_INVALID
+    idmStrong := false
+    idmPendingSweep := false
+    idmPendingBar := na
+    idmPendingExtreme := na
+    idmTakeTag := ""
+
+// --- Sweeps ---
+if high > maxValue and close < maxValue and os == 1 and bar_index - maxX1 > 1 and showSweepsInput
+    line.new(maxX1, maxValue, bar_index, maxValue, color = sweepsColorInput, style = line.style_dotted)
+    label.new(int(math.avg(bar_index, maxX1)), maxValue, "x", color = color(na), style = label.style_label_down, textcolor = sweepsColorInput, size = textSizeInput)
+
+if low < minValue and close > minValue and os == 0 and bar_index - minX1 > 1 and showSweepsInput
+    line.new(minX1, minValue, bar_index, minValue, color = sweepsColorInput, style = line.style_dotted)
+    label.new(int(math.avg(bar_index, minX1)), minValue, "x", color = color(na), style = label.style_label_up, textcolor = sweepsColorInput, size = textSizeInput)
+
+// Trailing max/min and active external structure.
+maxValue := na(maxValue) ? high : math.max(high, maxValue)
+minValue := na(minValue) ? low : math.min(low, minValue)
+
+if na(maxValue[1]) or maxValue > maxValue[1]
+    maxX1 := bar_index
+if na(minValue[1]) or minValue < minValue[1]
+    minX1 := bar_index
+
+if os == 1
+    externalHighVal := maxValue
+    externalHighX := maxX1
+    externalLowVal := protectedLowVal
+    externalLowX := protectedLowX
+else
+    externalLowVal := minValue
+    externalLowX := minX1
+    externalHighVal := protectedHighVal
+    externalHighX := protectedHighX
+
+// --- Visual Elements (Real-time Extensions) ---
+var line extChoch = line.new(na, na, na, na, style = line.style_dashed)
+var line extBos = line.new(na, na, na, na)
+var line extProtected = line.new(na, na, na, na, style = line.style_dashed)
+var line extIdm = line.new(na, na, na, na, style = line.style_dotted, color = idmColorInput)
+
+var label extChochLbl = label.new(na, na, "CHoCH", color = color.new(color.white, 100), size = textSizeInput)
+var label extBosLbl = label.new(na, na, "BOS", color = color.new(color.white, 100), size = textSizeInput)
+var label extProtectedLbl = label.new(na, na, "Protected", color = color.new(color.white, 100), size = textSizeInput)
+var label extIdmLbl = label.new(na, na, "IDM", color = color.new(color.white, 100), size = textSizeInput, textcolor = idmColorInput)
+
+if barstate.islast
+    if os == 1
+        if showChochInput and not na(btmy)
+            extChoch.set_xy1(btmx, btmy), extChoch.set_xy2(bar_index, btmy), extChoch.set_color(bearishColorInput)
+            extChochLbl.set_xy(bar_index, btmy), extChochLbl.set_style(label.style_label_up), extChochLbl.set_text("CHoCH"), extChochLbl.set_textcolor(bearishColorInput)
+        else
+            extChoch.set_color(na), extChochLbl.set_textcolor(na)
+
+        if showBosInput and not na(maxValue)
+            extBos.set_xy1(maxX1, maxValue), extBos.set_xy2(bar_index, maxValue), extBos.set_color(bullishColorInput)
+            extBosLbl.set_xy(bar_index, maxValue), extBosLbl.set_style(label.style_label_down), extBosLbl.set_text("BOS"), extBosLbl.set_textcolor(bullishColorInput)
+        else
+            extBos.set_color(na), extBosLbl.set_textcolor(na)
+
+        if showProtectedInput and not na(protectedLowVal)
+            color protectedColor = color.new(bullishColorInput, 55)
+            extProtected.set_xy1(protectedLowX, protectedLowVal), extProtected.set_xy2(bar_index + 15, protectedLowVal), extProtected.set_color(protectedColor)
+            extProtectedLbl.set_xy(bar_index + 15, protectedLowVal), extProtectedLbl.set_style(label.style_label_up), extProtectedLbl.set_text("Protected Low"), extProtectedLbl.set_textcolor(protectedColor)
+        else
+            extProtected.set_color(na), extProtectedLbl.set_textcolor(na)
+
+        if showIdmInput and not idmTaken and not na(idmLevel) and idmState != IDM_STATE_INVALID
+            color activeIdmColor = idmPendingSweep ? sweepsColorInput : idmState == IDM_STATE_STALE ? color.new(idmColorInput, 70) : idmStrong ? idmColorInput : color.new(idmColorInput, 20)
+            string activeIdmText = idmPendingSweep ? "IDM (Swept)" : idmState == IDM_STATE_STALE ? "IDM (Stale)" : idmStrong ? "IDM (Strong)" : "IDM"
+            extIdm.set_xy1(idmX, idmLevel), extIdm.set_xy2(bar_index + 15, idmLevel), extIdm.set_color(activeIdmColor), extIdm.set_style(line.style_dotted)
+            line.set_width(extIdm, idmStrong ? 2 : 1)
+            extIdmLbl.set_xy(bar_index + 15, idmLevel), extIdmLbl.set_style(label.style_label_up), extIdmLbl.set_text(activeIdmText), extIdmLbl.set_textcolor(activeIdmColor)
+        else
+            extIdm.set_color(na), extIdmLbl.set_textcolor(na)
+    else
+        if showChochInput and not na(topy)
+            extChoch.set_xy1(topx, topy), extChoch.set_xy2(bar_index, topy), extChoch.set_color(bullishColorInput)
+            extChochLbl.set_xy(bar_index, topy), extChochLbl.set_style(label.style_label_down), extChochLbl.set_text("CHoCH"), extChochLbl.set_textcolor(bullishColorInput)
+        else
+            extChoch.set_color(na), extChochLbl.set_textcolor(na)
+
+        if showBosInput and not na(minValue)
+            extBos.set_xy1(minX1, minValue), extBos.set_xy2(bar_index, minValue), extBos.set_color(bearishColorInput)
+            extBosLbl.set_xy(bar_index, minValue), extBosLbl.set_style(label.style_label_up), extBosLbl.set_text("BOS"), extBosLbl.set_textcolor(bearishColorInput)
+        else
+            extBos.set_color(na), extBosLbl.set_textcolor(na)
+
+        if showProtectedInput and not na(protectedHighVal)
+            color protectedColor = color.new(bearishColorInput, 55)
+            extProtected.set_xy1(protectedHighX, protectedHighVal), extProtected.set_xy2(bar_index + 15, protectedHighVal), extProtected.set_color(protectedColor)
+            extProtectedLbl.set_xy(bar_index + 15, protectedHighVal), extProtectedLbl.set_style(label.style_label_down), extProtectedLbl.set_text("Protected High"), extProtectedLbl.set_textcolor(protectedColor)
+        else
+            extProtected.set_color(na), extProtectedLbl.set_textcolor(na)
+
+        if showIdmInput and not idmTaken and not na(idmLevel) and idmState != IDM_STATE_INVALID
+            color activeIdmColor = idmPendingSweep ? sweepsColorInput : idmState == IDM_STATE_STALE ? color.new(idmColorInput, 70) : idmStrong ? idmColorInput : color.new(idmColorInput, 20)
+            string activeIdmText = idmPendingSweep ? "IDM (Swept)" : idmState == IDM_STATE_STALE ? "IDM (Stale)" : idmStrong ? "IDM (Strong)" : "IDM"
+            extIdm.set_xy1(idmX, idmLevel), extIdm.set_xy2(bar_index + 15, idmLevel), extIdm.set_color(activeIdmColor), extIdm.set_style(line.style_dotted)
+            line.set_width(extIdm, idmStrong ? 2 : 1)
+            extIdmLbl.set_xy(bar_index + 15, idmLevel), extIdmLbl.set_style(label.style_label_down), extIdmLbl.set_text(activeIdmText), extIdmLbl.set_textcolor(activeIdmColor)
+        else
+            extIdm.set_color(na), extIdmLbl.set_textcolor(na)
+
+// --- Plots ---
+plot(showSwingsInput ? top : na, "Swing High", color.new(bearishColorInput, 50), markerSizeInput, plot.style_circles, offset = -chochDetectionPeriodInput)
+plot(showSwingsInput ? btm : na, "Swing Low", color.new(bullishColorInput, 50), markerSizeInput, plot.style_circles, offset = -chochDetectionPeriodInput)
