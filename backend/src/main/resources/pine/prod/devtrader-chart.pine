@@ -24,7 +24,6 @@ HTF_STATE_BEAR_CONT = -1
 HTF_STATE_RANGE = 0
 HTF_STATE_BULL_CONT = 1
 HTF_STATE_BULL_REV = 2
-LUX_MAX_PIVOTS = 50
 OVERLAY_CANDLE_MAX = 8
 
 // --- Types ---
@@ -50,8 +49,8 @@ type reaction_zone
 
 type liq_pool
     string side          // "BSL" or "SSL"
-    string poolType      // "EXTERNAL", "INTERNAL", "SESSION", "DEV_SESSION", "PERIOD", "EQ"
-    string baseType      // "SWING", "SESSION", "DEV_SESSION", "PERIOD", "EQ"
+    string poolType      // "EXTERNAL", "INTERNAL", "SESSION", "DEV_SESSION", "PERIOD", "HTF"
+    string baseType      // "SWING", "SESSION", "DEV_SESSION", "PERIOD", "HTF"
     float  price
     int    sourceBar
     bool   isSwept
@@ -107,22 +106,6 @@ type big_move_timing_snapshot
     string liquidityText
     string nextText
 
-type lux_liq_zone
-    string side
-    string poolLabel
-    int    sourceBar
-    float  levelPrice
-    float  zoneTop
-    float  zoneBottom
-    int    touchCount
-    box    zoneBox
-    box    breachBox
-    box    labelBox
-    bool   brokenZone
-    bool   brokenLevel
-    line   baseLine
-    line   extLine
-
 // --- Inputs ---
 showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
 asiaSession  = input.session("0000-0900:1234567", "Asia Session", group=G_KZ)
@@ -161,7 +144,7 @@ ltfMssMinLegAtr = input.float(0.15, "LTF MSS Min Leg (ATR)", minval=0.05, step=0
 targetMajorRankMin = input.float(78.0, "Target Major Liquidity Rank", minval=60.0, maxval=95.0, step=1.0, group=G_STATS, tooltip="Minimum structural rank for a target to count as a major liquidity objective when using next-liquidity targeting.")
 
 showSMC      = input.bool(true, "SFP & MSS Detection", group=G_SMC)
-majorSweeps  = input.bool(true, "External Liquidity Only", group=G_SMC, tooltip="Only detect sweeps on external liquidity (major, EQ, session, or HTF levels). Ignores minor internal structure.")
+majorSweeps  = input.bool(true, "External Liquidity Only", group=G_SMC, tooltip="Only detect sweeps on external liquidity (major, session, or HTF levels). Ignores minor internal structure.")
 wickThresh   = input.float(0.70, "Min. Rejection Efficiency", minval=0.4, maxval=3.0, step=0.05, group=G_SMC, tooltip="Minimum wick-to-body rejection efficiency required for a valid sweep reclaim.")
 reclaimLvl   = input.float(0.15, "Reclaim Threshold %", minval=0.0, step=0.05, group=G_SMC, tooltip="How far back inside the level the price must close (relative to range). Higher = Stronger Reclaim.")
 sweepMaxDepth = input.float(0.8, "Max Sweep Depth (ATR)", minval=0.1, step=0.1, group=G_SMC, tooltip="Limit how far price can pierce the level before it's considered a failed breakout attempt rather than a sweep.")
@@ -182,29 +165,12 @@ liqPivotLen      = input.int(14, "Base Pivot Lookback", minval=1, group=G_LIQ)
 autoLiqPivot     = input.bool(true, "Auto-Optimize Lookback", group=G_LIQ, tooltip="Adjusts the pivot lookback based on current ATR volatility. High volatility increases lookback to filter noise; low volatility decreases it to catch tighter pivots.")
 liqRangeLookback = input.int(50, "Structural Range Lookback", minval=20, group=G_LIQ, tooltip="Range used to classify swing liquidity as external or internal.")
 liqExtBoundaryPct = input.float(0.15, "External Boundary %", minval=0.05, maxval=0.40, step=0.01, group=G_LIQ, tooltip="A swing is external only when it sits near the active dealing-range boundary.")
-
-showEQ           = input.bool(true, "Show Liquidity Clusters", group=G_LIQ, tooltip="Promote equal-high / equal-low groupings into directional BSL / SSL cluster labels.")
-eqThreshold      = input.float(0.1, "EQ Threshold %", minval=0, step=0.01, group=G_LIQ)
-eqLocalLookback  = input.int(12, "EQ Local Lookback", minval=6, maxval=40, group=G_LIQ)
-eqStructuralLookback = input.int(32, "EQ Structural Lookback", minval=10, maxval=80, group=G_LIQ)
-eqClusterMaxAge  = input.int(220, "EQ Max Age (Bars)", minval=40, maxval=1000, group=G_LIQ)
 liqMaxLevelsPerSide = input.int(2, "Active Levels Per Side", minval=1, maxval=5, group=G_LIQ, tooltip="Maximum number of liquidity levels shown above and below price in trader mode.")
 showSweptLiquidity = input.bool(false, "Show Recent Swept Context", group=G_LIQ, tooltip="Keep at most one recent swept level per side when it still matters for the active narrative.")
 liqContextAtr = input.float(1.5, "Swept Context Distance (ATR)", minval=0.5, step=0.25, group=G_LIQ, tooltip="Hide swept context levels that are too far away from current price.")
 liqShowDebugMetrics = input.bool(false, "Show Label Metrics", group=G_LIQ, tooltip="Append touch/state diagnostics to liquidity labels. Disable for clean trader view.")
 showLiquidityLabels = input.bool(true, "Show Liquidity Labels", group=G_LIQ)
 liqLabelSize     = input.string("Tiny", "Labels Size", options=["Tiny", "Small", "Normal"], group=G_LIQ)
-enableLuxLiquidity = input.bool(true, "Enable Lux-Style Cluster Liquidity", group=G_LIQ, tooltip="Adds Lux-style repeated-pivot liquidity clustering for classic buyside and sellside pools.")
-luxInjectIntoMap = input.bool(true, "Use Lux Zones In Liquidity Map", group=G_LIQ, tooltip="Publishes active Lux-style clusters into the main liquidity engine so sweep, targeting, and narrative logic can use them.")
-showLuxLiquidity = input.bool(true, "Draw Lux-Style Zones", group=G_LIQ, tooltip="Draws Lux-style liquidity lines, labels, and breach boxes on the chart.")
-luxPivotLen = input.int(7, "Lux Detection Length", minval=3, maxval=13, group=G_LIQ)
-luxMarginInput = input.float(6.9, "Lux Margin", minval=4.0, maxval=9.0, step=0.1, group=G_LIQ)
-luxVisibleLevels = input.int(3, "Lux Visible Levels", minval=1, maxval=10, group=G_LIQ)
-luxShowLabels = input.bool(true, "Lux Labels", group=G_LIQ)
-luxBuySweepAtr = input.float(2.3, "Lux Buyside Sweep Zone (ATR)", minval=1.5, maxval=10.0, step=0.1, group=G_LIQ)
-luxSellSweepAtr = input.float(2.3, "Lux Sellside Sweep Zone (ATR)", minval=1.5, maxval=10.0, step=0.1, group=G_LIQ)
-luxBuyColor = input.color(color.new(#4caf50, 0), "Lux Buyside Color", group=G_LIQ)
-luxSellColor = input.color(color.new(#f23645, 0), "Lux Sellside Color", group=G_LIQ)
 
 showDash     = input.bool(true, "Show Bias Dashboard", group=G_DASH)
 dashPos      = input.string("Top Right", "Position", options=["Top Right", "Bottom Right", "Top Left"], group=G_DASH)
@@ -217,7 +183,13 @@ showPWH  = input.bool(false, "PWH (Prev Week High)", group=G_LVLS)
 showPWL  = input.bool(false, "PWL (Prev Week Low)", group=G_LVLS)
 showPMH  = input.bool(false, "PMH (Prev Month High)", group=G_LVLS)
 showPML  = input.bool(false, "PML (Prev Month Low)", group=G_LVLS)
-showNYMid = input.bool(true, "NY Midnight Open", group=G_LVLS)
+showNYMid = input.bool(false, "NY Midnight Open", group=G_LVLS)
+reduceLabelClutter = input.bool(true, "Reduce Label Clutter", group=G_LVLS, tooltip="Always keeps Tier 1 labels visible, but trims weaker labels first when the right side gets crowded.")
+maxVisibleRightLabels = input.int(10, "Max Visible Right Labels", minval=4, maxval=24, group=G_LVLS)
+labelDistanceAtrLimit = input.float(8.0, "Label Distance Limit (ATR)", minval=1.0, step=0.5, group=G_LVLS, tooltip="When clutter reduction is enabled, hide weaker labels once they drift too far from current price.")
+showTier3Labels = input.bool(true, "Show Tier 3 Labels", group=G_LVLS)
+shiftOverlappingLabels = input.bool(true, "Shift Overlapping Labels", group=G_LVLS, tooltip="Moves only the right-side label into a nearby lane while keeping the actual level line at the true price.")
+adaptiveLevelExtensions = input.bool(true, "Adaptive Level Extensions", group=G_LVLS, tooltip="Shortens lower-priority or far-away lines so the chart stays readable.")
 
 showRZ           = input.bool(true, "Show Reaction Zones", group=G_RZ)
 rzProximityMult = input.float(3.0, "Actionable Proximity (ATR Mult)", minval=0.5, step=0.5, group=G_RZ, tooltip="Only show zones within this ATR distance from current price.")
@@ -340,26 +312,12 @@ f_getHtfPivotHighTime(len) =>
 f_getHtfPivotLowTime(len) =>
     not na(ta.pivotlow(low, len, len)) ? time[len] : na
 
-f_htfPdPos(float rangeHigh, float rangeLow, float refClose) =>
-    float span = math.max(rangeHigh - rangeLow, syminfo.mintick * 20)
-    math.max(0.0, math.min(1.0, (refClose - rangeLow) / span))
-
-f_htfPdLabel(float pdPos) =>
-    pdPos <= 0.35 ? "Discount" : pdPos >= 0.65 ? "Premium" : "EQ"
-
 f_htfStateName(int state) =>
     state == HTF_STATE_BULL_CONT ? "HTF bullish continuation" :
      state == HTF_STATE_BEAR_CONT ? "HTF bearish continuation" :
      state == HTF_STATE_BULL_REV ? "HTF bullish reversal candidate" :
      state == HTF_STATE_BEAR_REV ? "HTF bearish reversal candidate" :
      "HTF ranging"
-
-f_htfStateShort(int state) =>
-    state == HTF_STATE_BULL_CONT ? "Bull cont" :
-     state == HTF_STATE_BEAR_CONT ? "Bear cont" :
-     state == HTF_STATE_BULL_REV ? "Bull rev cand" :
-     state == HTF_STATE_BEAR_REV ? "Bear rev cand" :
-     "Range"
 
 f_htfStateColor(int state, float confidence) =>
     color base = state == HTF_STATE_BULL_CONT or state == HTF_STATE_BULL_REV ? COLOR_BULL :
@@ -375,63 +333,12 @@ f_htfDirectionalBias(int state, float confidence) =>
      state == HTF_STATE_BEAR_REV ? -confidence * 0.65 :
      0.0
 
-f_htfExecutionNarrative(int state, float pdPos, bool nearHighLiq, bool nearLowLiq) =>
-    if state == HTF_STATE_BULL_CONT
-        nearLowLiq or pdPos <= 0.35 ? "Buy dips; avoid fresh shorts" :
-         nearHighLiq or pdPos >= 0.65 ? "Bullish, but longs are expensive" :
-         "Bullish; wait for discount or LTF reset"
-    else if state == HTF_STATE_BEAR_CONT
-        nearHighLiq or pdPos >= 0.65 ? "Sell rallies; avoid fresh longs" :
-         nearLowLiq or pdPos <= 0.35 ? "Bearish, but shorts are extended" :
-         "Bearish; wait for premium or LTF rally"
-    else if state == HTF_STATE_BULL_REV
-        nearLowLiq or pdPos <= 0.40 ? "Watch LTF long reversal only" :
-         "Bullish reversal only, not full trend trust"
-    else if state == HTF_STATE_BEAR_REV
-        nearHighLiq or pdPos >= 0.60 ? "Watch LTF short reversal only" :
-         "Bearish reversal only, not full trend trust"
-    else
-        "Reduce conviction until HTF resolves"
-
-f_htfDashboardNarrative(int state, string action, int structureDir, float pdPos, bool nearHighLiq, bool nearLowLiq, float confidence) =>
-    "Bias: " + f_htfStateShort(state) + " | " + str.tostring(math.round(confidence)) + "/100" +
-     "\nFlow: " + action +
-     "\nRead: " + f_htfExecutionNarrative(state, pdPos, nearHighLiq, nearLowLiq)
-
 f_htfReadOnlyNarrative(int state, float pdPos, bool nearHighLiq, bool nearLowLiq) =>
-    "Read: " + f_htfExecutionNarrative(state, pdPos, nearHighLiq, nearLowLiq)
-
-f_htfCompositeBiasNarrative(float compositeBias, bool longStrong, bool shortStrong) =>
-    longStrong ? "Bullish aligned" :
-     shortStrong ? "Bearish aligned" :
-     math.abs(compositeBias) >= 20 ? (compositeBias > 0 ? "Bullish lean" : "Bearish lean") :
-     "Mixed / ranging"
-
-f_htfCompositeStackNarrative(string tf1, float bias1, string tf2, float bias2) =>
-    string dir1 = bias1 > 0 ? "bullish" : bias1 < 0 ? "bearish" : "flat"
-    string dir2 = bias2 > 0 ? "bullish" : bias2 < 0 ? "bearish" : "flat"
-    float abs1 = math.abs(bias1)
-    float abs2 = math.abs(bias2)
-    if bias1 > 0 and bias2 > 0
-        "Stack: " + tf2 + " and " + tf1 + " bullish"
-    else if bias1 < 0 and bias2 < 0
-        "Stack: " + tf2 + " and " + tf1 + " bearish"
-    else if abs2 > abs1 + 5
-        "Conflict: " + tf2 + " " + dir2 + " > " + tf1 + " " + dir1
-    else if abs1 > abs2 + 5
-        "Conflict: " + tf1 + " " + dir1 + " > " + tf2 + " " + dir2
-    else
-        "Conflict: HTFs split, no dominant side"
-
-f_htfCompositeFilterNarrative(float compositeBias, bool blockLong, bool blockShort) =>
-    blockLong ? "Filter: block longs; shorts only on LTF confirm" :
-     blockShort ? "Filter: block shorts; longs only on LTF confirm" :
-     math.abs(compositeBias) >= 20 ? (compositeBias > 0 ? "Filter: prefer long LTF setups" : "Filter: prefer short LTF setups") :
-     "Filter: no hard HTF block"
-
-f_htfCompositeDashboardNarrative(float compositeBias, bool longStrong, bool shortStrong, bool blockLong, bool blockShort) =>
-    "Bias: " + f_htfCompositeBiasNarrative(compositeBias, longStrong, shortStrong) +
-     "\n" + f_htfCompositeFilterNarrative(compositeBias, blockLong, blockShort)
+    "Read: " + (state == HTF_STATE_BULL_CONT ? (nearLowLiq or pdPos <= 0.35 ? "Buy dips; avoid fresh shorts" : nearHighLiq or pdPos >= 0.65 ? "Bullish, but longs are expensive" : "Bullish; wait for discount or LTF reset") :
+     state == HTF_STATE_BEAR_CONT ? (nearHighLiq or pdPos >= 0.65 ? "Sell rallies; avoid fresh longs" : nearLowLiq or pdPos <= 0.35 ? "Bearish, but shorts are extended" : "Bearish; wait for premium or LTF rally") :
+     state == HTF_STATE_BULL_REV ? (nearLowLiq or pdPos <= 0.40 ? "Watch LTF long reversal only" : "Bullish reversal only, not full trend trust") :
+     state == HTF_STATE_BEAR_REV ? (nearHighLiq or pdPos >= 0.60 ? "Watch LTF short reversal only" : "Bearish reversal only, not full trend trust") :
+     "Reduce conviction until HTF resolves")
 
 f_htfRecentDisp(int dirBias, float refOpen, float refHigh, float refLow, float refClose, float refAtr, float refAvgBody) =>
     float refRange = refHigh - refLow
@@ -478,8 +385,9 @@ f_evalHtfContext(float phRaw, float plRaw, int phTime, int plTime, float confirm
     int prevDir = outStructureDir
     bool bullSequence = not na(outPrevPH) and not na(outPrevPL) and not na(outLastPH) and not na(outLastPL) and outLastPH > outPrevPH and outLastPL > outPrevPL
     bool bearSequence = not na(outPrevPH) and not na(outPrevPL) and not na(outLastPH) and not na(outLastPL) and outLastPH < outPrevPH and outLastPL < outPrevPL
-    outPdPos := f_htfPdPos(rangeHigh, rangeLow, confirmedClose)
-    outPdLabel := f_htfPdLabel(outPdPos)
+    float pdSpan = math.max(rangeHigh - rangeLow, syminfo.mintick * 20)
+    outPdPos := math.max(0.0, math.min(1.0, (confirmedClose - rangeLow) / pdSpan))
+    outPdLabel := outPdPos <= 0.35 ? "Discount" : outPdPos >= 0.65 ? "Premium" : "EQ"
     outDispBias := f_htfRecentDisp(dispBias, confirmedOpen, confirmedHigh, confirmedLow, confirmedClose, confirmedAtr, bodyAvg)
     outNearHighLiq := atrRef > 0 and not na(rangeHigh) and math.abs(confirmedClose - rangeHigh) / atrRef <= htfLiquidityProxAtr
     outNearLowLiq := atrRef > 0 and not na(rangeLow) and math.abs(confirmedClose - rangeLow) / atrRef <= htfLiquidityProxAtr
@@ -702,11 +610,11 @@ bool htfLongStrong = htfCompositeBias >= htfMinConfidence
 bool htfShortStrong = htfCompositeBias <= -htfMinConfidence
 string htf1Display = f_htfReadOnlyNarrative(htf1State, htf1PdPos, htf1NearHighLiq, htf1NearLowLiq)
 string htf2Display = f_htfReadOnlyNarrative(htf2State, htf2PdPos, htf2NearHighLiq, htf2NearLowLiq)
-string htfCompositeState = htfLongStrong ? "HTF bullish aligned" : htfShortStrong ? "HTF bearish aligned" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "HTF bullish lean" : "HTF bearish lean") : "HTF mixed/ranging"
 color htfCompositeColor = htfLongStrong ? f_htfStateColor(HTF_STATE_BULL_CONT, math.abs(htfCompositeBias)) : htfShortStrong ? f_htfStateColor(HTF_STATE_BEAR_CONT, math.abs(htfCompositeBias)) : color.new(COLOR_NEUT, 30)
 bool blockLongEntry = useHTFEntryFilter and htfShortStrong
 bool blockShortEntry = useHTFEntryFilter and htfLongStrong
-string htfCompositeDashboard = f_htfCompositeDashboardNarrative(htfCompositeBias, htfLongStrong, htfShortStrong, blockLongEntry, blockShortEntry)
+string htfCompositeDashboard = "Bias: " + (htfLongStrong ? "Bullish aligned" : htfShortStrong ? "Bearish aligned" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "Bullish lean" : "Bearish lean") : "Mixed / ranging") +
+ "\n" + (blockLongEntry ? "Filter: block longs; shorts only on LTF confirm" : blockShortEntry ? "Filter: block shorts; longs only on LTF confirm" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "Filter: prefer long LTF setups" : "Filter: prefer short LTF setups") : "Filter: no hard HTF block")
 
 var float asiaH = na
 var float asiaL = na
@@ -782,17 +690,11 @@ if not na(pmh) and high >= pmh
 if not na(pml) and low <= pml
     pmlConsumed := true
 
-f_liqLabelSize() =>
-    liqLabelSize == "Tiny" ? size.tiny : liqLabelSize == "Small" ? size.small : size.normal
-
 f_breakoutLabelSize() =>
     breakoutLabelSize == "Tiny" ? size.tiny : breakoutLabelSize == "Small" ? size.small : size.normal
 
-f_colorLuma(color clr) =>
-    color.r(clr) * 0.299 + color.g(clr) * 0.587 + color.b(clr) * 0.114
-
 f_isDarkTheme() =>
-    f_colorLuma(chart.bg_color) < 140
+    color.r(chart.bg_color) * 0.299 + color.g(chart.bg_color) * 0.587 + color.b(chart.bg_color) * 0.114 < 140
 
 f_themeTextColor() =>
     f_isDarkTheme() ? color.white : color.black
@@ -809,13 +711,100 @@ f_themeInvertedPanelColor() =>
 f_defaultLevelColor() =>
     f_isDarkTheme() ? color.white : color.black
 
-f_defaultLevelLabelBg() =>
-    f_themePanelColor()
+var array<float> levelLabelSlots = array.new_float(0)
+var array<int> levelLabelStats = array.new_int(3, 0)
 
-f_levelRenderColor(string state, bool isMajor) =>
-    color base = f_defaultLevelColor()
-    int transparency = state == "CONSUMED" ? 78 : state == "SWEPT" ? 58 : state == "TAGGED" ? (isMajor ? 20 : 35) : (isMajor ? 0 : 18)
-    color.new(base, transparency)
+f_compactLevelText(string txt) =>
+    string out = txt
+    if txt == "NY Midnight" or txt == "NY Midnight Open"
+        out := "NY Mid"
+    else if txt == "Daily Open"
+        out := "DO"
+    out
+
+f_levelTier(string txt) =>
+    string labelTxt = f_compactLevelText(txt)
+    int tier = 3
+    if labelTxt == "PDH" or labelTxt == "PDL"
+        tier := 1
+    else if str.startswith(labelTxt, "HTF1") or str.startswith(labelTxt, "HTF2")
+        tier := str.contains(labelTxt, "Obj") or str.contains(labelTxt, "Prot") ? 1 : 2
+    else if str.startswith(labelTxt, "Ext ")
+        tier := 1
+    else if labelTxt == "DO" or labelTxt == "NY Mid" or labelTxt == "PWH" or labelTxt == "PWL"
+        tier := 2
+    else if labelTxt == "PMH" or labelTxt == "PML" or labelTxt == "PDC"
+        tier := 3
+    else if str.startswith(labelTxt, "London ") or str.startswith(labelTxt, "NY ") or str.startswith(labelTxt, "Asia ") or str.startswith(labelTxt, "Prev London") or str.startswith(labelTxt, "Prev NY") or str.startswith(labelTxt, "Prev Asia")
+        tier := 2
+    else if str.startswith(labelTxt, "Dev ")
+        tier := 3
+    else if str.startswith(labelTxt, "Int ")
+        tier := 3
+    tier
+
+f_levelLeftSpanBars(float val, int tier, bool subdued) =>
+    int baseBars = tier == 1 ? 140 : tier == 2 ? 96 : 58
+    float distAtr = atrVal > 0 ? math.abs(val - close) / atrVal : 0.0
+    if reduceLabelClutter and distAtr > labelDistanceAtrLimit
+        baseBars := int(math.round(baseBars * 0.65))
+    if subdued
+        baseBars := int(math.round(baseBars * 0.80))
+    math.max(baseBars, 18)
+
+f_levelShouldShowLabel(string txt, float val, int tier) =>
+    bool tierAllowed = tier < 3 or showTier3Labels
+    bool showLabel = false
+    if not tierAllowed
+        showLabel := false
+    else if not reduceLabelClutter
+        showLabel := true
+    else
+        int visibleCount = array.get(levelLabelStats, 0)
+        int tier2Count = array.get(levelLabelStats, 1)
+        int tier3Count = array.get(levelLabelStats, 2)
+        int tier2Budget = math.max(2, maxVisibleRightLabels / 2)
+        int tier3Budget = math.max(1, maxVisibleRightLabels / 4)
+        bool tooFar = atrVal > 0 ? math.abs(val - close) / atrVal > labelDistanceAtrLimit : false
+        showLabel := tier == 1 ? true : visibleCount >= maxVisibleRightLabels ? false : tier == 2 ? (not tooFar or tier2Count < tier2Budget) : (not tooFar and tier3Count < tier3Budget)
+    showLabel
+
+f_resolveLevelLabelY(float basePrice) =>
+    float step = math.max(syminfo.mintick * 16, nz(atrVal, syminfo.mintick * 20) * 0.09)
+    float resolvedY = basePrice
+    int shiftDir = 0
+    if shiftOverlappingLabels
+        bool allocated = false
+        for attempt = 0 to 12
+            int lane = attempt == 0 ? 0 : int(math.ceil(float(attempt) / 2.0))
+            int dir = attempt == 0 ? 0 : attempt % 2 == 1 ? 1 : -1
+            float candidateY = basePrice + step * float(lane * dir)
+            bool slotAvailable = true
+            if array.size(levelLabelSlots) > 0
+                for i = 0 to array.size(levelLabelSlots) - 1
+                    if math.abs(array.get(levelLabelSlots, i) - candidateY) < step * 0.90
+                        slotAvailable := false
+                        break
+            if slotAvailable
+                resolvedY := candidateY
+                shiftDir := dir
+                array.push(levelLabelSlots, candidateY)
+                allocated := true
+                break
+        if not allocated
+            resolvedY := basePrice + step * 6.0
+            shiftDir := 1
+            array.push(levelLabelSlots, resolvedY)
+    else
+        array.push(levelLabelSlots, basePrice)
+    [resolvedY, shiftDir]
+
+f_incLevelLabelStats(int tier) =>
+    array.set(levelLabelStats, 0, array.get(levelLabelStats, 0) + 1)
+    if tier == 2
+        array.set(levelLabelStats, 1, array.get(levelLabelStats, 1) + 1)
+    else if tier == 3
+        array.set(levelLabelStats, 2, array.get(levelLabelStats, 2) + 1)
 
 f_timeframeStrFromSeconds(int secs) =>
     int mins = int(math.max(1.0, math.round(float(secs) / 60.0)))
@@ -832,10 +821,6 @@ f_autoLtfSeconds(int baseSecs) =>
         int ladderSecs = int(math.floor(float(baseSecs) / 180.0)) * 60
         ladderSecs := math.max(60, ladderSecs)
         math.min(baseSecs - 60, ladderSecs)
-
-f_liqLabelExtraOffset(string displayText) =>
-    string head4 = str.length(displayText) >= 4 ? str.substring(displayText, 0, 4) : displayText
-    (displayText == "EQH" or displayText == "EQL" or head4 == "HTF1" or head4 == "HTF2") ? 8 : 0
 
 f_bigMovePriceLabel(string label, float price) =>
     str.length(label) > 0 and not na(price) ? label + " @ " + str.tostring(price, format.mintick) : label
@@ -939,18 +924,31 @@ plot(showHTF ? lastHtf2PH : na, "HTF 2 Range High", f_defaultLevelColor(), 2, pl
 plot(showHTF ? lastHtf2PL : na, "HTF 2 Range Low", f_defaultLevelColor(), 2, plot.style_linebr)
 plot(showVP ? dPOC : na, "Daily Reference", f_defaultLevelColor(), 2, plot.style_linebr)
 
-f_updateLevel(bool show, float val, string txt, line l, label lb, int width, int xOffsetBars) =>
+f_updateLevel(bool show, float val, string txt, line l, label lb) =>
+    string compactText = f_compactLevelText(txt)
+    int tier = f_levelTier(compactText)
     if show and not na(val)
-        levelLeft = math.max(bar_index - 50, 0)
-        levelRight = bar_index + 10 + xOffsetBars
+        int leftSpan = adaptiveLevelExtensions ? f_levelLeftSpanBars(val, tier, false) : 50
+        int rightOffset = adaptiveLevelExtensions ? (tier == 1 ? 9 : tier == 2 ? 7 : 5) : 10
+        int levelLeft = compactText == "DO" ? bar_index : math.max(bar_index - leftSpan, 0)
+        int levelRight = compactText == "DO" ? bar_index + 1 : bar_index + rightOffset
         line.set_xy1(l, levelLeft, val)
         line.set_xy2(l, levelRight, val)
-        line.set_color(l, f_defaultLevelColor())
-        line.set_width(l, width)
-        label.set_xy(lb, levelRight, val)
-        label.set_textcolor(lb, f_defaultLevelColor())
-        label.set_color(lb, f_defaultLevelLabelBg())
-        label.set_text(lb, txt + " (" + str.tostring(val, format.mintick) + ")")
+        line.set_color(l, color.new(f_defaultLevelColor(), tier == 1 ? 4 : tier == 2 ? 26 : 48))
+        line.set_width(l, tier == 1 ? 3 : tier == 2 ? 2 : 1)
+        line.set_style(l, tier == 3 ? line.style_dotted : line.style_solid)
+        if f_levelShouldShowLabel(compactText, val, tier)
+            [labelY, shiftDir] = f_resolveLevelLabelY(val)
+            label.set_xy(lb, levelRight, labelY)
+            label.set_textcolor(lb, color.new(f_defaultLevelColor(), tier == 3 ? 10 : 0))
+            label.set_color(lb, color.new(f_themePanelColor(), tier == 1 ? 0 : tier == 2 ? 8 : 16))
+            label.set_style(lb, shiftDir > 0 ? label.style_label_lower_left : shiftDir < 0 ? label.style_label_upper_left : label.style_label_left)
+            label.set_size(lb, tier == 1 ? size.small : size.tiny)
+            label.set_text(lb, compactText + " " + str.tostring(val, format.mintick))
+            f_incLevelLabelStats(tier)
+        else
+            label.set_y(lb, na)
+            label.set_text(lb, "")
     else
         line.set_y1(l, na)
         line.set_y2(l, na)
@@ -994,15 +992,19 @@ if barstate.isfirst
         array.push(overlayBorderRights, line.new(na, na, na, na, xloc=xloc.bar_index, extend=extend.none, color=color(na)))
 
 if barstate.islast
-    f_updateLevel(showPDH and not pdhConsumed, pdh, "PDH", lnPDH, lbPDH, 1, 0)
-    f_updateLevel(showPDL and not pdlConsumed, pdl, "PDL", lnPDL, lbPDL, 1, 0)
-    f_updateLevel(showPDC, pdc, "PDC", lnPDC, lbPDC, 1, 3)
-    f_updateLevel(showDO, dO, "DO", lnDO, lbDO, 1, 6)
-    f_updateLevel(showPWH and not pwhConsumed, pwh, "PWH", lnPWH, lbPWH, 2, 9)
-    f_updateLevel(showPWL and not pwlConsumed, pwl, "PWL", lnPWL, lbPWL, 2, 12)
-    f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", lnPMH, lbPMH, 2, 15)
-    f_updateLevel(showPML and not pmlConsumed, pml, "PML", lnPML, lbPML, 2, 18)
-    f_updateLevel(showNYMid, nyMidnight, "NY Midnight", lnNYMid, lbNYMid, 1, 21)
+    array.clear(levelLabelSlots)
+    array.set(levelLabelStats, 0, 0)
+    array.set(levelLabelStats, 1, 0)
+    array.set(levelLabelStats, 2, 0)
+    f_updateLevel(showPDH and not pdhConsumed, pdh, "PDH", lnPDH, lbPDH)
+    f_updateLevel(showPDL and not pdlConsumed, pdl, "PDL", lnPDL, lbPDL)
+    f_updateLevel(showPWH and not pwhConsumed, pwh, "PWH", lnPWH, lbPWH)
+    f_updateLevel(showPWL and not pwlConsumed, pwl, "PWL", lnPWL, lbPWL)
+    f_updateLevel(showDO, dO, "DO", lnDO, lbDO)
+    f_updateLevel(showNYMid, nyMidnight, "NY Midnight", lnNYMid, lbNYMid)
+    f_updateLevel(showPDC, pdc, "PDC", lnPDC, lbPDC)
+    f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", lnPMH, lbPMH)
+    f_updateLevel(showPML and not pmlConsumed, pml, "PML", lnPML, lbPML)
     int overlaySlotsToDraw = showOverlayCandles ? math.min(math.min(overlayCandleCount, f_overlayAvailableCount()), OVERLAY_CANDLE_MAX) : 0
     for slot = 0 to OVERLAY_CANDLE_MAX - 1
         box body = array.get(overlayBodies, slot)
@@ -1022,15 +1024,6 @@ if barstate.islast
 var liq_pools = array.new<liq_pool>(0)
 var liq_render_lines = array.new_line(0)
 var liq_render_labels = array.new_label(0)
-var recentSwingHighs = array.new_float(0)
-var recentSwingHighBars = array.new_int(0)
-var recentSwingLows = array.new_float(0)
-var recentSwingLowBars = array.new_int(0)
-var luxPivotDirs = array.new_int(LUX_MAX_PIVOTS, 0)
-var luxPivotBars = array.new_int(LUX_MAX_PIVOTS, 0)
-var luxPivotPrices = array.new_float(LUX_MAX_PIVOTS, na)
-var luxBuyZones = array.new<lux_liq_zone>(0)
-var luxSellZones = array.new<lux_liq_zone>(0)
 
 // Volatility-Based Auto Optimization
 volScale = atrVal / nz(ta.sma(atrVal, 200), atrVal)
@@ -1051,7 +1044,7 @@ f_liqIsEventEligible(liq_pool pool) =>
     not f_liqIsDevelopingSession(pool)
 
 f_liqIsExternal(string poolType) =>
-    poolType == "EXTERNAL" or poolType == "SESSION" or poolType == "PERIOD" or poolType == "EQ" or poolType == "HTF"
+    poolType == "EXTERNAL" or poolType == "SESSION" or poolType == "PERIOD" or poolType == "HTF"
 
 f_liqClusterTolerance(float price) =>
     math.max(syminfo.mintick * 4, math.min(atrVal * 0.10, price * 0.0025))
@@ -1060,7 +1053,7 @@ f_liqTouchTolerance(float price) =>
     math.max(syminfo.mintick * 2, math.min(atrVal * 0.04, price * 0.0010))
 
 f_liqSourceSeconds(liq_pool pool) =>
-    pool.baseType == "PERIOD" ? (pool.sourceTF == "M" ? 2592000.0 : pool.sourceTF == "W" ? 604800.0 : 86400.0) : pool.baseType == "HTF" ? (pool.sourceTF == htf2Tf ? math.max(float(timeframe.in_seconds(htf2Tf)), chartTfSec * 24.0) : math.max(float(timeframe.in_seconds(htf1Tf)), chartTfSec * 8.0)) : (pool.baseType == "SESSION" or pool.baseType == "DEV_SESSION") ? 21600.0 : (pool.baseType == "EQ" or pool.baseType == "LUX") ? chartTfSec * 6.0 : chartTfSec
+    pool.baseType == "PERIOD" ? (pool.sourceTF == "M" ? 2592000.0 : pool.sourceTF == "W" ? 604800.0 : 86400.0) : pool.baseType == "HTF" ? (pool.sourceTF == htf2Tf ? math.max(float(timeframe.in_seconds(htf2Tf)), chartTfSec * 24.0) : math.max(float(timeframe.in_seconds(htf1Tf)), chartTfSec * 8.0)) : (pool.baseType == "SESSION" or pool.baseType == "DEV_SESSION") ? 21600.0 : chartTfSec
 
 f_liqAgeUnits(liq_pool pool) =>
     float ageSec = math.max(float(time - pool.creationTime) / 1000.0, 0.0)
@@ -1069,7 +1062,7 @@ f_liqAgeUnits(liq_pool pool) =>
     ageSec / sourceSec + eventPenalty
 
 f_liqExpiryUnits(liq_pool pool) =>
-    float baseUnits = pool.poolType == "PERIOD" ? (pool.sourceTF == "M" ? 10.0 : pool.sourceTF == "W" ? 6.0 : 3.0) : pool.poolType == "HTF" ? (pool.sourceTF == htf2Tf ? 8.0 : 6.0) : pool.poolType == "SESSION" ? 2.0 : pool.poolType == "DEV_SESSION" ? 0.75 : pool.poolType == "EQ" ? 4.0 : pool.poolType == "EXTERNAL" ? 5.0 : 2.5
+    float baseUnits = pool.poolType == "PERIOD" ? (pool.sourceTF == "M" ? 10.0 : pool.sourceTF == "W" ? 6.0 : 3.0) : pool.poolType == "HTF" ? (pool.sourceTF == htf2Tf ? 8.0 : 6.0) : pool.poolType == "SESSION" ? 2.0 : pool.poolType == "DEV_SESSION" ? 0.75 : pool.poolType == "EXTERNAL" ? 5.0 : 2.5
     float scale = math.max(ageExpiry / 400.0, 0.5)
     baseUnits * scale
 
@@ -1087,7 +1080,6 @@ f_liqCalculatedCleanliness(liq_pool pool) =>
 
 f_liqFreshnessScore(liq_pool pool) =>
     float score = pool.structuralRank
-    score += pool.poolType == "EQ" ? 10.0 : 0.0
     score += math.min(pool.clusterSize - 1, 3) * 4.0
     score -= f_liqAgeUnits(pool) * 12.0
     score -= math.max(pool.timesTagged - 1, 0) * 6.0
@@ -1099,14 +1091,8 @@ f_liqRetentionScore(liq_pool pool) =>
 
 f_liqCompactBaseLabel(liq_pool pool) =>
     string txt = pool.baseLabel
-    if str.startswith(pool.baseLabel, "LUX BSL")
-        txt := "Lux BSL"
-    else if str.startswith(pool.baseLabel, "LUX SSL")
-        txt := "Lux SSL"
-    else if pool.baseType == "SWING"
+    if pool.baseType == "SWING"
         txt := pool.poolType == "EXTERNAL" ? (pool.side == "BSL" ? "Ext BSL" : "Ext SSL") : (pool.side == "BSL" ? "Int BSL" : "Int SSL")
-    else if pool.baseType == "EQ"
-        txt := pool.side == "BSL" ? "EQH" : "EQL"
     else if pool.baseLabel == "HTF1 HIGH"
         txt := htf1StructureDir == 1 ? "HTF1 Obj High" : htf1StructureDir == -1 ? "HTF1 Prot High" : "HTF1 Range High"
     else if pool.baseLabel == "HTF1 LOW"
@@ -1144,8 +1130,7 @@ f_liqCompactBaseLabel(liq_pool pool) =>
 f_liqDisplayLabel(liq_pool pool) =>
     txt = f_liqCompactBaseLabel(pool)
     if liqShowDebugMetrics
-        bool isClusterLabel = pool.poolType == "EQ"
-        if pool.clusterSize > 1 and not isClusterLabel
+        if pool.clusterSize > 1
             txt += " x" + str.tostring(pool.clusterSize)
         if pool.timesTagged > 0
             txt += " T" + str.tostring(pool.timesTagged)
@@ -1159,218 +1144,13 @@ f_liqDisplayLabel(liq_pool pool) =>
             txt += " [CON]"
     txt
 
-f_liqLabelSpacing() =>
-    math.max(syminfo.mintick * 16, atrVal * 0.06)
-
-f_liqRenderLeftBar(int sourceBar) =>
-    int maxLookback = math.max(liqRangeLookback * 8, 800)
-    math.max(math.max(sourceBar, bar_index - maxLookback), 0)
-
-f_liqRenderMergeTolerance(float price) =>
-    math.max(syminfo.mintick * 8, math.min(atrVal * 0.02, price * 0.0004))
-
-f_liqRenderPriority(liq_pool pool) =>
-    score = pool.structuralRank
-    score += f_liqFreshnessScore(pool) * 0.35
-    score += f_liqCalculatedCleanliness(pool) * 0.15
-    score
-
-f_liqDistanceAtr(liq_pool pool) =>
-    atrVal > 0 ? math.abs(pool.price - close) / atrVal : 999.0
-
-f_liqIsRenderableActive(liq_pool pool) =>
-    bool activeState = pool.state == "FRESH" or pool.state == "TAGGED"
-    bool importantType = pool.poolType == "PERIOD" or pool.poolType == "SESSION" or pool.poolType == "EQ" or pool.poolType == "EXTERNAL" or pool.poolType == "HTF"
-    bool developingSessionVisible = pool.poolType == "DEV_SESSION" and showDevelopingSessionLevels
-    bool internalActionable = pool.poolType == "INTERNAL" and pool.isInducementCandidate and f_liqDistanceAtr(pool) <= 1.0
-    activeState and (importantType or internalActionable or developingSessionVisible)
-
-f_liqIsRenderableSwept(liq_pool pool) =>
-    showSweptLiquidity and pool.state == "SWEPT" and (bar_index - nz(pool.lastRefreshBar, pool.sourceBar)) <= sweepMssTimeoutBars and f_liqDistanceAtr(pool) <= liqContextAtr
-
-f_liqShouldRenderPool(liq_pool pool) =>
-    pool.state != "CONSUMED" and (f_liqIsRenderableActive(pool) or f_liqIsRenderableSwept(pool))
-
-f_liqVisualScore(liq_pool pool) =>
-    float distAtr = f_liqDistanceAtr(pool)
-    float score = f_liqRenderPriority(pool)
-    score += math.max(0.0, 18.0 - distAtr * 5.0)
-    score += pool.poolType == "DEV_SESSION" ? -12.0 : 0.0
-    score += pool.state == "TAGGED" ? 5.0 : pool.state == "SWEPT" ? -8.0 : 0.0
-    score
-
 f_liqHasDedicatedOverlay(liq_pool pool) =>
-    pool.baseType == "LUX" or
-     (pool.baseLabel == "PDH" and showPDH) or
+    (pool.baseLabel == "PDH" and showPDH) or
      (pool.baseLabel == "PDL" and showPDL) or
      (pool.baseLabel == "PWH" and showPWH) or
      (pool.baseLabel == "PWL" and showPWL) or
      (pool.baseLabel == "PMH" and showPMH) or
      (pool.baseLabel == "PML" and showPML)
-
-f_arrayContainsString(array<string> labels, string target) =>
-    bool found = false
-    if array.size(labels) > 0
-        for i = 0 to array.size(labels) - 1
-            if array.get(labels, i) == target
-                found := true
-                break
-    found
-
-f_luxDeleteZone(lux_liq_zone zone) =>
-    if not na(zone.zoneBox)
-        box.delete(zone.zoneBox)
-    if not na(zone.breachBox)
-        box.delete(zone.breachBox)
-    if not na(zone.labelBox)
-        box.delete(zone.labelBox)
-    if not na(zone.baseLine)
-        line.delete(zone.baseLine)
-    if not na(zone.extLine)
-        line.delete(zone.extLine)
-    true
-
-f_luxPushPivot(int dir, int pivotBar, float pivotPrice) =>
-    array.unshift(luxPivotDirs, dir)
-    array.unshift(luxPivotBars, pivotBar)
-    array.unshift(luxPivotPrices, pivotPrice)
-    array.pop(luxPivotDirs)
-    array.pop(luxPivotBars)
-    array.pop(luxPivotPrices)
-    true
-
-f_luxNewZone(string side, string label, int sourceBar, float levelPrice, float zoneTop, float zoneBottom, int touchCount) =>
-    color baseClr = side == "BSL" ? luxBuyColor : luxSellColor
-    string zoneText = side == "BSL" ? "Buyside liquidity" : "Sellside liquidity"
-    box zoneBox = showLuxLiquidity ? box.new(sourceBar, zoneTop, bar_index + 10, zoneBottom, border_color=color(na), bgcolor=color(na)) : box(na)
-    box breachBox = box(na)
-    box labelBox = showLuxLiquidity and luxShowLabels ? box.new(sourceBar, levelPrice, bar_index + 10, levelPrice, text=zoneText, text_size=size.tiny, text_halign=text.align_left, text_valign=side == "BSL" ? text.align_bottom : text.align_top, text_color=color.new(baseClr, 25), border_color=color(na), bgcolor=color(na)) : box(na)
-    int lineStart = math.max(sourceBar, bar_index - 1)
-    line baseLine = showLuxLiquidity ? line.new(sourceBar, levelPrice, lineStart, levelPrice, color=color.new(baseClr, 0)) : line(na)
-    line extLine = showLuxLiquidity ? line.new(lineStart, levelPrice, na, levelPrice, color=color.new(baseClr, 0), style=line.style_dotted) : line(na)
-    lux_liq_zone.new(side, label, sourceBar, levelPrice, zoneTop, zoneBottom, touchCount, zoneBox, breachBox, labelBox, false, false, baseLine, extLine)
-
-f_luxSyncZoneVisuals(lux_liq_zone zone, int sourceBar, float levelPrice, float zoneTop, float zoneBottom) =>
-    if showLuxLiquidity
-        if not na(zone.zoneBox)
-            box.set_lefttop(zone.zoneBox, sourceBar, zoneTop)
-            box.set_rightbottom(zone.zoneBox, bar_index + 10, zoneBottom)
-        if not na(zone.labelBox)
-            box.set_lefttop(zone.labelBox, sourceBar, levelPrice)
-            box.set_rightbottom(zone.labelBox, bar_index + 10, levelPrice)
-        if not na(zone.baseLine)
-            line.set_xy1(zone.baseLine, sourceBar, levelPrice)
-            line.set_xy2(zone.baseLine, math.max(sourceBar, bar_index - 1), levelPrice)
-        if not na(zone.extLine)
-            line.set_xy1(zone.extLine, math.max(sourceBar, bar_index - 1), levelPrice)
-            line.set_xy2(zone.extLine, bar_index, levelPrice)
-    true
-
-f_luxUpsertZone(array<lux_liq_zone> zones, string side, int clusterSourceBar, float clusterLevel, float zoneTop, float zoneBottom, int clusterCount) =>
-    string zoneLabel = "LUX " + side + " " + str.tostring(clusterSourceBar)
-    if array.size(zones) > 0 and array.get(zones, 0).sourceBar == clusterSourceBar
-        zone = array.get(zones, 0)
-        zone.poolLabel := zoneLabel
-        zone.sourceBar := clusterSourceBar
-        zone.levelPrice := clusterLevel
-        zone.zoneTop := zoneTop
-        zone.zoneBottom := zoneBottom
-        zone.touchCount := clusterCount
-        f_luxSyncZoneVisuals(zone, clusterSourceBar, clusterLevel, zoneTop, zoneBottom)
-    else
-        array.unshift(zones, f_luxNewZone(side, zoneLabel, clusterSourceBar, clusterLevel, zoneTop, zoneBottom, clusterCount))
-    while array.size(zones) > luxVisibleLevels
-        oldZone = array.pop(zones)
-        f_luxDeleteZone(oldZone)
-    true
-
-f_luxProcessPivot(int dir, float pivotRef, int pivotBar, float halfRange, array<lux_liq_zone> zones) =>
-    int prevDir = array.get(luxPivotDirs, 0)
-    float prevPrice = array.get(luxPivotPrices, 0)
-    float pivotPrice = dir == 1 ? nz(high[1], pivotRef) : nz(low[1], pivotRef)
-    if dir == 1
-        if prevDir < 1
-            f_luxPushPivot(dir, pivotBar, pivotPrice)
-        else if pivotPrice > prevPrice
-            array.set(luxPivotBars, 0, pivotBar)
-            array.set(luxPivotPrices, 0, pivotPrice)
-    else
-        if prevDir > -1
-            f_luxPushPivot(dir, pivotBar, pivotPrice)
-        else if pivotPrice < prevPrice
-            array.set(luxPivotBars, 0, pivotBar)
-            array.set(luxPivotPrices, 0, pivotPrice)
-
-    int clusterCount = 0
-    float clusterLevel = 0.0
-    int clusterSourceBar = na
-    float minMatch = -10e10
-    float maxMatch = 10e10
-    for i = 0 to LUX_MAX_PIVOTS - 1
-        if array.get(luxPivotDirs, i) == dir
-            float storedPrice = array.get(luxPivotPrices, i)
-            bool tooFar = dir == 1 ? storedPrice > pivotRef + halfRange : storedPrice < pivotRef - halfRange
-            bool inRange = storedPrice > pivotRef - halfRange and storedPrice < pivotRef + halfRange
-            if tooFar
-                break
-            else if inRange
-                clusterCount += 1
-                clusterSourceBar := array.get(luxPivotBars, i)
-                clusterLevel := storedPrice
-                if storedPrice > minMatch
-                    minMatch := storedPrice
-                if storedPrice < maxMatch
-                    maxMatch := storedPrice
-
-    if clusterCount > 2 and not na(clusterSourceBar)
-        float zoneMid = math.avg(minMatch, maxMatch)
-        f_luxUpsertZone(zones, dir == 1 ? "BSL" : "SSL", clusterSourceBar, clusterLevel, zoneMid + halfRange, zoneMid - halfRange, clusterCount)
-    true
-
-f_luxUpdateZones(array<lux_liq_zone> zones, bool isBuy, float sweepAtr, float atrRef, color baseColor) =>
-    if array.size(zones) > 0
-        for i = 0 to array.size(zones) - 1
-            zone = array.get(zones, i)
-            if not zone.brokenLevel
-                if showLuxLiquidity and not na(zone.extLine)
-                    line.set_x2(zone.extLine, bar_index)
-                bool breached = isBuy ? high > zone.zoneTop : low < zone.zoneBottom
-                if breached
-                    zone.brokenLevel := true
-                    zone.brokenZone := true
-                    if showLuxLiquidity
-                        if isBuy
-                            float breachTop = math.min(zone.levelPrice + sweepAtr * atrRef, high)
-                            if na(zone.breachBox)
-                                zone.breachBox := box.new(bar_index - 1, breachTop, bar_index + 1, zone.levelPrice, border_color=na, bgcolor=color.new(baseColor, 73))
-                            else
-                                box.set_lefttop(zone.breachBox, bar_index - 1, breachTop)
-                                box.set_rightbottom(zone.breachBox, bar_index + 1, zone.levelPrice)
-                                box.set_bgcolor(zone.breachBox, color.new(baseColor, 73))
-                        else
-                            float breachBottom = math.max(zone.levelPrice - sweepAtr * atrRef, low)
-                            if na(zone.breachBox)
-                                zone.breachBox := box.new(bar_index - 1, zone.levelPrice, bar_index + 1, breachBottom, border_color=na, bgcolor=color.new(baseColor, 73))
-                            else
-                                box.set_lefttop(zone.breachBox, bar_index - 1, zone.levelPrice)
-                                box.set_rightbottom(zone.breachBox, bar_index + 1, breachBottom)
-                                box.set_bgcolor(zone.breachBox, color.new(baseColor, 73))
-            else if zone.brokenZone
-                float lowerBound = zone.levelPrice - sweepAtr * atrRef
-                float upperBound = zone.levelPrice + sweepAtr * atrRef
-                if low > lowerBound and high < upperBound
-                    if showLuxLiquidity
-                        if not na(zone.breachBox)
-                            if isBuy
-                                box.set_right(zone.breachBox, bar_index + 1)
-                                box.set_top(zone.breachBox, math.max(high, box.get_top(zone.breachBox)))
-                            else
-                                box.set_rightbottom(zone.breachBox, bar_index + 1, math.min(low, box.get_bottom(zone.breachBox)))
-                        if not na(zone.extLine)
-                            line.set_x2(zone.extLine, bar_index + 1)
-                else
-                    zone.brokenZone := false
-    true
 
 f_newLiqPool(string side, string poolType, string baseType, float price, int sourceBar, int creationTime, string label, string baseLabel, string sourceTF, float structuralRank, string sessionContext, float cleanlinessScore, bool isInducementCandidate) =>
     liq_pool.new(side, poolType, baseType, price, sourceBar, false, label, baseLabel, 0, 1, int(na), sourceBar, int(na), na, int(na), na, int(na), int(na), creationTime, sourceTF, structuralRank, 0, cleanlinessScore, sessionContext, isInducementCandidate, "FRESH")
@@ -1424,52 +1204,6 @@ f_liqUpsertNamedPool(string side, string poolType, string baseType, float price,
             liq_pools.push(f_newLiqPool(side, poolType, baseType, price, sourceBar, time, label, label, sourceTF, structuralRank, sessionContext, cleanlinessScore, isInducementCandidate))
     true
 
-f_liqUpsertLuxPool(string side, string label, float price, int sourceBar, float structuralRank, float cleanlinessScore, int clusterSize) =>
-    if not na(price)
-        int existingIdx = na
-        if liq_pools.size() > 0
-            for i = 0 to liq_pools.size() - 1
-                pool = liq_pools.get(i)
-                if pool.baseLabel == label
-                    existingIdx := i
-                    break
-        int resolvedClusterSize = math.max(clusterSize, 2)
-        if not na(existingIdx)
-            pool = liq_pools.get(existingIdx)
-            bool sameNarrativeLevel = math.abs(pool.price - price) <= f_liqClusterTolerance(price)
-            if sameNarrativeLevel
-                pool.side := side
-                pool.poolType := "EQ"
-                pool.baseType := "LUX"
-                pool.price := price
-                pool.sourceBar := sourceBar
-                pool.poolLabel := label
-                pool.baseLabel := label
-                pool.sourceTF := timeframe.period
-                pool.structuralRank := structuralRank
-                pool.sessionContext := f_liqCurrentSessionContext()
-                pool.cleanlinessScore := cleanlinessScore
-                pool.isInducementCandidate := false
-                pool.clusterSize := resolvedClusterSize
-            else
-                liq_pools.remove(existingIdx)
-                liq_pools.push(f_newLiqPool(side, "EQ", "LUX", price, sourceBar, time, label, label, timeframe.period, structuralRank, f_liqCurrentSessionContext(), cleanlinessScore, false))
-                newPool = liq_pools.get(liq_pools.size() - 1)
-                newPool.clusterSize := resolvedClusterSize
-        else
-            liq_pools.push(f_newLiqPool(side, "EQ", "LUX", price, sourceBar, time, label, label, timeframe.period, structuralRank, f_liqCurrentSessionContext(), cleanlinessScore, false))
-            newPool = liq_pools.get(liq_pools.size() - 1)
-            newPool.clusterSize := resolvedClusterSize
-    true
-
-f_liqRemoveStaleLuxPools(array<string> activeLabels) =>
-    if liq_pools.size() > 0
-        for i = liq_pools.size() - 1 to 0
-            pool = liq_pools.get(i)
-            if pool.baseType == "LUX" and not f_arrayContainsString(activeLabels, pool.baseLabel)
-                liq_pools.remove(i)
-    true
-
 f_liqUpsertSwingPool(string side, float price, int sourceBar, float seedRank, bool externalSeed) =>
     if not na(price)
         bool merged = false
@@ -1499,87 +1233,6 @@ f_liqUpsertSwingPool(string side, float price, int sourceBar, float seedRank, bo
             liq_pools.push(f_newLiqPool(side, startingType, "SWING", price, sourceBar, time, startingLabel, "SWING " + side, timeframe.period, seedRank, f_liqCurrentSessionContext(), 72.0, false))
     true
 
-f_pushRecentSwing(float[] priceArr, int[] barArr, float price, int swingBar) =>
-    if not na(price)
-        array.push(priceArr, price)
-        array.push(barArr, swingBar)
-        int maxKeep = math.max(eqStructuralLookback * 3, 40)
-        while array.size(priceArr) > maxKeep
-            array.shift(priceArr)
-            array.shift(barArr)
-    true
-
-f_eqTolerance(float refPrice) =>
-    math.max(f_liqTouchTolerance(refPrice), refPrice * (eqThreshold / 100.0))
-
-find_eq_cluster(float[] priceArr, int[] barArr, int lookbackN) =>
-    float bestPrice = na
-    int bestCount = 0
-    int bestLastBar = na
-    float bestScore = 0.0
-    int available = array.size(priceArr)
-    if available >= 2
-        int startIdx = math.max(0, available - lookbackN)
-        int localStartIdx = math.max(0, available - eqLocalLookback)
-        for i = available - 1 to startIdx
-            float refPrice = array.get(priceArr, i)
-            float tol = f_eqTolerance(refPrice)
-            int matchCount = 0
-            int localTouches = 0
-            float sumPrice = 0.0
-            float minMatch = na
-            float maxMatch = na
-            int firstTouchBar = na
-            int lastTouchBar = na
-            for j = startIdx to available - 1
-                float cmpPrice = array.get(priceArr, j)
-                int cmpBar = array.get(barArr, j)
-                if math.abs(cmpPrice - refPrice) <= tol
-                    matchCount += 1
-                    sumPrice += cmpPrice
-                    minMatch := na(minMatch) ? cmpPrice : math.min(minMatch, cmpPrice)
-                    maxMatch := na(maxMatch) ? cmpPrice : math.max(maxMatch, cmpPrice)
-                    if j >= localStartIdx
-                        localTouches += 1
-                    firstTouchBar := na(firstTouchBar) ? cmpBar : math.min(firstTouchBar, cmpBar)
-                    lastTouchBar := na(lastTouchBar) ? cmpBar : math.max(lastTouchBar, cmpBar)
-            if matchCount >= 2 and not na(lastTouchBar) and not na(firstTouchBar)
-                int ageBars = bar_index - lastTouchBar
-                int spanBars = lastTouchBar - firstTouchBar
-                if ageBars <= eqClusterMaxAge and spanBars <= eqClusterMaxAge
-                    float avgPrice = sumPrice / matchCount
-                    float dispersionPct = avgPrice != 0 ? (nz(maxMatch, avgPrice) - nz(minMatch, avgPrice)) / avgPrice * 100.0 : 0.0
-                    float recencyScore = math.max(0.0, 20.0 * (1.0 - float(ageBars) / eqClusterMaxAge))
-                    float similarityScore = math.max(0.0, 20.0 - (dispersionPct / math.max(eqThreshold, 0.01)) * 8.0)
-                    float repeatScore = matchCount * 14.0 + localTouches * 6.0
-                    float spanPenalty = math.max(0.0, float(spanBars - eqLocalLookback) * 0.15)
-                    float distAtr = atrVal > 0 ? math.abs(avgPrice - close) / atrVal : 0.0
-                    float locationScore = math.max(0.0, 10.0 - math.max(distAtr - 4.0, 0.0) * 2.0)
-                    float score = repeatScore + recencyScore + similarityScore + locationScore - spanPenalty
-                    if score > bestScore or (score == bestScore and (na(bestLastBar) or lastTouchBar > bestLastBar))
-                        bestPrice := avgPrice
-                        bestCount := matchCount
-                        bestLastBar := lastTouchBar
-                        bestScore := score
-    [bestPrice, bestCount, bestLastBar, bestScore]
-
-select_cluster(float localPrice, int localCount, int localBar, float localScore, float structuralPrice, int structuralCount, int structuralBar, float structuralScore) =>
-    float chosenPrice = na
-    int chosenCount = 0
-    int chosenBar = na
-    float chosenScore = 0.0
-    if not na(localPrice) or not na(structuralPrice)
-        bool useStructural = false
-        if na(localPrice)
-            useStructural := true
-        else if not na(structuralPrice)
-            useStructural := structuralScore > localScore + 4.0 or (structuralCount > localCount and structuralScore >= localScore)
-        chosenPrice := useStructural ? structuralPrice : localPrice
-        chosenCount := useStructural ? structuralCount : localCount
-        chosenBar := useStructural ? structuralBar : localBar
-        chosenScore := useStructural ? structuralScore : localScore
-    [chosenPrice, chosenCount, chosenBar, chosenScore]
-
 majPH = ta.pivothigh(high, dynLen * 2, dynLen * 2)
 majPL = ta.pivotlow(low, dynLen * 2, dynLen * 2)
 minPH = ta.pivothigh(high, dynLen, dynLen)
@@ -1590,22 +1243,18 @@ if barstate.isconfirmed
         int majorHighBar = bar_index - dynLen * 2
         bool majorHighExternal = majPH >= (liqRangeHigh - liqExtThreshold)
         f_liqUpsertSwingPool("BSL", majPH, majorHighBar, majorHighExternal ? 82.0 : 60.0, majorHighExternal)
-        f_pushRecentSwing(recentSwingHighs, recentSwingHighBars, majPH, majorHighBar)
     if not na(majPL)
         int majorLowBar = bar_index - dynLen * 2
         bool majorLowExternal = majPL <= (liqRangeLow + liqExtThreshold)
         f_liqUpsertSwingPool("SSL", majPL, majorLowBar, majorLowExternal ? 82.0 : 60.0, majorLowExternal)
-        f_pushRecentSwing(recentSwingLows, recentSwingLowBars, majPL, majorLowBar)
     if not na(minPH) and na(majPH)
         int minorHighBar = bar_index - dynLen
         bool minorHighExternal = minPH >= (liqRangeHigh - liqExtThreshold)
         f_liqUpsertSwingPool("BSL", minPH, minorHighBar, minorHighExternal ? 72.0 : 42.0, minorHighExternal)
-        f_pushRecentSwing(recentSwingHighs, recentSwingHighBars, minPH, minorHighBar)
     if not na(minPL) and na(majPL)
         int minorLowBar = bar_index - dynLen
         bool minorLowExternal = minPL <= (liqRangeLow + liqExtThreshold)
         f_liqUpsertSwingPool("SSL", minPL, minorLowBar, minorLowExternal ? 72.0 : 42.0, minorLowExternal)
-        f_pushRecentSwing(recentSwingLows, recentSwingLowBars, minPL, minorLowBar)
 
 if showDevelopingSessionLevels and inAsia and not na(asiaH) and not na(asiaL)
     f_liqUpsertNamedPool("BSL", "DEV_SESSION", "DEV_SESSION", asiaH, nz(asiaStartBar, bar_index), "DEV ASIA H", timeframe.period, 52.0, "Asia", 66.0, false, true)
@@ -1664,73 +1313,6 @@ if showHTFLiquidity and not na(lastHtf2PL)
 else
     f_liqRemoveNamedPool("HTF2 LOW")
 
-[eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqLocalLookback)
-[eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore] = find_eq_cluster(recentSwingHighs, recentSwingHighBars, eqStructuralLookback)
-[eqhLevel, eqhCount, eqhLastBar, eqhScore] = select_cluster(eqhLocalLevel, eqhLocalCount, eqhLocalBar, eqhLocalScore, eqhStructLevel, eqhStructCount, eqhStructBar, eqhStructScore)
-[eqlLocalLevel, eqlLocalCount, eqlLocalBar, eqlLocalScore] = find_eq_cluster(recentSwingLows, recentSwingLowBars, eqLocalLookback)
-[eqlStructLevel, eqlStructCount, eqlStructBar, eqlStructScore] = find_eq_cluster(recentSwingLows, recentSwingLowBars, eqStructuralLookback)
-[eqlLevel, eqlCount, eqlLastBar, eqlScore] = select_cluster(eqlLocalLevel, eqlLocalCount, eqlLocalBar, eqlLocalScore, eqlStructLevel, eqlStructCount, eqlStructBar, eqlStructScore)
-
-if showEQ and not na(eqhLevel)
-    float eqhRank = math.min(96.0, 70.0 + math.min(eqhCount, 4) * 4.0 + math.min(eqhScore, 40.0) * 0.25)
-    f_liqUpsertNamedPool("BSL", "EQ", "EQ", eqhLevel, nz(eqhLastBar, bar_index), "EQH", timeframe.period, eqhRank, "Cluster", math.min(eqhScore, 100.0), false, true)
-    if liq_pools.size() > 0
-        for i = 0 to liq_pools.size() - 1
-            pool = liq_pools.get(i)
-            if pool.baseLabel == "EQH"
-                pool.clusterSize := math.max(eqhCount, 2)
-                break
-else
-    f_liqRemoveNamedPool("EQH")
-if showEQ and not na(eqlLevel)
-    float eqlRank = math.min(96.0, 70.0 + math.min(eqlCount, 4) * 4.0 + math.min(eqlScore, 40.0) * 0.25)
-    f_liqUpsertNamedPool("SSL", "EQ", "EQ", eqlLevel, nz(eqlLastBar, bar_index), "EQL", timeframe.period, eqlRank, "Cluster", math.min(eqlScore, 100.0), false, true)
-    if liq_pools.size() > 0
-        for i = 0 to liq_pools.size() - 1
-            pool = liq_pools.get(i)
-            if pool.baseLabel == "EQL"
-                pool.clusterSize := math.max(eqlCount, 2)
-                break
-else
-    f_liqRemoveNamedPool("EQL")
-
-float luxAtr = ta.atr(10)
-float luxMarginDiv = 10.0 / luxMarginInput
-float luxHalfRange = luxMarginDiv > 0 ? luxAtr / luxMarginDiv : luxAtr
-float luxPh = enableLuxLiquidity ? ta.pivothigh(high, luxPivotLen, 1) : na
-float luxPl = enableLuxLiquidity ? ta.pivotlow(low, luxPivotLen, 1) : na
-int luxPivotBar = bar_index - 1
-
-if enableLuxLiquidity and not na(luxPh)
-    f_luxProcessPivot(1, luxPh, luxPivotBar, luxHalfRange, luxBuyZones)
-
-if enableLuxLiquidity and not na(luxPl)
-    f_luxProcessPivot(-1, luxPl, luxPivotBar, luxHalfRange, luxSellZones)
-
-if enableLuxLiquidity and luxInjectIntoMap
-    activeLuxLabels = array.new_string(0)
-    if array.size(luxBuyZones) > 0
-        for i = 0 to array.size(luxBuyZones) - 1
-            zone = array.get(luxBuyZones, i)
-            array.push(activeLuxLabels, zone.poolLabel)
-            float zoneRank = math.min(96.0, 74.0 + math.max(zone.touchCount - 2, 0) * 4.0)
-            float zoneClean = math.min(100.0, 78.0 + math.max(zone.touchCount - 2, 0) * 4.0)
-            f_liqUpsertLuxPool("BSL", zone.poolLabel, zone.levelPrice, zone.sourceBar, zoneRank, zoneClean, zone.touchCount)
-    if array.size(luxSellZones) > 0
-        for i = 0 to array.size(luxSellZones) - 1
-            zone = array.get(luxSellZones, i)
-            array.push(activeLuxLabels, zone.poolLabel)
-            float zoneRank = math.min(96.0, 74.0 + math.max(zone.touchCount - 2, 0) * 4.0)
-            float zoneClean = math.min(100.0, 78.0 + math.max(zone.touchCount - 2, 0) * 4.0)
-            f_liqUpsertLuxPool("SSL", zone.poolLabel, zone.levelPrice, zone.sourceBar, zoneRank, zoneClean, zone.touchCount)
-    f_liqRemoveStaleLuxPools(activeLuxLabels)
-else
-    if liq_pools.size() > 0
-        for i = liq_pools.size() - 1 to 0
-            pool = liq_pools.get(i)
-            if pool.baseType == "LUX"
-                liq_pools.remove(i)
-
 if liq_pools.size() > 0
     for i = 0 to liq_pools.size() - 1
         pool = liq_pools.get(i)
@@ -1761,15 +1343,6 @@ if liq_pools.size() > 0
             pool.poolType := "HTF"
             pool.poolLabel := pool.baseLabel
             pool.structuralRank := f_htfLiqRank(pool.sourceTF, pool.sourceTF == htf2Tf ? htf2Confidence : htf1Confidence)
-            pool.isInducementCandidate := false
-        else if pool.baseType == "EQ"
-            pool.poolType := "EQ"
-            pool.poolLabel := pool.baseLabel
-            pool.isInducementCandidate := false
-        else if pool.baseType == "LUX"
-            pool.poolType := "EQ"
-            pool.poolLabel := pool.baseLabel
-            pool.structuralRank := math.max(pool.structuralRank, 74.0)
             pool.isInducementCandidate := false
         pool.cleanlinessScore := f_liqCalculatedCleanliness(pool)
 
@@ -1817,10 +1390,6 @@ while liq_pools.size() > 80
             dropScore := score
     liq_pools.remove(dropIdx)
 
-if enableLuxLiquidity
-    f_luxUpdateZones(luxBuyZones, true, luxBuySweepAtr, luxAtr, luxBuyColor)
-    f_luxUpdateZones(luxSellZones, false, luxSellSweepAtr, luxAtr, luxSellColor)
-
 if barstate.islast
     if liq_render_lines.size() > 0
         for i = liq_render_lines.size() - 1 to 0
@@ -1835,10 +1404,19 @@ if barstate.islast
     if liq_pools.size() > 0
         for i = 0 to liq_pools.size() - 1
             p = liq_pools.get(i)
-            if f_liqShouldRenderPool(p) and not f_liqHasDedicatedOverlay(p)
+            float pDistAtr = atrVal > 0 ? math.abs(p.price - close) / atrVal : 999.0
+            bool pActiveState = p.state == "FRESH" or p.state == "TAGGED"
+            bool pImportantType = p.poolType == "PERIOD" or p.poolType == "SESSION" or p.poolType == "EXTERNAL" or p.poolType == "HTF"
+            bool pDevSession = p.poolType == "DEV_SESSION" and showDevelopingSessionLevels
+            bool pInternalActionable = p.poolType == "INTERNAL" and p.isInducementCandidate and pDistAtr <= 1.0
+            bool pRenderable = p.state != "CONSUMED" and ((pActiveState and (pImportantType or pInternalActionable or pDevSession)) or (showSweptLiquidity and p.state == "SWEPT" and (bar_index - nz(p.lastRefreshBar, p.sourceBar)) <= sweepMssTimeoutBars and pDistAtr <= liqContextAtr))
+            if pRenderable and not f_liqHasDedicatedOverlay(p)
                 int rowIdx = na
-                mergeTol = f_liqRenderMergeTolerance(p.price)
-                rowPriority = f_liqVisualScore(p)
+                mergeTol = math.max(syminfo.mintick * 8, math.min(atrVal * 0.02, p.price * 0.0004))
+                rowPriority = p.structuralRank + f_liqFreshnessScore(p) * 0.35 + f_liqCalculatedCleanliness(p) * 0.15
+                rowPriority += math.max(0.0, 18.0 - pDistAtr * 5.0)
+                rowPriority += p.poolType == "DEV_SESSION" ? -12.0 : 0.0
+                rowPriority += p.state == "TAGGED" ? 5.0 : p.state == "SWEPT" ? -8.0 : 0.0
                 if renderRows.size() > 0
                     for j = 0 to renderRows.size() - 1
                         row = renderRows.get(j)
@@ -1894,27 +1472,38 @@ if barstate.islast
             for j = i + 1 to selectedRows.size() - 1
                 r1 = selectedRows.get(i)
                 r2 = selectedRows.get(j)
-                if r1.price < r2.price
+                int r1Tier = f_levelTier(r1.primaryText)
+                int r2Tier = f_levelTier(r2.primaryText)
+                bool sameTier = r2Tier == r1Tier
+                bool higherTier = r2Tier < r1Tier
+                bool sameTierHigherPriority = sameTier and r2.priority > r1.priority
+                bool sameTierSamePriorityHigherPrice = sameTier and math.abs(r2.priority - r1.priority) <= 0.01 and r2.price > r1.price
+                if higherTier or sameTierHigherPriority or sameTierSamePriorityHigherPrice
                     selectedRows.set(i, r2)
                     selectedRows.set(j, r1)
 
-    float prevRowPrice = na
-    int stackedOffset = 0
-    float spacing = f_liqLabelSpacing()
     if selectedRows.size() > 0
         for i = 0 to selectedRows.size() - 1
             row = selectedRows.get(i)
-            displayText = row.primaryText
-            clr = f_levelRenderColor(row.state, row.isMajor)
-            lineStyle = row.state == "CONSUMED" ? line.style_dotted : row.state == "SWEPT" ? line.style_dashed : row.isMajor ? line.style_solid : line.style_dashed
-            int renderLeftBar = f_liqRenderLeftBar(row.sourceBar)
-            array.push(liq_render_lines, line.new(renderLeftBar, row.price, bar_index + 5, row.price, color=clr, style=lineStyle, width=row.isMajor ? 2 : 1))
-            if showLiquidityLabels
-                isNearPrev = not na(prevRowPrice) and math.abs(prevRowPrice - row.price) <= spacing
-                stackedOffset := isNearPrev ? stackedOffset + 4 : 0
-                prevRowPrice := row.price
-                int renderOffset = stackedOffset + f_liqLabelExtraOffset(displayText)
-                array.push(liq_render_labels, label.new(bar_index + 5 + renderOffset, row.price, displayText, color=f_defaultLevelLabelBg(), textcolor=f_defaultLevelColor(), style=label.style_label_left, size=f_liqLabelSize()))
+            string displayText = f_compactLevelText(row.primaryText)
+            int tier = f_levelTier(displayText)
+            if row.state == "SWEPT"
+                tier := 1
+            else if row.isMajor and tier > 2
+                tier := 2
+            int stateFade = row.state == "CONSUMED" ? 28 : row.state == "SWEPT" ? 14 : row.state == "TAGGED" ? 6 : 0
+            int baseAlpha = tier == 1 ? 8 : tier == 2 ? 26 : 48
+            int majorBonus = row.isMajor and tier == 1 ? -4 : 0
+            color clr = color.new(f_defaultLevelColor(), math.max(0, math.min(88, baseAlpha + stateFade + majorBonus)))
+            lineStyle = row.state == "CONSUMED" ? line.style_dotted : row.state == "SWEPT" ? line.style_dashed : tier == 3 ? line.style_dotted : row.isMajor ? line.style_solid : line.style_dashed
+            int anchorBar = na(row.sourceBar) ? bar_index : row.sourceBar
+            int renderLeftBar = adaptiveLevelExtensions ? math.max(math.max(anchorBar, bar_index - f_levelLeftSpanBars(row.price, tier, row.state == "SWEPT")), 0) : math.max(math.max(anchorBar, bar_index - math.max(liqRangeLookback * 8, 800)), 0)
+            int renderRightBar = bar_index + (adaptiveLevelExtensions ? (tier == 1 ? 9 : tier == 2 ? 7 : 5) : 10)
+            array.push(liq_render_lines, line.new(renderLeftBar, row.price, renderRightBar, row.price, color=clr, style=lineStyle, width=tier == 1 ? 3 : tier == 2 ? 2 : 1))
+            if showLiquidityLabels and f_levelShouldShowLabel(displayText, row.price, tier)
+                [labelY, shiftDir] = f_resolveLevelLabelY(row.price)
+                array.push(liq_render_labels, label.new(renderRightBar, labelY, displayText + " " + str.tostring(row.price, format.mintick), color=color.new(f_themePanelColor(), tier == 1 ? 0 : tier == 2 ? 8 : 16), textcolor=color.new(f_defaultLevelColor(), tier == 3 ? 10 : 0), style=shiftDir > 0 ? label.style_label_lower_left : shiftDir < 0 ? label.style_label_upper_left : label.style_label_left, size=tier == 1 ? size.small : tier == 2 ? (liqLabelSize == "Tiny" ? size.tiny : liqLabelSize == "Small" ? size.small : size.normal) : size.tiny))
+                f_incLevelLabelStats(tier)
 
 // --- FVG Engine ---
 var fvg_records = array.new<fvg_data>(0)
@@ -1980,7 +1569,7 @@ f_liqRangePos(float price) =>
     liqRangeSpan > 0 ? (price - liqRangeLow) / liqRangeSpan : 0.5
 
 f_sweepLiquidityScore(liq_pool pool) =>
-    pool.poolType == "HTF" ? 20.0 : pool.poolType == "PERIOD" ? 18.0 : pool.poolType == "SESSION" ? 16.0 : pool.poolType == "EQ" ? 14.0 : pool.poolType == "EXTERNAL" ? 12.0 : 4.0
+    pool.poolType == "HTF" ? 20.0 : pool.poolType == "PERIOD" ? 18.0 : pool.poolType == "SESSION" ? 16.0 : pool.poolType == "EXTERNAL" ? 12.0 : 4.0
 
 f_sweepSessionIsLogical(liq_pool pool) =>
     if pool.baseType == "SESSION"
@@ -2491,7 +2080,7 @@ if liq_pools.size() > 0
                         p_s.lastRefreshBar := bar_index
 
 if not na(bestSweepIdx)
-    int narrativeRefBar = (bestSweepBaseType == "SWING" or bestSweepBaseType == "EQ") ? bestSweepSourceBar : nz(sweepLabelBar, bar_index)
+    int narrativeRefBar = bestSweepBaseType == "SWING" ? bestSweepSourceBar : nz(sweepLabelBar, bar_index)
     int sweepContextBar = nz(sweepLabelBar, bar_index)
     if bestSweepSide == "BSL"
         swpBSL := true
@@ -2724,7 +2313,7 @@ f_nearestDirectionalLiquidity(float anchorPrice, bool wantAbove, string liqSide,
         float anchorTol = math.max(f_liqTouchTolerance(anchorPrice) * 0.35, syminfo.mintick * 5)
         for i = 0 to liq_pools.size() - 1
             pool = liq_pools.get(i)
-            bool meaningful = f_liqIsEventEligible(pool) and not pool.isSwept and pool.state != "CONSUMED" and (f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 70.0)
+            bool meaningful = f_liqIsEventEligible(pool) and not pool.isSwept and pool.state != "CONSUMED" and (f_liqIsExternal(pool.poolType) or pool.structuralRank >= 70.0)
             if meaningful and pool.side == liqSide
                 float dist = wantAbove ? pool.price - anchorPrice : anchorPrice - pool.price
                 bool directional = dist > anchorTol and dist <= atrVal * maxWindowAtr
@@ -2739,7 +2328,6 @@ f_targetLiquidityIsMajor(liq_pool pool) =>
     pool.poolType == "HTF" or
      pool.poolType == "PERIOD" or
      pool.poolType == "SESSION" or
-     (pool.poolType == "EQ" and pool.clusterSize >= 2) or
      (pool.poolType == "EXTERNAL" and pool.structuralRank >= targetMajorRankMin)
 
 f_tradeTargetPrice(bool isBullTrade, float entryPrice, float stopPrice) =>
@@ -2757,7 +2345,7 @@ f_tradeTargetPrice(bool isBullTrade, float entryPrice, float stopPrice) =>
             pool = liq_pools.get(i)
             bool sameSide = pool.side == (isBullTrade ? "BSL" : "SSL")
             bool stillActive = f_liqIsEventEligible(pool) and not pool.isSwept and pool.state != "CONSUMED"
-            bool meaningful = f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 70.0
+            bool meaningful = f_liqIsExternal(pool.poolType) or pool.structuralRank >= 70.0
             if sameSide and stillActive and meaningful
                 float dist = isBullTrade ? pool.price - entryPrice : entryPrice - pool.price
                 bool aheadOfEntry = dist > anchorTol
@@ -2896,13 +2484,13 @@ f_findActiveLiquidityBeyond(string liqSide, float anchorPrice, float maxWindowAt
             pool = liq_pools.get(i)
             bool sameSide = pool.side == liqSide
             bool stillActive = f_liqIsEventEligible(pool) and not pool.isSwept and pool.state != "CONSUMED"
-            bool meaningful = f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 70.0
+            bool meaningful = f_liqIsExternal(pool.poolType) or pool.structuralRank >= 70.0
             if sameSide and stillActive and meaningful
                 float beyondDist = liqSide == "SSL" ? anchorPrice - pool.price : pool.price - anchorPrice
                 bool beyondAnchor = beyondDist > (anchorTol * 0.35)
                 bool insideWindow = beyondDist <= (atrVal * maxWindowAtr)
                 if beyondAnchor and insideWindow
-                    float score = f_liqRetentionScore(pool) - (beyondDist / atrVal) * 8.0 + (pool.poolType == "EQ" ? 6.0 : 0.0)
+                    float score = f_liqRetentionScore(pool) - (beyondDist / atrVal) * 8.0
                     if score > bestScore
                         bestScore := score
                         bestPrice := pool.price
@@ -3171,7 +2759,7 @@ f_bigMoveLiquidityConfluence(float zoneHigh, float zoneLow, string direction) =>
                 bool overlaps = zoneLow <= (pool.price + tol) and zoneHigh >= (pool.price - tol)
                 bool directionalPool = direction == "BULL" ? (pool.side == "SSL" or pool.price <= zoneLow + tol) : (pool.side == "BSL" or pool.price >= zoneHigh - tol)
                 if overlaps and directionalPool
-                    float boost = math.min(18.0, 5.0 + f_liqRetentionScore(pool) * 0.11 + (f_liqIsExternal(pool.poolType) ? 3.0 : 0.0) + (pool.poolType == "EQ" ? 2.0 : 0.0))
+                    float boost = math.min(18.0, 5.0 + f_liqRetentionScore(pool) * 0.11 + (f_liqIsExternal(pool.poolType) ? 3.0 : 0.0))
                     if boost > bestBoost
                         bestBoost := boost
                         bestLabel := f_liqCompactBaseLabel(pool)
@@ -3198,7 +2786,7 @@ f_bigMoveNearImportantLiquidity() =>
     if liq_pools.size() > 0 and atrVal > 0
         for i = 0 to liq_pools.size() - 1
             pool = liq_pools.get(i)
-            bool important = f_liqIsEventEligible(pool) and not f_liqIsExpired(pool) and (f_liqIsExternal(pool.poolType) or pool.poolType == "EQ" or pool.structuralRank >= 74.0)
+            bool important = f_liqIsEventEligible(pool) and not f_liqIsExpired(pool) and (f_liqIsExternal(pool.poolType) or pool.structuralRank >= 74.0)
             float dist = math.abs(pool.price - close)
             bool recentSweep = important and not na(pool.takenBar) and (bar_index - pool.takenBar) <= 3 and dist <= atrVal * 1.25
             if recentSweep and dist < bestSweepDist
@@ -3642,48 +3230,40 @@ if showBigMoveTimingTable and enableBigMoveMemory and barstate.islast
 else if barstate.islast
     table.clear(bigMoveTable, 0, 0, 1, 3)
 
+f_dashRow(table t, int row, string leftTxt, string rightTxt, color rightColor, color cellBg, color cellText) =>
+    table.cell(t, 0, row, leftTxt, text_color=cellText, bgcolor=cellBg, text_size=size.small)
+    table.cell(t, 1, row, rightTxt, text_color=rightColor, bgcolor=cellBg, text_size=size.small)
+
 // --- Dashboard ---
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
-    var table tb = table.new(pos_tbl, 2, 10, bgcolor=#1e222d, border_color=#373a46, border_width=1)
-    color dashHeaderBg = chart.fg_color
-    color dashHeaderText = chart.bg_color
-    color dashCellBg = chart.fg_color
-    color dashCellText = chart.bg_color
-    table.cell(tb, 0, 0, "HTF / SMC BIAS", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
+    color dashBorder = f_isDarkTheme() ? color.new(#475569, 30) : color.new(#94a3b8, 30)
+    var table tb = table.new(pos_tbl, 2, 7, bgcolor=f_themePanelColor(), border_color=dashBorder, border_width=1)
+    table.clear(tb, 0, 0, 1, 6)
+
+    color dashHeaderBg = f_themeInvertedPanelColor()
+    color dashHeaderText = f_themeInvertedTextColor()
+    color dashCellBg = f_themePanelColor()
+    color dashCellText = f_themeTextColor()
+    bool aboveDo = close > dO
+    bool aboveWo = close > wO
+    string nyMidPos = na(nyMidnight) ? "N/A" : close > nyMidnight ? "Above" : "Below"
+    string sessionPosition = "DO " + (aboveDo ? "Above" : "Below") + " | WO " + (aboveWo ? "Above" : "Below") + " | NY " + nyMidPos
+    string structurePanel = "HTF1: " + htf1Display + "\nHTF2: " + htf2Display
+    string sessionPanel = sessionPosition + "\nLTF: " + structureStatus
+    float combinedDashboardBias = htfCompositeBias + (structureTrend == 1 ? 18.0 : structureTrend == -1 ? -18.0 : 0.0)
+    string overallContext = combinedDashboardBias >= 70 ? "Bullish aligned" : combinedDashboardBias <= -70 ? "Bearish aligned" : htfLongStrong ? "Bullish HTF bias" : htfShortStrong ? "Bearish HTF bias" : combinedDashboardBias >= 25 ? "Bullish intraday lean" : combinedDashboardBias <= -25 ? "Bearish intraday lean" : "Neutral / conflicting"
+    string traderRead = combinedDashboardBias >= 25 ? (aboveDo and aboveWo ? "Prefer longs; buy discount and avoid fresh shorts." : "Bullish lean, but reclaim session opens before pressing longs.") : combinedDashboardBias <= -25 ? (not aboveDo and not aboveWo ? "Prefer shorts; sell premium and avoid fresh longs." : "Bearish lean, but lose session opens before pressing shorts.") : "No strong directional agreement; trade only the cleanest sweep-to-MSS setups."
+    color overallColor = combinedDashboardBias >= 25 ? color.new(COLOR_BULL, 0) : combinedDashboardBias <= -25 ? color.new(COLOR_BEAR, 0) : color.new(COLOR_NEUT, 0)
+    int tot = w10 + l10
+    string winrate = tot == 0 ? "0%" : str.tostring(math.round(w10 / tot * 100)) + "%"
+
+    table.cell(tb, 0, 0, "MARKET CONTEXT", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
     table.cell(tb, 1, 0, "TRADER READ", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
 
-    bT1 = close > dO ? "ABOVE" : "BELOW"
-    table.cell(tb, 0, 1, "Daily Open", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 1, bT1, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    bT2 = close > wO ? "ABOVE" : "BELOW"
-    table.cell(tb, 0, 2, "Weekly Open", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 2, bT2, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    bT3 = na(nyMidnight) ? "N/A" : close > nyMidnight ? "ABOVE" : "BELOW"
-    table.cell(tb, 0, 3, "NY Midnight", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 3, bT3, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    table.cell(tb, 0, 4, "HTF 1 (" + htf1Tf + ")", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 4, htf1Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    table.cell(tb, 0, 5, "HTF 2 (" + htf2Tf + ")", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 5, htf2Display, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    bool structureBull = structureTrend == 1
-    bool structureBear = structureTrend == -1
-    table.cell(tb, 0, 6, "LTF Structure", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 6, structureStatus, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    overAll = close > dO and structureBull and htfLongStrong ? "Bias: Bullish aligned\nFilter: longs allowed; fade weak shorts" : close < dO and structureBear and htfShortStrong ? "Bias: Bearish aligned\nFilter: shorts allowed; fade weak longs" : htfCompositeDashboard
-    table.cell(tb, 0, 7, "Overall Context", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 7, overAll, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    table.cell(tb, 0, 8, "Total Setups", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 8, str.tostring(tSetups), text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-
-    tot = w10 + l10
-    winrate = tot == 0 ? "0%" : str.tostring(math.round(w10 / tot * 100)) + "%"
-    table.cell(tb, 0, 9, "Winrate", text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
-    table.cell(tb, 1, 9, winrate, text_color=dashCellText, bgcolor=dashCellBg, text_size=size.small)
+    f_dashRow(tb, 1, "HTF / SMC Bias", htfCompositeDashboard, htfCompositeColor, dashCellBg, dashCellText)
+    f_dashRow(tb, 2, "HTF Structure", structurePanel, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 3, "Session / LTF", sessionPanel, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 4, "Overall Context", overallContext, overallColor, dashCellBg, dashCellText)
+    f_dashRow(tb, 5, "Trader Read", traderRead, dashCellText, dashCellBg, dashCellText)
+    f_dashRow(tb, 6, "Stats", "Setups " + str.tostring(tSetups) + " | Winrate " + winrate, dashCellText, dashCellBg, dashCellText)
