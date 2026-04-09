@@ -170,8 +170,16 @@ msInternalSwingLen = input.int(3, "Internal Swing Confirmation", minval=1, group
 msConfirmationMode = input.string("Balanced", "Confirmation Mode", options=["Aggressive", "Balanced", "Conservative"], group=G_MS, tooltip="Aggressive keeps devtrader primary. Balanced upgrades only aligned narratives to top quality. Conservative blocks entry until the market-structure layer confirms.")
 showMsSwings = input.bool(false, "Show MS Swing Bullets", group=G_MS, tooltip="Plots confirmed swing bullets on the pivot bars like market-structure-sweeps. These are right-confirmed and appear only after the confirmation delay.")
 msSwingMarkerSize = input.int(4, "MS Swing Marker Size", minval=1, maxval=8, group=G_MS)
+msSwingHighColor = input.color(color.new(COLOR_BEAR, 0), "Swing High Bullet Color", group=G_MS)
+msSwingLowColor = input.color(color.new(COLOR_BULL, 0), "Swing Low Bullet Color", group=G_MS)
 showMsProtectedLevels = input.bool(false, "Show MS Protected Levels", group=G_MS)
 showMsChochBos = input.bool(false, "Show MS CHoCH / BOS Levels", group=G_MS, tooltip="Draws CHoCH and BOS levels in the market-structure-sweeps style, including live extension levels on the last bar.")
+msBullChochColor = input.color(color.new(COLOR_BULL, 0), "Bullish CHoCH Color", group=G_MS)
+msBearChochColor = input.color(color.new(COLOR_BEAR, 0), "Bearish CHoCH Color", group=G_MS)
+msBullBosColor = input.color(color.new(COLOR_BULL, 0), "Bullish BOS Color", group=G_MS)
+msBearBosColor = input.color(color.new(COLOR_BEAR, 0), "Bearish BOS Color", group=G_MS)
+msBosRequiresInternalPullback = input.bool(true, "BOS Requires New Internal Pullback", group=G_MS, tooltip="Prevents BOS from printing on every incremental continuation break. Requires a fresh internal swing after the last CHoCH/BOS event, closer to market-structure-sweeps behavior.")
+msBosDisplacementMult = input.float(0.85, "BOS Break Body Mult", minval=0.5, step=0.05, group=G_MS, tooltip="Minimum body expansion versus average body for BOS candles. Higher values make BOS prints tighter and less frequent.")
 msCompactStructureLabels = input.bool(true, "Use Compact Structure Labels", group=G_MS)
 enableDebugTelemetry = input.bool(false, "Show Unified Debug Telemetry", group=G_MS, tooltip="Displays lightweight last-bar diagnostics for chosen liquidity, sweep grading, structure alignment, and block reasons.")
 
@@ -1990,8 +1998,8 @@ if not na(majL)
 [msMajorSwingHigh, msMajorSwingHighBar, msMajorSwingLow, msMajorSwingLowBar] = f_msMajorSwings()
 [msInternalSwingHigh, msInternalSwingHighBar, msInternalSwingLow, msInternalSwingLowBar] = f_msInternalSwings()
 
-color msMajorHighPlotColor = color.new(COLOR_BEAR, (waitS or ms_structureBias == -1 or htfCompositeBias <= -10) ? 0 : 45)
-color msMajorLowPlotColor = color.new(COLOR_BULL, (waitL or ms_structureBias == 1 or htfCompositeBias >= 10) ? 0 : 45)
+color msMajorHighPlotColor = msSwingHighColor
+color msMajorLowPlotColor = msSwingLowColor
 float msBullChochLevel = ms_lastSwingHigh
 int msBullChochBar = ms_lastSwingHighBar
 float msBearChochLevel = ms_lastSwingLow
@@ -2018,6 +2026,13 @@ float msBosHighRef = nz(ms_externalHigh, ms_lastSwingHigh)
 float msBosLowRef = nz(ms_externalLow, ms_lastSwingLow)
 int msBosHighRefBar = na(ms_externalHighBar) ? ms_lastSwingHighBar : ms_externalHighBar
 int msBosLowRefBar = na(ms_externalLowBar) ? ms_lastSwingLowBar : ms_externalLowBar
+float msBosRange = high - low
+float msBosSafeRange = msBosRange > 0 ? msBosRange : syminfo.mintick
+float msBosBody = math.abs(close - open)
+bool msBullBosImpulse = close > open and msBosBody > avgBody * msBosDisplacementMult and ((high - close) / msBosSafeRange) <= 0.35
+bool msBearBosImpulse = close < open and msBosBody > avgBody * msBosDisplacementMult and ((close - low) / msBosSafeRange) <= 0.35
+bool ms_bullBosPullbackReady = not msBosRequiresInternalPullback or (not na(ms_lastInternalLow) and ms_lastInternalLowBar > nz(ms_lastStructureEventBar, -1))
+bool ms_bearBosPullbackReady = not msBosRequiresInternalPullback or (not na(ms_lastInternalHigh) and ms_lastInternalHighBar > nz(ms_lastStructureEventBar, -1))
 bool ms_bullChochEvent = false
 bool ms_bearChochEvent = false
 bool ms_bullBosEvent = false
@@ -2058,7 +2073,7 @@ if not na(ms_lastSwingLow) and close < (ms_lastSwingLow - msBreakTol) and not ms
 bool ms_bullProtectedIntact = na(ms_protectedLow) or close >= (ms_protectedLow - msBreakTol)
 bool ms_bearProtectedIntact = na(ms_protectedHigh) or close <= (ms_protectedHigh + msBreakTol)
 
-if ms_structureBias == 1 and not ms_bullChochEvent and not na(msBosHighRef) and close > (msBosHighRef + msBreakTol) and ms_bullProtectedIntact
+if ms_structureBias == 1 and not ms_bullChochEvent and ms_bullBosPullbackReady and not na(msBosHighRef) and close > (msBosHighRef + msBreakTol) and ms_bullProtectedIntact and msBullBosImpulse
     ms_bullBosEvent := true
     if not na(ms_lastInternalLow) and ms_lastInternalLowBar > nz(ms_lastStructureEventBar, -1)
         ms_protectedLow := ms_lastInternalLow
@@ -2072,7 +2087,7 @@ if ms_structureBias == 1 and not ms_bullChochEvent and not na(msBosHighRef) and 
     ms_lastStructureEventBar := bar_index
     ms_lastEventType := "Bullish BOS"
 
-if ms_structureBias == -1 and not ms_bearChochEvent and not na(msBosLowRef) and close < (msBosLowRef - msBreakTol) and ms_bearProtectedIntact
+if ms_structureBias == -1 and not ms_bearChochEvent and ms_bearBosPullbackReady and not na(msBosLowRef) and close < (msBosLowRef - msBreakTol) and ms_bearProtectedIntact and msBearBosImpulse
     ms_bearBosEvent := true
     if not na(ms_lastInternalHigh) and ms_lastInternalHighBar > nz(ms_lastStructureEventBar, -1)
         ms_protectedHigh := ms_lastInternalHigh
@@ -2103,22 +2118,22 @@ else if ms_structureBias == -1
 
 if showMsChochBos
     if ms_bullChochEvent
-        line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=COLOR_BULL, style=line.style_dashed)
-        label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, "CHoCH", color=color(na), style=label.style_label_down, textcolor=COLOR_BULL, size=size.tiny)
+        line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=msBullChochColor, style=line.style_dashed)
+        label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, "CHoCH", color=color(na), style=label.style_label_down, textcolor=msBullChochColor, size=size.tiny)
     if ms_bearChochEvent
-        line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=COLOR_BEAR, style=line.style_dashed)
-        label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, "CHoCH", color=color(na), style=label.style_label_up, textcolor=COLOR_BEAR, size=size.tiny)
+        line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=msBearChochColor, style=line.style_dashed)
+        label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, "CHoCH", color=color(na), style=label.style_label_up, textcolor=msBearChochColor, size=size.tiny)
     if ms_bullBosEvent
-        line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=COLOR_BULL)
-        label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, "BOS", color=color(na), style=label.style_label_down, textcolor=COLOR_BULL, size=size.tiny)
+        line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=msBullBosColor)
+        label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, "BOS", color=color(na), style=label.style_label_down, textcolor=msBullBosColor, size=size.tiny)
     if ms_bearBosEvent
-        line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=COLOR_BEAR)
-        label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, "BOS", color=color(na), style=label.style_label_up, textcolor=COLOR_BEAR, size=size.tiny)
+        line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=msBearBosColor)
+        label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, "BOS", color=color(na), style=label.style_label_up, textcolor=msBearBosColor, size=size.tiny)
 
 if barstate.islast
     if showMsChochBos and ms_structureBias == 1
-        color bullBosColor = color.new(COLOR_BULL, htfCompositeBias >= 0 ? 0 : 25)
-        color bearChochColor = color.new(COLOR_BEAR, htfCompositeBias <= 0 ? 0 : 25)
+        color bullBosColor = msBullBosColor
+        color bearChochColor = msBearChochColor
         if not na(ms_lastSwingLow)
             line.set_xy1(ms_extChoch, ms_lastSwingLowBar, ms_lastSwingLow)
             line.set_xy2(ms_extChoch, bar_index, ms_lastSwingLow)
@@ -2140,8 +2155,8 @@ if barstate.islast
         else
             line.set_color(ms_extBos, na), label.set_textcolor(ms_extBosLbl, na)
     else if showMsChochBos and ms_structureBias == -1
-        color bullChochColor = color.new(COLOR_BULL, htfCompositeBias >= 0 ? 0 : 25)
-        color bearBosColor = color.new(COLOR_BEAR, htfCompositeBias <= 0 ? 0 : 25)
+        color bullChochColor = msBullChochColor
+        color bearBosColor = msBearBosColor
         if not na(ms_lastSwingHigh)
             line.set_xy1(ms_extChoch, ms_lastSwingHighBar, ms_lastSwingHigh)
             line.set_xy2(ms_extChoch, bar_index, ms_lastSwingHigh)
