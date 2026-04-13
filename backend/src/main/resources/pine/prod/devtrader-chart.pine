@@ -193,7 +193,7 @@ rzEntryColor    = input.color(color.new(#08ffd6, 60), "Entry Zone Color", group=
 rzTargetColor   = input.color(color.new(#5b9cf6, 80), "Target Zone Color", group=G_RZ)
 rzBearColor     = input.color(color.new(#ff0015, 60), "Bearish Zone Color", group=G_RZ)
 
-enableLuxFvgEngine = input.bool(true, "Enable Lux-Style FVG Engine", group=G_FVG)
+enableLuxFvgEngine = input.bool(true, "Enable Dev-Style FVG Engine", group=G_FVG)
 fvgThresholdPercent = input.float(0.0, "Threshold %", minval=0.0, maxval=100.0, step=0.1, inline="fvgThreshold", group=G_FVG)
 fvgThresholdAuto = input.bool(false, "Auto", inline="fvgThreshold", group=G_FVG)
 fvgShowLastUnmitigated = input.int(0, "Unmitigated Levels", minval=0, group=G_FVG)
@@ -1007,7 +1007,6 @@ if barstate.islast
             f_overlayHideCandle(body, wickTop, wickBottom, borderTop, borderBottom, borderLeft, borderRight)
 
 // --- Fair Value Gap Engine ---
-// Re-implementation inspired by "Fair Value Gap [LuxAlgo]" by LuxAlgo.
 // Reference attribution preserved per the original CC BY-NC-SA 4.0 licensing.
 f_fvgSolidColor(color clr) =>
     color.rgb(color.r(clr), color.g(clr), color.b(clr))
