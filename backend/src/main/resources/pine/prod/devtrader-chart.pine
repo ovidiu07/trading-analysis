@@ -1,11 +1,10 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
-indicator("Devtrader - Chart analysis", shorttitle="Devtrader - Chart analysis", overlay=true, max_bars_back=5000, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+indicator("Devtrader - Chart Analysis", shorttitle="Chart Analysis", overlay=true, max_bars_back=5000, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
 
 // --- Groups ---
 G_KZ    = "Killzones & Sessions"
 G_VP    = "Volume Profile (Daily)"
-G_STATS = "Trade Statistics Settings"
 G_SMC   = "SMC Engine"
 G_MS    = "Unified Market Structure"
 G_LIQ   = "Liquidity Swing Engine"
@@ -93,20 +92,6 @@ colorNYK     = input.color(color.new(#f23645, 93), "NY Color", group=G_KZ)
 
 showVP       = input.bool(true, "Show Daily Reference", group=G_VP)
 
-stopModel    = input.string("Sweep Extreme", "Stop Model", options=["Sweep Extreme", "MSS Candle Extreme"], group=G_STATS)
-ltfEntrySwingLen = input.int(2, "Lower-TF MSS Swing Strength", minval=1, group=G_STATS)
-ltfEntryDispMult = input.float(1.05, "Lower-TF MSS Disp. Mult", minval=1.0, step=0.05, group=G_STATS)
-enableBreakEvenRule = input.bool(false, "Enable Auto Break-Even", group=G_STATS, tooltip="Optional lifecycle rule: after price reaches the configured R multiple, move the stop to entry so the trade can close as BE instead of SL.")
-breakEvenTriggerR = input.float(1.0, "Break-Even Trigger (R)", minval=0.25, step=0.25, group=G_STATS)
-tradeMinRR = input.float(2.0, "Minimum Target R", minval=1.0, step=0.25, group=G_STATS)
-tradeTargetWindowAtr = input.float(8.0, "Target Liquidity Window (ATR)", minval=2.0, step=0.5, group=G_STATS)
-targetModel = input.string("Next Liquidity", "Target Model", options=["Next Liquidity", "Next Liquidity + RR Floor"], group=G_STATS, tooltip="Professional sweep-to-MSS execution should normally pay into the next meaningful opposing liquidity. RR floor mode stretches the target only when you want to override that first objective.")
-showTradePlans = input.bool(true, "Show Setup SL / TP", group=G_STATS, tooltip="Draws entry, stop, and target plans for active trades and current entry-ready setups.")
-ltfRequiresPostSweepPivot = input.bool(false, "LTF MSS Requires Post-Sweep Pivot", group=G_STATS, tooltip="Only arm the lower-timeframe MSS entry when the pivot being broken formed after the sweep started. This enforces sweep -> rebuild -> MSS -> entry.")
-ltfMssDelayBars = input.int(1, "LTF MSS Delay Bars", minval=0, maxval=10, group=G_STATS, tooltip="Minimum number of lower-timeframe bars that must print after the sweep before an LTF MSS can qualify. This filters out immediate micro breaks inside the same reaction burst.")
-ltfMssMinLegAtr = input.float(0.08, "LTF MSS Min Leg (ATR)", minval=0.05, step=0.05, group=G_STATS, tooltip="Minimum lower-timeframe swing distance between the post-sweep reclaim pivot and the break pivot. Higher values remove micro-noise MSS breaks.")
-targetMajorRankMin = input.float(78.0, "Target Major Liquidity Rank", minval=60.0, maxval=95.0, step=1.0, group=G_STATS, tooltip="Minimum structural rank for a target to count as a major liquidity objective when using next-liquidity targeting.")
-
 showSMC      = input.bool(true, "SFP & MSS Detection", group=G_SMC)
 majorSweeps  = input.bool(true, "External Liquidity Only", group=G_SMC, tooltip="Only detect sweeps on external liquidity (major, session, or HTF levels). Ignores minor internal structure.")
 wickThresh   = input.float(0.70, "Min. Rejection Efficiency", minval=0.4, maxval=3.0, step=0.05, group=G_SMC, tooltip="Minimum wick-to-body rejection efficiency required for a valid sweep reclaim.")
@@ -121,16 +106,15 @@ requireSweepCloseBackInside = input.bool(true, "Require Close Back Inside", grou
 requireSweepSessionQualifier = input.bool(false, "Require Session Qualification", group=G_SMC, tooltip="Hard gate: only accept sweeps that happen in a logical session / killzone context.")
 newsRangeAtrMult = input.float(2.2, "News Spike Range ATR", minval=1.0, step=0.1, group=G_SMC, tooltip="Bars larger than this ATR multiple are treated as news/displacement spikes in sweep classification.")
 newsVolMult = input.float(1.8, "News Spike Volume Mult", minval=1.0, step=0.1, group=G_SMC, tooltip="Bars with both large range and this relative volume are treated as news/displacement spikes.")
-useMajorMSS  = input.bool(true, "Major Structure MSS Only", group=G_SMC, tooltip="Require MSS to break a Major pivot rather than a minor internal one.")
 dispMult     = input.float(1.4, "Disp. Multiplier", step=0.1, group=G_SMC)
 swingLen     = input.int(3, "Swing Strength", minval=1, group=G_SMC)
 breakoutLabelSize = input.string("Tiny", "Breakout Label Size", options=["Tiny", "Small", "Normal"], group=G_SMC)
-sweepMssTimeoutBars = input.int(14, "Sweep To MSS Timeout (Bars)", minval=1, group=G_SMC, tooltip="Hide sweep reclaim entry zones if no MSS confirms within this many bars.")
+sweepMssTimeoutBars = input.int(14, "Sweep To MSS Timeout (Bars)", minval=1, group=G_SMC, tooltip="Expire the active sweep narrative if no follow-through structure confirms within this many bars.")
 showSweepTimeoutNote = input.bool(false, "Show Sweep Timeout Note", group=G_SMC, tooltip="If enabled, prints one small note when a sweep reclaim setup expires without MSS confirmation.")
 
 msMajorSwingLen = input.int(50, "Major Swing Confirmation", minval=2, group=G_MS, tooltip="Right-confirmed major swing length used for the imported market-structure map. This is a delayed confirmation layer, not a predictive pivot.")
 msInternalSwingLen = input.int(3, "Internal Swing Confirmation", minval=1, group=G_MS, tooltip="Smaller confirmed swings used only to refresh protected levels and continuation context.")
-msConfirmationMode = input.string("Balanced", "Confirmation Mode", options=["Aggressive", "Balanced", "Conservative"], group=G_MS, tooltip="Aggressive keeps devtrader primary. Balanced upgrades only aligned narratives to top quality. Conservative blocks entry until the market-structure layer confirms.")
+msConfirmationMode = input.string("Balanced", "Confirmation Mode", options=["Aggressive", "Balanced", "Conservative"], group=G_MS, tooltip="Aggressive keeps devtrader primary. Balanced upgrades only aligned narratives to top quality. Conservative waits for stronger market-structure confirmation before treating the sweep as aligned.")
 showMsSwings = input.bool(false, "Show MS Swing Bullets", group=G_MS, tooltip="Plots confirmed swing bullets on the pivot bars like market-structure-sweeps. These are right-confirmed and appear only after the confirmation delay.")
 msSwingMarkerSize = input.int(4, "MS Swing Marker Size", minval=1, maxval=8, group=G_MS)
 msSwingHighColor = input.color(color.new(COLOR_BEAR, 0), "Swing High Bullet Color", group=G_MS)
@@ -149,7 +133,7 @@ msBosMinRefAgeBars = input.int(2, "Min BOS Ref Age (Bars)", minval=1, maxval=20,
 msIdmTakeMode = input.string("wick_then_close", "MS IDM Take Mode", options=["wick", "close", "wick_then_close"], group=G_MS, tooltip="How inducement is considered taken before BOS can print.")
 msIdmReclaimBars = input.int(2, "MS IDM Reclaim Bars", minval=1, maxval=5, group=G_MS, tooltip="Maximum bars allowed for an IDM wick sweep to reclaim the level.")
 msCompactStructureLabels = input.bool(true, "Use Compact Structure Labels", group=G_MS)
-enableDebugTelemetry = input.bool(false, "Show Unified Debug Telemetry", group=G_MS, tooltip="Displays lightweight last-bar diagnostics for chosen liquidity, sweep grading, structure alignment, and block reasons.")
+enableDebugTelemetry = input.bool(false, "Show Unified Debug Telemetry", group=G_MS, tooltip="Displays lightweight last-bar diagnostics for chosen liquidity, sweep grading, market-structure alignment, and top reaction zones.")
 
 liqPivotLen      = input.int(14, "Base Pivot Lookback", minval=1, group=G_LIQ)
 autoLiqPivot     = input.bool(true, "Auto-Optimize Lookback", group=G_LIQ, tooltip="Adjusts the pivot lookback based on current ATR volatility. High volatility increases lookback to filter noise; low volatility decreases it to catch tighter pivots.")
@@ -209,10 +193,6 @@ htf1SwingLen = input.int(5, "HTF 1 Swing Strength", group=G_HTF)
 htf2Tf       = input.timeframe("240", "HTF 2 Timeframe", group=G_HTF)
 htf2SwingLen = input.int(5, "HTF 2 Swing Strength", group=G_HTF)
 showHTFLiquidity = input.bool(true, "Inject HTF Liquidity Levels", group=G_HTF, tooltip="Publishes confirmed HTF dealing-range highs/lows into the lower-timeframe liquidity map so sweeps can interact with them.")
-useHTFEntryFilter = input.bool(true, "Block Strong Counter-HTF Entries", group=G_HTF, tooltip="Blocks LTF entries when the combined HTF context is strongly opposed.")
-useDirectionalLiquidityEntryFilter = input.bool(true, "Block Counter-Trend Entries With Opposing Liquidity", group=G_HTF, tooltip="Blocks shorts when the broader context is still bullish and meaningful BSL remains above, and blocks longs when bearish context still has meaningful SSL below.")
-entryDirectionalBiasThreshold = input.int(15, "Counter-Trend Bias Threshold", minval=5, maxval=50, group=G_HTF, tooltip="Bias level used by the directional-liquidity entry filter before it treats the market as broadly bullish or bearish.")
-entryLiquidityConflictWindowAtr = input.float(6.0, "Counter-Liquidity Window (ATR)", minval=1.0, step=0.5, group=G_HTF, tooltip="How far from the planned entry the script checks for unresolved opposing liquidity before allowing a counter-trend setup.")
 htfMinConfidence = input.int(60, "HTF Confidence Threshold", minval=40, maxval=90, group=G_HTF, tooltip="Minimum combined HTF confidence required before the script treats the context as strongly directional.")
 htfDispBodyMult = input.float(1.15, "HTF Disp. Body Mult", minval=1.0, step=0.05, group=G_HTF, tooltip="Relative body expansion required on the latest confirmed HTF candle to count as meaningful displacement.")
 htfLiquidityProxAtr = input.float(0.75, "HTF Liquidity Proximity (ATR)", minval=0.25, step=0.25, group=G_HTF, tooltip="Distance to confirmed HTF liquidity, measured in HTF ATR, used when scoring reversal-candidate and continuation states.")
@@ -565,8 +545,6 @@ float htf2DirectionalBias = f_htfDirectionalBias(htf2State, htf2Confidence)
 float htfCompositeBias = htf1DirectionalBias * 0.75 + htf2DirectionalBias
 bool htfLongStrong = htfCompositeBias >= htfMinConfidence
 bool htfShortStrong = htfCompositeBias <= -htfMinConfidence
-bool blockLongEntry = useHTFEntryFilter and htfShortStrong
-bool blockShortEntry = useHTFEntryFilter and htfLongStrong
 
 var float asiaH = na
 var float asiaL = na
@@ -815,22 +793,6 @@ f_renderRightLabels() =>
             label.set_y(lb, na)
             label.set_text(lb, "")
     true
-
-f_timeframeStrFromSeconds(int secs) =>
-    int mins = int(math.max(1.0, math.round(float(secs) / 60.0)))
-    str.tostring(mins)
-
-f_timeframeLabelFromSeconds(int secs) =>
-    int mins = int(math.max(1.0, math.round(float(secs) / 60.0)))
-    mins >= 60 and mins % 60 == 0 ? str.tostring(int(mins / 60)) + "h" : str.tostring(mins) + "m"
-
-f_autoLtfSeconds(int baseSecs) =>
-    if baseSecs <= 60
-        60
-    else
-        int ladderSecs = int(math.floor(float(baseSecs) / 180.0)) * 60
-        ladderSecs := math.max(60, ladderSecs)
-        math.min(baseSecs - 60, ladderSecs)
 
 f_overlayBullBodyColor() =>
     overlayCandleColorSource == "Manual" ? overlayBullBodyColor : #089981
@@ -1599,12 +1561,6 @@ f_unifiedSweepNarrative(string side, string grade, bool msConfirmed, bool msConf
      msConflict ? dir + " sweep valid but broader structure disagrees" :
      dir + " sweep valid; broader structure still pending"
 
-f_entryBlockReason(bool hardHtfBlock, bool liquidityBlock, bool msBlock, bool msOpposed, string side, string ladderLabel) =>
-    hardHtfBlock ? "Blocked: HTF bias is strongly opposed" :
-     liquidityBlock ? "Blocked: counter-liquidity is closer than the directional objective" :
-     msBlock ? (msOpposed ? "Blocked: " + side + " sweep conflicts with broader market structure" : "Blocked: " + ladderLabel + " trigger formed without market-structure confirmation") :
-     ""
-
 f_resetWaitState() =>
     [false, int(na), int(na), float(na), float(na), float(na), false, false, false, "", float(na)]
 
@@ -1615,16 +1571,10 @@ f_startWaitState(float level, float tol, float baseScore, bool volumeOk, bool se
     [true, bar_index, time, level, tol, baseScore, volumeOk, sessionOk, reclaimOk, poolLabel, stopAnchor]
 
 f_resetWaitAdvanced() =>
-    ["", int(na), "", false, int(na), float(na), int(na), "", "", float(na), float(na), float(na), int(na)]
+    ["", int(na), ""]
 
 f_startWaitAdvanced(string tier, int timeoutBars) =>
-    [tier, timeoutBars, "", false, int(na), float(na), int(na), "", "", float(na), float(na), float(na), int(na)]
-
-f_resetSetupTracking() =>
-    [int(na), false, false, int(na)]
-
-f_startSetupTracking(int setupId) =>
-    [setupId, false, false, int(na)]
+    [tier, timeoutBars, ""]
 
 // --- SMC & SD Stats ---
 var bool waitS = false
@@ -1672,48 +1622,7 @@ var int waitTimeoutBarsL = na
 var int waitTimeoutBarsS = na
 var string waitRejectionTierL = ""
 var string waitRejectionTierS = ""
-var bool waitStructureConfirmedL = false
-var bool waitStructureConfirmedS = false
-var int waitStructureConfirmBarL = na
-var int waitStructureConfirmBarS = na
-var float waitConfirmSwingPriceL = na
-var float waitConfirmSwingPriceS = na
-var int waitConfirmSwingBarL = na
-var int waitConfirmSwingBarS = na
-var string waitConfirmSwingTierL = ""
-var string waitConfirmSwingTierS = ""
-var string waitStructureBreakTypeL = ""
-var string waitStructureBreakTypeS = ""
-var string waitExecModelL = ""
-var string waitExecModelS = ""
-var float waitExecEntryL = na
-var float waitExecEntryS = na
-var float waitExecTopL = na
-var float waitExecTopS = na
-var float waitExecBottomL = na
-var float waitExecBottomS = na
-var int waitExecArmedBarL = na
-var int waitExecArmedBarS = na
 var string structureStatus = "Neutral"
-var int tSetups = 0
-var int w10 = 0
-var int l10 = 0
-var int be10 = 0
-var int setupsDetectedCount = 0
-var int setupsValidatedCount = 0
-var int entriesTriggeredCount = 0
-var int blockedTradesCount = 0
-var int winsCount = 0
-var int lossesCount = 0
-var int breakEvensCount = 0
-var bool active = false
-var bool bull = false
-var float activeEntryPrice = na
-var float activeInitialStop = na
-var float tSL = na
-var float t10 = na
-var bool activeBreakEvenArmed = false
-var int activeEntryBar = na
 var float protectedHigh = na
 var float protectedLow = na
 var int protectedHighBar = na
@@ -1728,15 +1637,6 @@ var bool waitSweepReclaimOkL = false
 var bool waitSweepReclaimOkS = false
 var string waitSweepPoolLabelL = ""
 var string waitSweepPoolLabelS = ""
-var int setupSequence = 0
-var int waitSetupIdS = na
-var int waitSetupIdL = na
-var bool waitSetupValidatedS = false
-var bool waitSetupValidatedL = false
-var bool waitSetupBlockedCountedS = false
-var bool waitSetupBlockedCountedL = false
-var int lastShortValidationKey = na
-var int lastLongValidationKey = na
 var array<float> minorHighPivotPrices = array.new_float(0)
 var array<int> minorHighPivotBars = array.new_int(0)
 var array<float> minorLowPivotPrices = array.new_float(0)
@@ -1825,23 +1725,11 @@ f_structureBaseStatus(int trend) =>
 
 f_modeProfile(string mode) =>
     int timeoutBars = sweepMssTimeoutBars
-    float legAtr = ltfMssMinLegAtr
-    float dispMultMode = ltfEntryDispMult
-    bool requirePostPivot = ltfRequiresPostSweepPivot
-    int delayBars = ltfMssDelayBars
     if mode == "Aggressive"
         timeoutBars := math.max(timeoutBars, 24)
-        legAtr := math.min(legAtr, 0.05)
-        dispMultMode := math.min(dispMultMode, 1.00)
-        requirePostPivot := false
-        delayBars := math.min(delayBars, 0)
     else if mode == "Conservative"
         timeoutBars := math.min(timeoutBars, 12)
-        legAtr := math.max(legAtr, 0.15)
-        dispMultMode := math.max(dispMultMode, 1.15)
-        requirePostPivot := true
-        delayBars := math.max(delayBars, 2)
-    [timeoutBars, legAtr, dispMultMode, requirePostPivot, delayBars]
+    timeoutBars
 
 f_modeTierTimeout(string mode, string tier) =>
     tier == "MAJOR" ? (mode == "Aggressive" ? 24 : mode == "Conservative" ? 12 : 18) :
@@ -1853,9 +1741,6 @@ f_modeRejectionGraceBars(string mode) =>
 
 f_modeRankFloor(string mode) =>
     mode == "Aggressive" ? 30.0 : mode == "Conservative" ? 60.0 : 45.0
-
-f_modeSwingLegAtr(string mode) =>
-    mode == "Aggressive" ? 0.25 : mode == "Conservative" ? 0.80 : 0.50
 
 f_modeSweepAlignmentAtr(string mode) =>
     mode == "Aggressive" ? 1.00 : mode == "Conservative" ? 0.45 : 0.65
@@ -1983,239 +1868,7 @@ f_evalRejectionTier(string side, float sweepLevel, float stopAnchor, int waitSta
             tier := "FAILED"
     tier
 
-// Repaint-safe structure checks scan only confirmed bullets and only inspect already-closed bars before the current bar.
-f_waitClosedBeyondLevel(bool isBullBreak, float level, int waitStartBar, float tol) =>
-    bool broken = false
-    if not na(level) and not na(waitStartBar)
-        int maxScan = math.min(math.max(bar_index - waitStartBar, 0), 48)
-        for i = 1 to 48
-            if i <= maxScan
-                int scanBar = bar_index - i
-                if scanBar >= waitStartBar
-                    bool beyond = isBullBreak ? close[i] > (level + tol) : close[i] < (level - tol)
-                    if beyond
-                        broken := true
-    broken
-
-// Repaint-safe swing selection: eligible pivots must already be confirmed and remain untaken before the current close.
-f_confirmationPivotEligible(float pivotPrice, int pivotBar, float sweepLevel, int minBar, int waitStartBar, string side, string mode) =>
-    float atrRef = math.max(nz(atrVal, syminfo.mintick * 20), syminfo.mintick * 10)
-    float legMin = math.max(atrRef * f_modeSwingLegAtr(mode), syminfo.mintick * 10)
-    float pivotTol = math.max(f_liqTouchTolerance(pivotPrice) * 0.35, atrRef * 0.03)
-    bool untaken = not f_waitClosedBeyondLevel(side == "LONG", pivotPrice, waitStartBar, pivotTol)
-    not na(pivotPrice) and f_isConfirmedPivot(pivotBar) and pivotBar >= minBar and math.abs(pivotPrice - sweepLevel) >= legMin and untaken
-
-f_findEligibleConfirmationPivot(array<float> priceArr, array<int> barArr, float sweepLevel, int minBar, int waitStartBar, string side, string mode) =>
-    float candidatePrice = na
-    int candidateBar = na
-    if array.size(barArr) > 0
-        for i = array.size(barArr) - 1 to 0
-            float pivotPrice = array.get(priceArr, i)
-            int pivotBar = array.get(barArr, i)
-            if f_confirmationPivotEligible(pivotPrice, pivotBar, sweepLevel, minBar, waitStartBar, side, mode)
-                candidatePrice := pivotPrice
-                candidateBar := pivotBar
-                break
-    [candidatePrice, candidateBar]
-
-// Repaint-safe selection uses confirmed chart bullets first and only falls back to the existing structure refs when they remain eligible.
-f_selectConfirmationSwing(string side, int waitStartBar, float sweepLevel, string mode, float minorSeed, int minorSeedBar, float majorSeed, int majorSeedBar) =>
-    float selectedPrice = na
-    int selectedBar = na
-    string selectedTier = ""
-    int recentMinBar = nz(waitStartBar, bar_index) - swingLen
-    int anchorMinBar = recentMinBar
-    if not na(minorSeedBar)
-        anchorMinBar := math.min(anchorMinBar, minorSeedBar - swingLen)
-    if not na(majorSeedBar)
-        anchorMinBar := math.min(anchorMinBar, majorSeedBar - swingLen)
-    float minorCandidate = na
-    int minorCandidateBar = na
-    float majorCandidate = na
-    int majorCandidateBar = na
-    if side == "SHORT"
-        [minorCandidate, minorCandidateBar] = f_findEligibleConfirmationPivot(minorLowPivotPrices, minorLowPivotBars, sweepLevel, recentMinBar, waitStartBar, side, mode)
-        [majorCandidate, majorCandidateBar] = f_findEligibleConfirmationPivot(majorLowPivotPrices, majorLowPivotBars, sweepLevel, recentMinBar, waitStartBar, side, mode)
-        if na(minorCandidate)
-            [minorCandidate, minorCandidateBar] = f_findEligibleConfirmationPivot(minorLowPivotPrices, minorLowPivotBars, sweepLevel, anchorMinBar, waitStartBar, side, mode)
-        if na(majorCandidate)
-            [majorCandidate, majorCandidateBar] = f_findEligibleConfirmationPivot(majorLowPivotPrices, majorLowPivotBars, sweepLevel, anchorMinBar, waitStartBar, side, mode)
-    else
-        [minorCandidate, minorCandidateBar] = f_findEligibleConfirmationPivot(minorHighPivotPrices, minorHighPivotBars, sweepLevel, recentMinBar, waitStartBar, side, mode)
-        [majorCandidate, majorCandidateBar] = f_findEligibleConfirmationPivot(majorHighPivotPrices, majorHighPivotBars, sweepLevel, recentMinBar, waitStartBar, side, mode)
-        if na(minorCandidate)
-            [minorCandidate, minorCandidateBar] = f_findEligibleConfirmationPivot(minorHighPivotPrices, minorHighPivotBars, sweepLevel, anchorMinBar, waitStartBar, side, mode)
-        if na(majorCandidate)
-            [majorCandidate, majorCandidateBar] = f_findEligibleConfirmationPivot(majorHighPivotPrices, majorHighPivotBars, sweepLevel, anchorMinBar, waitStartBar, side, mode)
-    if na(minorCandidate) and f_confirmationPivotEligible(minorSeed, minorSeedBar, sweepLevel, anchorMinBar, waitStartBar, side, mode)
-        minorCandidate := minorSeed
-        minorCandidateBar := minorSeedBar
-    if na(majorCandidate) and f_confirmationPivotEligible(majorSeed, majorSeedBar, sweepLevel, anchorMinBar, waitStartBar, side, mode)
-        majorCandidate := majorSeed
-        majorCandidateBar := majorSeedBar
-    float atrRef = math.max(nz(atrVal, syminfo.mintick * 20), syminfo.mintick * 10)
-    bool majorNearby = not na(majorCandidate) and math.abs(majorCandidate - sweepLevel) <= atrRef * 1.5
-    if mode == "Conservative"
-        if not na(majorCandidate)
-            selectedPrice := majorCandidate
-            selectedBar := majorCandidateBar
-            selectedTier := "MAJOR"
-        else if not na(minorCandidate)
-            selectedPrice := minorCandidate
-            selectedBar := minorCandidateBar
-            selectedTier := "MINOR"
-    else if mode == "Balanced"
-        if majorNearby
-            selectedPrice := majorCandidate
-            selectedBar := majorCandidateBar
-            selectedTier := "MAJOR"
-        else if not na(minorCandidate)
-            selectedPrice := minorCandidate
-            selectedBar := minorCandidateBar
-            selectedTier := "MINOR"
-        else if not na(majorCandidate)
-            selectedPrice := majorCandidate
-            selectedBar := majorCandidateBar
-            selectedTier := "MAJOR"
-    else
-        if not na(minorCandidate)
-            selectedPrice := minorCandidate
-            selectedBar := minorCandidateBar
-            selectedTier := "MINOR"
-        else if not na(majorCandidate)
-            selectedPrice := majorCandidate
-            selectedBar := majorCandidateBar
-            selectedTier := "MAJOR"
-    [selectedPrice, selectedBar, selectedTier]
-
-f_currentFvgZone(bool isBullSetup) =>
-    bool valid = false
-    float entryPrice = na
-    float zoneTop = na
-    float zoneBottom = na
-    if isBullSetup and low > high[2]
-        valid := true
-        entryPrice := low
-        zoneTop := low
-        zoneBottom := high[2]
-    else if not isBullSetup and high < low[2]
-        valid := true
-        entryPrice := high
-        zoneTop := low[2]
-        zoneBottom := high
-    [valid, entryPrice, zoneTop, zoneBottom]
-
-f_findPostShiftOb(bool isBullSetup) =>
-    bool found = false
-    float entryPrice = na
-    float zoneTop = na
-    float zoneBottom = na
-    for i = 1 to 6
-        bool opposingCandle = isBullSetup ? close[i] < open[i] : close[i] > open[i]
-        if not found and opposingCandle
-            found := true
-            entryPrice := open[i]
-            zoneTop := high[i]
-            zoneBottom := low[i]
-    [found, entryPrice, zoneTop, zoneBottom]
-
-[modeSweepTimeoutBars, modeLtfMssMinLegAtr, modeLtfEntryDispMult, modeLtfRequiresPostSweepPivot, modeLtfMssDelayBars] = f_modeProfile(msConfirmationMode)
-
-f_ltfBullMssTime(int minSignalTime) =>
-    float lRange = high - low
-    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
-    float lBody = math.abs(close - open)
-    float lAvgBody = ta.sma(math.abs(close - open), 20)
-    float lAtr = ta.atr(14)
-    int ltfBarMs = int(math.max(float(timeframe.in_seconds(timeframe.period)), 60.0) * 1000.0)
-    int minDelayedTime = na(minSignalTime) ? na : minSignalTime + ltfBarMs * modeLtfMssDelayBars
-    float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotLowTime = not na(lPivotLow) ? int(time[ltfEntrySwingLen]) : na
-    bool reclaimLowEligible = not na(lPivotLow) and (not modeLtfRequiresPostSweepPivot or na(minDelayedTime) or lPivotLowTime > minDelayedTime)
-    float lLastReclaimLow = ta.valuewhen(reclaimLowEligible, lPivotLow, 0)
-    int lLastReclaimLowTime = int(ta.valuewhen(reclaimLowEligible, lPivotLowTime, 0))
-    float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotHighTime = not na(lPivotHigh) ? int(time[ltfEntrySwingLen]) : na
-    bool breakHighEligible = not na(lPivotHigh) and (na(minDelayedTime) or lPivotHighTime > minDelayedTime) and (not modeLtfRequiresPostSweepPivot or (not na(lLastReclaimLowTime) and lPivotHighTime > lLastReclaimLowTime))
-    float lLastPivotHigh = ta.valuewhen(breakHighEligible, lPivotHigh, 0)
-    int lLastPivotHighTime = int(ta.valuewhen(breakHighEligible, lPivotHighTime, 0))
-    float lStructureLeg = not na(lLastPivotHigh) and not na(lLastReclaimLow) ? (lLastPivotHigh - lLastReclaimLow) : na
-    bool structuralSeparation = not na(lStructureLeg) and (lAtr <= 0 or lStructureLeg >= lAtr * modeLtfMssMinLegAtr)
-    bool lBullImpulse = close > open and lBody > lAvgBody * modeLtfEntryDispMult and ((high - close) / lSafeRange) <= 0.25 and (low > high[2] or lRange >= lAtr * 0.75)
-    bool lBullMss = not na(lLastPivotHigh) and (na(minDelayedTime) or time > minDelayedTime) and (na(lLastPivotHighTime) or time > lLastPivotHighTime) and structuralSeparation and close > lLastPivotHigh and lBullImpulse
-    int(ta.valuewhen(lBullMss, time, 0))
-
-f_ltfBearMssTime(int minSignalTime) =>
-    float lRange = high - low
-    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
-    float lBody = math.abs(close - open)
-    float lAvgBody = ta.sma(math.abs(close - open), 20)
-    float lAtr = ta.atr(14)
-    int ltfBarMs = int(math.max(float(timeframe.in_seconds(timeframe.period)), 60.0) * 1000.0)
-    int minDelayedTime = na(minSignalTime) ? na : minSignalTime + ltfBarMs * modeLtfMssDelayBars
-    float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotHighTime = not na(lPivotHigh) ? int(time[ltfEntrySwingLen]) : na
-    bool reclaimHighEligible = not na(lPivotHigh) and (not modeLtfRequiresPostSweepPivot or na(minDelayedTime) or lPivotHighTime > minDelayedTime)
-    float lLastReclaimHigh = ta.valuewhen(reclaimHighEligible, lPivotHigh, 0)
-    int lLastReclaimHighTime = int(ta.valuewhen(reclaimHighEligible, lPivotHighTime, 0))
-    float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotLowTime = not na(lPivotLow) ? int(time[ltfEntrySwingLen]) : na
-    bool breakLowEligible = not na(lPivotLow) and (na(minDelayedTime) or lPivotLowTime > minDelayedTime) and (not modeLtfRequiresPostSweepPivot or (not na(lLastReclaimHighTime) and lPivotLowTime > lLastReclaimHighTime))
-    float lLastPivotLow = ta.valuewhen(breakLowEligible, lPivotLow, 0)
-    int lLastPivotLowTime = int(ta.valuewhen(breakLowEligible, lPivotLowTime, 0))
-    float lStructureLeg = not na(lLastReclaimHigh) and not na(lLastPivotLow) ? (lLastReclaimHigh - lLastPivotLow) : na
-    bool structuralSeparation = not na(lStructureLeg) and (lAtr <= 0 or lStructureLeg >= lAtr * modeLtfMssMinLegAtr)
-    bool lBearImpulse = close < open and lBody > lAvgBody * modeLtfEntryDispMult and ((close - low) / lSafeRange) <= 0.25 and (high < low[2] or lRange >= lAtr * 0.75)
-    bool lBearMss = not na(lLastPivotLow) and (na(minDelayedTime) or time > minDelayedTime) and (na(lLastPivotLowTime) or time > lLastPivotLowTime) and structuralSeparation and close < lLastPivotLow and lBearImpulse
-    int(ta.valuewhen(lBearMss, time, 0))
-
-f_ltfBullMssPrice(int minSignalTime) =>
-    float lRange = high - low
-    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
-    float lBody = math.abs(close - open)
-    float lAvgBody = ta.sma(math.abs(close - open), 20)
-    float lAtr = ta.atr(14)
-    int ltfBarMs = int(math.max(float(timeframe.in_seconds(timeframe.period)), 60.0) * 1000.0)
-    int minDelayedTime = na(minSignalTime) ? na : minSignalTime + ltfBarMs * modeLtfMssDelayBars
-    float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotLowTime = not na(lPivotLow) ? int(time[ltfEntrySwingLen]) : na
-    bool reclaimLowEligible = not na(lPivotLow) and (not modeLtfRequiresPostSweepPivot or na(minDelayedTime) or lPivotLowTime > minDelayedTime)
-    float lLastReclaimLow = ta.valuewhen(reclaimLowEligible, lPivotLow, 0)
-    int lLastReclaimLowTime = int(ta.valuewhen(reclaimLowEligible, lPivotLowTime, 0))
-    float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotHighTime = not na(lPivotHigh) ? int(time[ltfEntrySwingLen]) : na
-    bool breakHighEligible = not na(lPivotHigh) and (na(minDelayedTime) or lPivotHighTime > minDelayedTime) and (not modeLtfRequiresPostSweepPivot or (not na(lLastReclaimLowTime) and lPivotHighTime > lLastReclaimLowTime))
-    float lLastPivotHigh = ta.valuewhen(breakHighEligible, lPivotHigh, 0)
-    int lLastPivotHighTime = int(ta.valuewhen(breakHighEligible, lPivotHighTime, 0))
-    float lStructureLeg = not na(lLastPivotHigh) and not na(lLastReclaimLow) ? (lLastPivotHigh - lLastReclaimLow) : na
-    bool structuralSeparation = not na(lStructureLeg) and (lAtr <= 0 or lStructureLeg >= lAtr * modeLtfMssMinLegAtr)
-    bool lBullImpulse = close > open and lBody > lAvgBody * modeLtfEntryDispMult and ((high - close) / lSafeRange) <= 0.25 and (low > high[2] or lRange >= lAtr * 0.75)
-    bool lBullMss = not na(lLastPivotHigh) and (na(minDelayedTime) or time > minDelayedTime) and (na(lLastPivotHighTime) or time > lLastPivotHighTime) and structuralSeparation and close > lLastPivotHigh and lBullImpulse
-    ta.valuewhen(lBullMss, close, 0)
-
-f_ltfBearMssPrice(int minSignalTime) =>
-    float lRange = high - low
-    float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
-    float lBody = math.abs(close - open)
-    float lAvgBody = ta.sma(math.abs(close - open), 20)
-    float lAtr = ta.atr(14)
-    int ltfBarMs = int(math.max(float(timeframe.in_seconds(timeframe.period)), 60.0) * 1000.0)
-    int minDelayedTime = na(minSignalTime) ? na : minSignalTime + ltfBarMs * modeLtfMssDelayBars
-    float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotHighTime = not na(lPivotHigh) ? int(time[ltfEntrySwingLen]) : na
-    bool reclaimHighEligible = not na(lPivotHigh) and (not modeLtfRequiresPostSweepPivot or na(minDelayedTime) or lPivotHighTime > minDelayedTime)
-    float lLastReclaimHigh = ta.valuewhen(reclaimHighEligible, lPivotHigh, 0)
-    int lLastReclaimHighTime = int(ta.valuewhen(reclaimHighEligible, lPivotHighTime, 0))
-    float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
-    int lPivotLowTime = not na(lPivotLow) ? int(time[ltfEntrySwingLen]) : na
-    bool breakLowEligible = not na(lPivotLow) and (na(minDelayedTime) or lPivotLowTime > minDelayedTime) and (not modeLtfRequiresPostSweepPivot or (not na(lLastReclaimHighTime) and lPivotLowTime > lLastReclaimHighTime))
-    float lLastPivotLow = ta.valuewhen(breakLowEligible, lPivotLow, 0)
-    int lLastPivotLowTime = int(ta.valuewhen(breakLowEligible, lPivotLowTime, 0))
-    float lStructureLeg = not na(lLastReclaimHigh) and not na(lLastPivotLow) ? (lLastReclaimHigh - lLastPivotLow) : na
-    bool structuralSeparation = not na(lStructureLeg) and (lAtr <= 0 or lStructureLeg >= lAtr * modeLtfMssMinLegAtr)
-    bool lBearImpulse = close < open and lBody > lAvgBody * modeLtfEntryDispMult and ((close - low) / lSafeRange) <= 0.25 and (high < low[2] or lRange >= lAtr * 0.75)
-    bool lBearMss = not na(lLastPivotLow) and (na(minDelayedTime) or time > minDelayedTime) and (na(lLastPivotLowTime) or time > lLastPivotLowTime) and structuralSeparation and close < lLastPivotLow and lBearImpulse
-    ta.valuewhen(lBearMss, close, 0)
+int modeSweepTimeoutBars = f_modeProfile(msConfirmationMode)
 
 f_resolveBearStructureRefs(int narrativeRefBar, int sweepBar, float protectedLowRef, int protectedLowRefBar) =>
     int primaryBar = na(narrativeRefBar) ? sweepBar : narrativeRefBar
@@ -2248,18 +1901,6 @@ f_resolveBullStructureRefs(int narrativeRefBar, int sweepBar, float protectedHig
             majorRef := protectedHighRef
             majorRefBar := protectedHighRefBar
     [minorRef, minorRefBar, majorRef, majorRefBar]
-
-f_ltfEntrySignals(bool ltfEntryTfValid, string ltfEntryTf, int waitStartTimeL, int waitStartTimeS) =>
-    int ltfBullMssTime = int(na)
-    int ltfBearMssTime = int(na)
-    float ltfBullEntryPrice = na
-    float ltfBearEntryPrice = na
-    if ltfEntryTfValid
-        ltfBullMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssTime(waitStartTimeL), lookahead=barmerge.lookahead_off)
-        ltfBearMssTime := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssTime(waitStartTimeS), lookahead=barmerge.lookahead_off)
-        ltfBullEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssPrice(waitStartTimeL), lookahead=barmerge.lookahead_off)
-        ltfBearEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssPrice(waitStartTimeS), lookahead=barmerge.lookahead_off)
-    [ltfBullMssTime, ltfBearMssTime, ltfBullEntryPrice, ltfBearEntryPrice]
 
 avgBody = ta.sma(math.abs(close - open), 20)
 disp    = math.abs(close - open) > (avgBody * dispMult)
@@ -2361,8 +2002,8 @@ float msBosSafeRange = msBosRange > 0 ? msBosRange : syminfo.mintick
 float msBosBody = math.abs(close - open)
 bool msBullBosImpulse = close > open and msBosBody > avgBody * msBosDisplacementMult and ((high - close) / msBosSafeRange) <= 0.35
 bool msBearBosImpulse = close < open and msBosBody > avgBody * msBosDisplacementMult and ((close - low) / msBosSafeRange) <= 0.35
-bool msBullConfluenceAligned = not blockLongEntry and (htfCompositeBias >= 0 or close >= dO)
-bool msBearConfluenceAligned = not blockShortEntry and (htfCompositeBias <= 0 or close <= dO)
+bool msBullConfluenceAligned = not htfShortStrong and (htfCompositeBias >= 0 or close >= dO)
+bool msBearConfluenceAligned = not htfLongStrong and (htfCompositeBias <= 0 or close <= dO)
 bool msStructureSpacingOk = na(ms_lastStructureEventBar) or (bar_index - ms_lastStructureEventBar) >= msMinStructureSpacingBars
 bool ms_bullChochEvent = false
 bool ms_bearChochEvent = false
@@ -2740,12 +2381,6 @@ if barstate.islast
     else
         line.set_color(ms_extIdm, na)
 
-int chartTfSecs = int(timeframe.in_seconds(timeframe.period))
-int ltfEntrySecs = f_autoLtfSeconds(chartTfSecs)
-string ltfEntryTf = f_timeframeStrFromSeconds(ltfEntrySecs)
-string ltfEntryLabel = f_timeframeLabelFromSeconds(ltfEntrySecs)
-bool ltfEntryTfValid = ltfEntrySecs > 0 and chartTfSecs > 0 and ltfEntrySecs < chartTfSecs
-[ltfBullMssTime, ltfBearMssTime, ltfBullEntryPrice, ltfBearEntryPrice] = f_ltfEntrySignals(ltfEntryTfValid, ltfEntryTf, waitStartTimeL, waitStartTimeS)
 // --- High-Fidelity Sweep Engine ---
 bool swpBSL = false
 bool swpSSL = false
@@ -3034,57 +2669,41 @@ if not na(bestBreakoutIdx)
                 p_b.lastRefreshBar := bar_index
     if bestBreakoutSide == "BSL" and waitS and not na(waitSweepLevelS) and math.abs(bestBreakoutPrice - waitSweepLevelS) <= math.max(bestBreakoutTol, nz(waitSweepTolS, bestBreakoutTol))
         [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
-        [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_resetWaitAdvanced()
-        waitExecModelS := ""
-        [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_resetSetupTracking()
+        [waitTierS, waitTimeoutBarsS, waitRejectionTierS] = f_resetWaitAdvanced()
         [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
         sExtH := na
         structureStatus := f_structureBaseStatus(structureTrend)
     if bestBreakoutSide == "SSL" and waitL and not na(waitSweepLevelL) and math.abs(bestBreakoutPrice - waitSweepLevelL) <= math.max(bestBreakoutTol, nz(waitSweepTolL, bestBreakoutTol))
         [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
-        [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_resetWaitAdvanced()
-        waitExecModelL := ""
-        [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_resetSetupTracking()
+        [waitTierL, waitTimeoutBarsL, waitRejectionTierL] = f_resetWaitAdvanced()
         [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
         sExtL := na
         structureStatus := f_structureBaseStatus(structureTrend)
 
 bearSweep = showSMC and swpBSL
 bullSweep = showSMC and swpSSL
-if bearSweep and not active and not waitS
-    setupsDetectedCount += 1
-    setupSequence += 1
+if bearSweep and not waitS
     [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_startWaitState(bestSweepPrice, bestSweepTol, sweepGrade, bestSweepVolumeOk, bestSweepSessionOk, bestSweepReclaimOk, bestSweepPoolLabel, bestSweepStopAnchor)
-    [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_startWaitAdvanced(bestSweepTier, f_modeTierTimeout(msConfirmationMode, bestSweepTier))
-    [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_startSetupTracking(setupSequence)
+    [waitTierS, waitTimeoutBarsS, waitRejectionTierS] = f_startWaitAdvanced(bestSweepTier, f_modeTierTimeout(msConfirmationMode, bestSweepTier))
     [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
-    [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_resetWaitAdvanced()
-    waitExecModelL := ""
-    [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_resetSetupTracking()
+    [waitTierL, waitTimeoutBarsL, waitRejectionTierL] = f_resetWaitAdvanced()
     [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
-    waitExecModelS := ""
     sExtH := waitStopAnchorS
-    structureStatus := "Bearish " + bestSweepTier + " sweep qualified; awaiting rejection and swing break"
-if bullSweep and not active and not waitL
-    setupsDetectedCount += 1
-    setupSequence += 1
+    structureStatus := "Bearish " + bestSweepTier + " sweep qualified; awaiting rejection and structure shift"
+if bullSweep and not waitL
     [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_startWaitState(bestSweepPrice, bestSweepTol, sweepGrade, bestSweepVolumeOk, bestSweepSessionOk, bestSweepReclaimOk, bestSweepPoolLabel, bestSweepStopAnchor)
-    [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_startWaitAdvanced(bestSweepTier, f_modeTierTimeout(msConfirmationMode, bestSweepTier))
-    [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_startSetupTracking(setupSequence)
+    [waitTierL, waitTimeoutBarsL, waitRejectionTierL] = f_startWaitAdvanced(bestSweepTier, f_modeTierTimeout(msConfirmationMode, bestSweepTier))
     [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
-    [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_resetWaitAdvanced()
-    waitExecModelS := ""
-    [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_resetSetupTracking()
+    [waitTierS, waitTimeoutBarsS, waitRejectionTierS] = f_resetWaitAdvanced()
     [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
-    waitExecModelL := ""
     sExtL := waitStopAnchorL
-    structureStatus := "Bullish " + bestSweepTier + " sweep qualified; awaiting rejection and swing break"
+    structureStatus := "Bullish " + bestSweepTier + " sweep qualified; awaiting rejection and structure shift"
 
 bearRaidRange = high - low
 bearRaidSafeRange = bearRaidRange > 0 ? bearRaidRange : 1.0
 bearRaidReclaim = nz(waitSweepLevelS, high) - close
 bearRaidWick = (high - close) / bearRaidSafeRange
-bool bearRaidUpgrade = waitS and not active and not internalShiftDoneS and not na(waitSweepLevelS) and high >= waitSweepLevelS and high > nz(sExtH, waitSweepLevelS) and close < waitSweepLevelS and math.max(high - waitSweepLevelS, 0) <= (atrVal * sweepMaxDepth) and (bearRaidReclaim / bearRaidSafeRange) >= reclaimLvl and bearRaidWick >= wickThresh
+bool bearRaidUpgrade = waitS and not internalShiftDoneS and not na(waitSweepLevelS) and high >= waitSweepLevelS and high > nz(sExtH, waitSweepLevelS) and close < waitSweepLevelS and math.max(high - waitSweepLevelS, 0) <= (atrVal * sweepMaxDepth) and (bearRaidReclaim / bearRaidSafeRange) >= reclaimLvl and bearRaidWick >= wickThresh
 if bearRaidUpgrade
     waitStopAnchorS := na(waitStopAnchorS) ? high : math.max(waitStopAnchorS, high)
     sExtH := waitStopAnchorS
@@ -3096,7 +2715,7 @@ bullRaidRange = high - low
 bullRaidSafeRange = bullRaidRange > 0 ? bullRaidRange : 1.0
 bullRaidReclaim = close - nz(waitSweepLevelL, low)
 bullRaidWick = (close - low) / bullRaidSafeRange
-bool bullRaidUpgrade = waitL and not active and not internalShiftDoneL and not na(waitSweepLevelL) and low <= waitSweepLevelL and low < nz(sExtL, waitSweepLevelL) and close > waitSweepLevelL and math.max(waitSweepLevelL - low, 0) <= (atrVal * sweepMaxDepth) and (bullRaidReclaim / bullRaidSafeRange) >= reclaimLvl and bullRaidWick >= wickThresh
+bool bullRaidUpgrade = waitL and not internalShiftDoneL and not na(waitSweepLevelL) and low <= waitSweepLevelL and low < nz(sExtL, waitSweepLevelL) and close > waitSweepLevelL and math.max(waitSweepLevelL - low, 0) <= (atrVal * sweepMaxDepth) and (bullRaidReclaim / bullRaidSafeRange) >= reclaimLvl and bullRaidWick >= wickThresh
 if bullRaidUpgrade
     waitStopAnchorL := na(waitStopAnchorL) ? low : math.min(waitStopAnchorL, low)
     sExtL := waitStopAnchorL
@@ -3104,25 +2723,21 @@ if bullRaidUpgrade
     waitStartTimeL := time
     waitRejectionTierL := ""
 
-if waitS and not active
+if waitS
     waitRejectionTierS := f_evalRejectionTier("BSL", waitSweepLevelS, waitStopAnchorS, waitStartBarS, waitSweepReclaimOkS, waitRejectionTierS)
-if waitL and not active
+if waitL
     waitRejectionTierL := f_evalRejectionTier("SSL", waitSweepLevelL, waitStopAnchorL, waitStartBarL, waitSweepReclaimOkL, waitRejectionTierL)
 
 if waitS and waitRejectionTierS == "FAILED"
     [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
-    [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_resetWaitAdvanced()
-    waitExecModelS := ""
-    [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_resetSetupTracking()
+    [waitTierS, waitTimeoutBarsS, waitRejectionTierS] = f_resetWaitAdvanced()
     [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
     sExtH := na
     structureStatus := "Bearish qualified sweep failed rejection"
 
 if waitL and waitRejectionTierL == "FAILED"
     [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
-    [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_resetWaitAdvanced()
-    waitExecModelL := ""
-    [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_resetSetupTracking()
+    [waitTierL, waitTimeoutBarsL, waitRejectionTierL] = f_resetWaitAdvanced()
     [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
     sExtL := na
     structureStatus := "Bullish qualified sweep failed rejection"
@@ -3136,9 +2751,7 @@ if sweepWaitExpiredS
     if showSweepTimeoutNote
         label.new(bar_index, expiredShortAnchor, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_down, size=size.tiny)
     [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
-    [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_resetWaitAdvanced()
-    waitExecModelS := ""
-    [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_resetSetupTracking()
+    [waitTierS, waitTimeoutBarsS, waitRejectionTierS] = f_resetWaitAdvanced()
     [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
     sExtH := na
     structureStatus := f_structureBaseStatus(structureTrend)
@@ -3147,9 +2760,7 @@ if sweepWaitExpiredL
     if showSweepTimeoutNote
         label.new(bar_index, expiredLongAnchor, "SWEEP EXPIRED", color=#00000000, textcolor=color.silver, style=label.style_label_up, size=size.tiny)
     [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
-    [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_resetWaitAdvanced()
-    waitExecModelL := ""
-    [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_resetSetupTracking()
+    [waitTierL, waitTimeoutBarsL, waitRejectionTierL] = f_resetWaitAdvanced()
     [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
     sExtL := na
     structureStatus := f_structureBaseStatus(structureTrend)
@@ -3166,13 +2777,13 @@ bool msPostSweepStructureConfirmedS = waitS and (ms_bearChochSinceSweep or msCon
 bool msPostSweepStructureConfirmedL = waitL and (ms_bullChochSinceSweep or msContinuationConfirmedL or msOpposingProtectedLevelBrokenL)
 bool msSweepContextConflictS = waitS and ms_structureBias == 1 and not msPostSweepStructureConfirmedS
 bool msSweepContextConflictL = waitL and ms_structureBias == -1 and not msPostSweepStructureConfirmedL
-string activeShortSweepGrade = waitS ? f_unifiedSweepGrade(waitSweepBaseScoreS, waitSweepReclaimOkS, waitSweepVolumeOkS, waitSweepSessionOkS, waitStructureConfirmedS or msPostSweepStructureConfirmedS, msConfirmationMode) : ""
-string activeLongSweepGrade = waitL ? f_unifiedSweepGrade(waitSweepBaseScoreL, waitSweepReclaimOkL, waitSweepVolumeOkL, waitSweepSessionOkL, waitStructureConfirmedL or msPostSweepStructureConfirmedL, msConfirmationMode) : ""
+string activeShortSweepGrade = waitS ? f_unifiedSweepGrade(waitSweepBaseScoreS, waitSweepReclaimOkS, waitSweepVolumeOkS, waitSweepSessionOkS, msPostSweepStructureConfirmedS, msConfirmationMode) : ""
+string activeLongSweepGrade = waitL ? f_unifiedSweepGrade(waitSweepBaseScoreL, waitSweepReclaimOkL, waitSweepVolumeOkL, waitSweepSessionOkL, msPostSweepStructureConfirmedL, msConfirmationMode) : ""
 string sweepStateText = "No validated sweep active"
 if waitS
-    sweepStateText := waitStructureConfirmedS ? "Bearish " + waitTierS + " sweep | " + waitStructureBreakTypeS + " through " + waitConfirmSwingTierS + " swing" : waitRejectionTierS == "CONFIRMED" ? "Bearish " + waitTierS + " sweep rejected; wait opposing swing break" : waitRejectionTierS == "WEAK" ? "Bearish " + waitTierS + " sweep weak reclaim; need displacement or FVG" : "Bearish " + waitTierS + " sweep qualified; reclaim pending"
+    sweepStateText := msPostSweepStructureConfirmedS ? (msContinuationConfirmedS ? "Bearish " + waitTierS + " sweep | BOS confirmed" : ms_bearChochSinceSweep ? "Bearish " + waitTierS + " sweep | CHoCH confirmed" : "Bearish " + waitTierS + " sweep | protected low broken") : waitRejectionTierS == "CONFIRMED" ? "Bearish " + waitTierS + " sweep rejected; watch CHoCH/BOS" : waitRejectionTierS == "WEAK" ? "Bearish " + waitTierS + " sweep weak reclaim; watch INT/EXT shift" : "Bearish " + waitTierS + " sweep qualified; reclaim pending"
 else if waitL
-    sweepStateText := waitStructureConfirmedL ? "Bullish " + waitTierL + " sweep | " + waitStructureBreakTypeL + " through " + waitConfirmSwingTierL + " swing" : waitRejectionTierL == "CONFIRMED" ? "Bullish " + waitTierL + " sweep rejected; wait opposing swing break" : waitRejectionTierL == "WEAK" ? "Bullish " + waitTierL + " sweep weak reclaim; need displacement or FVG" : "Bullish " + waitTierL + " sweep qualified; reclaim pending"
+    sweepStateText := msPostSweepStructureConfirmedL ? (msContinuationConfirmedL ? "Bullish " + waitTierL + " sweep | BOS confirmed" : ms_bullChochSinceSweep ? "Bullish " + waitTierL + " sweep | CHoCH confirmed" : "Bullish " + waitTierL + " sweep | protected high broken") : waitRejectionTierL == "CONFIRMED" ? "Bullish " + waitTierL + " sweep rejected; watch CHoCH/BOS" : waitRejectionTierL == "WEAK" ? "Bullish " + waitTierL + " sweep weak reclaim; watch INT/EXT shift" : "Bullish " + waitTierL + " sweep qualified; reclaim pending"
 
 float structureRange = high - low
 float structureSafeRange = structureRange > 0 ? structureRange : 1.0
@@ -3196,69 +2807,6 @@ bool internalBreakL = showSMC and waitL and not internalShiftDoneL and not na(in
 
 bool externalBreakS = showSMC and waitS and (internalShiftDoneS or internalBreakS) and not externalShiftDoneS and not na(externalRefS) and close < (externalRefS - externalBreakTolS) and bearStructureImpulse
 bool externalBreakL = showSMC and waitL and (internalShiftDoneL or internalBreakL) and not externalShiftDoneL and not na(externalRefL) and close > (externalRefL + externalBreakTolL) and bullStructureImpulse
-
-bool shortRejectionAlive = waitS and (waitRejectionTierS == "CONFIRMED" or waitRejectionTierS == "WEAK")
-bool longRejectionAlive = waitL and (waitRejectionTierL == "CONFIRMED" or waitRejectionTierL == "WEAK")
-[chartConfirmSwingS, chartConfirmSwingBarS, chartConfirmSwingTierS] = f_selectConfirmationSwing("SHORT", waitStartBarS, nz(waitSweepLevelS, high), msConfirmationMode, internalRefS, internalRefBarS, externalRefS, externalRefBarS)
-[chartConfirmSwingL, chartConfirmSwingBarL, chartConfirmSwingTierL] = f_selectConfirmationSwing("LONG", waitStartBarL, nz(waitSweepLevelL, low), msConfirmationMode, internalRefL, internalRefBarL, externalRefL, externalRefBarL)
-if shortRejectionAlive and not waitStructureConfirmedS and na(waitConfirmSwingPriceS) and not na(chartConfirmSwingS)
-    waitConfirmSwingPriceS := chartConfirmSwingS
-    waitConfirmSwingBarS := chartConfirmSwingBarS
-    waitConfirmSwingTierS := chartConfirmSwingTierS
-if longRejectionAlive and not waitStructureConfirmedL and na(waitConfirmSwingPriceL) and not na(chartConfirmSwingL)
-    waitConfirmSwingPriceL := chartConfirmSwingL
-    waitConfirmSwingBarL := chartConfirmSwingBarL
-    waitConfirmSwingTierL := chartConfirmSwingTierL
-float activeConfirmSwingS = not na(waitConfirmSwingPriceS) ? waitConfirmSwingPriceS : chartConfirmSwingS
-float activeConfirmSwingL = not na(waitConfirmSwingPriceL) ? waitConfirmSwingPriceL : chartConfirmSwingL
-int activeConfirmSwingBarS = not na(waitConfirmSwingBarS) ? waitConfirmSwingBarS : chartConfirmSwingBarS
-int activeConfirmSwingBarL = not na(waitConfirmSwingBarL) ? waitConfirmSwingBarL : chartConfirmSwingBarL
-string activeConfirmSwingTierS = waitConfirmSwingTierS != "" ? waitConfirmSwingTierS : chartConfirmSwingTierS
-string activeConfirmSwingTierL = waitConfirmSwingTierL != "" ? waitConfirmSwingTierL : chartConfirmSwingTierL
-float chartBreakTolS = not na(activeConfirmSwingS) ? math.max(f_liqTouchTolerance(activeConfirmSwingS) * 0.35, atrVal * 0.03) : atrVal * 0.03
-float chartBreakTolL = not na(activeConfirmSwingL) ? math.max(f_liqTouchTolerance(activeConfirmSwingL) * 0.35, atrVal * 0.03) : atrVal * 0.03
-bool shortBreakA = shortRejectionAlive and not waitStructureConfirmedS and not na(activeConfirmSwingS) and math.abs(close - open) > avgBody * modeLtfEntryDispMult and close < (activeConfirmSwingS - chartBreakTolS) and ((close - low) / structureSafeRange) <= 0.35
-bool longBreakA = longRejectionAlive and not waitStructureConfirmedL and not na(activeConfirmSwingL) and math.abs(close - open) > avgBody * modeLtfEntryDispMult and close > (activeConfirmSwingL + chartBreakTolL) and ((high - close) / structureSafeRange) <= 0.35
-bool shortBreakB = shortRejectionAlive and not waitStructureConfirmedS and not na(activeConfirmSwingS) and close < (activeConfirmSwingS - math.max(atrVal * 0.25, chartBreakTolS)) and math.abs(close - open) > avgBody * 0.90 and ((close - low) / structureSafeRange) <= 0.20
-bool longBreakB = longRejectionAlive and not waitStructureConfirmedL and not na(activeConfirmSwingL) and close > (activeConfirmSwingL + math.max(atrVal * 0.25, chartBreakTolL)) and math.abs(close - open) > avgBody * 0.90 and ((high - close) / structureSafeRange) <= 0.20
-bool shortBreakC = shortRejectionAlive and not waitStructureConfirmedS and not na(activeConfirmSwingS) and bearImbalanceCreated and close < (activeConfirmSwingS - chartBreakTolS)
-bool longBreakC = longRejectionAlive and not waitStructureConfirmedL and not na(activeConfirmSwingL) and bullImbalanceCreated and close > (activeConfirmSwingL + chartBreakTolL)
-bool shortBreakD = msConfirmationMode != "Conservative" and shortRejectionAlive and not waitStructureConfirmedS and not na(activeConfirmSwingS) and close < (activeConfirmSwingS - chartBreakTolS) and close[1] < (activeConfirmSwingS - chartBreakTolS) and math.abs(close - open) > avgBody * 0.60 and math.abs(close[1] - open[1]) > nz(avgBody[1], avgBody) * 0.60
-bool longBreakD = msConfirmationMode != "Conservative" and longRejectionAlive and not waitStructureConfirmedL and not na(activeConfirmSwingL) and close > (activeConfirmSwingL + chartBreakTolL) and close[1] > (activeConfirmSwingL + chartBreakTolL) and math.abs(close - open) > avgBody * 0.60 and math.abs(close[1] - open[1]) > nz(avgBody[1], avgBody) * 0.60
-string chartBreakTypeS = shortBreakA ? "DISPLACEMENT" : shortBreakC ? "FVG" : shortBreakB ? "STRONG_CLOSE" : shortBreakD ? "SEQUENCE" : ""
-string chartBreakTypeL = longBreakA ? "DISPLACEMENT" : longBreakC ? "FVG" : longBreakB ? "STRONG_CLOSE" : longBreakD ? "SEQUENCE" : ""
-bool shortWeakAllowed = waitRejectionTierS == "WEAK" ? (shortBreakA or shortBreakC or msConfirmationMode == "Aggressive") : shortRejectionAlive
-bool longWeakAllowed = waitRejectionTierL == "WEAK" ? (longBreakA or longBreakC or msConfirmationMode == "Aggressive") : longRejectionAlive
-bool shortStructureBiasOk = msConfirmationMode != "Conservative" or ms_structureBias != 1
-bool longStructureBiasOk = msConfirmationMode != "Conservative" or ms_structureBias != -1
-bool chartStructureConfirmS = waitS and not waitStructureConfirmedS and chartBreakTypeS != "" and shortWeakAllowed and shortStructureBiasOk
-bool chartStructureConfirmL = waitL and not waitStructureConfirmedL and chartBreakTypeL != "" and longWeakAllowed and longStructureBiasOk
-
-if chartStructureConfirmS
-    waitStructureConfirmedS := true
-    waitStructureConfirmBarS := bar_index
-    waitConfirmSwingPriceS := activeConfirmSwingS
-    waitConfirmSwingBarS := activeConfirmSwingBarS
-    waitConfirmSwingTierS := activeConfirmSwingTierS
-    waitStructureBreakTypeS := chartBreakTypeS
-    if not waitSetupValidatedS
-        waitSetupValidatedS := true
-        lastShortValidationKey := time
-        setupsValidatedCount += 1
-    structureStatus := "Bearish swing break confirmed via " + chartBreakTypeS
-
-if chartStructureConfirmL
-    waitStructureConfirmedL := true
-    waitStructureConfirmBarL := bar_index
-    waitConfirmSwingPriceL := activeConfirmSwingL
-    waitConfirmSwingBarL := activeConfirmSwingBarL
-    waitConfirmSwingTierL := activeConfirmSwingTierL
-    waitStructureBreakTypeL := chartBreakTypeL
-    if not waitSetupValidatedL
-        waitSetupValidatedL := true
-        lastLongValidationKey := time
-        setupsValidatedCount += 1
-    structureStatus := "Bullish swing break confirmed via " + chartBreakTypeL
 
 if localPivotBreakS and not localPivotDoneS
     localPivotDoneS := true
@@ -3299,9 +2847,6 @@ if externalBreakL
     string longExternalLabel = longExternalAligned ? (msCompactStructureLabels ? "EXT + BOS ↗" : (trendAtSweepL == 1 ? "CONTINUATION SHIFT + BOS ↗" : "EXTERNAL SHIFT + BOS ↗")) : (msCompactStructureLabels ? "EXT | MS ? ↗" : "EXTERNAL SHIFT | MS UNCONFIRMED ↗")
     label.new(bar_index, low, longExternalLabel, color=f_themePanelColor(), textcolor=f_themeTextColor(), style=label.style_label_up, size=f_breakoutLabelSize())
 
-bool mssS = showSMC and (useMajorMSS ? externalBreakS : internalBreakS)
-bool mssL = showSMC and (useMajorMSS ? externalBreakL : internalBreakL)
-
 f_nearestDirectionalLiquidity(float anchorPrice, bool wantAbove, string liqSide, float maxWindowAtr) =>
     bool found = false
     float bestPrice = na
@@ -3322,380 +2867,9 @@ f_nearestDirectionalLiquidity(float anchorPrice, bool wantAbove, string liqSide,
                     found := true
     [found, bestPrice, bestLabel, bestDist]
 
-f_targetLiquidityIsMajor(liq_pool pool) =>
-    pool.poolType == "HTF" or
-     pool.poolType == "PERIOD" or
-     pool.poolType == "SESSION" or
-     (pool.poolType == "EXTERNAL" and pool.structuralRank >= targetMajorRankMin)
-
-f_nearestDirectionalSwingTarget(bool isBullTrade, float entryPrice, float targetCap) =>
-    float foundPrice = na
-    float bestDist = 10e10
-    if not na(entryPrice)
-        float anchorTol = math.max(f_liqTouchTolerance(entryPrice) * 0.35, syminfo.mintick * 5)
-        if isBullTrade
-            if array.size(minorHighPivotBars) > 0
-                for i = array.size(minorHighPivotBars) - 1 to 0
-                    float pivotPrice = array.get(minorHighPivotPrices, i)
-                    int pivotBar = array.get(minorHighPivotBars, i)
-                    float dist = pivotPrice - entryPrice
-                    bool ahead = dist > anchorTol
-                    bool beforeCap = na(targetCap) or pivotPrice < targetCap
-                    if f_isConfirmedPivot(pivotBar) and ahead and beforeCap and dist < bestDist
-                        bestDist := dist
-                        foundPrice := pivotPrice
-            if array.size(majorHighPivotBars) > 0
-                for i = array.size(majorHighPivotBars) - 1 to 0
-                    float pivotPrice = array.get(majorHighPivotPrices, i)
-                    int pivotBar = array.get(majorHighPivotBars, i)
-                    float dist = pivotPrice - entryPrice
-                    bool ahead = dist > anchorTol
-                    bool beforeCap = na(targetCap) or pivotPrice < targetCap
-                    if f_isConfirmedPivot(pivotBar) and ahead and beforeCap and dist < bestDist
-                        bestDist := dist
-                        foundPrice := pivotPrice
-        else
-            if array.size(minorLowPivotBars) > 0
-                for i = array.size(minorLowPivotBars) - 1 to 0
-                    float pivotPrice = array.get(minorLowPivotPrices, i)
-                    int pivotBar = array.get(minorLowPivotBars, i)
-                    float dist = entryPrice - pivotPrice
-                    bool ahead = dist > anchorTol
-                    bool beforeCap = na(targetCap) or pivotPrice > targetCap
-                    if f_isConfirmedPivot(pivotBar) and ahead and beforeCap and dist < bestDist
-                        bestDist := dist
-                        foundPrice := pivotPrice
-            if array.size(majorLowPivotBars) > 0
-                for i = array.size(majorLowPivotBars) - 1 to 0
-                    float pivotPrice = array.get(majorLowPivotPrices, i)
-                    int pivotBar = array.get(majorLowPivotBars, i)
-                    float dist = entryPrice - pivotPrice
-                    bool ahead = dist > anchorTol
-                    bool beforeCap = na(targetCap) or pivotPrice > targetCap
-                    if f_isConfirmedPivot(pivotBar) and ahead and beforeCap and dist < bestDist
-                        bestDist := dist
-                        foundPrice := pivotPrice
-    foundPrice
-
-f_tradeTargetPrice(bool isBullTrade, float entryPrice, float stopPrice) =>
-    float risk = math.abs(entryPrice - stopPrice)
-    float minTarget = isBullTrade ? entryPrice + risk * tradeMinRR : entryPrice - risk * tradeMinRR
-    bool foundMajorLiq = false
-    float majorLiqPrice = na
-    float majorLiqDist = 10e10
-    bool foundFallbackLiq = false
-    float fallbackLiqPrice = na
-    float fallbackLiqDist = 10e10
-    if not na(entryPrice) and atrVal > 0 and liq_pools.size() > 0
-        float anchorTol = math.max(f_liqTouchTolerance(entryPrice) * 0.35, syminfo.mintick * 5)
-        for i = 0 to liq_pools.size() - 1
-            pool = liq_pools.get(i)
-            bool sameSide = pool.side == (isBullTrade ? "BSL" : "SSL")
-            bool stillActive = f_liqIsEventEligible(pool) and not pool.isSwept and pool.state != "CONSUMED"
-            bool meaningful = f_liqIsExternal(pool.poolType) or pool.structuralRank >= 70.0
-            if sameSide and stillActive and meaningful
-                float dist = isBullTrade ? pool.price - entryPrice : entryPrice - pool.price
-                bool aheadOfEntry = dist > anchorTol
-                bool insideWindow = dist <= atrVal * tradeTargetWindowAtr
-                if aheadOfEntry and insideWindow
-                    if f_targetLiquidityIsMajor(pool) and dist < majorLiqDist
-                        majorLiqDist := dist
-                        majorLiqPrice := pool.price
-                        foundMajorLiq := true
-                    else if dist < fallbackLiqDist
-                        fallbackLiqDist := dist
-                        fallbackLiqPrice := pool.price
-                        foundFallbackLiq := true
-    float resolvedTarget = foundMajorLiq ? majorLiqPrice : foundFallbackLiq ? fallbackLiqPrice : na
-    if not na(resolvedTarget)
-        float swingTarget = f_nearestDirectionalSwingTarget(isBullTrade, entryPrice, resolvedTarget)
-        bool swingMeetsRr = not na(swingTarget) and (isBullTrade ? swingTarget >= minTarget : swingTarget <= minTarget)
-        float preferredTarget = swingMeetsRr ? swingTarget : resolvedTarget
-        targetModel == "Next Liquidity + RR Floor" ? (isBullTrade ? math.max(preferredTarget, minTarget) : math.min(preferredTarget, minTarget)) : preferredTarget
-    else
-        minTarget
-
-bool shortArmExecNow = waitS and waitStructureConfirmedS and waitExecModelS == "" and waitStructureConfirmBarS == bar_index
-bool longArmExecNow = waitL and waitStructureConfirmedL and waitExecModelL == "" and waitStructureConfirmBarL == bar_index
-[shortFvgValid, shortFvgEntry, shortFvgTop, shortFvgBottom] = f_currentFvgZone(false)
-[longFvgValid, longFvgEntry, longFvgTop, longFvgBottom] = f_currentFvgZone(true)
-[shortObFound, shortObEntry, shortObTop, shortObBottom] = f_findPostShiftOb(false)
-[longObFound, longObEntry, longObTop, longObBottom] = f_findPostShiftOb(true)
-bool shortContinuationCandidate = shortArmExecNow and msConfirmationMode != "Conservative" and math.abs(close - open) > avgBody * modeLtfEntryDispMult * 1.10 and not na(waitConfirmSwingPriceS) and close < (waitConfirmSwingPriceS - math.max(atrVal * 0.50, chartBreakTolS))
-bool longContinuationCandidate = longArmExecNow and msConfirmationMode != "Conservative" and math.abs(close - open) > avgBody * modeLtfEntryDispMult * 1.10 and not na(waitConfirmSwingPriceL) and close > (waitConfirmSwingPriceL + math.max(atrVal * 0.50, chartBreakTolL))
-float shortReclaimBuffer = math.max(nz(waitSweepTolS, syminfo.mintick * 5), atrVal * 0.02)
-float longReclaimBuffer = math.max(nz(waitSweepTolL, syminfo.mintick * 5), atrVal * 0.02)
-
-if shortArmExecNow
-    if msConfirmationMode == "Aggressive"
-        if shortContinuationCandidate
-            waitExecModelS := "CONT"
-            waitExecEntryS := close
-            waitExecTopS := high
-            waitExecBottomS := low
-        else if shortFvgValid
-            waitExecModelS := "FVG"
-            waitExecEntryS := shortFvgEntry
-            waitExecTopS := shortFvgTop
-            waitExecBottomS := shortFvgBottom
-        else if shortObFound
-            waitExecModelS := "OB"
-            waitExecEntryS := shortObEntry
-            waitExecTopS := shortObTop
-            waitExecBottomS := shortObBottom
-        else
-            waitExecModelS := "RECLAIM"
-            waitExecEntryS := waitSweepLevelS
-            waitExecTopS := waitSweepLevelS
-            waitExecBottomS := waitSweepLevelS - shortReclaimBuffer
-    else if msConfirmationMode == "Balanced"
-        if shortFvgValid
-            waitExecModelS := "FVG"
-            waitExecEntryS := shortFvgEntry
-            waitExecTopS := shortFvgTop
-            waitExecBottomS := shortFvgBottom
-        else if shortContinuationCandidate
-            waitExecModelS := "CONT"
-            waitExecEntryS := close
-            waitExecTopS := high
-            waitExecBottomS := low
-        else if not na(waitSweepLevelS)
-            waitExecModelS := "RECLAIM"
-            waitExecEntryS := waitSweepLevelS
-            waitExecTopS := waitSweepLevelS
-            waitExecBottomS := waitSweepLevelS - shortReclaimBuffer
-        else
-            waitExecModelS := "OB"
-            waitExecEntryS := shortObEntry
-            waitExecTopS := shortObTop
-            waitExecBottomS := shortObBottom
-    else
-        if shortFvgValid
-            waitExecModelS := "FVG"
-            waitExecEntryS := shortFvgEntry
-            waitExecTopS := shortFvgTop
-            waitExecBottomS := shortFvgBottom
-        else if not na(waitSweepLevelS)
-            waitExecModelS := "RECLAIM"
-            waitExecEntryS := waitSweepLevelS
-            waitExecTopS := waitSweepLevelS
-            waitExecBottomS := waitSweepLevelS - shortReclaimBuffer
-        else
-            waitExecModelS := "OB"
-            waitExecEntryS := shortObEntry
-            waitExecTopS := shortObTop
-            waitExecBottomS := shortObBottom
-    waitExecArmedBarS := bar_index
-    structureStatus := "Bearish " + waitExecModelS + " execution armed"
-
-if longArmExecNow
-    if msConfirmationMode == "Aggressive"
-        if longContinuationCandidate
-            waitExecModelL := "CONT"
-            waitExecEntryL := close
-            waitExecTopL := high
-            waitExecBottomL := low
-        else if longFvgValid
-            waitExecModelL := "FVG"
-            waitExecEntryL := longFvgEntry
-            waitExecTopL := longFvgTop
-            waitExecBottomL := longFvgBottom
-        else if longObFound
-            waitExecModelL := "OB"
-            waitExecEntryL := longObEntry
-            waitExecTopL := longObTop
-            waitExecBottomL := longObBottom
-        else
-            waitExecModelL := "RECLAIM"
-            waitExecEntryL := waitSweepLevelL
-            waitExecTopL := waitSweepLevelL + longReclaimBuffer
-            waitExecBottomL := waitSweepLevelL
-    else if msConfirmationMode == "Balanced"
-        if longFvgValid
-            waitExecModelL := "FVG"
-            waitExecEntryL := longFvgEntry
-            waitExecTopL := longFvgTop
-            waitExecBottomL := longFvgBottom
-        else if longContinuationCandidate
-            waitExecModelL := "CONT"
-            waitExecEntryL := close
-            waitExecTopL := high
-            waitExecBottomL := low
-        else if not na(waitSweepLevelL)
-            waitExecModelL := "RECLAIM"
-            waitExecEntryL := waitSweepLevelL
-            waitExecTopL := waitSweepLevelL + longReclaimBuffer
-            waitExecBottomL := waitSweepLevelL
-        else
-            waitExecModelL := "OB"
-            waitExecEntryL := longObEntry
-            waitExecTopL := longObTop
-            waitExecBottomL := longObBottom
-    else
-        if longFvgValid
-            waitExecModelL := "FVG"
-            waitExecEntryL := longFvgEntry
-            waitExecTopL := longFvgTop
-            waitExecBottomL := longFvgBottom
-        else if not na(waitSweepLevelL)
-            waitExecModelL := "RECLAIM"
-            waitExecEntryL := waitSweepLevelL
-            waitExecTopL := waitSweepLevelL + longReclaimBuffer
-            waitExecBottomL := waitSweepLevelL
-        else
-            waitExecModelL := "OB"
-            waitExecEntryL := longObEntry
-            waitExecTopL := longObTop
-            waitExecBottomL := longObBottom
-    waitExecArmedBarL := bar_index
-    structureStatus := "Bullish " + waitExecModelL + " execution armed"
-
-float shortLtfRefinedEntry = na
-float longLtfRefinedEntry = na
-if ltfEntryTfValid and not na(ltfBearMssTime) and not na(waitStartTimeS) and ltfBearMssTime >= waitStartTimeS and not na(ltfBearEntryPrice)
-    bool shortLtfInsideZone = waitExecModelS == "FVG" or waitExecModelS == "OB" ? ltfBearEntryPrice <= waitExecTopS and ltfBearEntryPrice >= waitExecBottomS : waitExecModelS == "RECLAIM" ? ltfBearEntryPrice <= nz(waitSweepLevelS, ltfBearEntryPrice) : false
-    if shortLtfInsideZone
-        shortLtfRefinedEntry := ltfBearEntryPrice
-if ltfEntryTfValid and not na(ltfBullMssTime) and not na(waitStartTimeL) and ltfBullMssTime >= waitStartTimeL and not na(ltfBullEntryPrice)
-    bool longLtfInsideZone = waitExecModelL == "FVG" or waitExecModelL == "OB" ? ltfBullEntryPrice >= waitExecBottomL and ltfBullEntryPrice <= waitExecTopL : waitExecModelL == "RECLAIM" ? ltfBullEntryPrice >= nz(waitSweepLevelL, ltfBullEntryPrice) : false
-    if longLtfInsideZone
-        longLtfRefinedEntry := ltfBullEntryPrice
-
-float shortEntryCandidate = not na(shortLtfRefinedEntry) ? shortLtfRefinedEntry : waitExecModelS == "RECLAIM" ? close : waitExecModelS == "CONT" ? close : waitExecEntryS
-float longEntryCandidate = not na(longLtfRefinedEntry) ? longLtfRefinedEntry : waitExecModelL == "RECLAIM" ? close : waitExecModelL == "CONT" ? close : waitExecEntryL
-float shortConflictAnchor = na(shortEntryCandidate) ? close : shortEntryCandidate
-float longConflictAnchor = na(longEntryCandidate) ? close : longEntryCandidate
-[shortTargetFound, shortTargetPrice, shortTargetLabel, shortTargetDist] = f_nearestDirectionalLiquidity(shortConflictAnchor, false, "SSL", entryLiquidityConflictWindowAtr)
-[shortCounterFound, shortCounterPrice, shortCounterLabel, shortCounterDist] = f_nearestDirectionalLiquidity(shortConflictAnchor, true, "BSL", entryLiquidityConflictWindowAtr)
-[longTargetFound, longTargetPrice, longTargetLabel, longTargetDist] = f_nearestDirectionalLiquidity(longConflictAnchor, true, "BSL", entryLiquidityConflictWindowAtr)
-[longCounterFound, longCounterPrice, longCounterLabel, longCounterDist] = f_nearestDirectionalLiquidity(longConflictAnchor, false, "SSL", entryLiquidityConflictWindowAtr)
-bool bullishExecutionContext = htfCompositeBias >= entryDirectionalBiasThreshold or (close > dO and close > wO and not htfShortStrong)
-bool bearishExecutionContext = htfCompositeBias <= -entryDirectionalBiasThreshold or (close < dO and close < wO and not htfLongStrong)
-bool blockShortLiquidityConflict = useDirectionalLiquidityEntryFilter and bullishExecutionContext and shortCounterFound and (not shortTargetFound or shortCounterDist <= shortTargetDist * 1.15)
-bool blockLongLiquidityConflict = useDirectionalLiquidityEntryFilter and bearishExecutionContext and longCounterFound and (not longTargetFound or longCounterDist <= longTargetDist * 1.15)
-bool shortMsEntryBlock = msConfirmationMode == "Conservative" and waitS and ms_structureBias == 1
-bool longMsEntryBlock = msConfirmationMode == "Conservative" and waitL and ms_structureBias == -1
-bool shortEntryBlocked = blockShortEntry or blockShortLiquidityConflict or shortMsEntryBlock
-bool longEntryBlocked = blockLongEntry or blockLongLiquidityConflict or longMsEntryBlock
-string shortEntryBlockReason = f_entryBlockReason(blockShortEntry, blockShortLiquidityConflict, shortMsEntryBlock, msSweepContextConflictS, "bearish", ltfEntryLabel)
-string longEntryBlockReason = f_entryBlockReason(blockLongEntry, blockLongLiquidityConflict, longMsEntryBlock, msSweepContextConflictL, "bullish", ltfEntryLabel)
-float shortStopCandidate = waitExecModelS == "CONT" and stopModel == "MSS Candle Extreme" ? math.max(nz(waitStopAnchorS, high), high) : nz(waitStopAnchorS, f_resolveWaitStopAnchor("BSL", waitSweepLevelS, sExtH))
-float longStopCandidate = waitExecModelL == "CONT" and stopModel == "MSS Candle Extreme" ? math.min(nz(waitStopAnchorL, low), low) : nz(waitStopAnchorL, f_resolveWaitStopAnchor("SSL", waitSweepLevelL, sExtL))
-bool shortEntryRiskValid = not na(shortStopCandidate) and not na(shortEntryCandidate) and shortStopCandidate > shortEntryCandidate
-bool longEntryRiskValid = not na(longStopCandidate) and not na(longEntryCandidate) and longStopCandidate < longEntryCandidate
-bool rawShortEntrySignal = waitS and not active and waitStructureConfirmedS and waitExecModelS != "" and shortEntryRiskValid and (waitExecModelS == "CONT" ? bar_index == waitExecArmedBarS : waitExecModelS == "FVG" ? bar_index > waitExecArmedBarS and high >= waitExecEntryS : waitExecModelS == "OB" ? bar_index > waitExecArmedBarS and high >= waitExecEntryS : waitExecModelS == "RECLAIM" ? bar_index > waitExecArmedBarS and high >= nz(waitSweepLevelS, waitExecEntryS) and close < nz(waitSweepLevelS, waitExecEntryS) : false)
-bool rawLongEntrySignal = waitL and not active and waitStructureConfirmedL and waitExecModelL != "" and longEntryRiskValid and (waitExecModelL == "CONT" ? bar_index == waitExecArmedBarL : waitExecModelL == "FVG" ? bar_index > waitExecArmedBarL and low <= waitExecEntryL : waitExecModelL == "OB" ? bar_index > waitExecArmedBarL and low <= waitExecEntryL : waitExecModelL == "RECLAIM" ? bar_index > waitExecArmedBarL and low <= nz(waitSweepLevelL, waitExecEntryL) and close > nz(waitSweepLevelL, waitExecEntryL) : false)
-bool shortEntrySignalEvent = rawShortEntrySignal and waitS and not active and not na(waitSetupIdS)
-bool longEntrySignalEvent = rawLongEntrySignal and waitL and not active and not na(waitSetupIdL)
-if shortEntrySignalEvent and shortEntryBlocked and not waitSetupBlockedCountedS
-    waitSetupBlockedCountedS := true
-    blockedTradesCount += 1
-if longEntrySignalEvent and longEntryBlocked and not waitSetupBlockedCountedL
-    waitSetupBlockedCountedL := true
-    blockedTradesCount += 1
-bool ltfBearEntryReady = rawShortEntrySignal and not shortEntryBlocked
-bool ltfBullEntryReady = rawLongEntrySignal and not longEntryBlocked
-
-// --- Stats Logic ---
-if shortEntrySignalEvent
-    if shortEntryBlocked
-        structureStatus := "Bearish " + waitExecModelS + " blocked | " + shortEntryBlockReason
-        [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
-        [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_resetWaitAdvanced()
-        waitExecModelS := ""
-        [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_resetSetupTracking()
-        [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
-        sExtH := na
-    else
-        string firedShortModel = waitExecModelS
-        float shortEntryPx = shortEntryCandidate
-        float shortStop = shortStopCandidate
-        tSetups += 1
-        entriesTriggeredCount += 1
-        active := true
-        bull := false
-        activeEntryPrice := shortEntryPx
-        activeInitialStop := shortStop
-        tSL := shortStop
-        t10 := f_tradeTargetPrice(false, shortEntryPx, shortStop)
-        activeBreakEvenArmed := false
-        activeEntryBar := bar_index
-        [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
-        [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_resetWaitAdvanced()
-        waitExecModelS := ""
-        [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_resetSetupTracking()
-        [internalRefS, internalRefBarS, externalRefS, externalRefBarS, internalShiftDoneS, externalShiftDoneS, localPivotDoneS] = f_resetStructureRefs()
-        structureStatus := "Bearish " + firedShortModel + " entry live"
-
-if longEntrySignalEvent
-    if longEntryBlocked
-        structureStatus := "Bullish " + waitExecModelL + " blocked | " + longEntryBlockReason
-        [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
-        [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_resetWaitAdvanced()
-        waitExecModelL := ""
-        [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_resetSetupTracking()
-        [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
-        sExtL := na
-    else
-        string firedLongModel = waitExecModelL
-        float longEntryPx = longEntryCandidate
-        float longStop = longStopCandidate
-        tSetups += 1
-        entriesTriggeredCount += 1
-        active := true
-        bull := true
-        activeEntryPrice := longEntryPx
-        activeInitialStop := longStop
-        tSL := longStop
-        t10 := f_tradeTargetPrice(true, longEntryPx, longStop)
-        activeBreakEvenArmed := false
-        activeEntryBar := bar_index
-        [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
-        [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_resetWaitAdvanced()
-        waitExecModelL := ""
-        [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_resetSetupTracking()
-        [internalRefL, internalRefBarL, externalRefL, externalRefBarL, internalShiftDoneL, externalShiftDoneL, localPivotDoneL] = f_resetStructureRefs()
-        structureStatus := "Bullish " + firedLongModel + " entry live"
-
-bool activeTradeManageable = active and bar_index > nz(activeEntryBar, bar_index)
-
-if activeTradeManageable and enableBreakEvenRule and not activeBreakEvenArmed and not na(activeInitialStop) and not na(activeEntryPrice)
-    float initialRisk = math.abs(activeEntryPrice - activeInitialStop)
-    if initialRisk > syminfo.mintick * 2
-        float beTrigger = bull ? activeEntryPrice + initialRisk * breakEvenTriggerR : activeEntryPrice - initialRisk * breakEvenTriggerR
-        bool beReached = bull ? high >= beTrigger : low <= beTrigger
-        if beReached
-            tSL := activeEntryPrice
-            activeBreakEvenArmed := true
-
-if activeTradeManageable
-    bool tradeHitStop = bull ? low < tSL : high > tSL
-    bool tradeHitTarget = bull ? high > t10 : low < t10
-    if tradeHitStop
-        bool isBreakEven = activeBreakEvenArmed and math.abs(tSL - activeEntryPrice) <= syminfo.mintick * 2
-        if isBreakEven
-            be10 += 1
-            breakEvensCount += 1
-        else
-            l10 += 1
-            lossesCount += 1
-        active := false
-        activeEntryPrice := na
-        activeInitialStop := na
-        tSL := na
-        t10 := na
-        activeBreakEvenArmed := false
-        activeEntryBar := na
-    else if tradeHitTarget
-        w10 += 1
-        winsCount += 1
-        active := false
-        activeEntryPrice := na
-        activeInitialStop := na
-        tSL := na
-        t10 := na
-        activeBreakEvenArmed := false
-        activeEntryBar := na
+float narrativeLiquidityWindowAtr = math.max(rzProximityMult * 2.0, 6.0)
+[shortCounterFound, shortCounterPrice, shortCounterLabel, shortCounterDist] = f_nearestDirectionalLiquidity(close, true, "BSL", narrativeLiquidityWindowAtr)
+[longCounterFound, longCounterPrice, longCounterLabel, longCounterDist] = f_nearestDirectionalLiquidity(close, false, "SSL", narrativeLiquidityWindowAtr)
 
 // --- Reaction Zone Visual Engine ---
 f_rzNew(string side, string zoneType, float top, float bottom, int sourceBar, int priorityRank, float score, string narrative) =>
@@ -3716,28 +2890,24 @@ f_rzPrefer(reaction_zone current, reaction_zone candidate) =>
             best := candidate
     best
 
-f_rzLongPreview(float ltfBullEntryPrice) =>
+f_rzLongPreview() =>
     reaction_zone z = na
-    if waitL and not longEntryBlocked and not na(waitStopAnchorL)
+    if waitL and not na(waitStopAnchorL)
         float longSweepBuffer = math.max(syminfo.mintick * 10, atrVal * 0.10)
-        string longZoneType = waitExecModelL == "FVG" ? "FVG" : waitExecModelL == "OB" ? "OB" : "SWEEP"
-        float longEntryGuide = not na(waitExecEntryL) ? waitExecEntryL : na(ltfBullEntryPrice) ? nz(waitSweepLevelL, waitStopAnchorL + longSweepBuffer) : ltfBullEntryPrice
-        float longZoneTop = not na(waitExecTopL) ? waitExecTopL : math.max(longEntryGuide, waitStopAnchorL + longSweepBuffer)
-        float longZoneBottom = not na(waitExecBottomL) ? waitExecBottomL : waitStopAnchorL
-        string longNarrative = waitStructureConfirmedL ? (waitExecModelL == "" ? "VALIDATED | SELECT EXECUTION" : waitExecModelL + " ENTRY ARMED") : waitRejectionTierL == "WEAK" ? "QUALIFIED SWEEP | WEAK REJECTION" : "QUALIFIED SWEEP"
-        z := f_rzNew("Long", longZoneType, longZoneTop, longZoneBottom, nz(waitStartBarL, bar_index), waitStructureConfirmedL ? 2 : 3, waitStructureConfirmedL ? 84.0 : 74.0, longNarrative)
+        float longZoneTop = math.max(nz(waitSweepLevelL, waitStopAnchorL + longSweepBuffer), waitStopAnchorL + longSweepBuffer)
+        float longZoneBottom = waitStopAnchorL
+        string longNarrative = msPostSweepStructureConfirmedL ? "SWEEP + MS CONFIRMED" : waitRejectionTierL == "WEAK" ? "QUALIFIED SWEEP | WEAK REJECTION" : waitRejectionTierL == "CONFIRMED" ? "QUALIFIED SWEEP | RECLAIM HELD" : "QUALIFIED SWEEP"
+        z := f_rzNew("Long", "SWEEP", longZoneTop, longZoneBottom, nz(waitStartBarL, bar_index), msPostSweepStructureConfirmedL ? 2 : 3, msPostSweepStructureConfirmedL ? 84.0 : 74.0, longNarrative)
     z
 
-f_rzShortPreview(float ltfBearEntryPrice) =>
+f_rzShortPreview() =>
     reaction_zone z = na
-    if waitS and not shortEntryBlocked and not na(waitStopAnchorS)
+    if waitS and not na(waitStopAnchorS)
         float shortSweepBuffer = math.max(syminfo.mintick * 10, atrVal * 0.10)
-        string shortZoneType = waitExecModelS == "FVG" ? "FVG" : waitExecModelS == "OB" ? "OB" : "SWEEP"
-        float shortEntryGuide = not na(waitExecEntryS) ? waitExecEntryS : na(ltfBearEntryPrice) ? nz(waitSweepLevelS, waitStopAnchorS - shortSweepBuffer) : ltfBearEntryPrice
-        float shortZoneTop = not na(waitExecTopS) ? waitExecTopS : waitStopAnchorS
-        float shortZoneBottom = not na(waitExecBottomS) ? waitExecBottomS : math.min(shortEntryGuide, waitStopAnchorS - shortSweepBuffer)
-        string shortNarrative = waitStructureConfirmedS ? (waitExecModelS == "" ? "VALIDATED | SELECT EXECUTION" : waitExecModelS + " ENTRY ARMED") : waitRejectionTierS == "WEAK" ? "QUALIFIED SWEEP | WEAK REJECTION" : "QUALIFIED SWEEP"
-        z := f_rzNew("Short", shortZoneType, shortZoneTop, shortZoneBottom, nz(waitStartBarS, bar_index), waitStructureConfirmedS ? 2 : 3, waitStructureConfirmedS ? 84.0 : 74.0, shortNarrative)
+        float shortZoneTop = waitStopAnchorS
+        float shortZoneBottom = math.min(nz(waitSweepLevelS, waitStopAnchorS - shortSweepBuffer), waitStopAnchorS - shortSweepBuffer)
+        string shortNarrative = msPostSweepStructureConfirmedS ? "SWEEP + MS CONFIRMED" : waitRejectionTierS == "WEAK" ? "QUALIFIED SWEEP | WEAK REJECTION" : waitRejectionTierS == "CONFIRMED" ? "QUALIFIED SWEEP | RECLAIM HELD" : "QUALIFIED SWEEP"
+        z := f_rzNew("Short", "SWEEP", shortZoneTop, shortZoneBottom, nz(waitStartBarS, bar_index), msPostSweepStructureConfirmedS ? 2 : 3, msPostSweepStructureConfirmedS ? 84.0 : 74.0, shortNarrative)
     z
 
 f_rzLongTop(reaction_zone previewLongZone, float rzAtr) =>
@@ -3748,7 +2918,7 @@ f_rzLongTop(reaction_zone previewLongZone, float rzAtr) =>
         reaction_zone protectedZone = f_rzNew("Long", "MS_PROTECTED", ms_protectedLow + syminfo.mintick * 5, ms_protectedLow - syminfo.mintick * 5, nz(ms_protectedLowBar, bar_index), 5, 66.0, "MS PROTECTED LOW")
         if f_rzVisible(protectedZone, rzAtr)
             best := f_rzPrefer(best, protectedZone)
-    bool longTargetBias = active ? bull : (waitL or mssL or structureTrend == 1 or htfCompositeBias >= 15)
+    bool longTargetBias = waitL or externalBreakL or internalBreakL or structureTrend == 1 or htfCompositeBias >= 15
     if longTargetBias and not na(lastHtf2PH) and high < lastHtf2PH
         reaction_zone targetZone = f_rzNew("Long", "HTF_TARGET", lastHtf2PH + syminfo.mintick * 5, lastHtf2PH - syminfo.mintick * 5, bar_index, 4, 78.0, "HTF LONG TARGET")
         if f_rzVisible(targetZone, rzAtr)
@@ -3767,7 +2937,7 @@ f_rzShortTop(reaction_zone previewShortZone, float rzAtr) =>
         reaction_zone protectedZone = f_rzNew("Short", "MS_PROTECTED", ms_protectedHigh + syminfo.mintick * 5, ms_protectedHigh - syminfo.mintick * 5, nz(ms_protectedHighBar, bar_index), 5, 66.0, "MS PROTECTED HIGH")
         if f_rzVisible(protectedZone, rzAtr)
             best := f_rzPrefer(best, protectedZone)
-    bool shortTargetBias = active ? not bull : (waitS or mssS or structureTrend == -1 or htfCompositeBias <= -15)
+    bool shortTargetBias = waitS or externalBreakS or internalBreakS or structureTrend == -1 or htfCompositeBias <= -15
     if shortTargetBias and not na(lastHtf2PL) and low > lastHtf2PL
         reaction_zone targetZone = f_rzNew("Short", "HTF_TARGET", lastHtf2PL + syminfo.mintick * 5, lastHtf2PL - syminfo.mintick * 5, bar_index, 4, 78.0, "HTF SHORT TARGET")
         if f_rzVisible(targetZone, rzAtr)
@@ -3779,8 +2949,8 @@ f_rzShortTop(reaction_zone previewShortZone, float rzAtr) =>
     best
 
 rzAtr = ta.atr(14)
-reaction_zone previewLongZoneRaw = f_rzLongPreview(ltfBullEntryPrice)
-reaction_zone previewShortZoneRaw = f_rzShortPreview(ltfBearEntryPrice)
+reaction_zone previewLongZoneRaw = f_rzLongPreview()
+reaction_zone previewShortZoneRaw = f_rzShortPreview()
 reaction_zone previewLongZone = na
 reaction_zone previewShortZone = na
 if f_rzVisible(previewLongZoneRaw, rzAtr)
@@ -3838,108 +3008,14 @@ var line lLong = line.new(na, na, na, na)
 
 var box bShort = box.new(na, na, na, na, border_color=na)
 var line lShort = line.new(na, na, na, na)
-var box setupRiskBox = box.new(na, na, na, na, border_color=na)
-var box setupRewardBox = box.new(na, na, na, na, border_color=na)
-var line setupEntryLine = line.new(na, na, na, na, style=line.style_dashed)
-var line setupStopLine = line.new(na, na, na, na, style=line.style_dashed)
-var line setupTargetLine = line.new(na, na, na, na, style=line.style_dashed)
-var label setupPlanLabel = label.new(na, na, "", color=#00000000, style=label.style_label_left, size=size.small)
 
-f_hideSetupPreview() =>
-    box.set_bgcolor(setupRiskBox, na)
-    box.set_border_color(setupRiskBox, na)
-    box.set_bgcolor(setupRewardBox, na)
-    box.set_border_color(setupRewardBox, na)
-    line.set_xy1(setupEntryLine, na, na)
-    line.set_xy2(setupEntryLine, na, na)
-    line.set_xy1(setupStopLine, na, na)
-    line.set_xy2(setupStopLine, na, na)
-    line.set_xy1(setupTargetLine, na, na)
-    line.set_xy2(setupTargetLine, na, na)
-    label.set_text(setupPlanLabel, "")
-    true
-
-f_renderSetupPreview(bool isBull, int setupLeft, int setupRight, float entryPx, float stopPx, float targetPx, string planText) =>
-    float riskTop = math.max(entryPx, stopPx)
-    float riskBottom = math.min(entryPx, stopPx)
-    float rewardTop = math.max(entryPx, targetPx)
-    float rewardBottom = math.min(entryPx, targetPx)
-    box.set_lefttop(setupRiskBox, setupLeft, riskTop)
-    box.set_rightbottom(setupRiskBox, setupRight, riskBottom)
-    box.set_bgcolor(setupRiskBox, color.new(COLOR_BEAR, 84))
-    box.set_border_color(setupRiskBox, color.new(COLOR_BEAR, 90))
-    box.set_lefttop(setupRewardBox, setupLeft, rewardTop)
-    box.set_rightbottom(setupRewardBox, setupRight, rewardBottom)
-    box.set_bgcolor(setupRewardBox, color.new(COLOR_BULL, 84))
-    box.set_border_color(setupRewardBox, color.new(COLOR_BULL, 90))
-    line.set_xy1(setupEntryLine, setupLeft, entryPx)
-    line.set_xy2(setupEntryLine, setupRight, entryPx)
-    line.set_color(setupEntryLine, color.new(f_defaultLevelColor(), 28))
-    line.set_width(setupEntryLine, 1)
-    line.set_xy1(setupStopLine, setupLeft, stopPx)
-    line.set_xy2(setupStopLine, setupRight, stopPx)
-    line.set_color(setupStopLine, color.new(COLOR_BEAR, 20))
-    line.set_width(setupStopLine, 2)
-    line.set_xy1(setupTargetLine, setupLeft, targetPx)
-    line.set_xy2(setupTargetLine, setupRight, targetPx)
-    line.set_color(setupTargetLine, color.new(COLOR_BULL, 20))
-    line.set_width(setupTargetLine, 2)
-    label.set_xy(setupPlanLabel, setupRight, isBull ? rewardTop : rewardBottom)
-    label.set_style(setupPlanLabel, isBull ? label.style_label_lower_left : label.style_label_upper_left)
-    label.set_color(setupPlanLabel, color.new(chart.bg_color, 10))
-    label.set_textcolor(setupPlanLabel, color.new(f_defaultLevelColor(), 10))
-    label.set_size(setupPlanLabel, size.tiny)
-    label.set_text(setupPlanLabel, planText + " | E " + str.tostring(entryPx, format.mintick) + " | SL " + str.tostring(stopPx, format.mintick) + " | TP " + str.tostring(targetPx, format.mintick))
-    true
-
-f_updateTopLevelVisuals(reaction_zone topLong, reaction_zone topShort, reaction_zone previewLongZone, reaction_zone previewShortZone, float ltfBullEntryPrice, float ltfBearEntryPrice, bool msPostSweepStructureConfirmedL, bool msPostSweepStructureConfirmedS) =>
+f_updateTopLevelVisuals(reaction_zone topLong, reaction_zone topShort) =>
     if barstate.islast
         update_rz_vis(topLong, "Long", bLong, lLong)
         update_rz_vis(topShort, "Short", bShort, lShort)
-        bool liveTradePlan = showTradePlans and active and not na(activeEntryPrice) and not na(tSL) and not na(t10)
-        bool longSetupPreview = showTradePlans and not active and waitL and not longEntryBlocked and not na(waitStopAnchorL) and (not na(previewLongZone) or not na(waitSweepLevelL))
-        bool shortSetupPreview = showTradePlans and not active and waitS and not shortEntryBlocked and not na(waitStopAnchorS) and (not na(previewShortZone) or not na(waitSweepLevelS))
-        if liveTradePlan
-            int setupLeft = math.max(nz(activeEntryBar, bar_index) - 1, 0)
-            int setupRight = bar_index + 10
-            bool liveValid = bull ? (tSL < activeEntryPrice and t10 > activeEntryPrice) : (tSL > activeEntryPrice and t10 < activeEntryPrice)
-            if liveValid
-                f_renderSetupPreview(bull, setupLeft, setupRight, activeEntryPrice, tSL, t10, bull ? "LONG LIVE" : "SHORT LIVE")
-            else
-                f_hideSetupPreview()
-        else if longSetupPreview
-            float longPlanBuffer = math.max(syminfo.mintick * 5, atrVal * 0.04)
-            float longEntrySeed = na(ltfBullEntryPrice) ? (not na(previewLongZone) ? previewLongZone.ce : nz(waitSweepLevelL, waitStopAnchorL + longPlanBuffer)) : ltfBullEntryPrice
-            float longEntryPx = math.max(longEntrySeed, waitStopAnchorL + longPlanBuffer)
-            float longStopPx = waitStopAnchorL
-            float longTargetPx = f_tradeTargetPrice(true, longEntryPx, longStopPx)
-            bool longSetupValid = not na(longEntryPx) and not na(longStopPx) and not na(longTargetPx) and longStopPx < longEntryPx and longTargetPx > longEntryPx
-            if longSetupValid
-                int setupLeft = math.max(nz(waitStartBarL, bar_index) - 1, 0)
-                int setupRight = bar_index + 10
-                string longPlanText = rawLongEntrySignal ? "LONG PLAN" : "LONG WATCH"
-                f_renderSetupPreview(true, setupLeft, setupRight, longEntryPx, longStopPx, longTargetPx, longPlanText)
-            else
-                f_hideSetupPreview()
-        else if shortSetupPreview
-            float shortPlanBuffer = math.max(syminfo.mintick * 5, atrVal * 0.04)
-            float shortEntrySeed = na(ltfBearEntryPrice) ? (not na(previewShortZone) ? previewShortZone.ce : nz(waitSweepLevelS, waitStopAnchorS - shortPlanBuffer)) : ltfBearEntryPrice
-            float shortEntryPx = math.min(shortEntrySeed, waitStopAnchorS - shortPlanBuffer)
-            float shortStopPx = waitStopAnchorS
-            float shortTargetPx = f_tradeTargetPrice(false, shortEntryPx, shortStopPx)
-            bool shortSetupValid = not na(shortEntryPx) and not na(shortStopPx) and not na(shortTargetPx) and shortStopPx > shortEntryPx and shortTargetPx < shortEntryPx
-            if shortSetupValid
-                int setupLeft = math.max(nz(waitStartBarS, bar_index) - 1, 0)
-                int setupRight = bar_index + 10
-                string shortPlanText = rawShortEntrySignal ? "SHORT PLAN" : "SHORT WATCH"
-                f_renderSetupPreview(false, setupLeft, setupRight, shortEntryPx, shortStopPx, shortTargetPx, shortPlanText)
-            else
-                f_hideSetupPreview()
-        else
-            f_hideSetupPreview()
     true
 
-f_updateTopLevelVisuals(topLong, topShort, previewLongZone, previewShortZone, ltfBullEntryPrice, ltfBearEntryPrice, msPostSweepStructureConfirmedL, msPostSweepStructureConfirmedS)
+f_updateTopLevelVisuals(topLong, topShort)
 
 f_dashRow(table t, int row, string leftTxt, string rightTxt, color rightColor, color cellBg, color cellText) =>
     table.cell(t, 0, row, leftTxt, text_color=cellText, bgcolor=cellBg, text_size=size.small)
@@ -3951,12 +3027,12 @@ if barstate.islast
         string debugPool = waitS ? (waitSweepPoolLabelS == "" ? "n/a" : waitSweepPoolLabelS) : waitL ? (waitSweepPoolLabelL == "" ? "n/a" : waitSweepPoolLabelL) : "n/a"
         string debugSweep = waitS ? "Short sweep Grade " + activeShortSweepGrade : waitL ? "Long sweep Grade " + activeLongSweepGrade : "No active sweep"
         string debugMs = "MS " + f_msBiasText(ms_structureBias) + " | " + ms_lastEventType
-        string debugEntry = active ? "Trade live" : waitS ? (shortEntryBlocked ? shortEntryBlockReason : "Short path open") : waitL ? (longEntryBlocked ? longEntryBlockReason : "Long path open") : "No active trigger"
+        string debugNarrative = waitS or waitL ? structureStatus : "No active sweep narrative"
         string debugLongZone = not na(topLong) ? "Top L: " + topLong.narrative : "Top L: none"
         string debugShortZone = not na(topShort) ? "Top S: " + topShort.narrative : "Top S: none"
         string debugZones = debugLongZone + "\n" + debugShortZone
         label.set_xy(unifiedDebugLabel, bar_index + 12, close)
-        label.set_text(unifiedDebugLabel, "Pool: " + debugPool + "\n" + debugSweep + "\n" + debugMs + "\n" + debugEntry + "\n" + debugZones)
+        label.set_text(unifiedDebugLabel, "Pool: " + debugPool + "\n" + debugSweep + "\n" + debugMs + "\n" + debugNarrative + "\n" + debugZones)
         label.set_color(unifiedDebugLabel, f_themePanelColor())
         label.set_textcolor(unifiedDebugLabel, f_themeTextColor())
     else
@@ -3969,8 +3045,8 @@ if barstate.islast
 if showDash and barstate.islast
     pos_tbl = (dashPos == "Top Right") ? position.top_right : (dashPos == "Top Left") ? position.top_left : position.bottom_right
     color dashBorder = color.new(chart.fg_color, 78)
-    var table tb = table.new(pos_tbl, 2, 8, bgcolor=chart.bg_color, border_color=dashBorder, border_width=1)
-    table.clear(tb, 0, 0, 1, 7)
+    var table tb = table.new(pos_tbl, 2, 7, bgcolor=chart.bg_color, border_color=dashBorder, border_width=1)
+    table.clear(tb, 0, 0, 1, 6)
 
     color dashHeaderBg = chart.bg_color
     color dashHeaderText = f_themeTextColor()
@@ -3983,27 +3059,18 @@ if showDash and barstate.islast
     string liquidityContextText = chosenShortLiquidityText != "" ? "Chosen BSL: " + chosenShortLiquidityText : chosenLongLiquidityText != "" ? "Chosen SSL: " + chosenLongLiquidityText : aboveLiquidityText != "" and belowLiquidityText != "" ? "Above BSL: " + aboveLiquidityText + " | Below SSL: " + belowLiquidityText : aboveLiquidityText != "" ? "Above BSL: " + aboveLiquidityText : belowLiquidityText != "" ? "Below SSL: " + belowLiquidityText : "No nearby mapped liquidity"
     string htfBiasText = htfLongStrong ? "HTF bull" : htfShortStrong ? "HTF bear" : math.abs(htfCompositeBias) >= 20 ? (htfCompositeBias > 0 ? "HTF bull lean" : "HTF bear lean") : "HTF mixed"
     string msStateText = ms_structureBias == 1 ? (ms_bullBosEvent or msContinuationConfirmedL ? "Bullish BOS confirmed" : ms_idmTaken ? "Bullish IDM reclaim | awaiting BOS" : not na(ms_idmLevel) and ms_idmState == 2 ? "Bullish IDM stale" : not na(ms_idmLevel) and ms_idmStrong ? "Bullish IDM strong" : not na(ms_idmLevel) and ms_idmState == 1 ? "Bullish IDM active" : ms_bullProtectedIntact ? "Bullish bias | protected low intact" : "Bullish bias | protected low damaged") : ms_structureBias == -1 ? (ms_bearBosEvent or msContinuationConfirmedS ? "Bearish BOS confirmed" : ms_idmTaken ? "Bearish IDM reclaim | awaiting BOS" : not na(ms_idmLevel) and ms_idmState == 2 ? "Bearish IDM stale" : not na(ms_idmLevel) and ms_idmStrong ? "Bearish IDM strong" : not na(ms_idmLevel) and ms_idmState == 1 ? "Bearish IDM active" : ms_bearProtectedIntact ? "Bearish bias | protected high intact" : "Bearish bias | protected high damaged") : "Neutral"
-    if waitS and waitStructureConfirmedS
-        msStateText := "Bearish " + waitConfirmSwingTierS + " swing broken | " + waitStructureBreakTypeS
-    else if waitL and waitStructureConfirmedL
-        msStateText := "Bullish " + waitConfirmSwingTierL + " swing broken | " + waitStructureBreakTypeL
-    else if waitS and msPostSweepStructureConfirmedS
+    if waitS and msPostSweepStructureConfirmedS
         msStateText := msContinuationConfirmedS ? "Bearish BOS confirmed after sweep" : ms_bearChochSinceSweep ? "Bearish CHoCH confirmed after sweep" : "Bearish protected low broken after sweep"
     else if waitL and msPostSweepStructureConfirmedL
         msStateText := msContinuationConfirmedL ? "Bullish BOS confirmed after sweep" : ms_bullChochSinceSweep ? "Bullish CHoCH confirmed after sweep" : "Bullish protected high broken after sweep"
     string biasText = htfBiasText + " | " + (ms_structureBias == 1 ? (ms_bullProtectedIntact ? "MS bull intact" : "MS bull damaged") : ms_structureBias == -1 ? (ms_bearProtectedIntact ? "MS bear intact" : "MS bear damaged") : "MS neutral")
     float combinedDashboardBias = htfCompositeBias + (structureTrend == 1 ? 12.0 : structureTrend == -1 ? -12.0 : 0.0) + (ms_structureBias == 1 ? 10.0 : ms_structureBias == -1 ? -10.0 : 0.0)
-    bool hasLiveLifecycleContext = active or waitS or waitL
-    bool staleLifecycleStatus = str.contains(structureStatus, "awaiting ") or str.contains(structureStatus, " entry live") or str.contains(structureStatus, " ladder blocked") or str.contains(structureStatus, " MSS blocked") or str.contains(structureStatus, "execution armed") or str.contains(structureStatus, " blocked | ")
+    bool hasLiveLifecycleContext = waitS or waitL
+    bool staleLifecycleStatus = str.contains(structureStatus, "sweep qualified") or str.contains(structureStatus, "failed rejection") or str.contains(structureStatus, "awaiting rejection")
     string dashboardStructureStatus = not hasLiveLifecycleContext and staleLifecycleStatus ? f_structureBaseStatus(structureTrend) : structureStatus
     string structureText = dashboardStructureStatus + (msStateText != "Neutral" ? " | " + msStateText : "")
-    string timingText = active ? (bull ? "ACTIVE: LONG" : "ACTIVE: SHORT") : waitL ? (waitStructureConfirmedL ? ("EXEC: LONG " + (waitExecModelL == "" ? "ARMING" : waitExecModelL)) : "SETUP: LONG") : waitS ? (waitStructureConfirmedS ? ("EXEC: SHORT " + (waitExecModelS == "" ? "ARMING" : waitExecModelS)) : "SETUP: SHORT") : (inLondonSweepWindow or inNYSweepWindow ? "WATCH" : inLondon or inNY ? "SESSION ACTIVE" : "CORE ONLY")
-    string traderRead = active ? "Manage live position." : waitS ? (shortEntryBlocked and waitStructureConfirmedS ? shortEntryBlockReason : waitRejectionTierS == "WEAK" ? "Short setup weak; need displacement or FVG break." : waitStructureConfirmedS ? (waitExecModelS == "" ? "Short validated; selecting execution." : "Short validated; wait " + waitExecModelS + " trigger.") : waitRejectionTierS == "CONFIRMED" ? "Short sweep rejected; wait opposing swing break." : "Short sweep qualified; wait reclaim confirmation.") : waitL ? (longEntryBlocked and waitStructureConfirmedL ? longEntryBlockReason : waitRejectionTierL == "WEAK" ? "Long setup weak; need displacement or FVG break." : waitStructureConfirmedL ? (waitExecModelL == "" ? "Long validated; selecting execution." : "Long validated; wait " + waitExecModelL + " trigger.") : waitRejectionTierL == "CONFIRMED" ? "Long sweep rejected; wait opposing swing break." : "Long sweep qualified; wait reclaim confirmation.") : combinedDashboardBias >= 25 ? "Prefer longs on discount / sweep-support." : combinedDashboardBias <= -25 ? "Prefer shorts on premium / sweep-resistance." : "No strong agreement; wait cleaner sequence."
-    int decisiveTrades = winsCount + lossesCount
-    int resolvedTrades = winsCount + lossesCount + breakEvensCount
-    int pendingPlans = active ? 0 : (waitL and not na(waitSetupIdL) ? 1 : 0) + (waitS and not na(waitSetupIdS) ? 1 : 0)
-    string winrateText = decisiveTrades > 0 ? str.tostring((winsCount * 100.0) / float(decisiveTrades), "#.0") + "%" : "—"
-    string statsText = "WR " + winrateText + " | Det " + str.tostring(setupsDetectedCount) + " | Val " + str.tostring(setupsValidatedCount) + " | Pend " + str.tostring(pendingPlans) + " | Ent " + str.tostring(entriesTriggeredCount) + " | Res " + str.tostring(resolvedTrades) + " | W " + str.tostring(winsCount) + " / L " + str.tostring(lossesCount) + " / BE " + str.tostring(breakEvensCount) + " / Blk " + str.tostring(blockedTradesCount)
+    string timingText = waitL ? ("WATCHING: LONG" + (waitTierL != "" ? " [" + waitTierL + "]" : "")) : waitS ? ("WATCHING: SHORT" + (waitTierS != "" ? " [" + waitTierS + "]" : "")) : inLondonSweepWindow or inNYSweepWindow ? "SESSION ACTIVE" : inLondon or inNY ? "WATCH" : "CORE ONLY"
+    string traderRead = waitS ? (msPostSweepStructureConfirmedS ? "Bearish sweep aligned. Watch continuation or premium reaction." : waitRejectionTierS == "WEAK" ? "Bearish sweep is weak. Need cleaner rejection or structure shift." : waitRejectionTierS == "CONFIRMED" ? "Bearish sweep reclaimed. Watch INT SHIFT, CHoCH, or BOS lower." : "Bearish liquidity tagged. Need reclaim back below the swept level.") : waitL ? (msPostSweepStructureConfirmedL ? "Bullish sweep aligned. Watch continuation or discount reaction." : waitRejectionTierL == "WEAK" ? "Bullish sweep is weak. Need cleaner rejection or structure shift." : waitRejectionTierL == "CONFIRMED" ? "Bullish sweep reclaimed. Watch INT SHIFT, CHoCH, or BOS higher." : "Bullish liquidity tagged. Need reclaim back above the swept level.") : combinedDashboardBias >= 25 ? "Bias favors longs. Let discount or SSL interaction lead." : combinedDashboardBias <= -25 ? "Bias favors shorts. Let premium or BSL interaction lead." : "Mixed context. Let liquidity and structure resolve first."
 
     table.cell(tb, 0, 0, "CONTEXT", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
     table.cell(tb, 1, 0, "STATUS", bgcolor=dashHeaderBg, text_color=dashHeaderText, text_size=size.small)
@@ -4014,17 +3081,40 @@ if showDash and barstate.islast
     f_dashRow(tb, 4, "Structure", structureText, dashCellText, dashCellBg, dashCellText)
     f_dashRow(tb, 5, "Timing", timingText, dashCellText, dashCellBg, dashCellText)
     f_dashRow(tb, 6, "Read", traderRead, dashCellText, dashCellBg, dashCellText)
-    f_dashRow(tb, 7, "Stats", statsText, dashCellText, dashCellBg, dashCellText)
 
 plot(showMsProtectedLevels ? ms_protectedHigh : na, "MS Protected High", color.new(COLOR_BEAR, 45), 2, plot.style_linebr)
 plot(showMsProtectedLevels ? ms_protectedLow : na, "MS Protected Low", color.new(COLOR_BULL, 45), 2, plot.style_linebr)
 plot(showMsSwings ? msMajorSwingHigh : na, "MS Swing High", msSwingHighColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 plot(showMsSwings ? msMajorSwingLow : na, "MS Swing Low", msSwingLowColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 
+// --- Data Bridge (for companion execution indicator) ---
+plot(ms_structureBias, "BRIDGE_MS_BIAS", display=display.none)
+plot(htfCompositeBias, "BRIDGE_HTF_BIAS", display=display.none)
+plot(structureTrend, "BRIDGE_STRUCTURE_TREND", display=display.none)
+plot(shortCounterFound ? shortCounterPrice : na, "BRIDGE_NEAREST_BSL", display=display.none)
+plot(longCounterFound ? longCounterPrice : na, "BRIDGE_NEAREST_SSL", display=display.none)
+plot(inLondonSweepWindow ? 1 : 0, "BRIDGE_LONDON_KZ", display=display.none)
+plot(inNYSweepWindow ? 1 : 0, "BRIDGE_NY_KZ", display=display.none)
+plot(bearSweep ? 1 : 0, "BRIDGE_BEAR_SWEEP", display=display.none)
+plot(bullSweep ? 1 : 0, "BRIDGE_BULL_SWEEP", display=display.none)
+plot(bearSweep ? bestSweepPrice : na, "BRIDGE_BEAR_SWEEP_LVL", display=display.none)
+plot(bullSweep ? bestSweepPrice : na, "BRIDGE_BULL_SWEEP_LVL", display=display.none)
+plot(bearSweep ? sweepGrade : na, "BRIDGE_BEAR_SWEEP_GRADE", display=display.none)
+plot(bullSweep ? sweepGrade : na, "BRIDGE_BULL_SWEEP_GRADE", display=display.none)
+plot(bearSweep ? sweepExtreme : na, "BRIDGE_BEAR_SWEEP_EXT", display=display.none)
+plot(bullSweep ? sweepExtreme : na, "BRIDGE_BULL_SWEEP_EXT", display=display.none)
+plot(waitS ? 1 : waitL ? -1 : 0, "BRIDGE_SWEEP_SIDE", display=display.none)
+plot(waitS ? waitSweepLevelS : waitL ? waitSweepLevelL : na, "BRIDGE_SWEEP_LEVEL", display=display.none)
+plot(waitS ? waitStopAnchorS : waitL ? waitStopAnchorL : na, "BRIDGE_STOP_ANCHOR", display=display.none)
+plot(msPostSweepStructureConfirmedS ? -1 : msPostSweepStructureConfirmedL ? 1 : 0, "BRIDGE_MS_CONFIRMED", display=display.none)
+plot(internalBreakS ? -1 : internalBreakL ? 1 : 0, "BRIDGE_INT_BREAK", display=display.none)
+plot(externalBreakS ? -1 : externalBreakL ? 1 : 0, "BRIDGE_EXT_BREAK", display=display.none)
+plot(ms_protectedHigh, "BRIDGE_PROT_HIGH", display=display.none)
+plot(ms_protectedLow, "BRIDGE_PROT_LOW", display=display.none)
+plot(waitS ? (waitRejectionTierS == "CONFIRMED" ? 1 : waitRejectionTierS == "WEAK" ? 2 : waitRejectionTierS == "FAILED" ? -1 : 0) : waitL ? (waitRejectionTierL == "CONFIRMED" ? 1 : waitRejectionTierL == "WEAK" ? 2 : waitRejectionTierL == "FAILED" ? -1 : 0) : 0, "BRIDGE_REJECTION_TIER", display=display.none)
+
 bool validSweepConfirmedAlert = bearSweep or bullSweep
-bool msConfirmedAfterSweepAlert = chartStructureConfirmS or chartStructureConfirmL or (waitS and ((ms_bearChochSinceSweep and ms_lastBearChochBar == bar_index) or (msContinuationConfirmedS and ms_lastBearBosBar == bar_index) or (msOpposingProtectedLevelBrokenS and not msOpposingProtectedLevelBrokenS[1]))) or (waitL and ((ms_bullChochSinceSweep and ms_lastBullChochBar == bar_index) or (msContinuationConfirmedL and ms_lastBullBosBar == bar_index) or (msOpposingProtectedLevelBrokenL and not msOpposingProtectedLevelBrokenL[1])))
-bool entryReadyAlert = ltfBearEntryReady or ltfBullEntryReady
+bool msConfirmedAfterSweepAlert = (waitS and ((ms_bearChochSinceSweep and ms_lastBearChochBar == bar_index) or (msContinuationConfirmedS and ms_lastBearBosBar == bar_index) or (msOpposingProtectedLevelBrokenS and not msOpposingProtectedLevelBrokenS[1]))) or (waitL and ((ms_bullChochSinceSweep and ms_lastBullChochBar == bar_index) or (msContinuationConfirmedL and ms_lastBullBosBar == bar_index) or (msOpposingProtectedLevelBrokenL and not msOpposingProtectedLevelBrokenL[1])))
 
 alertcondition(validSweepConfirmedAlert, "Unified Sweep Confirmed", "A unified sweep was validated with hard reclaim gates in devtrader.")
 alertcondition(msConfirmedAfterSweepAlert, "MS Confirmation After Sweep", "Market structure confirmed the active sweep narrative with CHoCH, BOS, or protected-level damage.")
-alertcondition(entryReadyAlert, "Unified Entry Ready", "The unified sweep-to-structure path is entry ready.")
