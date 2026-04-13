@@ -3871,34 +3871,99 @@ plot(na, "MS Protected Low", color.new(COLOR_BULL, 45), 2, plot.style_linebr)
 plot(showMsSwings ? msMajorSwingHigh : na, "MS Swing High", msSwingHighColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 plot(showMsSwings ? msMajorSwingLow : na, "MS Swing Low", msSwingLowColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 
+f_bridgeBool(bool flag) =>
+    flag ? 1 : 0
+
+f_bridgeTierCode(string tier) =>
+    int code = 0
+    if tier == "ACTIONABLE"
+        code := 3
+    else if tier == "IMPORTANT" or tier == "MAJOR"
+        code := 2
+    else if tier == "INFORMATIONAL" or tier == "MINOR"
+        code := 1
+    code
+
+f_bridgeRejectionCode(string rejectionTier) =>
+    rejectionTier == "CONFIRMED" ? 1 : rejectionTier == "WEAK" ? 2 : rejectionTier == "FAILED" ? 3 : 0
+
+f_bridgeLiquidityClass(string labelTxt) =>
+    string compactLabel = f_compactLevelText(labelTxt)
+    int code = 0
+    if str.startswith(compactLabel, "HTF")
+        code := 5
+    else if compactLabel == "PDH" or compactLabel == "PDL" or compactLabel == "DO" or compactLabel == "NY Mid" or compactLabel == "PWH" or compactLabel == "PWL" or compactLabel == "PMH" or compactLabel == "PML"
+        code := 4
+    else if str.contains(compactLabel, "Asia") or str.contains(compactLabel, "London") or str.contains(compactLabel, "NY")
+        code := 3
+    else if str.startswith(compactLabel, "Ext ")
+        code := 2
+    else if compactLabel != ""
+        code := 1
+    code
+
+f_bridgeClampRounded(float value, float maxValue) =>
+    int(math.round(math.min(math.max(value, 0.0), maxValue)))
+
 // --- Data Bridge (for companion execution indicator) ---
-plot(ms_structureBias, "BRIDGE_MS_BIAS", display=display.none)
+// Pack notes:
+// BRIDGE_CONTEXT_PACK: htf1State, htf2State, structureTrend, msBias, HTF near-liquidity flags, session flags.
+// BRIDGE_CONTEXT_DETAIL_PACK: htf1Conf, htf2Conf, htf1PD, htf2PD, htf1Disp, htf2Disp.
+// BRIDGE_*_META packs use fixed digit slots so the companion script can decode with floor/mod math.
+int bridgeHtf1Conf = f_bridgeClampRounded(htf1Confidence, 99.0)
+int bridgeHtf2Conf = f_bridgeClampRounded(htf2Confidence, 99.0)
+int bridgeHtf1Pd = f_bridgeClampRounded(htf1PdPos * 100.0, 99.0)
+int bridgeHtf2Pd = f_bridgeClampRounded(htf2PdPos * 100.0, 99.0)
+int bridgeHtf1Disp = htf1DispBias + 1
+int bridgeHtf2Disp = htf2DispBias + 1
+int bridgeContextPack = (htf1State + 2) * 1000000000000 + (htf2State + 2) * 100000000000 + (structureTrend + 1) * 10000000000 + (ms_structureBias + 1) * 1000000000 + f_bridgeBool(htf1NearHighLiq) * 100000000 + f_bridgeBool(htf1NearLowLiq) * 10000000 + f_bridgeBool(htf2NearHighLiq) * 1000000 + f_bridgeBool(htf2NearLowLiq) * 100000 + f_bridgeBool(inAsia) * 10000 + f_bridgeBool(inLondon) * 1000 + f_bridgeBool(inNY) * 100 + f_bridgeBool(inLondonSweepWindow) * 10 + f_bridgeBool(inNYSweepWindow)
+int bridgeContextDetailPack = bridgeHtf1Conf * 100000000 + bridgeHtf2Conf * 1000000 + bridgeHtf1Pd * 10000 + bridgeHtf2Pd * 100 + bridgeHtf1Disp * 10 + bridgeHtf2Disp
+int bridgeBslClass = shortCounterFound ? f_bridgeLiquidityClass(shortCounterLabel) : 0
+int bridgeSslClass = longCounterFound ? f_bridgeLiquidityClass(longCounterLabel) : 0
+int bridgeBslTier = shortCounterFound ? f_bridgeTierCode(shortCounterTier) : 0
+int bridgeSslTier = longCounterFound ? f_bridgeTierCode(longCounterTier) : 0
+int bridgeBslImportance = shortCounterFound ? f_bridgeClampRounded(nz(shortCounterImportance, 0.0), 99.0) : 0
+int bridgeSslImportance = longCounterFound ? f_bridgeClampRounded(nz(longCounterImportance, 0.0), 99.0) : 0
+int bridgeBslActionability = shortCounterFound ? f_bridgeClampRounded(nz(shortCounterActionability, 0.0), 99.0) : 0
+int bridgeSslActionability = longCounterFound ? f_bridgeClampRounded(nz(longCounterActionability, 0.0), 99.0) : 0
+int bridgeBslMeta = f_bridgeBool(shortCounterFound) * 1000000 + bridgeBslClass * 100000 + bridgeBslTier * 10000 + bridgeBslImportance * 100 + bridgeBslActionability
+int bridgeSslMeta = f_bridgeBool(longCounterFound) * 1000000 + bridgeSslClass * 100000 + bridgeSslTier * 10000 + bridgeSslImportance * 100 + bridgeSslActionability
+int bridgeWaitShortFlags = f_bridgeBool(waitS) + f_bridgeBool(waitSweepReclaimOkS) * 2 + f_bridgeBool(waitSweepSessionOkS) * 4 + f_bridgeBool(waitSweepVolumeOkS) * 8 + f_bridgeBool(ms_bearChochSinceSweep) * 16 + f_bridgeBool(msContinuationConfirmedS) * 32 + f_bridgeBool(msOpposingProtectedLevelBrokenS) * 64 + f_bridgeBool(internalShiftDoneS) * 128 + f_bridgeBool(externalShiftDoneS) * 256 + f_bridgeBool(trendAtSweepS == -1) * 512 + f_bridgeBool(msPostSweepStructureConfirmedS) * 1024
+int bridgeWaitLongFlags = f_bridgeBool(waitL) + f_bridgeBool(waitSweepReclaimOkL) * 2 + f_bridgeBool(waitSweepSessionOkL) * 4 + f_bridgeBool(waitSweepVolumeOkL) * 8 + f_bridgeBool(ms_bullChochSinceSweep) * 16 + f_bridgeBool(msContinuationConfirmedL) * 32 + f_bridgeBool(msOpposingProtectedLevelBrokenL) * 64 + f_bridgeBool(internalShiftDoneL) * 128 + f_bridgeBool(externalShiftDoneL) * 256 + f_bridgeBool(trendAtSweepL == 1) * 512 + f_bridgeBool(msPostSweepStructureConfirmedL) * 1024
+int bridgeWaitShortMeta = f_bridgeTierCode(waitTierS) * 10000 + f_bridgeRejectionCode(waitRejectionTierS) * 1000 + bridgeWaitShortFlags
+int bridgeWaitLongMeta = f_bridgeTierCode(waitTierL) * 10000 + f_bridgeRejectionCode(waitRejectionTierL) * 1000 + bridgeWaitLongFlags
+int bridgeStructurePack = f_bridgeBool(internalBreakS) + f_bridgeBool(internalBreakL) * 2 + f_bridgeBool(externalBreakS) * 4 + f_bridgeBool(externalBreakL) * 8 + f_bridgeBool(ms_bearChochEvent) * 16 + f_bridgeBool(ms_bullChochEvent) * 32 + f_bridgeBool(ms_bearBosEvent) * 64 + f_bridgeBool(ms_bullBosEvent) * 128 + f_bridgeBool(ms_bearProtectedIntact) * 256 + f_bridgeBool(ms_bullProtectedIntact) * 512 + f_bridgeBool(msContinuationConfirmedS) * 1024 + f_bridgeBool(msContinuationConfirmedL) * 2048
+int bridgeIdmBias = not na(ms_idmLevel) ? ms_structureBias + 1 : 0
+int bridgeIdmState = ms_idmState < 0 ? 0 : ms_idmState
+int bridgeIdmScore = not na(ms_idmScore) ? f_bridgeClampRounded(ms_idmScore, 99.0) : 0
+int bridgeIdmMeta = bridgeIdmState * 1000000 + bridgeIdmBias * 100000 + bridgeIdmScore * 1000 + f_bridgeBool(ms_idmStrong) * 100 + f_bridgeBool(ms_idmTaken) * 10 + f_bridgeBool(ms_idmPendingSweep)
+float bridgeBullFvgCe = not na(fvgNearestBullLower) and not na(fvgNearestBullUpper) ? (fvgNearestBullLower + fvgNearestBullUpper) / 2.0 : na
+float bridgeBearFvgCe = not na(fvgNearestBearLower) and not na(fvgNearestBearUpper) ? (fvgNearestBearLower + fvgNearestBearUpper) / 2.0 : na
+int bridgeBullFvgWidthTicks = not na(fvgNearestBullLower) and not na(fvgNearestBullUpper) ? f_bridgeClampRounded((fvgNearestBullUpper - fvgNearestBullLower) / syminfo.mintick, 99999.0) : 0
+int bridgeBearFvgWidthTicks = not na(fvgNearestBearLower) and not na(fvgNearestBearUpper) ? f_bridgeClampRounded((fvgNearestBearUpper - fvgNearestBearLower) / syminfo.mintick, 99999.0) : 0
+int bridgeBullFvgMeta = f_bridgeBool(fvgPriceInsideBull) * 10000000 + f_bridgeBool(fvgBullBelowFound) * 1000000 + bridgeBullFvgWidthTicks * 10 + f_bridgeClampRounded(fvgLongConfluenceScoreHook * 10.0, 99.0)
+int bridgeBearFvgMeta = f_bridgeBool(fvgPriceInsideBear) * 10000000 + f_bridgeBool(fvgBearAboveFound) * 1000000 + bridgeBearFvgWidthTicks * 10 + f_bridgeClampRounded(fvgShortConfluenceScoreHook * 10.0, 99.0)
+
 plot(htfCompositeBias, "BRIDGE_HTF_BIAS", display=display.none)
-plot(structureTrend, "BRIDGE_STRUCTURE_TREND", display=display.none)
+plot(bridgeContextPack, "BRIDGE_CONTEXT_PACK", display=display.none)
+plot(bridgeContextDetailPack, "BRIDGE_CONTEXT_DETAIL_PACK", display=display.none)
 plot(shortCounterFound ? shortCounterPrice : na, "BRIDGE_NEAREST_BSL", display=display.none)
 plot(longCounterFound ? longCounterPrice : na, "BRIDGE_NEAREST_SSL", display=display.none)
-plot(shortCounterFound ? shortCounterActionability : na, "BRIDGE_ACTIONABLE_BSL_SCORE", display=display.none)
-plot(longCounterFound ? longCounterActionability : na, "BRIDGE_ACTIONABLE_SSL_SCORE", display=display.none)
-plot(dashEventStage, "BRIDGE_SWEEP_EVENT_STAGE", display=display.none)
-plot(inLondonSweepWindow ? 1 : 0, "BRIDGE_LONDON_KZ", display=display.none)
-plot(inNYSweepWindow ? 1 : 0, "BRIDGE_NY_KZ", display=display.none)
-plot(bearSweep ? 1 : 0, "BRIDGE_BEAR_SWEEP", display=display.none)
-plot(bullSweep ? 1 : 0, "BRIDGE_BULL_SWEEP", display=display.none)
-plot(bearSweep ? bestSweepPrice : na, "BRIDGE_BEAR_SWEEP_LVL", display=display.none)
-plot(bullSweep ? bestSweepPrice : na, "BRIDGE_BULL_SWEEP_LVL", display=display.none)
-plot(bearSweep ? sweepGrade : na, "BRIDGE_BEAR_SWEEP_GRADE", display=display.none)
-plot(bullSweep ? sweepGrade : na, "BRIDGE_BULL_SWEEP_GRADE", display=display.none)
-plot(bearSweep ? sweepExtreme : na, "BRIDGE_BEAR_SWEEP_EXT", display=display.none)
-plot(bullSweep ? sweepExtreme : na, "BRIDGE_BULL_SWEEP_EXT", display=display.none)
-plot(waitS ? 1 : waitL ? -1 : 0, "BRIDGE_SWEEP_SIDE", display=display.none)
+plot(bridgeBslMeta, "BRIDGE_BSL_META", display=display.none)
+plot(bridgeSslMeta, "BRIDGE_SSL_META", display=display.none)
 plot(waitS ? waitSweepLevelS : waitL ? waitSweepLevelL : na, "BRIDGE_SWEEP_LEVEL", display=display.none)
 plot(waitS ? waitStopAnchorS : waitL ? waitStopAnchorL : na, "BRIDGE_STOP_ANCHOR", display=display.none)
-plot(msPostSweepStructureConfirmedS ? -1 : msPostSweepStructureConfirmedL ? 1 : 0, "BRIDGE_MS_CONFIRMED", display=display.none)
-plot(internalBreakS ? -1 : internalBreakL ? 1 : 0, "BRIDGE_INT_BREAK", display=display.none)
-plot(externalBreakS ? -1 : externalBreakL ? 1 : 0, "BRIDGE_EXT_BREAK", display=display.none)
+plot(bridgeWaitShortMeta, "BRIDGE_WAIT_SHORT_META", display=display.none)
+plot(bridgeWaitLongMeta, "BRIDGE_WAIT_LONG_META", display=display.none)
+plot(bridgeStructurePack, "BRIDGE_STRUCTURE_PACK", display=display.none)
 plot(ms_protectedHigh, "BRIDGE_PROT_HIGH", display=display.none)
 plot(ms_protectedLow, "BRIDGE_PROT_LOW", display=display.none)
-plot(waitS ? (waitRejectionTierS == "CONFIRMED" ? 1 : waitRejectionTierS == "WEAK" ? 2 : waitRejectionTierS == "FAILED" ? -1 : 0) : waitL ? (waitRejectionTierL == "CONFIRMED" ? 1 : waitRejectionTierL == "WEAK" ? 2 : waitRejectionTierL == "FAILED" ? -1 : 0) : 0, "BRIDGE_REJECTION_TIER", display=display.none)
+plot(ms_idmLevel, "BRIDGE_IDM_LEVEL", display=display.none)
+plot(bridgeIdmMeta, "BRIDGE_IDM_META", display=display.none)
+plot(bridgeBullFvgCe, "BRIDGE_BULL_FVG_CE", display=display.none)
+plot(bridgeBullFvgMeta, "BRIDGE_BULL_FVG_META", display=display.none)
+plot(bridgeBearFvgCe, "BRIDGE_BEAR_FVG_CE", display=display.none)
+plot(bridgeBearFvgMeta, "BRIDGE_BEAR_FVG_META", display=display.none)
 bool validSweepConfirmedAlert = bearSweep or bullSweep
 bool msConfirmedAfterSweepAlert = (waitS and ((ms_bearChochSinceSweep and ms_lastBearChochBar == bar_index) or (msContinuationConfirmedS and ms_lastBearBosBar == bar_index) or (msOpposingProtectedLevelBrokenS and not msOpposingProtectedLevelBrokenS[1]))) or (waitL and ((ms_bullChochSinceSweep and ms_lastBullChochBar == bar_index) or (msContinuationConfirmedL and ms_lastBullBosBar == bar_index) or (msOpposingProtectedLevelBrokenL and not msOpposingProtectedLevelBrokenL[1])))
 
