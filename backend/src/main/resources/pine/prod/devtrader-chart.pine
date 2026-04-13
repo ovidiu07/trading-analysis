@@ -15,8 +15,8 @@ G_OC    = "Overlay HTF Candles"
 G_FVG   = "Fair Value Gaps"
 
 // --- Constants ---
-COLOR_BULL = #08ffd6
-COLOR_BEAR = #ff0015
+COLOR_BULL = #98cac2
+COLOR_BEAR = #d3a3a7
 COLOR_NEUT = #5b9cf6
 HTF_STATE_BEAR_REV = -2
 HTF_STATE_BEAR_CONT = -1
@@ -103,15 +103,15 @@ asiaSession  = input.session("0000-0900:1234567", "Asia Session", group=G_KZ)
 colorAsia    = input.color(color.new(#5b9cf6, 85), "Asia Color", group=G_KZ)
 showDevelopingSessionLevels = input.bool(false, "Show Developing Session H/L", group=G_KZ, tooltip="Plots the current session high/low as developing references. These are informational only and are not treated as confirmed liquidity.")
 
-showLondon   = input.bool(true, "London Killzone", group=G_KZ)
+showLondon   = input.bool(false, "London Killzone", group=G_KZ)
 londonSess   = input.session("0700-1000:1234567", "London Session", group=G_KZ)
 colorLon     = input.color(color.new(#089981, 93), "London Color", group=G_KZ)
 
-showNY       = input.bool(true, "NY Killzone", group=G_KZ)
+showNY       = input.bool(false, "NY Killzone", group=G_KZ)
 nySess       = input.session("1200-1500:1234567", "NY Session", group=G_KZ)
 colorNYK     = input.color(color.new(#f23645, 93), "NY Color", group=G_KZ)
 
-showVP       = input.bool(true, "Show Daily Reference", group=G_VP)
+showVP       = input.bool(false, "Show Daily Reference", group=G_VP)
 
 showSMC      = input.bool(true, "SFP & MSS Detection", group=G_SMC)
 majorSweeps  = input.bool(true, "External Liquidity Only", group=G_SMC, tooltip="Only detect sweeps on external liquidity (major, session, or HTF levels). Ignores minor internal structure.")
@@ -136,8 +136,8 @@ showSweepTimeoutNote = input.bool(false, "Show Sweep Timeout Note", group=G_SMC,
 msMajorSwingLen = input.int(50, "Major Swing Confirmation", minval=2, group=G_MS, tooltip="Right-confirmed major swing length used for the imported market-structure map. This is a delayed confirmation layer, not a predictive pivot.")
 msInternalSwingLen = input.int(3, "Internal Swing Confirmation", minval=1, group=G_MS, tooltip="Smaller confirmed swings used only to refresh protected levels and continuation context.")
 msConfirmationMode = input.string("Balanced", "Confirmation Mode", options=["Aggressive", "Balanced", "Conservative"], group=G_MS, tooltip="Aggressive keeps devtrader primary. Balanced upgrades only aligned narratives to top quality. Conservative waits for stronger market-structure confirmation before treating the sweep as aligned.")
-showMsSwings = input.bool(false, "Show MS Swing Bullets", group=G_MS, tooltip="Plots confirmed swing bullets on the pivot bars like market-structure-sweeps. These are right-confirmed and appear only after the confirmation delay.")
-msSwingMarkerSize = input.int(4, "MS Swing Marker Size", minval=1, maxval=8, group=G_MS)
+showMsSwings = input.bool(true, "Show MS Swing Bullets", group=G_MS, tooltip="Plots confirmed swing bullets on the pivot bars like market-structure-sweeps. These are right-confirmed and appear only after the confirmation delay.")
+msSwingMarkerSize = input.int(2, "MS Swing Marker Size", minval=1, maxval=8, group=G_MS)
 msSwingHighColor = input.color(color.new(COLOR_BEAR, 0), "Swing High Bullet Color", group=G_MS)
 msSwingLowColor = input.color(color.new(COLOR_BULL, 0), "Swing Low Bullet Color", group=G_MS)
 showMsProtectedLevels = input.bool(false, "Show MS Protected Levels", group=G_MS)
@@ -167,7 +167,7 @@ liqShowDebugMetrics = input.bool(false, "Show Label Metrics", group=G_LIQ, toolt
 showLiquidityLabels = input.bool(true, "Show Liquidity Labels", group=G_LIQ)
 
 showDash     = input.bool(true, "Show Bias Dashboard", group=G_DASH)
-dashPos      = input.string("Top Right", "Position", options=["Top Right", "Bottom Right", "Top Left"], group=G_DASH)
+dashPos      = input.string("Bottom Right", "Position", options=["Top Right", "Bottom Right", "Top Left"], group=G_DASH)
 
 showPDH  = input.bool(true, "PDH (Prev Day High)", group=G_LVLS)
 showPDL  = input.bool(true, "PDL (Prev Day Low)", group=G_LVLS)
@@ -195,9 +195,9 @@ rzBearColor     = input.color(color.new(#ff0015, 60), "Bearish Zone Color", grou
 
 enableLuxFvgEngine = input.bool(true, "Enable Dev-Style FVG Engine", group=G_FVG)
 fvgThresholdPercent = input.float(0.0, "Threshold %", minval=0.0, maxval=100.0, step=0.1, inline="fvgThreshold", group=G_FVG)
-fvgThresholdAuto = input.bool(false, "Auto", inline="fvgThreshold", group=G_FVG)
+fvgThresholdAuto = input.bool(true, "Auto", inline="fvgThreshold", group=G_FVG)
 fvgShowLastUnmitigated = input.int(0, "Unmitigated Levels", minval=0, group=G_FVG)
-fvgShowMitigationLevels = input.bool(false, "Mitigation Levels", group=G_FVG)
+fvgShowMitigationLevels = input.bool(true, "Mitigation Levels", group=G_FVG)
 fvgTimeframe = input.timeframe("", "Detection Timeframe", group=G_FVG)
 fvgExtendBars = input.int(20, "Extend", minval=0, inline="fvgRender", group=G_FVG)
 fvgDynamicMode = input.bool(false, "Dynamic", inline="fvgRender", group=G_FVG)
@@ -224,7 +224,7 @@ overlayBorderWickColor = input.color(color.black, "Manual Border / Wick", group=
 
 // --- HTF Settings ---
 G_HTF        = "Higher Timeframe Structure"
-showHTF      = input.bool(true, "Show HTF Structure", group=G_HTF)
+showHTF      = input.bool(false, "Show HTF Structure", group=G_HTF)
 htf1Tf       = input.timeframe("60", "HTF 1 Timeframe", group=G_HTF)
 htf1SwingLen = input.int(5, "HTF 1 Swing Strength", group=G_HTF)
 htf2Tf       = input.timeframe("240", "HTF 2 Timeframe", group=G_HTF)
