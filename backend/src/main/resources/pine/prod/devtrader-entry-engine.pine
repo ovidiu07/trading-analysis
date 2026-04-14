@@ -1,0 +1,1030 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// Bridge-driven companion for devtrader-chart.pine.
+//@version=6
+indicator("Devtrader - Entry Engine", shorttitle="Devtrader Entry", overlay=true, max_bars_back=5000, max_labels_count=250, max_lines_count=80, max_boxes_count=250)
+
+//------------------------------------------------------------------------------
+// Constants and Types
+//------------------------------------------------------------------------------
+string G_MODE = "Signal Mode"
+string G_BRIDGE = "Bridge Inputs"
+string G_FLOW = "Trade Spacing"
+string G_ENTRY = "Entry Timing"
+string G_RISK = "Risk Framework"
+string G_VIS = "Visuals"
+string G_STATS = "Stats"
+
+color COLOR_BULL = #98cac2
+color COLOR_BEAR = #d3a3a7
+color COLOR_NEUT = #5b9cf6
+
+int HTF_STATE_BEAR_REV = -2
+int HTF_STATE_BEAR_CONT = -1
+int HTF_STATE_RANGE = 0
+int HTF_STATE_BULL_CONT = 1
+int HTF_STATE_BULL_REV = 2
+
+type tracked_signal
+    bool   isLong
+    float  entryPrice
+    float  stopPrice
+    float  tp1Price
+    float  tp2Price
+    int    signalBar
+    bool   active
+    bool   tp1Hit
+    string grade
+
+//------------------------------------------------------------------------------
+// Inputs
+//------------------------------------------------------------------------------
+string signalMode = input.string("Balanced", "Signal Mode", options=["Aggressive", "Balanced", "Conservative"], group=G_MODE)
+string setupFamily = input.string("Both", "Setup Family", options=["Both", "Reversal Only", "Continuation Only"], group=G_MODE)
+string directionFilter = input.string("Both", "Direction Filter", options=["Both", "Long Only", "Short Only"], group=G_MODE)
+bool requireDirectionalAlignment = input.bool(false, "Require Directional Alignment", group=G_MODE, tooltip="Hard blocker for continuation setups when the bridge context leans the other way.")
+bool allowCountertrendReversals = input.bool(true, "Allow Countertrend Reversals", group=G_MODE, tooltip="If disabled, reversal setups are blocked when the compact HTF bridge is strongly opposite.")
+
+bool enforceTradeSpacing = input.bool(true, "Enforce Trade Spacing", group=G_FLOW, tooltip="Suppresses clustered entries so setups remain visually and operationally distinct.")
+int minBarsBetweenAnyTrades = input.int(6, "Min Bars Between Any Trades", minval=0, maxval=100, group=G_FLOW)
+int minBarsBetweenSameDirection = input.int(12, "Min Bars Same Direction", minval=0, maxval=150, group=G_FLOW)
+bool requirePreviousTradeClosed = input.bool(true, "Require Previous Trade To Close", group=G_FLOW, tooltip="Blocks fresh entries while any tracked trade is still active.")
+int cooldownAfterResolutionBars = input.int(2, "Cooldown After Resolution", minval=0, maxval=50, group=G_FLOW)
+
+bool bridgeReady = input.bool(false, "Bridge Inputs Ready", group=G_BRIDGE, tooltip="Enable after you manually map the source inputs below to the hidden BRIDGE_* plots from Devtrader - Chart Analysis.")
+float bridgeHtfBiasSrc = input.source(close, "BRIDGE_HTF_BIAS", group=G_BRIDGE)
+float bridgeContextPackSrc = input.source(close, "BRIDGE_CONTEXT_PACK", group=G_BRIDGE)
+float bridgeContextDetailPackSrc = input.source(close, "BRIDGE_CONTEXT_DETAIL_PACK", group=G_BRIDGE)
+float bridgeNearestBslSrc = input.source(close, "BRIDGE_NEAREST_BSL", group=G_BRIDGE)
+float bridgeNearestSslSrc = input.source(close, "BRIDGE_NEAREST_SSL", group=G_BRIDGE)
+float bridgeBslMetaSrc = input.source(close, "BRIDGE_BSL_META", group=G_BRIDGE)
+float bridgeSslMetaSrc = input.source(close, "BRIDGE_SSL_META", group=G_BRIDGE)
+float bridgeSweepLevelSrc = input.source(close, "BRIDGE_SWEEP_LEVEL", group=G_BRIDGE)
+float bridgeStopAnchorSrc = input.source(close, "BRIDGE_STOP_ANCHOR", group=G_BRIDGE)
+float bridgeWaitShortMetaSrc = input.source(close, "BRIDGE_WAIT_SHORT_META", group=G_BRIDGE)
+float bridgeWaitLongMetaSrc = input.source(close, "BRIDGE_WAIT_LONG_META", group=G_BRIDGE)
+float bridgeStructurePackSrc = input.source(close, "BRIDGE_STRUCTURE_PACK", group=G_BRIDGE)
+float bridgeProtHighSrc = input.source(close, "BRIDGE_PROT_HIGH", group=G_BRIDGE)
+float bridgeProtLowSrc = input.source(close, "BRIDGE_PROT_LOW", group=G_BRIDGE)
+float bridgeIdmLevelSrc = input.source(close, "BRIDGE_IDM_LEVEL", group=G_BRIDGE)
+float bridgeIdmMetaSrc = input.source(close, "BRIDGE_IDM_META", group=G_BRIDGE)
+float bridgeBullFvgCeSrc = input.source(close, "BRIDGE_BULL_FVG_CE", group=G_BRIDGE)
+float bridgeBullFvgMetaSrc = input.source(close, "BRIDGE_BULL_FVG_META", group=G_BRIDGE)
+float bridgeBearFvgCeSrc = input.source(close, "BRIDGE_BEAR_FVG_CE", group=G_BRIDGE)
+float bridgeBearFvgMetaSrc = input.source(close, "BRIDGE_BEAR_FVG_META", group=G_BRIDGE)
+
+string entryTiming = input.string("Confirmation Candle", "Entry Timing", options=["Reclaim Close", "Confirmation Candle", "Retest Entry"], group=G_ENTRY)
+int setupExpiryBars = input.int(8, "Setup Expiry Bars", minval=1, maxval=30, group=G_ENTRY)
+int maxRetestBars = input.int(6, "Max Retest Bars", minval=1, maxval=20, group=G_ENTRY)
+float confirmationBodyMult = input.float(1.15, "Confirmation Body Mult", minval=0.8, step=0.05, group=G_ENTRY)
+float rejectionWickRatio = input.float(0.85, "Retest Wick Ratio", minval=0.3, step=0.05, group=G_ENTRY)
+
+string stopMethod = input.string("Bridge Hybrid", "Stop Method", options=["Sweep Anchor", "Protected Level", "Bridge Hybrid", "ATR Structure"], group=G_RISK)
+float stopAtrBuffer = input.float(0.15, "Stop ATR Buffer", minval=0.0, step=0.05, group=G_RISK)
+float atrStructureMult = input.float(1.15, "ATR Structure Mult", minval=0.5, step=0.05, group=G_RISK)
+string targetMethod = input.string("Nearest Opposing Liquidity", "Target Method", options=["Nearest Opposing Liquidity", "R-Multiple", "External Liquidity"], group=G_RISK)
+float tp1R = input.float(1.0, "TP1 R-Multiple", minval=0.5, step=0.25, group=G_RISK)
+float tp2R = input.float(2.0, "TP2 R-Multiple", minval=1.0, step=0.25, group=G_RISK)
+float entryBufferAtr = input.float(0.0, "Entry Buffer ATR", minval=0.0, step=0.05, group=G_RISK)
+float minRRToFirstTarget = input.float(0.80, "Min RR To First Target", minval=0.25, step=0.05, group=G_RISK)
+
+bool showTradeBoxes = input.bool(true, "Show Trade Boxes", group=G_VIS)
+bool showBoxText = input.bool(false, "Show Box Text", group=G_VIS)
+bool showQualityScore = input.bool(true, "Include Score In Box Text", group=G_VIS)
+bool showOnlyAB = input.bool(false, "Draw Only A/B Trades", group=G_VIS)
+int tradeBoxWidthBars = input.int(12, "Trade Box Width (Bars)", minval=2, maxval=80, group=G_VIS)
+int tradeBoxHistory = input.int(30, "Trade Boxes To Keep", minval=5, maxval=80, group=G_VIS)
+bool showCompactInfo = input.bool(true, "Show Compact Info Table", group=G_VIS)
+color longColor = input.color(color.new(COLOR_BULL, 0), "Long Color", group=G_VIS)
+color shortColor = input.color(color.new(COLOR_BEAR, 0), "Short Color", group=G_VIS)
+color profitBoxColor = input.color(color.new(#27ae60, 78), "Profit Box Fill", group=G_VIS)
+color riskBoxColor = input.color(color.new(#e74c3c, 80), "Risk Box Fill", group=G_VIS)
+color profitBoxBorderColor = input.color(color.new(#27ae60, 0), "Profit Box Border", group=G_VIS)
+color riskBoxBorderColor = input.color(color.new(#e74c3c, 0), "Risk Box Border", group=G_VIS)
+color boxTextColor = input.color(color.white, "Trade Box Text", group=G_VIS)
+
+bool enableOutcomeStats = input.bool(true, "Track Simple Outcomes", group=G_STATS)
+int statsHistoryCap = input.int(150, "Tracked Signals", minval=25, maxval=400, group=G_STATS)
+
+//------------------------------------------------------------------------------
+// Utilities
+//------------------------------------------------------------------------------
+f_clamp(float x, float lo, float hi) =>
+    math.max(lo, math.min(hi, x))
+
+f_boolScore(bool cond, float score) =>
+    cond ? score : 0.0
+
+f_gradeText(float score) =>
+    score >= 85.0 ? "A" : score >= 72.0 ? "B" : "C"
+
+f_modeThreshold(string mode) =>
+    mode == "Aggressive" ? 58.0 : mode == "Conservative" ? 78.0 : 68.0
+
+f_armThreshold(string mode) =>
+    f_modeThreshold(mode) - 6.0
+
+f_signalAllowedByDirection(bool isLong) =>
+    directionFilter == "Both" or (isLong and directionFilter == "Long Only") or (not isLong and directionFilter == "Short Only")
+
+f_signalAllowedByFamily(string family) =>
+    setupFamily == "Both" or (setupFamily == "Reversal Only" and family == "Reversal") or (setupFamily == "Continuation Only" and family == "Continuation")
+
+f_distanceScore(float distAtr) =>
+    na(distAtr) ? 0.0 : distAtr <= 0.10 ? 100.0 : distAtr <= 0.35 ? 86.0 : distAtr <= 0.75 ? 70.0 : distAtr <= 1.25 ? 54.0 : distAtr <= 2.0 ? 32.0 : 12.0
+
+f_priceDistScore(float anchor, float ref, float atrRef) =>
+    not na(anchor) and not na(ref) and atrRef > 0 ? f_distanceScore(math.abs(anchor - ref) / atrRef) : 0.0
+
+f_roundInt(float src) =>
+    int(math.round(nz(src, 0.0)))
+
+f_packField(int pack, int divisor, int base) =>
+    int(math.floor(pack / divisor)) % base
+
+f_hasBit(int mask, int bit) =>
+    int(math.floor(mask / bit)) % 2 == 1
+
+f_firstValid(float a, float b, float c, float d) =>
+    not na(a) ? a : not na(b) ? b : not na(c) ? c : d
+
+f_minValid4(float a, float b, float c, float d) =>
+    float out = na
+    if not na(a)
+        out := a
+    if not na(b)
+        out := na(out) ? b : math.min(out, b)
+    if not na(c)
+        out := na(out) ? c : math.min(out, c)
+    if not na(d)
+        out := na(out) ? d : math.min(out, d)
+    out
+
+f_maxValid4(float a, float b, float c, float d) =>
+    float out = na
+    if not na(a)
+        out := a
+    if not na(b)
+        out := na(out) ? b : math.max(out, b)
+    if not na(c)
+        out := na(out) ? c : math.max(out, c)
+    if not na(d)
+        out := na(out) ? d : math.max(out, d)
+    out
+
+f_liqClassScore(int classCode) =>
+    classCode == 5 ? 16.0 : classCode == 4 ? 14.0 : classCode == 3 ? 10.0 : classCode == 2 ? 8.0 : classCode == 1 ? 4.0 : 0.0
+
+f_liqTierScore(int tierCode) =>
+    tierCode == 3 ? 16.0 : tierCode == 2 ? 10.0 : tierCode == 1 ? 4.0 : 0.0
+
+f_waitTierScore(int tierCode) =>
+    tierCode == 2 ? 18.0 : tierCode == 1 ? 10.0 : 0.0
+
+f_rejectionScore(int rejectionCode) =>
+    rejectionCode == 1 ? 10.0 : rejectionCode == 2 ? 4.0 : rejectionCode == 3 ? -12.0 : 0.0
+
+f_stateScore(int state, bool isLong) =>
+    if isLong
+        state == HTF_STATE_BULL_CONT ? 100.0 : state == HTF_STATE_BULL_REV ? 82.0 : state == HTF_STATE_RANGE ? 54.0 : state == HTF_STATE_BEAR_REV ? 28.0 : 0.0
+    else
+        state == HTF_STATE_BEAR_CONT ? 100.0 : state == HTF_STATE_BEAR_REV ? 82.0 : state == HTF_STATE_RANGE ? 54.0 : state == HTF_STATE_BULL_REV ? 28.0 : 0.0
+
+f_pdContinuationBonus(float pdPos, bool isLong) =>
+    if isLong
+        pdPos <= 0.30 ? 14.0 : pdPos <= 0.50 ? 8.0 : pdPos <= 0.65 ? 2.0 : -8.0
+    else
+        pdPos >= 0.70 ? 14.0 : pdPos >= 0.50 ? 8.0 : pdPos >= 0.35 ? 2.0 : -8.0
+
+f_pdReversalBonus(float pdPos, bool isLong) =>
+    if isLong
+        pdPos <= 0.20 ? 16.0 : pdPos <= 0.40 ? 10.0 : pdPos <= 0.60 ? 4.0 : -6.0
+    else
+        pdPos >= 0.80 ? 16.0 : pdPos >= 0.60 ? 10.0 : pdPos >= 0.40 ? 4.0 : -6.0
+
+f_bridgeLiqScore(bool found, int classCode, int tierCode, int importance, int actionability, float priceRef, float atrRef) =>
+    found ? f_clamp(f_liqClassScore(classCode) + f_liqTierScore(tierCode) + importance * 0.28 + actionability * 0.28 + f_priceDistScore(close, priceRef, atrRef) * 0.12, 0.0, 100.0) : 0.0
+
+f_decodeWaitFlags(int meta) =>
+    // WAIT meta uses decimal slots plus an 11-bit flags mask. The mask can exceed 999 because of the 1024 bit,
+    // so this strips 1k blocks until the remainder fits the flag ceiling and uses that as the primary state.
+    int lower = meta % 10000
+    int flags = lower
+    if flags > 2047
+        flags -= 1000
+    if flags > 2047
+        flags -= 1000
+    if flags > 2047
+        flags -= 1000
+    math.max(flags, 0)
+
+f_decodeWaitRejection(int meta) =>
+    int lower = meta % 10000
+    int flags = f_decodeWaitFlags(meta)
+    int(math.max(0, math.min(3, math.round((lower - flags) / 1000.0))))
+
+f_decodeFvgWidth(int meta) =>
+    int lower = meta % 1000000
+    int(math.floor(lower / 10))
+
+f_decodeFvgHook(int meta) =>
+    // The bridge stores 0 / 5 / 10 hook points in the low digits. A stored 10 can spill into the width bucket,
+    // so width is treated as primary and the hook is only a small bonus.
+    int lower = meta % 10
+    lower == 5 ? 5 : lower == 0 ? 0 : lower
+
+f_sessionScore(bool isReversal, bool asiaFlag, bool londonFlag, bool nyFlag, bool londonSweepFlag, bool nySweepFlag) =>
+    float score = 48.0
+    if isReversal
+        score := londonSweepFlag or nySweepFlag ? 96.0 : londonFlag or nyFlag ? 78.0 : asiaFlag ? 52.0 : 34.0
+    else
+        score := londonFlag or nyFlag ? 88.0 : londonSweepFlag or nySweepFlag ? 82.0 : asiaFlag ? 60.0 : 46.0
+    score
+
+f_sessionText(bool asiaFlag, bool londonFlag, bool nyFlag, bool londonSweepFlag, bool nySweepFlag) =>
+    londonSweepFlag ? "London sweep" : nySweepFlag ? "NY sweep" : londonFlag ? "London" : nyFlag ? "New York" : asiaFlag ? "Asia" : "Off session"
+
+f_tradeBoxText(bool isLong, string family, string grade, float score) =>
+    if not showBoxText
+        ""
+    else
+        string txt = isLong ? "Long " : "Short "
+        txt += family + " " + grade
+        if showQualityScore
+            txt += " " + str.tostring(score, "#")
+        txt
+
+//------------------------------------------------------------------------------
+// Local Bar Metrics
+//------------------------------------------------------------------------------
+max_bars_back(time, 5000)
+max_bars_back(high, 5000)
+max_bars_back(low, 5000)
+max_bars_back(close, 5000)
+
+float atrVal = ta.atr(14)
+float avgBody = ta.sma(math.abs(close - open), 20)
+float avgVol = ta.sma(volume, 20)
+float relVol = avgVol > 0 ? volume / avgVol : 1.0
+float barRange = high - low
+float safeRange = math.max(barRange, syminfo.mintick)
+float body = math.abs(close - open)
+float lowerWick = math.min(open, close) - low
+float upperWick = high - math.max(open, close)
+bool bullDisp = close > open and body > avgBody * confirmationBodyMult and close >= high - safeRange * 0.35
+bool bearDisp = close < open and body > avgBody * confirmationBodyMult and close <= low + safeRange * 0.35
+bool bullConfirmCandle = close > open and (body > avgBody * confirmationBodyMult or bullDisp or close > high[1])
+bool bearConfirmCandle = close < open and (body > avgBody * confirmationBodyMult or bearDisp or close < low[1])
+float touchTolerance = math.max(atrVal * 0.10, syminfo.mintick * 4.0)
+float entryBuffer = atrVal * entryBufferAtr
+float chartBarSeconds = timeframe.in_seconds(timeframe.period)
+int chartBarMillis = int(math.max(chartBarSeconds, 60.0) * 1000.0)
+
+//------------------------------------------------------------------------------
+// Bridge Decode
+//------------------------------------------------------------------------------
+float htfBias = nz(bridgeHtfBiasSrc, 0.0)
+int contextPack = f_roundInt(bridgeContextPackSrc)
+int contextDetailPack = f_roundInt(bridgeContextDetailPackSrc)
+int bslMeta = f_roundInt(bridgeBslMetaSrc)
+int sslMeta = f_roundInt(bridgeSslMetaSrc)
+int waitShortMeta = f_roundInt(bridgeWaitShortMetaSrc)
+int waitLongMeta = f_roundInt(bridgeWaitLongMetaSrc)
+int structurePack = f_roundInt(bridgeStructurePackSrc)
+int idmMeta = f_roundInt(bridgeIdmMetaSrc)
+int bullFvgMeta = f_roundInt(bridgeBullFvgMetaSrc)
+int bearFvgMeta = f_roundInt(bridgeBearFvgMetaSrc)
+
+// Decode the compact context packs published by devtrader-chart.pine.
+int htf1StateCode = f_packField(contextPack, 1000000000000, 10)
+int htf2StateCode = f_packField(contextPack, 100000000000, 10)
+int structureTrendCode = f_packField(contextPack, 10000000000, 10)
+int msBiasCode = f_packField(contextPack, 1000000000, 10)
+int htf1State = htf1StateCode - 2
+int htf2State = htf2StateCode - 2
+int structureTrend = structureTrendCode - 1
+int msBias = msBiasCode - 1
+bool htf1NearHighLiq = f_packField(contextPack, 100000000, 10) == 1
+bool htf1NearLowLiq = f_packField(contextPack, 10000000, 10) == 1
+bool htf2NearHighLiq = f_packField(contextPack, 1000000, 10) == 1
+bool htf2NearLowLiq = f_packField(contextPack, 100000, 10) == 1
+bool inAsia = f_packField(contextPack, 10000, 10) == 1
+bool inLondon = f_packField(contextPack, 1000, 10) == 1
+bool inNY = f_packField(contextPack, 100, 10) == 1
+bool inLondonSweepWindow = f_packField(contextPack, 10, 10) == 1
+bool inNYSweepWindow = f_packField(contextPack, 1, 10) == 1
+
+int htf1Conf = f_packField(contextDetailPack, 100000000, 100)
+int htf2Conf = f_packField(contextDetailPack, 1000000, 100)
+int htf1PdRaw = f_packField(contextDetailPack, 10000, 100)
+int htf2PdRaw = f_packField(contextDetailPack, 100, 100)
+int htf1DispCode = f_packField(contextDetailPack, 10, 10)
+int htf2DispCode = f_packField(contextDetailPack, 1, 10)
+int htf1DispBias = htf1DispCode - 1
+int htf2DispBias = htf2DispCode - 1
+
+bool nearestBslFound = f_packField(bslMeta, 1000000, 10) == 1 and not na(bridgeNearestBslSrc)
+bool nearestSslFound = f_packField(sslMeta, 1000000, 10) == 1 and not na(bridgeNearestSslSrc)
+int nearestBslClass = f_packField(bslMeta, 100000, 10)
+int nearestSslClass = f_packField(sslMeta, 100000, 10)
+int nearestBslTier = f_packField(bslMeta, 10000, 10)
+int nearestSslTier = f_packField(sslMeta, 10000, 10)
+int nearestBslImportance = f_packField(bslMeta, 100, 100)
+int nearestSslImportance = f_packField(sslMeta, 100, 100)
+int nearestBslActionability = f_packField(bslMeta, 1, 100)
+int nearestSslActionability = f_packField(sslMeta, 1, 100)
+float nearestBsl = nearestBslFound ? bridgeNearestBslSrc : na
+float nearestSsl = nearestSslFound ? bridgeNearestSslSrc : na
+
+int waitShortTier = f_packField(waitShortMeta, 10000, 10)
+int waitLongTier = f_packField(waitLongMeta, 10000, 10)
+int waitShortFlags = f_decodeWaitFlags(waitShortMeta)
+int waitLongFlags = f_decodeWaitFlags(waitLongMeta)
+int waitShortRejection = f_decodeWaitRejection(waitShortMeta)
+int waitLongRejection = f_decodeWaitRejection(waitLongMeta)
+
+bool waitShortActive = (waitShortTier > 0 or f_hasBit(waitShortFlags, 1)) and not na(bridgeSweepLevelSrc)
+bool waitLongActive = (waitLongTier > 0 or f_hasBit(waitLongFlags, 1)) and not na(bridgeSweepLevelSrc)
+bool waitShortReclaimOk = f_hasBit(waitShortFlags, 2)
+bool waitLongReclaimOk = f_hasBit(waitLongFlags, 2)
+bool waitShortSessionOk = f_hasBit(waitShortFlags, 4)
+bool waitLongSessionOk = f_hasBit(waitLongFlags, 4)
+bool waitShortVolumeOk = f_hasBit(waitShortFlags, 8)
+bool waitLongVolumeOk = f_hasBit(waitLongFlags, 8)
+bool waitShortChoch = f_hasBit(waitShortFlags, 16)
+bool waitLongChoch = f_hasBit(waitLongFlags, 16)
+bool waitShortContinuation = f_hasBit(waitShortFlags, 32)
+bool waitLongContinuation = f_hasBit(waitLongFlags, 32)
+bool waitShortOpposingBroken = f_hasBit(waitShortFlags, 64)
+bool waitLongOpposingBroken = f_hasBit(waitLongFlags, 64)
+bool waitShortInternalShift = f_hasBit(waitShortFlags, 128)
+bool waitLongInternalShift = f_hasBit(waitLongFlags, 128)
+bool waitShortExternalShift = f_hasBit(waitShortFlags, 256)
+bool waitLongExternalShift = f_hasBit(waitLongFlags, 256)
+bool waitShortTrendAligned = f_hasBit(waitShortFlags, 512)
+bool waitLongTrendAligned = f_hasBit(waitLongFlags, 512)
+bool waitShortPostStructure = f_hasBit(waitShortFlags, 1024)
+bool waitLongPostStructure = f_hasBit(waitLongFlags, 1024)
+
+bool structInternalBreakS = f_hasBit(structurePack, 1)
+bool structInternalBreakL = f_hasBit(structurePack, 2)
+bool structExternalBreakS = f_hasBit(structurePack, 4)
+bool structExternalBreakL = f_hasBit(structurePack, 8)
+bool structBearChochEvent = f_hasBit(structurePack, 16)
+bool structBullChochEvent = f_hasBit(structurePack, 32)
+bool structBearBosEvent = f_hasBit(structurePack, 64)
+bool structBullBosEvent = f_hasBit(structurePack, 128)
+bool protectedBearIntact = f_hasBit(structurePack, 256)
+bool protectedBullIntact = f_hasBit(structurePack, 512)
+bool continuationConfirmedShort = f_hasBit(structurePack, 1024)
+bool continuationConfirmedLong = f_hasBit(structurePack, 2048)
+
+float protectedHigh = bridgeProtHighSrc
+float protectedLow = bridgeProtLowSrc
+float sweepLevel = bridgeSweepLevelSrc
+float stopAnchor = bridgeStopAnchorSrc
+
+int idmState = f_packField(idmMeta, 1000000, 10)
+int idmBiasCode = f_packField(idmMeta, 100000, 10)
+int idmBias = idmBiasCode > 0 ? idmBiasCode - 1 : 0
+int idmScore = f_packField(idmMeta, 1000, 100)
+bool idmStrong = f_packField(idmMeta, 100, 10) == 1
+bool idmTaken = f_packField(idmMeta, 10, 10) == 1
+bool idmPendingSweep = f_packField(idmMeta, 1, 10) == 1
+float idmLevel = bridgeIdmLevelSrc
+
+bool bullFvgInside = f_packField(bullFvgMeta, 10000000, 10) == 1
+bool bullFvgDirectionalFound = f_packField(bullFvgMeta, 1000000, 10) == 1 and not na(bridgeBullFvgCeSrc)
+int bullFvgWidthTicks = f_decodeFvgWidth(bullFvgMeta)
+int bullFvgHook = f_decodeFvgHook(bullFvgMeta)
+float bullFvgCe = bridgeBullFvgCeSrc
+float bullFvgHalfWidth = bullFvgWidthTicks * syminfo.mintick * 0.5
+float bullFvgLow = not na(bullFvgCe) ? bullFvgCe - bullFvgHalfWidth : na
+float bullFvgHigh = not na(bullFvgCe) ? bullFvgCe + bullFvgHalfWidth : na
+
+bool bearFvgInside = f_packField(bearFvgMeta, 10000000, 10) == 1
+bool bearFvgDirectionalFound = f_packField(bearFvgMeta, 1000000, 10) == 1 and not na(bridgeBearFvgCeSrc)
+int bearFvgWidthTicks = f_decodeFvgWidth(bearFvgMeta)
+int bearFvgHook = f_decodeFvgHook(bearFvgMeta)
+float bearFvgCe = bridgeBearFvgCeSrc
+float bearFvgHalfWidth = bearFvgWidthTicks * syminfo.mintick * 0.5
+float bearFvgLow = not na(bearFvgCe) ? bearFvgCe - bearFvgHalfWidth : na
+float bearFvgHigh = not na(bearFvgCe) ? bearFvgCe + bearFvgHalfWidth : na
+
+bool contextPackValid = htf1StateCode >= 0 and htf1StateCode <= 4 and htf2StateCode >= 0 and htf2StateCode <= 4 and structureTrendCode >= 0 and structureTrendCode <= 2 and msBiasCode >= 0 and msBiasCode <= 2
+bool contextDetailValid = htf1Conf >= 0 and htf1Conf <= 99 and htf2Conf >= 0 and htf2Conf <= 99 and htf1PdRaw >= 0 and htf1PdRaw <= 99 and htf2PdRaw >= 0 and htf2PdRaw <= 99 and htf1DispCode >= 0 and htf1DispCode <= 2 and htf2DispCode >= 0 and htf2DispCode <= 2
+bool structureValid = structurePack >= 0 and structurePack <= 4095
+bool idmValid = idmState >= 0 and idmState <= 4 and idmScore >= 0 and idmScore <= 99 and idmBiasCode >= 0 and idmBiasCode <= 2
+bool bridgeValid = bridgeReady and contextPackValid and contextDetailValid and structureValid and idmValid
+
+//------------------------------------------------------------------------------
+// Bridge-Derived Context and Confluence
+//------------------------------------------------------------------------------
+float avgHtfConf = (htf1Conf + htf2Conf) * 0.5
+float avgPdPos = (htf1PdRaw + htf2PdRaw) * 0.5 / 100.0
+float longContextScore = f_clamp(math.max(htfBias, 0.0) * 0.42 + (f_stateScore(htf1State, true) + f_stateScore(htf2State, true)) * 0.18 + avgHtfConf * 0.18 + f_boolScore(msBias == 1, 12.0) + f_boolScore(structureTrend == 1, 10.0) + f_boolScore(htf1NearLowLiq or htf2NearLowLiq, 6.0) - f_boolScore(htf1NearHighLiq or htf2NearHighLiq, 6.0), 0.0, 100.0)
+float shortContextScore = f_clamp(math.max(-htfBias, 0.0) * 0.42 + (f_stateScore(htf1State, false) + f_stateScore(htf2State, false)) * 0.18 + avgHtfConf * 0.18 + f_boolScore(msBias == -1, 12.0) + f_boolScore(structureTrend == -1, 10.0) + f_boolScore(htf1NearHighLiq or htf2NearHighLiq, 6.0) - f_boolScore(htf1NearLowLiq or htf2NearLowLiq, 6.0), 0.0, 100.0)
+
+float longSupportScore = f_bridgeLiqScore(nearestSslFound, nearestSslClass, nearestSslTier, nearestSslImportance, nearestSslActionability, nearestSsl, atrVal)
+float shortSupportScore = f_bridgeLiqScore(nearestBslFound, nearestBslClass, nearestBslTier, nearestBslImportance, nearestBslActionability, nearestBsl, atrVal)
+float longTargetScore = f_bridgeLiqScore(nearestBslFound, nearestBslClass, nearestBslTier, nearestBslImportance, nearestBslActionability, nearestBsl, atrVal)
+float shortTargetScore = f_bridgeLiqScore(nearestSslFound, nearestSslClass, nearestSslTier, nearestSslImportance, nearestSslActionability, nearestSsl, atrVal)
+
+float longIdmConfluence = idmBias == 1 and not na(idmLevel) ? f_clamp(idmScore * 0.65 + f_boolScore(idmStrong, 12.0) + (idmState == 1 ? 10.0 : idmTaken ? 6.0 : idmState == 2 ? -8.0 : 0.0) + f_priceDistScore(close, idmLevel, atrVal) * 0.25 + f_boolScore(idmPendingSweep, 4.0), 0.0, 100.0) : 0.0
+float shortIdmConfluence = idmBias == -1 and not na(idmLevel) ? f_clamp(idmScore * 0.65 + f_boolScore(idmStrong, 12.0) + (idmState == 1 ? 10.0 : idmTaken ? 6.0 : idmState == 2 ? -8.0 : 0.0) + f_priceDistScore(close, idmLevel, atrVal) * 0.25 + f_boolScore(idmPendingSweep, 4.0), 0.0, 100.0) : 0.0
+
+float bullFvgWidthAtr = atrVal > 0 ? bullFvgWidthTicks * syminfo.mintick / atrVal : na
+float bearFvgWidthAtr = atrVal > 0 ? bearFvgWidthTicks * syminfo.mintick / atrVal : na
+float longFvgConfluence = bullFvgDirectionalFound or bullFvgInside ? f_clamp((bullFvgInside ? 70.0 : 56.0) + f_priceDistScore(close, bullFvgCe, atrVal) * 0.18 + f_clamp(12.0 - nz(bullFvgWidthAtr, 0.0) * 4.0, 0.0, 12.0) + bullFvgHook, 0.0, 100.0) : 0.0
+float shortFvgConfluence = bearFvgDirectionalFound or bearFvgInside ? f_clamp((bearFvgInside ? 70.0 : 56.0) + f_priceDistScore(close, bearFvgCe, atrVal) * 0.18 + f_clamp(12.0 - nz(bearFvgWidthAtr, 0.0) * 4.0, 0.0, 12.0) + bearFvgHook, 0.0, 100.0) : 0.0
+
+float longConfluenceScore = f_clamp(longIdmConfluence * 0.35 + longFvgConfluence * 0.30 + longSupportScore * 0.20 + longTargetScore * 0.15, 0.0, 100.0)
+float shortConfluenceScore = f_clamp(shortIdmConfluence * 0.35 + shortFvgConfluence * 0.30 + shortSupportScore * 0.20 + shortTargetScore * 0.15, 0.0, 100.0)
+
+bool longProtectedOk = protectedBullIntact or na(protectedLow)
+bool shortProtectedOk = protectedBearIntact or na(protectedHigh)
+
+float longPullbackAnchor = f_firstValid(idmBias == 1 ? idmLevel : na, bullFvgDirectionalFound or bullFvgInside ? bullFvgCe : na, protectedLow, nearestSsl)
+float shortPullbackAnchor = f_firstValid(idmBias == -1 ? idmLevel : na, bearFvgDirectionalFound or bearFvgInside ? bearFvgCe : na, protectedHigh, nearestBsl)
+float longPullbackProxScore = f_priceDistScore(close, longPullbackAnchor, atrVal)
+float shortPullbackProxScore = f_priceDistScore(close, shortPullbackAnchor, atrVal)
+float sweepProxScore = f_priceDistScore(close, sweepLevel, atrVal)
+
+// Weighted decision logic stays local in this indicator; all structural state comes from the bridge.
+float longReversalTriggerScore = f_clamp(f_boolScore(waitLongActive, 14.0) + f_waitTierScore(waitLongTier) + f_rejectionScore(waitLongRejection) + f_boolScore(waitLongReclaimOk, 16.0) + f_boolScore(waitLongSessionOk or inLondonSweepWindow or inNYSweepWindow, 10.0) + f_boolScore(waitLongVolumeOk or relVol >= 1.05, 6.0) + f_boolScore(waitLongChoch or structBullChochEvent, 12.0) + f_boolScore(waitLongContinuation or continuationConfirmedLong, 10.0) + f_boolScore(waitLongInternalShift or structInternalBreakL, 8.0) + f_boolScore(waitLongExternalShift or structExternalBreakL, 8.0) + f_boolScore(waitLongPostStructure or waitLongOpposingBroken, 12.0) + f_boolScore(waitLongTrendAligned, 6.0) + f_sessionScore(true, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow) * 0.05 + sweepProxScore * 0.10 + f_pdReversalBonus(avgPdPos, true), 0.0, 100.0)
+float shortReversalTriggerScore = f_clamp(f_boolScore(waitShortActive, 14.0) + f_waitTierScore(waitShortTier) + f_rejectionScore(waitShortRejection) + f_boolScore(waitShortReclaimOk, 16.0) + f_boolScore(waitShortSessionOk or inLondonSweepWindow or inNYSweepWindow, 10.0) + f_boolScore(waitShortVolumeOk or relVol >= 1.05, 6.0) + f_boolScore(waitShortChoch or structBearChochEvent, 12.0) + f_boolScore(waitShortContinuation or continuationConfirmedShort, 10.0) + f_boolScore(waitShortInternalShift or structInternalBreakS, 8.0) + f_boolScore(waitShortExternalShift or structExternalBreakS, 8.0) + f_boolScore(waitShortPostStructure or waitShortOpposingBroken, 12.0) + f_boolScore(waitShortTrendAligned, 6.0) + f_sessionScore(true, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow) * 0.05 + sweepProxScore * 0.10 + f_pdReversalBonus(avgPdPos, false), 0.0, 100.0)
+
+float longContinuationTriggerScore = f_clamp(f_boolScore(continuationConfirmedLong, 20.0) + f_boolScore(structInternalBreakL, 10.0) + f_boolScore(structExternalBreakL, 12.0) + f_boolScore(structBullChochEvent, 12.0) + f_boolScore(structBullBosEvent, 16.0) + f_boolScore(longProtectedOk, 12.0) + f_boolScore(msBias == 1, 8.0) + f_boolScore(structureTrend == 1, 8.0) + f_boolScore(inLondon or inNY or inLondonSweepWindow or inNYSweepWindow, 8.0) + f_boolScore(relVol >= 1.0, 5.0) + longPullbackProxScore * 0.22 + f_pdContinuationBonus(avgPdPos, true), 0.0, 100.0)
+float shortContinuationTriggerScore = f_clamp(f_boolScore(continuationConfirmedShort, 20.0) + f_boolScore(structInternalBreakS, 10.0) + f_boolScore(structExternalBreakS, 12.0) + f_boolScore(structBearChochEvent, 12.0) + f_boolScore(structBearBosEvent, 16.0) + f_boolScore(shortProtectedOk, 12.0) + f_boolScore(msBias == -1, 8.0) + f_boolScore(structureTrend == -1, 8.0) + f_boolScore(inLondon or inNY or inLondonSweepWindow or inNYSweepWindow, 8.0) + f_boolScore(relVol >= 1.0, 5.0) + shortPullbackProxScore * 0.22 + f_pdContinuationBonus(avgPdPos, false), 0.0, 100.0)
+
+float longReversalScore = f_clamp(longContextScore * 0.28 + longReversalTriggerScore * 0.50 + longConfluenceScore * 0.22, 0.0, 100.0)
+float shortReversalScore = f_clamp(shortContextScore * 0.28 + shortReversalTriggerScore * 0.50 + shortConfluenceScore * 0.22, 0.0, 100.0)
+float longContinuationScore = f_clamp(longContextScore * 0.42 + longContinuationTriggerScore * 0.36 + longConfluenceScore * 0.22, 0.0, 100.0)
+float shortContinuationScore = f_clamp(shortContextScore * 0.42 + shortContinuationTriggerScore * 0.36 + shortConfluenceScore * 0.22, 0.0, 100.0)
+
+string longReversalStage = waitLongPostStructure or continuationConfirmedLong ? "post-sweep structure confirmed" : waitLongChoch or structBullChochEvent ? "bullish CHoCH after sweep" : waitLongInternalShift or waitLongExternalShift ? "shift after sweep" : waitLongReclaimOk ? "reclaim held above sweep" : "qualified sweep"
+string shortReversalStage = waitShortPostStructure or continuationConfirmedShort ? "post-sweep structure confirmed" : waitShortChoch or structBearChochEvent ? "bearish CHoCH after sweep" : waitShortInternalShift or waitShortExternalShift ? "shift after sweep" : waitShortReclaimOk ? "reclaim held below sweep" : "qualified sweep"
+string longContinuationStage = structBullBosEvent ? "bull BOS event" : continuationConfirmedLong ? "continuation confirmed" : structBullChochEvent ? "bull CHoCH event" : "pullback into bullish structure"
+string shortContinuationStage = structBearBosEvent ? "bear BOS event" : continuationConfirmedShort ? "continuation confirmed" : structBearChochEvent ? "bear CHoCH event" : "pullback into bearish structure"
+
+float longReversalZoneLow = f_minValid4(stopAnchor, protectedLow, bullFvgLow, sweepLevel)
+float longReversalZoneHigh = f_maxValid4(sweepLevel, bullFvgHigh, protectedLow, idmBias == 1 ? idmLevel : na)
+float longReversalEntryRef = f_firstValid(sweepLevel, bullFvgCe, protectedLow, close)
+float longReversalStopRef = f_minValid4(stopAnchor, protectedLow, bullFvgLow, sweepLevel)
+
+float shortReversalZoneLow = f_minValid4(sweepLevel, bearFvgLow, protectedHigh, idmBias == -1 ? idmLevel : na)
+float shortReversalZoneHigh = f_maxValid4(stopAnchor, protectedHigh, bearFvgHigh, sweepLevel)
+float shortReversalEntryRef = f_firstValid(sweepLevel, bearFvgCe, protectedHigh, close)
+float shortReversalStopRef = f_maxValid4(stopAnchor, protectedHigh, bearFvgHigh, sweepLevel)
+
+float longContinuationZoneLow = f_minValid4(protectedLow, idmBias == 1 ? idmLevel : na, bullFvgLow, nearestSsl)
+float longContinuationZoneHigh = f_maxValid4(protectedLow, idmBias == 1 ? idmLevel : na, bullFvgHigh, nearestSsl)
+float longContinuationEntryRef = f_firstValid(idmBias == 1 ? idmLevel : na, bullFvgCe, protectedLow, nearestSsl)
+float longContinuationStopRef = f_minValid4(protectedLow, idmBias == 1 ? idmLevel : na, bullFvgLow, nearestSsl)
+
+float shortContinuationZoneLow = f_minValid4(protectedHigh, idmBias == -1 ? idmLevel : na, bearFvgLow, nearestBsl)
+float shortContinuationZoneHigh = f_maxValid4(protectedHigh, idmBias == -1 ? idmLevel : na, bearFvgHigh, nearestBsl)
+float shortContinuationEntryRef = f_firstValid(idmBias == -1 ? idmLevel : na, bearFvgCe, protectedHigh, nearestBsl)
+float shortContinuationStopRef = f_maxValid4(protectedHigh, idmBias == -1 ? idmLevel : na, bearFvgHigh, nearestBsl)
+
+//------------------------------------------------------------------------------
+// Candidate Selection
+//------------------------------------------------------------------------------
+string longBestFamily = ""
+string shortBestFamily = ""
+float longBestScore = na
+float shortBestScore = na
+float longBestEntryRef = na
+float shortBestEntryRef = na
+float longBestZoneLow = na
+float shortBestZoneLow = na
+float longBestZoneHigh = na
+float shortBestZoneHigh = na
+float longBestStopRef = na
+float shortBestStopRef = na
+string longBestStage = ""
+string shortBestStage = ""
+
+if f_signalAllowedByDirection(true)
+    if f_signalAllowedByFamily("Reversal") and ((waitLongActive and longReversalScore >= nz(longContinuationScore, 0.0) - 2.0) or not f_signalAllowedByFamily("Continuation") or longReversalScore >= nz(longContinuationScore, 0.0))
+        longBestFamily := "Reversal"
+        longBestScore := longReversalScore
+        longBestEntryRef := longReversalEntryRef
+        longBestZoneLow := longReversalZoneLow
+        longBestZoneHigh := longReversalZoneHigh
+        longBestStopRef := longReversalStopRef
+        longBestStage := longReversalStage
+    else if f_signalAllowedByFamily("Continuation")
+        longBestFamily := "Continuation"
+        longBestScore := longContinuationScore
+        longBestEntryRef := longContinuationEntryRef
+        longBestZoneLow := longContinuationZoneLow
+        longBestZoneHigh := longContinuationZoneHigh
+        longBestStopRef := longContinuationStopRef
+        longBestStage := longContinuationStage
+
+if f_signalAllowedByDirection(false)
+    if f_signalAllowedByFamily("Reversal") and ((waitShortActive and shortReversalScore >= nz(shortContinuationScore, 0.0) - 2.0) or not f_signalAllowedByFamily("Continuation") or shortReversalScore >= nz(shortContinuationScore, 0.0))
+        shortBestFamily := "Reversal"
+        shortBestScore := shortReversalScore
+        shortBestEntryRef := shortReversalEntryRef
+        shortBestZoneLow := shortReversalZoneLow
+        shortBestZoneHigh := shortReversalZoneHigh
+        shortBestStopRef := shortReversalStopRef
+        shortBestStage := shortReversalStage
+    else if f_signalAllowedByFamily("Continuation")
+        shortBestFamily := "Continuation"
+        shortBestScore := shortContinuationScore
+        shortBestEntryRef := shortContinuationEntryRef
+        shortBestZoneLow := shortContinuationZoneLow
+        shortBestZoneHigh := shortContinuationZoneHigh
+        shortBestStopRef := shortContinuationStopRef
+        shortBestStage := shortContinuationStage
+
+bool longCountertrendBlocked = not allowCountertrendReversals and longBestFamily == "Reversal" and shortContextScore > longContextScore + 10.0 and htfBias < -20.0
+bool shortCountertrendBlocked = not allowCountertrendReversals and shortBestFamily == "Reversal" and longContextScore > shortContextScore + 10.0 and htfBias > 20.0
+bool longAlignmentBlocked = requireDirectionalAlignment and longBestFamily == "Continuation" and shortContextScore > longContextScore
+bool shortAlignmentBlocked = requireDirectionalAlignment and shortBestFamily == "Continuation" and longContextScore > shortContextScore
+
+bool longCandidateReady = bridgeValid and longBestFamily != "" and longBestScore >= f_armThreshold(signalMode) and not longCountertrendBlocked and not longAlignmentBlocked
+bool shortCandidateReady = bridgeValid and shortBestFamily != "" and shortBestScore >= f_armThreshold(signalMode) and not shortCountertrendBlocked and not shortAlignmentBlocked
+
+//------------------------------------------------------------------------------
+// Entry Timing State
+//------------------------------------------------------------------------------
+var bool longArmActive = false
+var string longArmFamily = ""
+var float longArmScore = na
+var float longArmEntryRef = na
+var float longArmZoneLow = na
+var float longArmZoneHigh = na
+var float longArmStopRef = na
+var int longArmBar = na
+var string longArmReason = ""
+
+var bool shortArmActive = false
+var string shortArmFamily = ""
+var float shortArmScore = na
+var float shortArmEntryRef = na
+var float shortArmZoneLow = na
+var float shortArmZoneHigh = na
+var float shortArmStopRef = na
+var int shortArmBar = na
+var string shortArmReason = ""
+
+if not bridgeValid
+    longArmActive := false
+    shortArmActive := false
+
+float rearmTolerance = math.max(atrVal * 0.35, syminfo.mintick * 8.0)
+bool longNeedsRearm = longCandidateReady and (not longArmActive or longBestFamily != longArmFamily or math.abs(nz(longBestEntryRef, close) - nz(longArmEntryRef, close)) > rearmTolerance)
+bool shortNeedsRearm = shortCandidateReady and (not shortArmActive or shortBestFamily != shortArmFamily or math.abs(nz(shortBestEntryRef, close) - nz(shortArmEntryRef, close)) > rearmTolerance)
+
+if longNeedsRearm
+    longArmActive := true
+    longArmFamily := longBestFamily
+    longArmScore := longBestScore
+    longArmEntryRef := longBestEntryRef
+    longArmZoneLow := longBestZoneLow
+    longArmZoneHigh := longBestZoneHigh
+    longArmStopRef := longBestStopRef
+    longArmBar := bar_index
+    longArmReason := longBestStage
+
+if shortNeedsRearm
+    shortArmActive := true
+    shortArmFamily := shortBestFamily
+    shortArmScore := shortBestScore
+    shortArmEntryRef := shortBestEntryRef
+    shortArmZoneLow := shortBestZoneLow
+    shortArmZoneHigh := shortBestZoneHigh
+    shortArmStopRef := shortBestStopRef
+    shortArmBar := bar_index
+    shortArmReason := shortBestStage
+
+bool longArmExpired = longArmActive and not na(longArmBar) and (bar_index - longArmBar) > setupExpiryBars
+bool shortArmExpired = shortArmActive and not na(shortArmBar) and (bar_index - shortArmBar) > setupExpiryBars
+bool longArmInvalid = longArmActive and not na(longArmStopRef) and low < longArmStopRef - touchTolerance
+bool shortArmInvalid = shortArmActive and not na(shortArmStopRef) and high > shortArmStopRef + touchTolerance
+
+if longArmExpired or longArmInvalid
+    longArmActive := false
+if shortArmExpired or shortArmInvalid
+    shortArmActive := false
+
+bool longTouchZone = longArmActive and low <= nz(longArmZoneHigh, longArmEntryRef) + touchTolerance and high >= nz(longArmZoneLow, longArmEntryRef) - touchTolerance
+bool shortTouchZone = shortArmActive and high >= nz(shortArmZoneLow, shortArmEntryRef) - touchTolerance and low <= nz(shortArmZoneHigh, shortArmEntryRef) + touchTolerance
+
+bool longReclaimNow = longArmActive and not na(longArmEntryRef) and low <= longArmEntryRef + touchTolerance and close > longArmEntryRef
+bool shortReclaimNow = shortArmActive and not na(shortArmEntryRef) and high >= shortArmEntryRef - touchTolerance and close < shortArmEntryRef
+bool longRejectNow = longTouchZone and close > nz(longArmEntryRef, close) and (lowerWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bullDisp)
+bool shortRejectNow = shortTouchZone and close < nz(shortArmEntryRef, close) and (upperWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bearDisp)
+bool longRetestEvent = longArmActive and bar_index > nz(longArmBar, bar_index) and (bar_index - nz(longArmBar, bar_index)) <= maxRetestBars and longRejectNow
+bool shortRetestEvent = shortArmActive and bar_index > nz(shortArmBar, bar_index) and (bar_index - nz(shortArmBar, bar_index)) <= maxRetestBars and shortRejectNow
+bool longConfirmNow = longArmActive and bullConfirmCandle and close > nz(longArmEntryRef, close)
+bool shortConfirmNow = shortArmActive and bearConfirmCandle and close < nz(shortArmEntryRef, close)
+
+bool longTimingPass = longArmActive and (entryTiming == "Reclaim Close" ? longReclaimNow : entryTiming == "Confirmation Candle" ? (longConfirmNow and (longReclaimNow or bar_index > nz(longArmBar, bar_index))) : longRetestEvent)
+bool shortTimingPass = shortArmActive and (entryTiming == "Reclaim Close" ? shortReclaimNow : entryTiming == "Confirmation Candle" ? (shortConfirmNow and (shortReclaimNow or bar_index > nz(shortArmBar, bar_index))) : shortRetestEvent)
+
+//------------------------------------------------------------------------------
+// Risk and Targets
+//------------------------------------------------------------------------------
+float longStopBase = na
+float shortStopBase = na
+if stopMethod == "Sweep Anchor"
+    longStopBase := longArmFamily == "Reversal" ? f_firstValid(stopAnchor, sweepLevel, protectedLow, longArmStopRef) : f_firstValid(stopAnchor, longArmStopRef, protectedLow, idmLevel)
+    shortStopBase := shortArmFamily == "Reversal" ? f_firstValid(stopAnchor, sweepLevel, protectedHigh, shortArmStopRef) : f_firstValid(stopAnchor, shortArmStopRef, protectedHigh, idmLevel)
+else if stopMethod == "Protected Level"
+    longStopBase := f_firstValid(protectedLow, longArmStopRef, idmLevel, sweepLevel)
+    shortStopBase := f_firstValid(protectedHigh, shortArmStopRef, idmLevel, sweepLevel)
+else if stopMethod == "Bridge Hybrid"
+    longStopBase := longArmFamily == "Reversal" ? f_minValid4(stopAnchor, protectedLow, bullFvgLow, sweepLevel) : f_minValid4(protectedLow, idmBias == 1 ? idmLevel : na, bullFvgLow, nearestSsl)
+    shortStopBase := shortArmFamily == "Reversal" ? f_maxValid4(stopAnchor, protectedHigh, bearFvgHigh, sweepLevel) : f_maxValid4(protectedHigh, idmBias == -1 ? idmLevel : na, bearFvgHigh, nearestBsl)
+else
+    longStopBase := close - atrVal * atrStructureMult
+    shortStopBase := close + atrVal * atrStructureMult
+
+float longEntryCandidate = longTimingPass ? close + entryBuffer : na
+float shortEntryCandidate = shortTimingPass ? close - entryBuffer : na
+float longStopCandidate = not na(longEntryCandidate) ? nz(longStopBase, longArmStopRef) - atrVal * stopAtrBuffer : na
+float shortStopCandidate = not na(shortEntryCandidate) ? nz(shortStopBase, shortArmStopRef) + atrVal * stopAtrBuffer : na
+
+float longRisk = not na(longEntryCandidate) and not na(longStopCandidate) ? longEntryCandidate - longStopCandidate : na
+float shortRisk = not na(shortEntryCandidate) and not na(shortStopCandidate) ? shortStopCandidate - shortEntryCandidate : na
+
+float longR1 = not na(longRisk) ? longEntryCandidate + longRisk * tp1R : na
+float longR2 = not na(longRisk) ? longEntryCandidate + longRisk * tp2R : na
+float shortR1 = not na(shortRisk) ? shortEntryCandidate - shortRisk * tp1R : na
+float shortR2 = not na(shortRisk) ? shortEntryCandidate - shortRisk * tp2R : na
+
+bool longExternalTargetAvailable = nearestBslFound and nearestBslClass >= 2
+bool shortExternalTargetAvailable = nearestSslFound and nearestSslClass >= 2
+
+float longTp1Candidate = na
+float longTp2Candidate = na
+float shortTp1Candidate = na
+float shortTp2Candidate = na
+
+if targetMethod == "Nearest Opposing Liquidity"
+    longTp1Candidate := nearestBslFound ? nearestBsl : longR1
+    longTp2Candidate := nearestBslFound ? math.max(nearestBsl, nz(longR2, nearestBsl)) : longR2
+    shortTp1Candidate := nearestSslFound ? nearestSsl : shortR1
+    shortTp2Candidate := nearestSslFound ? math.min(nearestSsl, nz(shortR2, nearestSsl)) : shortR2
+else if targetMethod == "R-Multiple"
+    longTp1Candidate := longR1
+    longTp2Candidate := longR2
+    shortTp1Candidate := shortR1
+    shortTp2Candidate := shortR2
+else
+    longTp1Candidate := longExternalTargetAvailable ? nearestBsl : longR1
+    longTp2Candidate := longExternalTargetAvailable ? math.max(nearestBsl, nz(longR2, nearestBsl)) : longR2
+    shortTp1Candidate := shortExternalTargetAvailable ? nearestSsl : shortR1
+    shortTp2Candidate := shortExternalTargetAvailable ? math.min(nearestSsl, nz(shortR2, nearestSsl)) : shortR2
+
+float longRrToFirstTarget = not na(longRisk) and longRisk > syminfo.mintick and not na(longTp1Candidate) ? (longTp1Candidate - longEntryCandidate) / longRisk : na
+float shortRrToFirstTarget = not na(shortRisk) and shortRisk > syminfo.mintick and not na(shortTp1Candidate) ? (shortEntryCandidate - shortTp1Candidate) / shortRisk : na
+bool longRiskValid = not na(longRisk) and longRisk > syminfo.mintick and not na(longTp1Candidate) and longTp1Candidate > longEntryCandidate and longRrToFirstTarget >= minRRToFirstTarget
+bool shortRiskValid = not na(shortRisk) and shortRisk > syminfo.mintick and not na(shortTp1Candidate) and shortTp1Candidate < shortEntryCandidate and shortRrToFirstTarget >= minRRToFirstTarget
+
+//------------------------------------------------------------------------------
+// Final Signals
+//------------------------------------------------------------------------------
+var int lastLongSignalBar = na
+var int lastShortSignalBar = na
+var int lastAnySignalBar = na
+var int lastResolvedTradeBar = na
+var int openTradeCountState = 0
+
+float longFinalScore = nz(longBestScore, 0.0)
+float shortFinalScore = nz(shortBestScore, 0.0)
+string longGrade = f_gradeText(longFinalScore)
+string shortGrade = f_gradeText(shortFinalScore)
+
+bool longSpacingBlocked = enforceTradeSpacing and ((minBarsBetweenAnyTrades > 0 and not na(lastAnySignalBar) and (bar_index - lastAnySignalBar) < minBarsBetweenAnyTrades) or (minBarsBetweenSameDirection > 0 and not na(lastLongSignalBar) and (bar_index - lastLongSignalBar) < minBarsBetweenSameDirection) or (requirePreviousTradeClosed and openTradeCountState > 0) or (cooldownAfterResolutionBars > 0 and not na(lastResolvedTradeBar) and (bar_index - lastResolvedTradeBar) < cooldownAfterResolutionBars))
+bool shortSpacingBlocked = enforceTradeSpacing and ((minBarsBetweenAnyTrades > 0 and not na(lastAnySignalBar) and (bar_index - lastAnySignalBar) < minBarsBetweenAnyTrades) or (minBarsBetweenSameDirection > 0 and not na(lastShortSignalBar) and (bar_index - lastShortSignalBar) < minBarsBetweenSameDirection) or (requirePreviousTradeClosed and openTradeCountState > 0) or (cooldownAfterResolutionBars > 0 and not na(lastResolvedTradeBar) and (bar_index - lastResolvedTradeBar) < cooldownAfterResolutionBars))
+
+bool longSignal = bridgeValid and longTimingPass and longRiskValid and longFinalScore >= f_modeThreshold(signalMode) and not longSpacingBlocked
+bool shortSignal = bridgeValid and shortTimingPass and shortRiskValid and shortFinalScore >= f_modeThreshold(signalMode) and not shortSpacingBlocked
+
+if longSignal and shortSignal
+    if longFinalScore > shortFinalScore
+        shortSignal := false
+    else if shortFinalScore > longFinalScore
+        longSignal := false
+    else
+        longSignal := false
+        shortSignal := false
+
+string longSignalReasonText = longArmFamily + " | " + longArmReason + " | RR " + str.tostring(longRrToFirstTarget, "#.##")
+string shortSignalReasonText = shortArmFamily + " | " + shortArmReason + " | RR " + str.tostring(shortRrToFirstTarget, "#.##")
+
+//------------------------------------------------------------------------------
+// Stats and Guide Tracking
+//------------------------------------------------------------------------------
+var array<tracked_signal> trackedSignals = array.new<tracked_signal>(0)
+var int statsSignals = 0
+var int statsWins = 0
+var int statsLosses = 0
+var int statsBreakEvens = 0
+var bool longInvalidationEvent = false
+var bool shortInvalidationEvent = false
+bool tradeResolvedThisBar = false
+
+var bool guideLongActive = false
+var float guideLongEntry = na
+var float guideLongStop = na
+var float guideLongTp1 = na
+var float guideLongTp2 = na
+var int guideLongBar = na
+
+var bool guideShortActive = false
+var float guideShortEntry = na
+var float guideShortStop = na
+var float guideShortTp1 = na
+var float guideShortTp2 = na
+var int guideShortBar = na
+
+var box[] tradeProfitBoxes = array.new_box()
+var box[] tradeRiskBoxes = array.new_box()
+var int[] tradeBoxDirs = array.new_int()
+var int[] tradeBoxBars = array.new_int()
+var int[] tradeBoxResolvedBars = array.new_int()
+var int[] tradeBoxStates = array.new_int()
+var float[] tradeBoxEntries = array.new_float()
+var float[] tradeBoxStops = array.new_float()
+var float[] tradeBoxTp1s = array.new_float()
+var float[] tradeBoxTp2s = array.new_float()
+var bool[] tradeBoxTp1Hits = array.new_bool()
+
+if longSignal
+    lastLongSignalBar := bar_index
+    lastAnySignalBar := bar_index
+    if enableOutcomeStats
+        array.unshift(trackedSignals, tracked_signal.new(true, longEntryCandidate, longStopCandidate, longTp1Candidate, longTp2Candidate, bar_index, true, false, longGrade))
+        statsSignals += 1
+    guideLongActive := true
+    guideLongEntry := longEntryCandidate
+    guideLongStop := longStopCandidate
+    guideLongTp1 := longTp1Candidate
+    guideLongTp2 := longTp2Candidate
+    guideLongBar := bar_index
+    longArmActive := false
+    if showTradeBoxes and (not showOnlyAB or longGrade != "C")
+        int rightTime = time + chartBarMillis * tradeBoxWidthBars
+        box profitBox = box.new(time, longTp2Candidate, rightTime, longEntryCandidate, xloc=xloc.bar_time, bgcolor=profitBoxColor, border_color=profitBoxBorderColor, border_width=1)
+        box riskBox = box.new(time, longEntryCandidate, rightTime, longStopCandidate, xloc=xloc.bar_time, bgcolor=riskBoxColor, border_color=riskBoxBorderColor, border_width=1)
+        string tradeText = f_tradeBoxText(true, longArmFamily, longGrade, longFinalScore)
+        if tradeText != ""
+            box.set_text(profitBox, tradeText)
+            box.set_text_color(profitBox, boxTextColor)
+        array.unshift(tradeProfitBoxes, profitBox)
+        array.unshift(tradeRiskBoxes, riskBox)
+        array.unshift(tradeBoxDirs, 1)
+        array.unshift(tradeBoxBars, time)
+        array.unshift(tradeBoxResolvedBars, int(na))
+        array.unshift(tradeBoxStates, 0)
+        array.unshift(tradeBoxEntries, longEntryCandidate)
+        array.unshift(tradeBoxStops, longStopCandidate)
+        array.unshift(tradeBoxTp1s, longTp1Candidate)
+        array.unshift(tradeBoxTp2s, longTp2Candidate)
+        array.unshift(tradeBoxTp1Hits, false)
+
+if shortSignal
+    lastShortSignalBar := bar_index
+    lastAnySignalBar := bar_index
+    if enableOutcomeStats
+        array.unshift(trackedSignals, tracked_signal.new(false, shortEntryCandidate, shortStopCandidate, shortTp1Candidate, shortTp2Candidate, bar_index, true, false, shortGrade))
+        statsSignals += 1
+    guideShortActive := true
+    guideShortEntry := shortEntryCandidate
+    guideShortStop := shortStopCandidate
+    guideShortTp1 := shortTp1Candidate
+    guideShortTp2 := shortTp2Candidate
+    guideShortBar := bar_index
+    shortArmActive := false
+    if showTradeBoxes and (not showOnlyAB or shortGrade != "C")
+        int rightTime = time + chartBarMillis * tradeBoxWidthBars
+        box profitBox = box.new(time, shortEntryCandidate, rightTime, shortTp2Candidate, xloc=xloc.bar_time, bgcolor=profitBoxColor, border_color=profitBoxBorderColor, border_width=1)
+        box riskBox = box.new(time, shortStopCandidate, rightTime, shortEntryCandidate, xloc=xloc.bar_time, bgcolor=riskBoxColor, border_color=riskBoxBorderColor, border_width=1)
+        string tradeText = f_tradeBoxText(false, shortArmFamily, shortGrade, shortFinalScore)
+        if tradeText != ""
+            box.set_text(profitBox, tradeText)
+            box.set_text_color(profitBox, boxTextColor)
+        array.unshift(tradeProfitBoxes, profitBox)
+        array.unshift(tradeRiskBoxes, riskBox)
+        array.unshift(tradeBoxDirs, -1)
+        array.unshift(tradeBoxBars, time)
+        array.unshift(tradeBoxResolvedBars, int(na))
+        array.unshift(tradeBoxStates, 0)
+        array.unshift(tradeBoxEntries, shortEntryCandidate)
+        array.unshift(tradeBoxStops, shortStopCandidate)
+        array.unshift(tradeBoxTp1s, shortTp1Candidate)
+        array.unshift(tradeBoxTp2s, shortTp2Candidate)
+        array.unshift(tradeBoxTp1Hits, false)
+
+longInvalidationEvent := false
+shortInvalidationEvent := false
+tradeResolvedThisBar := false
+
+if not enableOutcomeStats
+    if guideLongActive and bar_index > nz(guideLongBar, bar_index)
+        if low <= guideLongStop
+            guideLongActive := false
+            longInvalidationEvent := true
+            tradeResolvedThisBar := true
+        else if high >= guideLongTp2
+            guideLongActive := false
+            tradeResolvedThisBar := true
+    if guideShortActive and bar_index > nz(guideShortBar, bar_index)
+        if high >= guideShortStop
+            guideShortActive := false
+            shortInvalidationEvent := true
+            tradeResolvedThisBar := true
+        else if low <= guideShortTp2
+            guideShortActive := false
+            tradeResolvedThisBar := true
+
+if enableOutcomeStats and array.size(trackedSignals) > 0
+    for i = array.size(trackedSignals) - 1 to 0
+        tracked_signal sig = array.get(trackedSignals, i)
+        if sig.active and bar_index > sig.signalBar
+            if sig.isLong
+                if low <= sig.stopPrice
+                    if sig.tp1Hit
+                        statsBreakEvens += 1
+                    else
+                        statsLosses += 1
+                    sig.active := false
+                    longInvalidationEvent := true
+                    tradeResolvedThisBar := true
+                    if guideLongActive and sig.signalBar == guideLongBar
+                        guideLongActive := false
+                else if high >= sig.tp2Price
+                    statsWins += 1
+                    sig.active := false
+                    tradeResolvedThisBar := true
+                    if guideLongActive and sig.signalBar == guideLongBar
+                        guideLongActive := false
+                else if high >= sig.tp1Price
+                    sig.tp1Hit := true
+            else
+                if high >= sig.stopPrice
+                    if sig.tp1Hit
+                        statsBreakEvens += 1
+                    else
+                        statsLosses += 1
+                    sig.active := false
+                    shortInvalidationEvent := true
+                    tradeResolvedThisBar := true
+                    if guideShortActive and sig.signalBar == guideShortBar
+                        guideShortActive := false
+                else if low <= sig.tp2Price
+                    statsWins += 1
+                    sig.active := false
+                    tradeResolvedThisBar := true
+                    if guideShortActive and sig.signalBar == guideShortBar
+                        guideShortActive := false
+                else if low <= sig.tp1Price
+                    sig.tp1Hit := true
+        array.set(trackedSignals, i, sig)
+
+if enableOutcomeStats
+    while array.size(trackedSignals) > statsHistoryCap
+        tracked_signal oldest = array.get(trackedSignals, array.size(trackedSignals) - 1)
+        if oldest.active
+            break
+        array.pop(trackedSignals)
+
+if array.size(tradeProfitBoxes) > 0
+    for i = array.size(tradeProfitBoxes) - 1 to 0
+        box profitBox = array.get(tradeProfitBoxes, i)
+        box riskBox = array.get(tradeRiskBoxes, i)
+        int dir = array.get(tradeBoxDirs, i)
+        int signalTime = array.get(tradeBoxBars, i)
+        int resolvedTime = array.get(tradeBoxResolvedBars, i)
+        int state = array.get(tradeBoxStates, i)
+        float stopPrice = array.get(tradeBoxStops, i)
+        float tp1Price = array.get(tradeBoxTp1s, i)
+        float tp2Price = array.get(tradeBoxTp2s, i)
+        bool tp1Hit = array.get(tradeBoxTp1Hits, i)
+
+        if na(resolvedTime) and time > signalTime
+            if dir == 1
+                if high >= tp1Price
+                    tp1Hit := true
+                if low <= stopPrice
+                    state := tp1Hit ? 2 : -1
+                    resolvedTime := time
+                else if high >= tp2Price
+                    state := 1
+                    resolvedTime := time
+            else
+                if low <= tp1Price
+                    tp1Hit := true
+                if high >= stopPrice
+                    state := tp1Hit ? 2 : -1
+                    resolvedTime := time
+                else if low <= tp2Price
+                    state := 1
+                    resolvedTime := time
+
+        int maxRightTime = signalTime + chartBarMillis * tradeBoxWidthBars
+        int liveRightTime = int(math.min(time + chartBarMillis, maxRightTime))
+        int rightTime = na(resolvedTime) ? liveRightTime : resolvedTime
+        box.set_right(profitBox, rightTime)
+        box.set_right(riskBox, rightTime)
+
+        if state == 1
+            box.set_bgcolor(riskBox, color.new(riskBoxColor, 92))
+            box.set_border_width(profitBox, 2)
+        else if state == -1
+            box.set_bgcolor(profitBox, color.new(profitBoxColor, 92))
+            box.set_border_width(riskBox, 2)
+        else if state == 2
+            box.set_bgcolor(profitBox, color.new(profitBoxColor, 88))
+            box.set_bgcolor(riskBox, color.new(riskBoxColor, 88))
+            box.set_border_width(profitBox, 1)
+            box.set_border_width(riskBox, 1)
+
+        array.set(tradeBoxResolvedBars, i, resolvedTime)
+        array.set(tradeBoxStates, i, state)
+        array.set(tradeBoxTp1Hits, i, tp1Hit)
+
+while array.size(tradeProfitBoxes) > tradeBoxHistory
+    box oldProfit = array.pop(tradeProfitBoxes)
+    box oldRisk = array.pop(tradeRiskBoxes)
+    box.delete(oldProfit)
+    box.delete(oldRisk)
+    array.pop(tradeBoxDirs)
+    array.pop(tradeBoxBars)
+    array.pop(tradeBoxResolvedBars)
+    array.pop(tradeBoxStates)
+    array.pop(tradeBoxEntries)
+    array.pop(tradeBoxStops)
+    array.pop(tradeBoxTp1s)
+    array.pop(tradeBoxTp2s)
+    array.pop(tradeBoxTp1Hits)
+
+if tradeResolvedThisBar
+    lastResolvedTradeBar := bar_index
+
+int nextOpenTradeCount = 0
+if enableOutcomeStats and array.size(trackedSignals) > 0
+    for i = 0 to array.size(trackedSignals) - 1
+        tracked_signal sig = array.get(trackedSignals, i)
+        if sig.active
+            nextOpenTradeCount += 1
+else
+    nextOpenTradeCount := (guideLongActive ? 1 : 0) + (guideShortActive ? 1 : 0)
+openTradeCountState := nextOpenTradeCount
+
+float winRate = enableOutcomeStats and (statsWins + statsLosses) > 0 ? (float(statsWins) / float(statsWins + statsLosses)) * 100.0 : na
+int resolvedSignals = enableOutcomeStats ? statsWins + statsLosses + statsBreakEvens : 0
+
+int contextBias = longContextScore > shortContextScore + 5.0 ? 1 : shortContextScore > longContextScore + 5.0 ? -1 : 0
+string contextText = not bridgeReady ? "Bridge pending" : not bridgeValid ? "Bridge invalid" : contextBias == 1 ? "Bullish bias" : contextBias == -1 ? "Bearish bias" : "Balanced"
+string sessionText = f_sessionText(inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow)
+string longTableText = bridgeValid ? str.tostring(longFinalScore, "#") + " | " + longGrade + " | " + (longArmActive ? longArmFamily : "Idle") : "Pending bridge"
+string shortTableText = bridgeValid ? str.tostring(shortFinalScore, "#") + " | " + shortGrade + " | " + (shortArmActive ? shortArmFamily : "Idle") : "Pending bridge"
+string tradesTableText = not enableOutcomeStats ? "Off" : bridgeValid ? str.tostring(statsSignals) : "Pending bridge"
+string winRateTableText = not enableOutcomeStats ? "Off" : not bridgeValid ? "Pending bridge" : not na(winRate) ? str.tostring(winRate, "#.0") + "%" : "NA"
+string winsTableText = not enableOutcomeStats ? "Off" : bridgeValid ? str.tostring(statsWins) : "Pending bridge"
+string lossesTableText = not enableOutcomeStats ? "Off" : bridgeValid ? str.tostring(statsLosses) : "Pending bridge"
+
+var table infoTable = table.new(position.top_right, 2, 9, bgcolor=color.new(chart.bg_color, 6), border_width=1, border_color=color.new(chart.fg_color, 70))
+if barstate.islast
+    if showCompactInfo
+        table.cell(infoTable, 0, 0, "Bridge", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 0, bridgeValid ? "Ready" : bridgeReady ? "Invalid" : "Wire sources", text_color=bridgeValid ? longColor : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 1, "Bias", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 1, contextText, text_color=contextBias == 1 ? longColor : contextBias == -1 ? shortColor : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 2, "Long", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 2, longTableText, text_color=bridgeValid and longFinalScore >= f_modeThreshold(signalMode) ? longColor : color.new(longColor, 45), text_size=size.small)
+        table.cell(infoTable, 0, 3, "Short", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 3, shortTableText, text_color=bridgeValid and shortFinalScore >= f_modeThreshold(signalMode) ? shortColor : color.new(shortColor, 45), text_size=size.small)
+        table.cell(infoTable, 0, 4, "Trades", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 4, tradesTableText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
+        table.cell(infoTable, 0, 5, "WR", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 5, winRateTableText, text_color=not bridgeValid or na(winRate) ? COLOR_NEUT : winRate >= 50.0 ? longColor : shortColor, text_size=size.small)
+        table.cell(infoTable, 0, 6, "Wins", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 6, winsTableText, text_color=bridgeValid ? longColor : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 7, "Losses", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 7, lossesTableText, text_color=bridgeValid ? shortColor : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 8, "Session", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 8, sessionText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
+    else
+        for row = 0 to 8
+            table.cell(infoTable, 0, row, "", text_color=color.new(chart.fg_color, 100), text_size=size.small)
+            table.cell(infoTable, 1, row, "", text_color=color.new(chart.fg_color, 100), text_size=size.small)
+
+//------------------------------------------------------------------------------
+// Alerts
+//------------------------------------------------------------------------------
+alertcondition(longSignal, "Long Signal", "Devtrader Entry Engine: long signal")
+alertcondition(shortSignal, "Short Signal", "Devtrader Entry Engine: short signal")
+alertcondition(longSignal and longGrade == "A", "Long A-Grade Signal", "Devtrader Entry Engine: A-grade long")
+alertcondition(shortSignal and shortGrade == "A", "Short A-Grade Signal", "Devtrader Entry Engine: A-grade short")
+alertcondition(longRetestEvent, "Long Confirmation Retest", "Devtrader Entry Engine: long retest opportunity")
+alertcondition(shortRetestEvent, "Short Confirmation Retest", "Devtrader Entry Engine: short retest opportunity")
+alertcondition(longInvalidationEvent, "Long Invalidation", "Devtrader Entry Engine: long invalidated")
+alertcondition(shortInvalidationEvent, "Short Invalidation", "Devtrader Entry Engine: short invalidated")
