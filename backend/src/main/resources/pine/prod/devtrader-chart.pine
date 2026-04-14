@@ -1,6 +1,6 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
-indicator("Devtrader - Chart Analysis", shorttitle="Chart Analysis", overlay=true, max_bars_back=5000, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+indicator("Devtrader - Chart Analysis", shorttitle="Devtrader Chart Analysis", overlay=true, max_bars_back=5000, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
 
 // --- Groups ---
 G_KZ    = "Killzones & Sessions"
@@ -143,10 +143,6 @@ msSwingLowColor = input.color(color.new(color.green, 0), "Swing Low Bullet Color
 showMsProtectedLevels = input.bool(false, "Show MS Protected Levels", group=G_MS)
 showMsChochBos = input.bool(true, "Show MS CHoCH / BOS Levels", group=G_MS, tooltip="Draws CHoCH and BOS levels in the market-structure-sweeps style, including live extension levels on the last bar.")
 showMsIdm = input.bool(true, "Show MS Inducement / Reclaim", group=G_MS, tooltip="Shows the active inducement level and IDM reclaim events adapted from market-structure-sweeps.")
-msBullChochColor = input.color(color.black, "Bullish CHoCH Color", group=G_MS)
-msBearChochColor = input.color(color.black, "Bearish CHoCH Color", group=G_MS)
-msBullBosColor = input.color(color.black, "Bullish BOS Color", group=G_MS)
-msBearBosColor = input.color(color.black, "Bearish BOS Color", group=G_MS)
 msBosRequiresInternalPullback = input.bool(true, "BOS Requires New Internal Pullback", group=G_MS, tooltip="Prevents BOS from printing on every incremental continuation break. Requires a fresh internal swing after the last CHoCH/BOS event, closer to market-structure-sweeps behavior.")
 msBosDisplacementMult = input.float(0.85, "BOS Break Body Mult", minval=0.5, step=0.05, group=G_MS, tooltip="Minimum body expansion versus average body for BOS candles. Higher values make BOS prints tighter and less frequent.")
 msMinStructureSpacingBars = input.int(2, "Min Bars Between MS Events", minval=1, maxval=10, group=G_MS, tooltip="Hard spacing gate for CHoCH/BOS prints. Default 2 prevents new structure labels from printing one candle after the last event.")
@@ -660,17 +656,26 @@ if not na(pml) and low <= pml
 f_breakoutLabelSize() =>
     breakoutLabelSize == "Tiny" ? size.tiny : breakoutLabelSize == "Small" ? size.small : size.normal
 
-f_isDarkTheme() =>
-    color.r(chart.bg_color) * 0.299 + color.g(chart.bg_color) * 0.587 + color.b(chart.bg_color) * 0.114 < 140
+f_canvasBrightness(color canvasColor) =>
+    color.r(canvasColor) * 0.299 + color.g(canvasColor) * 0.587 + color.b(canvasColor) * 0.114
 
-f_themeTextColor() =>
-    f_isDarkTheme() ? color.white : color.black
-
-f_themePanelColor() =>
-    f_isDarkTheme() ? color.new(#111827, 8) : color.new(#f3f4f6, 8)
+f_isDarkCanvas() =>
+    f_canvasBrightness(chart.bg_color) < 140
 
 f_defaultLevelColor() =>
-    f_isDarkTheme() ? color.white : color.black
+    f_isDarkCanvas() ? color.white : color.black
+
+f_themeLevelColor() =>
+    f_defaultLevelColor()
+
+f_themeLevelTextColor() =>
+    f_themeLevelColor()
+
+f_themeTextColor() =>
+    f_themeLevelTextColor()
+
+f_themePanelColor() =>
+    f_isDarkCanvas() ? color.new(#111827, 8) : color.new(#f3f4f6, 8)
 
 var array<float> levelLabelSlots = array.new_float(0)
 var array<float> rightLabelPrices = array.new_float(0)
@@ -820,7 +825,7 @@ f_renderRightLabels() =>
             label lb = array.get(rightLabelPool, i)
             label.set_xy(lb, labelX, labelY)
             label.set_text(lb, labelText)
-            label.set_textcolor(lb, color.new(f_defaultLevelColor(), labelTier == 1 ? 30 : labelTier == 2 ? 42 : 54))
+            label.set_textcolor(lb, f_themeLevelTextColor())
             label.set_color(lb, color.new(chart.bg_color, labelTier == 1 ? 18 : labelTier == 2 ? 28 : 40))
             label.set_style(lb, shiftDir > 0 ? label.style_label_lower_left : shiftDir < 0 ? label.style_label_upper_left : label.style_label_left)
             label.set_size(lb, size.tiny)
@@ -940,7 +945,7 @@ f_updateLevel(bool show, float val, string txt, line l) =>
         int levelRight = compactText == "DO" ? bar_index + 1 : bar_index + rightOffset
         line.set_xy1(l, levelLeft, val)
         line.set_xy2(l, levelRight, val)
-        line.set_color(l, color.new(f_defaultLevelColor(), tier == 1 ? 16 : tier == 2 ? 34 : 52))
+        line.set_color(l, f_defaultLevelColor())
         line.set_width(l, tier == 1 ? 2 : 1)
         line.set_style(l, tier == 3 ? line.style_dotted : line.style_solid)
         if f_levelShouldShowLabel(val, tier)
@@ -1958,10 +1963,7 @@ if barstate.islast
                 tier := 1
             else if row.isMajor and tier > 2
                 tier := 2
-            int stateFade = row.state == "CONSUMED" ? 28 : row.state == "SWEPT" ? 14 : row.state == "TAGGED" ? 6 : 0
-            int baseAlpha = tier == 1 ? 18 : tier == 2 ? 34 : 52
-            int majorBonus = row.isMajor and tier == 1 ? -4 : 0
-            color clr = color.new(f_defaultLevelColor(), math.max(0, math.min(88, baseAlpha + stateFade + majorBonus)))
+            color clr = f_defaultLevelColor()
             lineStyle = row.state == "CONSUMED" ? line.style_dotted : row.state == "SWEPT" ? line.style_dashed : tier == 3 ? line.style_dotted : row.isMajor ? line.style_solid : line.style_dashed
             int anchorBar = na(row.sourceBar) ? bar_index : row.sourceBar
             int renderLeftBar = adaptiveLevelExtensions ? math.max(math.max(anchorBar, bar_index - f_levelLeftSpanBars(row.price, tier, row.state == "SWEPT")), 0) : math.max(math.max(anchorBar, bar_index - math.max(liqRangeLookback * 8, 800)), 0)
@@ -2787,9 +2789,9 @@ if ms_idmTakeEvent
     ms_idmPendingExtreme := na
     ms_lastEventType := (ms_structureBias == 1 ? "Bullish " : "Bearish ") + ms_idmTakeEventLabel
     if showMsIdm
-        color msIdmEventColor = color.new(f_defaultLevelColor(), 38)
+        color msIdmEventColor = f_themeLevelColor()
         line.new(ms_idmBar, ms_idmLevel, bar_index, ms_idmLevel, color=msIdmEventColor, style=line.style_dotted, width=1)
-        label.new(bar_index, ms_idmLevel, ms_idmTakeEventLabel, color=color(na), style=ms_structureBias == 1 ? label.style_label_up : label.style_label_down, textcolor=msIdmEventColor, size=size.tiny)
+        label.new(bar_index, ms_idmLevel, ms_idmTakeEventLabel, color=color(na), style=ms_structureBias == 1 ? label.style_label_up : label.style_label_down, textcolor=f_themeLevelTextColor(), size=size.tiny)
 
 float msBosHighRef = ms_externalHigh
 float msBosLowRef = ms_externalLow
@@ -2853,50 +2855,46 @@ else if ms_structureBias == -1
 
 if showMsChochBos
     if ms_bullChochEvent
-        line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=msBullChochColor, style=line.style_dashed)
-        label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, msBullChochLabel, color=color(na), style=label.style_label_down, textcolor=msBullChochColor, size=size.tiny)
+        line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=f_themeLevelColor(), style=line.style_dashed)
+        label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, msBullChochLabel, color=color(na), style=label.style_label_down, textcolor=f_themeLevelTextColor(), size=size.tiny)
     if ms_bearChochEvent
-        line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=msBearChochColor, style=line.style_dashed)
-        label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, msBearChochLabel, color=color(na), style=label.style_label_up, textcolor=msBearChochColor, size=size.tiny)
+        line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=f_themeLevelColor(), style=line.style_dashed)
+        label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, msBearChochLabel, color=color(na), style=label.style_label_up, textcolor=f_themeLevelTextColor(), size=size.tiny)
     if ms_bullBosEvent
-        line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=msBullBosColor)
-        label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, msBullBosLabel, color=color(na), style=label.style_label_down, textcolor=msBullBosColor, size=size.tiny)
+        line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=f_themeLevelColor())
+        label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, msBullBosLabel, color=color(na), style=label.style_label_down, textcolor=f_themeLevelTextColor(), size=size.tiny)
     if ms_bearBosEvent
-        line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=msBearBosColor)
-        label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, msBearBosLabel, color=color(na), style=label.style_label_up, textcolor=msBearBosColor, size=size.tiny)
+        line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=f_themeLevelColor())
+        label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, msBearBosLabel, color=color(na), style=label.style_label_up, textcolor=f_themeLevelTextColor(), size=size.tiny)
 
 if barstate.islast
     if showMsChochBos and ms_structureBias == 1
-        color bullBosColor = msBullBosColor
-        color bearChochColor = msBearChochColor
         if not na(ms_lastSwingLow)
             line.set_xy1(ms_extChoch, ms_lastSwingLowBar, ms_lastSwingLow)
             line.set_xy2(ms_extChoch, bar_index, ms_lastSwingLow)
-            line.set_color(ms_extChoch, bearChochColor)
+            line.set_color(ms_extChoch, f_themeLevelColor())
             f_registerRightLabel(ms_lastSwingLow, bar_index + 10, "CHoCH", 2)
         else
             line.set_color(ms_extChoch, na)
         if not na(msBosHighRef)
             line.set_xy1(ms_extBos, msBosHighRefBar, msBosHighRef)
             line.set_xy2(ms_extBos, bar_index, msBosHighRef)
-            line.set_color(ms_extBos, bullBosColor)
+            line.set_color(ms_extBos, f_themeLevelColor())
             f_registerRightLabel(msBosHighRef, bar_index + 10, "BOS", 2)
         else
             line.set_color(ms_extBos, na)
     else if showMsChochBos and ms_structureBias == -1
-        color bullChochColor = msBullChochColor
-        color bearBosColor = msBearBosColor
         if not na(ms_lastSwingHigh)
             line.set_xy1(ms_extChoch, ms_lastSwingHighBar, ms_lastSwingHigh)
             line.set_xy2(ms_extChoch, bar_index, ms_lastSwingHigh)
-            line.set_color(ms_extChoch, bullChochColor)
+            line.set_color(ms_extChoch, f_themeLevelColor())
             f_registerRightLabel(ms_lastSwingHigh, bar_index + 10, "CHoCH", 2)
         else
             line.set_color(ms_extChoch, na)
         if not na(msBosLowRef)
             line.set_xy1(ms_extBos, msBosLowRefBar, msBosLowRef)
             line.set_xy2(ms_extBos, bar_index, msBosLowRef)
-            line.set_color(ms_extBos, bearBosColor)
+            line.set_color(ms_extBos, f_themeLevelColor())
             f_registerRightLabel(msBosLowRef, bar_index + 10, "BOS", 2)
         else
             line.set_color(ms_extBos, na)
@@ -2909,7 +2907,7 @@ if barstate.islast
     if showMsProtectedLevels and not na(msActiveProtectedPrice) and not na(msActiveProtectedBar)
         int activeProtectedRight = bar_index + 12
         string activeProtectedText = ms_structureBias == 1 ? "MS Prot Low" : "MS Prot High"
-        color activeProtectedColor = ms_structureBias == 1 ? color.new(COLOR_BULL, 45) : color.new(COLOR_BEAR, 45)
+        color activeProtectedColor = f_themeLevelColor()
         line.set_xy1(ms_activeProtected, msActiveProtectedBar, msActiveProtectedPrice)
         line.set_xy2(ms_activeProtected, activeProtectedRight, msActiveProtectedPrice)
         line.set_color(ms_activeProtected, activeProtectedColor)
@@ -2920,7 +2918,7 @@ if barstate.islast
         f_hideLine(ms_activeProtected)
 
     if showMsIdm and not ms_idmTaken and not na(ms_idmLevel) and ms_idmState != 4
-        color activeIdmColor = ms_idmPendingSweep ? color.new(f_defaultLevelColor(), 44) : ms_idmState == 2 ? color.new(f_defaultLevelColor(), 72) : ms_idmStrong ? color.new(f_defaultLevelColor(), 18) : color.new(f_defaultLevelColor(), 38)
+        color activeIdmColor = f_themeLevelColor()
         string activeIdmText = ms_idmPendingSweep ? "IDM (Swept)" : ms_idmState == 2 ? "IDM (Stale)" : ms_idmStrong ? "IDM (Strong)" : "IDM"
         line.set_xy1(ms_extIdm, ms_idmBar, ms_idmLevel)
         line.set_xy2(ms_extIdm, bar_index + 12, ms_idmLevel)
@@ -3866,8 +3864,8 @@ fvgDynamicBearUpperPlot = plot(enableLuxFvgEngine and fvgDynamicMode ? fvgDynami
 fvgDynamicBearLowerPlot = plot(enableLuxFvgEngine and fvgDynamicMode ? fvgDynamicBearLower : na, "FVG Dynamic Bear Lower", color=na)
 fill(fvgDynamicBearUpperPlot, fvgDynamicBearLowerPlot, color=enableLuxFvgEngine and fvgDynamicMode ? fvgBearColor : na, title="Bearish FVG Fill")
 
-plot(na, "MS Protected High", color.new(COLOR_BEAR, 45), 2, plot.style_linebr)
-plot(na, "MS Protected Low", color.new(COLOR_BULL, 45), 2, plot.style_linebr)
+plot(na, "MS Protected High", f_themeLevelColor(), 2, plot.style_linebr)
+plot(na, "MS Protected Low", f_themeLevelColor(), 2, plot.style_linebr)
 plot(showMsSwings ? msMajorSwingHigh : na, "MS Swing High", msSwingHighColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 plot(showMsSwings ? msMajorSwingLow : na, "MS Swing Low", msSwingLowColor, msSwingMarkerSize, plot.style_circles, offset=-msMajorSwingLen)
 
