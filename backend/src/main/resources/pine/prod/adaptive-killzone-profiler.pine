@@ -1,0 +1,589 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("Adaptive Killzone Separator [TradeJAudit]", "AKZ Separator", overlay = true, max_bars_back = 5000, max_lines_count = 80)
+
+// CLEANUP: removed dashboard, labels, VWAP, session shading, background fills, and mode switching.
+// CLEANUP: removed start/end markers.
+// RENDER: strongest interval separators only.
+// THEME: automatic white/black separator color.
+
+// ═══════════════════════════════════════════════════════════════
+//  1. INPUTS
+// ═══════════════════════════════════════════════════════════════
+
+grpProfile = "① Profile Engine"
+grpScoring = "② Scoring Model"
+grpSession = "③ Session Bonus"
+grpRender = "④ Render"
+
+marketPreset = input.string("Futures", "Market Preset", options = ["Futures", "Forex", "Crypto", "Stocks", "Indices", "Custom"], group = grpProfile)
+applyPresetTweaks = input.bool(true, "Apply Preset Weight Tweaks", group = grpProfile)
+maxChartTfMinutes = input.int(30, "Max Recommended Chart TF (minutes)", options = [1, 3, 5, 15, 30, 60, 120], group = grpProfile)
+slotChoice = input.string("Auto", "Profiling Slot Size (minutes)", options = ["Auto", "5", "10", "15", "30"], group = grpProfile)
+lookbackDays = input.int(30, "Lookback Sessions", minval = 10, maxval = 90, group = grpProfile)
+minSamplesPerSlot = input.int(12, "Min Samples Per Slot", minval = 5, maxval = 60, group = grpProfile)
+timeZoneMode = input.string("UTC", "Profiler Time Zone", options = ["Exchange", "America/New_York", "Europe/London", "UTC", "Custom"], group = grpProfile)
+customTimeZone = input.string("America/Chicago", "Custom Time Zone", group = grpProfile)
+profileWindowMode = input.string("Full 24H", "Profile Window", options = ["Full 24H", "RTH Only", "Custom"], group = grpProfile)
+rthSession = input.session("0930-1600", "RTH Session", group = grpProfile)
+customProfileSession = input.session("0000-2359", "Custom Profile Session", group = grpProfile)
+selectionMode = input.string("Score Threshold", "Window Selection", options = ["Score Threshold", "Top N Slots", "Top % Slots"], group = grpProfile)
+scoreThreshold = input.float(60.0, "Score Threshold", minval = 0.0, maxval = 100.0, step = 0.5, group = grpProfile)
+topNSlots = input.int(12, "Top N Slots", minval = 1, maxval = 48, group = grpProfile)
+topPctSlots = input.float(15.0, "Top % Slots", minval = 1.0, maxval = 50.0, step = 0.5, group = grpProfile)
+allowGapMerge = input.bool(true, "Merge One-Slot Gaps", group = grpProfile)
+gapBridgeMinScore = input.float(60.0, "Gap Merge Neighbor Min Score", minval = 0.0, maxval = 100.0, step = 0.5, group = grpProfile)
+gapBridgeFloorScore = input.float(45.0, "Gap Merge Bridge Min Score", minval = 0.0, maxval = 100.0, step = 0.5, group = grpProfile)
+
+baselineMode = input.string("Blend", "Historical Baseline", options = ["Average", "Median", "Blend"], group = grpScoring)
+volatilityMode = input.string("True Range", "Volatility Definition", options = ["Bar Range", "True Range", "ATR-Normalized", "Body Size", "Custom Blend"], group = grpScoring)
+useVolume = input.bool(true, "Use Volume Component", group = grpScoring)
+useExpansion = input.bool(true, "Use Directional Expansion Quality", group = grpScoring)
+relativeCeiling = input.float(2.25, "Relative Activity Ceiling", minval = 1.25, maxval = 5.0, step = 0.05, group = grpScoring)
+consistencyVolFloor = input.float(1.00, "Consistency Volume Floor vs Median", minval = 0.5, maxval = 2.0, step = 0.05, group = grpScoring)
+consistencyVolaFloor = input.float(1.00, "Consistency Volatility Floor vs Median", minval = 0.5, maxval = 2.0, step = 0.05, group = grpScoring)
+expansionBodyFloor = input.float(0.45, "Expansion Body/Range Floor", minval = 0.1, maxval = 0.9, step = 0.05, group = grpScoring)
+expansionHistoryThreshold = input.float(60.0, "Expansion History Threshold", minval = 0.0, maxval = 100.0, step = 0.5, group = grpScoring)
+volWeightInput = input.float(0.35, "Weight: Relative Volume", minval = 0.0, maxval = 1.0, step = 0.01, group = grpScoring)
+volaWeightInput = input.float(0.35, "Weight: Relative Volatility", minval = 0.0, maxval = 1.0, step = 0.01, group = grpScoring)
+consistencyWeightInput = input.float(0.20, "Weight: Consistency", minval = 0.0, maxval = 1.0, step = 0.01, group = grpScoring)
+expansionWeightInput = input.float(0.10, "Weight: Expansion", minval = 0.0, maxval = 1.0, step = 0.01, group = grpScoring)
+useSessionBonus = input.bool(true, "Use Session Alignment Bonus", group = grpScoring)
+sessionBonusPoints = input.float(3.0, "Session Bonus Points", minval = 0.0, maxval = 15.0, step = 0.5, group = grpScoring)
+
+asiaSession = input.session("0000-0900", "Asia Session", group = grpSession)
+londonSession = input.session("0700-1600", "London Session", group = grpSession)
+newYorkSession = input.session("1330-2100", "New York Session", group = grpSession)
+overlapSession = input.session("1330-1600", "London/NY Overlap", group = grpSession)
+
+renderedSessions = input.int(5, "Rendered Sessions", minval = 1, maxval = 10, group = grpRender, tooltip = "The script only draws separator lines for the most recent sessions to keep line objects bounded.")
+
+// ═══════════════════════════════════════════════════════════════
+//  2. HELPERS
+// ═══════════════════════════════════════════════════════════════
+
+f_clamp(float v, float lo, float hi) =>
+    math.max(lo, math.min(hi, v))
+
+f_resolve_tz(string tzMode, string customTz) =>
+    switch tzMode
+        "Exchange" => syminfo.timezone
+        "America/New_York" => "America/New_York"
+        "Europe/London" => "Europe/London"
+        "UTC" => "UTC"
+        => customTz
+
+f_supported_slot(int v) =>
+    v == 5 or v == 10 or v == 15 or v == 30
+
+f_resolve_slot_minutes(string slotInput, int chartTfMinutes) =>
+    int result = 15
+    if slotInput == "Auto"
+        result := f_supported_slot(chartTfMinutes) ? chartTfMinutes : chartTfMinutes <= 5 ? 5 : chartTfMinutes <= 10 ? 10 : chartTfMinutes <= 15 ? 15 : 30
+    else
+        result := int(str.tonumber(slotInput))
+    result
+
+f_parse_hhmm(string sessionText, int offset) =>
+    int hh = int(nz(str.tonumber(str.substring(sessionText, offset, offset + 2)), 0))
+    int mm = int(nz(str.tonumber(str.substring(sessionText, offset + 2, offset + 4)), 0))
+    hh * 60 + mm
+
+f_overlap_linear(int a0, int a1, int b0, int b1) =>
+    math.max(a0, b0) < math.min(a1, b1)
+
+f_slot_overlaps_session(int slotStartMinute, int slotEndMinute, int sessStartMinute, int sessEndMinute) =>
+    bool overlaps = false
+    if sessEndMinute > sessStartMinute
+        overlaps := f_overlap_linear(slotStartMinute, slotEndMinute, sessStartMinute, sessEndMinute)
+    else
+        overlaps := f_overlap_linear(slotStartMinute, slotEndMinute, sessStartMinute, 1440) or f_overlap_linear(slotStartMinute, slotEndMinute, 0, sessEndMinute)
+    overlaps
+
+f_bar_in_session(string sessionText, string sessionTz) =>
+    not na(time(timeframe.period, sessionText, sessionTz))
+
+f_ratio_score(float ratio, float ceiling) =>
+    float boundedCeiling = math.max(1.05, ceiling)
+    float score = ratio >= 1.0 ? 50.0 + 50.0 * f_clamp((ratio - 1.0) / (boundedCeiling - 1.0), 0.0, 1.0) : 50.0 * f_clamp(ratio, 0.0, 1.0)
+    f_clamp(score, 0.0, 100.0)
+
+f_bar_volatility(string mode, float atrValue) =>
+    float prevClose = nz(close[1], close)
+    float tr = math.max(high - low, math.max(math.abs(high - prevClose), math.abs(low - prevClose)))
+    switch mode
+        "Bar Range" => high - low
+        "True Range" => tr
+        "ATR-Normalized" => atrValue > 0.0 ? (high - low) / atrValue : (high - low)
+        "Body Size" => math.abs(close - open)
+        => (tr * 0.5) + (math.abs(close - open) * 0.5)
+
+f_weighted_blend(float volScore, float volaScore, float consistencyScore, float expansionScore) =>
+    float presetVolScale = applyPresetTweaks ? marketPreset == "Forex" ? 0.35 : marketPreset == "Crypto" ? 0.60 : marketPreset == "Indices" ? 0.75 : 1.0 : 1.0
+    float volW = useVolume ? volWeightInput * presetVolScale : 0.0
+    float volaW = volaWeightInput
+    float consistencyW = consistencyWeightInput
+    float expansionW = useExpansion ? expansionWeightInput : 0.0
+    float totalW = volW + volaW + consistencyW + expansionW
+    totalW > 0.0 ? ((volScore * volW) + (volaScore * volaW) + (consistencyScore * consistencyW) + (expansionScore * expansionW)) / totalW : na
+
+f_slot_expansion_metric(float slotOpen, float slotHigh, float slotLow, float slotClose, int slotBars, int bullBars, int bearBars, float slotVolaMetric, float slotVolaBaseline) =>
+    float rng = math.max(slotHigh - slotLow, syminfo.mintick)
+    float bodyRatio = math.abs(slotClose - slotOpen) / rng
+    float bodyScore = f_clamp((bodyRatio - expansionBodyFloor) / math.max(0.05, 1.0 - expansionBodyFloor), 0.0, 1.0)
+    float closePos = (slotClose - slotLow) / rng
+    float edgeCloseness = math.max(closePos, 1.0 - closePos)
+    float edgeScore = f_clamp((edgeCloseness - 0.5) / 0.5, 0.0, 1.0)
+    float dominance = slotBars > 0 ? math.max(bullBars, bearBars) / slotBars : 0.0
+    float dominanceScore = f_clamp((dominance - 0.5) / 0.5, 0.0, 1.0)
+    float rangeRatio = na(slotVolaBaseline) or slotVolaBaseline <= 0.0 ? 1.0 : slotVolaMetric / slotVolaBaseline
+    float rangeScore = f_clamp((rangeRatio - 1.0) / math.max(0.2, relativeCeiling - 1.0), 0.0, 1.0)
+    ((bodyScore * 0.35) + (edgeScore * 0.25) + (dominanceScore * 0.20) + (rangeScore * 0.20)) * 100.0
+
+f_key_year(int key) =>
+    int(math.floor(key / 10000))
+
+f_key_month(int key) =>
+    int(math.floor((key % 10000) / 100))
+
+f_key_day(int key) =>
+    key % 100
+
+f_timestamp_for_date_minute(int key, int minuteOfDay, string tz) =>
+    int y = f_key_year(key)
+    int m = f_key_month(key)
+    int d = f_key_day(key)
+    int hh = int(math.floor(minuteOfDay / 60))
+    int mm = minuteOfDay % 60
+    hh >= 24 ? timestamp(tz, y, m, d, 23, 59) + 60000 : timestamp(tz, y, m, d, hh, mm)
+
+f_separator_color() =>
+    float brightness = (color.r(chart.bg_color) * 0.299) + (color.g(chart.bg_color) * 0.587) + (color.b(chart.bg_color) * 0.114)
+    brightness < 140 ? color.white : color.black
+
+// ═══════════════════════════════════════════════════════════════
+//  3. SLOT INDEXING ENGINE
+// ═══════════════════════════════════════════════════════════════
+
+int chartTfMinutes = timeframe.isintraday ? int(math.max(1.0, timeframe.in_seconds(timeframe.period) / 60.0)) : 0
+string resolvedTz = f_resolve_tz(timeZoneMode, customTimeZone)
+int slotMinutes = f_resolve_slot_minutes(slotChoice, chartTfMinutes)
+int slotsPerDay = int(math.max(1.0, 1440.0 / slotMinutes))
+bool intradayOk = timeframe.isintraday
+bool slotCompatible = intradayOk and slotMinutes >= chartTfMinutes and slotMinutes % chartTfMinutes == 0
+bool timeframeOk = intradayOk and chartTfMinutes <= maxChartTfMinutes
+bool engineEnabled = intradayOk and slotCompatible and timeframeOk
+string activeProfileSession = profileWindowMode == "RTH Only" ? rthSession : profileWindowMode == "Custom" ? customProfileSession : "0000-2359"
+bool slotInWindow = profileWindowMode == "Full 24H" ? true : f_bar_in_session(activeProfileSession, resolvedTz)
+
+int barHour = hour(time, resolvedTz)
+int barMinute = minute(time, resolvedTz)
+int minuteOfDay = barHour * 60 + barMinute
+int slotIndex = int(math.floor(minuteOfDay / slotMinutes))
+int dateKey = year(time, resolvedTz) * 10000 + month(time, resolvedTz) * 100 + dayofmonth(time, resolvedTz)
+float atr14 = ta.atr(14)
+float barVolatilityMetric = f_bar_volatility(volatilityMode, atr14)
+
+int asiaStartMinute = f_parse_hhmm(asiaSession, 0)
+int asiaEndMinute = f_parse_hhmm(asiaSession, 5)
+int londonStartMinute = f_parse_hhmm(londonSession, 0)
+int londonEndMinute = f_parse_hhmm(londonSession, 5)
+int newYorkStartMinute = f_parse_hhmm(newYorkSession, 0)
+int newYorkEndMinute = f_parse_hhmm(newYorkSession, 5)
+int overlapStartMinute = f_parse_hhmm(overlapSession, 0)
+int overlapEndMinute = f_parse_hhmm(overlapSession, 5)
+
+// ═══════════════════════════════════════════════════════════════
+//  4. ROLLING SLOT STATISTICS
+// ═══════════════════════════════════════════════════════════════
+
+var array<float> histSlotVolume = array.new_float(0)
+var array<float> histSlotVola = array.new_float(0)
+var array<float> histSlotExpansion = array.new_float(0)
+var array<int> slotWritePtr = array.new_int(0)
+var array<int> slotSampleCount = array.new_int(0)
+var array<float> slotSumVolume = array.new_float(0)
+var array<float> slotSumVola = array.new_float(0)
+var array<float> slotSumExpansion = array.new_float(0)
+var array<float> slotAvgVolume = array.new_float(0)
+var array<float> slotAvgVola = array.new_float(0)
+var array<float> slotMedianVolume = array.new_float(0)
+var array<float> slotMedianVola = array.new_float(0)
+var array<float> slotConsistencyScore = array.new_float(0)
+var array<float> slotExpansionScore = array.new_float(0)
+var array<float> slotProfileScore = array.new_float(0)
+var array<bool> slotSelected = array.new_bool(0)
+
+var array<int> intervalStartSlots = array.new_int(0)
+var array<int> intervalEndSlots = array.new_int(0)
+var array<float> intervalMeanScores = array.new_float(0)
+var array<float> intervalPeakScores = array.new_float(0)
+
+f_history_idx(int s, int sampleIdx) =>
+    s * lookbackDays + sampleIdx
+
+f_slot_baseline_volume(int s) =>
+    float avgVal = array.get(slotAvgVolume, s)
+    float medVal = array.get(slotMedianVolume, s)
+    float baseline = na
+    if baselineMode == "Average"
+        baseline := avgVal
+    else if baselineMode == "Median"
+        baseline := medVal
+    else
+        baseline := na(avgVal) and na(medVal) ? na : na(avgVal) ? medVal : na(medVal) ? avgVal : (avgVal + medVal) * 0.5
+    baseline
+
+f_slot_baseline_vola(int s) =>
+    float avgVal = array.get(slotAvgVola, s)
+    float medVal = array.get(slotMedianVola, s)
+    float baseline = na
+    if baselineMode == "Average"
+        baseline := avgVal
+    else if baselineMode == "Median"
+        baseline := medVal
+    else
+        baseline := na(avgVal) and na(medVal) ? na : na(avgVal) ? medVal : na(medVal) ? avgVal : (avgVal + medVal) * 0.5
+    baseline
+
+f_slot_median(int s, int samples, array<float> sourceArr) =>
+    float med = na
+    if samples > 0
+        array<float> tmp = array.new_float(0)
+        int base = s * lookbackDays
+        for i = 0 to samples - 1
+            float v = array.get(sourceArr, base + i)
+            if not na(v)
+                array.push(tmp, v)
+        int tmpSize = array.size(tmp)
+        if tmpSize > 0
+            array.sort(tmp, order.ascending)
+            med := tmpSize % 2 == 1 ? array.get(tmp, tmpSize / 2) : (array.get(tmp, tmpSize / 2 - 1) + array.get(tmp, tmpSize / 2)) * 0.5
+    med
+
+f_slot_consistency(int s, int samples, float medVol, float medVola) =>
+    float score = na
+    if samples > 0 and not na(medVol) and not na(medVola)
+        float volHits = 0.0
+        float volaHits = 0.0
+        int base = s * lookbackDays
+        for i = 0 to samples - 1
+            float v = array.get(histSlotVolume, base + i)
+            float r = array.get(histSlotVola, base + i)
+            if not na(v) and v >= medVol * consistencyVolFloor
+                volHits += 1.0
+            if not na(r) and r >= medVola * consistencyVolaFloor
+                volaHits += 1.0
+        score := ((volHits / samples) * 50.0) + ((volaHits / samples) * 50.0)
+    score
+
+f_slot_expansion_history(int s, int samples, float avgExpansion) =>
+    float score = na
+    if samples > 0
+        float hits = 0.0
+        int base = s * lookbackDays
+        for i = 0 to samples - 1
+            float e = array.get(histSlotExpansion, base + i)
+            if not na(e) and e >= expansionHistoryThreshold
+                hits += 1.0
+        float freqScore = samples > 0 ? (hits / samples) * 100.0 : na
+        score := na(avgExpansion) ? freqScore : (freqScore * 0.6) + (avgExpansion * 0.4)
+    score
+
+f_slot_session_bonus(int s) =>
+    int startMinute = s * slotMinutes
+    int endMinute = int(math.min(startMinute + slotMinutes, 1440))
+    bool overlapsNamed = f_slot_overlaps_session(startMinute, endMinute, asiaStartMinute, asiaEndMinute) or f_slot_overlaps_session(startMinute, endMinute, londonStartMinute, londonEndMinute) or f_slot_overlaps_session(startMinute, endMinute, newYorkStartMinute, newYorkEndMinute) or f_slot_overlaps_session(startMinute, endMinute, overlapStartMinute, overlapEndMinute)
+    overlapsNamed ? sessionBonusPoints : 0.0
+
+f_rebuild_profiles_and_intervals() =>
+    float globalVolumeBaseSum = 0.0
+    float globalVolaBaseSum = 0.0
+    int populatedSlots = 0
+
+    for s = 0 to slotsPerDay - 1
+        int samples = array.get(slotSampleCount, s)
+        float baseVol = f_slot_baseline_volume(s)
+        float baseVola = f_slot_baseline_vola(s)
+        if samples >= minSamplesPerSlot and not na(baseVol) and not na(baseVola)
+            globalVolumeBaseSum += baseVol
+            globalVolaBaseSum += baseVola
+            populatedSlots += 1
+
+    float globalVolumeBase = populatedSlots > 0 ? globalVolumeBaseSum / populatedSlots : na
+    float globalVolaBase = populatedSlots > 0 ? globalVolaBaseSum / populatedSlots : na
+
+    for s = 0 to slotsPerDay - 1
+        int samples = array.get(slotSampleCount, s)
+        float baseVol = f_slot_baseline_volume(s)
+        float baseVola = f_slot_baseline_vola(s)
+        float consistency = array.get(slotConsistencyScore, s)
+        float expansion = array.get(slotExpansionScore, s)
+        float slotScore = na
+        if samples >= minSamplesPerSlot and not na(baseVol) and not na(baseVola) and not na(globalVolumeBase) and not na(globalVolaBase)
+            float relVol = globalVolumeBase > 0.0 ? baseVol / globalVolumeBase : 1.0
+            float relVola = globalVolaBase > 0.0 ? baseVola / globalVolaBase : 1.0
+            float volScore = useVolume ? f_ratio_score(relVol, relativeCeiling) : 50.0
+            float volaScore = f_ratio_score(relVola, relativeCeiling)
+            float expansionScore = useExpansion ? nz(expansion, 50.0) : 50.0
+            slotScore := f_weighted_blend(volScore, volaScore, nz(consistency, 50.0), expansionScore)
+            slotScore := useSessionBonus and not na(slotScore) ? f_clamp(slotScore + f_slot_session_bonus(s), 0.0, 100.0) : slotScore
+        array.set(slotProfileScore, s, slotScore)
+        array.set(slotSelected, s, false)
+
+    int targetCount = selectionMode == "Top N Slots" ? math.min(topNSlots, populatedSlots) : selectionMode == "Top % Slots" ? math.max(1, int(math.round(populatedSlots * topPctSlots * 0.01))) : 0
+    for s = 0 to slotsPerDay - 1
+        float score = array.get(slotProfileScore, s)
+        int samples = array.get(slotSampleCount, s)
+        bool selected = false
+        if samples >= minSamplesPerSlot and not na(score)
+            if selectionMode == "Score Threshold"
+                selected := score >= scoreThreshold
+            else
+                int better = 0
+                for j = 0 to slotsPerDay - 1
+                    float otherScore = array.get(slotProfileScore, j)
+                    int otherSamples = array.get(slotSampleCount, j)
+                    if otherSamples >= minSamplesPerSlot and not na(otherScore)
+                        if otherScore > score or (otherScore == score and j < s)
+                            better += 1
+                selected := better < targetCount
+        array.set(slotSelected, s, selected)
+
+    if allowGapMerge and slotsPerDay >= 3
+        for s = 1 to slotsPerDay - 2
+            bool prevSel = array.get(slotSelected, s - 1)
+            bool curSel = array.get(slotSelected, s)
+            bool nextSel = array.get(slotSelected, s + 1)
+            float prevScore = nz(array.get(slotProfileScore, s - 1), 0.0)
+            float curScore = nz(array.get(slotProfileScore, s), 0.0)
+            float nextScore = nz(array.get(slotProfileScore, s + 1), 0.0)
+            if not curSel and prevSel and nextSel and prevScore >= gapBridgeMinScore and nextScore >= gapBridgeMinScore and curScore >= gapBridgeFloorScore
+                array.set(slotSelected, s, true)
+
+    array.clear(intervalStartSlots)
+    array.clear(intervalEndSlots)
+    array.clear(intervalMeanScores)
+    array.clear(intervalPeakScores)
+
+    bool intervalOpen = false
+    int openStart = na
+    float openSum = 0.0
+    float openPeak = 0.0
+    int openCount = 0
+
+    for s = 0 to slotsPerDay - 1
+        bool selected = array.get(slotSelected, s)
+        if selected
+            if not intervalOpen
+                intervalOpen := true
+                openStart := s
+                openSum := 0.0
+                openPeak := 0.0
+                openCount := 0
+            float score = nz(array.get(slotProfileScore, s), 0.0)
+            openSum += score
+            openPeak := math.max(openPeak, score)
+            openCount += 1
+
+        bool shouldClose = intervalOpen and ((not selected) or s == slotsPerDay - 1)
+        if shouldClose
+            int endSlot = selected and s == slotsPerDay - 1 ? s : s - 1
+            float meanScore = openCount > 0 ? openSum / openCount : na
+            array.push(intervalStartSlots, openStart)
+            array.push(intervalEndSlots, endSlot)
+            array.push(intervalMeanScores, meanScore)
+            array.push(intervalPeakScores, openPeak)
+            intervalOpen := false
+
+f_update_slot_history(int s, float slotVolume, float slotVolaMetric, float expansionMetric) =>
+    int ptr = array.get(slotWritePtr, s)
+    int samples = array.get(slotSampleCount, s)
+    int histIdx = f_history_idx(s, ptr)
+
+    float oldVol = array.get(histSlotVolume, histIdx)
+    float oldVola = array.get(histSlotVola, histIdx)
+    float oldExpansion = array.get(histSlotExpansion, histIdx)
+
+    float sumVol = array.get(slotSumVolume, s)
+    float sumVola = array.get(slotSumVola, s)
+    float sumExpansion = array.get(slotSumExpansion, s)
+
+    if samples >= lookbackDays
+        sumVol -= nz(oldVol, 0.0)
+        sumVola -= nz(oldVola, 0.0)
+        sumExpansion -= nz(oldExpansion, 0.0)
+    else
+        samples += 1
+
+    sumVol += slotVolume
+    sumVola += slotVolaMetric
+    sumExpansion += expansionMetric
+
+    array.set(histSlotVolume, histIdx, slotVolume)
+    array.set(histSlotVola, histIdx, slotVolaMetric)
+    array.set(histSlotExpansion, histIdx, expansionMetric)
+
+    array.set(slotWritePtr, s, (ptr + 1) % lookbackDays)
+    array.set(slotSampleCount, s, samples)
+    array.set(slotSumVolume, s, sumVol)
+    array.set(slotSumVola, s, sumVola)
+    array.set(slotSumExpansion, s, sumExpansion)
+    array.set(slotAvgVolume, s, samples > 0 ? sumVol / samples : na)
+    array.set(slotAvgVola, s, samples > 0 ? sumVola / samples : na)
+
+    float medVol = f_slot_median(s, samples, histSlotVolume)
+    float medVola = f_slot_median(s, samples, histSlotVola)
+    float avgExpansion = samples > 0 ? sumExpansion / samples : na
+    float consistencyScore = f_slot_consistency(s, samples, medVol, medVola)
+    float expansionScore = f_slot_expansion_history(s, samples, avgExpansion)
+
+    array.set(slotMedianVolume, s, medVol)
+    array.set(slotMedianVola, s, medVola)
+    array.set(slotConsistencyScore, s, consistencyScore)
+    array.set(slotExpansionScore, s, expansionScore)
+
+// PERF: incremental slot update
+var bool accActive = false
+var int accSlotIndex = na
+var int accDateKey = na
+var float accVolume = 0.0
+var float accVola = 0.0
+var float accOpen = na
+var float accHigh = na
+var float accLow = na
+var float accClose = na
+var int accBars = 0
+var int accBullBars = 0
+var int accBearBars = 0
+
+if barstate.isfirst
+    int historyCapacity = slotsPerDay * lookbackDays
+    histSlotVolume := array.new_float(historyCapacity, na)
+    histSlotVola := array.new_float(historyCapacity, na)
+    histSlotExpansion := array.new_float(historyCapacity, na)
+    slotWritePtr := array.new_int(slotsPerDay, 0)
+    slotSampleCount := array.new_int(slotsPerDay, 0)
+    slotSumVolume := array.new_float(slotsPerDay, 0.0)
+    slotSumVola := array.new_float(slotsPerDay, 0.0)
+    slotSumExpansion := array.new_float(slotsPerDay, 0.0)
+    slotAvgVolume := array.new_float(slotsPerDay, na)
+    slotAvgVola := array.new_float(slotsPerDay, na)
+    slotMedianVolume := array.new_float(slotsPerDay, na)
+    slotMedianVola := array.new_float(slotsPerDay, na)
+    slotConsistencyScore := array.new_float(slotsPerDay, na)
+    slotExpansionScore := array.new_float(slotsPerDay, na)
+    slotProfileScore := array.new_float(slotsPerDay, na)
+    slotSelected := array.new_bool(slotsPerDay, false)
+
+bool newSlotBoundary = engineEnabled and slotInWindow and (not accActive or accSlotIndex != slotIndex or accDateKey != dateKey)
+bool finalizeAccumulator = accActive and (not engineEnabled or not slotInWindow or newSlotBoundary)
+
+if finalizeAccumulator
+    float slotVolaBaseline = f_slot_baseline_vola(accSlotIndex)
+    float expansionMetric = f_slot_expansion_metric(accOpen, accHigh, accLow, accClose, accBars, accBullBars, accBearBars, accVola, slotVolaBaseline)
+    f_update_slot_history(accSlotIndex, accVolume, accVola, expansionMetric)
+    f_rebuild_profiles_and_intervals()
+    accActive := false
+
+if engineEnabled and slotInWindow
+    if not accActive
+        accActive := true
+        accSlotIndex := slotIndex
+        accDateKey := dateKey
+        accVolume := nz(volume, 0.0)
+        accVola := barVolatilityMetric
+        accOpen := open
+        accHigh := high
+        accLow := low
+        accClose := close
+        accBars := 1
+        accBullBars := close > open ? 1 : 0
+        accBearBars := close < open ? 1 : 0
+    else
+        accVolume += nz(volume, 0.0)
+        accVola += barVolatilityMetric
+        accHigh := math.max(accHigh, high)
+        accLow := math.min(accLow, low)
+        accClose := close
+        accBars += 1
+        accBullBars += close > open ? 1 : 0
+        accBearBars += close < open ? 1 : 0
+
+// ═══════════════════════════════════════════════════════════════
+//  5. STRONGEST INTERVAL SELECTION
+// ═══════════════════════════════════════════════════════════════
+
+int intervalCount = array.size(intervalStartSlots)
+int strongestIntervalIndex = na
+float strongestPeakScore = na
+float strongestMeanScore = na
+int strongestStartSlot = na
+
+if intervalCount > 0
+    for i = 0 to intervalCount - 1
+        float peakScore = array.get(intervalPeakScores, i)
+        float meanScore = array.get(intervalMeanScores, i)
+        int startSlot = array.get(intervalStartSlots, i)
+        bool isBetter = na(strongestPeakScore) or peakScore > strongestPeakScore or (peakScore == strongestPeakScore and (na(strongestMeanScore) or meanScore > strongestMeanScore)) or (peakScore == strongestPeakScore and meanScore == strongestMeanScore and (na(strongestStartSlot) or startSlot < strongestStartSlot))
+        if isBetter
+            strongestIntervalIndex := i
+            strongestPeakScore := peakScore
+            strongestMeanScore := meanScore
+            strongestStartSlot := startSlot
+
+int strongestIntervalStartSlot = not na(strongestIntervalIndex) ? array.get(intervalStartSlots, strongestIntervalIndex) : na
+int strongestIntervalEndSlot = not na(strongestIntervalIndex) ? array.get(intervalEndSlots, strongestIntervalIndex) : na
+int strongestIntervalStartMinute = not na(strongestIntervalStartSlot) ? strongestIntervalStartSlot * slotMinutes : na
+int strongestIntervalEndMinute = not na(strongestIntervalEndSlot) ? int(math.min((strongestIntervalEndSlot + 1) * slotMinutes, 1440)) : na
+
+bool insideStrongestInterval = engineEnabled and slotInWindow and not na(strongestIntervalStartSlot) and slotIndex >= strongestIntervalStartSlot and slotIndex <= strongestIntervalEndSlot
+
+// ═══════════════════════════════════════════════════════════════
+//  6. MINIMAL SEPARATOR RENDERER
+// ═══════════════════════════════════════════════════════════════
+
+int approxBarsPerDay = intradayOk ? int(math.max(1.0, math.round(1440.0 / math.max(chartTfMinutes, 1)))) : 1
+int renderScanBars = int(math.min(approxBarsPerDay * (renderedSessions + 2), 4999))
+int rangeLookbackBars = int(math.min(math.max(approxBarsPerDay * (renderedSessions + 1), 50), 5000))
+float separatorHigh = ta.highest(high, rangeLookbackBars)
+float separatorLow = ta.lowest(low, rangeLookbackBars)
+float separatorPad = math.max((separatorHigh - separatorLow) * 0.05, syminfo.mintick * 50)
+float separatorTop = separatorHigh + separatorPad
+float separatorBottom = separatorLow - separatorPad
+color separatorColor = f_separator_color()
+
+var array<line> separatorLines = array.new_line(0)
+
+if barstate.islast
+    while array.size(separatorLines) > 0
+        line.delete(array.pop(separatorLines))
+
+    if engineEnabled and not na(strongestIntervalStartMinute) and not na(strongestIntervalEndMinute)
+        array<int> recentDateKeys = array.new_int(0)
+        for i = 0 to renderScanBars - 1
+            if not na(time[i])
+                int historyDateKey = year(time[i], resolvedTz) * 10000 + month(time[i], resolvedTz) * 100 + dayofmonth(time[i], resolvedTz)
+                bool newDay = array.size(recentDateKeys) == 0 or array.get(recentDateKeys, array.size(recentDateKeys) - 1) != historyDateKey
+                if newDay
+                    array.push(recentDateKeys, historyDateKey)
+                    if array.size(recentDateKeys) >= renderedSessions
+                        break
+
+        if array.size(recentDateKeys) > 0
+            for i = 0 to array.size(recentDateKeys) - 1
+                int dayKey = array.get(recentDateKeys, i)
+                int startTime = f_timestamp_for_date_minute(dayKey, strongestIntervalStartMinute, resolvedTz)
+                int endTime = f_timestamp_for_date_minute(dayKey, strongestIntervalEndMinute, resolvedTz)
+
+                line startSeparator = line.new(startTime, separatorBottom, startTime, separatorTop, xloc = xloc.bar_time, extend = extend.both, color = separatorColor, style = line.style_dotted, width = 1)
+                line endSeparator = line.new(endTime, separatorBottom, endTime, separatorTop, xloc = xloc.bar_time, extend = extend.both, color = separatorColor, style = line.style_dotted, width = 1)
+
+                array.push(separatorLines, startSeparator)
+                array.push(separatorLines, endSeparator)
+
+// ═══════════════════════════════════════════════════════════════
+//  7. ALERT
+// ═══════════════════════════════════════════════════════════════
+
+alertcondition(insideStrongestInterval, "AKZ Inside Strongest Interval", "Current bar is inside the strongest recurring adaptive interval.")
