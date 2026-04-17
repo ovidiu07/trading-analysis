@@ -7,6 +7,7 @@ import com.tradevault.domain.entity.Tag;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.dto.trade.ImportedTradeCandidate;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.exception.TradeSearchValidationException;
@@ -40,6 +41,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.Optional;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -222,6 +224,7 @@ public class TradeService {
         validateClosedTrade(request);
         Trade trade = new Trade();
         trade.setUser(user);
+        trade.setBrokerAccountId(normalizeOptionalText(request.getAccountId()));
         trade.setSymbol(request.getSymbol());
         trade.setMarket(request.getMarket());
         trade.setDirection(request.getDirection());
@@ -236,6 +239,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
+        trade.setContractMultiplier(defaultOne(request.getContractMultiplier()));
         trade.setFeesProfileCurrency(defaultZero(request.getFeesProfileCurrency()));
         // Do NOT trust client-provided PnL values on create; compute authoritatively below
         trade.setRiskAmount(request.getRiskAmount());
@@ -279,11 +283,7 @@ public class TradeService {
         trade.setCreatedAt(OffsetDateTime.now());
         trade.setUpdatedAt(trade.getCreatedAt());
         applyCurrencyContextForCreate(trade, request, user);
-        if (request.getAccountId() != null) {
-            Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
-                    .orElseThrow(() -> new EntityNotFoundException("Account not found"));
-            trade.setAccount(account);
-        }
+        trade.setAccount(resolveAccount(request, user));
         if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
             Set<Tag> tags = tagRepository.findByIdInAndUserId(request.getTagIds(), user.getId()).stream()
                     .collect(Collectors.toSet());
@@ -305,6 +305,7 @@ public class TradeService {
         boolean shouldRecalculate = pnlInputsChanged(trade, request);
 
         // Map incoming fields onto entity (do not trust client-provided PnL values)
+        trade.setBrokerAccountId(normalizeOptionalText(request.getAccountId()));
         trade.setSymbol(request.getSymbol());
         trade.setMarket(request.getMarket());
         trade.setDirection(request.getDirection());
@@ -319,6 +320,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
+        trade.setContractMultiplier(defaultOne(request.getContractMultiplier()));
         trade.setFeesProfileCurrency(defaultZero(request.getFeesProfileCurrency()));
         // Never accept client PnL fields on update; we'll recompute if needed
         trade.setRiskAmount(request.getRiskAmount());
@@ -383,13 +385,7 @@ public class TradeService {
             trade.setEntryScreenshotAssetIds(new LinkedHashSet<>());
         }
         applyCurrencyContextForUpdate(trade, request, user);
-        if (request.getAccountId() != null) {
-            Account account = accountRepository.findByIdAndUserId(request.getAccountId(), user.getId())
-                    .orElseThrow(() -> new EntityNotFoundException("Account not found"));
-            trade.setAccount(account);
-        } else {
-            trade.setAccount(null);
-        }
+        trade.setAccount(resolveAccount(request, user));
         if (request.getTagIds() != null) {
             Set<Tag> tags = tagRepository.findByIdInAndUserId(request.getTagIds(), user.getId()).stream()
                     .collect(Collectors.toSet());
@@ -404,6 +400,18 @@ public class TradeService {
         trade.setUpdatedAt(OffsetDateTime.now());
         logNarrativeSnapshotState("update", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), previousNarrativeSnapshot, trade.getNarrativeSnapshotJson());
         return toResponse(tradeRepository.save(trade));
+    }
+
+    @Transactional
+    public ImportUpsertResult upsertImportedTrade(ImportedTradeCandidate candidate) {
+        User user = currentUserService.getCurrentUser();
+        Optional<Trade> existing = findExistingImportedTrade(user.getId(), candidate);
+        TradeRequest request = existing.map(this::copyTradeToRequest).orElseGet(TradeRequest::new);
+        applyImportedCandidate(request, candidate);
+        if (existing.isPresent()) {
+            return new ImportUpsertResult(update(existing.get().getId(), request), true);
+        }
+        return new ImportUpsertResult(create(request), false);
     }
 
     @Transactional
@@ -520,6 +528,150 @@ public class TradeService {
         return value == null ? BigDecimal.ZERO : value;
     }
 
+    private BigDecimal defaultOne(BigDecimal value) {
+        return value == null ? BigDecimal.ONE : value;
+    }
+
+    private Account resolveAccount(TradeRequest request, User user) {
+        UUID accountRefId = resolveAccountRefId(request);
+        if (accountRefId == null) {
+            return null;
+        }
+        return accountRepository.findByIdAndUserId(accountRefId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Account not found"));
+    }
+
+    private UUID resolveAccountRefId(TradeRequest request) {
+        if (request.getAccountRefId() != null) {
+            return request.getAccountRefId();
+        }
+        String maybeLegacyAccountId = normalizeOptionalText(request.getAccountId());
+        if (maybeLegacyAccountId == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(maybeLegacyAccountId);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private Optional<Trade> findExistingImportedTrade(UUID userId, ImportedTradeCandidate candidate) {
+        String brokerAccountId = normalizeOptionalText(candidate.getAccountId());
+        if (brokerAccountId != null) {
+            Optional<Trade> withBrokerAccount = tradeRepository
+                    .findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(
+                            userId,
+                            candidate.getSymbol(),
+                            candidate.getDirection(),
+                            candidate.getOpenedAt(),
+                            brokerAccountId
+                    );
+            if (withBrokerAccount.isPresent()) {
+                return withBrokerAccount;
+            }
+        }
+        return tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAt(
+                userId,
+                candidate.getSymbol(),
+                candidate.getDirection(),
+                candidate.getOpenedAt()
+        );
+    }
+
+    private TradeRequest copyTradeToRequest(Trade trade) {
+        TradeRequest request = new TradeRequest();
+        request.setSymbol(trade.getSymbol());
+        request.setMarket(trade.getMarket());
+        request.setDirection(trade.getDirection());
+        request.setStatus(trade.getStatus());
+        request.setOpenedAt(trade.getOpenedAt());
+        request.setClosedAt(trade.getClosedAt());
+        request.setQuantity(trade.getQuantity());
+        request.setEntryPrice(trade.getEntryPrice());
+        request.setExitPrice(trade.getExitPrice());
+        request.setStopLossPrice(trade.getStopLossPrice());
+        request.setTakeProfitPrice(trade.getTakeProfitPrice());
+        request.setFees(trade.getFees());
+        request.setFeesProfileCurrency(trade.getFeesProfileCurrency());
+        request.setCommission(trade.getCommission());
+        request.setSlippage(trade.getSlippage());
+        request.setTradeCurrency(trade.getTradeCurrency());
+        request.setProfileCurrency(trade.getProfileCurrency());
+        request.setFxRateTradeToProfile(trade.getFxRateTradeToProfile());
+        request.setFxRateTimestamp(trade.getFxRateTimestamp());
+        request.setFxRateSource(trade.getFxRateSource());
+        request.setPnlProfileCurrency(trade.getPnlProfileCurrency());
+        request.setRiskAmount(trade.getRiskAmount());
+        request.setCapitalUsed(trade.getCapitalUsed());
+        request.setTimeframe(trade.getTimeframe());
+        request.setSetup(trade.getSetup());
+        request.setStrategyTag(trade.getStrategyTag());
+        request.setCatalystTag(trade.getCatalystTag());
+        request.setStrategyId(trade.getStrategyId());
+        request.setStrategyVersionId(trade.getStrategyVersionId());
+        request.setContextSnapshotId(trade.getContextSnapshotId());
+        request.setSetupGrade(trade.getSetupGrade());
+        request.setRuleBreaks(trade.getRuleBreaks() == null ? null : new LinkedHashSet<>(trade.getRuleBreaks()));
+        request.setSession(trade.getSession());
+        request.setSessionId(trade.getSessionId());
+        request.setSetupId(trade.getSetupId());
+        request.setSweepLevelId(trade.getSweepLevelId());
+        request.setSweepPoolId(trade.getSweepPoolId());
+        request.setEntryLevelId(trade.getEntryLevelId());
+        request.setSlLevelId(trade.getSlLevelId());
+        request.setTpLevelId(trade.getTpLevelId());
+        request.setNarrativeSnapshotJson(trade.getNarrativeSnapshotJson());
+        request.setSweepConfirmed(trade.getSweepConfirmed());
+        request.setDisplacementConfirmed(trade.getDisplacementConfirmed());
+        request.setMssConfirmed(trade.getMssConfirmed());
+        request.setSweepDepthPoints(trade.getSweepDepthPoints());
+        request.setDisplacementSizePoints(trade.getDisplacementSizePoints());
+        request.setTimeSweepToEntrySeconds(trade.getTimeSweepToEntrySeconds());
+        request.setMfePoints(trade.getMfePoints());
+        request.setMaePoints(trade.getMaePoints());
+        request.setLevelExpectationMet(trade.getLevelExpectationMet());
+        request.setLevelExpectation(trade.getLevelExpectation());
+        request.setFeeling(trade.getFeeling());
+        request.setLinkedContentIds(trade.getLinkedContentIds() == null ? null : new LinkedHashSet<>(trade.getLinkedContentIds()));
+        request.setLinkedPlanIds(trade.getLinkedPlanIds() == null ? null : new LinkedHashSet<>(trade.getLinkedPlanIds()));
+        request.setNotes(trade.getNotes());
+        request.setInitialNotes(trade.getInitialNotes());
+        request.setEntryJournalText(trade.getEntryJournalText());
+        request.setEntryInvalidation(trade.getEntryInvalidation());
+        request.setEntryScreenshotAssetIds(trade.getEntryScreenshotAssetIds() == null ? null : new LinkedHashSet<>(trade.getEntryScreenshotAssetIds()));
+        request.setAccountId(trade.getBrokerAccountId());
+        request.setAccountRefId(trade.getAccount() == null ? null : trade.getAccount().getId());
+        request.setContractMultiplier(trade.getContractMultiplier());
+        request.setTagIds(trade.getTags() == null ? null : trade.getTags().stream().map(Tag::getId).collect(Collectors.toCollection(LinkedHashSet::new)));
+        return request;
+    }
+
+    private void applyImportedCandidate(TradeRequest request, ImportedTradeCandidate candidate) {
+        request.setSymbol(candidate.getSymbol());
+        request.setMarket(candidate.getMarket());
+        request.setDirection(candidate.getDirection());
+        request.setStatus(candidate.getStatus());
+        request.setOpenedAt(candidate.getOpenedAt());
+        request.setClosedAt(candidate.getClosedAt());
+        request.setQuantity(candidate.getQuantity());
+        request.setEntryPrice(candidate.getEntryPrice());
+        request.setExitPrice(candidate.getExitPrice());
+        request.setStopLossPrice(candidate.getStopLossPrice());
+        request.setTakeProfitPrice(candidate.getTakeProfitPrice());
+        request.setFees(candidate.getFees());
+        request.setCommission(candidate.getCommission());
+        request.setSlippage(candidate.getSlippage());
+        request.setTradeCurrency(candidate.getTradeCurrency());
+        request.setProfileCurrency(candidate.getProfileCurrency());
+        request.setAccountId(candidate.getAccountId());
+        request.setAccountRefId(candidate.getAccountRefId());
+        request.setContractMultiplier(candidate.getContractMultiplier());
+        if (request.getInitialNotes() == null) {
+            request.setInitialNotes(candidate.getInitialNotes());
+        }
+    }
+
     private Set<String> normalizeRuleBreaks(Set<String> values) {
         if (values == null || values.isEmpty()) {
             return new LinkedHashSet<>();
@@ -601,7 +753,7 @@ public class TradeService {
             BigDecimal priceDiff = trade.getDirection() == Direction.LONG ?
                     trade.getExitPrice().subtract(trade.getEntryPrice()) :
                     trade.getEntryPrice().subtract(trade.getExitPrice());
-            BigDecimal pnlGross = priceDiff.multiply(trade.getQuantity());
+            BigDecimal pnlGross = priceDiff.multiply(trade.getQuantity()).multiply(defaultOne(trade.getContractMultiplier()));
             BigDecimal totalCosts = defaultZero(trade.getFees()).add(defaultZero(trade.getCommission())).add(defaultZero(trade.getSlippage()));
             BigDecimal pnlNet = pnlGross.subtract(totalCosts);
             if (trade.getPnlGross() == null) {
@@ -649,6 +801,7 @@ public class TradeService {
         changed |= !equalBD(existing.getFees(), defaultZero(request.getFees()));
         changed |= !equalBD(existing.getCommission(), defaultZero(request.getCommission()));
         changed |= !equalBD(existing.getSlippage(), defaultZero(request.getSlippage()));
+        changed |= !equalBD(existing.getContractMultiplier(), defaultOne(request.getContractMultiplier()));
         changed |= existing.getStatus() != request.getStatus();
         changed |= (existing.getClosedAt() == null ? request.getClosedAt() != null : !existing.getClosedAt().equals(request.getClosedAt()));
         changed |= !equalBD(existing.getRiskAmount(), request.getRiskAmount());
@@ -672,7 +825,7 @@ public class TradeService {
         BigDecimal priceDiff = trade.getDirection() == Direction.LONG ?
                 trade.getExitPrice().subtract(trade.getEntryPrice()) :
                 trade.getEntryPrice().subtract(trade.getExitPrice());
-        BigDecimal pnlGross = priceDiff.multiply(trade.getQuantity());
+        BigDecimal pnlGross = priceDiff.multiply(trade.getQuantity()).multiply(defaultOne(trade.getContractMultiplier()));
         BigDecimal totalCosts = defaultZero(trade.getFees()).add(defaultZero(trade.getCommission())).add(defaultZero(trade.getSlippage()));
         BigDecimal pnlNet = pnlGross.subtract(totalCosts);
 
@@ -852,6 +1005,9 @@ public class TradeService {
         if (request.getStatus() == com.tradevault.domain.enums.TradeStatus.CLOSED && request.getExitPrice() == null) {
             throw new IllegalArgumentException("Exit price is required when status is CLOSED");
         }
+        if (request.getStatus() == com.tradevault.domain.enums.TradeStatus.CLOSED && request.getClosedAt() == null) {
+            throw new IllegalArgumentException("Closed at is required when status is CLOSED");
+        }
     }
 
     private TradeResponse toResponse(Trade trade) {
@@ -923,8 +1079,15 @@ public class TradeService {
                 .entryScreenshotAssetIds(trade.getEntryScreenshotAssetIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getEntryScreenshotAssetIds()))
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
-                .accountId(trade.getAccount() != null ? trade.getAccount().getId() : null)
+                .accountId(firstNonBlank(
+                        trade.getBrokerAccountId(),
+                        trade.getAccount() != null ? trade.getAccount().getId().toString() : null
+                ))
+                .accountRefId(trade.getAccount() != null ? trade.getAccount().getId() : null)
+                .contractMultiplier(defaultOne(trade.getContractMultiplier()))
                 .tags((trade.getTags() == null ? java.util.Collections.<String>emptySet() : trade.getTags().stream().map(Tag::getName).collect(Collectors.toSet())))
                 .build();
     }
+
+    public record ImportUpsertResult(TradeResponse trade, boolean updated) {}
 }

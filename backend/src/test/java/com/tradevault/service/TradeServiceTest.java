@@ -7,6 +7,7 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.trade.ImportedTradeCandidate;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.repository.AccountRepository;
@@ -294,6 +295,83 @@ public class TradeServiceTest {
         assertEquals(new BigDecimal("1.10000000"), response.getFxRateTradeToProfile());
         assertEquals(new BigDecimal("1094.5000"), response.getPnlProfileCurrency());
         assertEquals(new BigDecimal("2.2000"), response.getFeesProfileCurrency());
+    }
+
+    @Test
+    void createAcceptsBrokerStyleAccountIdAndContractMultiplier() {
+        TradeRequest request = baseRequest();
+        request.setExitPrice(new BigDecimal("120"));
+        request.setAccountId("APEX4855840000003");
+        request.setContractMultiplier(new BigDecimal("2"));
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertEquals("APEX4855840000003", response.getAccountId());
+        assertNull(response.getAccountRefId());
+        assertEquals(new BigDecimal("2"), response.getContractMultiplier());
+        assertEquals(new BigDecimal("4000"), response.getPnlGross());
+        assertEquals(new BigDecimal("3995"), response.getPnlNet());
+        verify(accountRepository, never()).findByIdAndUserId(any(), any());
+    }
+
+    @Test
+    void upsertImportedTradePreservesExistingNotesAndJournalFields() {
+        Trade existing = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("MNQM6")
+                .brokerAccountId("APEX4855840000003")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.OPEN)
+                .openedAt(OffsetDateTime.parse("2026-04-17T13:44:42Z"))
+                .quantity(new BigDecimal("2"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .fees(BigDecimal.ZERO)
+                .commission(BigDecimal.ZERO)
+                .slippage(BigDecimal.ZERO)
+                .contractMultiplier(new BigDecimal("2"))
+                .notes("keep me")
+                .entryJournalText("keep journal")
+                .build();
+
+        ImportedTradeCandidate candidate = ImportedTradeCandidate.builder()
+                .symbol("MNQM6")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(existing.getOpenedAt())
+                .closedAt(OffsetDateTime.parse("2026-04-17T14:36:58Z"))
+                .quantity(new BigDecimal("2"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .stopLossPrice(new BigDecimal("26712.25"))
+                .takeProfitPrice(new BigDecimal("26884.75"))
+                .tradeCurrency("USD")
+                .accountId("APEX4855840000003")
+                .contractMultiplier(new BigDecimal("2"))
+                .initialNotes("Imported from Tradovate Orders CSV")
+                .build();
+
+        when(tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(
+                user.getId(),
+                "MNQM6",
+                Direction.LONG,
+                existing.getOpenedAt(),
+                "APEX4855840000003"
+        )).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.findByIdAndUserId(existing.getId(), user.getId())).thenReturn(java.util.Optional.of(existing));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        TradeService.ImportUpsertResult result = tradeService.upsertImportedTrade(candidate);
+
+        assertTrue(result.updated());
+        assertEquals("keep me", result.trade().getNotes());
+        assertEquals("keep journal", result.trade().getEntryJournalText());
+        assertEquals("Imported from Tradovate Orders CSV", result.trade().getInitialNotes());
+        assertEquals(0, new BigDecimal("306.0000").compareTo(result.trade().getPnlNet()));
     }
 
     @Test

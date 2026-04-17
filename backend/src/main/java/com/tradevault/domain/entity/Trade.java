@@ -41,6 +41,9 @@ public class Trade {
     @JoinColumn(name = "account_id")
     private Account account;
 
+    @Column(name = "broker_account_id", length = 128)
+    private String brokerAccountId;
+
     @Column(name = "symbol", nullable = false)
     private String symbol;
 
@@ -72,6 +75,8 @@ public class Trade {
     private BigDecimal feesProfileCurrency;
     private BigDecimal commission;
     private BigDecimal slippage;
+    @Column(name = "contract_multiplier", nullable = false)
+    private BigDecimal contractMultiplier;
     private BigDecimal pnlGross;
     private BigDecimal pnlNet;
     @Column(name = "pnl_profile_currency")
@@ -230,6 +235,9 @@ public class Trade {
     void ensureNarrativeSnapshotJson() {
         if (narrativeSnapshotJson == null || narrativeSnapshotJson.isNull()) {
             narrativeSnapshotJson = JsonNodeFactory.instance.objectNode();
+        }
+        if (contractMultiplier == null) {
+            contractMultiplier = BigDecimal.ONE;
         }
     }
 }

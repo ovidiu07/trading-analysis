@@ -177,6 +177,17 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
 
   Optional<Trade> findByUserIdAndSymbolAndOpenedAt(UUID userId, String symbol, OffsetDateTime openedAt);
 
+  Optional<Trade> findByUserIdAndSymbolAndDirectionAndOpenedAt(UUID userId,
+                                                               String symbol,
+                                                               Direction direction,
+                                                               OffsetDateTime openedAt);
+
+  Optional<Trade> findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(UUID userId,
+                                                                                  String symbol,
+                                                                                  Direction direction,
+                                                                                  OffsetDateTime openedAt,
+                                                                                  String brokerAccountId);
+
   long countByUser_IdAndSessionIdAndStatus(UUID userId, UUID sessionId, TradeStatus status);
 
   @Query("""

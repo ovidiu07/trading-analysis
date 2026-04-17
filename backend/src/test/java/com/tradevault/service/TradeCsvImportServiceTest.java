@@ -1,19 +1,23 @@
 package com.tradevault.service;
 
-import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.TradeImportRow;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.trade.ImportedTradeCandidate;
+import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.TradeImportRowRepository;
-import com.tradevault.repository.TradeRepository;
-import com.tradevault.security.AuthenticatedUserResolver;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mockito;
 import org.springframework.mock.web.MockMultipartFile;
 
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.List;
 import java.util.UUID;
 
@@ -23,155 +27,194 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyCollection;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TradeCsvImportServiceTest {
 
-    @Test
-    void weightedAverageUsesShareWeights() {
-        OffsetDateTime time = OffsetDateTime.parse("2024-01-01T10:00:00Z");
-        List<TradeCsvImportService.ParsedRow> rows = List.of(
-                new TradeCsvImportService.ParsedRow("Market buy", "market buy", true, false, time, "ISIN1", "AAA", "tx1",
-                        new BigDecimal("10"), new BigDecimal("100"), null),
-                new TradeCsvImportService.ParsedRow("Market buy", "market buy", true, false, time.plusMinutes(1), "ISIN1", "AAA", "tx2",
-                        new BigDecimal("20"), new BigDecimal("110"), null)
-        );
+    private static final ZoneId USER_ZONE = ZoneId.of("Europe/Bucharest");
 
-        BigDecimal weighted = TradeCsvImportService.weightedAverage(rows);
+    private CurrentUserService currentUserService;
+    private TradeImportRowRepository tradeImportRowRepository;
+    private TradeService tradeService;
+    private TimezoneService timezoneService;
+    private TradeCsvImportService service;
+    private User user;
 
-        assertEquals(new BigDecimal("106.6666666667"), weighted);
-    }
+    @BeforeEach
+    void setUp() {
+        currentUserService = Mockito.mock(CurrentUserService.class);
+        tradeImportRowRepository = Mockito.mock(TradeImportRowRepository.class);
+        tradeService = Mockito.mock(TradeService.class);
+        timezoneService = Mockito.mock(TimezoneService.class);
+        service = new TradeCsvImportService(currentUserService, tradeImportRowRepository, tradeService, timezoneService);
 
-    @Test
-    void classifiesBuySellActionsBySuffix() {
-        var marketBuy = TradeCsvImportService.classifyAction("Market buy");
-        assertTrue(marketBuy.isBuy());
-        assertFalse(marketBuy.isSell());
-
-        var stopBuy = TradeCsvImportService.classifyAction("Stop buy");
-        assertTrue(stopBuy.isBuy());
-        assertFalse(stopBuy.isSell());
-
-        var limitBuy = TradeCsvImportService.classifyAction("Limit buy");
-        assertTrue(limitBuy.isBuy());
-        assertFalse(limitBuy.isSell());
-
-        var stopLimitBuy = TradeCsvImportService.classifyAction("  Stop limit buy ");
-        assertTrue(stopLimitBuy.isBuy());
-        assertFalse(stopLimitBuy.isSell());
-
-        var marketSell = TradeCsvImportService.classifyAction("Market sell");
-        assertTrue(marketSell.isSell());
-        assertFalse(marketSell.isBuy());
-
-        var stopSell = TradeCsvImportService.classifyAction("Stop sell");
-        assertTrue(stopSell.isSell());
-        assertFalse(stopSell.isBuy());
-
-        var limitSell = TradeCsvImportService.classifyAction("LIMIT SELL");
-        assertTrue(limitSell.isSell());
-        assertFalse(limitSell.isBuy());
-    }
-
-    @Test
-    void computeGroupClosesWhenSellSharesMatch() {
-        OffsetDateTime buyTime = OffsetDateTime.parse("2024-01-01T10:00:00Z");
-        OffsetDateTime sellTime = OffsetDateTime.parse("2024-01-02T10:00:00Z");
-        List<TradeCsvImportService.ParsedRow> rows = List.of(
-                new TradeCsvImportService.ParsedRow("Stop buy", "stop buy", true, false, buyTime, "ISIN1", "AAA", "tx1",
-                        new BigDecimal("10"), new BigDecimal("100"), null),
-                new TradeCsvImportService.ParsedRow("Limit sell", "limit sell", false, true, sellTime, "ISIN1", "AAA", "tx2",
-                        new BigDecimal("10"), new BigDecimal("110"), new BigDecimal("100"))
-        );
-
-        TradeCsvImportService.GroupComputation computation = TradeCsvImportService.computeGroup(rows);
-
-        assertFalse(computation.skipped());
-        TradeCsvImportService.GroupMetrics metrics = computation.metrics();
-        assertNotNull(metrics);
-        assertEquals(TradeStatus.CLOSED, metrics.status());
-        assertEquals(sellTime, metrics.closedAt());
-        assertEquals(new BigDecimal("110.0000000000"), metrics.exitPrice());
-        assertEquals(0, new BigDecimal("100").compareTo(metrics.pnlGross()));
-    }
-
-    @Test
-    void computeGroupKeepsOpenOnPartialSell() {
-        OffsetDateTime buyTime = OffsetDateTime.parse("2024-01-01T10:00:00Z");
-        OffsetDateTime sellTime = OffsetDateTime.parse("2024-01-02T10:00:00Z");
-        List<TradeCsvImportService.ParsedRow> rows = List.of(
-                new TradeCsvImportService.ParsedRow("Limit buy", "limit buy", true, false, buyTime, "ISIN1", "AAA", "tx1",
-                        new BigDecimal("10"), new BigDecimal("100"), null),
-                new TradeCsvImportService.ParsedRow("Stop sell", "stop sell", false, true, sellTime, "ISIN1", "AAA", "tx2",
-                        new BigDecimal("5"), new BigDecimal("110"), new BigDecimal("50"))
-        );
-
-        TradeCsvImportService.GroupComputation computation = TradeCsvImportService.computeGroup(rows);
-
-        assertFalse(computation.skipped());
-        TradeCsvImportService.GroupMetrics metrics = computation.metrics();
-        assertNotNull(metrics);
-        assertEquals(TradeStatus.OPEN, metrics.status());
-        assertNull(metrics.closedAt());
-    }
-
-    @Test
-    void computeGroupSkipsWhenSellSharesExceedBuyShares() {
-        OffsetDateTime buyTime = OffsetDateTime.parse("2024-01-01T10:00:00Z");
-        OffsetDateTime sellTime = OffsetDateTime.parse("2024-01-02T10:00:00Z");
-        List<TradeCsvImportService.ParsedRow> rows = List.of(
-                new TradeCsvImportService.ParsedRow("Market buy", "market buy", true, false, buyTime, "ISIN1", "AAA", "tx1",
-                        new BigDecimal("10"), new BigDecimal("100"), null),
-                new TradeCsvImportService.ParsedRow("Market sell", "market sell", false, true, sellTime, "ISIN1", "AAA", "tx2",
-                        new BigDecimal("12"), new BigDecimal("110"), new BigDecimal("120"))
-        );
-
-        TradeCsvImportService.GroupComputation computation = TradeCsvImportService.computeGroup(rows);
-
-        assertTrue(computation.skipped());
-    }
-
-    @Test
-    void importCsvUsesAllRowsForComputationEvenWhenTransactionAlreadyImported() throws Exception {
-        TradeRepository tradeRepository = Mockito.mock(TradeRepository.class);
-        TradeImportRowRepository tradeImportRowRepository = Mockito.mock(TradeImportRowRepository.class);
-        AuthenticatedUserResolver authenticatedUserResolver = Mockito.mock(AuthenticatedUserResolver.class);
-
-        User user = User.builder().id(UUID.randomUUID()).email("user@example.com").build();
-        when(authenticatedUserResolver.getCurrentUser()).thenReturn(user);
-
-        TradeImportRow existing = TradeImportRow.builder()
+        user = User.builder()
                 .id(UUID.randomUUID())
-                .user(user)
-                .transactionId("buy-tx")
-                .importedAt(OffsetDateTime.parse("2024-01-01T12:00:00Z"))
+                .email("import@test.com")
+                .timezone(USER_ZONE.getId())
+                .baseCurrency("USD")
                 .build();
-        when(tradeImportRowRepository.findAllByUserIdAndTransactionIdIn(eq(user.getId()), any()))
-                .thenReturn(List.of(existing));
-        when(tradeRepository.save(any(Trade.class))).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
 
-        TradeCsvImportService service = new TradeCsvImportService(tradeRepository, tradeImportRowRepository, authenticatedUserResolver);
+        when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(timezoneService.resolveZone(null, user)).thenReturn(USER_ZONE);
+        when(tradeImportRowRepository.findAllByUserIdAndTransactionIdIn(eq(user.getId()), anyCollection()))
+                .thenReturn(List.of());
+        when(tradeService.upsertImportedTrade(any())).thenAnswer(invocation -> {
+            ImportedTradeCandidate candidate = invocation.getArgument(0, ImportedTradeCandidate.class);
+            TradeResponse response = TradeResponse.builder()
+                    .id(UUID.randomUUID())
+                    .symbol(candidate.getSymbol())
+                    .accountId(candidate.getAccountId())
+                    .build();
+            return new TradeService.ImportUpsertResult(response, false);
+        });
+    }
 
+    @Test
+    void importTradovateClosedLongTradeReconstructsFilledEntryAndExit() throws Exception {
+        var summary = service.importCsv(csvFile(ordersCsvLong()));
+
+        ImportedTradeCandidate candidate = capturedCandidates().get(0);
+        assertEquals("TRADOVATE_ORDERS", summary.getDetectedFormat());
+        assertEquals(4, summary.getTotalRows());
+        assertEquals(4, summary.getParsedRows());
+        assertEquals(1, summary.getTradeGroups());
+        assertEquals(1, summary.getTradesCreated());
+        assertEquals(0, summary.getGroupsSkipped());
+
+        assertEquals("APEX4855840000003", candidate.getAccountId());
+        assertEquals("MNQM6", candidate.getSymbol());
+        assertEquals(Market.FUTURES, candidate.getMarket());
+        assertEquals(Direction.LONG, candidate.getDirection());
+        assertEquals(TradeStatus.CLOSED, candidate.getStatus());
+        assertEquals(OffsetDateTime.parse("2026-04-17T13:44:42Z"), candidate.getOpenedAt());
+        assertEquals(OffsetDateTime.parse("2026-04-17T14:36:58Z"), candidate.getClosedAt());
+        assertEquals(new BigDecimal("2"), candidate.getQuantity());
+        assertEquals(new BigDecimal("26711.5000000000"), candidate.getEntryPrice());
+        assertEquals(new BigDecimal("26788.0000000000"), candidate.getExitPrice());
+        assertEquals(new BigDecimal("26712.25"), candidate.getStopLossPrice());
+        assertEquals(new BigDecimal("26884.75"), candidate.getTakeProfitPrice());
+        assertEquals(new BigDecimal("2.00000000"), candidate.getContractMultiplier());
+        assertEquals("USD", candidate.getTradeCurrency());
+        assertTrue(candidate.getInitialNotes().contains("Tradovate Orders CSV"));
+    }
+
+    @Test
+    void importTradovateClosedShortTradeReconstructsShortDirection() throws Exception {
+        var summary = service.importCsv(csvFile(ordersCsvShort()));
+
+        ImportedTradeCandidate candidate = capturedCandidates().get(0);
+        assertEquals("TRADOVATE_ORDERS", summary.getDetectedFormat());
+        assertEquals(1, summary.getTradesCreated());
+        assertEquals(Direction.SHORT, candidate.getDirection());
+        assertEquals(TradeStatus.CLOSED, candidate.getStatus());
+        assertEquals(new BigDecimal("1"), candidate.getQuantity());
+        assertEquals(new BigDecimal("26788.0000000000"), candidate.getEntryPrice());
+        assertEquals(new BigDecimal("26711.5000000000"), candidate.getExitPrice());
+        assertEquals(new BigDecimal("26884.75"), candidate.getStopLossPrice());
+        assertEquals(new BigDecimal("26712.25"), candidate.getTakeProfitPrice());
+        assertEquals("APEX4855840000003", candidate.getAccountId());
+    }
+
+    @Test
+    void importTradovateUsesCanceledProtectiveOrdersAsAnchorsOnly() throws Exception {
+        var summary = service.importCsv(csvFile(ordersCsvLong()));
+
+        ImportedTradeCandidate candidate = capturedCandidates().get(0);
+        assertEquals(1, summary.getTradeGroups());
+        assertEquals(1, capturedCandidates().size());
+        assertEquals(TradeStatus.CLOSED, candidate.getStatus());
+        assertEquals(new BigDecimal("2"), candidate.getQuantity());
+        assertEquals(new BigDecimal("26712.25"), candidate.getStopLossPrice());
+        assertEquals(new BigDecimal("26884.75"), candidate.getTakeProfitPrice());
+
+        ArgumentCaptor<List<TradeImportRow>> rowsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(tradeImportRowRepository).saveAll(rowsCaptor.capture());
+        assertEquals(4, rowsCaptor.getValue().size());
+    }
+
+    @Test
+    void importTradovateOpenTradeWithoutExitKeepsTradeOpen() throws Exception {
+        var summary = service.importCsv(csvFile(ordersCsvOpen()));
+
+        ImportedTradeCandidate candidate = capturedCandidates().get(0);
+        assertEquals(TradeStatus.OPEN, candidate.getStatus());
+        assertNull(candidate.getClosedAt());
+        assertNull(candidate.getExitPrice());
+        assertEquals(new BigDecimal("2"), candidate.getQuantity());
+        assertEquals(new BigDecimal("26712.25"), candidate.getStopLossPrice());
+        assertEquals(new BigDecimal("26884.75"), candidate.getTakeProfitPrice());
+        assertEquals(1, summary.getTradeGroups());
+        assertEquals(0, summary.getGroupsSkipped());
+    }
+
+    @Test
+    void importNativeTradeExportStillSupported() throws Exception {
         String csv = String.join("\n",
-                "Action,Time,ISIN,Ticker,Name,ID,No. of shares,Price / share,Currency (Price / share),Exchange rate,Result,Currency (Result),Total,Currency (Total)",
-                "Market buy,2024-01-01 10:00:00,ISIN1,AAA,Name,buy-tx,10,100,USD,1,,USD,1000,USD",
-                "Stop sell,2024-01-02 10:00:00,ISIN1,AAA,Name,sell-tx,10,110,USD,1,100,USD,1100,USD"
+                "symbol,market,direction,openedAt,closedAt,quantity,entryPrice,exitPrice,fees,commission,slippage,stopLossPrice,takeProfitPrice,setup,strategyTag,catalystTag,notes",
+                "AAPL,STOCK,LONG,2026-04-17T10:00:00Z,2026-04-17T11:00:00Z,10,100,110,0,0,0,95,115,,,," 
         );
-        MockMultipartFile file = new MockMultipartFile("file", "trades.csv", "text/csv", csv.getBytes());
 
-        service.importCsv(file);
+        var summary = service.importCsv(csvFile(csv));
 
-        ArgumentCaptor<Trade> tradeCaptor = ArgumentCaptor.forClass(Trade.class);
-        verify(tradeRepository).save(tradeCaptor.capture());
-        Trade saved = tradeCaptor.getValue();
-        assertEquals(TradeStatus.CLOSED, saved.getStatus());
+        ImportedTradeCandidate candidate = capturedCandidates().get(0);
+        assertEquals("NATIVE_TRADE_EXPORT", summary.getDetectedFormat());
+        assertEquals("AAPL", candidate.getSymbol());
+        assertEquals(Market.STOCK, candidate.getMarket());
+        assertEquals(Direction.LONG, candidate.getDirection());
+        assertEquals(TradeStatus.CLOSED, candidate.getStatus());
+        assertEquals(new BigDecimal("10"), candidate.getQuantity());
+    }
 
-        ArgumentCaptor<List<TradeImportRow>> importCaptor = ArgumentCaptor.forClass(List.class);
-        verify(tradeImportRowRepository).saveAll(importCaptor.capture());
-        List<TradeImportRow> savedRows = importCaptor.getValue();
-        assertEquals(1, savedRows.size());
-        assertEquals("sell-tx", savedRows.get(0).getTransactionId());
+    private List<ImportedTradeCandidate> capturedCandidates() {
+        ArgumentCaptor<ImportedTradeCandidate> captor = ArgumentCaptor.forClass(ImportedTradeCandidate.class);
+        verify(tradeService, Mockito.atLeastOnce()).upsertImportedTrade(captor.capture());
+        return captor.getAllValues();
+    }
+
+    private MockMultipartFile csvFile(String content) {
+        return new MockMultipartFile(
+                "file",
+                "Orders.csv",
+                "text/csv",
+                content.getBytes(StandardCharsets.UTF_8)
+        );
+    }
+
+    private String ordersCsvLong() {
+        return String.join("\n",
+                tradovateHeader(),
+                "470913240262,APEX4855840000003,470913240262, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,26711.5,2,04/17/2026 16:44:42,470913240262, Filled,-2,0,0.25,,470913240262,04/17/2026 16:44:42,4/17/26,2,Tradingview, Limit,26712.00,,26712.0,,2,26711.50,26711.5,,\"106,846.00\",USD",
+                "470913240265,APEX4855840000003,470913240265, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,470913240289, Canceled,-2,0,0.25,,470913240289,04/17/2026 16:46:50,4/17/26,2,Tradingview, Limit,26884.75,,26884.75,,,,,,,USD",
+                "470913240267,APEX4855840000003,470913240267, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,470913240293, Canceled,-2,0,0.25,,470913240293,04/17/2026 17:34:34,4/17/26,2,Tradingview, Stop,,26712.25,,26712.25,,,,,,USD",
+                "470913240303,APEX4855840000003,470913240303, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,26788.0,2,04/17/2026 17:36:58,470913240303, Filled,-2,0,0.25,,470913240303,04/17/2026 17:36:58,4/17/26,2,Exit, Market,,,,,2,26788.00,26788.0,,\"107,152.00\",USD"
+        );
+    }
+
+    private String ordersCsvShort() {
+        return String.join("\n",
+                tradovateHeader(),
+                "570913240262,APEX4855840000003,570913240262, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,26788.0,1,04/18/2026 16:44:42,570913240262, Filled,-2,0,0.25,,570913240262,04/18/2026 16:44:42,4/18/26,1,Tradingview, Limit,26788.00,,26788.0,,1,26788.00,26788.0,,\"53,576.00\",USD",
+                "570913240265,APEX4855840000003,570913240265, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,570913240289, Canceled,-2,0,0.25,,570913240289,04/18/2026 16:46:50,4/18/26,1,Tradingview, Limit,26712.25,,26712.25,,,,,,,USD",
+                "570913240267,APEX4855840000003,570913240267, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,570913240293, Canceled,-2,0,0.25,,570913240293,04/18/2026 17:34:34,4/18/26,1,Tradingview, Stop,,26884.75,,26884.75,,,,,,USD",
+                "570913240303,APEX4855840000003,570913240303, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,26711.5,1,04/18/2026 17:36:58,570913240303, Filled,-2,0,0.25,,570913240303,04/18/2026 17:36:58,4/18/26,1,Exit, Market,,,,,1,26711.50,26711.5,,\"53,423.00\",USD"
+        );
+    }
+
+    private String ordersCsvOpen() {
+        return String.join("\n",
+                tradovateHeader(),
+                "670913240262,APEX4855840000003,670913240262, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,26711.5,2,04/17/2026 16:44:42,670913240262, Filled,-2,0,0.25,,670913240262,04/17/2026 16:44:42,4/17/26,2,Tradingview, Limit,26712.00,,26712.0,,2,26711.50,26711.5,,\"106,846.00\",USD",
+                "670913240265,APEX4855840000003,670913240265, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,670913240289, Canceled,-2,0,0.25,,670913240289,04/17/2026 16:46:50,4/17/26,2,Tradingview, Limit,26884.75,,26884.75,,,,,,,USD",
+                "670913240267,APEX4855840000003,670913240267, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,670913240293, Canceled,-2,0,0.25,,670913240293,04/17/2026 17:34:34,4/17/26,2,Tradingview, Stop,,26712.25,,26712.25,,,,,,USD"
+        );
+    }
+
+    private String tradovateHeader() {
+        return "orderId,Account,Order ID,B/S,Contract,Product,Product Description,avgPrice,filledQty,Fill Time,lastCommandId,Status,_priceFormat,_priceFormatType,_tickSize,spreadDefinitionId,Version ID,Timestamp,Date,Quantity,Text,Type,Limit Price,Stop Price,decimalLimit,decimalStop,Filled Qty,Avg Fill Price,decimalFillAvg,Venue,Notional Value,Currency";
     }
 }

@@ -1230,7 +1230,9 @@ public class TodaySessionService {
         request.setEntryJournalText(trade.getEntryJournalText());
         request.setEntryInvalidation(trade.getEntryInvalidation());
         request.setEntryScreenshotAssetIds(trade.getEntryScreenshotAssetIds());
-        request.setAccountId(trade.getAccount() == null ? null : trade.getAccount().getId());
+        request.setAccountId(trade.getBrokerAccountId());
+        request.setAccountRefId(trade.getAccount() == null ? null : trade.getAccount().getId());
+        request.setContractMultiplier(trade.getContractMultiplier());
         return request;
     }
 

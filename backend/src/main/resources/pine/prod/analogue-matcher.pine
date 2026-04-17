@@ -1,0 +1,157 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/ MPL-2.0
+//@version=6
+indicator("Analogue Matcher [Anchored]", overlay = true, max_labels_count = 500, max_boxes_count = 500, max_lines_count = 500, max_polylines_count = 100)
+
+// --- Constants ---
+color BULL_COLOR = #089981
+color BEAR_COLOR = #f23645
+
+// --- Inputs ---
+string modeInput    = input.string("Dual Mode", "Matching Mode", options = ["Single Mode", "Dual Mode"], group = "Settings", tooltip = "Single Mode: Finds the best match regardless of direction.\nDual Mode: Finds the best bullish and best bearish matches separately.")
+int    windowInput  = input.int(50, "Projection Window", minval = 2, group = "Settings", tooltip = "The number of bars used to calculate the slope and the length of the projected path.")
+float  tolInput     = input.float(0.004, "Slope Tolerance", step = 0.001, group = "Settings", tooltip = "The sensitivity of the matching algorithm.")
+
+int    refreshInput  = input.int(10, "Refresh Interval (Bars)", minval = 1, group = "Stability", tooltip = "How many candles to wait before searching for a new match. A higher value makes the projections more stable.")
+int    lookbackInput = input.int(500, "Lookback Period", minval = 100, group = "Lookback", tooltip = "How many bars back the script searches for matching analogues.")
+
+// --- Functions ---
+f_linear_regression(float dep, float indep, int len) =>
+    float dep_avg       = ta.sma(dep, len)
+    float indep_avg     = ta.sma(indep, len)
+    float cov_dep_indep = ta.sma(dep * indep, len) - (dep_avg * indep_avg)
+    float var_indep     = ta.sma(math.pow(indep, 2), len) - math.pow(indep_avg, 2)
+    float slope         = cov_dep_indep / var_indep
+    float intercept     = dep_avg - (slope * indep_avg)
+    float result        = (indep * slope) + intercept
+    float stdev_dep     = ta.stdev(dep, len)
+    float stdev_indep   = ta.stdev(indep, len)
+    float pear_cor      = cov_dep_indep / (stdev_dep * stdev_indep)
+    float rsqrd         = math.pow(pear_cor, 2)
+    float sse           = (ta.variance(dep, len) * (len - 1)) * (1 - rsqrd)
+    float std_err       = math.sqrt(sse / (len - 2))
+    [result, pear_cor, rsqrd, std_err, slope, intercept]
+
+f_calc_conf(float diff, float h_r2, float c_r2, float tolerance) =>
+    float slope_sim = math.max(0, 1 - (diff / tolerance))
+    float r2_sim    = 1 - math.abs(c_r2 - h_r2)
+    slope_sim * r2_sim * 100
+
+f_draw_projection(int matchIdx, int windowSize, int anchorBar, float anchorPrice, color pathCol) =>
+    polyline path = na
+    if not na(matchIdx)
+        int histOffset = bar_index - matchIdx
+        float histAnchor = close[histOffset]
+        float scale  = anchorPrice / histAnchor
+
+        array<chart.point> points = array.new<chart.point>()
+        for j = 0 to windowSize
+            int i = histOffset - j
+            if i >= 0
+                points.push(chart.point.from_index(anchorBar + j, close[i] * scale))
+
+        path := polyline.new(points, line_color = pathCol, line_width = 2)
+    path
+
+// --- Calculations ---
+[result, pear_cor, rsqrd, std_err, slope, intercept] = f_linear_regression(close, time, windowInput)
+
+// --- FIXED HISTORY ALLOCATION ---
+// We apply max_bars_back to all series that are indexed in the historical search loop.
+max_bars_back(close, 5000)
+max_bars_back(slope, 5000)
+max_bars_back(rsqrd, 5000)
+
+// --- State Management ---
+var int   bullIdx = na, var int   bearIdx = na
+var int   bullTm  = na, var int   bearTm  = na
+var float bullR2  = 0.0, var float bearR2  = 0.0
+var float bestBullDiff = 1e10, var float bestBearDiff = 1e10
+
+var int   bestIdx  = na, var int   bestTm   = na
+var float bestR2   = 0.0, var float bestDiff  = 1e10
+var string bestDir = ""
+
+var int   lastAnchorBar   = 0
+var float lastAnchorPrice = 0.0
+var float lastStoredSlope = 0.0
+var float lastStoredR2    = 0.0
+
+var polyline bullPoly = na
+var polyline bearPoly = na
+var polyline singlePoly = na
+
+// --- Main Logic ---
+bool shouldRefresh = (bar_index - lastAnchorBar >= refreshInput) or lastAnchorBar == 0
+
+if barstate.islast
+    if shouldRefresh
+        lastAnchorBar   := bar_index
+        lastAnchorPrice := close
+        lastStoredSlope := slope[1]
+        lastStoredR2    := rsqrd[1]
+
+        bestBullDiff := 1e10, bestBearDiff := 1e10
+        bullIdx := na, bearIdx := na
+        bestDiff := 1e10, bestIdx := na, bestDir := ""
+
+        int limit = math.min(lookbackInput, bar_index - windowInput - 1)
+
+        for i = windowInput to limit
+            float hSlope = slope[i]
+            float diff   = math.abs(lastStoredSlope - hSlope)
+
+            if diff <= tolInput
+                float pChange = close[i - windowInput] - close[i]
+
+                if modeInput == "Dual Mode"
+                    if pChange > 0 and diff < bestBullDiff
+                        bestBullDiff := diff
+                        bullIdx      := bar_index[i], bullTm := time[i], bullR2 := rsqrd[i]
+                    else if pChange < 0 and diff < bestBearDiff
+                        bestBearDiff := diff
+                        bearIdx      := bar_index[i], bearTm := time[i], bearR2 := rsqrd[i]
+                else
+                    if diff < bestDiff
+                        bestDiff := diff
+                        bestIdx  := bar_index[i], bestTm := time[i], bestR2 := rsqrd[i]
+                        bestDir  := pChange > 0 ? "Bull" : "Bear"
+
+    // Clear and redraw polylines
+    polyline.delete(bullPoly)
+    polyline.delete(bearPoly)
+    polyline.delete(singlePoly)
+
+    if modeInput == "Dual Mode"
+        bullPoly := f_draw_projection(bullIdx, windowInput, lastAnchorBar, lastAnchorPrice, color.new(BULL_COLOR, 30))
+        bearPoly := f_draw_projection(bearIdx, windowInput, lastAnchorBar, lastAnchorPrice, color.new(BEAR_COLOR, 30))
+    else
+        singlePoly := f_draw_projection(bestIdx, windowInput, lastAnchorBar, lastAnchorPrice, bestDir == "Bull" ? color.new(BULL_COLOR, 30) : color.new(BEAR_COLOR, 30))
+
+    // --- Stats Table ---
+    var table stats = table.new(position.top_right, 4, 3, bgcolor = chart.bg_color, border_width = 1, border_color = color.new(chart.fg_color, 80))
+    table.clear(stats, 0, 0, 3, 2)
+
+    table.cell(stats, 0, 0, "Dir", bgcolor = color.new(chart.fg_color, 90), text_color = chart.fg_color)
+    table.cell(stats, 1, 0, "Bar", bgcolor = color.new(chart.fg_color, 90), text_color = chart.fg_color)
+    table.cell(stats, 2, 0, "Time", bgcolor = color.new(chart.fg_color, 90), text_color = chart.fg_color)
+    table.cell(stats, 3, 0, "Conf (R²)", bgcolor = color.new(chart.fg_color, 90), text_color = chart.fg_color)
+
+    if modeInput == "Dual Mode"
+        float bullConf = na(bullIdx) ? 0 : f_calc_conf(bestBullDiff, bullR2, lastStoredR2, tolInput)
+        float bearConf = na(bearIdx) ? 0 : f_calc_conf(bestBearDiff, bearR2, lastStoredR2, tolInput)
+
+        table.cell(stats, 0, 1, "Bull", text_color = BULL_COLOR)
+        table.cell(stats, 1, 1, str.tostring(bullIdx), text_color = chart.fg_color)
+        table.cell(stats, 2, 1, na(bullTm) ? "N/A" : str.format_time(bullTm, "MM-dd HH:mm"), text_color = chart.fg_color)
+        table.cell(stats, 3, 1, str.tostring(bullConf, "#.##") + "%", text_color = chart.fg_color)
+
+        table.cell(stats, 0, 2, "Bear", text_color = BEAR_COLOR)
+        table.cell(stats, 1, 2, str.tostring(bearIdx), text_color = chart.fg_color)
+        table.cell(stats, 2, 2, na(bearTm) ? "N/A" : str.format_time(bearTm, "MM-dd HH:mm"), text_color = chart.fg_color)
+        table.cell(stats, 3, 2, str.tostring(bearConf, "#.##") + "%", text_color = chart.fg_color)
+    else
+        float bestConf = na(bestIdx) ? 0 : f_calc_conf(bestDiff, bestR2, lastStoredR2, tolInput)
+        table.cell(stats, 0, 1, bestDir, text_color = bestDir == "Bull" ? BULL_COLOR : BEAR_COLOR)
+        table.cell(stats, 1, 1, str.tostring(bestIdx), text_color = chart.fg_color)
+        table.cell(stats, 2, 1, na(bestTm) ? "N/A" : str.format_time(bestTm, "MM-dd HH:mm"), text_color = chart.fg_color)
+        table.cell(stats, 3, 1, str.tostring(bestConf, "#.##") + "%", text_color = chart.fg_color)

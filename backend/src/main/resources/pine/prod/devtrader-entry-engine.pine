@@ -43,12 +43,14 @@ string setupFamily = input.string("Both", "Setup Family", options=["Both", "Reve
 string directionFilter = input.string("Both", "Direction Filter", options=["Both", "Long Only", "Short Only"], group=G_MODE)
 bool requireDirectionalAlignment = input.bool(false, "Require Directional Alignment", group=G_MODE, tooltip="Hard blocker for continuation setups when the bridge context leans the other way.")
 bool allowCountertrendReversals = input.bool(true, "Allow Countertrend Reversals", group=G_MODE, tooltip="If disabled, reversal setups are blocked when the compact HTF bridge is strongly opposite.")
+float armThresholdBuffer = input.float(14.0, "Arm Threshold Gap", minval=6.0, maxval=24.0, step=1.0, group=G_MODE, tooltip="How much easier it is to arm a setup than to execute it. Larger values keep more valid setups live while waiting for timing.")
 
 bool enforceTradeSpacing = input.bool(true, "Enforce Trade Spacing", group=G_FLOW, tooltip="Suppresses clustered entries so setups remain visually and operationally distinct.")
 int minBarsBetweenAnyTrades = input.int(6, "Min Bars Between Any Trades", minval=0, maxval=100, group=G_FLOW)
 int minBarsBetweenSameDirection = input.int(12, "Min Bars Same Direction", minval=0, maxval=150, group=G_FLOW)
 bool requirePreviousTradeClosed = input.bool(true, "Require Previous Trade To Close", group=G_FLOW, tooltip="Blocks fresh entries while any tracked trade is still active.")
 int cooldownAfterResolutionBars = input.int(2, "Cooldown After Resolution", minval=0, maxval=50, group=G_FLOW)
+float strongSetupBypassScore = input.float(84.0, "Strong Setup Spacing Bypass", minval=70.0, maxval=95.0, step=1.0, group=G_FLOW, tooltip="Very strong setups can overcome part of the spacing penalties when structure and location are materially new.")
 
 bool bridgeReady = input.bool(false, "Bridge Inputs Ready", group=G_BRIDGE, tooltip="Enable after you manually map the source inputs below to the hidden BRIDGE_* plots from Devtrader - Chart Analysis.")
 float bridgeHtfBiasSrc = input.source(close, "BRIDGE_HTF_BIAS", group=G_BRIDGE)
@@ -77,6 +79,7 @@ int setupExpiryBars = input.int(8, "Setup Expiry Bars", minval=1, maxval=30, gro
 int maxRetestBars = input.int(6, "Max Retest Bars", minval=1, maxval=20, group=G_ENTRY)
 float confirmationBodyMult = input.float(1.15, "Confirmation Body Mult", minval=0.8, step=0.05, group=G_ENTRY)
 float rejectionWickRatio = input.float(0.85, "Retest Wick Ratio", minval=0.3, step=0.05, group=G_ENTRY)
+bool allowSecondaryTiming = input.bool(true, "Allow Secondary Timing Paths", group=G_ENTRY, tooltip="Lets a strong reclaim, retest, or confirmation candle qualify as secondary timing when it is not the selected primary mode.")
 
 string stopMethod = input.string("Bridge Hybrid", "Stop Method", options=["Sweep Anchor", "Protected Level", "Bridge Hybrid", "ATR Structure"], group=G_RISK)
 float stopAtrBuffer = input.float(0.15, "Stop ATR Buffer", minval=0.0, step=0.05, group=G_RISK)
@@ -94,6 +97,7 @@ bool showOnlyAB = input.bool(false, "Draw Only A/B Trades", group=G_VIS)
 int tradeBoxWidthBars = input.int(12, "Trade Box Width (Bars)", minval=2, maxval=80, group=G_VIS)
 int tradeBoxHistory = input.int(30, "Trade Boxes To Keep", minval=5, maxval=80, group=G_VIS)
 bool showCompactInfo = input.bool(true, "Show Compact Info Table", group=G_VIS)
+bool showDiagnostics = input.bool(true, "Show Diagnostics Rows", group=G_VIS, tooltip="Adds compact execution diagnostics so setup flow can be tuned without guessing.")
 color longColor = input.color(color.new(COLOR_BULL, 0), "Long Color", group=G_VIS)
 color shortColor = input.color(color.new(COLOR_BEAR, 0), "Short Color", group=G_VIS)
 color profitBoxColor = input.color(color.new(#27ae60, 78), "Profit Box Fill", group=G_VIS)
@@ -115,13 +119,16 @@ f_boolScore(bool cond, float score) =>
     cond ? score : 0.0
 
 f_gradeText(float score) =>
-    score >= 85.0 ? "A" : score >= 72.0 ? "B" : "C"
+    score >= 85.0 ? "A" : score >= 70.0 ? "B" : score >= 60.0 ? "C" : "D"
 
 f_modeThreshold(string mode) =>
-    mode == "Aggressive" ? 58.0 : mode == "Conservative" ? 78.0 : 68.0
+    mode == "Aggressive" ? 56.0 : mode == "Conservative" ? 76.0 : 66.0
 
 f_armThreshold(string mode) =>
-    f_modeThreshold(mode) - 6.0
+    f_clamp(f_modeThreshold(mode) - armThresholdBuffer, 40.0, 74.0)
+
+f_softPenalty(bool cond, float penalty) =>
+    cond ? penalty : 0.0
 
 f_signalAllowedByDirection(bool isLong) =>
     directionFilter == "Both" or (isLong and directionFilter == "Long Only") or (not isLong and directionFilter == "Short Only")
@@ -134,6 +141,9 @@ f_distanceScore(float distAtr) =>
 
 f_priceDistScore(float anchor, float ref, float atrRef) =>
     not na(anchor) and not na(ref) and atrRef > 0 ? f_distanceScore(math.abs(anchor - ref) / atrRef) : 0.0
+
+f_relDistanceAtr(float a, float b, float atrRef) =>
+    not na(a) and not na(b) and atrRef > 0 ? math.abs(a - b) / atrRef : na
 
 f_roundInt(float src) =>
     int(math.round(nz(src, 0.0)))
@@ -182,6 +192,43 @@ f_waitTierScore(int tierCode) =>
 
 f_rejectionScore(int rejectionCode) =>
     rejectionCode == 1 ? 10.0 : rejectionCode == 2 ? 4.0 : rejectionCode == 3 ? -12.0 : 0.0
+
+f_rrSoftScore(float rr, float targetFloor) =>
+    na(rr) ? 0.0 : rr >= targetFloor + 0.50 ? 96.0 : rr >= targetFloor + 0.20 ? 88.0 : rr >= targetFloor ? 78.0 : rr >= targetFloor * 0.85 ? 68.0 : rr >= targetFloor * 0.70 ? 54.0 : rr >= targetFloor * 0.55 ? 40.0 : 20.0
+
+f_stopEfficiencyScore(float riskAtr) =>
+    na(riskAtr) ? 0.0 : riskAtr <= 0.20 ? 44.0 : riskAtr <= 0.45 ? 86.0 : riskAtr <= 0.85 ? 94.0 : riskAtr <= 1.30 ? 74.0 : riskAtr <= 1.80 ? 56.0 : 34.0
+
+f_dynamicThreshold(string mode, string family, float baseScore, float timingQuality, float riskQuality, float sessionQuality, float contextQuality, float spacingPenalty) =>
+    float threshold = f_modeThreshold(mode)
+    threshold -= baseScore >= 82.0 ? 3.0 : baseScore >= 74.0 ? 1.5 : 0.0
+    threshold -= timingQuality >= 92.0 ? 3.0 : timingQuality >= 80.0 ? 2.0 : timingQuality >= 70.0 ? 1.0 : 0.0
+    threshold -= riskQuality >= 86.0 ? 2.0 : riskQuality >= 74.0 ? 1.0 : 0.0
+    threshold -= family == "Reversal" and sessionQuality >= 86.0 ? 1.0 : 0.0
+    threshold += sessionQuality < 42.0 ? 2.5 : 0.0
+    threshold += family == "Continuation" and contextQuality < 50.0 ? 2.0 : 0.0
+    threshold += spacingPenalty > 18.0 ? 1.5 : 0.0
+    f_clamp(threshold, f_modeThreshold(mode) - 6.0, f_modeThreshold(mode) + 6.0)
+
+f_spacingPenalty(int anyGap, int dirGap, int cooldownGap, int openTrades, float candidateScore, bool freshStructure, bool sameLocation, bool sameFamily) =>
+    float penalty = 0.0
+    if enforceTradeSpacing
+        if minBarsBetweenAnyTrades > 0 and anyGap < minBarsBetweenAnyTrades
+            penalty += float(minBarsBetweenAnyTrades - anyGap) * 4.0
+        if minBarsBetweenSameDirection > 0 and dirGap < minBarsBetweenSameDirection
+            penalty += float(minBarsBetweenSameDirection - dirGap) * 3.0
+        if requirePreviousTradeClosed and openTrades > 0
+            penalty += 11.0 + math.max(float(openTrades - 1), 0.0) * 3.0
+        if cooldownAfterResolutionBars > 0 and cooldownGap < cooldownAfterResolutionBars
+            penalty += float(cooldownAfterResolutionBars - cooldownGap) * 4.5
+        penalty -= candidateScore >= strongSetupBypassScore ? 10.0 : candidateScore >= 74.0 ? 4.0 : 0.0
+        penalty -= freshStructure ? 7.0 : 0.0
+        penalty -= not sameLocation ? 4.0 : 0.0
+        penalty -= not sameFamily ? 3.0 : 0.0
+    math.max(penalty, 0.0)
+
+f_executionState(bool armed, bool timingPass, bool riskPass, bool spacingHardBlocked, bool ready, string rejectReason) =>
+    not ready ? "Reject" : spacingHardBlocked ? "Reject" : timingPass and riskPass ? "Signal" : armed ? "Pending" : "Idle"
 
 f_stateScore(int state, bool isLong) =>
     if isLong
@@ -414,23 +461,34 @@ bool contextPackValid = htf1StateCode >= 0 and htf1StateCode <= 4 and htf2StateC
 bool contextDetailValid = htf1Conf >= 0 and htf1Conf <= 99 and htf2Conf >= 0 and htf2Conf <= 99 and htf1PdRaw >= 0 and htf1PdRaw <= 99 and htf2PdRaw >= 0 and htf2PdRaw <= 99 and htf1DispCode >= 0 and htf1DispCode <= 2 and htf2DispCode >= 0 and htf2DispCode <= 2
 bool structureValid = structurePack >= 0 and structurePack <= 4095
 bool idmValid = idmState >= 0 and idmState <= 4 and idmScore >= 0 and idmScore <= 99 and idmBiasCode >= 0 and idmBiasCode <= 2
-bool bridgeValid = bridgeReady and contextPackValid and contextDetailValid and structureValid and idmValid
+bool bridgeCoreValid = bridgeReady and contextPackValid and structureValid
+bool bridgeDetailValid = contextDetailValid
+bool bridgeOptionalValid = idmValid
+bool bridgeValid = bridgeCoreValid
 
 //------------------------------------------------------------------------------
 // Bridge-Derived Context and Confluence
 //------------------------------------------------------------------------------
-float avgHtfConf = (htf1Conf + htf2Conf) * 0.5
-float avgPdPos = (htf1PdRaw + htf2PdRaw) * 0.5 / 100.0
-float longContextScore = f_clamp(math.max(htfBias, 0.0) * 0.42 + (f_stateScore(htf1State, true) + f_stateScore(htf2State, true)) * 0.18 + avgHtfConf * 0.18 + f_boolScore(msBias == 1, 12.0) + f_boolScore(structureTrend == 1, 10.0) + f_boolScore(htf1NearLowLiq or htf2NearLowLiq, 6.0) - f_boolScore(htf1NearHighLiq or htf2NearHighLiq, 6.0), 0.0, 100.0)
-float shortContextScore = f_clamp(math.max(-htfBias, 0.0) * 0.42 + (f_stateScore(htf1State, false) + f_stateScore(htf2State, false)) * 0.18 + avgHtfConf * 0.18 + f_boolScore(msBias == -1, 12.0) + f_boolScore(structureTrend == -1, 10.0) + f_boolScore(htf1NearHighLiq or htf2NearHighLiq, 6.0) - f_boolScore(htf1NearLowLiq or htf2NearLowLiq, 6.0), 0.0, 100.0)
+float htf1ConfSafe = bridgeDetailValid ? float(htf1Conf) : 50.0
+float htf2ConfSafe = bridgeDetailValid ? float(htf2Conf) : 50.0
+float htf1PdSafe = bridgeDetailValid ? float(htf1PdRaw) : 50.0
+float htf2PdSafe = bridgeDetailValid ? float(htf2PdRaw) : 50.0
+int htf1DispBiasSafe = bridgeDetailValid ? htf1DispBias : 0
+int htf2DispBiasSafe = bridgeDetailValid ? htf2DispBias : 0
+float avgHtfConf = (htf1ConfSafe + htf2ConfSafe) * 0.5
+float avgPdPos = (htf1PdSafe + htf2PdSafe) * 0.5 / 100.0
+float bridgeResiliencePenalty = f_softPenalty(not bridgeDetailValid, 5.0) + f_softPenalty(not bridgeOptionalValid, 3.0)
+
+float longContextScore = f_clamp(math.max(htfBias, 0.0) * 0.40 + (f_stateScore(htf1State, true) + f_stateScore(htf2State, true)) * 0.18 + avgHtfConf * 0.16 + f_boolScore(msBias == 1, 12.0) + f_boolScore(structureTrend == 1, 10.0) + f_boolScore(htf1DispBiasSafe == 1 or htf2DispBiasSafe == 1, 6.0) + f_boolScore(htf1NearLowLiq or htf2NearLowLiq, 6.0) - f_boolScore(htf1NearHighLiq or htf2NearHighLiq, 6.0), 0.0, 100.0)
+float shortContextScore = f_clamp(math.max(-htfBias, 0.0) * 0.40 + (f_stateScore(htf1State, false) + f_stateScore(htf2State, false)) * 0.18 + avgHtfConf * 0.16 + f_boolScore(msBias == -1, 12.0) + f_boolScore(structureTrend == -1, 10.0) + f_boolScore(htf1DispBiasSafe == -1 or htf2DispBiasSafe == -1, 6.0) + f_boolScore(htf1NearHighLiq or htf2NearHighLiq, 6.0) - f_boolScore(htf1NearLowLiq or htf2NearLowLiq, 6.0), 0.0, 100.0)
 
 float longSupportScore = f_bridgeLiqScore(nearestSslFound, nearestSslClass, nearestSslTier, nearestSslImportance, nearestSslActionability, nearestSsl, atrVal)
 float shortSupportScore = f_bridgeLiqScore(nearestBslFound, nearestBslClass, nearestBslTier, nearestBslImportance, nearestBslActionability, nearestBsl, atrVal)
 float longTargetScore = f_bridgeLiqScore(nearestBslFound, nearestBslClass, nearestBslTier, nearestBslImportance, nearestBslActionability, nearestBsl, atrVal)
 float shortTargetScore = f_bridgeLiqScore(nearestSslFound, nearestSslClass, nearestSslTier, nearestSslImportance, nearestSslActionability, nearestSsl, atrVal)
 
-float longIdmConfluence = idmBias == 1 and not na(idmLevel) ? f_clamp(idmScore * 0.65 + f_boolScore(idmStrong, 12.0) + (idmState == 1 ? 10.0 : idmTaken ? 6.0 : idmState == 2 ? -8.0 : 0.0) + f_priceDistScore(close, idmLevel, atrVal) * 0.25 + f_boolScore(idmPendingSweep, 4.0), 0.0, 100.0) : 0.0
-float shortIdmConfluence = idmBias == -1 and not na(idmLevel) ? f_clamp(idmScore * 0.65 + f_boolScore(idmStrong, 12.0) + (idmState == 1 ? 10.0 : idmTaken ? 6.0 : idmState == 2 ? -8.0 : 0.0) + f_priceDistScore(close, idmLevel, atrVal) * 0.25 + f_boolScore(idmPendingSweep, 4.0), 0.0, 100.0) : 0.0
+float longIdmConfluence = bridgeOptionalValid and idmBias == 1 and not na(idmLevel) ? f_clamp(idmScore * 0.65 + f_boolScore(idmStrong, 12.0) + (idmState == 1 ? 10.0 : idmTaken ? 6.0 : idmState == 2 ? -8.0 : 0.0) + f_priceDistScore(close, idmLevel, atrVal) * 0.25 + f_boolScore(idmPendingSweep, 4.0), 0.0, 100.0) : 0.0
+float shortIdmConfluence = bridgeOptionalValid and idmBias == -1 and not na(idmLevel) ? f_clamp(idmScore * 0.65 + f_boolScore(idmStrong, 12.0) + (idmState == 1 ? 10.0 : idmTaken ? 6.0 : idmState == 2 ? -8.0 : 0.0) + f_priceDistScore(close, idmLevel, atrVal) * 0.25 + f_boolScore(idmPendingSweep, 4.0), 0.0, 100.0) : 0.0
 
 float bullFvgWidthAtr = atrVal > 0 ? bullFvgWidthTicks * syminfo.mintick / atrVal : na
 float bearFvgWidthAtr = atrVal > 0 ? bearFvgWidthTicks * syminfo.mintick / atrVal : na
@@ -448,23 +506,6 @@ float shortPullbackAnchor = f_firstValid(idmBias == -1 ? idmLevel : na, bearFvgD
 float longPullbackProxScore = f_priceDistScore(close, longPullbackAnchor, atrVal)
 float shortPullbackProxScore = f_priceDistScore(close, shortPullbackAnchor, atrVal)
 float sweepProxScore = f_priceDistScore(close, sweepLevel, atrVal)
-
-// Weighted decision logic stays local in this indicator; all structural state comes from the bridge.
-float longReversalTriggerScore = f_clamp(f_boolScore(waitLongActive, 14.0) + f_waitTierScore(waitLongTier) + f_rejectionScore(waitLongRejection) + f_boolScore(waitLongReclaimOk, 16.0) + f_boolScore(waitLongSessionOk or inLondonSweepWindow or inNYSweepWindow, 10.0) + f_boolScore(waitLongVolumeOk or relVol >= 1.05, 6.0) + f_boolScore(waitLongChoch or structBullChochEvent, 12.0) + f_boolScore(waitLongContinuation or continuationConfirmedLong, 10.0) + f_boolScore(waitLongInternalShift or structInternalBreakL, 8.0) + f_boolScore(waitLongExternalShift or structExternalBreakL, 8.0) + f_boolScore(waitLongPostStructure or waitLongOpposingBroken, 12.0) + f_boolScore(waitLongTrendAligned, 6.0) + f_sessionScore(true, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow) * 0.05 + sweepProxScore * 0.10 + f_pdReversalBonus(avgPdPos, true), 0.0, 100.0)
-float shortReversalTriggerScore = f_clamp(f_boolScore(waitShortActive, 14.0) + f_waitTierScore(waitShortTier) + f_rejectionScore(waitShortRejection) + f_boolScore(waitShortReclaimOk, 16.0) + f_boolScore(waitShortSessionOk or inLondonSweepWindow or inNYSweepWindow, 10.0) + f_boolScore(waitShortVolumeOk or relVol >= 1.05, 6.0) + f_boolScore(waitShortChoch or structBearChochEvent, 12.0) + f_boolScore(waitShortContinuation or continuationConfirmedShort, 10.0) + f_boolScore(waitShortInternalShift or structInternalBreakS, 8.0) + f_boolScore(waitShortExternalShift or structExternalBreakS, 8.0) + f_boolScore(waitShortPostStructure or waitShortOpposingBroken, 12.0) + f_boolScore(waitShortTrendAligned, 6.0) + f_sessionScore(true, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow) * 0.05 + sweepProxScore * 0.10 + f_pdReversalBonus(avgPdPos, false), 0.0, 100.0)
-
-float longContinuationTriggerScore = f_clamp(f_boolScore(continuationConfirmedLong, 20.0) + f_boolScore(structInternalBreakL, 10.0) + f_boolScore(structExternalBreakL, 12.0) + f_boolScore(structBullChochEvent, 12.0) + f_boolScore(structBullBosEvent, 16.0) + f_boolScore(longProtectedOk, 12.0) + f_boolScore(msBias == 1, 8.0) + f_boolScore(structureTrend == 1, 8.0) + f_boolScore(inLondon or inNY or inLondonSweepWindow or inNYSweepWindow, 8.0) + f_boolScore(relVol >= 1.0, 5.0) + longPullbackProxScore * 0.22 + f_pdContinuationBonus(avgPdPos, true), 0.0, 100.0)
-float shortContinuationTriggerScore = f_clamp(f_boolScore(continuationConfirmedShort, 20.0) + f_boolScore(structInternalBreakS, 10.0) + f_boolScore(structExternalBreakS, 12.0) + f_boolScore(structBearChochEvent, 12.0) + f_boolScore(structBearBosEvent, 16.0) + f_boolScore(shortProtectedOk, 12.0) + f_boolScore(msBias == -1, 8.0) + f_boolScore(structureTrend == -1, 8.0) + f_boolScore(inLondon or inNY or inLondonSweepWindow or inNYSweepWindow, 8.0) + f_boolScore(relVol >= 1.0, 5.0) + shortPullbackProxScore * 0.22 + f_pdContinuationBonus(avgPdPos, false), 0.0, 100.0)
-
-float longReversalScore = f_clamp(longContextScore * 0.28 + longReversalTriggerScore * 0.50 + longConfluenceScore * 0.22, 0.0, 100.0)
-float shortReversalScore = f_clamp(shortContextScore * 0.28 + shortReversalTriggerScore * 0.50 + shortConfluenceScore * 0.22, 0.0, 100.0)
-float longContinuationScore = f_clamp(longContextScore * 0.42 + longContinuationTriggerScore * 0.36 + longConfluenceScore * 0.22, 0.0, 100.0)
-float shortContinuationScore = f_clamp(shortContextScore * 0.42 + shortContinuationTriggerScore * 0.36 + shortConfluenceScore * 0.22, 0.0, 100.0)
-
-string longReversalStage = waitLongPostStructure or continuationConfirmedLong ? "post-sweep structure confirmed" : waitLongChoch or structBullChochEvent ? "bullish CHoCH after sweep" : waitLongInternalShift or waitLongExternalShift ? "shift after sweep" : waitLongReclaimOk ? "reclaim held above sweep" : "qualified sweep"
-string shortReversalStage = waitShortPostStructure or continuationConfirmedShort ? "post-sweep structure confirmed" : waitShortChoch or structBearChochEvent ? "bearish CHoCH after sweep" : waitShortInternalShift or waitShortExternalShift ? "shift after sweep" : waitShortReclaimOk ? "reclaim held below sweep" : "qualified sweep"
-string longContinuationStage = structBullBosEvent ? "bull BOS event" : continuationConfirmedLong ? "continuation confirmed" : structBullChochEvent ? "bull CHoCH event" : "pullback into bullish structure"
-string shortContinuationStage = structBearBosEvent ? "bear BOS event" : continuationConfirmedShort ? "continuation confirmed" : structBearChochEvent ? "bear CHoCH event" : "pullback into bearish structure"
 
 float longReversalZoneLow = f_minValid4(stopAnchor, protectedLow, bullFvgLow, sweepLevel)
 float longReversalZoneHigh = f_maxValid4(sweepLevel, bullFvgHigh, protectedLow, idmBias == 1 ? idmLevel : na)
@@ -487,8 +528,496 @@ float shortContinuationEntryRef = f_firstValid(idmBias == -1 ? idmLevel : na, be
 float shortContinuationStopRef = f_maxValid4(protectedHigh, idmBias == -1 ? idmLevel : na, bearFvgHigh, nearestBsl)
 
 //------------------------------------------------------------------------------
-// Candidate Selection
+// Multi-Stage Candidate Evaluation
 //------------------------------------------------------------------------------
+float longReversalSessionScore = f_sessionScore(true, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow)
+float shortReversalSessionScore = f_sessionScore(true, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow)
+float longContinuationSessionScore = f_sessionScore(false, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow)
+float shortContinuationSessionScore = f_sessionScore(false, inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow)
+
+float longReversalLocationScore = f_clamp(sweepProxScore * 0.40 + longIdmConfluence * 0.20 + longFvgConfluence * 0.18 + longSupportScore * 0.22, 0.0, 100.0)
+float shortReversalLocationScore = f_clamp(sweepProxScore * 0.40 + shortIdmConfluence * 0.20 + shortFvgConfluence * 0.18 + shortSupportScore * 0.22, 0.0, 100.0)
+float longContinuationLocationScore = f_clamp(longPullbackProxScore * 0.42 + longIdmConfluence * 0.22 + longFvgConfluence * 0.18 + longSupportScore * 0.18, 0.0, 100.0)
+float shortContinuationLocationScore = f_clamp(shortPullbackProxScore * 0.42 + shortIdmConfluence * 0.22 + shortFvgConfluence * 0.18 + shortSupportScore * 0.18, 0.0, 100.0)
+
+int longReversalSupportCount = (waitLongReclaimOk ? 1 : 0) + ((waitLongChoch or structBullChochEvent) ? 1 : 0) + ((waitLongInternalShift or structInternalBreakL) ? 1 : 0) + ((waitLongExternalShift or structExternalBreakL) ? 1 : 0) + ((waitLongPostStructure or waitLongOpposingBroken) ? 1 : 0)
+int shortReversalSupportCount = (waitShortReclaimOk ? 1 : 0) + ((waitShortChoch or structBearChochEvent) ? 1 : 0) + ((waitShortInternalShift or structInternalBreakS) ? 1 : 0) + ((waitShortExternalShift or structExternalBreakS) ? 1 : 0) + ((waitShortPostStructure or waitShortOpposingBroken) ? 1 : 0)
+int longContinuationSupportCount = (continuationConfirmedLong ? 1 : 0) + (structBullBosEvent ? 1 : 0) + (structBullChochEvent ? 1 : 0) + (structInternalBreakL ? 1 : 0) + (structExternalBreakL ? 1 : 0)
+int shortContinuationSupportCount = (continuationConfirmedShort ? 1 : 0) + (structBearBosEvent ? 1 : 0) + (structBearChochEvent ? 1 : 0) + (structInternalBreakS ? 1 : 0) + (structExternalBreakS ? 1 : 0)
+
+bool longReversalCoreOk = (waitLongActive or sweepProxScore >= 68.0) and longReversalSupportCount >= 2 and not na(longReversalEntryRef) and not na(longReversalStopRef)
+bool shortReversalCoreOk = (waitShortActive or sweepProxScore >= 68.0) and shortReversalSupportCount >= 2 and not na(shortReversalEntryRef) and not na(shortReversalStopRef)
+bool longContinuationCoreOk = longContinuationSupportCount >= 1 and (longPullbackProxScore >= 32.0 or longConfluenceScore >= 48.0 or longContextScore >= 58.0) and not na(longContinuationEntryRef) and not na(longContinuationStopRef)
+bool shortContinuationCoreOk = shortContinuationSupportCount >= 1 and (shortPullbackProxScore >= 32.0 or shortConfluenceScore >= 48.0 or shortContextScore >= 58.0) and not na(shortContinuationEntryRef) and not na(shortContinuationStopRef)
+
+float longReversalCounterPenalty = math.max(shortContextScore - longContextScore - 8.0, 0.0) * (allowCountertrendReversals ? 0.20 : 0.32) + f_softPenalty(not allowCountertrendReversals and htfBias < -20.0, 4.0)
+float shortReversalCounterPenalty = math.max(longContextScore - shortContextScore - 8.0, 0.0) * (allowCountertrendReversals ? 0.20 : 0.32) + f_softPenalty(not allowCountertrendReversals and htfBias > 20.0, 4.0)
+float longContinuationAlignmentPenalty = math.max(shortContextScore - longContextScore - 4.0, 0.0) * 0.22 + f_softPenalty(requireDirectionalAlignment and structureTrend == -1, 4.0) + f_softPenalty(msBias == -1, 4.0)
+float shortContinuationAlignmentPenalty = math.max(longContextScore - shortContextScore - 4.0, 0.0) * 0.22 + f_softPenalty(requireDirectionalAlignment and structureTrend == 1, 4.0) + f_softPenalty(msBias == 1, 4.0)
+
+bool longReversalHardBlocked = not allowCountertrendReversals and shortContextScore > longContextScore + 34.0 and htfBias < -48.0 and not waitLongPostStructure
+bool shortReversalHardBlocked = not allowCountertrendReversals and longContextScore > shortContextScore + 34.0 and htfBias > 48.0 and not waitShortPostStructure
+bool longContinuationHardBlocked = requireDirectionalAlignment and shortContextScore > longContextScore + 34.0 and structureTrend == -1 and msBias == -1 and htfBias < -48.0
+bool shortContinuationHardBlocked = requireDirectionalAlignment and longContextScore > shortContextScore + 34.0 and structureTrend == 1 and msBias == 1 and htfBias > 48.0
+
+float longReversalPackageBonus = f_boolScore(waitLongReclaimOk and (waitLongChoch or structBullChochEvent), 8.0) + f_boolScore(waitLongReclaimOk and (waitLongInternalShift or structInternalBreakL or waitLongExternalShift or structExternalBreakL), 6.0) + f_boolScore((waitLongPostStructure or waitLongOpposingBroken) and waitLongRejection != 3, 6.0) + f_boolScore(longReversalLocationScore >= 60.0, 5.0)
+float shortReversalPackageBonus = f_boolScore(waitShortReclaimOk and (waitShortChoch or structBearChochEvent), 8.0) + f_boolScore(waitShortReclaimOk and (waitShortInternalShift or structInternalBreakS or waitShortExternalShift or structExternalBreakS), 6.0) + f_boolScore((waitShortPostStructure or waitShortOpposingBroken) and waitShortRejection != 3, 6.0) + f_boolScore(shortReversalLocationScore >= 60.0, 5.0)
+float longContinuationPackageBonus = f_boolScore(structBullBosEvent and (bullFvgDirectionalFound or bullFvgInside or idmBias == 1 or not na(protectedLow)), 8.0) + f_boolScore((structBullChochEvent or continuationConfirmedLong) and longProtectedOk, 6.0) + f_boolScore(structInternalBreakL and longContextScore >= 58.0 and longPullbackProxScore >= 52.0, 6.0) + f_boolScore(msBias == 1 and structureTrend == 1 and (longFvgConfluence >= 55.0 or longIdmConfluence >= 55.0), 5.0)
+float shortContinuationPackageBonus = f_boolScore(structBearBosEvent and (bearFvgDirectionalFound or bearFvgInside or idmBias == -1 or not na(protectedHigh)), 8.0) + f_boolScore((structBearChochEvent or continuationConfirmedShort) and shortProtectedOk, 6.0) + f_boolScore(structInternalBreakS and shortContextScore >= 58.0 and shortPullbackProxScore >= 52.0, 6.0) + f_boolScore(msBias == -1 and structureTrend == -1 and (shortFvgConfluence >= 55.0 or shortIdmConfluence >= 55.0), 5.0)
+
+float longReversalTriggerScore = f_clamp(f_boolScore(waitLongActive, 16.0) + f_waitTierScore(waitLongTier) * 0.82 + math.max(f_rejectionScore(waitLongRejection), -8.0) + f_boolScore(waitLongReclaimOk, 12.0) + f_boolScore(waitLongChoch or structBullChochEvent, 10.0) + f_boolScore(waitLongContinuation or continuationConfirmedLong, 7.0) + f_boolScore(waitLongInternalShift or structInternalBreakL, 8.0) + f_boolScore(waitLongExternalShift or structExternalBreakL, 8.0) + f_boolScore(waitLongPostStructure or waitLongOpposingBroken, 10.0) + f_boolScore(waitLongTrendAligned, 4.0) + f_boolScore(waitLongSessionOk, 4.0) + f_boolScore(waitLongVolumeOk or relVol >= 0.95, 4.0) + sweepProxScore * 0.10 + longReversalPackageBonus + longReversalSessionScore * 0.10 + f_pdReversalBonus(avgPdPos, true) - longReversalCounterPenalty - bridgeResiliencePenalty, 0.0, 100.0)
+float shortReversalTriggerScore = f_clamp(f_boolScore(waitShortActive, 16.0) + f_waitTierScore(waitShortTier) * 0.82 + math.max(f_rejectionScore(waitShortRejection), -8.0) + f_boolScore(waitShortReclaimOk, 12.0) + f_boolScore(waitShortChoch or structBearChochEvent, 10.0) + f_boolScore(waitShortContinuation or continuationConfirmedShort, 7.0) + f_boolScore(waitShortInternalShift or structInternalBreakS, 8.0) + f_boolScore(waitShortExternalShift or structExternalBreakS, 8.0) + f_boolScore(waitShortPostStructure or waitShortOpposingBroken, 10.0) + f_boolScore(waitShortTrendAligned, 4.0) + f_boolScore(waitShortSessionOk, 4.0) + f_boolScore(waitShortVolumeOk or relVol >= 0.95, 4.0) + sweepProxScore * 0.10 + shortReversalPackageBonus + shortReversalSessionScore * 0.10 + f_pdReversalBonus(avgPdPos, false) - shortReversalCounterPenalty - bridgeResiliencePenalty, 0.0, 100.0)
+
+float longContinuationTriggerScore = f_clamp(f_boolScore(continuationConfirmedLong, 16.0) + f_boolScore(structBullBosEvent, 14.0) + f_boolScore(structBullChochEvent, 10.0) + f_boolScore(structInternalBreakL, 8.0) + f_boolScore(structExternalBreakL, 8.0) + f_boolScore(longProtectedOk, 9.0) + f_boolScore(msBias == 1, 6.0) + f_boolScore(structureTrend == 1, 6.0) + f_boolScore(inLondon or inNY, 6.0) + f_boolScore(inLondonSweepWindow or inNYSweepWindow, 5.0) + f_boolScore(inAsia, 3.0) + f_boolScore(relVol >= 0.95, 4.0) + longPullbackProxScore * 0.18 + longContinuationPackageBonus + longContinuationSessionScore * 0.08 + f_pdContinuationBonus(avgPdPos, true) - longContinuationAlignmentPenalty - bridgeResiliencePenalty, 0.0, 100.0)
+float shortContinuationTriggerScore = f_clamp(f_boolScore(continuationConfirmedShort, 16.0) + f_boolScore(structBearBosEvent, 14.0) + f_boolScore(structBearChochEvent, 10.0) + f_boolScore(structInternalBreakS, 8.0) + f_boolScore(structExternalBreakS, 8.0) + f_boolScore(shortProtectedOk, 9.0) + f_boolScore(msBias == -1, 6.0) + f_boolScore(structureTrend == -1, 6.0) + f_boolScore(inLondon or inNY, 6.0) + f_boolScore(inLondonSweepWindow or inNYSweepWindow, 5.0) + f_boolScore(inAsia, 3.0) + f_boolScore(relVol >= 0.95, 4.0) + shortPullbackProxScore * 0.18 + shortContinuationPackageBonus + shortContinuationSessionScore * 0.08 + f_pdContinuationBonus(avgPdPos, false) - shortContinuationAlignmentPenalty - bridgeResiliencePenalty, 0.0, 100.0)
+
+float longReversalStructureQuality = f_clamp(longReversalTriggerScore * 0.72 + longReversalLocationScore * 0.28, 0.0, 100.0)
+float shortReversalStructureQuality = f_clamp(shortReversalTriggerScore * 0.72 + shortReversalLocationScore * 0.28, 0.0, 100.0)
+float longContinuationStructureQuality = f_clamp(longContinuationTriggerScore * 0.68 + longContinuationLocationScore * 0.32, 0.0, 100.0)
+float shortContinuationStructureQuality = f_clamp(shortContinuationTriggerScore * 0.68 + shortContinuationLocationScore * 0.32, 0.0, 100.0)
+
+float longReversalScore = f_clamp(longContextScore * 0.18 + longReversalStructureQuality * 0.46 + longConfluenceScore * 0.18 + longReversalSessionScore * 0.12 + longReversalLocationScore * 0.06, 0.0, 100.0)
+float shortReversalScore = f_clamp(shortContextScore * 0.18 + shortReversalStructureQuality * 0.46 + shortConfluenceScore * 0.18 + shortReversalSessionScore * 0.12 + shortReversalLocationScore * 0.06, 0.0, 100.0)
+float longContinuationScore = f_clamp(longContextScore * 0.30 + longContinuationStructureQuality * 0.38 + longConfluenceScore * 0.16 + longContinuationSessionScore * 0.10 + longContinuationLocationScore * 0.06, 0.0, 100.0)
+float shortContinuationScore = f_clamp(shortContextScore * 0.30 + shortContinuationStructureQuality * 0.38 + shortConfluenceScore * 0.16 + shortContinuationSessionScore * 0.10 + shortContinuationLocationScore * 0.06, 0.0, 100.0)
+
+string longReversalStage = waitLongReclaimOk and (waitLongChoch or structBullChochEvent) ? "sweep reclaim + CHOCH" : (waitLongRejection == 1 or waitLongRejection == 2) and (waitLongInternalShift or structInternalBreakL or waitLongExternalShift or structExternalBreakL) ? "sweep rejection + shift" : (waitLongPostStructure or waitLongOpposingBroken) and waitLongReclaimOk ? "post-sweep hold + reclaim" : longReversalSupportCount >= 3 ? "sweep reaction package" : "qualified sweep reaction"
+string shortReversalStage = waitShortReclaimOk and (waitShortChoch or structBearChochEvent) ? "sweep reclaim + CHOCH" : (waitShortRejection == 1 or waitShortRejection == 2) and (waitShortInternalShift or structInternalBreakS or waitShortExternalShift or structExternalBreakS) ? "sweep rejection + shift" : (waitShortPostStructure or waitShortOpposingBroken) and waitShortReclaimOk ? "post-sweep hold + reclaim" : shortReversalSupportCount >= 3 ? "sweep reaction package" : "qualified sweep reaction"
+string longContinuationStage = structBullBosEvent and (bullFvgDirectionalFound or bullFvgInside or idmBias == 1 or not na(protectedLow)) ? "BOS + pullback zone" : (structBullChochEvent or continuationConfirmedLong) and longProtectedOk ? "CHOCH + protected hold" : structInternalBreakL and longContextScore >= 58.0 ? "internal break + efficient pullback" : "bullish continuation package"
+string shortContinuationStage = structBearBosEvent and (bearFvgDirectionalFound or bearFvgInside or idmBias == -1 or not na(protectedHigh)) ? "BOS + pullback zone" : (structBearChochEvent or continuationConfirmedShort) and shortProtectedOk ? "CHOCH + protected hold" : structInternalBreakS and shortContextScore >= 58.0 ? "internal break + efficient pullback" : "bearish continuation package"
+
+bool longReversalCandidateReady = bridgeValid and f_signalAllowedByDirection(true) and f_signalAllowedByFamily("Reversal") and longReversalCoreOk and not longReversalHardBlocked and longReversalScore >= f_armThreshold(signalMode)
+bool shortReversalCandidateReady = bridgeValid and f_signalAllowedByDirection(false) and f_signalAllowedByFamily("Reversal") and shortReversalCoreOk and not shortReversalHardBlocked and shortReversalScore >= f_armThreshold(signalMode)
+bool longContinuationCandidateReady = bridgeValid and f_signalAllowedByDirection(true) and f_signalAllowedByFamily("Continuation") and longContinuationCoreOk and not longContinuationHardBlocked and longContinuationScore >= f_armThreshold(signalMode)
+bool shortContinuationCandidateReady = bridgeValid and f_signalAllowedByDirection(false) and f_signalAllowedByFamily("Continuation") and shortContinuationCoreOk and not shortContinuationHardBlocked and shortContinuationScore >= f_armThreshold(signalMode)
+bool longReversalTrackable = bridgeValid and f_signalAllowedByDirection(true) and f_signalAllowedByFamily("Reversal") and longReversalCoreOk and not longReversalHardBlocked
+bool shortReversalTrackable = bridgeValid and f_signalAllowedByDirection(false) and f_signalAllowedByFamily("Reversal") and shortReversalCoreOk and not shortReversalHardBlocked
+bool longContinuationTrackable = bridgeValid and f_signalAllowedByDirection(true) and f_signalAllowedByFamily("Continuation") and longContinuationCoreOk and not longContinuationHardBlocked
+bool shortContinuationTrackable = bridgeValid and f_signalAllowedByDirection(false) and f_signalAllowedByFamily("Continuation") and shortContinuationCoreOk and not shortContinuationHardBlocked
+
+//------------------------------------------------------------------------------
+// Entry Timing State
+//------------------------------------------------------------------------------
+var bool longRevArmActive = false
+var float longRevArmScore = na
+var float longRevArmEntryRef = na
+var float longRevArmZoneLow = na
+var float longRevArmZoneHigh = na
+var float longRevArmStopRef = na
+var int longRevArmBar = na
+var string longRevArmReason = ""
+
+var bool longContArmActive = false
+var float longContArmScore = na
+var float longContArmEntryRef = na
+var float longContArmZoneLow = na
+var float longContArmZoneHigh = na
+var float longContArmStopRef = na
+var int longContArmBar = na
+var string longContArmReason = ""
+
+var bool shortRevArmActive = false
+var float shortRevArmScore = na
+var float shortRevArmEntryRef = na
+var float shortRevArmZoneLow = na
+var float shortRevArmZoneHigh = na
+var float shortRevArmStopRef = na
+var int shortRevArmBar = na
+var string shortRevArmReason = ""
+
+var bool shortContArmActive = false
+var float shortContArmScore = na
+var float shortContArmEntryRef = na
+var float shortContArmZoneLow = na
+var float shortContArmZoneHigh = na
+var float shortContArmStopRef = na
+var int shortContArmBar = na
+var string shortContArmReason = ""
+
+if not bridgeValid
+    longRevArmActive := false
+    longContArmActive := false
+    shortRevArmActive := false
+    shortContArmActive := false
+
+float rearmTolerance = math.max(atrVal * 0.35, syminfo.mintick * 8.0)
+bool longRevNeedsRearm = longReversalCandidateReady and (not longRevArmActive or math.abs(nz(longReversalEntryRef, close) - nz(longRevArmEntryRef, close)) > rearmTolerance or math.abs(nz(longReversalZoneHigh, close) - nz(longRevArmZoneHigh, close)) > rearmTolerance or math.abs(nz(longReversalZoneLow, close) - nz(longRevArmZoneLow, close)) > rearmTolerance)
+bool longContNeedsRearm = longContinuationCandidateReady and (not longContArmActive or math.abs(nz(longContinuationEntryRef, close) - nz(longContArmEntryRef, close)) > rearmTolerance or math.abs(nz(longContinuationZoneHigh, close) - nz(longContArmZoneHigh, close)) > rearmTolerance or math.abs(nz(longContinuationZoneLow, close) - nz(longContArmZoneLow, close)) > rearmTolerance)
+bool shortRevNeedsRearm = shortReversalCandidateReady and (not shortRevArmActive or math.abs(nz(shortReversalEntryRef, close) - nz(shortRevArmEntryRef, close)) > rearmTolerance or math.abs(nz(shortReversalZoneHigh, close) - nz(shortRevArmZoneHigh, close)) > rearmTolerance or math.abs(nz(shortReversalZoneLow, close) - nz(shortRevArmZoneLow, close)) > rearmTolerance)
+bool shortContNeedsRearm = shortContinuationCandidateReady and (not shortContArmActive or math.abs(nz(shortContinuationEntryRef, close) - nz(shortContArmEntryRef, close)) > rearmTolerance or math.abs(nz(shortContinuationZoneHigh, close) - nz(shortContArmZoneHigh, close)) > rearmTolerance or math.abs(nz(shortContinuationZoneLow, close) - nz(shortContArmZoneLow, close)) > rearmTolerance)
+
+if longRevNeedsRearm
+    longRevArmActive := true
+    longRevArmScore := longReversalScore
+    longRevArmEntryRef := longReversalEntryRef
+    longRevArmZoneLow := longReversalZoneLow
+    longRevArmZoneHigh := longReversalZoneHigh
+    longRevArmStopRef := longReversalStopRef
+    longRevArmBar := bar_index
+    longRevArmReason := longReversalStage
+else if longReversalCandidateReady and longRevArmActive
+    longRevArmScore := math.max(nz(longRevArmScore, longReversalScore), longReversalScore)
+    longRevArmEntryRef := longReversalEntryRef
+    longRevArmZoneLow := longReversalZoneLow
+    longRevArmZoneHigh := longReversalZoneHigh
+    longRevArmStopRef := longReversalStopRef
+    longRevArmReason := longReversalStage
+
+if longContNeedsRearm
+    longContArmActive := true
+    longContArmScore := longContinuationScore
+    longContArmEntryRef := longContinuationEntryRef
+    longContArmZoneLow := longContinuationZoneLow
+    longContArmZoneHigh := longContinuationZoneHigh
+    longContArmStopRef := longContinuationStopRef
+    longContArmBar := bar_index
+    longContArmReason := longContinuationStage
+else if longContinuationCandidateReady and longContArmActive
+    longContArmScore := math.max(nz(longContArmScore, longContinuationScore), longContinuationScore)
+    longContArmEntryRef := longContinuationEntryRef
+    longContArmZoneLow := longContinuationZoneLow
+    longContArmZoneHigh := longContinuationZoneHigh
+    longContArmStopRef := longContinuationStopRef
+    longContArmReason := longContinuationStage
+
+if shortRevNeedsRearm
+    shortRevArmActive := true
+    shortRevArmScore := shortReversalScore
+    shortRevArmEntryRef := shortReversalEntryRef
+    shortRevArmZoneLow := shortReversalZoneLow
+    shortRevArmZoneHigh := shortReversalZoneHigh
+    shortRevArmStopRef := shortReversalStopRef
+    shortRevArmBar := bar_index
+    shortRevArmReason := shortReversalStage
+else if shortReversalCandidateReady and shortRevArmActive
+    shortRevArmScore := math.max(nz(shortRevArmScore, shortReversalScore), shortReversalScore)
+    shortRevArmEntryRef := shortReversalEntryRef
+    shortRevArmZoneLow := shortReversalZoneLow
+    shortRevArmZoneHigh := shortReversalZoneHigh
+    shortRevArmStopRef := shortReversalStopRef
+    shortRevArmReason := shortReversalStage
+
+if shortContNeedsRearm
+    shortContArmActive := true
+    shortContArmScore := shortContinuationScore
+    shortContArmEntryRef := shortContinuationEntryRef
+    shortContArmZoneLow := shortContinuationZoneLow
+    shortContArmZoneHigh := shortContinuationZoneHigh
+    shortContArmStopRef := shortContinuationStopRef
+    shortContArmBar := bar_index
+    shortContArmReason := shortContinuationStage
+else if shortContinuationCandidateReady and shortContArmActive
+    shortContArmScore := math.max(nz(shortContArmScore, shortContinuationScore), shortContinuationScore)
+    shortContArmEntryRef := shortContinuationEntryRef
+    shortContArmZoneLow := shortContinuationZoneLow
+    shortContArmZoneHigh := shortContinuationZoneHigh
+    shortContArmStopRef := shortContinuationStopRef
+    shortContArmReason := shortContinuationStage
+
+int longRevExpiryLimit = setupExpiryBars + (nz(longRevArmScore, 0.0) >= 80.0 ? 2 : 0) + 1
+int longContExpiryLimit = setupExpiryBars + (nz(longContArmScore, 0.0) >= 80.0 ? 2 : 0)
+int shortRevExpiryLimit = setupExpiryBars + (nz(shortRevArmScore, 0.0) >= 80.0 ? 2 : 0) + 1
+int shortContExpiryLimit = setupExpiryBars + (nz(shortContArmScore, 0.0) >= 80.0 ? 2 : 0)
+
+bool longRevArmExpired = longRevArmActive and not na(longRevArmBar) and (bar_index - longRevArmBar) > longRevExpiryLimit
+bool longContArmExpired = longContArmActive and not na(longContArmBar) and (bar_index - longContArmBar) > longContExpiryLimit
+bool shortRevArmExpired = shortRevArmActive and not na(shortRevArmBar) and (bar_index - shortRevArmBar) > shortRevExpiryLimit
+bool shortContArmExpired = shortContArmActive and not na(shortContArmBar) and (bar_index - shortContArmBar) > shortContExpiryLimit
+
+bool longRevArmInvalid = longRevArmActive and not na(longRevArmStopRef) and low < longRevArmStopRef - touchTolerance
+bool longContArmInvalid = longContArmActive and not na(longContArmStopRef) and low < longContArmStopRef - touchTolerance
+bool shortRevArmInvalid = shortRevArmActive and not na(shortRevArmStopRef) and high > shortRevArmStopRef + touchTolerance
+bool shortContArmInvalid = shortContArmActive and not na(shortContArmStopRef) and high > shortContArmStopRef + touchTolerance
+
+if longRevArmExpired or longRevArmInvalid
+    longRevArmActive := false
+if longContArmExpired or longContArmInvalid
+    longContArmActive := false
+if shortRevArmExpired or shortRevArmInvalid
+    shortRevArmActive := false
+if shortContArmExpired or shortContArmInvalid
+    shortContArmActive := false
+
+bool longRevTouchZone = longRevArmActive and low <= nz(longRevArmZoneHigh, longRevArmEntryRef) + touchTolerance and high >= nz(longRevArmZoneLow, longRevArmEntryRef) - touchTolerance
+bool longContTouchZone = longContArmActive and low <= nz(longContArmZoneHigh, longContArmEntryRef) + touchTolerance and high >= nz(longContArmZoneLow, longContArmEntryRef) - touchTolerance
+bool shortRevTouchZone = shortRevArmActive and high >= nz(shortRevArmZoneLow, shortRevArmEntryRef) - touchTolerance and low <= nz(shortRevArmZoneHigh, shortRevArmEntryRef) + touchTolerance
+bool shortContTouchZone = shortContArmActive and high >= nz(shortContArmZoneLow, shortContArmEntryRef) - touchTolerance and low <= nz(shortContArmZoneHigh, shortContArmEntryRef) + touchTolerance
+
+bool longRevReclaimNow = longRevArmActive and not na(longRevArmEntryRef) and low <= longRevArmEntryRef + touchTolerance and close > longRevArmEntryRef
+bool longContReclaimNow = longContArmActive and not na(longContArmEntryRef) and low <= longContArmEntryRef + touchTolerance and close > longContArmEntryRef
+bool shortRevReclaimNow = shortRevArmActive and not na(shortRevArmEntryRef) and high >= shortRevArmEntryRef - touchTolerance and close < shortRevArmEntryRef
+bool shortContReclaimNow = shortContArmActive and not na(shortContArmEntryRef) and high >= shortContArmEntryRef - touchTolerance and close < shortContArmEntryRef
+
+bool longRevRejectNow = longRevTouchZone and close > nz(longRevArmEntryRef, close) and (lowerWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bullDisp)
+bool longContRejectNow = longContTouchZone and close > nz(longContArmEntryRef, close) and (lowerWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bullDisp)
+bool shortRevRejectNow = shortRevTouchZone and close < nz(shortRevArmEntryRef, close) and (upperWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bearDisp)
+bool shortContRejectNow = shortContTouchZone and close < nz(shortContArmEntryRef, close) and (upperWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bearDisp)
+
+bool longRevRetestEvent = longRevArmActive and bar_index > nz(longRevArmBar, bar_index) and (bar_index - nz(longRevArmBar, bar_index)) <= maxRetestBars and longRevRejectNow
+bool longContRetestEvent = longContArmActive and bar_index > nz(longContArmBar, bar_index) and (bar_index - nz(longContArmBar, bar_index)) <= maxRetestBars and longContRejectNow
+bool shortRevRetestEvent = shortRevArmActive and bar_index > nz(shortRevArmBar, bar_index) and (bar_index - nz(shortRevArmBar, bar_index)) <= maxRetestBars and shortRevRejectNow
+bool shortContRetestEvent = shortContArmActive and bar_index > nz(shortContArmBar, bar_index) and (bar_index - nz(shortContArmBar, bar_index)) <= maxRetestBars and shortContRejectNow
+
+bool longRevConfirmNow = longRevArmActive and bullConfirmCandle and close > nz(longRevArmEntryRef, close)
+bool longContConfirmNow = longContArmActive and bullConfirmCandle and close > nz(longContArmEntryRef, close)
+bool shortRevConfirmNow = shortRevArmActive and bearConfirmCandle and close < nz(shortRevArmEntryRef, close)
+bool shortContConfirmNow = shortContArmActive and bearConfirmCandle and close < nz(shortContArmEntryRef, close)
+
+bool longRevDispNow = longRevTouchZone and bullDisp and close > nz(longRevArmEntryRef, close)
+bool longContDispNow = longContTouchZone and bullDisp and close > nz(longContArmEntryRef, close)
+bool shortRevDispNow = shortRevTouchZone and bearDisp and close < nz(shortRevArmEntryRef, close)
+bool shortContDispNow = shortContTouchZone and bearDisp and close < nz(shortContArmEntryRef, close)
+
+float longRevReclaimTimingScore = longRevReclaimNow ? (entryTiming == "Reclaim Close" ? 100.0 : allowSecondaryTiming ? 88.0 : 0.0) : 0.0
+float longContReclaimTimingScore = longContReclaimNow ? (entryTiming == "Reclaim Close" ? 100.0 : allowSecondaryTiming ? 86.0 : 0.0) : 0.0
+float shortRevReclaimTimingScore = shortRevReclaimNow ? (entryTiming == "Reclaim Close" ? 100.0 : allowSecondaryTiming ? 88.0 : 0.0) : 0.0
+float shortContReclaimTimingScore = shortContReclaimNow ? (entryTiming == "Reclaim Close" ? 100.0 : allowSecondaryTiming ? 86.0 : 0.0) : 0.0
+
+float longRevConfirmTimingScore = longRevConfirmNow ? (entryTiming == "Confirmation Candle" ? 100.0 : allowSecondaryTiming ? 84.0 : 0.0) : 0.0
+float longContConfirmTimingScore = longContConfirmNow ? (entryTiming == "Confirmation Candle" ? 100.0 : allowSecondaryTiming ? 86.0 : 0.0) : 0.0
+float shortRevConfirmTimingScore = shortRevConfirmNow ? (entryTiming == "Confirmation Candle" ? 100.0 : allowSecondaryTiming ? 84.0 : 0.0) : 0.0
+float shortContConfirmTimingScore = shortContConfirmNow ? (entryTiming == "Confirmation Candle" ? 100.0 : allowSecondaryTiming ? 86.0 : 0.0) : 0.0
+
+float longRevRetestTimingScore = longRevRetestEvent ? (entryTiming == "Retest Entry" ? 100.0 : allowSecondaryTiming ? 82.0 : 0.0) : 0.0
+float longContRetestTimingScore = longContRetestEvent ? (entryTiming == "Retest Entry" ? 100.0 : allowSecondaryTiming ? 84.0 : 0.0) : 0.0
+float shortRevRetestTimingScore = shortRevRetestEvent ? (entryTiming == "Retest Entry" ? 100.0 : allowSecondaryTiming ? 82.0 : 0.0) : 0.0
+float shortContRetestTimingScore = shortContRetestEvent ? (entryTiming == "Retest Entry" ? 100.0 : allowSecondaryTiming ? 84.0 : 0.0) : 0.0
+
+float longRevRejectTimingScore = allowSecondaryTiming and longRevRejectNow ? 76.0 : 0.0
+float longContRejectTimingScore = allowSecondaryTiming and longContRejectNow ? 58.0 : 0.0
+float shortRevRejectTimingScore = allowSecondaryTiming and shortRevRejectNow ? 76.0 : 0.0
+float shortContRejectTimingScore = allowSecondaryTiming and shortContRejectNow ? 58.0 : 0.0
+
+float longRevDispTimingScore = allowSecondaryTiming and longRevDispNow ? 80.0 : 0.0
+float longContDispTimingScore = allowSecondaryTiming and longContDispNow ? 72.0 : 0.0
+float shortRevDispTimingScore = allowSecondaryTiming and shortRevDispNow ? 80.0 : 0.0
+float shortContDispTimingScore = allowSecondaryTiming and shortContDispNow ? 72.0 : 0.0
+
+float longRevTimingQuality = math.max(math.max(longRevReclaimTimingScore, longRevConfirmTimingScore), math.max(math.max(longRevRetestTimingScore, longRevRejectTimingScore), longRevDispTimingScore))
+float longContTimingQuality = math.max(math.max(longContReclaimTimingScore, longContConfirmTimingScore), math.max(math.max(longContRetestTimingScore, longContRejectTimingScore), longContDispTimingScore))
+float shortRevTimingQuality = math.max(math.max(shortRevReclaimTimingScore, shortRevConfirmTimingScore), math.max(math.max(shortRevRetestTimingScore, shortRevRejectTimingScore), shortRevDispTimingScore))
+float shortContTimingQuality = math.max(math.max(shortContReclaimTimingScore, shortContConfirmTimingScore), math.max(math.max(shortContRetestTimingScore, shortContRejectTimingScore), shortContDispTimingScore))
+
+bool longRevTimingPass = longRevArmActive and longRevTimingQuality >= 62.0 and (longRevReclaimNow or longRevConfirmNow or longRevRetestEvent or (allowSecondaryTiming and (longRevRejectNow or longRevDispNow)))
+bool longContTimingPass = longContArmActive and longContTimingQuality >= 64.0 and (longContReclaimNow or longContConfirmNow or longContRetestEvent or (allowSecondaryTiming and longContDispNow))
+bool shortRevTimingPass = shortRevArmActive and shortRevTimingQuality >= 62.0 and (shortRevReclaimNow or shortRevConfirmNow or shortRevRetestEvent or (allowSecondaryTiming and (shortRevRejectNow or shortRevDispNow)))
+bool shortContTimingPass = shortContArmActive and shortContTimingQuality >= 64.0 and (shortContReclaimNow or shortContConfirmNow or shortContRetestEvent or (allowSecondaryTiming and shortContDispNow))
+
+string longRevTimingText = longRevTimingQuality == longRevReclaimTimingScore and longRevTimingQuality > 0.0 ? "Reclaim" : longRevTimingQuality == longRevConfirmTimingScore and longRevTimingQuality > 0.0 ? "Confirm" : longRevTimingQuality == longRevRetestTimingScore and longRevTimingQuality > 0.0 ? "Retest" : longRevTimingQuality == longRevRejectTimingScore and longRevTimingQuality > 0.0 ? "Reject" : longRevTimingQuality == longRevDispTimingScore and longRevTimingQuality > 0.0 ? "Displace" : "Waiting"
+string longContTimingText = longContTimingQuality == longContReclaimTimingScore and longContTimingQuality > 0.0 ? "Reclaim" : longContTimingQuality == longContConfirmTimingScore and longContTimingQuality > 0.0 ? "Confirm" : longContTimingQuality == longContRetestTimingScore and longContTimingQuality > 0.0 ? "Retest" : longContTimingQuality == longContDispTimingScore and longContTimingQuality > 0.0 ? "Displace" : longContTimingQuality == longContRejectTimingScore and longContTimingQuality > 0.0 ? "Reject" : "Waiting"
+string shortRevTimingText = shortRevTimingQuality == shortRevReclaimTimingScore and shortRevTimingQuality > 0.0 ? "Reclaim" : shortRevTimingQuality == shortRevConfirmTimingScore and shortRevTimingQuality > 0.0 ? "Confirm" : shortRevTimingQuality == shortRevRetestTimingScore and shortRevTimingQuality > 0.0 ? "Retest" : shortRevTimingQuality == shortRevRejectTimingScore and shortRevTimingQuality > 0.0 ? "Reject" : shortRevTimingQuality == shortRevDispTimingScore and shortRevTimingQuality > 0.0 ? "Displace" : "Waiting"
+string shortContTimingText = shortContTimingQuality == shortContReclaimTimingScore and shortContTimingQuality > 0.0 ? "Reclaim" : shortContTimingQuality == shortContConfirmTimingScore and shortContTimingQuality > 0.0 ? "Confirm" : shortContTimingQuality == shortContRetestTimingScore and shortContTimingQuality > 0.0 ? "Retest" : shortContTimingQuality == shortContDispTimingScore and shortContTimingQuality > 0.0 ? "Displace" : shortContTimingQuality == shortContRejectTimingScore and shortContTimingQuality > 0.0 ? "Reject" : "Waiting"
+
+//------------------------------------------------------------------------------
+// Risk and Targets
+//------------------------------------------------------------------------------
+float longRevStopBase = na
+float longContStopBase = na
+float shortRevStopBase = na
+float shortContStopBase = na
+if stopMethod == "Sweep Anchor"
+    longRevStopBase := f_firstValid(stopAnchor, sweepLevel, protectedLow, longRevArmStopRef)
+    longContStopBase := f_firstValid(stopAnchor, longContArmStopRef, protectedLow, idmLevel)
+    shortRevStopBase := f_firstValid(stopAnchor, sweepLevel, protectedHigh, shortRevArmStopRef)
+    shortContStopBase := f_firstValid(stopAnchor, shortContArmStopRef, protectedHigh, idmLevel)
+else if stopMethod == "Protected Level"
+    longRevStopBase := f_firstValid(protectedLow, longRevArmStopRef, idmLevel, sweepLevel)
+    longContStopBase := f_firstValid(protectedLow, longContArmStopRef, idmLevel, sweepLevel)
+    shortRevStopBase := f_firstValid(protectedHigh, shortRevArmStopRef, idmLevel, sweepLevel)
+    shortContStopBase := f_firstValid(protectedHigh, shortContArmStopRef, idmLevel, sweepLevel)
+else if stopMethod == "Bridge Hybrid"
+    longRevStopBase := f_minValid4(stopAnchor, protectedLow, bullFvgLow, sweepLevel)
+    longContStopBase := f_minValid4(protectedLow, idmBias == 1 ? idmLevel : na, bullFvgLow, nearestSsl)
+    shortRevStopBase := f_maxValid4(stopAnchor, protectedHigh, bearFvgHigh, sweepLevel)
+    shortContStopBase := f_maxValid4(protectedHigh, idmBias == -1 ? idmLevel : na, bearFvgHigh, nearestBsl)
+else
+    longRevStopBase := close - atrVal * atrStructureMult
+    longContStopBase := close - atrVal * atrStructureMult
+    shortRevStopBase := close + atrVal * atrStructureMult
+    shortContStopBase := close + atrVal * atrStructureMult
+
+float longRevEntryCandidate = longRevTimingPass ? close + entryBuffer : na
+float longContEntryCandidate = longContTimingPass ? close + entryBuffer : na
+float shortRevEntryCandidate = shortRevTimingPass ? close - entryBuffer : na
+float shortContEntryCandidate = shortContTimingPass ? close - entryBuffer : na
+
+float longRevStopCandidate = not na(longRevEntryCandidate) ? nz(longRevStopBase, longRevArmStopRef) - atrVal * stopAtrBuffer : na
+float longContStopCandidate = not na(longContEntryCandidate) ? nz(longContStopBase, longContArmStopRef) - atrVal * stopAtrBuffer : na
+float shortRevStopCandidate = not na(shortRevEntryCandidate) ? nz(shortRevStopBase, shortRevArmStopRef) + atrVal * stopAtrBuffer : na
+float shortContStopCandidate = not na(shortContEntryCandidate) ? nz(shortContStopBase, shortContArmStopRef) + atrVal * stopAtrBuffer : na
+
+float longRevRisk = not na(longRevEntryCandidate) and not na(longRevStopCandidate) ? longRevEntryCandidate - longRevStopCandidate : na
+float longContRisk = not na(longContEntryCandidate) and not na(longContStopCandidate) ? longContEntryCandidate - longContStopCandidate : na
+float shortRevRisk = not na(shortRevEntryCandidate) and not na(shortRevStopCandidate) ? shortRevStopCandidate - shortRevEntryCandidate : na
+float shortContRisk = not na(shortContEntryCandidate) and not na(shortContStopCandidate) ? shortContStopCandidate - shortContEntryCandidate : na
+
+float longRevR1 = not na(longRevRisk) ? longRevEntryCandidate + longRevRisk * tp1R : na
+float longRevR2 = not na(longRevRisk) ? longRevEntryCandidate + longRevRisk * tp2R : na
+float longContR1 = not na(longContRisk) ? longContEntryCandidate + longContRisk * tp1R : na
+float longContR2 = not na(longContRisk) ? longContEntryCandidate + longContRisk * tp2R : na
+float shortRevR1 = not na(shortRevRisk) ? shortRevEntryCandidate - shortRevRisk * tp1R : na
+float shortRevR2 = not na(shortRevRisk) ? shortRevEntryCandidate - shortRevRisk * tp2R : na
+float shortContR1 = not na(shortContRisk) ? shortContEntryCandidate - shortContRisk * tp1R : na
+float shortContR2 = not na(shortContRisk) ? shortContEntryCandidate - shortContRisk * tp2R : na
+
+bool longExternalTargetAvailable = nearestBslFound and nearestBslClass >= 2
+bool shortExternalTargetAvailable = nearestSslFound and nearestSslClass >= 2
+bool longMinorOpposingTarget = nearestBslFound and (nearestBslClass <= 2 or nearestBslImportance < 50 or nearestBslActionability < 45)
+bool shortMinorOpposingTarget = nearestSslFound and (nearestSslClass <= 2 or nearestSslImportance < 50 or nearestSslActionability < 45)
+
+float longRevTp1Candidate = na
+float longRevTp2Candidate = na
+float longContTp1Candidate = na
+float longContTp2Candidate = na
+float shortRevTp1Candidate = na
+float shortRevTp2Candidate = na
+float shortContTp1Candidate = na
+float shortContTp2Candidate = na
+
+if targetMethod == "Nearest Opposing Liquidity"
+    longRevTp1Candidate := nearestBslFound ? (longMinorOpposingTarget ? math.max(nearestBsl, nz(longRevR1, nearestBsl)) : nearestBsl) : longRevR1
+    longRevTp2Candidate := nearestBslFound ? math.max(nearestBsl, nz(longRevR2, nearestBsl)) : longRevR2
+    longContTp1Candidate := nearestBslFound ? (longMinorOpposingTarget ? math.max(nearestBsl, nz(longContR1, nearestBsl)) : nearestBsl) : longContR1
+    longContTp2Candidate := nearestBslFound ? math.max(nearestBsl, nz(longContR2, nearestBsl)) : longContR2
+    shortRevTp1Candidate := nearestSslFound ? (shortMinorOpposingTarget ? math.min(nearestSsl, nz(shortRevR1, nearestSsl)) : nearestSsl) : shortRevR1
+    shortRevTp2Candidate := nearestSslFound ? math.min(nearestSsl, nz(shortRevR2, nearestSsl)) : shortRevR2
+    shortContTp1Candidate := nearestSslFound ? (shortMinorOpposingTarget ? math.min(nearestSsl, nz(shortContR1, nearestSsl)) : nearestSsl) : shortContR1
+    shortContTp2Candidate := nearestSslFound ? math.min(nearestSsl, nz(shortContR2, nearestSsl)) : shortContR2
+else if targetMethod == "R-Multiple"
+    longRevTp1Candidate := longRevR1
+    longRevTp2Candidate := longRevR2
+    longContTp1Candidate := longContR1
+    longContTp2Candidate := longContR2
+    shortRevTp1Candidate := shortRevR1
+    shortRevTp2Candidate := shortRevR2
+    shortContTp1Candidate := shortContR1
+    shortContTp2Candidate := shortContR2
+else
+    longRevTp1Candidate := longExternalTargetAvailable ? nearestBsl : longRevR1
+    longRevTp2Candidate := longExternalTargetAvailable ? math.max(nearestBsl, nz(longRevR2, nearestBsl)) : longRevR2
+    longContTp1Candidate := longExternalTargetAvailable ? nearestBsl : longContR1
+    longContTp2Candidate := longExternalTargetAvailable ? math.max(nearestBsl, nz(longContR2, nearestBsl)) : longContR2
+    shortRevTp1Candidate := shortExternalTargetAvailable ? nearestSsl : shortRevR1
+    shortRevTp2Candidate := shortExternalTargetAvailable ? math.min(nearestSsl, nz(shortRevR2, nearestSsl)) : shortRevR2
+    shortContTp1Candidate := shortExternalTargetAvailable ? nearestSsl : shortContR1
+    shortContTp2Candidate := shortExternalTargetAvailable ? math.min(nearestSsl, nz(shortContR2, nearestSsl)) : shortContR2
+
+float rrHardFloor = math.max(minRRToFirstTarget * 0.55, 0.40)
+float rrExpansionFloor = math.max(minRRToFirstTarget + 0.35, 1.10)
+
+bool longRevGeometryValid = not na(longRevRisk) and longRevRisk > syminfo.mintick and not na(longRevTp1Candidate) and not na(longRevTp2Candidate) and longRevStopCandidate < longRevEntryCandidate and longRevTp1Candidate > longRevEntryCandidate and longRevTp2Candidate > longRevEntryCandidate
+bool longContGeometryValid = not na(longContRisk) and longContRisk > syminfo.mintick and not na(longContTp1Candidate) and not na(longContTp2Candidate) and longContStopCandidate < longContEntryCandidate and longContTp1Candidate > longContEntryCandidate and longContTp2Candidate > longContEntryCandidate
+bool shortRevGeometryValid = not na(shortRevRisk) and shortRevRisk > syminfo.mintick and not na(shortRevTp1Candidate) and not na(shortRevTp2Candidate) and shortRevStopCandidate > shortRevEntryCandidate and shortRevTp1Candidate < shortRevEntryCandidate and shortRevTp2Candidate < shortRevEntryCandidate
+bool shortContGeometryValid = not na(shortContRisk) and shortContRisk > syminfo.mintick and not na(shortContTp1Candidate) and not na(shortContTp2Candidate) and shortContStopCandidate > shortContEntryCandidate and shortContTp1Candidate < shortContEntryCandidate and shortContTp2Candidate < shortContEntryCandidate
+
+float longRevRrToFirstTarget = longRevGeometryValid ? (longRevTp1Candidate - longRevEntryCandidate) / longRevRisk : na
+float longContRrToFirstTarget = longContGeometryValid ? (longContTp1Candidate - longContEntryCandidate) / longContRisk : na
+float shortRevRrToFirstTarget = shortRevGeometryValid ? (shortRevEntryCandidate - shortRevTp1Candidate) / shortRevRisk : na
+float shortContRrToFirstTarget = shortContGeometryValid ? (shortContEntryCandidate - shortContTp1Candidate) / shortContRisk : na
+
+float longRevRrToSecondTarget = longRevGeometryValid ? (longRevTp2Candidate - longRevEntryCandidate) / longRevRisk : na
+float longContRrToSecondTarget = longContGeometryValid ? (longContTp2Candidate - longContEntryCandidate) / longContRisk : na
+float shortRevRrToSecondTarget = shortRevGeometryValid ? (shortRevEntryCandidate - shortRevTp2Candidate) / shortRevRisk : na
+float shortContRrToSecondTarget = shortContGeometryValid ? (shortContEntryCandidate - shortContTp2Candidate) / shortContRisk : na
+
+float longRevOpportunityRr = math.max(nz(longRevRrToFirstTarget, 0.0), nz(longRevRrToSecondTarget, 0.0) * 0.75)
+float longContOpportunityRr = math.max(nz(longContRrToFirstTarget, 0.0), nz(longContRrToSecondTarget, 0.0) * 0.75)
+float shortRevOpportunityRr = math.max(nz(shortRevRrToFirstTarget, 0.0), nz(shortRevRrToSecondTarget, 0.0) * 0.75)
+float shortContOpportunityRr = math.max(nz(shortContRrToFirstTarget, 0.0), nz(shortContRrToSecondTarget, 0.0) * 0.75)
+
+float longRevRiskAtr = not na(longRevRisk) and atrVal > 0 ? longRevRisk / atrVal : na
+float longContRiskAtr = not na(longContRisk) and atrVal > 0 ? longContRisk / atrVal : na
+float shortRevRiskAtr = not na(shortRevRisk) and atrVal > 0 ? shortRevRisk / atrVal : na
+float shortContRiskAtr = not na(shortContRisk) and atrVal > 0 ? shortContRisk / atrVal : na
+
+float longRevRiskQuality = longRevGeometryValid ? f_clamp(f_rrSoftScore(longRevRrToFirstTarget, minRRToFirstTarget) * 0.40 + f_rrSoftScore(longRevRrToSecondTarget, rrExpansionFloor) * 0.38 + f_stopEfficiencyScore(longRevRiskAtr) * 0.22, 0.0, 100.0) : 0.0
+float longContRiskQuality = longContGeometryValid ? f_clamp(f_rrSoftScore(longContRrToFirstTarget, minRRToFirstTarget) * 0.40 + f_rrSoftScore(longContRrToSecondTarget, rrExpansionFloor) * 0.38 + f_stopEfficiencyScore(longContRiskAtr) * 0.22, 0.0, 100.0) : 0.0
+float shortRevRiskQuality = shortRevGeometryValid ? f_clamp(f_rrSoftScore(shortRevRrToFirstTarget, minRRToFirstTarget) * 0.40 + f_rrSoftScore(shortRevRrToSecondTarget, rrExpansionFloor) * 0.38 + f_stopEfficiencyScore(shortRevRiskAtr) * 0.22, 0.0, 100.0) : 0.0
+float shortContRiskQuality = shortContGeometryValid ? f_clamp(f_rrSoftScore(shortContRrToFirstTarget, minRRToFirstTarget) * 0.40 + f_rrSoftScore(shortContRrToSecondTarget, rrExpansionFloor) * 0.38 + f_stopEfficiencyScore(shortContRiskAtr) * 0.22, 0.0, 100.0) : 0.0
+
+bool longRevRiskHardBlocked = not longRevGeometryValid or longRevOpportunityRr < rrHardFloor
+bool longContRiskHardBlocked = not longContGeometryValid or longContOpportunityRr < rrHardFloor
+bool shortRevRiskHardBlocked = not shortRevGeometryValid or shortRevOpportunityRr < rrHardFloor
+bool shortContRiskHardBlocked = not shortContGeometryValid or shortContOpportunityRr < rrHardFloor
+
+bool longRevRiskValid = longRevGeometryValid and not longRevRiskHardBlocked and longRevRiskQuality >= 38.0
+bool longContRiskValid = longContGeometryValid and not longContRiskHardBlocked and longContRiskQuality >= 38.0
+bool shortRevRiskValid = shortRevGeometryValid and not shortRevRiskHardBlocked and shortRevRiskQuality >= 38.0
+bool shortContRiskValid = shortContGeometryValid and not shortContRiskHardBlocked and shortContRiskQuality >= 38.0
+
+string longRevRiskReason = not longRevGeometryValid ? "Broken geometry" : longRevOpportunityRr < rrHardFloor ? "Insufficient expansion" : longRevRrToFirstTarget < minRRToFirstTarget and longRevRrToSecondTarget >= rrExpansionFloor ? "Tight TP1, TP2 viable" : longRevRiskQuality >= 72.0 ? "Efficient risk" : "Marginal RR"
+string longContRiskReason = not longContGeometryValid ? "Broken geometry" : longContOpportunityRr < rrHardFloor ? "Insufficient expansion" : longContRrToFirstTarget < minRRToFirstTarget and longContRrToSecondTarget >= rrExpansionFloor ? "Tight TP1, TP2 viable" : longContRiskQuality >= 72.0 ? "Efficient risk" : "Marginal RR"
+string shortRevRiskReason = not shortRevGeometryValid ? "Broken geometry" : shortRevOpportunityRr < rrHardFloor ? "Insufficient expansion" : shortRevRrToFirstTarget < minRRToFirstTarget and shortRevRrToSecondTarget >= rrExpansionFloor ? "Tight TP1, TP2 viable" : shortRevRiskQuality >= 72.0 ? "Efficient risk" : "Marginal RR"
+string shortContRiskReason = not shortContGeometryValid ? "Broken geometry" : shortContOpportunityRr < rrHardFloor ? "Insufficient expansion" : shortContRrToFirstTarget < minRRToFirstTarget and shortContRrToSecondTarget >= rrExpansionFloor ? "Tight TP1, TP2 viable" : shortContRiskQuality >= 72.0 ? "Efficient risk" : "Marginal RR"
+
+//------------------------------------------------------------------------------
+// Final Signals
+//------------------------------------------------------------------------------
+var int lastLongSignalBar = na
+var int lastShortSignalBar = na
+var int lastAnySignalBar = na
+var int lastResolvedTradeBar = na
+var int openTradeCountState = 0
+var float lastLongSignalEntryRef = na
+var float lastShortSignalEntryRef = na
+var string lastLongSignalFamily = ""
+var string lastShortSignalFamily = ""
+
+int anyGap = not na(lastAnySignalBar) ? bar_index - lastAnySignalBar : 1000
+int longGap = not na(lastLongSignalBar) ? bar_index - lastLongSignalBar : 1000
+int shortGap = not na(lastShortSignalBar) ? bar_index - lastShortSignalBar : 1000
+int cooldownGap = not na(lastResolvedTradeBar) ? bar_index - lastResolvedTradeBar : 1000
+
+bool longRevFreshStructure = waitLongPostStructure or waitLongChoch or structBullChochEvent or waitLongInternalShift or waitLongExternalShift or structInternalBreakL or structExternalBreakL
+bool longContFreshStructure = continuationConfirmedLong or structBullBosEvent or structBullChochEvent or structInternalBreakL or structExternalBreakL
+bool shortRevFreshStructure = waitShortPostStructure or waitShortChoch or structBearChochEvent or waitShortInternalShift or waitShortExternalShift or structInternalBreakS or structExternalBreakS
+bool shortContFreshStructure = continuationConfirmedShort or structBearBosEvent or structBearChochEvent or structInternalBreakS or structExternalBreakS
+
+float longRevLocationGap = f_relDistanceAtr(longRevArmEntryRef, lastLongSignalEntryRef, atrVal)
+float longContLocationGap = f_relDistanceAtr(longContArmEntryRef, lastLongSignalEntryRef, atrVal)
+float shortRevLocationGap = f_relDistanceAtr(shortRevArmEntryRef, lastShortSignalEntryRef, atrVal)
+float shortContLocationGap = f_relDistanceAtr(shortContArmEntryRef, lastShortSignalEntryRef, atrVal)
+
+bool longRevSameLocation = not na(longRevLocationGap) and longRevLocationGap <= 0.35
+bool longContSameLocation = not na(longContLocationGap) and longContLocationGap <= 0.35
+bool shortRevSameLocation = not na(shortRevLocationGap) and shortRevLocationGap <= 0.35
+bool shortContSameLocation = not na(shortContLocationGap) and shortContLocationGap <= 0.35
+
+bool longRevSameFamilyAsLast = lastLongSignalFamily == "Reversal"
+bool longContSameFamilyAsLast = lastLongSignalFamily == "Continuation"
+bool shortRevSameFamilyAsLast = lastShortSignalFamily == "Reversal"
+bool shortContSameFamilyAsLast = lastShortSignalFamily == "Continuation"
+
+float longRevSpacingPenalty = f_spacingPenalty(anyGap, longGap, cooldownGap, openTradeCountState, nz(longRevArmScore, longReversalScore), longRevFreshStructure, longRevSameLocation, longRevSameFamilyAsLast)
+float longContSpacingPenalty = f_spacingPenalty(anyGap, longGap, cooldownGap, openTradeCountState, nz(longContArmScore, longContinuationScore), longContFreshStructure, longContSameLocation, longContSameFamilyAsLast)
+float shortRevSpacingPenalty = f_spacingPenalty(anyGap, shortGap, cooldownGap, openTradeCountState, nz(shortRevArmScore, shortReversalScore), shortRevFreshStructure, shortRevSameLocation, shortRevSameFamilyAsLast)
+float shortContSpacingPenalty = f_spacingPenalty(anyGap, shortGap, cooldownGap, openTradeCountState, nz(shortContArmScore, shortContinuationScore), shortContFreshStructure, shortContSameLocation, shortContSameFamilyAsLast)
+
+bool longRevSpacingHardBlocked = enforceTradeSpacing and not na(lastLongSignalBar) and longGap <= 1 and longRevSameLocation and longRevSameFamilyAsLast
+bool longContSpacingHardBlocked = enforceTradeSpacing and not na(lastLongSignalBar) and longGap <= 1 and longContSameLocation and longContSameFamilyAsLast
+bool shortRevSpacingHardBlocked = enforceTradeSpacing and not na(lastShortSignalBar) and shortGap <= 1 and shortRevSameLocation and shortRevSameFamilyAsLast
+bool shortContSpacingHardBlocked = enforceTradeSpacing and not na(lastShortSignalBar) and shortGap <= 1 and shortContSameLocation and shortContSameFamilyAsLast
+
+float longRevExecutionScore = f_clamp(nz(longRevArmScore, longReversalScore) * 0.58 + longRevTimingQuality * 0.22 + longRevRiskQuality * 0.20 - longRevSpacingPenalty, 0.0, 100.0)
+float longContExecutionScore = f_clamp(nz(longContArmScore, longContinuationScore) * 0.58 + longContTimingQuality * 0.22 + longContRiskQuality * 0.20 - longContSpacingPenalty, 0.0, 100.0)
+float shortRevExecutionScore = f_clamp(nz(shortRevArmScore, shortReversalScore) * 0.58 + shortRevTimingQuality * 0.22 + shortRevRiskQuality * 0.20 - shortRevSpacingPenalty, 0.0, 100.0)
+float shortContExecutionScore = f_clamp(nz(shortContArmScore, shortContinuationScore) * 0.58 + shortContTimingQuality * 0.22 + shortContRiskQuality * 0.20 - shortContSpacingPenalty, 0.0, 100.0)
+
+float longRevExecutionThreshold = f_dynamicThreshold(signalMode, "Reversal", nz(longRevArmScore, longReversalScore), longRevTimingQuality, longRevRiskQuality, longReversalSessionScore, longContextScore, longRevSpacingPenalty)
+float longContExecutionThreshold = f_dynamicThreshold(signalMode, "Continuation", nz(longContArmScore, longContinuationScore), longContTimingQuality, longContRiskQuality, longContinuationSessionScore, longContextScore, longContSpacingPenalty)
+float shortRevExecutionThreshold = f_dynamicThreshold(signalMode, "Reversal", nz(shortRevArmScore, shortReversalScore), shortRevTimingQuality, shortRevRiskQuality, shortReversalSessionScore, shortContextScore, shortRevSpacingPenalty)
+float shortContExecutionThreshold = f_dynamicThreshold(signalMode, "Continuation", nz(shortContArmScore, shortContinuationScore), shortContTimingQuality, shortContRiskQuality, shortContinuationSessionScore, shortContextScore, shortContSpacingPenalty)
+
+bool longRevSignalReady = bridgeValid and longRevTimingPass and longRevRiskValid and not longRevSpacingHardBlocked and longRevExecutionScore >= longRevExecutionThreshold
+bool longContSignalReady = bridgeValid and longContTimingPass and longContRiskValid and not longContSpacingHardBlocked and longContExecutionScore >= longContExecutionThreshold
+bool shortRevSignalReady = bridgeValid and shortRevTimingPass and shortRevRiskValid and not shortRevSpacingHardBlocked and shortRevExecutionScore >= shortRevExecutionThreshold
+bool shortContSignalReady = bridgeValid and shortContTimingPass and shortContRiskValid and not shortContSpacingHardBlocked and shortContExecutionScore >= shortContExecutionThreshold
+
+float longRevPreviewScore = longRevSignalReady ? longRevExecutionScore : longRevArmActive ? nz(longRevArmScore, longReversalScore) : longReversalTrackable ? longReversalScore : na
+float longContPreviewScore = longContSignalReady ? longContExecutionScore : longContArmActive ? nz(longContArmScore, longContinuationScore) : longContinuationTrackable ? longContinuationScore : na
+float shortRevPreviewScore = shortRevSignalReady ? shortRevExecutionScore : shortRevArmActive ? nz(shortRevArmScore, shortReversalScore) : shortReversalTrackable ? shortReversalScore : na
+float shortContPreviewScore = shortContSignalReady ? shortContExecutionScore : shortContArmActive ? nz(shortContArmScore, shortContinuationScore) : shortContinuationTrackable ? shortContinuationScore : na
+
 string longBestFamily = ""
 string shortBestFamily = ""
 float longBestScore = na
@@ -504,219 +1033,226 @@ float shortBestStopRef = na
 string longBestStage = ""
 string shortBestStage = ""
 
-if f_signalAllowedByDirection(true)
-    if f_signalAllowedByFamily("Reversal") and ((waitLongActive and longReversalScore >= nz(longContinuationScore, 0.0) - 2.0) or not f_signalAllowedByFamily("Continuation") or longReversalScore >= nz(longContinuationScore, 0.0))
-        longBestFamily := "Reversal"
-        longBestScore := longReversalScore
-        longBestEntryRef := longReversalEntryRef
-        longBestZoneLow := longReversalZoneLow
-        longBestZoneHigh := longReversalZoneHigh
-        longBestStopRef := longReversalStopRef
-        longBestStage := longReversalStage
-    else if f_signalAllowedByFamily("Continuation")
-        longBestFamily := "Continuation"
-        longBestScore := longContinuationScore
-        longBestEntryRef := longContinuationEntryRef
-        longBestZoneLow := longContinuationZoneLow
-        longBestZoneHigh := longContinuationZoneHigh
-        longBestStopRef := longContinuationStopRef
-        longBestStage := longContinuationStage
+if not na(longRevPreviewScore)
+    longBestFamily := "Reversal"
+    longBestScore := longRevPreviewScore
+    longBestEntryRef := nz(longRevArmEntryRef, longReversalEntryRef)
+    longBestZoneLow := nz(longRevArmZoneLow, longReversalZoneLow)
+    longBestZoneHigh := nz(longRevArmZoneHigh, longReversalZoneHigh)
+    longBestStopRef := nz(longRevArmStopRef, longReversalStopRef)
+    longBestStage := longRevArmReason != "" ? longRevArmReason : longReversalStage
+if not na(longContPreviewScore) and (na(longBestScore) or longContPreviewScore > longBestScore + 0.5)
+    longBestFamily := "Continuation"
+    longBestScore := longContPreviewScore
+    longBestEntryRef := nz(longContArmEntryRef, longContinuationEntryRef)
+    longBestZoneLow := nz(longContArmZoneLow, longContinuationZoneLow)
+    longBestZoneHigh := nz(longContArmZoneHigh, longContinuationZoneHigh)
+    longBestStopRef := nz(longContArmStopRef, longContinuationStopRef)
+    longBestStage := longContArmReason != "" ? longContArmReason : longContinuationStage
 
-if f_signalAllowedByDirection(false)
-    if f_signalAllowedByFamily("Reversal") and ((waitShortActive and shortReversalScore >= nz(shortContinuationScore, 0.0) - 2.0) or not f_signalAllowedByFamily("Continuation") or shortReversalScore >= nz(shortContinuationScore, 0.0))
-        shortBestFamily := "Reversal"
-        shortBestScore := shortReversalScore
-        shortBestEntryRef := shortReversalEntryRef
-        shortBestZoneLow := shortReversalZoneLow
-        shortBestZoneHigh := shortReversalZoneHigh
-        shortBestStopRef := shortReversalStopRef
-        shortBestStage := shortReversalStage
-    else if f_signalAllowedByFamily("Continuation")
-        shortBestFamily := "Continuation"
-        shortBestScore := shortContinuationScore
-        shortBestEntryRef := shortContinuationEntryRef
-        shortBestZoneLow := shortContinuationZoneLow
-        shortBestZoneHigh := shortContinuationZoneHigh
-        shortBestStopRef := shortContinuationStopRef
-        shortBestStage := shortContinuationStage
+if not na(shortRevPreviewScore)
+    shortBestFamily := "Reversal"
+    shortBestScore := shortRevPreviewScore
+    shortBestEntryRef := nz(shortRevArmEntryRef, shortReversalEntryRef)
+    shortBestZoneLow := nz(shortRevArmZoneLow, shortReversalZoneLow)
+    shortBestZoneHigh := nz(shortRevArmZoneHigh, shortReversalZoneHigh)
+    shortBestStopRef := nz(shortRevArmStopRef, shortReversalStopRef)
+    shortBestStage := shortRevArmReason != "" ? shortRevArmReason : shortReversalStage
+if not na(shortContPreviewScore) and (na(shortBestScore) or shortContPreviewScore > shortBestScore + 0.5)
+    shortBestFamily := "Continuation"
+    shortBestScore := shortContPreviewScore
+    shortBestEntryRef := nz(shortContArmEntryRef, shortContinuationEntryRef)
+    shortBestZoneLow := nz(shortContArmZoneLow, shortContinuationZoneLow)
+    shortBestZoneHigh := nz(shortContArmZoneHigh, shortContinuationZoneHigh)
+    shortBestStopRef := nz(shortContArmStopRef, shortContinuationStopRef)
+    shortBestStage := shortContArmReason != "" ? shortContArmReason : shortContinuationStage
 
-bool longCountertrendBlocked = not allowCountertrendReversals and longBestFamily == "Reversal" and shortContextScore > longContextScore + 10.0 and htfBias < -20.0
-bool shortCountertrendBlocked = not allowCountertrendReversals and shortBestFamily == "Reversal" and longContextScore > shortContextScore + 10.0 and htfBias > 20.0
-bool longAlignmentBlocked = requireDirectionalAlignment and longBestFamily == "Continuation" and shortContextScore > longContextScore
-bool shortAlignmentBlocked = requireDirectionalAlignment and shortBestFamily == "Continuation" and longContextScore > shortContextScore
+bool longCandidateReady = longReversalCandidateReady or longContinuationCandidateReady
+bool shortCandidateReady = shortReversalCandidateReady or shortContinuationCandidateReady
+bool longNeedsRearm = longRevNeedsRearm or longContNeedsRearm
+bool shortNeedsRearm = shortRevNeedsRearm or shortContNeedsRearm
+bool longArmActive = longRevArmActive or longContArmActive
+bool shortArmActive = shortRevArmActive or shortContArmActive
+bool longTouchZone = longRevTouchZone or longContTouchZone
+bool shortTouchZone = shortRevTouchZone or shortContTouchZone
+bool longReclaimNow = longRevReclaimNow or longContReclaimNow
+bool shortReclaimNow = shortRevReclaimNow or shortContReclaimNow
+bool longRejectNow = longRevRejectNow or longContRejectNow
+bool shortRejectNow = shortRevRejectNow or shortContRejectNow
+bool longRetestEvent = longRevRetestEvent or longContRetestEvent
+bool shortRetestEvent = shortRevRetestEvent or shortContRetestEvent
+bool longConfirmNow = longRevConfirmNow or longContConfirmNow
+bool shortConfirmNow = shortRevConfirmNow or shortContConfirmNow
+bool longTimingPass = longRevTimingPass or longContTimingPass
+bool shortTimingPass = shortRevTimingPass or shortContTimingPass
 
-bool longCandidateReady = bridgeValid and longBestFamily != "" and longBestScore >= f_armThreshold(signalMode) and not longCountertrendBlocked and not longAlignmentBlocked
-bool shortCandidateReady = bridgeValid and shortBestFamily != "" and shortBestScore >= f_armThreshold(signalMode) and not shortCountertrendBlocked and not shortAlignmentBlocked
-
-//------------------------------------------------------------------------------
-// Entry Timing State
-//------------------------------------------------------------------------------
-var bool longArmActive = false
-var string longArmFamily = ""
-var float longArmScore = na
-var float longArmEntryRef = na
-var float longArmZoneLow = na
-var float longArmZoneHigh = na
-var float longArmStopRef = na
-var int longArmBar = na
-var string longArmReason = ""
-
-var bool shortArmActive = false
-var string shortArmFamily = ""
-var float shortArmScore = na
-var float shortArmEntryRef = na
-var float shortArmZoneLow = na
-var float shortArmZoneHigh = na
-var float shortArmStopRef = na
-var int shortArmBar = na
-var string shortArmReason = ""
-
-if not bridgeValid
-    longArmActive := false
-    shortArmActive := false
-
-float rearmTolerance = math.max(atrVal * 0.35, syminfo.mintick * 8.0)
-bool longNeedsRearm = longCandidateReady and (not longArmActive or longBestFamily != longArmFamily or math.abs(nz(longBestEntryRef, close) - nz(longArmEntryRef, close)) > rearmTolerance)
-bool shortNeedsRearm = shortCandidateReady and (not shortArmActive or shortBestFamily != shortArmFamily or math.abs(nz(shortBestEntryRef, close) - nz(shortArmEntryRef, close)) > rearmTolerance)
-
-if longNeedsRearm
-    longArmActive := true
-    longArmFamily := longBestFamily
-    longArmScore := longBestScore
-    longArmEntryRef := longBestEntryRef
-    longArmZoneLow := longBestZoneLow
-    longArmZoneHigh := longBestZoneHigh
-    longArmStopRef := longBestStopRef
-    longArmBar := bar_index
-    longArmReason := longBestStage
-
-if shortNeedsRearm
-    shortArmActive := true
-    shortArmFamily := shortBestFamily
-    shortArmScore := shortBestScore
-    shortArmEntryRef := shortBestEntryRef
-    shortArmZoneLow := shortBestZoneLow
-    shortArmZoneHigh := shortBestZoneHigh
-    shortArmStopRef := shortBestStopRef
-    shortArmBar := bar_index
-    shortArmReason := shortBestStage
-
-bool longArmExpired = longArmActive and not na(longArmBar) and (bar_index - longArmBar) > setupExpiryBars
-bool shortArmExpired = shortArmActive and not na(shortArmBar) and (bar_index - shortArmBar) > setupExpiryBars
-bool longArmInvalid = longArmActive and not na(longArmStopRef) and low < longArmStopRef - touchTolerance
-bool shortArmInvalid = shortArmActive and not na(shortArmStopRef) and high > shortArmStopRef + touchTolerance
-
-if longArmExpired or longArmInvalid
-    longArmActive := false
-if shortArmExpired or shortArmInvalid
-    shortArmActive := false
-
-bool longTouchZone = longArmActive and low <= nz(longArmZoneHigh, longArmEntryRef) + touchTolerance and high >= nz(longArmZoneLow, longArmEntryRef) - touchTolerance
-bool shortTouchZone = shortArmActive and high >= nz(shortArmZoneLow, shortArmEntryRef) - touchTolerance and low <= nz(shortArmZoneHigh, shortArmEntryRef) + touchTolerance
-
-bool longReclaimNow = longArmActive and not na(longArmEntryRef) and low <= longArmEntryRef + touchTolerance and close > longArmEntryRef
-bool shortReclaimNow = shortArmActive and not na(shortArmEntryRef) and high >= shortArmEntryRef - touchTolerance and close < shortArmEntryRef
-bool longRejectNow = longTouchZone and close > nz(longArmEntryRef, close) and (lowerWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bullDisp)
-bool shortRejectNow = shortTouchZone and close < nz(shortArmEntryRef, close) and (upperWick >= math.max(body, syminfo.mintick) * rejectionWickRatio or bearDisp)
-bool longRetestEvent = longArmActive and bar_index > nz(longArmBar, bar_index) and (bar_index - nz(longArmBar, bar_index)) <= maxRetestBars and longRejectNow
-bool shortRetestEvent = shortArmActive and bar_index > nz(shortArmBar, bar_index) and (bar_index - nz(shortArmBar, bar_index)) <= maxRetestBars and shortRejectNow
-bool longConfirmNow = longArmActive and bullConfirmCandle and close > nz(longArmEntryRef, close)
-bool shortConfirmNow = shortArmActive and bearConfirmCandle and close < nz(shortArmEntryRef, close)
-
-bool longTimingPass = longArmActive and (entryTiming == "Reclaim Close" ? longReclaimNow : entryTiming == "Confirmation Candle" ? (longConfirmNow and (longReclaimNow or bar_index > nz(longArmBar, bar_index))) : longRetestEvent)
-bool shortTimingPass = shortArmActive and (entryTiming == "Reclaim Close" ? shortReclaimNow : entryTiming == "Confirmation Candle" ? (shortConfirmNow and (shortReclaimNow or bar_index > nz(shortArmBar, bar_index))) : shortRetestEvent)
-
-//------------------------------------------------------------------------------
-// Risk and Targets
-//------------------------------------------------------------------------------
-float longStopBase = na
-float shortStopBase = na
-if stopMethod == "Sweep Anchor"
-    longStopBase := longArmFamily == "Reversal" ? f_firstValid(stopAnchor, sweepLevel, protectedLow, longArmStopRef) : f_firstValid(stopAnchor, longArmStopRef, protectedLow, idmLevel)
-    shortStopBase := shortArmFamily == "Reversal" ? f_firstValid(stopAnchor, sweepLevel, protectedHigh, shortArmStopRef) : f_firstValid(stopAnchor, shortArmStopRef, protectedHigh, idmLevel)
-else if stopMethod == "Protected Level"
-    longStopBase := f_firstValid(protectedLow, longArmStopRef, idmLevel, sweepLevel)
-    shortStopBase := f_firstValid(protectedHigh, shortArmStopRef, idmLevel, sweepLevel)
-else if stopMethod == "Bridge Hybrid"
-    longStopBase := longArmFamily == "Reversal" ? f_minValid4(stopAnchor, protectedLow, bullFvgLow, sweepLevel) : f_minValid4(protectedLow, idmBias == 1 ? idmLevel : na, bullFvgLow, nearestSsl)
-    shortStopBase := shortArmFamily == "Reversal" ? f_maxValid4(stopAnchor, protectedHigh, bearFvgHigh, sweepLevel) : f_maxValid4(protectedHigh, idmBias == -1 ? idmLevel : na, bearFvgHigh, nearestBsl)
-else
-    longStopBase := close - atrVal * atrStructureMult
-    shortStopBase := close + atrVal * atrStructureMult
-
-float longEntryCandidate = longTimingPass ? close + entryBuffer : na
-float shortEntryCandidate = shortTimingPass ? close - entryBuffer : na
-float longStopCandidate = not na(longEntryCandidate) ? nz(longStopBase, longArmStopRef) - atrVal * stopAtrBuffer : na
-float shortStopCandidate = not na(shortEntryCandidate) ? nz(shortStopBase, shortArmStopRef) + atrVal * stopAtrBuffer : na
-
-float longRisk = not na(longEntryCandidate) and not na(longStopCandidate) ? longEntryCandidate - longStopCandidate : na
-float shortRisk = not na(shortEntryCandidate) and not na(shortStopCandidate) ? shortStopCandidate - shortEntryCandidate : na
-
-float longR1 = not na(longRisk) ? longEntryCandidate + longRisk * tp1R : na
-float longR2 = not na(longRisk) ? longEntryCandidate + longRisk * tp2R : na
-float shortR1 = not na(shortRisk) ? shortEntryCandidate - shortRisk * tp1R : na
-float shortR2 = not na(shortRisk) ? shortEntryCandidate - shortRisk * tp2R : na
-
-bool longExternalTargetAvailable = nearestBslFound and nearestBslClass >= 2
-bool shortExternalTargetAvailable = nearestSslFound and nearestSslClass >= 2
-
+bool longSignal = false
+bool shortSignal = false
+float longEntryCandidate = na
+float shortEntryCandidate = na
+float longStopCandidate = na
+float shortStopCandidate = na
 float longTp1Candidate = na
-float longTp2Candidate = na
 float shortTp1Candidate = na
+float longTp2Candidate = na
 float shortTp2Candidate = na
-
-if targetMethod == "Nearest Opposing Liquidity"
-    longTp1Candidate := nearestBslFound ? nearestBsl : longR1
-    longTp2Candidate := nearestBslFound ? math.max(nearestBsl, nz(longR2, nearestBsl)) : longR2
-    shortTp1Candidate := nearestSslFound ? nearestSsl : shortR1
-    shortTp2Candidate := nearestSslFound ? math.min(nearestSsl, nz(shortR2, nearestSsl)) : shortR2
-else if targetMethod == "R-Multiple"
-    longTp1Candidate := longR1
-    longTp2Candidate := longR2
-    shortTp1Candidate := shortR1
-    shortTp2Candidate := shortR2
-else
-    longTp1Candidate := longExternalTargetAvailable ? nearestBsl : longR1
-    longTp2Candidate := longExternalTargetAvailable ? math.max(nearestBsl, nz(longR2, nearestBsl)) : longR2
-    shortTp1Candidate := shortExternalTargetAvailable ? nearestSsl : shortR1
-    shortTp2Candidate := shortExternalTargetAvailable ? math.min(nearestSsl, nz(shortR2, nearestSsl)) : shortR2
-
-float longRrToFirstTarget = not na(longRisk) and longRisk > syminfo.mintick and not na(longTp1Candidate) ? (longTp1Candidate - longEntryCandidate) / longRisk : na
-float shortRrToFirstTarget = not na(shortRisk) and shortRisk > syminfo.mintick and not na(shortTp1Candidate) ? (shortEntryCandidate - shortTp1Candidate) / shortRisk : na
-bool longRiskValid = not na(longRisk) and longRisk > syminfo.mintick and not na(longTp1Candidate) and longTp1Candidate > longEntryCandidate and longRrToFirstTarget >= minRRToFirstTarget
-bool shortRiskValid = not na(shortRisk) and shortRisk > syminfo.mintick and not na(shortTp1Candidate) and shortTp1Candidate < shortEntryCandidate and shortRrToFirstTarget >= minRRToFirstTarget
-
-//------------------------------------------------------------------------------
-// Final Signals
-//------------------------------------------------------------------------------
-var int lastLongSignalBar = na
-var int lastShortSignalBar = na
-var int lastAnySignalBar = na
-var int lastResolvedTradeBar = na
-var int openTradeCountState = 0
-
+float longRrToFirstTarget = na
+float shortRrToFirstTarget = na
 float longFinalScore = nz(longBestScore, 0.0)
 float shortFinalScore = nz(shortBestScore, 0.0)
-string longGrade = f_gradeText(longFinalScore)
-string shortGrade = f_gradeText(shortFinalScore)
+float longTimingQuality = 0.0
+float shortTimingQuality = 0.0
+float longRiskQuality = 0.0
+float shortRiskQuality = 0.0
+float longStructureQuality = 0.0
+float shortStructureQuality = 0.0
+float longConfluenceQuality = 0.0
+float shortConfluenceQuality = 0.0
+float longSpacingPenalty = 0.0
+float shortSpacingPenalty = 0.0
+float longExecutionThreshold = na
+float shortExecutionThreshold = na
+bool longRiskValid = false
+bool shortRiskValid = false
+bool longSpacingBlocked = false
+bool shortSpacingBlocked = false
+string longSignalFamily = longBestFamily
+string shortSignalFamily = shortBestFamily
+string longSignalStage = longBestStage
+string shortSignalStage = shortBestStage
+string longSignalTimingText = longBestFamily == "Reversal" ? longRevTimingText : longBestFamily == "Continuation" ? longContTimingText : "Waiting"
+string shortSignalTimingText = shortBestFamily == "Reversal" ? shortRevTimingText : shortBestFamily == "Continuation" ? shortContTimingText : "Waiting"
+string longRiskReason = longBestFamily == "Reversal" ? longRevRiskReason : longBestFamily == "Continuation" ? longContRiskReason : "No setup"
+string shortRiskReason = shortBestFamily == "Reversal" ? shortRevRiskReason : shortBestFamily == "Continuation" ? shortContRiskReason : "No setup"
 
-bool longSpacingBlocked = enforceTradeSpacing and ((minBarsBetweenAnyTrades > 0 and not na(lastAnySignalBar) and (bar_index - lastAnySignalBar) < minBarsBetweenAnyTrades) or (minBarsBetweenSameDirection > 0 and not na(lastLongSignalBar) and (bar_index - lastLongSignalBar) < minBarsBetweenSameDirection) or (requirePreviousTradeClosed and openTradeCountState > 0) or (cooldownAfterResolutionBars > 0 and not na(lastResolvedTradeBar) and (bar_index - lastResolvedTradeBar) < cooldownAfterResolutionBars))
-bool shortSpacingBlocked = enforceTradeSpacing and ((minBarsBetweenAnyTrades > 0 and not na(lastAnySignalBar) and (bar_index - lastAnySignalBar) < minBarsBetweenAnyTrades) or (minBarsBetweenSameDirection > 0 and not na(lastShortSignalBar) and (bar_index - lastShortSignalBar) < minBarsBetweenSameDirection) or (requirePreviousTradeClosed and openTradeCountState > 0) or (cooldownAfterResolutionBars > 0 and not na(lastResolvedTradeBar) and (bar_index - lastResolvedTradeBar) < cooldownAfterResolutionBars))
+if longRevSignalReady and (not longContSignalReady or longRevExecutionScore > longContExecutionScore + 0.5 or (longRevTimingQuality > longContTimingQuality and longRevExecutionScore >= longContExecutionScore - 0.5) or (nz(longRevArmScore, 0.0) > nz(longContArmScore, 0.0) and math.abs(longRevExecutionScore - longContExecutionScore) <= 0.5))
+    longSignal := true
+    longSignalFamily := "Reversal"
+    longSignalStage := longRevArmReason
+    longSignalTimingText := longRevTimingText
+    longEntryCandidate := longRevEntryCandidate
+    longStopCandidate := longRevStopCandidate
+    longTp1Candidate := longRevTp1Candidate
+    longTp2Candidate := longRevTp2Candidate
+    longRrToFirstTarget := longRevRrToFirstTarget
+    longFinalScore := longRevExecutionScore
+    longTimingQuality := longRevTimingQuality
+    longRiskQuality := longRevRiskQuality
+    longStructureQuality := longReversalStructureQuality
+    longConfluenceQuality := longReversalLocationScore
+    longSpacingPenalty := longRevSpacingPenalty
+    longExecutionThreshold := longRevExecutionThreshold
+    longRiskValid := longRevRiskValid
+    longSpacingBlocked := longRevSpacingHardBlocked
+    longRiskReason := longRevRiskReason
+else if longContSignalReady
+    longSignal := true
+    longSignalFamily := "Continuation"
+    longSignalStage := longContArmReason
+    longSignalTimingText := longContTimingText
+    longEntryCandidate := longContEntryCandidate
+    longStopCandidate := longContStopCandidate
+    longTp1Candidate := longContTp1Candidate
+    longTp2Candidate := longContTp2Candidate
+    longRrToFirstTarget := longContRrToFirstTarget
+    longFinalScore := longContExecutionScore
+    longTimingQuality := longContTimingQuality
+    longRiskQuality := longContRiskQuality
+    longStructureQuality := longContinuationStructureQuality
+    longConfluenceQuality := longContinuationLocationScore
+    longSpacingPenalty := longContSpacingPenalty
+    longExecutionThreshold := longContExecutionThreshold
+    longRiskValid := longContRiskValid
+    longSpacingBlocked := longContSpacingHardBlocked
+    longRiskReason := longContRiskReason
+else
+    longTimingQuality := longBestFamily == "Reversal" ? longRevTimingQuality : longBestFamily == "Continuation" ? longContTimingQuality : 0.0
+    longRiskQuality := longBestFamily == "Reversal" ? longRevRiskQuality : longBestFamily == "Continuation" ? longContRiskQuality : 0.0
+    longStructureQuality := longBestFamily == "Reversal" ? longReversalStructureQuality : longBestFamily == "Continuation" ? longContinuationStructureQuality : 0.0
+    longConfluenceQuality := longBestFamily == "Reversal" ? longReversalLocationScore : longBestFamily == "Continuation" ? longContinuationLocationScore : 0.0
+    longSpacingPenalty := longBestFamily == "Reversal" ? longRevSpacingPenalty : longBestFamily == "Continuation" ? longContSpacingPenalty : 0.0
+    longExecutionThreshold := longBestFamily == "Reversal" ? longRevExecutionThreshold : longBestFamily == "Continuation" ? longContExecutionThreshold : na
+    longRiskValid := longBestFamily == "Reversal" ? longRevRiskValid : longBestFamily == "Continuation" ? longContRiskValid : false
+    longSpacingBlocked := longBestFamily == "Reversal" ? longRevSpacingHardBlocked : longBestFamily == "Continuation" ? longContSpacingHardBlocked : false
 
-bool longSignal = bridgeValid and longTimingPass and longRiskValid and longFinalScore >= f_modeThreshold(signalMode) and not longSpacingBlocked
-bool shortSignal = bridgeValid and shortTimingPass and shortRiskValid and shortFinalScore >= f_modeThreshold(signalMode) and not shortSpacingBlocked
+if shortRevSignalReady and (not shortContSignalReady or shortRevExecutionScore > shortContExecutionScore + 0.5 or (shortRevTimingQuality > shortContTimingQuality and shortRevExecutionScore >= shortContExecutionScore - 0.5) or (nz(shortRevArmScore, 0.0) > nz(shortContArmScore, 0.0) and math.abs(shortRevExecutionScore - shortContExecutionScore) <= 0.5))
+    shortSignal := true
+    shortSignalFamily := "Reversal"
+    shortSignalStage := shortRevArmReason
+    shortSignalTimingText := shortRevTimingText
+    shortEntryCandidate := shortRevEntryCandidate
+    shortStopCandidate := shortRevStopCandidate
+    shortTp1Candidate := shortRevTp1Candidate
+    shortTp2Candidate := shortRevTp2Candidate
+    shortRrToFirstTarget := shortRevRrToFirstTarget
+    shortFinalScore := shortRevExecutionScore
+    shortTimingQuality := shortRevTimingQuality
+    shortRiskQuality := shortRevRiskQuality
+    shortStructureQuality := shortReversalStructureQuality
+    shortConfluenceQuality := shortReversalLocationScore
+    shortSpacingPenalty := shortRevSpacingPenalty
+    shortExecutionThreshold := shortRevExecutionThreshold
+    shortRiskValid := shortRevRiskValid
+    shortSpacingBlocked := shortRevSpacingHardBlocked
+    shortRiskReason := shortRevRiskReason
+else if shortContSignalReady
+    shortSignal := true
+    shortSignalFamily := "Continuation"
+    shortSignalStage := shortContArmReason
+    shortSignalTimingText := shortContTimingText
+    shortEntryCandidate := shortContEntryCandidate
+    shortStopCandidate := shortContStopCandidate
+    shortTp1Candidate := shortContTp1Candidate
+    shortTp2Candidate := shortContTp2Candidate
+    shortRrToFirstTarget := shortContRrToFirstTarget
+    shortFinalScore := shortContExecutionScore
+    shortTimingQuality := shortContTimingQuality
+    shortRiskQuality := shortContRiskQuality
+    shortStructureQuality := shortContinuationStructureQuality
+    shortConfluenceQuality := shortContinuationLocationScore
+    shortSpacingPenalty := shortContSpacingPenalty
+    shortExecutionThreshold := shortContExecutionThreshold
+    shortRiskValid := shortContRiskValid
+    shortSpacingBlocked := shortContSpacingHardBlocked
+    shortRiskReason := shortContRiskReason
+else
+    shortTimingQuality := shortBestFamily == "Reversal" ? shortRevTimingQuality : shortBestFamily == "Continuation" ? shortContTimingQuality : 0.0
+    shortRiskQuality := shortBestFamily == "Reversal" ? shortRevRiskQuality : shortBestFamily == "Continuation" ? shortContRiskQuality : 0.0
+    shortStructureQuality := shortBestFamily == "Reversal" ? shortReversalStructureQuality : shortBestFamily == "Continuation" ? shortContinuationStructureQuality : 0.0
+    shortConfluenceQuality := shortBestFamily == "Reversal" ? shortReversalLocationScore : shortBestFamily == "Continuation" ? shortContinuationLocationScore : 0.0
+    shortSpacingPenalty := shortBestFamily == "Reversal" ? shortRevSpacingPenalty : shortBestFamily == "Continuation" ? shortContSpacingPenalty : 0.0
+    shortExecutionThreshold := shortBestFamily == "Reversal" ? shortRevExecutionThreshold : shortBestFamily == "Continuation" ? shortContExecutionThreshold : na
+    shortRiskValid := shortBestFamily == "Reversal" ? shortRevRiskValid : shortBestFamily == "Continuation" ? shortContRiskValid : false
+    shortSpacingBlocked := shortBestFamily == "Reversal" ? shortRevSpacingHardBlocked : shortBestFamily == "Continuation" ? shortContSpacingHardBlocked : false
 
 if longSignal and shortSignal
-    if longFinalScore > shortFinalScore
+    if longFinalScore > shortFinalScore + 0.5
         shortSignal := false
-    else if shortFinalScore > longFinalScore
+    else if shortFinalScore > longFinalScore + 0.5
+        longSignal := false
+    else if longTimingQuality > shortTimingQuality
+        shortSignal := false
+    else if shortTimingQuality > longTimingQuality
         longSignal := false
     else
         longSignal := false
         shortSignal := false
 
-string longSignalReasonText = longArmFamily + " | " + longArmReason + " | RR " + str.tostring(longRrToFirstTarget, "#.##")
-string shortSignalReasonText = shortArmFamily + " | " + shortArmReason + " | RR " + str.tostring(shortRrToFirstTarget, "#.##")
+string longArmFamily = longSignal ? longSignalFamily : longBestFamily
+string shortArmFamily = shortSignal ? shortSignalFamily : shortBestFamily
+float longArmScore = longSignal ? longFinalScore : nz(longBestScore, 0.0)
+float shortArmScore = shortSignal ? shortFinalScore : nz(shortBestScore, 0.0)
+string longArmReason = longSignal ? longSignalStage : longBestStage
+string shortArmReason = shortSignal ? shortSignalStage : shortBestStage
+
+string longStateText = longSignal ? "Signaled " + longSignalFamily : longBestFamily == "Reversal" ? "Reversal " + f_executionState(longRevArmActive, longRevTimingPass, longRevRiskValid, longRevSpacingHardBlocked, longReversalTrackable or longRevArmActive, longRevRiskReason) : longBestFamily == "Continuation" ? "Continuation " + f_executionState(longContArmActive, longContTimingPass, longContRiskValid, longContSpacingHardBlocked, longContinuationTrackable or longContArmActive, longContRiskReason) : bridgeValid ? "Idle" : "Bridge"
+string shortStateText = shortSignal ? "Signaled " + shortSignalFamily : shortBestFamily == "Reversal" ? "Reversal " + f_executionState(shortRevArmActive, shortRevTimingPass, shortRevRiskValid, shortRevSpacingHardBlocked, shortReversalTrackable or shortRevArmActive, shortRevRiskReason) : shortBestFamily == "Continuation" ? "Continuation " + f_executionState(shortContArmActive, shortContTimingPass, shortContRiskValid, shortContSpacingHardBlocked, shortContinuationTrackable or shortContArmActive, shortContRiskReason) : bridgeValid ? "Idle" : "Bridge"
+
+string longSignalReasonText = longArmFamily + " | " + longArmReason + " | " + longSignalTimingText + " | RR " + str.tostring(longRrToFirstTarget, "#.##")
+string shortSignalReasonText = shortArmFamily + " | " + shortArmReason + " | " + shortSignalTimingText + " | RR " + str.tostring(shortRrToFirstTarget, "#.##")
+
+string longGrade = f_gradeText(longFinalScore)
+string shortGrade = f_gradeText(shortFinalScore)
 
 //------------------------------------------------------------------------------
 // Stats and Guide Tracking
@@ -759,6 +1295,8 @@ var bool[] tradeBoxTp1Hits = array.new_bool()
 if longSignal
     lastLongSignalBar := bar_index
     lastAnySignalBar := bar_index
+    lastLongSignalEntryRef := longEntryCandidate
+    lastLongSignalFamily := longSignalFamily
     if enableOutcomeStats
         array.unshift(trackedSignals, tracked_signal.new(true, longEntryCandidate, longStopCandidate, longTp1Candidate, longTp2Candidate, bar_index, true, false, longGrade))
         statsSignals += 1
@@ -768,12 +1306,13 @@ if longSignal
     guideLongTp1 := longTp1Candidate
     guideLongTp2 := longTp2Candidate
     guideLongBar := bar_index
-    longArmActive := false
-    if showTradeBoxes and (not showOnlyAB or longGrade != "C")
+    longRevArmActive := false
+    longContArmActive := false
+    if showTradeBoxes and (not showOnlyAB or longGrade == "A" or longGrade == "B")
         int rightTime = time + chartBarMillis * tradeBoxWidthBars
         box profitBox = box.new(time, longTp2Candidate, rightTime, longEntryCandidate, xloc=xloc.bar_time, bgcolor=profitBoxColor, border_color=profitBoxBorderColor, border_width=1)
         box riskBox = box.new(time, longEntryCandidate, rightTime, longStopCandidate, xloc=xloc.bar_time, bgcolor=riskBoxColor, border_color=riskBoxBorderColor, border_width=1)
-        string tradeText = f_tradeBoxText(true, longArmFamily, longGrade, longFinalScore)
+        string tradeText = f_tradeBoxText(true, longSignalFamily, longGrade, longFinalScore)
         if tradeText != ""
             box.set_text(profitBox, tradeText)
             box.set_text_color(profitBox, boxTextColor)
@@ -792,6 +1331,8 @@ if longSignal
 if shortSignal
     lastShortSignalBar := bar_index
     lastAnySignalBar := bar_index
+    lastShortSignalEntryRef := shortEntryCandidate
+    lastShortSignalFamily := shortSignalFamily
     if enableOutcomeStats
         array.unshift(trackedSignals, tracked_signal.new(false, shortEntryCandidate, shortStopCandidate, shortTp1Candidate, shortTp2Candidate, bar_index, true, false, shortGrade))
         statsSignals += 1
@@ -801,12 +1342,13 @@ if shortSignal
     guideShortTp1 := shortTp1Candidate
     guideShortTp2 := shortTp2Candidate
     guideShortBar := bar_index
-    shortArmActive := false
-    if showTradeBoxes and (not showOnlyAB or shortGrade != "C")
+    shortRevArmActive := false
+    shortContArmActive := false
+    if showTradeBoxes and (not showOnlyAB or shortGrade == "A" or shortGrade == "B")
         int rightTime = time + chartBarMillis * tradeBoxWidthBars
         box profitBox = box.new(time, shortEntryCandidate, rightTime, shortTp2Candidate, xloc=xloc.bar_time, bgcolor=profitBoxColor, border_color=profitBoxBorderColor, border_width=1)
         box riskBox = box.new(time, shortStopCandidate, rightTime, shortEntryCandidate, xloc=xloc.bar_time, bgcolor=riskBoxColor, border_color=riskBoxBorderColor, border_width=1)
-        string tradeText = f_tradeBoxText(false, shortArmFamily, shortGrade, shortFinalScore)
+        string tradeText = f_tradeBoxText(false, shortSignalFamily, shortGrade, shortFinalScore)
         if tradeText != ""
             box.set_text(profitBox, tradeText)
             box.set_text_color(profitBox, boxTextColor)
@@ -984,36 +1526,55 @@ int resolvedSignals = enableOutcomeStats ? statsWins + statsLosses + statsBreakE
 int contextBias = longContextScore > shortContextScore + 5.0 ? 1 : shortContextScore > longContextScore + 5.0 ? -1 : 0
 string contextText = not bridgeReady ? "Bridge pending" : not bridgeValid ? "Bridge invalid" : contextBias == 1 ? "Bullish bias" : contextBias == -1 ? "Bearish bias" : "Balanced"
 string sessionText = f_sessionText(inAsia, inLondon, inNY, inLondonSweepWindow, inNYSweepWindow)
-string longTableText = bridgeValid ? str.tostring(longFinalScore, "#") + " | " + longGrade + " | " + (longArmActive ? longArmFamily : "Idle") : "Pending bridge"
-string shortTableText = bridgeValid ? str.tostring(shortFinalScore, "#") + " | " + shortGrade + " | " + (shortArmActive ? shortArmFamily : "Idle") : "Pending bridge"
+string bridgeStatusText = not bridgeReady ? "Wire sources" : not bridgeValid ? "Critical invalid" : bridgeDetailValid and bridgeOptionalValid ? "Ready" : bridgeDetailValid ? "Ready*" : "Core only"
+string bridgeNoteText = not bridgeValid ? "Need critical bridge fields" : bridgeDetailValid and bridgeOptionalValid ? "Full bridge" : bridgeDetailValid ? "IDM soft-degraded" : bridgeOptionalValid ? "Detail soft-degraded" : "Detail + IDM soft-degraded"
+string longTableText = bridgeValid ? str.tostring(longFinalScore, "#") + " | " + longGrade + " | " + (longSignal ? longSignalFamily : longBestFamily != "" ? longBestFamily : "Idle") : "Pending bridge"
+string shortTableText = bridgeValid ? str.tostring(shortFinalScore, "#") + " | " + shortGrade + " | " + (shortSignal ? shortSignalFamily : shortBestFamily != "" ? shortBestFamily : "Idle") : "Pending bridge"
+string longFlowText = bridgeValid ? longStateText + " | Arm " + str.tostring(longArmScore, "#") + " | Tim " + str.tostring(longTimingQuality, "#") : "Pending bridge"
+string shortFlowText = bridgeValid ? shortStateText + " | Arm " + str.tostring(shortArmScore, "#") + " | Tim " + str.tostring(shortTimingQuality, "#") : "Pending bridge"
+string longWhyText = bridgeValid ? "Str " + str.tostring(longStructureQuality, "#") + " | Loc " + str.tostring(longConfluenceQuality, "#") + " | Risk " + str.tostring(longRiskQuality, "#") + " | Sp " + str.tostring(longSpacingPenalty, "#") : "Pending bridge"
+string shortWhyText = bridgeValid ? "Str " + str.tostring(shortStructureQuality, "#") + " | Loc " + str.tostring(shortConfluenceQuality, "#") + " | Risk " + str.tostring(shortRiskQuality, "#") + " | Sp " + str.tostring(shortSpacingPenalty, "#") : "Pending bridge"
 string tradesTableText = not enableOutcomeStats ? "Off" : bridgeValid ? str.tostring(statsSignals) : "Pending bridge"
 string winRateTableText = not enableOutcomeStats ? "Off" : not bridgeValid ? "Pending bridge" : not na(winRate) ? str.tostring(winRate, "#.0") + "%" : "NA"
 string winsTableText = not enableOutcomeStats ? "Off" : bridgeValid ? str.tostring(statsWins) : "Pending bridge"
 string lossesTableText = not enableOutcomeStats ? "Off" : bridgeValid ? str.tostring(statsLosses) : "Pending bridge"
+string openTradesTableText = bridgeValid ? str.tostring(openTradeCountState) : "Pending bridge"
 
-var table infoTable = table.new(position.top_right, 2, 9, bgcolor=color.new(chart.bg_color, 6), border_width=1, border_color=color.new(chart.fg_color, 70))
+var table infoTable = table.new(position.top_right, 2, 15, bgcolor=color.new(chart.bg_color, 6), border_width=1, border_color=color.new(chart.fg_color, 70))
 if barstate.islast
     if showCompactInfo
         table.cell(infoTable, 0, 0, "Bridge", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 0, bridgeValid ? "Ready" : bridgeReady ? "Invalid" : "Wire sources", text_color=bridgeValid ? longColor : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 1, 0, bridgeStatusText, text_color=bridgeValid ? longColor : COLOR_NEUT, text_size=size.small)
         table.cell(infoTable, 0, 1, "Bias", text_color=color.new(chart.fg_color, 20), text_size=size.small)
         table.cell(infoTable, 1, 1, contextText, text_color=contextBias == 1 ? longColor : contextBias == -1 ? shortColor : COLOR_NEUT, text_size=size.small)
         table.cell(infoTable, 0, 2, "Long", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 2, longTableText, text_color=bridgeValid and longFinalScore >= f_modeThreshold(signalMode) ? longColor : color.new(longColor, 45), text_size=size.small)
-        table.cell(infoTable, 0, 3, "Short", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 3, shortTableText, text_color=bridgeValid and shortFinalScore >= f_modeThreshold(signalMode) ? shortColor : color.new(shortColor, 45), text_size=size.small)
-        table.cell(infoTable, 0, 4, "Trades", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 4, tradesTableText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
-        table.cell(infoTable, 0, 5, "WR", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 5, winRateTableText, text_color=not bridgeValid or na(winRate) ? COLOR_NEUT : winRate >= 50.0 ? longColor : shortColor, text_size=size.small)
-        table.cell(infoTable, 0, 6, "Wins", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 6, winsTableText, text_color=bridgeValid ? longColor : COLOR_NEUT, text_size=size.small)
-        table.cell(infoTable, 0, 7, "Losses", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 7, lossesTableText, text_color=bridgeValid ? shortColor : COLOR_NEUT, text_size=size.small)
-        table.cell(infoTable, 0, 8, "Session", text_color=color.new(chart.fg_color, 20), text_size=size.small)
-        table.cell(infoTable, 1, 8, sessionText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
+        table.cell(infoTable, 1, 2, longTableText, text_color=bridgeValid and longFinalScore >= nz(longExecutionThreshold, f_modeThreshold(signalMode)) ? longColor : color.new(longColor, 45), text_size=size.small)
+        table.cell(infoTable, 0, 3, "Long Flow", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 3, showDiagnostics ? longFlowText : "-", text_color=bridgeValid ? color.new(longColor, 10) : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 4, "Long Why", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 4, showDiagnostics ? longWhyText + " | " + longRiskReason : "-", text_color=bridgeValid ? color.new(longColor, 10) : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 5, "Short", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 5, shortTableText, text_color=bridgeValid and shortFinalScore >= nz(shortExecutionThreshold, f_modeThreshold(signalMode)) ? shortColor : color.new(shortColor, 45), text_size=size.small)
+        table.cell(infoTable, 0, 6, "Short Flow", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 6, showDiagnostics ? shortFlowText : "-", text_color=bridgeValid ? color.new(shortColor, 10) : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 7, "Short Why", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 7, showDiagnostics ? shortWhyText + " | " + shortRiskReason : "-", text_color=bridgeValid ? color.new(shortColor, 10) : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 8, "Trades", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 8, tradesTableText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
+        table.cell(infoTable, 0, 9, "WR", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 9, winRateTableText, text_color=not bridgeValid or na(winRate) ? COLOR_NEUT : winRate >= 50.0 ? longColor : shortColor, text_size=size.small)
+        table.cell(infoTable, 0, 10, "Wins", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 10, winsTableText, text_color=bridgeValid ? longColor : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 11, "Losses", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 11, lossesTableText, text_color=bridgeValid ? shortColor : COLOR_NEUT, text_size=size.small)
+        table.cell(infoTable, 0, 12, "Open", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 12, openTradesTableText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
+        table.cell(infoTable, 0, 13, "Session", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 13, sessionText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
+        table.cell(infoTable, 0, 14, "Bridge Note", text_color=color.new(chart.fg_color, 20), text_size=size.small)
+        table.cell(infoTable, 1, 14, bridgeNoteText, text_color=color.new(chart.fg_color, 0), text_size=size.small)
     else
-        for row = 0 to 8
+        for row = 0 to 14
             table.cell(infoTable, 0, row, "", text_color=color.new(chart.fg_color, 100), text_size=size.small)
             table.cell(infoTable, 1, row, "", text_color=color.new(chart.fg_color, 100), text_size=size.small)
 

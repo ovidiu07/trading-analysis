@@ -84,6 +84,8 @@ public class TradeResponse {
     private Set<UUID> entryScreenshotAssetIds;
     private OffsetDateTime createdAt;
     private OffsetDateTime updatedAt;
-    private UUID accountId;
+    private String accountId;
+    private UUID accountRefId;
+    private BigDecimal contractMultiplier;
     private Set<String> tags;
 }

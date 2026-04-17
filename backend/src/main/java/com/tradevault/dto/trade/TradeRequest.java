@@ -83,6 +83,8 @@ public class TradeRequest {
     private String entryJournalText;
     private String entryInvalidation;
     private Set<UUID> entryScreenshotAssetIds;
-    private UUID accountId;
+    private String accountId;
+    private UUID accountRefId;
+    private BigDecimal contractMultiplier;
     private Set<UUID> tagIds;
 }
