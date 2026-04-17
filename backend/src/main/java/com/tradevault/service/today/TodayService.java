@@ -108,6 +108,7 @@ public class TodayService {
                 null,
                 null,
                 null,
+                null,
                 "CLOSE",
                 false
         );

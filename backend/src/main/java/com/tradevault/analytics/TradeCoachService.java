@@ -44,6 +44,7 @@ public class TradeCoachService {
                                String symbol,
                                Direction direction,
                                TradeStatus status,
+                               String accountId,
                                String strategy,
                                String setup,
                                String catalyst,
@@ -53,7 +54,7 @@ public class TradeCoachService {
         User user = currentUserService.getCurrentUser();
         List<Trade> trades = tradeRepository.findByUserId(user.getId());
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, strategy, setup, catalyst, market, mode);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode);
         CoachDataQuality dataQuality = buildDataQuality(filtered);
 
         List<Trade> closedTrades = filtered.stream()
@@ -88,6 +89,7 @@ public class TradeCoachService {
                                      String symbol,
                                      Direction direction,
                                      TradeStatus status,
+                                     String accountId,
                                      String strategy,
                                      String setup,
                                      String catalyst,
@@ -107,6 +109,11 @@ public class TradeCoachService {
         }
         if (status != null) {
             filtered = filtered.stream().filter(t -> t.getStatus() == status).toList();
+        }
+        if (accountId != null && !accountId.isBlank()) {
+            filtered = filtered.stream()
+                    .filter(t -> matchesAccountId(t, accountId))
+                    .toList();
         }
         if (strategy != null && !strategy.isBlank()) {
             Set<String> strategies = parseFilterValues(strategy);
@@ -167,9 +174,10 @@ public class TradeCoachService {
         BigDecimal qty = trade.getQuantity();
         BigDecimal entry = trade.getEntryPrice();
         BigDecimal exit = trade.getExitPrice();
+        BigDecimal multiplier = defaultOne(trade.getContractMultiplier());
         BigDecimal expected = trade.getDirection() == Direction.LONG
-                ? exit.subtract(entry).multiply(qty)
-                : entry.subtract(exit).multiply(qty);
+                ? exit.subtract(entry).multiply(qty).multiply(multiplier)
+                : entry.subtract(exit).multiply(qty).multiply(multiplier);
         BigDecimal actual = trade.getPnlNet();
         BigDecimal diff = expected.subtract(actual).abs();
         BigDecimal threshold = expected.abs().multiply(BigDecimal.valueOf(0.1));
@@ -630,6 +638,42 @@ public class TradeCoachService {
                 .filter(s -> !s.isBlank())
                 .map(s -> s.toLowerCase(Locale.ROOT))
                 .collect(Collectors.toSet());
+    }
+
+    private boolean matchesAccountId(Trade trade, String requestedAccountId) {
+        String normalizedRequested = normalizeAccountId(requestedAccountId);
+        if (normalizedRequested == null) {
+            return true;
+        }
+        return normalizedRequested.equals(normalizeAccountId(resolvedAccountId(trade)));
+    }
+
+    private String resolvedAccountId(Trade trade) {
+        if (trade == null) {
+            return null;
+        }
+        if (trade.getBrokerAccountId() != null && !trade.getBrokerAccountId().isBlank()) {
+            return trade.getBrokerAccountId();
+        }
+        if (trade.getAccount() != null && trade.getAccount().getId() != null) {
+            return trade.getAccount().getId().toString();
+        }
+        return null;
+    }
+
+    private String normalizeAccountId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized.toLowerCase(Locale.ROOT);
+    }
+
+    private BigDecimal defaultOne(BigDecimal value) {
+        return value == null ? BigDecimal.ONE : value;
     }
 
     private List<Trade> filterOutliers(List<Trade> trades) {

@@ -116,6 +116,7 @@ const defaultFilters = {
   closedDate: '',
   tz: '',
   symbol: '',
+  accountId: '',
   direction: '',
   status: ''
 }
@@ -601,6 +602,7 @@ export default function TradesPage() {
       closedDate,
       tz: params.get('tz') || (closedDate ? timezone : ''),
       symbol: params.get('symbol') || '',
+      accountId: params.get('accountId') || '',
       direction: params.get('direction') || '',
       status: params.get('status') || '',
     }
@@ -875,6 +877,7 @@ export default function TradesPage() {
               </Grid>
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {trade.notes || t('common.na')}</Typography>
+            <Typography variant="body2" color="text.secondary">{t('trades.form.accountId')}: {trade.accountId || t('common.na')}</Typography>
             {trade.initialNotes && (
               <Typography variant="body2" color="text.secondary">{t('trades.details.initialNotes')}: {trade.initialNotes}</Typography>
             )}
@@ -1050,6 +1053,7 @@ export default function TradesPage() {
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
                       <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
+                      <Typography variant="body2">{t('trades.details.accountId')}: {expandedTrade.accountId || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.strategy')}: {(expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
@@ -1109,13 +1113,14 @@ export default function TradesPage() {
                 <Grid item xs={12} md={6}>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
                     <TextField size="small" label={t('trades.filters.symbol')} value={filters.symbol} onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))} fullWidth />
+                    <TextField size="small" label={t('trades.filters.accountId')} value={filters.accountId} onChange={(e) => setFilters((prev) => ({ ...prev, accountId: e.target.value }))} fullWidth />
+                  </Stack>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
                     <TextField size="small" label={t('trades.filters.direction')} select value={filters.direction} onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value }))} fullWidth>
                       <MenuItem value="">{t('trades.filters.any')}</MenuItem>
                       <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
                       <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
                     </TextField>
-                  </Stack>
-                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
                     <TextField size="small" label={t('trades.filters.status')} select value={filters.status} onChange={(e) => setFilters((prev) => ({ ...prev, status: e.target.value }))} fullWidth>
                       <MenuItem value="">{t('trades.filters.any')}</MenuItem>
                       <MenuItem value="OPEN">{t('trades.status.OPEN')}</MenuItem>

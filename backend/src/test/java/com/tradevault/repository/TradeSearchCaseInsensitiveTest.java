@@ -142,11 +142,15 @@ class TradeSearchCaseInsensitiveTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 PageRequest.of(0, 20)
         )).doesNotThrowAnyException();
 
         var result = tradeRepository.searchTradeIds(
                 user.getId(),
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -198,17 +202,19 @@ class TradeSearchCaseInsensitiveTest {
                 .build());
 
         var pageable = PageRequest.of(0, 20);
-        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, "aapl", null, null, null, pageable).getContent())
+        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, "aapl", null, null, null, null, null, pageable).getContent())
                 .hasSize(1);
-        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, null, "breakout", null, null, pageable).getContent())
+        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, null, "breakout", null, null, null, null, pageable).getContent())
                 .hasSize(1);
-        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, null, null, Direction.LONG, null, pageable).getContent())
+        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, null, null, null, null, Direction.LONG, null, pageable).getContent())
                 .hasSize(1);
-        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, null, null, null, TradeStatus.OPEN, pageable).getContent())
+        assertThat(tradeRepository.searchTradeIds(user.getId(), null, null, null, null, null, null, null, null, null, TradeStatus.OPEN, pageable).getContent())
                 .hasSize(1);
         assertThat(tradeRepository.searchTradeIds(
                 user.getId(),
                 OffsetDateTime.parse("2026-02-10T00:00:00Z"),
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -228,6 +234,8 @@ class TradeSearchCaseInsensitiveTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 pageable).getContent())
                 .hasSize(1);
         assertThat(tradeRepository.searchTradeIds(
@@ -235,6 +243,8 @@ class TradeSearchCaseInsensitiveTest {
                 null,
                 null,
                 OffsetDateTime.parse("2026-02-10T00:00:00Z"),
+                null,
+                null,
                 null,
                 null,
                 null,
@@ -252,7 +262,65 @@ class TradeSearchCaseInsensitiveTest {
                 null,
                 null,
                 null,
+                null,
+                null,
                 pageable).getContent())
                 .hasSize(1);
+    }
+
+    @Test
+    void searchTradeIdsSupportsBrokerAccountIdFilter() {
+        User user = userRepository.save(User.builder()
+                .id(UUID.randomUUID())
+                .email("search-account@test.com")
+                .passwordHash("hash")
+                .role(Role.USER)
+                .timezone("Europe/Bucharest")
+                .build());
+
+        tradeRepository.save(Trade.builder()
+                .user(user)
+                .symbol("MNQM6")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(OffsetDateTime.parse("2026-04-17T13:44:42Z"))
+                .closedAt(OffsetDateTime.parse("2026-04-17T14:36:58Z"))
+                .quantity(new BigDecimal("2"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .brokerAccountId("APEX4855840000003")
+                .build());
+
+        tradeRepository.save(Trade.builder()
+                .user(user)
+                .symbol("MNQM6")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(OffsetDateTime.parse("2026-04-17T15:44:42Z"))
+                .closedAt(OffsetDateTime.parse("2026-04-17T16:12:58Z"))
+                .quantity(new BigDecimal("1"))
+                .entryPrice(new BigDecimal("26750"))
+                .exitPrice(new BigDecimal("26781"))
+                .brokerAccountId("APEX4855840000004")
+                .build());
+
+        var result = tradeRepository.searchTradeIds(
+                user.getId(),
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                "apex4855840000004",
+                null,
+                null,
+                null,
+                PageRequest.of(0, 20)
+        );
+
+        assertThat(result.getTotalElements()).isEqualTo(1);
     }
 }

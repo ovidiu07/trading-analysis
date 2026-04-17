@@ -502,6 +502,7 @@
     },
     "filters": {
       "advanced": "Advanced",
+      "accountId": "Account ID",
       "catalyst": "Catalyst",
       "closeDate": "Close date",
       "direction": "Direction",
@@ -777,8 +778,10 @@
     "dialog": {
       "closedOn": "Trades closed on {{date}}",
       "dailySummary": "Daily summary",
+      "byAccount": "By account",
       "tradeCountClosed": "{{count}} trades closed",
       "noClosedTrades": "No closed trades for this day.",
+      "unassignedAccount": "Unassigned account",
       "notes": "Notes",
       "noNote": "No notes for this date.",
       "untitledNote": "Untitled note",
@@ -2316,6 +2319,7 @@
       "closedFrom": "Closed from",
       "closedTo": "Closed to",
       "symbol": "Symbol",
+      "accountId": "Account ID",
       "direction": "Direction",
       "status": "Status",
       "any": "Any",
@@ -2324,7 +2328,7 @@
     "list": {
       "title": "Trades list",
       "searchResults": "Search results",
-      "importCsv": "Import CSV"
+      "importCsv": "Import from Tradovate"
     },
     "import": {
       "summary": "Imported {{rows}} rows across {{groups}} ISIN groups.",
@@ -2369,6 +2373,7 @@
       "timeframe": "Timeframe",
       "costsAndRisk": "Costs & risk",
       "currency": "Currency conversion",
+      "accountId": "Account ID",
       "pnlProfile": "P&L (profile currency)",
       "pnlTrade": "P&L (trade currency)",
       "feesProfile": "Fees (profile currency)",

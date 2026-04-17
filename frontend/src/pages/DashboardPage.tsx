@@ -96,7 +96,8 @@ export default function DashboardPage() {
             from: queryState.from,
             to: queryState.to,
             tz: timezone,
-            basis: 'close'
+            basis: 'close',
+            accountId: queryState.accountId || undefined
           }).catch(() => [] as DailyPnlResponse[]),
         ])
         setSummary(summaryResponse)
@@ -160,8 +161,11 @@ export default function DashboardPage() {
     if (queryState.status !== 'ALL') {
       params.set('status', queryState.status)
     }
+    if (queryState.accountId) {
+      params.set('accountId', queryState.accountId)
+    }
     navigate(`/trades?${params.toString()}`)
-  }, [navigate, queryState.from, queryState.status, queryState.to])
+  }, [navigate, queryState.accountId, queryState.from, queryState.status, queryState.to])
 
   const toTradeDetail = useCallback((trade: TradeResponse) => {
     const params = new URLSearchParams()
@@ -171,8 +175,11 @@ export default function DashboardPage() {
     if (queryState.status !== 'ALL') {
       params.set('status', queryState.status)
     }
+    if (queryState.accountId) {
+      params.set('accountId', queryState.accountId)
+    }
     navigate(`/trades?${params.toString()}`)
-  }, [navigate, queryState.from, queryState.status, queryState.to])
+  }, [navigate, queryState.accountId, queryState.from, queryState.status, queryState.to])
 
   const chartError = error ? t('dashboard.chartError') : ''
   const hasNoTrades = !loading && !error && (summary?.kpi?.totalTrades ?? 0) === 0 && recentTrades.length === 0

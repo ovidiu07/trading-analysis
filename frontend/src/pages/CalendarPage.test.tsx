@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { vi } from 'vitest'
+import { beforeEach, beforeAll, vi } from 'vitest'
 import CalendarPage from './CalendarPage'
 import { AuthProvider } from '../auth/AuthContext'
 import { MonthlyPnlSummaryResponse } from '../api/trades'
@@ -10,16 +10,30 @@ import { ThemeProvider } from '@mui/material'
 import theme from '../theme'
 import { formatSignedCurrency } from '../utils/format'
 import { I18nProvider } from '../i18n'
+import { format } from 'date-fns'
 
 const mockFetchDailyPnl = vi.fn()
 const mockFetchMonthlyPnlSummary = vi.fn()
+const mockFetchDailySummary = vi.fn()
+const mockListClosedTradesForDate = vi.fn()
+const mockListNotebookNotesByDate = vi.fn()
 
 vi.mock('../api/trades', async () => {
   const actual = await vi.importActual<typeof import('../api/trades')>('../api/trades')
   return {
     ...actual,
     fetchDailyPnl: (...args: unknown[]) => mockFetchDailyPnl(...args),
-    fetchMonthlyPnlSummary: (...args: unknown[]) => mockFetchMonthlyPnlSummary(...args)
+    fetchMonthlyPnlSummary: (...args: unknown[]) => mockFetchMonthlyPnlSummary(...args),
+    fetchDailySummary: (...args: unknown[]) => mockFetchDailySummary(...args),
+    listClosedTradesForDate: (...args: unknown[]) => mockListClosedTradesForDate(...args)
+  }
+})
+
+vi.mock('../api/notebook', async () => {
+  const actual = await vi.importActual<typeof import('../api/notebook')>('../api/notebook')
+  return {
+    ...actual,
+    listNotebookNotesByDate: (...args: unknown[]) => mockListNotebookNotesByDate(...args)
   }
 })
 
@@ -51,13 +65,22 @@ describe('CalendarPage', () => {
   })
 
   beforeEach(() => {
+    vi.clearAllMocks()
     localStorage.clear()
     localStorage.setItem('app.language', 'en')
     mockFetchDailyPnl.mockResolvedValue([])
-  })
-
-  afterEach(() => {
-    vi.clearAllMocks()
+    mockFetchDailySummary.mockResolvedValue({
+      date: '2026-04-17',
+      netPnl: 0,
+      tradeCount: 0,
+      winners: 0,
+      losers: 0,
+      winRate: 0,
+      equityPoints: [],
+      accounts: []
+    })
+    mockListClosedTradesForDate.mockResolvedValue([])
+    mockListNotebookNotesByDate.mockResolvedValue([])
   })
 
   it('renders monthly summary and updates on month navigation', async () => {
@@ -100,5 +123,85 @@ describe('CalendarPage', () => {
       tz: 'Europe/Bucharest',
       basis: 'close'
     })
+  })
+
+  it('shows a per-account breakdown when opening a day', async () => {
+    const activeDateKey = format(new Date(new Date().getFullYear(), new Date().getMonth(), 17), 'yyyy-MM-dd')
+    const month = Number(activeDateKey.slice(5, 7))
+
+    mockFetchMonthlyPnlSummary.mockResolvedValue(buildSummary(month, 1200))
+    mockFetchDailyPnl.mockResolvedValue([
+      { date: activeDateKey, netPnl: 430, tradeCount: 2, wins: 2, losses: 0 }
+    ])
+    mockFetchDailySummary.mockResolvedValue({
+      date: activeDateKey,
+      netPnl: 430,
+      tradeCount: 2,
+      winners: 2,
+      losers: 0,
+      winRate: 1,
+      equityPoints: [430],
+      accounts: [
+        { accountId: 'APEX4855840000003', netPnl: 306, tradeCount: 1, winners: 1, losers: 0, winRate: 1 },
+        { accountId: 'APEX4855840000004', netPnl: 124, tradeCount: 1, winners: 1, losers: 0, winRate: 1 }
+      ]
+    })
+    mockListClosedTradesForDate.mockResolvedValue([
+      {
+        id: 'trade-1',
+        symbol: 'MNQM6',
+        market: 'FUTURES',
+        direction: 'LONG',
+        status: 'CLOSED',
+        openedAt: '2026-04-17T13:44:42Z',
+        closedAt: '2026-04-17T14:36:58Z',
+        pnlNet: 306,
+        pnlProfileCurrency: 306,
+        profileCurrency: 'USD',
+        tradeCurrency: 'USD',
+        accountId: 'APEX4855840000003',
+        quantity: 2,
+        entryPrice: 26711.5
+      },
+      {
+        id: 'trade-2',
+        symbol: 'MNQM6',
+        market: 'FUTURES',
+        direction: 'LONG',
+        status: 'CLOSED',
+        openedAt: '2026-04-17T15:44:42Z',
+        closedAt: '2026-04-17T16:12:58Z',
+        pnlNet: 124,
+        pnlProfileCurrency: 124,
+        profileCurrency: 'USD',
+        tradeCurrency: 'USD',
+        accountId: 'APEX4855840000004',
+        quantity: 1,
+        entryPrice: 26750
+      }
+    ])
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <I18nProvider>
+            <ThemeProvider theme={theme}>
+              <CalendarPage />
+            </ThemeProvider>
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+
+    const user = userEvent.setup()
+    await waitFor(() => {
+      expect(mockFetchDailyPnl).toHaveBeenCalled()
+    })
+
+    await user.click(screen.getByLabelText(new RegExp(`View realized P&L for ${activeDateKey}`)))
+
+    expect(await screen.findByText('By account')).toBeInTheDocument()
+    expect(screen.getByText('APEX4855840000003')).toBeInTheDocument()
+    expect(screen.getByText('APEX4855840000004')).toBeInTheDocument()
   })
 })

@@ -17,6 +17,8 @@ public interface TradeRepositoryCustom {
       OffsetDateTime closedAtTo,
       String symbol,
       String strategy,
+      String brokerAccountId,
+      UUID accountRefId,
       Direction direction,
       TradeStatus status,
       Pageable pageable);
@@ -29,6 +31,8 @@ public interface TradeRepositoryCustom {
       OffsetDateTime closedAtTo,
       String symbol,
       String strategy,
+      String brokerAccountId,
+      UUID accountRefId,
       Direction direction,
       TradeStatus status,
       Pageable pageable);

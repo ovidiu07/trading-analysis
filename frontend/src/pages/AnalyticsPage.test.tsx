@@ -276,11 +276,12 @@ describe('AnalyticsPage', () => {
 
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Symbol'), 'AAPL')
+    await user.type(screen.getByLabelText('Account ID'), 'APEX4855840000003')
     await user.click(screen.getByRole('button', { name: 'Apply' }))
 
     await waitFor(() => {
-      expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
-      expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
+      expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL', accountId: 'APEX4855840000003' }))
+      expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL', accountId: 'APEX4855840000003' }))
       expect(mockFetchSignalAnalyticsSummary).toHaveBeenCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
     })
   })

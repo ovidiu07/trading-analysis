@@ -53,6 +53,7 @@ class TradeCoachServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "CLOSE",
                 false
         );

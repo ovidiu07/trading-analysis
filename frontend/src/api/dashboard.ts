@@ -15,7 +15,8 @@ export async function fetchDashboardSummary(filters: DashboardFilters = {}) {
     to: filters.to,
     dateMode: 'CLOSE',
     status: filters.status && filters.status !== 'ALL' ? filters.status : undefined,
-    market: filters.market || undefined
+    market: filters.market || undefined,
+    accountId: filters.accountId || undefined
   })
 }
 

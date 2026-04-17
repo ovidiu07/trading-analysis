@@ -505,6 +505,9 @@ export default function AnalyticsPage() {
       if (dateMode === 'OPEN') params.set('openedAtTo', filters.to)
       else params.set('closedAtTo', filters.to)
     }
+    if (filters.accountId) {
+      params.set('accountId', filters.accountId)
+    }
     if (card.filters?.symbol || filters.symbol) params.set('symbol', card.filters?.symbol || filters.symbol || '')
     if (card.filters?.direction || filters.direction) params.set('direction', card.filters?.direction || filters.direction || '')
     if (card.filters?.status || filters.status) params.set('status', card.filters?.status || filters.status || '')
@@ -724,6 +727,14 @@ export default function AnalyticsPage() {
                 label={t('analytics.filters.symbol')}
                 value={filters.symbol || ''}
                 onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))}
+                fullWidth
+                sx={filterFieldSx}
+              />
+              <TextField
+                size="small"
+                label={t('analytics.filters.accountId')}
+                value={filters.accountId || ''}
+                onChange={(e) => setFilters((prev) => ({ ...prev, accountId: e.target.value }))}
                 fullWidth
                 sx={filterFieldSx}
               />

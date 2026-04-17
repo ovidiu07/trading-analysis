@@ -21,6 +21,7 @@ public class CalendarController {
     public MonthlyPnlSummaryResponse monthSummary(@RequestParam int year,
                                                   @RequestParam int month,
                                                   @RequestParam(required = false) String tz,
+                                                  @RequestParam(required = false) String accountId,
                                                   @RequestParam(defaultValue = "close") String basis) {
         PnlBasis resolved = resolveBasis(basis);
         if (resolved != PnlBasis.CLOSE) {
@@ -32,7 +33,7 @@ public class CalendarController {
         if (month < 1 || month > 12) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid month value: " + month);
         }
-        return tradeCalendarService.fetchMonthlySummary(year, month, tz, resolved);
+        return tradeCalendarService.fetchMonthlySummary(year, month, tz, resolved, accountId);
     }
 
     private PnlBasis resolveBasis(String basis) {

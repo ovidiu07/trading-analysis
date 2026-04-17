@@ -178,18 +178,14 @@ export default function TopBar({
         sx={{ minWidth: { xs: '100%', sm: 145 } }}
         inputProps={{ 'aria-label': t('dashboard.topBar.to') }}
       />
-      <Tooltip title={t('dashboard.topBar.comingSoon')} arrow>
-        <span>
-          <TextField
-            size="small"
-            label={t('dashboard.topBar.account')}
-            value={dashboardState.accountId}
-            disabled
-            sx={{ minWidth: { xs: '100%', sm: 140 } }}
-            inputProps={{ 'aria-label': t('dashboard.topBar.account') }}
-          />
-        </span>
-      </Tooltip>
+      <TextField
+        size="small"
+        label={t('dashboard.topBar.account')}
+        value={dashboardState.accountId}
+        onChange={(event) => onDashboardStateChange({ accountId: event.target.value })}
+        sx={{ minWidth: { xs: '100%', sm: 160 } }}
+        inputProps={{ 'aria-label': t('dashboard.topBar.account') }}
+      />
       <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 150 } }}>
         <InputLabel id="dashboard-market-label">{t('dashboard.topBar.market')}</InputLabel>
         <Select
@@ -238,6 +234,9 @@ export default function TopBar({
     ]
     if (marketValue) {
       summaryParts.push(`${t('dashboard.topBar.market')}: ${marketValue}`)
+    }
+    if (dashboardState.accountId) {
+      summaryParts.push(`${t('dashboard.topBar.account')}: ${dashboardState.accountId}`)
     }
     return summaryParts.join(' | ')
   }, [dashboardState.from, dashboardState.to, marketValue, statusValue, t])

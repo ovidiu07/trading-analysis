@@ -94,7 +94,9 @@ class TradeMonthlyPnlAggregationTest {
                 user.getId(),
                 LocalDate.of(2026, 2, 1),
                 LocalDate.of(2026, 2, 28),
-                "Europe/Bucharest"
+                "Europe/Bucharest",
+                null,
+                null
         );
 
         assertThat(result).isNotNull();

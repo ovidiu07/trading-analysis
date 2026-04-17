@@ -285,6 +285,7 @@ export type AnalyticsFilters = {
   direction?: 'LONG' | 'SHORT'
   market?: string
   status?: 'OPEN' | 'CLOSED'
+  accountId?: string
   strategy?: string[]
   setup?: string[]
   catalyst?: string[]

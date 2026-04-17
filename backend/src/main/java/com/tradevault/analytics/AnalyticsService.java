@@ -38,6 +38,7 @@ public class AnalyticsService {
                                        String symbol,
                                        Direction direction,
                                        TradeStatus status,
+                                       String accountId,
                                        String strategy,
                                        String setup,
                                        String catalyst,
@@ -48,7 +49,7 @@ public class AnalyticsService {
         User user = currentUserService.getCurrentUser();
         List<Trade> trades = tradeRepository.findByUserId(user.getId());
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, strategy, setup, catalyst, market, mode, holdingBucket);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode, holdingBucket);
         FilterOptions filterOptions = buildFilterOptions(trades);
 
         List<Trade> closedTrades = filtered.stream()
@@ -116,6 +117,7 @@ public class AnalyticsService {
                                                   String symbol,
                                                   Direction direction,
                                                   TradeStatus status,
+                                                  String accountId,
                                                   String strategy,
                                                   String setup,
                                                   String catalyst,
@@ -126,7 +128,7 @@ public class AnalyticsService {
         User user = currentUserService.getCurrentUser();
         List<Trade> trades = tradeRepository.findByUserId(user.getId());
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, strategy, setup, catalyst, market, mode, null);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode, null);
         List<Trade> closedTrades = filtered.stream()
                 .filter(t -> t.getStatus() == TradeStatus.CLOSED && t.getClosedAt() != null)
                 .toList();
@@ -148,6 +150,7 @@ public class AnalyticsService {
                                                 String symbol,
                                                 Direction direction,
                                                 TradeStatus status,
+                                                String accountId,
                                                 String strategy,
                                                 String setup,
                                                 String catalyst,
@@ -157,7 +160,7 @@ public class AnalyticsService {
         User user = currentUserService.getCurrentUser();
         List<Trade> trades = tradeRepository.findByUserId(user.getId());
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, strategy, setup, catalyst, market, mode, null);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode, null);
         List<Trade> closedTrades = filtered.stream()
                 .filter(t -> t.getStatus() == TradeStatus.CLOSED && t.getClosedAt() != null)
                 .toList();
@@ -182,6 +185,7 @@ public class AnalyticsService {
                                      String symbol,
                                      Direction direction,
                                      TradeStatus status,
+                                     String accountId,
                                      String strategy,
                                      String setup,
                                      String catalyst,
@@ -202,6 +206,11 @@ public class AnalyticsService {
         }
         if (status != null) {
             filtered = filtered.stream().filter(t -> t.getStatus() == status).toList();
+        }
+        if (accountId != null && !accountId.isBlank()) {
+            filtered = filtered.stream()
+                    .filter(t -> matchesAccountId(t, accountId))
+                    .toList();
         }
         if (strategy != null && !strategy.isBlank()) {
             Set<String> strategies = parseFilterValues(strategy);
@@ -230,6 +239,38 @@ public class AnalyticsService {
                     .toList();
         }
         return filtered;
+    }
+
+    private boolean matchesAccountId(Trade trade, String requestedAccountId) {
+        String normalizedRequested = normalizeAccountId(requestedAccountId);
+        if (normalizedRequested == null) {
+            return true;
+        }
+        return normalizedRequested.equals(normalizeAccountId(resolvedAccountId(trade)));
+    }
+
+    private String resolvedAccountId(Trade trade) {
+        if (trade == null) {
+            return null;
+        }
+        if (trade.getBrokerAccountId() != null && !trade.getBrokerAccountId().isBlank()) {
+            return trade.getBrokerAccountId();
+        }
+        if (trade.getAccount() != null && trade.getAccount().getId() != null) {
+            return trade.getAccount().getId().toString();
+        }
+        return null;
+    }
+
+    private String normalizeAccountId(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        return normalized.toLowerCase(Locale.ROOT);
     }
 
     private FilterOptions buildFilterOptions(List<Trade> trades) {

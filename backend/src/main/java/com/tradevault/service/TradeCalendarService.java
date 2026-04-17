@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.util.List;
+import java.util.UUID;
 import java.math.BigDecimal;
 
 @Service
@@ -25,16 +26,31 @@ public class TradeCalendarService {
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
 
-    public List<DailyPnlResponse> fetchDailyPnl(LocalDate from, LocalDate to, String tz, PnlBasis basis) {
+    public List<DailyPnlResponse> fetchDailyPnl(LocalDate from, LocalDate to, String tz, PnlBasis basis, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
+        AccountFilter accountFilter = resolveAccountFilter(accountId);
         String statusExpectation = (basis == PnlBasis.CLOSE) ? "CLOSED" : "OPEN";
         /*log.info("[CALENDAR] fetchDailyPnl userId={}, from={}, to={}, tz={}, basis={}, statusExpectation={}",
                 user.getId(), from, to, zone.getId(), basis, statusExpectation);*/
 
         List<TradeRepository.DailyPnlAggregate> aggregates = switch (basis) {
-            case OPEN -> tradeRepository.aggregateDailyPnlByOpenedDate(user.getId(), from, to, zone.getId());
-            case CLOSE -> tradeRepository.aggregateDailyPnlByClosedDate(user.getId(), from, to, zone.getId());
+            case OPEN -> tradeRepository.aggregateDailyPnlByOpenedDate(
+                    user.getId(),
+                    from,
+                    to,
+                    zone.getId(),
+                    accountFilter.brokerAccountId(),
+                    accountFilter.accountRefId()
+            );
+            case CLOSE -> tradeRepository.aggregateDailyPnlByClosedDate(
+                    user.getId(),
+                    from,
+                    to,
+                    zone.getId(),
+                    accountFilter.brokerAccountId(),
+                    accountFilter.accountRefId()
+            );
         };
 
         /*log.info("[CALENDAR] fetchDailyPnl result size={}", (aggregates != null ? aggregates.size() : 0));*/
@@ -50,14 +66,22 @@ public class TradeCalendarService {
                 .toList();
     }
 
-    public MonthlyPnlSummaryResponse fetchMonthlySummary(int year, int month, String tz, PnlBasis basis) {
+    public MonthlyPnlSummaryResponse fetchMonthlySummary(int year, int month, String tz, PnlBasis basis, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
+        AccountFilter accountFilter = resolveAccountFilter(accountId);
         LocalDate monthStart = LocalDate.of(year, month, 1);
         LocalDate monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth());
 
         TradeRepository.MonthlyPnlAggregate aggregate = switch (basis) {
-            case CLOSE -> tradeRepository.aggregateMonthlyPnlByClosedDate(user.getId(), monthStart, monthEnd, zone.getId());
+            case CLOSE -> tradeRepository.aggregateMonthlyPnlByClosedDate(
+                    user.getId(),
+                    monthStart,
+                    monthEnd,
+                    zone.getId(),
+                    accountFilter.brokerAccountId(),
+                    accountFilter.accountRefId()
+            );
             case OPEN -> throw new IllegalArgumentException("Monthly summary supports CLOSE basis only");
         };
 
@@ -76,4 +100,30 @@ public class TradeCalendarService {
                 tradingDays
         );
     }
+
+    private AccountFilter resolveAccountFilter(String accountId) {
+        String brokerAccountId = normalizeOptionalText(accountId);
+        return new AccountFilter(brokerAccountId, parseUuidOrNull(brokerAccountId));
+    }
+
+    private UUID parseUuidOrNull(String value) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return UUID.fromString(value);
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
+    private record AccountFilter(String brokerAccountId, UUID accountRefId) {}
 }

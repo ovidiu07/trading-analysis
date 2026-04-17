@@ -69,6 +69,11 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
         WHERE t.user_id = :userId
           AND t.status = 'CLOSED'
           AND t.closed_at IS NOT NULL
+          AND (
+            (:brokerAccountId IS NULL AND :accountRefId IS NULL)
+            OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+            OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
+          )
       )
       SELECT x.local_date AS date,
              COALESCE(SUM(x.pnl_net), 0) AS netPnl,
@@ -83,7 +88,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       """, nativeQuery = true)
   List<DailyPnlAggregate> aggregateDailyPnlByClosedDate(@Param("userId") UUID userId,
       @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
-      @Param("tz") String tz);
+      @Param("tz") String tz,
+      @Param("brokerAccountId") String brokerAccountId,
+      @Param("accountRefId") UUID accountRefId);
 
   @Query(value = """
       WITH x AS (
@@ -92,6 +99,11 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
         FROM trades t
         WHERE t.user_id = :userId
           AND t.opened_at IS NOT NULL
+          AND (
+            (:brokerAccountId IS NULL AND :accountRefId IS NULL)
+            OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+            OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
+          )
       )
       SELECT x.local_date AS date,
              COALESCE(SUM(x.pnl_net), 0) AS netPnl,
@@ -106,7 +118,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       """, nativeQuery = true)
   List<DailyPnlAggregate> aggregateDailyPnlByOpenedDate(@Param("userId") UUID userId,
       @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
-      @Param("tz") String tz);
+      @Param("tz") String tz,
+      @Param("brokerAccountId") String brokerAccountId,
+      @Param("accountRefId") UUID accountRefId);
 
   @Query(value = """
       WITH x AS (
@@ -117,6 +131,11 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
         WHERE t.user_id = :userId
           AND t.status = 'CLOSED'
           AND t.closed_at IS NOT NULL
+          AND (
+            (:brokerAccountId IS NULL AND :accountRefId IS NULL)
+            OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+            OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
+          )
       )
       SELECT COALESCE(SUM(x.pnl_net), 0) AS netPnl,
              COALESCE(SUM(x.pnl_gross), 0) AS grossPnl,
@@ -128,7 +147,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       """, nativeQuery = true)
   MonthlyPnlAggregate aggregateMonthlyPnlByClosedDate(@Param("userId") UUID userId,
       @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
-      @Param("tz") String tz);
+      @Param("tz") String tz,
+      @Param("brokerAccountId") String brokerAccountId,
+      @Param("accountRefId") UUID accountRefId);
 
   @Query(value = """
       SELECT t.id FROM trades t
@@ -136,10 +157,18 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
         AND t.status = 'CLOSED'
         AND t.closed_at IS NOT NULL
         AND CAST((t.closed_at AT TIME ZONE :tz) AS date) = :date
+        AND (
+          (:brokerAccountId IS NULL AND :accountRefId IS NULL)
+          OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+          OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
+        )
       ORDER BY t.closed_at
       """, nativeQuery = true)
   List<UUID> findClosedTradeIdsForLocalDate(@Param("userId") UUID userId,
-      @Param("date") LocalDate date, @Param("tz") String tz);
+      @Param("date") LocalDate date,
+      @Param("tz") String tz,
+      @Param("brokerAccountId") String brokerAccountId,
+      @Param("accountRefId") UUID accountRefId);
 
   @Query("""
       SELECT t.id

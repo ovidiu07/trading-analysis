@@ -100,6 +100,8 @@ export type TradeResponse = {
   createdAt?: string | null
   updatedAt?: string | null
   accountId?: string | null
+  accountRefId?: string | null
+  contractMultiplier?: number | null
   tags?: string[]
 }
 
@@ -138,6 +140,26 @@ export type DailyPnlResponse = {
   tradeCount: number
   wins: number
   losses: number
+}
+
+export type DailyAccountSummaryResponse = {
+  accountId?: string | null
+  netPnl: number
+  tradeCount: number
+  winners: number
+  losers: number
+  winRate: number
+}
+
+export type DailySummaryResponse = {
+  date: string
+  netPnl: number
+  tradeCount: number
+  winners: number
+  losers: number
+  winRate: number
+  equityPoints: number[]
+  accounts: DailyAccountSummaryResponse[]
 }
 
 export type MonthlyPnlSummaryResponse = {
@@ -184,16 +206,20 @@ export async function searchTrades(filters: TradeSearchFilters = {}) {
   return apiGet<PageResponse<TradeResponse>>(`/trades/search${toQuery(filters)}`)
 }
 
-export async function fetchDailyPnl(params: { from: string; to: string; tz?: string; basis?: 'open' | 'close' }) {
+export async function fetchDailyPnl(params: { from: string; to: string; tz?: string; basis?: 'open' | 'close'; accountId?: string }) {
   return apiGet<DailyPnlResponse[]>(`/trades/daily-pnl${toQuery(params)}`)
 }
 
-export async function fetchMonthlyPnlSummary(params: { year: number; month: number; tz?: string; basis?: 'open' | 'close' }) {
+export async function fetchMonthlyPnlSummary(params: { year: number; month: number; tz?: string; basis?: 'open' | 'close'; accountId?: string }) {
   return apiGet<MonthlyPnlSummaryResponse>(`/calendar/month-summary${toQuery(params)}`)
 }
 
-export async function listClosedTradesForDate(date: string, tz?: string) {
-  return apiGet<TradeResponse[]>(`/trades/closed-day${toQuery({ date, tz })}`)
+export async function fetchDailySummary(params: { date: string; tz?: string; accountId?: string }) {
+  return apiGet<DailySummaryResponse>(`/trades/daily-summary${toQuery(params)}`)
+}
+
+export async function listClosedTradesForDate(date: string, tz?: string, accountId?: string) {
+  return apiGet<TradeResponse[]>(`/trades/closed-day${toQuery({ date, tz, accountId })}`)
 }
 
 export async function getTradeById(id: string) {

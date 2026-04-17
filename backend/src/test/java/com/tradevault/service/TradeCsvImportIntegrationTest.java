@@ -107,7 +107,7 @@ class TradeCsvImportIntegrationTest {
         assertThat(trade.getContractMultiplier()).isEqualByComparingTo("2");
         assertThat(trade.getPnlNet()).isEqualByComparingTo("306.0000");
 
-        var closedTrades = tradeService.listClosedTradesByDate(LocalDate.of(2026, 4, 17), "Europe/Bucharest");
+        var closedTrades = tradeService.listClosedTradesByDate(LocalDate.of(2026, 4, 17), "Europe/Bucharest", null);
         assertThat(closedTrades).hasSize(1);
         assertThat(closedTrades.get(0).getId()).isEqualTo(trade.getId());
 
@@ -115,7 +115,8 @@ class TradeCsvImportIntegrationTest {
                 LocalDate.of(2026, 4, 17),
                 LocalDate.of(2026, 4, 17),
                 "Europe/Bucharest",
-                PnlBasis.CLOSE
+                PnlBasis.CLOSE,
+                null
         );
         assertThat(calendar).hasSize(1);
         assertThat(calendar.get(0).tradeCount()).isEqualTo(1);

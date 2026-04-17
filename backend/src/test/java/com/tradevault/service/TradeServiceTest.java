@@ -21,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.List;
@@ -30,6 +31,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -564,6 +566,7 @@ public class TradeServiceTest {
                         null,
                         null,
                         null,
+                        null,
                         null
                 )
         );
@@ -573,7 +576,7 @@ public class TradeServiceTest {
         List<Map<String, String>> fieldErrors = (List<Map<String, String>>) details.get("fieldErrors");
         assertEquals("openedAtFrom", fieldErrors.get(0).get("field"));
         assertEquals("openedAtTo", fieldErrors.get(1).get("field"));
-        verify(tradeRepository, never()).searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(tradeRepository, never()).searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -606,6 +609,81 @@ public class TradeServiceTest {
         assertEquals("I'm wrong if price closes below the sweep origin.", response.getEntryInvalidation());
         assertEquals(Set.of(assetId), response.getEntryScreenshotAssetIds());
         assertEquals("Focused", response.getFeeling());
+    }
+
+    @Test
+    void searchPassesBrokerAccountFilterToRepository() {
+        when(timezoneService.resolveZone(null, user)).thenReturn(ZoneId.of("UTC"));
+        when(tradeRepository.searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
+
+        tradeService.search(
+                0,
+                20,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                " APEX4855840000003 ",
+                null,
+                null
+        );
+
+        verify(tradeRepository).searchTradeIds(
+                eq(user.getId()),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                isNull(),
+                eq("APEX4855840000003"),
+                isNull(),
+                isNull(),
+                isNull(),
+                any()
+        );
+    }
+
+    @Test
+    void dailySummaryBuildsPerAccountBreakdown() {
+        LocalDate date = LocalDate.of(2026, 4, 17);
+        ZoneId zone = ZoneId.of("Europe/Bucharest");
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+
+        when(timezoneService.resolveZone("Europe/Bucharest", user)).thenReturn(zone);
+        when(tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId(), null, null))
+                .thenReturn(List.of(firstId, secondId));
+        when(tradeRepository.findAllByIdInWithTagsAndAccount(List.of(firstId, secondId)))
+                .thenReturn(List.of(
+                        Trade.builder()
+                                .id(firstId)
+                                .user(user)
+                                .brokerAccountId("APEX4855840000003")
+                                .pnlNet(new BigDecimal("150"))
+                                .build(),
+                        Trade.builder()
+                                .id(secondId)
+                                .user(user)
+                                .brokerAccountId("APEX4855840000004")
+                                .pnlNet(new BigDecimal("-45"))
+                                .build()
+                ));
+
+        var summary = tradeService.dailySummary(date, "Europe/Bucharest", null);
+
+        assertEquals(new BigDecimal("105"), summary.getNetPnl());
+        assertEquals(2, summary.getTradeCount());
+        assertEquals(2, summary.getAccounts().size());
+        assertEquals("APEX4855840000003", summary.getAccounts().get(0).getAccountId());
+        assertEquals(new BigDecimal("150"), summary.getAccounts().get(0).getNetPnl());
+        assertEquals("APEX4855840000004", summary.getAccounts().get(1).getAccountId());
+        assertEquals(new BigDecimal("-45"), summary.getAccounts().get(1).getNetPnl());
     }
 
     private TradeRequest baseRequest() {

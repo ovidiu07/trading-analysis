@@ -502,6 +502,7 @@
     },
     "filters": {
       "advanced": "Avansat",
+      "accountId": "ID cont",
       "catalyst": "Catalizator",
       "closeDate": "Data închiderii",
       "direction": "Direcție",
@@ -777,8 +778,10 @@
     "dialog": {
       "closedOn": "Tranzacții închise la {{date}}",
       "dailySummary": "Rezumat zilnic",
+      "byAccount": "Pe cont",
       "tradeCountClosed": "{{count}} tranzacții închise",
       "noClosedTrades": "Nu există tranzacții închise pentru această zi.",
+      "unassignedAccount": "Cont nealocat",
       "notes": "Note",
       "noNote": "Nu există note pentru această dată.",
       "untitledNote": "Notă fără titlu",
@@ -2316,6 +2319,7 @@
       "closedFrom": "Închis de la",
       "closedTo": "Închis până la",
       "symbol": "Simbol",
+      "accountId": "ID cont",
       "direction": "Direcție",
       "status": "Stare",
       "any": "Oricare",
@@ -2324,7 +2328,7 @@
     "list": {
       "title": "Lista tranzacțiilor",
       "searchResults": "Rezultate filtrate",
-      "importCsv": "Importă CSV"
+      "importCsv": "Importă din Tradovate"
     },
     "import": {
       "summary": "Au fost importate {{rows}} rânduri din {{groups}} grupuri ISIN.",
@@ -2369,6 +2373,7 @@
       "timeframe": "Timeframe",
       "costsAndRisk": "Costuri & risc",
       "currency": "Conversie valutară",
+      "accountId": "ID cont",
       "pnlProfile": "P&L (moneda profilului)",
       "pnlTrade": "P&L (moneda tranzacției)",
       "feesProfile": "Taxe (moneda profilului)",

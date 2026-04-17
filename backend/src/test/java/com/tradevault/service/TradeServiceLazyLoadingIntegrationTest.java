@@ -128,10 +128,10 @@ class TradeServiceLazyLoadingIntegrationTest {
                 .updatedAt(OffsetDateTime.parse("2026-02-09T10:00:00Z"))
                 .build());
 
-        assertThatCode(() -> tradeService.search(0, 1, null, null, null, null, null, null, null, null, null, null))
+        assertThatCode(() -> tradeService.search(0, 1, null, null, null, null, null, null, null, null, null, null, null))
                 .doesNotThrowAnyException();
 
-        Page<TradeResponse> page = tradeService.search(0, 1, null, null, null, null, null, null, null, null, null, null);
+        Page<TradeResponse> page = tradeService.search(0, 1, null, null, null, null, null, null, null, null, null, null, null);
         assertThat(page.getTotalElements()).isEqualTo(2);
         assertThat(page.getContent()).hasSize(1);
         assertThat(page.getContent().get(0).getSymbol()).isEqualTo("AAPL");
@@ -174,14 +174,14 @@ class TradeServiceLazyLoadingIntegrationTest {
                 .build());
 
         assertThatCode(() -> tradeService.getById(trade.getId())).doesNotThrowAnyException();
-        assertThatCode(() -> tradeService.listClosedTradesByDate(LocalDate.parse("2026-02-11"), "UTC")).doesNotThrowAnyException();
+        assertThatCode(() -> tradeService.listClosedTradesByDate(LocalDate.parse("2026-02-11"), "UTC", null)).doesNotThrowAnyException();
         assertThatCode(() -> tradeService.listLosses(LocalDate.parse("2026-02-11"), LocalDate.parse("2026-02-11"), "UTC", new BigDecimal("50")))
                 .doesNotThrowAnyException();
 
         TradeResponse byId = tradeService.getById(trade.getId());
         assertThat(byId.getTags()).containsExactly("Loss");
 
-        assertThat(tradeService.listClosedTradesByDate(LocalDate.parse("2026-02-11"), "UTC"))
+        assertThat(tradeService.listClosedTradesByDate(LocalDate.parse("2026-02-11"), "UTC", null))
                 .hasSize(1)
                 .allSatisfy(item -> assertThat(item.getTags()).containsExactly("Loss"));
 

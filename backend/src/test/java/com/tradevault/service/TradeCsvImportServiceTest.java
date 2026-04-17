@@ -138,6 +138,16 @@ class TradeCsvImportServiceTest {
     }
 
     @Test
+    void importTradovatePreservesBrokerAccountIdAcrossDifferentExports() throws Exception {
+        service.importCsv(csvFile(ordersCsvSecondAccount()));
+
+        ImportedTradeCandidate candidate = capturedCandidates().get(0);
+        assertEquals("APEX4855840000004", candidate.getAccountId());
+        assertEquals(new BigDecimal("4"), candidate.getQuantity());
+        assertEquals(TradeStatus.CLOSED, candidate.getStatus());
+    }
+
+    @Test
     void importTradovateOpenTradeWithoutExitKeepsTradeOpen() throws Exception {
         var summary = service.importCsv(csvFile(ordersCsvOpen()));
 
@@ -211,6 +221,16 @@ class TradeCsvImportServiceTest {
                 "670913240262,APEX4855840000003,670913240262, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,26711.5,2,04/17/2026 16:44:42,670913240262, Filled,-2,0,0.25,,670913240262,04/17/2026 16:44:42,4/17/26,2,Tradingview, Limit,26712.00,,26712.0,,2,26711.50,26711.5,,\"106,846.00\",USD",
                 "670913240265,APEX4855840000003,670913240265, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,670913240289, Canceled,-2,0,0.25,,670913240289,04/17/2026 16:46:50,4/17/26,2,Tradingview, Limit,26884.75,,26884.75,,,,,,,USD",
                 "670913240267,APEX4855840000003,670913240267, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,670913240293, Canceled,-2,0,0.25,,670913240293,04/17/2026 17:34:34,4/17/26,2,Tradingview, Stop,,26712.25,,26712.25,,,,,,USD"
+        );
+    }
+
+    private String ordersCsvSecondAccount() {
+        return String.join("\n",
+                tradovateHeader(),
+                "470913240362,APEX4855840000004,470913240362, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,26711.5,4,04/17/2026 16:44:42,470913240362, Filled,-2,0,0.25,,470913240362,04/17/2026 16:44:42,4/17/26,4,Tradingview, Limit,26712.00,,26712.0,,4,26711.50,26711.5,,\"213,692.00\",USD",
+                "470913240365,APEX4855840000004,470913240365, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,470913240389, Canceled,-2,0,0.25,,470913240389,04/17/2026 16:46:50,4/17/26,4,Tradingview, Limit,26884.75,,26884.75,,,,,,,USD",
+                "470913240367,APEX4855840000004,470913240367, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,470913240393, Canceled,-2,0,0.25,,470913240393,04/17/2026 17:34:34,4/17/26,4,Tradingview, Stop,,26712.25,,26712.25,,,,,,USD",
+                "470913240403,APEX4855840000004,470913240403, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,26788.0,4,04/17/2026 17:36:58,470913240403, Filled,-2,0,0.25,,470913240403,04/17/2026 17:36:58,4/17/26,4,Exit, Market,,,,,4,26788.00,26788.0,,\"214,304.00\",USD"
         );
     }
 

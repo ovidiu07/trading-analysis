@@ -8,6 +8,8 @@ import jakarta.persistence.PersistenceContext;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.CriteriaBuilder;
 import jakarta.persistence.criteria.CriteriaQuery;
+import jakarta.persistence.criteria.Join;
+import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Order;
 import jakarta.persistence.criteria.Path;
 import jakarta.persistence.criteria.Predicate;
@@ -37,6 +39,8 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
       OffsetDateTime closedAtTo,
       String symbol,
       String strategy,
+      String brokerAccountId,
+      UUID accountRefId,
       Direction direction,
       TradeStatus status,
       Pageable pageable) {
@@ -45,7 +49,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<UUID> idQuery = cb.createQuery(UUID.class);
     Root<Trade> idRoot = idQuery.from(Trade.class);
     List<Predicate> idPredicates = buildSearchPredicates(cb, idRoot, userId, openedAtFrom, openedAtTo,
-        closedAtFrom, closedAtTo, symbol, strategy, direction, status);
+        closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
     idQuery.select(idRoot.get("id"));
     idQuery.where(idPredicates.toArray(Predicate[]::new));
     applySort(cb, idRoot, idQuery, pageable.getSort());
@@ -58,7 +62,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
     Root<Trade> countRoot = countQuery.from(Trade.class);
     List<Predicate> countPredicates = buildSearchPredicates(cb, countRoot, userId, openedAtFrom,
-        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, direction, status);
+        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
     countQuery.select(cb.count(countRoot));
     countQuery.where(countPredicates.toArray(Predicate[]::new));
     long total = entityManager.createQuery(countQuery).getSingleResult();
@@ -74,6 +78,8 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
       OffsetDateTime closedAtTo,
       String symbol,
       String strategy,
+      String brokerAccountId,
+      UUID accountRefId,
       Direction direction,
       TradeStatus status,
       Pageable pageable) {
@@ -82,7 +88,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<Trade> entityQuery = cb.createQuery(Trade.class);
     Root<Trade> entityRoot = entityQuery.from(Trade.class);
     List<Predicate> entityPredicates = buildSearchPredicates(cb, entityRoot, userId, openedAtFrom,
-        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, direction, status);
+        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
     entityQuery.select(entityRoot);
     entityQuery.where(entityPredicates.toArray(Predicate[]::new));
     applySort(cb, entityRoot, entityQuery, pageable.getSort());
@@ -95,7 +101,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
     Root<Trade> countRoot = countQuery.from(Trade.class);
     List<Predicate> countPredicates = buildSearchPredicates(cb, countRoot, userId, openedAtFrom,
-        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, direction, status);
+        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
     countQuery.select(cb.count(countRoot));
     countQuery.where(countPredicates.toArray(Predicate[]::new));
     long total = entityManager.createQuery(countQuery).getSingleResult();
@@ -112,6 +118,8 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
       OffsetDateTime closedAtTo,
       String symbol,
       String strategy,
+      String brokerAccountId,
+      UUID accountRefId,
       Direction direction,
       TradeStatus status) {
     List<Predicate> predicates = new ArrayList<>();
@@ -136,6 +144,17 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     if (strategy != null) {
       predicates.add(cb.equal(cb.lower(root.get("strategyTag")),
           strategy.toLowerCase(Locale.ROOT)));
+    }
+    if (brokerAccountId != null || accountRefId != null) {
+      List<Predicate> accountPredicates = new ArrayList<>();
+      if (brokerAccountId != null) {
+        accountPredicates.add(cb.equal(cb.lower(root.get("brokerAccountId")), brokerAccountId.toLowerCase(Locale.ROOT)));
+      }
+      if (accountRefId != null) {
+        Join<Trade, ?> accountJoin = root.join("account", JoinType.LEFT);
+        accountPredicates.add(cb.equal(accountJoin.get("id"), accountRefId));
+      }
+      predicates.add(cb.or(accountPredicates.toArray(Predicate[]::new)));
     }
     if (direction != null) {
       predicates.add(cb.equal(root.get("direction"), direction));

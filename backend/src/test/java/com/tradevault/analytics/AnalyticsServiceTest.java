@@ -58,6 +58,7 @@ class AnalyticsServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "CLOSE",
                 false,
                 null
@@ -113,6 +114,7 @@ class AnalyticsServiceTest {
                 null,
                 null,
                 null,
+                null,
                 "CLOSE",
                 false,
                 null
@@ -122,6 +124,34 @@ class AnalyticsServiceTest {
         assertEquals(1, response.getPlanAdherence().getUnlinkedTrades());
         assertEquals(0, response.getPlanAdherence().getLinkedNetPnl().compareTo(new BigDecimal("100.00")));
         assertEquals(0, response.getPlanAdherence().getUnlinkedNetPnl().compareTo(new BigDecimal("-20.00")));
+    }
+
+    @Test
+    void summarizeFiltersTradesByBrokerAccountId() {
+        Trade accountOne = buildTrade(UUID.randomUUID(), "AAPL", Direction.LONG, TradeStatus.CLOSED, "2026-01-02T10:00:00Z", "2026-01-02T10:10:00Z", "125.50");
+        accountOne.setBrokerAccountId("APEX4855840000003");
+        Trade accountTwo = buildTrade(UUID.randomUUID(), "MSFT", Direction.SHORT, TradeStatus.CLOSED, "2026-01-03T09:00:00Z", "2026-01-03T10:00:00Z", "-20.00");
+        accountTwo.setBrokerAccountId("APEX4855840000004");
+        when(tradeRepository.findByUserId(Mockito.any())).thenReturn(List.of(accountOne, accountTwo));
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null,
+                null,
+                null,
+                null,
+                null,
+                "APEX4855840000003",
+                null,
+                null,
+                null,
+                null,
+                "CLOSE",
+                false,
+                null
+        );
+
+        assertEquals(1, response.getKpi().getTotalTrades());
+        assertEquals(0, response.getKpi().getTotalPnlNet().compareTo(new BigDecimal("125.50")));
     }
 
     private Trade buildTrade(UUID id, String symbol, Direction direction, TradeStatus status, String openedAt, String closedAt, String pnlNet) {

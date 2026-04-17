@@ -7,6 +7,7 @@ import com.tradevault.domain.entity.Tag;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.dto.trade.DailyAccountSummaryResponse;
 import com.tradevault.dto.trade.ImportedTradeCandidate;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
@@ -70,12 +71,14 @@ public class TradeService {
                                       String tz,
                                       String symbol,
                                       String strategy,
+                                      String accountId,
                                       Direction direction,
                                       com.tradevault.domain.enums.TradeStatus status) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
         OffsetDateTime openedAtFrom = parseDateTimeFilter(openedAtFromRaw, zone, false, "openedAtFrom");
         OffsetDateTime openedAtTo = parseDateTimeFilter(openedAtToRaw, zone, true, "openedAtTo");
+        AccountFilter accountFilter = resolveAccountFilter(accountId);
         logSearchParams(symbol, strategy);
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
         var normalizedSymbol = normalizeSearchToken(symbol);
@@ -95,6 +98,8 @@ public class TradeService {
                 closedAtTo,
                 normalizedSymbol,
                 normalizedStrategy,
+                accountFilter.brokerAccountId(),
+                accountFilter.accountRefId(),
                 direction,
                 status,
                 pageable
@@ -437,11 +442,18 @@ public class TradeService {
         tradeRepository.delete(trade);
     }
 
-    public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz) {
+    public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
+        AccountFilter accountFilter = resolveAccountFilter(accountId);
         //log.info("[CALENDAR] listClosedTradesByDate userId={}, date={}, tz={}", user.getId(), date, zone.getId());
-        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId());
+        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(
+                user.getId(),
+                date,
+                zone.getId(),
+                accountFilter.brokerAccountId(),
+                accountFilter.accountRefId()
+        );
         var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         //log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
         return trades
@@ -450,10 +462,17 @@ public class TradeService {
                 .toList();
     }
 
-    public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz) {
+    public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
-        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId());
+        AccountFilter accountFilter = resolveAccountFilter(accountId);
+        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(
+                user.getId(),
+                date,
+                zone.getId(),
+                accountFilter.brokerAccountId(),
+                accountFilter.accountRefId()
+        );
         var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         if (trades == null || trades.isEmpty()) {
             return com.tradevault.dto.trade.DailySummaryResponse.builder()
@@ -464,6 +483,7 @@ public class TradeService {
                     .losers(0)
                     .winRate(0)
                     .equityPoints(List.of())
+                    .accounts(List.of())
                     .build();
         }
         BigDecimal netPnl = trades.stream()
@@ -481,6 +501,16 @@ public class TradeService {
             running = running.add(pnl);
             equityPoints.add(running);
         }
+        List<DailyAccountSummaryResponse> accountSummaries = trades.stream()
+                .collect(Collectors.groupingBy(
+                        this::resolvedDisplayAccountId,
+                        LinkedHashMap::new,
+                        Collectors.toList()
+                ))
+                .entrySet()
+                .stream()
+                .map(entry -> buildDailyAccountSummary(entry.getKey(), entry.getValue()))
+                .toList();
         return com.tradevault.dto.trade.DailySummaryResponse.builder()
                 .date(date)
                 .netPnl(netPnl)
@@ -489,6 +519,7 @@ public class TradeService {
                 .losers(losers)
                 .winRate(winRate)
                 .equityPoints(equityPoints)
+                .accounts(accountSummaries)
                 .build();
     }
 
@@ -546,11 +577,20 @@ public class TradeService {
             return request.getAccountRefId();
         }
         String maybeLegacyAccountId = normalizeOptionalText(request.getAccountId());
-        if (maybeLegacyAccountId == null) {
+        return parseUuidOrNull(maybeLegacyAccountId);
+    }
+
+    private AccountFilter resolveAccountFilter(String accountId) {
+        String brokerAccountId = normalizeOptionalText(accountId);
+        return new AccountFilter(brokerAccountId, parseUuidOrNull(brokerAccountId));
+    }
+
+    private UUID parseUuidOrNull(String value) {
+        if (value == null) {
             return null;
         }
         try {
-            return UUID.fromString(maybeLegacyAccountId);
+            return UUID.fromString(value);
         } catch (IllegalArgumentException ex) {
             return null;
         }
@@ -983,6 +1023,32 @@ public class TradeService {
         return null;
     }
 
+    private String resolvedDisplayAccountId(Trade trade) {
+        return firstNonBlank(
+                trade.getBrokerAccountId(),
+                trade.getAccount() != null ? trade.getAccount().getId().toString() : null
+        );
+    }
+
+    private DailyAccountSummaryResponse buildDailyAccountSummary(String accountId, List<Trade> trades) {
+        BigDecimal netPnl = trades.stream()
+                .map(Trade::getPnlNet)
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long winners = trades.stream().filter(t -> t.getPnlNet() != null && t.getPnlNet().compareTo(BigDecimal.ZERO) > 0).count();
+        long losers = trades.stream().filter(t -> t.getPnlNet() != null && t.getPnlNet().compareTo(BigDecimal.ZERO) < 0).count();
+        long tradeCount = trades.size();
+        double winRate = tradeCount == 0 ? 0 : (double) winners / (double) tradeCount;
+        return DailyAccountSummaryResponse.builder()
+                .accountId(accountId)
+                .netPnl(netPnl)
+                .tradeCount(tradeCount)
+                .winners(winners)
+                .losers(losers)
+                .winRate(winRate)
+                .build();
+    }
+
     private boolean isSameCurrency(String tradeCurrency, String profileCurrency) {
         return normalizeCurrency(tradeCurrency).equals(normalizeCurrency(profileCurrency));
     }
@@ -1079,10 +1145,7 @@ public class TradeService {
                 .entryScreenshotAssetIds(trade.getEntryScreenshotAssetIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getEntryScreenshotAssetIds()))
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
-                .accountId(firstNonBlank(
-                        trade.getBrokerAccountId(),
-                        trade.getAccount() != null ? trade.getAccount().getId().toString() : null
-                ))
+                .accountId(resolvedDisplayAccountId(trade))
                 .accountRefId(trade.getAccount() != null ? trade.getAccount().getId() : null)
                 .contractMultiplier(defaultOne(trade.getContractMultiplier()))
                 .tags((trade.getTags() == null ? java.util.Collections.<String>emptySet() : trade.getTags().stream().map(Tag::getName).collect(Collectors.toSet())))
@@ -1090,4 +1153,6 @@ public class TradeService {
     }
 
     public record ImportUpsertResult(TradeResponse trade, boolean updated) {}
+
+    private record AccountFilter(String brokerAccountId, UUID accountRefId) {}
 }

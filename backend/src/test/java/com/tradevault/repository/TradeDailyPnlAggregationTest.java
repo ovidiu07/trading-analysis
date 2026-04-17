@@ -87,7 +87,9 @@ class TradeDailyPnlAggregationTest {
                 user.getId(),
                 LocalDate.of(2024, 1, 1),
                 LocalDate.of(2024, 1, 2),
-                "Europe/Bucharest"
+                "Europe/Bucharest",
+                null,
+                null
         );
 
         Map<LocalDate, TradeRepository.DailyPnlAggregate> byDate = results.stream()

@@ -205,6 +205,7 @@ class DemoDataServiceIntegrationTest {
                 null,
                 null,
                 null,
+                null,
                 "CLOSE",
                 false,
                 null
@@ -213,6 +214,7 @@ class DemoDataServiceIntegrationTest {
         demoDataService.removeDemoDataForUser(user.getId());
 
         AnalyticsResponse after = analyticsService.summarize(
+                null,
                 null,
                 null,
                 null,

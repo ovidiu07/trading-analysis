@@ -25,7 +25,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
-import { DailyPnlResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
+import { DailyPnlResponse, DailySummaryResponse, MonthlyPnlSummaryResponse, fetchDailySummary, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
@@ -59,6 +59,7 @@ export default function CalendarPage() {
   const [monthSummaryError, setMonthSummaryError] = useState('')
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [selectedTrades, setSelectedTrades] = useState<TradeResponse[]>([])
+  const [selectedSummary, setSelectedSummary] = useState<DailySummaryResponse | null>(null)
   const [selectedNotes, setSelectedNotes] = useState<NotebookNoteSummary[]>([])
   const [selectedLoading, setSelectedLoading] = useState(false)
   const [selectedError, setSelectedError] = useState('')
@@ -161,12 +162,18 @@ export default function CalendarPage() {
     const loadTrades = async () => {
       setSelectedLoading(true)
       setSelectedError('')
+      setSelectedSummary(null)
       try {
         const dateKey = format(selectedDate, 'yyyy-MM-dd')
-        const data = await listClosedTradesForDate(dateKey, timezone)
-        setSelectedTrades(data)
+        const [summaryData, tradesData] = await Promise.all([
+          fetchDailySummary({ date: dateKey, tz: timezone }),
+          listClosedTradesForDate(dateKey, timezone)
+        ])
+        setSelectedSummary(summaryData)
+        setSelectedTrades(tradesData)
       } catch (err) {
         const message = translateApiError(err, t, 'calendar.errors.loadTrades')
+        setSelectedSummary(null)
         setSelectedTrades([])
         setSelectedError(message)
       } finally {
@@ -198,8 +205,9 @@ export default function CalendarPage() {
 
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''
   const selectedAggregate = selectedDateKey ? pnlByDate.get(selectedDateKey) : undefined
-  const selectedNetPnl = selectedAggregate?.netPnl ?? 0
-  const selectedTradeCount = selectedAggregate?.tradeCount ?? selectedTrades.length
+  const selectedNetPnl = selectedSummary?.netPnl ?? selectedAggregate?.netPnl ?? 0
+  const selectedTradeCount = selectedSummary?.tradeCount ?? selectedAggregate?.tradeCount ?? selectedTrades.length
+  const selectedAccountSummaries = selectedSummary?.accounts ?? []
 
   const summaryNetPnl = monthSummary?.netPnl ?? derivedSummary.netPnl
   const summaryGrossPnl = monthSummary?.grossPnl
@@ -282,6 +290,7 @@ export default function CalendarPage() {
 
   const handleCloseDialog = () => {
     setSelectedDate(null)
+    setSelectedSummary(null)
     setSelectedTrades([])
     setSelectedError('')
     setSelectedNotes([])
@@ -705,6 +714,34 @@ export default function CalendarPage() {
               {t('calendar.dialog.tradeCountClosed', { count: selectedTradeCount })}
             </Typography>
           </Stack>
+          {selectedAccountSummaries.length > 0 && (
+            <>
+              <Divider sx={{ mb: 2 }} />
+              <Stack spacing={1.25} sx={{ mb: 2 }}>
+                <Typography variant="subtitle2" color="text.secondary">{t('calendar.dialog.byAccount')}</Typography>
+                {selectedAccountSummaries.map((summary) => (
+                  <Box
+                    key={summary.accountId || 'unassigned'}
+                    sx={{ p: 1.5, borderRadius: 2, bgcolor: alpha(theme.palette.background.default, 0.52), border: '1px solid', borderColor: 'divider' }}
+                  >
+                    <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5}>
+                      <Box>
+                        <Typography variant="subtitle2">
+                          {summary.accountId || t('calendar.dialog.unassignedAccount')}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          {t('calendar.dialog.tradeCountClosed', { count: summary.tradeCount })}
+                        </Typography>
+                      </Box>
+                      <Typography variant="subtitle2" className="metric-value" sx={{ whiteSpace: 'nowrap' }}>
+                        {formatSignedCurrency(summary.netPnl, baseCurrency)}
+                      </Typography>
+                    </Stack>
+                  </Box>
+                ))}
+              </Stack>
+            </>
+          )}
           <Divider sx={{ mb: 2 }} />
           {selectedLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 3 }}>
@@ -723,6 +760,9 @@ export default function CalendarPage() {
                       <Typography variant="subtitle2">{trade.symbol}</Typography>
                       <Typography variant="caption" color="text.secondary">
                         {t(`trades.direction.${trade.direction}`)} · {formatDateTime(trade.closedAt)}
+                      </Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                        {t('trades.form.accountId')}: {trade.accountId || t('calendar.dialog.unassignedAccount')}
                       </Typography>
                     </Box>
                     <Typography variant="subtitle2" className="metric-value" sx={{ whiteSpace: 'nowrap' }}>
