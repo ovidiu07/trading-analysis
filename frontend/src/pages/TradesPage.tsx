@@ -221,6 +221,8 @@ export default function TradesPage() {
   const [importLoading, setImportLoading] = useState(false)
   const [highlightTradeId, setHighlightTradeId] = useState('')
   const importInputRef = useRef<HTMLInputElement | null>(null)
+  const optionsLoadedRef = useRef(false)
+  const optionsLoadingPromiseRef = useRef<Promise<void> | null>(null)
 
   const handleAuthFailure = useCallback((message?: string) => {
     setFetchError(message || t('trades.errors.loginRequired'))
@@ -533,27 +535,41 @@ export default function TradesPage() {
   }, [fetchTrades, handleAuthFailure, t])
 
   const fetchContentOptions = useCallback(async () => {
-    try {
-      setOptionsLoadError('')
-      const [strategies, myPlans] = await Promise.all([
-        listPublishedContent({ type: 'STRATEGY', activeOnly: true }),
-        listMyPlans({ scope: 'DAILY' })
-      ])
-
-      setStrategyOptions((strategies || []).map((item) => ({
-        id: item.id,
-        label: item.title
-      })))
-
-      setPlanOptions((myPlans || []).map((plan) => ({
-        id: plan.id,
-        source: plan.source,
-        label: `${t('trades.form.myPlanPrefix')}: ${plan.title}`
-      })))
-    } catch (err) {
-      const apiErr = err as ApiError
-      setOptionsLoadError(apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.loadOptionsFailed') : t('trades.errors.loadOptionsFailed'))
+    if (optionsLoadedRef.current) return
+    if (optionsLoadingPromiseRef.current) {
+      await optionsLoadingPromiseRef.current
+      return
     }
+
+    const loadPromise = (async () => {
+      try {
+        setOptionsLoadError('')
+        const [strategies, myPlans] = await Promise.all([
+          listPublishedContent({ type: 'STRATEGY', activeOnly: true }),
+          listMyPlans({ scope: 'DAILY' })
+        ])
+
+        setStrategyOptions((strategies || []).map((item) => ({
+          id: item.id,
+          label: item.title
+        })))
+
+        setPlanOptions((myPlans || []).map((plan) => ({
+          id: plan.id,
+          source: plan.source,
+          label: `${t('trades.form.myPlanPrefix')}: ${plan.title}`
+        })))
+        optionsLoadedRef.current = true
+      } catch (err) {
+        const apiErr = err as ApiError
+        setOptionsLoadError(apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.loadOptionsFailed') : t('trades.errors.loadOptionsFailed'))
+      } finally {
+        optionsLoadingPromiseRef.current = null
+      }
+    })()
+
+    optionsLoadingPromiseRef.current = loadPromise
+    await loadPromise
   }, [t])
 
   useEffect(() => {
@@ -561,8 +577,16 @@ export default function TradesPage() {
   }, [fetchTrades])
 
   useEffect(() => {
-    fetchContentOptions()
-  }, [fetchContentOptions])
+    optionsLoadedRef.current = false
+    optionsLoadingPromiseRef.current = null
+    setStrategyOptions([])
+    setPlanOptions([])
+  }, [isAuthenticated, refreshToken, user?.timezone])
+
+  useEffect(() => {
+    if (!editDialogOpen && !createDialogOpen) return
+    void fetchContentOptions()
+  }, [createDialogOpen, editDialogOpen, fetchContentOptions])
 
   useEffect(() => {
     if (!location.search) return
@@ -733,6 +757,7 @@ export default function TradesPage() {
     setCreateFormDirty(false)
     setCreateDiscardDialogOpen(false)
     setCreateDialogOpen(true)
+    void fetchContentOptions()
   }
 
   const openQuickLogDialog = () => {
@@ -742,6 +767,7 @@ export default function TradesPage() {
     setCreateFormDirty(false)
     setCreateDiscardDialogOpen(false)
     setCreateDialogOpen(true)
+    void fetchContentOptions()
   }
 
   function closeCreateDialog() {
@@ -1193,79 +1219,80 @@ export default function TradesPage() {
         </Button>
       </Box>
 
-      <Dialog
-        open={createDialogOpen}
-        onClose={requestCloseCreateDialog}
-        maxWidth="lg"
-        fullWidth
-        scroll="paper"
-        keepMounted
-        aria-label={createDialogMode === 'quick' ? t('trades.quickLog.title') : t('trades.create.title')}
-        sx={{
-          '& .MuiDialog-container': {
-            alignItems: { xs: 'center', sm: 'center' },
-            justifyContent: 'center',
-            p: 0
-          }
-        }}
-        PaperProps={{
-          sx: {
-            m: isCreateDialogMobile ? 1 : isCreateDialogCompact ? 2 : 4,
-            width: isCreateDialogCompact
-              ? isCreateDialogMobile
-                ? 'calc(100vw - 16px)'
-                : 'calc(100vw - 32px)'
-              : undefined,
-            maxWidth: isCreateDialogCompact
-              ? isCreateDialogMobile
-                ? 'calc(100vw - 16px)'
-                : 'calc(100vw - 32px)'
-              : undefined,
-            height: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
-            minHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
-            maxHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
-            borderRadius: 2,
-            boxSizing: 'border-box',
-            display: 'flex',
-            flexDirection: 'column',
-            overflow: 'hidden',
-            overflowX: 'hidden',
-            '@supports (height: 100dvh)': {
-              height: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
-              minHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
-              maxHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)'
-            }
-          }
-        }}
-      >
-        <DialogContent
-          data-testid="trade-create-dialog-content"
+      {createDialogOpen && (
+        <Dialog
+          open={createDialogOpen}
+          onClose={requestCloseCreateDialog}
+          maxWidth="lg"
+          fullWidth
+          scroll="paper"
+          aria-label={createDialogMode === 'quick' ? t('trades.quickLog.title') : t('trades.create.title')}
           sx={{
-            p: 0,
-            display: 'flex',
-            flexDirection: 'column',
-            flex: 1,
-            minHeight: 0,
-            overflow: 'hidden'
+            '& .MuiDialog-container': {
+              alignItems: { xs: 'center', sm: 'center' },
+              justifyContent: 'center',
+              p: 0
+            }
+          }}
+          PaperProps={{
+            sx: {
+              m: isCreateDialogMobile ? 1 : isCreateDialogCompact ? 2 : 4,
+              width: isCreateDialogCompact
+                ? isCreateDialogMobile
+                  ? 'calc(100vw - 16px)'
+                  : 'calc(100vw - 32px)'
+                : undefined,
+              maxWidth: isCreateDialogCompact
+                ? isCreateDialogMobile
+                  ? 'calc(100vw - 16px)'
+                  : 'calc(100vw - 32px)'
+                : undefined,
+              height: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+              minHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+              maxHeight: isCreateDialogMobile ? '92vh' : 'min(92dvh, 980px)',
+              borderRadius: 2,
+              boxSizing: 'border-box',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+              overflowX: 'hidden',
+              '@supports (height: 100dvh)': {
+                height: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
+                minHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)',
+                maxHeight: isCreateDialogMobile ? '92dvh' : 'min(92dvh, 980px)'
+              }
+            }
           }}
         >
-          <TradeCreateFormV2
-            initialValues={createFormValues}
-            submitLabel={createDialogMode === 'quick' ? t('trades.quickLog.submit') : t('trades.create.save')}
-            onSubmit={handleCreate}
-            onCancel={requestCloseCreateDialog}
-            onDirtyChange={setCreateFormDirty}
-            onModeChange={setCreateDialogMode}
-            error={createError}
-            strategyOptions={strategyOptions}
-            planOptions={planOptions}
-            ruleBreakOptions={[...RULE_BREAK_OPTIONS]}
-            baseCurrency={baseCurrency}
-            timezone={timezone}
-            defaultMode={createDialogMode}
-          />
-        </DialogContent>
-      </Dialog>
+          <DialogContent
+            data-testid="trade-create-dialog-content"
+            sx={{
+              p: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              flex: 1,
+              minHeight: 0,
+              overflow: 'hidden'
+            }}
+          >
+            <TradeCreateFormV2
+              initialValues={createFormValues}
+              submitLabel={createDialogMode === 'quick' ? t('trades.quickLog.submit') : t('trades.create.save')}
+              onSubmit={handleCreate}
+              onCancel={requestCloseCreateDialog}
+              onDirtyChange={setCreateFormDirty}
+              onModeChange={setCreateDialogMode}
+              error={createError}
+              strategyOptions={strategyOptions}
+              planOptions={planOptions}
+              ruleBreakOptions={[...RULE_BREAK_OPTIONS]}
+              baseCurrency={baseCurrency}
+              timezone={timezone}
+              defaultMode={createDialogMode}
+            />
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={createDiscardDialogOpen} onClose={() => setCreateDiscardDialogOpen(false)}>
         <DialogTitle>{t('trades.form.discardChangesTitle')}</DialogTitle>
@@ -1278,10 +1305,10 @@ export default function TradesPage() {
         </DialogActions>
       </Dialog>
 
-      <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
-        <DialogTitle>{t('trades.actions.editTrade')}</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          {editTarget && (
+      {editDialogOpen && editTarget && (
+        <Dialog open={editDialogOpen} onClose={() => setEditDialogOpen(false)} maxWidth="md" fullWidth>
+          <DialogTitle>{t('trades.actions.editTrade')}</DialogTitle>
+          <DialogContent sx={{ pt: 1 }}>
             <TradeForm
               initialValues={mapTradeToFormValues(editTarget)}
               submitLabel={t('trades.actions.updateTrade')}
@@ -1299,9 +1326,9 @@ export default function TradesPage() {
               planOptions={planOptions}
               ruleBreakOptions={[...RULE_BREAK_OPTIONS]}
             />
-          )}
-        </DialogContent>
-      </Dialog>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
         <DialogTitle>{t('trades.actions.deleteTrade')}</DialogTitle>

@@ -14,7 +14,6 @@ import { format } from 'date-fns'
 
 const mockFetchDailyPnl = vi.fn()
 const mockFetchMonthlyPnlSummary = vi.fn()
-const mockFetchDailySummary = vi.fn()
 const mockListClosedTradesForDate = vi.fn()
 const mockListNotebookNotesByDate = vi.fn()
 
@@ -24,7 +23,6 @@ vi.mock('../api/trades', async () => {
     ...actual,
     fetchDailyPnl: (...args: unknown[]) => mockFetchDailyPnl(...args),
     fetchMonthlyPnlSummary: (...args: unknown[]) => mockFetchMonthlyPnlSummary(...args),
-    fetchDailySummary: (...args: unknown[]) => mockFetchDailySummary(...args),
     listClosedTradesForDate: (...args: unknown[]) => mockListClosedTradesForDate(...args)
   }
 })
@@ -69,16 +67,6 @@ describe('CalendarPage', () => {
     localStorage.clear()
     localStorage.setItem('app.language', 'en')
     mockFetchDailyPnl.mockResolvedValue([])
-    mockFetchDailySummary.mockResolvedValue({
-      date: '2026-04-17',
-      netPnl: 0,
-      tradeCount: 0,
-      winners: 0,
-      losers: 0,
-      winRate: 0,
-      equityPoints: [],
-      accounts: []
-    })
     mockListClosedTradesForDate.mockResolvedValue([])
     mockListNotebookNotesByDate.mockResolvedValue([])
   })
@@ -133,19 +121,6 @@ describe('CalendarPage', () => {
     mockFetchDailyPnl.mockResolvedValue([
       { date: activeDateKey, netPnl: 430, tradeCount: 2, wins: 2, losses: 0 }
     ])
-    mockFetchDailySummary.mockResolvedValue({
-      date: activeDateKey,
-      netPnl: 430,
-      tradeCount: 2,
-      winners: 2,
-      losers: 0,
-      winRate: 1,
-      equityPoints: [430],
-      accounts: [
-        { accountId: 'APEX4855840000003', netPnl: 306, tradeCount: 1, winners: 1, losers: 0, winRate: 1 },
-        { accountId: 'APEX4855840000004', netPnl: 124, tradeCount: 1, winners: 1, losers: 0, winRate: 1 }
-      ]
-    })
     mockListClosedTradesForDate.mockResolvedValue([
       {
         id: 'trade-1',

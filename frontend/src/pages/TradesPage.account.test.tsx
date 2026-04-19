@@ -172,5 +172,7 @@ describe('TradesPage account display', () => {
 
     expect(screen.getByRole('button', { name: 'Import from Tradovate' })).toBeInTheDocument()
     expect(screen.getByText('Account ID: APEX4855840000003')).toBeInTheDocument()
+    expect(mockListPublishedContent).not.toHaveBeenCalled()
+    expect(mockListMyPlans).not.toHaveBeenCalled()
   })
 })

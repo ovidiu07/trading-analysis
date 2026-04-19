@@ -25,7 +25,7 @@ import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
-import { DailyPnlResponse, DailySummaryResponse, MonthlyPnlSummaryResponse, fetchDailySummary, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
+import { DailyPnlResponse, DailySummaryResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
@@ -36,6 +36,54 @@ import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
 
 const weekStartsOn = 1
+
+function buildDailySummaryFromTrades(dateKey: string, trades: TradeResponse[]): DailySummaryResponse {
+  const orderedTrades = [...trades].sort((left, right) => {
+    const leftTime = new Date(left.closedAt || left.openedAt).getTime()
+    const rightTime = new Date(right.closedAt || right.openedAt).getTime()
+    return leftTime - rightTime
+  })
+
+  let runningEquity = 0
+  const equityPoints = orderedTrades.map((trade) => {
+    runningEquity += trade.pnlNet ?? 0
+    return runningEquity
+  })
+
+  const winners = orderedTrades.filter((trade) => (trade.pnlNet ?? 0) > 0).length
+  const losers = orderedTrades.filter((trade) => (trade.pnlNet ?? 0) < 0).length
+  const netPnl = orderedTrades.reduce((total, trade) => total + (trade.pnlNet ?? 0), 0)
+  const accounts = Array.from(orderedTrades.reduce((map, trade) => {
+    const key = trade.accountId ?? ''
+    const current = map.get(key) ?? { accountId: trade.accountId ?? null, netPnl: 0, tradeCount: 0, winners: 0, losers: 0, winRate: 0 }
+    const pnlNet = trade.pnlNet ?? 0
+    current.netPnl += pnlNet
+    current.tradeCount += 1
+    if (pnlNet > 0) current.winners += 1
+    if (pnlNet < 0) current.losers += 1
+    current.winRate = current.tradeCount === 0 ? 0 : current.winners / current.tradeCount
+    map.set(key, current)
+    return map
+  }, new Map<string, {
+    accountId: string | null
+    netPnl: number
+    tradeCount: number
+    winners: number
+    losers: number
+    winRate: number
+  }>()).values())
+
+  return {
+    date: dateKey,
+    netPnl,
+    tradeCount: orderedTrades.length,
+    winners,
+    losers,
+    winRate: orderedTrades.length === 0 ? 0 : winners / orderedTrades.length,
+    equityPoints,
+    accounts
+  }
+}
 
 export default function CalendarPage() {
   const { t, locale } = useI18n()
@@ -163,14 +211,12 @@ export default function CalendarPage() {
       setSelectedLoading(true)
       setSelectedError('')
       setSelectedSummary(null)
+      setSelectedTrades([])
       try {
         const dateKey = format(selectedDate, 'yyyy-MM-dd')
-        const [summaryData, tradesData] = await Promise.all([
-          fetchDailySummary({ date: dateKey, tz: timezone }),
-          listClosedTradesForDate(dateKey, timezone)
-        ])
-        setSelectedSummary(summaryData)
+        const tradesData = await listClosedTradesForDate(dateKey, timezone)
         setSelectedTrades(tradesData)
+        setSelectedSummary(buildDailySummaryFromTrades(dateKey, tradesData))
       } catch (err) {
         const message = translateApiError(err, t, 'calendar.errors.loadTrades')
         setSelectedSummary(null)

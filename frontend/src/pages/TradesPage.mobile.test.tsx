@@ -311,7 +311,7 @@ describe('TradesPage mobile create dialog', () => {
     const chipsRow = tabsRow?.querySelector('.MuiChip-root')?.parentElement as HTMLElement | null
     expect(chipsRow).not.toBeNull()
 
-    const summaryRow = within(dialog).getByText('Core execution').closest('.MuiStack-root') as HTMLElement | null
+    const summaryRow = within(dialog).getByTestId('trade-create-scroll-region') as HTMLElement | null
     expect(summaryRow).not.toBeNull()
 
     const paperMargin = Number.parseFloat(window.getComputedStyle(paper as HTMLElement).marginLeft || '0') || 0
