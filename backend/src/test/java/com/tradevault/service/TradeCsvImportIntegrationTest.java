@@ -123,6 +123,66 @@ class TradeCsvImportIntegrationTest {
         assertThat(calendar.get(0).netPnl()).isEqualByComparingTo("306.0000");
     }
 
+    @Test
+    void importEndpointKeepsSameTradeSeparateAcrossDifferentBrokerAccounts() throws Exception {
+        User user = userRepository.save(User.builder()
+                .email("tradovate-multi-account@example.com")
+                .passwordHash("hashed")
+                .role(Role.USER)
+                .timezone("Europe/Bucharest")
+                .baseCurrency("USD")
+                .build());
+        when(currentUserService.getCurrentUser()).thenReturn(user);
+
+        MockMultipartFile firstFile = new MockMultipartFile(
+                "file",
+                "Orders.csv",
+                "text/csv",
+                ordersCsvLong().getBytes(StandardCharsets.UTF_8)
+        );
+        MockMultipartFile secondFile = new MockMultipartFile(
+                "file",
+                "Orders (1).csv",
+                "text/csv",
+                ordersCsvSecondAccount().getBytes(StandardCharsets.UTF_8)
+        );
+
+        mockMvc.perform(multipart("/api/import/csv").file(firstFile))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imported").value(1))
+                .andExpect(jsonPath("$.updated").value(0));
+
+        mockMvc.perform(multipart("/api/import/csv").file(secondFile))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.imported").value(1))
+                .andExpect(jsonPath("$.updated").value(0));
+
+        Page<TradeResponse> trades = tradeService.listAll(0, 20);
+        assertThat(trades.getTotalElements()).isEqualTo(2);
+        assertThat(trades.getContent())
+                .extracting(TradeResponse::getAccountId)
+                .containsExactlyInAnyOrder("APEX4855840000003", "APEX4855840000004");
+
+        var closedTrades = tradeService.listClosedTradesByDate(LocalDate.of(2026, 4, 17), "Europe/Bucharest", null);
+        assertThat(closedTrades).hasSize(2);
+
+        var dailySummary = tradeService.dailySummary(LocalDate.of(2026, 4, 17), "Europe/Bucharest", null);
+        assertThat(dailySummary.getTradeCount()).isEqualTo(2);
+        assertThat(dailySummary.getNetPnl()).isEqualByComparingTo("918.0000");
+        assertThat(dailySummary.getAccounts()).hasSize(2);
+
+        var calendar = tradeCalendarService.fetchDailyPnl(
+                LocalDate.of(2026, 4, 17),
+                LocalDate.of(2026, 4, 17),
+                "Europe/Bucharest",
+                PnlBasis.CLOSE,
+                null
+        );
+        assertThat(calendar).hasSize(1);
+        assertThat(calendar.get(0).tradeCount()).isEqualTo(2);
+        assertThat(calendar.get(0).netPnl()).isEqualByComparingTo("918.0000");
+    }
+
     private String ordersCsvLong() {
         return String.join("\n",
                 "orderId,Account,Order ID,B/S,Contract,Product,Product Description,avgPrice,filledQty,Fill Time,lastCommandId,Status,_priceFormat,_priceFormatType,_tickSize,spreadDefinitionId,Version ID,Timestamp,Date,Quantity,Text,Type,Limit Price,Stop Price,decimalLimit,decimalStop,Filled Qty,Avg Fill Price,decimalFillAvg,Venue,Notional Value,Currency",
@@ -130,6 +190,16 @@ class TradeCsvImportIntegrationTest {
                 "470913240265,APEX4855840000003,470913240265, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,470913240289, Canceled,-2,0,0.25,,470913240289,04/17/2026 16:46:50,4/17/26,2,Tradingview, Limit,26884.75,,26884.75,,,,,,,USD",
                 "470913240267,APEX4855840000003,470913240267, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,470913240293, Canceled,-2,0,0.25,,470913240293,04/17/2026 17:34:34,4/17/26,2,Tradingview, Stop,,26712.25,,26712.25,,,,,,USD",
                 "470913240303,APEX4855840000003,470913240303, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,26788.0,2,04/17/2026 17:36:58,470913240303, Filled,-2,0,0.25,,470913240303,04/17/2026 17:36:58,4/17/26,2,Exit, Market,,,,,2,26788.00,26788.0,,\"107,152.00\",USD"
+        );
+    }
+
+    private String ordersCsvSecondAccount() {
+        return String.join("\n",
+                "orderId,Account,Order ID,B/S,Contract,Product,Product Description,avgPrice,filledQty,Fill Time,lastCommandId,Status,_priceFormat,_priceFormatType,_tickSize,spreadDefinitionId,Version ID,Timestamp,Date,Quantity,Text,Type,Limit Price,Stop Price,decimalLimit,decimalStop,Filled Qty,Avg Fill Price,decimalFillAvg,Venue,Notional Value,Currency",
+                "472255920089,APEX4855840000004,472255920089, Buy,MNQM6,MNQ,Micro E-mini NASDAQ-100,26711.5,4,04/17/2026 16:44:42,472255920089, Filled,-2,0,0.25,,472255920089,04/17/2026 16:44:42,4/17/26,4,742386, Limit,26712.00,,26712.0,,4,26711.50,26711.5,,\"213,692.00\",USD",
+                "472255920096,APEX4855840000004,472255920096, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,472255920096, Canceled,-2,0,0.25,,472255920096,04/17/2026 17:34:34,4/17/26,4,, Stop,,26712.25,,26712.25,,,,,,USD",
+                "472255920099,APEX4855840000004,472255920099, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,,,,472255920099, Canceled,-2,0,0.25,,472255920099,04/17/2026 16:46:50,4/17/26,4,, Limit,26884.75,,26884.75,,,,,,,USD",
+                "472255920120,APEX4855840000004,472255920120, Sell,MNQM6,MNQ,Micro E-mini NASDAQ-100,26788.0,4,04/17/2026 17:36:58,472255920120, Filled,-2,0,0.25,,472255920120,04/17/2026 17:36:58,4/17/26,4,Exit, Market,,,,,4,26788.00,26788.0,,\"214,304.00\",USD"
         );
     }
 }

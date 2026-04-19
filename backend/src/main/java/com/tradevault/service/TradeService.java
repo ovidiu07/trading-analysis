@@ -599,17 +599,13 @@ public class TradeService {
     private Optional<Trade> findExistingImportedTrade(UUID userId, ImportedTradeCandidate candidate) {
         String brokerAccountId = normalizeOptionalText(candidate.getAccountId());
         if (brokerAccountId != null) {
-            Optional<Trade> withBrokerAccount = tradeRepository
-                    .findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(
-                            userId,
-                            candidate.getSymbol(),
-                            candidate.getDirection(),
-                            candidate.getOpenedAt(),
-                            brokerAccountId
-                    );
-            if (withBrokerAccount.isPresent()) {
-                return withBrokerAccount;
-            }
+            return tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(
+                    userId,
+                    candidate.getSymbol(),
+                    candidate.getDirection(),
+                    candidate.getOpenedAt(),
+                    brokerAccountId
+            );
         }
         return tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAt(
                 userId,

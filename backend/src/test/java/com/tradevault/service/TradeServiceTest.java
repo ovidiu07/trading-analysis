@@ -377,6 +377,69 @@ public class TradeServiceTest {
     }
 
     @Test
+    void upsertImportedTradeDoesNotMergeDifferentBrokerAccounts() {
+        OffsetDateTime openedAt = OffsetDateTime.parse("2026-04-17T13:44:42Z");
+        Trade existingOtherAccount = Trade.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .symbol("MNQM6")
+                .brokerAccountId("APEX4855840000003")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(openedAt)
+                .closedAt(OffsetDateTime.parse("2026-04-17T14:36:58Z"))
+                .quantity(new BigDecimal("2"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .fees(BigDecimal.ZERO)
+                .commission(BigDecimal.ZERO)
+                .slippage(BigDecimal.ZERO)
+                .contractMultiplier(new BigDecimal("2"))
+                .build();
+
+        ImportedTradeCandidate candidate = ImportedTradeCandidate.builder()
+                .symbol("MNQM6")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(openedAt)
+                .closedAt(OffsetDateTime.parse("2026-04-17T14:36:58Z"))
+                .quantity(new BigDecimal("4"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .accountId("APEX4855840000005")
+                .contractMultiplier(new BigDecimal("2"))
+                .build();
+
+        when(tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(
+                user.getId(),
+                "MNQM6",
+                Direction.LONG,
+                openedAt,
+                "APEX4855840000005"
+        )).thenReturn(java.util.Optional.empty());
+        when(tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAt(
+                user.getId(),
+                "MNQM6",
+                Direction.LONG,
+                openedAt
+        )).thenReturn(java.util.Optional.of(existingOtherAccount));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        TradeService.ImportUpsertResult result = tradeService.upsertImportedTrade(candidate);
+
+        assertFalse(result.updated());
+        assertEquals("APEX4855840000005", result.trade().getAccountId());
+        verify(tradeRepository, never()).findByUserIdAndSymbolAndDirectionAndOpenedAt(
+                user.getId(),
+                "MNQM6",
+                Direction.LONG,
+                openedAt
+        );
+    }
+
+    @Test
     void createDefaultsNarrativeSnapshotToEmptyObjectWhenRequestOmitsIt() {
         TradeRequest request = baseRequest();
         request.setStatus(TradeStatus.OPEN);
