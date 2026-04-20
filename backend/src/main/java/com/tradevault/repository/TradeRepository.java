@@ -34,20 +34,30 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
   Page<UUID> findTradeIdsForList(@Param("userId") UUID userId, Pageable pageable);
 
   @Query("""
-      SELECT t FROM Trade t
+      SELECT DISTINCT t FROM Trade t
       LEFT JOIN FETCH t.account
+      LEFT JOIN FETCH t.tags
+      LEFT JOIN FETCH t.linkedContentIds
+      LEFT JOIN FETCH t.linkedPlanIds
+      LEFT JOIN FETCH t.ruleBreaks
+      LEFT JOIN FETCH t.entryScreenshotAssetIds
       WHERE t.id IN :ids
       """)
-  List<Trade> findAllByIdInWithAccount(@Param("ids") List<UUID> ids);
+  List<Trade> findAllByIdInWithTagsAndAccount(@Param("ids") List<UUID> ids);
 
   @Query("""
-      SELECT t
+      SELECT DISTINCT t
       FROM Trade t
       LEFT JOIN FETCH t.account
+      LEFT JOIN FETCH t.tags
+      LEFT JOIN FETCH t.linkedContentIds
+      LEFT JOIN FETCH t.linkedPlanIds
+      LEFT JOIN FETCH t.ruleBreaks
+      LEFT JOIN FETCH t.entryScreenshotAssetIds
       WHERE t.id = :id
         AND t.user.id = :userId
       """)
-  Optional<Trade> findByIdAndUserIdWithAccount(@Param("id") UUID id, @Param("userId") UUID userId);
+  Optional<Trade> findByIdAndUserIdWithTagsAndAccount(@Param("id") UUID id, @Param("userId") UUID userId);
 
   Page<Trade> findByUserIdOrderByOpenedAtDescCreatedAtDesc(UUID userId, Pageable pageable);
 

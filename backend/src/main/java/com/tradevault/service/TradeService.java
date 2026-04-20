@@ -65,7 +65,6 @@ public class TradeService {
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
 
-    @Transactional(readOnly = true)
     public Page<TradeResponse> search(int page, int size,
                                       String openedAtFromRaw,
                                       String openedAtToRaw,
@@ -113,7 +112,7 @@ public class TradeService {
             return new org.springframework.data.domain.PageImpl<>(List.of(), pageable, idPage.getTotalElements());
         }
 
-        List<Trade> trades = loadTradesInOrderWithAccount(idPage.getContent());
+        List<Trade> trades = loadTradesInOrderWithTagsAndAccount(idPage.getContent());
         Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
         List<TradeResponse> responses = trades.stream()
                 .map(trade -> toResponse(trade, strategyNames))
@@ -206,7 +205,6 @@ public class TradeService {
         return "'" + trimmed + "'";
     }
 
-    @Transactional(readOnly = true)
     public Page<TradeResponse> listAll(int page, int size) {
         User user = currentUserService.getCurrentUser();
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
@@ -216,7 +214,7 @@ public class TradeService {
         }
 
         List<UUID> orderedIds = tradeIdsPage.getContent();
-        List<Trade> trades = loadTradesInOrderWithAccount(orderedIds);
+        List<Trade> trades = loadTradesInOrderWithTagsAndAccount(orderedIds);
         Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
         List<TradeResponse> responses = trades.stream()
                 .map(trade -> toResponse(trade, strategyNames))
@@ -225,10 +223,9 @@ public class TradeService {
         return new org.springframework.data.domain.PageImpl<>(responses, pageable, tradeIdsPage.getTotalElements());
     }
 
-    @Transactional(readOnly = true)
     public TradeResponse getById(UUID id) {
         User user = currentUserService.getCurrentUser();
-        Trade trade = tradeRepository.findByIdAndUserIdWithAccount(id, user.getId())
+        Trade trade = tradeRepository.findByIdAndUserIdWithTagsAndAccount(id, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
         return toResponse(trade, loadStrategyNames(List.of(trade), user.getId()));
     }
@@ -455,7 +452,6 @@ public class TradeService {
         tradeRepository.delete(trade);
     }
 
-    @Transactional(readOnly = true)
     public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
@@ -468,7 +464,7 @@ public class TradeService {
                 accountFilter.brokerAccountId(),
                 accountFilter.accountRefId()
         );
-        var trades = loadTradesInOrderWithAccount(tradeIds);
+        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         //log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
         return trades
                 .stream()
@@ -476,7 +472,6 @@ public class TradeService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
     public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
@@ -488,7 +483,7 @@ public class TradeService {
                 accountFilter.brokerAccountId(),
                 accountFilter.accountRefId()
         );
-        var trades = loadTradesInOrderWithAccount(tradeIds);
+        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         if (trades == null || trades.isEmpty()) {
             return com.tradevault.dto.trade.DailySummaryResponse.builder()
                     .date(date)
@@ -538,7 +533,6 @@ public class TradeService {
                 .build();
     }
 
-    @Transactional(readOnly = true)
     public java.util.List<TradeResponse> listLosses(LocalDate from, LocalDate to, String tz, BigDecimal minLoss) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
@@ -552,17 +546,17 @@ public class TradeService {
                 com.tradevault.domain.enums.TradeStatus.CLOSED,
                 threshold.negate()
         );
-        return loadTradesInOrderWithAccount(tradeIds).stream()
+        return loadTradesInOrderWithTagsAndAccount(tradeIds).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
-    private List<Trade> loadTradesInOrderWithAccount(List<UUID> orderedIds) {
+    private List<Trade> loadTradesInOrderWithTagsAndAccount(List<UUID> orderedIds) {
         if (orderedIds == null || orderedIds.isEmpty()) {
             return List.of();
         }
 
-        Map<UUID, Trade> tradesById = tradeRepository.findAllByIdInWithAccount(orderedIds).stream()
+        Map<UUID, Trade> tradesById = tradeRepository.findAllByIdInWithTagsAndAccount(orderedIds).stream()
                 .collect(Collectors.toMap(Trade::getId, Function.identity(), (left, right) -> left));
 
         return orderedIds.stream()

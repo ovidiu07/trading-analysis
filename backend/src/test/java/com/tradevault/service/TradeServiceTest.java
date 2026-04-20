@@ -811,7 +811,7 @@ public class TradeServiceTest {
         when(timezoneService.resolveZone("Europe/Bucharest", user)).thenReturn(zone);
         when(tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId(), null, null))
                 .thenReturn(List.of(firstId, secondId));
-        when(tradeRepository.findAllByIdInWithAccount(List.of(firstId, secondId)))
+        when(tradeRepository.findAllByIdInWithTagsAndAccount(List.of(firstId, secondId)))
                 .thenReturn(List.of(
                         Trade.builder()
                                 .id(firstId)
