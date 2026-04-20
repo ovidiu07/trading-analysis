@@ -263,8 +263,10 @@ public class DemoDataService {
                         : entryPrice.subtract(exitPrice);
                 pnlGross = priceDiff.multiply(quantity).setScale(4, RoundingMode.HALF_UP);
                 pnlNet = pnlGross.subtract(fees).subtract(commission).subtract(slippage).setScale(4, RoundingMode.HALF_UP);
+                if (capitalUsed.compareTo(BigDecimal.ZERO) != 0) {
+                    pnlPercent = pnlNet.divide(capitalUsed, 4, RoundingMode.HALF_UP).multiply(bd("100")).setScale(4, RoundingMode.HALF_UP);
+                }
                 if (riskAmount.compareTo(BigDecimal.ZERO) != 0) {
-                    pnlPercent = pnlNet.divide(riskAmount, 4, RoundingMode.HALF_UP).multiply(bd("100")).setScale(4, RoundingMode.HALF_UP);
                     rMultiple = pnlNet.divide(riskAmount, 4, RoundingMode.HALF_UP);
                 }
             }

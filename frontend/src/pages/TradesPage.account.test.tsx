@@ -7,7 +7,7 @@ import { I18nProvider } from '../i18n'
 
 const mockListTrades = vi.fn()
 const mockSearchTrades = vi.fn()
-const mockListPublishedContent = vi.fn()
+const mockListStrategies = vi.fn()
 const mockListMyPlans = vi.fn()
 
 vi.mock('@mui/x-data-grid', () => ({
@@ -49,11 +49,11 @@ vi.mock('../api/trades', async () => {
   }
 })
 
-vi.mock('../api/content', async () => {
-  const actual = await vi.importActual<typeof import('../api/content')>('../api/content')
+vi.mock('../api/strategies', async () => {
+  const actual = await vi.importActual<typeof import('../api/strategies')>('../api/strategies')
   return {
     ...actual,
-    listPublishedContent: (...args: unknown[]) => mockListPublishedContent(...args)
+    listStrategies: (...args: unknown[]) => mockListStrategies(...args)
   }
 })
 
@@ -153,7 +153,7 @@ describe('TradesPage account display', () => {
       number: 0,
       size: 10
     })
-    mockListPublishedContent.mockResolvedValue([])
+    mockListStrategies.mockResolvedValue({ myStrategies: [], mentorStrategies: [] })
     mockListMyPlans.mockResolvedValue([])
   })
 
@@ -172,7 +172,7 @@ describe('TradesPage account display', () => {
 
     expect(screen.getByRole('button', { name: 'Import from Tradovate' })).toBeInTheDocument()
     expect(screen.getByText('Account ID: APEX4855840000003')).toBeInTheDocument()
-    expect(mockListPublishedContent).not.toHaveBeenCalled()
+    expect(mockListStrategies).not.toHaveBeenCalled()
     expect(mockListMyPlans).not.toHaveBeenCalled()
   })
 })

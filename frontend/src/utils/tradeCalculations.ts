@@ -7,6 +7,7 @@ type TradeCalculationInput = {
   entryPrice?: NullableNumber
   exitPrice?: NullableNumber
   quantity?: NullableNumber
+  contractMultiplier?: NullableNumber
   stopLossPrice?: NullableNumber
   fees?: NullableNumber
   commission?: NullableNumber
@@ -21,19 +22,20 @@ const asFiniteNumber = (value: NullableNumber): number | null => {
   return value
 }
 
-export const calculateGrossPnl = (input: Pick<TradeCalculationInput, 'direction' | 'entryPrice' | 'exitPrice' | 'quantity'>): number | null => {
+export const calculateGrossPnl = (input: Pick<TradeCalculationInput, 'direction' | 'entryPrice' | 'exitPrice' | 'quantity' | 'contractMultiplier'>): number | null => {
   const entryPrice = asFiniteNumber(input.entryPrice)
   const exitPrice = asFiniteNumber(input.exitPrice)
   const quantity = asFiniteNumber(input.quantity)
+  const contractMultiplier = asFiniteNumber(input.contractMultiplier) ?? 1
   if (!input.direction || entryPrice === null || exitPrice === null || quantity === null) {
     return null
   }
 
   if (input.direction === 'LONG') {
-    return (exitPrice - entryPrice) * quantity
+    return (exitPrice - entryPrice) * quantity * contractMultiplier
   }
 
-  return (entryPrice - exitPrice) * quantity
+  return (entryPrice - exitPrice) * quantity * contractMultiplier
 }
 
 export const calculateCosts = (input: Pick<TradeCalculationInput, 'fees' | 'commission' | 'slippage'>): number => {
@@ -50,32 +52,30 @@ export const calculateNetPnl = (grossPnl: number | null, costs: number): number 
   return grossPnl - costs
 }
 
-export const calculateRiskFromPrices = (input: Pick<TradeCalculationInput, 'direction' | 'entryPrice' | 'stopLossPrice' | 'quantity'>): number | null => {
+export const calculateRiskFromPrices = (input: Pick<TradeCalculationInput, 'direction' | 'entryPrice' | 'stopLossPrice' | 'quantity' | 'contractMultiplier'>): number | null => {
   const entryPrice = asFiniteNumber(input.entryPrice)
   const stopLossPrice = asFiniteNumber(input.stopLossPrice)
   const quantity = asFiniteNumber(input.quantity)
+  const contractMultiplier = asFiniteNumber(input.contractMultiplier) ?? 1
   if (!input.direction || entryPrice === null || stopLossPrice === null || quantity === null) {
     return null
   }
 
   if (input.direction === 'LONG') {
-    return (entryPrice - stopLossPrice) * quantity
+    return (entryPrice - stopLossPrice) * quantity * contractMultiplier
   }
 
-  return (stopLossPrice - entryPrice) * quantity
+  return (stopLossPrice - entryPrice) * quantity * contractMultiplier
 }
 
 export const calculatePnlPercent = (
   netPnl: number | null,
-  capitalUsed?: NullableNumber,
-  riskAmount?: NullableNumber
+  capitalUsed?: NullableNumber
 ): number | null => {
   if (netPnl === null) return null
   const capital = asFiniteNumber(capitalUsed)
-  const risk = asFiniteNumber(riskAmount)
-  const denominator = capital ?? risk
-  if (denominator === null || denominator === 0) return null
-  return (netPnl / denominator) * 100
+  if (capital === null || capital === 0) return null
+  return (netPnl / capital) * 100
 }
 
 export const calculateRMultiple = (netPnl: number | null, riskAmount: number | null): number | null => {
@@ -102,8 +102,8 @@ export const calculateTradeLiveMetrics = (input: TradeCalculationInput): TradeLi
   const riskFromPrices = calculateRiskFromPrices(input)
   const providedRisk = asFiniteNumber(input.riskAmount)
   const riskValue = providedRisk ?? riskFromPrices
-  const pnlPercent = calculatePnlPercent(netPnl, input.capitalUsed, providedRisk)
-  const rMultiple = calculateRMultiple(netPnl, riskValue)
+  const pnlPercent = calculatePnlPercent(netPnl, input.capitalUsed)
+  const rMultiple = calculateRMultiple(netPnl, providedRisk)
 
   return {
     grossPnl,

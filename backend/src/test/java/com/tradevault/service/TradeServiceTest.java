@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
@@ -13,6 +14,7 @@ import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.TimezoneService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +43,7 @@ public class TradeServiceTest {
     private TradeRepository tradeRepository;
     private AccountRepository accountRepository;
     private TagRepository tagRepository;
+    private UserStrategyRepository userStrategyRepository;
     private CurrentUserService currentUserService;
     private TimezoneService timezoneService;
     private TradeService tradeService;
@@ -51,9 +54,10 @@ public class TradeServiceTest {
         tradeRepository = Mockito.mock(TradeRepository.class);
         accountRepository = Mockito.mock(AccountRepository.class);
         tagRepository = Mockito.mock(TagRepository.class);
+        userStrategyRepository = Mockito.mock(UserStrategyRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         timezoneService = Mockito.mock(TimezoneService.class);
-        tradeService = new TradeService(tradeRepository, accountRepository, tagRepository, currentUserService, timezoneService);
+        tradeService = new TradeService(tradeRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService);
         user = User.builder().id(UUID.randomUUID()).email("user@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
     }
@@ -69,6 +73,91 @@ public class TradeServiceTest {
         var response = tradeService.create(request);
         assertEquals(new BigDecimal("2000"), response.getPnlGross());
         assertEquals(new BigDecimal("1995"), response.getPnlNet());
+    }
+
+    @Test
+    void calculatesPnlPercentFromCapitalUsedAndRMultipleFromRiskAmount() {
+        TradeRequest request = baseRequest();
+        request.setDirection(Direction.LONG);
+        request.setExitPrice(new BigDecimal("130.60"));
+        request.setRiskAmount(new BigDecimal("250"));
+        request.setCapitalUsed(new BigDecimal("500"));
+        request.setFees(BigDecimal.ZERO);
+        request.setCommission(BigDecimal.ZERO);
+        request.setSlippage(BigDecimal.ZERO);
+        request.setQuantity(BigDecimal.TEN);
+        request.setEntryPrice(new BigDecimal("100"));
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertEquals(0, response.getPnlNet().compareTo(new BigDecimal("306.00")));
+        assertEquals(0, response.getPnlPercent().compareTo(new BigDecimal("61.2000")));
+        assertEquals(0, response.getRMultiple().compareTo(new BigDecimal("1.2240")));
+        assertEquals(0, response.getRiskPercent().compareTo(new BigDecimal("50.0000")));
+    }
+
+    @Test
+    void leavesRMultipleBlankWhenRiskAmountMissingEvenIfStopLossExists() {
+        TradeRequest request = baseRequest();
+        request.setDirection(Direction.LONG);
+        request.setExitPrice(new BigDecimal("130.60"));
+        request.setCapitalUsed(new BigDecimal("500"));
+        request.setStopLossPrice(new BigDecimal("95"));
+        request.setFees(BigDecimal.ZERO);
+        request.setCommission(BigDecimal.ZERO);
+        request.setSlippage(BigDecimal.ZERO);
+        request.setQuantity(BigDecimal.TEN);
+        request.setEntryPrice(new BigDecimal("100"));
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertEquals(0, response.getPnlNet().compareTo(new BigDecimal("306.00")));
+        assertEquals(0, response.getPnlPercent().compareTo(new BigDecimal("61.2000")));
+        assertNull(response.getRMultiple());
+    }
+
+    @Test
+    void rejectsStrategyIdsOutsideCurrentUserScope() {
+        TradeRequest request = baseRequest();
+        UUID strategyId = UUID.randomUUID();
+        request.setStrategyId(strategyId);
+        request.setExitPrice(new BigDecimal("120"));
+
+        when(userStrategyRepository.findByIdAndUser_Id(strategyId, user.getId())).thenReturn(java.util.Optional.empty());
+
+        assertThrows(jakarta.persistence.EntityNotFoundException.class, () -> tradeService.create(request));
+        verify(tradeRepository, never()).save(any());
+    }
+
+    @Test
+    void includesStrategyNameWhenStrategyIsOwnedByCurrentUser() {
+        TradeRequest request = baseRequest();
+        UUID strategyId = UUID.randomUUID();
+        UserStrategy strategy = UserStrategy.builder()
+                .id(strategyId)
+                .user(user)
+                .name("London sweep")
+                .model("Model")
+                .entryConditionsJson("[]")
+                .entryConditionsRich("<p></p>")
+                .invalidationLogic("x")
+                .tpFramework("x")
+                .build();
+        request.setStrategyId(strategyId);
+        request.setExitPrice(new BigDecimal("120"));
+
+        when(userStrategyRepository.findByIdAndUser_Id(strategyId, user.getId())).thenReturn(java.util.Optional.of(strategy));
+        when(userStrategyRepository.findByIdInAndUser_Id(java.util.List.of(strategyId), user.getId())).thenReturn(java.util.List.of(strategy));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertEquals(strategyId, response.getStrategyId());
+        assertEquals("London sweep", response.getStrategyName());
     }
 
     @Test
@@ -722,7 +811,7 @@ public class TradeServiceTest {
         when(timezoneService.resolveZone("Europe/Bucharest", user)).thenReturn(zone);
         when(tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId(), null, null))
                 .thenReturn(List.of(firstId, secondId));
-        when(tradeRepository.findAllByIdInWithTagsAndAccount(List.of(firstId, secondId)))
+        when(tradeRepository.findAllByIdInWithAccount(List.of(firstId, secondId)))
                 .thenReturn(List.of(
                         Trade.builder()
                                 .id(firstId)

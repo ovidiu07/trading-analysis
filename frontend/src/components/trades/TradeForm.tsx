@@ -20,6 +20,7 @@ import { PlanSource } from '../../api/plans'
 import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
 import { formatNumber, formatPercent } from '../../utils/format'
+import { calculateTradeLiveMetrics } from '../../utils/tradeCalculations'
 import { TradeFormValues } from '../../utils/tradePayload'
 
 export type ComputedTradeMetrics = {
@@ -87,6 +88,7 @@ export function TradeForm({
   const openedAtValue = watch('openedAt')
   const tradeCurrencyValue = watch('tradeCurrency')
   const profileCurrencyValue = watch('profileCurrency')
+  const watchedValues = watch()
   const showClosedFields = statusValue === 'CLOSED'
 
   const openedAtIso = useMemo(() => {
@@ -125,12 +127,58 @@ export function TradeForm({
     return map
   }, [allPlanOptions])
 
+  const liveComputedValues = useMemo<ComputedTradeMetrics>(() => {
+    const liveMetrics = calculateTradeLiveMetrics({
+      direction: watchedValues.direction,
+      entryPrice: watchedValues.entryPrice,
+      exitPrice: watchedValues.exitPrice,
+      quantity: watchedValues.quantity,
+      contractMultiplier: watchedValues.contractMultiplier,
+      stopLossPrice: watchedValues.stopLossPrice,
+      fees: watchedValues.fees,
+      commission: watchedValues.commission,
+      slippage: watchedValues.slippage,
+      riskAmount: watchedValues.riskAmount,
+      capitalUsed: watchedValues.capitalUsed
+    })
+    const riskPercent = (
+      typeof watchedValues.riskAmount === 'number'
+      && Number.isFinite(watchedValues.riskAmount)
+      && typeof watchedValues.capitalUsed === 'number'
+      && Number.isFinite(watchedValues.capitalUsed)
+      && watchedValues.capitalUsed > 0
+    )
+      ? (watchedValues.riskAmount / watchedValues.capitalUsed) * 100
+      : null
+
+    return {
+      pnlGross: liveMetrics.grossPnl,
+      pnlNet: liveMetrics.netPnl,
+      pnlPercent: liveMetrics.pnlPercent,
+      riskPercent,
+      rMultiple: liveMetrics.rMultiple
+    }
+  }, [
+    watchedValues.capitalUsed,
+    watchedValues.commission,
+    watchedValues.contractMultiplier,
+    watchedValues.direction,
+    watchedValues.entryPrice,
+    watchedValues.exitPrice,
+    watchedValues.fees,
+    watchedValues.quantity,
+    watchedValues.riskAmount,
+    watchedValues.slippage,
+    watchedValues.stopLossPrice
+  ])
+
   const submitHandler = async (values: TradeFormValues) => {
     await onSubmit(values)
   }
 
   return (
     <Box component="form" onSubmit={handleSubmit(submitHandler)}>
+      <input type="hidden" {...register('contractMultiplier', { valueAsNumber: true })} />
       <Stack spacing={1.5}>
         <Accordion defaultExpanded disableGutters>
           <AccordionSummary expandIcon={<ExpandMoreIcon />}>
@@ -321,6 +369,7 @@ export function TradeForm({
                   inputProps={{ step: '0.0001' }}
                   fullWidth
                   helperText={t('trades.form.riskAmountHint')}
+                  placeholder={t('trades.form.riskAmountPlaceholder')}
                   {...register('riskAmount', { valueAsNumber: true })}
                 />
               </Grid>
@@ -398,6 +447,7 @@ export function TradeForm({
                       fullWidth
                       value={field.value ?? ''}
                       onChange={field.onChange}
+                      helperText={t('trades.form.strategyHint')}
                     >
                       <MenuItem value="">{t('trades.form.none')}</MenuItem>
                       {strategyOptions.map((option) => (
@@ -428,7 +478,12 @@ export function TradeForm({
                 />
               </Grid>
               <Grid item xs={12} sm={6} md={4}>
-                <TextField label={t('trades.form.strategyTag')} fullWidth {...register('strategyTag')} />
+                <TextField
+                  label={t('trades.form.strategyTag')}
+                  fullWidth
+                  helperText={t('trades.form.strategyTagHint')}
+                  {...register('strategyTag')}
+                />
               </Grid>
               <Grid item xs={12} sm={6} md={4}>
                 <TextField label={t('trades.form.catalystTag')} fullWidth {...register('catalystTag')} />
@@ -532,7 +587,7 @@ export function TradeForm({
           </AccordionDetails>
         </Accordion>
 
-        {computedValues && (
+        {(computedValues || liveComputedValues) && (
           <Accordion disableGutters>
             <AccordionSummary expandIcon={<ExpandMoreIcon />}>
               <Typography variant="subtitle2">{t('trades.form.computedMetrics')}</Typography>
@@ -540,19 +595,19 @@ export function TradeForm({
             <AccordionDetails>
               <Grid container spacing={2}>
                 <Grid item xs={12} sm={6} md={4}>
-                  <TextField label={t('trades.form.pnlGross')} value={formatNumber(computedValues.pnlGross)} fullWidth InputProps={{ readOnly: true }} />
+                  <TextField label={t('trades.form.pnlGross')} value={formatNumber(liveComputedValues.pnlGross)} fullWidth InputProps={{ readOnly: true }} />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
-                  <TextField label={t('trades.form.pnlNet')} value={formatNumber(computedValues.pnlNet)} fullWidth InputProps={{ readOnly: true }} />
+                  <TextField label={t('trades.form.pnlNet')} value={formatNumber(liveComputedValues.pnlNet)} fullWidth InputProps={{ readOnly: true }} />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
-                  <TextField label={t('trades.form.pnlPercent')} value={formatPercent(computedValues.pnlPercent)} fullWidth InputProps={{ readOnly: true }} />
+                  <TextField label={t('trades.form.pnlPercent')} value={formatPercent(liveComputedValues.pnlPercent)} fullWidth InputProps={{ readOnly: true }} />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
-                  <TextField label={t('trades.form.riskPercent')} value={formatPercent(computedValues.riskPercent)} fullWidth InputProps={{ readOnly: true }} />
+                  <TextField label={t('trades.form.riskPercent')} value={formatPercent(liveComputedValues.riskPercent)} fullWidth InputProps={{ readOnly: true }} />
                 </Grid>
                 <Grid item xs={12} sm={6} md={4}>
-                  <TextField label={t('trades.form.rMultiple')} value={formatNumber(computedValues.rMultiple)} fullWidth InputProps={{ readOnly: true }} />
+                  <TextField label={t('trades.form.rMultiple')} value={formatNumber(liveComputedValues.rMultiple)} fullWidth InputProps={{ readOnly: true }} />
                 </Grid>
               </Grid>
             </AccordionDetails>

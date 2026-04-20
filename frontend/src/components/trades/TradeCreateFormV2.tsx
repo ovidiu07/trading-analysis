@@ -108,7 +108,8 @@ const normalizeDefaults = (values: TradeFormValues): TradeFormValues => ({
   linkedContentIds: values.linkedContentIds || [],
   linkedPlanIds: values.linkedPlanIds || values.linkedContentIds || [],
   notes: values.notes || undefined,
-  accountId: values.accountId || undefined
+  accountId: values.accountId || undefined,
+  contractMultiplier: values.contractMultiplier
 })
 
 const toTradeFormValues = (values: TradeFormValues): TradeFormValues => ({
@@ -311,6 +312,14 @@ export function TradeCreateFormV2({
     return map
   }, [allPlanOptions])
 
+  const strategyOptionsById = useMemo(() => {
+    const map = new Map<string, ContentOption>()
+    strategyOptions.forEach((option) => {
+      map.set(option.id, option)
+    })
+    return map
+  }, [strategyOptions])
+
   useEffect(() => {
     if (!openedAtIso || !activePlansQuery.data) return
     const suggestedPlanIds = activePlansQuery.data.suggestedPlanIds || []
@@ -435,9 +444,14 @@ export function TradeCreateFormV2({
     const parts: string[] = []
     if (watchedValues.setupGrade) parts.push(`Grade ${watchedValues.setupGrade}`)
     if (watchedValues.session) parts.push(t(`trades.form.sessions.${watchedValues.session}`))
-    if (watchedValues.strategyTag) parts.push(watchedValues.strategyTag)
+    const selectedStrategyLabel = watchedValues.strategyId ? strategyOptionsById.get(watchedValues.strategyId)?.label : null
+    if (selectedStrategyLabel) {
+      parts.push(selectedStrategyLabel)
+    } else if (watchedValues.strategyTag) {
+      parts.push(watchedValues.strategyTag)
+    }
     return parts[0] || '—'
-  }, [t, watchedValues.session, watchedValues.setupGrade, watchedValues.strategyTag])
+  }, [strategyOptionsById, t, watchedValues.session, watchedValues.setupGrade, watchedValues.strategyId, watchedValues.strategyTag])
 
   const plansSummary = useMemo(() => {
     const linkedCount = watchedValues.linkedPlanIds?.length || 0
@@ -755,6 +769,7 @@ export function TradeCreateFormV2({
                 fullWidth
                 error={!!errors.riskAmount}
                 helperText={resolveError('riskAmount') || t('trades.form.riskAmountHint')}
+                placeholder={t('trades.form.riskAmountPlaceholder')}
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
                 InputProps={{ endAdornment: tradeCurrencyAdornment }}
                 {...register('riskAmount', { setValueAs: parseLocalizedNumberInput })}
@@ -847,6 +862,7 @@ export function TradeCreateFormV2({
                     fullWidth
                     value={field.value ?? ''}
                     onChange={field.onChange}
+                    helperText={t('trades.form.strategyHint')}
                   >
                     <MenuItem value="">{t('trades.form.none')}</MenuItem>
                     {strategyOptions.map((option) => (
@@ -877,7 +893,12 @@ export function TradeCreateFormV2({
               />
             </Grid>
             <Grid item xs={12} md={6}>
-              <TextField label={t('trades.form.strategyTag')} fullWidth {...register('strategyTag')} />
+              <TextField
+                label={t('trades.form.strategyTag')}
+                fullWidth
+                helperText={t('trades.form.strategyTagHint')}
+                {...register('strategyTag')}
+              />
             </Grid>
             <Grid item xs={12} md={6}>
               <TextField label={t('trades.form.catalystTag')} fullWidth {...register('catalystTag')} />

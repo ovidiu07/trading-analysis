@@ -54,8 +54,8 @@ import { translateApiError } from '../i18n/errorMessages'
 import { alpha } from '@mui/material/styles'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import { trackEvent } from '../utils/analytics/ga4'
-import { listPublishedContent } from '../api/content'
 import { listMyPlans } from '../api/plans'
+import { listStrategies } from '../api/strategies'
 import { RULE_BREAK_OPTIONS } from '../constants/tradeTaxonomy'
 
 type ContentOption = {
@@ -98,7 +98,8 @@ const buildDefaultValues = (): TradeFormValues => ({
   linkedContentIds: [],
   linkedPlanIds: [],
   notes: '',
-  accountId: ''
+  accountId: '',
+  contractMultiplier: undefined
 })
 
 const buildQuickLogDefaults = (): TradeFormValues => ({
@@ -119,6 +120,62 @@ const defaultFilters = {
   accountId: '',
   direction: '',
   status: ''
+}
+
+type TradesFilters = typeof defaultFilters
+
+type TradesRouteState = {
+  filters: TradesFilters
+  activeFilters: TradesFilters | null
+  viewMode: 'list' | 'search'
+  highlightTradeId: string
+}
+
+const areFiltersEqual = (left: TradesFilters | null, right: TradesFilters | null) => {
+  if (left === right) {
+    return true
+  }
+  if (!left || !right) {
+    return left === right
+  }
+  return Object.keys(defaultFilters).every((key) => {
+    const filterKey = key as keyof TradesFilters
+    return left[filterKey] === right[filterKey]
+  })
+}
+
+const deriveRouteState = (search: string, timezone: string): TradesRouteState => {
+  if (!search) {
+    return {
+      filters: defaultFilters,
+      activeFilters: null,
+      viewMode: 'list',
+      highlightTradeId: ''
+    }
+  }
+
+  const params = new URLSearchParams(search)
+  const closedDate = params.get('closedDate') || ''
+  const filters: TradesFilters = {
+    openedAtFrom: params.get('openedAtFrom') || '',
+    openedAtTo: params.get('openedAtTo') || '',
+    closedAtFrom: params.get('closedAtFrom') || '',
+    closedAtTo: params.get('closedAtTo') || '',
+    closedDate,
+    tz: params.get('tz') || (closedDate ? timezone : ''),
+    symbol: params.get('symbol') || '',
+    accountId: params.get('accountId') || '',
+    direction: params.get('direction') || '',
+    status: params.get('status') || '',
+  }
+  const hasFilters = Object.values(filters).some((value) => value !== '')
+
+  return {
+    filters,
+    activeFilters: hasFilters ? filters : null,
+    viewMode: hasFilters ? 'search' : 'list',
+    highlightTradeId: params.get('tradeId') || ''
+  }
 }
 
 const countActiveFilters = (filters: typeof defaultFilters) =>
@@ -170,7 +227,8 @@ const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
     linkedContentIds: trade.linkedContentIds ?? [],
     linkedPlanIds: trade.linkedPlanIds ?? trade.linkedContentIds ?? [],
     notes: trade.notes ?? '',
-    accountId: trade.accountId ?? ''
+    accountId: trade.accountId ?? '',
+    contractMultiplier: trade.contractMultiplier ?? undefined
   }
 }
 
@@ -195,10 +253,11 @@ export default function TradesPage() {
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
   const isCreateDialogMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isCreateDialogCompact = useMediaQuery(theme.breakpoints.down('md'))
+  const routeState = useMemo(() => deriveRouteState(location.search, timezone), [location.search, timezone])
 
-  const [viewMode, setViewMode] = useState<'list' | 'search'>('list')
-  const [filters, setFilters] = useState(defaultFilters)
-  const [activeFilters, setActiveFilters] = useState<typeof defaultFilters | null>(null)
+  const [viewMode, setViewMode] = useState<'list' | 'search'>(() => routeState.viewMode)
+  const [filters, setFilters] = useState<TradesFilters>(() => routeState.filters)
+  const [activeFilters, setActiveFilters] = useState<TradesFilters | null>(() => routeState.activeFilters)
 
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({
     page: 0,
@@ -219,7 +278,7 @@ export default function TradesPage() {
   const [importSummary, setImportSummary] = useState<TradeCsvImportSummary | null>(null)
   const [importError, setImportError] = useState('')
   const [importLoading, setImportLoading] = useState(false)
-  const [highlightTradeId, setHighlightTradeId] = useState('')
+  const [highlightTradeId, setHighlightTradeId] = useState(() => routeState.highlightTradeId)
   const importInputRef = useRef<HTMLInputElement | null>(null)
   const optionsLoadedRef = useRef(false)
   const optionsLoadingPromiseRef = useRef<Promise<void> | null>(null)
@@ -246,20 +305,6 @@ export default function TradesPage() {
     strategyOptions.forEach((item) => map.set(item.id, item.label))
     return map
   }, [strategyOptions])
-
-  const hydrateStrategyTag = useCallback((values: TradeFormValues): TradeFormValues => {
-    if (values.strategyTag || !values.strategyId) {
-      return values
-    }
-    const strategyLabel = strategyNameById.get(values.strategyId)
-    if (!strategyLabel) {
-      return values
-    }
-    return {
-      ...values,
-      strategyTag: strategyLabel
-    }
-  }, [strategyNameById])
 
   const handleCreateTradeNote = useCallback(async (trade: TradeResponse) => {
     setNoteNavError('')
@@ -479,6 +524,14 @@ export default function TradesPage() {
     importInputRef.current?.click()
   }, [])
 
+  const handlePaginationModelChange = useCallback((nextModel: GridPaginationModel) => {
+    setPaginationModel((prev) => (
+      prev.page === nextModel.page && prev.pageSize === nextModel.pageSize
+        ? prev
+        : nextModel
+    ))
+  }, [])
+
   const handleImportChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]
     if (!file) {
@@ -545,13 +598,13 @@ export default function TradesPage() {
       try {
         setOptionsLoadError('')
         const [strategies, myPlans] = await Promise.all([
-          listPublishedContent({ type: 'STRATEGY', activeOnly: true }),
+          listStrategies({ includeArchived: true }),
           listMyPlans({ scope: 'DAILY' })
         ])
 
-        setStrategyOptions((strategies || []).map((item) => ({
+        setStrategyOptions((strategies?.myStrategies || []).map((item) => ({
           id: item.id,
-          label: item.title
+          label: item.name
         })))
 
         setPlanOptions((myPlans || []).map((plan) => ({
@@ -589,6 +642,16 @@ export default function TradesPage() {
   }, [createDialogOpen, editDialogOpen, fetchContentOptions])
 
   useEffect(() => {
+    setFilters((prev) => areFiltersEqual(prev, routeState.filters) ? prev : routeState.filters)
+    setActiveFilters((prev) => areFiltersEqual(prev, routeState.activeFilters) ? prev : routeState.activeFilters)
+    setViewMode((prev) => prev === routeState.viewMode ? prev : routeState.viewMode)
+    setHighlightTradeId((prev) => prev === routeState.highlightTradeId ? prev : routeState.highlightTradeId)
+    if (routeState.viewMode === 'search') {
+      setPaginationModel((prev) => prev.page === 0 ? prev : { ...prev, page: 0 })
+    }
+  }, [routeState])
+
+  useEffect(() => {
     if (!location.search) return
     const params = new URLSearchParams(location.search)
 
@@ -615,29 +678,7 @@ export default function TradesPage() {
       setCreateDiscardDialogOpen(false)
       setCreateDialogOpen(true)
     }
-
-    const tradeId = params.get('tradeId') || ''
-    const closedDate = params.get('closedDate') || ''
-    const nextFilters = {
-      openedAtFrom: params.get('openedAtFrom') || '',
-      openedAtTo: params.get('openedAtTo') || '',
-      closedAtFrom: params.get('closedAtFrom') || '',
-      closedAtTo: params.get('closedAtTo') || '',
-      closedDate,
-      tz: params.get('tz') || (closedDate ? timezone : ''),
-      symbol: params.get('symbol') || '',
-      accountId: params.get('accountId') || '',
-      direction: params.get('direction') || '',
-      status: params.get('status') || '',
-    }
-    setHighlightTradeId(tradeId)
-    const hasFilters = Object.values(nextFilters).some((value) => value !== '')
-    if (!hasFilters) return
-    setFilters(nextFilters)
-    setActiveFilters(nextFilters)
-    setViewMode('search')
-    setPaginationModel((prev) => ({ ...prev, page: 0 }))
-  }, [location.search, timezone])
+  }, [location.search])
 
   useEffect(() => {
     if (!highlightTradeId) return
@@ -650,7 +691,7 @@ export default function TradesPage() {
     setCreateSuccess('')
     setCreateError('')
     try {
-      const payload = buildTradePayload(hydrateStrategyTag(values))
+      const payload = buildTradePayload(values)
       await createTrade(payload)
       trackEvent('trade_create_submit', {
         method: 'manual_form',
@@ -692,7 +733,7 @@ export default function TradesPage() {
     if (!editTarget) return
     setEditError('')
     try {
-      const payload = buildTradePayload(hydrateStrategyTag(values))
+      const payload = buildTradePayload(values)
       const updated = await updateTrade(editTarget.id, payload)
       setTrades((prev) => prev.map((t) => t.id === updated.id ? updated : t))
       setExpandedTrade((prev) => prev?.id === updated.id ? updated : prev)
@@ -824,7 +865,7 @@ export default function TradesPage() {
         pageSizeOptions={[5, 10, 25]}
         paginationModel={paginationModel}
         paginationMode="server"
-        onPaginationModelChange={setPaginationModel}
+        onPaginationModelChange={handlePaginationModelChange}
         disableRowSelectionOnClick
         getRowId={(row) => row.id}
         initialState={{
@@ -909,7 +950,7 @@ export default function TradesPage() {
             )}
             <Stack direction="row" spacing={1} flexWrap="wrap">
               {trade.strategyId && (
-                <Chip size="small" variant="outlined" label={strategyNameById.get(trade.strategyId) || trade.strategyTag || t('common.na')} />
+                <Chip size="small" variant="outlined" label={trade.strategyName || strategyNameById.get(trade.strategyId) || trade.strategyTag || t('common.na')} />
               )}
               {trade.setupGrade && (
                 <Chip size="small" variant="outlined" label={`${t('trades.form.setupGrade')}: ${trade.setupGrade}`} />
@@ -1081,7 +1122,7 @@ export default function TradesPage() {
                       <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
                       <Typography variant="body2">{t('trades.details.accountId')}: {expandedTrade.accountId || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
-                      <Typography variant="body2">{t('trades.form.strategy')}: {(expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.form.strategy')}: {expandedTrade.strategyName || (expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.catalystTag')}: {expandedTrade.catalystTag || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.setupGrade')}: {expandedTrade.setupGrade || t('common.na')}</Typography>

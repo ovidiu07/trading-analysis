@@ -9,6 +9,7 @@ import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
 import jakarta.persistence.*;
 import lombok.*;
+import org.hibernate.annotations.BatchSize;
 import org.hibernate.annotations.GenericGenerator;
 import org.hibernate.annotations.JdbcTypeCode;
 
@@ -198,24 +199,28 @@ public class Trade {
     private UUID demoSeedId;
 
     @Builder.Default
+    @BatchSize(size = 50)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "trade_content_links", joinColumns = @JoinColumn(name = "trade_id"))
     @Column(name = "content_id")
     private Set<UUID> linkedContentIds = new LinkedHashSet<>();
 
     @Builder.Default
+    @BatchSize(size = 50)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "trade_plans", joinColumns = @JoinColumn(name = "trade_id"))
     @Column(name = "plan_id")
     private Set<UUID> linkedPlanIds = new LinkedHashSet<>();
 
     @Builder.Default
+    @BatchSize(size = 50)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "trade_rule_breaks", joinColumns = @JoinColumn(name = "trade_id"))
     @Column(name = "rule_break")
     private Set<String> ruleBreaks = new LinkedHashSet<>();
 
     @Builder.Default
+    @BatchSize(size = 50)
     @ElementCollection(fetch = FetchType.LAZY)
     @CollectionTable(name = "trade_entry_screenshot_assets", joinColumns = @JoinColumn(name = "trade_id"))
     @Column(name = "asset_id")
@@ -228,6 +233,7 @@ public class Trade {
             inverseJoinColumns = @JoinColumn(name = "tag_id")
     )
     @Builder.Default
+    @BatchSize(size = 50)
     private Set<Tag> tags = new HashSet<>();
 
     @PrePersist

@@ -8,7 +8,7 @@ import { I18nProvider } from '../i18n'
 
 const mockListTrades = vi.fn()
 const mockSearchTrades = vi.fn()
-const mockListPublishedContent = vi.fn()
+const mockListStrategies = vi.fn()
 const mockListMyPlans = vi.fn()
 const mockCreateTrade = vi.fn()
 
@@ -30,11 +30,11 @@ vi.mock('../api/trades', async () => {
   }
 })
 
-vi.mock('../api/content', async () => {
-  const actual = await vi.importActual<typeof import('../api/content')>('../api/content')
+vi.mock('../api/strategies', async () => {
+  const actual = await vi.importActual<typeof import('../api/strategies')>('../api/strategies')
   return {
     ...actual,
-    listPublishedContent: (...args: unknown[]) => mockListPublishedContent(...args)
+    listStrategies: (...args: unknown[]) => mockListStrategies(...args)
   }
 })
 
@@ -209,7 +209,7 @@ describe('TradesPage mobile create dialog', () => {
       number: 0,
       size: 10
     })
-    mockListPublishedContent.mockResolvedValue([])
+    mockListStrategies.mockResolvedValue({ myStrategies: [], mentorStrategies: [] })
     mockListMyPlans.mockResolvedValue([])
     mockCreateTrade.mockResolvedValue(undefined)
   })

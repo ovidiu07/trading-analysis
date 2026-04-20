@@ -31,6 +31,18 @@ describe('tradeCalculations', () => {
     ).toBe(16)
   })
 
+  it('includes contract multiplier in gross pnl', () => {
+    expect(
+      calculateGrossPnl({
+        direction: 'LONG',
+        entryPrice: 100,
+        exitPrice: 108,
+        quantity: 2,
+        contractMultiplier: 5
+      })
+    ).toBe(80)
+  })
+
   it('returns null gross pnl when required values are missing', () => {
     expect(calculateGrossPnl({ direction: 'LONG', entryPrice: 100, quantity: 2 })).toBeNull()
   })
@@ -61,6 +73,18 @@ describe('tradeCalculations', () => {
     ).toBe(15)
   })
 
+  it('includes contract multiplier in calculated stop-loss risk', () => {
+    expect(
+      calculateRiskFromPrices({
+        direction: 'LONG',
+        entryPrice: 100,
+        stopLossPrice: 97,
+        quantity: 5,
+        contractMultiplier: 10
+      })
+    ).toBe(150)
+  })
+
   it('returns null r multiple when risk is 0', () => {
     expect(calculateRMultiple(20, 0)).toBeNull()
   })
@@ -75,6 +99,7 @@ describe('tradeCalculations', () => {
       fees: 1,
       commission: 1,
       slippage: 1,
+      riskAmount: 5,
       capitalUsed: 100
     })
 
@@ -87,7 +112,21 @@ describe('tradeCalculations', () => {
     expect(result.rMultiple).toBe(1.4)
   })
 
-  it('does not derive pnl percent from stop-loss risk when riskAmount is missing', () => {
+  it('uses capital for pnl percent even when risk amount is provided', () => {
+    const result = calculateTradeLiveMetrics({
+      direction: 'LONG',
+      entryPrice: 100,
+      exitPrice: 110,
+      quantity: 1,
+      riskAmount: 5,
+      capitalUsed: 200
+    })
+
+    expect(result.pnlPercent).toBeCloseTo(5, 6)
+    expect(result.rMultiple).toBe(2)
+  })
+
+  it('does not derive pnl percent or r multiple from stop-loss risk when riskAmount is missing', () => {
     const result = calculateTradeLiveMetrics({
       direction: 'LONG',
       entryPrice: 100,
@@ -98,5 +137,6 @@ describe('tradeCalculations', () => {
 
     expect(result.riskFromPrices).toBe(5)
     expect(result.pnlPercent).toBeNull()
+    expect(result.rMultiple).toBeNull()
   })
 })

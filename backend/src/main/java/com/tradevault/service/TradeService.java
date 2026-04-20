@@ -6,6 +6,7 @@ import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.Tag;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.dto.trade.DailyAccountSummaryResponse;
 import com.tradevault.dto.trade.ImportedTradeCandidate;
@@ -15,6 +16,7 @@ import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.UserStrategyRepository;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -59,9 +61,11 @@ public class TradeService {
     private final TradeRepository tradeRepository;
     private final AccountRepository accountRepository;
     private final TagRepository tagRepository;
+    private final UserStrategyRepository userStrategyRepository;
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
 
+    @Transactional(readOnly = true)
     public Page<TradeResponse> search(int page, int size,
                                       String openedAtFromRaw,
                                       String openedAtToRaw,
@@ -109,8 +113,10 @@ public class TradeService {
             return new org.springframework.data.domain.PageImpl<>(List.of(), pageable, idPage.getTotalElements());
         }
 
-        List<TradeResponse> responses = loadTradesInOrderWithTagsAndAccount(idPage.getContent()).stream()
-                .map(this::toResponse)
+        List<Trade> trades = loadTradesInOrderWithAccount(idPage.getContent());
+        Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
+        List<TradeResponse> responses = trades.stream()
+                .map(trade -> toResponse(trade, strategyNames))
                 .toList();
         return new org.springframework.data.domain.PageImpl<>(responses, pageable, idPage.getTotalElements());
     }
@@ -200,6 +206,7 @@ public class TradeService {
         return "'" + trimmed + "'";
     }
 
+    @Transactional(readOnly = true)
     public Page<TradeResponse> listAll(int page, int size) {
         User user = currentUserService.getCurrentUser();
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
@@ -209,18 +216,21 @@ public class TradeService {
         }
 
         List<UUID> orderedIds = tradeIdsPage.getContent();
-        List<TradeResponse> responses = loadTradesInOrderWithTagsAndAccount(orderedIds).stream()
-                .map(this::toResponse)
+        List<Trade> trades = loadTradesInOrderWithAccount(orderedIds);
+        Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
+        List<TradeResponse> responses = trades.stream()
+                .map(trade -> toResponse(trade, strategyNames))
                 .toList();
 
         return new org.springframework.data.domain.PageImpl<>(responses, pageable, tradeIdsPage.getTotalElements());
     }
 
+    @Transactional(readOnly = true)
     public TradeResponse getById(UUID id) {
         User user = currentUserService.getCurrentUser();
-        Trade trade = tradeRepository.findByIdAndUserIdWithTagsAndAccount(id, user.getId())
+        Trade trade = tradeRepository.findByIdAndUserIdWithAccount(id, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
-        return toResponse(trade);
+        return toResponse(trade, loadStrategyNames(List.of(trade), user.getId()));
     }
 
     @Transactional
@@ -253,7 +263,7 @@ public class TradeService {
         trade.setSetup(request.getSetup());
         trade.setStrategyTag(request.getStrategyTag());
         trade.setCatalystTag(request.getCatalystTag());
-        trade.setStrategyId(request.getStrategyId());
+        trade.setStrategyId(requireOwnedStrategyId(request.getStrategyId(), user.getId()));
         trade.setStrategyVersionId(request.getStrategyVersionId());
         trade.setContextSnapshotId(request.getContextSnapshotId());
         trade.setSetupGrade(request.getSetupGrade());
@@ -299,7 +309,8 @@ public class TradeService {
         recalculateAndApplyPnl(trade);
         recalculateProfileCurrencyAmounts(trade);
         logNarrativeSnapshotState("create", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), null, trade.getNarrativeSnapshotJson());
-        return toResponse(tradeRepository.save(trade));
+        Trade savedTrade = tradeRepository.save(trade);
+        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()));
     }
 
     @Transactional
@@ -334,7 +345,7 @@ public class TradeService {
         trade.setSetup(request.getSetup());
         trade.setStrategyTag(request.getStrategyTag());
         trade.setCatalystTag(request.getCatalystTag());
-        trade.setStrategyId(request.getStrategyId());
+        trade.setStrategyId(requireOwnedStrategyId(request.getStrategyId(), user.getId()));
         trade.setStrategyVersionId(request.getStrategyVersionId());
         trade.setContextSnapshotId(request.getContextSnapshotId());
         trade.setSetupGrade(request.getSetupGrade());
@@ -404,7 +415,8 @@ public class TradeService {
         recalculateProfileCurrencyAmounts(trade);
         trade.setUpdatedAt(OffsetDateTime.now());
         logNarrativeSnapshotState("update", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), previousNarrativeSnapshot, trade.getNarrativeSnapshotJson());
-        return toResponse(tradeRepository.save(trade));
+        Trade savedTrade = tradeRepository.save(trade);
+        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()));
     }
 
     @Transactional
@@ -433,7 +445,8 @@ public class TradeService {
         trade.setFeeling(normalizeFeeling(feeling));
         trade.setEntryScreenshotAssetIds(normalizeLinkedAssetIds(entryScreenshotAssetIds));
         trade.setUpdatedAt(OffsetDateTime.now());
-        return toResponse(tradeRepository.save(trade));
+        Trade savedTrade = tradeRepository.save(trade);
+        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()));
     }
 
     public void delete(UUID id) {
@@ -442,6 +455,7 @@ public class TradeService {
         tradeRepository.delete(trade);
     }
 
+    @Transactional(readOnly = true)
     public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
@@ -454,7 +468,7 @@ public class TradeService {
                 accountFilter.brokerAccountId(),
                 accountFilter.accountRefId()
         );
-        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
+        var trades = loadTradesInOrderWithAccount(tradeIds);
         //log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
         return trades
                 .stream()
@@ -462,6 +476,7 @@ public class TradeService {
                 .toList();
     }
 
+    @Transactional(readOnly = true)
     public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz, String accountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
@@ -473,7 +488,7 @@ public class TradeService {
                 accountFilter.brokerAccountId(),
                 accountFilter.accountRefId()
         );
-        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
+        var trades = loadTradesInOrderWithAccount(tradeIds);
         if (trades == null || trades.isEmpty()) {
             return com.tradevault.dto.trade.DailySummaryResponse.builder()
                     .date(date)
@@ -523,6 +538,7 @@ public class TradeService {
                 .build();
     }
 
+    @Transactional(readOnly = true)
     public java.util.List<TradeResponse> listLosses(LocalDate from, LocalDate to, String tz, BigDecimal minLoss) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
@@ -536,23 +552,48 @@ public class TradeService {
                 com.tradevault.domain.enums.TradeStatus.CLOSED,
                 threshold.negate()
         );
-        return loadTradesInOrderWithTagsAndAccount(tradeIds).stream()
+        return loadTradesInOrderWithAccount(tradeIds).stream()
                 .map(this::toResponse)
                 .toList();
     }
 
-    private List<Trade> loadTradesInOrderWithTagsAndAccount(List<UUID> orderedIds) {
+    private List<Trade> loadTradesInOrderWithAccount(List<UUID> orderedIds) {
         if (orderedIds == null || orderedIds.isEmpty()) {
             return List.of();
         }
 
-        Map<UUID, Trade> tradesById = tradeRepository.findAllByIdInWithTagsAndAccount(orderedIds).stream()
+        Map<UUID, Trade> tradesById = tradeRepository.findAllByIdInWithAccount(orderedIds).stream()
                 .collect(Collectors.toMap(Trade::getId, Function.identity(), (left, right) -> left));
 
         return orderedIds.stream()
                 .map(tradesById::get)
                 .filter(Objects::nonNull)
                 .toList();
+    }
+
+    private Map<UUID, String> loadStrategyNames(List<Trade> trades, UUID userId) {
+        if (trades == null || trades.isEmpty()) {
+            return Map.of();
+        }
+        List<UUID> strategyIds = trades.stream()
+                .map(Trade::getStrategyId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (strategyIds.isEmpty()) {
+            return Map.of();
+        }
+        return userStrategyRepository.findByIdInAndUser_Id(strategyIds, userId).stream()
+                .collect(Collectors.toMap(UserStrategy::getId, UserStrategy::getName, (left, right) -> left));
+    }
+
+    private UUID requireOwnedStrategyId(UUID strategyId, UUID userId) {
+        if (strategyId == null) {
+            return null;
+        }
+        return userStrategyRepository.findByIdAndUser_Id(strategyId, userId)
+                .map(UserStrategy::getId)
+                .orElseThrow(() -> new EntityNotFoundException("Strategy not found"));
     }
 
     private BigDecimal defaultZero(BigDecimal value) {
@@ -799,23 +840,13 @@ public class TradeService {
                 trade.setPnlNet(pnlNet);
             }
             if (trade.getPnlPercent() == null) {
-                if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
-                    trade.setPnlPercent(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
-                } else if (trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
+                if (trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
                     trade.setPnlPercent(pnlNet.divide(trade.getCapitalUsed(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
                 }
             }
             if (trade.getRMultiple() == null) {
                 if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
                     trade.setRMultiple(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP));
-                } else if (trade.getStopLossPrice() != null) {
-                    BigDecimal riskPerUnit = trade.getDirection() == Direction.LONG ?
-                            trade.getEntryPrice().subtract(trade.getStopLossPrice()) :
-                            trade.getStopLossPrice().subtract(trade.getEntryPrice());
-                    if (riskPerUnit.compareTo(BigDecimal.ZERO) > 0) {
-                        BigDecimal riskValue = riskPerUnit.multiply(trade.getQuantity());
-                        trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
-                    }
                 }
             }
         }
@@ -868,32 +899,11 @@ public class TradeService {
         trade.setPnlGross(pnlGross);
         trade.setPnlNet(pnlNet);
 
-        if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
-            trade.setPnlPercent(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
-            trade.setRMultiple(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP));
-        } else if (trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
+        if (trade.getCapitalUsed() != null && trade.getCapitalUsed().compareTo(BigDecimal.ZERO) != 0) {
             trade.setPnlPercent(pnlNet.divide(trade.getCapitalUsed(), 4, java.math.RoundingMode.HALF_UP).multiply(BigDecimal.valueOf(100)));
-            // R multiple via stop loss risk when possible
-            if (trade.getStopLossPrice() != null) {
-                BigDecimal riskPerUnit = trade.getDirection() == Direction.LONG ?
-                        trade.getEntryPrice().subtract(trade.getStopLossPrice()) :
-                        trade.getStopLossPrice().subtract(trade.getEntryPrice());
-                if (riskPerUnit.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal riskValue = riskPerUnit.multiply(trade.getQuantity());
-                    trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
-                }
-            }
-        } else {
-            // Attempt R multiple from stop loss if available even if percent cannot be computed
-            if (trade.getStopLossPrice() != null) {
-                BigDecimal riskPerUnit = trade.getDirection() == Direction.LONG ?
-                        trade.getEntryPrice().subtract(trade.getStopLossPrice()) :
-                        trade.getStopLossPrice().subtract(trade.getEntryPrice());
-                if (riskPerUnit.compareTo(BigDecimal.ZERO) > 0) {
-                    BigDecimal riskValue = riskPerUnit.multiply(trade.getQuantity());
-                    trade.setRMultiple(pnlNet.divide(riskValue, 4, java.math.RoundingMode.HALF_UP));
-                }
-            }
+        }
+        if (trade.getRiskAmount() != null && trade.getRiskAmount().compareTo(BigDecimal.ZERO) != 0) {
+            trade.setRMultiple(pnlNet.divide(trade.getRiskAmount(), 4, java.math.RoundingMode.HALF_UP));
         }
     }
 
@@ -1073,6 +1083,10 @@ public class TradeService {
     }
 
     private TradeResponse toResponse(Trade trade) {
+        return toResponse(trade, loadStrategyNames(List.of(trade), currentUserService.getCurrentUser().getId()));
+    }
+
+    private TradeResponse toResponse(Trade trade, Map<UUID, String> strategyNames) {
         return TradeResponse.builder()
                 .id(trade.getId())
                 .symbol(trade.getSymbol())
@@ -1105,6 +1119,7 @@ public class TradeService {
                 .capitalUsed(trade.getCapitalUsed())
                 .timeframe(trade.getTimeframe())
                 .setup(trade.getSetup())
+                .strategyName(trade.getStrategyId() == null ? null : strategyNames.get(trade.getStrategyId()))
                 .strategyTag(trade.getStrategyTag())
                 .catalystTag(trade.getCatalystTag())
                 .strategyId(trade.getStrategyId())

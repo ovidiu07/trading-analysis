@@ -525,9 +525,10 @@ export function buildStrategySnapshot(strategy: StrategyResponse): SetupStrategy
 
 export function applyStrategyImport(setup: SetupItem, strategy: StrategyResponse): SetupItem {
   const snapshot = buildStrategySnapshot(strategy)
+  const linkedStrategyId = strategy.source === 'MY' ? strategy.id : null
   const imported = ensureExecutionWorkspace({
     ...setup,
-    strategyId: strategy.id,
+    strategyId: linkedStrategyId,
     strategyLabel: strategy.name,
     strategySnapshot: snapshot,
     setupTitle: setup.setupTitle || strategy.name,
@@ -1008,4 +1009,3 @@ export function buildQuickLogUpdate(
     feedback: definition.title
   }
 }
-

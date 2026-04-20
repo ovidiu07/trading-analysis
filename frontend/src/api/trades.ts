@@ -46,6 +46,7 @@ export type TradeRequest = {
   entryInvalidation?: string
   entryScreenshotAssetIds?: string[]
   accountId?: string
+  contractMultiplier?: number
   tagIds?: string[]
 }
 
@@ -81,6 +82,7 @@ export type TradeResponse = {
   capitalUsed?: number | null
   timeframe?: string | null
   setup?: string | null
+  strategyName?: string | null
   strategyTag?: string | null
   catalystTag?: string | null
   strategyId?: string | null

@@ -37,6 +37,7 @@ type TradeFormValues = {
   linkedPlanIds?: string[]
   notes?: string
   accountId?: string
+  contractMultiplier?: number
 }
 
 const LOCAL_DATE_TIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/
@@ -93,6 +94,7 @@ export function buildTradePayload(values: TradeFormValues): TradeRequest {
     linkedPlanIds: toStringArray(values.linkedPlanIds),
     notes: values.notes,
     accountId: values.accountId || undefined,
+    contractMultiplier: toNullableNumber(values.contractMultiplier) ?? undefined,
   }
 }
 

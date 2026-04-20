@@ -48,6 +48,7 @@ public class TradeResponse {
     private BigDecimal capitalUsed;
     private String timeframe;
     private String setup;
+    private String strategyName;
     private String strategyTag;
     private String catalystTag;
     private UUID strategyId;
