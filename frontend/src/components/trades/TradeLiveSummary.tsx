@@ -24,6 +24,7 @@ type TradeLiveSummaryValues = {
   entryPrice?: NullableNumber
   exitPrice?: NullableNumber
   quantity?: NullableNumber
+  contractMultiplier?: NullableNumber
   stopLossPrice?: NullableNumber
   fees?: NullableNumber
   commission?: NullableNumber
@@ -70,6 +71,7 @@ export function TradeLiveSummary({
     entryPrice: parseLocalizedNumberInput(values.entryPrice) ?? null,
     exitPrice: parseLocalizedNumberInput(values.exitPrice) ?? null,
     quantity: parseLocalizedNumberInput(values.quantity) ?? null,
+    contractMultiplier: parseLocalizedNumberInput(values.contractMultiplier) ?? null,
     stopLossPrice: parseLocalizedNumberInput(values.stopLossPrice) ?? null,
     fees: parseLocalizedNumberInput(values.fees) ?? null,
     commission: parseLocalizedNumberInput(values.commission) ?? null,
@@ -243,4 +245,3 @@ export function TradeLiveSummary({
     </Card>
   )
 }
-

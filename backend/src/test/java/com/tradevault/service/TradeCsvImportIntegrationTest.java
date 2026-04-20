@@ -162,6 +162,9 @@ class TradeCsvImportIntegrationTest {
         assertThat(trades.getContent())
                 .extracting(TradeResponse::getAccountId)
                 .containsExactlyInAnyOrder("APEX4855840000003", "APEX4855840000004");
+        assertThat(trades.getContent())
+                .extracting(TradeResponse::getPnlNet)
+                .containsExactlyInAnyOrder(new java.math.BigDecimal("306.0000"), new java.math.BigDecimal("612.0000"));
 
         var closedTrades = tradeService.listClosedTradesByDate(LocalDate.of(2026, 4, 17), "Europe/Bucharest", null);
         assertThat(closedTrades).hasSize(2);

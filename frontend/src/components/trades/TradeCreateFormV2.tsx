@@ -33,8 +33,10 @@ import { PlanSource } from '../../api/plans'
 import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
 import { formatCurrency } from '../../utils/format'
+import { resolveTradeContractMultiplier } from '../../utils/futuresContractMetadata'
 import { parseLocalizedNumberInput } from '../../utils/numberInput'
 import { TradeFormValues } from '../../utils/tradePayload'
+import { calculateTradeLiveMetrics } from '../../utils/tradeCalculations'
 import { tradeValidationSchema } from '../../utils/tradeValidationSchema'
 import { BottomActionBar } from './BottomActionBar'
 import { SessionChips } from './SessionChips'
@@ -284,6 +286,18 @@ export function TradeCreateFormV2({
     }
   }, [getValues, setValue, watchedFxSource, watchedProfileCurrency, watchedTradeCurrency])
 
+  useEffect(() => {
+    const resolvedMultiplier = resolveTradeContractMultiplier(watchedValues.market, watchedValues.symbol)
+    const currentMultiplier = parseLocalizedNumberInput(watchedValues.contractMultiplier)
+    const nextMultiplier = resolvedMultiplier
+
+    if (currentMultiplier === nextMultiplier) {
+      return
+    }
+
+    setValue('contractMultiplier', nextMultiplier, { shouldValidate: false, shouldDirty: false })
+  }, [setValue, watchedValues.contractMultiplier, watchedValues.market, watchedValues.symbol])
+
   const activePlanOptions = useMemo<ContentOption[]>(() => {
     return (activePlansQuery.data?.plans || []).map((plan) => ({
       id: plan.id,
@@ -357,14 +371,20 @@ export function TradeCreateFormV2({
     const profileCurrency = (values.profileCurrency || baseCurrency).trim().toUpperCase()
     const fxRate = tradeCurrency === profileCurrency ? 1 : (values.fxRateTradeToProfile || 1)
     const totalCosts = (values.fees || 0) + (values.commission || 0) + (values.slippage || 0)
+    const liveMetrics = calculateTradeLiveMetrics({
+      direction: values.direction,
+      entryPrice: values.entryPrice,
+      exitPrice: values.exitPrice,
+      quantity: values.quantity,
+      contractMultiplier: values.contractMultiplier,
+      fees: values.fees,
+      commission: values.commission,
+      slippage: values.slippage
+    })
 
     let pnlProfileCurrency: number | undefined = values.pnlProfileCurrency
-    if (values.exitPrice !== undefined && values.entryPrice !== undefined && values.quantity !== undefined) {
-      const gross = values.direction === 'LONG'
-        ? (values.exitPrice - values.entryPrice) * values.quantity
-        : (values.entryPrice - values.exitPrice) * values.quantity
-      const pnlNet = gross - totalCosts
-      pnlProfileCurrency = pnlNet * fxRate
+    if (liveMetrics.netPnl !== null) {
+      pnlProfileCurrency = liveMetrics.netPnl * fxRate
     }
 
     const payload = toTradeFormValues({
@@ -1032,6 +1052,7 @@ export function TradeCreateFormV2({
       }}
       onFocusCapture={handleFieldFocus}
     >
+      <input type="hidden" {...register('contractMultiplier', { valueAsNumber: true })} />
       <Box
         sx={{
           position: 'sticky',

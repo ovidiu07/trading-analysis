@@ -64,6 +64,7 @@ public class TradeService {
     private final UserStrategyRepository userStrategyRepository;
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
+    private final FuturesContractMetadataService futuresContractMetadataService;
 
     public Page<TradeResponse> search(int page, int size,
                                       String openedAtFromRaw,
@@ -251,7 +252,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
-        trade.setContractMultiplier(defaultOne(request.getContractMultiplier()));
+        trade.setContractMultiplier(resolveContractMultiplier(request, null));
         trade.setFeesProfileCurrency(defaultZero(request.getFeesProfileCurrency()));
         // Do NOT trust client-provided PnL values on create; compute authoritatively below
         trade.setRiskAmount(request.getRiskAmount());
@@ -333,7 +334,7 @@ public class TradeService {
         trade.setFees(defaultZero(request.getFees()));
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
-        trade.setContractMultiplier(defaultOne(request.getContractMultiplier()));
+        trade.setContractMultiplier(resolveContractMultiplier(request, trade));
         trade.setFeesProfileCurrency(defaultZero(request.getFeesProfileCurrency()));
         // Never accept client PnL fields on update; we'll recompute if needed
         trade.setRiskAmount(request.getRiskAmount());
@@ -853,6 +854,7 @@ public class TradeService {
     }
 
     private boolean pnlInputsChanged(Trade existing, TradeRequest request) {
+        BigDecimal requestedContractMultiplier = resolveContractMultiplier(request, existing);
         // Fields that influence PnL or its denominators/meaning
         boolean changed = false;
         changed |= existing.getDirection() != request.getDirection();
@@ -862,13 +864,28 @@ public class TradeService {
         changed |= !equalBD(existing.getFees(), defaultZero(request.getFees()));
         changed |= !equalBD(existing.getCommission(), defaultZero(request.getCommission()));
         changed |= !equalBD(existing.getSlippage(), defaultZero(request.getSlippage()));
-        changed |= !equalBD(existing.getContractMultiplier(), defaultOne(request.getContractMultiplier()));
+        changed |= !equalBD(existing.getContractMultiplier(), requestedContractMultiplier);
         changed |= existing.getStatus() != request.getStatus();
         changed |= (existing.getClosedAt() == null ? request.getClosedAt() != null : !existing.getClosedAt().equals(request.getClosedAt()));
         changed |= !equalBD(existing.getRiskAmount(), request.getRiskAmount());
         changed |= !equalBD(existing.getCapitalUsed(), request.getCapitalUsed());
         changed |= !equalBD(existing.getStopLossPrice(), request.getStopLossPrice());
         return changed;
+    }
+
+    private BigDecimal resolveContractMultiplier(TradeRequest request, Trade existing) {
+        BigDecimal existingMultiplier = null;
+        if (existing != null
+                && request.getMarket() == existing.getMarket()
+                && Objects.equals(normalizeOptionalText(request.getSymbol()), normalizeOptionalText(existing.getSymbol()))) {
+            existingMultiplier = existing.getContractMultiplier();
+        }
+        return futuresContractMetadataService.resolveContractMultiplier(
+                request.getMarket(),
+                request.getSymbol(),
+                request.getContractMultiplier(),
+                existingMultiplier
+        );
     }
 
     private void recalculateAndApplyPnl(Trade trade) {

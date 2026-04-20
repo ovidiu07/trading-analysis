@@ -43,6 +43,18 @@ describe('tradeCalculations', () => {
     ).toBe(80)
   })
 
+  it('matches the canonical MNQM6 futures calculation', () => {
+    expect(
+      calculateGrossPnl({
+        direction: 'LONG',
+        entryPrice: 26711.5,
+        exitPrice: 26788,
+        quantity: 2,
+        contractMultiplier: 2
+      })
+    ).toBe(306)
+  })
+
   it('returns null gross pnl when required values are missing', () => {
     expect(calculateGrossPnl({ direction: 'LONG', entryPrice: 100, quantity: 2 })).toBeNull()
   })
@@ -124,6 +136,29 @@ describe('tradeCalculations', () => {
 
     expect(result.pnlPercent).toBeCloseTo(5, 6)
     expect(result.rMultiple).toBe(2)
+  })
+
+  it('does not let risk amount change canonical net pnl', () => {
+    const withRisk = calculateTradeLiveMetrics({
+      direction: 'LONG',
+      entryPrice: 26711.5,
+      exitPrice: 26788,
+      quantity: 2,
+      contractMultiplier: 2,
+      riskAmount: 75
+    })
+    const withoutRisk = calculateTradeLiveMetrics({
+      direction: 'LONG',
+      entryPrice: 26711.5,
+      exitPrice: 26788,
+      quantity: 2,
+      contractMultiplier: 2
+    })
+
+    expect(withRisk.netPnl).toBe(306)
+    expect(withoutRisk.netPnl).toBe(306)
+    expect(withRisk.rMultiple).toBeCloseTo(4.08, 6)
+    expect(withoutRisk.rMultiple).toBeNull()
   })
 
   it('does not derive pnl percent or r multiple from stop-loss risk when riskAmount is missing', () => {

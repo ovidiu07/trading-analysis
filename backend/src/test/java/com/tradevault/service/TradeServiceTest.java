@@ -46,6 +46,7 @@ public class TradeServiceTest {
     private UserStrategyRepository userStrategyRepository;
     private CurrentUserService currentUserService;
     private TimezoneService timezoneService;
+    private FuturesContractMetadataService futuresContractMetadataService;
     private TradeService tradeService;
     private User user;
 
@@ -57,7 +58,8 @@ public class TradeServiceTest {
         userStrategyRepository = Mockito.mock(UserStrategyRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         timezoneService = Mockito.mock(TimezoneService.class);
-        tradeService = new TradeService(tradeRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService);
+        futuresContractMetadataService = new FuturesContractMetadataService();
+        tradeService = new TradeService(tradeRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService);
         user = User.builder().id(UUID.randomUUID()).email("user@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
     }
@@ -408,6 +410,117 @@ public class TradeServiceTest {
     }
 
     @Test
+    void createResolvesMnqContractMultiplierFromFuturesSymbolWhenRequestOmitsIt() {
+        TradeRequest request = new TradeRequest();
+        request.setSymbol("MNQM6");
+        request.setMarket(Market.FUTURES);
+        request.setDirection(Direction.LONG);
+        request.setStatus(TradeStatus.CLOSED);
+        request.setOpenedAt(OffsetDateTime.parse("2026-04-17T13:44:42Z"));
+        request.setClosedAt(OffsetDateTime.parse("2026-04-17T14:36:58Z"));
+        request.setQuantity(new BigDecimal("2"));
+        request.setEntryPrice(new BigDecimal("26711.5"));
+        request.setExitPrice(new BigDecimal("26788.0"));
+        request.setFees(BigDecimal.ZERO);
+        request.setCommission(BigDecimal.ZERO);
+        request.setSlippage(BigDecimal.ZERO);
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.create(request);
+
+        assertEquals(0, response.getContractMultiplier().compareTo(new BigDecimal("2")));
+        assertEquals(0, response.getPnlGross().compareTo(new BigDecimal("306.0000")));
+        assertEquals(0, response.getPnlNet().compareTo(new BigDecimal("306.0000")));
+    }
+
+    @Test
+    void createKeepsNetPnlIndependentFromRiskAmountForResolvedMnqTrades() {
+        TradeRequest requestWithRisk = new TradeRequest();
+        requestWithRisk.setSymbol("MNQM6");
+        requestWithRisk.setMarket(Market.FUTURES);
+        requestWithRisk.setDirection(Direction.LONG);
+        requestWithRisk.setStatus(TradeStatus.CLOSED);
+        requestWithRisk.setOpenedAt(OffsetDateTime.parse("2026-04-17T13:44:42Z"));
+        requestWithRisk.setClosedAt(OffsetDateTime.parse("2026-04-17T14:36:58Z"));
+        requestWithRisk.setQuantity(new BigDecimal("2"));
+        requestWithRisk.setEntryPrice(new BigDecimal("26711.5"));
+        requestWithRisk.setExitPrice(new BigDecimal("26788.0"));
+        requestWithRisk.setFees(BigDecimal.ZERO);
+        requestWithRisk.setCommission(BigDecimal.ZERO);
+        requestWithRisk.setSlippage(BigDecimal.ZERO);
+        requestWithRisk.setRiskAmount(new BigDecimal("51"));
+
+        TradeRequest requestWithoutRisk = new TradeRequest();
+        requestWithoutRisk.setSymbol("MNQM6");
+        requestWithoutRisk.setMarket(Market.FUTURES);
+        requestWithoutRisk.setDirection(Direction.LONG);
+        requestWithoutRisk.setStatus(TradeStatus.CLOSED);
+        requestWithoutRisk.setOpenedAt(requestWithRisk.getOpenedAt());
+        requestWithoutRisk.setClosedAt(requestWithRisk.getClosedAt());
+        requestWithoutRisk.setQuantity(requestWithRisk.getQuantity());
+        requestWithoutRisk.setEntryPrice(requestWithRisk.getEntryPrice());
+        requestWithoutRisk.setExitPrice(requestWithRisk.getExitPrice());
+        requestWithoutRisk.setFees(BigDecimal.ZERO);
+        requestWithoutRisk.setCommission(BigDecimal.ZERO);
+        requestWithoutRisk.setSlippage(BigDecimal.ZERO);
+
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var withRisk = tradeService.create(requestWithRisk);
+        var withoutRisk = tradeService.create(requestWithoutRisk);
+
+        assertEquals(0, withRisk.getPnlNet().compareTo(new BigDecimal("306.0000")));
+        assertEquals(0, withoutRisk.getPnlNet().compareTo(new BigDecimal("306.0000")));
+        assertNotNull(withRisk.getRMultiple());
+        assertNull(withoutRisk.getRMultiple());
+    }
+
+    @Test
+    void listAndDetailExposeStoredCanonicalMnqPnlFieldsWithoutRecalculation() {
+        UUID tradeId = UUID.randomUUID();
+        OffsetDateTime openedAt = OffsetDateTime.parse("2026-04-17T13:44:42Z");
+        OffsetDateTime closedAt = OffsetDateTime.parse("2026-04-17T14:36:58Z");
+        Trade stored = Trade.builder()
+                .id(tradeId)
+                .user(user)
+                .symbol("MNQM6")
+                .brokerAccountId("APEX4855840000003")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(openedAt)
+                .closedAt(closedAt)
+                .quantity(new BigDecimal("2"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .contractMultiplier(new BigDecimal("2"))
+                .pnlGross(new BigDecimal("306.0000"))
+                .pnlNet(new BigDecimal("306.0000"))
+                .pnlProfileCurrency(new BigDecimal("306.0000"))
+                .fees(BigDecimal.ZERO)
+                .commission(BigDecimal.ZERO)
+                .slippage(BigDecimal.ZERO)
+                .build();
+
+        when(tradeRepository.findTradeIdsForList(eq(user.getId()), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(tradeId)));
+        when(tradeRepository.findAllByIdInWithTagsAndAccount(List.of(tradeId)))
+                .thenReturn(List.of(stored));
+        when(tradeRepository.findByIdAndUserIdWithTagsAndAccount(tradeId, user.getId()))
+                .thenReturn(java.util.Optional.of(stored));
+
+        var listPage = tradeService.listAll(0, 20);
+        var detail = tradeService.getById(tradeId);
+
+        assertEquals(1, listPage.getTotalElements());
+        assertEquals(0, listPage.getContent().get(0).getPnlNet().compareTo(new BigDecimal("306.0000")));
+        assertEquals(0, listPage.getContent().get(0).getContractMultiplier().compareTo(new BigDecimal("2")));
+        assertEquals(0, detail.getPnlNet().compareTo(new BigDecimal("306.0000")));
+        assertEquals(0, detail.getContractMultiplier().compareTo(new BigDecimal("2")));
+    }
+
+    @Test
     void upsertImportedTradePreservesExistingNotesAndJournalFields() {
         Trade existing = Trade.builder()
                 .id(UUID.randomUUID())
@@ -463,6 +576,62 @@ public class TradeServiceTest {
         assertEquals("keep journal", result.trade().getEntryJournalText());
         assertEquals("Imported from Tradovate Orders CSV", result.trade().getInitialNotes());
         assertEquals(0, new BigDecimal("306.0000").compareTo(result.trade().getPnlNet()));
+    }
+
+    @Test
+    void upsertImportedTradeCreatesCanonicalMnqPnlsForQtyTwoAndQtyFourCsvCases() {
+        OffsetDateTime openedAt = OffsetDateTime.parse("2026-04-17T13:44:42Z");
+        OffsetDateTime closedAt = OffsetDateTime.parse("2026-04-17T14:36:58Z");
+
+        ImportedTradeCandidate qtyTwo = ImportedTradeCandidate.builder()
+                .symbol("MNQM6")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(openedAt)
+                .closedAt(closedAt)
+                .quantity(new BigDecimal("2"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .accountId("APEX4855840000003")
+                .contractMultiplier(new BigDecimal("2"))
+                .build();
+
+        ImportedTradeCandidate qtyFour = ImportedTradeCandidate.builder()
+                .symbol("MNQM6")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(openedAt)
+                .closedAt(closedAt)
+                .quantity(new BigDecimal("4"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .accountId("APEX4855840000004")
+                .contractMultiplier(new BigDecimal("2"))
+                .build();
+
+        when(tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(
+                user.getId(),
+                "MNQM6",
+                Direction.LONG,
+                openedAt,
+                "APEX4855840000003"
+        )).thenReturn(java.util.Optional.empty());
+        when(tradeRepository.findByUserIdAndSymbolAndDirectionAndOpenedAtAndBrokerAccountId(
+                user.getId(),
+                "MNQM6",
+                Direction.LONG,
+                openedAt,
+                "APEX4855840000004"
+        )).thenReturn(java.util.Optional.empty());
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        TradeService.ImportUpsertResult qtyTwoResult = tradeService.upsertImportedTrade(qtyTwo);
+        TradeService.ImportUpsertResult qtyFourResult = tradeService.upsertImportedTrade(qtyFour);
+
+        assertEquals(0, qtyTwoResult.trade().getPnlNet().compareTo(new BigDecimal("306.0000")));
+        assertEquals(0, qtyFourResult.trade().getPnlNet().compareTo(new BigDecimal("612.0000")));
     }
 
     @Test

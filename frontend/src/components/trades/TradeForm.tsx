@@ -20,6 +20,7 @@ import { PlanSource } from '../../api/plans'
 import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
 import { formatNumber, formatPercent } from '../../utils/format'
+import { resolveTradeContractMultiplier } from '../../utils/futuresContractMetadata'
 import { calculateTradeLiveMetrics } from '../../utils/tradeCalculations'
 import { TradeFormValues } from '../../utils/tradePayload'
 
@@ -126,6 +127,17 @@ export function TradeForm({
     allPlanOptions.forEach((option) => map.set(option.id, option))
     return map
   }, [allPlanOptions])
+
+  useEffect(() => {
+    const resolvedMultiplier = resolveTradeContractMultiplier(watchedValues.market, watchedValues.symbol)
+    const currentMultiplier = typeof watchedValues.contractMultiplier === 'number' && Number.isFinite(watchedValues.contractMultiplier)
+      ? watchedValues.contractMultiplier
+      : undefined
+    if (currentMultiplier === resolvedMultiplier) {
+      return
+    }
+    setValue('contractMultiplier', resolvedMultiplier, { shouldValidate: false, shouldDirty: false })
+  }, [setValue, watchedValues.contractMultiplier, watchedValues.market, watchedValues.symbol])
 
   const liveComputedValues = useMemo<ComputedTradeMetrics>(() => {
     const liveMetrics = calculateTradeLiveMetrics({

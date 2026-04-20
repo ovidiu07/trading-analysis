@@ -145,6 +145,7 @@ class TradeCsvImportServiceTest {
         assertEquals("APEX4855840000004", candidate.getAccountId());
         assertEquals(new BigDecimal("4"), candidate.getQuantity());
         assertEquals(TradeStatus.CLOSED, candidate.getStatus());
+        assertEquals(new BigDecimal("2.00000000"), candidate.getContractMultiplier());
     }
 
     @Test
