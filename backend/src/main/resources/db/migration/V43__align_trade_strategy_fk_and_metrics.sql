@@ -8,8 +8,17 @@ BEGIN
           AND constraint_name = 'fk_trades_strategy_content'
     ) THEN
         UPDATE trades t
-        SET strategy_tag = cp.title
+        SET strategy_tag = cpt.title
         FROM content_post cp
+        JOIN LATERAL (
+            SELECT translation.title
+            FROM content_post_translation translation
+            WHERE translation.content_post_id = cp.id
+            ORDER BY CASE WHEN translation.locale = 'en' THEN 0 ELSE 1 END,
+                     translation.created_at ASC,
+                     translation.id ASC
+            LIMIT 1
+        ) cpt ON TRUE
         WHERE t.strategy_id = cp.id
           AND (t.strategy_tag IS NULL OR btrim(t.strategy_tag) = '');
 
