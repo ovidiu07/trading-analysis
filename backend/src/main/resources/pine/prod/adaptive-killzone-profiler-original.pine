@@ -1,0 +1,101 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("Killzone Sweep & Reversal Pro", overlay = true, max_lines_count = 500)
+
+// --- Groups ---
+groupSetup    = "Sweep Setup Logic"
+groupStyle    = "Visual Style"
+
+// --- Inputs: Session Separators ---
+const string TZ_TOOLTIP_TEXT = "The session's time zone, specified in either GMT notation (e.g., 'GMT-5') or as an IANA time zone database name (e.g., 'America/New_York'). We recommend the latter because it also handles daylight savings changes."
+const int MAX_SESSION_SEPARATOR_LINES = 480
+
+const string FIRST_SESSION_GROUP = "First Session"
+showFirstSession         = input.bool(true, "Show session", group = FIRST_SESSION_GROUP)
+firstSessionName         = input.string("Tokyo", "Displayed name", group = FIRST_SESSION_GROUP, active = showFirstSession)
+firstSessionTime         = input.session("0900-1500", "Session time", group = FIRST_SESSION_GROUP, active = showFirstSession)
+firstSessionTimezone     = input.string("Asia/Tokyo", "Session timezone", group = FIRST_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showFirstSession)
+firstSessionSeparatorClr = input.color(#2962FF, "Separator color", group = FIRST_SESSION_GROUP, active = showFirstSession)
+
+const string SECOND_SESSION_GROUP = "Second Session"
+showSecondSession         = input.bool(true, "Show session", group = SECOND_SESSION_GROUP)
+secondSessionName         = input.string("London", "Displayed name", group = SECOND_SESSION_GROUP, active = showSecondSession)
+secondSessionTime         = input.session("0830-1630", "Session time", group = SECOND_SESSION_GROUP, active = showSecondSession)
+secondSessionTimezone     = input.string("Europe/London", "Session timezone", group = SECOND_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showSecondSession)
+secondSessionSeparatorClr = input.color(#FF9800, "Separator color", group = SECOND_SESSION_GROUP, active = showSecondSession)
+
+const string THIRD_SESSION_GROUP = "Third Session"
+showThirdSession         = input.bool(true, "Show session", group = THIRD_SESSION_GROUP)
+thirdSessionName         = input.string("New York", "Displayed name", group = THIRD_SESSION_GROUP, active = showThirdSession)
+thirdSessionTime         = input.session("0930-1600", "Session time", group = THIRD_SESSION_GROUP, active = showThirdSession)
+thirdSessionTimezone     = input.string("America/New_York", "Session timezone", group = THIRD_SESSION_GROUP, tooltip = TZ_TOOLTIP_TEXT, active = showThirdSession)
+thirdSessionSeparatorClr = input.color(#089981, "Separator color", group = THIRD_SESSION_GROUP, active = showThirdSession)
+
+// --- Inputs: Setup Logic ---
+lookback      = input.int(20, "Liquidity Lookback (Bars)", minval = 2, tooltip = "High/Low to sweep must be the highest/lowest in this many bars.", group = groupSetup)
+wickPct       = input.float(50.0, "Min Wick % of Candle", minval = 10.0, maxval = 100.0, step = 5.0, tooltip = "The sweep wick must be at least this % of the total candle range.", group = groupSetup)
+
+// --- Inputs: Style ---
+lineWidth     = input.int(1, "Separator Line Width", minval = 1, group = groupStyle)
+bullColor     = input.color(#089981, "Bullish Setup Color", group = groupStyle)
+bearColor     = input.color(#f23645, "Bearish Setup Color", group = groupStyle)
+
+// --- Logic: Session Detection ---
+var array<line> sessionSeparatorLines = array.new<line>()
+
+f_drawSeparatorLine(color separatorColor) =>
+    line separator = line.new(bar_index, 0, bar_index, 1, xloc = xloc.bar_index, extend = extend.both, color = separatorColor, style = line.style_dotted, width = lineWidth)
+    array.push(sessionSeparatorLines, separator)
+    if array.size(sessionSeparatorLines) > MAX_SESSION_SEPARATOR_LINES
+        line.delete(array.shift(sessionSeparatorLines))
+
+// Use explicit session windows plus per-session timezones for robust boundary detection.
+f_drawSessionSeparators(bool enabled, string _sessionName, string sessionValue, string timezoneValue, color separatorColor) =>
+    int sessionTime = time("", sessionValue, timezoneValue)
+    bool inSession = enabled and not na(sessionTime)
+    bool wasInSession = enabled and not na(sessionTime[1])
+    bool sessionStarted = inSession and not wasInSession
+    bool sessionEnded = not inSession and wasInSession
+
+    if sessionStarted or sessionEnded
+        f_drawSeparatorLine(separatorColor)
+
+// --- Logic: Sweep Detection ---
+float bTop    = math.max(open, close)
+float bBot    = math.min(open, close)
+float uWick   = high - bTop
+float lWick   = bBot - low
+float fRange  = high - low
+
+// Sweep Identification for Previous Bar
+isBigUW_prev = fRange[1] > 0 and (uWick[1] / fRange[1]) * 100 >= wickPct
+isBigLW_prev = fRange[1] > 0 and (lWick[1] / fRange[1]) * 100 >= wickPct
+
+// Liquidity Sweep check for Previous Bar
+sHigh_prev = high[1] > ta.highest(high, lookback)[2]
+sLow_prev  = low[1] < ta.lowest(low, lookback)[2]
+
+// --- Logic: Setup Conditions with Body Engulfing ---
+// Define previous bar's real body boundaries
+float bTop_prev = math.max(open[1], close[1])
+float bBot_prev = math.min(open[1], close[1])
+
+// Bearish Setup: Upside sweep + Current body fully engulfs previous body
+bool isBearEngulf = close < open and open >= bTop_prev and close <= bBot_prev
+bearS = sHigh_prev and isBigUW_prev and isBearEngulf
+
+// Bullish Setup: Downside sweep + Current body fully engulfs previous body
+bool isBullEngulf = close > open and close >= bTop_prev and open <= bBot_prev
+bullS = sLow_prev and isBigLW_prev and isBullEngulf
+
+// --- Visuals: Session Separators ---
+f_drawSessionSeparators(showFirstSession, firstSessionName, firstSessionTime, firstSessionTimezone, firstSessionSeparatorClr)
+f_drawSessionSeparators(showSecondSession, secondSessionName, secondSessionTime, secondSessionTimezone, secondSessionSeparatorClr)
+f_drawSessionSeparators(showThirdSession, thirdSessionName, thirdSessionTime, thirdSessionTimezone, thirdSessionSeparatorClr)
+
+// --- Visuals: Setup Markers ---
+plotshape(bullS, "Bullish Sweep Reversal", shape.triangleup, location.belowbar, bullColor, size = size.small)
+plotshape(bearS, "Bearish Sweep Reversal", shape.triangledown, location.abovebar, bearColor, size = size.small)
+
+// Background highlight for the confirmation bar
+bgcolor(bullS ? color.new(bullColor, 90) : bearS ? color.new(bearColor, 90) : na)
