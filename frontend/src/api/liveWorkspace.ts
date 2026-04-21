@@ -20,6 +20,8 @@ export type WorkspaceReadinessStep = {
   missingItems: string[]
 }
 
+export type SetupDirection = 'LONG' | 'SHORT' | 'UNDECIDED'
+
 export type WorkspaceReadiness = {
   score: number
   state: ReadinessState
@@ -163,7 +165,7 @@ export type MentorReference = {
 export type SetupItem = {
   id: string
   symbol: string
-  direction: 'LONG' | 'SHORT'
+  direction: SetupDirection
   market?: 'STOCK' | 'CFD' | 'FOREX' | 'CRYPTO' | 'FUTURES' | 'OPTIONS' | 'OTHER' | null
   tradeSession?: 'ASIA' | 'LONDON' | 'NY' | 'CUSTOM' | 'NY_AM' | 'NY_PM' | null
   strategyId?: string | null
@@ -254,7 +256,7 @@ export type SessionWorkspaceRequest = {
 
 export type SetupDraftRequest = {
   symbol?: string | null
-  direction?: 'LONG' | 'SHORT' | null
+  direction?: SetupDirection | null
   market?: SetupItem['market']
   tradeSession?: SetupItem['tradeSession']
   strategyId?: string | null

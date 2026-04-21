@@ -851,6 +851,10 @@ public class TodaySessionService {
             throw new IllegalArgumentException("Invalid feeling selection");
         }
 
+        if (request.getDirection() == null || request.getDirection() == Direction.UNDECIDED) {
+            throw new IllegalArgumentException("Direction must be LONG or SHORT");
+        }
+
         String tradeSymbol = normalizeTicker(request.getSymbol());
         List<SessionChecklistItemDto> prereqsState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.PREREQS);
         List<SessionChecklistItemDto> triggersState = resolveChecklistItems(session, user.getId(), ChecklistTemplateType.TRIGGERS);

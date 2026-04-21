@@ -147,6 +147,51 @@ export async function deleteAsset(assetId: string) {
   return apiDelete(`/assets/${assetId}`)
 }
 
+const canReadXhrResponseText = (xhr: XMLHttpRequest) => xhr.responseType === '' || xhr.responseType === 'text'
+
+const readXhrResponseText = (xhr: XMLHttpRequest) => (canReadXhrResponseText(xhr) ? xhr.responseText || '' : '')
+
+const parseXhrJsonPayload = <T>(xhr: XMLHttpRequest): T | null => {
+  const response = xhr.response
+
+  if (response && typeof response === 'object') {
+    return response as T
+  }
+
+  if (typeof response === 'string' && response.trim()) {
+    try {
+      return JSON.parse(response) as T
+    } catch {
+      return null
+    }
+  }
+
+  const rawText = readXhrResponseText(xhr)
+  if (!rawText.trim()) {
+    return null
+  }
+
+  try {
+    return JSON.parse(rawText) as T
+  } catch {
+    return null
+  }
+}
+
+const buildUploadError = (xhr: XMLHttpRequest) => {
+  const parsed = parseXhrJsonPayload<{ message?: string; error?: string; details?: unknown }>(xhr)
+  const rawText = readXhrResponseText(xhr)
+  const statusLabel = xhr.status ? `${xhr.status} ${xhr.statusText}`.trim() : ''
+  const message = parsed?.message || parsed?.error || rawText || statusLabel || 'Upload failed'
+
+  const error = new ApiError(message)
+  error.status = xhr.status
+  error.code = parsed?.error
+  error.details = parsed?.details
+  error.rawMessage = message
+  return error
+}
+
 export function uploadAsset(params: UploadAssetParams): Promise<AssetItem> {
   const { file, scope, contentId, noteId, strategyId, tradeId, sortOrder, onProgress } = params
 
@@ -183,11 +228,24 @@ export function uploadAsset(params: UploadAssetParams): Promise<AssetItem> {
       reject(error)
     }
 
+    xhr.onabort = () => {
+      const error = new ApiError('Upload cancelled')
+      error.code = 'ABORTED'
+      reject(error)
+    }
+
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
-        const payload = xhr.response ?? JSON.parse(xhr.responseText || '{}')
+        const payload = parseXhrJsonPayload<AssetItem>(xhr)
+        if (!payload) {
+          const error = new ApiError('Upload completed but the response was invalid')
+          error.status = xhr.status
+          error.code = 'INVALID_RESPONSE'
+          reject(error)
+          return
+        }
         onProgress?.(100)
-        resolve(payload as AssetItem)
+        resolve(payload)
         return
       }
 
@@ -195,19 +253,7 @@ export function uploadAsset(params: UploadAssetParams): Promise<AssetItem> {
         clearAuthToken()
       }
 
-      let errorMessage = xhr.responseText || 'Upload failed'
-      let errorCode: string | undefined
-      try {
-        const parsed = JSON.parse(xhr.responseText)
-        errorMessage = parsed?.message || parsed?.error || errorMessage
-        errorCode = parsed?.error
-      } catch {
-        // ignore parse failures
-      }
-      const error = new ApiError(errorMessage || 'Upload failed')
-      error.status = xhr.status
-      error.code = errorCode
-      reject(error)
+      reject(buildUploadError(xhr))
     }
 
     xhr.send(formData)

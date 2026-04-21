@@ -79,6 +79,9 @@ public class TradeResponse {
     private Set<UUID> linkedContentIds;
     private Set<UUID> linkedPlanIds;
     private String notes;
+    private UUID latestTradeNoteId;
+    private String latestTradeNotePreview;
+    private OffsetDateTime latestTradeNoteUpdatedAt;
     private String initialNotes;
     private String entryJournalText;
     private String entryInvalidation;

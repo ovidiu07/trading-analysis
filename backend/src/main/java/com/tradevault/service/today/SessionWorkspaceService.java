@@ -143,7 +143,7 @@ public class SessionWorkspaceService {
                 .todaySession(session)
                 .user(user)
                 .symbol(normalizeSymbol(request == null ? null : request.getSymbol()))
-                .direction(requireDirection(request == null ? null : request.getDirection()))
+                .direction(normalizeSetupDirection(request == null ? null : request.getDirection()))
                 .market(request == null ? null : request.getMarket())
                 .tradeSession(request == null ? null : request.getTradeSession())
                 .strategyId(request == null ? null : request.getStrategyId())
@@ -181,7 +181,7 @@ public class SessionWorkspaceService {
                 setup.setSymbol(normalizeSymbol(request.getSymbol()));
             }
             if (request.getDirection() != null) {
-                setup.setDirection(requireDirection(request.getDirection()));
+                setup.setDirection(normalizeSetupDirection(request.getDirection()));
             }
             setup.setMarket(request.getMarket());
             setup.setTradeSession(request.getTradeSession());
@@ -358,6 +358,9 @@ public class SessionWorkspaceService {
         if (TERMINAL_SETUP_STATUSES.contains(setup.getStatus())) {
             throw new IllegalArgumentException("This setup is no longer actionable");
         }
+        if (!isDirectionDecided(setup.getDirection())) {
+            throw new IllegalArgumentException("Direction must be decided before starting a trade");
+        }
 
         UpsertSessionSetupRequest.Context context = readNode(setup.getContextSnapshotJson(), UpsertSessionSetupRequest.Context.class, new UpsertSessionSetupRequest.Context());
         UpsertSessionSetupRequest.Trigger trigger = readNode(setup.getTriggerSnapshotJson(), UpsertSessionSetupRequest.Trigger.class, new UpsertSessionSetupRequest.Trigger());
@@ -369,7 +372,7 @@ public class SessionWorkspaceService {
 
         ArrayNode prereqs = objectMapper.createArrayNode();
         prereqs.add(checklistItem("Symbol defined", setup.getSymbol() != null));
-        prereqs.add(checklistItem("Direction defined", setup.getDirection() != null));
+        prereqs.add(checklistItem("Direction defined", isDirectionDecided(setup.getDirection())));
         prereqs.add(checklistItem("Trade session defined", setup.getTradeSession() != null));
         prereqs.add(checklistItem("Invalidation idea", hasText(firstNonBlank(executionTicket.getInvalidation(), context.getInvalidationIdea()))));
         prereqs.add(checklistItem("Liquidity idea", hasText(context.getLiquidityNotes()) || !levels.isEmpty()));
@@ -775,7 +778,7 @@ public class SessionWorkspaceService {
         if (!hasText(setup.getSymbol())) {
             contextMissing.add("symbol");
         }
-        if (setup.getDirection() == null) {
+        if (!isDirectionDecided(setup.getDirection())) {
             contextMissing.add("direction");
         }
         if (setup.getTradeSession() == null) {
@@ -1374,7 +1377,7 @@ public class SessionWorkspaceService {
                 .todaySession(session)
                 .user(user)
                 .symbol(normalizeSymbolOrFallback(symbol, "WATCHLIST"))
-                .direction(activeOrRecentTrade == null || activeOrRecentTrade.getDirection() == null ? Direction.LONG : activeOrRecentTrade.getDirection())
+                .direction(activeOrRecentTrade == null || activeOrRecentTrade.getDirection() == null ? Direction.UNDECIDED : activeOrRecentTrade.getDirection())
                 .market(activeOrRecentTrade == null ? Market.FOREX : activeOrRecentTrade.getMarket())
                 .tradeSession(activeOrRecentTrade == null ? parseTradeSession(session.getLockInSession()) : activeOrRecentTrade.getSession())
                 .strategyId(activeOrRecentTrade == null ? null : activeOrRecentTrade.getStrategyId())
@@ -1527,11 +1530,12 @@ public class SessionWorkspaceService {
         return value.trim().toUpperCase(Locale.ROOT);
     }
 
-    private Direction requireDirection(Direction direction) {
-        if (direction == null) {
-            throw new IllegalArgumentException("direction is required");
-        }
-        return direction;
+    private Direction normalizeSetupDirection(Direction direction) {
+        return direction == null ? Direction.UNDECIDED : direction;
+    }
+
+    private boolean isDirectionDecided(Direction direction) {
+        return direction == Direction.LONG || direction == Direction.SHORT;
     }
 
     private BigDecimal nonNegative(BigDecimal value, String fieldName) {
@@ -1549,7 +1553,7 @@ public class SessionWorkspaceService {
     }
 
     private BigDecimal computeRr(BigDecimal entry, BigDecimal stopLoss, BigDecimal takeProfit, Direction direction) {
-        if (entry == null || stopLoss == null || takeProfit == null || direction == null) {
+        if (entry == null || stopLoss == null || takeProfit == null || !isDirectionDecided(direction)) {
             return null;
         }
         BigDecimal risk = direction == Direction.LONG

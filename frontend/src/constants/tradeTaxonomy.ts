@@ -31,6 +31,8 @@ export const FEELING_OPTIONS = [
   'Detached'
 ] as const
 
+export type FeelingOption = typeof FEELING_OPTIONS[number]
+
 export const RULE_BREAK_OPTIONS = [
   'No pre-trade plan',
   'Entered without confirmation',
@@ -83,3 +85,55 @@ export const RULE_BREAK_OPTIONS = [
   'Distracted / multitasking',
   'No journal / no post-trade review'
 ] as const
+
+export type TradeRuleBreak = typeof RULE_BREAK_OPTIONS[number]
+
+const RULE_BREAK_OPTION_SET = new Set<string>(RULE_BREAK_OPTIONS)
+
+const LEGACY_NOTEBOOK_RULE_BREAK_ALIASES: Record<string, TradeRuleBreak> = {
+  early_exit: 'Closed early due to fear',
+  oversize: 'Oversized position',
+  revenge: 'Revenge trade',
+  moved_stop_loss: 'Moved stop-loss further away',
+  chased_entry: 'Chased price (late entry)',
+  no_entry_criteria: 'Entered without confirmation',
+  added_without_setup: 'Added without confirmation',
+  ignored_news: 'Entered during high-impact news window',
+  no_risk_plan: 'No pre-trade plan'
+}
+
+export function isTradeRuleBreak(value: unknown): value is TradeRuleBreak {
+  return typeof value === 'string' && RULE_BREAK_OPTION_SET.has(value)
+}
+
+export function normalizeTradeRuleBreak(value: unknown): TradeRuleBreak | null {
+  if (isTradeRuleBreak(value)) {
+    return value
+  }
+
+  if (typeof value !== 'string') {
+    return null
+  }
+
+  return LEGACY_NOTEBOOK_RULE_BREAK_ALIASES[value] || null
+}
+
+export function normalizeTradeRuleBreaks(values: unknown): TradeRuleBreak[] {
+  if (!Array.isArray(values)) {
+    return []
+  }
+
+  const normalized: TradeRuleBreak[] = []
+  const seen = new Set<TradeRuleBreak>()
+
+  values.forEach((value) => {
+    const next = normalizeTradeRuleBreak(value)
+    if (!next || seen.has(next)) {
+      return
+    }
+    seen.add(next)
+    normalized.push(next)
+  })
+
+  return normalized
+}

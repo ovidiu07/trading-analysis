@@ -2280,6 +2280,7 @@
     "subtitle": "Log new trades, edit history, and review details inline.",
     "tradeNoteSuffix": "trade note",
     "actions": {
+      "previewScreenshots": "Preview screenshots",
       "createTradeNote": "Create trade note",
       "editTrade": "Edit trade",
       "updateTrade": "Update trade",
@@ -2306,6 +2307,8 @@
       "deleteFailed": "Could not delete trade.",
       "importFailed": "Could not import CSV.",
       "createTradeNoteFailed": "Could not create trade note.",
+      "loadScreenshotsFailed": "Could not load trade screenshots.",
+      "noScreenshotsFound": "No screenshots were found for this trade.",
       "noteMissingId": "Note was created but no note ID was returned. Refresh and open it manually.",
       "loadOptionsFailed": "Could not load strategy and plan options.",
       "symbolRequired": "Symbol is required.",
@@ -2384,7 +2387,23 @@
       "setup": "Setup",
       "notesAndTags": "Notes & tags",
       "initialNotes": "Initial notes",
+      "latestTradeNoteUpdated": "Latest trade note updated {{date}}",
       "noTags": "No tags"
+    },
+    "viewer": {
+      "title": "{{symbol}} screenshots ({{count}})",
+      "titleFallback": "Trade screenshots",
+      "position": "Screenshot {{current}} of {{total}}",
+      "empty": "No screenshots available.",
+      "emptyTitle": "No screenshots",
+      "emptyBody": "This trade does not have any previewable screenshots yet.",
+      "previous": "Previous screenshot",
+      "next": "Next screenshot",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "resetZoom": "Reset zoom",
+      "brokenImage": "Preview unavailable",
+      "imageAlt": "Trade screenshot"
     },
     "form": {
       "symbol": "Symbol",
@@ -2566,7 +2585,8 @@
     },
     "direction": {
       "LONG": "Long",
-      "SHORT": "Short"
+      "SHORT": "Short",
+      "UNDECIDED": "Not decided yet"
     },
     "status": {
       "OPEN": "Open",

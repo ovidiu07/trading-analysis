@@ -29,7 +29,7 @@ export type SessionDraft = {
 
 export type CreateSetupDraft = {
   symbol: string
-  direction: 'LONG' | 'SHORT'
+  direction: SetupItem['direction']
   setupTitle: string
 }
 
@@ -38,7 +38,7 @@ export type StrategyImportDraft = {
   source: 'ALL' | 'MY' | 'MENTOR'
   createNewSetup: boolean
   symbol: string
-  direction: 'LONG' | 'SHORT'
+  direction: SetupItem['direction']
   setupTitle: string
 }
 
@@ -161,14 +161,17 @@ export function toTagValue(values?: string[] | null) {
   return (values || []).join(', ')
 }
 
-export function formatDirection(direction: 'LONG' | 'SHORT') {
-  return direction === 'LONG' ? 'Long' : 'Short'
+export function formatDirection(direction: SetupItem['direction']) {
+  if (direction === 'LONG') return 'Long'
+  if (direction === 'SHORT') return 'Short'
+  return 'Not decided yet'
 }
 
 export function computeRr(
   direction: SetupItem['direction'],
   execution: Pick<ExecutionTicket, 'entryPrice' | 'stopLossPrice' | 'takeProfitPrice'>
 ) {
+  if (direction === 'UNDECIDED') return null
   const entry = execution.entryPrice
   const stop = execution.stopLossPrice
   const target = execution.takeProfitPrice

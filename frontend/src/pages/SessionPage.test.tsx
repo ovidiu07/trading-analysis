@@ -179,6 +179,7 @@ function recalcSetup(setup: SetupItem, locked: boolean): SetupItem {
   const normalized = ensureSetupShape(setup)
   const active = normalized.executions.tickets.find((ticket) => ticket.id === normalized.executions.activeExecutionId) || normalized.executions.tickets[0]
   const blockers: string[] = []
+  if (normalized.direction === 'UNDECIDED') blockers.push('direction')
   if (!normalized.context.liquidityNotes && normalized.levels.length === 0) blockers.push('key liquidity idea')
   if (!normalized.context.invalidationIdea && !active.invalidation) blockers.push('invalidation concept')
   if (!normalized.trigger.sweepIdentified) blockers.push('sweep')
@@ -201,7 +202,7 @@ function recalcSetup(setup: SetupItem, locked: boolean): SetupItem {
   }
 }
 
-function buildSetup(symbol: string, direction: 'LONG' | 'SHORT', setupTitle: string): SetupItem {
+function buildSetup(symbol: string, direction: SetupItem['direction'], setupTitle: string): SetupItem {
   setupSequence += 1
   return recalcSetup({
     id: `setup-${setupSequence}`,
@@ -355,8 +356,8 @@ function setupMocks() {
   strategiesApiMock.listStrategies.mockResolvedValue(strategiesList)
   plansApiMock.fetchTodayMentorPlan.mockResolvedValue(mentorPlan)
 
-  workspaceApiMock.createSetupCandidate.mockImplementation(async (_sessionId: string, payload: { symbol?: string; direction?: 'LONG' | 'SHORT'; setupTitle?: string; strategySnapshot?: SetupStrategySnapshot | null }) => {
-    const nextSetup = buildSetup(payload.symbol || 'EURUSD', payload.direction || 'LONG', payload.setupTitle || 'Draft setup')
+  workspaceApiMock.createSetupCandidate.mockImplementation(async (_sessionId: string, payload: { symbol?: string; direction?: SetupItem['direction']; setupTitle?: string; strategySnapshot?: SetupStrategySnapshot | null }) => {
+    const nextSetup = buildSetup(payload.symbol || 'EURUSD', payload.direction || 'UNDECIDED', payload.setupTitle || 'Draft setup')
     if (payload.strategySnapshot) {
       nextSetup.strategySnapshot = payload.strategySnapshot
       nextSetup.strategyLabel = payload.strategySnapshot.name || ''
@@ -623,6 +624,44 @@ describe('SessionPage workstation', () => {
     fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1])
     await waitFor(() => expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:DAX:15'))
   }, 30000)
+
+  it('allows creating a setup as undecided and deciding direction later', async () => {
+    renderWithProviders(<SessionPage />)
+
+    expect(await screen.findByText('Chart command center')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Add setup/i })[0])
+    const dialog = await screen.findByRole('dialog')
+    fireEvent.change(within(dialog).getByLabelText('Symbol'), { target: { value: 'EURUSD' } })
+    fireEvent.change(within(dialog).getByLabelText('Setup title'), { target: { value: 'London context build' } })
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
+
+    await waitFor(() => {
+      expect(workspaceApiMock.createSetupCandidate).toHaveBeenCalledWith(
+        expect.any(String),
+        expect.objectContaining({
+          symbol: 'EURUSD',
+          direction: 'UNDECIDED',
+          setupTitle: 'London context build'
+        })
+      )
+    })
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getAllByText('Not decided yet').length).toBeGreaterThan(0)
+
+    fireEvent.mouseDown(screen.getByLabelText('Direction'))
+    fireEvent.click(await screen.findByRole('option', { name: 'Long' }))
+
+    await waitFor(() => {
+      expect(workspaceApiMock.updateSetupCandidate).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.objectContaining({
+          direction: 'LONG'
+        })
+      )
+    })
+  })
 
   it('renders the workstation labels in Romanian', async () => {
     renderWithProviders(<SessionPage />, 'ro')

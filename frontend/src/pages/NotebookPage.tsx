@@ -101,6 +101,7 @@ import {
   NotebookSmartViewKey
 } from '../components/notebook/types'
 import { UploadQueueItem } from '../components/assets/AssetListRenderer'
+import { RULE_BREAK_OPTIONS, normalizeTradeRuleBreaks } from '../constants/tradeTaxonomy'
 
 const STORAGE_KEYS = {
   nav: 'tv-notebook-nav-v2',
@@ -150,17 +151,7 @@ const defaultLossRecap: LossRecapForm = {
   minLoss: 50
 }
 
-const reviewRuleBreakOptions: NoteReviewRuleBreak[] = [
-  'early_exit',
-  'oversize',
-  'revenge',
-  'moved_stop_loss',
-  'chased_entry',
-  'no_entry_criteria',
-  'added_without_setup',
-  'ignored_news',
-  'no_risk_plan'
-]
+const reviewRuleBreakOptions: NoteReviewRuleBreak[] = [...RULE_BREAK_OPTIONS]
 
 const smartViewToSystemKey: Record<NotebookSmartViewKey, string> = {
   ALL_NOTES: 'ALL_NOTES',
@@ -256,7 +247,7 @@ const parseReview = (reviewJson?: string | null): NoteReview => {
     return {
       setupQuality: parsed.setupQuality === 'A' || parsed.setupQuality === 'B' || parsed.setupQuality === 'C' ? parsed.setupQuality : null,
       followedPlan: typeof parsed.followedPlan === 'boolean' ? parsed.followedPlan : null,
-      ruleBreaks: Array.isArray(parsed.ruleBreaks) ? parsed.ruleBreaks.filter((value): value is NoteReviewRuleBreak => reviewRuleBreakOptions.includes(value as NoteReviewRuleBreak)) : [],
+      ruleBreaks: normalizeTradeRuleBreaks(parsed.ruleBreaks),
       didWell: typeof parsed.didWell === 'string' ? parsed.didWell : '',
       improveNext: typeof parsed.improveNext === 'string' ? parsed.improveNext : '',
       nextRule: typeof parsed.nextRule === 'string' ? parsed.nextRule : ''
@@ -1065,6 +1056,7 @@ export default function NotebookPage() {
         setAttachmentUploads((prev) => prev.filter((item) => item.id !== queueItem.id))
       } catch (err) {
         if (err instanceof ApiError && (err.status === 401 || err.status === 403)) {
+          setAttachmentUploads((prev) => prev.filter((item) => item.id !== queueItem.id))
           handleAuthFailure()
           return
         }
@@ -1668,7 +1660,7 @@ export default function NotebookPage() {
                     renderValue: (selected) => (
                       <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
                         {(selected as string[]).map((item) => (
-                          <Chip key={item} size="small" label={t(`notebook.review.ruleBreaksOptions.${item}`)} />
+                          <Chip key={item} size="small" label={item} />
                         ))}
                       </Stack>
                     )
@@ -1677,15 +1669,14 @@ export default function NotebookPage() {
                   value={review.ruleBreaks}
                   onChange={(event) => {
                     const raw = event.target.value
-                    const next = (Array.isArray(raw) ? raw : String(raw).split(','))
-                      .filter((value): value is NoteReviewRuleBreak => reviewRuleBreakOptions.includes(value as NoteReviewRuleBreak))
+                    const next = normalizeTradeRuleBreaks(Array.isArray(raw) ? raw : String(raw).split(','))
                     updateReview({ ruleBreaks: next })
                   }}
                   disabled={viewMode === 'read'}
                   fullWidth
                 >
                   {reviewRuleBreakOptions.map((option) => (
-                    <MenuItem key={option} value={option}>{t(`notebook.review.ruleBreaksOptions.${option}`)}</MenuItem>
+                    <MenuItem key={option} value={option}>{option}</MenuItem>
                   ))}
                 </TextField>
 

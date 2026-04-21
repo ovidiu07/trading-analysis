@@ -3,16 +3,19 @@ package com.tradevault.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.entity.Account;
+import com.tradevault.domain.entity.NotebookNote;
 import com.tradevault.domain.entity.Tag;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.NotebookNoteType;
 import com.tradevault.dto.trade.DailyAccountSummaryResponse;
 import com.tradevault.dto.trade.ImportedTradeCandidate;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.exception.TradeSearchValidationException;
+import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
@@ -59,6 +62,7 @@ public class TradeService {
     private static final String FX_SOURCE_IDENTITY = "IDENTITY";
     private static final String FX_SOURCE_MANUAL = "MANUAL";
     private final TradeRepository tradeRepository;
+    private final NotebookNoteRepository notebookNoteRepository;
     private final AccountRepository accountRepository;
     private final TagRepository tagRepository;
     private final UserStrategyRepository userStrategyRepository;
@@ -115,8 +119,9 @@ public class TradeService {
 
         List<Trade> trades = loadTradesInOrderWithTagsAndAccount(idPage.getContent());
         Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(trades, user.getId());
         List<TradeResponse> responses = trades.stream()
-                .map(trade -> toResponse(trade, strategyNames))
+                .map(trade -> toResponse(trade, strategyNames, latestTradeNoteFor(latestTradeNotes, trade)))
                 .toList();
         return new org.springframework.data.domain.PageImpl<>(responses, pageable, idPage.getTotalElements());
     }
@@ -217,8 +222,9 @@ public class TradeService {
         List<UUID> orderedIds = tradeIdsPage.getContent();
         List<Trade> trades = loadTradesInOrderWithTagsAndAccount(orderedIds);
         Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(trades, user.getId());
         List<TradeResponse> responses = trades.stream()
-                .map(trade -> toResponse(trade, strategyNames))
+                .map(trade -> toResponse(trade, strategyNames, latestTradeNoteFor(latestTradeNotes, trade)))
                 .toList();
 
         return new org.springframework.data.domain.PageImpl<>(responses, pageable, tradeIdsPage.getTotalElements());
@@ -228,7 +234,8 @@ public class TradeService {
         User user = currentUserService.getCurrentUser();
         Trade trade = tradeRepository.findByIdAndUserIdWithTagsAndAccount(id, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
-        return toResponse(trade, loadStrategyNames(List.of(trade), user.getId()));
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(trade), user.getId());
+        return toResponse(trade, loadStrategyNames(List.of(trade), user.getId()), latestTradeNoteFor(latestTradeNotes, trade));
     }
 
     @Transactional
@@ -240,7 +247,7 @@ public class TradeService {
         trade.setBrokerAccountId(normalizeOptionalText(request.getAccountId()));
         trade.setSymbol(request.getSymbol());
         trade.setMarket(request.getMarket());
-        trade.setDirection(request.getDirection());
+        trade.setDirection(requireTradeDirection(request.getDirection()));
         trade.setStatus(request.getStatus());
         trade.setOpenedAt(request.getOpenedAt());
         trade.setClosedAt(request.getClosedAt());
@@ -308,7 +315,8 @@ public class TradeService {
         recalculateProfileCurrencyAmounts(trade);
         logNarrativeSnapshotState("create", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), null, trade.getNarrativeSnapshotJson());
         Trade savedTrade = tradeRepository.save(trade);
-        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()));
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(savedTrade), user.getId());
+        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()), latestTradeNoteFor(latestTradeNotes, savedTrade));
     }
 
     @Transactional
@@ -322,7 +330,7 @@ public class TradeService {
         trade.setBrokerAccountId(normalizeOptionalText(request.getAccountId()));
         trade.setSymbol(request.getSymbol());
         trade.setMarket(request.getMarket());
-        trade.setDirection(request.getDirection());
+        trade.setDirection(requireTradeDirection(request.getDirection()));
         trade.setStatus(request.getStatus());
         trade.setOpenedAt(request.getOpenedAt());
         trade.setClosedAt(request.getClosedAt());
@@ -414,7 +422,8 @@ public class TradeService {
         trade.setUpdatedAt(OffsetDateTime.now());
         logNarrativeSnapshotState("update", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), previousNarrativeSnapshot, trade.getNarrativeSnapshotJson());
         Trade savedTrade = tradeRepository.save(trade);
-        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()));
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(savedTrade), user.getId());
+        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()), latestTradeNoteFor(latestTradeNotes, savedTrade));
     }
 
     @Transactional
@@ -444,7 +453,8 @@ public class TradeService {
         trade.setEntryScreenshotAssetIds(normalizeLinkedAssetIds(entryScreenshotAssetIds));
         trade.setUpdatedAt(OffsetDateTime.now());
         Trade savedTrade = tradeRepository.save(trade);
-        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()));
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(savedTrade), user.getId());
+        return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()), latestTradeNoteFor(latestTradeNotes, savedTrade));
     }
 
     public void delete(UUID id) {
@@ -466,10 +476,12 @@ public class TradeService {
                 accountFilter.accountRefId()
         );
         var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
+        Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(trades, user.getId());
         //log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
         return trades
                 .stream()
-                .map(this::toResponse)
+                .map(trade -> toResponse(trade, strategyNames, latestTradeNoteFor(latestTradeNotes, trade)))
                 .toList();
     }
 
@@ -547,8 +559,11 @@ public class TradeService {
                 com.tradevault.domain.enums.TradeStatus.CLOSED,
                 threshold.negate()
         );
-        return loadTradesInOrderWithTagsAndAccount(tradeIds).stream()
-                .map(this::toResponse)
+        List<Trade> trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
+        Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(trades, user.getId());
+        return trades.stream()
+                .map(trade -> toResponse(trade, strategyNames, latestTradeNoteFor(latestTradeNotes, trade)))
                 .toList();
     }
 
@@ -1093,11 +1108,31 @@ public class TradeService {
         }
     }
 
+    private Direction requireTradeDirection(Direction direction) {
+        if (direction == null) {
+            throw new IllegalArgumentException("Direction is required");
+        }
+        if (direction == Direction.UNDECIDED) {
+            throw new IllegalArgumentException("Direction must be LONG or SHORT");
+        }
+        return direction;
+    }
+
     private TradeResponse toResponse(Trade trade) {
-        return toResponse(trade, loadStrategyNames(List.of(trade), currentUserService.getCurrentUser().getId()));
+        UUID userId = currentUserService.getCurrentUser().getId();
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(trade), userId);
+        return toResponse(trade, loadStrategyNames(List.of(trade), userId), latestTradeNoteFor(latestTradeNotes, trade));
     }
 
     private TradeResponse toResponse(Trade trade, Map<UUID, String> strategyNames) {
+        UUID userId = currentUserService.getCurrentUser().getId();
+        Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(trade), userId);
+        return toResponse(trade, strategyNames, latestTradeNoteFor(latestTradeNotes, trade));
+    }
+
+    private TradeResponse toResponse(Trade trade,
+                                     Map<UUID, String> strategyNames,
+                                     LatestTradeNotePreview latestTradeNote) {
         return TradeResponse.builder()
                 .id(trade.getId())
                 .symbol(trade.getSymbol())
@@ -1161,6 +1196,9 @@ public class TradeService {
                 .linkedContentIds(trade.getLinkedContentIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedContentIds()))
                 .linkedPlanIds(trade.getLinkedPlanIds() == null ? Collections.emptySet() : new LinkedHashSet<>(trade.getLinkedPlanIds()))
                 .notes(trade.getNotes())
+                .latestTradeNoteId(latestTradeNote == null ? null : latestTradeNote.noteId())
+                .latestTradeNotePreview(latestTradeNote == null ? null : latestTradeNote.preview())
+                .latestTradeNoteUpdatedAt(latestTradeNote == null ? null : latestTradeNote.updatedAt())
                 .initialNotes(trade.getInitialNotes())
                 .entryJournalText(trade.getEntryJournalText())
                 .entryInvalidation(trade.getEntryInvalidation())
@@ -1174,7 +1212,64 @@ public class TradeService {
                 .build();
     }
 
+    private Map<UUID, LatestTradeNotePreview> loadLatestTradeNotePreviews(List<Trade> trades, UUID userId) {
+        if (trades == null || trades.isEmpty()) {
+            return Map.of();
+        }
+
+        List<UUID> tradeIds = trades.stream()
+                .map(Trade::getId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        if (tradeIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<NotebookNote> notes = notebookNoteRepository
+                .findByUserIdAndTypeAndRelatedTrade_IdInAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(
+                        userId,
+                        NotebookNoteType.TRADE_NOTE,
+                        tradeIds
+                );
+
+        Map<UUID, LatestTradeNotePreview> previews = new LinkedHashMap<>();
+        for (NotebookNote note : notes) {
+            UUID tradeId = note.getRelatedTrade() == null ? null : note.getRelatedTrade().getId();
+            if (tradeId == null || previews.containsKey(tradeId)) {
+                continue;
+            }
+            previews.put(tradeId, new LatestTradeNotePreview(
+                    note.getId(),
+                    buildTradeNotePreview(note),
+                    note.getUpdatedAt() == null ? note.getCreatedAt() : note.getUpdatedAt()
+            ));
+        }
+        return previews;
+    }
+
+    private LatestTradeNotePreview latestTradeNoteFor(Map<UUID, LatestTradeNotePreview> latestTradeNotes, Trade trade) {
+        if (latestTradeNotes == null || latestTradeNotes.isEmpty() || trade == null || trade.getId() == null) {
+            return null;
+        }
+        return latestTradeNotes.get(trade.getId());
+    }
+
+    private String buildTradeNotePreview(NotebookNote note) {
+        String preview = firstNonBlank(note.getBody(), note.getTitle());
+        if (preview == null) {
+            return null;
+        }
+        String normalized = preview.replaceAll("\\s+", " ").trim();
+        if (normalized.length() <= 220) {
+            return normalized;
+        }
+        return normalized.substring(0, 219).trim() + "…";
+    }
+
     public record ImportUpsertResult(TradeResponse trade, boolean updated) {}
 
     private record AccountFilter(String brokerAccountId, UUID accountRefId) {}
+
+    private record LatestTradeNotePreview(UUID noteId, String preview, OffsetDateTime updatedAt) {}
 }

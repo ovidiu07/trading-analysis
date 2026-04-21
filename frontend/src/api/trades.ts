@@ -95,6 +95,9 @@ export type TradeResponse = {
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
   notes?: string | null
+  latestTradeNoteId?: string | null
+  latestTradeNotePreview?: string | null
+  latestTradeNoteUpdatedAt?: string | null
   initialNotes?: string | null
   entryJournalText?: string | null
   entryInvalidation?: string | null

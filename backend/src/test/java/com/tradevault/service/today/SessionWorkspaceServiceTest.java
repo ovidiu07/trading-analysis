@@ -15,6 +15,7 @@ import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeGrade;
 import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.dto.session.UpsertSessionSetupRequest;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.SessionLevelRepository;
@@ -153,6 +154,20 @@ class SessionWorkspaceServiceTest {
         assertThat(response.getSetups()).hasSize(1);
         assertThat(response.getSetups().get(0).getSymbol()).isEqualTo("EURUSD");
         assertThat(response.getActiveSetupId()).isEqualTo(response.getSetups().get(0).getId());
+    }
+
+    @Test
+    void createSetupDefaultsToUndecidedDirectionAndKeepsSetupEditable() {
+        UpsertSessionSetupRequest request = new UpsertSessionSetupRequest();
+        request.setSymbol("EURUSD");
+        request.setSetupTitle("London context build");
+
+        var response = sessionWorkspaceService.createSetup(session.getId(), request);
+
+        assertThat(response.getSetups()).hasSize(1);
+        assertThat(response.getSetups().get(0).getDirection()).isEqualTo(Direction.UNDECIDED);
+        assertThat(response.getSetups().get(0).getReadiness().getBlockers()).contains("direction");
+        assertThat(setups).singleElement().satisfies(saved -> assertThat(saved.getDirection()).isEqualTo(Direction.UNDECIDED));
     }
 
     @Test

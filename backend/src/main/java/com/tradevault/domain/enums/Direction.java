@@ -1,5 +1,5 @@
 package com.tradevault.domain.enums;
 
 public enum Direction {
-    LONG, SHORT
+    LONG, SHORT, UNDECIDED
 }

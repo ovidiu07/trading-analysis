@@ -7,6 +7,7 @@ import {
   Alert,
   Box,
   Button,
+  ButtonBase,
   Card,
   CardContent,
   Chip,
@@ -31,6 +32,13 @@ import AddIcon from '@mui/icons-material/Add'
 import EditIcon from '@mui/icons-material/Edit'
 import DeleteIcon from '@mui/icons-material/Delete'
 import NoteAddIcon from '@mui/icons-material/NoteAdd'
+import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
+import NavigateBeforeRoundedIcon from '@mui/icons-material/NavigateBeforeRounded'
+import NavigateNextRoundedIcon from '@mui/icons-material/NavigateNextRounded'
+import ZoomInRoundedIcon from '@mui/icons-material/ZoomInRounded'
+import ZoomOutRoundedIcon from '@mui/icons-material/ZoomOutRounded'
+import FitScreenRoundedIcon from '@mui/icons-material/FitScreenRounded'
+import BrokenImageOutlinedIcon from '@mui/icons-material/BrokenImageOutlined'
 import FlashOnRoundedIcon from '@mui/icons-material/FlashOnRounded'
 import FilterAltRoundedIcon from '@mui/icons-material/FilterAltRounded'
 import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
@@ -39,6 +47,7 @@ import AddCircleOutlineRoundedIcon from '@mui/icons-material/AddCircleOutlineRou
 import { useLocation, useNavigate } from 'react-router-dom'
 import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, getTradeById, importTradesCsv, listTrades, searchTrades, updateTrade } from '../api/trades'
 import { createNotebookNote } from '../api/notebook'
+import { AssetItem, listTradeAssets } from '../api/assets'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
@@ -46,6 +55,8 @@ import { formatCurrency, formatDateTime, formatNumber, formatPercent, formatSign
 import { TradeForm } from '../components/trades/TradeForm'
 import { TradeCreateFormV2 } from '../components/trades/TradeCreateFormV2'
 import type { TradeEntryMode } from '../components/trades/TradeModeSwitch'
+import SecureAssetImage from '../components/assets/SecureAssetImage'
+import AssetThumbnail from '../components/assets/AssetThumbnail'
 import EmptyState from '../components/ui/EmptyState'
 import ErrorBanner from '../components/ui/ErrorBanner'
 import PageHero from '../components/ui/PageHero'
@@ -62,6 +73,277 @@ type ContentOption = {
   id: string
   label: string
   source?: 'MENTOR' | 'USER'
+}
+
+type ScreenshotViewerState = {
+  open: boolean
+  trade: TradeResponse | null
+  assets: AssetItem[]
+  loading: boolean
+  error: string
+}
+
+const emptyScreenshotViewerState: ScreenshotViewerState = {
+  open: false,
+  trade: null,
+  assets: [],
+  loading: false,
+  error: ''
+}
+
+const getTradeNotesPreview = (trade: TradeResponse | null | undefined) => {
+  if (!trade) {
+    return ''
+  }
+
+  const parts = [trade.latestTradeNotePreview, trade.notes]
+    .map((value) => value?.trim() || '')
+    .filter(Boolean)
+    .filter((value, index, values) => values.indexOf(value) === index)
+
+  return parts.join(' | ')
+}
+
+const hasTradeScreenshots = (trade: TradeResponse | null | undefined) => Boolean(trade?.entryScreenshotAssetIds?.length)
+
+function TradeScreenshotViewerDialog({
+  open,
+  trade,
+  assets,
+  loading,
+  error,
+  onClose
+}: ScreenshotViewerState & { onClose: () => void }) {
+  const { t } = useI18n()
+  const [activeIndex, setActiveIndex] = useState(0)
+  const [zoom, setZoom] = useState(1)
+
+  useEffect(() => {
+    if (!open) {
+      setActiveIndex(0)
+      setZoom(1)
+      return
+    }
+
+    setActiveIndex((current) => {
+      if (assets.length === 0) {
+        return 0
+      }
+      return Math.min(current, assets.length - 1)
+    })
+    setZoom(1)
+  }, [assets.length, open])
+
+  const activeAsset = assets[activeIndex] || null
+  const hasMultipleAssets = assets.length > 1
+
+  const handlePrevious = () => {
+    if (!hasMultipleAssets) return
+    setActiveIndex((current) => (current === 0 ? assets.length - 1 : current - 1))
+    setZoom(1)
+  }
+
+  const handleNext = () => {
+    if (!hasMultipleAssets) return
+    setActiveIndex((current) => (current === assets.length - 1 ? 0 : current + 1))
+    setZoom(1)
+  }
+
+  const handleZoomOut = () => {
+    setZoom((current) => Math.max(1, Number((current - 0.25).toFixed(2))))
+  }
+
+  const handleZoomIn = () => {
+    setZoom((current) => Math.min(4, Number((current + 0.25).toFixed(2))))
+  }
+
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="lg">
+      <DialogTitle>
+        {trade
+          ? t('trades.viewer.title', {
+              symbol: trade.symbol,
+              count: assets.length
+            })
+          : t('trades.viewer.titleFallback')}
+      </DialogTitle>
+      <DialogContent dividers sx={{ p: { xs: 1.5, md: 2 } }}>
+        <Stack spacing={1.5}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }} spacing={1}>
+            <Typography variant="body2" color="text.secondary">
+              {activeAsset
+                ? t('trades.viewer.position', {
+                    current: activeIndex + 1,
+                    total: assets.length
+                  })
+                : t('trades.viewer.empty')}
+            </Typography>
+            <Stack direction="row" spacing={0.5}>
+              <Tooltip title={t('trades.viewer.zoomOut')}>
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label={t('trades.viewer.zoomOut')}
+                    onClick={handleZoomOut}
+                    disabled={!activeAsset || zoom <= 1}
+                  >
+                    <ZoomOutRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title={t('trades.viewer.resetZoom')}>
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label={t('trades.viewer.resetZoom')}
+                    onClick={() => setZoom(1)}
+                    disabled={!activeAsset || zoom === 1}
+                  >
+                    <FitScreenRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+              <Tooltip title={t('trades.viewer.zoomIn')}>
+                <span>
+                  <IconButton
+                    size="small"
+                    aria-label={t('trades.viewer.zoomIn')}
+                    onClick={handleZoomIn}
+                    disabled={!activeAsset || zoom >= 4}
+                  >
+                    <ZoomInRoundedIcon fontSize="small" />
+                  </IconButton>
+                </span>
+              </Tooltip>
+            </Stack>
+          </Stack>
+
+          <Box
+            sx={{
+              position: 'relative',
+              minHeight: { xs: 280, md: 520 },
+              borderRadius: 2,
+              border: '1px solid',
+              borderColor: 'divider',
+              bgcolor: alpha('#000', 0.04),
+              overflow: 'auto',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              px: { xs: 1, md: 2 },
+              py: { xs: 1, md: 2 }
+            }}
+          >
+            {loading ? (
+              <Stack alignItems="center" spacing={1}>
+                <CircularProgress size={28} />
+                <Typography variant="body2" color="text.secondary">{t('common.loading')}</Typography>
+              </Stack>
+            ) : error ? (
+              <Alert severity="error" sx={{ width: '100%' }}>{error}</Alert>
+            ) : !activeAsset ? (
+              <EmptyState
+                title={t('trades.viewer.emptyTitle')}
+                description={t('trades.viewer.emptyBody')}
+                icon={<PhotoLibraryRoundedIcon fontSize="inherit" />}
+              />
+            ) : (
+              <>
+                {hasMultipleAssets && (
+                  <IconButton
+                    onClick={handlePrevious}
+                    aria-label={t('trades.viewer.previous')}
+                    sx={{
+                      position: 'sticky',
+                      left: 0,
+                      alignSelf: 'center',
+                      zIndex: 1,
+                      bgcolor: 'background.paper',
+                      border: '1px solid',
+                      borderColor: 'divider'
+                    }}
+                  >
+                    <NavigateBeforeRoundedIcon />
+                  </IconButton>
+                )}
+
+                <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100%', px: 1 }}>
+                  <SecureAssetImage
+                    url={activeAsset.viewUrl || activeAsset.url || activeAsset.downloadUrl}
+                    alt={activeAsset.originalFileName || trade?.symbol || t('trades.viewer.imageAlt')}
+                    fallback={(
+                      <Stack alignItems="center" spacing={1.25}>
+                        <BrokenImageOutlinedIcon />
+                        <Typography variant="body2" color="text.secondary">{t('trades.viewer.brokenImage')}</Typography>
+                      </Stack>
+                    )}
+                    sx={{
+                      maxWidth: '100%',
+                      maxHeight: { xs: 320, md: 620 },
+                      objectFit: 'contain',
+                      transform: `scale(${zoom})`,
+                      transformOrigin: 'center center',
+                      transition: 'transform 0.2s ease'
+                    }}
+                  />
+                </Box>
+
+                {hasMultipleAssets && (
+                  <IconButton
+                    onClick={handleNext}
+                    aria-label={t('trades.viewer.next')}
+                    sx={{
+                      position: 'sticky',
+                      right: 0,
+                      alignSelf: 'center',
+                      zIndex: 1,
+                      bgcolor: 'background.paper',
+                      border: '1px solid',
+                      borderColor: 'divider'
+                    }}
+                  >
+                    <NavigateNextRoundedIcon />
+                  </IconButton>
+                )}
+              </>
+            )}
+          </Box>
+
+          {assets.length > 1 && (
+            <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', pb: 0.5 }}>
+              {assets.map((asset, index) => {
+                const selected = index === activeIndex
+                return (
+                  <ButtonBase
+                    key={asset.id}
+                    onClick={() => {
+                      setActiveIndex(index)
+                      setZoom(1)
+                    }}
+                    sx={{
+                      borderRadius: 2,
+                      border: '1px solid',
+                      borderColor: selected ? 'primary.main' : 'divider',
+                      p: 0.4,
+                      bgcolor: selected ? 'action.selected' : 'background.paper'
+                    }}
+                  >
+                    <AssetThumbnail
+                      url={asset.thumbnailUrl || asset.viewUrl || asset.url || asset.downloadUrl}
+                      alt={asset.originalFileName || `${trade?.symbol || 'trade'} screenshot ${index + 1}`}
+                    />
+                  </ButtonBase>
+                )
+              })}
+            </Stack>
+          )}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        <Button onClick={onClose}>{t('common.close')}</Button>
+      </DialogActions>
+    </Dialog>
+  )
 }
 
 const buildDefaultValues = (): TradeFormValues => ({
@@ -279,9 +561,11 @@ export default function TradesPage() {
   const [importError, setImportError] = useState('')
   const [importLoading, setImportLoading] = useState(false)
   const [highlightTradeId, setHighlightTradeId] = useState(() => routeState.highlightTradeId)
+  const [screenshotViewer, setScreenshotViewer] = useState<ScreenshotViewerState>(emptyScreenshotViewerState)
   const importInputRef = useRef<HTMLInputElement | null>(null)
   const optionsLoadedRef = useRef(false)
   const optionsLoadingPromiseRef = useRef<Promise<void> | null>(null)
+  const screenshotRequestRef = useRef(0)
 
   const handleAuthFailure = useCallback((message?: string) => {
     setFetchError(message || t('trades.errors.loginRequired'))
@@ -332,6 +616,55 @@ export default function TradesPage() {
       setNoteNavError(message)
     }
   }, [handleAuthFailure, navigate, t])
+
+  const handleCloseScreenshotViewer = useCallback(() => {
+    screenshotRequestRef.current += 1
+    setScreenshotViewer(emptyScreenshotViewerState)
+  }, [])
+
+  const handleOpenScreenshotViewer = useCallback(async (trade: TradeResponse) => {
+    const requestId = screenshotRequestRef.current + 1
+    screenshotRequestRef.current = requestId
+    setScreenshotViewer({
+      open: true,
+      trade,
+      assets: [],
+      loading: true,
+      error: ''
+    })
+
+    try {
+      const assets = await listTradeAssets(trade.id)
+      if (screenshotRequestRef.current !== requestId) {
+        return
+      }
+      const imageAssets = assets.filter((asset) => asset.image || asset.contentType?.startsWith('image/'))
+      setScreenshotViewer({
+        open: true,
+        trade,
+        assets: imageAssets,
+        loading: false,
+        error: imageAssets.length === 0 ? t('trades.errors.noScreenshotsFound') : ''
+      })
+    } catch (err) {
+      const apiErr = err as ApiError
+      if (screenshotRequestRef.current !== requestId) {
+        return
+      }
+      if (apiErr.status === 401 || apiErr.status === 403) {
+        setScreenshotViewer(emptyScreenshotViewerState)
+        handleAuthFailure(apiErr.message)
+        return
+      }
+      setScreenshotViewer({
+        open: true,
+        trade,
+        assets: [],
+        loading: false,
+        error: apiErr instanceof Error ? translateApiError(apiErr, t, 'trades.errors.loadScreenshotsFailed') : t('trades.errors.loadScreenshotsFailed')
+      })
+    }
+  }, [handleAuthFailure, t])
 
 
   const columns = useMemo<GridColDef[]>(() => [
@@ -434,6 +767,7 @@ export default function TradesPage() {
       field: 'notes',
       headerName: t('trades.table.notes'),
       flex: 1.4,
+      valueGetter: (params) => getTradeNotesPreview(params.row as TradeResponse),
       renderCell: (params) => (
         <Tooltip title={params.value || t('trades.table.noNotes')}>
           <Typography variant="body2" noWrap>
@@ -449,9 +783,24 @@ export default function TradesPage() {
       filterable: false,
       align: 'center',
       headerAlign: 'center',
-      minWidth: 150,
+      minWidth: 200,
       renderCell: (params) => (
         <Stack direction="row" spacing={1} onClick={(e) => e.stopPropagation()}>
+          {hasTradeScreenshots(params.row as TradeResponse) && (
+            <Tooltip title={t('trades.actions.previewScreenshots')}>
+              <IconButton
+                size="small"
+                aria-label={t('trades.actions.previewScreenshots')}
+                type="button"
+                onClick={(e) => {
+                  e.preventDefault()
+                  handleOpenScreenshotViewer(params.row as TradeResponse)
+                }}
+              >
+                <PhotoLibraryRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          )}
           <Tooltip title={t('trades.actions.createTradeNote')}>
             <IconButton
               size="small"
@@ -474,7 +823,7 @@ export default function TradesPage() {
         </Stack>
       )
     }
-  ], [baseCurrency, handleCreateTradeNote, handleDeleteClick, handleEditClick, t])
+  ], [baseCurrency, handleCreateTradeNote, handleDeleteClick, handleEditClick, handleOpenScreenshotViewer, t])
 
   const fetchTrades = useCallback(async () => {
     if (!isAuthenticated) {
@@ -943,7 +1292,7 @@ export default function TradesPage() {
                 </Typography>
               </Grid>
             </Grid>
-            <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {trade.notes || t('common.na')}</Typography>
+            <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {getTradeNotesPreview(trade) || t('common.na')}</Typography>
             <Typography variant="body2" color="text.secondary">{t('trades.form.accountId')}: {trade.accountId || t('common.na')}</Typography>
             {trade.initialNotes && (
               <Typography variant="body2" color="text.secondary">{t('trades.details.initialNotes')}: {trade.initialNotes}</Typography>
@@ -960,6 +1309,11 @@ export default function TradesPage() {
               )}
             </Stack>
             <Stack direction="row" spacing={1}>
+              {hasTradeScreenshots(trade) && (
+                <Button size="small" startIcon={<PhotoLibraryRoundedIcon />} onClick={() => handleOpenScreenshotViewer(trade)}>
+                  {t('trades.actions.previewScreenshots')}
+                </Button>
+              )}
               <Button size="small" startIcon={<EditIcon />} onClick={() => handleEditClick(trade)}>{t('common.edit')}</Button>
               <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteClick(trade)}>{t('common.delete')}</Button>
             </Stack>
@@ -1135,7 +1489,14 @@ export default function TradesPage() {
                       <Typography variant="body2" sx={{ mb: 1 }}>
                         <strong>{t('trades.details.initialNotes')}:</strong> {expandedTrade.initialNotes || t('common.na')}
                       </Typography>
-                      <Typography variant="body2" sx={{ mb: 1 }}>{expandedTrade.notes || t('common.na')}</Typography>
+                      <Typography variant="body2" sx={{ mb: expandedTrade.latestTradeNoteUpdatedAt ? 0.5 : 1 }}>
+                        {getTradeNotesPreview(expandedTrade) || t('common.na')}
+                      </Typography>
+                      {expandedTrade.latestTradeNoteUpdatedAt && (
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
+                          {t('trades.details.latestTradeNoteUpdated', { date: formatDateTime(expandedTrade.latestTradeNoteUpdatedAt) })}
+                        </Typography>
+                      )}
                       <Stack direction="row" spacing={1} flexWrap="wrap">
                         {(expandedTrade.tags || []).map((tag: string) => (
                           <Chip key={tag} label={tag} size="small" color="info" variant="outlined" />
@@ -1370,6 +1731,11 @@ export default function TradesPage() {
           </DialogContent>
         </Dialog>
       )}
+
+      <TradeScreenshotViewerDialog
+        {...screenshotViewer}
+        onClose={handleCloseScreenshotViewer}
+      />
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>
         <DialogTitle>{t('trades.actions.deleteTrade')}</DialogTitle>

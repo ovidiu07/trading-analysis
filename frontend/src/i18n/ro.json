@@ -2280,6 +2280,7 @@
     "subtitle": "Înregistrează tranzacții noi, editează istoricul și analizează detaliile.",
     "tradeNoteSuffix": "notă de tranzacție",
     "actions": {
+      "previewScreenshots": "Previzualizează capturile",
       "createTradeNote": "Creează notă de tranzacție",
       "editTrade": "Editează tranzacția",
       "updateTrade": "Actualizează tranzacția",
@@ -2306,6 +2307,8 @@
       "deleteFailed": "Nu s-a putut șterge tranzacția.",
       "importFailed": "Nu s-a putut importa fișierul CSV.",
       "createTradeNoteFailed": "Nu s-a putut crea nota de tranzacție.",
+      "loadScreenshotsFailed": "Nu s-au putut încărca capturile tranzacției.",
+      "noScreenshotsFound": "Nu au fost găsite capturi pentru această tranzacție.",
       "noteMissingId": "Nota a fost creată, dar nu a fost returnat un ID. Reîncarcă pagina și deschide nota manual.",
       "loadOptionsFailed": "Nu s-au putut încărca opțiunile de strategie și plan.",
       "symbolRequired": "Simbolul este obligatoriu.",
@@ -2384,7 +2387,23 @@
       "setup": "Setup",
       "notesAndTags": "Note & etichete",
       "initialNotes": "Note inițiale",
+      "latestTradeNoteUpdated": "Ultima notă de tranzacție a fost actualizată la {{date}}",
       "noTags": "Fără etichete"
+    },
+    "viewer": {
+      "title": "Capturi {{symbol}} ({{count}})",
+      "titleFallback": "Capturi tranzacție",
+      "position": "Captura {{current}} din {{total}}",
+      "empty": "Nu există capturi disponibile.",
+      "emptyTitle": "Nicio captură",
+      "emptyBody": "Această tranzacție nu are încă nicio captură care poate fi previzualizată.",
+      "previous": "Captura anterioară",
+      "next": "Captura următoare",
+      "zoomIn": "Mărește",
+      "zoomOut": "Micșorează",
+      "resetZoom": "Resetează zoom-ul",
+      "brokenImage": "Previzualizarea nu este disponibilă",
+      "imageAlt": "Captură tranzacție"
     },
     "form": {
       "symbol": "Simbol",
@@ -2566,7 +2585,8 @@
     },
     "direction": {
       "LONG": "Long",
-      "SHORT": "Short"
+      "SHORT": "Short",
+      "UNDECIDED": "Încă nehotărât"
     },
     "status": {
       "OPEN": "Deschisă",

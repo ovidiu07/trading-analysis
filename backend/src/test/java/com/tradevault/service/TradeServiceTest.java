@@ -2,16 +2,19 @@ package com.tradevault.service;
 
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import com.tradevault.domain.entity.NotebookNote;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.NotebookNoteType;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.trade.ImportedTradeCandidate;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.exception.TradeSearchValidationException;
 import com.tradevault.repository.AccountRepository;
+import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
@@ -41,6 +44,7 @@ import static org.mockito.Mockito.never;
 
 public class TradeServiceTest {
     private TradeRepository tradeRepository;
+    private NotebookNoteRepository notebookNoteRepository;
     private AccountRepository accountRepository;
     private TagRepository tagRepository;
     private UserStrategyRepository userStrategyRepository;
@@ -53,15 +57,18 @@ public class TradeServiceTest {
     @BeforeEach
     void setup() {
         tradeRepository = Mockito.mock(TradeRepository.class);
+        notebookNoteRepository = Mockito.mock(NotebookNoteRepository.class);
         accountRepository = Mockito.mock(AccountRepository.class);
         tagRepository = Mockito.mock(TagRepository.class);
         userStrategyRepository = Mockito.mock(UserStrategyRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         timezoneService = Mockito.mock(TimezoneService.class);
         futuresContractMetadataService = new FuturesContractMetadataService();
-        tradeService = new TradeService(tradeRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService);
+        tradeService = new TradeService(tradeRepository, notebookNoteRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService);
         user = User.builder().id(UUID.randomUUID()).email("user@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(notebookNoteRepository.findByUserIdAndTypeAndRelatedTrade_IdInAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(any(), any(), any()))
+                .thenReturn(List.of());
     }
 
     @Test
@@ -518,6 +525,61 @@ public class TradeServiceTest {
         assertEquals(0, listPage.getContent().get(0).getContractMultiplier().compareTo(new BigDecimal("2")));
         assertEquals(0, detail.getPnlNet().compareTo(new BigDecimal("306.0000")));
         assertEquals(0, detail.getContractMultiplier().compareTo(new BigDecimal("2")));
+    }
+
+    @Test
+    void includesLatestLinkedTradeNotePreviewInListAndDetailResponses() {
+        UUID tradeId = UUID.randomUUID();
+        Trade stored = Trade.builder()
+                .id(tradeId)
+                .user(user)
+                .symbol("MNQM6")
+                .market(Market.FUTURES)
+                .direction(Direction.LONG)
+                .status(TradeStatus.CLOSED)
+                .openedAt(OffsetDateTime.parse("2026-04-17T13:44:42Z"))
+                .closedAt(OffsetDateTime.parse("2026-04-17T14:36:58Z"))
+                .quantity(new BigDecimal("2"))
+                .entryPrice(new BigDecimal("26711.5"))
+                .exitPrice(new BigDecimal("26788"))
+                .fees(BigDecimal.ZERO)
+                .commission(BigDecimal.ZERO)
+                .slippage(BigDecimal.ZERO)
+                .pnlGross(new BigDecimal("306.0000"))
+                .pnlNet(new BigDecimal("306.0000"))
+                .pnlProfileCurrency(new BigDecimal("306.0000"))
+                .build();
+        NotebookNote note = NotebookNote.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .type(NotebookNoteType.TRADE_NOTE)
+                .relatedTrade(stored)
+                .title("Trade note")
+                .body("  Waited   for the reclaim.\nExecuted only after momentum confirmed.  ")
+                .createdAt(OffsetDateTime.parse("2026-04-17T15:00:00Z"))
+                .updatedAt(OffsetDateTime.parse("2026-04-17T15:05:00Z"))
+                .build();
+
+        when(tradeRepository.findTradeIdsForList(eq(user.getId()), any()))
+                .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of(tradeId)));
+        when(tradeRepository.findAllByIdInWithTagsAndAccount(List.of(tradeId)))
+                .thenReturn(List.of(stored));
+        when(tradeRepository.findByIdAndUserIdWithTagsAndAccount(tradeId, user.getId()))
+                .thenReturn(java.util.Optional.of(stored));
+        when(notebookNoteRepository.findByUserIdAndTypeAndRelatedTrade_IdInAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(
+                user.getId(),
+                NotebookNoteType.TRADE_NOTE,
+                List.of(tradeId)
+        )).thenReturn(List.of(note));
+
+        var listPage = tradeService.listAll(0, 20);
+        var detail = tradeService.getById(tradeId);
+
+        assertEquals("Waited for the reclaim. Executed only after momentum confirmed.", listPage.getContent().get(0).getLatestTradeNotePreview());
+        assertEquals(note.getId(), listPage.getContent().get(0).getLatestTradeNoteId());
+        assertEquals(note.getUpdatedAt(), listPage.getContent().get(0).getLatestTradeNoteUpdatedAt());
+        assertEquals("Waited for the reclaim. Executed only after momentum confirmed.", detail.getLatestTradeNotePreview());
+        assertEquals(note.getId(), detail.getLatestTradeNoteId());
     }
 
     @Test

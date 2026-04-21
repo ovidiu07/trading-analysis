@@ -305,13 +305,13 @@ export default function SessionPage() {
   const [focusedLevelId, setFocusedLevelId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
   const [quickNote, setQuickNote] = useState('')
-  const [createSetupDraft, setCreateSetupDraft] = useState<CreateSetupDraft>({ symbol: '', direction: 'LONG', setupTitle: '' })
+  const [createSetupDraft, setCreateSetupDraft] = useState<CreateSetupDraft>({ symbol: '', direction: 'UNDECIDED', setupTitle: '' })
   const [importDraft, setImportDraft] = useState<StrategyImportDraft>({
     search: '',
     source: 'ALL',
     createNewSetup: false,
     symbol: '',
-    direction: 'LONG',
+    direction: 'UNDECIDED',
     setupTitle: ''
   })
   const [selectedStrategyId, setSelectedStrategyId] = useState<string | null>(null)
@@ -396,7 +396,7 @@ export default function SessionPage() {
     onSuccess: (workspace) => {
       applyWorkspace(workspace, workspace.setups[workspace.setups.length - 1]?.id || workspace.activeSetupId || null)
       setCreateDialogOpen(false)
-      setCreateSetupDraft({ symbol: '', direction: 'LONG', setupTitle: '' })
+      setCreateSetupDraft({ symbol: '', direction: 'UNDECIDED', setupTitle: '' })
       setFeedback(t('today.session.workstation.feedback.setupAdded'))
     },
     onError: (error) => {
@@ -684,7 +684,7 @@ export default function SessionPage() {
       search: '',
       createNewSetup: !selectedSetup,
       symbol: selectedSetup?.symbol || '',
-      direction: selectedSetup?.direction || 'LONG',
+      direction: selectedSetup?.direction || 'UNDECIDED',
       setupTitle: selectedSetup?.setupTitle || ''
     }))
     setStrategyDialogOpen(true)
@@ -1590,8 +1590,9 @@ export default function SessionPage() {
                                 value={selectedSetup.direction}
                                 onChange={(event) => updateSelectedSetup((current) => ({ ...current, direction: event.target.value as SetupItem['direction'] }))}
                               >
-                                <MenuItem value="LONG">Long</MenuItem>
-                                <MenuItem value="SHORT">Short</MenuItem>
+                                <MenuItem value="UNDECIDED">{t('trades.direction.UNDECIDED')}</MenuItem>
+                                <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
+                                <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
                               </Select>
                             </FormControl>
                             <FormControl fullWidth>
@@ -2340,8 +2341,9 @@ export default function SessionPage() {
                 value={createSetupDraft.direction}
                 onChange={(event) => setCreateSetupDraft((current) => ({ ...current, direction: event.target.value as CreateSetupDraft['direction'] }))}
               >
-                <MenuItem value="LONG">Long</MenuItem>
-                <MenuItem value="SHORT">Short</MenuItem>
+                <MenuItem value="UNDECIDED">{t('trades.direction.UNDECIDED')}</MenuItem>
+                <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
+                <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
               </Select>
             </FormControl>
             <TextField
@@ -2506,10 +2508,11 @@ export default function SessionPage() {
                       labelId="import-direction-label"
                       label={t('today.session.workstation.fields.direction')}
                       value={importDraft.direction}
-                      onChange={(event) => setImportDraft((current) => ({ ...current, direction: event.target.value as 'LONG' | 'SHORT' }))}
+                      onChange={(event) => setImportDraft((current) => ({ ...current, direction: event.target.value as StrategyImportDraft['direction'] }))}
                     >
-                      <MenuItem value="LONG">Long</MenuItem>
-                      <MenuItem value="SHORT">Short</MenuItem>
+                      <MenuItem value="UNDECIDED">{t('trades.direction.UNDECIDED')}</MenuItem>
+                      <MenuItem value="LONG">{t('trades.direction.LONG')}</MenuItem>
+                      <MenuItem value="SHORT">{t('trades.direction.SHORT')}</MenuItem>
                     </Select>
                   </FormControl>
                   <TextField label={t('today.session.workstation.fields.setupTitle')} value={importDraft.setupTitle} onChange={(event) => setImportDraft((current) => ({ ...current, setupTitle: event.target.value }))} />
