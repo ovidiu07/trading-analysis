@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -46,6 +47,28 @@ class S3ClientConfigTest {
     }
 
     @Test
+    void resolveSettingsFallsBackToAwsDefaultRegionAndEndpointAliases() {
+        StorageS3Properties properties = new StorageS3Properties();
+        properties.setBucket("assets");
+        properties.setRegion(null);
+        properties.setAccessKey(null);
+        properties.setSecretKey(null);
+
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("AWS_DEFAULT_REGION", "us-west-2")
+                .withProperty("AWS_ENDPOINT_URL_S3", "https://storage.example.com/")
+                .withProperty("AWS_ACCESS_KEY_ID", "aws-access")
+                .withProperty("AWS_SECRET_ACCESS_KEY", "aws-secret");
+
+        S3ClientConfig config = new S3ClientConfig(env);
+        S3ClientConfig.S3ResolvedSettings settings = config.resolveSettings(properties);
+
+        assertEquals("us-west-2", settings.region().id());
+        assertEquals("https://storage.example.com", settings.endpoint().toString());
+        assertEquals("static", settings.credentialSource());
+    }
+
+    @Test
     void resolveSettingsUsesDefaultChainWhenIamRoleEnabled() {
         StorageS3Properties properties = new StorageS3Properties();
         properties.setBucket("assets");
@@ -56,6 +79,26 @@ class S3ClientConfigTest {
         S3ClientConfig.S3ResolvedSettings settings = config.resolveSettings(properties);
 
         assertEquals("defaultChain", settings.credentialSource());
+    }
+
+    @Test
+    void resolveSettingsTurnsOnForcePathStyleAndDisablesCrossRegionForCustomEndpoint() {
+        StorageS3Properties properties = new StorageS3Properties();
+        properties.setBucket("assets");
+        properties.setRegion("us-east-1");
+        properties.setAccessKey("test-access");
+        properties.setSecretKey("test-secret");
+
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("STORAGE_S3_ENDPOINT", "https://storage.example.com")
+                .withProperty("STORAGE_S3_FORCE_PATH_STYLE", "true");
+
+        S3ClientConfig config = new S3ClientConfig(env);
+        S3ClientConfig.S3ResolvedSettings settings = config.resolveSettings(properties);
+
+        assertTrue(settings.pathStyleAccess());
+        assertTrue(settings.forcePathStyle());
+        assertFalse(settings.crossRegionAccessEnabled());
     }
 
     @Test

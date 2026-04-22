@@ -173,7 +173,8 @@ Detailed integration notes live in [`docs/signal-intelligence.md`](/Users/ovidiu
 - `STORAGE_S3_ENABLED` – enable/disable S3-backed storage (default `true`)
 - `STORAGE_S3_BUCKET` – bucket name
 - `STORAGE_S3_REGION` / `AWS_REGION` – AWS region
-- `STORAGE_S3_ENDPOINT` – custom endpoint (required for MinIO, optional for AWS)
+- `AWS_DEFAULT_REGION` – fallback region alias (optional)
+- `STORAGE_S3_ENDPOINT` / `AWS_ENDPOINT_URL_S3` – custom endpoint (required for MinIO and other S3-compatible providers, optional for AWS)
 - `STORAGE_S3_ACCESS_KEY` / `AWS_ACCESS_KEY_ID` – access key
 - `STORAGE_S3_SECRET_KEY` / `AWS_SECRET_ACCESS_KEY` – secret key
 - `STORAGE_S3_ACCESS_KEY_FILE`, `STORAGE_S3_SECRET_KEY_FILE` – file-based secrets (Docker secrets style)
@@ -218,6 +219,8 @@ STORAGE_S3_SECRET_KEY=minioadmin
 STORAGE_S3_PRESIGN_ENABLED=true
 UPLOADS_MAX_FILE_SIZE_MB=20
 ```
+
+Deployment note: for non-AWS S3-compatible providers, the running backend must receive `STORAGE_S3_ENDPOINT` and any required path-style flags. If those env vars are omitted, the AWS SDK will sign requests for the wrong host/region combination and uploads will fail.
 
 ## Pine indicator notes
 

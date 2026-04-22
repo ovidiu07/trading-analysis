@@ -34,12 +34,14 @@ public class S3ClientConfig {
     public S3ResolvedSettings s3ResolvedSettings(StorageS3Properties properties) {
         S3ResolvedSettings settings = resolveSettings(properties);
         log.info(
-                "S3 storage configured: enabled={}, bucket={}, region={}, endpointConfigured={}, pathStyleAccess={}, credentialSource={}",
+                "S3 storage configured: enabled={}, bucket={}, region={}, endpoint={}, pathStyleAccess={}, forcePathStyle={}, crossRegionAccess={}, credentialSource={}",
                 settings.enabled(),
                 settings.bucket(),
                 settings.region().id(),
-                settings.endpoint() != null,
+                settings.endpointDisplay(),
                 settings.pathStyleAccess(),
+                settings.forcePathStyle(),
+                settings.crossRegionAccessEnabled(),
                 settings.credentialSource()
         );
         return settings;
@@ -50,6 +52,8 @@ public class S3ClientConfig {
         var builder = S3Client.builder()
                 .region(settings.region())
                 .credentialsProvider(settings.credentialsProvider())
+                .forcePathStyle(settings.forcePathStyle())
+                .crossRegionAccessEnabled(settings.crossRegionAccessEnabled())
                 .serviceConfiguration(S3Configuration.builder()
                         .pathStyleAccessEnabled(settings.pathStyleAccess())
                         .build());
@@ -82,11 +86,13 @@ public class S3ClientConfig {
         return builder -> {
             Map<String, Object> s3Info = new LinkedHashMap<>();
             s3Info.put("enabled", settings.enabled());
-            s3Info.put("endpointConfigured", settings.endpoint() != null);
+            s3Info.put("endpoint", settings.endpointDisplay());
             s3Info.put("region", settings.region().id());
             s3Info.put("credentialSource", settings.credentialSource());
             s3Info.put("bucket", settings.bucket());
             s3Info.put("pathStyleAccess", settings.pathStyleAccess());
+            s3Info.put("forcePathStyle", settings.forcePathStyle());
+            s3Info.put("crossRegionAccessEnabled", settings.crossRegionAccessEnabled());
             builder.withDetail("s3", s3Info);
         };
     }
@@ -96,8 +102,10 @@ public class S3ClientConfig {
         String bucket = resolveBucket(s3, enabled);
         Region region = resolveRegion(s3, enabled);
         URI endpoint = resolveEndpoint(s3);
-        boolean pathStyle = resolvePathStyle(s3);
+        boolean forcePathStyle = resolveForcePathStyle(s3);
+        boolean pathStyle = resolvePathStyle(s3, forcePathStyle);
         ResolvedCredentials credentials = resolveCredentialsProvider(s3, enabled);
+        boolean crossRegionAccess = endpoint == null;
 
         return new S3ResolvedSettings(
                 enabled,
@@ -105,6 +113,8 @@ public class S3ClientConfig {
                 region,
                 endpoint,
                 pathStyle,
+                forcePathStyle,
+                crossRegionAccess,
                 credentials.provider(),
                 credentials.source()
         );
@@ -127,7 +137,8 @@ public class S3ClientConfig {
         String configuredRegion = firstNonBlank(
                 s3.getRegion(),
                 environment.getProperty("STORAGE_S3_REGION"),
-                environment.getProperty("AWS_REGION")
+                environment.getProperty("AWS_REGION"),
+                environment.getProperty("AWS_DEFAULT_REGION")
         );
         if (StringUtils.hasText(configuredRegion)) {
             return Region.of(configuredRegion.trim());
@@ -143,13 +154,25 @@ public class S3ClientConfig {
     private URI resolveEndpoint(StorageS3Properties s3) {
         String configuredEndpoint = firstNonBlank(
                 s3.getEndpoint(),
-                environment.getProperty("STORAGE_S3_ENDPOINT")
+                environment.getProperty("STORAGE_S3_ENDPOINT"),
+                environment.getProperty("AWS_ENDPOINT_URL_S3"),
+                environment.getProperty("AWS_ENDPOINT_URL")
         );
         if (!StringUtils.hasText(configuredEndpoint)) {
             return null;
         }
         try {
-            return URI.create(configuredEndpoint.trim());
+            String normalized = configuredEndpoint.trim().replaceAll("/+$", "");
+            URI endpoint = URI.create(normalized);
+            String scheme = endpoint.getScheme();
+            if (!StringUtils.hasText(scheme) ||
+                (!"http".equalsIgnoreCase(scheme) && !"https".equalsIgnoreCase(scheme))) {
+                throw new IllegalStateException("S3 endpoint URI must use http or https.");
+            }
+            if (!StringUtils.hasText(endpoint.getHost())) {
+                throw new IllegalStateException("S3 endpoint URI must include a host.");
+            }
+            return endpoint;
         } catch (IllegalArgumentException ex) {
             throw new IllegalStateException(
                     "Invalid S3 endpoint URI. Set storage.s3.endpoint/STORAGE_S3_ENDPOINT to a valid URL.",
@@ -158,8 +181,19 @@ public class S3ClientConfig {
         }
     }
 
-    private boolean resolvePathStyle(StorageS3Properties s3) {
-        if (s3.isForcePathStyle() || s3.isPathStyleAccess()) {
+    private boolean resolveForcePathStyle(StorageS3Properties s3) {
+        if (s3.isForcePathStyle()) {
+            return true;
+        }
+        String explicitForcePathStyle = firstNonBlank(
+                environment.getProperty("STORAGE_S3_FORCE_PATH_STYLE"),
+                environment.getProperty("AWS_S3_FORCE_PATH_STYLE")
+        );
+        return Boolean.parseBoolean(explicitForcePathStyle);
+    }
+
+    private boolean resolvePathStyle(StorageS3Properties s3, boolean forcePathStyle) {
+        if (forcePathStyle || s3.isPathStyleAccess()) {
             return true;
         }
         String explicitPathStyle = firstNonBlank(
@@ -256,9 +290,15 @@ public class S3ClientConfig {
             Region region,
             URI endpoint,
             boolean pathStyleAccess,
+            boolean forcePathStyle,
+            boolean crossRegionAccessEnabled,
             AwsCredentialsProvider credentialsProvider,
             String credentialSource
-    ) {}
+    ) {
+        public String endpointDisplay() {
+            return endpoint == null ? "<aws-default>" : endpoint.toString();
+        }
+    }
 
     private record ResolvedCredentials(AwsCredentialsProvider provider, String source) {}
 }
