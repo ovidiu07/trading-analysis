@@ -333,7 +333,7 @@ public class S3ObjectStorageService implements ObjectStorageService {
                 .forcePathStyle(settings.forcePathStyle())
                 .crossRegionAccessEnabled(crossRegionAccessEnabled)
                 .serviceConfiguration(S3Configuration.builder()
-                        .pathStyleAccessEnabled(settings.pathStyleAccess())
+                        .pathStyleAccessEnabled(settings.forcePathStyle() ? null : settings.pathStyleAccess())
                         .build());
         if (settings.endpoint() != null) {
             builder.endpointOverride(settings.endpoint());

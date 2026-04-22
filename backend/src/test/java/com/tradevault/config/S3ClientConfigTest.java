@@ -2,9 +2,11 @@ package com.tradevault.config;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.env.MockEnvironment;
+import software.amazon.awssdk.services.s3.S3Client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -99,6 +101,26 @@ class S3ClientConfigTest {
         assertTrue(settings.pathStyleAccess());
         assertTrue(settings.forcePathStyle());
         assertFalse(settings.crossRegionAccessEnabled());
+    }
+
+    @Test
+    void s3ClientBuildsWhenForcePathStyleIsEnabled() {
+        StorageS3Properties properties = new StorageS3Properties();
+        properties.setBucket("assets");
+        properties.setRegion("us-east-1");
+        properties.setAccessKey("test-access");
+        properties.setSecretKey("test-secret");
+        properties.setForcePathStyle(true);
+
+        MockEnvironment env = new MockEnvironment()
+                .withProperty("STORAGE_S3_ENDPOINT", "https://storage.example.com");
+
+        S3ClientConfig config = new S3ClientConfig(env);
+        S3ClientConfig.S3ResolvedSettings settings = config.resolveSettings(properties);
+
+        try (S3Client client = config.s3Client(settings)) {
+            assertNotNull(client);
+        }
     }
 
     @Test

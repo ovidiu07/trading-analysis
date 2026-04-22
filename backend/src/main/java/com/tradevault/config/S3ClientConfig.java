@@ -54,9 +54,7 @@ public class S3ClientConfig {
                 .credentialsProvider(settings.credentialsProvider())
                 .forcePathStyle(settings.forcePathStyle())
                 .crossRegionAccessEnabled(settings.crossRegionAccessEnabled())
-                .serviceConfiguration(S3Configuration.builder()
-                        .pathStyleAccessEnabled(settings.pathStyleAccess())
-                        .build());
+                .serviceConfiguration(s3ClientServiceConfiguration(settings));
 
         if (settings.endpoint() != null) {
             builder.endpointOverride(settings.endpoint());
@@ -70,9 +68,7 @@ public class S3ClientConfig {
         var builder = S3Presigner.builder()
                 .region(settings.region())
                 .credentialsProvider(settings.credentialsProvider())
-                .serviceConfiguration(S3Configuration.builder()
-                        .pathStyleAccessEnabled(settings.pathStyleAccess())
-                        .build());
+                .serviceConfiguration(s3PresignerServiceConfiguration(settings));
 
         if (settings.endpoint() != null) {
             builder.endpointOverride(settings.endpoint());
@@ -298,6 +294,18 @@ public class S3ClientConfig {
         public String endpointDisplay() {
             return endpoint == null ? "<aws-default>" : endpoint.toString();
         }
+    }
+
+    private S3Configuration s3ClientServiceConfiguration(S3ResolvedSettings settings) {
+        return S3Configuration.builder()
+                .pathStyleAccessEnabled(settings.forcePathStyle() ? null : settings.pathStyleAccess())
+                .build();
+    }
+
+    private S3Configuration s3PresignerServiceConfiguration(S3ResolvedSettings settings) {
+        return S3Configuration.builder()
+                .pathStyleAccessEnabled(settings.pathStyleAccess())
+                .build();
     }
 
     private record ResolvedCredentials(AwsCredentialsProvider provider, String source) {}
