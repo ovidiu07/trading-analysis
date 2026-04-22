@@ -30,7 +30,6 @@ class StorageS3PropertiesBindingTest {
                                         "STORAGE_S3_ACCESS_KEY", "env-access",
                                         "STORAGE_S3_SECRET_KEY", "env-secret",
                                         "STORAGE_S3_PATH_STYLE_ACCESS", "true",
-                                        "STORAGE_S3_FORCE_PATH_STYLE", "true",
                                         "STORAGE_S3_USE_IAM_ROLE", "false",
                                         "STORAGE_S3_PROFILE_NAME", "default"
                                 )
@@ -45,7 +44,6 @@ class StorageS3PropertiesBindingTest {
                     assertEquals("env-access", properties.getAccessKey());
                     assertEquals("env-secret", properties.getSecretKey());
                     assertTrue(properties.isPathStyleAccess());
-                    assertTrue(properties.isForcePathStyle());
                     assertEquals("default", properties.getProfileName());
                 });
     }

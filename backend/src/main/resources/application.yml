@@ -84,7 +84,6 @@ storage:
     secret-key: ${STORAGE_S3_SECRET_KEY:${AWS_SECRET_ACCESS_KEY:}}
     public-base-url: ${STORAGE_S3_PUBLIC_BASE_URL:}
     path-style-access: ${STORAGE_S3_PATH_STYLE_ACCESS:${STORAGE_S3_PATH_STYLE:false}}
-    force-path-style: ${STORAGE_S3_FORCE_PATH_STYLE:false}
     use-iam-role: ${STORAGE_S3_USE_IAM_ROLE:false}
     profile-name: ${STORAGE_S3_PROFILE_NAME:}
     presign:

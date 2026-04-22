@@ -84,7 +84,7 @@ class S3ClientConfigTest {
     }
 
     @Test
-    void resolveSettingsTurnsOnForcePathStyleAndDisablesCrossRegionForCustomEndpoint() {
+    void resolveSettingsTurnsOnPathStyleAccessAndDisablesCrossRegionForCustomEndpoint() {
         StorageS3Properties properties = new StorageS3Properties();
         properties.setBucket("assets");
         properties.setRegion("us-east-1");
@@ -93,24 +93,40 @@ class S3ClientConfigTest {
 
         MockEnvironment env = new MockEnvironment()
                 .withProperty("STORAGE_S3_ENDPOINT", "https://storage.example.com")
+                .withProperty("STORAGE_S3_PATH_STYLE_ACCESS", "true");
+
+        S3ClientConfig config = new S3ClientConfig(env);
+        S3ClientConfig.S3ResolvedSettings settings = config.resolveSettings(properties);
+
+        assertTrue(settings.pathStyleAccess());
+        assertFalse(settings.crossRegionAccessEnabled());
+    }
+
+    @Test
+    void resolveSettingsSupportsLegacyForcePathStyleAlias() {
+        StorageS3Properties properties = new StorageS3Properties();
+        properties.setBucket("assets");
+        properties.setRegion("us-east-1");
+        properties.setAccessKey("test-access");
+        properties.setSecretKey("test-secret");
+
+        MockEnvironment env = new MockEnvironment()
                 .withProperty("STORAGE_S3_FORCE_PATH_STYLE", "true");
 
         S3ClientConfig config = new S3ClientConfig(env);
         S3ClientConfig.S3ResolvedSettings settings = config.resolveSettings(properties);
 
         assertTrue(settings.pathStyleAccess());
-        assertTrue(settings.forcePathStyle());
-        assertFalse(settings.crossRegionAccessEnabled());
     }
 
     @Test
-    void s3ClientBuildsWhenForcePathStyleIsEnabled() {
+    void s3ClientBuildsWhenPathStyleAccessIsEnabled() {
         StorageS3Properties properties = new StorageS3Properties();
         properties.setBucket("assets");
         properties.setRegion("us-east-1");
         properties.setAccessKey("test-access");
         properties.setSecretKey("test-secret");
-        properties.setForcePathStyle(true);
+        properties.setPathStyleAccess(true);
 
         MockEnvironment env = new MockEnvironment()
                 .withProperty("STORAGE_S3_ENDPOINT", "https://storage.example.com");

@@ -179,8 +179,8 @@ Detailed integration notes live in [`docs/signal-intelligence.md`](/Users/ovidiu
 - `STORAGE_S3_SECRET_KEY` / `AWS_SECRET_ACCESS_KEY` – secret key
 - `STORAGE_S3_ACCESS_KEY_FILE`, `STORAGE_S3_SECRET_KEY_FILE` – file-based secrets (Docker secrets style)
 - `STORAGE_S3_PUBLIC_BASE_URL` – optional CDN/public base URL
-- `STORAGE_S3_PATH_STYLE` / `STORAGE_S3_PATH_STYLE_ACCESS` – `true` for most MinIO setups
-- `STORAGE_S3_FORCE_PATH_STYLE` – force path-style addressing
+- `STORAGE_S3_PATH_STYLE` / `STORAGE_S3_PATH_STYLE_ACCESS` – enable path-style addressing (`true` for most MinIO setups)
+- `STORAGE_S3_FORCE_PATH_STYLE` – deprecated legacy alias for `STORAGE_S3_PATH_STYLE_ACCESS`
 - `STORAGE_S3_USE_IAM_ROLE` – use AWS SDK default credential chain (IAM/IRSA/ECS task role)
 - `STORAGE_S3_PROFILE_NAME` – explicit AWS profile name (optional)
 - `STORAGE_S3_PRESIGN_ENABLED` – `true` to return short-lived pre-signed URLs

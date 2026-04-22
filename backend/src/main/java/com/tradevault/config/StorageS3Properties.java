@@ -17,7 +17,6 @@ public class StorageS3Properties {
     private String accessKey;
     private String secretKey;
     private boolean pathStyleAccess = false;
-    private boolean forcePathStyle = false;
     private boolean useIamRole = false;
     private String profileName;
     private String publicBaseUrl;

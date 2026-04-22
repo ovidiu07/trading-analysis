@@ -34,13 +34,12 @@ public class S3ClientConfig {
     public S3ResolvedSettings s3ResolvedSettings(StorageS3Properties properties) {
         S3ResolvedSettings settings = resolveSettings(properties);
         log.info(
-                "S3 storage configured: enabled={}, bucket={}, region={}, endpoint={}, pathStyleAccess={}, forcePathStyle={}, crossRegionAccess={}, credentialSource={}",
+                "S3 storage configured: enabled={}, bucket={}, region={}, endpoint={}, pathStyleAccess={}, crossRegionAccess={}, credentialSource={}",
                 settings.enabled(),
                 settings.bucket(),
                 settings.region().id(),
                 settings.endpointDisplay(),
                 settings.pathStyleAccess(),
-                settings.forcePathStyle(),
                 settings.crossRegionAccessEnabled(),
                 settings.credentialSource()
         );
@@ -52,9 +51,8 @@ public class S3ClientConfig {
         var builder = S3Client.builder()
                 .region(settings.region())
                 .credentialsProvider(settings.credentialsProvider())
-                .forcePathStyle(settings.forcePathStyle())
                 .crossRegionAccessEnabled(settings.crossRegionAccessEnabled())
-                .serviceConfiguration(s3ClientServiceConfiguration(settings));
+                .serviceConfiguration(s3ServiceConfiguration(settings));
 
         if (settings.endpoint() != null) {
             builder.endpointOverride(settings.endpoint());
@@ -68,7 +66,7 @@ public class S3ClientConfig {
         var builder = S3Presigner.builder()
                 .region(settings.region())
                 .credentialsProvider(settings.credentialsProvider())
-                .serviceConfiguration(s3PresignerServiceConfiguration(settings));
+                .serviceConfiguration(s3ServiceConfiguration(settings));
 
         if (settings.endpoint() != null) {
             builder.endpointOverride(settings.endpoint());
@@ -87,7 +85,6 @@ public class S3ClientConfig {
             s3Info.put("credentialSource", settings.credentialSource());
             s3Info.put("bucket", settings.bucket());
             s3Info.put("pathStyleAccess", settings.pathStyleAccess());
-            s3Info.put("forcePathStyle", settings.forcePathStyle());
             s3Info.put("crossRegionAccessEnabled", settings.crossRegionAccessEnabled());
             builder.withDetail("s3", s3Info);
         };
@@ -98,8 +95,7 @@ public class S3ClientConfig {
         String bucket = resolveBucket(s3, enabled);
         Region region = resolveRegion(s3, enabled);
         URI endpoint = resolveEndpoint(s3);
-        boolean forcePathStyle = resolveForcePathStyle(s3);
-        boolean pathStyle = resolvePathStyle(s3, forcePathStyle);
+        boolean pathStyle = resolvePathStyle(s3);
         ResolvedCredentials credentials = resolveCredentialsProvider(s3, enabled);
         boolean crossRegionAccess = endpoint == null;
 
@@ -109,7 +105,6 @@ public class S3ClientConfig {
                 region,
                 endpoint,
                 pathStyle,
-                forcePathStyle,
                 crossRegionAccess,
                 credentials.provider(),
                 credentials.source()
@@ -177,26 +172,28 @@ public class S3ClientConfig {
         }
     }
 
-    private boolean resolveForcePathStyle(StorageS3Properties s3) {
-        if (s3.isForcePathStyle()) {
-            return true;
-        }
-        String explicitForcePathStyle = firstNonBlank(
-                environment.getProperty("STORAGE_S3_FORCE_PATH_STYLE"),
-                environment.getProperty("AWS_S3_FORCE_PATH_STYLE")
-        );
-        return Boolean.parseBoolean(explicitForcePathStyle);
-    }
-
-    private boolean resolvePathStyle(StorageS3Properties s3, boolean forcePathStyle) {
-        if (forcePathStyle || s3.isPathStyleAccess()) {
+    private boolean resolvePathStyle(StorageS3Properties s3) {
+        if (s3.isPathStyleAccess()) {
             return true;
         }
         String explicitPathStyle = firstNonBlank(
-                environment.getProperty("STORAGE_S3_PATH_STYLE"),
-                environment.getProperty("STORAGE_S3_PATH_STYLE_ACCESS")
+                environment.getProperty("STORAGE_S3_PATH_STYLE_ACCESS"),
+                environment.getProperty("STORAGE_S3_PATH_STYLE")
         );
-        return Boolean.parseBoolean(explicitPathStyle);
+        if (StringUtils.hasText(explicitPathStyle)) {
+            return Boolean.parseBoolean(explicitPathStyle);
+        }
+        String deprecatedForcePathStyle = firstNonBlank(
+                environment.getProperty("STORAGE_S3_FORCE_PATH_STYLE"),
+                environment.getProperty("AWS_S3_FORCE_PATH_STYLE")
+        );
+        if (StringUtils.hasText(deprecatedForcePathStyle)) {
+            log.warn(
+                    "STORAGE_S3_FORCE_PATH_STYLE/AWS_S3_FORCE_PATH_STYLE is deprecated; use STORAGE_S3_PATH_STYLE_ACCESS or STORAGE_S3_PATH_STYLE instead."
+            );
+            return Boolean.parseBoolean(deprecatedForcePathStyle);
+        }
+        return false;
     }
 
     private ResolvedCredentials resolveCredentialsProvider(StorageS3Properties s3, boolean required) {
@@ -286,7 +283,6 @@ public class S3ClientConfig {
             Region region,
             URI endpoint,
             boolean pathStyleAccess,
-            boolean forcePathStyle,
             boolean crossRegionAccessEnabled,
             AwsCredentialsProvider credentialsProvider,
             String credentialSource
@@ -296,13 +292,7 @@ public class S3ClientConfig {
         }
     }
 
-    private S3Configuration s3ClientServiceConfiguration(S3ResolvedSettings settings) {
-        return S3Configuration.builder()
-                .pathStyleAccessEnabled(settings.forcePathStyle() ? null : settings.pathStyleAccess())
-                .build();
-    }
-
-    private S3Configuration s3PresignerServiceConfiguration(S3ResolvedSettings settings) {
+    private S3Configuration s3ServiceConfiguration(S3ResolvedSettings settings) {
         return S3Configuration.builder()
                 .pathStyleAccessEnabled(settings.pathStyleAccess())
                 .build();

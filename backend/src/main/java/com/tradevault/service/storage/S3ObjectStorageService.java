@@ -132,14 +132,13 @@ public class S3ObjectStorageService implements ObjectStorageService {
 
         try (S3Presigner retryPresigner = createPresigner(presignRegion)) {
             log.info(
-                    "Using provider bucket region for S3 presign (bucket={}, key={}, configuredRegion={}, presignRegion={}, endpoint={}, pathStyleAccess={}, forcePathStyle={})",
+                    "Using provider bucket region for S3 presign (bucket={}, key={}, configuredRegion={}, presignRegion={}, endpoint={}, pathStyleAccess={})",
                     bucket,
                     sanitizedKey,
                     settings.region().id(),
                     presignRegion.id(),
                     settings.endpointDisplay(),
-                    settings.pathStyleAccess(),
-                    settings.forcePathStyle()
+                    settings.pathStyleAccess()
             );
             return retryPresigner.presignGetObject(presignRequest).url().toString();
         } catch (S3Exception | SdkClientException ex) {
@@ -177,14 +176,13 @@ public class S3ObjectStorageService implements ObjectStorageService {
             return false;
         }
         log.warn(
-                "Retrying S3 upload with provider bucket region hint (bucket={}, key={}, configuredRegion={}, retryRegion={}, endpoint={}, pathStyleAccess={}, forcePathStyle={})",
+                "Retrying S3 upload with provider bucket region hint (bucket={}, key={}, configuredRegion={}, retryRegion={}, endpoint={}, pathStyleAccess={})",
                 request.bucket(),
                 key,
                 settings.region().id(),
                 retryRegion.id(),
                 settings.endpointDisplay(),
-                settings.pathStyleAccess(),
-                settings.forcePathStyle()
+                settings.pathStyleAccess()
         );
         try (S3Client retryClient = createClient(retryRegion, false)) {
             retryClient.putObject(request, RequestBody.fromBytes(payload));
@@ -200,14 +198,13 @@ public class S3ObjectStorageService implements ObjectStorageService {
             return false;
         }
         log.warn(
-                "Retrying S3 delete with provider bucket region hint (bucket={}, key={}, configuredRegion={}, retryRegion={}, endpoint={}, pathStyleAccess={}, forcePathStyle={})",
+                "Retrying S3 delete with provider bucket region hint (bucket={}, key={}, configuredRegion={}, retryRegion={}, endpoint={}, pathStyleAccess={})",
                 request.bucket(),
                 key,
                 settings.region().id(),
                 retryRegion.id(),
                 settings.endpointDisplay(),
-                settings.pathStyleAccess(),
-                settings.forcePathStyle()
+                settings.pathStyleAccess()
         );
         try (S3Client retryClient = createClient(retryRegion, false)) {
             retryClient.deleteObject(request);
@@ -223,14 +220,13 @@ public class S3ObjectStorageService implements ObjectStorageService {
             return null;
         }
         log.warn(
-                "Retrying S3 download with provider bucket region hint (bucket={}, key={}, configuredRegion={}, retryRegion={}, endpoint={}, pathStyleAccess={}, forcePathStyle={})",
+                "Retrying S3 download with provider bucket region hint (bucket={}, key={}, configuredRegion={}, retryRegion={}, endpoint={}, pathStyleAccess={})",
                 request.bucket(),
                 key,
                 settings.region().id(),
                 retryRegion.id(),
                 settings.endpointDisplay(),
-                settings.pathStyleAccess(),
-                settings.forcePathStyle()
+                settings.pathStyleAccess()
         );
         S3Client retryClient = createClient(retryRegion, false);
         try {
@@ -330,10 +326,9 @@ public class S3ObjectStorageService implements ObjectStorageService {
         var builder = S3Client.builder()
                 .region(region)
                 .credentialsProvider(settings.credentialsProvider())
-                .forcePathStyle(settings.forcePathStyle())
                 .crossRegionAccessEnabled(crossRegionAccessEnabled)
                 .serviceConfiguration(S3Configuration.builder()
-                        .pathStyleAccessEnabled(settings.forcePathStyle() ? null : settings.pathStyleAccess())
+                        .pathStyleAccessEnabled(settings.pathStyleAccess())
                         .build());
         if (settings.endpoint() != null) {
             builder.endpointOverride(settings.endpoint());
@@ -376,14 +371,13 @@ public class S3ObjectStorageService implements ObjectStorageService {
         }
 
         log.error(
-                "S3 {} failed (bucket={}, key={}, endpoint={}, region={}, pathStyleAccess={}, forcePathStyle={}, crossRegionAccess={}, bucketRegionHint={}, exceptionType={}, errorCode={}, statusCode={}, requestId={}, extendedRequestId={}, message={})",
+                "S3 {} failed (bucket={}, key={}, endpoint={}, region={}, pathStyleAccess={}, crossRegionAccess={}, bucketRegionHint={}, exceptionType={}, errorCode={}, statusCode={}, requestId={}, extendedRequestId={}, message={})",
                 operation,
                 bucket(),
                 key,
                 settings.endpointDisplay(),
                 settings.region().id(),
                 settings.pathStyleAccess(),
-                settings.forcePathStyle(),
                 settings.crossRegionAccessEnabled(),
                 firstNonBlank(bucketRegionHint, "<none>"),
                 throwable.getClass().getSimpleName(),
@@ -400,8 +394,7 @@ public class S3ObjectStorageService implements ObjectStorageService {
                 .append(" failed for bucket='").append(bucket()).append('\'')
                 .append(", endpoint='").append(settings.endpointDisplay()).append('\'')
                 .append(", region='").append(settings.region().id()).append('\'')
-                .append(", pathStyleAccess=").append(settings.pathStyleAccess())
-                .append(", forcePathStyle=").append(settings.forcePathStyle());
+                .append(", pathStyleAccess=").append(settings.pathStyleAccess());
         if (StringUtils.hasText(errorCode)) {
             message.append(". Provider error=").append(errorCode);
         }

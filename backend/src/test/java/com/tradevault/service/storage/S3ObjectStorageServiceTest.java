@@ -71,7 +71,6 @@ class S3ObjectStorageServiceTest {
         assertTrue(thrown.getMessage().contains("endpoint='https://storage.example.com'"));
         assertTrue(thrown.getMessage().contains("region='eu-central-1'"));
         assertTrue(thrown.getMessage().contains("pathStyleAccess=true"));
-        assertTrue(thrown.getMessage().contains("forcePathStyle=true"));
         assertTrue(thrown.getMessage().contains("SignatureDoesNotMatch"));
         assertTrue(thrown.getMessage().contains("Verify storage.s3 bucket/region/endpoint/credentials/path-style configuration."));
     }
@@ -82,7 +81,6 @@ class S3ObjectStorageServiceTest {
                 "assets",
                 Region.of("eu-central-1"),
                 URI.create("https://storage.example.com"),
-                true,
                 true,
                 false,
                 StaticCredentialsProvider.create(AwsBasicCredentials.create("access", "secret")),
