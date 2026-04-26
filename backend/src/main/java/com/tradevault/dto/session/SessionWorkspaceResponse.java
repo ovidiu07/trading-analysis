@@ -7,6 +7,7 @@ import com.tradevault.domain.enums.SessionSetupReadinessState;
 import com.tradevault.domain.enums.SessionSetupStatus;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.domain.enums.TradeSession;
+import com.tradevault.dto.plan.PlanImageResponse;
 import lombok.Builder;
 import lombok.Value;
 
@@ -289,6 +290,9 @@ public class SessionWorkspaceResponse {
         OffsetDateTime activeFrom;
         OffsetDateTime activeTo;
         Boolean exists;
+        List<PlanImageResponse> images;
+        Integer imageCount;
+        String thumbnailUrl;
     }
 
     @Value

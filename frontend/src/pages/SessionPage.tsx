@@ -43,9 +43,12 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
 import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useNavigate, useSearchParams } from 'react-router-dom'
+import { ALLOWED_IMAGE_MIME_TYPES, MAX_UPLOAD_SIZE_BYTES } from '../api/assets'
 import { ApiError } from '../api/client'
 import {
   createSetupCandidate,
+  deleteSessionPlanImage,
   duplicateSetupCandidate,
   getSessionWorkspace,
   selectActiveSetupCandidate,
@@ -53,19 +56,23 @@ import {
   updateSessionWorkspace,
   updateSetupCandidate,
   updateSetupCandidateStatus,
+  uploadSessionPlanImages,
   upsertSessionPeriodPlan,
   type ConfluenceItem,
   type ExecutionTicket,
   type LiveWorkspaceResponse,
+  type PlanImage,
   type PeriodPlan,
   type ReviewTimelineEntry,
   type SetupItem,
   type SetupStatus
 } from '../api/liveWorkspace'
-import { fetchTodayMentorPlan } from '../api/plans'
+import { fetchTodayMentorPlan, type PlanScope } from '../api/plans'
 import { listStrategies, type StrategyResponse } from '../api/strategies'
 import { useAuth } from '../auth/AuthContext'
 import TradingViewWidget from '../components/charts/TradingViewWidget'
+import type { UploadQueueItem } from '../components/assets/AssetListRenderer'
+import PlanImagesSection from '../components/session/PlanImagesSection'
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import RichTextContent from '../components/ui/RichTextContent'
@@ -104,6 +111,15 @@ import { useI18n } from '../i18n'
 import { formatCurrency, formatDate, formatDateTime, formatNumber, formatSignedCurrency } from '../utils/format'
 
 type SideTab = 'STRATEGY' | 'RISK' | 'CONFLUENCES' | 'EXECUTE' | 'JOURNAL'
+
+const planScopeToApiScope = (scope: PlanScopeTab): PlanScope => scope === 'TODAY' ? 'DAILY' : scope
+
+const planScopeToCalendarParam = (scope: PlanScopeTab) => scope.toLowerCase()
+
+const isImageFile = (file: File) => (
+  (file.type ? ALLOWED_IMAGE_MIME_TYPES.has(file.type) : false)
+  || /\.(png|jpe?g|webp|gif)$/i.test(file.name)
+)
 
 const directionOptions: SetupItem['direction'][] = ['UNDECIDED', 'LONG', 'SHORT']
 
@@ -259,10 +275,19 @@ export default function SessionPage() {
   const { user } = useAuth()
   const { t } = useI18n()
   const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
 
-  const [planScope, setPlanScope] = useState<PlanScopeTab>('TODAY')
+  const initialPlanScope = useMemo<PlanScopeTab>(() => {
+    const requested = (searchParams.get('plan') || '').toUpperCase()
+    if (requested === 'WEEKLY') return 'WEEKLY'
+    if (requested === 'MONTHLY') return 'MONTHLY'
+    return 'TODAY'
+  }, [searchParams])
+
+  const [planScope, setPlanScope] = useState<PlanScopeTab>(initialPlanScope)
   const [sideTab, setSideTab] = useState<SideTab>('STRATEGY')
   const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null)
   const [sessionDraft, setSessionDraft] = useState<SessionDraft | null>(null)
@@ -274,6 +299,12 @@ export default function SessionPage() {
   const [strategyDetailOpen, setStrategyDetailOpen] = useState(false)
   const [selectedStrategyId, setSelectedStrategyId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [planImageUploads, setPlanImageUploads] = useState<Record<PlanScopeTab, UploadQueueItem[]>>({
+    TODAY: [],
+    WEEKLY: [],
+    MONTHLY: []
+  })
+  const [deletingPlanImageIds, setDeletingPlanImageIds] = useState<Set<string>>(new Set())
   const [quickLogAnchorEl, setQuickLogAnchorEl] = useState<null | HTMLElement>(null)
   const [quickNote, setQuickNote] = useState('')
   const [newConfluence, setNewConfluence] = useState('')
@@ -309,6 +340,10 @@ export default function SessionPage() {
     queryFn: () => listStrategies({ includeArchived: false }),
     enabled: strategyDialogOpen
   })
+
+  useEffect(() => {
+    setPlanScope(initialPlanScope)
+  }, [initialPlanScope])
 
   const applyWorkspace = (workspace: LiveWorkspaceResponse, preferredSetupId?: string | null) => {
     const normalized = ensureWorkspace(workspace)
@@ -645,6 +680,99 @@ export default function SessionPage() {
     }
   }
 
+  const updatePlanImageUpload = (scope: PlanScopeTab, id: string, patch: Partial<UploadQueueItem>) => {
+    setPlanImageUploads((current) => ({
+      ...current,
+      [scope]: current[scope].map((item) => item.id === id ? { ...item, ...patch } : item)
+    }))
+  }
+
+  const handleUploadPlanImages = async (scope: PlanScopeTab, files: File[]) => {
+    if (files.length === 0) return
+    const queueItems: UploadQueueItem[] = files.map((file) => ({
+      id: `${scope}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+      fileName: file.name,
+      sizeBytes: file.size,
+      progress: 2
+    }))
+    setPlanImageUploads((current) => ({
+      ...current,
+      [scope]: [...current[scope], ...queueItems]
+    }))
+
+    const acceptedFiles: File[] = []
+    files.forEach((file, index) => {
+      const queueItem = queueItems[index]
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+        updatePlanImageUpload(scope, queueItem.id, { progress: 0, error: 'File is too large.' })
+        return
+      }
+      if (!isImageFile(file)) {
+        updatePlanImageUpload(scope, queueItem.id, { progress: 0, error: 'Only image files are accepted.' })
+        return
+      }
+      acceptedFiles.push(file)
+    })
+
+    if (acceptedFiles.length === 0) return
+
+    try {
+      await uploadSessionPlanImages(planScopeToApiScope(scope), acceptedFiles, (progress) => {
+        acceptedFiles.forEach((file) => {
+          const queueItem = queueItems.find((item) => item.fileName === file.name && item.sizeBytes === file.size)
+          if (queueItem) {
+            updatePlanImageUpload(scope, queueItem.id, { progress })
+          }
+        })
+      })
+      setPlanImageUploads((current) => ({
+        ...current,
+        [scope]: current[scope].filter((item) => !acceptedFiles.some((file) => file.name === item.fileName && file.size === item.sizeBytes))
+      }))
+      await queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })
+      setFeedback('Plan images uploaded.')
+    } catch (error) {
+      const message = (error as ApiError)?.message || 'Could not upload plan images.'
+      acceptedFiles.forEach((file) => {
+        const queueItem = queueItems.find((item) => item.fileName === file.name && item.sizeBytes === file.size)
+        if (queueItem) {
+          updatePlanImageUpload(scope, queueItem.id, { progress: 0, error: message })
+        }
+      })
+    }
+  }
+
+  const handleDeletePlanImage = async (scope: PlanScopeTab, image: PlanImage) => {
+    setDeletingPlanImageIds((current) => new Set(current).add(image.id))
+    try {
+      await deleteSessionPlanImage(planScopeToApiScope(scope), image.id)
+      await queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })
+      setFeedback('Plan image deleted.')
+    } catch (error) {
+      setFeedback((error as ApiError)?.message || 'Could not delete plan image.')
+    } finally {
+      setDeletingPlanImageIds((current) => {
+        const next = new Set(current)
+        next.delete(image.id)
+        return next
+      })
+    }
+  }
+
+  const openPlanInCalendar = (scope: PlanScopeTab) => {
+    navigate(`/calendar?plan=${planScopeToCalendarParam(scope)}`)
+  }
+
+  const planCalendarStorageLabel = (scope: PlanScopeTab, plan?: PeriodPlan | null) => {
+    if (scope === 'TODAY') {
+      return `Visible in Calendar on ${formatDate(plan?.periodStart || workspace.session.tradingDate, timezone)}.`
+    }
+    if (scope === 'WEEKLY') {
+      return `Pinned in Calendar for this week until ${formatDate(plan?.periodEnd, timezone)}.`
+    }
+    return `Pinned in Calendar for this month until ${formatDate(plan?.periodEnd, timezone)}.`
+  }
+
   const sidePanel = (
     <Card className="ws-panel" component="aside" sx={{ position: { xl: 'sticky' }, top: { xl: 104 }, maxHeight: { xl: 'calc(100vh - 124px)' }, overflow: 'auto' }}>
       <CardContent sx={{ p: 2 }}>
@@ -884,6 +1012,19 @@ export default function SessionPage() {
           {scope === 'MONTHLY' ? (
             <TextField label="Review / intentions" value={draft?.reviewIntentions || ''} onChange={(event) => setDraft((current) => current ? { ...current, reviewIntentions: event.target.value } : current)} multiline minRows={2} />
           ) : null}
+          <PlanImagesSection
+            title={`${scope === 'WEEKLY' ? 'Weekly' : 'Monthly'} Plan Images`}
+            storageLabel={plan?.exists ? planCalendarStorageLabel(scope, plan) : `Save this ${scope.toLowerCase()} plan before uploading images.`}
+            images={plan?.images || []}
+            uploads={planImageUploads[scope]}
+            disabled={!plan?.exists}
+            disabledReason={!plan?.exists ? `Create this ${scope.toLowerCase()} plan before uploading images.` : undefined}
+            deletingIds={deletingPlanImageIds}
+            onUpload={(files) => void handleUploadPlanImages(scope, files)}
+            onDelete={(image) => void handleDeletePlanImage(scope, image)}
+            onRetry={() => void queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })}
+            onOpenCalendar={() => openPlanInCalendar(scope)}
+          />
         </Stack>
       </CardContent>
     </Card>
@@ -981,16 +1122,28 @@ export default function SessionPage() {
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>Monthly Plan</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 900 }}>{workspace.planningContext?.monthly?.bias || 'No monthly bias set'}</Typography>
                 <Typography variant="caption" color="text.secondary">{periodRange(workspace.planningContext?.monthly, timezone)}</Typography>
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                  <Chip size="small" color={workspace.planningContext?.monthly?.exists ? 'success' : 'default'} label={workspace.planningContext?.monthly?.exists ? 'Saved to Calendar' : 'Not saved'} />
+                  <Chip size="small" variant="outlined" label={`${workspace.planningContext?.monthly?.imageCount || 0} images`} />
+                </Stack>
               </Box>
               <Box className="ws-subpanel" sx={{ p: 1.1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>Weekly Plan</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 900 }}>{workspace.planningContext?.weekly?.objectives || workspace.planningContext?.weekly?.bias || 'No weekly focus set'}</Typography>
                 <Typography variant="caption" color="text.secondary">{periodRange(workspace.planningContext?.weekly, timezone)}</Typography>
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                  <Chip size="small" color={workspace.planningContext?.weekly?.exists ? 'success' : 'default'} label={workspace.planningContext?.weekly?.exists ? 'Saved to Calendar' : 'Not saved'} />
+                  <Chip size="small" variant="outlined" label={`${workspace.planningContext?.weekly?.imageCount || 0} images`} />
+                </Stack>
               </Box>
               <Box className="ws-subpanel" sx={{ p: 1.1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>Today Plan</Typography>
                 <Typography variant="body2" sx={{ fontWeight: 900 }}>{selectedSetup?.setupTitle || 'Create or select a setup'}</Typography>
                 <Typography variant="caption" color="text.secondary">{workspace.session.lockedInAt ? 'Locked for execution' : 'Planning'}</Typography>
+                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
+                  <Chip size="small" color="success" label="Visible in Calendar" />
+                  <Chip size="small" variant="outlined" label={`${workspace.planningContext?.today?.imageCount || 0} images`} />
+                </Stack>
               </Box>
             </Box>
           </Stack>
@@ -999,6 +1152,20 @@ export default function SessionPage() {
 
       {planScope === 'WEEKLY' ? periodEditor('WEEKLY', workspace.planningContext?.weekly, weeklyDraft, setWeeklyDraft) : null}
       {planScope === 'MONTHLY' ? periodEditor('MONTHLY', workspace.planningContext?.monthly, monthlyDraft, setMonthlyDraft) : null}
+
+      {planScope === 'TODAY' ? (
+        <PlanImagesSection
+          title="Today Plan Images"
+          storageLabel={planCalendarStorageLabel('TODAY', workspace.planningContext?.today)}
+          images={workspace.planningContext?.today?.images || []}
+          uploads={planImageUploads.TODAY}
+          deletingIds={deletingPlanImageIds}
+          onUpload={(files) => void handleUploadPlanImages('TODAY', files)}
+          onDelete={(image) => void handleDeletePlanImage('TODAY', image)}
+          onRetry={() => void queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })}
+          onOpenCalendar={() => openPlanInCalendar('TODAY')}
+        />
+      ) : null}
 
       {planScope === 'TODAY' ? (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '300px minmax(0, 1fr) 390px' }, gap: 2, alignItems: 'start' }}>

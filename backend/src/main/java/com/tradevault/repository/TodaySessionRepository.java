@@ -16,6 +16,8 @@ public interface TodaySessionRepository extends JpaRepository<TodaySession, UUID
 
     Optional<TodaySession> findByIdAndUser_Id(UUID id, UUID userId);
 
+    List<TodaySession> findByUser_IdAndSessionDateBetweenOrderBySessionDateAsc(UUID userId, LocalDate from, LocalDate to);
+
     long countByUser_IdAndStatus(UUID userId, TodaySessionStatus status);
 
     List<TodaySession> findByAutoJournalStateIn(Collection<AutoJournalState> states);

@@ -28,6 +28,8 @@ import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.PlanRepository;
+import com.tradevault.repository.PlanAssetRepository;
+import com.tradevault.service.AssetService;
 import com.tradevault.service.ContextSnapshotService;
 import com.tradevault.service.CurrentUserService;
 import com.tradevault.service.TimezoneService;
@@ -59,10 +61,12 @@ class SessionWorkspaceServiceTest {
     private SessionLevelRepository sessionLevelRepository;
     private TradeRepository tradeRepository;
     private PlanRepository planRepository;
+    private PlanAssetRepository planAssetRepository;
     private CurrentUserService currentUserService;
     private TimezoneService timezoneService;
     private TradeService tradeService;
     private ContextSnapshotService contextSnapshotService;
+    private AssetService assetService;
     private SessionWorkspaceService sessionWorkspaceService;
     private ObjectMapper objectMapper;
 
@@ -78,10 +82,12 @@ class SessionWorkspaceServiceTest {
         sessionLevelRepository = mock(SessionLevelRepository.class);
         tradeRepository = mock(TradeRepository.class);
         planRepository = mock(PlanRepository.class);
+        planAssetRepository = mock(PlanAssetRepository.class);
         currentUserService = mock(CurrentUserService.class);
         timezoneService = mock(TimezoneService.class);
         tradeService = mock(TradeService.class);
         contextSnapshotService = mock(ContextSnapshotService.class);
+        assetService = mock(AssetService.class);
         objectMapper = new ObjectMapper().findAndRegisterModules();
 
         sessionWorkspaceService = new SessionWorkspaceService(
@@ -91,10 +97,12 @@ class SessionWorkspaceServiceTest {
                 sessionLevelRepository,
                 tradeRepository,
                 planRepository,
+                planAssetRepository,
                 currentUserService,
                 timezoneService,
                 tradeService,
                 contextSnapshotService,
+                assetService,
                 objectMapper
         );
 
@@ -162,6 +170,8 @@ class SessionWorkspaceServiceTest {
         when(tradeRepository.sumNetPnlByUserAndSessionAndStatus(user.getId(), session.getId(), TradeStatus.CLOSED))
                 .thenReturn(BigDecimal.ZERO);
         when(planRepository.findUserActiveByWindow(any(), any(), eq(user.getId()), any(), any()))
+                .thenReturn(List.of());
+        when(planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(session.getId()))
                 .thenReturn(List.of());
     }
 

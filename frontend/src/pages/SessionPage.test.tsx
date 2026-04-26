@@ -19,7 +19,10 @@ const workspaceApiMock = vi.hoisted(() => ({
   updateSetupCandidateStatus: vi.fn(),
   selectActiveSetupCandidate: vi.fn(),
   startTradeFromSetupCandidate: vi.fn(),
-  upsertSessionPeriodPlan: vi.fn()
+  upsertSessionPeriodPlan: vi.fn(),
+  uploadSessionPlanImages: vi.fn(),
+  deleteSessionPlanImage: vi.fn(),
+  listSessionPlanImages: vi.fn()
 }))
 
 const plansApiMock = vi.hoisted(() => ({
@@ -386,6 +389,9 @@ function setupMocks() {
 
   workspaceApiMock.updateSetupCandidateStatus.mockImplementation(async () => clone(workspaceState))
   workspaceApiMock.startTradeFromSetupCandidate.mockImplementation(async () => clone(workspaceState))
+  workspaceApiMock.uploadSessionPlanImages.mockResolvedValue([])
+  workspaceApiMock.deleteSessionPlanImage.mockResolvedValue(undefined)
+  workspaceApiMock.listSessionPlanImages.mockResolvedValue([])
   workspaceApiMock.upsertSessionPeriodPlan.mockImplementation(async (scope: 'WEEKLY' | 'MONTHLY', payload: Partial<LiveWorkspaceResponse['planningContext']['weekly']>) => {
     const key = scope === 'WEEKLY' ? 'weekly' : 'monthly'
     workspaceState.planningContext = {

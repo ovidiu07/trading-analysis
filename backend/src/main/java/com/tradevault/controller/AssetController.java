@@ -1,6 +1,7 @@
 package com.tradevault.controller;
 
 import com.tradevault.domain.enums.AssetScope;
+import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.asset.AssetUploadRequest;
 import com.tradevault.service.AssetService;
@@ -32,6 +33,9 @@ public class AssetController {
                                                 @RequestParam(value = "noteId", required = false) UUID noteId,
                                                 @RequestParam(value = "strategyId", required = false) UUID strategyId,
                                                 @RequestParam(value = "tradeId", required = false) UUID tradeId,
+                                                @RequestParam(value = "planId", required = false) UUID planId,
+                                                @RequestParam(value = "todaySessionId", required = false) UUID todaySessionId,
+                                                @RequestParam(value = "planScope", required = false) PlanScope planScope,
                                                 @RequestParam(value = "sortOrder", required = false) Integer sortOrder) {
         AssetUploadRequest request = new AssetUploadRequest();
         request.setScope(scope);
@@ -39,6 +43,9 @@ public class AssetController {
         request.setNoteId(noteId);
         request.setStrategyId(strategyId);
         request.setTradeId(tradeId);
+        request.setPlanId(planId);
+        request.setTodaySessionId(todaySessionId);
+        request.setPlanScope(planScope);
         request.setSortOrder(sortOrder);
         return ResponseEntity.ok(assetService.upload(file, request));
     }

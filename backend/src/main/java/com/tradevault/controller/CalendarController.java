@@ -1,15 +1,19 @@
 package com.tradevault.controller;
 
 import com.tradevault.domain.enums.PnlBasis;
+import com.tradevault.dto.calendar.CalendarPlansResponse;
 import com.tradevault.dto.trade.MonthlyPnlSummaryResponse;
 import com.tradevault.service.TradeCalendarService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.time.LocalDate;
 
 @RestController
 @RequestMapping("/api/calendar")
@@ -34,6 +38,13 @@ public class CalendarController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid month value: " + month);
         }
         return tradeCalendarService.fetchMonthlySummary(year, month, tz, resolved, accountId);
+    }
+
+    @GetMapping("/plans")
+    public CalendarPlansResponse plans(@RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
+                                       @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
+                                       @RequestParam(required = false) String tz) {
+        return tradeCalendarService.fetchPlanSummaries(from, to, tz);
     }
 
     private PnlBasis resolveBasis(String basis) {

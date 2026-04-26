@@ -12,6 +12,7 @@ import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.Plan;
+import com.tradevault.domain.entity.PlanAsset;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
@@ -31,13 +32,17 @@ import com.tradevault.dto.session.StartSessionExecutionRequest;
 import com.tradevault.dto.session.UpdateSessionWorkspaceRequest;
 import com.tradevault.dto.session.UpsertSessionPlanRequest;
 import com.tradevault.dto.session.UpsertSessionSetupRequest;
+import com.tradevault.dto.asset.AssetResponse;
+import com.tradevault.dto.plan.PlanImageResponse;
 import com.tradevault.dto.trade.TradeRequest;
+import com.tradevault.repository.PlanAssetRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.PlanRepository;
+import com.tradevault.service.AssetService;
 import com.tradevault.service.ContextSnapshotService;
 import com.tradevault.service.CurrentUserService;
 import com.tradevault.service.TimezoneService;
@@ -101,10 +106,12 @@ public class SessionWorkspaceService {
     private final SessionLevelRepository sessionLevelRepository;
     private final TradeRepository tradeRepository;
     private final PlanRepository planRepository;
+    private final PlanAssetRepository planAssetRepository;
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
     private final TradeService tradeService;
     private final ContextSnapshotService contextSnapshotService;
+    private final AssetService assetService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -832,15 +839,23 @@ public class SessionWorkspaceService {
                 .stream()
                 .findFirst()
                 .orElse(null);
+        List<PlanAsset> todayImages = planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(session.getId());
+        List<PlanAsset> weeklyImages = weekly == null
+                ? List.of()
+                : planAssetRepository.findByPlan_IdOrderBySortOrderAscCreatedAtAsc(weekly.getId());
+        List<PlanAsset> monthlyImages = monthly == null
+                ? List.of()
+                : planAssetRepository.findByPlan_IdOrderBySortOrderAscCreatedAtAsc(monthly.getId());
         return SessionWorkspaceResponse.PlanningContext.builder()
-                .monthly(toPeriodPlan(monthly, PlanScope.MONTHLY, monthWindow))
-                .weekly(toPeriodPlan(weekly, PlanScope.WEEKLY, weekWindow))
-                .today(toTodayPeriodPlan(session, zone))
+                .monthly(toPeriodPlan(monthly, PlanScope.MONTHLY, monthWindow, monthlyImages))
+                .weekly(toPeriodPlan(weekly, PlanScope.WEEKLY, weekWindow, weeklyImages))
+                .today(toTodayPeriodPlan(session, zone, todayImages))
                 .build();
     }
 
-    private SessionWorkspaceResponse.PeriodPlan toTodayPeriodPlan(TodaySession session, ZoneId zone) {
+    private SessionWorkspaceResponse.PeriodPlan toTodayPeriodPlan(TodaySession session, ZoneId zone, List<PlanAsset> imageRows) {
         LocalDate day = session.getSessionDate();
+        List<PlanImageResponse> images = toPlanImages(imageRows);
         return SessionWorkspaceResponse.PeriodPlan.builder()
                 .id(session.getId())
                 .scope(PlanScope.DAILY)
@@ -857,13 +872,17 @@ public class SessionWorkspaceService {
                 .activeFrom(day.atStartOfDay(zone).toOffsetDateTime())
                 .activeTo(day.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime())
                 .exists(Boolean.TRUE)
+                .images(images)
+                .imageCount(images.size())
+                .thumbnailUrl(firstThumbnail(images))
                 .build();
     }
 
-    private SessionWorkspaceResponse.PeriodPlan toPeriodPlan(Plan plan, PlanScope scope, PeriodWindow window) {
+    private SessionWorkspaceResponse.PeriodPlan toPeriodPlan(Plan plan, PlanScope scope, PeriodWindow window, List<PlanAsset> imageRows) {
         UpsertSessionPlanRequest content = plan == null
                 ? normalizeSessionPlanRequest(scope, null, window)
                 : readPlanContent(plan, scope, window);
+        List<PlanImageResponse> images = toPlanImages(imageRows);
         return SessionWorkspaceResponse.PeriodPlan.builder()
                 .id(plan == null ? null : plan.getId())
                 .scope(scope)
@@ -880,7 +899,51 @@ public class SessionWorkspaceService {
                 .activeFrom(plan == null ? window.start() : plan.getActiveFrom())
                 .activeTo(plan == null ? window.end() : plan.getActiveTo())
                 .exists(plan != null)
+                .images(images)
+                .imageCount(images.size())
+                .thumbnailUrl(firstThumbnail(images))
                 .build();
+    }
+
+    private List<PlanImageResponse> toPlanImages(List<PlanAsset> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        return rows.stream()
+                .map(row -> {
+                    AssetResponse asset = assetService.toAssetResponse(row.getAsset());
+                    return PlanImageResponse.builder()
+                            .id(row.getId())
+                            .assetId(asset.getId())
+                            .planId(row.getPlan() == null ? null : row.getPlan().getId())
+                            .todaySessionId(row.getTodaySession() == null ? null : row.getTodaySession().getId())
+                            .planScope(row.getPlanScope())
+                            .originalFileName(asset.getOriginalFileName())
+                            .contentType(asset.getContentType())
+                            .sizeBytes(asset.getSizeBytes())
+                            .url(asset.getUrl())
+                            .downloadUrl(asset.getDownloadUrl())
+                            .viewUrl(asset.getViewUrl())
+                            .thumbnailUrl(asset.getThumbnailUrl())
+                            .caption(row.getCaption())
+                            .sortOrder(row.getSortOrder())
+                            .createdAt(row.getCreatedAt())
+                            .updatedAt(row.getUpdatedAt())
+                            .metadata(asset.getMetadata())
+                            .build();
+                })
+                .toList();
+    }
+
+    private String firstThumbnail(List<PlanImageResponse> images) {
+        if (images == null || images.isEmpty()) {
+            return null;
+        }
+        return images.stream()
+                .map(image -> firstNonBlank(image.getThumbnailUrl(), image.getViewUrl(), image.getUrl()))
+                .filter(Objects::nonNull)
+                .findFirst()
+                .orElse(null);
     }
 
     private List<SessionWorkspaceResponse.ConfluenceItem> toConfluenceDtos(SessionSetup setup, TodaySession session) {

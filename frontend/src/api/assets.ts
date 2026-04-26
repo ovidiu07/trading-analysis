@@ -3,7 +3,7 @@ import { getCurrentLanguage } from '../i18n'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 
-export type AssetScope = 'CONTENT' | 'NOTEBOOK' | 'STRATEGY' | 'TRADE'
+export type AssetScope = 'CONTENT' | 'NOTEBOOK' | 'STRATEGY' | 'TRADE' | 'PLAN'
 
 export const MAX_UPLOAD_SIZE_MB = 20
 export const MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
@@ -20,6 +20,13 @@ export const ALLOWED_UPLOAD_MIME_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   'application/vnd.ms-excel',
   'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+])
+
+export const ALLOWED_IMAGE_MIME_TYPES = new Set([
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+  'image/gif'
 ])
 
 export type AssetItem = {

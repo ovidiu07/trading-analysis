@@ -7,6 +7,7 @@ import com.tradevault.domain.entity.Asset;
 import com.tradevault.domain.entity.ContentPost;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.AssetScope;
+import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.domain.enums.Role;
 import com.tradevault.dto.asset.AssetUploadRequest;
 import com.tradevault.repository.AssetRepository;
@@ -14,7 +15,10 @@ import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookNoteRepository;
+import com.tradevault.repository.PlanAssetRepository;
+import com.tradevault.repository.PlanRepository;
 import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
@@ -46,6 +50,9 @@ class AssetServiceTest {
     private NotebookAttachmentRepository notebookAttachmentRepository;
     private ContentPostRepository contentPostRepository;
     private NotebookNoteRepository notebookNoteRepository;
+    private PlanRepository planRepository;
+    private TodaySessionRepository todaySessionRepository;
+    private PlanAssetRepository planAssetRepository;
     private UserStrategyRepository userStrategyRepository;
     private StrategyAssetRepository strategyAssetRepository;
     private TradeRepository tradeRepository;
@@ -62,6 +69,9 @@ class AssetServiceTest {
         notebookAttachmentRepository = mock(NotebookAttachmentRepository.class);
         contentPostRepository = mock(ContentPostRepository.class);
         notebookNoteRepository = mock(NotebookNoteRepository.class);
+        planRepository = mock(PlanRepository.class);
+        todaySessionRepository = mock(TodaySessionRepository.class);
+        planAssetRepository = mock(PlanAssetRepository.class);
         userStrategyRepository = mock(UserStrategyRepository.class);
         strategyAssetRepository = mock(StrategyAssetRepository.class);
         tradeRepository = mock(TradeRepository.class);
@@ -82,6 +92,9 @@ class AssetServiceTest {
                 notebookAttachmentRepository,
                 contentPostRepository,
                 notebookNoteRepository,
+                planRepository,
+                todaySessionRepository,
+                planAssetRepository,
                 userStrategyRepository,
                 strategyAssetRepository,
                 tradeRepository,
@@ -180,5 +193,18 @@ class AssetServiceTest {
         verify(objectStorageService).putObject(anyString(), any(), anyString());
         assertEquals(AssetScope.TRADE, response.getScope());
         assertEquals(null, response.getTradeId());
+    }
+
+    @Test
+    void rejectsNonImagePlanAssetBeforeStorage() {
+        MockMultipartFile file = new MockMultipartFile("file", "brief.pdf", "application/pdf", "%PDF".getBytes());
+        AssetUploadRequest request = new AssetUploadRequest();
+        request.setScope(AssetScope.PLAN);
+        request.setPlanScope(PlanScope.DAILY);
+        request.setTodaySessionId(UUID.randomUUID());
+
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> assetService.upload(file, request));
+        assertEquals("Only image files can be uploaded to plans", ex.getMessage());
+        verifyNoInteractions(objectStorageService);
     }
 }

@@ -9,12 +9,17 @@ import com.tradevault.domain.entity.ContentAsset;
 import com.tradevault.domain.entity.ContentPost;
 import com.tradevault.domain.entity.NotebookAttachment;
 import com.tradevault.domain.entity.NotebookNote;
+import com.tradevault.domain.entity.Plan;
+import com.tradevault.domain.entity.PlanAsset;
 import com.tradevault.domain.entity.StrategyAsset;
+import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.AssetScope;
 import com.tradevault.domain.enums.ContentPostStatus;
+import com.tradevault.domain.enums.PlanScope;
+import com.tradevault.domain.enums.PlanSource;
 import com.tradevault.domain.enums.Role;
 import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.asset.AssetUploadRequest;
@@ -23,12 +28,17 @@ import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookNoteRepository;
+import com.tradevault.repository.PlanAssetRepository;
+import com.tradevault.repository.PlanRepository;
 import com.tradevault.repository.StrategyAssetRepository;
+import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.core.io.InputStreamResource;
 import org.springframework.http.ContentDisposition;
 import org.springframework.http.HttpHeaders;
@@ -62,6 +72,7 @@ import static org.springframework.http.HttpStatus.FORBIDDEN;
 @Service
 @RequiredArgsConstructor
 public class AssetService {
+    private static final Logger log = LoggerFactory.getLogger(AssetService.class);
     private static final TypeReference<Map<String, Object>> METADATA_MAP = new TypeReference<>() {};
 
     private final AssetRepository assetRepository;
@@ -69,6 +80,9 @@ public class AssetService {
     private final NotebookAttachmentRepository notebookAttachmentRepository;
     private final ContentPostRepository contentPostRepository;
     private final NotebookNoteRepository notebookNoteRepository;
+    private final PlanRepository planRepository;
+    private final TodaySessionRepository todaySessionRepository;
+    private final PlanAssetRepository planAssetRepository;
     private final UserStrategyRepository userStrategyRepository;
     private final StrategyAssetRepository strategyAssetRepository;
     private final TradeRepository tradeRepository;
@@ -94,20 +108,26 @@ public class AssetService {
 
         String detectedContentType = detectContentType(file, bytes);
         validateUpload(file.getSize(), detectedContentType);
+        if (request.getScope() == AssetScope.PLAN && !isImageContentType(detectedContentType)) {
+            throw new IllegalArgumentException("Only image files can be uploaded to plans");
+        }
 
         String originalName = sanitizeFileName(file.getOriginalFilename());
-        String s3Key = buildS3Key(request.getScope(), originalName);
         String metadataJson = buildMetadataJson(detectedContentType, bytes);
 
         UUID contentId = null;
         UUID noteId = null;
         UUID strategyId = null;
         UUID tradeId = null;
+        UUID planId = null;
+        UUID todaySessionId = null;
         int sortOrder = request.getSortOrder() != null ? request.getSortOrder() : 0;
         ContentPost post = null;
         NotebookNote note = null;
         UserStrategy strategy = null;
         Trade trade = null;
+        Plan plan = null;
+        TodaySession todaySession = null;
 
         if (request.getScope() == AssetScope.CONTENT) {
             requireAdmin(user);
@@ -130,9 +150,29 @@ public class AssetService {
                         : tradeRepository.findByIdAndUserId(tradeId, user.getId())
                         .orElseThrow(() -> new EntityNotFoundException("Trade not found"));
             }
+        } else if (request.getScope() == AssetScope.PLAN) {
+            PlanScope planScope = requireField(request.getPlanScope(), "planScope is required for PLAN assets");
+            if (planScope == PlanScope.DAILY) {
+                todaySessionId = requireField(request.getTodaySessionId(), "todaySessionId is required for DAILY plan assets");
+                todaySession = todaySessionRepository.findByIdAndUser_Id(todaySessionId, user.getId())
+                        .orElseThrow(() -> new EntityNotFoundException("Today session not found"));
+            } else if (planScope == PlanScope.WEEKLY || planScope == PlanScope.MONTHLY) {
+                planId = requireField(request.getPlanId(), "planId is required for WEEKLY and MONTHLY plan assets");
+                plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
+                        .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
+                if (plan.getScope() != planScope) {
+                    throw new IllegalArgumentException("Plan scope does not match requested image scope");
+                }
+            } else {
+                throw new IllegalArgumentException("Unsupported plan scope");
+            }
         } else {
             throw new IllegalArgumentException("Unsupported asset scope");
         }
+
+        String s3Key = request.getScope() == AssetScope.PLAN
+                ? buildPlanS3Key(user, request, originalName)
+                : buildS3Key(request.getScope(), originalName);
 
         objectStorageService.putObject(s3Key, bytes, detectedContentType);
 
@@ -142,7 +182,9 @@ public class AssetService {
                             ? note.getUser()
                             : (strategy != null
                             ? strategy.getUser()
-                            : (trade != null ? trade.getUser() : user)))
+                            : (trade != null
+                            ? trade.getUser()
+                            : (todaySession != null ? todaySession.getUser() : user))))
                     .scope(request.getScope())
                     .originalFileName(originalName)
                     .contentType(detectedContentType)
@@ -174,6 +216,17 @@ public class AssetService {
                         .sortOrder(sortOrder)
                         .build();
                 strategyAssetRepository.save(relation);
+            } else if (request.getScope() == AssetScope.PLAN) {
+                PlanAsset relation = PlanAsset.builder()
+                        .plan(plan)
+                        .todaySession(todaySession)
+                        .user(user)
+                        .planScope(request.getPlanScope())
+                        .asset(saved)
+                        .sortOrder(sortOrder)
+                        .caption(normalizeOptionalText(request.getCaption()))
+                        .build();
+                planAssetRepository.save(relation);
             }
 
             return toResponse(saved, contentId, noteId, strategyId, tradeId);
@@ -235,6 +288,26 @@ public class AssetService {
     }
 
     @Transactional(readOnly = true)
+    public List<AssetResponse> listByPlan(UUID planId) {
+        User user = currentUserService.getCurrentUser();
+        Plan plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
+        return planAssetRepository.findByPlan_IdOrderBySortOrderAscCreatedAtAsc(plan.getId()).stream()
+                .map(relation -> toResponse(relation.getAsset(), null, null, null, null))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
+    public List<AssetResponse> listByTodaySession(UUID todaySessionId) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession todaySession = todaySessionRepository.findByIdAndUser_Id(todaySessionId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Today session not found"));
+        return planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(todaySession.getId()).stream()
+                .map(relation -> toResponse(relation.getAsset(), null, null, null, null))
+                .toList();
+    }
+
+    @Transactional(readOnly = true)
     public Map<UUID, List<AssetResponse>> mapByContentPosts(Collection<ContentPost> posts) {
         List<UUID> ids = posts.stream().map(ContentPost::getId).distinct().toList();
         if (ids.isEmpty()) {
@@ -274,6 +347,7 @@ public class AssetService {
         contentAssetRepository.deleteByAssetId(assetId);
         notebookAttachmentRepository.deleteByAssetId(assetId);
         strategyAssetRepository.deleteByAsset_Id(assetId);
+        planAssetRepository.deleteByAsset_Id(assetId);
         assetRepository.delete(asset);
         objectStorageService.deleteObject(asset.getS3Key());
     }
@@ -383,6 +457,18 @@ public class AssetService {
             }
             return;
         }
+        if (asset.getScope() == AssetScope.PLAN) {
+            if (isAdmin(user)) {
+                return;
+            }
+            PlanAsset relation = planAssetRepository.findByAsset_Id(asset.getId()).stream()
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+            if (!Objects.equals(relation.getUser().getId(), user.getId())) {
+                throw new ResponseStatusException(FORBIDDEN, "Forbidden");
+            }
+            return;
+        }
         throw new ResponseStatusException(FORBIDDEN, "Forbidden");
     }
 
@@ -431,6 +517,18 @@ public class AssetService {
             }
             UUID ownerId = asset.getOwnerUser() == null ? null : asset.getOwnerUser().getId();
             if (!Objects.equals(ownerId, user.getId())) {
+                throw new EntityNotFoundException("Asset not found");
+            }
+            return;
+        }
+        if (asset.getScope() == AssetScope.PLAN) {
+            if (isAdmin(user)) {
+                return;
+            }
+            PlanAsset relation = planAssetRepository.findByAsset_Id(asset.getId()).stream()
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+            if (!Objects.equals(relation.getUser().getId(), user.getId())) {
                 throw new EntityNotFoundException("Asset not found");
             }
             return;
@@ -499,6 +597,10 @@ public class AssetService {
         if (!allowed.contains(detectedType.toLowerCase(Locale.ROOT))) {
             throw new IllegalArgumentException("File type is not allowed");
         }
+    }
+
+    private boolean isImageContentType(String contentType) {
+        return contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("image/");
     }
 
     private String detectContentType(MultipartFile file, byte[] bytes) {
@@ -572,6 +674,27 @@ public class AssetService {
         );
     }
 
+    private String buildPlanS3Key(User user, AssetUploadRequest request, String sanitizedName) {
+        UUID targetId = request.getPlanScope() == PlanScope.DAILY
+                ? request.getTodaySessionId()
+                : request.getPlanId();
+        return "plan-images/%s/%s/%s/%s-%s".formatted(
+                user.getId(),
+                request.getPlanScope().name().toLowerCase(Locale.ROOT),
+                targetId,
+                UUID.randomUUID(),
+                sanitizedName
+        );
+    }
+
+    private String normalizeOptionalText(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = value.trim();
+        return normalized.isEmpty() ? null : normalized;
+    }
+
     private void safeDeleteFromStorage(String key) {
         try {
             objectStorageService.deleteObject(key);
@@ -602,6 +725,10 @@ public class AssetService {
                 .createdAt(asset.getCreatedAt())
                 .metadata(readMetadata(asset.getMetadata()))
                 .build();
+    }
+
+    public AssetResponse toAssetResponse(Asset asset) {
+        return toResponse(asset, null, null, null, null);
     }
 
     private Map<String, Object> readMetadata(String metadata) {
@@ -635,7 +762,12 @@ public class AssetService {
         StorageS3Properties s3 = storageS3Properties;
         if (s3.getPresign().isEnabled()) {
             int expirationMinutes = Math.max(1, s3.getPresign().getExpirationMinutes());
-            return objectStorageService.presignGetObjectUrl(asset.getS3Key(), Duration.ofMinutes(expirationMinutes));
+            try {
+                return objectStorageService.presignGetObjectUrl(asset.getS3Key(), Duration.ofMinutes(expirationMinutes));
+            } catch (RuntimeException ex) {
+                log.warn("Could not generate presigned asset URL for assetId={}, key={}", asset.getId(), asset.getS3Key(), ex);
+                return null;
+            }
         }
         if (s3.getPublicBaseUrl() != null && !s3.getPublicBaseUrl().isBlank()) {
             String base = s3.getPublicBaseUrl().replaceAll("/+$", "");

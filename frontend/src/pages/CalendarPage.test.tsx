@@ -16,6 +16,7 @@ const mockFetchDailyPnl = vi.fn()
 const mockFetchMonthlyPnlSummary = vi.fn()
 const mockListClosedTradesForDate = vi.fn()
 const mockListNotebookNotesByDate = vi.fn()
+const mockFetchCalendarPlans = vi.fn()
 
 vi.mock('../api/trades', async () => {
   const actual = await vi.importActual<typeof import('../api/trades')>('../api/trades')
@@ -34,6 +35,10 @@ vi.mock('../api/notebook', async () => {
     listNotebookNotesByDate: (...args: unknown[]) => mockListNotebookNotesByDate(...args)
   }
 })
+
+vi.mock('../api/calendar', () => ({
+  fetchCalendarPlans: (...args: unknown[]) => mockFetchCalendarPlans(...args)
+}))
 
 const buildSummary = (month: number, netPnl: number): MonthlyPnlSummaryResponse => ({
   year: 2026,
@@ -67,6 +72,7 @@ describe('CalendarPage', () => {
     localStorage.clear()
     localStorage.setItem('app.language', 'en')
     mockFetchDailyPnl.mockResolvedValue([])
+    mockFetchCalendarPlans.mockResolvedValue({ activeMonthlyPlan: null, activeWeeklyPlan: null, dailyPlans: [] })
     mockListClosedTradesForDate.mockResolvedValue([])
     mockListNotebookNotesByDate.mockResolvedValue([])
   })

@@ -1,5 +1,8 @@
-import { apiGet, apiPost, apiPut } from './client'
+import { getCurrentLanguage } from '../i18n'
+import { ApiError, apiDelete, apiGet, apiPost, apiPut, clearAuthToken } from './client'
 import type { PlanScope } from './plans'
+
+const API_URL = import.meta.env.VITE_API_URL || '/api'
 
 export type ReadinessState = 'READY' | 'INCOMPLETE' | 'BLOCKED'
 export type SetupStatus =
@@ -258,6 +261,29 @@ export type PeriodPlan = {
   activeFrom?: string | null
   activeTo?: string | null
   exists: boolean
+  images?: PlanImage[]
+  imageCount?: number | null
+  thumbnailUrl?: string | null
+}
+
+export type PlanImage = {
+  id: string
+  assetId: string
+  planId?: string | null
+  todaySessionId?: string | null
+  planScope: PlanScope
+  originalFileName: string
+  contentType?: string | null
+  sizeBytes?: number | null
+  url?: string | null
+  downloadUrl?: string | null
+  viewUrl?: string | null
+  thumbnailUrl?: string | null
+  caption?: string | null
+  sortOrder?: number | null
+  createdAt?: string | null
+  updatedAt?: string | null
+  metadata?: Record<string, unknown>
 }
 
 export type PlanningContext = {
@@ -349,6 +375,113 @@ export async function updateSessionWorkspace(sessionId: string, payload: Session
 
 export async function upsertSessionPeriodPlan(scope: 'WEEKLY' | 'MONTHLY', payload: SessionPeriodPlanRequest) {
   return apiPost<LiveWorkspaceResponse>(`/today/session/plans/${encodeURIComponent(scope)}`, payload)
+}
+
+export async function listSessionPlanImages(scope: PlanScope) {
+  return apiGet<PlanImage[]>(`/today/session/plans/${encodeURIComponent(scope)}/images`)
+}
+
+export async function deleteSessionPlanImage(scope: PlanScope, imageId: string) {
+  return apiDelete(`/today/session/plans/${encodeURIComponent(scope)}/images/${encodeURIComponent(imageId)}`)
+}
+
+const canReadXhrResponseText = (xhr: XMLHttpRequest) => xhr.responseType === '' || xhr.responseType === 'text'
+
+const readXhrResponseText = (xhr: XMLHttpRequest) => (canReadXhrResponseText(xhr) ? xhr.responseText || '' : '')
+
+const parseXhrJsonPayload = <T>(xhr: XMLHttpRequest): T | null => {
+  const response = xhr.response
+  if (response && typeof response === 'object') {
+    return response as T
+  }
+  if (typeof response === 'string' && response.trim()) {
+    try {
+      return JSON.parse(response) as T
+    } catch {
+      return null
+    }
+  }
+  const rawText = readXhrResponseText(xhr)
+  if (!rawText.trim()) return null
+  try {
+    return JSON.parse(rawText) as T
+  } catch {
+    return null
+  }
+}
+
+const buildUploadError = (xhr: XMLHttpRequest) => {
+  const parsed = parseXhrJsonPayload<{ message?: string; error?: string; details?: unknown }>(xhr)
+  const statusLabel = xhr.status ? `${xhr.status} ${xhr.statusText}`.trim() : ''
+  const message = parsed?.message || parsed?.error || readXhrResponseText(xhr) || statusLabel || 'Upload failed'
+  const error = new ApiError(message)
+  error.status = xhr.status
+  error.code = parsed?.error
+  error.details = parsed?.details
+  error.rawMessage = message
+  return error
+}
+
+export function uploadSessionPlanImages(
+  scope: PlanScope,
+  files: File[],
+  onProgress?: (progress: number) => void
+): Promise<PlanImage[]> {
+  return new Promise((resolve, reject) => {
+    const formData = new FormData()
+    files.forEach((file) => formData.append('files', file))
+
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `${API_URL}/today/session/plans/${encodeURIComponent(scope)}/images`)
+    xhr.withCredentials = true
+    xhr.responseType = 'json'
+
+    const token = localStorage.getItem('token')
+    if (token) {
+      xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+    }
+    xhr.setRequestHeader('Accept-Language', getCurrentLanguage())
+
+    xhr.upload.onprogress = (event) => {
+      if (!onProgress || !event.lengthComputable) return
+      const progress = Math.max(0, Math.min(100, Math.round((event.loaded / event.total) * 100)))
+      onProgress(progress)
+    }
+
+    xhr.onerror = () => {
+      const error = new ApiError('Network request failed')
+      error.code = 'NETWORK_ERROR'
+      reject(error)
+    }
+
+    xhr.onabort = () => {
+      const error = new ApiError('Upload cancelled')
+      error.code = 'ABORTED'
+      reject(error)
+    }
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        const payload = parseXhrJsonPayload<PlanImage[]>(xhr)
+        if (!payload) {
+          const error = new ApiError('Upload completed but the response was invalid')
+          error.status = xhr.status
+          error.code = 'INVALID_RESPONSE'
+          reject(error)
+          return
+        }
+        onProgress?.(100)
+        resolve(payload)
+        return
+      }
+      if (xhr.status === 401 || xhr.status === 403) {
+        clearAuthToken()
+      }
+      reject(buildUploadError(xhr))
+    }
+
+    xhr.send(formData)
+  })
 }
 
 export async function createSetupCandidate(sessionId: string, payload: SetupDraftRequest) {

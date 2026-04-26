@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   alpha,
+  Alert,
   Box,
   Button,
   ButtonBase,
@@ -23,12 +24,17 @@ import {
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
+import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
+import PushPinRoundedIcon from '@mui/icons-material/PushPinRounded'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
+import { CalendarPlanSummary, fetchCalendarPlans } from '../api/calendar'
 import { DailyPnlResponse, DailySummaryResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
 import { useNavigate } from 'react-router-dom'
+import AssetThumbnail from '../components/assets/AssetThumbnail'
 import EmptyState from '../components/ui/EmptyState'
 import PageHero from '../components/ui/PageHero'
 import { useI18n } from '../i18n'
@@ -100,6 +106,13 @@ export default function CalendarPage() {
 
   const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()))
   const [dailyPnl, setDailyPnl] = useState<DailyPnlResponse[]>([])
+  const [calendarPlans, setCalendarPlans] = useState<{
+    activeMonthlyPlan?: CalendarPlanSummary | null
+    activeWeeklyPlan?: CalendarPlanSummary | null
+    dailyPlans: CalendarPlanSummary[]
+  }>({ dailyPlans: [] })
+  const [calendarPlansLoading, setCalendarPlansLoading] = useState(false)
+  const [calendarPlansError, setCalendarPlansError] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [monthSummary, setMonthSummary] = useState<MonthlyPnlSummaryResponse | null>(null)
@@ -129,6 +142,7 @@ export default function CalendarPage() {
   const summaryCacheKey = useMemo(() => `${monthKey}-${timezone}`, [monthKey, timezone])
 
   const pnlByDate = useMemo(() => new Map(dailyPnl.map((entry) => [entry.date, entry])), [dailyPnl])
+  const plansByDate = useMemo(() => new Map(calendarPlans.dailyPlans.map((plan) => [plan.periodStart, plan])), [calendarPlans.dailyPlans])
   const monthSummaryCache = useRef(new Map<string, MonthlyPnlSummaryResponse>())
 
   useEffect(() => {
@@ -166,6 +180,33 @@ export default function CalendarPage() {
     }
     fetchData()
   }, [calendarEnd, calendarStart, timezone, refreshToken])
+
+  useEffect(() => {
+    let active = true
+    const fetchPlans = async () => {
+      setCalendarPlansLoading(true)
+      setCalendarPlansError('')
+      try {
+        const from = format(calendarStart, 'yyyy-MM-dd')
+        const to = format(calendarEnd, 'yyyy-MM-dd')
+        const data = await fetchCalendarPlans({ from, to, tz: timezone })
+        if (!active) return
+        setCalendarPlans(data)
+      } catch (err) {
+        if (!active) return
+        setCalendarPlans({ dailyPlans: [] })
+        setCalendarPlansError(translateApiError(err, t, 'calendar.errors.loadCalendar'))
+      } finally {
+        if (active) {
+          setCalendarPlansLoading(false)
+        }
+      }
+    }
+    fetchPlans()
+    return () => {
+      active = false
+    }
+  }, [calendarEnd, calendarStart, timezone, refreshToken, t])
 
   useEffect(() => {
     let active = true
@@ -251,6 +292,7 @@ export default function CalendarPage() {
 
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''
   const selectedAggregate = selectedDateKey ? pnlByDate.get(selectedDateKey) : undefined
+  const selectedPlan = selectedDateKey ? plansByDate.get(selectedDateKey) : undefined
   const selectedNetPnl = selectedSummary?.netPnl ?? selectedAggregate?.netPnl ?? 0
   const selectedTradeCount = selectedSummary?.tradeCount ?? selectedAggregate?.tradeCount ?? selectedTrades.length
   const selectedAccountSummaries = selectedSummary?.accounts ?? []
@@ -350,9 +392,78 @@ export default function CalendarPage() {
     handleCloseDialog()
   }
 
+  const openSessionPlan = (plan?: CalendarPlanSummary | null) => {
+    if (!plan) return
+    const target = plan.scope === 'WEEKLY' ? 'weekly' : plan.scope === 'MONTHLY' ? 'monthly' : 'today'
+    navigate(`/today/session?plan=${target}`)
+    handleCloseDialog()
+  }
+
+  const planRangeLabel = (plan: CalendarPlanSummary) => (
+    plan.periodStart === plan.periodEnd
+      ? plan.periodStart
+      : `${plan.periodStart} - ${plan.periodEnd}`
+  )
+
+  const renderPinnedPlanCard = (plan: CalendarPlanSummary | null | undefined, label: string) => (
+    <Box
+      className="calendar-plan-card"
+      sx={{
+        p: { xs: 1.25, sm: 1.5 },
+        borderRadius: 2,
+        border: '1px solid',
+        borderColor: plan ? 'primary.main' : 'divider',
+        bgcolor: plan ? alpha(theme.palette.primary.main, isLightMode ? 0.08 : 0.16) : alpha(theme.palette.background.default, 0.42),
+        minWidth: 0
+      }}
+    >
+      {plan ? (
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', sm: 'center' }}>
+          {plan.thumbnailUrl ? (
+            <Box sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}>
+              <AssetThumbnail url={plan.thumbnailUrl} alt={`${plan.title} thumbnail`} />
+            </Box>
+          ) : null}
+          <Stack spacing={0.7} sx={{ minWidth: 0, flex: 1 }}>
+            <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+              <PushPinRoundedIcon color="primary" fontSize="small" />
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{label}</Typography>
+              <Chip size="small" color="primary" variant="outlined" label={plan.scope === 'MONTHLY' ? 'Active month' : 'Active week'} />
+            </Stack>
+            <Typography variant="h6" sx={{ fontWeight: 800, fontSize: { xs: '1rem', sm: '1.1rem' } }} noWrap>
+              {plan.title}
+            </Typography>
+            <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+              {plan.bias || plan.objectives || 'No focus text saved yet'}
+            </Typography>
+            <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+              <Chip size="small" label={planRangeLabel(plan)} />
+              <Chip size="small" icon={<ImageOutlinedIcon />} label={`${plan.imageCount || 0} images`} />
+            </Stack>
+          </Stack>
+          <Button
+            variant="outlined"
+            size="small"
+            startIcon={<OpenInNewRoundedIcon />}
+            onClick={() => openSessionPlan(plan)}
+            sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+          >
+            Open plan
+          </Button>
+        </Stack>
+      ) : (
+        <Stack spacing={0.5}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{label}</Typography>
+          <Typography variant="body2" color="text.secondary">No active plan saved for this period.</Typography>
+        </Stack>
+      )}
+    </Box>
+  )
+
   const renderDayCell = (day: Date) => {
     const dateKey = format(day, 'yyyy-MM-dd')
     const entry = pnlByDate.get(dateKey)
+    const plan = plansByDate.get(dateKey)
     const netPnl = entry?.netPnl
     const isCurrentMonth = isSameMonth(day, currentMonth)
     const { isPositive, isNegative, backgroundColor, borderColor, badgeColor, badgeTextColor } = resolveDayTone(netPnl)
@@ -366,6 +477,9 @@ export default function CalendarPage() {
         t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
+    if (plan) {
+      ariaLabelParts.push('Today Plan saved in Calendar')
+    }
 
     return (
       <ButtonBase
@@ -420,6 +534,25 @@ export default function CalendarPage() {
               {pnlLabel}
             </Box>
           </Box>
+          {plan ? (
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.5,
+                minWidth: 0,
+                px: 0.75,
+                py: 0.35,
+                borderRadius: 1,
+                bgcolor: alpha(theme.palette.primary.main, isLightMode ? 0.12 : 0.22),
+                border: '1px solid',
+                borderColor: alpha(theme.palette.primary.main, 0.35)
+              }}
+            >
+              <Typography variant="caption" noWrap sx={{ fontWeight: 700, minWidth: 0 }}>Today Plan</Typography>
+              {(plan.imageCount || 0) > 0 ? <ImageOutlinedIcon sx={{ fontSize: 14 }} /> : null}
+            </Box>
+          ) : null}
         </Stack>
       </ButtonBase>
     )
@@ -428,6 +561,7 @@ export default function CalendarPage() {
   const renderDayRow = (day: Date) => {
     const dateKey = format(day, 'yyyy-MM-dd')
     const entry = pnlByDate.get(dateKey)
+    const plan = plansByDate.get(dateKey)
     const netPnl = entry?.netPnl
     const { isPositive, isNegative, backgroundColor, borderColor, badgeColor, badgeTextColor } = resolveDayTone(netPnl)
     const pnlLabel = netPnl === undefined ? t('common.na') : formatSignedCurrency(netPnl, baseCurrency)
@@ -439,6 +573,9 @@ export default function CalendarPage() {
         t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
+    if (plan) {
+      ariaLabelParts.push('Today Plan saved in Calendar')
+    }
 
     return (
       <ButtonBase
@@ -466,6 +603,12 @@ export default function CalendarPage() {
             <Typography variant="caption" color="text.secondary">
               {tradeLabel}
             </Typography>
+            {plan ? (
+              <Stack direction="row" spacing={0.5} alignItems="center">
+                <Chip size="small" label="Today Plan" />
+                {(plan.imageCount || 0) > 0 ? <Chip size="small" icon={<ImageOutlinedIcon />} label={plan.imageCount} /> : null}
+              </Stack>
+            ) : null}
           </Stack>
           <Box
             sx={{
@@ -528,6 +671,27 @@ export default function CalendarPage() {
           <ChevronRightIcon />
         </IconButton>
       </Box>
+
+      <Card>
+        <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
+          <Stack spacing={1.25}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }}>
+              <Stack spacing={0.25}>
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>Plans saved to Calendar</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Today plans stay on their day. Weekly and monthly plans stay pinned while their period is active.
+                </Typography>
+              </Stack>
+              {calendarPlansLoading ? <CircularProgress size={22} /> : null}
+            </Stack>
+            {calendarPlansError ? <Alert severity="warning">{calendarPlansError}</Alert> : null}
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.25, minWidth: 0 }}>
+              {renderPinnedPlanCard(calendarPlans.activeMonthlyPlan, 'Active Monthly Plan')}
+              {renderPinnedPlanCard(calendarPlans.activeWeeklyPlan, 'Active Weekly Plan')}
+            </Box>
+          </Stack>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
@@ -751,6 +915,36 @@ export default function CalendarPage() {
           {selectedDate ? t('calendar.dialog.closedOn', { date: format(selectedDate, 'PPP') }) : t('nav.trades')}
         </DialogTitle>
         <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 } }}>
+          {selectedPlan ? (
+            <Box sx={{ p: 1.5, mb: 2, borderRadius: 2, border: '1px solid', borderColor: 'primary.main', bgcolor: alpha(theme.palette.primary.main, isLightMode ? 0.08 : 0.16) }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.25} alignItems={{ xs: 'stretch', sm: 'center' }}>
+                {selectedPlan.thumbnailUrl ? (
+                  <Box sx={{ alignSelf: { xs: 'flex-start', sm: 'center' } }}>
+                    <AssetThumbnail url={selectedPlan.thumbnailUrl} alt="Today Plan thumbnail" />
+                  </Box>
+                ) : null}
+                <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Today Plan</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {selectedPlan.bias || selectedPlan.objectives || `${selectedPlan.setupCount || 0} setup${selectedPlan.setupCount === 1 ? '' : 's'} saved`}
+                  </Typography>
+                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                    <Chip size="small" label={`${selectedPlan.setupCount || 0} setups`} />
+                    <Chip size="small" icon={<ImageOutlinedIcon />} label={`${selectedPlan.imageCount || 0} images`} />
+                  </Stack>
+                </Stack>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  startIcon={<OpenInNewRoundedIcon />}
+                  onClick={() => openSessionPlan(selectedPlan)}
+                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+                >
+                  Open plan
+                </Button>
+              </Stack>
+            </Box>
+          ) : null}
           <Stack spacing={1} sx={{ mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary">{t('calendar.dialog.dailySummary')}</Typography>
             <Typography variant={isMobile ? 'subtitle1' : 'h6'} className="metric-value">
