@@ -27,6 +27,8 @@ public class UpsertSessionSetupRequest {
     private Review review;
     private List<Level> levels;
     private Mentor mentorReference;
+    private List<Confluence> confluences;
+    private Boolean manualSetupMode;
 
     @Data
     public static class Context {
@@ -151,5 +153,14 @@ public class UpsertSessionSetupRequest {
         private String invalidation;
         private String noTradeWarning;
         private List<String> keyLevels;
+    }
+
+    @Data
+    public static class Confluence {
+        private String id;
+        private String label;
+        private Boolean checked;
+        private Boolean required;
+        private String source;
     }
 }

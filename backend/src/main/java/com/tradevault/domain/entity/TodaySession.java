@@ -61,8 +61,22 @@ public class TodaySession {
     @Column(name = "loss_limit", nullable = false)
     private BigDecimal lossLimit;
 
+    @Column(name = "risk_per_trade", precision = 18, scale = 4)
+    private BigDecimal riskPerTrade;
+
     @Column(name = "max_trades", nullable = false)
     private Integer maxTrades;
+
+    @Column(name = "max_consecutive_losses")
+    private Integer maxConsecutiveLosses;
+
+    @Column(name = "stop_after_target_reached", nullable = false)
+    @Builder.Default
+    private Boolean stopAfterTargetReached = Boolean.FALSE;
+
+    @Column(name = "stop_after_max_loss_reached", nullable = false)
+    @Builder.Default
+    private Boolean stopAfterMaxLossReached = Boolean.TRUE;
 
     @Enumerated(EnumType.STRING)
     @Column(name = "status", nullable = false, length = 24)
@@ -203,6 +217,12 @@ public class TodaySession {
         }
         if (liveModeOnly == null) {
             liveModeOnly = Boolean.TRUE;
+        }
+        if (stopAfterTargetReached == null) {
+            stopAfterTargetReached = Boolean.FALSE;
+        }
+        if (stopAfterMaxLossReached == null) {
+            stopAfterMaxLossReached = Boolean.TRUE;
         }
     }
 }

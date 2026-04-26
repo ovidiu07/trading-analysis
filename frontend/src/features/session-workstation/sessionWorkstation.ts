@@ -2,9 +2,12 @@ import type { DailyPlan } from '../../api/plans'
 import type {
   ExecutionTicket,
   ExecutionTicketStatus,
+  ConfluenceItem,
   LiveWorkspaceResponse,
   MentorReference,
+  PeriodPlan,
   ReviewTimelineEntry,
+  SessionPeriodPlanRequest,
   SessionWorkspaceRequest,
   SetupDraftRequest,
   SetupExecution,
@@ -24,7 +27,23 @@ export type SessionDraft = {
   biasReason: string
   narrative: string
   dailyMaxLoss: number | null
+  profitTarget: number | null
+  riskPerTrade: number | null
   maxTrades: number | null
+  maxConsecutiveLosses: number | null
+  stopAfterTargetReached: boolean
+  stopAfterMaxLossReached: boolean
+}
+
+export type PeriodPlanDraft = {
+  title: string
+  bias: string
+  focusSymbols: string
+  objectives: string
+  target: number | null
+  maxLoss: number | null
+  notes: string
+  reviewIntentions: string
 }
 
 export type CreateSetupDraft = {
@@ -46,6 +65,7 @@ export type CaptureDrawerMode = 'PLAN' | 'TRIGGER' | 'EXECUTE' | 'JOURNAL'
 export type WorkstationDensity = 'COMPACT' | 'ADVANCED'
 export type CompareMode = 'BOTH' | 'MENTOR' | 'MINE' | 'EXECUTIONS'
 export type TriggerStatus = 'NOT_READY' | 'WATCHING' | 'CONFIRMED' | 'INVALIDATED'
+export type PlanScopeTab = 'TODAY' | 'WEEKLY' | 'MONTHLY'
 
 export type FocusLevel = {
   id: string
@@ -122,6 +142,17 @@ type CurrentExecutionLookup = {
 export const sessionOptions = ['ASIA', 'LONDON', 'NY_AM', 'NY_PM', 'NY'] as const
 export const marketOptions = ['FOREX', 'CFD', 'FUTURES', 'CRYPTO', 'STOCK', 'OTHER'] as const
 export const executionStatusOptions: ExecutionTicketStatus[] = ['DRAFT', 'WATCHING', 'READY', 'ACTIVE', 'PARTIAL', 'CLOSED', 'INVALIDATED', 'SKIPPED']
+export const defaultConfluenceLabels = [
+  'HTF bias identified',
+  'Key liquidity level identified',
+  'Sweep or liquidity event present',
+  'Displacement present',
+  'Structure confirmation present',
+  'Entry zone identified',
+  'Invalidation clear',
+  'Minimum RR acceptable',
+  'Risk configured'
+]
 
 export const quickLogActions: QuickLogActionDefinition[] = [
   { id: 'WATCHING', eventType: 'watching', title: 'Watching', tone: 'secondary' },
@@ -148,6 +179,59 @@ export function generateId() {
   return typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
     ? crypto.randomUUID()
     : `id-${Math.random().toString(36).slice(2)}`
+}
+
+export function normalizeConfluence(item: Partial<ConfluenceItem> | undefined, index = 0): ConfluenceItem {
+  const label = item?.label?.trim() || `Confluence ${index + 1}`
+  return {
+    id: item?.id || `conf-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || generateId()}`,
+    label,
+    checked: Boolean(item?.checked),
+    required: item?.required ?? true,
+    source: item?.source || 'CUSTOM'
+  }
+}
+
+export function defaultConfluences(): ConfluenceItem[] {
+  return defaultConfluenceLabels.map((label, index) => normalizeConfluence({
+    id: `default-${index}`,
+    label,
+    source: 'DEFAULT',
+    required: true,
+    checked: false
+  }, index))
+}
+
+export function strategyConfluences(strategy: Pick<StrategyResponse, 'entryConditions' | 'invalidationLogic' | 'tpFramework' | 'noTradeRules'>): ConfluenceItem[] {
+  const rows: ConfluenceItem[] = []
+  ;(strategy.entryConditions || []).forEach((label, index) => {
+    if (label?.trim()) {
+      rows.push(normalizeConfluence({ label, source: 'STRATEGY', required: true }, index))
+    }
+  })
+  if (strategy.invalidationLogic) {
+    rows.push(normalizeConfluence({ label: `Invalidation clear: ${strategy.invalidationLogic}`, source: 'STRATEGY', required: true }, rows.length))
+  }
+  if (strategy.tpFramework) {
+    rows.push(normalizeConfluence({ label: `Target model clear: ${strategy.tpFramework}`, source: 'STRATEGY', required: true }, rows.length))
+  }
+  if (strategy.noTradeRules) {
+    rows.push(normalizeConfluence({ label: `Avoid conditions reviewed: ${strategy.noTradeRules}`, source: 'STRATEGY', required: false }, rows.length))
+  }
+  rows.push(normalizeConfluence({ label: 'Risk configured', source: 'DEFAULT', required: true }, rows.length))
+  return dedupeConfluences(rows.length ? rows : defaultConfluences())
+}
+
+export function dedupeConfluences(items: ConfluenceItem[]) {
+  const seen = new Set<string>()
+  return items
+    .map((item, index) => normalizeConfluence(item, index))
+    .filter((item) => {
+      const key = item.label.trim().toLowerCase().replace(/\s+/g, ' ')
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 }
 
 export function parseTags(value: string) {
@@ -232,6 +316,8 @@ export function ensureExecutionWorkspace(setup: SetupItem): SetupItem {
   const activeTicket = tickets.find((ticket) => ticket.id === activeExecutionId) || tickets[0]
   return {
     ...setup,
+    confluences: dedupeConfluences(setup.confluences?.length ? setup.confluences : defaultConfluences()),
+    manualSetupMode: setup.manualSetupMode ?? !setup.strategySnapshot?.name,
     strategySnapshot: setup.strategySnapshot || null,
     review: {
       liveNotes: setup.review?.liveNotes || '',
@@ -296,7 +382,12 @@ export function toSessionDraft(session: LiveWorkspaceResponse['session']): Sessi
     biasReason: session.biasReason || '',
     narrative: session.narrative || '',
     dailyMaxLoss: session.dailyMaxLoss ?? null,
-    maxTrades: session.maxTrades ?? null
+    profitTarget: session.profitTarget ?? null,
+    riskPerTrade: session.riskPerTrade ?? null,
+    maxTrades: session.maxTrades ?? null,
+    maxConsecutiveLosses: session.maxConsecutiveLosses ?? null,
+    stopAfterTargetReached: Boolean(session.stopAfterTargetReached),
+    stopAfterMaxLossReached: session.stopAfterMaxLossReached ?? true
   }
 }
 
@@ -308,7 +399,12 @@ export function toSessionPayload(draft: SessionDraft): SessionWorkspaceRequest {
     biasReason: draft.biasReason || null,
     narrative: draft.narrative || null,
     dailyMaxLoss: draft.dailyMaxLoss,
-    maxTrades: draft.maxTrades
+    profitTarget: draft.profitTarget,
+    riskPerTrade: draft.riskPerTrade,
+    maxTrades: draft.maxTrades,
+    maxConsecutiveLosses: draft.maxConsecutiveLosses,
+    stopAfterTargetReached: draft.stopAfterTargetReached,
+    stopAfterMaxLossReached: draft.stopAfterMaxLossReached
   }
 }
 
@@ -415,7 +511,15 @@ export function toSetupPayload(setup: SetupItem): SetupDraftRequest {
       source: level.source || null,
       notes: level.notes || null
     })),
-    mentorReference: normalized.mentorReference || null
+    mentorReference: normalized.mentorReference || null,
+    confluences: dedupeConfluences(normalized.confluences || []).map((item) => ({
+      id: item.id,
+      label: item.label,
+      checked: item.checked,
+      required: item.required,
+      source: item.source || 'CUSTOM'
+    })),
+    manualSetupMode: normalized.manualSetupMode ?? !normalized.strategySnapshot?.name
   }
 }
 
@@ -534,6 +638,8 @@ export function applyStrategyImport(setup: SetupItem, strategy: StrategyResponse
     strategyId: linkedStrategyId,
     strategyLabel: strategy.name,
     strategySnapshot: snapshot,
+    manualSetupMode: false,
+    confluences: strategyConfluences(strategy),
     setupTitle: setup.setupTitle || strategy.name,
     tradeSession: setup.tradeSession || ((strategy.sessionSuitability || []).includes('London') ? 'LONDON' : setup.tradeSession || null),
     context: {
@@ -785,6 +891,45 @@ export function getSetupInsight(setup: SetupItem | null, sessionReadiness: Works
       nextAction: sessionStep?.missingItems?.length ? `Resolve ${sessionStep.missingItems[0]}.` : 'Session guardrails are locked.'
     }
   }
+}
+
+export function toPeriodPlanDraft(plan: PeriodPlan | null | undefined): PeriodPlanDraft {
+  return {
+    title: plan?.title || '',
+    bias: plan?.bias || '',
+    focusSymbols: (plan?.focusSymbols || []).join(', '),
+    objectives: plan?.objectives || '',
+    target: plan?.target ?? null,
+    maxLoss: plan?.maxLoss ?? null,
+    notes: plan?.notes || '',
+    reviewIntentions: plan?.reviewIntentions || ''
+  }
+}
+
+export function toPeriodPlanPayload(draft: PeriodPlanDraft): SessionPeriodPlanRequest {
+  return {
+    title: draft.title || null,
+    bias: draft.bias || null,
+    focusSymbols: parseTags(draft.focusSymbols),
+    objectives: draft.objectives || null,
+    target: draft.target,
+    maxLoss: draft.maxLoss,
+    notes: draft.notes || null,
+    reviewIntentions: draft.reviewIntentions || null
+  }
+}
+
+export function getSimpleReadinessLabel(
+  workspace: LiveWorkspaceResponse,
+  setup: SetupItem | null
+): 'Empty' | 'Planning' | 'Not Ready' | 'Ready to Lock' | 'Locked' {
+  if (!workspace.setups.length || !setup) return 'Empty'
+  if (workspace.session.lockedInAt) return 'Locked'
+  if (!workspace.session.quickStats.riskConfigured) return 'Planning'
+  if (!setup.strategySnapshot?.name && !setup.manualSetupMode) return 'Planning'
+  const requiredMissing = (setup.confluences || []).some((item) => item.required && !item.checked && item.label.toLowerCase() !== 'risk configured')
+  if (requiredMissing || setup.direction === 'UNDECIDED' || !setup.symbol || !setup.setupTitle) return 'Not Ready'
+  return 'Ready to Lock'
 }
 
 export function getNextAction(setup: SetupItem | null, sessionReadiness: WorkspaceReadiness): NextAction {

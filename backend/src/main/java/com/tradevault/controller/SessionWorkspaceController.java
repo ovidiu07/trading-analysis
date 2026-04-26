@@ -1,11 +1,13 @@
 package com.tradevault.controller;
 
+import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.dto.session.SessionSetupReorderRequest;
 import com.tradevault.dto.session.SessionSetupSelectionRequest;
 import com.tradevault.dto.session.SessionSetupStatusRequest;
 import com.tradevault.dto.session.SessionWorkspaceResponse;
 import com.tradevault.dto.session.StartSessionExecutionRequest;
 import com.tradevault.dto.session.UpdateSessionWorkspaceRequest;
+import com.tradevault.dto.session.UpsertSessionPlanRequest;
 import com.tradevault.dto.session.UpsertSessionSetupRequest;
 import com.tradevault.service.today.SessionWorkspaceService;
 import lombok.RequiredArgsConstructor;
@@ -34,6 +36,12 @@ public class SessionWorkspaceController {
     public SessionWorkspaceResponse updateSession(@PathVariable UUID sessionId,
                                                   @RequestBody UpdateSessionWorkspaceRequest request) {
         return sessionWorkspaceService.updateSession(sessionId, request);
+    }
+
+    @PostMapping("/plans/{scope}")
+    public SessionWorkspaceResponse upsertPeriodPlan(@PathVariable PlanScope scope,
+                                                     @RequestBody UpsertSessionPlanRequest request) {
+        return sessionWorkspaceService.upsertPeriodPlan(scope, request);
     }
 
     @PostMapping("/{sessionId}/setups")

@@ -2,6 +2,7 @@ package com.tradevault.dto.session;
 
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.domain.enums.SessionSetupReadinessState;
 import com.tradevault.domain.enums.SessionSetupStatus;
 import com.tradevault.domain.enums.TodaySessionStatus;
@@ -19,6 +20,7 @@ import java.util.UUID;
 @Builder
 public class SessionWorkspaceResponse {
     SessionSummary session;
+    PlanningContext planningContext;
     UUID activeSetupId;
     List<SetupItem> setups;
     List<ActivityTrade> activity;
@@ -34,7 +36,12 @@ public class SessionWorkspaceResponse {
         String biasReason;
         String narrative;
         BigDecimal dailyMaxLoss;
+        BigDecimal profitTarget;
+        BigDecimal riskPerTrade;
         Integer maxTrades;
+        Integer maxConsecutiveLosses;
+        Boolean stopAfterTargetReached;
+        Boolean stopAfterMaxLossReached;
         Boolean liveModeOnly;
         OffsetDateTime lockedInAt;
         TodaySessionStatus status;
@@ -47,10 +54,17 @@ public class SessionWorkspaceResponse {
     @Builder
     public static class QuickStats {
         BigDecimal maxLoss;
+        BigDecimal profitTarget;
         BigDecimal riskUsed;
-        long tradesTaken;
-        long activeSetupCount;
         BigDecimal realizedPnl;
+        BigDecimal remainingRisk;
+        long tradesTaken;
+        long remainingTrades;
+        long activeSetupCount;
+        Boolean riskConfigured;
+        Boolean tradingAllowed;
+        Boolean maxLossReached;
+        Boolean profitTargetReached;
     }
 
     @Value
@@ -97,6 +111,8 @@ public class SessionWorkspaceResponse {
         SetupReview review;
         List<SetupLevel> levels;
         MentorReference mentorReference;
+        List<ConfluenceItem> confluences;
+        Boolean manualSetupMode;
         Integer sortOrder;
         OffsetDateTime executedAt;
         OffsetDateTime invalidatedAt;
@@ -245,6 +261,44 @@ public class SessionWorkspaceResponse {
         String invalidation;
         String noTradeWarning;
         List<String> keyLevels;
+    }
+
+    @Value
+    @Builder
+    public static class PlanningContext {
+        PeriodPlan monthly;
+        PeriodPlan weekly;
+        PeriodPlan today;
+    }
+
+    @Value
+    @Builder
+    public static class PeriodPlan {
+        UUID id;
+        PlanScope scope;
+        String title;
+        String bias;
+        List<String> focusSymbols;
+        String objectives;
+        BigDecimal target;
+        BigDecimal maxLoss;
+        String notes;
+        String reviewIntentions;
+        LocalDate periodStart;
+        LocalDate periodEnd;
+        OffsetDateTime activeFrom;
+        OffsetDateTime activeTo;
+        Boolean exists;
+    }
+
+    @Value
+    @Builder
+    public static class ConfluenceItem {
+        String id;
+        String label;
+        Boolean checked;
+        Boolean required;
+        String source;
     }
 
     @Value

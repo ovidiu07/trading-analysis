@@ -11,9 +11,12 @@ import com.tradevault.domain.entity.SessionSetup;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.entity.Plan;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.PlanScope;
+import com.tradevault.domain.enums.PlanSource;
 import com.tradevault.domain.enums.SessionSetupReadinessState;
 import com.tradevault.domain.enums.SessionSetupStatus;
 import com.tradevault.domain.enums.TodaySessionStatus;
@@ -26,6 +29,7 @@ import com.tradevault.dto.session.SessionSetupStatusRequest;
 import com.tradevault.dto.session.SessionWorkspaceResponse;
 import com.tradevault.dto.session.StartSessionExecutionRequest;
 import com.tradevault.dto.session.UpdateSessionWorkspaceRequest;
+import com.tradevault.dto.session.UpsertSessionPlanRequest;
 import com.tradevault.dto.session.UpsertSessionSetupRequest;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.repository.SessionLevelRepository;
@@ -33,8 +37,10 @@ import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.PlanRepository;
 import com.tradevault.service.ContextSnapshotService;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.TimezoneService;
 import com.tradevault.service.TradeService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
@@ -47,6 +53,7 @@ import java.time.LocalDate;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZoneOffset;
+import java.time.temporal.WeekFields;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -66,6 +73,21 @@ public class SessionWorkspaceService {
     private static final BigDecimal RR_THRESHOLD = new BigDecimal("1.50");
     private static final TypeReference<List<String>> STRING_LIST = new TypeReference<>() {};
     private static final TypeReference<List<UpsertSessionSetupRequest.Level>> LEVEL_LIST = new TypeReference<>() {};
+    private static final TypeReference<List<UpsertSessionSetupRequest.Confluence>> CONFLUENCE_LIST = new TypeReference<>() {};
+    private static final String CONFLUENCE_SOURCE_DEFAULT = "DEFAULT";
+    private static final String CONFLUENCE_SOURCE_STRATEGY = "STRATEGY";
+    private static final String CONFLUENCE_SOURCE_CUSTOM = "CUSTOM";
+    private static final List<String> DEFAULT_CONFLUENCES = List.of(
+            "HTF bias identified",
+            "Key liquidity level identified",
+            "Sweep or liquidity event present",
+            "Displacement present",
+            "Structure confirmation present",
+            "Entry zone identified",
+            "Invalidation clear",
+            "Minimum RR acceptable",
+            "Risk configured"
+    );
     private static final Set<SessionSetupStatus> TERMINAL_SETUP_STATUSES = Set.of(
             SessionSetupStatus.INVALIDATED,
             SessionSetupStatus.SKIPPED,
@@ -78,7 +100,9 @@ public class SessionWorkspaceService {
     private final SessionNarrativeRepository sessionNarrativeRepository;
     private final SessionLevelRepository sessionLevelRepository;
     private final TradeRepository tradeRepository;
+    private final PlanRepository planRepository;
     private final CurrentUserService currentUserService;
+    private final TimezoneService timezoneService;
     private final TradeService tradeService;
     private final ContextSnapshotService contextSnapshotService;
     private final ObjectMapper objectMapper;
@@ -86,8 +110,9 @@ public class SessionWorkspaceService {
     @Transactional
     public SessionWorkspaceResponse getWorkspace() {
         User user = currentUserService.getCurrentUser();
-        TodaySession session = todaySessionRepository.findByUser_IdAndSessionDate(user.getId(), resolveSessionDate())
-                .orElseGet(() -> createDefaultSession(user));
+        ZoneId zone = timezoneService.resolveZone(null, user);
+        TodaySession session = todaySessionRepository.findByUser_IdAndSessionDate(user.getId(), resolveSessionDate(zone))
+                .orElseGet(() -> createDefaultSession(user, zone));
         session.setLiveModeOnly(Boolean.TRUE);
         ensureLegacySetupBackfill(session, user);
         List<SessionSetup> setups = loadSetups(session, user.getId());
@@ -95,6 +120,40 @@ public class SessionWorkspaceService {
             session.setActiveSetupId(setups.get(0).getId());
         }
         return toWorkspace(todaySessionRepository.save(session), setups, user.getId());
+    }
+
+    @Transactional
+    public SessionWorkspaceResponse upsertPeriodPlan(PlanScope scope, UpsertSessionPlanRequest request) {
+        User user = currentUserService.getCurrentUser();
+        if (scope != PlanScope.WEEKLY && scope != PlanScope.MONTHLY) {
+            throw new IllegalArgumentException("Only weekly and monthly session plans can be edited here");
+        }
+        ZoneId zone = timezoneService.resolveZone(null, user);
+        PeriodWindow window = resolvePeriodWindow(scope, zone);
+        Plan plan = planRepository.findUserActiveByWindow(PlanSource.USER, scope, user.getId(), window.start(), window.end())
+                .stream()
+                .findFirst()
+                .orElseGet(() -> newPlan(user, scope, window));
+
+        UpsertSessionPlanRequest normalized = normalizeSessionPlanRequest(scope, request, window);
+        plan.setTitle(normalized.getTitle());
+        plan.setContent(writePlanContent(normalized));
+        plan.setChecklistJson(null);
+        plan.setActiveFrom(window.start());
+        plan.setActiveTo(window.end());
+        plan.setUpdatedAt(OffsetDateTime.now(ZoneOffset.UTC));
+        planRepository.save(plan);
+
+        TodaySession today = todaySessionRepository.findByUser_IdAndSessionDate(user.getId(), resolveSessionDate(zone))
+                .orElseGet(() -> createDefaultSession(user, zone));
+        today.setLiveModeOnly(Boolean.TRUE);
+        ensureLegacySetupBackfill(today, user);
+        List<SessionSetup> setups = loadSetups(today, user.getId());
+        if (today.getActiveSetupId() == null && !setups.isEmpty()) {
+            today.setActiveSetupId(setups.get(0).getId());
+            todaySessionRepository.save(today);
+        }
+        return toWorkspace(today, setups, user.getId());
     }
 
     @Transactional
@@ -111,15 +170,35 @@ public class SessionWorkspaceService {
             if (request.getDailyMaxLoss() != null) {
                 session.setLossLimit(scaleMoney(nonNegative(request.getDailyMaxLoss(), "dailyMaxLoss")));
             }
+            if (request.getProfitTarget() != null) {
+                session.setProfitTarget(scaleMoney(nonNegative(request.getProfitTarget(), "profitTarget")));
+            }
+            if (request.getRiskPerTrade() != null) {
+                session.setRiskPerTrade(scaleMoney(nonNegative(request.getRiskPerTrade(), "riskPerTrade")));
+            }
             if (request.getMaxTrades() != null) {
                 if (request.getMaxTrades() <= 0) {
                     throw new IllegalArgumentException("maxTrades must be positive");
                 }
                 session.setMaxTrades(request.getMaxTrades());
             }
+            if (request.getMaxConsecutiveLosses() != null) {
+                if (request.getMaxConsecutiveLosses() <= 0) {
+                    throw new IllegalArgumentException("maxConsecutiveLosses must be positive");
+                }
+                session.setMaxConsecutiveLosses(request.getMaxConsecutiveLosses());
+            }
+            if (request.getStopAfterTargetReached() != null) {
+                session.setStopAfterTargetReached(request.getStopAfterTargetReached());
+            }
+            if (request.getStopAfterMaxLossReached() != null) {
+                session.setStopAfterMaxLossReached(request.getStopAfterMaxLossReached());
+            }
             upsertNarrative(session, user, request.getNarrative());
             if (Boolean.TRUE.equals(request.getLockSession())) {
-                List<String> blockers = computeSessionReadiness(session, resolveNarrativeText(session.getId(), user.getId()), loadTrades(user.getId(), session.getId())).blockers();
+                List<SessionSetup> setups = loadSetups(session, user.getId());
+                SessionSetup selected = resolveActiveSetup(session, setups);
+                List<String> blockers = computeSessionLockBlockers(session, setups, selected, loadTrades(user.getId(), session.getId()));
                 if (!blockers.isEmpty()) {
                     throw new IllegalArgumentException("Cannot lock session. Missing: " + String.join(", ", blockers));
                 }
@@ -158,10 +237,19 @@ public class SessionWorkspaceService {
                 .reviewSnapshotJson(toJsonObject(normalizeReview(request == null ? null : request.getReview())))
                 .levelsJson(toJsonArray(request == null ? null : request.getLevels()))
                 .mentorReferenceJson(toJsonObject(request == null ? null : request.getMentorReference()))
+                .confluencesJson(toJsonArray(normalizeConfluences(
+                        request == null ? null : request.getConfluences(),
+                        request == null ? null : request.getStrategySnapshot()
+                )))
+                .manualSetupMode(resolveManualSetupMode(
+                        request == null ? null : request.getManualSetupMode(),
+                        request == null ? null : request.getStrategyId(),
+                        request == null ? null : request.getStrategySnapshot()
+                ))
                 .sortOrder(existing.size())
                 .build();
 
-        applyReadiness(setup, session.getLockInAt() != null);
+        applyReadiness(setup, session);
         SessionSetup saved = sessionSetupRepository.save(setup);
         if (session.getActiveSetupId() == null) {
             session.setActiveSetupId(saved.getId());
@@ -197,13 +285,21 @@ public class SessionWorkspaceService {
             setup.setTriggerSnapshotJson(toJsonObject(normalizeTrigger(request.getTrigger())));
             setup.setExecutionSnapshotJson(toJsonObject(normalizeExecution(request.getExecution())));
             if (request.getReview() != null) {
-                setup.setReviewSnapshotJson(toJsonObject(normalizeReview(request.getReview())));
+            setup.setReviewSnapshotJson(toJsonObject(normalizeReview(request.getReview())));
             }
             setup.setLevelsJson(toJsonArray(request.getLevels()));
             setup.setMentorReferenceJson(toJsonObject(request.getMentorReference()));
+            if (request.getConfluences() != null) {
+                setup.setConfluencesJson(toJsonArray(normalizeConfluences(request.getConfluences(), request.getStrategySnapshot())));
+            } else if (request.getStrategySnapshot() != null && readConfluences(setup.getConfluencesJson(), setup.getStrategySnapshotJson()).isEmpty()) {
+                setup.setConfluencesJson(toJsonArray(normalizeConfluences(null, request.getStrategySnapshot())));
+            }
+            if (request.getManualSetupMode() != null || request.getStrategyId() != null || request.getStrategySnapshot() != null) {
+                setup.setManualSetupMode(resolveManualSetupMode(request.getManualSetupMode(), request.getStrategyId(), request.getStrategySnapshot()));
+            }
         }
 
-        applyReadiness(setup, session.getLockInAt() != null);
+        applyReadiness(setup, session);
         sessionSetupRepository.save(setup);
         return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
     }
@@ -234,11 +330,13 @@ public class SessionWorkspaceService {
                 .reviewSnapshotJson(copyNode(source.getReviewSnapshotJson()))
                 .levelsJson(copyNode(source.getLevelsJson()))
                 .mentorReferenceJson(copyNode(source.getMentorReferenceJson()))
+                .confluencesJson(copyNode(source.getConfluencesJson()))
+                .manualSetupMode(source.getManualSetupMode())
                 .sortOrder(setups.size())
                 .status(SessionSetupStatus.DRAFT)
                 .build();
 
-        applyReadiness(duplicate, session.getLockInAt() != null);
+        applyReadiness(duplicate, session);
         SessionSetup saved = sessionSetupRepository.save(duplicate);
         if (session.getActiveSetupId() == null) {
             session.setActiveSetupId(saved.getId());
@@ -290,7 +388,7 @@ public class SessionWorkspaceService {
             throw new IllegalArgumentException("Setup status is required");
         }
 
-        ReadinessComputation readiness = computeSetupReadiness(setup, session.getLockInAt() != null);
+        ReadinessComputation readiness = computeSetupReadiness(setup, session);
         if (status == SessionSetupStatus.READY && !readiness.readyBlockers().isEmpty()) {
             throw new IllegalArgumentException("Cannot mark ready. Missing: " + String.join(", ", readiness.readyBlockers()));
         }
@@ -309,7 +407,7 @@ public class SessionWorkspaceService {
         } else if (status == SessionSetupStatus.CLOSED) {
             setup.setClosedAt(now);
         }
-        applyReadiness(setup, session.getLockInAt() != null);
+        applyReadiness(setup, session);
         sessionSetupRepository.save(setup);
         return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
     }
@@ -351,7 +449,7 @@ public class SessionWorkspaceService {
             throw new IllegalArgumentException("Daily max loss has already been reached");
         }
 
-        ReadinessComputation readiness = computeSetupReadiness(setup, session.getLockInAt() != null);
+        ReadinessComputation readiness = computeSetupReadiness(setup, session);
         if (!readiness.startTradeBlockers().isEmpty()) {
             throw new IllegalArgumentException("Cannot start trade. Missing: " + String.join(", ", readiness.startTradeBlockers()));
         }
@@ -458,20 +556,22 @@ public class SessionWorkspaceService {
         setup.setExecutionSnapshotJson(toJsonObject(execution));
         setup.setStatus(SessionSetupStatus.EXECUTED);
         setup.setExecutedAt(tradeResponse.getOpenedAt() == null ? OffsetDateTime.now(ZoneOffset.UTC) : tradeResponse.getOpenedAt());
-        applyReadiness(setup, true);
+        applyReadiness(setup, session);
         session.setActiveSetupId(setup.getId());
         sessionSetupRepository.save(setup);
         todaySessionRepository.save(session);
         return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
     }
 
-    private TodaySession createDefaultSession(User user) {
+    private TodaySession createDefaultSession(User user, ZoneId zone) {
         TodaySession session = TodaySession.builder()
                 .user(user)
-                .sessionDate(resolveSessionDate())
+                .sessionDate(resolveSessionDate(zone))
                 .profitTarget(BigDecimal.ZERO)
                 .lossLimit(BigDecimal.ZERO)
                 .maxTrades(1)
+                .stopAfterTargetReached(Boolean.FALSE)
+                .stopAfterMaxLossReached(Boolean.TRUE)
                 .status(TodaySessionStatus.ACTIVE)
                 .liveModeOnly(Boolean.TRUE)
                 .build();
@@ -481,7 +581,8 @@ public class SessionWorkspaceService {
     private SessionWorkspaceResponse toWorkspace(TodaySession session, List<SessionSetup> setups, UUID userId) {
         List<Trade> sessionTrades = loadTrades(userId, session.getId());
         String narrative = resolveNarrativeText(session.getId(), userId);
-        SessionReadiness sessionReadiness = computeSessionReadiness(session, narrative, sessionTrades);
+        SessionSetup activeSetup = resolveActiveSetup(session, setups);
+        SessionReadiness sessionReadiness = computeSessionReadiness(session, setups, activeSetup, sessionTrades);
         Map<UUID, Trade> tradesById = new LinkedHashMap<>();
         for (Trade trade : sessionTrades) {
             tradesById.put(trade.getId(), trade);
@@ -491,7 +592,7 @@ public class SessionWorkspaceService {
         orderedSetups.sort(Comparator.comparing(SessionSetup::getSortOrder).thenComparing(SessionSetup::getCreatedAt));
 
         List<SessionWorkspaceResponse.SetupItem> setupItems = orderedSetups.stream()
-                .map(setup -> toSetupItem(setup, session.getLockInAt() != null, tradesById.get(setup.getLinkedTradeId())))
+                .map(setup -> toSetupItem(setup, session, tradesById.get(setup.getLinkedTradeId())))
                 .toList();
 
         long activeSetupCount = orderedSetups.stream()
@@ -506,6 +607,18 @@ public class SessionWorkspaceService {
                 .map(trade -> trade.getPnlProfileCurrency() != null ? trade.getPnlProfileCurrency() : trade.getPnlNet())
                 .filter(Objects::nonNull)
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+        long tradesTaken = sessionTrades.size();
+        long remainingTrades = session.getMaxTrades() == null ? 0 : Math.max(0, session.getMaxTrades() - tradesTaken);
+        BigDecimal remainingRisk = session.getLossLimit() == null
+                ? BigDecimal.ZERO
+                : session.getLossLimit().subtract(riskUsed).max(BigDecimal.ZERO);
+        boolean riskConfigured = isRiskConfigured(session);
+        boolean maxLossReached = isMaxLossReached(session, realizedPnl);
+        boolean profitTargetReached = isProfitTargetReached(session, realizedPnl);
+        boolean tradingAllowed = riskConfigured
+                && remainingTrades > 0
+                && (!Boolean.TRUE.equals(session.getStopAfterMaxLossReached()) || !maxLossReached)
+                && (!Boolean.TRUE.equals(session.getStopAfterTargetReached()) || !profitTargetReached);
 
         List<String> warnings = new ArrayList<>();
         if (session.getLockInAt() == null) {
@@ -517,13 +630,15 @@ public class SessionWorkspaceService {
         if (session.getMaxTrades() != null && sessionTrades.stream().filter(item -> item.getStatus() == TradeStatus.CLOSED).count() >= session.getMaxTrades()) {
             warnings.add("Session max trades reached");
         }
-        if (session.getLossLimit() != null
-                && session.getLossLimit().compareTo(BigDecimal.ZERO) > 0
-                && realizedPnl.compareTo(session.getLossLimit().negate()) <= 0) {
+        if (maxLossReached) {
             warnings.add("Daily max loss reached");
+        }
+        if (profitTargetReached && Boolean.TRUE.equals(session.getStopAfterTargetReached())) {
+            warnings.add("Daily profit target reached");
         }
 
         return SessionWorkspaceResponse.builder()
+                .planningContext(buildPlanningContext(session))
                 .session(SessionWorkspaceResponse.SessionSummary.builder()
                         .id(session.getId())
                         .tradingDate(session.getSessionDate())
@@ -533,16 +648,28 @@ public class SessionWorkspaceService {
                         .biasReason(session.getLockInBiasReason())
                         .narrative(narrative)
                         .dailyMaxLoss(session.getLossLimit())
+                        .profitTarget(session.getProfitTarget())
+                        .riskPerTrade(session.getRiskPerTrade())
                         .maxTrades(session.getMaxTrades())
+                        .maxConsecutiveLosses(session.getMaxConsecutiveLosses())
+                        .stopAfterTargetReached(Boolean.TRUE.equals(session.getStopAfterTargetReached()))
+                        .stopAfterMaxLossReached(Boolean.TRUE.equals(session.getStopAfterMaxLossReached()))
                         .liveModeOnly(Boolean.TRUE.equals(session.getLiveModeOnly()))
                         .lockedInAt(session.getLockInAt())
                         .status(session.getStatus())
                         .quickStats(SessionWorkspaceResponse.QuickStats.builder()
                                 .maxLoss(session.getLossLimit())
+                                .profitTarget(session.getProfitTarget())
                                 .riskUsed(scaleMoney(riskUsed))
-                                .tradesTaken(sessionTrades.size())
-                                .activeSetupCount(activeSetupCount)
                                 .realizedPnl(scaleMoney(realizedPnl))
+                                .remainingRisk(scaleMoney(remainingRisk))
+                                .tradesTaken(tradesTaken)
+                                .remainingTrades(remainingTrades)
+                                .activeSetupCount(activeSetupCount)
+                                .riskConfigured(riskConfigured)
+                                .tradingAllowed(tradingAllowed)
+                                .maxLossReached(maxLossReached)
+                                .profitTargetReached(profitTargetReached)
                                 .build())
                         .readiness(sessionReadiness.readiness())
                         .warnings(warnings)
@@ -553,8 +680,8 @@ public class SessionWorkspaceService {
                 .build();
     }
 
-    private SessionWorkspaceResponse.SetupItem toSetupItem(SessionSetup setup, boolean sessionLocked, Trade linkedTrade) {
-        ReadinessComputation readiness = computeSetupReadiness(setup, sessionLocked);
+    private SessionWorkspaceResponse.SetupItem toSetupItem(SessionSetup setup, TodaySession session, Trade linkedTrade) {
+        ReadinessComputation readiness = computeSetupReadiness(setup, session);
         UpsertSessionSetupRequest.Context context = readNode(setup.getContextSnapshotJson(), UpsertSessionSetupRequest.Context.class, new UpsertSessionSetupRequest.Context());
         UpsertSessionSetupRequest.Trigger trigger = readNode(setup.getTriggerSnapshotJson(), UpsertSessionSetupRequest.Trigger.class, new UpsertSessionSetupRequest.Trigger());
         UpsertSessionSetupRequest.Execution execution = normalizeExecution(
@@ -627,6 +754,8 @@ public class SessionWorkspaceService {
                 .review(toReview(setup.getReviewSnapshotJson()))
                 .levels(toLevelDtos(setup.getLevelsJson()))
                 .mentorReference(toMentorReference(setup.getMentorReferenceJson()))
+                .confluences(toConfluenceDtos(setup, session))
+                .manualSetupMode(Boolean.TRUE.equals(setup.getManualSetupMode()))
                 .sortOrder(setup.getSortOrder())
                 .executedAt(setup.getExecutedAt())
                 .invalidatedAt(setup.getInvalidatedAt())
@@ -690,57 +819,199 @@ public class SessionWorkspaceService {
                 .build();
     }
 
-    private SessionReadiness computeSessionReadiness(TodaySession session, String narrative, List<Trade> sessionTrades) {
-        List<String> planMissing = new ArrayList<>();
-        if (!hasText(session.getLockInSession())) {
-            planMissing.add("session");
-        }
-        if (!hasText(session.getLockInBias())) {
-            planMissing.add("bias");
-        }
+    private SessionWorkspaceResponse.PlanningContext buildPlanningContext(TodaySession session) {
+        User user = session.getUser();
+        ZoneId zone = timezoneService.resolveZone(null, user);
+        PeriodWindow weekWindow = resolvePeriodWindow(PlanScope.WEEKLY, zone);
+        PeriodWindow monthWindow = resolvePeriodWindow(PlanScope.MONTHLY, zone);
+        Plan weekly = planRepository.findUserActiveByWindow(PlanSource.USER, PlanScope.WEEKLY, user.getId(), weekWindow.start(), weekWindow.end())
+                .stream()
+                .findFirst()
+                .orElse(null);
+        Plan monthly = planRepository.findUserActiveByWindow(PlanSource.USER, PlanScope.MONTHLY, user.getId(), monthWindow.start(), monthWindow.end())
+                .stream()
+                .findFirst()
+                .orElse(null);
+        return SessionWorkspaceResponse.PlanningContext.builder()
+                .monthly(toPeriodPlan(monthly, PlanScope.MONTHLY, monthWindow))
+                .weekly(toPeriodPlan(weekly, PlanScope.WEEKLY, weekWindow))
+                .today(toTodayPeriodPlan(session, zone))
+                .build();
+    }
 
-        List<String> riskMissing = new ArrayList<>();
+    private SessionWorkspaceResponse.PeriodPlan toTodayPeriodPlan(TodaySession session, ZoneId zone) {
+        LocalDate day = session.getSessionDate();
+        return SessionWorkspaceResponse.PeriodPlan.builder()
+                .id(session.getId())
+                .scope(PlanScope.DAILY)
+                .title("Today Plan")
+                .bias(session.getLockInBias())
+                .focusSymbols(List.of())
+                .objectives(session.getLockInObjective())
+                .target(scaleMoney(session.getProfitTarget()))
+                .maxLoss(scaleMoney(session.getLossLimit()))
+                .notes(resolveNarrativeText(session.getId(), session.getUser().getId()))
+                .reviewIntentions(null)
+                .periodStart(day)
+                .periodEnd(day)
+                .activeFrom(day.atStartOfDay(zone).toOffsetDateTime())
+                .activeTo(day.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime())
+                .exists(Boolean.TRUE)
+                .build();
+    }
+
+    private SessionWorkspaceResponse.PeriodPlan toPeriodPlan(Plan plan, PlanScope scope, PeriodWindow window) {
+        UpsertSessionPlanRequest content = plan == null
+                ? normalizeSessionPlanRequest(scope, null, window)
+                : readPlanContent(plan, scope, window);
+        return SessionWorkspaceResponse.PeriodPlan.builder()
+                .id(plan == null ? null : plan.getId())
+                .scope(scope)
+                .title(content.getTitle())
+                .bias(content.getBias())
+                .focusSymbols(content.getFocusSymbols() == null ? List.of() : content.getFocusSymbols())
+                .objectives(content.getObjectives())
+                .target(scaleMoney(content.getTarget()))
+                .maxLoss(scaleMoney(content.getMaxLoss()))
+                .notes(content.getNotes())
+                .reviewIntentions(content.getReviewIntentions())
+                .periodStart(window.periodStart())
+                .periodEnd(window.periodEnd())
+                .activeFrom(plan == null ? window.start() : plan.getActiveFrom())
+                .activeTo(plan == null ? window.end() : plan.getActiveTo())
+                .exists(plan != null)
+                .build();
+    }
+
+    private List<SessionWorkspaceResponse.ConfluenceItem> toConfluenceDtos(SessionSetup setup, TodaySession session) {
+        return readConfluences(setup.getConfluencesJson(), setup.getStrategySnapshotJson()).stream()
+                .map(item -> SessionWorkspaceResponse.ConfluenceItem.builder()
+                        .id(item.getId())
+                        .label(item.getLabel())
+                        .checked(isConfluenceChecked(item, session))
+                        .required(Boolean.TRUE.equals(item.getRequired()))
+                        .source(normalizeConfluenceSource(item.getSource()))
+                        .build())
+                .toList();
+    }
+
+    private List<String> computeSessionLockBlockers(TodaySession session,
+                                                    List<SessionSetup> setups,
+                                                    SessionSetup selectedSetup,
+                                                    List<Trade> sessionTrades) {
+        List<String> blockers = new ArrayList<>();
+        blockers.addAll(setupLockMissing(setups, selectedSetup));
+        blockers.addAll(riskGuardrailMissing(session, sessionTrades));
+        if (selectedSetup != null) {
+            blockers.addAll(missingRequiredConfluences(selectedSetup, session));
+        }
+        return new ArrayList<>(new LinkedHashSet<>(blockers));
+    }
+
+    private List<String> setupLockMissing(List<SessionSetup> setups, SessionSetup selectedSetup) {
+        List<String> missing = new ArrayList<>();
+        if (setups == null || setups.isEmpty()) {
+            missing.add("at least one setup");
+            return missing;
+        }
+        if (selectedSetup == null) {
+            missing.add("selected setup");
+            return missing;
+        }
+        if (!hasText(selectedSetup.getSetupTitle())) {
+            missing.add("setup title");
+        }
+        if (!hasText(selectedSetup.getSymbol())) {
+            missing.add("symbol");
+        }
+        if (!isDirectionDecided(selectedSetup.getDirection())) {
+            missing.add("direction");
+        }
+        if (!hasStrategy(selectedSetup) && !Boolean.TRUE.equals(selectedSetup.getManualSetupMode())) {
+            missing.add("strategy or manual setup mode");
+        }
+        return missing;
+    }
+
+    private List<String> riskGuardrailMissing(TodaySession session, List<Trade> sessionTrades) {
+        List<String> missing = new ArrayList<>();
         if (session.getLossLimit() == null || session.getLossLimit().compareTo(BigDecimal.ZERO) <= 0) {
-            riskMissing.add("daily max loss");
+            missing.add("daily max loss");
+        }
+        if (session.getProfitTarget() == null || session.getProfitTarget().compareTo(BigDecimal.ZERO) <= 0) {
+            missing.add("daily profit target");
+        }
+        if (session.getRiskPerTrade() == null || session.getRiskPerTrade().compareTo(BigDecimal.ZERO) <= 0) {
+            missing.add("risk per trade");
         }
         if (session.getMaxTrades() == null || session.getMaxTrades() <= 0) {
-            riskMissing.add("max trades");
+            missing.add("max trades");
         }
+        if (session.getMaxConsecutiveLosses() == null || session.getMaxConsecutiveLosses() <= 0) {
+            missing.add("max consecutive losses");
+        }
+        BigDecimal realized = (sessionTrades == null ? List.<Trade>of() : sessionTrades).stream()
+                .filter(item -> item.getStatus() == TradeStatus.CLOSED)
+                .map(trade -> trade.getPnlProfileCurrency() != null ? trade.getPnlProfileCurrency() : trade.getPnlNet())
+                .filter(Objects::nonNull)
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (Boolean.TRUE.equals(session.getStopAfterMaxLossReached()) && isMaxLossReached(session, realized)) {
+            missing.add("daily max loss reached");
+        }
+        if (Boolean.TRUE.equals(session.getStopAfterTargetReached()) && isProfitTargetReached(session, realized)) {
+            missing.add("daily profit target reached");
+        }
+        if (session.getMaxTrades() != null && sessionTrades != null && sessionTrades.size() >= session.getMaxTrades()) {
+            missing.add("max trades reached");
+        }
+        if (maxConsecutiveLossesReached(session, sessionTrades)) {
+            missing.add("max consecutive losses reached");
+        }
+        return missing;
+    }
 
-        List<String> narrativeMissing = hasText(narrative) ? List.of() : List.of("session narrative");
+    private List<String> missingRequiredConfluences(SessionSetup setup, TodaySession session) {
+        List<String> missing = new ArrayList<>();
+        for (UpsertSessionSetupRequest.Confluence item : readConfluences(setup.getConfluencesJson(), setup.getStrategySnapshotJson())) {
+            if (Boolean.TRUE.equals(item.getRequired()) && !isConfluenceChecked(item, session)) {
+                missing.add(item.getLabel());
+            }
+        }
+        return missing;
+    }
+
+    private SessionReadiness computeSessionReadiness(TodaySession session,
+                                                     List<SessionSetup> setups,
+                                                     SessionSetup selectedSetup,
+                                                     List<Trade> sessionTrades) {
+        List<String> setupMissing = setupLockMissing(setups, selectedSetup);
+        List<String> riskMissing = riskGuardrailMissing(session, sessionTrades);
+        List<String> confluenceMissing = selectedSetup == null ? List.of("selected setup confluences") : missingRequiredConfluences(selectedSetup, session);
         List<String> lockMissing = session.getLockInAt() == null ? List.of("lock session") : List.of();
 
         int completed = 0;
-        if (planMissing.isEmpty()) completed++;
+        if (setupMissing.isEmpty()) completed++;
         if (riskMissing.isEmpty()) completed++;
-        if (narrativeMissing.isEmpty()) completed++;
+        if (confluenceMissing.isEmpty()) completed++;
         if (lockMissing.isEmpty()) completed++;
         int score = (int) Math.round((completed / 4.0d) * 100);
 
         List<String> blockers = new ArrayList<>();
-        blockers.addAll(planMissing);
+        blockers.addAll(setupMissing);
         blockers.addAll(riskMissing);
-        blockers.addAll(narrativeMissing);
+        blockers.addAll(confluenceMissing);
         blockers.addAll(lockMissing);
-
-        if (tradeRepository.findFirstByUser_IdAndSessionIdAndStatusOrderByOpenedAtDescCreatedAtDesc(
-                session.getUser().getId(), session.getId(), TradeStatus.OPEN).isPresent()) {
-            blockers.add("close the active live trade");
-        }
-        if (session.getMaxTrades() != null && sessionTrades.stream().filter(item -> item.getStatus() == TradeStatus.CLOSED).count() >= session.getMaxTrades()) {
-            blockers.add("session max trades reached");
-        }
 
         SessionSetupReadinessState state = blockers.isEmpty() ? SessionSetupReadinessState.READY : SessionSetupReadinessState.INCOMPLETE;
         String summary = blockers.isEmpty()
-                ? "Session is locked and ready for live execution."
+                ? "Plan is locked and ready for execution."
                 : "Missing: " + String.join(", ", blockers);
 
         List<SessionWorkspaceResponse.ReadinessStep> steps = List.of(
-                buildReadinessStep("plan", "Plan", planMissing),
+                buildReadinessStep("setup", "Setup", setupMissing),
                 buildReadinessStep("risk", "Risk", riskMissing),
-                buildReadinessStep("narrative", "Narrative", narrativeMissing),
-                buildReadinessStep("lock", "Lock-in", lockMissing)
+                buildReadinessStep("confluences", "Confluences", confluenceMissing),
+                buildReadinessStep("lock", "Lock", lockMissing)
         );
 
         return new SessionReadiness(SessionWorkspaceResponse.Readiness.builder()
@@ -753,17 +1024,14 @@ public class SessionWorkspaceService {
                 .build(), blockers);
     }
 
-    private ReadinessComputation computeSetupReadiness(SessionSetup setup, boolean sessionLocked) {
-        UpsertSessionSetupRequest.Context context = readNode(setup.getContextSnapshotJson(), UpsertSessionSetupRequest.Context.class, new UpsertSessionSetupRequest.Context());
-        UpsertSessionSetupRequest.Trigger trigger = normalizeTrigger(
-                readNode(setup.getTriggerSnapshotJson(), UpsertSessionSetupRequest.Trigger.class, new UpsertSessionSetupRequest.Trigger())
-        );
+    private ReadinessComputation computeSetupReadiness(SessionSetup setup, TodaySession session) {
         UpsertSessionSetupRequest.Execution execution = normalizeExecution(
                 readNode(setup.getExecutionSnapshotJson(), UpsertSessionSetupRequest.Execution.class, new UpsertSessionSetupRequest.Execution())
         );
         UpsertSessionSetupRequest.Ticket activeExecution = resolveExecutionTicket(execution, execution.getActiveExecutionId());
-        List<UpsertSessionSetupRequest.Level> levels = readLevels(setup.getLevelsJson());
-
+        UpsertSessionSetupRequest.Trigger trigger = normalizeTrigger(
+                readNode(setup.getTriggerSnapshotJson(), UpsertSessionSetupRequest.Trigger.class, new UpsertSessionSetupRequest.Trigger())
+        );
         BigDecimal rrEstimate = trigger.getRrEstimate();
         if (rrEstimate == null) {
             rrEstimate = computeRr(
@@ -774,42 +1042,20 @@ public class SessionWorkspaceService {
             );
         }
 
-        List<String> contextMissing = new ArrayList<>();
+        List<String> setupMissing = new ArrayList<>();
         if (!hasText(setup.getSymbol())) {
-            contextMissing.add("symbol");
+            setupMissing.add("symbol");
+        }
+        if (!hasText(setup.getSetupTitle())) {
+            setupMissing.add("setup title");
         }
         if (!isDirectionDecided(setup.getDirection())) {
-            contextMissing.add("direction");
+            setupMissing.add("direction");
         }
-        if (setup.getTradeSession() == null) {
-            contextMissing.add("session");
+        if (!hasStrategy(setup) && !Boolean.TRUE.equals(setup.getManualSetupMode())) {
+            setupMissing.add("strategy or manual mode");
         }
-        if (!hasText(firstNonBlank(context.getInvalidationIdea(), execution.getInvalidation()))) {
-            contextMissing.add("invalidation concept");
-        }
-        if (!hasText(context.getLiquidityNotes()) && levels.isEmpty()) {
-            contextMissing.add("key liquidity idea");
-        }
-
-        List<String> triggerMissing = new ArrayList<>();
-        if (!Boolean.TRUE.equals(trigger.getSweepIdentified())) {
-            triggerMissing.add("sweep");
-        }
-        if (!Boolean.TRUE.equals(trigger.getDisplacementConfirmed())) {
-            triggerMissing.add("displacement");
-        }
-        if (!Boolean.TRUE.equals(trigger.getStructureConfirmed())) {
-            triggerMissing.add("structure confirmation");
-        }
-        if (!hasText(firstNonBlank(trigger.getConfirmationModel(), buildConfirmationModel(trigger)))) {
-            triggerMissing.add("confirmation model");
-        }
-        if (!hasText(firstNonBlank(trigger.getEntryZone(), trigger.getEntryModel()))) {
-            triggerMissing.add("entry zone");
-        }
-        if (rrEstimate == null || rrEstimate.compareTo(RR_THRESHOLD) < 0) {
-            triggerMissing.add("RR >= 1.5");
-        }
+        List<String> confluenceMissing = missingRequiredConfluences(setup, session);
 
         List<String> executionMissing = new ArrayList<>();
         BigDecimal entryPrice = activeExecution == null ? execution.getEntryPrice() : activeExecution.getEntryPrice();
@@ -832,21 +1078,30 @@ public class SessionWorkspaceService {
                 && (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0)) {
             executionMissing.add("risk amount or quantity");
         }
-        if (!hasText(firstNonBlank(invalidation, context.getInvalidationIdea()))) {
+        if (!hasText(invalidation)) {
             executionMissing.add("invalidation");
         }
 
-        int totalChecks = 16;
-        int completedChecks = totalChecks - contextMissing.size() - triggerMissing.size() - executionMissing.size();
-        int score = Math.max(0, Math.min(100, (int) Math.round((completedChecks / (double) totalChecks) * 100)));
+        List<UpsertSessionSetupRequest.Confluence> confluences = readConfluences(setup.getConfluencesJson(), setup.getStrategySnapshotJson());
+        long totalConfluences = confluences.stream().filter(item -> Boolean.TRUE.equals(item.getRequired())).count();
+        long completedConfluences = confluences.stream()
+                .filter(item -> Boolean.TRUE.equals(item.getRequired()))
+                .filter(item -> isConfluenceChecked(item, session))
+                .count();
+        int confluenceScore = totalConfluences == 0
+                ? 0
+                : (int) Math.round((completedConfluences / (double) totalConfluences) * 100);
+        int score = setupMissing.isEmpty()
+                ? confluenceScore
+                : Math.max(0, Math.min(100, confluenceScore - setupMissing.size() * 10));
 
         List<String> readyBlockers = new ArrayList<>();
-        readyBlockers.addAll(contextMissing);
-        readyBlockers.addAll(triggerMissing);
+        readyBlockers.addAll(setupMissing);
+        readyBlockers.addAll(confluenceMissing);
 
         List<String> startTradeBlockers = new ArrayList<>(readyBlockers);
         startTradeBlockers.addAll(executionMissing);
-        if (!sessionLocked) {
+        if (session == null || session.getLockInAt() == null) {
             startTradeBlockers.add("session lock-in");
         }
 
@@ -860,7 +1115,7 @@ public class SessionWorkspaceService {
             blockers = List.of();
         } else {
             state = SessionSetupReadinessState.INCOMPLETE;
-            blockers = startTradeBlockers;
+            blockers = readyBlockers.isEmpty() ? startTradeBlockers : readyBlockers;
         }
 
         String summary = blockers.isEmpty()
@@ -868,8 +1123,8 @@ public class SessionWorkspaceService {
                 : "Missing: " + String.join(", ", blockers);
 
         List<SessionWorkspaceResponse.ReadinessStep> steps = List.of(
-                buildReadinessStep("context", "Context", contextMissing),
-                buildReadinessStep("trigger", "Trigger", triggerMissing),
+                buildReadinessStep("setup", "Setup", setupMissing),
+                buildReadinessStep("confluences", "Confluences", confluenceMissing),
                 buildReadinessStep("execution", "Execution", executionMissing)
         );
 
@@ -886,7 +1141,7 @@ public class SessionWorkspaceService {
                 readiness,
                 score,
                 readyBlockers.isEmpty(),
-                triggerMissing.isEmpty(),
+                confluenceMissing.isEmpty(),
                 executionMissing.isEmpty(),
                 new ArrayList<>(new LinkedHashSet<>(readyBlockers)),
                 new ArrayList<>(new LinkedHashSet<>(startTradeBlockers)),
@@ -905,8 +1160,8 @@ public class SessionWorkspaceService {
                 .build();
     }
 
-    private void applyReadiness(SessionSetup setup, boolean sessionLocked) {
-        ReadinessComputation readiness = computeSetupReadiness(setup, sessionLocked);
+    private void applyReadiness(SessionSetup setup, TodaySession session) {
+        ReadinessComputation readiness = computeSetupReadiness(setup, session);
         setup.setReadinessScore(readiness.score());
         setup.setReadinessState(readiness.readiness().getState());
     }
@@ -1169,6 +1424,129 @@ public class SessionWorkspaceService {
                 .build();
     }
 
+    private List<UpsertSessionSetupRequest.Confluence> readConfluences(JsonNode node, JsonNode strategySnapshotJson) {
+        List<UpsertSessionSetupRequest.Confluence> incoming = Collections.emptyList();
+        if (node != null && node.isArray()) {
+            try {
+                incoming = objectMapper.convertValue(node, CONFLUENCE_LIST);
+            } catch (IllegalArgumentException ignored) {
+                incoming = Collections.emptyList();
+            }
+        }
+        UpsertSessionSetupRequest.StrategySnapshot snapshot = readNode(
+                strategySnapshotJson,
+                UpsertSessionSetupRequest.StrategySnapshot.class,
+                null
+        );
+        return normalizeConfluences(incoming.isEmpty() ? null : incoming, snapshot);
+    }
+
+    private List<UpsertSessionSetupRequest.Confluence> normalizeConfluences(List<UpsertSessionSetupRequest.Confluence> incoming,
+                                                                            UpsertSessionSetupRequest.StrategySnapshot strategySnapshot) {
+        Map<String, UpsertSessionSetupRequest.Confluence> byKey = new LinkedHashMap<>();
+        if (incoming != null) {
+            for (UpsertSessionSetupRequest.Confluence item : incoming) {
+                addConfluence(byKey, item, null, null);
+            }
+        }
+
+        if (byKey.isEmpty()) {
+            if (strategySnapshot != null && (hasText(strategySnapshot.getName()) || strategySnapshot.getStrategyId() != null)) {
+                for (String condition : normalizeStringList(strategySnapshot.getEntryConditions(), 180)) {
+                    addConfluence(byKey, null, condition, CONFLUENCE_SOURCE_STRATEGY);
+                }
+                if (hasText(strategySnapshot.getInvalidationLogic())) {
+                    addConfluence(byKey, null, "Invalidation clear: " + strategySnapshot.getInvalidationLogic(), CONFLUENCE_SOURCE_STRATEGY);
+                }
+                if (hasText(strategySnapshot.getTpFramework())) {
+                    addConfluence(byKey, null, "Target model clear: " + strategySnapshot.getTpFramework(), CONFLUENCE_SOURCE_STRATEGY);
+                }
+                if (hasText(strategySnapshot.getNoTradeRules())) {
+                    UpsertSessionSetupRequest.Confluence avoid = buildConfluence("Avoid conditions reviewed: " + strategySnapshot.getNoTradeRules(), CONFLUENCE_SOURCE_STRATEGY);
+                    avoid.setRequired(Boolean.FALSE);
+                    addConfluence(byKey, avoid, null, null);
+                }
+            } else {
+                for (String label : DEFAULT_CONFLUENCES) {
+                    addConfluence(byKey, null, label, CONFLUENCE_SOURCE_DEFAULT);
+                }
+            }
+        }
+
+        if (!byKey.containsKey(confluenceKey("Risk configured"))) {
+            addConfluence(byKey, null, "Risk configured", CONFLUENCE_SOURCE_DEFAULT);
+        }
+        return new ArrayList<>(byKey.values());
+    }
+
+    private void addConfluence(Map<String, UpsertSessionSetupRequest.Confluence> byKey,
+                               UpsertSessionSetupRequest.Confluence item,
+                               String fallbackLabel,
+                               String fallbackSource) {
+        String label = normalizeOptionalText(item == null ? fallbackLabel : firstNonBlank(item.getLabel(), fallbackLabel), 220);
+        if (label == null) {
+            return;
+        }
+        String key = confluenceKey(label);
+        if (byKey.containsKey(key)) {
+            return;
+        }
+        UpsertSessionSetupRequest.Confluence normalized = new UpsertSessionSetupRequest.Confluence();
+        normalized.setId(normalizeOptionalText(item == null ? null : item.getId(), 80));
+        if (!hasText(normalized.getId())) {
+            normalized.setId("conf-" + UUID.nameUUIDFromBytes(key.getBytes()).toString());
+        }
+        normalized.setLabel(label);
+        normalized.setChecked(Boolean.TRUE.equals(item == null ? null : item.getChecked()));
+        normalized.setRequired(item == null || item.getRequired() == null ? Boolean.TRUE : item.getRequired());
+        normalized.setSource(normalizeConfluenceSource(item == null ? fallbackSource : firstNonBlank(item.getSource(), fallbackSource)));
+        byKey.put(key, normalized);
+    }
+
+    private UpsertSessionSetupRequest.Confluence buildConfluence(String label, String source) {
+        UpsertSessionSetupRequest.Confluence item = new UpsertSessionSetupRequest.Confluence();
+        item.setLabel(label);
+        item.setSource(source);
+        item.setRequired(Boolean.TRUE);
+        item.setChecked(Boolean.FALSE);
+        return item;
+    }
+
+    private String confluenceKey(String label) {
+        return label == null ? "" : label.trim().toLowerCase(Locale.ROOT).replaceAll("\\s+", " ");
+    }
+
+    private String normalizeConfluenceSource(String source) {
+        if (!hasText(source)) {
+            return CONFLUENCE_SOURCE_CUSTOM;
+        }
+        String normalized = source.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case CONFLUENCE_SOURCE_DEFAULT, CONFLUENCE_SOURCE_STRATEGY, CONFLUENCE_SOURCE_CUSTOM -> normalized;
+            default -> CONFLUENCE_SOURCE_CUSTOM;
+        };
+    }
+
+    private boolean isConfluenceChecked(UpsertSessionSetupRequest.Confluence item, TodaySession session) {
+        if (item == null) {
+            return false;
+        }
+        if ("risk configured".equals(confluenceKey(item.getLabel()))) {
+            return isRiskConfigured(session);
+        }
+        return Boolean.TRUE.equals(item.getChecked());
+    }
+
+    private boolean resolveManualSetupMode(Boolean requested,
+                                           UUID strategyId,
+                                           UpsertSessionSetupRequest.StrategySnapshot strategySnapshot) {
+        if (requested != null) {
+            return requested;
+        }
+        return strategyId == null
+                && (strategySnapshot == null || (strategySnapshot.getStrategyId() == null && !hasText(strategySnapshot.getName())));
+    }
+
     private UpsertSessionSetupRequest.Review normalizeReview(UpsertSessionSetupRequest.Review review) {
         UpsertSessionSetupRequest.Review normalized = new UpsertSessionSetupRequest.Review();
         if (review == null) {
@@ -1394,6 +1772,8 @@ public class SessionWorkspaceService {
                 .executionSnapshotJson(execution)
                 .reviewSnapshotJson(objectMapper.createObjectNode())
                 .levelsJson(levelsJson)
+                .confluencesJson(toJsonArray(normalizeConfluences(null, null)))
+                .manualSetupMode(Boolean.TRUE)
                 .linkedTradeId(activeOrRecentTrade == null ? null : activeOrRecentTrade.getId())
                 .status(activeOrRecentTrade == null
                         ? SessionSetupStatus.DRAFT
@@ -1401,7 +1781,7 @@ public class SessionWorkspaceService {
                 .sortOrder(0)
                 .build();
 
-        applyReadiness(setup, session.getLockInAt() != null);
+        applyReadiness(setup, session);
         SessionSetup saved = sessionSetupRepository.save(setup);
         if (session.getActiveSetupId() == null) {
             session.setActiveSetupId(saved.getId());
@@ -1443,8 +1823,184 @@ public class SessionWorkspaceService {
         return tradeRepository.findByUserIdAndSessionIdOrderByOpenedAtDescCreatedAtDesc(userId, sessionId);
     }
 
-    private LocalDate resolveSessionDate() {
-        return LocalDate.now(ZoneId.of("Europe/Bucharest"));
+    private SessionSetup resolveActiveSetup(TodaySession session, List<SessionSetup> setups) {
+        if (setups == null || setups.isEmpty()) {
+            return null;
+        }
+        if (session.getActiveSetupId() != null) {
+            for (SessionSetup setup : setups) {
+                if (Objects.equals(setup.getId(), session.getActiveSetupId())) {
+                    return setup;
+                }
+            }
+        }
+        return setups.stream()
+                .sorted(Comparator.comparing(SessionSetup::getSortOrder).thenComparing(SessionSetup::getCreatedAt))
+                .findFirst()
+                .orElse(null);
+    }
+
+    private LocalDate resolveSessionDate(ZoneId zone) {
+        return LocalDate.now(zone == null ? ZoneId.of(TimezoneService.DEFAULT_TIMEZONE) : zone);
+    }
+
+    private PeriodWindow resolvePeriodWindow(PlanScope scope, ZoneId zone) {
+        ZoneId resolvedZone = zone == null ? ZoneId.of(TimezoneService.DEFAULT_TIMEZONE) : zone;
+        LocalDate today = LocalDate.now(resolvedZone);
+        if (scope == PlanScope.WEEKLY) {
+            LocalDate start = today.with(WeekFields.ISO.dayOfWeek(), 1);
+            LocalDate end = start.plusDays(6);
+            return new PeriodWindow(
+                    start.atStartOfDay(resolvedZone).toOffsetDateTime(),
+                    end.plusDays(1).atStartOfDay(resolvedZone).minusNanos(1).toOffsetDateTime(),
+                    start,
+                    end
+            );
+        }
+        if (scope == PlanScope.MONTHLY) {
+            LocalDate start = today.withDayOfMonth(1);
+            LocalDate end = start.plusMonths(1).minusDays(1);
+            return new PeriodWindow(
+                    start.atStartOfDay(resolvedZone).toOffsetDateTime(),
+                    end.plusDays(1).atStartOfDay(resolvedZone).minusNanos(1).toOffsetDateTime(),
+                    start,
+                    end
+            );
+        }
+        return new PeriodWindow(
+                today.atStartOfDay(resolvedZone).toOffsetDateTime(),
+                today.plusDays(1).atStartOfDay(resolvedZone).minusNanos(1).toOffsetDateTime(),
+                today,
+                today
+        );
+    }
+
+    private Plan newPlan(User user, PlanScope scope, PeriodWindow window) {
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+        UpsertSessionPlanRequest defaults = normalizeSessionPlanRequest(scope, null, window);
+        return Plan.builder()
+                .scope(scope)
+                .source(PlanSource.USER)
+                .authorUserId(user.getId())
+                .authorDisplayName(deriveAuthorDisplayName(user))
+                .title(defaults.getTitle())
+                .content(writePlanContent(defaults))
+                .checklistJson(null)
+                .activeFrom(window.start())
+                .activeTo(window.end())
+                .featured(false)
+                .createdAt(now)
+                .updatedAt(now)
+                .build();
+    }
+
+    private UpsertSessionPlanRequest normalizeSessionPlanRequest(PlanScope scope,
+                                                                 UpsertSessionPlanRequest request,
+                                                                 PeriodWindow window) {
+        UpsertSessionPlanRequest normalized = new UpsertSessionPlanRequest();
+        String fallbackTitle = scope == PlanScope.MONTHLY
+                ? "Monthly Plan " + window.periodStart().getMonth() + " " + window.periodStart().getYear()
+                : "Weekly Plan " + window.periodStart() + " - " + window.periodEnd();
+        normalized.setTitle(normalizeOptionalText(request == null ? null : request.getTitle(), 160));
+        if (!hasText(normalized.getTitle())) {
+            normalized.setTitle(fallbackTitle);
+        }
+        normalized.setBias(normalizeOptionalText(request == null ? null : request.getBias(), 160));
+        normalized.setFocusSymbols(normalizeStringList(request == null ? null : request.getFocusSymbols(), 64));
+        normalized.setObjectives(normalizeOptionalText(request == null ? null : request.getObjectives(), 1200));
+        normalized.setTarget(scaleMoney(nonNegative(request == null ? null : request.getTarget(), "target")));
+        normalized.setMaxLoss(scaleMoney(nonNegative(request == null ? null : request.getMaxLoss(), "maxLoss")));
+        normalized.setNotes(normalizeOptionalText(request == null ? null : request.getNotes(), 4000));
+        normalized.setReviewIntentions(normalizeOptionalText(request == null ? null : request.getReviewIntentions(), 1600));
+        return normalized;
+    }
+
+    private String writePlanContent(UpsertSessionPlanRequest request) {
+        try {
+            return objectMapper.writeValueAsString(request);
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
+    private UpsertSessionPlanRequest readPlanContent(Plan plan, PlanScope scope, PeriodWindow window) {
+        if (plan == null || !hasText(plan.getContent())) {
+            return normalizeSessionPlanRequest(scope, null, window);
+        }
+        try {
+            UpsertSessionPlanRequest parsed = objectMapper.readValue(plan.getContent(), UpsertSessionPlanRequest.class);
+            if (!hasText(parsed.getTitle())) {
+                parsed.setTitle(plan.getTitle());
+            }
+            return normalizeSessionPlanRequest(scope, parsed, window);
+        } catch (Exception ex) {
+            UpsertSessionPlanRequest fallback = normalizeSessionPlanRequest(scope, null, window);
+            fallback.setTitle(plan.getTitle());
+            fallback.setNotes(normalizeOptionalText(plan.getContent(), 4000));
+            return fallback;
+        }
+    }
+
+    private String deriveAuthorDisplayName(User user) {
+        if (user == null || !hasText(user.getEmail())) {
+            return "";
+        }
+        String email = user.getEmail().trim();
+        int atIndex = email.indexOf('@');
+        return atIndex > 0 ? email.substring(0, atIndex) : email;
+    }
+
+    private boolean isRiskConfigured(TodaySession session) {
+        return session != null
+                && session.getLossLimit() != null
+                && session.getLossLimit().compareTo(BigDecimal.ZERO) > 0
+                && session.getProfitTarget() != null
+                && session.getProfitTarget().compareTo(BigDecimal.ZERO) > 0
+                && session.getRiskPerTrade() != null
+                && session.getRiskPerTrade().compareTo(BigDecimal.ZERO) > 0
+                && session.getMaxTrades() != null
+                && session.getMaxTrades() > 0
+                && session.getMaxConsecutiveLosses() != null
+                && session.getMaxConsecutiveLosses() > 0;
+    }
+
+    private boolean isMaxLossReached(TodaySession session, BigDecimal realizedPnl) {
+        return session != null
+                && session.getLossLimit() != null
+                && session.getLossLimit().compareTo(BigDecimal.ZERO) > 0
+                && safeMoney(realizedPnl).compareTo(session.getLossLimit().negate()) <= 0;
+    }
+
+    private boolean isProfitTargetReached(TodaySession session, BigDecimal realizedPnl) {
+        return session != null
+                && session.getProfitTarget() != null
+                && session.getProfitTarget().compareTo(BigDecimal.ZERO) > 0
+                && safeMoney(realizedPnl).compareTo(session.getProfitTarget()) >= 0;
+    }
+
+    private boolean maxConsecutiveLossesReached(TodaySession session, List<Trade> sessionTrades) {
+        if (session == null || session.getMaxConsecutiveLosses() == null || session.getMaxConsecutiveLosses() <= 0 || sessionTrades == null) {
+            return false;
+        }
+        int losses = 0;
+        for (Trade trade : sessionTrades) {
+            if (trade.getStatus() != TradeStatus.CLOSED) {
+                continue;
+            }
+            BigDecimal pnl = trade.getPnlProfileCurrency() != null ? trade.getPnlProfileCurrency() : trade.getPnlNet();
+            if (pnl == null || pnl.compareTo(BigDecimal.ZERO) >= 0) {
+                break;
+            }
+            losses++;
+        }
+        return losses >= session.getMaxConsecutiveLosses();
+    }
+
+    private boolean hasStrategy(SessionSetup setup) {
+        return setup != null
+                && (setup.getStrategyId() != null
+                || hasText(setup.getStrategyLabel())
+                || hasText(readNode(setup.getStrategySnapshotJson(), UpsertSessionSetupRequest.StrategySnapshot.class, new UpsertSessionSetupRequest.StrategySnapshot()).getName()));
     }
 
     private TradeSession resolveTradeSession(TodaySession session, SessionSetup setup) {
@@ -1746,6 +2302,14 @@ public class SessionWorkspaceService {
     private record SessionReadiness(
             SessionWorkspaceResponse.Readiness readiness,
             List<String> blockers
+    ) {
+    }
+
+    private record PeriodWindow(
+            OffsetDateTime start,
+            OffsetDateTime end,
+            LocalDate periodStart,
+            LocalDate periodEnd
     ) {
     }
 }

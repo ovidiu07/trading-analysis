@@ -116,6 +116,14 @@ public class SessionSetup {
     @Column(name = "mentor_reference_json", columnDefinition = "jsonb")
     private JsonNode mentorReferenceJson;
 
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "confluences_json", nullable = false, columnDefinition = "jsonb")
+    private JsonNode confluencesJson;
+
+    @Column(name = "manual_setup_mode", nullable = false)
+    @Builder.Default
+    private Boolean manualSetupMode = Boolean.TRUE;
+
     @Column(name = "readiness_score", nullable = false)
     @Builder.Default
     private Integer readinessScore = 0;
@@ -186,6 +194,12 @@ public class SessionSetup {
         }
         if (mentorReferenceJson == null) {
             mentorReferenceJson = JsonNodeFactory.instance.objectNode();
+        }
+        if (confluencesJson == null) {
+            confluencesJson = JsonNodeFactory.instance.arrayNode();
+        }
+        if (manualSetupMode == null) {
+            manualSetupMode = Boolean.TRUE;
         }
         if (readinessScore == null) {
             readinessScore = 0;

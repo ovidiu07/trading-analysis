@@ -1,7 +1,7 @@
 import { apiDelete, apiGet, apiPost, apiPut } from './client'
 import type { AssetItem } from './assets'
 
-export type PlanScope = 'DAILY' | 'WEEKLY'
+export type PlanScope = 'DAILY' | 'WEEKLY' | 'MONTHLY'
 export type PlanSource = 'MENTOR' | 'USER'
 
 export type Plan = {

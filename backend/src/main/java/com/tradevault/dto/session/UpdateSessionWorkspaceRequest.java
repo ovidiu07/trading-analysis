@@ -12,6 +12,11 @@ public class UpdateSessionWorkspaceRequest {
     private String biasReason;
     private String narrative;
     private BigDecimal dailyMaxLoss;
+    private BigDecimal profitTarget;
+    private BigDecimal riskPerTrade;
     private Integer maxTrades;
+    private Integer maxConsecutiveLosses;
+    private Boolean stopAfterTargetReached;
+    private Boolean stopAfterMaxLossReached;
     private Boolean lockSession;
 }

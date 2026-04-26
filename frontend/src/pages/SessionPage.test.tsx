@@ -1,20 +1,13 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { useEffect } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { LiveWorkspaceResponse, SetupItem } from '../api/liveWorkspace'
 import type { DailyPlan } from '../api/plans'
-import type {
-  ExecutionTicket,
-  LiveWorkspaceResponse,
-  SetupItem,
-  SetupStatus,
-  SetupStrategySnapshot
-} from '../api/liveWorkspace'
 import type { StrategyListResponse } from '../api/strategies'
+import { I18nProvider } from '../i18n'
 import SessionPage from './SessionPage'
-import { I18nProvider, useI18n } from '../i18n'
 
 const workspaceApiMock = vi.hoisted(() => ({
   getSessionWorkspace: vi.fn(),
@@ -25,7 +18,8 @@ const workspaceApiMock = vi.hoisted(() => ({
   reorderSetupCandidates: vi.fn(),
   updateSetupCandidateStatus: vi.fn(),
   selectActiveSetupCandidate: vi.fn(),
-  startTradeFromSetupCandidate: vi.fn()
+  startTradeFromSetupCandidate: vi.fn(),
+  upsertSessionPeriodPlan: vi.fn()
 }))
 
 const plansApiMock = vi.hoisted(() => ({
@@ -63,14 +57,13 @@ const mentorPlan: DailyPlan = {
   title: 'London model',
   summary: 'Wait for sweep and displacement before execution.',
   biasSummary: 'London long bias',
-  keyLevels: ['PDH 1.0825', 'Asia low 1.0790'],
-  executionRules: 'Only execute after displacement and structure confirmation.',
-  alternativeScenario: 'Stand down if the sweep does not reclaim.',
-  riskNote: 'No trade inside major news.',
-  liquidityNarrative: 'PDH draw into London reversal window.',
+  keyLevels: ['PDH 1.0825'],
+  executionRules: 'Only execute after displacement.',
+  alternativeScenario: 'Stand down if reclaim fails.',
+  riskNote: 'No red news trades.',
+  liquidityNarrative: 'PDH draw into London.',
   tradingViewSymbol: 'OANDA:EURUSD',
-  tradingViewInterval: '15',
-  updatedAt: '2026-03-06T07:00:00.000Z'
+  tradingViewInterval: '15'
 }
 
 const strategiesList: StrategyListResponse = {
@@ -80,17 +73,14 @@ const strategiesList: StrategyListResponse = {
       source: 'MY',
       name: 'London sweep',
       model: 'Sweep into M5 displacement',
-      entryConditionsRich: '<ul><li>Sweep PDH</li><li>M5 displacement</li><li>M1 FVG reclaim</li></ul>',
-      entryConditions: ['Sweep PDH', 'M5 displacement', 'M1 FVG reclaim'],
-      invalidationLogic: 'Accepts back below PDH.',
-      tpFramework: 'Scale at 1R, runner to ADR midpoint.',
-      noTradeRules: 'Skip during red news.',
+      entryConditionsRich: '<ul><li>Sweep PDH</li><li>M5 displacement</li></ul>',
+      entryConditions: ['Sweep PDH', 'M5 displacement'],
+      invalidationLogic: 'Accepts below PDH.',
+      tpFramework: 'Scale at 1R.',
+      noTradeRules: 'Skip red news.',
       sessionSuitability: ['London'],
-      tags: ['SMC', 'London'],
-      snapshotAssetId: null,
-      snapshotAsset: null,
-      archived: false,
-      updatedAt: '2026-03-05T10:00:00.000Z'
+      tags: ['SMC'],
+      archived: false
     }
   ],
   mentorStrategies: []
@@ -100,130 +90,85 @@ function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T
 }
 
-function makeReadiness(score: number, blockers: string[] = []) {
+function makeReadiness(blockers: string[] = []) {
   return {
-    score,
+    score: blockers.length ? 50 : 100,
     state: blockers.length ? 'INCOMPLETE' as const : 'READY' as const,
-    summary: blockers.length ? `Missing: ${blockers.join(', ')}` : 'Ready to execute.',
+    summary: blockers.length ? `Missing: ${blockers.join(', ')}` : 'Ready',
     missingItems: blockers,
     blockers,
     steps: [
-      { key: 'context', label: 'Context', state: blockers.some((item) => ['key liquidity idea', 'invalidation concept'].includes(item)) ? 'INCOMPLETE' : 'READY', summary: blockers.length ? blockers.join(', ') : 'Ready', missingItems: blockers },
-      { key: 'trigger', label: 'Trigger', state: blockers.some((item) => ['sweep', 'displacement', 'structure confirmation', 'confirmation model', 'entry zone', 'RR >= 1.5'].includes(item)) ? 'INCOMPLETE' : 'READY', summary: blockers.length ? blockers.join(', ') : 'Ready', missingItems: blockers },
-      { key: 'execution', label: 'Execution', state: blockers.some((item) => ['entry', 'stop loss', 'take profit', 'risk amount or quantity', 'invalidation', 'session lock-in'].includes(item)) ? 'INCOMPLETE' : 'READY', summary: blockers.length ? blockers.join(', ') : 'Ready', missingItems: blockers }
+      { key: 'setup', label: 'Setup', state: blockers.some((item) => ['symbol', 'direction'].includes(item)) ? 'INCOMPLETE' as const : 'READY' as const, summary: 'Setup', missingItems: blockers.filter((item) => ['symbol', 'direction'].includes(item)) },
+      { key: 'risk', label: 'Risk', state: blockers.includes('risk configured') ? 'INCOMPLETE' as const : 'READY' as const, summary: 'Risk', missingItems: blockers.filter((item) => item === 'risk configured') },
+      { key: 'confluences', label: 'Confluences', state: blockers.some((item) => item !== 'risk configured') ? 'INCOMPLETE' as const : 'READY' as const, summary: 'Confluences', missingItems: blockers.filter((item) => item !== 'risk configured') },
+      { key: 'lock', label: 'Lock', state: 'INCOMPLETE' as const, summary: 'Lock', missingItems: ['lock session'] }
     ]
   }
 }
 
-function makeTicket(index = 0): ExecutionTicket {
-  return {
-    id: `exec-${setupSequence + 1}-${index + 1}`,
-    label: `Execution ${index + 1}`,
-    status: 'DRAFT',
-    entryPrice: null,
-    stopLossPrice: null,
-    takeProfitPrice: null,
-    riskAmount: null,
-    quantity: null,
-    invalidation: '',
-    whyWrong: '',
-    initialNotes: '',
-    notes: '',
-    linkedTradeId: null,
-    createdAt: '2026-03-06T07:00:00.000Z',
-    updatedAt: null,
-    startedAt: null,
-    closedAt: null
-  }
-}
-
-function ensureSetupShape(setup: SetupItem): SetupItem {
-  const tickets = setup.executions?.tickets?.length
-    ? setup.executions.tickets
-    : setup.execution?.tickets?.length
-      ? setup.execution.tickets
-      : [makeTicket(0)]
-  const activeExecutionId = setup.executions?.activeExecutionId || setup.execution.activeExecutionId || tickets[0].id
-  const active = tickets.find((ticket) => ticket.id === activeExecutionId) || tickets[0]
-  return {
-    ...setup,
-    strategySnapshot: setup.strategySnapshot || null,
-    review: setup.review || {
-      liveNotes: '',
-      mistakes: '',
-      lessons: '',
-      outcomeSummary: '',
-      tags: [],
-      timeline: []
-    },
-    execution: {
-      activeExecutionId,
-      entryPrice: active.entryPrice,
-      stopLossPrice: active.stopLossPrice,
-      takeProfitPrice: active.takeProfitPrice,
-      riskAmount: active.riskAmount,
-      quantity: active.quantity,
-      invalidation: active.invalidation,
-      whyWrong: active.whyWrong,
-      initialNotes: active.initialNotes,
-      tickets
-    },
-    executions: {
-      activeExecutionId,
-      tickets
+function recalcWorkspace() {
+  workspaceState.setups = workspaceState.setups.map((setup, index) => {
+    const blockers: string[] = []
+    if (!setup.symbol) blockers.push('symbol')
+    if (setup.direction === 'UNDECIDED') blockers.push('direction')
+    ;(setup.confluences || []).forEach((item) => {
+      if (item.required && !item.checked && item.label !== 'Risk configured') blockers.push(item.label)
+    })
+    return {
+      ...setup,
+      sortOrder: index,
+      readiness: makeReadiness(blockers)
     }
+  })
+  const riskConfigured = Boolean(
+    (workspaceState.session.dailyMaxLoss || 0) > 0
+    && (workspaceState.session.profitTarget || 0) > 0
+    && (workspaceState.session.riskPerTrade || 0) > 0
+    && (workspaceState.session.maxTrades || 0) > 0
+    && (workspaceState.session.maxConsecutiveLosses || 0) > 0
+  )
+  const active = workspaceState.setups.find((setup) => setup.id === workspaceState.activeSetupId) || workspaceState.setups[0]
+  const sessionBlockers: string[] = []
+  if (!active) sessionBlockers.push('at least one setup')
+  if (!riskConfigured) sessionBlockers.push('risk configured')
+  if (active?.direction === 'UNDECIDED') sessionBlockers.push('direction')
+  ;(active?.confluences || []).forEach((item) => {
+    if (item.required && !item.checked && item.label !== 'Risk configured') sessionBlockers.push(item.label)
+  })
+  if (!workspaceState.session.lockedInAt) sessionBlockers.push('lock session')
+  workspaceState.session.quickStats = {
+    maxLoss: workspaceState.session.dailyMaxLoss,
+    profitTarget: workspaceState.session.profitTarget,
+    riskUsed: 0,
+    realizedPnl: 0,
+    remainingRisk: workspaceState.session.dailyMaxLoss || 0,
+    tradesTaken: workspaceState.activity.length,
+    remainingTrades: workspaceState.session.maxTrades || 0,
+    activeSetupCount: workspaceState.setups.length,
+    riskConfigured,
+    tradingAllowed: riskConfigured,
+    maxLossReached: false,
+    profitTargetReached: false
   }
+  workspaceState.session.readiness = makeReadiness(workspaceState.session.lockedInAt ? [] : sessionBlockers)
 }
 
-function recalcSetup(setup: SetupItem, locked: boolean): SetupItem {
-  const normalized = ensureSetupShape(setup)
-  const active = normalized.executions.tickets.find((ticket) => ticket.id === normalized.executions.activeExecutionId) || normalized.executions.tickets[0]
-  const blockers: string[] = []
-  if (normalized.direction === 'UNDECIDED') blockers.push('direction')
-  if (!normalized.context.liquidityNotes && normalized.levels.length === 0) blockers.push('key liquidity idea')
-  if (!normalized.context.invalidationIdea && !active.invalidation) blockers.push('invalidation concept')
-  if (!normalized.trigger.sweepIdentified) blockers.push('sweep')
-  if (!normalized.trigger.displacementConfirmed) blockers.push('displacement')
-  if (!normalized.trigger.structureConfirmed) blockers.push('structure confirmation')
-  if (!normalized.trigger.confirmationModel) blockers.push('confirmation model')
-  if (!normalized.trigger.entryZone) blockers.push('entry zone')
-  if ((normalized.trigger.rrEstimate ?? 0) < 1.5) blockers.push('RR >= 1.5')
-  if (active.entryPrice == null) blockers.push('entry')
-  if (active.stopLossPrice == null) blockers.push('stop loss')
-  if (active.takeProfitPrice == null) blockers.push('take profit')
-  if (active.riskAmount == null && active.quantity == null) blockers.push('risk amount or quantity')
-  if (!active.invalidation && !normalized.context.invalidationIdea) blockers.push('invalidation')
-  if (!locked) blockers.push('session lock-in')
-
-  const score = Math.max(12, 100 - blockers.length * 7)
-  return {
-    ...normalized,
-    readiness: makeReadiness(score, blockers)
-  }
-}
-
-function buildSetup(symbol: string, direction: SetupItem['direction'], setupTitle: string): SetupItem {
+function buildSetup(symbol: string, direction: SetupItem['direction'], title: string): SetupItem {
   setupSequence += 1
-  return recalcSetup({
+  return {
     id: `setup-${setupSequence}`,
     symbol,
     direction,
     market: 'FOREX',
-    tradeSession: 'LONDON',
+    tradeSession: null,
     strategyId: null,
     strategyLabel: '',
-    setupTitle,
+    setupTitle: title,
     biasAlignment: '',
     status: 'DRAFT',
     linkedTradeId: null,
-    readiness: makeReadiness(20, ['key liquidity idea']),
-    context: {
-      narrative: '',
-      liquidityNotes: '',
-      invalidationIdea: '',
-      newsSafety: '',
-      notes: ''
-    },
+    readiness: makeReadiness(['direction']),
+    context: { narrative: '', liquidityNotes: '', invalidationIdea: '', newsSafety: '', notes: '' },
     strategySnapshot: null,
     trigger: {
       sweepIdentified: false,
@@ -247,7 +192,7 @@ function buildSetup(symbol: string, direction: SetupItem['direction'], setupTitl
       notes: ''
     },
     execution: {
-      activeExecutionId: null,
+      activeExecutionId: 'exec-1',
       entryPrice: null,
       stopLossPrice: null,
       takeProfitPrice: null,
@@ -259,52 +204,26 @@ function buildSetup(symbol: string, direction: SetupItem['direction'], setupTitl
       tickets: []
     },
     executions: {
-      activeExecutionId: null,
-      tickets: []
+      activeExecutionId: 'exec-1',
+      tickets: [{
+        id: 'exec-1',
+        label: 'Execution 1',
+        status: 'DRAFT',
+        createdAt: '2026-04-06T07:00:00.000Z'
+      }]
     },
-    review: {
-      liveNotes: '',
-      mistakes: '',
-      lessons: '',
-      outcomeSummary: '',
-      tags: [],
-      timeline: []
-    },
+    review: { liveNotes: '', mistakes: '', lessons: '', outcomeSummary: '', tags: [], timeline: [] },
     levels: [],
     mentorReference: null,
+    confluences: [
+      { id: 'c1', label: 'Sweep confirmed', checked: false, required: true, source: 'CUSTOM' },
+      { id: 'c2', label: 'Risk configured', checked: false, required: true, source: 'DEFAULT' }
+    ],
+    manualSetupMode: true,
     sortOrder: setupSequence - 1,
-    createdAt: '2026-03-06T07:00:00.000Z',
-    updatedAt: '2026-03-06T07:00:00.000Z'
-  }, Boolean(workspaceState?.session?.lockedInAt))
-}
-
-function recalcWorkspace() {
-  workspaceState.setups = workspaceState.setups.map((setup, index) => ({
-    ...recalcSetup(setup, Boolean(workspaceState.session.lockedInAt)),
-    sortOrder: index
-  }))
-  workspaceState.session.quickStats = {
-    maxLoss: workspaceState.session.dailyMaxLoss,
-    riskUsed: workspaceState.activity.reduce((total, trade) => total + (trade.riskAmount || 0), 0),
-    tradesTaken: workspaceState.activity.length,
-    activeSetupCount: workspaceState.setups.filter((setup) => !['SKIPPED', 'ARCHIVED', 'INVALIDATED', 'EXECUTED', 'CLOSED'].includes(setup.status)).length,
-    realizedPnl: workspaceState.activity.reduce((total, trade) => total + (trade.pnlNet || 0), 0)
+    createdAt: '2026-04-06T07:00:00.000Z',
+    updatedAt: '2026-04-06T07:00:00.000Z'
   }
-  const sessionBlockers = workspaceState.session.lockedInAt ? [] : ['lock session']
-  workspaceState.session.readiness = {
-    score: workspaceState.session.lockedInAt ? 100 : 75,
-    state: workspaceState.session.lockedInAt ? 'READY' : 'INCOMPLETE',
-    summary: sessionBlockers.length ? 'Missing: lock session' : 'Session is locked and ready for live execution.',
-    missingItems: sessionBlockers,
-    blockers: sessionBlockers,
-    steps: [
-      { key: 'plan', label: 'Plan', state: 'READY', summary: 'Ready', missingItems: [] },
-      { key: 'risk', label: 'Risk', state: 'READY', summary: 'Ready', missingItems: [] },
-      { key: 'narrative', label: 'Narrative', state: 'READY', summary: 'Ready', missingItems: [] },
-      { key: 'lock', label: 'Lock-in', state: workspaceState.session.lockedInAt ? 'READY' : 'INCOMPLETE', summary: sessionBlockers.length ? 'Missing: lock session' : 'Ready', missingItems: sessionBlockers }
-    ]
-  }
-  workspaceState.session.warnings = workspaceState.session.lockedInAt ? [] : ['Session is not locked']
 }
 
 function resetWorkspaceState() {
@@ -312,38 +231,89 @@ function resetWorkspaceState() {
   workspaceState = {
     session: {
       id: 'session-1',
-      tradingDate: '2026-03-06',
-      sessionName: 'LONDON',
-      objective: 'A_PLUS_ONLY',
-      bias: 'LONG',
-      biasReason: 'PDH draw is intact',
-      narrative: 'London wants the sweep and reclaim.',
-      dailyMaxLoss: 150,
-      maxTrades: 2,
+      tradingDate: '2026-04-06',
+      sessionName: null,
+      objective: null,
+      bias: null,
+      biasReason: null,
+      narrative: null,
+      dailyMaxLoss: null,
+      profitTarget: null,
+      riskPerTrade: null,
+      maxTrades: null,
+      maxConsecutiveLosses: null,
+      stopAfterTargetReached: false,
+      stopAfterMaxLossReached: true,
       liveModeOnly: true,
       lockedInAt: null,
       status: 'ACTIVE',
       quickStats: {
-        maxLoss: 150,
+        maxLoss: null,
+        profitTarget: null,
         riskUsed: 0,
+        realizedPnl: 0,
+        remainingRisk: 0,
         tradesTaken: 0,
+        remainingTrades: 0,
         activeSetupCount: 0,
-        realizedPnl: 0
+        riskConfigured: false,
+        tradingAllowed: false,
+        maxLossReached: false,
+        profitTargetReached: false
       },
-      readiness: {
-        score: 75,
-        state: 'INCOMPLETE',
-        summary: 'Missing: lock session',
-        missingItems: ['lock session'],
-        blockers: ['lock session'],
-        steps: [
-          { key: 'plan', label: 'Plan', state: 'READY', summary: 'Ready', missingItems: [] },
-          { key: 'risk', label: 'Risk', state: 'READY', summary: 'Ready', missingItems: [] },
-          { key: 'narrative', label: 'Narrative', state: 'READY', summary: 'Ready', missingItems: [] },
-          { key: 'lock', label: 'Lock-in', state: 'INCOMPLETE', summary: 'Missing: lock session', missingItems: ['lock session'] }
-        ]
+      readiness: makeReadiness(['at least one setup', 'risk configured', 'lock session']),
+      warnings: []
+    },
+    planningContext: {
+      monthly: {
+        id: 'monthly-1',
+        scope: 'MONTHLY',
+        title: 'April Plan',
+        bias: 'Risk-on month',
+        focusSymbols: ['EURUSD'],
+        objectives: 'Protect consistency',
+        target: 1200,
+        maxLoss: 500,
+        notes: 'Monthly prep notes',
+        reviewIntentions: 'Review execution quality.',
+        periodStart: '2026-04-01',
+        periodEnd: '2026-04-30',
+        activeFrom: '2026-04-01T00:00:00+03:00',
+        activeTo: '2026-04-30T23:59:59+03:00',
+        exists: true
       },
-      warnings: ['Session is not locked']
+      weekly: {
+        id: 'weekly-1',
+        scope: 'WEEKLY',
+        title: 'Week Plan',
+        bias: 'Long EUR',
+        focusSymbols: ['EURUSD'],
+        objectives: 'Wait for London sweep',
+        target: 400,
+        maxLoss: 250,
+        notes: 'Weekly prep notes',
+        reviewIntentions: null,
+        periodStart: '2026-04-06',
+        periodEnd: '2026-04-12',
+        activeFrom: '2026-04-06T00:00:00+03:00',
+        activeTo: '2026-04-12T23:59:59+03:00',
+        exists: true
+      },
+      today: {
+        id: 'session-1',
+        scope: 'DAILY',
+        title: 'Today Plan',
+        bias: null,
+        focusSymbols: [],
+        objectives: null,
+        target: null,
+        maxLoss: null,
+        notes: null,
+        reviewIntentions: null,
+        periodStart: '2026-04-06',
+        periodEnd: '2026-04-06',
+        exists: true
+      }
     },
     activeSetupId: null,
     setups: [],
@@ -353,180 +323,94 @@ function resetWorkspaceState() {
 
 function setupMocks() {
   workspaceApiMock.getSessionWorkspace.mockImplementation(async () => clone(workspaceState))
-  strategiesApiMock.listStrategies.mockResolvedValue(strategiesList)
   plansApiMock.fetchTodayMentorPlan.mockResolvedValue(mentorPlan)
+  strategiesApiMock.listStrategies.mockResolvedValue(strategiesList)
 
-  workspaceApiMock.createSetupCandidate.mockImplementation(async (_sessionId: string, payload: { symbol?: string; direction?: SetupItem['direction']; setupTitle?: string; strategySnapshot?: SetupStrategySnapshot | null }) => {
-    const nextSetup = buildSetup(payload.symbol || 'EURUSD', payload.direction || 'UNDECIDED', payload.setupTitle || 'Draft setup')
-    if (payload.strategySnapshot) {
-      nextSetup.strategySnapshot = payload.strategySnapshot
-      nextSetup.strategyLabel = payload.strategySnapshot.name || ''
-      nextSetup.strategyId = payload.strategySnapshot.strategyId || null
+  workspaceApiMock.createSetupCandidate.mockImplementation(async (_sessionId: string, payload: Partial<SetupItem>) => {
+    const next = buildSetup(payload.symbol || 'EURUSD', payload.direction || 'UNDECIDED', payload.setupTitle || 'Draft setup')
+    next.strategySnapshot = payload.strategySnapshot || null
+    next.strategyLabel = payload.strategyLabel || next.strategySnapshot?.name || ''
+    next.strategyId = payload.strategyId || next.strategySnapshot?.strategyId || null
+    next.confluences = payload.confluences || next.confluences
+    next.manualSetupMode = payload.manualSetupMode ?? !next.strategySnapshot?.name
+    workspaceState.setups.push(next)
+    workspaceState.activeSetupId = next.id
+    recalcWorkspace()
+    return clone(workspaceState)
+  })
+
+  workspaceApiMock.updateSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string, payload: Partial<SetupItem>) => {
+    workspaceState.setups = workspaceState.setups.map((setup) => setup.id === setupId ? {
+      ...setup,
+      ...payload,
+      context: { ...setup.context, ...payload.context },
+      trigger: { ...setup.trigger, ...payload.trigger },
+      execution: { ...setup.execution, ...payload.execution },
+      executions: payload.execution?.tickets ? {
+        activeExecutionId: payload.execution.activeExecutionId || setup.executions.activeExecutionId,
+        tickets: payload.execution.tickets
+      } : setup.executions,
+      confluences: payload.confluences || setup.confluences,
+      review: payload.review || setup.review
+    } : setup)
+    recalcWorkspace()
+    return clone(workspaceState)
+  })
+
+  workspaceApiMock.updateSessionWorkspace.mockImplementation(async (_sessionId: string, payload: Partial<LiveWorkspaceResponse['session']> & { lockSession?: boolean | null }) => {
+    workspaceState.session = {
+      ...workspaceState.session,
+      ...payload,
+      lockedInAt: payload.lockSession === true ? '2026-04-06T08:00:00.000Z' : payload.lockSession === false ? null : workspaceState.session.lockedInAt
     }
-    workspaceState.setups.push(nextSetup)
-    workspaceState.activeSetupId = nextSetup.id
     recalcWorkspace()
     return clone(workspaceState)
   })
 
   workspaceApiMock.selectActiveSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string | null) => {
     workspaceState.activeSetupId = setupId
-    return clone(workspaceState)
-  })
-
-  workspaceApiMock.updateSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string, payload: Partial<SetupItem> & { execution?: { tickets?: ExecutionTicket[] } }) => {
-    workspaceState.setups = workspaceState.setups.map((setup) => {
-      if (setup.id !== setupId) return setup
-      const next = ensureSetupShape({
-        ...setup,
-        ...payload,
-        context: { ...setup.context, ...payload.context },
-        strategySnapshot: payload.strategySnapshot ?? setup.strategySnapshot,
-        trigger: { ...setup.trigger, ...payload.trigger },
-        execution: {
-          ...setup.execution,
-          ...payload.execution,
-          tickets: payload.execution?.tickets || setup.executions.tickets
-        },
-        executions: {
-          activeExecutionId: payload.execution?.activeExecutionId || setup.executions.activeExecutionId,
-          tickets: payload.execution?.tickets || setup.executions.tickets
-        },
-        review: payload.review ? {
-          ...setup.review,
-          ...payload.review,
-          timeline: payload.review.timeline || setup.review?.timeline || []
-        } : setup.review,
-        levels: payload.levels || setup.levels,
-        mentorReference: payload.mentorReference ?? setup.mentorReference
-      })
-      return recalcSetup(next, Boolean(workspaceState.session.lockedInAt))
-    })
     recalcWorkspace()
     return clone(workspaceState)
   })
 
   workspaceApiMock.duplicateSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string) => {
     const source = workspaceState.setups.find((setup) => setup.id === setupId)
-    if (!source) return clone(workspaceState)
-    const nextSetup = buildSetup(source.symbol, source.direction, `${source.setupTitle} Copy`)
-    nextSetup.strategySnapshot = source.strategySnapshot
-    nextSetup.strategyId = source.strategyId
-    nextSetup.strategyLabel = source.strategyLabel
-    workspaceState.setups.push(nextSetup)
-    recalcWorkspace()
-    return clone(workspaceState)
-  })
-
-  workspaceApiMock.updateSetupCandidateStatus.mockImplementation(async (_sessionId: string, setupId: string, status: SetupStatus) => {
-    workspaceState.setups = workspaceState.setups.map((setup) => (
-      setup.id === setupId ? { ...setup, status } : setup
-    ))
-    recalcWorkspace()
-    return clone(workspaceState)
-  })
-
-  workspaceApiMock.updateSessionWorkspace.mockImplementation(async (_sessionId: string, payload: { lockSession?: boolean | null }) => {
-    if (payload.lockSession === true) {
-      workspaceState.session.lockedInAt = '2026-03-06T07:05:00.000Z'
-    } else if (payload.lockSession === false) {
-      workspaceState.session.lockedInAt = null
+    if (source) {
+      const copy = buildSetup(source.symbol, source.direction, `${source.setupTitle} Copy`)
+      workspaceState.setups.push(copy)
+      workspaceState.activeSetupId = copy.id
     }
     recalcWorkspace()
     return clone(workspaceState)
   })
 
-  workspaceApiMock.startTradeFromSetupCandidate.mockImplementation(async (_sessionId: string, setupId: string, executionId?: string | null) => {
-    const setup = workspaceState.setups.find((item) => item.id === setupId)
-    if (!setup) return clone(workspaceState)
-    const activeExecutionId = executionId || setup.executions.activeExecutionId || setup.executions.tickets[0].id
-    const activeTicket = setup.executions.tickets.find((item) => item.id === activeExecutionId) || setup.executions.tickets[0]
-    workspaceState.setups = workspaceState.setups.map((item) => {
-      if (item.id !== setupId) return item
-      const tickets = item.executions.tickets.map((ticket) => (
-        ticket.id === activeExecutionId
-          ? {
-            ...ticket,
-            status: 'ACTIVE' as const,
-            linkedTradeId: 'trade-1',
-            startedAt: '2026-03-06T07:10:00.000Z'
-          }
-          : ticket
-      ))
-      return ensureSetupShape({
-        ...item,
-        status: 'EXECUTED',
-        linkedTradeId: 'trade-1',
-        review: {
-          ...(item.review || { tags: [], timeline: [] }),
-          timeline: [
-            ...((item.review?.timeline || [])),
-            {
-              id: 'timeline-started',
-              type: 'execution_started',
-              title: 'Execution started',
-              body: activeTicket.label,
-              executionId: activeExecutionId,
-              tradeId: 'trade-1',
-              occurredAt: '2026-03-06T07:10:00.000Z'
-            }
-          ]
-        },
-        executions: {
-          activeExecutionId,
-          tickets
-        },
-        execution: {
-          ...item.execution,
-          activeExecutionId,
-          tickets
-        }
-      })
-    })
-    workspaceState.activity = [{
-      tradeId: 'trade-1',
-      setupId,
-      setupTitle: setup.setupTitle,
-      symbol: setup.symbol,
-      direction: setup.direction,
-      tradeSession: setup.tradeSession,
-      status: 'OPEN',
-      entryPrice: activeTicket.entryPrice,
-      exitPrice: null,
-      riskAmount: activeTicket.riskAmount,
-      rMultiple: null,
-      pnlNet: 0,
-      openedAt: '2026-03-06T07:10:00.000Z',
-      closedAt: null
-    }]
-    recalcWorkspace()
+  workspaceApiMock.updateSetupCandidateStatus.mockImplementation(async () => clone(workspaceState))
+  workspaceApiMock.startTradeFromSetupCandidate.mockImplementation(async () => clone(workspaceState))
+  workspaceApiMock.upsertSessionPeriodPlan.mockImplementation(async (scope: 'WEEKLY' | 'MONTHLY', payload: Partial<LiveWorkspaceResponse['planningContext']['weekly']>) => {
+    const key = scope === 'WEEKLY' ? 'weekly' : 'monthly'
+    workspaceState.planningContext = {
+      ...workspaceState.planningContext!,
+      [key]: {
+        ...workspaceState.planningContext![key],
+        ...payload,
+        exists: true
+      }
+    }
     return clone(workspaceState)
   })
 }
 
-function LanguageSetter({ language }: { language: 'en' | 'ro' }) {
-  const { setLanguage } = useI18n()
-
-  useEffect(() => {
-    setLanguage(language)
-  }, [language, setLanguage])
-
-  return null
-}
-
-function renderWithProviders(ui: JSX.Element, language?: 'en' | 'ro') {
+function renderWithProviders(ui: JSX.Element) {
   const queryClient = new QueryClient({
     defaultOptions: {
       queries: { retry: false },
       mutations: { retry: false }
     }
   })
-
   return render(
     <MemoryRouter>
       <QueryClientProvider client={queryClient}>
         <I18nProvider>
-          {language ? <LanguageSetter language={language} /> : null}
           {ui}
         </I18nProvider>
       </QueryClientProvider>
@@ -534,7 +418,7 @@ function renderWithProviders(ui: JSX.Element, language?: 'en' | 'ro') {
   )
 }
 
-describe('SessionPage workstation', () => {
+describe('SessionPage trader plan workstation', () => {
   beforeAll(() => {
     class ResizeObserverMock {
       observe() {}
@@ -551,123 +435,114 @@ describe('SessionPage workstation', () => {
     setupMocks()
   })
 
-  it('handles strategy import, multi-setup navigation, execution cloning, and trade start', async () => {
+  it('renders the active planning hierarchy and scope tabs', async () => {
     renderWithProviders(<SessionPage />)
 
-    expect(await screen.findByText('Chart command center')).toBeInTheDocument()
+    expect(await screen.findByText('Trader Plan Workstation')).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Today Plan' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Weekly Plan' })).toBeInTheDocument()
+    expect(screen.getByRole('tab', { name: 'Monthly Plan' })).toBeInTheDocument()
+    expect(screen.getByText('Risk-on month')).toBeInTheDocument()
+    expect(screen.getByText('Wait for London sweep')).toBeInTheDocument()
+  })
 
-    for (const draft of [
-      { symbol: 'GBPUSD', direction: 'SHORT' as const, setupTitle: 'Cable fade' },
-      { symbol: 'DAX', direction: 'LONG' as const, setupTitle: 'DAX continuation' },
-      { symbol: 'EURUSD', direction: 'LONG' as const, setupTitle: 'London sweep reclaim' }
-    ]) {
-      fireEvent.click(screen.getAllByRole('button', { name: /Add setup/i })[0])
-      const dialog = await screen.findByRole('dialog')
-      fireEvent.change(within(dialog).getByLabelText('Symbol'), { target: { value: draft.symbol } })
-      fireEvent.mouseDown(within(dialog).getByLabelText('Direction'))
-      fireEvent.click(await screen.findByRole('option', { name: draft.direction === 'LONG' ? 'Long' : 'Short' }))
-      fireEvent.change(within(dialog).getByLabelText('Setup title'), { target: { value: draft.setupTitle } })
-      fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
-      await waitFor(() => expect(workspaceApiMock.createSetupCandidate).toHaveBeenCalled())
-      await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    }
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[2])
-    expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15')
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'Import strategy' })[0])
-    expect(await screen.findByText('London sweep')).toBeInTheDocument()
-    fireEvent.click(screen.getByText('London sweep'))
-    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
-    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getAllByText('London sweep').length).toBeGreaterThan(0)
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Trigger' }))
-    fireEvent.click(screen.getByText('Sweep identified'))
-    fireEvent.click(screen.getByText('Displacement confirmed'))
-    fireEvent.click(screen.getByText('MSS / structure confirmed'))
-    fireEvent.change(screen.getByLabelText('Confirmation model'), { target: { value: 'M5 displacement into M1 confirmation' } })
-    fireEvent.change(screen.getByLabelText('Entry model'), { target: { value: 'M1 FVG reclaim' } })
-    fireEvent.change(screen.getByLabelText('RR minimum'), { target: { value: '2.0' } })
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Plan' }))
-    fireEvent.change(screen.getByLabelText('Liquidity / key levels'), { target: { value: 'PDH sweep into London opening range' } })
-    fireEvent.change(screen.getByLabelText('Invalidation idea'), { target: { value: 'If the reclaim fails and price accepts below PDH.' } })
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Execute' }))
-    fireEvent.change(screen.getByLabelText('Entry'), { target: { value: '1.0812' } })
-    fireEvent.change(screen.getByLabelText('Stop loss'), { target: { value: '1.0798' } })
-    fireEvent.change(screen.getByLabelText('Take profit'), { target: { value: '1.0844' } })
-    fireEvent.change(screen.getByLabelText('Risk amount'), { target: { value: '75' } })
-    fireEvent.change(screen.getByLabelText('Execution invalidation'), { target: { value: 'Close below the reclaimed London range low.' } })
-    fireEvent.change(screen.getByLabelText('Execution notes'), { target: { value: 'Execute only if spread stays clean through the reclaim.' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Clone execution' }))
-    await waitFor(() => expect(screen.getAllByText('Execution 1 Copy').length).toBeGreaterThan(0))
-    const setupSaveCallCount = workspaceApiMock.updateSetupCandidate.mock.calls.length
-    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate.mock.calls.length).toBeGreaterThan(setupSaveCallCount))
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'Lock session' })[0])
-    await waitFor(() => expect(workspaceApiMock.updateSessionWorkspace).toHaveBeenCalled())
-
-    let startTradeButton: HTMLElement | undefined
-    await waitFor(() => {
-      startTradeButton = screen.getAllByRole('button', { name: 'Mark active' }).find((button) => !button.hasAttribute('disabled'))
-      expect(startTradeButton).toBeDefined()
-    }, { timeout: 5000 })
-    fireEvent.click(startTradeButton as HTMLElement)
-    await waitFor(() => expect(workspaceApiMock.startTradeFromSetupCandidate).toHaveBeenCalled())
-
-    fireEvent.click(screen.getByRole('tab', { name: 'Journal' }))
-    await waitFor(() => expect(screen.getAllByText('Execution started').length).toBeGreaterThan(0))
-    expect(screen.getAllByText('London sweep reclaim').length).toBeGreaterThan(0)
-
-    fireEvent.click(screen.getAllByRole('button', { name: 'Open' })[1])
-    await waitFor(() => expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:DAX:15'))
-  }, 30000)
-
-  it('allows creating a setup as undecided and deciding direction later', async () => {
+  it('creates a setup as undecided, switches setup direction, and drives the chart symbol', async () => {
     renderWithProviders(<SessionPage />)
 
-    expect(await screen.findByText('Chart command center')).toBeInTheDocument()
-
-    fireEvent.click(screen.getAllByRole('button', { name: /Add setup/i })[0])
+    fireEvent.click((await screen.findAllByRole('button', { name: /Add setup/i }))[0])
     const dialog = await screen.findByRole('dialog')
     fireEvent.change(within(dialog).getByLabelText('Symbol'), { target: { value: 'EURUSD' } })
-    fireEvent.change(within(dialog).getByLabelText('Setup title'), { target: { value: 'London context build' } })
+    fireEvent.change(within(dialog).getByLabelText('Setup title'), { target: { value: 'London reclaim' } })
     fireEvent.click(within(dialog).getByRole('button', { name: 'Create' }))
 
-    await waitFor(() => {
-      expect(workspaceApiMock.createSetupCandidate).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({
-          symbol: 'EURUSD',
-          direction: 'UNDECIDED',
-          setupTitle: 'London context build'
-        })
-      )
-    })
+    await waitFor(() => expect(workspaceApiMock.createSetupCandidate).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ symbol: 'EURUSD', direction: 'UNDECIDED', setupTitle: 'London reclaim' })
+    ))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
-    expect(screen.getAllByText('Not decided yet').length).toBeGreaterThan(0)
+    expect(screen.getAllByText(/Not decided yet/i).length).toBeGreaterThan(0)
+    expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15')
 
     fireEvent.mouseDown(screen.getByLabelText('Direction'))
     fireEvent.click(await screen.findByRole('option', { name: 'Long' }))
 
-    await waitFor(() => {
-      expect(workspaceApiMock.updateSetupCandidate).toHaveBeenLastCalledWith(
-        expect.any(String),
-        expect.any(String),
-        expect.objectContaining({
-          direction: 'LONG'
-        })
-      )
-    })
+    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.any(String),
+      expect.objectContaining({ direction: 'LONG' })
+    ))
   })
 
-  it('renders the workstation labels in Romanian', async () => {
-    renderWithProviders(<SessionPage />, 'ro')
+  it('imports a strategy and shows its focused checklist details', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
 
-    expect(await screen.findByText('Importă strategie')).toBeInTheDocument()
-    expect(screen.getByText('Bandă referință')).toBeInTheDocument()
-    expect(screen.getAllByText('Sertar captură trade').length).toBeGreaterThan(0)
+    renderWithProviders(<SessionPage />)
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Import strategy' }))[0])
+    expect(await screen.findByText('London sweep')).toBeInTheDocument()
+    fireEvent.click(screen.getByText('London sweep'))
+    fireEvent.click(screen.getByRole('button', { name: 'Import' }))
+
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    expect(screen.getAllByText('London sweep').length).toBeGreaterThan(0)
+    fireEvent.click(screen.getByRole('tab', { name: 'Confluences' }))
+    expect((await screen.findAllByText('Sweep PDH')).length).toBeGreaterThan(0)
+    expect(screen.getByText('M5 displacement')).toBeInTheDocument()
+  })
+
+  it('configures risk, checks confluences, and enables locking', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+
+    renderWithProviders(<SessionPage />)
+
+    const lockButton = await screen.findByRole('button', { name: 'Lock session' })
+    expect(lockButton).toBeDisabled()
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Risk' }))
+    fireEvent.change(screen.getByLabelText('Max loss'), { target: { value: '150' } })
+    fireEvent.change(screen.getByLabelText('Profit target'), { target: { value: '300' } })
+    fireEvent.change(screen.getByLabelText('Risk per trade'), { target: { value: '75' } })
+    fireEvent.change(screen.getByLabelText('Max trades'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Max consecutive losses'), { target: { value: '2' } })
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Confluences' }))
+    const sweepRow = screen.getByText('Sweep confirmed').closest('.ws-subpanel') as HTMLElement
+    fireEvent.click(within(sweepRow).getAllByRole('checkbox')[0])
+
+    await waitFor(() => expect(workspaceApiMock.updateSessionWorkspace).toHaveBeenCalled())
+    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Lock session' })).not.toBeDisabled(), { timeout: 5000 })
+
+    fireEvent.click(screen.getByRole('button', { name: 'Lock session' }))
+    await waitFor(() => expect(workspaceApiMock.updateSessionWorkspace).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ lockSession: true })
+    ))
+  })
+
+  it('saves weekly and monthly plans from their active tabs', async () => {
+    renderWithProviders(<SessionPage />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Weekly Plan' }))
+    fireEvent.change(screen.getByLabelText('Weekly bias'), { target: { value: 'Short dollar week' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save plan' }))
+
+    await waitFor(() => expect(workspaceApiMock.upsertSessionPeriodPlan).toHaveBeenCalledWith(
+      'WEEKLY',
+      expect.objectContaining({ bias: 'Short dollar week' })
+    ))
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Monthly Plan' }))
+    fireEvent.change(screen.getByLabelText('Monthly bias/context'), { target: { value: 'April continuation context' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save plan' }))
+
+    await waitFor(() => expect(workspaceApiMock.upsertSessionPeriodPlan).toHaveBeenCalledWith(
+      'MONTHLY',
+      expect.objectContaining({ bias: 'April continuation context' })
+    ))
   })
 })
