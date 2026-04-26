@@ -51,6 +51,7 @@ import {
   deleteSessionPlanImage,
   duplicateSetupCandidate,
   getSessionWorkspace,
+  removeSessionPlan,
   selectActiveSetupCandidate,
   startTradeFromSetupCandidate,
   updateSessionWorkspace,
@@ -111,6 +112,10 @@ import { useI18n } from '../i18n'
 import { formatCurrency, formatDate, formatDateTime, formatNumber, formatSignedCurrency } from '../utils/format'
 
 type SideTab = 'STRATEGY' | 'RISK' | 'CONFLUENCES' | 'EXECUTE' | 'JOURNAL'
+type PlanRemovalTarget = {
+  scope: PlanScopeTab
+  plan: PeriodPlan
+}
 
 const planScopeToApiScope = (scope: PlanScopeTab): PlanScope => scope === 'TODAY' ? 'DAILY' : scope
 
@@ -177,6 +182,18 @@ function periodRange(plan?: PeriodPlan | null, timezone?: string) {
   if (!plan) return '—'
   if (plan.periodStart === plan.periodEnd) return formatDate(plan.periodStart, timezone)
   return `${formatDate(plan.periodStart, timezone)} - ${formatDate(plan.periodEnd, timezone)}`
+}
+
+function planScopeLabel(scope: PlanScopeTab) {
+  if (scope === 'WEEKLY') return 'Weekly Plan'
+  if (scope === 'MONTHLY') return 'Monthly Plan'
+  return 'Today Plan'
+}
+
+function planRemovalLead(scope: PlanScopeTab) {
+  if (scope === 'WEEKLY') return 'Remove this Weekly Plan? It will no longer stay pinned for this week.'
+  if (scope === 'MONTHLY') return 'Remove this Monthly Plan? It will no longer stay pinned for this month.'
+  return 'Remove this Today Plan? It will no longer appear on this calendar day or in Session Mode.'
 }
 
 function createEmptySetup(workspace: LiveWorkspaceResponse, draft: CreateSetupDraft): SetupItem {
@@ -299,6 +316,7 @@ export default function SessionPage() {
   const [strategyDetailOpen, setStrategyDetailOpen] = useState(false)
   const [selectedStrategyId, setSelectedStrategyId] = useState<string | null>(null)
   const [feedback, setFeedback] = useState<string | null>(null)
+  const [planRemovalTarget, setPlanRemovalTarget] = useState<PlanRemovalTarget | null>(null)
   const [planImageUploads, setPlanImageUploads] = useState<Record<PlanScopeTab, UploadQueueItem[]>>({
     TODAY: [],
     WEEKLY: [],
@@ -431,6 +449,30 @@ export default function SessionPage() {
     onError: (error) => setFeedback((error as ApiError).message || 'Could not save plan.')
   })
 
+  const removePlanMutation = useMutation({
+    mutationFn: (target: PlanRemovalTarget) => {
+      if (!target.plan.id) {
+        throw new ApiError('Plan not found.')
+      }
+      return removeSessionPlan(planScopeToApiScope(target.scope), target.plan.id)
+    },
+    onSuccess: async (_result, target) => {
+      setPlanRemovalTarget(null)
+      if (target.scope === 'TODAY') {
+        setSelectedSetupId(null)
+        setSetupDraft(null)
+      }
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] }),
+        queryClient.invalidateQueries({ queryKey: ['todayMyPlan'] }),
+        queryClient.invalidateQueries({ queryKey: ['activeTradePlans'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendarPlans'] })
+      ])
+      setFeedback(`${planScopeLabel(target.scope)} removed.`)
+    },
+    onError: (error) => setFeedback((error as ApiError).message || 'Could not remove plan.')
+  })
+
   useEffect(() => {
     const workspace = workspaceQuery.data
     if (!workspace) return
@@ -552,6 +594,8 @@ export default function SessionPage() {
   const riskConfigured = isRiskConfiguredDraft(sessionDraft)
   const canLock = readinessLabel === 'Ready to Lock'
   const autoSaveState = updateSetupMutation.isPending || updateSessionMutation.isPending ? 'Saving...' : 'Saved'
+  const todayPlan = workspace.planningContext?.today
+  const todayPlanActive = todayPlan?.exists !== false
 
   const updateSelectedSetup = (updater: (setup: SetupItem) => SetupItem) => {
     setSetupDraft((current) => current ? ensureExecutionWorkspace(updater(current)) : current)
@@ -678,6 +722,16 @@ export default function SessionPage() {
     if (planScope === 'MONTHLY' && monthlyDraft) {
       periodPlanMutation.mutate({ scope: 'MONTHLY', draft: monthlyDraft })
     }
+  }
+
+  const requestRemovePlan = (scope: PlanScopeTab, plan?: PeriodPlan | null) => {
+    if (!plan?.id || !plan.exists) return
+    setPlanRemovalTarget({ scope, plan })
+  }
+
+  const confirmRemovePlan = () => {
+    if (!planRemovalTarget) return
+    removePlanMutation.mutate(planRemovalTarget)
   }
 
   const updatePlanImageUpload = (scope: PlanScopeTab, id: string, patch: Partial<UploadQueueItem>) => {
@@ -998,7 +1052,20 @@ export default function SessionPage() {
               <Typography variant="h5" sx={{ fontWeight: 900 }}>{scope === 'WEEKLY' ? 'Weekly Plan' : 'Monthly Plan'}</Typography>
               <Typography variant="body2" color="text.secondary">{periodRange(plan, timezone)}</Typography>
             </Stack>
-            <Button variant="contained" onClick={saveCurrentPeriodPlan}>{plan?.exists ? 'Save plan' : 'Create plan'}</Button>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
+              {plan?.exists ? (
+                <Button
+                  variant="text"
+                  color="error"
+                  size="small"
+                  startIcon={<DeleteRoundedIcon />}
+                  onClick={() => requestRemovePlan(scope, plan)}
+                >
+                  Remove plan
+                </Button>
+              ) : null}
+              <Button variant="contained" onClick={saveCurrentPeriodPlan}>{plan?.exists ? 'Save plan' : 'Create plan'}</Button>
+            </Stack>
           </Stack>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.2 }}>
             <TextField label="Title" value={draft?.title || ''} onChange={(event) => setDraft((current) => current ? { ...current, title: event.target.value } : current)} />
@@ -1064,16 +1131,16 @@ export default function SessionPage() {
                 <Typography variant="h4" sx={{ fontWeight: 900 }}>Session Mode</Typography>
               </Stack>
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
-                <Button variant="outlined" startIcon={<ImportExportRoundedIcon />} onClick={openStrategyDialog}>Import strategy</Button>
-                <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => setCreateDialogOpen(true)}>Add setup</Button>
-                <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => planScope === 'TODAY' ? setCreateDialogOpen(true) : saveCurrentPeriodPlan()}>
+                <Button variant="outlined" startIcon={<ImportExportRoundedIcon />} onClick={openStrategyDialog} disabled={!todayPlanActive}>Import strategy</Button>
+                <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => setCreateDialogOpen(true)} disabled={!todayPlanActive}>Add setup</Button>
+                <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => planScope === 'TODAY' ? setCreateDialogOpen(true) : saveCurrentPeriodPlan()} disabled={planScope === 'TODAY' && !todayPlanActive}>
                   Add plan/session
                 </Button>
                 <Button variant="outlined" startIcon={<BoltRoundedIcon />} onClick={(event) => setQuickLogAnchorEl(event.currentTarget)} disabled={!selectedSetup}>Quick log</Button>
                 <Button
                   variant={workspace.session.lockedInAt ? 'outlined' : 'contained'}
                   startIcon={workspace.session.lockedInAt ? <LockOpenRoundedIcon /> : <LockRoundedIcon />}
-                  disabled={!workspace.session.lockedInAt && !canLock}
+                  disabled={!todayPlanActive || (!workspace.session.lockedInAt && !canLock)}
                   onClick={() => updateSessionMutation.mutate({
                     sessionId: workspace.session.id,
                     data: {
@@ -1138,11 +1205,11 @@ export default function SessionPage() {
               </Box>
               <Box className="ws-subpanel" sx={{ p: 1.1 }}>
                 <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>Today Plan</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>{selectedSetup?.setupTitle || 'Create or select a setup'}</Typography>
-                <Typography variant="caption" color="text.secondary">{workspace.session.lockedInAt ? 'Locked for execution' : 'Planning'}</Typography>
+                <Typography variant="body2" sx={{ fontWeight: 900 }}>{todayPlanActive ? selectedSetup?.setupTitle || 'Create or select a setup' : 'No active Today Plan'}</Typography>
+                <Typography variant="caption" color="text.secondary">{todayPlanActive ? workspace.session.lockedInAt ? 'Locked for execution' : 'Planning' : 'Removed from active planning'}</Typography>
                 <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                  <Chip size="small" color="success" label="Visible in Calendar" />
-                  <Chip size="small" variant="outlined" label={`${workspace.planningContext?.today?.imageCount || 0} images`} />
+                  <Chip size="small" color={todayPlanActive ? 'success' : 'default'} label={todayPlanActive ? 'Visible in Calendar' : 'Not active'} />
+                  <Chip size="small" variant="outlined" label={`${todayPlanActive ? workspace.planningContext?.today?.imageCount || 0 : 0} images`} />
                 </Stack>
               </Box>
             </Box>
@@ -1154,20 +1221,48 @@ export default function SessionPage() {
       {planScope === 'MONTHLY' ? periodEditor('MONTHLY', workspace.planningContext?.monthly, monthlyDraft, setMonthlyDraft) : null}
 
       {planScope === 'TODAY' ? (
-        <PlanImagesSection
-          title="Today Plan Images"
-          storageLabel={planCalendarStorageLabel('TODAY', workspace.planningContext?.today)}
-          images={workspace.planningContext?.today?.images || []}
-          uploads={planImageUploads.TODAY}
-          deletingIds={deletingPlanImageIds}
-          onUpload={(files) => void handleUploadPlanImages('TODAY', files)}
-          onDelete={(image) => void handleDeletePlanImage('TODAY', image)}
-          onRetry={() => void queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })}
-          onOpenCalendar={() => openPlanInCalendar('TODAY')}
-        />
+        <Stack spacing={1.25}>
+          <Box className="ws-subpanel" sx={{ p: { xs: 1.25, sm: 1.5 }, minWidth: 0 }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }}>
+              <Stack spacing={0.4} sx={{ minWidth: 0 }}>
+                <Chip size="small" color={todayPlanActive ? 'success' : 'default'} label={todayPlanActive ? 'Active today plan' : 'No active today plan'} />
+                <Typography variant="h5" sx={{ fontWeight: 900 }}>Today Plan</Typography>
+                <Typography variant="body2" color="text.secondary">{periodRange(todayPlan, timezone)}</Typography>
+              </Stack>
+              {todayPlanActive && todayPlan ? (
+                <Button
+                  variant="text"
+                  color="error"
+                  size="small"
+                  startIcon={<DeleteRoundedIcon />}
+                  onClick={() => requestRemovePlan('TODAY', todayPlan)}
+                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+                >
+                  Remove plan
+                </Button>
+              ) : null}
+            </Stack>
+          </Box>
+
+          {todayPlanActive ? (
+            <PlanImagesSection
+              title="Today Plan Images"
+              storageLabel={planCalendarStorageLabel('TODAY', workspace.planningContext?.today)}
+              images={workspace.planningContext?.today?.images || []}
+              uploads={planImageUploads.TODAY}
+              deletingIds={deletingPlanImageIds}
+              onUpload={(files) => void handleUploadPlanImages('TODAY', files)}
+              onDelete={(image) => void handleDeletePlanImage('TODAY', image)}
+              onRetry={() => void queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })}
+              onOpenCalendar={() => openPlanInCalendar('TODAY')}
+            />
+          ) : (
+            <EmptyState title="No active Today Plan" description="The removed plan is hidden from Session Mode and Calendar." icon={<NotesRoundedIcon fontSize="inherit" />} />
+          )}
+        </Stack>
       ) : null}
 
-      {planScope === 'TODAY' ? (
+      {planScope === 'TODAY' && todayPlanActive ? (
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '300px minmax(0, 1fr) 390px' }, gap: 2, alignItems: 'start' }}>
           <Card className="ws-panel" component="aside" sx={{ position: { xl: 'sticky' }, top: { xl: 104 } }}>
             <CardContent sx={{ p: 2 }}>
@@ -1283,6 +1378,26 @@ export default function SessionPage() {
           <MenuItem key={action.id} onClick={() => void handleQuickLogAction(action.id)}>{action.title}</MenuItem>
         ))}
       </Menu>
+
+      <Dialog open={Boolean(planRemovalTarget)} onClose={() => setPlanRemovalTarget(null)} fullWidth maxWidth="xs">
+        <DialogTitle>Remove plan</DialogTitle>
+        <DialogContent sx={{ pt: 1 }}>
+          <Stack spacing={1.25}>
+            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+              {planRemovalTarget ? planRemovalLead(planRemovalTarget.scope) : ''}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Uploaded images will no longer be shown with the removed plan. Setups linked only to this plan will no longer appear in active planning. This does not delete trades or executions already recorded.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ flexDirection: { xs: 'column-reverse', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1, px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 2 } }}>
+          <Button onClick={() => setPlanRemovalTarget(null)} disabled={removePlanMutation.isPending}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={confirmRemovePlan} disabled={removePlanMutation.isPending}>
+            Remove plan
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle>Add setup</DialogTitle>

@@ -198,6 +198,12 @@ public class TodaySession {
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
 
+    @Column(name = "plan_removed_at")
+    private OffsetDateTime planRemovedAt;
+
+    @Column(name = "plan_removed_by_user_id")
+    private UUID planRemovedByUserId;
+
     @PrePersist
     @PreUpdate
     private void applyDefaults() {

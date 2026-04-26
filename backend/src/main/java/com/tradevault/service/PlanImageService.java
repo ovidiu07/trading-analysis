@@ -132,6 +132,12 @@ public class PlanImageService {
         if (resolvedScope == PlanScope.DAILY) {
             TodaySession session = todaySessionRepository.findByUser_IdAndSessionDate(user.getId(), LocalDate.now(zone))
                     .orElseGet(() -> createDefaultTodaySession(user, zone));
+            if (session.getPlanRemovedAt() != null) {
+                if (requireExistingPeriodPlan) {
+                    throw new IllegalArgumentException("Create this Today Plan before uploading images");
+                }
+                return new PlanImageTarget(null, null);
+            }
             return new PlanImageTarget(null, session);
         }
 

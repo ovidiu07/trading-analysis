@@ -156,9 +156,12 @@ public class AssetService {
                 todaySessionId = requireField(request.getTodaySessionId(), "todaySessionId is required for DAILY plan assets");
                 todaySession = todaySessionRepository.findByIdAndUser_Id(todaySessionId, user.getId())
                         .orElseThrow(() -> new EntityNotFoundException("Today session not found"));
+                if (todaySession.getPlanRemovedAt() != null) {
+                    throw new EntityNotFoundException("Today session not found");
+                }
             } else if (planScope == PlanScope.WEEKLY || planScope == PlanScope.MONTHLY) {
                 planId = requireField(request.getPlanId(), "planId is required for WEEKLY and MONTHLY plan assets");
-                plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
+                plan = planRepository.findByIdAndSourceAndAuthorUserIdAndRemovedAtIsNull(planId, PlanSource.USER, user.getId())
                         .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
                 if (plan.getScope() != planScope) {
                     throw new IllegalArgumentException("Plan scope does not match requested image scope");
@@ -290,7 +293,7 @@ public class AssetService {
     @Transactional(readOnly = true)
     public List<AssetResponse> listByPlan(UUID planId) {
         User user = currentUserService.getCurrentUser();
-        Plan plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
+        Plan plan = planRepository.findByIdAndSourceAndAuthorUserIdAndRemovedAtIsNull(planId, PlanSource.USER, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
         return planAssetRepository.findByPlan_IdOrderBySortOrderAscCreatedAtAsc(plan.getId()).stream()
                 .map(relation -> toResponse(relation.getAsset(), null, null, null, null))
@@ -302,6 +305,9 @@ public class AssetService {
         User user = currentUserService.getCurrentUser();
         TodaySession todaySession = todaySessionRepository.findByIdAndUser_Id(todaySessionId, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Today session not found"));
+        if (todaySession.getPlanRemovedAt() != null) {
+            return List.of();
+        }
         return planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(todaySession.getId()).stream()
                 .map(relation -> toResponse(relation.getAsset(), null, null, null, null))
                 .toList();

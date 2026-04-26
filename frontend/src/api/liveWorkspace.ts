@@ -377,6 +377,12 @@ export async function upsertSessionPeriodPlan(scope: 'WEEKLY' | 'MONTHLY', paylo
   return apiPost<LiveWorkspaceResponse>(`/today/session/plans/${encodeURIComponent(scope)}`, payload)
 }
 
+export async function removeSessionPlan(scope: PlanScope, planId: string) {
+  return apiDelete(
+    `/today/session/plans/${encodeURIComponent(scope)}/${encodeURIComponent(planId)}`
+  )
+}
+
 export async function listSessionPlanImages(scope: PlanScope) {
   return apiGet<PlanImage[]>(`/today/session/plans/${encodeURIComponent(scope)}/images`)
 }

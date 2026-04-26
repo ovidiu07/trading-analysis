@@ -20,6 +20,7 @@ const workspaceApiMock = vi.hoisted(() => ({
   selectActiveSetupCandidate: vi.fn(),
   startTradeFromSetupCandidate: vi.fn(),
   upsertSessionPeriodPlan: vi.fn(),
+  removeSessionPlan: vi.fn(),
   uploadSessionPlanImages: vi.fn(),
   deleteSessionPlanImage: vi.fn(),
   listSessionPlanImages: vi.fn()
@@ -392,6 +393,37 @@ function setupMocks() {
   workspaceApiMock.uploadSessionPlanImages.mockResolvedValue([])
   workspaceApiMock.deleteSessionPlanImage.mockResolvedValue(undefined)
   workspaceApiMock.listSessionPlanImages.mockResolvedValue([])
+  workspaceApiMock.removeSessionPlan.mockImplementation(async (scope: 'DAILY' | 'WEEKLY' | 'MONTHLY', planId: string) => {
+    if (scope === 'DAILY') {
+      workspaceState.planningContext!.today = {
+        ...workspaceState.planningContext!.today,
+        exists: false,
+        images: [],
+        imageCount: 0
+      }
+      workspaceState.setups = []
+      workspaceState.activeSetupId = null
+    }
+    if (scope === 'WEEKLY' && workspaceState.planningContext!.weekly.id === planId) {
+      workspaceState.planningContext!.weekly = {
+        ...workspaceState.planningContext!.weekly,
+        id: null,
+        exists: false,
+        images: [],
+        imageCount: 0
+      }
+    }
+    if (scope === 'MONTHLY' && workspaceState.planningContext!.monthly.id === planId) {
+      workspaceState.planningContext!.monthly = {
+        ...workspaceState.planningContext!.monthly,
+        id: null,
+        exists: false,
+        images: [],
+        imageCount: 0
+      }
+    }
+    return clone(workspaceState)
+  })
   workspaceApiMock.upsertSessionPeriodPlan.mockImplementation(async (scope: 'WEEKLY' | 'MONTHLY', payload: Partial<LiveWorkspaceResponse['planningContext']['weekly']>) => {
     const key = scope === 'WEEKLY' ? 'weekly' : 'monthly'
     workspaceState.planningContext = {
@@ -550,5 +582,22 @@ describe('SessionPage trader plan workstation', () => {
       'MONTHLY',
       expect.objectContaining({ bias: 'April continuation context' })
     ))
+  })
+
+  it('confirms and removes the active Today Plan from Session Mode', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+
+    renderWithProviders(<SessionPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove plan' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Remove plan' })
+    expect(within(dialog).getByText('Remove this Today Plan? It will no longer appear on this calendar day or in Session Mode.')).toBeInTheDocument()
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Remove plan' }))
+
+    await waitFor(() => expect(workspaceApiMock.removeSessionPlan).toHaveBeenCalledWith('DAILY', 'session-1'))
+    expect((await screen.findAllByText('No active Today Plan')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('London reclaim')).not.toBeInTheDocument()
   })
 })

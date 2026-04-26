@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   alpha,
   Alert,
@@ -24,12 +24,14 @@ import {
 import ChevronLeftIcon from '@mui/icons-material/ChevronLeft'
 import ChevronRightIcon from '@mui/icons-material/ChevronRight'
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
+import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
 import ImageOutlinedIcon from '@mui/icons-material/ImageOutlined'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import PushPinRoundedIcon from '@mui/icons-material/PushPinRounded'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
 import { CalendarPlanSummary, fetchCalendarPlans } from '../api/calendar'
+import { removeSessionPlan } from '../api/liveWorkspace'
 import { DailyPnlResponse, DailySummaryResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
@@ -91,6 +93,12 @@ function buildDailySummaryFromTrades(dateKey: string, trades: TradeResponse[]): 
   }
 }
 
+function planRemovalLead(plan: CalendarPlanSummary) {
+  if (plan.scope === 'WEEKLY') return 'Remove this Weekly Plan? It will no longer stay pinned for this week.'
+  if (plan.scope === 'MONTHLY') return 'Remove this Monthly Plan? It will no longer stay pinned for this month.'
+  return 'Remove this Today Plan? It will no longer appear on this calendar day or in Session Mode.'
+}
+
 export default function CalendarPage() {
   const { t, locale } = useI18n()
   const theme = useTheme()
@@ -126,6 +134,8 @@ export default function CalendarPage() {
   const [selectedError, setSelectedError] = useState('')
   const [selectedNotesLoading, setSelectedNotesLoading] = useState(false)
   const [selectedNotesError, setSelectedNotesError] = useState('')
+  const [planPendingRemoval, setPlanPendingRemoval] = useState<CalendarPlanSummary | null>(null)
+  const [removingPlan, setRemovingPlan] = useState(false)
 
   const monthStart = useMemo(() => startOfMonth(currentMonth), [currentMonth])
   const monthEnd = useMemo(() => endOfMonth(currentMonth), [currentMonth])
@@ -181,32 +191,25 @@ export default function CalendarPage() {
     fetchData()
   }, [calendarEnd, calendarStart, timezone, refreshToken])
 
+  const reloadCalendarPlans = useCallback(async () => {
+    setCalendarPlansLoading(true)
+    setCalendarPlansError('')
+    try {
+      const from = format(calendarStart, 'yyyy-MM-dd')
+      const to = format(calendarEnd, 'yyyy-MM-dd')
+      const data = await fetchCalendarPlans({ from, to, tz: timezone })
+      setCalendarPlans(data)
+    } catch (err) {
+      setCalendarPlans({ dailyPlans: [] })
+      setCalendarPlansError(translateApiError(err, t, 'calendar.errors.loadCalendar'))
+    } finally {
+      setCalendarPlansLoading(false)
+    }
+  }, [calendarEnd, calendarStart, timezone, t])
+
   useEffect(() => {
-    let active = true
-    const fetchPlans = async () => {
-      setCalendarPlansLoading(true)
-      setCalendarPlansError('')
-      try {
-        const from = format(calendarStart, 'yyyy-MM-dd')
-        const to = format(calendarEnd, 'yyyy-MM-dd')
-        const data = await fetchCalendarPlans({ from, to, tz: timezone })
-        if (!active) return
-        setCalendarPlans(data)
-      } catch (err) {
-        if (!active) return
-        setCalendarPlans({ dailyPlans: [] })
-        setCalendarPlansError(translateApiError(err, t, 'calendar.errors.loadCalendar'))
-      } finally {
-        if (active) {
-          setCalendarPlansLoading(false)
-        }
-      }
-    }
-    fetchPlans()
-    return () => {
-      active = false
-    }
-  }, [calendarEnd, calendarStart, timezone, refreshToken, t])
+    void reloadCalendarPlans()
+  }, [reloadCalendarPlans, refreshToken])
 
   useEffect(() => {
     let active = true
@@ -399,6 +402,21 @@ export default function CalendarPage() {
     handleCloseDialog()
   }
 
+  const confirmRemovePlan = async () => {
+    if (!planPendingRemoval) return
+    setRemovingPlan(true)
+    setCalendarPlansError('')
+    try {
+      await removeSessionPlan(planPendingRemoval.scope, planPendingRemoval.id)
+      setPlanPendingRemoval(null)
+      await reloadCalendarPlans()
+    } catch (err) {
+      setCalendarPlansError(translateApiError(err, t, 'calendar.errors.loadCalendar'))
+    } finally {
+      setRemovingPlan(false)
+    }
+  }
+
   const planRangeLabel = (plan: CalendarPlanSummary) => (
     plan.periodStart === plan.periodEnd
       ? plan.periodStart
@@ -441,15 +459,27 @@ export default function CalendarPage() {
               <Chip size="small" icon={<ImageOutlinedIcon />} label={`${plan.imageCount || 0} images`} />
             </Stack>
           </Stack>
-          <Button
-            variant="outlined"
-            size="small"
-            startIcon={<OpenInNewRoundedIcon />}
-            onClick={() => openSessionPlan(plan)}
-            sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
-          >
-            Open plan
-          </Button>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}>
+            <Button
+              variant="text"
+              color="error"
+              size="small"
+              startIcon={<DeleteRoundedIcon />}
+              onClick={() => setPlanPendingRemoval(plan)}
+              sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+            >
+              Remove plan
+            </Button>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<OpenInNewRoundedIcon />}
+              onClick={() => openSessionPlan(plan)}
+              sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+            >
+              Open plan
+            </Button>
+          </Stack>
         </Stack>
       ) : (
         <Stack spacing={0.5}>
@@ -905,6 +935,32 @@ export default function CalendarPage() {
       </Card>
 
       <Dialog
+        open={Boolean(planPendingRemoval)}
+        onClose={() => setPlanPendingRemoval(null)}
+        fullWidth
+        fullScreen={isMobile}
+        maxWidth="xs"
+      >
+        <DialogTitle>Remove plan</DialogTitle>
+        <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 } }}>
+          <Stack spacing={1.25}>
+            <Typography variant="body1" sx={{ fontWeight: 700 }}>
+              {planPendingRemoval ? planRemovalLead(planPendingRemoval) : ''}
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Uploaded images will no longer be shown with the removed plan. Setups linked only to this plan will no longer appear in active planning. This does not delete trades or executions already recorded.
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions sx={{ flexDirection: { xs: 'column-reverse', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1, px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 2 } }}>
+          <Button onClick={() => setPlanPendingRemoval(null)} disabled={removingPlan} fullWidth={isMobile}>Cancel</Button>
+          <Button color="error" variant="contained" onClick={() => void confirmRemovePlan()} disabled={removingPlan} fullWidth={isMobile}>
+            Remove plan
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog
         open={!!selectedDate}
         onClose={handleCloseDialog}
         fullWidth
@@ -933,15 +989,27 @@ export default function CalendarPage() {
                     <Chip size="small" icon={<ImageOutlinedIcon />} label={`${selectedPlan.imageCount || 0} images`} />
                   </Stack>
                 </Stack>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<OpenInNewRoundedIcon />}
-                  onClick={() => openSessionPlan(selectedPlan)}
-                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
-                >
-                  Open plan
-                </Button>
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}>
+                  <Button
+                    variant="text"
+                    color="error"
+                    size="small"
+                    startIcon={<DeleteRoundedIcon />}
+                    onClick={() => setPlanPendingRemoval(selectedPlan)}
+                    sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+                  >
+                    Remove plan
+                  </Button>
+                  <Button
+                    variant="outlined"
+                    size="small"
+                    startIcon={<OpenInNewRoundedIcon />}
+                    onClick={() => openSessionPlan(selectedPlan)}
+                    sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+                  >
+                    Open plan
+                  </Button>
+                </Stack>
               </Stack>
             </Box>
           ) : null}

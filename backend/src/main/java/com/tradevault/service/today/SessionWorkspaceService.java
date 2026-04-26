@@ -121,6 +121,12 @@ public class SessionWorkspaceService {
         TodaySession session = todaySessionRepository.findByUser_IdAndSessionDate(user.getId(), resolveSessionDate(zone))
                 .orElseGet(() -> createDefaultSession(user, zone));
         session.setLiveModeOnly(Boolean.TRUE);
+        if (isTodayPlanRemoved(session)) {
+            if (session.getActiveSetupId() != null) {
+                session.setActiveSetupId(null);
+            }
+            return toWorkspace(todaySessionRepository.save(session), List.of(), user.getId());
+        }
         ensureLegacySetupBackfill(session, user);
         List<SessionSetup> setups = loadSetups(session, user.getId());
         if (session.getActiveSetupId() == null && !setups.isEmpty()) {
@@ -160,6 +166,46 @@ public class SessionWorkspaceService {
             today.setActiveSetupId(setups.get(0).getId());
             todaySessionRepository.save(today);
         }
+        return toWorkspace(today, setups, user.getId());
+    }
+
+    @Transactional
+    public SessionWorkspaceResponse removePlan(PlanScope scope, UUID planId) {
+        User user = currentUserService.getCurrentUser();
+        ZoneId zone = timezoneService.resolveZone(null, user);
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
+
+        if (scope == PlanScope.DAILY) {
+            TodaySession session = requireSession(user, planId);
+            if (session.getPlanRemovedAt() == null) {
+                session.setPlanRemovedAt(now);
+                session.setPlanRemovedByUserId(user.getId());
+                session.setActiveSetupId(null);
+            }
+            TodaySession saved = todaySessionRepository.save(session);
+            return toWorkspace(saved, List.of(), user.getId());
+        }
+
+        if (scope != PlanScope.WEEKLY && scope != PlanScope.MONTHLY) {
+            throw new IllegalArgumentException("Unsupported plan scope");
+        }
+
+        Plan plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
+        if (plan.getScope() != scope) {
+            throw new EntityNotFoundException("Plan not found");
+        }
+        if (plan.getRemovedAt() == null) {
+            plan.setRemovedAt(now);
+            plan.setRemovedByUserId(user.getId());
+            plan.setUpdatedAt(now);
+            planRepository.save(plan);
+        }
+
+        TodaySession today = todaySessionRepository.findByUser_IdAndSessionDate(user.getId(), resolveSessionDate(zone))
+                .orElseGet(() -> createDefaultSession(user, zone));
+        today.setLiveModeOnly(Boolean.TRUE);
+        List<SessionSetup> setups = isTodayPlanRemoved(today) ? List.of() : loadSetups(today, user.getId());
         return toWorkspace(today, setups, user.getId());
     }
 
@@ -588,14 +634,15 @@ public class SessionWorkspaceService {
     private SessionWorkspaceResponse toWorkspace(TodaySession session, List<SessionSetup> setups, UUID userId) {
         List<Trade> sessionTrades = loadTrades(userId, session.getId());
         String narrative = resolveNarrativeText(session.getId(), userId);
-        SessionSetup activeSetup = resolveActiveSetup(session, setups);
-        SessionReadiness sessionReadiness = computeSessionReadiness(session, setups, activeSetup, sessionTrades);
+        List<SessionSetup> activePlanningSetups = isTodayPlanRemoved(session) ? List.of() : setups;
+        SessionSetup activeSetup = resolveActiveSetup(session, activePlanningSetups);
+        SessionReadiness sessionReadiness = computeSessionReadiness(session, activePlanningSetups, activeSetup, sessionTrades);
         Map<UUID, Trade> tradesById = new LinkedHashMap<>();
         for (Trade trade : sessionTrades) {
             tradesById.put(trade.getId(), trade);
         }
 
-        List<SessionSetup> orderedSetups = new ArrayList<>(setups);
+        List<SessionSetup> orderedSetups = new ArrayList<>(activePlanningSetups);
         orderedSetups.sort(Comparator.comparing(SessionSetup::getSortOrder).thenComparing(SessionSetup::getCreatedAt));
 
         List<SessionWorkspaceResponse.SetupItem> setupItems = orderedSetups.stream()
@@ -681,7 +728,7 @@ public class SessionWorkspaceService {
                         .readiness(sessionReadiness.readiness())
                         .warnings(warnings)
                         .build())
-                .activeSetupId(session.getActiveSetupId())
+                .activeSetupId(isTodayPlanRemoved(session) ? null : session.getActiveSetupId())
                 .setups(setupItems)
                 .activity(sessionTrades.stream().map(trade -> toActivityTrade(trade, orderedSetups)).toList())
                 .build();
@@ -839,7 +886,10 @@ public class SessionWorkspaceService {
                 .stream()
                 .findFirst()
                 .orElse(null);
-        List<PlanAsset> todayImages = planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(session.getId());
+        boolean todayPlanRemoved = isTodayPlanRemoved(session);
+        List<PlanAsset> todayImages = todayPlanRemoved
+                ? List.of()
+                : planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(session.getId());
         List<PlanAsset> weeklyImages = weekly == null
                 ? List.of()
                 : planAssetRepository.findByPlan_IdOrderBySortOrderAscCreatedAtAsc(weekly.getId());
@@ -849,8 +899,12 @@ public class SessionWorkspaceService {
         return SessionWorkspaceResponse.PlanningContext.builder()
                 .monthly(toPeriodPlan(monthly, PlanScope.MONTHLY, monthWindow, monthlyImages))
                 .weekly(toPeriodPlan(weekly, PlanScope.WEEKLY, weekWindow, weeklyImages))
-                .today(toTodayPeriodPlan(session, zone, todayImages))
+                .today(todayPlanRemoved ? toRemovedTodayPeriodPlan(session, zone) : toTodayPeriodPlan(session, zone, todayImages))
                 .build();
+    }
+
+    private boolean isTodayPlanRemoved(TodaySession session) {
+        return session != null && session.getPlanRemovedAt() != null;
     }
 
     private SessionWorkspaceResponse.PeriodPlan toTodayPeriodPlan(TodaySession session, ZoneId zone, List<PlanAsset> imageRows) {
@@ -875,6 +929,30 @@ public class SessionWorkspaceService {
                 .images(images)
                 .imageCount(images.size())
                 .thumbnailUrl(firstThumbnail(images))
+                .build();
+    }
+
+    private SessionWorkspaceResponse.PeriodPlan toRemovedTodayPeriodPlan(TodaySession session, ZoneId zone) {
+        LocalDate day = session.getSessionDate();
+        return SessionWorkspaceResponse.PeriodPlan.builder()
+                .id(session.getId())
+                .scope(PlanScope.DAILY)
+                .title("Today Plan")
+                .bias(null)
+                .focusSymbols(List.of())
+                .objectives(null)
+                .target(null)
+                .maxLoss(null)
+                .notes(null)
+                .reviewIntentions(null)
+                .periodStart(day)
+                .periodEnd(day)
+                .activeFrom(day.atStartOfDay(zone).toOffsetDateTime())
+                .activeTo(day.plusDays(1).atStartOfDay(zone).minusNanos(1).toOffsetDateTime())
+                .exists(Boolean.FALSE)
+                .images(List.of())
+                .imageCount(0)
+                .thumbnailUrl(null)
                 .build();
     }
 

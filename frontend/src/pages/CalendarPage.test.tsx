@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { beforeEach, beforeAll, vi } from 'vitest'
 import CalendarPage from './CalendarPage'
@@ -17,6 +17,7 @@ const mockFetchMonthlyPnlSummary = vi.fn()
 const mockListClosedTradesForDate = vi.fn()
 const mockListNotebookNotesByDate = vi.fn()
 const mockFetchCalendarPlans = vi.fn()
+const mockRemoveSessionPlan = vi.fn()
 
 vi.mock('../api/trades', async () => {
   const actual = await vi.importActual<typeof import('../api/trades')>('../api/trades')
@@ -38,6 +39,10 @@ vi.mock('../api/notebook', async () => {
 
 vi.mock('../api/calendar', () => ({
   fetchCalendarPlans: (...args: unknown[]) => mockFetchCalendarPlans(...args)
+}))
+
+vi.mock('../api/liveWorkspace', () => ({
+  removeSessionPlan: (...args: unknown[]) => mockRemoveSessionPlan(...args)
 }))
 
 const buildSummary = (month: number, netPnl: number): MonthlyPnlSummaryResponse => ({
@@ -73,6 +78,7 @@ describe('CalendarPage', () => {
     localStorage.setItem('app.language', 'en')
     mockFetchDailyPnl.mockResolvedValue([])
     mockFetchCalendarPlans.mockResolvedValue({ activeMonthlyPlan: null, activeWeeklyPlan: null, dailyPlans: [] })
+    mockRemoveSessionPlan.mockResolvedValue(undefined)
     mockListClosedTradesForDate.mockResolvedValue([])
     mockListNotebookNotesByDate.mockResolvedValue([])
   })
@@ -184,5 +190,64 @@ describe('CalendarPage', () => {
     expect(await screen.findByText('By account')).toBeInTheDocument()
     expect(screen.getByText('APEX4855840000003')).toBeInTheDocument()
     expect(screen.getByText('APEX4855840000004')).toBeInTheDocument()
+  })
+
+  it('removes a Today Plan badge while keeping realized P&L visible', async () => {
+    const activeDateKey = format(new Date(new Date().getFullYear(), new Date().getMonth(), 17), 'yyyy-MM-dd')
+    const month = Number(activeDateKey.slice(5, 7))
+    const dailyPlan = {
+      id: 'session-17',
+      scope: 'DAILY',
+      title: 'Today Plan',
+      bias: 'LONG',
+      objectives: 'A+ only',
+      focusSymbols: [],
+      periodStart: activeDateKey,
+      periodEnd: activeDateKey,
+      setupCount: 1,
+      imageCount: 1,
+      hasImages: true
+    }
+
+    mockFetchMonthlyPnlSummary.mockResolvedValue(buildSummary(month, 1200))
+    mockFetchDailyPnl.mockResolvedValue([
+      { date: activeDateKey, netPnl: 430, tradeCount: 2, wins: 2, losses: 0 }
+    ])
+    mockFetchCalendarPlans
+      .mockResolvedValueOnce({ activeMonthlyPlan: null, activeWeeklyPlan: null, dailyPlans: [dailyPlan] })
+      .mockResolvedValue({ activeMonthlyPlan: null, activeWeeklyPlan: null, dailyPlans: [] })
+
+    render(
+      <MemoryRouter>
+        <AuthProvider>
+          <I18nProvider>
+            <ThemeProvider theme={theme}>
+              <CalendarPage />
+            </ThemeProvider>
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+
+    const user = userEvent.setup()
+    await waitFor(() => {
+      expect(mockFetchCalendarPlans).toHaveBeenCalled()
+    })
+    await waitFor(() => {
+      expect(screen.getByLabelText(new RegExp(`Today Plan saved in Calendar`))).toBeInTheDocument()
+    })
+
+    await user.click(screen.getByLabelText(new RegExp(`View realized P&L for ${activeDateKey}`)))
+    expect((await screen.findAllByText('Today Plan')).length).toBeGreaterThan(0)
+    expect(screen.getByText(formatSignedCurrency(430, 'USD'))).toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: 'Remove plan' }))
+    const dialog = await screen.findByRole('dialog', { name: 'Remove plan' })
+    expect(within(dialog).getByText('Remove this Today Plan? It will no longer appear on this calendar day or in Session Mode.')).toBeInTheDocument()
+    await user.click(within(dialog).getByRole('button', { name: 'Remove plan' }))
+
+    await waitFor(() => expect(mockRemoveSessionPlan).toHaveBeenCalledWith('DAILY', 'session-17'))
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove plan' })).not.toBeInTheDocument())
+    expect(screen.getByText(formatSignedCurrency(430, 'USD'))).toBeInTheDocument()
   })
 })

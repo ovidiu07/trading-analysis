@@ -31,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -184,7 +185,7 @@ class PlanControllerTest {
     }
 
     @Test
-    void deleteMyPlanRemovesOwnedPlan() throws Exception {
+    void deleteMyPlanSoftRemovesOwnedPlan() throws Exception {
         User owner = userRepository.save(User.builder()
                 .email("owner2@example.com")
                 .passwordHash("hash")
@@ -216,6 +217,50 @@ class PlanControllerTest {
                         .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
+
+        Plan persisted = planRepository.findById(ownersPlan.getId()).orElseThrow();
+        assertThat(persisted.getRemovedAt()).isNotNull();
+        assertThat(persisted.getRemovedByUserId()).isEqualTo(owner.getId());
+    }
+
+    @Test
+    void deleteMyPlanCannotRemoveAnotherUsersPlan() throws Exception {
+        User owner = userRepository.save(User.builder()
+                .email("owner-remove@example.com")
+                .passwordHash("hash")
+                .role(Role.USER)
+                .timezone("Europe/Bucharest")
+                .build());
+
+        User intruder = userRepository.save(User.builder()
+                .email("intruder-remove@example.com")
+                .passwordHash("hash")
+                .role(Role.USER)
+                .timezone("Europe/Bucharest")
+                .build());
+
+        Plan ownersPlan = planRepository.save(Plan.builder()
+                .scope(PlanScope.DAILY)
+                .source(PlanSource.USER)
+                .authorUserId(owner.getId())
+                .authorDisplayName("owner")
+                .title("Owner plan")
+                .content("content")
+                .activeFrom(OffsetDateTime.parse("2026-02-06T00:00:00+02:00"))
+                .activeTo(OffsetDateTime.parse("2026-02-06T23:59:59+02:00"))
+                .featured(false)
+                .createdAt(OffsetDateTime.now())
+                .updatedAt(OffsetDateTime.now())
+                .build());
+
+        String token = jwtTokenProvider.createToken(intruder.getId(), intruder.getEmail());
+
+        mockMvc.perform(delete("/api/plans/my/{planId}", ownersPlan.getId())
+                        .header(HttpHeaders.AUTHORIZATION, "Bearer " + token))
+                .andExpect(status().isNotFound());
+
+        Plan persisted = planRepository.findById(ownersPlan.getId()).orElseThrow();
+        assertThat(persisted.getRemovedAt()).isNull();
     }
 
     @Test

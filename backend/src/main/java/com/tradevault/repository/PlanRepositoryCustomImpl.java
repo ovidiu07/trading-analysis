@@ -35,6 +35,7 @@ public class PlanRepositoryCustomImpl implements PlanRepositoryCustom {
         List<Predicate> predicates = new ArrayList<>();
         predicates.add(criteriaBuilder.equal(plan.get("source"), source));
         predicates.add(criteriaBuilder.equal(plan.get("authorUserId"), authorUserId));
+        predicates.add(criteriaBuilder.isNull(plan.get("removedAt")));
 
         if (scope != null) {
             predicates.add(criteriaBuilder.equal(plan.get("scope"), scope));

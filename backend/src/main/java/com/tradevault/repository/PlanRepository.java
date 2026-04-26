@@ -20,6 +20,7 @@ public interface PlanRepository extends JpaRepository<Plan, UUID>, PlanRepositor
         WHERE p.source = :source
           AND p.scope = :scope
           AND p.featured = true
+          AND p.removedAt IS NULL
           AND p.activeFrom <= :windowEnd
           AND p.activeTo >= :windowStart
         ORDER BY p.activeFrom DESC, p.createdAt DESC
@@ -35,6 +36,7 @@ public interface PlanRepository extends JpaRepository<Plan, UUID>, PlanRepositor
         WHERE p.source = :source
           AND p.scope = :scope
           AND p.authorUserId = :authorUserId
+          AND p.removedAt IS NULL
           AND p.activeFrom <= :windowEnd
           AND p.activeTo >= :windowStart
         ORDER BY p.activeFrom DESC, p.updatedAt DESC
@@ -47,12 +49,15 @@ public interface PlanRepository extends JpaRepository<Plan, UUID>, PlanRepositor
 
     Optional<Plan> findByIdAndSourceAndAuthorUserId(UUID id, PlanSource source, UUID authorUserId);
 
+    Optional<Plan> findByIdAndSourceAndAuthorUserIdAndRemovedAtIsNull(UUID id, PlanSource source, UUID authorUserId);
+
     @Query("""
         SELECT p
         FROM Plan p
         WHERE p.source = :source
           AND p.scope = :scope
           AND p.featured = true
+          AND p.removedAt IS NULL
           AND p.activeFrom <= :moment
           AND p.activeTo >= :moment
         ORDER BY p.activeFrom DESC, p.updatedAt DESC
@@ -67,6 +72,7 @@ public interface PlanRepository extends JpaRepository<Plan, UUID>, PlanRepositor
         WHERE p.source = :source
           AND p.scope = :scope
           AND p.authorUserId = :authorUserId
+          AND p.removedAt IS NULL
           AND p.activeFrom <= :moment
           AND p.activeTo >= :moment
         ORDER BY p.activeFrom DESC, p.updatedAt DESC

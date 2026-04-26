@@ -11,6 +11,7 @@ import com.tradevault.dto.session.UpsertSessionPlanRequest;
 import com.tradevault.dto.session.UpsertSessionSetupRequest;
 import com.tradevault.service.today.SessionWorkspaceService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -42,6 +43,12 @@ public class SessionWorkspaceController {
     public SessionWorkspaceResponse upsertPeriodPlan(@PathVariable PlanScope scope,
                                                      @RequestBody UpsertSessionPlanRequest request) {
         return sessionWorkspaceService.upsertPeriodPlan(scope, request);
+    }
+
+    @DeleteMapping("/plans/{scope}/{planId}")
+    public SessionWorkspaceResponse removePlan(@PathVariable PlanScope scope,
+                                               @PathVariable UUID planId) {
+        return sessionWorkspaceService.removePlan(scope, planId);
     }
 
     @PostMapping("/{sessionId}/setups")

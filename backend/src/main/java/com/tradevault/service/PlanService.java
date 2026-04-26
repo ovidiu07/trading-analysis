@@ -84,7 +84,7 @@ public class PlanService {
     @Transactional
     public PlanResponse updateMyPlan(UUID planId, MyPlanRequest request) {
         User user = currentUserService.getCurrentUser();
-        Plan plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
+        Plan plan = planRepository.findByIdAndSourceAndAuthorUserIdAndRemovedAtIsNull(planId, PlanSource.USER, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
 
         ZoneId zone = timezoneService.resolveZone(null, user);
@@ -106,7 +106,13 @@ public class PlanService {
         User user = currentUserService.getCurrentUser();
         Plan plan = planRepository.findByIdAndSourceAndAuthorUserId(planId, PlanSource.USER, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
-        planRepository.delete(plan);
+        if (plan.getRemovedAt() == null) {
+            OffsetDateTime now = OffsetDateTime.now();
+            plan.setRemovedAt(now);
+            plan.setRemovedByUserId(user.getId());
+            plan.setUpdatedAt(now);
+            planRepository.save(plan);
+        }
     }
 
     public List<PlanResponse> listMyPlans(PlanScope scope, OffsetDateTime from, OffsetDateTime to) {

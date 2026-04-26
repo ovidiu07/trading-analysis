@@ -143,6 +143,38 @@ class TradeCalendarServicePlanSummaryTest {
         });
     }
 
+    @Test
+    void removedTodayPlanIsHiddenFromCalendarPlansButDoesNotAffectCalendarResponse() {
+        LocalDate today = LocalDate.now(zone);
+        LocalDate from = today.withDayOfMonth(1);
+        LocalDate to = today.with(TemporalAdjusters.lastDayOfMonth());
+
+        TodaySession removedSession = TodaySession.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .sessionDate(today)
+                .profitTarget(BigDecimal.ZERO)
+                .lossLimit(BigDecimal.ZERO)
+                .maxTrades(1)
+                .status(TodaySessionStatus.ACTIVE)
+                .lockInBias("LONG")
+                .lockInObjective("A+ only")
+                .planRemovedAt(OffsetDateTime.now(zone))
+                .planRemovedByUserId(user.getId())
+                .build();
+
+        when(todaySessionRepository.findByUser_IdAndSessionDateBetweenOrderBySessionDateAsc(user.getId(), from, to))
+                .thenReturn(List.of(removedSession));
+        when(planRepository.findUserActiveByWindow(any(), any(), eq(user.getId()), any(), any()))
+                .thenReturn(List.of());
+
+        var response = tradeCalendarService.fetchPlanSummaries(from, to, null);
+
+        assertThat(response.getDailyPlans()).isEmpty();
+        assertThat(response.getActiveWeeklyPlan()).isNull();
+        assertThat(response.getActiveMonthlyPlan()).isNull();
+    }
+
     private Plan buildPlan(PlanScope scope, String title, String content) {
         return Plan.builder()
                 .id(UUID.randomUUID())

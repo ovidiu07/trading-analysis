@@ -147,8 +147,11 @@ public class TradeCalendarService {
             dailySessions.add(createDefaultTodaySession(user, today));
         }
 
-        Map<UUID, List<PlanAsset>> sessionImages = mapImagesByTodaySession(dailySessions);
-        List<CalendarPlanSummaryResponse> dailyPlans = dailySessions.stream()
+        List<TodaySession> activeDailyPlanSessions = dailySessions.stream()
+                .filter(session -> session.getPlanRemovedAt() == null)
+                .toList();
+        Map<UUID, List<PlanAsset>> sessionImages = mapImagesByTodaySession(activeDailyPlanSessions);
+        List<CalendarPlanSummaryResponse> dailyPlans = activeDailyPlanSessions.stream()
                 .sorted(java.util.Comparator.comparing(TodaySession::getSessionDate))
                 .map(session -> toDailySummary(session, zone, sessionImages.getOrDefault(session.getId(), List.of())))
                 .toList();

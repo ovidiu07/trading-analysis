@@ -75,4 +75,10 @@ public class Plan {
 
     @Column(name = "updated_at", nullable = false)
     private OffsetDateTime updatedAt;
+
+    @Column(name = "removed_at")
+    private OffsetDateTime removedAt;
+
+    @Column(name = "removed_by_user_id")
+    private UUID removedByUserId;
 }

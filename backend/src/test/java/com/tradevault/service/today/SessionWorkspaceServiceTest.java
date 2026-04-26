@@ -246,6 +246,51 @@ class SessionWorkspaceServiceTest {
     }
 
     @Test
+    void removeTodayPlanSoftRemovesPlanAndHidesActivePlanningData() throws Exception {
+        SessionSetup setup = lockableSetup(true);
+        setups.add(setup);
+        session.setActiveSetupId(setup.getId());
+        when(todaySessionRepository.findByIdAndUser_Id(session.getId(), user.getId()))
+                .thenReturn(Optional.of(session));
+
+        var response = sessionWorkspaceService.removePlan(PlanScope.DAILY, session.getId());
+
+        assertThat(session.getPlanRemovedAt()).isNotNull();
+        assertThat(session.getPlanRemovedByUserId()).isEqualTo(user.getId());
+        assertThat(session.getActiveSetupId()).isNull();
+        assertThat(response.getPlanningContext().getToday().getExists()).isFalse();
+        assertThat(response.getPlanningContext().getToday().getImages()).isEmpty();
+        assertThat(response.getSetups()).isEmpty();
+        assertThat(response.getActiveSetupId()).isNull();
+    }
+
+    @Test
+    void removeWeeklyPlanSoftRemovesOwnedPlanAndReturnsWorkspaceWithoutPinnedWeeklyPlan() {
+        Plan weekly = Plan.builder()
+                .id(UUID.randomUUID())
+                .scope(PlanScope.WEEKLY)
+                .source(PlanSource.USER)
+                .authorUserId(user.getId())
+                .title("Weekly prep")
+                .content("{\"title\":\"Weekly prep\"}")
+                .activeFrom(OffsetDateTime.parse("2026-03-02T00:00:00+02:00"))
+                .activeTo(OffsetDateTime.parse("2026-03-08T23:59:59+02:00"))
+                .createdAt(OffsetDateTime.parse("2026-03-02T06:00:00Z"))
+                .updatedAt(OffsetDateTime.parse("2026-03-02T06:00:00Z"))
+                .build();
+        when(planRepository.findByIdAndSourceAndAuthorUserId(weekly.getId(), PlanSource.USER, user.getId()))
+                .thenReturn(Optional.of(weekly));
+        when(planRepository.save(any(Plan.class))).thenAnswer(invocation -> invocation.getArgument(0));
+
+        var response = sessionWorkspaceService.removePlan(PlanScope.WEEKLY, weekly.getId());
+
+        assertThat(weekly.getRemovedAt()).isNotNull();
+        assertThat(weekly.getRemovedByUserId()).isEqualTo(user.getId());
+        assertThat(response.getPlanningContext().getWeekly().getExists()).isFalse();
+        assertThat(response.getPlanningContext().getWeekly().getImages()).isEmpty();
+    }
+
+    @Test
     void lockDeniedWhenRequiredConfluencesAreMissing() throws Exception {
         SessionSetup setup = lockableSetup(false);
         setups.add(setup);
