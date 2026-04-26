@@ -31,6 +31,7 @@ describe('Route title metadata guard', () => {
       'todaySession',
       'dashboard',
       'trades',
+      'backtesting',
       'calendar',
       'notebook',
       'analytics',

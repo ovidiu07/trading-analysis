@@ -11,6 +11,7 @@ import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.domain.enums.Role;
 import com.tradevault.dto.asset.AssetUploadRequest;
 import com.tradevault.repository.AssetRepository;
+import com.tradevault.repository.BacktestingScreenshotRepository;
 import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
@@ -53,6 +54,7 @@ class AssetServiceTest {
     private PlanRepository planRepository;
     private TodaySessionRepository todaySessionRepository;
     private PlanAssetRepository planAssetRepository;
+    private BacktestingScreenshotRepository backtestingScreenshotRepository;
     private UserStrategyRepository userStrategyRepository;
     private StrategyAssetRepository strategyAssetRepository;
     private TradeRepository tradeRepository;
@@ -72,6 +74,7 @@ class AssetServiceTest {
         planRepository = mock(PlanRepository.class);
         todaySessionRepository = mock(TodaySessionRepository.class);
         planAssetRepository = mock(PlanAssetRepository.class);
+        backtestingScreenshotRepository = mock(BacktestingScreenshotRepository.class);
         userStrategyRepository = mock(UserStrategyRepository.class);
         strategyAssetRepository = mock(StrategyAssetRepository.class);
         tradeRepository = mock(TradeRepository.class);
@@ -95,6 +98,7 @@ class AssetServiceTest {
                 planRepository,
                 todaySessionRepository,
                 planAssetRepository,
+                backtestingScreenshotRepository,
                 userStrategyRepository,
                 strategyAssetRepository,
                 tradeRepository,

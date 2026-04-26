@@ -25,6 +25,7 @@ const CalendarPage = lazy(() => import('./pages/CalendarPage'))
 const NotebookPage = lazy(() => import('./pages/NotebookPage'))
 const SessionPage = lazy(() => import('./pages/SessionPage'))
 const StrategiesPage = lazy(() => import('./pages/StrategiesPage'))
+const BacktestingPage = lazy(() => import('./pages/BacktestingPage'))
 const TermsPage = lazy(() => import('./pages/TermsPage'))
 const PrivacyPage = lazy(() => import('./pages/PrivacyPage'))
 const CookiesPage = lazy(() => import('./pages/CookiesPage'))
@@ -85,6 +86,7 @@ function App() {
             <Route path="/dashboard" element={<ProtectedRoute>{withSuspense(<DashboardPage />)}</ProtectedRoute>} />
             <Route path="/trades" element={<ProtectedRoute>{withSuspense(<TradesPage />)}</ProtectedRoute>} />
             <Route path="/strategies" element={<ProtectedRoute>{withSuspense(<StrategiesPage />)}</ProtectedRoute>} />
+            <Route path="/backtesting" element={<ProtectedRoute>{withSuspense(<BacktestingPage />)}</ProtectedRoute>} />
             <Route path="/calendar" element={<ProtectedRoute>{withSuspense(<CalendarPage />)}</ProtectedRoute>} />
             <Route path="/notebook" element={<ProtectedRoute>{withSuspense(<NotebookPage />)}</ProtectedRoute>} />
             <Route path="/analytics" element={<ProtectedRoute>{withSuspense(<AnalyticsPage />)}</ProtectedRoute>} />

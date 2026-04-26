@@ -5,5 +5,6 @@ public enum AssetScope {
     NOTEBOOK,
     STRATEGY,
     TRADE,
-    PLAN
+    PLAN,
+    BACKTESTING
 }

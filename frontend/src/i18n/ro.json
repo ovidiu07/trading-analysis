@@ -43,6 +43,7 @@
   "nav": {
     "today": "Astăzi",
     "strategies": "Strategii",
+    "backtesting": "Backtesting",
     "dashboard": "Tablou de bord",
     "trades": "Tranzacții",
     "calendar": "Calendar",
@@ -128,6 +129,9 @@
       "copyLinkFailed": "Link-ul asset-ului nu a putut fi copiat",
       "downloadFailed": "Asset-ul nu a putut fi descărcat"
     }
+  },
+  "backtesting": {
+    "subtitle": "Cercetare vizuală de strategii pe simbol, setup și dovezi din screenshot-uri."
   },
   "layout": {
     "collapseSidebar": "Restrânge bara laterală",

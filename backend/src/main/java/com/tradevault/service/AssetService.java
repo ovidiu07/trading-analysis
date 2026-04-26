@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.config.StorageS3Properties;
 import com.tradevault.config.UploadProperties;
 import com.tradevault.domain.entity.Asset;
+import com.tradevault.domain.entity.BacktestingScreenshot;
 import com.tradevault.domain.entity.ContentAsset;
 import com.tradevault.domain.entity.ContentPost;
 import com.tradevault.domain.entity.NotebookAttachment;
@@ -24,6 +25,7 @@ import com.tradevault.domain.enums.Role;
 import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.asset.AssetUploadRequest;
 import com.tradevault.repository.AssetRepository;
+import com.tradevault.repository.BacktestingScreenshotRepository;
 import com.tradevault.repository.ContentAssetRepository;
 import com.tradevault.repository.ContentPostRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
@@ -83,6 +85,7 @@ public class AssetService {
     private final PlanRepository planRepository;
     private final TodaySessionRepository todaySessionRepository;
     private final PlanAssetRepository planAssetRepository;
+    private final BacktestingScreenshotRepository backtestingScreenshotRepository;
     private final UserStrategyRepository userStrategyRepository;
     private final StrategyAssetRepository strategyAssetRepository;
     private final TradeRepository tradeRepository;
@@ -354,6 +357,7 @@ public class AssetService {
         notebookAttachmentRepository.deleteByAssetId(assetId);
         strategyAssetRepository.deleteByAsset_Id(assetId);
         planAssetRepository.deleteByAsset_Id(assetId);
+        backtestingScreenshotRepository.deleteByAsset_Id(assetId);
         assetRepository.delete(asset);
         objectStorageService.deleteObject(asset.getS3Key());
     }
@@ -475,6 +479,18 @@ public class AssetService {
             }
             return;
         }
+        if (asset.getScope() == AssetScope.BACKTESTING) {
+            if (isAdmin(user)) {
+                return;
+            }
+            BacktestingScreenshot relation = backtestingScreenshotRepository.findByAsset_Id(asset.getId()).stream()
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+            if (!Objects.equals(relation.getUser().getId(), user.getId())) {
+                throw new ResponseStatusException(FORBIDDEN, "Forbidden");
+            }
+            return;
+        }
         throw new ResponseStatusException(FORBIDDEN, "Forbidden");
     }
 
@@ -532,6 +548,18 @@ public class AssetService {
                 return;
             }
             PlanAsset relation = planAssetRepository.findByAsset_Id(asset.getId()).stream()
+                    .findFirst()
+                    .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
+            if (!Objects.equals(relation.getUser().getId(), user.getId())) {
+                throw new EntityNotFoundException("Asset not found");
+            }
+            return;
+        }
+        if (asset.getScope() == AssetScope.BACKTESTING) {
+            if (isAdmin(user)) {
+                return;
+            }
+            BacktestingScreenshot relation = backtestingScreenshotRepository.findByAsset_Id(asset.getId()).stream()
                     .findFirst()
                     .orElseThrow(() -> new EntityNotFoundException("Asset not found"));
             if (!Objects.equals(relation.getUser().getId(), user.getId())) {

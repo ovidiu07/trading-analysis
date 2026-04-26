@@ -43,6 +43,7 @@
   "nav": {
     "today": "Today",
     "strategies": "Strategies",
+    "backtesting": "Backtesting",
     "dashboard": "Dashboard",
     "trades": "Trades",
     "calendar": "Calendar",
@@ -128,6 +129,9 @@
       "copyLinkFailed": "Could not copy asset link",
       "downloadFailed": "Could not download asset"
     }
+  },
+  "backtesting": {
+    "subtitle": "Visual strategy research by symbol, setup, and screenshot evidence."
   },
   "layout": {
     "collapseSidebar": "Collapse sidebar",

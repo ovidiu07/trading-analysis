@@ -15,6 +15,7 @@ import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
 import SpaceDashboardRoundedIcon from '@mui/icons-material/SpaceDashboardRounded'
 import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
 import AutoAwesomeMotionRoundedIcon from '@mui/icons-material/AutoAwesomeMotionRounded'
+import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
 import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
@@ -70,6 +71,7 @@ export default function AppShell() {
       { label: t('nav.today'), path: '/today', icon: <TodayOutlinedIcon fontSize="small" /> },
       { label: t('nav.dashboard'), path: '/dashboard', icon: <SpaceDashboardRoundedIcon fontSize="small" /> },
       { label: t('nav.strategies'), path: '/strategies', icon: <AutoAwesomeMotionRoundedIcon fontSize="small" /> },
+      { label: t('nav.backtesting'), path: '/backtesting', icon: <PhotoLibraryRoundedIcon fontSize="small" /> },
       { label: t('nav.insights'), path: '/insights', icon: <AutoStoriesOutlinedIcon fontSize="small" /> },
       { label: t('nav.analytics'), path: '/analytics', icon: <QueryStatsRoundedIcon fontSize="small" /> },
       { label: t('nav.diagnostics'), path: '/diagnostics', icon: <TroubleshootRoundedIcon fontSize="small" /> },

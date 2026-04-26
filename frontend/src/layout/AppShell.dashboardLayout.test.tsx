@@ -142,7 +142,7 @@ describe('AppShell dashboard filters and logo placement', () => {
     renderShell('/today')
 
     const nav = screen.getByRole('navigation')
-    const expectedOrder = ['Today', 'Dashboard', 'Strategies', 'Mentor', 'Analytics', 'Diagnostics', 'Calendar']
+    const expectedOrder = ['Today', 'Dashboard', 'Strategies', 'Backtesting', 'Mentor', 'Analytics', 'Diagnostics', 'Calendar']
     const nodes = expectedOrder.map((label) => within(nav).getByText(label))
 
     for (let index = 0; index < nodes.length - 1; index += 1) {

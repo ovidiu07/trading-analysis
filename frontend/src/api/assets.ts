@@ -3,7 +3,7 @@ import { getCurrentLanguage } from '../i18n'
 
 const API_URL = import.meta.env.VITE_API_URL || '/api'
 
-export type AssetScope = 'CONTENT' | 'NOTEBOOK' | 'STRATEGY' | 'TRADE' | 'PLAN'
+export type AssetScope = 'CONTENT' | 'NOTEBOOK' | 'STRATEGY' | 'TRADE' | 'PLAN' | 'BACKTESTING'
 
 export const MAX_UPLOAD_SIZE_MB = 20
 export const MAX_UPLOAD_SIZE_BYTES = MAX_UPLOAD_SIZE_MB * 1024 * 1024
