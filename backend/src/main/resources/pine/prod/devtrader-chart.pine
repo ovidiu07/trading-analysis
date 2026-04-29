@@ -9,6 +9,7 @@ G_MS    = "Market Structure"
 G_LIQ   = "Liquidity"
 G_DASH  = "Trader Dashboard"
 G_LVLS  = "Important Market Levels"
+G_LEVEL_RENDER = "Level Rendering"
 G_FVG   = "Fair Value Gaps"
 
 // --- Constants ---
@@ -157,6 +158,16 @@ labelDistanceAtrLimit = input.float(8.0, "Label Distance Limit (ATR)", minval=1.
 showTier3Labels = input.bool(true, "Show Tier 3 Labels", group=G_LVLS)
 shiftOverlappingLabels = input.bool(true, "Shift Overlapping Labels", group=G_LVLS, tooltip="Moves only the right-side label into a nearby lane while keeping the actual level line at the true price.")
 adaptiveLevelExtensions = input.bool(true, "Adaptive Level Extensions", group=G_LVLS, tooltip="Shortens lower-priority or far-away lines so the chart stays readable.")
+
+levelRenderMode = input.string("Right-side Only", "Level Rendering Mode", options=["Full", "Compact", "Right-side Only"], group=G_LEVEL_RENDER)
+rightSideLevelOffset = input.int(8, "Right-side Level Offset", minval=1, maxval=50, group=G_LEVEL_RENDER)
+rightSideLevelLength = input.int(10, "Right-side Level Length", minval=2, maxval=60, group=G_LEVEL_RENDER)
+compactLevelMaxLength = input.int(80, "Compact Level Max Length", minval=10, maxval=300, group=G_LEVEL_RENDER)
+levelCompactLabels = input.bool(true, "Compact Level Labels", group=G_LEVEL_RENDER)
+fadePassiveLevels = input.bool(true, "Fade Passive Levels", group=G_LEVEL_RENDER)
+showHistoricalStructureLines = input.bool(false, "Show Historical Structure Lines", group=G_LEVEL_RENDER)
+showOnlyNearbyReferenceLevels = input.bool(false, "Show Only Nearby Reference Levels", group=G_LEVEL_RENDER)
+nearbyLevelWindowAtr = input.float(6.0, "Nearby Level Window ATR", minval=1.0, maxval=30.0, group=G_LEVEL_RENDER)
 
 enableLuxFvgEngine = input.bool(true, "Enable Dev-Style FVG Engine", group=G_FVG)
 fvgThresholdPercent = input.float(0.0, "Threshold %", minval=0.0, maxval=100.0, step=0.1, inline="fvgThreshold", group=G_FVG)
@@ -598,6 +609,31 @@ f_themePanelColor() =>
 f_levelLineColor(int tier) =>
     tier == 1 ? f_defaultLevelColor() : tier == 2 ? color.new(f_defaultLevelColor(), 18) : color.new(f_defaultLevelColor(), 38)
 
+f_levelLineCoords(int sourceBar, float price, string renderMode, int rightOffset, int rightLength, int compactMaxLength) =>
+    int safeSourceBar = na(sourceBar) ? bar_index : sourceBar
+    int x1 = safeSourceBar
+    int x2 = bar_index
+    if renderMode == "Compact"
+        x1 := math.max(safeSourceBar, bar_index - compactMaxLength)
+        x2 := bar_index + rightOffset
+    else if renderMode == "Right-side Only"
+        x1 := bar_index + rightOffset
+        x2 := bar_index + rightOffset + rightLength
+    [x1, x2]
+
+f_levelDisplayColor(color baseColor, bool passive, bool fadePassive) =>
+    passive and fadePassive ? color.new(baseColor, 78) : baseColor
+
+f_compactLevelText(string levelName, float price) =>
+    levelName + " " + str.tostring(price, format.mintick)
+
+f_nearbyReferenceAllowed(float price) =>
+    not showOnlyNearbyReferenceLevels or na(price) or (atrVal > 0 and math.abs(price - close) <= atrVal * nearbyLevelWindowAtr)
+
+f_isPassiveReferenceLabel(string txt) =>
+    string labelTxt = txt
+    labelTxt == "PDH" or labelTxt == "PDL" or labelTxt == "PDC" or labelTxt == "DO" or labelTxt == "PWH" or labelTxt == "PWL" or labelTxt == "PMH" or labelTxt == "PML" or labelTxt == "NY Mid" or str.startswith(labelTxt, "NY ") or str.startswith(labelTxt, "Prev NY") or str.startswith(labelTxt, "London ") or str.startswith(labelTxt, "Prev London") or str.startswith(labelTxt, "Asia ") or str.startswith(labelTxt, "Prev Asia") or str.startswith(labelTxt, "Dev ") or str.startswith(labelTxt, "HTF")
+
 f_liquidityLineColor(string side, int tier, bool isMajor, string state) =>
     color base = side == "BSL" ? COLOR_BEAR : COLOR_BULL
     int alpha = state == "SWEPT" ? 26 : tier == 1 ? 10 : tier == 2 ? 24 : 40
@@ -626,7 +662,7 @@ var array<int> rightLabelTiers = array.new_int(0)
 var array<string> rightLabelTexts = array.new_string(0)
 var array<label> rightLabelPool = array.new_label(0)
 
-f_compactLevelText(string txt) =>
+f_compactLevelName(string txt) =>
     string out = txt
     if txt == "NY Midnight" or txt == "NY Midnight Open"
         out := "NY Mid"
@@ -635,7 +671,7 @@ f_compactLevelText(string txt) =>
     out
 
 f_levelTier(string txt) =>
-    string labelTxt = f_compactLevelText(txt)
+    string labelTxt = f_compactLevelName(txt)
     int tier = 3
     if labelTxt == "PDH" or labelTxt == "PDL"
         tier := 1
@@ -739,10 +775,29 @@ f_registerRightLabel(float price, int x, string txt, int tier) =>
     int idx = f_rightLabelFindIdx(price)
     if idx >= 0
         string existingText = array.get(rightLabelTexts, idx)
-        string wrappedText = " | " + existingText + " | "
-        string candidateText = " | " + txt + " | "
-        if not str.contains(wrappedText, candidateText)
-            array.set(rightLabelTexts, idx, existingText + " | " + txt)
+        string priceText = str.tostring(price, format.mintick)
+        string priceSuffix = " " + priceText
+        int existingTrimLen = str.length(existingText) - str.length(priceSuffix)
+        int candidateTrimLen = str.length(txt) - str.length(priceSuffix)
+        bool existingHasPriceSuffix = false
+        bool candidateHasPriceSuffix = false
+        if existingTrimLen >= 0
+            existingHasPriceSuffix := str.substring(existingText, existingTrimLen, str.length(existingText)) == priceSuffix
+        if candidateTrimLen >= 0
+            candidateHasPriceSuffix := str.substring(txt, candidateTrimLen, str.length(txt)) == priceSuffix
+        bool canMergePrice = levelCompactLabels and existingHasPriceSuffix and candidateHasPriceSuffix
+        if canMergePrice
+            string existingName = str.substring(existingText, 0, existingTrimLen)
+            string candidateName = str.substring(txt, 0, candidateTrimLen)
+            string wrappedNames = " / " + existingName + " / "
+            string candidateWrapped = " / " + candidateName + " / "
+            if not str.contains(wrappedNames, candidateWrapped)
+                array.set(rightLabelTexts, idx, existingName + " / " + candidateName + priceSuffix)
+        else
+            string wrappedText = " | " + existingText + " | "
+            string candidateText = " | " + txt + " | "
+            if not str.contains(wrappedText, candidateText)
+                array.set(rightLabelTexts, idx, existingText + " | " + txt)
         array.set(rightLabelXs, idx, math.max(array.get(rightLabelXs, idx), x))
         array.set(rightLabelTiers, idx, math.min(array.get(rightLabelTiers, idx), tier))
     else
@@ -778,26 +833,30 @@ f_renderRightLabels() =>
             label.set_text(lb, "")
     true
 
-plot(showHTF ? lastHtf1PH : na, "HTF 1 Range High", f_levelLineColor(2), 1, plot.style_linebr)
-plot(showHTF ? lastHtf1PL : na, "HTF 1 Range Low", f_levelLineColor(2), 1, plot.style_linebr)
-plot(showHTF ? lastHtf2PH : na, "HTF 2 Range High", f_levelLineColor(1), 2, plot.style_linebr)
-plot(showHTF ? lastHtf2PL : na, "HTF 2 Range Low", f_levelLineColor(1), 2, plot.style_linebr)
+plot(showHTF and levelRenderMode == "Full" ? lastHtf1PH : na, "HTF 1 Range High", f_levelLineColor(2), 1, plot.style_linebr)
+plot(showHTF and levelRenderMode == "Full" ? lastHtf1PL : na, "HTF 1 Range Low", f_levelLineColor(2), 1, plot.style_linebr)
+plot(showHTF and levelRenderMode == "Full" ? lastHtf2PH : na, "HTF 2 Range High", f_levelLineColor(1), 2, plot.style_linebr)
+plot(showHTF and levelRenderMode == "Full" ? lastHtf2PL : na, "HTF 2 Range Low", f_levelLineColor(1), 2, plot.style_linebr)
 
 f_updateLevel(bool show, float val, string txt, line l) =>
-    string compactText = f_compactLevelText(txt)
+    string compactText = f_compactLevelName(txt)
     int tier = f_levelTier(compactText)
-    if show and not na(val)
+    bool isPassiveReference = f_isPassiveReferenceLabel(compactText)
+    bool nearbyOk = not isPassiveReference or f_nearbyReferenceAllowed(val)
+    if show and not na(val) and nearbyOk
         int leftSpan = adaptiveLevelExtensions ? f_levelLeftSpanBars(val, tier, false) : 50
-        int rightOffset = adaptiveLevelExtensions ? (tier == 1 ? 9 : tier == 2 ? 7 : 5) : 10
-        int levelLeft = compactText == "DO" ? bar_index : math.max(bar_index - leftSpan, 0)
-        int levelRight = compactText == "DO" ? bar_index + 1 : bar_index + rightOffset
+        int legacyRightOffset = adaptiveLevelExtensions ? (tier == 1 ? 9 : tier == 2 ? 7 : 5) : 10
+        int sourceBar = compactText == "DO" ? math.max(bar_index - 1, 0) : math.max(bar_index - leftSpan, 0)
+        [levelLeft, levelRight] = f_levelLineCoords(sourceBar, val, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+        int labelX = levelRenderMode == "Full" ? bar_index + legacyRightOffset : levelRight
         line.set_xy1(l, levelLeft, val)
         line.set_xy2(l, levelRight, val)
-        line.set_color(l, f_levelLineColor(tier))
-        line.set_width(l, tier <= 2 ? 2 : 1)
+        line.set_color(l, f_levelDisplayColor(f_levelLineColor(tier), true, fadePassiveLevels))
+        line.set_width(l, levelRenderMode == "Full" and tier <= 2 ? 2 : 1)
         line.set_style(l, tier == 3 ? line.style_dotted : line.style_solid)
         if f_levelShouldShowLabel(val, tier)
-            f_registerRightLabel(val, levelRight, compactText + " " + str.tostring(val, format.mintick), tier)
+            string labelText = levelCompactLabels ? f_compactLevelText(compactText, val) : compactText + " " + str.tostring(val, format.mintick)
+            f_registerRightLabel(val, labelX, labelText, tier)
     else
         line.set_y1(l, na)
         line.set_y2(l, na)
@@ -812,6 +871,10 @@ var line lnPWL = line.new(na, na, na, na)
 var line lnPMH = line.new(na, na, na, na)
 var line lnPML = line.new(na, na, na, na)
 var line lnNYMid = line.new(na, na, na, na)
+var line lnHTF1High = line.new(na, na, na, na)
+var line lnHTF1Low = line.new(na, na, na, na)
+var line lnHTF2High = line.new(na, na, na, na)
+var line lnHTF2Low = line.new(na, na, na, na)
 
 if barstate.islast
     array.clear(rightLabelPrices)
@@ -827,6 +890,10 @@ if barstate.islast
     f_updateLevel(showPDC, pdc, "PDC", lnPDC)
     f_updateLevel(showPMH and not pmhConsumed, pmh, "PMH", lnPMH)
     f_updateLevel(showPML and not pmlConsumed, pml, "PML", lnPML)
+    f_updateLevel(showHTF and levelRenderMode != "Full", lastHtf1PH, "HTF1 Range High", lnHTF1High)
+    f_updateLevel(showHTF and levelRenderMode != "Full", lastHtf1PL, "HTF1 Range Low", lnHTF1Low)
+    f_updateLevel(showHTF and levelRenderMode != "Full", lastHtf2PH, "HTF2 Range High", lnHTF2High)
+    f_updateLevel(showHTF and levelRenderMode != "Full", lastHtf2PL, "HTF2 Range Low", lnHTF2Low)
 
 // --- Fair Value Gap Engine ---
 // Reference attribution preserved per the original CC BY-NC-SA 4.0 licensing.
@@ -1719,7 +1786,9 @@ if barstate.islast
             bool pImportant = pTierId >= 2 or f_liqPoolIsExternal(p)
             bool pInternalActionable = pTierId == 3 and pDistAtr <= 1.25
             bool pRenderable = p.state != "CONSUMED" and ((pActiveState and (pImportant or pInternalActionable or pDevSession)) or (showSweptLiquidity and p.state == "SWEPT" and (bar_index - nz(p.lastRefreshBar, p.sourceBar)) <= sweepMssTimeoutBars and pDistAtr <= liqContextAtr and pImportance >= 50.0))
-            if pRenderable and not f_liqHasDedicatedOverlay(p)
+            bool pPassiveReference = p.baseType == "PERIOD" or p.baseType == "SESSION" or p.baseType == "DEV_SESSION" or p.baseType == "HTF"
+            bool pNearbyAllowed = not pPassiveReference or p.state == "SWEPT" or f_nearbyReferenceAllowed(p.price)
+            if pRenderable and pNearbyAllowed and not f_liqHasDedicatedOverlay(p)
                 int rowIdx = na
                 mergeTol = math.max(syminfo.mintick * 8, math.min(atrVal * 0.02, p.price * 0.0004))
                 rowPriority = pImportance * 0.52 + pActionability * 0.33 + f_liqFreshnessScore(p) * 0.15
@@ -1794,7 +1863,7 @@ if barstate.islast
     if selectedRows.size() > 0
         for i = 0 to selectedRows.size() - 1
             row = selectedRows.get(i)
-            string displayText = f_compactLevelText(row.primaryText)
+            string displayText = f_compactLevelName(row.primaryText)
             int tier = f_levelTier(displayText)
             if row.state == "SWEPT"
                 tier := 1
@@ -1803,11 +1872,18 @@ if barstate.islast
             color clr = f_liquidityLineColor(row.side, tier, row.isMajor, row.state)
             lineStyle = row.state == "CONSUMED" ? line.style_dotted : row.state == "SWEPT" ? line.style_dashed : tier == 3 ? line.style_dotted : row.isMajor ? line.style_solid : line.style_dashed
             int anchorBar = na(row.sourceBar) ? bar_index : row.sourceBar
-            int renderLeftBar = adaptiveLevelExtensions ? math.max(math.max(anchorBar, bar_index - f_levelLeftSpanBars(row.price, tier, row.state == "SWEPT")), 0) : math.max(math.max(anchorBar, bar_index - math.max(liqRangeLookback * 8, 800)), 0)
-            int renderRightBar = bar_index + (adaptiveLevelExtensions ? (tier == 1 ? 9 : tier == 2 ? 7 : 5) : 10)
-            array.push(liq_render_lines, line.new(renderLeftBar, row.price, renderRightBar, row.price, color=clr, style=lineStyle, width=tier <= 2 ? 2 : 1))
+            int legacyRightOffset = adaptiveLevelExtensions ? (tier == 1 ? 9 : tier == 2 ? 7 : 5) : 10
+            int legacyLeftBar = adaptiveLevelExtensions ? math.max(math.max(anchorBar, bar_index - f_levelLeftSpanBars(row.price, tier, row.state == "SWEPT")), 0) : math.max(math.max(anchorBar, bar_index - math.max(liqRangeLookback * 8, 800)), 0)
+            int renderSourceBar = levelRenderMode == "Full" ? legacyLeftBar : anchorBar
+            [renderLeftBar, renderRightBar] = f_levelLineCoords(renderSourceBar, row.price, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+            int renderLabelBar = levelRenderMode == "Full" ? bar_index + legacyRightOffset : renderRightBar
+            bool passiveReference = f_isPassiveReferenceLabel(displayText) and row.state != "SWEPT"
+            color renderColor = f_levelDisplayColor(clr, passiveReference, fadePassiveLevels)
+            int renderWidth = row.state == "SWEPT" ? 2 : levelRenderMode == "Full" and tier <= 2 ? 2 : 1
+            array.push(liq_render_lines, line.new(renderLeftBar, row.price, renderRightBar, row.price, color=renderColor, style=lineStyle, width=renderWidth))
             if showLiquidityLabels and f_levelShouldShowLabel(row.price, tier)
-                f_registerRightLabel(row.price, renderRightBar, displayText + " " + str.tostring(row.price, format.mintick), tier)
+                string rowLabelText = levelCompactLabels ? f_compactLevelText(displayText, row.price) : displayText + " " + str.tostring(row.price, format.mintick)
+                f_registerRightLabel(row.price, renderLabelBar, rowLabelText, tier)
 
 f_clamp(float x, float lo, float hi) =>
     math.max(lo, math.min(hi, x))
@@ -2725,51 +2801,75 @@ else if ms_structureBias == -1
 
 if showMsChochBos
     if ms_bullChochEvent
-        f_trackHistoricalLine(line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=f_structureLineColor("CHOCH", 1), style=line.style_dashed, width=2))
-        f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, msBullChochLabel, color=f_structureLabelBg("CHOCH", 1), style=label.style_label_down, textcolor=f_themeTextColor(), size=size.tiny))
+        if showHistoricalStructureLines
+            f_trackHistoricalLine(line.new(msBullChochBar, msBullChochLevel, bar_index, msBullChochLevel, color=f_structureLineColor("CHOCH", 1), style=line.style_dashed, width=2))
+            f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBullChochBar)), msBullChochLevel, msBullChochLabel, color=f_structureLabelBg("CHOCH", 1), style=label.style_label_down, textcolor=f_themeTextColor(), size=size.tiny))
+        else
+            f_trackHistoricalLabel(label.new(bar_index, msBullChochLevel, msBullChochLabel, color=f_structureLabelBg("CHOCH", 1), style=label.style_label_down, textcolor=f_themeTextColor(), size=size.tiny))
     if ms_bearChochEvent
-        f_trackHistoricalLine(line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=f_structureLineColor("CHOCH", -1), style=line.style_dashed, width=2))
-        f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, msBearChochLabel, color=f_structureLabelBg("CHOCH", -1), style=label.style_label_up, textcolor=f_themeTextColor(), size=size.tiny))
+        if showHistoricalStructureLines
+            f_trackHistoricalLine(line.new(msBearChochBar, msBearChochLevel, bar_index, msBearChochLevel, color=f_structureLineColor("CHOCH", -1), style=line.style_dashed, width=2))
+            f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBearChochBar)), msBearChochLevel, msBearChochLabel, color=f_structureLabelBg("CHOCH", -1), style=label.style_label_up, textcolor=f_themeTextColor(), size=size.tiny))
+        else
+            f_trackHistoricalLabel(label.new(bar_index, msBearChochLevel, msBearChochLabel, color=f_structureLabelBg("CHOCH", -1), style=label.style_label_up, textcolor=f_themeTextColor(), size=size.tiny))
     if ms_bullBosEvent
-        f_trackHistoricalLine(line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=f_structureLineColor("BOS", 1), width=2))
-        f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, msBullBosLabel, color=f_structureLabelBg("BOS", 1), style=label.style_label_down, textcolor=f_themeTextColor(), size=size.tiny))
+        if showHistoricalStructureLines
+            f_trackHistoricalLine(line.new(msBosHighRefBar, msBosHighRef, bar_index, msBosHighRef, color=f_structureLineColor("BOS", 1), width=2))
+            f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBosHighRefBar)), msBosHighRef, msBullBosLabel, color=f_structureLabelBg("BOS", 1), style=label.style_label_down, textcolor=f_themeTextColor(), size=size.tiny))
+        else
+            f_trackHistoricalLabel(label.new(bar_index, msBosHighRef, msBullBosLabel, color=f_structureLabelBg("BOS", 1), style=label.style_label_down, textcolor=f_themeTextColor(), size=size.tiny))
     if ms_bearBosEvent
-        f_trackHistoricalLine(line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=f_structureLineColor("BOS", -1), width=2))
-        f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, msBearBosLabel, color=f_structureLabelBg("BOS", -1), style=label.style_label_up, textcolor=f_themeTextColor(), size=size.tiny))
+        if showHistoricalStructureLines
+            f_trackHistoricalLine(line.new(msBosLowRefBar, msBosLowRef, bar_index, msBosLowRef, color=f_structureLineColor("BOS", -1), width=2))
+            f_trackHistoricalLabel(label.new(int(math.avg(bar_index, msBosLowRefBar)), msBosLowRef, msBearBosLabel, color=f_structureLabelBg("BOS", -1), style=label.style_label_up, textcolor=f_themeTextColor(), size=size.tiny))
+        else
+            f_trackHistoricalLabel(label.new(bar_index, msBosLowRef, msBearBosLabel, color=f_structureLabelBg("BOS", -1), style=label.style_label_up, textcolor=f_themeTextColor(), size=size.tiny))
 
 if barstate.islast
     if showMsChochBos and ms_structureBias == 1
         if not na(ms_lastSwingLow)
-            line.set_xy1(ms_extChoch, ms_lastSwingLowBar, ms_lastSwingLow)
-            line.set_xy2(ms_extChoch, bar_index, ms_lastSwingLow)
-            line.set_color(ms_extChoch, f_structureLineColor("CHOCH", 1))
-            line.set_width(ms_extChoch, 2)
-            f_registerRightLabel(ms_lastSwingLow, bar_index + 10, "CHoCH", 2)
+            [bullChochLeft, bullChochRight] = f_levelLineCoords(ms_lastSwingLowBar, ms_lastSwingLow, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+            int bullChochLabelX = levelRenderMode == "Full" ? bar_index + 10 : bullChochRight
+            line.set_xy1(ms_extChoch, bullChochLeft, ms_lastSwingLow)
+            line.set_xy2(ms_extChoch, bullChochRight, ms_lastSwingLow)
+            line.set_color(ms_extChoch, color.new(f_structureLineColor("CHOCH", 1), fadePassiveLevels ? 38 : 14))
+            line.set_width(ms_extChoch, levelRenderMode == "Full" ? 2 : 1)
+            string bullChochText = levelCompactLabels ? f_compactLevelText("CHoCH", ms_lastSwingLow) : "CHoCH"
+            f_registerRightLabel(ms_lastSwingLow, bullChochLabelX, bullChochText, 2)
         else
             f_hideLine(ms_extChoch)
         if not na(msBosHighRef)
-            line.set_xy1(ms_extBos, msBosHighRefBar, msBosHighRef)
-            line.set_xy2(ms_extBos, bar_index, msBosHighRef)
-            line.set_color(ms_extBos, f_structureLineColor("BOS", 1))
+            [bullBosLeft, bullBosRight] = f_levelLineCoords(msBosHighRefBar, msBosHighRef, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+            int bullBosLabelX = levelRenderMode == "Full" ? bar_index + 10 : bullBosRight
+            line.set_xy1(ms_extBos, bullBosLeft, msBosHighRef)
+            line.set_xy2(ms_extBos, bullBosRight, msBosHighRef)
+            line.set_color(ms_extBos, color.new(f_structureLineColor("BOS", 1), fadePassiveLevels ? 24 : 0))
             line.set_width(ms_extBos, 2)
-            f_registerRightLabel(msBosHighRef, bar_index + 10, "BOS", 2)
+            string bullBosText = levelCompactLabels ? f_compactLevelText("BOS", msBosHighRef) : "BOS"
+            f_registerRightLabel(msBosHighRef, bullBosLabelX, bullBosText, 2)
         else
             f_hideLine(ms_extBos)
     else if showMsChochBos and ms_structureBias == -1
         if not na(ms_lastSwingHigh)
-            line.set_xy1(ms_extChoch, ms_lastSwingHighBar, ms_lastSwingHigh)
-            line.set_xy2(ms_extChoch, bar_index, ms_lastSwingHigh)
-            line.set_color(ms_extChoch, f_structureLineColor("CHOCH", -1))
-            line.set_width(ms_extChoch, 2)
-            f_registerRightLabel(ms_lastSwingHigh, bar_index + 10, "CHoCH", 2)
+            [bearChochLeft, bearChochRight] = f_levelLineCoords(ms_lastSwingHighBar, ms_lastSwingHigh, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+            int bearChochLabelX = levelRenderMode == "Full" ? bar_index + 10 : bearChochRight
+            line.set_xy1(ms_extChoch, bearChochLeft, ms_lastSwingHigh)
+            line.set_xy2(ms_extChoch, bearChochRight, ms_lastSwingHigh)
+            line.set_color(ms_extChoch, color.new(f_structureLineColor("CHOCH", -1), fadePassiveLevels ? 38 : 14))
+            line.set_width(ms_extChoch, levelRenderMode == "Full" ? 2 : 1)
+            string bearChochText = levelCompactLabels ? f_compactLevelText("CHoCH", ms_lastSwingHigh) : "CHoCH"
+            f_registerRightLabel(ms_lastSwingHigh, bearChochLabelX, bearChochText, 2)
         else
             f_hideLine(ms_extChoch)
         if not na(msBosLowRef)
-            line.set_xy1(ms_extBos, msBosLowRefBar, msBosLowRef)
-            line.set_xy2(ms_extBos, bar_index, msBosLowRef)
-            line.set_color(ms_extBos, f_structureLineColor("BOS", -1))
+            [bearBosLeft, bearBosRight] = f_levelLineCoords(msBosLowRefBar, msBosLowRef, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+            int bearBosLabelX = levelRenderMode == "Full" ? bar_index + 10 : bearBosRight
+            line.set_xy1(ms_extBos, bearBosLeft, msBosLowRef)
+            line.set_xy2(ms_extBos, bearBosRight, msBosLowRef)
+            line.set_color(ms_extBos, color.new(f_structureLineColor("BOS", -1), fadePassiveLevels ? 24 : 0))
             line.set_width(ms_extBos, 2)
-            f_registerRightLabel(msBosLowRef, bar_index + 10, "BOS", 2)
+            string bearBosText = levelCompactLabels ? f_compactLevelText("BOS", msBosLowRef) : "BOS"
+            f_registerRightLabel(msBosLowRef, bearBosLabelX, bearBosText, 2)
         else
             f_hideLine(ms_extBos)
     else
@@ -2779,26 +2879,32 @@ if barstate.islast
     float msActiveProtectedPrice = ms_structureBias == 1 ? ms_protectedLow : ms_structureBias == -1 ? ms_protectedHigh : na
     int msActiveProtectedBar = ms_structureBias == 1 ? ms_protectedLowBar : ms_structureBias == -1 ? ms_protectedHighBar : na
     if showMsProtectedLevels and not na(msActiveProtectedPrice) and not na(msActiveProtectedBar)
-        int activeProtectedRight = bar_index + 12
+        [activeProtectedLeft, activeProtectedRight] = f_levelLineCoords(msActiveProtectedBar, msActiveProtectedPrice, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+        int activeProtectedLabelX = levelRenderMode == "Full" ? bar_index + 12 : activeProtectedRight
         string activeProtectedText = ms_structureBias == 1 ? "Prot Low" : "Prot High"
         color activeProtectedColor = f_structureLineColor("PROTECTED", ms_structureBias)
-        line.set_xy1(ms_activeProtected, msActiveProtectedBar, msActiveProtectedPrice)
+        line.set_xy1(ms_activeProtected, activeProtectedLeft, msActiveProtectedPrice)
         line.set_xy2(ms_activeProtected, activeProtectedRight, msActiveProtectedPrice)
-        line.set_color(ms_activeProtected, activeProtectedColor)
+        line.set_color(ms_activeProtected, color.new(activeProtectedColor, fadePassiveLevels ? 16 : 0))
         line.set_width(ms_activeProtected, 2)
         line.set_style(ms_activeProtected, line.style_dashed)
-        f_registerRightLabel(msActiveProtectedPrice, activeProtectedRight, activeProtectedText, 1)
+        string activeProtectedLabel = levelCompactLabels ? f_compactLevelText(activeProtectedText, msActiveProtectedPrice) : activeProtectedText
+        f_registerRightLabel(msActiveProtectedPrice, activeProtectedLabelX, activeProtectedLabel, 1)
     else
         f_hideLine(ms_activeProtected)
 
     if showMsIdm and not ms_idmTaken and not na(ms_idmLevel) and ms_idmState != 4
         color activeIdmColor = f_structureLineColor("IDM", ms_structureBias)
         string activeIdmText = ms_idmPendingSweep ? "IDM Swept" : ms_idmState == 2 ? "IDM Stale" : ms_idmStrong ? "IDM Strong" : "IDM"
-        line.set_xy1(ms_extIdm, ms_idmBar, ms_idmLevel)
-        line.set_xy2(ms_extIdm, bar_index + 12, ms_idmLevel)
-        line.set_color(ms_extIdm, activeIdmColor)
+        [activeIdmLeft, activeIdmRight] = f_levelLineCoords(ms_idmBar, ms_idmLevel, levelRenderMode, rightSideLevelOffset, rightSideLevelLength, compactLevelMaxLength)
+        int activeIdmLabelX = levelRenderMode == "Full" ? bar_index + 12 : activeIdmRight
+        line.set_xy1(ms_extIdm, activeIdmLeft, ms_idmLevel)
+        line.set_xy2(ms_extIdm, activeIdmRight, ms_idmLevel)
+        line.set_color(ms_extIdm, color.new(activeIdmColor, fadePassiveLevels and not ms_idmStrong ? 34 : 12))
         line.set_width(ms_extIdm, ms_idmStrong ? 2 : 1)
-        f_registerRightLabel(ms_idmLevel, bar_index + 12, activeIdmText, 2)
+        line.set_style(ms_extIdm, line.style_dotted)
+        string activeIdmLabel = levelCompactLabels ? f_compactLevelText(activeIdmText, ms_idmLevel) : activeIdmText
+        f_registerRightLabel(ms_idmLevel, activeIdmLabelX, activeIdmLabel, 2)
     else
         f_hideLine(ms_extIdm)
 
