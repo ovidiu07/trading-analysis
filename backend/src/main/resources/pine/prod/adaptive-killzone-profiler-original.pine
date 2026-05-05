@@ -1,14 +1,25 @@
 // This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
 //@version=6
-indicator("Killzone Sweep & Reversal Pro", overlay = true, max_lines_count = 500)
+indicator("Killzone Sweep & Reversal Pro", overlay = true, max_lines_count = 500, max_labels_count = 250)
 
 // --- Groups ---
-groupSetup    = "Sweep Setup Logic"
-groupStyle    = "Visual Style"
+groupSetup         = "Sweep Setup Logic"
+groupStyle         = "Visual Style"
+groupDailyLevels   = "Daily High / Low"
+groupSessionLevels = "Session High / Low"
 
 // --- Inputs: Session Separators ---
 const string TZ_TOOLTIP_TEXT = "The session's time zone, specified in either GMT notation (e.g., 'GMT-5') or as an IANA time zone database name (e.g., 'America/New_York'). We recommend the latter because it also handles daylight savings changes."
-const int MAX_SESSION_SEPARATOR_LINES = 480
+const string DAILY_LEVELS_MODE_ALL = "All Days"
+const string DAILY_LEVELS_MODE_CURRENT = "Current Active Day Only"
+const string SESSION_LEVELS_MODE_ALL = "All Sessions"
+const string SESSION_LEVELS_MODE_CURRENT = "Current Active Session Only"
+// Keep headroom under TradingView's 500-line ceiling across separators and both horizontal level systems.
+const int MAX_SESSION_SEPARATOR_LINES = 180
+const int MAX_DAILY_HOD_LINES = 50
+const int MAX_DAILY_LOD_LINES = 50
+const int MAX_SESSION_HOD_LINES = 100
+const int MAX_SESSION_LOD_LINES = 100
 
 const string FIRST_SESSION_GROUP = "First Session"
 showFirstSession         = input.bool(true, "Show session", group = FIRST_SESSION_GROUP)
@@ -40,8 +51,32 @@ lineWidth     = input.int(1, "Separator Line Width", minval = 1, group = groupSt
 bullColor     = input.color(#089981, "Bullish Setup Color", group = groupStyle)
 bearColor     = input.color(#f23645, "Bearish Setup Color", group = groupStyle)
 
-// --- Logic: Session Detection ---
+// --- Inputs: Daily High / Low ---
+showDailyLevels = input.bool(false, "Show daily levels", group = groupDailyLevels)
+dailyLevelsMode = input.string(DAILY_LEVELS_MODE_CURRENT, "Display mode", options = [DAILY_LEVELS_MODE_ALL, DAILY_LEVELS_MODE_CURRENT], group = groupDailyLevels, active = showDailyLevels)
+showDailyHOD    = input.bool(true, "Show HOD", group = groupDailyLevels, active = showDailyLevels)
+showDailyLOD    = input.bool(true, "Show LOD", group = groupDailyLevels, active = showDailyLevels)
+dailyHodColor   = input.color(#089981, "HOD Color", group = groupDailyLevels, active = showDailyLevels and showDailyHOD)
+dailyLodColor   = input.color(#f23645, "LOD Color", group = groupDailyLevels, active = showDailyLevels and showDailyLOD)
+dailyLevelsWidth = input.int(1, "Line Width", minval = 1, group = groupDailyLevels, active = showDailyLevels)
+
+// --- Inputs: Session High / Low ---
+showSessionLevels = input.bool(false, "Show session levels", group = groupSessionLevels)
+sessionLevelsMode = input.string(SESSION_LEVELS_MODE_CURRENT, "Display mode", options = [SESSION_LEVELS_MODE_ALL, SESSION_LEVELS_MODE_CURRENT], group = groupSessionLevels, active = showSessionLevels)
+showSessionHOD    = input.bool(true, "Show Session High", group = groupSessionLevels, active = showSessionLevels)
+showSessionLOD    = input.bool(true, "Show Session Low", group = groupSessionLevels, active = showSessionLevels)
+sessionHodColor   = input.color(#2962FF, "Session High Color", group = groupSessionLevels, active = showSessionLevels and showSessionHOD)
+sessionLodColor   = input.color(#FF9800, "Session Low Color", group = groupSessionLevels, active = showSessionLevels and showSessionLOD)
+sessionLevelsWidth = input.int(1, "Line Width", minval = 1, group = groupSessionLevels, active = showSessionLevels)
+
+// --- Shared Line Helpers ---
 var array<line> sessionSeparatorLines = array.new<line>()
+var array<line> dailyHodHistoryLines = array.new<line>()
+var array<line> dailyLodHistoryLines = array.new<line>()
+var array<line> sessionHodHistoryLines = array.new<line>()
+var array<line> sessionLodHistoryLines = array.new<line>()
+var array<label> sessionHodHistoryLabels = array.new<label>()
+var array<label> sessionLodHistoryLabels = array.new<label>()
 
 f_drawSeparatorLine(color separatorColor) =>
     line separator = line.new(bar_index, 0, bar_index, 1, xloc = xloc.bar_index, extend = extend.both, color = separatorColor, style = line.style_dotted, width = lineWidth)
@@ -49,16 +84,335 @@ f_drawSeparatorLine(color separatorColor) =>
     if array.size(sessionSeparatorLines) > MAX_SESSION_SEPARATOR_LINES
         line.delete(array.shift(sessionSeparatorLines))
 
-// Use explicit session windows plus per-session timezones for robust boundary detection.
-f_drawSessionSeparators(bool enabled, string _sessionName, string sessionValue, string timezoneValue, color separatorColor) =>
+f_pushLimitedLine(array<line> levelLines, line levelLine, int maxCount) =>
+    if not na(levelLine)
+        array.push(levelLines, levelLine)
+        if array.size(levelLines) > maxCount
+            line.delete(array.shift(levelLines))
+
+f_pushLimitedLabel(array<label> levelLabels, label levelLabel, int maxCount) =>
+    if not na(levelLabel)
+        array.push(levelLabels, levelLabel)
+        if array.size(levelLabels) > maxCount
+            label.delete(array.shift(levelLabels))
+
+f_upsertHorizontalLine(line levelLine, int x1, int x2, float y, color levelColor, int levelWidth) =>
+    line updatedLine = levelLine
+    if na(updatedLine)
+        updatedLine := line.new(x1, y, x2, y, xloc = xloc.bar_index, extend = extend.none, color = levelColor, style = line.style_solid, width = levelWidth)
+    else
+        line.set_xy1(updatedLine, x1, y)
+        line.set_xy2(updatedLine, x2, y)
+        line.set_color(updatedLine, levelColor)
+        line.set_width(updatedLine, levelWidth)
+        line.set_style(updatedLine, line.style_solid)
+    updatedLine
+
+f_upsertMidLabel(label levelLabel, int x1, int x2, float y, string levelText, color levelColor) =>
+    int midBar = x1 + int(math.floor((x2 - x1) * 0.5))
+    label updatedLabel = levelLabel
+    if na(updatedLabel)
+        updatedLabel := label.new(midBar, y, levelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = levelColor, size = size.tiny)
+    else
+        label.set_x(updatedLabel, midBar)
+        label.set_y(updatedLabel, y)
+        label.set_text(updatedLabel, levelText)
+        label.set_textcolor(updatedLabel, levelColor)
+        label.set_style(updatedLabel, label.style_none)
+        label.set_size(updatedLabel, size.tiny)
+    updatedLabel
+
+f_createHorizontalLine(int x1, int x2, float y, color levelColor, int levelWidth) =>
+    line.new(x1, y, x2, y, xloc = xloc.bar_index, extend = extend.none, color = levelColor, style = line.style_solid, width = levelWidth)
+
+f_createMidLabel(int x1, int x2, float y, string levelText, color levelColor) =>
+    int midBar = x1 + int(math.floor((x2 - x1) * 0.5))
+    label.new(midBar, y, levelText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_none, textcolor = levelColor, size = size.tiny)
+
+f_deleteLine(line levelLine) =>
+    if not na(levelLine)
+        line.delete(levelLine)
+    line clearedLine = na
+    clearedLine
+
+f_deleteLabel(label levelLabel) =>
+    if not na(levelLabel)
+        label.delete(levelLabel)
+    label clearedLabel = na
+    clearedLabel
+
+f_clearLineArray(array<line> levelLines) =>
+    while array.size(levelLines) > 0
+        line.delete(array.pop(levelLines))
+
+f_clearLabelArray(array<label> levelLabels) =>
+    while array.size(levelLabels) > 0
+        label.delete(array.pop(levelLabels))
+
+f_getSessionState(bool enabled, string sessionValue, string timezoneValue) =>
     int sessionTime = time("", sessionValue, timezoneValue)
     bool inSession = enabled and not na(sessionTime)
     bool wasInSession = enabled and not na(sessionTime[1])
-    bool sessionStarted = inSession and not wasInSession
-    bool sessionEnded = not inSession and wasInSession
+    [inSession, inSession and not wasInSession, not inSession and wasInSession]
 
+f_drawSessionSeparators(bool sessionStarted, bool sessionEnded, color separatorColor) =>
     if sessionStarted or sessionEnded
         f_drawSeparatorLine(separatorColor)
+
+// --- Logic: Session Boundary Detection ---
+[firstInSession, firstSessionStarted, firstSessionEnded] = f_getSessionState(showFirstSession, firstSessionTime, firstSessionTimezone)
+[secondInSession, secondSessionStarted, secondSessionEnded] = f_getSessionState(showSecondSession, secondSessionTime, secondSessionTimezone)
+[thirdInSession, thirdSessionStarted, thirdSessionEnded] = f_getSessionState(showThirdSession, thirdSessionTime, thirdSessionTimezone)
+
+// Session ownership uses later-session priority:
+// first session owns bars until second or third begins,
+// second session owns bars until third begins,
+// third session owns all of its bars.
+bool firstSessionOwnsBar = firstInSession and not secondInSession and not thirdInSession
+bool secondSessionOwnsBar = secondInSession and not thirdInSession
+bool thirdSessionOwnsBar = thirdInSession
+
+int currentActiveSessionIndex = thirdInSession ? 3 : secondInSession ? 2 : firstInSession ? 1 : 0
+bool showAllDailyLevels = dailyLevelsMode == DAILY_LEVELS_MODE_ALL
+bool showAllSessionLevels = sessionLevelsMode == SESSION_LEVELS_MODE_ALL
+
+if not showDailyLevels or not showAllDailyLevels or not showDailyHOD
+    f_clearLineArray(dailyHodHistoryLines)
+
+if not showDailyLevels or not showAllDailyLevels or not showDailyLOD
+    f_clearLineArray(dailyLodHistoryLines)
+
+if not showSessionLevels or not showAllSessionLevels or not showSessionHOD
+    f_clearLineArray(sessionHodHistoryLines)
+    f_clearLabelArray(sessionHodHistoryLabels)
+
+if not showSessionLevels or not showAllSessionLevels or not showSessionLOD
+    f_clearLineArray(sessionLodHistoryLines)
+    f_clearLabelArray(sessionLodHistoryLabels)
+
+// --- Visuals: Session Separators ---
+f_drawSessionSeparators(firstSessionStarted, firstSessionEnded, firstSessionSeparatorClr)
+f_drawSessionSeparators(secondSessionStarted, secondSessionEnded, secondSessionSeparatorClr)
+f_drawSessionSeparators(thirdSessionStarted, thirdSessionEnded, thirdSessionSeparatorClr)
+
+// --- Logic: Daily HOD / LOD ---
+var int dailyStartBar = na
+var float dailyHigh = na
+var float dailyLow = na
+var line activeDailyHodLine = na
+var line activeDailyLodLine = na
+
+int dayStartTime = time("D")
+bool isNewDay = barstate.isfirst or na(dayStartTime[1]) or dayStartTime != dayStartTime[1]
+
+if isNewDay
+    if not barstate.isfirst
+        if showAllDailyLevels
+            f_pushLimitedLine(dailyHodHistoryLines, activeDailyHodLine, MAX_DAILY_HOD_LINES)
+            f_pushLimitedLine(dailyLodHistoryLines, activeDailyLodLine, MAX_DAILY_LOD_LINES)
+            activeDailyHodLine := na
+            activeDailyLodLine := na
+        else
+            activeDailyHodLine := f_deleteLine(activeDailyHodLine)
+            activeDailyLodLine := f_deleteLine(activeDailyLodLine)
+    dailyStartBar := bar_index
+    dailyHigh := high
+    dailyLow := low
+else
+    dailyHigh := na(dailyHigh) ? high : math.max(dailyHigh, high)
+    dailyLow := na(dailyLow) ? low : math.min(dailyLow, low)
+
+if showDailyLevels and showDailyHOD
+    activeDailyHodLine := f_upsertHorizontalLine(activeDailyHodLine, dailyStartBar, bar_index, dailyHigh, dailyHodColor, dailyLevelsWidth)
+else
+    activeDailyHodLine := f_deleteLine(activeDailyHodLine)
+
+if showDailyLevels and showDailyLOD
+    activeDailyLodLine := f_upsertHorizontalLine(activeDailyLodLine, dailyStartBar, bar_index, dailyLow, dailyLodColor, dailyLevelsWidth)
+else
+    activeDailyLodLine := f_deleteLine(activeDailyLodLine)
+
+// --- Logic: Session HOD / LOD ---
+var bool firstSessionTrackingActive = false
+var int firstSessionStartBar = na
+var int firstSessionLastBar = na
+var float firstSessionHigh = na
+var float firstSessionLow = na
+var line firstSessionHodLine = na
+var line firstSessionLodLine = na
+var label firstSessionHodLabel = na
+var label firstSessionLodLabel = na
+
+var bool secondSessionTrackingActive = false
+var int secondSessionStartBar = na
+var int secondSessionLastBar = na
+var float secondSessionHigh = na
+var float secondSessionLow = na
+var line secondSessionHodLine = na
+var line secondSessionLodLine = na
+var label secondSessionHodLabel = na
+var label secondSessionLodLabel = na
+
+var bool thirdSessionTrackingActive = false
+var int thirdSessionStartBar = na
+var int thirdSessionLastBar = na
+var float thirdSessionHigh = na
+var float thirdSessionLow = na
+var line thirdSessionHodLine = na
+var line thirdSessionLodLine = na
+var label thirdSessionHodLabel = na
+var label thirdSessionLodLabel = na
+
+bool firstSessionShouldDisplay = showSessionLevels and not showAllSessionLevels and currentActiveSessionIndex == 1
+bool secondSessionShouldDisplay = showSessionLevels and not showAllSessionLevels and currentActiveSessionIndex == 2
+bool thirdSessionShouldDisplay = showSessionLevels and not showAllSessionLevels and currentActiveSessionIndex == 3
+
+bool firstSessionSuperseded = firstSessionTrackingActive and firstInSession and (secondSessionStarted or thirdSessionStarted)
+bool secondSessionSuperseded = secondSessionTrackingActive and secondInSession and thirdSessionStarted
+bool firstSessionShouldFinalize = firstSessionTrackingActive and (firstSessionSuperseded or firstSessionEnded)
+bool secondSessionShouldFinalize = secondSessionTrackingActive and (secondSessionSuperseded or secondSessionEnded)
+bool thirdSessionShouldFinalize = thirdSessionTrackingActive and thirdSessionEnded
+
+if firstSessionStarted
+    firstSessionTrackingActive := true
+    firstSessionStartBar := bar_index
+    firstSessionLastBar := na
+    firstSessionHigh := na
+    firstSessionLow := na
+    if firstSessionOwnsBar
+        firstSessionLastBar := bar_index
+        firstSessionHigh := high
+        firstSessionLow := low
+else if firstSessionTrackingActive and firstSessionOwnsBar
+    firstSessionLastBar := bar_index
+    firstSessionHigh := na(firstSessionHigh) ? high : math.max(firstSessionHigh, high)
+    firstSessionLow := na(firstSessionLow) ? low : math.min(firstSessionLow, low)
+
+if firstSessionTrackingActive and firstSessionOwnsBar and firstSessionShouldDisplay and showSessionHOD
+    firstSessionHodLine := f_upsertHorizontalLine(firstSessionHodLine, firstSessionStartBar, firstSessionLastBar, firstSessionHigh, sessionHodColor, sessionLevelsWidth)
+    firstSessionHodLabel := f_upsertMidLabel(firstSessionHodLabel, firstSessionStartBar, firstSessionLastBar, firstSessionHigh, "HOD", sessionHodColor)
+else
+    firstSessionHodLine := f_deleteLine(firstSessionHodLine)
+    firstSessionHodLabel := f_deleteLabel(firstSessionHodLabel)
+
+if firstSessionTrackingActive and firstSessionOwnsBar and firstSessionShouldDisplay and showSessionLOD
+    firstSessionLodLine := f_upsertHorizontalLine(firstSessionLodLine, firstSessionStartBar, firstSessionLastBar, firstSessionLow, sessionLodColor, sessionLevelsWidth)
+    firstSessionLodLabel := f_upsertMidLabel(firstSessionLodLabel, firstSessionStartBar, firstSessionLastBar, firstSessionLow, "LOD", sessionLodColor)
+else
+    firstSessionLodLine := f_deleteLine(firstSessionLodLine)
+    firstSessionLodLabel := f_deleteLabel(firstSessionLodLabel)
+
+if firstSessionShouldFinalize
+    if showSessionLevels and showAllSessionLevels
+        if showSessionHOD and not na(firstSessionStartBar) and not na(firstSessionLastBar) and not na(firstSessionHigh)
+            line firstFinalHodLine = f_createHorizontalLine(firstSessionStartBar, firstSessionLastBar, firstSessionHigh, sessionHodColor, sessionLevelsWidth)
+            label firstFinalHodLabel = f_createMidLabel(firstSessionStartBar, firstSessionLastBar, firstSessionHigh, "HOD", sessionHodColor)
+            f_pushLimitedLine(sessionHodHistoryLines, firstFinalHodLine, MAX_SESSION_HOD_LINES)
+            f_pushLimitedLabel(sessionHodHistoryLabels, firstFinalHodLabel, MAX_SESSION_HOD_LINES)
+        if showSessionLOD and not na(firstSessionStartBar) and not na(firstSessionLastBar) and not na(firstSessionLow)
+            line firstFinalLodLine = f_createHorizontalLine(firstSessionStartBar, firstSessionLastBar, firstSessionLow, sessionLodColor, sessionLevelsWidth)
+            label firstFinalLodLabel = f_createMidLabel(firstSessionStartBar, firstSessionLastBar, firstSessionLow, "LOD", sessionLodColor)
+            f_pushLimitedLine(sessionLodHistoryLines, firstFinalLodLine, MAX_SESSION_LOD_LINES)
+            f_pushLimitedLabel(sessionLodHistoryLabels, firstFinalLodLabel, MAX_SESSION_LOD_LINES)
+    firstSessionTrackingActive := false
+    firstSessionStartBar := na
+    firstSessionLastBar := na
+    firstSessionHigh := na
+    firstSessionLow := na
+
+if secondSessionStarted
+    secondSessionTrackingActive := true
+    secondSessionStartBar := bar_index
+    secondSessionLastBar := na
+    secondSessionHigh := na
+    secondSessionLow := na
+    if secondSessionOwnsBar
+        secondSessionLastBar := bar_index
+        secondSessionHigh := high
+        secondSessionLow := low
+else if secondSessionTrackingActive and secondSessionOwnsBar
+    secondSessionLastBar := bar_index
+    secondSessionHigh := na(secondSessionHigh) ? high : math.max(secondSessionHigh, high)
+    secondSessionLow := na(secondSessionLow) ? low : math.min(secondSessionLow, low)
+
+if secondSessionTrackingActive and secondSessionOwnsBar and secondSessionShouldDisplay and showSessionHOD
+    secondSessionHodLine := f_upsertHorizontalLine(secondSessionHodLine, secondSessionStartBar, secondSessionLastBar, secondSessionHigh, sessionHodColor, sessionLevelsWidth)
+    secondSessionHodLabel := f_upsertMidLabel(secondSessionHodLabel, secondSessionStartBar, secondSessionLastBar, secondSessionHigh, "HOD", sessionHodColor)
+else
+    secondSessionHodLine := f_deleteLine(secondSessionHodLine)
+    secondSessionHodLabel := f_deleteLabel(secondSessionHodLabel)
+
+if secondSessionTrackingActive and secondSessionOwnsBar and secondSessionShouldDisplay and showSessionLOD
+    secondSessionLodLine := f_upsertHorizontalLine(secondSessionLodLine, secondSessionStartBar, secondSessionLastBar, secondSessionLow, sessionLodColor, sessionLevelsWidth)
+    secondSessionLodLabel := f_upsertMidLabel(secondSessionLodLabel, secondSessionStartBar, secondSessionLastBar, secondSessionLow, "LOD", sessionLodColor)
+else
+    secondSessionLodLine := f_deleteLine(secondSessionLodLine)
+    secondSessionLodLabel := f_deleteLabel(secondSessionLodLabel)
+
+if secondSessionShouldFinalize
+    if showSessionLevels and showAllSessionLevels
+        if showSessionHOD and not na(secondSessionStartBar) and not na(secondSessionLastBar) and not na(secondSessionHigh)
+            line secondFinalHodLine = f_createHorizontalLine(secondSessionStartBar, secondSessionLastBar, secondSessionHigh, sessionHodColor, sessionLevelsWidth)
+            label secondFinalHodLabel = f_createMidLabel(secondSessionStartBar, secondSessionLastBar, secondSessionHigh, "HOD", sessionHodColor)
+            f_pushLimitedLine(sessionHodHistoryLines, secondFinalHodLine, MAX_SESSION_HOD_LINES)
+            f_pushLimitedLabel(sessionHodHistoryLabels, secondFinalHodLabel, MAX_SESSION_HOD_LINES)
+        if showSessionLOD and not na(secondSessionStartBar) and not na(secondSessionLastBar) and not na(secondSessionLow)
+            line secondFinalLodLine = f_createHorizontalLine(secondSessionStartBar, secondSessionLastBar, secondSessionLow, sessionLodColor, sessionLevelsWidth)
+            label secondFinalLodLabel = f_createMidLabel(secondSessionStartBar, secondSessionLastBar, secondSessionLow, "LOD", sessionLodColor)
+            f_pushLimitedLine(sessionLodHistoryLines, secondFinalLodLine, MAX_SESSION_LOD_LINES)
+            f_pushLimitedLabel(sessionLodHistoryLabels, secondFinalLodLabel, MAX_SESSION_LOD_LINES)
+    secondSessionTrackingActive := false
+    secondSessionStartBar := na
+    secondSessionLastBar := na
+    secondSessionHigh := na
+    secondSessionLow := na
+
+if thirdSessionStarted
+    thirdSessionTrackingActive := true
+    thirdSessionStartBar := bar_index
+    thirdSessionLastBar := na
+    thirdSessionHigh := na
+    thirdSessionLow := na
+    if thirdSessionOwnsBar
+        thirdSessionLastBar := bar_index
+        thirdSessionHigh := high
+        thirdSessionLow := low
+else if thirdSessionTrackingActive and thirdSessionOwnsBar
+    thirdSessionLastBar := bar_index
+    thirdSessionHigh := na(thirdSessionHigh) ? high : math.max(thirdSessionHigh, high)
+    thirdSessionLow := na(thirdSessionLow) ? low : math.min(thirdSessionLow, low)
+
+if thirdSessionTrackingActive and thirdSessionOwnsBar and thirdSessionShouldDisplay and showSessionHOD
+    thirdSessionHodLine := f_upsertHorizontalLine(thirdSessionHodLine, thirdSessionStartBar, thirdSessionLastBar, thirdSessionHigh, sessionHodColor, sessionLevelsWidth)
+    thirdSessionHodLabel := f_upsertMidLabel(thirdSessionHodLabel, thirdSessionStartBar, thirdSessionLastBar, thirdSessionHigh, "HOD", sessionHodColor)
+else
+    thirdSessionHodLine := f_deleteLine(thirdSessionHodLine)
+    thirdSessionHodLabel := f_deleteLabel(thirdSessionHodLabel)
+
+if thirdSessionTrackingActive and thirdSessionOwnsBar and thirdSessionShouldDisplay and showSessionLOD
+    thirdSessionLodLine := f_upsertHorizontalLine(thirdSessionLodLine, thirdSessionStartBar, thirdSessionLastBar, thirdSessionLow, sessionLodColor, sessionLevelsWidth)
+    thirdSessionLodLabel := f_upsertMidLabel(thirdSessionLodLabel, thirdSessionStartBar, thirdSessionLastBar, thirdSessionLow, "LOD", sessionLodColor)
+else
+    thirdSessionLodLine := f_deleteLine(thirdSessionLodLine)
+    thirdSessionLodLabel := f_deleteLabel(thirdSessionLodLabel)
+
+if thirdSessionShouldFinalize
+    if showSessionLevels and showAllSessionLevels
+        if showSessionHOD and not na(thirdSessionStartBar) and not na(thirdSessionLastBar) and not na(thirdSessionHigh)
+            line thirdFinalHodLine = f_createHorizontalLine(thirdSessionStartBar, thirdSessionLastBar, thirdSessionHigh, sessionHodColor, sessionLevelsWidth)
+            label thirdFinalHodLabel = f_createMidLabel(thirdSessionStartBar, thirdSessionLastBar, thirdSessionHigh, "HOD", sessionHodColor)
+            f_pushLimitedLine(sessionHodHistoryLines, thirdFinalHodLine, MAX_SESSION_HOD_LINES)
+            f_pushLimitedLabel(sessionHodHistoryLabels, thirdFinalHodLabel, MAX_SESSION_HOD_LINES)
+        if showSessionLOD and not na(thirdSessionStartBar) and not na(thirdSessionLastBar) and not na(thirdSessionLow)
+            line thirdFinalLodLine = f_createHorizontalLine(thirdSessionStartBar, thirdSessionLastBar, thirdSessionLow, sessionLodColor, sessionLevelsWidth)
+            label thirdFinalLodLabel = f_createMidLabel(thirdSessionStartBar, thirdSessionLastBar, thirdSessionLow, "LOD", sessionLodColor)
+            f_pushLimitedLine(sessionLodHistoryLines, thirdFinalLodLine, MAX_SESSION_LOD_LINES)
+            f_pushLimitedLabel(sessionLodHistoryLabels, thirdFinalLodLabel, MAX_SESSION_LOD_LINES)
+    thirdSessionTrackingActive := false
+    thirdSessionStartBar := na
+    thirdSessionLastBar := na
+    thirdSessionHigh := na
+    thirdSessionLow := na
 
 // --- Logic: Sweep Detection ---
 float bTop    = math.max(open, close)
@@ -87,11 +441,6 @@ bearS = sHigh_prev and isBigUW_prev and isBearEngulf
 // Bullish Setup: Downside sweep + Current body fully engulfs previous body
 bool isBullEngulf = close > open and close >= bTop_prev and open <= bBot_prev
 bullS = sLow_prev and isBigLW_prev and isBullEngulf
-
-// --- Visuals: Session Separators ---
-f_drawSessionSeparators(showFirstSession, firstSessionName, firstSessionTime, firstSessionTimezone, firstSessionSeparatorClr)
-f_drawSessionSeparators(showSecondSession, secondSessionName, secondSessionTime, secondSessionTimezone, secondSessionSeparatorClr)
-f_drawSessionSeparators(showThirdSession, thirdSessionName, thirdSessionTime, thirdSessionTimezone, thirdSessionSeparatorClr)
 
 // --- Visuals: Setup Markers ---
 plotshape(bullS, "Bullish Sweep Reversal", shape.triangleup, location.belowbar, bullColor, size = size.small)
