@@ -7,6 +7,7 @@ groupSetup         = "Sweep Setup Logic"
 groupStyle         = "Visual Style"
 groupDailyLevels   = "Daily High / Low"
 groupSessionLevels = "Session High / Low"
+groupMovingAverage = "Moving Average Cross"
 
 // --- Inputs: Session Separators ---
 const string TZ_TOOLTIP_TEXT = "The session's time zone, specified in either GMT notation (e.g., 'GMT-5') or as an IANA time zone database name (e.g., 'America/New_York'). We recommend the latter because it also handles daylight savings changes."
@@ -68,6 +69,65 @@ showSessionLOD    = input.bool(true, "Show Session Low", group = groupSessionLev
 sessionHodColor   = input.color(#2962FF, "Session High Color", group = groupSessionLevels, active = showSessionLevels and showSessionHOD)
 sessionLodColor   = input.color(#FF9800, "Session Low Color", group = groupSessionLevels, active = showSessionLevels and showSessionLOD)
 sessionLevelsWidth = input.int(1, "Line Width", minval = 1, group = groupSessionLevels, active = showSessionLevels)
+
+// --- Group Name ---
+// ChartArt's Moving Average Cross Indicator
+// Version 2.0 (Updated for v6)
+// Original Idea by ChartArt on September 15, 2015.
+
+// --- Constants ---
+COLOR_BULL = #089981
+COLOR_BEAR = #f23645
+COLOR_NEUTRAL = #5b9cf6
+
+// --- Inputs ---
+showMovingAverageCross = input.bool(false, "Show moving average cross", group = groupMovingAverage)
+sourceInput       = input.source(close, "Price Source For The Moving Averages", tooltip = "The price source used for the moving average calculations.", group = groupMovingAverage, active = showMovingAverageCross)
+useCurrentTFInput = input.bool(true, "Use Current Timeframe?", tooltip = "If checked, the indicator uses the chart's timeframe. Otherwise, it uses the custom timeframe selected below.", group = groupMovingAverage, active = showMovingAverageCross)
+tfInput           = input.timeframe("W", "Custom Timeframe", tooltip = "The timeframe used for calculations if 'Use Current Timeframe?' is unchecked.", group = groupMovingAverage, active = showMovingAverageCross)
+shortPeriodInput  = input.int(50, "Short Period MA", minval = 1, tooltip = "Length of the short-term moving average.", group = groupMovingAverage, active = showMovingAverageCross)
+longPeriodInput   = input.int(100, "Long Period MA", minval = 1, tooltip = "Length of the long-term moving average.", group = groupMovingAverage, active = showMovingAverageCross)
+maTypeInput       = input.string("EMA", "Moving Average Type", options = ["SMA", "EMA", "WMA", "Linear"], tooltip = "Calculation method for the moving averages.", group = groupMovingAverage, active = showMovingAverageCross)
+
+// --- Core logic ---
+res = useCurrentTFInput ? timeframe.period : tfInput
+price = request.security(syminfo.tickerid, res, sourceInput)
+
+// Moving Average Calculation function
+getMA(type, src, len) =>
+    switch type
+        "SMA"    => ta.sma(src, len)
+        "EMA"    => ta.ema(src, len)
+        "WMA"    => ta.wma(src, len)
+        "Linear" => ta.linreg(src, len, 0)
+        => na
+
+short = getMA(maTypeInput, price, shortPeriodInput)
+long  = getMA(maTypeInput, price, longPeriodInput)
+
+// Trend Directions
+shortUp = short > short[1]
+shortDn = short < short[1]
+longUp  = long > long[1]
+longDn  = long < long[1]
+
+shortColor = shortUp ? COLOR_BULL : shortDn ? COLOR_BEAR : COLOR_NEUTRAL
+longColor  = longUp ? COLOR_BULL : longDn ? COLOR_BEAR : COLOR_NEUTRAL
+
+// Trend Logic
+trendingUp   = short > long
+trendingDown = short < long
+
+// Cross Alert
+maCrossing = ta.cross(short, long) ? short : na
+
+// Background color alert
+uptrend   = trendingUp and not trendingUp[1]
+downtrend = trendingDown and not trendingDown[1]
+
+// Buy and Sell signals
+buySignal  = uptrend and close > close[1]
+sellSignal = downtrend and close < close[1]
 
 // --- Shared Line Helpers ---
 var array<line> sessionSeparatorLines = array.new<line>()
@@ -442,9 +502,30 @@ bearS = sHigh_prev and isBigUW_prev and isBearEngulf
 bool isBullEngulf = close > open and close >= bTop_prev and open <= bBot_prev
 bullS = sLow_prev and isBigLW_prev and isBullEngulf
 
+// --- Visual elements ---
+ma1Plot = plot(showMovingAverageCross ? short : na, "Short Period Moving Average", color = shortColor, linewidth = 2, style = plot.style_linebr)
+ma2Plot = plot(showMovingAverageCross ? long : na, "Long Period Moving Average", color = longColor, linewidth = 4, style = plot.style_linebr)
+
+fill(ma1Plot, ma2Plot, color = showMovingAverageCross ? color.new(color.silver, 50) : na, title = "MA Cloud")
+
+barcolor(showMovingAverageCross ? (trendingUp ? COLOR_BULL : trendingDown ? COLOR_BEAR : COLOR_NEUTRAL) : na)
+
+plot(showMovingAverageCross ? maCrossing : na, "MA Cross", color = chart.fg_color, style = plot.style_circles, linewidth = 4)
+
+bgcolor(showMovingAverageCross ? (uptrend ? color.new(COLOR_BULL, 50) : downtrend ? color.new(COLOR_BEAR, 50) : na) : na, title = "Trend Change Highlight")
+
+plotshape(showMovingAverageCross and buySignal,  "Buy Label",  style = shape.arrowup,   location = location.bottom, color = chart.fg_color, text = "Buy",  textcolor = chart.fg_color)
+plotshape(showMovingAverageCross and sellSignal, "Sell Label", style = shape.arrowdown, location = location.top,    color = chart.fg_color, text = "Sell", textcolor = chart.fg_color)
+
 // --- Visuals: Setup Markers ---
 plotshape(bullS, "Bullish Sweep Reversal", shape.triangleup, location.belowbar, bullColor, size = size.small)
 plotshape(bearS, "Bearish Sweep Reversal", shape.triangledown, location.abovebar, bearColor, size = size.small)
 
 // Background highlight for the confirmation bar
 bgcolor(bullS ? color.new(bullColor, 90) : bearS ? color.new(bearColor, 90) : na)
+
+// --- Alerts ---
+alertcondition(uptrend,   "Uptrend Alert",   "Moving Average Bullish Cross")
+alertcondition(downtrend, "Downtrend Alert", "Moving Average Bearish Cross")
+alertcondition(buySignal, "Buy Signal",      "MA Cross with Price Confirmation")
+alertcondition(sellSignal,"Sell Signal",     "MA Cross with Price Confirmation")
