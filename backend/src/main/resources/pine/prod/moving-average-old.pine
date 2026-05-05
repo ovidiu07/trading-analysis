@@ -1,0 +1,81 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("Moving Average Cross Alert, Multi-Timeframe Option (MTF) (by ChartArt)", shorttitle="CA_-_MA_cross", overlay=true)
+
+// --- Group Name ---
+// ChartArt's Moving Average Cross Indicator
+// Version 2.0 (Updated for v6)
+// Original Idea by ChartArt on September 15, 2015.
+
+// --- Constants ---
+COLOR_BULL = #089981
+COLOR_BEAR = #f23645
+COLOR_NEUTRAL = #5b9cf6
+
+// --- Inputs ---
+sourceInput       = input.source(close, "Price Source For The Moving Averages", tooltip = "The price source used for the moving average calculations.")
+useCurrentTFInput = input.bool(true, "Use Current Timeframe?", tooltip = "If checked, the indicator uses the chart's timeframe. Otherwise, it uses the custom timeframe selected below.")
+tfInput           = input.timeframe("W", "Custom Timeframe", tooltip = "The timeframe used for calculations if 'Use Current Timeframe?' is unchecked.")
+shortPeriodInput  = input.int(50, "Short Period MA", minval = 1, tooltip = "Length of the short-term moving average.")
+longPeriodInput   = input.int(100, "Long Period MA", minval = 1, tooltip = "Length of the long-term moving average.")
+maTypeInput       = input.string("EMA", "Moving Average Type", options = ["SMA", "EMA", "WMA", "Linear"], tooltip = "Calculation method for the moving averages.")
+
+// --- Core logic ---
+res = useCurrentTFInput ? timeframe.period : tfInput
+price = request.security(syminfo.tickerid, res, sourceInput)
+
+// Moving Average Calculation function
+getMA(type, src, len) =>
+    switch type
+        "SMA"    => ta.sma(src, len)
+        "EMA"    => ta.ema(src, len)
+        "WMA"    => ta.wma(src, len)
+        "Linear" => ta.linreg(src, len, 0)
+        => na
+
+short = getMA(maTypeInput, price, shortPeriodInput)
+long  = getMA(maTypeInput, price, longPeriodInput)
+
+// Trend Directions
+shortUp = short > short[1]
+shortDn = short < short[1]
+longUp  = long > long[1]
+longDn  = long < long[1]
+
+shortColor = shortUp ? COLOR_BULL : shortDn ? COLOR_BEAR : COLOR_NEUTRAL
+longColor  = longUp ? COLOR_BULL : longDn ? COLOR_BEAR : COLOR_NEUTRAL
+
+// --- Visual elements ---
+ma1Plot = plot(short, "Short Period Moving Average", color = shortColor, linewidth = 2, style = plot.style_linebr)
+ma2Plot = plot(long, "Long Period Moving Average", color = longColor, linewidth = 4, style = plot.style_linebr)
+
+fill(ma1Plot, ma2Plot, color = color.new(color.silver, 50), title = "MA Cloud")
+
+// Trend Logic
+trendingUp   = short > long
+trendingDown = short < long
+
+barcolor(trendingUp ? COLOR_BULL : trendingDown ? COLOR_BEAR : COLOR_NEUTRAL)
+
+// Cross Alert
+maCrossing = ta.cross(short, long) ? short : na
+plot(maCrossing, "MA Cross", color = chart.fg_color, style = plot.style_circles, linewidth = 4)
+
+// Background color alert
+uptrend   = trendingUp and not trendingUp[1]
+downtrend = trendingDown and not trendingDown[1]
+
+bgcolor(uptrend ? color.new(COLOR_BULL, 50) : downtrend ? color.new(COLOR_BEAR, 50) : na, title = "Trend Change Highlight")
+
+// Buy and Sell signals
+buySignal  = uptrend and close > close[1]
+sellSignal = downtrend and close < close[1]
+
+plotshape(buySignal,  "Buy Label",  style = shape.arrowup,   location = location.bottom, color = chart.fg_color, text = "Buy",  textcolor = chart.fg_color)
+plotshape(sellSignal, "Sell Label", style = shape.arrowdown, location = location.top,    color = chart.fg_color, text = "Sell", textcolor = chart.fg_color)
+
+// --- Alerts ---
+alertcondition(uptrend,   "Uptrend Alert",   "Moving Average Bullish Cross")
+alertcondition(downtrend, "Downtrend Alert", "Moving Average Bearish Cross")
+alertcondition(buySignal, "Buy Signal",      "MA Cross with Price Confirmation")
+alertcondition(sellSignal,"Sell Signal",     "MA Cross with Price Confirmation")
