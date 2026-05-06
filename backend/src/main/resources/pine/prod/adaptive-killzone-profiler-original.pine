@@ -88,6 +88,9 @@ tfInput           = input.timeframe("W", "Custom Timeframe", tooltip = "The time
 shortPeriodInput  = input.int(50, "Short Period MA", minval = 1, tooltip = "Length of the short-term moving average.", group = groupMovingAverage, active = showMovingAverageCross)
 longPeriodInput   = input.int(100, "Long Period MA", minval = 1, tooltip = "Length of the long-term moving average.", group = groupMovingAverage, active = showMovingAverageCross)
 maTypeInput       = input.string("EMA", "Moving Average Type", options = ["SMA", "EMA", "WMA", "Linear"], tooltip = "Calculation method for the moving averages.", group = groupMovingAverage, active = showMovingAverageCross)
+maBullBarColorInput = input.color(#089981, "Bullish Bar Color", group = groupMovingAverage, active = showMovingAverageCross)
+maBearBarColorInput = input.color(#f23645, "Bearish Bar Color", group = groupMovingAverage, active = showMovingAverageCross)
+maNeutralBarColorInput = input.color(#5b9cf6, "Neutral Bar Color", group = groupMovingAverage, active = showMovingAverageCross)
 
 // --- Core logic ---
 res = useCurrentTFInput ? timeframe.period : tfInput
@@ -508,14 +511,14 @@ ma2Plot = plot(showMovingAverageCross ? long : na, "Long Period Moving Average",
 
 fill(ma1Plot, ma2Plot, color = showMovingAverageCross ? color.new(color.silver, 50) : na, title = "MA Cloud")
 
-barcolor(showMovingAverageCross ? (trendingUp ? COLOR_BULL : trendingDown ? COLOR_BEAR : COLOR_NEUTRAL) : na)
+barcolor(showMovingAverageCross ? (trendingUp ? maBullBarColorInput : trendingDown ? maBearBarColorInput : maNeutralBarColorInput) : na)
 
 plot(showMovingAverageCross ? maCrossing : na, "MA Cross", color = chart.fg_color, style = plot.style_circles, linewidth = 4)
 
 bgcolor(showMovingAverageCross ? (uptrend ? color.new(COLOR_BULL, 50) : downtrend ? color.new(COLOR_BEAR, 50) : na) : na, title = "Trend Change Highlight")
 
-plotshape(showMovingAverageCross and buySignal,  "Buy Label",  style = shape.arrowup,   location = location.bottom, color = chart.fg_color, text = "Buy",  textcolor = chart.fg_color)
-plotshape(showMovingAverageCross and sellSignal, "Sell Label", style = shape.arrowdown, location = location.top,    color = chart.fg_color, text = "Sell", textcolor = chart.fg_color)
+plotshape(showMovingAverageCross and buySignal,  "Buy Label",  style = shape.arrowup,   location = location.bottom, color = chart.fg_color)
+plotshape(showMovingAverageCross and sellSignal, "Sell Label", style = shape.arrowdown, location = location.top,    color = chart.fg_color)
 
 // --- Visuals: Setup Markers ---
 plotshape(bullS, "Bullish Sweep Reversal", shape.triangleup, location.belowbar, bullColor, size = size.small)
@@ -527,5 +530,3 @@ bgcolor(bullS ? color.new(bullColor, 90) : bearS ? color.new(bearColor, 90) : na
 // --- Alerts ---
 alertcondition(uptrend,   "Uptrend Alert",   "Moving Average Bullish Cross")
 alertcondition(downtrend, "Downtrend Alert", "Moving Average Bearish Cross")
-alertcondition(buySignal, "Buy Signal",      "MA Cross with Price Confirmation")
-alertcondition(sellSignal,"Sell Signal",     "MA Cross with Price Confirmation")
