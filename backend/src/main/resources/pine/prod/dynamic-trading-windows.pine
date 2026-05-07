@@ -13,7 +13,7 @@ groupGeneral = "General Settings"
 showLabelsGlobal = input.bool(true, "Show Labels Globally", group = groupGeneral, tooltip = "Toggle all labels on/off.")
 lineExtendModeInput = input.string("Both", "Vertical Line Extend", options = ["Both", "None"], group = groupGeneral, tooltip = "Choose if lines should extend across the whole chart height.")
 maxHistoricalMarkers = input.int(300, "Maximum Historical Lines/Labels", minval = 50, maxval = 500, group = groupGeneral, tooltip = "Limit the number of objects on chart to maintain performance.")
-showCurrentProfileLabel = input.bool(true, "Show Status Label", group = groupGeneral, tooltip = "Shows which profile is currently active on the right side of the chart.")
+showCurrentProfileLabel = input.bool(false, "Show Status Label", group = groupGeneral, tooltip = "Shows which profile is currently active on the right side of the chart.")
 
 // --- Helper Functions ---
 f_symbolMatches(string configuredSymbol) =>
@@ -160,7 +160,7 @@ t1_i1_txt = input.string("GER40 Main", "Int 1 Label", group = groupT1)
 t1_i1_col = input.color(#089981, "Int 1 Color", group = groupT1)
 t1_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT1)
 t1_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
-t1_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT1)
+t1_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT1)
 t1_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT1)
 t1_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT1)
 
@@ -170,7 +170,7 @@ t1_i2_txt = input.string("GER40 Evening", "Int 2 Label", group = groupT1)
 t1_i2_col = input.color(#089981, "Int 2 Color", group = groupT1)
 t1_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT1)
 t1_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
-t1_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT1)
+t1_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT1)
 t1_i2_lcol = input.color(color.white, "Int 2 Label Color", group = groupT1)
 t1_i2_lsiz = input.string("Small", "Int 2 Label Size", ["Tiny", "Small", "Normal"], group = groupT1)
 
@@ -180,14 +180,14 @@ t1_i3_txt = input.string("", "Int 3 Label", group = groupT1)
 t1_i3_col = input.color(#089981, "Int 3 Color", group = groupT1)
 t1_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT1)
 t1_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
-t1_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT1)
+t1_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT1)
 t1_i4_en = input.bool(false, "Int 4 Enabled", group = groupT1)
 t1_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT1)
 t1_i4_txt = input.string("", "Int 4 Label", group = groupT1)
 t1_i4_col = input.color(#089981, "Int 4 Color", group = groupT1)
 t1_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT1)
 t1_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT1)
-t1_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT1)
+t1_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT1)
 
 // Ticker 2 - NQ
 groupT2 = "Ticker 2 - NQ"
@@ -200,7 +200,7 @@ t2_i1_txt = input.string("NQ Open", "Int 1 Label", group = groupT2)
 t2_i1_col = input.color(#5b9cf6, "Int 1 Color", group = groupT2)
 t2_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT2)
 t2_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
-t2_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT2)
+t2_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT2)
 t2_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT2)
 t2_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT2)
 
@@ -210,7 +210,7 @@ t2_i2_txt = input.string("NQ PM", "Int 2 Label", group = groupT2)
 t2_i2_col = input.color(#5b9cf6, "Int 2 Color", group = groupT2)
 t2_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT2)
 t2_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
-t2_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT2)
+t2_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT2)
 t2_i2_lcol = input.color(color.white, "Int 2 Label Color", group = groupT2)
 t2_i2_lsiz = input.string("Small", "Int 2 Label Size", ["Tiny", "Small", "Normal"], group = groupT2)
 
@@ -220,14 +220,14 @@ t2_i3_txt = input.string("", "Int 3 Label", group = groupT2)
 t2_i3_col = input.color(#5b9cf6, "Int 3 Color", group = groupT2)
 t2_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT2)
 t2_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
-t2_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT2)
+t2_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT2)
 t2_i4_en = input.bool(false, "Int 4 Enabled", group = groupT2)
 t2_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT2)
 t2_i4_txt = input.string("", "Int 4 Label", group = groupT2)
 t2_i4_col = input.color(#5b9cf6, "Int 4 Color", group = groupT2)
 t2_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT2)
 t2_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT2)
-t2_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT2)
+t2_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT2)
 
 // Ticker 3 - UK100
 groupT3 = "Ticker 3 - UK100"
@@ -240,7 +240,7 @@ t3_i1_txt = input.string("UK100 Main", "Int 1 Label", group = groupT3)
 t3_i1_col = input.color(#f23645, "Int 1 Color", group = groupT3)
 t3_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT3)
 t3_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
-t3_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT3)
+t3_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT3)
 t3_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT3)
 t3_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT3)
 t3_i2_en = input.bool(false, "Int 2 Enabled", group = groupT3)
@@ -249,21 +249,21 @@ t3_i2_txt = input.string("", "Int 2 Label", group = groupT3)
 t3_i2_col = input.color(#f23645, "Int 2 Color", group = groupT3)
 t3_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT3)
 t3_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
-t3_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT3)
+t3_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT3)
 t3_i3_en = input.bool(false, "Int 3 Enabled", group = groupT3)
 t3_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT3)
 t3_i3_txt = input.string("", "Int 3 Label", group = groupT3)
 t3_i3_col = input.color(#f23645, "Int 3 Color", group = groupT3)
 t3_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT3)
 t3_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
-t3_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT3)
+t3_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT3)
 t3_i4_en = input.bool(false, "Int 4 Enabled", group = groupT3)
 t3_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT3)
 t3_i4_txt = input.string("", "Int 4 Label", group = groupT3)
 t3_i4_col = input.color(#f23645, "Int 4 Color", group = groupT3)
 t3_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT3)
 t3_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT3)
-t3_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT3)
+t3_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT3)
 
 // Ticker 4 - INTC
 groupT4 = "Ticker 4 - INTC"
@@ -276,7 +276,7 @@ t4_i1_txt = input.string("INTC Open", "Int 1 Label", group = groupT4)
 t4_i1_col = input.color(color.orange, "Int 1 Color", group = groupT4)
 t4_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT4)
 t4_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
-t4_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT4)
+t4_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT4)
 t4_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT4)
 t4_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT4)
 t4_i2_en = input.bool(false, "Int 2 Enabled", group = groupT4)
@@ -285,21 +285,21 @@ t4_i2_txt = input.string("", "Int 2 Label", group = groupT4)
 t4_i2_col = input.color(color.orange, "Int 2 Color", group = groupT4)
 t4_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT4)
 t4_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
-t4_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT4)
+t4_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT4)
 t4_i3_en = input.bool(false, "Int 3 Enabled", group = groupT4)
 t4_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT4)
 t4_i3_txt = input.string("", "Int 3 Label", group = groupT4)
 t4_i3_col = input.color(color.orange, "Int 3 Color", group = groupT4)
 t4_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT4)
 t4_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
-t4_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT4)
+t4_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT4)
 t4_i4_en = input.bool(false, "Int 4 Enabled", group = groupT4)
 t4_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT4)
 t4_i4_txt = input.string("", "Int 4 Label", group = groupT4)
 t4_i4_col = input.color(color.orange, "Int 4 Color", group = groupT4)
 t4_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT4)
 t4_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT4)
-t4_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT4)
+t4_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT4)
 
 // Ticker 5
 groupT5 = "Ticker 5"
@@ -312,7 +312,7 @@ t5_i1_txt = input.string("", "Int 1 Label", group = groupT5)
 t5_i1_col = input.color(color.gray, "Int 1 Color", group = groupT5)
 t5_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT5)
 t5_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
-t5_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT5)
+t5_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT5)
 t5_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT5)
 t5_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT5)
 t5_i2_en = input.bool(false, "Int 2 Enabled", group = groupT5)
@@ -321,21 +321,21 @@ t5_i2_txt = input.string("", "Int 2 Label", group = groupT5)
 t5_i2_col = input.color(color.gray, "Int 2 Color", group = groupT5)
 t5_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT5)
 t5_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
-t5_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT5)
+t5_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT5)
 t5_i3_en = input.bool(false, "Int 3 Enabled", group = groupT5)
 t5_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT5)
 t5_i3_txt = input.string("", "Int 3 Label", group = groupT5)
 t5_i3_col = input.color(color.gray, "Int 3 Color", group = groupT5)
 t5_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT5)
 t5_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
-t5_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT5)
+t5_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT5)
 t5_i4_en = input.bool(false, "Int 4 Enabled", group = groupT5)
 t5_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT5)
 t5_i4_txt = input.string("", "Int 4 Label", group = groupT5)
 t5_i4_col = input.color(color.gray, "Int 4 Color", group = groupT5)
 t5_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT5)
 t5_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT5)
-t5_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT5)
+t5_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT5)
 
 // Ticker 6
 groupT6 = "Ticker 6"
@@ -348,7 +348,7 @@ t6_i1_txt = input.string("", "Int 1 Label", group = groupT6)
 t6_i1_col = input.color(color.gray, "Int 1 Color", group = groupT6)
 t6_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT6)
 t6_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
-t6_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT6)
+t6_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT6)
 t6_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT6)
 t6_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT6)
 t6_i2_en = input.bool(false, "Int 2 Enabled", group = groupT6)
@@ -357,21 +357,21 @@ t6_i2_txt = input.string("", "Int 2 Label", group = groupT6)
 t6_i2_col = input.color(color.gray, "Int 2 Color", group = groupT6)
 t6_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT6)
 t6_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
-t6_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT6)
+t6_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT6)
 t6_i3_en = input.bool(false, "Int 3 Enabled", group = groupT6)
 t6_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT6)
 t6_i3_txt = input.string("", "Int 3 Label", group = groupT6)
 t6_i3_col = input.color(color.gray, "Int 3 Color", group = groupT6)
 t6_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT6)
 t6_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
-t6_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT6)
+t6_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT6)
 t6_i4_en = input.bool(false, "Int 4 Enabled", group = groupT6)
 t6_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT6)
 t6_i4_txt = input.string("", "Int 4 Label", group = groupT6)
 t6_i4_col = input.color(color.gray, "Int 4 Color", group = groupT6)
 t6_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT6)
 t6_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT6)
-t6_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT6)
+t6_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT6)
 
 // Ticker 7
 groupT7 = "Ticker 7"
@@ -384,7 +384,7 @@ t7_i1_txt = input.string("", "Int 1 Label", group = groupT7)
 t7_i1_col = input.color(color.gray, "Int 1 Color", group = groupT7)
 t7_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT7)
 t7_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
-t7_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT7)
+t7_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT7)
 t7_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT7)
 t7_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT7)
 t7_i2_en = input.bool(false, "Int 2 Enabled", group = groupT7)
@@ -393,21 +393,21 @@ t7_i2_txt = input.string("", "Int 2 Label", group = groupT7)
 t7_i2_col = input.color(color.gray, "Int 2 Color", group = groupT7)
 t7_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT7)
 t7_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
-t7_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT7)
+t7_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT7)
 t7_i3_en = input.bool(false, "Int 3 Enabled", group = groupT7)
 t7_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT7)
 t7_i3_txt = input.string("", "Int 3 Label", group = groupT7)
 t7_i3_col = input.color(color.gray, "Int 3 Color", group = groupT7)
 t7_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT7)
 t7_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
-t7_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT7)
+t7_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT7)
 t7_i4_en = input.bool(false, "Int 4 Enabled", group = groupT7)
 t7_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT7)
-t4_i4_txt_7 = input.string("", "Int 4 Label", group = groupT7)
+t7_i4_txt = input.string("", "Int 4 Label", group = groupT7)
 t7_i4_col = input.color(color.gray, "Int 4 Color", group = groupT7)
 t7_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT7)
 t7_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT7)
-t7_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT7)
+t7_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT7)
 
 // Ticker 8
 groupT8 = "Ticker 8"
@@ -420,7 +420,7 @@ t8_i1_txt = input.string("", "Int 1 Label", group = groupT8)
 t8_i1_col = input.color(color.gray, "Int 1 Color", group = groupT8)
 t8_i1_wid = input.int(1, "Int 1 Width", 1, 5, group = groupT8)
 t8_i1_sty = input.string("Dotted", "Int 1 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
-t8_i1_lbl = input.bool(true, "Int 1 Show Label", group = groupT8)
+t8_i1_lbl = input.bool(false, "Int 1 Show Label", group = groupT8)
 t8_i1_lcol = input.color(color.white, "Int 1 Label Color", group = groupT8)
 t8_i1_lsiz = input.string("Small", "Int 1 Label Size", ["Tiny", "Small", "Normal"], group = groupT8)
 t8_i2_en = input.bool(false, "Int 2 Enabled", group = groupT8)
@@ -429,21 +429,21 @@ t8_i2_txt = input.string("", "Int 2 Label", group = groupT8)
 t8_i2_col = input.color(color.gray, "Int 2 Color", group = groupT8)
 t8_i2_wid = input.int(1, "Int 2 Width", 1, 5, group = groupT8)
 t8_i2_sty = input.string("Dotted", "Int 2 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
-t8_i2_lbl = input.bool(true, "Int 2 Show Label", group = groupT8)
+t8_i2_lbl = input.bool(false, "Int 2 Show Label", group = groupT8)
 t8_i3_en = input.bool(false, "Int 3 Enabled", group = groupT8)
 t8_i3_ses = input.session("0000-0000", "Int 3 Session", group = groupT8)
 t8_i3_txt = input.string("", "Int 3 Label", group = groupT8)
 t8_i3_col = input.color(color.gray, "Int 3 Color", group = groupT8)
 t8_i3_wid = input.int(1, "Int 3 Width", 1, 5, group = groupT8)
 t8_i3_sty = input.string("Dotted", "Int 3 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
-t8_i3_lbl = input.bool(true, "Int 3 Show Label", group = groupT8)
+t8_i3_lbl = input.bool(false, "Int 3 Show Label", group = groupT8)
 t8_i4_en = input.bool(false, "Int 4 Enabled", group = groupT8)
 t8_i4_ses = input.session("0000-0000", "Int 4 Session", group = groupT8)
 t8_i4_txt = input.string("", "Int 4 Label", group = groupT8)
 t8_i4_col = input.color(color.gray, "Int 4 Color", group = groupT8)
 t8_i4_wid = input.int(1, "Int 4 Width", 1, 5, group = groupT8)
 t8_i4_sty = input.string("Dotted", "Int 4 Style", ["Solid", "Dashed", "Dotted"], group = groupT8)
-t8_i4_lbl = input.bool(true, "Int 4 Show Label", group = groupT8)
+t8_i4_lbl = input.bool(false, "Int 4 Show Label", group = groupT8)
 
 // --- Logic Execution ---
 
@@ -453,73 +453,89 @@ var bool anyMatched = false
 
 // Processing all profiles and intervals
 // Profile 1
-if f_processInterval(t1_en, t1_sym, t1_tz, t1_i1_en, t1_i1_ses, t1_i1_txt, t1_i1_col, t1_i1_wid, t1_i1_sty, t1_i1_lbl, t1_i1_lcol, t1_i1_lsiz) or
-   f_processInterval(t1_en, t1_sym, t1_tz, t1_i2_en, t1_i2_ses, t1_i2_txt, t1_i2_col, t1_i2_wid, t1_i2_sty, t1_i2_lbl, t1_i2_lcol, t1_i2_lsiz) or
-   f_processInterval(t1_en, t1_sym, t1_tz, t1_i3_en, t1_i3_ses, t1_i3_txt, t1_i3_col, t1_i3_wid, t1_i3_sty, t1_i3_lbl, color.white, "Small") or
-   f_processInterval(t1_en, t1_sym, t1_tz, t1_i4_en, t1_i4_ses, t1_i4_txt, t1_i4_col, t1_i4_wid, t1_i4_sty, t1_i4_lbl, color.white, "Small")
+bool t1Match1 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i1_en, t1_i1_ses, t1_i1_txt, t1_i1_col, t1_i1_wid, t1_i1_sty, t1_i1_lbl, t1_i1_lcol, t1_i1_lsiz)
+bool t1Match2 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i2_en, t1_i2_ses, t1_i2_txt, t1_i2_col, t1_i2_wid, t1_i2_sty, t1_i2_lbl, t1_i2_lcol, t1_i2_lsiz)
+bool t1Match3 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i3_en, t1_i3_ses, t1_i3_txt, t1_i3_col, t1_i3_wid, t1_i3_sty, t1_i3_lbl, color.white, "Small")
+bool t1Match4 = f_processInterval(t1_en, t1_sym, t1_tz, t1_i4_en, t1_i4_ses, t1_i4_txt, t1_i4_col, t1_i4_wid, t1_i4_sty, t1_i4_lbl, color.white, "Small")
+bool t1Matched = t1Match1 or t1Match2 or t1Match3 or t1Match4
+if t1Matched
     anyMatched := true
     matchedProfileName := t1_sym
     matchedProfileTZ := t1_tz
 
 // Profile 2
-if f_processInterval(t2_en, t2_sym, t2_tz, t2_i1_en, t2_i1_ses, t2_i1_txt, t2_i1_col, t2_i1_wid, t2_i1_sty, t2_i1_lbl, t2_i1_lcol, t2_i1_lsiz) or
-   f_processInterval(t2_en, t2_sym, t2_tz, t2_i2_en, t2_i2_ses, t2_i2_txt, t2_i2_col, t2_i2_wid, t2_i2_sty, t2_i2_lbl, t2_i2_lcol, t2_i2_lsiz) or
-   f_processInterval(t2_en, t2_sym, t2_tz, t2_i3_en, t2_i3_ses, t2_i3_txt, t2_i3_col, t2_i3_wid, t2_i3_sty, t2_i3_lbl, color.white, "Small") or
-   f_processInterval(t2_en, t2_sym, t2_tz, t2_i4_en, t2_i4_ses, t2_i4_txt, t2_i4_col, t2_i4_wid, t2_i4_sty, t2_i4_lbl, color.white, "Small")
+bool t2Match1 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i1_en, t2_i1_ses, t2_i1_txt, t2_i1_col, t2_i1_wid, t2_i1_sty, t2_i1_lbl, t2_i1_lcol, t2_i1_lsiz)
+bool t2Match2 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i2_en, t2_i2_ses, t2_i2_txt, t2_i2_col, t2_i2_wid, t2_i2_sty, t2_i2_lbl, t2_i2_lcol, t2_i2_lsiz)
+bool t2Match3 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i3_en, t2_i3_ses, t2_i3_txt, t2_i3_col, t2_i3_wid, t2_i3_sty, t2_i3_lbl, color.white, "Small")
+bool t2Match4 = f_processInterval(t2_en, t2_sym, t2_tz, t2_i4_en, t2_i4_ses, t2_i4_txt, t2_i4_col, t2_i4_wid, t2_i4_sty, t2_i4_lbl, color.white, "Small")
+bool t2Matched = t2Match1 or t2Match2 or t2Match3 or t2Match4
+if t2Matched
     anyMatched := true
     matchedProfileName := t2_sym
     matchedProfileTZ := t2_tz
 
 // Profile 3
-if f_processInterval(t3_en, t3_sym, t3_tz, t3_i1_en, t3_i1_ses, t3_i1_txt, t3_i1_col, t3_i1_wid, t3_i1_sty, t3_i1_lbl, t3_i1_lcol, t3_i1_lsiz) or
-   f_processInterval(t3_en, t3_sym, t3_tz, t3_i2_en, t3_i2_ses, t3_i2_txt, t3_i2_col, t3_i2_wid, t3_i2_sty, t3_i2_lbl, color.white, "Small") or
-   f_processInterval(t3_en, t3_sym, t3_tz, t3_i3_en, t3_i3_ses, t3_i3_txt, t3_i3_col, t3_i3_wid, t3_i3_sty, t3_i3_lbl, color.white, "Small") or
-   f_processInterval(t3_en, t3_sym, t3_tz, t3_i4_en, t3_i4_ses, t3_i4_txt, t3_i4_col, t3_i4_wid, t3_i4_sty, t3_i4_lbl, color.white, "Small")
+bool t3Match1 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i1_en, t3_i1_ses, t3_i1_txt, t3_i1_col, t3_i1_wid, t3_i1_sty, t3_i1_lbl, t3_i1_lcol, t3_i1_lsiz)
+bool t3Match2 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i2_en, t3_i2_ses, t3_i2_txt, t3_i2_col, t3_i2_wid, t3_i2_sty, t3_i2_lbl, color.white, "Small")
+bool t3Match3 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i3_en, t3_i3_ses, t3_i3_txt, t3_i3_col, t3_i3_wid, t3_i3_sty, t3_i3_lbl, color.white, "Small")
+bool t3Match4 = f_processInterval(t3_en, t3_sym, t3_tz, t3_i4_en, t3_i4_ses, t3_i4_txt, t3_i4_col, t3_i4_wid, t3_i4_sty, t3_i4_lbl, color.white, "Small")
+bool t3Matched = t3Match1 or t3Match2 or t3Match3 or t3Match4
+if t3Matched
     anyMatched := true
     matchedProfileName := t3_sym
     matchedProfileTZ := t3_tz
 
 // Profile 4
-if f_processInterval(t4_en, t4_sym, t4_tz, t4_i1_en, t4_i1_ses, t4_i1_txt, t4_i1_col, t4_i1_wid, t4_i1_sty, t4_i1_lbl, t4_i1_lcol, t4_i1_lsiz) or
-   f_processInterval(t4_en, t4_sym, t4_tz, t4_i2_en, t4_i2_ses, t4_i2_txt, t4_i2_col, t4_i2_wid, t4_i2_sty, t4_i2_lbl, color.white, "Small") or
-   f_processInterval(t4_en, t4_sym, t4_tz, t4_i3_en, t4_i3_ses, t4_i3_txt, t4_i3_col, t4_i3_wid, t4_i3_sty, t4_i3_lbl, color.white, "Small") or
-   f_processInterval(t4_en, t4_sym, t4_tz, t4_i4_en, t4_i4_ses, t4_i4_txt, t4_i4_col, t4_i4_wid, t4_i4_sty, t4_i4_lbl, color.white, "Small")
+bool t4Match1 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i1_en, t4_i1_ses, t4_i1_txt, t4_i1_col, t4_i1_wid, t4_i1_sty, t4_i1_lbl, t4_i1_lcol, t4_i1_lsiz)
+bool t4Match2 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i2_en, t4_i2_ses, t4_i2_txt, t4_i2_col, t4_i2_wid, t4_i2_sty, t4_i2_lbl, color.white, "Small")
+bool t4Match3 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i3_en, t4_i3_ses, t4_i3_txt, t4_i3_col, t4_i3_wid, t4_i3_sty, t4_i3_lbl, color.white, "Small")
+bool t4Match4 = f_processInterval(t4_en, t4_sym, t4_tz, t4_i4_en, t4_i4_ses, t4_i4_txt, t4_i4_col, t4_i4_wid, t4_i4_sty, t4_i4_lbl, color.white, "Small")
+bool t4Matched = t4Match1 or t4Match2 or t4Match3 or t4Match4
+if t4Matched
     anyMatched := true
     matchedProfileName := t4_sym
     matchedProfileTZ := t4_tz
 
 // Profile 5
-if f_processInterval(t5_en, t5_sym, t5_tz, t5_i1_en, t5_i1_ses, t5_i1_txt, t5_i1_col, t5_i1_wid, t5_i1_sty, t5_i1_lbl, t5_i1_lcol, t5_i1_lsiz) or
-   f_processInterval(t5_en, t5_sym, t5_tz, t5_i2_en, t5_i2_ses, t5_i2_txt, t5_i2_col, t5_i2_wid, t5_i2_sty, t5_i2_lbl, color.white, "Small") or
-   f_processInterval(t5_en, t5_sym, t5_tz, t5_i3_en, t5_i3_ses, t5_i3_txt, t5_i3_col, t5_i3_wid, t5_i3_sty, t5_i3_lbl, color.white, "Small") or
-   f_processInterval(t5_en, t5_sym, t5_tz, t5_i4_en, t5_i4_ses, t5_i4_txt, t5_i4_col, t5_i4_wid, t5_i4_sty, t5_i4_lbl, color.white, "Small")
+bool t5Match1 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i1_en, t5_i1_ses, t5_i1_txt, t5_i1_col, t5_i1_wid, t5_i1_sty, t5_i1_lbl, t5_i1_lcol, t5_i1_lsiz)
+bool t5Match2 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i2_en, t5_i2_ses, t5_i2_txt, t5_i2_col, t5_i2_wid, t5_i2_sty, t5_i2_lbl, color.white, "Small")
+bool t5Match3 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i3_en, t5_i3_ses, t5_i3_txt, t5_i3_col, t5_i3_wid, t5_i3_sty, t5_i3_lbl, color.white, "Small")
+bool t5Match4 = f_processInterval(t5_en, t5_sym, t5_tz, t5_i4_en, t5_i4_ses, t5_i4_txt, t5_i4_col, t5_i4_wid, t5_i4_sty, t5_i4_lbl, color.white, "Small")
+bool t5Matched = t5Match1 or t5Match2 or t5Match3 or t5Match4
+if t5Matched
     anyMatched := true
     matchedProfileName := t5_sym
     matchedProfileTZ := t5_tz
 
 // Profile 6
-if f_processInterval(t6_en, t6_sym, t6_tz, t6_i1_en, t6_i1_ses, t6_i1_txt, t6_i1_col, t6_i1_wid, t6_i1_sty, t6_i1_lbl, t6_i1_lcol, t6_i1_lsiz) or
-   f_processInterval(t6_en, t6_sym, t6_tz, t6_i2_en, t6_i2_ses, t6_i2_txt, t6_i2_col, t6_i2_wid, t6_i2_sty, t6_i2_lbl, color.white, "Small") or
-   f_processInterval(t6_en, t6_sym, t6_tz, t6_i3_en, t6_i3_ses, t6_i3_txt, t6_i3_col, t6_i3_wid, t6_i3_sty, t6_i3_lbl, color.white, "Small") or
-   f_processInterval(t6_en, t6_sym, t6_tz, t6_i4_en, t6_i4_ses, t6_i4_txt, t6_i4_col, t6_i4_wid, t6_i4_sty, t6_i4_lbl, color.white, "Small")
+bool t6Match1 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i1_en, t6_i1_ses, t6_i1_txt, t6_i1_col, t6_i1_wid, t6_i1_sty, t6_i1_lbl, t6_i1_lcol, t6_i1_lsiz)
+bool t6Match2 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i2_en, t6_i2_ses, t6_i2_txt, t6_i2_col, t6_i2_wid, t6_i2_sty, t6_i2_lbl, color.white, "Small")
+bool t6Match3 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i3_en, t6_i3_ses, t6_i3_txt, t6_i3_col, t6_i3_wid, t6_i3_sty, t6_i3_lbl, color.white, "Small")
+bool t6Match4 = f_processInterval(t6_en, t6_sym, t6_tz, t6_i4_en, t6_i4_ses, t6_i4_txt, t6_i4_col, t6_i4_wid, t6_i4_sty, t6_i4_lbl, color.white, "Small")
+bool t6Matched = t6Match1 or t6Match2 or t6Match3 or t6Match4
+if t6Matched
     anyMatched := true
     matchedProfileName := t6_sym
     matchedProfileTZ := t6_tz
 
 // Profile 7
-if f_processInterval(t7_en, t7_sym, t7_tz, t7_i1_en, t7_i1_ses, t7_i1_txt, t7_i1_col, t7_i1_wid, t7_i1_sty, t7_i1_lbl, t7_i1_lcol, t7_i1_lsiz) or
-   f_processInterval(t7_en, t7_sym, t7_tz, t7_i2_en, t7_i2_ses, t7_i2_txt, t7_i2_col, t7_i2_wid, t7_i2_sty, t7_i2_lbl, color.white, "Small") or
-   f_processInterval(t7_en, t7_sym, t7_tz, t7_i3_en, t7_i3_ses, t7_i3_txt, t7_i3_col, t7_i3_wid, t7_i3_sty, t7_i3_lbl, color.white, "Small") or
-   f_processInterval(t7_en, t7_sym, t7_tz, t7_i4_en, t7_i4_ses, t4_i4_txt_7, t7_i4_col, t7_i4_wid, t7_i4_sty, t7_i4_lbl, color.white, "Small")
+bool t7Match1 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i1_en, t7_i1_ses, t7_i1_txt, t7_i1_col, t7_i1_wid, t7_i1_sty, t7_i1_lbl, t7_i1_lcol, t7_i1_lsiz)
+bool t7Match2 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i2_en, t7_i2_ses, t7_i2_txt, t7_i2_col, t7_i2_wid, t7_i2_sty, t7_i2_lbl, color.white, "Small")
+bool t7Match3 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i3_en, t7_i3_ses, t7_i3_txt, t7_i3_col, t7_i3_wid, t7_i3_sty, t7_i3_lbl, color.white, "Small")
+bool t7Match4 = f_processInterval(t7_en, t7_sym, t7_tz, t7_i4_en, t7_i4_ses, t7_i4_txt, t7_i4_col, t7_i4_wid, t7_i4_sty, t7_i4_lbl, color.white, "Small")
+bool t7Matched = t7Match1 or t7Match2 or t7Match3 or t7Match4
+if t7Matched
     anyMatched := true
     matchedProfileName := t7_sym
     matchedProfileTZ := t7_tz
 
 // Profile 8
-if f_processInterval(t8_en, t8_sym, t8_tz, t8_i1_en, t8_i1_ses, t8_i1_txt, t8_i1_col, t8_i1_wid, t8_i1_sty, t8_i1_lbl, t8_i1_lcol, t8_i1_lsiz) or
-   f_processInterval(t8_en, t8_sym, t8_tz, t8_i2_en, t8_i2_ses, t8_i2_txt, t8_i2_col, t8_i2_wid, t8_i2_sty, t8_i2_lbl, color.white, "Small") or
-   f_processInterval(t8_en, t8_sym, t8_tz, t8_i3_en, t8_i3_ses, t8_i3_txt, t8_i3_col, t8_i3_wid, t8_i3_sty, t8_i3_lbl, color.white, "Small") or
-   f_processInterval(t8_en, t8_sym, t8_tz, t8_i4_en, t8_i4_ses, t8_i4_txt, t8_i4_col, t8_i4_wid, t8_i4_sty, t8_i4_lbl, color.white, "Small")
+bool t8Match1 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i1_en, t8_i1_ses, t8_i1_txt, t8_i1_col, t8_i1_wid, t8_i1_sty, t8_i1_lbl, t8_i1_lcol, t8_i1_lsiz)
+bool t8Match2 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i2_en, t8_i2_ses, t8_i2_txt, t8_i2_col, t8_i2_wid, t8_i2_sty, t8_i2_lbl, color.white, "Small")
+bool t8Match3 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i3_en, t8_i3_ses, t8_i3_txt, t8_i3_col, t8_i3_wid, t8_i3_sty, t8_i3_lbl, color.white, "Small")
+bool t8Match4 = f_processInterval(t8_en, t8_sym, t8_tz, t8_i4_en, t8_i4_ses, t8_i4_txt, t8_i4_col, t8_i4_wid, t8_i4_sty, t8_i4_lbl, color.white, "Small")
+bool t8Matched = t8Match1 or t8Match2 or t8Match3 or t8Match4
+if t8Matched
     anyMatched := true
     matchedProfileName := t8_sym
     matchedProfileTZ := t8_tz
