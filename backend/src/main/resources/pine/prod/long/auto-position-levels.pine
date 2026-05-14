@@ -1,0 +1,157 @@
+//@version=5
+indicator("Auto Position Levels - BE/TP Assistant", overlay = true, max_lines_count = 50, max_labels_count = 50, max_boxes_count = 20)
+
+// Pine Script cannot read manually drawn TradingView Long Position / Short Position tool objects.
+// This indicator uses an internal position model from inputs instead.
+
+const string groupPosition = "Position Detection / Manual Position Model"
+const string groupLevels = "Auto Levels"
+const string groupVisual = "Visual Style"
+
+activePosition = input.bool(true, "Show Active Position Levels", group = groupPosition)
+
+positionSource = input.string("Manual Inputs", "Position Source", options = ["Manual Inputs"], group = groupPosition, tooltip = "Pine scripts cannot access coordinates from manually drawn TradingView Long/Short Position tools. Use these inputs to model the active position.")
+
+positionSide = input.string("Long", "Position Side", options = ["Long", "Short"], group = groupPosition)
+
+entryPrice = input.float(0.0, "Entry Price", minval = 0.0, group = groupPosition)
+
+stopLossPrice = input.float(0.0, "Stop Loss Price", minval = 0.0, group = groupPosition)
+
+positionLengthBars = input.int(30, "Position Length Bars", minval = 1, maxval = 500, group = groupPosition, tooltip = "Controls how long the BE/TP levels are drawn from the current/latest bar area.")
+
+positionStartOffsetBars = input.int(2, "Start Offset Bars Back", minval = 0, maxval = 100, group = groupPosition, tooltip = "Controls how many bars before the latest candle the position levels start.")
+
+tpMode = input.string("Risk Multiple", "TP Calculation Mode", options = ["Risk Multiple", "Custom Distances"], group = groupLevels)
+
+beMode = input.string("Entry Price", "BE Level Mode", options = ["Entry Price", "Entry + Fees Buffer"], group = groupLevels)
+
+feesBuffer = input.float(0.0, "BE Fees/Spread Buffer", minval = 0.0, group = groupLevels, tooltip = "Optional buffer added to BE for long positions or subtracted for short positions.")
+
+tp1R = input.float(1.0, "TP1 R Multiple", minval = 0.1, step = 0.1, group = groupLevels)
+
+tp2R = input.float(2.0, "TP2 R Multiple", minval = 0.1, step = 0.1, group = groupLevels)
+
+tp3R = input.float(3.0, "TP3 R Multiple", minval = 0.1, step = 0.1, group = groupLevels)
+
+tp1Distance = input.float(0.0, "TP1 Custom Distance", minval = 0.0, group = groupLevels)
+
+tp2Distance = input.float(0.0, "TP2 Custom Distance", minval = 0.0, group = groupLevels)
+
+tp3Distance = input.float(0.0, "TP3 Custom Distance", minval = 0.0, group = groupLevels)
+
+showEntry = input.bool(true, "Show Entry", group = groupLevels)
+showSL = input.bool(true, "Show SL", group = groupLevels)
+showBE = input.bool(true, "Show BE", group = groupLevels)
+showTP1 = input.bool(true, "Show TP1", group = groupLevels)
+showTP2 = input.bool(true, "Show TP2", group = groupLevels)
+showTP3 = input.bool(true, "Show TP3", group = groupLevels)
+
+beLineColor = input.color(color.white, "BE Line Color", group = groupVisual)
+tpLineColor = input.color(color.green, "TP Line Color", group = groupVisual)
+entryLineColor = input.color(color.gray, "Entry Line Color", group = groupVisual)
+slLineColor = input.color(color.red, "SL Line Color", group = groupVisual)
+
+beLineStyleInput = input.string("Dashed", "BE Line Style", options = ["Solid", "Dashed", "Dotted"], group = groupVisual)
+
+tpLineStyleInput = input.string("Solid", "TP Line Style", options = ["Solid", "Dashed", "Dotted"], group = groupVisual)
+
+lineWidth = input.int(2, "Line Width", minval = 1, maxval = 5, group = groupVisual)
+
+showLabels = input.bool(true, "Show Labels", group = groupVisual)
+
+labelTextColor = input.color(color.white, "Label Text Color", group = groupVisual)
+
+showZones = input.bool(true, "Show TP/SL Zones", group = groupVisual)
+tpZoneColor = input.color(color.new(color.green, 88), "TP Zone Color", group = groupVisual)
+slZoneColor = input.color(color.new(color.red, 88), "SL Zone Color", group = groupVisual)
+
+var array<line> positionLines = array.new<line>()
+var array<label> positionLabels = array.new<label>()
+var array<box> positionBoxes = array.new<box>()
+
+f_clearObjects() =>
+    int lineCount = array.size(positionLines)
+    if lineCount > 0
+        for i = 0 to lineCount - 1
+            line.delete(array.get(positionLines, i))
+    array.clear(positionLines)
+    int labelCount = array.size(positionLabels)
+    if labelCount > 0
+        for i = 0 to labelCount - 1
+            label.delete(array.get(positionLabels, i))
+    array.clear(positionLabels)
+    int boxCount = array.size(positionBoxes)
+    if boxCount > 0
+        for i = 0 to boxCount - 1
+            box.delete(array.get(positionBoxes, i))
+    array.clear(positionBoxes)
+
+f_lineStyle(styleText) =>
+    switch styleText
+        "Solid" => line.style_solid
+        "Dashed" => line.style_dashed
+        => line.style_dotted
+
+f_addLevel(levelName, levelPrice, levelColor, levelStyle, xStart, xEnd) =>
+    line newLine = line.new(x1 = xStart, y1 = levelPrice, x2 = xEnd, y2 = levelPrice, xloc = xloc.bar_index, extend = extend.none, color = levelColor, width = lineWidth, style = levelStyle)
+    array.push(positionLines, newLine)
+    if showLabels
+        label newLabel = label.new(x = xEnd, y = levelPrice, text = levelName + ": " + str.tostring(levelPrice, format.mintick), xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(color.black, 10), textcolor = labelTextColor, size = size.small)
+        array.push(positionLabels, newLabel)
+
+f_addZone(priceA, priceB, zoneColor, xStart, xEnd) =>
+    float topPrice = math.max(priceA, priceB)
+    float bottomPrice = math.min(priceA, priceB)
+    box newBox = box.new(left = xStart, top = topPrice, right = xEnd, bottom = bottomPrice, xloc = xloc.bar_index, bgcolor = zoneColor, border_color = na)
+    array.push(positionBoxes, newBox)
+
+f_addWarning(messageText) =>
+    label warningLabel = label.new(x = bar_index, y = close, text = messageText, xloc = xloc.bar_index, yloc = yloc.price, style = label.style_label_left, color = color.new(color.red, 0), textcolor = color.white, size = size.small)
+    array.push(positionLabels, warningLabel)
+
+isLong = positionSide == "Long"
+usingManualInputs = positionSource == "Manual Inputs"
+risk = isLong ? entryPrice - stopLossPrice : stopLossPrice - entryPrice
+validPosition = activePosition and usingManualInputs and entryPrice > 0.0 and stopLossPrice > 0.0 and risk > 0.0
+
+bePrice = beMode == "Entry Price" ? entryPrice : (isLong ? entryPrice + feesBuffer : entryPrice - feesBuffer)
+
+tp1Price = tpMode == "Risk Multiple" ? (isLong ? entryPrice + risk * tp1R : entryPrice - risk * tp1R) : (isLong ? entryPrice + tp1Distance : entryPrice - tp1Distance)
+tp2Price = tpMode == "Risk Multiple" ? (isLong ? entryPrice + risk * tp2R : entryPrice - risk * tp2R) : (isLong ? entryPrice + tp2Distance : entryPrice - tp2Distance)
+tp3Price = tpMode == "Risk Multiple" ? (isLong ? entryPrice + risk * tp3R : entryPrice - risk * tp3R) : (isLong ? entryPrice + tp3Distance : entryPrice - tp3Distance)
+
+beLineStyle = f_lineStyle(beLineStyleInput)
+tpLineStyle = f_lineStyle(tpLineStyleInput)
+
+if barstate.islast
+    f_clearObjects()
+
+    if activePosition
+        int xStart = bar_index - positionStartOffsetBars
+        int xEnd = xStart + positionLengthBars
+
+        if validPosition
+            if showZones
+                if showSL
+                    f_addZone(entryPrice, stopLossPrice, slZoneColor, xStart, xEnd)
+                if showTP1 or showTP2 or showTP3
+                    f_addZone(bePrice, tp3Price, tpZoneColor, xStart, xEnd)
+
+            if showEntry
+                f_addLevel("Entry", entryPrice, entryLineColor, line.style_solid, xStart, xEnd)
+            if showSL
+                f_addLevel("SL", stopLossPrice, slLineColor, line.style_solid, xStart, xEnd)
+            if showBE
+                f_addLevel("BE", bePrice, beLineColor, beLineStyle, xStart, xEnd)
+            if showTP1
+                string tp1Label = tpMode == "Risk Multiple" ? "TP1 " + str.tostring(tp1R) + "R" : "TP1"
+                f_addLevel(tp1Label, tp1Price, tpLineColor, tpLineStyle, xStart, xEnd)
+            if showTP2
+                string tp2Label = tpMode == "Risk Multiple" ? "TP2 " + str.tostring(tp2R) + "R" : "TP2"
+                f_addLevel(tp2Label, tp2Price, tpLineColor, tpLineStyle, xStart, xEnd)
+            if showTP3
+                string tp3Label = tpMode == "Risk Multiple" ? "TP3 " + str.tostring(tp3R) + "R" : "TP3"
+                f_addLevel(tp3Label, tp3Price, tpLineColor, tpLineStyle, xStart, xEnd)
+        else
+            f_addWarning("Invalid position: check Entry and SL")
