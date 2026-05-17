@@ -43,7 +43,7 @@ export default function TradingViewWidget({
   fallbackLinkLabel = 'Open on TradingView'
 }: TradingViewWidgetProps) {
   const theme = useTheme()
-  const widgetRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
 
@@ -70,9 +70,16 @@ export default function TradingViewWidget({
   }, [widgetKey])
 
   useEffect(() => {
-    const target = widgetRef.current
+    const target = containerRef.current
     if (!normalizedSymbol || !target) return undefined
+
     target.innerHTML = ''
+    const widget = document.createElement('div')
+    widget.className = 'tradingview-widget-container__widget'
+    widget.title = `TradingView ${normalizedSymbol}`
+    widget.style.width = '100%'
+    widget.style.height = '100%'
+    widget.style.minHeight = '100%'
 
     const script = document.createElement('script')
     script.src = TRADINGVIEW_WIDGET_SCRIPT
@@ -99,6 +106,7 @@ export default function TradingViewWidget({
       setFailed(true)
       setLoading(false)
     }
+    target.appendChild(widget)
     target.appendChild(script)
 
     return () => {
@@ -122,7 +130,7 @@ export default function TradingViewWidget({
   const openUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(normalizedSymbol)}`
 
   return (
-    <Box sx={{ width: '100%' }}>
+    <Box sx={{ width: '100%', height: '100%', minHeight }}>
       {failed ? (
         <Alert severity="warning">
           <Typography variant="body2" sx={{ mb: 0.5 }}>
@@ -132,30 +140,30 @@ export default function TradingViewWidget({
         </Alert>
       ) : (
         <Box
+          ref={containerRef}
           className="tradingview-widget-container"
+          data-testid="tradingview-widget-target"
           sx={{
             position: 'relative',
             width: '100%',
+            height: '100%',
             minHeight,
             borderRadius: 2,
             overflow: 'hidden',
             border: '1px solid',
             borderColor: 'divider',
-            backgroundColor: 'background.paper'
+            backgroundColor: 'background.paper',
+            '& .tradingview-widget-container__widget': {
+              width: '100%',
+              height: '100%'
+            },
+            '& iframe': {
+              width: '100% !important',
+              height: '100% !important'
+            }
           }}
         >
-          <Box
-            ref={widgetRef}
-            className="tradingview-widget-container__widget"
-            title={`TradingView ${normalizedSymbol}`}
-            data-testid="tradingview-widget-target"
-            sx={{
-              width: '100%',
-              height: '100%',
-              minHeight,
-              display: 'block'
-            }}
-          />
+          {/* TradingView autosize reads parent dimensions, so every ancestor in this chain needs a real height. */}
         </Box>
       )}
     </Box>

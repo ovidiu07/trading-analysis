@@ -1448,10 +1448,29 @@ export default function SessionPage() {
       ) : null}
 
       {planScope === 'TODAY' && todayPlanActive ? (
-        <Box data-testid="execution-workspace" sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.75fr) minmax(340px, 0.9fr)' }, gap: 2, alignItems: 'start' }}>
-          <Card data-testid="chart-workspace-column" className="ws-panel">
-            <CardContent sx={{ p: 2.15 }}>
-              <Stack spacing={1.5}>
+        <Box
+          data-testid="execution-workspace"
+          sx={{
+            display: 'grid',
+            gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) minmax(360px, 420px)' },
+            gap: { xs: 2, lg: 3 },
+            alignItems: 'stretch',
+            minWidth: 0,
+            minHeight: 0
+          }}
+        >
+          <Card
+            data-testid="chart-workspace-column"
+            className="ws-panel"
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              minWidth: 0,
+              minHeight: { xs: 480, md: 560, lg: 'clamp(620px, calc(100vh - 360px), 780px)' }
+            }}
+          >
+            <CardContent sx={{ p: 2.15, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, '&:last-child': { pb: 2.15 } }}>
+              <Stack spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
                 <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.2}>
                   <Stack spacing={0.35}>
                     <Stack direction="row" spacing={1} alignItems="center">
@@ -1469,12 +1488,22 @@ export default function SessionPage() {
                   </Stack>
                 </Stack>
 
-                <Box sx={{ minHeight: { xs: 460, md: 600, xl: 650 }, borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--ws-border)', backgroundColor: '#050608' }}>
+                <Box
+                  sx={{
+                    flex: 1,
+                    position: 'relative',
+                    minHeight: { xs: 480, md: 560, lg: 560 },
+                    borderRadius: '12px',
+                    overflow: 'hidden',
+                    border: '1px solid var(--ws-border)',
+                    backgroundColor: '#050608'
+                  }}
+                >
                   {deferredChartSymbol ? (
                     <TradingViewWidget
                       symbol={deferredChartSymbol}
                       interval={deferredChartInterval}
-                      minHeight={650}
+                      minHeight={480}
                       hideControls={false}
                       allowSymbolChange
                       preloadedIndicators={chartSettingsQuery.data?.preloadedIndicators || []}
@@ -1482,7 +1511,7 @@ export default function SessionPage() {
                       fallbackLinkLabel={t('today.mentor.openOnTradingView')}
                     />
                   ) : (
-                    <EmptyState sx={{ minHeight: 600, border: 0 }} title="Select a setup symbol" description="The chart appears as soon as a setup has a symbol." icon={<CandlestickChartRoundedIcon fontSize="inherit" />} />
+                    <EmptyState sx={{ height: '100%', minHeight: 'inherit', border: 0 }} title="Select a setup symbol" description="The chart appears as soon as a setup has a symbol." icon={<CandlestickChartRoundedIcon fontSize="inherit" />} />
                   )}
                 </Box>
               </Stack>
