@@ -186,6 +186,7 @@ export type SetupItem = {
   biasAlignment?: string | null
   status: SetupStatus
   linkedTradeId?: string | null
+  analysisNoteId?: string | null
   readiness: WorkspaceReadiness
   context: SetupContext
   strategySnapshot?: SetupStrategySnapshot | null
@@ -527,5 +528,12 @@ export async function startTradeFromSetupCandidate(sessionId: string, setupId: s
   return apiPost<LiveWorkspaceResponse>(
     `/today/session/${encodeURIComponent(sessionId)}/setups/${encodeURIComponent(setupId)}/start-trade`,
     { executionId: executionId || null }
+  )
+}
+
+export async function saveSetupAnalysisNote(sessionId: string, setupId: string) {
+  return apiPost<LiveWorkspaceResponse>(
+    `/today/session/${encodeURIComponent(sessionId)}/setups/${encodeURIComponent(setupId)}/analysis-note`,
+    {}
   )
 }

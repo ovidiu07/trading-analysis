@@ -8,6 +8,8 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.SessionLevel;
 import com.tradevault.domain.entity.SessionNarrative;
 import com.tradevault.domain.entity.SessionSetup;
+import com.tradevault.domain.entity.NotebookFolder;
+import com.tradevault.domain.entity.NotebookNote;
 import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
@@ -16,6 +18,7 @@ import com.tradevault.domain.entity.PlanAsset;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.NotebookNoteType;
 import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.domain.enums.PlanSource;
 import com.tradevault.domain.enums.SessionSetupReadinessState;
@@ -41,10 +44,13 @@ import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.NotebookFolderRepository;
+import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.PlanRepository;
 import com.tradevault.service.AssetService;
 import com.tradevault.service.ContextSnapshotService;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.NotebookFolderService;
 import com.tradevault.service.TimezoneService;
 import com.tradevault.service.TradeService;
 import jakarta.persistence.EntityNotFoundException;
@@ -107,6 +113,8 @@ public class SessionWorkspaceService {
     private final TradeRepository tradeRepository;
     private final PlanRepository planRepository;
     private final PlanAssetRepository planAssetRepository;
+    private final NotebookNoteRepository notebookNoteRepository;
+    private final NotebookFolderRepository notebookFolderRepository;
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
     private final TradeService tradeService;
@@ -477,6 +485,9 @@ public class SessionWorkspaceService {
         }
         applyReadiness(setup, session);
         sessionSetupRepository.save(setup);
+        if (setup.getLinkedTradeId() == null && (status == SessionSetupStatus.SKIPPED || status == SessionSetupStatus.INVALIDATED || status == SessionSetupStatus.ARCHIVED)) {
+            upsertSessionAnalysisNote(user, session, setup);
+        }
         return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
     }
 
@@ -499,6 +510,10 @@ public class SessionWorkspaceService {
         TodaySession session = requireSession(user, sessionId);
         SessionSetup setup = requireSetup(sessionId, setupId, user.getId());
         List<Trade> sessionTrades = loadTrades(user.getId(), session.getId());
+
+        if (setup.getLinkedTradeId() != null) {
+            return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
+        }
 
         if (tradeRepository.findFirstByUser_IdAndSessionIdAndStatusOrderByOpenedAtDescCreatedAtDesc(
                 user.getId(), session.getId(), TradeStatus.OPEN).isPresent()) {
@@ -598,6 +613,7 @@ public class SessionWorkspaceService {
         tradeRequest.setSession(resolveTradeSession(session, setup));
         tradeRequest.setSessionId(session.getId());
         tradeRequest.setSetupId(setup.getId());
+        tradeRequest.setLinkedPlanIds(resolveActivePlanIds(user, timezoneService.resolveZone(null, user)));
         tradeRequest.setInitialNotes(normalizeOptionalText(executionTicket.getInitialNotes(), 2000));
         tradeRequest.setEntryInvalidation(normalizeOptionalText(firstNonBlank(executionTicket.getInvalidation(), context.getInvalidationIdea()), 1000));
         tradeRequest.setNarrativeSnapshotJson(buildNarrativeSnapshot(session, setup, context, trigger));
@@ -628,6 +644,27 @@ public class SessionWorkspaceService {
         session.setActiveSetupId(setup.getId());
         sessionSetupRepository.save(setup);
         todaySessionRepository.save(session);
+        return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
+    }
+
+    @Transactional
+    public SessionWorkspaceResponse saveAnalysisNote(UUID sessionId, UUID setupId) {
+        User user = currentUserService.getCurrentUser();
+        TodaySession session = requireSession(user, sessionId);
+        SessionSetup setup = requireSetup(sessionId, setupId, user.getId());
+        upsertSessionAnalysisNote(user, session, setup);
+        appendReviewTimeline(
+                setup,
+                timelineEntry(
+                        "analysis_saved",
+                        "Analysis saved to Notebook",
+                        "Session analysis note updated",
+                        null,
+                        setup.getLinkedTradeId(),
+                        OffsetDateTime.now(ZoneOffset.UTC)
+                )
+        );
+        sessionSetupRepository.save(setup);
         return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
     }
 
@@ -775,6 +812,7 @@ public class SessionWorkspaceService {
                 .biasAlignment(setup.getBiasAlignment())
                 .status(displayStatus)
                 .linkedTradeId(setup.getLinkedTradeId())
+                .analysisNoteId(resolveAnalysisNoteId(setup, session))
                 .readiness(readiness.readiness())
                 .context(SessionWorkspaceResponse.SetupContext.builder()
                         .narrative(normalizeOptionalText(context.getNarrative(), 600))
@@ -1037,6 +1075,225 @@ public class SessionWorkspaceService {
                 .filter(Objects::nonNull)
                 .findFirst()
                 .orElse(null);
+    }
+
+    private UUID resolveAnalysisNoteId(SessionSetup setup, TodaySession session) {
+        if (setup == null || session == null) {
+            return null;
+        }
+        return notebookNoteRepository
+                .findFirstByUserIdAndRelatedSession_IdAndRelatedSetup_IdAndTypeAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(
+                        setup.getUser().getId(),
+                        session.getId(),
+                        setup.getId(),
+                        NotebookNoteType.SESSION_RECAP
+                )
+                .map(NotebookNote::getId)
+                .orElse(null);
+    }
+
+    private void upsertSessionAnalysisNote(User user, TodaySession session, SessionSetup setup) {
+        if (setup == null || setup.getLinkedTradeId() != null) {
+            return;
+        }
+        NotebookNote note = notebookNoteRepository
+                .findFirstByUserIdAndRelatedSession_IdAndRelatedSetup_IdAndTypeAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(
+                        user.getId(),
+                        session.getId(),
+                        setup.getId(),
+                        NotebookNoteType.SESSION_RECAP
+                )
+                .orElseGet(() -> {
+                    NotebookNote created = new NotebookNote();
+                    created.setUser(user);
+                    created.setType(NotebookNoteType.SESSION_RECAP);
+                    created.setDeleted(false);
+                    created.setFolder(resolveSessionsRecapFolder(user));
+                    created.setRelatedSession(session);
+                    created.setRelatedSetup(setup);
+                    created.setDateKey(session.getSessionDate());
+                    return created;
+                });
+
+        note.setTitle(buildAnalysisNoteTitle(session, setup));
+        note.setBody(buildAnalysisNoteBody(session, setup));
+        note.setBodyJson(buildAnalysisNoteJson(session, setup));
+        note.setRelatedSession(session);
+        note.setRelatedSetup(setup);
+        note.setRelatedPlan(resolvePrimaryRelatedPlan(user, timezoneService.resolveZone(null, user)));
+        note.setRelatedTrade(null);
+        note.setDateKey(session.getSessionDate());
+        if (note.getFolder() == null) {
+            note.setFolder(resolveSessionsRecapFolder(user));
+        }
+        notebookNoteRepository.save(note);
+    }
+
+    private NotebookFolder resolveSessionsRecapFolder(User user) {
+        return notebookFolderRepository.findByUserIdAndSystemKey(user.getId(), NotebookFolderService.SYSTEM_SESSIONS_RECAP)
+                .orElseGet(() -> {
+                    NotebookFolder folder = new NotebookFolder();
+                    folder.setUser(user);
+                    folder.setName("Sessions recap");
+                    folder.setSystemKey(NotebookFolderService.SYSTEM_SESSIONS_RECAP);
+                    folder.setSortOrder(4);
+                    return notebookFolderRepository.save(folder);
+                });
+    }
+
+    private Plan resolvePrimaryRelatedPlan(User user, ZoneId zone) {
+        PeriodWindow weekWindow = resolvePeriodWindow(PlanScope.WEEKLY, zone);
+        return planRepository.findUserActiveByWindow(PlanSource.USER, PlanScope.WEEKLY, user.getId(), weekWindow.start(), weekWindow.end())
+                .stream()
+                .findFirst()
+                .orElse(null);
+    }
+
+    private Set<UUID> resolveActivePlanIds(User user, ZoneId zone) {
+        Set<UUID> ids = new LinkedHashSet<>();
+        PeriodWindow weekWindow = resolvePeriodWindow(PlanScope.WEEKLY, zone);
+        PeriodWindow monthWindow = resolvePeriodWindow(PlanScope.MONTHLY, zone);
+        planRepository.findUserActiveByWindow(PlanSource.USER, PlanScope.WEEKLY, user.getId(), weekWindow.start(), weekWindow.end())
+                .stream()
+                .map(Plan::getId)
+                .filter(Objects::nonNull)
+                .forEach(ids::add);
+        planRepository.findUserActiveByWindow(PlanSource.USER, PlanScope.MONTHLY, user.getId(), monthWindow.start(), monthWindow.end())
+                .stream()
+                .map(Plan::getId)
+                .filter(Objects::nonNull)
+                .forEach(ids::add);
+        return ids;
+    }
+
+    private String buildAnalysisNoteTitle(TodaySession session, SessionSetup setup) {
+        return "%s analysis - %s".formatted(
+                firstNonBlank(setup.getSetupTitle(), setup.getSymbol(), "Session setup"),
+                session.getSessionDate()
+        );
+    }
+
+    private String buildAnalysisNoteBody(TodaySession session, SessionSetup setup) {
+        UpsertSessionSetupRequest.Context context = readNode(setup.getContextSnapshotJson(), UpsertSessionSetupRequest.Context.class, new UpsertSessionSetupRequest.Context());
+        UpsertSessionSetupRequest.Trigger trigger = readNode(setup.getTriggerSnapshotJson(), UpsertSessionSetupRequest.Trigger.class, new UpsertSessionSetupRequest.Trigger());
+        UpsertSessionSetupRequest.Execution execution = normalizeExecution(
+                readNode(setup.getExecutionSnapshotJson(), UpsertSessionSetupRequest.Execution.class, new UpsertSessionSetupRequest.Execution())
+        );
+        UpsertSessionSetupRequest.Review review = normalizeReview(
+                readNode(setup.getReviewSnapshotJson(), UpsertSessionSetupRequest.Review.class, new UpsertSessionSetupRequest.Review())
+        );
+        UpsertSessionSetupRequest.StrategySnapshot strategy = readNode(setup.getStrategySnapshotJson(), UpsertSessionSetupRequest.StrategySnapshot.class, null);
+
+        StringBuilder body = new StringBuilder();
+        body.append("<h2>").append(escapeHtml(firstNonBlank(setup.getSetupTitle(), setup.getSymbol(), "Session setup"))).append("</h2>");
+        body.append("<p><strong>Status:</strong> ").append(escapeHtml(setup.getStatus() == null ? "DRAFT" : setup.getStatus().name())).append("</p>");
+        body.append("<p><strong>Symbol:</strong> ").append(escapeHtml(setup.getSymbol())).append(" | <strong>Direction:</strong> ").append(escapeHtml(setup.getDirection() == null ? null : setup.getDirection().name())).append("</p>");
+        appendHtmlSection(body, "Session plan", List.of(
+                row("Date", session.getSessionDate() == null ? null : session.getSessionDate().toString()),
+                row("Objective", session.getLockInObjective()),
+                row("Bias", session.getLockInBias()),
+                row("Narrative", resolveNarrativeText(session.getId(), setup.getUser().getId()))
+        ));
+        appendHtmlSection(body, "Setup analysis", List.of(
+                row("Narrative", context.getNarrative()),
+                row("Liquidity", context.getLiquidityNotes()),
+                row("Invalidation", firstNonBlank(context.getInvalidationIdea(), execution.getInvalidation())),
+                row("Target / entry zone", trigger.getEntryZone()),
+                row("Notes", context.getNotes())
+        ));
+        appendHtmlSection(body, "Strategy and trigger", List.of(
+                row("Strategy", strategy == null ? null : firstNonBlank(strategy.getName(), setup.getStrategyLabel())),
+                row("Model", strategy == null ? null : strategy.getModel()),
+                row("Entry conditions", strategy == null || strategy.getEntryConditions() == null ? null : String.join(", ", strategy.getEntryConditions())),
+                row("Confirmation", trigger.getConfirmationModel()),
+                row("Trigger notes", trigger.getNotes())
+        ));
+        appendHtmlSection(body, "Risk and execution draft", List.of(
+                row("Risk amount", formatDecimal(execution.getRiskAmount())),
+                row("Entry", formatDecimal(execution.getEntryPrice())),
+                row("Stop loss", formatDecimal(execution.getStopLossPrice())),
+                row("Take profit", formatDecimal(execution.getTakeProfitPrice())),
+                row("Initial notes", execution.getInitialNotes())
+        ));
+        appendHtmlList(body, "Confluences", readConfluences(setup.getConfluencesJson(), setup.getStrategySnapshotJson()).stream()
+                .map(item -> "%s%s".formatted(Boolean.TRUE.equals(item.getChecked()) ? "[x] " : "[ ] ", item.getLabel()))
+                .toList());
+        appendHtmlSection(body, "Journal", List.of(
+                row("Live notes", review.getLiveNotes()),
+                row("Mistakes", review.getMistakes()),
+                row("Lessons", review.getLessons()),
+                row("Outcome", review.getOutcomeSummary())
+        ));
+        appendHtmlList(body, "Activity", review.getTimeline() == null ? List.of() : review.getTimeline().stream()
+                .map(entry -> firstNonBlank(entry.getTitle(), entry.getType(), "Event") + (hasText(entry.getBody()) ? ": " + entry.getBody() : ""))
+                .toList());
+        return body.toString();
+    }
+
+    private String buildAnalysisNoteJson(TodaySession session, SessionSetup setup) {
+        ObjectNode json = objectMapper.createObjectNode();
+        json.put("source", "SESSION_MODE");
+        json.put("sessionId", session.getId().toString());
+        json.put("setupId", setup.getId().toString());
+        json.put("status", setup.getStatus() == null ? null : setup.getStatus().name());
+        json.set("context", copyNode(setup.getContextSnapshotJson()));
+        json.set("trigger", copyNode(setup.getTriggerSnapshotJson()));
+        json.set("execution", copyNode(setup.getExecutionSnapshotJson()));
+        json.set("strategy", copyNode(setup.getStrategySnapshotJson()));
+        json.set("review", copyNode(setup.getReviewSnapshotJson()));
+        json.set("confluences", copyNode(setup.getConfluencesJson()));
+        try {
+            return objectMapper.writeValueAsString(json);
+        } catch (Exception ex) {
+            return "{}";
+        }
+    }
+
+    private record HtmlRow(String label, String value) {}
+
+    private HtmlRow row(String label, String value) {
+        return new HtmlRow(label, value);
+    }
+
+    private void appendHtmlSection(StringBuilder body, String title, List<HtmlRow> rows) {
+        List<HtmlRow> present = rows.stream().filter(row -> hasText(row.value())).toList();
+        if (present.isEmpty()) {
+            return;
+        }
+        body.append("<h3>").append(escapeHtml(title)).append("</h3><ul>");
+        for (HtmlRow row : present) {
+            body.append("<li><strong>").append(escapeHtml(row.label())).append(":</strong> ")
+                    .append(escapeHtml(row.value())).append("</li>");
+        }
+        body.append("</ul>");
+    }
+
+    private void appendHtmlList(StringBuilder body, String title, List<String> values) {
+        List<String> present = values.stream().filter(this::hasText).toList();
+        if (present.isEmpty()) {
+            return;
+        }
+        body.append("<h3>").append(escapeHtml(title)).append("</h3><ul>");
+        for (String value : present) {
+            body.append("<li>").append(escapeHtml(value)).append("</li>");
+        }
+        body.append("</ul>");
+    }
+
+    private String formatDecimal(BigDecimal value) {
+        return value == null ? null : value.stripTrailingZeros().toPlainString();
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     private List<SessionWorkspaceResponse.ConfluenceItem> toConfluenceDtos(SessionSetup setup, TodaySession session) {

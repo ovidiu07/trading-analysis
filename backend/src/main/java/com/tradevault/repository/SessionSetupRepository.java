@@ -12,6 +12,8 @@ public interface SessionSetupRepository extends JpaRepository<SessionSetup, UUID
 
     Optional<SessionSetup> findByIdAndTodaySession_IdAndUser_Id(UUID id, UUID sessionId, UUID userId);
 
+    Optional<SessionSetup> findByIdAndUser_Id(UUID id, UUID userId);
+
     boolean existsByTodaySession_Id(UUID sessionId);
 
     long countByTodaySession_IdAndUser_Id(UUID sessionId, UUID userId);

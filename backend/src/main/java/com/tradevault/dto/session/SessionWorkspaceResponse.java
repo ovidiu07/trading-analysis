@@ -103,6 +103,7 @@ public class SessionWorkspaceResponse {
         String biasAlignment;
         SessionSetupStatus status;
         UUID linkedTradeId;
+        UUID analysisNoteId;
         Readiness readiness;
         SetupContext context;
         SetupStrategySnapshot strategySnapshot;

@@ -4,6 +4,9 @@ import com.tradevault.domain.entity.NotebookFolder;
 import com.tradevault.domain.entity.NotebookNote;
 import com.tradevault.domain.entity.NotebookTag;
 import com.tradevault.domain.entity.NotebookTagLink;
+import com.tradevault.domain.entity.Plan;
+import com.tradevault.domain.entity.SessionSetup;
+import com.tradevault.domain.entity.TodaySession;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.NotebookNoteType;
@@ -13,6 +16,9 @@ import com.tradevault.dto.notebook.NotebookNoteResponse;
 import com.tradevault.dto.notebook.NotebookNoteSummaryResponse;
 import com.tradevault.repository.NotebookFolderRepository;
 import com.tradevault.repository.NotebookNoteRepository;
+import com.tradevault.repository.PlanRepository;
+import com.tradevault.repository.SessionSetupRepository;
+import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.NotebookAttachmentRepository;
 import com.tradevault.repository.NotebookTagLinkRepository;
 import com.tradevault.repository.NotebookTagRepository;
@@ -57,6 +63,9 @@ public class NotebookNoteService {
     private final NotebookTagRepository tagRepository;
     private final NotebookTagLinkRepository tagLinkRepository;
     private final TradeRepository tradeRepository;
+    private final TodaySessionRepository todaySessionRepository;
+    private final SessionSetupRepository sessionSetupRepository;
+    private final PlanRepository planRepository;
     private final CurrentUserService currentUserService;
 
     @Transactional
@@ -315,6 +324,33 @@ public class NotebookNoteService {
         } else if (Boolean.TRUE.equals(request.getClearRelatedTrade()) && note.getRelatedTrade() != null) {
             note.setRelatedTrade(null);
         }
+        if (request.getRelatedSessionId() != null) {
+            TodaySession session = todaySessionRepository.findByIdAndUser_Id(request.getRelatedSessionId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Session not found"));
+            if (note.getRelatedSession() == null || !Objects.equals(note.getRelatedSession().getId(), session.getId())) {
+                note.setRelatedSession(session);
+            }
+        } else if (Boolean.TRUE.equals(request.getClearRelatedSession()) && note.getRelatedSession() != null) {
+            note.setRelatedSession(null);
+        }
+        if (request.getRelatedSetupId() != null) {
+            SessionSetup setup = sessionSetupRepository.findByIdAndUser_Id(request.getRelatedSetupId(), user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Session setup not found"));
+            if (note.getRelatedSetup() == null || !Objects.equals(note.getRelatedSetup().getId(), setup.getId())) {
+                note.setRelatedSetup(setup);
+            }
+        } else if (Boolean.TRUE.equals(request.getClearRelatedSetup()) && note.getRelatedSetup() != null) {
+            note.setRelatedSetup(null);
+        }
+        if (request.getRelatedPlanId() != null) {
+            Plan plan = planRepository.findByIdAndSourceAndAuthorUserId(request.getRelatedPlanId(), com.tradevault.domain.enums.PlanSource.USER, user.getId())
+                    .orElseThrow(() -> new EntityNotFoundException("Plan not found"));
+            if (note.getRelatedPlan() == null || !Objects.equals(note.getRelatedPlan().getId(), plan.getId())) {
+                note.setRelatedPlan(plan);
+            }
+        } else if (Boolean.TRUE.equals(request.getClearRelatedPlan()) && note.getRelatedPlan() != null) {
+            note.setRelatedPlan(null);
+        }
         if (request.getIsPinned() != null && request.getIsPinned() != note.isPinned()) {
             note.setPinned(request.getIsPinned());
         }
@@ -365,6 +401,9 @@ public class NotebookNoteService {
                 .reviewJson(note.getReviewJson())
                 .dateKey(note.getDateKey())
                 .relatedTradeId(note.getRelatedTrade() != null ? note.getRelatedTrade().getId() : null)
+                .relatedSessionId(note.getRelatedSession() != null ? note.getRelatedSession().getId() : null)
+                .relatedSetupId(note.getRelatedSetup() != null ? note.getRelatedSetup().getId() : null)
+                .relatedPlanId(note.getRelatedPlan() != null ? note.getRelatedPlan().getId() : null)
                 .hasAttachments(hasAttachments)
                 .isDeleted(note.isDeleted())
                 .deletedAt(note.getDeletedAt())

@@ -52,6 +52,7 @@ import {
   duplicateSetupCandidate,
   getSessionWorkspace,
   removeSessionPlan,
+  saveSetupAnalysisNote,
   selectActiveSetupCandidate,
   startTradeFromSetupCandidate,
   updateSessionWorkspace,
@@ -111,7 +112,7 @@ import {
 import { useI18n } from '../i18n'
 import { formatCurrency, formatDate, formatDateTime, formatNumber, formatSignedCurrency } from '../utils/format'
 
-type SideTab = 'STRATEGY' | 'RISK' | 'CONFLUENCES' | 'EXECUTE' | 'JOURNAL'
+type SideTab = 'SETUPS' | 'SETUP' | 'STRATEGY' | 'RISK' | 'CONFLUENCES' | 'EXECUTE' | 'JOURNAL' | 'TIMELINE'
 type PlanRemovalTarget = {
   scope: PlanScopeTab
   plan: PeriodPlan
@@ -305,7 +306,7 @@ export default function SessionPage() {
   }, [searchParams])
 
   const [planScope, setPlanScope] = useState<PlanScopeTab>(initialPlanScope)
-  const [sideTab, setSideTab] = useState<SideTab>('STRATEGY')
+  const [sideTab, setSideTab] = useState<SideTab>('SETUPS')
   const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null)
   const [sessionDraft, setSessionDraft] = useState<SessionDraft | null>(null)
   const [weeklyDraft, setWeeklyDraft] = useState<PeriodPlanDraft | null>(null)
@@ -437,6 +438,16 @@ export default function SessionPage() {
       setFeedback('Execution started.')
     },
     onError: (error) => setFeedback((error as ApiError).message || 'Could not start trade.')
+  })
+
+  const saveAnalysisNoteMutation = useMutation({
+    mutationFn: (payload: { sessionId: string; setupId: string }) =>
+      saveSetupAnalysisNote(payload.sessionId, payload.setupId),
+    onSuccess: (workspace, variables) => {
+      applyWorkspace(workspace, variables.setupId)
+      setFeedback('Analysis saved to Notebook.')
+    },
+    onError: (error) => setFeedback((error as ApiError).message || 'Could not save analysis note.')
   })
 
   const periodPlanMutation = useMutation({
@@ -719,7 +730,7 @@ export default function SessionPage() {
       setFeedback('Write a quick note first.')
       return
     }
-    if (actionId === 'ENTRY_TAKEN' && selectedExecution && canLock && workspace.session.lockedInAt) {
+    if (actionId === 'ENTRY_TAKEN' && selectedExecution && workspace.session.lockedInAt) {
       startTradeMutation.mutate({ sessionId: workspace.session.id, setupId: selectedSetup.id, executionId: selectedExecution.id })
       return
     }
@@ -727,6 +738,13 @@ export default function SessionPage() {
     setSetupDraft(result.setup)
     setFeedback(result.feedback)
     setQuickNote('')
+    const signature = JSON.stringify(toSetupPayload(result.setup))
+    await updateSetupMutation.mutateAsync({
+      sessionId: workspace.session.id,
+      setupId: selectedSetup.id,
+      data: toSetupPayload(result.setup),
+      signature
+    })
     const status = setupStatusForQuickAction(actionId)
     if (status) {
       await statusMutation.mutateAsync({ sessionId: workspace.session.id, setupId: selectedSetup.id, status })
@@ -857,17 +875,97 @@ export default function SessionPage() {
     return `Pinned in Calendar for this month until ${formatDate(plan?.periodEnd, timezone)}.`
   }
 
+  const setupListPanel = (
+    <Stack spacing={1.3}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+        <Typography variant="h6" sx={{ fontWeight: 900 }}>Setups</Typography>
+        <Button size="small" startIcon={<AddRoundedIcon />} onClick={() => setCreateDialogOpen(true)}>Add</Button>
+      </Stack>
+      {workspace.setups.length ? workspace.setups.map((setup) => (
+        <Box
+          key={setup.id}
+          className="ws-subpanel"
+          sx={(theme) => ({
+            p: 1.15,
+            borderColor: selectedSetup?.id === setup.id ? theme.palette.primary.main : 'var(--ws-border)',
+            background: selectedSetup?.id === setup.id ? alpha(theme.palette.primary.main, 0.11) : undefined
+          })}
+        >
+          <Stack spacing={0.75}>
+            <Stack direction="row" justifyContent="space-between" spacing={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>{setup.setupTitle}</Typography>
+                <Typography variant="caption" color="text.secondary">{setup.symbol} / {formatDirection(setup.direction)}</Typography>
+              </Box>
+              <Chip size="small" color={chipColorForStatus(setup.status)} label={setup.status.replaceAll('_', ' ')} />
+            </Stack>
+            <LinearProgress variant="determinate" value={setup.readiness.score} />
+            <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
+              <Chip size="small" variant="outlined" label={`${setup.readiness.score}%`} />
+              {setup.strategySnapshot?.name ? <Chip size="small" variant="outlined" label={setup.strategySnapshot.name} /> : <Chip size="small" variant="outlined" label="Manual" />}
+              {setup.analysisNoteId ? <Chip size="small" color="success" variant="outlined" label="Notebook saved" /> : null}
+            </Stack>
+            <Stack direction="row" spacing={0.6}>
+              <Button size="small" variant={selectedSetup?.id === setup.id ? 'contained' : 'text'} onClick={() => {
+                handleSelectSetup(setup.id)
+                setSideTab('SETUP')
+              }}>Open</Button>
+              <Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={() => duplicateSetupMutation.mutate({ sessionId: workspace.session.id, setupId: setup.id })}>Duplicate</Button>
+            </Stack>
+          </Stack>
+        </Box>
+      )) : (
+        <EmptyState title="No setups yet" description="Add a setup to drive the chart and checklist." icon={<AddRoundedIcon fontSize="inherit" />} />
+      )}
+    </Stack>
+  )
+
+  const setupEditorPanel = (
+    <Stack spacing={1.25}>
+      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
+        <Typography variant="h6" sx={{ fontWeight: 900 }}>Setup Editor</Typography>
+        <Typography variant="caption" color="text.secondary">{autoSaveState}</Typography>
+      </Stack>
+      {selectedSetup ? (
+        <>
+          <TextField label="Setup title" value={selectedSetup.setupTitle} onChange={(event) => updateSelectedSetup((current) => ({ ...current, setupTitle: event.target.value }))} />
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+            <TextField label="Symbol" value={selectedSetup.symbol} onChange={(event) => updateSelectedSetup((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
+            <FormControl fullWidth>
+              <InputLabel id="setup-direction-label">Direction</InputLabel>
+              <Select labelId="setup-direction-label" label="Direction" value={selectedSetup.direction} onChange={(event) => updateSelectedSetup((current) => ({ ...current, direction: event.target.value as SetupItem['direction'] }))}>
+                {directionOptions.map((direction) => <MenuItem key={direction} value={direction}>{formatDirection(direction)}</MenuItem>)}
+              </Select>
+            </FormControl>
+          </Box>
+          <TextField label="Setup note" value={selectedSetup.context.notes || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, notes: event.target.value } }))} multiline minRows={2} />
+          <TextField label="Invalidation note" value={selectedSetup.context.invalidationIdea || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} />
+          <TextField label="Target note" value={selectedSetup.trigger.entryZone || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, trigger: { ...current.trigger, entryZone: event.target.value } }))} multiline minRows={2} />
+          <TextField label="Liquidity / narrative" value={selectedSetup.context.liquidityNotes || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, liquidityNotes: event.target.value } }))} multiline minRows={2} />
+        </>
+      ) : (
+        <EmptyState title="No setup selected" description="Create a setup to edit title, symbol, and direction." icon={<NotesRoundedIcon fontSize="inherit" />} />
+      )}
+    </Stack>
+  )
+
   const sidePanel = (
-    <Card className="ws-panel" component="aside" sx={{ position: { xl: 'sticky' }, top: { xl: 104 }, maxHeight: { xl: 'calc(100vh - 124px)' }, overflow: 'auto' }}>
+    <Card data-testid="execution-control-panel" className="ws-panel" component="aside" sx={{ position: { xl: 'sticky' }, top: { xl: 104 }, maxHeight: { xl: 'calc(100vh - 124px)' }, overflow: 'auto' }}>
       <CardContent sx={{ p: 2 }}>
         <Stack spacing={1.6}>
           <Tabs value={sideTab} onChange={(_, value: SideTab) => setSideTab(value)} variant="scrollable" allowScrollButtonsMobile>
+            <Tab value="SETUPS" label="Setups" />
+            <Tab value="SETUP" label="Setup" />
             <Tab value="STRATEGY" label="Strategy" />
             <Tab value="RISK" label="Risk" />
             <Tab value="CONFLUENCES" label="Confluences" />
             <Tab value="EXECUTE" label="Execute" />
             <Tab value="JOURNAL" label="Journal" />
+            <Tab value="TIMELINE" label="Timeline" />
           </Tabs>
+
+          {sideTab === 'SETUPS' ? setupListPanel : null}
+          {sideTab === 'SETUP' ? setupEditorPanel : null}
 
           {sideTab === 'STRATEGY' ? (
             <Stack spacing={1.4}>
@@ -1060,6 +1158,31 @@ export default function SessionPage() {
                   </Button>
                 ))}
               </Stack>
+              <Box className="ws-subpanel" sx={{ p: 1.25 }}>
+                <Stack spacing={0.75}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Notebook preservation</Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    Executions create trades. Non-executed analysis is saved as a session recap note.
+                  </Typography>
+                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      startIcon={<NotesRoundedIcon />}
+                      disabled={!selectedSetup || saveAnalysisNoteMutation.isPending}
+                      onClick={() => selectedSetup && saveAnalysisNoteMutation.mutate({ sessionId: workspace.session.id, setupId: selectedSetup.id })}
+                    >
+                      {saveAnalysisNoteMutation.isPending ? 'Saving note...' : selectedSetup?.analysisNoteId ? 'Update analysis note' : 'Save analysis note'}
+                    </Button>
+                    {selectedSetup?.analysisNoteId ? <Chip size="small" color="success" label="Saved in Notebook" /> : <Chip size="small" variant="outlined" label="Not yet in Notebook" />}
+                  </Stack>
+                </Stack>
+              </Box>
+            </Stack>
+          ) : null}
+
+          {sideTab === 'TIMELINE' ? (
+            <Stack spacing={1.25}>
               <Divider />
               <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Activity Timeline</Typography>
               {timeline.length > 0 ? timeline.slice(0, 8).map((entry) => <TimelineEntryCard key={entry.id} entry={entry} timezone={timezone} />) : (
@@ -1318,111 +1441,37 @@ export default function SessionPage() {
       ) : null}
 
       {planScope === 'TODAY' && todayPlanActive ? (
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', xl: '300px minmax(0, 1fr) 390px' }, gap: 2, alignItems: 'start' }}>
-          <Card className="ws-panel" component="aside" sx={{ position: { xl: 'sticky' }, top: { xl: 104 } }}>
-            <CardContent sx={{ p: 2 }}>
-              <Stack spacing={1.3}>
-                <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>Setups</Typography>
-                  <Button size="small" startIcon={<AddRoundedIcon />} onClick={() => setCreateDialogOpen(true)}>Add</Button>
-                </Stack>
-                {workspace.setups.length ? workspace.setups.map((setup) => (
-                  <Box
-                    key={setup.id}
-                    className="ws-subpanel"
-                    sx={(theme) => ({
-                      p: 1.15,
-                      borderColor: selectedSetup?.id === setup.id ? theme.palette.primary.main : 'var(--ws-border)',
-                      background: selectedSetup?.id === setup.id ? alpha(theme.palette.primary.main, 0.11) : undefined
-                    })}
-                  >
-                    <Stack spacing={0.75}>
-                      <Stack direction="row" justifyContent="space-between" spacing={1}>
-                        <Box sx={{ minWidth: 0 }}>
-                          <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>{setup.setupTitle}</Typography>
-                          <Typography variant="caption" color="text.secondary">{setup.symbol} / {formatDirection(setup.direction)}</Typography>
-                        </Box>
-                        <Chip size="small" color={chipColorForStatus(setup.status)} label={setup.status.replaceAll('_', ' ')} />
-                      </Stack>
-                      <LinearProgress variant="determinate" value={setup.readiness.score} />
-                      <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
-                        <Chip size="small" variant="outlined" label={`${setup.readiness.score}%`} />
-                        {setup.strategySnapshot?.name ? <Chip size="small" variant="outlined" label={setup.strategySnapshot.name} /> : <Chip size="small" variant="outlined" label="Manual" />}
-                      </Stack>
-                      <Stack direction="row" spacing={0.6}>
-                        <Button size="small" variant={selectedSetup?.id === setup.id ? 'contained' : 'text'} onClick={() => handleSelectSetup(setup.id)}>Open</Button>
-                        <Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={() => duplicateSetupMutation.mutate({ sessionId: workspace.session.id, setupId: setup.id })}>Duplicate</Button>
-                      </Stack>
+        <Box data-testid="execution-workspace" sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1.75fr) minmax(340px, 0.9fr)' }, gap: 2, alignItems: 'start' }}>
+          <Card data-testid="chart-workspace-column" className="ws-panel">
+            <CardContent sx={{ p: 2.15 }}>
+              <Stack spacing={1.5}>
+                <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.2}>
+                  <Stack spacing={0.35}>
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <CandlestickChartRoundedIcon color="primary" />
+                      <Typography variant="h5" sx={{ fontWeight: 900 }}>Chart Workspace</Typography>
                     </Stack>
-                  </Box>
-                )) : (
-                  <EmptyState title="No setups yet" description="Add a setup to drive the chart and checklist." icon={<AddRoundedIcon fontSize="inherit" />} />
-                )}
+                    <Typography variant="body2" color="text.secondary">
+                      {selectedSetup ? `${selectedSetup.symbol} drives the live chart.` : 'Select a setup to drive the live chart.'}
+                    </Typography>
+                  </Stack>
+                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap alignItems="center">
+                    <Chip color={readinessColor(readinessLabel)} label={readinessLabel} />
+                    <Chip variant="outlined" label={selectedSetup ? formatDirection(selectedSetup.direction) : 'No setup'} />
+                    <Typography variant="caption" color="text.secondary">{autoSaveState}</Typography>
+                  </Stack>
+                </Stack>
+
+                <Box sx={{ minHeight: { xs: 460, md: 600, xl: 650 }, borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--ws-border)', backgroundColor: '#050608' }}>
+                  {deferredChartSymbol ? (
+                    <TradingViewWidget symbol={deferredChartSymbol} interval={deferredChartInterval} minHeight={650} fallbackMessage={t('today.mentor.liveChartFallback')} fallbackLinkLabel={t('today.mentor.openOnTradingView')} />
+                  ) : (
+                    <EmptyState sx={{ minHeight: 600, border: 0 }} title="Select a setup symbol" description="The chart appears as soon as a setup has a symbol." icon={<CandlestickChartRoundedIcon fontSize="inherit" />} />
+                  )}
+                </Box>
               </Stack>
             </CardContent>
           </Card>
-
-          <Stack spacing={2}>
-            <Card className="ws-panel">
-              <CardContent sx={{ p: 2.15 }}>
-                <Stack spacing={1.5}>
-                  <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.2}>
-                    <Stack spacing={0.35}>
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <CandlestickChartRoundedIcon color="primary" />
-                        <Typography variant="h5" sx={{ fontWeight: 900 }}>Chart Workspace</Typography>
-                      </Stack>
-                      <Typography variant="body2" color="text.secondary">The selected setup symbol drives the live chart.</Typography>
-                    </Stack>
-                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap alignItems="center">
-                      <Chip color={readinessColor(readinessLabel)} label={readinessLabel} />
-                      <Typography variant="caption" color="text.secondary">{autoSaveState}</Typography>
-                    </Stack>
-                  </Stack>
-
-                  <Box sx={{ minHeight: 650, borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--ws-border)', backgroundColor: '#050608' }}>
-                    {deferredChartSymbol ? (
-                      <TradingViewWidget symbol={deferredChartSymbol} interval={deferredChartInterval} minHeight={650} fallbackMessage={t('today.mentor.liveChartFallback')} fallbackLinkLabel={t('today.mentor.openOnTradingView')} />
-                    ) : (
-                      <EmptyState sx={{ minHeight: 650, border: 0 }} title="Select a setup symbol" description="The chart appears as soon as a setup has a symbol." icon={<CandlestickChartRoundedIcon fontSize="inherit" />} />
-                    )}
-                  </Box>
-                </Stack>
-              </CardContent>
-            </Card>
-
-            <Card className="ws-panel">
-              <CardContent sx={{ p: 2 }}>
-                <Stack spacing={1.25}>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>Setup Editor</Typography>
-                  {selectedSetup ? (
-                    <>
-                      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1.4fr 0.8fr 0.8fr' }, gap: 1.1 }}>
-                        <TextField label="Setup title" value={selectedSetup.setupTitle} onChange={(event) => updateSelectedSetup((current) => ({ ...current, setupTitle: event.target.value }))} />
-                        <TextField label="Symbol" value={selectedSetup.symbol} onChange={(event) => updateSelectedSetup((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
-                        <FormControl fullWidth>
-                          <InputLabel id="setup-direction-label">Direction</InputLabel>
-                          <Select labelId="setup-direction-label" label="Direction" value={selectedSetup.direction} onChange={(event) => updateSelectedSetup((current) => ({ ...current, direction: event.target.value as SetupItem['direction'] }))}>
-                            {directionOptions.map((direction) => <MenuItem key={direction} value={direction}>{formatDirection(direction)}</MenuItem>)}
-                          </Select>
-                        </FormControl>
-                      </Box>
-                      <TextField label="Setup note" value={selectedSetup.context.notes || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, notes: event.target.value } }))} multiline minRows={2} />
-                      <Box className="ws-subpanel" sx={{ p: 1.25 }}>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Advanced details</Typography>
-                        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1, mt: 1 }}>
-                          <TextField label="Invalidation note" value={selectedSetup.context.invalidationIdea || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} />
-                          <TextField label="Target note" value={selectedSetup.trigger.entryZone || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, trigger: { ...current.trigger, entryZone: event.target.value } }))} multiline minRows={2} />
-                        </Box>
-                      </Box>
-                    </>
-                  ) : (
-                    <EmptyState title="No setup selected" description="Create a setup to edit title, symbol, and direction." icon={<NotesRoundedIcon fontSize="inherit" />} />
-                  )}
-                </Stack>
-              </CardContent>
-            </Card>
-          </Stack>
 
           {sidePanel}
         </Box>

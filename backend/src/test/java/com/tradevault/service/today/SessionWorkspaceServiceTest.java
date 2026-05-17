@@ -2,6 +2,8 @@ package com.tradevault.service.today;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.domain.entity.ContextSnapshot;
+import com.tradevault.domain.entity.NotebookFolder;
+import com.tradevault.domain.entity.NotebookNote;
 import com.tradevault.domain.entity.Plan;
 import com.tradevault.domain.entity.SessionNarrative;
 import com.tradevault.domain.entity.SessionSetup;
@@ -11,6 +13,7 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.ContextSnapshotMode;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
+import com.tradevault.domain.enums.NotebookNoteType;
 import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.domain.enums.PlanSource;
 import com.tradevault.domain.enums.SessionSetupStatus;
@@ -28,6 +31,8 @@ import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.NotebookFolderRepository;
+import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.PlanRepository;
 import com.tradevault.repository.PlanAssetRepository;
 import com.tradevault.service.AssetService;
@@ -52,6 +57,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -63,6 +69,8 @@ class SessionWorkspaceServiceTest {
     private TradeRepository tradeRepository;
     private PlanRepository planRepository;
     private PlanAssetRepository planAssetRepository;
+    private NotebookNoteRepository notebookNoteRepository;
+    private NotebookFolderRepository notebookFolderRepository;
     private CurrentUserService currentUserService;
     private TimezoneService timezoneService;
     private TradeService tradeService;
@@ -84,6 +92,8 @@ class SessionWorkspaceServiceTest {
         tradeRepository = mock(TradeRepository.class);
         planRepository = mock(PlanRepository.class);
         planAssetRepository = mock(PlanAssetRepository.class);
+        notebookNoteRepository = mock(NotebookNoteRepository.class);
+        notebookFolderRepository = mock(NotebookFolderRepository.class);
         currentUserService = mock(CurrentUserService.class);
         timezoneService = mock(TimezoneService.class);
         tradeService = mock(TradeService.class);
@@ -99,6 +109,8 @@ class SessionWorkspaceServiceTest {
                 tradeRepository,
                 planRepository,
                 planAssetRepository,
+                notebookNoteRepository,
+                notebookFolderRepository,
                 currentUserService,
                 timezoneService,
                 tradeService,
@@ -182,6 +194,24 @@ class SessionWorkspaceServiceTest {
                 .thenReturn(List.of());
         when(planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(any(UUID.class)))
                 .thenReturn(List.of());
+        when(notebookNoteRepository.findFirstByUserIdAndRelatedSession_IdAndRelatedSetup_IdAndTypeAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(
+                eq(user.getId()), any(UUID.class), any(UUID.class), eq(NotebookNoteType.SESSION_RECAP)))
+                .thenReturn(Optional.empty());
+        when(notebookFolderRepository.findByUserIdAndSystemKey(eq(user.getId()), any()))
+                .thenReturn(Optional.of(NotebookFolder.builder()
+                        .id(UUID.randomUUID())
+                        .user(user)
+                        .name("Sessions recap")
+                        .systemKey("SESSIONS_RECAP")
+                        .sortOrder(4)
+                        .build()));
+        when(notebookNoteRepository.save(any(NotebookNote.class))).thenAnswer(invocation -> {
+            NotebookNote saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
     }
 
     @Test
@@ -455,6 +485,61 @@ class SessionWorkspaceServiceTest {
         assertThat(tradeRequest.getInitialNotes()).isEqualTo("Execute the reclaim only.");
         assertThat(setup.getLinkedTradeId()).isNotNull();
         assertThat(setup.getStatus()).isEqualTo(SessionSetupStatus.EXECUTED);
+    }
+
+    @Test
+    void saveAnalysisNoteUpsertsSessionRecapForNonExecutedSetup() throws Exception {
+        SessionSetup setup = lockableSetup(true);
+        setup.setContextSnapshotJson(objectMapper.readTree("""
+                {
+                  "liquidityNotes": "PDH sweep",
+                  "invalidationIdea": "Accepts below PDH",
+                  "notes": "Waited but no entry."
+                }
+                """));
+        setup.setTriggerSnapshotJson(objectMapper.readTree("""
+                {
+                  "entryZone": "M1 FVG",
+                  "notes": "No displacement follow-through."
+                }
+                """));
+        setup.setReviewSnapshotJson(objectMapper.readTree("""
+                {
+                  "liveNotes": "Skipped the late trigger.",
+                  "timeline": [
+                    { "id": "evt-1", "type": "setup_skipped", "title": "Skipped", "body": "Late entry", "occurredAt": "2026-03-06T08:30:00Z" }
+                  ]
+                }
+                """));
+        setups.add(setup);
+        session.setActiveSetupId(setup.getId());
+        when(sessionSetupRepository.findByIdAndTodaySession_IdAndUser_Id(setup.getId(), session.getId(), user.getId()))
+                .thenReturn(Optional.of(setup));
+
+        sessionWorkspaceService.saveAnalysisNote(session.getId(), setup.getId());
+
+        ArgumentCaptor<NotebookNote> noteCaptor = ArgumentCaptor.forClass(NotebookNote.class);
+        verify(notebookNoteRepository).save(noteCaptor.capture());
+        NotebookNote note = noteCaptor.getValue();
+        assertThat(note.getType()).isEqualTo(NotebookNoteType.SESSION_RECAP);
+        assertThat(note.getRelatedSession()).isEqualTo(session);
+        assertThat(note.getRelatedSetup()).isEqualTo(setup);
+        assertThat(note.getRelatedTrade()).isNull();
+        assertThat(note.getBody()).contains("Waited but no entry.", "Skipped the late trigger.");
+    }
+
+    @Test
+    void startTradeIsIdempotentWhenSetupAlreadyHasLinkedTrade() throws Exception {
+        session.setLockInAt(OffsetDateTime.parse("2026-03-06T07:05:00Z"));
+        SessionSetup setup = lockableSetup(true);
+        setup.setLinkedTradeId(UUID.randomUUID());
+        setups.add(setup);
+        when(sessionSetupRepository.findByIdAndTodaySession_IdAndUser_Id(setup.getId(), session.getId(), user.getId()))
+                .thenReturn(Optional.of(setup));
+
+        sessionWorkspaceService.startTrade(session.getId(), setup.getId(), null);
+
+        verify(tradeService, never()).create(any(TradeRequest.class));
     }
 
     private SessionSetup lockableSetup(boolean checked) throws Exception {

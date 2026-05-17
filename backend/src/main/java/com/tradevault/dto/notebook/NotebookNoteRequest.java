@@ -20,7 +20,13 @@ public class NotebookNoteRequest {
     private LocalDate dateKey;
     private Boolean clearDateKey;
     private UUID relatedTradeId;
+    private UUID relatedSessionId;
+    private UUID relatedSetupId;
+    private UUID relatedPlanId;
     private Boolean clearRelatedTrade;
+    private Boolean clearRelatedSession;
+    private Boolean clearRelatedSetup;
+    private Boolean clearRelatedPlan;
     private Boolean clearFolder;
     @JsonProperty("isPinned")
     private Boolean isPinned;

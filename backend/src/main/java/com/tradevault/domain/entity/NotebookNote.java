@@ -58,6 +58,18 @@ public class NotebookNote {
     @JoinColumn(name = "related_trade_id")
     private Trade relatedTrade;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "related_session_id")
+    private TodaySession relatedSession;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "related_setup_id")
+    private SessionSetup relatedSetup;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "related_plan_id")
+    private Plan relatedPlan;
+
     private boolean isDeleted;
 
     private OffsetDateTime deletedAt;

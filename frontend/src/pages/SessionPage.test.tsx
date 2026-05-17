@@ -19,6 +19,7 @@ const workspaceApiMock = vi.hoisted(() => ({
   updateSetupCandidateStatus: vi.fn(),
   selectActiveSetupCandidate: vi.fn(),
   startTradeFromSetupCandidate: vi.fn(),
+  saveSetupAnalysisNote: vi.fn(),
   upsertSessionPeriodPlan: vi.fn(),
   removeSessionPlan: vi.fn(),
   uploadSessionPlanImages: vi.fn(),
@@ -171,6 +172,7 @@ function buildSetup(symbol: string, direction: SetupItem['direction'], title: st
     biasAlignment: '',
     status: 'DRAFT',
     linkedTradeId: null,
+    analysisNoteId: null,
     readiness: makeReadiness(['direction']),
     context: { narrative: '', liquidityNotes: '', invalidationIdea: '', newsSafety: '', notes: '' },
     strategySnapshot: null,
@@ -390,6 +392,27 @@ function setupMocks() {
 
   workspaceApiMock.updateSetupCandidateStatus.mockImplementation(async () => clone(workspaceState))
   workspaceApiMock.startTradeFromSetupCandidate.mockImplementation(async () => clone(workspaceState))
+  workspaceApiMock.saveSetupAnalysisNote.mockImplementation(async (_sessionId: string, setupId: string) => {
+    workspaceState.setups = workspaceState.setups.map((setup) => setup.id === setupId ? {
+      ...setup,
+      analysisNoteId: setup.analysisNoteId || 'note-1',
+      review: {
+        ...(setup.review || { liveNotes: '', mistakes: '', lessons: '', outcomeSummary: '', tags: [], timeline: [] }),
+        timeline: [
+          ...(setup.review?.timeline || []),
+          {
+            id: 'timeline-note-1',
+            type: 'analysis_saved',
+            title: 'Analysis saved to Notebook',
+            body: 'Session analysis note updated',
+            occurredAt: '2026-04-06T08:30:00.000Z'
+          }
+        ]
+      }
+    } : setup)
+    recalcWorkspace()
+    return clone(workspaceState)
+  })
   workspaceApiMock.uploadSessionPlanImages.mockResolvedValue([])
   workspaceApiMock.deleteSessionPlanImage.mockResolvedValue(undefined)
   workspaceApiMock.listSessionPlanImages.mockResolvedValue([])
@@ -497,6 +520,20 @@ describe('SessionPage trader plan workstation', () => {
     expect(screen.getByText('Wait for London sweep')).toBeInTheDocument()
   })
 
+  it('renders the desktop execution workspace with chart left and controls right', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+
+    renderWithProviders(<SessionPage />)
+
+    expect(await screen.findByTestId('execution-workspace')).toBeInTheDocument()
+    expect(within(screen.getByTestId('chart-workspace-column')).getByText('Chart Workspace')).toBeInTheDocument()
+    expect(await within(screen.getByTestId('chart-workspace-column')).findByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15')
+    expect(within(screen.getByTestId('execution-control-panel')).getByRole('tab', { name: 'Setups' })).toBeInTheDocument()
+    expect(within(screen.getByTestId('execution-control-panel')).getByText('London reclaim')).toBeInTheDocument()
+  })
+
   it('creates a setup as undecided, switches setup direction, and drives the chart symbol', async () => {
     renderWithProviders(<SessionPage />)
 
@@ -514,6 +551,7 @@ describe('SessionPage trader plan workstation', () => {
     expect(screen.getAllByText(/Not decided yet/i).length).toBeGreaterThan(0)
     expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15')
 
+    fireEvent.click(screen.getByRole('tab', { name: 'Setup' }))
     fireEvent.mouseDown(screen.getByLabelText('Direction'))
     fireEvent.click(await screen.findByRole('option', { name: 'Long' }))
 
@@ -522,6 +560,19 @@ describe('SessionPage trader plan workstation', () => {
       expect.any(String),
       expect.objectContaining({ direction: 'LONG' })
     ))
+  })
+
+  it('saves non-executed setup analysis into Notebook from the journal tab', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+
+    renderWithProviders(<SessionPage />)
+
+    fireEvent.click(await screen.findByRole('tab', { name: 'Journal' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save analysis note' }))
+    await waitFor(() => expect(workspaceApiMock.saveSetupAnalysisNote).toHaveBeenCalledWith('session-1', workspaceState.setups[0].id))
+    expect(await screen.findByText('Saved in Notebook')).toBeInTheDocument()
   })
 
   it('imports a strategy and shows its focused checklist details', async () => {
@@ -537,6 +588,7 @@ describe('SessionPage trader plan workstation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Import' }))
 
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+    fireEvent.click(screen.getByRole('tab', { name: 'Strategy' }))
     expect(screen.getAllByText('London sweep').length).toBeGreaterThan(0)
     fireEvent.click(screen.getByRole('tab', { name: 'Confluences' }))
     expect((await screen.findAllByText('Sweep PDH')).length).toBeGreaterThan(0)

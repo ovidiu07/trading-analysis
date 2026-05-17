@@ -22,6 +22,9 @@ public class NotebookNoteResponse {
     String reviewJson;
     LocalDate dateKey;
     UUID relatedTradeId;
+    UUID relatedSessionId;
+    UUID relatedSetupId;
+    UUID relatedPlanId;
     @JsonProperty("hasAttachments")
     boolean hasAttachments;
     @JsonProperty("isDeleted")

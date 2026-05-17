@@ -95,4 +95,10 @@ public class SessionWorkspaceController {
                                                @RequestBody(required = false) StartSessionExecutionRequest request) {
         return sessionWorkspaceService.startTrade(sessionId, setupId, request);
     }
+
+    @PostMapping("/{sessionId}/setups/{setupId}/analysis-note")
+    public SessionWorkspaceResponse saveAnalysisNote(@PathVariable UUID sessionId,
+                                                     @PathVariable UUID setupId) {
+        return sessionWorkspaceService.saveAnalysisNote(sessionId, setupId);
+    }
 }
