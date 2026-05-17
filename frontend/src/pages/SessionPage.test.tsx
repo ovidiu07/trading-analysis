@@ -35,6 +35,10 @@ const strategiesApiMock = vi.hoisted(() => ({
   listStrategies: vi.fn()
 }))
 
+const chartSettingsApiMock = vi.hoisted(() => ({
+  fetchChartSettings: vi.fn()
+}))
+
 vi.mock('../auth/AuthContext', () => ({
   useAuth: () => ({
     user: {
@@ -48,9 +52,10 @@ vi.mock('../auth/AuthContext', () => ({
 vi.mock('../api/liveWorkspace', () => workspaceApiMock)
 vi.mock('../api/plans', () => plansApiMock)
 vi.mock('../api/strategies', () => strategiesApiMock)
+vi.mock('../api/chartSettings', () => chartSettingsApiMock)
 vi.mock('../components/charts/TradingViewWidget', () => ({
-  default: ({ symbol, interval }: { symbol?: string; interval?: string }) => (
-    <div data-testid="mock-chart">{`chart:${symbol || 'none'}:${interval || 'none'}`}</div>
+  default: ({ symbol, interval, preloadedIndicators }: { symbol?: string; interval?: string; preloadedIndicators?: string[] }) => (
+    <div data-testid="mock-chart">{`chart:${symbol || 'none'}:${interval || 'none'}:studies:${(preloadedIndicators || []).join('|')}`}</div>
   )
 }))
 
@@ -331,6 +336,9 @@ function setupMocks() {
   workspaceApiMock.getSessionWorkspace.mockImplementation(async () => clone(workspaceState))
   plansApiMock.fetchTodayMentorPlan.mockResolvedValue(mentorPlan)
   strategiesApiMock.listStrategies.mockResolvedValue(strategiesList)
+  chartSettingsApiMock.fetchChartSettings.mockResolvedValue({
+    preloadedIndicators: ['MASimple@tv-basicstudies', 'RSI@tv-basicstudies']
+  })
 
   workspaceApiMock.createSetupCandidate.mockImplementation(async (_sessionId: string, payload: Partial<SetupItem>) => {
     const next = buildSetup(payload.symbol || 'EURUSD', payload.direction || 'UNDECIDED', payload.setupTitle || 'Draft setup')
@@ -529,7 +537,7 @@ describe('SessionPage trader plan workstation', () => {
 
     expect(await screen.findByTestId('execution-workspace')).toBeInTheDocument()
     expect(within(screen.getByTestId('chart-workspace-column')).getByText('Chart Workspace')).toBeInTheDocument()
-    expect(await within(screen.getByTestId('chart-workspace-column')).findByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15')
+    expect(await within(screen.getByTestId('chart-workspace-column')).findByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15:studies:MASimple@tv-basicstudies|RSI@tv-basicstudies')
     expect(within(screen.getByTestId('execution-control-panel')).getByRole('tab', { name: 'Setups' })).toBeInTheDocument()
     expect(within(screen.getByTestId('execution-control-panel')).getByText('London reclaim')).toBeInTheDocument()
   })
@@ -549,7 +557,7 @@ describe('SessionPage trader plan workstation', () => {
     ))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
     expect(screen.getAllByText(/Not decided yet/i).length).toBeGreaterThan(0)
-    expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15')
+    expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:OANDA:EURUSD:15:studies:MASimple@tv-basicstudies|RSI@tv-basicstudies')
 
     fireEvent.click(screen.getByRole('tab', { name: 'Setup' }))
     fireEvent.mouseDown(screen.getByLabelText('Direction'))

@@ -71,6 +71,7 @@ import {
 } from '../api/liveWorkspace'
 import { fetchTodayMentorPlan, type PlanScope } from '../api/plans'
 import { listStrategies, type StrategyResponse } from '../api/strategies'
+import { fetchChartSettings } from '../api/chartSettings'
 import { useAuth } from '../auth/AuthContext'
 import TradingViewWidget from '../components/charts/TradingViewWidget'
 import type { UploadQueueItem } from '../components/assets/AssetListRenderer'
@@ -358,6 +359,12 @@ export default function SessionPage() {
     queryKey: ['strategies', 'session-import'],
     queryFn: () => listStrategies({ includeArchived: false }),
     enabled: strategyDialogOpen
+  })
+
+  const chartSettingsQuery = useQuery({
+    queryKey: ['chartSettings'],
+    queryFn: fetchChartSettings,
+    staleTime: 5 * 60 * 1000
   })
 
   useEffect(() => {
@@ -1464,7 +1471,16 @@ export default function SessionPage() {
 
                 <Box sx={{ minHeight: { xs: 460, md: 600, xl: 650 }, borderRadius: '12px', overflow: 'hidden', border: '1px solid var(--ws-border)', backgroundColor: '#050608' }}>
                   {deferredChartSymbol ? (
-                    <TradingViewWidget symbol={deferredChartSymbol} interval={deferredChartInterval} minHeight={650} fallbackMessage={t('today.mentor.liveChartFallback')} fallbackLinkLabel={t('today.mentor.openOnTradingView')} />
+                    <TradingViewWidget
+                      symbol={deferredChartSymbol}
+                      interval={deferredChartInterval}
+                      minHeight={650}
+                      hideControls={false}
+                      allowSymbolChange
+                      preloadedIndicators={chartSettingsQuery.data?.preloadedIndicators || []}
+                      fallbackMessage={t('today.mentor.liveChartFallback')}
+                      fallbackLinkLabel={t('today.mentor.openOnTradingView')}
+                    />
                   ) : (
                     <EmptyState sx={{ minHeight: 600, border: 0 }} title="Select a setup symbol" description="The chart appears as soon as a setup has a symbol." icon={<CandlestickChartRoundedIcon fontSize="inherit" />} />
                   )}

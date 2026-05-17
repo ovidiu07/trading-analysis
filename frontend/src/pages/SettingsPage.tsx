@@ -50,6 +50,11 @@ import {
   resetTradingViewWebhookSecret,
   updateTradingViewWebhookSettings
 } from '../api/signalIntel'
+import {
+  fetchAdminChartSettings,
+  normalizeIndicatorLines,
+  updateAdminChartSettings
+} from '../api/chartSettings'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
@@ -87,6 +92,13 @@ export default function SettingsPage() {
   const [tradingViewMessage, setTradingViewMessage] = useState('')
   const [tradingViewError, setTradingViewError] = useState('')
   const [newTradingViewSecret, setNewTradingViewSecret] = useState('')
+  const [chartIndicatorsDraft, setChartIndicatorsDraft] = useState('')
+  const [chartSettingsLoading, setChartSettingsLoading] = useState(false)
+  const [chartSettingsSaving, setChartSettingsSaving] = useState(false)
+  const [chartSettingsMessage, setChartSettingsMessage] = useState('')
+  const [chartSettingsError, setChartSettingsError] = useState('')
+
+  const isAdmin = user?.role === 'ADMIN'
 
   useEffect(() => {
     setForm({
@@ -166,6 +178,20 @@ export default function SettingsPage() {
       })
       .finally(() => setTradingViewLoading(false))
   }, [t])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    setChartSettingsLoading(true)
+    setChartSettingsMessage('')
+    setChartSettingsError('')
+    fetchAdminChartSettings()
+      .then((settings) => setChartIndicatorsDraft((settings.preloadedIndicators || []).join('\n')))
+      .catch((err) => {
+        const apiErr = err as ApiError
+        setChartSettingsError(translateApiError(apiErr, t))
+      })
+      .finally(() => setChartSettingsLoading(false))
+  }, [isAdmin, t])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -367,6 +393,28 @@ export default function SettingsPage() {
     }
   }
 
+  const handleSaveChartSettings = async () => {
+    const preloadedIndicators = normalizeIndicatorLines(chartIndicatorsDraft)
+    if (preloadedIndicators.length === 0) {
+      setChartSettingsError('Add at least one TradingView built-in study identifier.')
+      setChartSettingsMessage('')
+      return
+    }
+    setChartSettingsSaving(true)
+    setChartSettingsMessage('')
+    setChartSettingsError('')
+    try {
+      const updated = await updateAdminChartSettings({ preloadedIndicators })
+      setChartIndicatorsDraft(updated.preloadedIndicators.join('\n'))
+      setChartSettingsMessage('Chart indicator settings saved.')
+    } catch (err) {
+      const apiErr = err as ApiError
+      setChartSettingsError(translateApiError(apiErr, t))
+    } finally {
+      setChartSettingsSaving(false)
+    }
+  }
+
   return (
     <Stack spacing={2.5}>
       <PageHero
@@ -521,6 +569,46 @@ export default function SettingsPage() {
           </Stack>
         </CardContent>
       </Card>
+
+      {isAdmin ? (
+        <Card>
+          <CardContent>
+            <Stack spacing={2} maxWidth={720}>
+              <Stack spacing={0.5}>
+                <Typography variant="h6">Indicators preloaded in chart</Typography>
+                <Typography variant="body2" color="text.secondary">
+                  Add TradingView built-in study identifiers, one per line. Example: MASimple@tv-basicstudies, RSI@tv-basicstudies, MACD@tv-basicstudies.
+                </Typography>
+              </Stack>
+              {chartSettingsMessage && <Alert severity="success">{chartSettingsMessage}</Alert>}
+              {chartSettingsError && <Alert severity="error">{chartSettingsError}</Alert>}
+              {chartSettingsLoading ? (
+                <Typography variant="body2" color="text.secondary">Loading chart settings...</Typography>
+              ) : (
+                <>
+                  <TextField
+                    label="TradingView study identifiers"
+                    value={chartIndicatorsDraft}
+                    onChange={(event) => setChartIndicatorsDraft(event.target.value)}
+                    fullWidth
+                    multiline
+                    minRows={6}
+                    helperText="Use valid TradingView built-in study identifiers. Unsupported studies may be ignored by TradingView."
+                  />
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                    <Button variant="contained" onClick={() => void handleSaveChartSettings()} disabled={chartSettingsSaving}>
+                      {chartSettingsSaving ? 'Saving...' : 'Save chart indicators'}
+                    </Button>
+                    <Typography variant="caption" color="text.secondary">
+                      These studies are preloaded only when the chart initializes; users can remove them inside TradingView.
+                    </Typography>
+                  </Stack>
+                </>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardContent>

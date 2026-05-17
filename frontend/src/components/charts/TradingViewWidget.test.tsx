@@ -16,20 +16,29 @@ describe('TradingViewWidget', () => {
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('renders a TradingView iframe when symbol is provided', () => {
-    renderWithTheme(
+  it('initializes the TradingView advanced chart script when symbol is provided', () => {
+    const { container } = renderWithTheme(
       <TradingViewWidget
         symbol="TVC:DAX"
         interval="15"
         themePreference="SYSTEM"
-        hideControls
-        allowSymbolChange={false}
+        hideControls={false}
+        allowSymbolChange
+        preloadedIndicators={['MASimple@tv-basicstudies', 'RSI@tv-basicstudies']}
       />
     )
 
-    const iframe = screen.getByTitle('TradingView TVC:DAX')
-    expect(iframe).toBeInTheDocument()
-    expect(iframe).toHaveAttribute('src', expect.stringContaining('symbol=TVC%3ADAX'))
-    expect(iframe).toHaveAttribute('src', expect.stringContaining('interval=15'))
+    const target = screen.getByTitle('TradingView TVC:DAX')
+    expect(target).toBeInTheDocument()
+    const script = container.querySelector('script[src="https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js"]')
+    expect(script).toBeInTheDocument()
+    const config = JSON.parse(script?.innerHTML || '{}')
+    expect(config).toMatchObject({
+      symbol: 'TVC:DAX',
+      interval: '15',
+      allow_symbol_change: true,
+      hide_side_toolbar: false
+    })
+    expect(config.studies).toEqual(['MASimple@tv-basicstudies', 'RSI@tv-basicstudies'])
   })
 })

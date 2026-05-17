@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Alert, Box, Link, Typography, useTheme } from '@mui/material'
 
 type TradingViewWidgetProps = {
@@ -7,12 +7,14 @@ type TradingViewWidgetProps = {
   themePreference?: 'LIGHT' | 'DARK' | 'SYSTEM' | string | null
   hideControls?: boolean | null
   allowSymbolChange?: boolean | null
+  preloadedIndicators?: string[] | null
   minHeight?: number
   fallbackMessage?: string
   fallbackLinkLabel?: string
 }
 
 const DEFAULT_INTERVAL = '15'
+const TRADINGVIEW_WIDGET_SCRIPT = 'https://s3.tradingview.com/external-embedding/embed-widget-advanced-chart.js'
 
 const normalizeInterval = (value?: string | null) => {
   const trimmed = value?.trim().toUpperCase() || DEFAULT_INTERVAL
@@ -35,47 +37,83 @@ export default function TradingViewWidget({
   themePreference,
   hideControls,
   allowSymbolChange,
+  preloadedIndicators,
   minHeight = 420,
   fallbackMessage = 'Live TradingView chart could not be embedded in this browser context.',
   fallbackLinkLabel = 'Open on TradingView'
 }: TradingViewWidgetProps) {
   const theme = useTheme()
+  const widgetRef = useRef<HTMLDivElement | null>(null)
   const [loading, setLoading] = useState(true)
   const [failed, setFailed] = useState(false)
 
   const normalizedSymbol = (symbol || '').trim()
   const widgetTheme = resolveTheme(themePreference, theme.palette.mode === 'dark' ? 'dark' : 'light')
-
-  const src = useMemo(() => {
-    if (!normalizedSymbol) return ''
-    const params = new URLSearchParams({
-      symbol: normalizedSymbol,
-      interval: normalizeInterval(interval),
-      theme: widgetTheme,
-      style: '1',
-      locale: 'en',
-      hide_top_toolbar: hideControls === false ? '0' : '1',
-      hidesidetoolbar: hideControls === false ? '0' : '1',
-      allow_symbol_change: allowSymbolChange ? '1' : '0',
-      withdateranges: '1',
-      hideideas: '1'
-    })
-    return `https://s.tradingview.com/widgetembed/?${params.toString()}`
-  }, [allowSymbolChange, hideControls, interval, normalizedSymbol, widgetTheme])
+  const normalizedInterval = normalizeInterval(interval)
+  const normalizedStudies = useMemo(() => {
+    const seen = new Set<string>()
+    return (preloadedIndicators || [])
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .filter((item) => {
+        if (seen.has(item)) return false
+        seen.add(item)
+        return true
+      })
+  }, [preloadedIndicators])
+  const studiesSignature = normalizedStudies.join('|')
+  const widgetKey = `${normalizedSymbol}-${normalizedInterval}-${widgetTheme}-${hideControls === false ? 'full' : 'compact'}-${allowSymbolChange ? 'symbol' : 'locked'}-${studiesSignature}`
 
   useEffect(() => {
     setLoading(true)
     setFailed(false)
-  }, [src])
+  }, [widgetKey])
 
   useEffect(() => {
-    if (!src || !loading) return undefined
+    const target = widgetRef.current
+    if (!normalizedSymbol || !target) return undefined
+    target.innerHTML = ''
+
+    const script = document.createElement('script')
+    script.src = TRADINGVIEW_WIDGET_SCRIPT
+    script.async = true
+    script.type = 'text/javascript'
+    script.innerHTML = JSON.stringify({
+      autosize: true,
+      symbol: normalizedSymbol,
+      interval: normalizedInterval,
+      timezone: 'exchange',
+      theme: widgetTheme,
+      style: '1',
+      locale: 'en',
+      hide_side_toolbar: hideControls === false ? false : true,
+      hide_top_toolbar: hideControls === false ? false : true,
+      allow_symbol_change: Boolean(allowSymbolChange),
+      withdateranges: true,
+      hideideas: true,
+      studies: normalizedStudies,
+      support_host: 'https://www.tradingview.com'
+    })
+    script.onload = () => setLoading(false)
+    script.onerror = () => {
+      setFailed(true)
+      setLoading(false)
+    }
+    target.appendChild(script)
+
+    return () => {
+      target.innerHTML = ''
+    }
+  }, [allowSymbolChange, hideControls, normalizedInterval, normalizedStudies, normalizedSymbol, widgetKey, widgetTheme])
+
+  useEffect(() => {
+    if (!normalizedSymbol || !loading) return undefined
     const timer = window.setTimeout(() => {
       setFailed(true)
       setLoading(false)
     }, 12000)
     return () => window.clearTimeout(timer)
-  }, [loading, src])
+  }, [loading, normalizedSymbol, widgetKey])
 
   if (!normalizedSymbol) {
     return null
@@ -94,6 +132,7 @@ export default function TradingViewWidget({
         </Alert>
       ) : (
         <Box
+          className="tradingview-widget-container"
           sx={{
             position: 'relative',
             width: '100%',
@@ -106,23 +145,16 @@ export default function TradingViewWidget({
           }}
         >
           <Box
-            component="iframe"
+            ref={widgetRef}
+            className="tradingview-widget-container__widget"
             title={`TradingView ${normalizedSymbol}`}
-            src={src}
-            onLoad={() => setLoading(false)}
-            onError={() => {
-              setFailed(true)
-              setLoading(false)
-            }}
+            data-testid="tradingview-widget-target"
             sx={{
               width: '100%',
               height: '100%',
               minHeight,
-              border: 0,
               display: 'block'
             }}
-            loading="lazy"
-            allowFullScreen
           />
         </Box>
       )}

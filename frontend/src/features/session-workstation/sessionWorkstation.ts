@@ -570,6 +570,8 @@ export function mentorMatchesSetup(mentorPlan: DailyPlan | null | undefined, set
 export function toTradingViewSymbol(setupSymbol?: string | null, mentorSymbol?: string | null) {
   if (setupSymbol) {
     const normalized = setupSymbol.trim().toUpperCase()
+    // TradingView exchange-qualified symbols such as NASDAQ:NVDA and OANDA:XAUUSD must pass through unchanged.
+    // Plain six-letter FX pairs keep the existing OANDA default; other tickers use the current app behavior.
     if (normalized.includes(':')) return normalized
     if (/^[A-Z]{6}$/.test(normalized)) return `OANDA:${normalized}`
     return normalized
