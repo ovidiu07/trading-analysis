@@ -373,7 +373,7 @@ export async function updateSessionWorkspace(sessionId: string, payload: Session
   return apiPut<LiveWorkspaceResponse>(`/today/session/${encodeURIComponent(sessionId)}`, payload)
 }
 
-export async function upsertSessionPeriodPlan(scope: 'WEEKLY' | 'MONTHLY', payload: SessionPeriodPlanRequest) {
+export async function upsertSessionPeriodPlan(scope: PlanScope, payload: SessionPeriodPlanRequest) {
   return apiPost<LiveWorkspaceResponse>(`/today/session/plans/${encodeURIComponent(scope)}`, payload)
 }
 

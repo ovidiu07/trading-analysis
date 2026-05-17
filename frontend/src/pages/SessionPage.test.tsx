@@ -424,7 +424,20 @@ function setupMocks() {
     }
     return clone(workspaceState)
   })
-  workspaceApiMock.upsertSessionPeriodPlan.mockImplementation(async (scope: 'WEEKLY' | 'MONTHLY', payload: Partial<LiveWorkspaceResponse['planningContext']['weekly']>) => {
+  workspaceApiMock.upsertSessionPeriodPlan.mockImplementation(async (scope: 'DAILY' | 'WEEKLY' | 'MONTHLY', payload: Partial<LiveWorkspaceResponse['planningContext']['weekly']>) => {
+    if (scope === 'DAILY') {
+      workspaceState.planningContext!.today = {
+        ...workspaceState.planningContext!.today,
+        exists: true
+      }
+      if (!workspaceState.setups.length) {
+        const restored = buildSetup('EURUSD', 'LONG', 'London reclaim')
+        workspaceState.setups.push(restored)
+        workspaceState.activeSetupId = restored.id
+      }
+      recalcWorkspace()
+      return clone(workspaceState)
+    }
     const key = scope === 'WEEKLY' ? 'weekly' : 'monthly'
     workspaceState.planningContext = {
       ...workspaceState.planningContext!,
@@ -599,5 +612,47 @@ describe('SessionPage trader plan workstation', () => {
     await waitFor(() => expect(workspaceApiMock.removeSessionPlan).toHaveBeenCalledWith('DAILY', 'session-1'))
     expect((await screen.findAllByText('No active Today Plan')).length).toBeGreaterThan(0)
     expect(screen.queryByText('London reclaim')).not.toBeInTheDocument()
+  })
+
+  it('shows and restores a removed Today Plan from Session Mode', async () => {
+    workspaceState.planningContext!.today = {
+      ...workspaceState.planningContext!.today,
+      exists: false,
+      images: [],
+      imageCount: 0
+    }
+    workspaceState.setups = []
+    workspaceState.activeSetupId = null
+
+    renderWithProviders(<SessionPage />)
+
+    expect((await screen.findAllByText('No active Today Plan')).length).toBeGreaterThan(0)
+    expect(screen.getByText('The removed plan is hidden from Session Mode and Calendar. Restore it to continue planning today.')).toBeInTheDocument()
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Restore Today Plan' })[0])
+
+    await waitFor(() => expect(workspaceApiMock.upsertSessionPeriodPlan).toHaveBeenCalledWith('DAILY', {}))
+    expect((await screen.findAllByText('London reclaim')).length).toBeGreaterThan(0)
+    expect(screen.getByText('Active today plan')).toBeInTheDocument()
+  })
+
+  it('shows create Today Plan when no active daily plan id is present', async () => {
+    workspaceState.planningContext!.today = {
+      ...workspaceState.planningContext!.today,
+      id: null,
+      exists: false,
+      images: [],
+      imageCount: 0
+    }
+    workspaceState.setups = []
+    workspaceState.activeSetupId = null
+
+    renderWithProviders(<SessionPage />)
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Create Today Plan' }).length).toBeGreaterThan(0))
+    fireEvent.click(screen.getAllByRole('button', { name: 'Create Today Plan' })[0])
+
+    await waitFor(() => expect(workspaceApiMock.upsertSessionPeriodPlan).toHaveBeenCalledWith('DAILY', {}))
+    expect(await screen.findByText('Active today plan')).toBeInTheDocument()
   })
 })

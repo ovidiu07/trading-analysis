@@ -138,10 +138,25 @@ public class SessionWorkspaceService {
     @Transactional
     public SessionWorkspaceResponse upsertPeriodPlan(PlanScope scope, UpsertSessionPlanRequest request) {
         User user = currentUserService.getCurrentUser();
+        ZoneId zone = timezoneService.resolveZone(null, user);
+        if (scope == PlanScope.DAILY) {
+            TodaySession today = todaySessionRepository.findByUser_IdAndSessionDate(user.getId(), resolveSessionDate(zone))
+                    .orElseGet(() -> createDefaultSession(user, zone));
+            today.setLiveModeOnly(Boolean.TRUE);
+            today.setStatus(TodaySessionStatus.ACTIVE);
+            today.setPlanRemovedAt(null);
+            today.setPlanRemovedByUserId(null);
+            ensureLegacySetupBackfill(today, user);
+            List<SessionSetup> setups = loadSetups(today, user.getId());
+            if (today.getActiveSetupId() == null && !setups.isEmpty()) {
+                today.setActiveSetupId(setups.get(0).getId());
+            }
+            TodaySession saved = todaySessionRepository.save(today);
+            return toWorkspace(saved, setups, user.getId());
+        }
         if (scope != PlanScope.WEEKLY && scope != PlanScope.MONTHLY) {
             throw new IllegalArgumentException("Only weekly and monthly session plans can be edited here");
         }
-        ZoneId zone = timezoneService.resolveZone(null, user);
         PeriodWindow window = resolvePeriodWindow(scope, zone);
         Plan plan = planRepository.findUserActiveByWindow(PlanSource.USER, scope, user.getId(), window.start(), window.end())
                 .stream()

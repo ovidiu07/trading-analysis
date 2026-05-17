@@ -449,6 +449,22 @@ export default function SessionPage() {
     onError: (error) => setFeedback((error as ApiError).message || 'Could not save plan.')
   })
 
+  const todayPlanMutation = useMutation({
+    mutationFn: () => upsertSessionPeriodPlan('DAILY', {}),
+    onSuccess: async (workspace) => {
+      applyWorkspace(workspace, workspace.activeSetupId || selectedSetupId)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] }),
+        queryClient.invalidateQueries({ queryKey: ['todayMyPlan'] }),
+        queryClient.invalidateQueries({ queryKey: ['featuredDailyPlan'] }),
+        queryClient.invalidateQueries({ queryKey: ['activeTradePlans'] }),
+        queryClient.invalidateQueries({ queryKey: ['calendarPlans'] })
+      ])
+      setFeedback('Today Plan is active.')
+    },
+    onError: (error) => setFeedback((error as ApiError).message || 'Could not activate Today Plan.')
+  })
+
   const removePlanMutation = useMutation({
     mutationFn: (target: PlanRemovalTarget) => {
       if (!target.plan.id) {
@@ -465,6 +481,7 @@ export default function SessionPage() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] }),
         queryClient.invalidateQueries({ queryKey: ['todayMyPlan'] }),
+        queryClient.invalidateQueries({ queryKey: ['featuredDailyPlan'] }),
         queryClient.invalidateQueries({ queryKey: ['activeTradePlans'] }),
         queryClient.invalidateQueries({ queryKey: ['calendarPlans'] })
       ])
@@ -596,6 +613,7 @@ export default function SessionPage() {
   const autoSaveState = updateSetupMutation.isPending || updateSessionMutation.isPending ? 'Saving...' : 'Saved'
   const todayPlan = workspace.planningContext?.today
   const todayPlanActive = todayPlan?.exists !== false
+  const todayPlanRestoreLabel = todayPlan?.id ? 'Restore Today Plan' : 'Create Today Plan'
 
   const updateSelectedSetup = (updater: (setup: SetupItem) => SetupItem) => {
     setSetupDraft((current) => current ? ensureExecutionWorkspace(updater(current)) : current)
@@ -722,6 +740,18 @@ export default function SessionPage() {
     if (planScope === 'MONTHLY' && monthlyDraft) {
       periodPlanMutation.mutate({ scope: 'MONTHLY', draft: monthlyDraft })
     }
+  }
+
+  const handleAddPlanSession = () => {
+    if (planScope === 'TODAY') {
+      if (todayPlanActive) {
+        setCreateDialogOpen(true)
+      } else {
+        todayPlanMutation.mutate()
+      }
+      return
+    }
+    saveCurrentPeriodPlan()
   }
 
   const requestRemovePlan = (scope: PlanScopeTab, plan?: PeriodPlan | null) => {
@@ -1133,8 +1163,13 @@ export default function SessionPage() {
               <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
                 <Button variant="outlined" startIcon={<ImportExportRoundedIcon />} onClick={openStrategyDialog} disabled={!todayPlanActive}>Import strategy</Button>
                 <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => setCreateDialogOpen(true)} disabled={!todayPlanActive}>Add setup</Button>
-                <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => planScope === 'TODAY' ? setCreateDialogOpen(true) : saveCurrentPeriodPlan()} disabled={planScope === 'TODAY' && !todayPlanActive}>
-                  Add plan/session
+                <Button
+                  variant="outlined"
+                  startIcon={<AddRoundedIcon />}
+                  onClick={handleAddPlanSession}
+                  disabled={todayPlanMutation.isPending || periodPlanMutation.isPending}
+                >
+                  {planScope === 'TODAY' && !todayPlanActive ? todayPlanRestoreLabel : 'Add plan/session'}
                 </Button>
                 <Button variant="outlined" startIcon={<BoltRoundedIcon />} onClick={(event) => setQuickLogAnchorEl(event.currentTarget)} disabled={!selectedSetup}>Quick log</Button>
                 <Button
@@ -1240,7 +1275,18 @@ export default function SessionPage() {
                 >
                   Remove plan
                 </Button>
-              ) : null}
+              ) : (
+                <Button
+                  variant="contained"
+                  size="small"
+                  startIcon={<AddRoundedIcon />}
+                  onClick={() => todayPlanMutation.mutate()}
+                  disabled={todayPlanMutation.isPending}
+                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
+                >
+                  {todayPlanMutation.isPending ? 'Activating...' : todayPlanRestoreLabel}
+                </Button>
+              )}
             </Stack>
           </Box>
 
@@ -1257,7 +1303,16 @@ export default function SessionPage() {
               onOpenCalendar={() => openPlanInCalendar('TODAY')}
             />
           ) : (
-            <EmptyState title="No active Today Plan" description="The removed plan is hidden from Session Mode and Calendar." icon={<NotesRoundedIcon fontSize="inherit" />} />
+            <EmptyState
+              title="No active Today Plan"
+              description={todayPlan?.id ? 'The removed plan is hidden from Session Mode and Calendar. Restore it to continue planning today.' : 'Create a Today Plan to start Session Mode and show it in Calendar.'}
+              icon={<NotesRoundedIcon fontSize="inherit" />}
+              action={(
+                <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => todayPlanMutation.mutate()} disabled={todayPlanMutation.isPending}>
+                  {todayPlanMutation.isPending ? 'Activating...' : todayPlanRestoreLabel}
+                </Button>
+              )}
+            />
           )}
         </Stack>
       ) : null}

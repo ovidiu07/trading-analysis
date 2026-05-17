@@ -20,6 +20,7 @@ import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.session.UpsertSessionSetupRequest;
 import com.tradevault.dto.session.UpdateSessionWorkspaceRequest;
+import com.tradevault.dto.session.UpsertSessionPlanRequest;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.repository.SessionLevelRepository;
@@ -139,7 +140,13 @@ class SessionWorkspaceServiceTest {
                 .thenReturn(Optional.of(session));
         when(todaySessionRepository.findByIdAndUser_Id(session.getId(), user.getId()))
                 .thenReturn(Optional.of(session));
-        when(todaySessionRepository.save(any(TodaySession.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        when(todaySessionRepository.save(any(TodaySession.class))).thenAnswer(invocation -> {
+            TodaySession saved = invocation.getArgument(0);
+            if (saved.getId() == null) {
+                saved.setId(UUID.randomUUID());
+            }
+            return saved;
+        });
         when(sessionSetupRepository.save(any(SessionSetup.class))).thenAnswer(invocation -> {
             SessionSetup saved = invocation.getArgument(0);
             if (saved.getId() == null) {
@@ -149,10 +156,12 @@ class SessionWorkspaceServiceTest {
             setups.add(saved);
             return saved;
         });
-        when(sessionSetupRepository.findByTodaySession_IdAndUser_IdOrderBySortOrderAscCreatedAtAsc(session.getId(), user.getId()))
-                .thenAnswer(invocation -> new ArrayList<>(setups));
-        when(sessionSetupRepository.existsByTodaySession_Id(session.getId()))
-                .thenAnswer(invocation -> !setups.isEmpty());
+        when(sessionSetupRepository.findByTodaySession_IdAndUser_IdOrderBySortOrderAscCreatedAtAsc(any(UUID.class), eq(user.getId())))
+                .thenAnswer(invocation -> session.getId().equals(invocation.getArgument(0)) ? new ArrayList<>(setups) : List.of());
+        when(sessionSetupRepository.existsByTodaySession_Id(any(UUID.class)))
+                .thenAnswer(invocation -> session.getId().equals(invocation.getArgument(0)) && !setups.isEmpty());
+        when(sessionNarrativeRepository.findBySessionIdAndUser_Id(any(UUID.class), eq(user.getId())))
+                .thenReturn(Optional.empty());
         when(sessionNarrativeRepository.findBySessionIdAndUser_Id(session.getId(), user.getId()))
                 .thenReturn(Optional.of(SessionNarrative.builder()
                         .sessionId(session.getId())
@@ -162,7 +171,7 @@ class SessionWorkspaceServiceTest {
                         .build()));
         when(sessionLevelRepository.findByTodaySession_IdAndUser_IdOrderByCreatedAtAsc(session.getId(), user.getId()))
                 .thenReturn(List.of());
-        when(tradeRepository.findByUserIdAndSessionIdOrderByOpenedAtDescCreatedAtDesc(user.getId(), session.getId()))
+        when(tradeRepository.findByUserIdAndSessionIdOrderByOpenedAtDescCreatedAtDesc(eq(user.getId()), any(UUID.class)))
                 .thenReturn(List.of());
         when(tradeRepository.findFirstByUser_IdAndSessionIdAndStatusOrderByOpenedAtDescCreatedAtDesc(
                 user.getId(), session.getId(), TradeStatus.OPEN))
@@ -171,7 +180,7 @@ class SessionWorkspaceServiceTest {
                 .thenReturn(BigDecimal.ZERO);
         when(planRepository.findUserActiveByWindow(any(), any(), eq(user.getId()), any(), any()))
                 .thenReturn(List.of());
-        when(planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(session.getId()))
+        when(planAssetRepository.findByTodaySession_IdOrderBySortOrderAscCreatedAtAsc(any(UUID.class)))
                 .thenReturn(List.of());
     }
 
@@ -262,6 +271,37 @@ class SessionWorkspaceServiceTest {
         assertThat(response.getPlanningContext().getToday().getImages()).isEmpty();
         assertThat(response.getSetups()).isEmpty();
         assertThat(response.getActiveSetupId()).isNull();
+    }
+
+    @Test
+    void upsertDailyPlanCreatesTodayPlanWhenNoSessionExistsForUserDate() {
+        when(todaySessionRepository.findByUser_IdAndSessionDate(eq(user.getId()), any(LocalDate.class)))
+                .thenReturn(Optional.empty());
+
+        var response = sessionWorkspaceService.upsertPeriodPlan(PlanScope.DAILY, new UpsertSessionPlanRequest());
+
+        assertThat(response.getPlanningContext().getToday().getExists()).isTrue();
+        assertThat(response.getPlanningContext().getToday().getScope()).isEqualTo(PlanScope.DAILY);
+        assertThat(response.getPlanningContext().getToday().getId()).isNotNull();
+        assertThat(response.getSetups()).isEmpty();
+    }
+
+    @Test
+    void upsertDailyPlanRestoresRemovedTodayPlanAndActiveSetups() throws Exception {
+        SessionSetup setup = lockableSetup(true);
+        setups.add(setup);
+        session.setPlanRemovedAt(OffsetDateTime.parse("2026-03-06T08:00:00Z"));
+        session.setPlanRemovedByUserId(user.getId());
+        session.setActiveSetupId(null);
+
+        var response = sessionWorkspaceService.upsertPeriodPlan(PlanScope.DAILY, new UpsertSessionPlanRequest());
+
+        assertThat(session.getPlanRemovedAt()).isNull();
+        assertThat(session.getPlanRemovedByUserId()).isNull();
+        assertThat(session.getStatus()).isEqualTo(TodaySessionStatus.ACTIVE);
+        assertThat(response.getPlanningContext().getToday().getExists()).isTrue();
+        assertThat(response.getSetups()).singleElement().satisfies(item -> assertThat(item.getSetupTitle()).isEqualTo("London reclaim"));
+        assertThat(response.getActiveSetupId()).isEqualTo(setup.getId());
     }
 
     @Test
