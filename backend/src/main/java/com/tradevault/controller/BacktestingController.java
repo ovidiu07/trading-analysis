@@ -1,10 +1,17 @@
 package com.tradevault.controller;
 
 import com.tradevault.dto.backtesting.BacktestingListResponse;
+import com.tradevault.dto.backtesting.BacktestingAnalyticsResponse;
+import com.tradevault.dto.backtesting.BacktestingEdgeLensRequest;
+import com.tradevault.dto.backtesting.BacktestingEdgeLensResponse;
+import com.tradevault.dto.backtesting.BacktestingImportResponse;
 import com.tradevault.dto.backtesting.BacktestingScreenshotRequest;
 import com.tradevault.dto.backtesting.BacktestingScreenshotResponse;
+import com.tradevault.dto.backtesting.BacktestingTradeRequest;
+import com.tradevault.dto.backtesting.BacktestingTradeResponse;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceRequest;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceResponse;
+import com.tradevault.service.BacktestingResearchService;
 import com.tradevault.service.BacktestingService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
@@ -30,6 +37,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class BacktestingController {
     private final BacktestingService backtestingService;
+    private final BacktestingResearchService researchService;
 
     @GetMapping("/workspaces")
     public BacktestingListResponse listWorkspaces() {
@@ -69,6 +77,68 @@ public class BacktestingController {
         return backtestingService.listScreenshots(workspaceId);
     }
 
+    @GetMapping("/workspaces/{workspaceId}/trades")
+    public List<BacktestingTradeResponse> listTrades(@PathVariable UUID workspaceId) {
+        return researchService.listTrades(workspaceId);
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/trades")
+    public BacktestingTradeResponse createTrade(@PathVariable UUID workspaceId,
+                                                @Valid @RequestBody BacktestingTradeRequest request) {
+        return researchService.createTrade(workspaceId, request);
+    }
+
+    @PatchMapping("/trades/{tradeId}")
+    public BacktestingTradeResponse updateTrade(@PathVariable UUID tradeId,
+                                                @Valid @RequestBody BacktestingTradeRequest request) {
+        return researchService.updateTrade(tradeId, request);
+    }
+
+    @DeleteMapping("/trades/{tradeId}")
+    public ResponseEntity<Void> deleteTrade(@PathVariable UUID tradeId) {
+        researchService.deleteTrade(tradeId);
+        return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping(value = "/workspaces/{workspaceId}/trades/import", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public BacktestingImportResponse importTrades(@PathVariable UUID workspaceId,
+                                                  @RequestParam("file") MultipartFile file) {
+        return researchService.importCsv(workspaceId, file);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/analytics")
+    public BacktestingAnalyticsResponse analytics(@PathVariable UUID workspaceId) {
+        return researchService.analytics(workspaceId);
+    }
+
+    @GetMapping("/workspaces/{workspaceId}/edge-lenses")
+    public List<BacktestingEdgeLensResponse> listEdgeLenses(@PathVariable UUID workspaceId) {
+        return researchService.listEdgeLenses(workspaceId);
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/edge-lenses")
+    public BacktestingEdgeLensResponse createEdgeLens(@PathVariable UUID workspaceId,
+                                                      @Valid @RequestBody BacktestingEdgeLensRequest request) {
+        return researchService.createEdgeLens(workspaceId, request);
+    }
+
+    @PatchMapping("/edge-lenses/{lensId}")
+    public BacktestingEdgeLensResponse updateEdgeLens(@PathVariable UUID lensId,
+                                                      @Valid @RequestBody BacktestingEdgeLensRequest request) {
+        return researchService.updateEdgeLens(lensId, request);
+    }
+
+    @PostMapping("/edge-lenses/{lensId}/recalculate")
+    public BacktestingEdgeLensResponse recalculateEdgeLens(@PathVariable UUID lensId) {
+        return researchService.recalculateEdgeLens(lensId);
+    }
+
+    @DeleteMapping("/edge-lenses/{lensId}")
+    public ResponseEntity<Void> deleteEdgeLens(@PathVariable UUID lensId) {
+        researchService.deleteEdgeLens(lensId);
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping(value = "/workspaces/{workspaceId}/screenshots", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public List<BacktestingScreenshotResponse> uploadScreenshots(@PathVariable UUID workspaceId,
                                                                  @RequestParam(value = "files", required = false) List<MultipartFile> files,
@@ -83,6 +153,11 @@ public class BacktestingController {
     public BacktestingScreenshotResponse updateScreenshot(@PathVariable UUID screenshotId,
                                                           @RequestBody BacktestingScreenshotRequest request) {
         return backtestingService.updateScreenshot(screenshotId, request);
+    }
+
+    @PostMapping("/screenshots/{screenshotId}/detach-trade")
+    public BacktestingScreenshotResponse detachScreenshotTrade(@PathVariable UUID screenshotId) {
+        return backtestingService.detachScreenshotTrade(screenshotId);
     }
 
     @DeleteMapping("/screenshots/{screenshotId}")

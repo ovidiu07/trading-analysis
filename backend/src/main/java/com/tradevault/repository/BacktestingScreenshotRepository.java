@@ -18,5 +18,7 @@ public interface BacktestingScreenshotRepository extends JpaRepository<Backtesti
 
     long countByWorkspace_Id(UUID workspaceId);
 
+    long countByBacktestingTrade_Id(UUID backtestingTradeId);
+
     long deleteByAsset_Id(UUID assetId);
 }

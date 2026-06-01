@@ -22,6 +22,7 @@ public class BacktestingScreenshotResponse {
     String viewUrl;
     String downloadUrl;
     String thumbnailUrl;
+    UUID backtestingTradeId;
     String caption;
     BacktestingScreenshotResult tradeResult;
     String session;

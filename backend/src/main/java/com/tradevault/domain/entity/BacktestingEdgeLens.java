@@ -1,10 +1,7 @@
 package com.tradevault.domain.entity;
 
-import com.tradevault.domain.enums.BacktestingScreenshotResult;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.EnumType;
-import jakarta.persistence.Enumerated;
 import jakarta.persistence.FetchType;
 import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.Id;
@@ -29,8 +26,8 @@ import java.util.UUID;
 @NoArgsConstructor
 @AllArgsConstructor
 @Entity
-@Table(name = "backtesting_screenshots")
-public class BacktestingScreenshot {
+@Table(name = "backtesting_edge_lenses")
+public class BacktestingEdgeLens {
     @Id
     @GeneratedValue(generator = "UUID")
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator")
@@ -44,32 +41,20 @@ public class BacktestingScreenshot {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
-    @JoinColumn(name = "asset_id", nullable = false)
-    private Asset asset;
+    @Column(nullable = false, length = 160)
+    private String name;
 
-    @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "backtesting_trade_id")
-    private BacktestingTrade backtestingTrade;
+    @Column(columnDefinition = "TEXT")
+    private String description;
 
-    @Column(length = 500)
-    private String caption;
+    @Column(name = "filter_definition", nullable = false, columnDefinition = "TEXT")
+    private String filterDefinitionJson;
 
-    @Enumerated(EnumType.STRING)
-    @Column(name = "trade_result", length = 32)
-    private BacktestingScreenshotResult tradeResult;
+    @Column(name = "metrics_snapshot", columnDefinition = "TEXT")
+    private String metricsSnapshotJson;
 
-    @Column(length = 60)
-    private String session;
-
-    @Column(length = 40)
-    private String timeframe;
-
-    @Column(name = "tags", columnDefinition = "TEXT")
-    private String tagsJson;
-
-    @Column(name = "sort_order")
-    private Integer sortOrder;
+    @Column(name = "recalculated_at")
+    private OffsetDateTime recalculatedAt;
 
     @CreationTimestamp
     @Column(name = "created_at", nullable = false, updatable = false)

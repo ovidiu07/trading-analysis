@@ -12,7 +12,9 @@ import com.tradevault.domain.enums.BacktestingWorkspaceStatus;
 import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceRequest;
 import com.tradevault.repository.AssetRepository;
+import com.tradevault.repository.BacktestingEdgeLensRepository;
 import com.tradevault.repository.BacktestingScreenshotRepository;
+import com.tradevault.repository.BacktestingTradeRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
@@ -37,6 +39,8 @@ import static org.mockito.Mockito.when;
 class BacktestingServiceTest {
     private BacktestingWorkspaceRepository workspaceRepository;
     private BacktestingScreenshotRepository screenshotRepository;
+    private BacktestingTradeRepository tradeRepository;
+    private BacktestingEdgeLensRepository edgeLensRepository;
     private UserStrategyRepository userStrategyRepository;
     private AssetRepository assetRepository;
     private CurrentUserService currentUserService;
@@ -49,6 +53,8 @@ class BacktestingServiceTest {
     void setup() {
         workspaceRepository = Mockito.mock(BacktestingWorkspaceRepository.class);
         screenshotRepository = Mockito.mock(BacktestingScreenshotRepository.class);
+        tradeRepository = Mockito.mock(BacktestingTradeRepository.class);
+        edgeLensRepository = Mockito.mock(BacktestingEdgeLensRepository.class);
         userStrategyRepository = Mockito.mock(UserStrategyRepository.class);
         assetRepository = Mockito.mock(AssetRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
@@ -64,13 +70,16 @@ class BacktestingServiceTest {
         backtestingService = new BacktestingService(
                 workspaceRepository,
                 screenshotRepository,
+                tradeRepository,
+                edgeLensRepository,
                 userStrategyRepository,
                 assetRepository,
                 currentUserService,
                 objectStorageService,
                 assetService,
                 new ObjectMapper(),
-                uploadProperties
+                uploadProperties,
+                new BacktestingResearchService(null, null, null, null, null, null)
         );
     }
 

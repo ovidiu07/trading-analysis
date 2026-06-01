@@ -2,6 +2,10 @@ import { apiDelete, apiGet, apiPatch, apiPost, apiPostMultipart } from './client
 import type { AssetItem } from './assets'
 
 export type BacktestingScreenshotResult = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'MISSED' | 'INVALID' | 'GOOD_EXAMPLE' | 'BAD_EXAMPLE'
+export type BacktestingTradeDirection = 'LONG' | 'SHORT'
+export type BacktestingTradeResult = 'WIN' | 'LOSS' | 'BREAKEVEN'
+export type BacktestingTradeSource = 'MANUAL' | 'IMPORT' | 'SCREENSHOT'
+export type BacktestingTradeScope = 'BACKTEST' | 'LIVE' | 'REPLAY'
 
 export type BacktestingStrategySummary = {
   id: string
@@ -30,11 +34,22 @@ export type BacktestingWorkspace = {
   losingTrades: number
   breakevenTrades: number
   averageR?: number | null
+  totalR?: number | null
+  expectancy?: number | null
+  profitFactor?: number | null
+  averageWinR?: number | null
+  averageLossR?: number | null
+  largestWinR?: number | null
+  largestLossR?: number | null
   winRate: number
   lossRate: number
   breakevenRate: number
   categorizedTrades: number
   missingClassificationCount: number
+  structuredTradeCount?: number
+  statsSource?: 'STRUCTURED' | 'LEGACY_MANUAL'
+  sampleQuality?: string | null
+  bestEdgeLensName?: string | null
   screenshotCount: number
   notes?: string | null
   whatWorked?: string | null
@@ -93,6 +108,7 @@ export type BacktestingScreenshot = {
   viewUrl?: string | null
   downloadUrl?: string | null
   thumbnailUrl?: string | null
+  backtestingTradeId?: string | null
   caption?: string | null
   tradeResult?: BacktestingScreenshotResult | null
   session?: string | null
@@ -111,6 +127,97 @@ export type BacktestingScreenshotPayload = {
   timeframe?: string | null
   tags?: string[]
   sortOrder?: number | null
+  backtestingTradeId?: string | null
+}
+
+export type BacktestingTrade = {
+  id: string
+  workspaceId: string
+  date: string
+  weekday?: string | null
+  entryTime: string
+  instrument: string
+  direction: BacktestingTradeDirection
+  session?: string | null
+  setupName?: string | null
+  strategyId?: string | null
+  riskPercent?: number | null
+  plannedRR?: number | null
+  result: BacktestingTradeResult
+  pnlR: number
+  contextTimeframe?: string | null
+  executionTimeframe?: string | null
+  entryTimeframe?: string | null
+  tags: string[]
+  notes?: string | null
+  source: BacktestingTradeSource
+  tradeScope: BacktestingTradeScope
+  screenshotCount?: number
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
+export type BacktestingTradePayload = Omit<BacktestingTrade, 'id' | 'workspaceId' | 'weekday' | 'screenshotCount' | 'createdAt' | 'updatedAt'>
+
+export type BacktestingMetric = {
+  trades: number
+  wins: number
+  losses: number
+  breakevens: number
+  winRate: number
+  lossRate: number
+  breakevenRate: number
+  totalR: number
+  averageR: number
+  expectancy: number
+  profitFactor?: number | null
+  averageWinR: number
+  averageLossR: number
+  largestWinR: number
+  largestLossR: number
+  sampleQuality: string
+}
+
+export type BacktestingBreakdownRow = {
+  dimension: string
+  label: string
+  filters: Record<string, unknown>
+  metrics: BacktestingMetric
+  expectancyDelta: number
+  totalRDelta: number
+  verdict: string
+  warning?: string | null
+}
+
+export type BacktestingAnalytics = {
+  baseline: BacktestingMetric
+  breakdowns: Record<string, BacktestingBreakdownRow[]>
+  impactRows: BacktestingBreakdownRow[]
+}
+
+export type BacktestingEdgeLens = {
+  id: string
+  workspaceId: string
+  name: string
+  description?: string | null
+  filterDefinition: Record<string, unknown>
+  metrics: BacktestingMetric
+  recalculatedAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
+export type BacktestingEdgeLensPayload = {
+  name: string
+  description?: string | null
+  filterDefinition: Record<string, unknown>
+}
+
+export type BacktestingImportResponse = {
+  imported: number
+  invalid: number
+  errors: string[]
+  trades: BacktestingTrade[]
 }
 
 export async function listBacktestingWorkspaces() {
@@ -137,6 +244,52 @@ export async function listBacktestingScreenshots(workspaceId: string) {
   return apiGet<BacktestingScreenshot[]>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/screenshots`)
 }
 
+export async function listBacktestingTrades(workspaceId: string) {
+  return apiGet<BacktestingTrade[]>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/trades`)
+}
+
+export async function createBacktestingTrade(workspaceId: string, payload: BacktestingTradePayload) {
+  return apiPost<BacktestingTrade>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/trades`, payload)
+}
+
+export async function updateBacktestingTrade(id: string, payload: BacktestingTradePayload) {
+  return apiPatch<BacktestingTrade>(`/backtesting/trades/${encodeURIComponent(id)}`, payload)
+}
+
+export async function deleteBacktestingTrade(id: string) {
+  return apiDelete(`/backtesting/trades/${encodeURIComponent(id)}`)
+}
+
+export async function importBacktestingTrades(workspaceId: string, file: File) {
+  const formData = new FormData()
+  formData.append('file', file)
+  return apiPostMultipart<BacktestingImportResponse>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/trades/import`, formData)
+}
+
+export async function getBacktestingAnalytics(workspaceId: string) {
+  return apiGet<BacktestingAnalytics>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/analytics`)
+}
+
+export async function listBacktestingEdgeLenses(workspaceId: string) {
+  return apiGet<BacktestingEdgeLens[]>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/edge-lenses`)
+}
+
+export async function createBacktestingEdgeLens(workspaceId: string, payload: BacktestingEdgeLensPayload) {
+  return apiPost<BacktestingEdgeLens>(`/backtesting/workspaces/${encodeURIComponent(workspaceId)}/edge-lenses`, payload)
+}
+
+export async function updateBacktestingEdgeLens(id: string, payload: BacktestingEdgeLensPayload) {
+  return apiPatch<BacktestingEdgeLens>(`/backtesting/edge-lenses/${encodeURIComponent(id)}`, payload)
+}
+
+export async function recalculateBacktestingEdgeLens(id: string) {
+  return apiPost<BacktestingEdgeLens>(`/backtesting/edge-lenses/${encodeURIComponent(id)}/recalculate`, {})
+}
+
+export async function deleteBacktestingEdgeLens(id: string) {
+  return apiDelete(`/backtesting/edge-lenses/${encodeURIComponent(id)}`)
+}
+
 export async function uploadBacktestingScreenshots(workspaceId: string, files: File[]) {
   const formData = new FormData()
   files.forEach((file) => formData.append('files', file))
@@ -149,4 +302,8 @@ export async function updateBacktestingScreenshot(id: string, payload: Backtesti
 
 export async function deleteBacktestingScreenshot(id: string) {
   return apiDelete(`/backtesting/screenshots/${encodeURIComponent(id)}`)
+}
+
+export async function detachBacktestingScreenshotTrade(id: string) {
+  return apiPost<BacktestingScreenshot>(`/backtesting/screenshots/${encodeURIComponent(id)}/detach-trade`, {})
 }

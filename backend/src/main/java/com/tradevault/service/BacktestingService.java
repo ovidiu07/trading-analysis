@@ -4,7 +4,9 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.config.UploadProperties;
 import com.tradevault.domain.entity.Asset;
+import com.tradevault.domain.entity.BacktestingEdgeLens;
 import com.tradevault.domain.entity.BacktestingScreenshot;
+import com.tradevault.domain.entity.BacktestingTrade;
 import com.tradevault.domain.entity.BacktestingWorkspace;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
@@ -12,6 +14,7 @@ import com.tradevault.domain.enums.AssetScope;
 import com.tradevault.domain.enums.BacktestingWorkspaceStatus;
 import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.backtesting.BacktestingListResponse;
+import com.tradevault.dto.backtesting.BacktestingMetricResponse;
 import com.tradevault.dto.backtesting.BacktestingScreenshotRequest;
 import com.tradevault.dto.backtesting.BacktestingScreenshotResponse;
 import com.tradevault.dto.backtesting.BacktestingStrategySummaryResponse;
@@ -19,7 +22,9 @@ import com.tradevault.dto.backtesting.BacktestingSummaryResponse;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceRequest;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceResponse;
 import com.tradevault.repository.AssetRepository;
+import com.tradevault.repository.BacktestingEdgeLensRepository;
 import com.tradevault.repository.BacktestingScreenshotRepository;
+import com.tradevault.repository.BacktestingTradeRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.storage.ObjectStorageService;
@@ -55,6 +60,8 @@ public class BacktestingService {
 
     private final BacktestingWorkspaceRepository workspaceRepository;
     private final BacktestingScreenshotRepository screenshotRepository;
+    private final BacktestingTradeRepository tradeRepository;
+    private final BacktestingEdgeLensRepository edgeLensRepository;
     private final UserStrategyRepository userStrategyRepository;
     private final AssetRepository assetRepository;
     private final CurrentUserService currentUserService;
@@ -62,6 +69,7 @@ public class BacktestingService {
     private final AssetService assetService;
     private final ObjectMapper objectMapper;
     private final UploadProperties uploadProperties;
+    private final BacktestingResearchService researchService;
 
     @Transactional(readOnly = true)
     public BacktestingListResponse listActiveWorkspaces() {
@@ -69,8 +77,15 @@ public class BacktestingService {
         List<BacktestingWorkspace> workspaces = workspaceRepository
                 .findByUser_IdAndStatusOrderByUpdatedAtDesc(user.getId(), BacktestingWorkspaceStatus.ACTIVE);
         Map<UUID, Integer> screenshotCounts = screenshotCounts(workspaces);
+        Map<UUID, List<BacktestingTrade>> trades = tradesByWorkspace(workspaces);
+        Map<UUID, List<BacktestingEdgeLens>> lenses = lensesByWorkspace(workspaces);
         List<BacktestingWorkspaceResponse> responses = workspaces.stream()
-                .map(workspace -> toWorkspaceResponse(workspace, screenshotCounts.getOrDefault(workspace.getId(), 0), false))
+                .map(workspace -> toWorkspaceResponse(
+                        workspace,
+                        screenshotCounts.getOrDefault(workspace.getId(), 0),
+                        false,
+                        trades.getOrDefault(workspace.getId(), List.of()),
+                        lenses.getOrDefault(workspace.getId(), List.of())))
                 .toList();
         return BacktestingListResponse.builder()
                 .summary(buildSummary(responses))
@@ -82,7 +97,12 @@ public class BacktestingService {
     public BacktestingWorkspaceResponse getWorkspace(UUID id) {
         User user = currentUserService.getCurrentUser();
         BacktestingWorkspace workspace = requireOwnedWorkspace(id, user);
-        return toWorkspaceResponse(workspace, (int) screenshotRepository.countByWorkspace_Id(workspace.getId()), true);
+        return toWorkspaceResponse(
+                workspace,
+                (int) screenshotRepository.countByWorkspace_Id(workspace.getId()),
+                true,
+                tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspace.getId(), user.getId()),
+                edgeLensRepository.findByWorkspace_IdAndUser_IdOrderByUpdatedAtDesc(workspace.getId(), user.getId()));
     }
 
     @Transactional
@@ -113,7 +133,7 @@ public class BacktestingService {
                 .status(BacktestingWorkspaceStatus.ACTIVE)
                 .build();
         validateStats(workspace);
-        return toWorkspaceResponse(workspaceRepository.save(workspace), 0, true);
+        return toWorkspaceResponse(workspaceRepository.save(workspace), 0, true, List.of(), List.of());
     }
 
     @Transactional
@@ -142,7 +162,12 @@ public class BacktestingService {
         workspace.setAvoidConditions(normalizeOptionalText(request.getAvoidConditions()));
         validateStats(workspace);
         BacktestingWorkspace saved = workspaceRepository.save(workspace);
-        return toWorkspaceResponse(saved, (int) screenshotRepository.countByWorkspace_Id(saved.getId()), true);
+        return toWorkspaceResponse(
+                saved,
+                (int) screenshotRepository.countByWorkspace_Id(saved.getId()),
+                true,
+                tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(saved.getId(), user.getId()),
+                edgeLensRepository.findByWorkspace_IdAndUser_IdOrderByUpdatedAtDesc(saved.getId(), user.getId()));
     }
 
     @Transactional
@@ -197,6 +222,13 @@ public class BacktestingService {
         screenshot.setTimeframe(normalizeOptionalText(request.getTimeframe()));
         screenshot.setTagsJson(writeList(normalizeList(request.getTags())));
         screenshot.setSortOrder(request.getSortOrder());
+        if (request.getBacktestingTradeId() != null) {
+            BacktestingTrade trade = tradeRepository.findById(request.getBacktestingTradeId())
+                    .filter(item -> item.getUser().getId().equals(user.getId()))
+                    .filter(item -> item.getWorkspace().getId().equals(screenshot.getWorkspace().getId()))
+                    .orElseThrow(() -> new EntityNotFoundException("Backtesting trade not found"));
+            screenshot.setBacktestingTrade(trade);
+        }
         BacktestingScreenshot saved = screenshotRepository.save(screenshot);
         saved.getWorkspace().setUpdatedAt(OffsetDateTime.now());
         workspaceRepository.save(saved.getWorkspace());
@@ -212,6 +244,16 @@ public class BacktestingService {
         screenshot.getWorkspace().setUpdatedAt(OffsetDateTime.now());
         workspaceRepository.save(screenshot.getWorkspace());
         assetService.deleteAsset(assetId);
+    }
+
+    @Transactional
+    public BacktestingScreenshotResponse detachScreenshotTrade(UUID id) {
+        User user = currentUserService.getCurrentUser();
+        BacktestingScreenshot screenshot = screenshotRepository.findByIdAndUser_Id(id, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Screenshot not found"));
+        screenshot.setBacktestingTrade(null);
+        screenshot.getWorkspace().setUpdatedAt(OffsetDateTime.now());
+        return toScreenshotResponse(screenshotRepository.save(screenshot));
     }
 
     private BacktestingScreenshot uploadScreenshot(BacktestingWorkspace workspace, User user, MultipartFile file, int sortOrder) {
@@ -271,6 +313,20 @@ public class BacktestingService {
                 .collect(Collectors.groupingBy(row -> row.getWorkspace().getId(), LinkedHashMap::new, Collectors.summingInt(row -> 1)));
     }
 
+    private Map<UUID, List<BacktestingTrade>> tradesByWorkspace(List<BacktestingWorkspace> workspaces) {
+        List<UUID> ids = workspaces.stream().map(BacktestingWorkspace::getId).toList();
+        if (ids.isEmpty()) return Map.of();
+        return tradeRepository.findByWorkspace_IdIn(ids).stream()
+                .collect(Collectors.groupingBy(row -> row.getWorkspace().getId(), LinkedHashMap::new, Collectors.toList()));
+    }
+
+    private Map<UUID, List<BacktestingEdgeLens>> lensesByWorkspace(List<BacktestingWorkspace> workspaces) {
+        List<UUID> ids = workspaces.stream().map(BacktestingWorkspace::getId).toList();
+        if (ids.isEmpty()) return Map.of();
+        return edgeLensRepository.findByWorkspace_IdIn(ids).stream()
+                .collect(Collectors.groupingBy(row -> row.getWorkspace().getId(), LinkedHashMap::new, Collectors.toList()));
+    }
+
     private BacktestingSummaryResponse buildSummary(List<BacktestingWorkspaceResponse> workspaces) {
         int totalScreenshots = workspaces.stream().mapToInt(item -> item.getScreenshotCount() == null ? 0 : item.getScreenshotCount()).sum();
         int totalTrades = workspaces.stream().mapToInt(item -> item.getNumberOfTrades() == null ? 0 : item.getNumberOfTrades()).sum();
@@ -293,11 +349,17 @@ public class BacktestingService {
                 .build();
     }
 
-    private BacktestingWorkspaceResponse toWorkspaceResponse(BacktestingWorkspace item, int screenshotCount, boolean includeStrategy) {
-        int trades = safeInt(item.getNumberOfTrades());
-        int wins = safeInt(item.getWinningTrades());
-        int losses = safeInt(item.getLosingTrades());
-        int be = safeInt(item.getBreakevenTrades());
+    private BacktestingWorkspaceResponse toWorkspaceResponse(BacktestingWorkspace item,
+                                                             int screenshotCount,
+                                                             boolean includeStrategy,
+                                                             List<BacktestingTrade> structuredTrades,
+                                                             List<BacktestingEdgeLens> edgeLenses) {
+        boolean automatic = structuredTrades != null && !structuredTrades.isEmpty();
+        BacktestingMetricResponse metrics = automatic ? researchService.calculateMetrics(structuredTrades) : null;
+        int trades = automatic ? metrics.getTrades() : safeInt(item.getNumberOfTrades());
+        int wins = automatic ? metrics.getWins() : safeInt(item.getWinningTrades());
+        int losses = automatic ? metrics.getLosses() : safeInt(item.getLosingTrades());
+        int be = automatic ? metrics.getBreakevens() : safeInt(item.getBreakevenTrades());
         int categorized = wins + losses + be;
         String strategyName = item.getStrategy() != null ? item.getStrategy().getName() : item.getStrategyNameSnapshot();
         return BacktestingWorkspaceResponse.builder()
@@ -316,12 +378,23 @@ public class BacktestingService {
                 .winningTrades(wins)
                 .losingTrades(losses)
                 .breakevenTrades(be)
-                .averageR(item.getAverageR())
-                .winRate(rate(wins, trades))
-                .lossRate(rate(losses, trades))
-                .breakevenRate(rate(be, trades))
+                .averageR(automatic ? metrics.getAverageR() : item.getAverageR())
+                .totalR(automatic ? metrics.getTotalR() : legacyTotalR(item.getAverageR(), trades))
+                .expectancy(automatic ? metrics.getExpectancy() : item.getAverageR())
+                .profitFactor(automatic ? metrics.getProfitFactor() : null)
+                .averageWinR(automatic ? metrics.getAverageWinR() : null)
+                .averageLossR(automatic ? metrics.getAverageLossR() : null)
+                .largestWinR(automatic ? metrics.getLargestWinR() : null)
+                .largestLossR(automatic ? metrics.getLargestLossR() : null)
+                .winRate(automatic ? metrics.getWinRate() : rate(wins, trades))
+                .lossRate(automatic ? metrics.getLossRate() : rate(losses, trades))
+                .breakevenRate(automatic ? metrics.getBreakevenRate() : rate(be, trades))
                 .categorizedTrades(categorized)
                 .missingClassificationCount(Math.max(0, trades - categorized))
+                .structuredTradeCount(structuredTrades == null ? 0 : structuredTrades.size())
+                .statsSource(automatic ? "STRUCTURED" : "LEGACY_MANUAL")
+                .sampleQuality(automatic ? metrics.getSampleQuality() : researchService.sampleQuality(trades))
+                .bestEdgeLensName(edgeLenses == null || edgeLenses.isEmpty() ? null : edgeLenses.get(0).getName())
                 .screenshotCount(screenshotCount)
                 .notes(item.getNotes())
                 .whatWorked(item.getWhatWorked())
@@ -361,6 +434,7 @@ public class BacktestingService {
                 .viewUrl(asset.getViewUrl())
                 .downloadUrl(asset.getDownloadUrl())
                 .thumbnailUrl(asset.getThumbnailUrl())
+                .backtestingTradeId(screenshot.getBacktestingTrade() == null ? null : screenshot.getBacktestingTrade().getId())
                 .caption(screenshot.getCaption())
                 .tradeResult(screenshot.getTradeResult())
                 .session(screenshot.getSession())
@@ -443,6 +517,11 @@ public class BacktestingService {
     private BigDecimal rate(int part, int total) {
         if (total <= 0) return BigDecimal.ZERO;
         return BigDecimal.valueOf(part).multiply(BigDecimal.valueOf(100)).divide(BigDecimal.valueOf(total), 1, RoundingMode.HALF_UP);
+    }
+
+    private BigDecimal legacyTotalR(BigDecimal averageR, int trades) {
+        if (averageR == null) return null;
+        return averageR.multiply(BigDecimal.valueOf(trades)).setScale(2, RoundingMode.HALF_UP);
     }
 
     private int safeInt(Integer value) {

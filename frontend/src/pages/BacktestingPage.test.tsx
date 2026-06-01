@@ -12,10 +12,21 @@ const backtestingApiMock = vi.hoisted(() => ({
   getBacktestingWorkspace: vi.fn(),
   updateBacktestingWorkspace: vi.fn(),
   archiveBacktestingWorkspace: vi.fn(),
+  listBacktestingTrades: vi.fn(),
+  createBacktestingTrade: vi.fn(),
+  updateBacktestingTrade: vi.fn(),
+  deleteBacktestingTrade: vi.fn(),
+  importBacktestingTrades: vi.fn(),
+  listBacktestingEdgeLenses: vi.fn(),
+  createBacktestingEdgeLens: vi.fn(),
+  updateBacktestingEdgeLens: vi.fn(),
+  deleteBacktestingEdgeLens: vi.fn(),
+  recalculateBacktestingEdgeLens: vi.fn(),
   listBacktestingScreenshots: vi.fn(),
   uploadBacktestingScreenshots: vi.fn(),
   updateBacktestingScreenshot: vi.fn(),
-  deleteBacktestingScreenshot: vi.fn()
+  deleteBacktestingScreenshot: vi.fn(),
+  detachBacktestingScreenshotTrade: vi.fn()
 }))
 
 const strategiesApiMock = vi.hoisted(() => ({
@@ -120,6 +131,33 @@ const screenshots = [
   }
 ]
 
+const structuredTrades = Array.from({ length: 20 }, (_, index) => ({
+  id: `trade-${index + 1}`,
+  workspaceId: 'workspace-1',
+  date: `2026-04-${String((index % 20) + 1).padStart(2, '0')}`,
+  weekday: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'][index % 5],
+  entryTime: `${String(9 + (index % 4)).padStart(2, '0')}:30:00`,
+  instrument: 'NQ',
+  direction: index % 2 === 0 ? 'LONG' as const : 'SHORT' as const,
+  session: index % 2 === 0 ? 'NY AM' : 'London',
+  setupName: 'Sweep + FVG',
+  strategyId: 'strategy-1',
+  riskPercent: 1,
+  plannedRR: 2,
+  result: index < 12 ? 'WIN' as const : index < 18 ? 'LOSS' as const : 'BREAKEVEN' as const,
+  pnlR: index < 12 ? 1 : index < 18 ? -1 : 0,
+  contextTimeframe: '15m',
+  executionTimeframe: '5m',
+  entryTimeframe: '1m',
+  tags: ['clean sweep'],
+  notes: index < 12 ? 'Clean winner' : 'Late entry',
+  source: 'MANUAL' as const,
+  tradeScope: 'BACKTEST' as const,
+  screenshotCount: index < 2 ? 1 : 0,
+  createdAt: '2026-04-26T10:00:00Z',
+  updatedAt: '2026-04-26T10:00:00Z'
+}))
+
 const renderBacktestingPage = () => {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -151,8 +189,11 @@ describe('BacktestingPage', () => {
       workspaces: [workspace]
     })
     backtestingApiMock.getBacktestingWorkspace.mockResolvedValue(workspace)
+    backtestingApiMock.listBacktestingTrades.mockResolvedValue(structuredTrades)
+    backtestingApiMock.listBacktestingEdgeLenses.mockResolvedValue([])
     backtestingApiMock.listBacktestingScreenshots.mockResolvedValue(screenshots)
     backtestingApiMock.updateBacktestingWorkspace.mockResolvedValue(workspace)
+    backtestingApiMock.createBacktestingTrade.mockResolvedValue(structuredTrades[0])
     backtestingApiMock.deleteBacktestingScreenshot.mockResolvedValue(undefined)
     strategiesApiMock.listStrategies.mockResolvedValue({
       myStrategies: [
@@ -173,32 +214,29 @@ describe('BacktestingPage', () => {
     })
   })
 
-  it('renders workspace stats, screenshot gallery, and carousel review', async () => {
+  it('renders structured workspace stats, evidence, and carousel review', async () => {
     renderBacktestingPage()
 
     expect((await screen.findAllByText(/NQ · Liquidity Sweep \+ FVG Mitigation/i)).length).toBeGreaterThan(0)
-    expect(screen.getByText('60% WR')).toBeInTheDocument()
+    expect(screen.getAllByText('60%').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Early signal').length).toBeGreaterThan(0)
 
     await userEvent.click(await screen.findByAltText('Clean winner'))
     expect(await screen.findByText('1 / 2')).toBeInTheDocument()
+    await userEvent.click(screen.getByLabelText('Close carousel'))
   })
 
-  it('blocks invalid stat combinations before saving', async () => {
+  it('shows trade validation warnings in Quick Add', async () => {
     renderBacktestingPage()
 
-    await screen.findByText('Manual performance stats')
-    const trades = screen.getByLabelText('Trades')
-    await userEvent.clear(trades)
-    await userEvent.type(trades, '10')
-    const wins = screen.getByLabelText('Wins')
-    await userEvent.clear(wins)
-    await userEvent.type(wins, '9')
-    const losses = screen.getByLabelText('Losses')
-    await userEvent.clear(losses)
-    await userEvent.type(losses, '9')
+    await screen.findByText('Latest evidence')
+    await userEvent.click(screen.getByRole('button', { name: /Quick add trade/i }))
+    expect(await screen.findByText('Quick Add Trade')).toBeInTheDocument()
+    const pnl = await screen.findByRole('spinbutton', { name: /P&L/i })
+    await userEvent.clear(pnl)
+    await userEvent.type(pnl, '-1')
 
-    expect(await screen.findByText('Wins, losses, and breakeven trades cannot exceed total trades.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: /Save stats/i })).toBeDisabled()
-    expect(backtestingApiMock.updateBacktestingWorkspace).not.toHaveBeenCalled()
+    expect(await screen.findByText('Result is WIN but P&L(R) is negative. You can save it, but check the row.')).toBeInTheDocument()
+    expect(backtestingApiMock.createBacktestingTrade).not.toHaveBeenCalled()
   })
 })

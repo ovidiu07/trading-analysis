@@ -4,6 +4,7 @@ import com.tradevault.domain.enums.BacktestingScreenshotResult;
 import lombok.Data;
 
 import java.util.List;
+import java.util.UUID;
 
 @Data
 public class BacktestingScreenshotRequest {
@@ -13,4 +14,5 @@ public class BacktestingScreenshotRequest {
     private String timeframe;
     private List<String> tags;
     private Integer sortOrder;
+    private UUID backtestingTradeId;
 }
