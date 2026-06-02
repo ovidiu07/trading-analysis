@@ -136,7 +136,7 @@ async function apiRequest<T>(path: string, options: RequestInit = {}): Promise<T
       message = fallback
     }
 
-    if (res.status === 401 || res.status === 403) {
+    if (res.status === 401) {
       const shouldAttemptRefresh = (
         !isAuthPath(path)
         && requestHeaders[SKIP_AUTH_REFRESH_HEADER] !== '1'

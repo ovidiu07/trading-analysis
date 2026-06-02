@@ -23,6 +23,7 @@ import {
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import { useAuth } from '../auth/AuthContext'
+import { isAdminUser } from '../auth/roles'
 import { fetchUserSettings } from '../api/settings'
 import { changePassword } from '../api/auth'
 import { ApiError } from '../api/client'
@@ -98,7 +99,7 @@ export default function SettingsPage() {
   const [chartSettingsMessage, setChartSettingsMessage] = useState('')
   const [chartSettingsError, setChartSettingsError] = useState('')
 
-  const isAdmin = user?.role === 'ADMIN'
+  const isAdmin = isAdminUser(user)
 
   useEffect(() => {
     setForm({

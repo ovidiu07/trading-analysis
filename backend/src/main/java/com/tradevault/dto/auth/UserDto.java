@@ -5,6 +5,7 @@ import com.tradevault.domain.enums.Role;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 
+import java.util.List;
 import java.util.UUID;
 
 @Data
@@ -16,6 +17,7 @@ public class UserDto {
     private String timezone;
     private String baseCurrency;
     private String themePreference;
+    private List<Role> roles;
 
     public static UserDto from(User user) {
         return new UserDto(
@@ -24,7 +26,15 @@ public class UserDto {
                 user.getRole(),
                 user.getTimezone(),
                 user.getBaseCurrency(),
-                user.getThemePreference()
+                user.getThemePreference(),
+                rolesFor(user.getRole())
         );
+    }
+
+    private static List<Role> rolesFor(Role role) {
+        if (role == Role.SUPER_ADMIN) {
+            return List.of(Role.ADMIN, Role.SUPER_ADMIN);
+        }
+        return List.of(role);
     }
 }

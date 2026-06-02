@@ -31,6 +31,7 @@ import { buildDashboardSearchParams, DashboardQueryState, readDashboardQueryStat
 import { resolveRouteMeta } from '../config/routeMeta'
 import DemoDataBanner from '../components/demo/DemoDataBanner'
 import { ThemePreference, toBackendThemePreference, useThemeMode } from '../themeMode'
+import { isAdminUser } from '../auth/roles'
 
 const SIDEBAR_WIDTH = 286
 const SIDEBAR_COLLAPSED_WIDTH = 96
@@ -87,7 +88,7 @@ export default function AppShell() {
       { label: t('nav.settings'), path: '/settings', icon: <SettingsRoundedIcon fontSize="small" /> }
     ]
 
-    if (user?.role === 'ADMIN') {
+    if (isAdminUser(user)) {
       systemItems.push({ label: t('nav.admin'), path: '/admin/content', icon: <AdminPanelSettingsRoundedIcon fontSize="small" /> })
     }
 
@@ -96,7 +97,7 @@ export default function AppShell() {
       { key: 'journal', label: t('navGroups.journal'), items: journalItems },
       { key: 'system', label: t('navGroups.system'), items: systemItems }
     ]
-  }, [t, user?.role])
+  }, [t, user])
 
   const allNavItems = useMemo(() => navSections.flatMap((section) => section.items), [navSections])
 

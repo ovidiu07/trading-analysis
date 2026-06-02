@@ -213,6 +213,25 @@
       "archived": "Conținut arhivat",
       "published": "Conținut publicat"
     },
+    "maintenance": {
+      "confirmation": "Fraza de confirmare",
+      "confirmationHint": "Tastează exact {{phrase}}.",
+      "confirmReset": "Resetează datele bazei",
+      "dialogBody": "Această acțiune șterge datele resetabile de trading, notebook, planuri, conținut, sesiuni, backtest, analytics și demo. Identitatea utilizatorilor și conturile rămân păstrate.",
+      "dialogTitle": "Confirmă resetarea bazei",
+      "lastResult": "Ultimul rezultat",
+      "messages": {
+        "failed": "Resetarea bazei a eșuat.",
+        "success": "Resetarea datelor bazei a fost finalizată."
+      },
+      "noRowsDeleted": "Nu au fost șterse rânduri resetabile.",
+      "openDialog": "Verifică resetarea",
+      "password": "Parola curentă",
+      "preserved": "Păstrate: utilizatori, conturi, tokenuri auth, acceptări legale, preferințe notificări, credentiale provider, setări grafic și profile grafic.",
+      "subtitle": "Șterge datele aplicației/test/demo, păstrând utilizatorii și conturile.",
+      "title": "Mentenanță bază de date",
+      "warning": "Acțiune internă periculoasă. Endpoint-ul trebuie activat din configurația backend înainte de rulare."
+    },
     "searchPlaceholder": "Titlu, rezumat sau conținut",
     "statuses": {
       "all": "Toate stările",

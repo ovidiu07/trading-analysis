@@ -213,6 +213,25 @@
       "archived": "Content archived",
       "published": "Content published"
     },
+    "maintenance": {
+      "confirmation": "Confirmation phrase",
+      "confirmationHint": "Type {{phrase}} exactly.",
+      "confirmReset": "Reset database data",
+      "dialogBody": "This will delete resettable trading, notebook, plan, content, session, backtest, analytics, and demo data. User identity and account records are preserved.",
+      "dialogTitle": "Confirm database reset",
+      "lastResult": "Last reset result",
+      "messages": {
+        "failed": "Database reset failed.",
+        "success": "Database data reset completed."
+      },
+      "noRowsDeleted": "No resettable rows were deleted.",
+      "openDialog": "Review reset",
+      "password": "Current password",
+      "preserved": "Preserved: users, accounts, auth tokens, legal acceptance, notification preferences, provider credentials, chart settings, and chart profiles.",
+      "subtitle": "Clear application/test/demo data while preserving users and account records.",
+      "title": "Database maintenance",
+      "warning": "Dangerous internal action. The endpoint must be enabled by backend configuration before this can run."
+    },
     "searchPlaceholder": "Title, summary, or body",
     "statuses": {
       "all": "All statuses",

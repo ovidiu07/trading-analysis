@@ -4,6 +4,7 @@ export type AuthUser = {
   id: string
   email: string
   role?: string
+  roles?: string[]
   baseCurrency?: string
   timezone?: string
   themePreference?: 'LIGHT' | 'DARK' | 'BLACK_SHINY' | 'SYSTEM'

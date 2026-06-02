@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   Alert,
+  Box,
   Button,
   Card,
   CardContent,
@@ -30,6 +31,9 @@ import {
   listAdminContentTypes,
   publishContent
 } from '../../api/content'
+import { DATABASE_RESET_CONFIRMATION, DatabaseResetResponse, resetDatabaseData } from '../../api/maintenance'
+import { useAuth } from '../../auth/AuthContext'
+import { isSuperAdminUser } from '../../auth/roles'
 import { formatDate, formatDateTime } from '../../utils/format'
 import { useNavigate } from 'react-router-dom'
 import { useI18n } from '../../i18n'
@@ -49,8 +53,10 @@ type ActionState = {
 
 export default function AdminContentPage() {
   const { t, language } = useI18n()
+  const { user } = useAuth()
   const navigate = useNavigate()
   const isCompact = useMediaQuery('(max-width:560px)')
+  const isSuperAdmin = isSuperAdminUser(user)
   const [items, setItems] = useState<ContentPost[]>([])
   const [contentTypes, setContentTypes] = useState<ContentType[]>([])
   const [totalRows, setTotalRows] = useState(0)
@@ -61,6 +67,11 @@ export default function AdminContentPage() {
   const [paginationModel, setPaginationModel] = useState<GridPaginationModel>({ page: 0, pageSize: 10 })
   const [confirmAction, setConfirmAction] = useState<ActionState | null>(null)
   const [actionLoading, setActionLoading] = useState(false)
+  const [resetConfirmation, setResetConfirmation] = useState('')
+  const [resetPassword, setResetPassword] = useState('')
+  const [resetDialogOpen, setResetDialogOpen] = useState(false)
+  const [resetLoading, setResetLoading] = useState(false)
+  const [resetResult, setResetResult] = useState<DatabaseResetResponse | null>(null)
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'error' }>({
     open: false,
     message: '',
@@ -71,6 +82,13 @@ export default function AdminContentPage() {
     updatedAt: !isCompact,
     visibleRange: !isCompact
   }), [isCompact])
+  const resetReady = resetConfirmation === DATABASE_RESET_CONFIRMATION && resetPassword.trim().length > 0 && !resetLoading
+  const deletedRows = useMemo(() => {
+    if (!resetResult) return []
+    return Object.entries(resetResult.deletedRows)
+      .filter(([, count]) => count > 0)
+      .sort(([, left], [, right]) => right - left)
+  }, [resetResult])
 
   const loadTypes = async () => {
     setTypesLoading(true)
@@ -137,6 +155,28 @@ export default function AdminContentPage() {
       setSnackbar({ open: true, message: translateApiError(apiErr, t, 'adminContent.messages.actionFailed'), severity: 'error' })
     } finally {
       setActionLoading(false)
+    }
+  }
+
+  const handleDatabaseReset = async () => {
+    setResetLoading(true)
+    try {
+      const response = await resetDatabaseData({
+        confirmation: resetConfirmation,
+        preserveUsers: true,
+        password: resetPassword
+      })
+      setResetResult(response)
+      setResetDialogOpen(false)
+      setResetConfirmation('')
+      setResetPassword('')
+      setSnackbar({ open: true, message: t('adminContent.maintenance.messages.success'), severity: 'success' })
+      loadContent()
+    } catch (err) {
+      const apiErr = err as ApiError
+      setSnackbar({ open: true, message: translateApiError(apiErr, t, 'adminContent.maintenance.messages.failed'), severity: 'error' })
+    } finally {
+      setResetLoading(false)
     }
   }
 
@@ -268,6 +308,72 @@ export default function AdminContentPage() {
         </Button>
       </Stack>
 
+      {isSuperAdmin && (
+        <Card>
+          <CardContent>
+            <Stack spacing={2.5}>
+              <Stack spacing={0.75}>
+                <Typography variant="h6" sx={{ fontWeight: 800 }}>
+                  {t('adminContent.maintenance.title')}
+                </Typography>
+                <Typography variant="body2" color="text.secondary">
+                  {t('adminContent.maintenance.subtitle')}
+                </Typography>
+              </Stack>
+              <Alert severity="warning">
+                {t('adminContent.maintenance.warning')}
+              </Alert>
+              <Stack direction={{ xs: 'column', md: 'row' }} spacing={2}>
+                <TextField
+                  fullWidth
+                  label={t('adminContent.maintenance.confirmation')}
+                  value={resetConfirmation}
+                  onChange={(event) => setResetConfirmation(event.target.value)}
+                  helperText={t('adminContent.maintenance.confirmationHint', { phrase: DATABASE_RESET_CONFIRMATION })}
+                />
+                <TextField
+                  fullWidth
+                  type="password"
+                  label={t('adminContent.maintenance.password')}
+                  value={resetPassword}
+                  onChange={(event) => setResetPassword(event.target.value)}
+                  autoComplete="current-password"
+                />
+                <Button
+                  color="error"
+                  variant="contained"
+                  disabled={!resetReady}
+                  onClick={() => setResetDialogOpen(true)}
+                  sx={{ minWidth: { md: 220 } }}
+                >
+                  {resetLoading ? t('adminContent.actions.working') : t('adminContent.maintenance.openDialog')}
+                </Button>
+              </Stack>
+              {resetResult && (
+                <Box>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 800, mb: 1 }}>
+                    {t('adminContent.maintenance.lastResult')}
+                  </Typography>
+                  {deletedRows.length > 0 ? (
+                    <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+                      {deletedRows.slice(0, 12).map(([table, count]) => (
+                        <Alert key={table} severity="info" sx={{ py: 0 }}>
+                          {table}: {count}
+                        </Alert>
+                      ))}
+                    </Stack>
+                  ) : (
+                    <Typography variant="body2" color="text.secondary">
+                      {t('adminContent.maintenance.noRowsDeleted')}
+                    </Typography>
+                  )}
+                </Box>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
@@ -361,6 +467,26 @@ export default function AdminContentPage() {
           <Button variant="text" onClick={() => setConfirmAction(null)} disabled={actionLoading}>{t('common.cancel')}</Button>
           <Button variant="contained" onClick={handleConfirm} disabled={actionLoading}>
             {actionLoading ? t('adminContent.actions.working') : t('common.confirm')}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={resetDialogOpen} onClose={() => !resetLoading && setResetDialogOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle>{t('adminContent.maintenance.dialogTitle')}</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2}>
+            <Alert severity="error">
+              {t('adminContent.maintenance.dialogBody')}
+            </Alert>
+            <Typography variant="body2" color="text.secondary">
+              {t('adminContent.maintenance.preserved')}
+            </Typography>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button variant="text" onClick={() => setResetDialogOpen(false)} disabled={resetLoading}>{t('common.cancel')}</Button>
+          <Button color="error" variant="contained" onClick={handleDatabaseReset} disabled={!resetReady}>
+            {resetLoading ? t('adminContent.actions.working') : t('adminContent.maintenance.confirmReset')}
           </Button>
         </DialogActions>
       </Dialog>

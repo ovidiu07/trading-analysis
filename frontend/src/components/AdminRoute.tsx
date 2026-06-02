@@ -2,6 +2,7 @@ import { Box, Button, Stack, Typography } from '@mui/material'
 import { Link, Navigate, useLocation } from 'react-router-dom'
 import { ReactNode } from 'react'
 import { useAuth } from '../auth/AuthContext'
+import { isAdminUser } from '../auth/roles'
 import LoadingState from './ui/LoadingState'
 import { useI18n } from '../i18n'
 
@@ -26,7 +27,7 @@ export default function AdminRoute({ children }: AdminRouteProps) {
     return <Navigate to="/login" replace state={{ from: location.pathname }} />
   }
 
-  if (user?.role !== 'ADMIN') {
+  if (!isAdminUser(user)) {
     return (
       <Box sx={{ py: 6 }}>
         <Stack spacing={2} alignItems="center" textAlign="center">

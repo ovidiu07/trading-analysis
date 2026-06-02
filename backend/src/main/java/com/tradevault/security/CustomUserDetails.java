@@ -21,6 +21,12 @@ public class CustomUserDetails implements UserDetails {
 
     @Override
     public Collection<? extends GrantedAuthority> getAuthorities() {
+        if (user.getRole() == com.tradevault.domain.enums.Role.SUPER_ADMIN) {
+            return List.of(
+                    new SimpleGrantedAuthority("ROLE_ADMIN"),
+                    new SimpleGrantedAuthority("ROLE_SUPER_ADMIN")
+            );
+        }
         return List.of(new SimpleGrantedAuthority("ROLE_" + user.getRole().name()));
     }
 
