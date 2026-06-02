@@ -58,6 +58,10 @@ jwt:
 
 app:
   frontend-url: ${FRONTEND_URL:http://localhost:5173}
+  maintenance:
+    database-reset-enabled: ${DATABASE_RESET_ENABLED:false}
+    database-reset-confirmation: ${DATABASE_RESET_CONFIRMATION:RESET_TRADEJAUDIT_DATABASE_DATA}
+    database-reset-allowed-in-production: ${DATABASE_RESET_ALLOWED:false}
   legal:
     terms-version: ${TERMS_VERSION:2024-09-01}
     privacy-version: ${PRIVACY_VERSION:2024-09-01}
