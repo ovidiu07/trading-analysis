@@ -2953,5 +2953,32 @@
       "noFailureModes": "No clustered failure modes for current filters.",
       "noBacktestRuns": "No backtest runs linked to this strategy in the selected range."
     }
+  },
+  "backtesting": {
+    "strategy": "Strategy",
+    "linkedStrategy": "Linked Strategy",
+    "mentorStrategy": "Mentor strategy",
+    "personalStrategy": "Personal strategy",
+    "noLinkedStrategy": "No linked strategy",
+    "strategyArchived": "Strategy archived",
+    "strategyUnavailable": "Strategy unavailable",
+    "gap": "Gap / Fair Value Gap",
+    "gapUsed": "Gap/FVG used?",
+    "gapType": "Gap type",
+    "bullishGap": "Bullish gap",
+    "bearishGap": "Bearish gap",
+    "gapTimeframe": "Gap timeframe",
+    "gapCreatedTime": "Gap created time",
+    "gapMitigatedTime": "Gap mitigated time",
+    "gapHigh": "Gap high",
+    "gapLow": "Gap low",
+    "gapMidpoint": "Gap midpoint / CE",
+    "gapSizePoints": "Gap size points/pips",
+    "gapSizePercent": "Gap size %",
+    "gapEntryPosition": "Entry position inside gap %",
+    "gapFillStatus": "Gap fill status",
+    "gapLiquidityRelation": "Relation to liquidity",
+    "gapConfluenceNotes": "Gap confluence notes",
+    "noGapData": "No gap data logged"
   }
 }

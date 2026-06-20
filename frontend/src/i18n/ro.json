@@ -2953,5 +2953,32 @@
       "noFailureModes": "Nu există clustere de eșec pentru filtrele curente.",
       "noBacktestRuns": "Nu există runde de backtest asociate acestei strategii în intervalul selectat."
     }
+  },
+  "backtesting": {
+    "strategy": "Strategie",
+    "linkedStrategy": "Strategie asociată",
+    "mentorStrategy": "Strategie Mentor",
+    "personalStrategy": "Strategie Personală",
+    "noLinkedStrategy": "Fără strategie asociată",
+    "strategyArchived": "Strategie arhivată",
+    "strategyUnavailable": "Strategie indisponibilă",
+    "gap": "Gap / Fair Value Gap",
+    "gapUsed": "Gap/FVG utilizat?",
+    "gapType": "Tip gap",
+    "bullishGap": "Gap bullish",
+    "bearishGap": "Gap bearish",
+    "gapTimeframe": "Timeframe gap",
+    "gapCreatedTime": "Ora creării gapului",
+    "gapMitigatedTime": "Ora mitigării gapului",
+    "gapHigh": "Preț maxim gap",
+    "gapLow": "Preț minim gap",
+    "gapMidpoint": "Mijloc gap / CE",
+    "gapSizePoints": "Mărime gap puncte/pips",
+    "gapSizePercent": "Mărime gap %",
+    "gapEntryPosition": "Intrare în gap %",
+    "gapFillStatus": "Status umplere gap",
+    "gapLiquidityRelation": "Relație cu lichiditatea",
+    "gapConfluenceNotes": "Note confluente gap",
+    "noGapData": "Nu există date despre gap"
   }
 }

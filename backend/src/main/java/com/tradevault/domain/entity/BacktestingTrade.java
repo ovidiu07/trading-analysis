@@ -4,6 +4,9 @@ import com.tradevault.domain.enums.BacktestingTradeDirection;
 import com.tradevault.domain.enums.BacktestingTradeResult;
 import com.tradevault.domain.enums.BacktestingTradeScope;
 import com.tradevault.domain.enums.BacktestingTradeSource;
+import com.tradevault.domain.enums.BacktestingGapFillStatus;
+import com.tradevault.domain.enums.BacktestingGapLiquidityRelation;
+import com.tradevault.domain.enums.BacktestingGapType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -78,6 +81,57 @@ public class BacktestingTrade {
 
     @Column(name = "strategy_id")
     private UUID strategyId;
+
+    @Column(name = "strategy_source", length = 16)
+    private String strategySource;
+
+    @Column(name = "strategy_name_snapshot", length = 255)
+    private String strategyNameSnapshot;
+
+    @Column(name = "gap_present", nullable = false)
+    private boolean gapPresent;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gap_type", length = 16)
+    private BacktestingGapType gapType;
+
+    @Column(name = "gap_timeframe", length = 40)
+    private String gapTimeframe;
+
+    @Column(name = "gap_created_at")
+    private LocalTime gapCreatedAt;
+
+    @Column(name = "gap_mitigated_at")
+    private LocalTime gapMitigatedAt;
+
+    @Column(name = "gap_high", precision = 20, scale = 8)
+    private BigDecimal gapHigh;
+
+    @Column(name = "gap_low", precision = 20, scale = 8)
+    private BigDecimal gapLow;
+
+    @Column(name = "gap_midpoint", precision = 20, scale = 8)
+    private BigDecimal gapMidpoint;
+
+    @Column(name = "gap_size_points", precision = 20, scale = 8)
+    private BigDecimal gapSizePoints;
+
+    @Column(name = "gap_size_percent", precision = 12, scale = 6)
+    private BigDecimal gapSizePercent;
+
+    @Column(name = "gap_entry_position_percent", precision = 12, scale = 6)
+    private BigDecimal gapEntryPositionPercent;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gap_fill_status", length = 32)
+    private BacktestingGapFillStatus gapFillStatus;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "gap_relation_to_liquidity", length = 48)
+    private BacktestingGapLiquidityRelation gapRelationToLiquidity;
+
+    @Column(name = "gap_confluence_notes", columnDefinition = "TEXT")
+    private String gapConfluenceNotes;
 
     @Column(name = "risk_percent", precision = 10, scale = 4)
     private BigDecimal riskPercent;

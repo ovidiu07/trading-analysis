@@ -11,6 +11,9 @@ import com.tradevault.domain.enums.BacktestingTradeDirection;
 import com.tradevault.domain.enums.BacktestingTradeResult;
 import com.tradevault.domain.enums.BacktestingTradeScope;
 import com.tradevault.domain.enums.BacktestingTradeSource;
+import com.tradevault.domain.enums.BacktestingGapFillStatus;
+import com.tradevault.domain.enums.BacktestingGapLiquidityRelation;
+import com.tradevault.domain.enums.BacktestingGapType;
 import com.tradevault.dto.backtesting.BacktestingAnalyticsResponse;
 import com.tradevault.dto.backtesting.BacktestingBreakdownRowResponse;
 import com.tradevault.dto.backtesting.BacktestingEdgeLensRequest;
@@ -173,6 +176,12 @@ public class BacktestingResearchService {
         breakdowns.put("setup", breakdown("setup", trades, baseline, trade -> fallback(trade.getSetupName(), "Unspecified"), label -> Map.of("setup", label)));
         breakdowns.put("direction", breakdown("direction", trades, baseline, trade -> trade.getDirection().name(), label -> Map.of("direction", label)));
         breakdowns.put("timeframe", breakdown("timeframe", trades, baseline, this::timeframeSet, label -> Map.of("timeframeSet", label)));
+        breakdowns.put("strategy", breakdown("strategy", trades, baseline, trade -> fallback(trade.getStrategyNameSnapshot(), "Unlinked"), label -> Map.of("strategyName", label)));
+        breakdowns.put("strategySource", breakdown("strategySource", trades, baseline, trade -> fallback(trade.getStrategySource(), "Unlinked"), label -> Map.of("strategySource", label)));
+        breakdowns.put("gapPresent", breakdown("gapPresent", trades, baseline, trade -> trade.isGapPresent() ? "Gap/FVG" : "No gap", label -> Map.of("gapPresent", "Gap/FVG".equals(label))));
+        breakdowns.put("gapType", breakdown("gapType", trades, baseline, trade -> trade.isGapPresent() && trade.getGapType() != null ? trade.getGapType().name() : "Unspecified", label -> Map.of("gapType", label)));
+        breakdowns.put("gapTimeframe", breakdown("gapTimeframe", trades, baseline, trade -> trade.isGapPresent() ? fallback(trade.getGapTimeframe(), "Unspecified") : "No gap", label -> Map.of("gapTimeframe", label)));
+        breakdowns.put("gapFillStatus", breakdown("gapFillStatus", trades, baseline, trade -> trade.isGapPresent() && trade.getGapFillStatus() != null ? trade.getGapFillStatus().name() : "Unspecified", label -> Map.of("gapFillStatus", label)));
         List<BacktestingBreakdownRowResponse> impacts = breakdowns.values().stream()
                 .flatMap(List::stream)
                 .sorted(Comparator.comparing((BacktestingBreakdownRowResponse row) -> row.getExpectancyDelta() == null ? BigDecimal.ZERO : row.getExpectancyDelta()).reversed())
@@ -311,6 +320,15 @@ public class BacktestingResearchService {
     }
 
     private void applyTradeRequest(BacktestingTrade trade, BacktestingTradeRequest request, BacktestingTradeSource fallbackSource) {
+        if (request.getGapEntryPositionPercent() != null && (request.getGapEntryPositionPercent().compareTo(BigDecimal.ZERO) < 0 || request.getGapEntryPositionPercent().compareTo(BigDecimal.valueOf(100)) > 0)) {
+            throw new IllegalArgumentException("gapEntryPositionPercent must be between 0 and 100");
+        }
+        if (request.getGapSizePercent() != null && request.getGapSizePercent().compareTo(BigDecimal.ZERO) < 0) {
+            throw new IllegalArgumentException("gapSizePercent must be positive");
+        }
+        if (request.getGapHigh() != null && request.getGapLow() != null && request.getGapHigh().compareTo(request.getGapLow()) < 0) {
+            throw new IllegalArgumentException("gapHigh must be greater than or equal to gapLow");
+        }
         trade.setDate(Objects.requireNonNull(request.getDate(), "date is required"));
         trade.setEntryTime(Objects.requireNonNull(request.getEntryTime(), "entryTime is required"));
         trade.setInstrument(requireText(request.getInstrument(), "instrument").toUpperCase(Locale.ROOT));
@@ -318,6 +336,22 @@ public class BacktestingResearchService {
         trade.setSession(normalizeText(request.getSession()));
         trade.setSetupName(normalizeText(request.getSetupName()));
         trade.setStrategyId(request.getStrategyId());
+        trade.setStrategySource(normalizeStrategySource(request.getStrategySource()));
+        trade.setStrategyNameSnapshot(normalizeText(request.getStrategyNameSnapshot()));
+        trade.setGapPresent(request.isGapPresent());
+        trade.setGapType(request.isGapPresent() ? request.getGapType() : null);
+        trade.setGapTimeframe(request.isGapPresent() ? normalizeText(request.getGapTimeframe()) : null);
+        trade.setGapCreatedAt(request.isGapPresent() ? request.getGapCreatedAt() : null);
+        trade.setGapMitigatedAt(request.isGapPresent() ? request.getGapMitigatedAt() : null);
+        trade.setGapHigh(request.isGapPresent() ? request.getGapHigh() : null);
+        trade.setGapLow(request.isGapPresent() ? request.getGapLow() : null);
+        trade.setGapMidpoint(request.isGapPresent() ? request.getGapMidpoint() : null);
+        trade.setGapSizePoints(request.isGapPresent() ? request.getGapSizePoints() : null);
+        trade.setGapSizePercent(request.isGapPresent() ? request.getGapSizePercent() : null);
+        trade.setGapEntryPositionPercent(request.isGapPresent() ? request.getGapEntryPositionPercent() : null);
+        trade.setGapFillStatus(request.isGapPresent() ? request.getGapFillStatus() : null);
+        trade.setGapRelationToLiquidity(request.isGapPresent() ? request.getGapRelationToLiquidity() : null);
+        trade.setGapConfluenceNotes(request.isGapPresent() ? normalizeText(request.getGapConfluenceNotes()) : null);
         trade.setRiskPercent(request.getRiskPercent());
         trade.setPlannedRR(request.getPlannedRR());
         trade.setResult(Objects.requireNonNull(request.getResult(), "result is required"));
@@ -339,6 +373,23 @@ public class BacktestingResearchService {
         request.setDirection(parseDirection(value(values, "direction", "side")));
         request.setSession(value(values, "session"));
         request.setSetupName(value(values, "setup", "setup name", "setup code"));
+        request.setStrategyId(parseUuid(value(values, "strategy id", "strategyid")));
+        request.setStrategySource(value(values, "strategy source", "strategysource"));
+        request.setStrategyNameSnapshot(value(values, "strategy", "strategy name", "strategynamesnapshot"));
+        request.setGapPresent(parseBoolean(value(values, "gap present", "gappresent", "fvg present", "fvg used")));
+        request.setGapType(parseEnum(value(values, "gap type", "gaptype", "fvg type"), BacktestingGapType.class));
+        request.setGapTimeframe(value(values, "gap timeframe", "gaptimeframe", "fvg timeframe"));
+        request.setGapCreatedAt(parseOptionalTime(value(values, "gap created at", "gapcreatedat", "gap created time")));
+        request.setGapMitigatedAt(parseOptionalTime(value(values, "gap mitigated at", "gapmitigatedat", "gap mitigated time")));
+        request.setGapHigh(parseDecimal(value(values, "gap high", "gaphigh")));
+        request.setGapLow(parseDecimal(value(values, "gap low", "gaplow")));
+        request.setGapMidpoint(parseDecimal(value(values, "gap midpoint", "gapmidpoint", "gap ce")));
+        request.setGapSizePoints(parseDecimal(value(values, "gap size points", "gapsizepoints", "gap size pips")));
+        request.setGapSizePercent(parseDecimal(value(values, "gap size percent", "gapsizepercent", "gap size %")));
+        request.setGapEntryPositionPercent(parseDecimal(value(values, "gap entry position percent", "gapentrypositionpercent", "entry in gap %")));
+        request.setGapFillStatus(parseEnum(value(values, "gap fill status", "gapfillstatus"), BacktestingGapFillStatus.class));
+        request.setGapRelationToLiquidity(parseEnum(value(values, "gap relation to liquidity", "gaprelationtoliquidity"), BacktestingGapLiquidityRelation.class));
+        request.setGapConfluenceNotes(value(values, "gap confluence notes", "gapconfluencenotes"));
         request.setRiskPercent(parseDecimal(value(values, "risk", "risk %", "risk percent")));
         request.setPlannedRR(parseDecimal(value(values, "rr", "r:r", "planned rr", "planned r:r")));
         request.setResult(parseResult(value(values, "result", "outcome")));
@@ -365,6 +416,22 @@ public class BacktestingResearchService {
                 .session(trade.getSession())
                 .setupName(trade.getSetupName())
                 .strategyId(trade.getStrategyId())
+                .strategySource(trade.getStrategySource())
+                .strategyNameSnapshot(trade.getStrategyNameSnapshot())
+                .gapPresent(trade.isGapPresent())
+                .gapType(trade.getGapType())
+                .gapTimeframe(trade.getGapTimeframe())
+                .gapCreatedAt(trade.getGapCreatedAt())
+                .gapMitigatedAt(trade.getGapMitigatedAt())
+                .gapHigh(trade.getGapHigh())
+                .gapLow(trade.getGapLow())
+                .gapMidpoint(trade.getGapMidpoint())
+                .gapSizePoints(trade.getGapSizePoints())
+                .gapSizePercent(trade.getGapSizePercent())
+                .gapEntryPositionPercent(trade.getGapEntryPositionPercent())
+                .gapFillStatus(trade.getGapFillStatus())
+                .gapRelationToLiquidity(trade.getGapRelationToLiquidity())
+                .gapConfluenceNotes(trade.getGapConfluenceNotes())
                 .riskPercent(trade.getRiskPercent())
                 .plannedRR(trade.getPlannedRR())
                 .result(trade.getResult())
@@ -437,6 +504,12 @@ public class BacktestingResearchService {
                 case "contextTimeframe" -> value.equalsIgnoreCase(fallback(trade.getContextTimeframe(), ""));
                 case "executionTimeframe" -> value.equalsIgnoreCase(fallback(trade.getExecutionTimeframe(), ""));
                 case "entryTimeframe" -> value.equalsIgnoreCase(fallback(trade.getEntryTimeframe(), ""));
+                case "strategyName" -> value.equalsIgnoreCase(fallback(trade.getStrategyNameSnapshot(), "Unlinked"));
+                case "strategySource" -> value.equalsIgnoreCase(fallback(trade.getStrategySource(), "Unlinked"));
+                case "gapPresent" -> parseBoolean(value) == trade.isGapPresent();
+                case "gapType" -> value.equalsIgnoreCase(trade.getGapType() == null ? "Unspecified" : trade.getGapType().name());
+                case "gapTimeframe" -> value.equalsIgnoreCase(fallback(trade.getGapTimeframe(), "No gap"));
+                case "gapFillStatus" -> value.equalsIgnoreCase(trade.getGapFillStatus() == null ? "Unspecified" : trade.getGapFillStatus().name());
                 default -> true;
             };
             if (!matched) return false;
@@ -583,6 +656,41 @@ public class BacktestingResearchService {
     private BigDecimal parseDecimal(String value) {
         if (!StringUtils.hasText(value)) return null;
         return new BigDecimal(value.trim().replace("%", ""));
+    }
+
+    private UUID parseUuid(String value) {
+        if (!StringUtils.hasText(value)) return null;
+        try {
+            return UUID.fromString(value.trim());
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("invalid strategy id");
+        }
+    }
+
+    private boolean parseBoolean(String value) {
+        if (!StringUtils.hasText(value)) return false;
+        return List.of("true", "yes", "y", "1", "da").contains(value.trim().toLowerCase(Locale.ROOT));
+    }
+
+    private LocalTime parseOptionalTime(String value) {
+        return StringUtils.hasText(value) ? parseTime(value) : null;
+    }
+
+    private <E extends Enum<E>> E parseEnum(String value, Class<E> type) {
+        if (!StringUtils.hasText(value)) return null;
+        try {
+            return Enum.valueOf(type, value.trim().toUpperCase(Locale.ROOT).replace(' ', '_').replace('-', '_'));
+        } catch (IllegalArgumentException ex) {
+            throw new IllegalArgumentException("invalid " + type.getSimpleName());
+        }
+    }
+
+    private String normalizeStrategySource(String value) {
+        String normalized = normalizeText(value);
+        if (normalized == null) return null;
+        normalized = normalized.toUpperCase(Locale.ROOT);
+        if (!List.of("MY", "MENTOR").contains(normalized)) throw new IllegalArgumentException("strategySource must be MY or MENTOR");
+        return normalized;
     }
 
     private BacktestingTradeDirection parseDirection(String value) {

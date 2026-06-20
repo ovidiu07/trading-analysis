@@ -6,6 +6,9 @@ export type BacktestingTradeDirection = 'LONG' | 'SHORT'
 export type BacktestingTradeResult = 'WIN' | 'LOSS' | 'BREAKEVEN'
 export type BacktestingTradeSource = 'MANUAL' | 'IMPORT' | 'SCREENSHOT'
 export type BacktestingTradeScope = 'BACKTEST' | 'LIVE' | 'REPLAY'
+export type BacktestingGapType = 'BULLISH' | 'BEARISH' | 'UNKNOWN'
+export type BacktestingGapFillStatus = 'UNFILLED' | 'PARTIALLY_FILLED' | 'FILLED' | 'REJECTED_FROM_GAP' | 'RELIQUIDATED_GAP' | 'UNKNOWN'
+export type BacktestingGapLiquidityRelation = 'AFTER_EXTERNAL_LIQUIDITY_SWEEP' | 'AFTER_INTERNAL_LIQUIDITY_SWEEP' | 'INTO_SESSION_POI' | 'AFTER_MSS' | 'CONTINUATION_DISPLACEMENT' | 'UNKNOWN'
 
 export type BacktestingStrategySummary = {
   id: string
@@ -141,6 +144,22 @@ export type BacktestingTrade = {
   session?: string | null
   setupName?: string | null
   strategyId?: string | null
+  strategySource?: 'MY' | 'MENTOR' | null
+  strategyNameSnapshot?: string | null
+  gapPresent?: boolean
+  gapType?: BacktestingGapType | null
+  gapTimeframe?: string | null
+  gapCreatedAt?: string | null
+  gapMitigatedAt?: string | null
+  gapHigh?: number | null
+  gapLow?: number | null
+  gapMidpoint?: number | null
+  gapSizePoints?: number | null
+  gapSizePercent?: number | null
+  gapEntryPositionPercent?: number | null
+  gapFillStatus?: BacktestingGapFillStatus | null
+  gapRelationToLiquidity?: BacktestingGapLiquidityRelation | null
+  gapConfluenceNotes?: string | null
   riskPercent?: number | null
   plannedRR?: number | null
   result: BacktestingTradeResult

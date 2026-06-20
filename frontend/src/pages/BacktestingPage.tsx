@@ -5,6 +5,7 @@ import {
   Box,
   Button,
   Chip,
+  Collapse,
   Dialog,
   DialogActions,
   DialogContent,
@@ -55,6 +56,9 @@ import {
   BacktestingBreakdownRow,
   BacktestingEdgeLens,
   BacktestingEdgeLensPayload,
+  BacktestingGapFillStatus,
+  BacktestingGapLiquidityRelation,
+  BacktestingGapType,
   BacktestingMetric,
   BacktestingScreenshot,
   BacktestingScreenshotPayload,
@@ -97,6 +101,12 @@ type FilterState = {
   session: string
   setup: string
   result: '' | BacktestingTradeResult
+  strategyId: string
+  strategySource: '' | 'MY' | 'MENTOR'
+  gapPresent: '' | 'YES' | 'NO'
+  gapType: '' | BacktestingGapType
+  gapTimeframe: string
+  gapFillStatus: '' | BacktestingGapFillStatus
   timeFrom: string
   timeTo: string
   weekday: string
@@ -137,6 +147,12 @@ const emptyFilters: FilterState = {
   session: '',
   setup: '',
   result: '',
+  strategyId: '',
+  strategySource: '',
+  gapPresent: '',
+  gapType: '',
+  gapTimeframe: '',
+  gapFillStatus: '',
   timeFrom: '',
   timeTo: '',
   weekday: '',
@@ -155,6 +171,22 @@ const emptyTradeDraft: BacktestingTradePayload = {
   session: 'London',
   setupName: '',
   strategyId: null,
+  strategySource: null,
+  strategyNameSnapshot: '',
+  gapPresent: false,
+  gapType: null,
+  gapTimeframe: '',
+  gapCreatedAt: '',
+  gapMitigatedAt: '',
+  gapHigh: null,
+  gapLow: null,
+  gapMidpoint: null,
+  gapSizePoints: null,
+  gapSizePercent: null,
+  gapEntryPositionPercent: null,
+  gapFillStatus: null,
+  gapRelationToLiquidity: null,
+  gapConfluenceNotes: '',
   riskPercent: null,
   plannedRR: null,
   result: 'WIN',
@@ -182,6 +214,9 @@ const tradeResults: BacktestingTradeResult[] = ['WIN', 'LOSS', 'BREAKEVEN']
 const sessionOptions = ['Asia', 'London', 'NY AM', 'NY PM', 'NY', 'Custom']
 const timeframeOptions = ['15M', '5M', '1M', '30M', '1H', '4H', 'Daily']
 const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday']
+const gapFillStatuses: BacktestingGapFillStatus[] = ['UNFILLED', 'PARTIALLY_FILLED', 'FILLED', 'REJECTED_FROM_GAP', 'RELIQUIDATED_GAP', 'UNKNOWN']
+const gapLiquidityRelations: BacktestingGapLiquidityRelation[] = ['AFTER_EXTERNAL_LIQUIDITY_SWEEP', 'AFTER_INTERNAL_LIQUIDITY_SWEEP', 'INTO_SESSION_POI', 'AFTER_MSS', 'CONTINUATION_DISPLACEMENT', 'UNKNOWN']
+const humanizeEnum = (value: string) => value.toLowerCase().split('_').map((part) => part.charAt(0).toUpperCase() + part.slice(1)).join(' ')
 
 const workspaceToDraft = (workspace: BacktestingWorkspace): WorkspaceDraft => ({
   symbol: workspace.symbol || '',
@@ -238,6 +273,7 @@ export default function BacktestingPage() {
   const [feedback, setFeedback] = useState('')
   const [error, setError] = useState('')
   const [carouselIndex, setCarouselIndex] = useState<number | null>(null)
+  const [viewingTrade, setViewingTrade] = useState<BacktestingTrade | null>(null)
   const [evidenceMode, setEvidenceMode] = useState<'carousel' | 'grid'>('grid')
   const [selectedBucket, setSelectedBucket] = useState<BacktestingBreakdownRow | null>(null)
 
@@ -416,6 +452,8 @@ export default function BacktestingPage() {
   const impactRows = useMemo(() => buildImpactRows(trades, baselineMetrics), [baselineMetrics, trades])
 
   const myStrategies = strategiesQuery.data?.myStrategies || []
+  const mentorStrategies = strategiesQuery.data?.mentorStrategies || []
+  const allStrategies = useMemo(() => [...myStrategies, ...mentorStrategies], [mentorStrategies, myStrategies])
   const selectedStrategy = myStrategies.find((item) => item.id === workspaceDraft.strategyId) || null
   const filteredWorkspaces = useMemo(() => {
     const term = workspaceSearch.trim().toLowerCase()
@@ -463,6 +501,22 @@ export default function BacktestingPage() {
       session: trade.session || '',
       setupName: trade.setupName || '',
       strategyId: trade.strategyId || null,
+      strategySource: trade.strategySource || null,
+      strategyNameSnapshot: trade.strategyNameSnapshot || '',
+      gapPresent: Boolean(trade.gapPresent),
+      gapType: trade.gapType || null,
+      gapTimeframe: trade.gapTimeframe || '',
+      gapCreatedAt: trade.gapCreatedAt?.slice(0, 5) || '',
+      gapMitigatedAt: trade.gapMitigatedAt?.slice(0, 5) || '',
+      gapHigh: trade.gapHigh ?? null,
+      gapLow: trade.gapLow ?? null,
+      gapMidpoint: trade.gapMidpoint ?? null,
+      gapSizePoints: trade.gapSizePoints ?? null,
+      gapSizePercent: trade.gapSizePercent ?? null,
+      gapEntryPositionPercent: trade.gapEntryPositionPercent ?? null,
+      gapFillStatus: trade.gapFillStatus || null,
+      gapRelationToLiquidity: trade.gapRelationToLiquidity || null,
+      gapConfluenceNotes: trade.gapConfluenceNotes || '',
       riskPercent: trade.riskPercent ?? null,
       plannedRR: trade.plannedRR ?? null,
       result: trade.result,
@@ -496,6 +550,14 @@ export default function BacktestingPage() {
     if (!detail) return
     if (!tradeDraft.date || !tradeDraft.entryTime || !tradeDraft.instrument || !tradeDraft.direction || !tradeDraft.result || tradeDraft.pnlR === null || tradeDraft.pnlR === undefined) {
       setError('Date, time, instrument, direction, result, and P&L(R) are required.')
+      return
+    }
+    if (tradeDraft.gapEntryPositionPercent != null && (tradeDraft.gapEntryPositionPercent < 0 || tradeDraft.gapEntryPositionPercent > 100)) {
+      setError('Entry position inside gap must be between 0 and 100%.')
+      return
+    }
+    if (tradeDraft.gapSizePercent != null && tradeDraft.gapSizePercent < 0) {
+      setError('Gap size percentage cannot be negative.')
       return
     }
     tradeMutation.mutate({
@@ -537,7 +599,7 @@ export default function BacktestingPage() {
   }
 
   const exportCsv = () => {
-    const header = ['Date', 'Weekday', 'Time', 'Instrument', 'Direction', 'Session', 'Setup', 'Risk %', 'Planned R:R', 'Result', 'P&L(R)', 'Context TF', 'Execution TF', 'Entry TF', 'Tags', 'Notes']
+    const header = ['Date', 'Weekday', 'Time', 'Instrument', 'Direction', 'Session', 'Setup', 'Strategy ID', 'Strategy Name', 'Strategy Source', 'Risk %', 'Planned R:R', 'Result', 'P&L(R)', 'Context TF', 'Execution TF', 'Entry TF', 'Tags', 'Notes', 'Gap Present', 'Gap Type', 'Gap Timeframe', 'Gap Created At', 'Gap Mitigated At', 'Gap High', 'Gap Low', 'Gap Midpoint', 'Gap Size Points', 'Gap Size Percent', 'Gap Entry Position Percent', 'Gap Fill Status', 'Gap Relation To Liquidity', 'Gap Confluence Notes']
     const rows = filteredTrades.map((trade) => [
       trade.date,
       trade.weekday || deriveWeekday(trade.date),
@@ -546,6 +608,9 @@ export default function BacktestingPage() {
       trade.direction,
       trade.session || '',
       trade.setupName || '',
+      trade.strategyId || '',
+      trade.strategyNameSnapshot || '',
+      trade.strategySource || '',
       trade.riskPercent ?? '',
       trade.plannedRR ?? '',
       trade.result,
@@ -554,7 +619,21 @@ export default function BacktestingPage() {
       trade.executionTimeframe || '',
       trade.entryTimeframe || '',
       (trade.tags || []).join('|'),
-      trade.notes || ''
+      trade.notes || '',
+      Boolean(trade.gapPresent),
+      trade.gapType || '',
+      trade.gapTimeframe || '',
+      trade.gapCreatedAt || '',
+      trade.gapMitigatedAt || '',
+      trade.gapHigh ?? '',
+      trade.gapLow ?? '',
+      trade.gapMidpoint ?? '',
+      trade.gapSizePoints ?? '',
+      trade.gapSizePercent ?? '',
+      trade.gapEntryPositionPercent ?? '',
+      trade.gapFillStatus || '',
+      trade.gapRelationToLiquidity || '',
+      trade.gapConfluenceNotes || ''
     ])
     const csv = [header, ...rows].map((row) => row.map(csvCell).join(',')).join('\n')
     const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }))
@@ -640,6 +719,7 @@ export default function BacktestingPage() {
                 onClearLens={() => setSelectedLensId('')}
                 onClear={() => { setFilters(emptyFilters); setSelectedLensId('') }}
                 onSaveLens={saveCurrentFiltersAsLens}
+                strategies={allStrategies}
               />
               <Paper variant="outlined" sx={{ borderRadius: 1.5, overflow: 'hidden' }}>
                 <Tabs
@@ -686,6 +766,8 @@ export default function BacktestingPage() {
                         setTradeDialogOpen(true)
                       }}
                       onDelete={(trade) => deleteTradeMutation.mutate(trade.id)}
+                      onView={setViewingTrade}
+                      strategies={allStrategies}
                     />
                   )}
                   {activeTab === 'edge' && (
@@ -765,8 +847,17 @@ export default function BacktestingPage() {
         editing={Boolean(editingTrade)}
         saving={tradeMutation.isLoading}
         screenshots={screenshots}
+        strategies={allStrategies}
         onClose={() => setTradeDialogOpen(false)}
         onSave={saveTrade}
+      />
+
+      <TradeDetailDialog
+        open={Boolean(viewingTrade)}
+        trade={viewingTrade}
+        strategies={allStrategies}
+        onClose={() => setViewingTrade(null)}
+        onEdit={(trade) => { setViewingTrade(null); openTradeEdit(trade) }}
       />
 
       <ImportTradesModal
@@ -852,16 +943,11 @@ function WorkspaceCard({ workspace, selected, onOpen, onEdit, onArchive, onImpor
           </Box>
           <SampleSizeBadge label={workspace.sampleQuality || sampleQuality(workspace.numberOfTrades || 0)} />
         </Stack>
-        {workspace.bestEdgeLensName && <Chip size="small" color="primary" variant="outlined" label={`Best lens: ${workspace.bestEdgeLensName}`} />}
         <Grid container spacing={0.75}>
           {[
             ['Trades', workspace.numberOfTrades],
             ['WR', pct(workspace.winRate)],
-            ['W/L/BE', `${workspace.winningTrades}/${workspace.losingTrades}/${workspace.breakevenTrades}`],
-            ['Shots', workspace.screenshotCount],
-            ['Total R', rValue(workspace.totalR)],
-            ['Avg R', rValue(workspace.averageR)],
-            ['Exp.', rValue(workspace.expectancy ?? workspace.averageR)]
+            ['Total R', rValue(workspace.totalR)]
           ].map(([label, value]) => (
             <Grid key={label} item xs={6}>
               <Typography variant="caption" color="text.secondary">{label}</Typography>
@@ -898,6 +984,13 @@ function WorkspaceHeader({ workspace, metrics, onEdit, onArchive }: {
             <SampleSizeBadge label={metrics.sampleQuality} />
             {workspace.statsSource === 'LEGACY_MANUAL' && <Chip size="small" label="Legacy fallback stats" color="warning" variant="outlined" />}
           </Stack>
+          <Grid container spacing={1} sx={{ mt: 0.5 }}>
+            {[
+              ['Updated', formatDate(workspace.updatedAt)], ['Trades', metrics.trades], ['Win rate', pct(metrics.winRate)],
+              ['W/L/BE', `${metrics.wins}/${metrics.losses}/${metrics.breakevens}`], ['Total R', rValue(metrics.totalR)],
+              ['Average R', rValue(metrics.averageR)], ['Expectancy', rValue(metrics.expectancy)], ['Screenshots', workspace.screenshotCount]
+            ].map(([label, value]) => <Grid key={label} item xs={6} sm={3}><MetricTiny label={String(label)} value={value} /></Grid>)}
+          </Grid>
         </Box>
         <Stack direction="row" spacing={1}>
           <Button size="small" startIcon={<EditRoundedIcon />} onClick={onEdit}>Edit</Button>
@@ -908,7 +1001,7 @@ function WorkspaceHeader({ workspace, metrics, onEdit, onArchive }: {
   )
 }
 
-function BacktestFilterBar({ filters, setFilters, lenses, selectedLensId, onApplyLens, onClearLens, onClear, onSaveLens }: {
+function BacktestFilterBar({ filters, setFilters, lenses, selectedLensId, onApplyLens, onClearLens, onClear, onSaveLens, strategies }: {
   filters: FilterState
   setFilters: (value: FilterState | ((current: FilterState) => FilterState)) => void
   lenses: BacktestingEdgeLens[]
@@ -917,7 +1010,9 @@ function BacktestFilterBar({ filters, setFilters, lenses, selectedLensId, onAppl
   onClearLens: () => void
   onClear: () => void
   onSaveLens: () => void
+  strategies: StrategyResponse[]
 }) {
+  const [advancedOpen, setAdvancedOpen] = useState(false)
   const active = activeFilterChips(filters)
   const update = (field: keyof FilterState) => (event: ChangeEvent<HTMLInputElement>) => setFilters((current) => ({ ...current, [field]: event.target.value }))
   const updateSelect = (field: keyof FilterState, value: string) => setFilters((current) => ({ ...current, [field]: value }))
@@ -936,6 +1031,16 @@ function BacktestFilterBar({ filters, setFilters, lenses, selectedLensId, onAppl
           <Grid item xs={6} sm={3} md={1.7}>
             <FormControl fullWidth size="small"><InputLabel>Result</InputLabel><Select label="Result" value={filters.result} onChange={(event) => updateSelect('result', event.target.value)}><MenuItem value="">All</MenuItem>{tradeResults.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}</Select></FormControl>
           </Grid>
+          <Grid item xs={12} sm={6} md={2.4}>
+            <FormControl fullWidth size="small"><InputLabel>Strategy</InputLabel><Select label="Strategy" value={filters.strategyId} onChange={(event) => updateSelect('strategyId', event.target.value)}><MenuItem value="">All strategies</MenuItem>{strategies.map((item) => <MenuItem key={`${item.source}-${item.id}`} value={item.id}>{item.source === 'MENTOR' ? 'Mentor' : 'Personal'} · {item.name}</MenuItem>)}</Select></FormControl>
+          </Grid>
+          <Grid item xs={6} sm={3} md={1.8}>
+            <FormControl fullWidth size="small"><InputLabel>Gap/FVG</InputLabel><Select label="Gap/FVG" value={filters.gapPresent} onChange={(event) => updateSelect('gapPresent', event.target.value)}><MenuItem value="">All</MenuItem><MenuItem value="YES">Gap present</MenuItem><MenuItem value="NO">No gap</MenuItem></Select></FormControl>
+          </Grid>
+        </Grid>
+        <Button size="small" onClick={() => setAdvancedOpen((value) => !value)} aria-expanded={advancedOpen}>{advancedOpen ? 'Hide advanced filters' : 'Advanced filters'}</Button>
+        <Collapse in={advancedOpen}>
+          <Grid container spacing={1} sx={{ pt: 0.5 }}>
           <Grid item xs={6} sm={3} md={1.7}><TextField fullWidth size="small" type="time" label="After" InputLabelProps={{ shrink: true }} value={filters.timeFrom} onChange={update('timeFrom')} /></Grid>
           <Grid item xs={6} sm={3} md={1.7}><TextField fullWidth size="small" type="time" label="Before" InputLabelProps={{ shrink: true }} value={filters.timeTo} onChange={update('timeTo')} /></Grid>
           <Grid item xs={6} sm={3} md={1.8}>
@@ -948,6 +1053,10 @@ function BacktestFilterBar({ filters, setFilters, lenses, selectedLensId, onAppl
           <Grid item xs={6} sm={3} md={1.8}>
             <FormControl fullWidth size="small"><InputLabel>Screenshots</InputLabel><Select label="Screenshots" value={filters.hasScreenshots} onChange={(event) => updateSelect('hasScreenshots', event.target.value)}><MenuItem value="">All</MenuItem><MenuItem value="YES">Has screenshots</MenuItem><MenuItem value="NO">No screenshots</MenuItem></Select></FormControl>
           </Grid>
+          <Grid item xs={6} sm={3} md={1.8}><FormControl fullWidth size="small"><InputLabel>Strategy source</InputLabel><Select label="Strategy source" value={filters.strategySource} onChange={(event) => updateSelect('strategySource', event.target.value)}><MenuItem value="">All</MenuItem><MenuItem value="MENTOR">Mentor</MenuItem><MenuItem value="MY">Personal</MenuItem></Select></FormControl></Grid>
+          <Grid item xs={6} sm={3} md={1.8}><FormControl fullWidth size="small"><InputLabel>Gap type</InputLabel><Select label="Gap type" value={filters.gapType} onChange={(event) => updateSelect('gapType', event.target.value)}><MenuItem value="">All</MenuItem><MenuItem value="BULLISH">Bullish</MenuItem><MenuItem value="BEARISH">Bearish</MenuItem><MenuItem value="UNKNOWN">Unknown</MenuItem></Select></FormControl></Grid>
+          <Grid item xs={6} sm={3} md={1.8}><TextField fullWidth size="small" label="Gap timeframe" value={filters.gapTimeframe} onChange={update('gapTimeframe')} /></Grid>
+          <Grid item xs={6} sm={3} md={2.2}><FormControl fullWidth size="small"><InputLabel>Gap fill status</InputLabel><Select label="Gap fill status" value={filters.gapFillStatus} onChange={(event) => updateSelect('gapFillStatus', event.target.value)}><MenuItem value="">All</MenuItem>{gapFillStatuses.map((item) => <MenuItem key={item} value={item}>{humanizeEnum(item)}</MenuItem>)}</Select></FormControl></Grid>
           <Grid item xs={12} sm={6} md={2.6}>
             <FormControl fullWidth size="small">
               <InputLabel>Edge Lens</InputLabel>
@@ -957,7 +1066,8 @@ function BacktestFilterBar({ filters, setFilters, lenses, selectedLensId, onAppl
               </Select>
             </FormControl>
           </Grid>
-        </Grid>
+          </Grid>
+        </Collapse>
         <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" alignItems="center">
           {active.map((chip) => (
             <Chip key={chip.key} size="small" label={chip.label} onDelete={() => setFilters((current) => ({ ...current, [chip.key]: '' }))} />
@@ -1097,7 +1207,7 @@ function FindingRow({ title, row }: { title: string; row: BacktestingBreakdownRo
   )
 }
 
-function TradesTab({ trades, allTrades, onAdd, onImport, onExport, onEdit, onDuplicate, onDelete }: {
+function TradesTab({ trades, allTrades, onAdd, onImport, onExport, onEdit, onDuplicate, onDelete, onView, strategies }: {
   trades: BacktestingTrade[]
   allTrades: BacktestingTrade[]
   onAdd: () => void
@@ -1106,12 +1216,14 @@ function TradesTab({ trades, allTrades, onAdd, onImport, onExport, onEdit, onDup
   onEdit: (trade: BacktestingTrade) => void
   onDuplicate: (trade: BacktestingTrade) => void
   onDelete: (trade: BacktestingTrade) => void
+  onView: (trade: BacktestingTrade) => void
+  strategies: StrategyResponse[]
 }) {
   const [search, setSearch] = useState('')
   const visible = trades.filter((trade) => {
     const term = search.trim().toLowerCase()
     if (!term) return true
-    return [trade.instrument, trade.setupName, trade.session, trade.notes, ...(trade.tags || [])].some((value) => (value || '').toLowerCase().includes(term))
+    return [trade.instrument, trade.setupName, trade.session, trade.notes, trade.strategyNameSnapshot, ...(trade.tags || [])].some((value) => (value || '').toLowerCase().includes(term))
   })
   return (
     <Stack spacing={1.25}>
@@ -1128,34 +1240,33 @@ function TradesTab({ trades, allTrades, onAdd, onImport, onExport, onEdit, onDup
       ) : visible.length === 0 ? (
         <EmptyState title="No trades match the filters" description="Clear filters or search terms to recover the dataset." />
       ) : (
-        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1.25 }}>
-          <Table size="small">
+        <>
+        <Stack spacing={1} sx={{ display: { xs: 'flex', md: 'none' } }}>
+          {visible.map((trade) => <TradeCard key={trade.id} trade={trade} strategies={strategies} onView={() => onView(trade)} onEdit={() => onEdit(trade)} onDuplicate={() => onDuplicate(trade)} onDelete={() => onDelete(trade)} />)}
+        </Stack>
+        <TableContainer component={Paper} variant="outlined" sx={{ borderRadius: 1.25, maxHeight: '70vh', display: { xs: 'none', md: 'block' }, overflowX: 'auto' }}>
+          <Table size="small" stickyHeader sx={{ minWidth: 1120 }}>
             <TableHead>
               <TableRow>
-                {['Date', 'Weekday', 'Time', 'Instrument', 'Direction', 'Session', 'Setup', 'Risk %', 'Planned R:R', 'Result', 'P&L(R)', 'Context TF', 'Execution TF', 'Entry TF', 'Tags', 'Screenshots', 'Notes', 'Actions'].map((head) => <TableCell key={head}>{head}</TableCell>)}
+                {['Date', 'Time', 'Instrument', 'Direction', 'Session', 'Setup', 'Strategy', 'Gap/FVG', 'Result', 'P&L(R)', 'Screenshots', 'Notes', 'Actions'].map((head) => <TableCell key={head} sx={head === 'Actions' ? { position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 3 } : undefined}>{head}</TableCell>)}
               </TableRow>
             </TableHead>
             <TableBody>
               {visible.map((trade) => (
-                <TableRow key={trade.id} hover>
-                  <TableCell>{trade.date}</TableCell>
-                  <TableCell>{trade.weekday || deriveWeekday(trade.date)}</TableCell>
+                <TableRow key={trade.id} hover onClick={() => onView(trade)} sx={{ cursor: 'pointer' }}>
+                  <TableCell sx={{ position: 'sticky', left: 0, bgcolor: 'background.paper', zIndex: 1 }}>{trade.date}</TableCell>
                   <TableCell>{trade.entryTime?.slice(0, 5)}</TableCell>
                   <TableCell>{trade.instrument}</TableCell>
                   <TableCell><Chip size="small" label={trade.direction} /></TableCell>
                   <TableCell>{trade.session || '-'}</TableCell>
                   <TableCell>{trade.setupName || '-'}</TableCell>
-                  <TableCell>{trade.riskPercent ?? '-'}</TableCell>
-                  <TableCell>{trade.plannedRR ?? '-'}</TableCell>
+                  <TableCell><StrategyBadge trade={trade} strategies={strategies} /></TableCell>
+                  <TableCell><GapBadge trade={trade} /></TableCell>
                   <TableCell><Chip size="small" label={trade.result} color={trade.result === 'WIN' ? 'success' : trade.result === 'LOSS' ? 'error' : 'warning'} /></TableCell>
                   <TableCell sx={{ fontWeight: 850, color: trade.pnlR > 0 ? 'success.main' : trade.pnlR < 0 ? 'error.main' : 'text.primary' }}>{rValue(trade.pnlR)}</TableCell>
-                  <TableCell>{trade.contextTimeframe || '-'}</TableCell>
-                  <TableCell>{trade.executionTimeframe || '-'}</TableCell>
-                  <TableCell>{trade.entryTimeframe || '-'}</TableCell>
-                  <TableCell>{(trade.tags || []).map((tag) => <Chip key={tag} size="small" label={tag} sx={{ mr: 0.5 }} />)}</TableCell>
                   <TableCell>{trade.screenshotCount || 0}</TableCell>
-                  <TableCell sx={{ maxWidth: 180 }}>{trade.notes || '-'}</TableCell>
-                  <TableCell>
+                  <TableCell sx={{ maxWidth: 220 }}><Typography variant="body2" sx={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>{trade.notes || '-'}</Typography></TableCell>
+                  <TableCell sx={{ position: 'sticky', right: 0, bgcolor: 'background.paper', zIndex: 2 }} onClick={(event) => event.stopPropagation()}>
                     <Stack direction="row" spacing={0.25}>
                       <IconButton size="small" aria-label="Edit trade" onClick={() => onEdit(trade)}><EditRoundedIcon fontSize="small" /></IconButton>
                       <IconButton size="small" aria-label="Duplicate trade" onClick={() => onDuplicate(trade)}><AddRoundedIcon fontSize="small" /></IconButton>
@@ -1167,8 +1278,37 @@ function TradesTab({ trades, allTrades, onAdd, onImport, onExport, onEdit, onDup
             </TableBody>
           </Table>
         </TableContainer>
+        </>
       )}
     </Stack>
+  )
+}
+
+function StrategyBadge({ trade, strategies }: { trade: BacktestingTrade; strategies: StrategyResponse[] }) {
+  if (!trade.strategyId) return <Typography variant="body2" color="text.secondary">Unlinked</Typography>
+  const strategy = strategies.find((item) => item.id === trade.strategyId)
+  const source = trade.strategySource || strategy?.source
+  const name = strategy?.name || trade.strategyNameSnapshot || 'Strategy unavailable'
+  return <Chip size="small" variant="outlined" color={source === 'MENTOR' ? 'secondary' : 'primary'} label={`${source === 'MENTOR' ? 'Mentor' : 'Personal'} · ${name}`} sx={{ maxWidth: 220, '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' } }} />
+}
+
+function GapBadge({ trade }: { trade: BacktestingTrade }) {
+  if (!trade.gapPresent) return <Chip size="small" variant="outlined" label="No gap" />
+  const parts = [trade.gapType ? humanizeEnum(trade.gapType) : 'FVG', trade.gapTimeframe, trade.gapSizePercent != null ? `${trade.gapSizePercent}%` : null, trade.gapEntryPositionPercent != null ? `Entry ${trade.gapEntryPositionPercent}%` : null, trade.gapFillStatus ? humanizeEnum(trade.gapFillStatus) : null].filter(Boolean)
+  return <Chip size="small" color={trade.gapType === 'BULLISH' ? 'success' : trade.gapType === 'BEARISH' ? 'error' : 'default'} variant="outlined" label={parts.join(' · ')} />
+}
+
+function TradeCard({ trade, strategies, onView, onEdit, onDuplicate, onDelete }: { trade: BacktestingTrade; strategies: StrategyResponse[]; onView: () => void; onEdit: () => void; onDuplicate: () => void; onDelete: () => void }) {
+  return (
+    <Paper variant="outlined" onClick={onView} sx={{ p: 1.25, borderRadius: 1.5, cursor: 'pointer' }} tabIndex={0} onKeyDown={(event) => { if (event.key === 'Enter') onView() }}>
+      <Stack spacing={1}>
+        <Stack direction="row" justifyContent="space-between" spacing={1}><Box><Typography variant="subtitle2" sx={{ fontWeight: 900 }}>{trade.instrument} · {trade.direction}</Typography><Typography variant="caption" color="text.secondary">{trade.date} · {trade.entryTime?.slice(0, 5)}</Typography></Box><Chip size="small" label={trade.result} color={trade.result === 'WIN' ? 'success' : trade.result === 'LOSS' ? 'error' : 'warning'} /></Stack>
+        <Typography variant="body2">{trade.session || 'No session'} · {trade.setupName || 'No setup'}</Typography>
+        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap"><StrategyBadge trade={trade} strategies={strategies} /><GapBadge trade={trade} /></Stack>
+        <Stack direction="row" justifyContent="space-between" alignItems="center"><Typography sx={{ fontWeight: 900, color: trade.pnlR > 0 ? 'success.main' : trade.pnlR < 0 ? 'error.main' : 'text.primary' }}>{rValue(trade.pnlR)}</Typography><Typography variant="caption">{trade.screenshotCount || 0} screenshots</Typography></Stack>
+        <Stack direction="row" spacing={0.5} onClick={(event) => event.stopPropagation()}><Button size="small" onClick={onEdit}>Edit</Button><Button size="small" onClick={onDuplicate}>Duplicate</Button><Button size="small" color="error" onClick={onDelete}>Delete</Button></Stack>
+      </Stack>
+    </Paper>
   )
 }
 
@@ -1197,6 +1337,13 @@ function EdgeLabView({ breakdowns, selectedBucket, onApplyBucket, screenshots, s
                 <MenuItem value="setup">Setup</MenuItem>
                 <MenuItem value="direction">Direction</MenuItem>
                 <MenuItem value="timeframe">Timeframes</MenuItem>
+                <MenuItem value="strategy">Linked strategy</MenuItem>
+                <MenuItem value="strategySource">Mentor vs Personal</MenuItem>
+                <MenuItem value="gapPresent">Gap present vs no gap</MenuItem>
+                <MenuItem value="gapType">Gap type</MenuItem>
+                <MenuItem value="gapTimeframe">Gap timeframe</MenuItem>
+                <MenuItem value="gapFillStatus">Gap fill status</MenuItem>
+                <MenuItem value="gapEntryPosition">Entry position inside gap</MenuItem>
                 <MenuItem value="custom">Custom Breakdown</MenuItem>
               </Select>
             </FormControl>
@@ -1446,46 +1593,109 @@ function ScreenshotCard({ screenshot, trades, index, onOpen, onSave, onDelete, o
   )
 }
 
-function QuickAddBacktestTradeModal({ open, draft, setDraft, editing, saving, screenshots, onClose, onSave }: {
+function QuickAddBacktestTradeModal({ open, draft, setDraft, editing, saving, screenshots, strategies, onClose, onSave }: {
   open: boolean
   draft: BacktestingTradePayload
   setDraft: (value: BacktestingTradePayload | ((current: BacktestingTradePayload) => BacktestingTradePayload)) => void
   editing: boolean
   saving: boolean
   screenshots: BacktestingScreenshot[]
+  strategies: StrategyResponse[]
   onClose: () => void
   onSave: () => void
 }) {
   const update = (field: keyof BacktestingTradePayload) => (event: ChangeEvent<HTMLInputElement>) => setDraft((current) => ({ ...current, [field]: event.target.value }))
   const updateNumber = (field: keyof BacktestingTradePayload) => (event: ChangeEvent<HTMLInputElement>) => setDraft((current) => ({ ...current, [field]: event.target.value === '' ? null : Number(event.target.value) }))
   const warning = tradeDraftWarning(draft)
+  const selectedStrategy = strategies.find((item) => item.id === draft.strategyId) || null
   return (
     <Dialog open={open} onClose={onClose} fullWidth maxWidth="md">
       <DialogTitle>{editing ? 'Edit trade' : 'Quick Add Trade'}</DialogTitle>
       <DialogContent dividers>
         <Stack spacing={1.25} sx={{ pt: 0.5 }}>
           {warning && <Alert severity="warning">{warning}</Alert>}
+          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Basic Trade Info</Typography>
           <Grid container spacing={1.25}>
             <Grid item xs={12} sm={4}><TextField fullWidth required type="date" label="Date" InputLabelProps={{ shrink: true }} value={draft.date} onChange={update('date')} /></Grid>
             <Grid item xs={12} sm={4}><TextField fullWidth required type="time" label="Time" InputLabelProps={{ shrink: true }} value={draft.entryTime?.slice(0, 5) || ''} onChange={update('entryTime')} /></Grid>
             <Grid item xs={12} sm={4}><TextField fullWidth required label="Instrument" value={draft.instrument} onChange={update('instrument')} /></Grid>
             <Grid item xs={12} sm={4}><FormControl fullWidth><InputLabel>Direction</InputLabel><Select label="Direction" value={draft.direction} onChange={(event) => setDraft((current) => ({ ...current, direction: event.target.value as BacktestingTradeDirection }))}><MenuItem value="LONG">LONG</MenuItem><MenuItem value="SHORT">SHORT</MenuItem></Select></FormControl></Grid>
             <Grid item xs={12} sm={4}><TextField fullWidth label="Session" value={draft.session || ''} onChange={update('session')} /></Grid>
+          </Grid>
+          <Divider />
+          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Setup & Strategy</Typography>
+          <Grid container spacing={1.25}>
             <Grid item xs={12} sm={4}><TextField fullWidth label="Setup" value={draft.setupName || ''} onChange={update('setupName')} /></Grid>
+            <Grid item xs={12} sm={8}><Autocomplete options={strategies} groupBy={(option) => option.source === 'MENTOR' ? 'Mentor strategies' : 'Personal strategies'} value={selectedStrategy} getOptionLabel={(option) => option.name} isOptionEqualToValue={(option, value) => option.id === value.id} onChange={(_, value) => setDraft((current) => ({ ...current, strategyId: value?.id || null, strategySource: value?.source || null, strategyNameSnapshot: value?.name || '' }))} renderInput={(params) => <TextField {...params} label="Linked Strategy" placeholder={strategies.length ? 'Search strategies' : 'No strategies available'} />} /></Grid>
+            <Grid item xs={12}><TextField fullWidth label="Tags" value={joinTags(draft.tags)} onChange={(event) => setDraft((current) => ({ ...current, tags: splitTags(event.target.value) }))} helperText="Comma separated" /></Grid>
+          </Grid>
+          <Divider />
+          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Risk & Result</Typography>
+          <Grid container spacing={1.25}>
             <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Risk %" value={draft.riskPercent ?? ''} onChange={updateNumber('riskPercent')} /></Grid>
             <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Planned R:R" value={draft.plannedRR ?? ''} onChange={updateNumber('plannedRR')} /></Grid>
             <Grid item xs={6} sm={3}><FormControl fullWidth><InputLabel>Result</InputLabel><Select label="Result" value={draft.result} onChange={(event) => setDraft((current) => ({ ...current, result: event.target.value as BacktestingTradeResult }))}>{tradeResults.map((item) => <MenuItem key={item} value={item}>{item}</MenuItem>)}</Select></FormControl></Grid>
             <Grid item xs={6} sm={3}><TextField fullWidth required type="number" label="P&L(R)" value={draft.pnlR ?? ''} onChange={updateNumber('pnlR')} /></Grid>
+          </Grid>
+          <Divider />
+          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Timeframes</Typography>
+          <Grid container spacing={1.25}>
             <Grid item xs={4}><TextField fullWidth label="Context TF" value={draft.contextTimeframe || ''} onChange={update('contextTimeframe')} /></Grid>
             <Grid item xs={4}><TextField fullWidth label="Execution TF" value={draft.executionTimeframe || ''} onChange={update('executionTimeframe')} /></Grid>
             <Grid item xs={4}><TextField fullWidth label="Entry TF" value={draft.entryTimeframe || ''} onChange={update('entryTimeframe')} /></Grid>
-            <Grid item xs={12}><TextField fullWidth label="Tags" value={joinTags(draft.tags)} onChange={(event) => setDraft((current) => ({ ...current, tags: splitTags(event.target.value) }))} helperText="Comma separated" /></Grid>
+          </Grid>
+          <Divider />
+          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Gap / Fair Value Gap</Typography>
+          <FormControl fullWidth><InputLabel id="trade-gap-used-label">Gap/FVG used?</InputLabel><Select id="trade-gap-used" labelId="trade-gap-used-label" label="Gap/FVG used?" value={draft.gapPresent ? 'YES' : 'NO'} onChange={(event) => setDraft((current) => ({ ...current, gapPresent: event.target.value === 'YES' }))}><MenuItem value="NO">No</MenuItem><MenuItem value="YES">Yes</MenuItem></Select></FormControl>
+          <Collapse in={Boolean(draft.gapPresent)}>
+            <Grid container spacing={1.25} sx={{ pt: 1.25 }}>
+              <Grid item xs={12} sm={4}><FormControl fullWidth><InputLabel id="trade-gap-type-label">Gap type</InputLabel><Select id="trade-gap-type" labelId="trade-gap-type-label" label="Gap type" value={draft.gapType || ''} onChange={(event) => setDraft((current) => ({ ...current, gapType: (event.target.value || null) as BacktestingGapType | null }))}><MenuItem value="">Unknown</MenuItem><MenuItem value="BULLISH">Bullish</MenuItem><MenuItem value="BEARISH">Bearish</MenuItem></Select></FormControl></Grid>
+              <Grid item xs={12} sm={4}><TextField fullWidth label="Gap timeframe" value={draft.gapTimeframe || ''} onChange={update('gapTimeframe')} /></Grid>
+              <Grid item xs={6} sm={2}><TextField fullWidth type="time" label="Created" InputLabelProps={{ shrink: true }} value={draft.gapCreatedAt?.slice(0, 5) || ''} onChange={update('gapCreatedAt')} /></Grid>
+              <Grid item xs={6} sm={2}><TextField fullWidth type="time" label="Mitigated" InputLabelProps={{ shrink: true }} value={draft.gapMitigatedAt?.slice(0, 5) || ''} onChange={update('gapMitigatedAt')} /></Grid>
+              <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Gap high" value={draft.gapHigh ?? ''} onChange={updateNumber('gapHigh')} /></Grid>
+              <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Gap low" value={draft.gapLow ?? ''} onChange={updateNumber('gapLow')} /></Grid>
+              <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Gap midpoint / CE" value={draft.gapMidpoint ?? ''} onChange={updateNumber('gapMidpoint')} helperText="50% level of the FVG." /></Grid>
+              <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Size points/pips" value={draft.gapSizePoints ?? ''} onChange={updateNumber('gapSizePoints')} /></Grid>
+              <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Gap size %" value={draft.gapSizePercent ?? ''} onChange={updateNumber('gapSizePercent')} inputProps={{ min: 0 }} /></Grid>
+              <Grid item xs={6} sm={3}><TextField fullWidth type="number" label="Entry inside gap %" value={draft.gapEntryPositionPercent ?? ''} onChange={updateNumber('gapEntryPositionPercent')} inputProps={{ min: 0, max: 100 }} helperText="Where the entry happened inside the FVG zone." /></Grid>
+              <Grid item xs={12} sm={3}><FormControl fullWidth><InputLabel id="trade-gap-fill-label">Fill status</InputLabel><Select id="trade-gap-fill" labelId="trade-gap-fill-label" label="Fill status" value={draft.gapFillStatus || ''} onChange={(event) => setDraft((current) => ({ ...current, gapFillStatus: (event.target.value || null) as BacktestingGapFillStatus | null }))}><MenuItem value="">Unknown</MenuItem>{gapFillStatuses.map((item) => <MenuItem key={item} value={item}>{humanizeEnum(item)}</MenuItem>)}</Select></FormControl></Grid>
+              <Grid item xs={12} sm={3}><FormControl fullWidth><InputLabel id="trade-gap-relation-label">Relation to liquidity</InputLabel><Select id="trade-gap-relation" labelId="trade-gap-relation-label" label="Relation to liquidity" value={draft.gapRelationToLiquidity || ''} onChange={(event) => setDraft((current) => ({ ...current, gapRelationToLiquidity: (event.target.value || null) as BacktestingGapLiquidityRelation | null }))}><MenuItem value="">Unknown</MenuItem>{gapLiquidityRelations.map((item) => <MenuItem key={item} value={item}>{humanizeEnum(item)}</MenuItem>)}</Select></FormControl></Grid>
+              <Grid item xs={12}><TextField fullWidth multiline minRows={2} label="Gap confluence notes" value={draft.gapConfluenceNotes || ''} onChange={update('gapConfluenceNotes')} /></Grid>
+            </Grid>
+          </Collapse>
+          <Divider />
+          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Evidence & Notes</Typography>
+          <Grid container spacing={1.25}>
             <Grid item xs={12}><TextField fullWidth multiline minRows={3} label="Notes" value={draft.notes || ''} onChange={update('notes')} /></Grid>
           </Grid>
           {screenshots.length > 0 && <Typography variant="caption" color="text.secondary">Attach screenshots after saving from Evidence & Notes.</Typography>}
         </Stack>
       </DialogContent>
       <DialogActions><Button onClick={onClose}>Cancel</Button><Button variant="contained" onClick={onSave} disabled={saving}>Save trade</Button></DialogActions>
+    </Dialog>
+  )
+}
+
+function TradeDetailDialog({ open, trade, strategies, onClose, onEdit }: { open: boolean; trade: BacktestingTrade | null; strategies: StrategyResponse[]; onClose: () => void; onEdit: (trade: BacktestingTrade) => void }) {
+  if (!trade) return null
+  const rows = (values: Array<[string, unknown]>) => values.map(([label, value]) => <Grid item xs={6} sm={4} key={label}><Typography variant="caption" color="text.secondary">{label}</Typography><Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{value === null || value === undefined || value === '' ? '-' : String(value)}</Typography></Grid>)
+  return (
+    <Dialog open={open} onClose={onClose} fullWidth maxWidth="md" scroll="paper">
+      <DialogTitle>Trade details</DialogTitle>
+      <DialogContent dividers><Stack spacing={2}>
+        <Box><Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>Trade Summary</Typography><Grid container spacing={1}>{rows([['Date', trade.date], ['Time', trade.entryTime?.slice(0, 5)], ['Instrument', trade.instrument], ['Direction', trade.direction], ['Session', trade.session], ['Setup', trade.setupName], ['Result', trade.result], ['P&L(R)', rValue(trade.pnlR)], ['Risk %', trade.riskPercent], ['Planned R:R', trade.plannedRR]])}</Grid></Box>
+        <Divider />
+        <Box><Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>Strategy Link</Typography><StrategyBadge trade={trade} strategies={strategies} /></Box>
+        <Divider />
+        <Box><Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>Market Context</Typography><Grid container spacing={1}>{rows([['Context TF', trade.contextTimeframe], ['Execution TF', trade.executionTimeframe], ['Entry TF', trade.entryTimeframe], ['Tags', (trade.tags || []).join(', ')]])}</Grid></Box>
+        <Divider />
+        <Box><Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>Gap / Fair Value Gap</Typography>{!trade.gapPresent ? <Typography variant="body2" color="text.secondary">No gap data logged.</Typography> : <Grid container spacing={1}>{rows([['Type', trade.gapType && humanizeEnum(trade.gapType)], ['Timeframe', trade.gapTimeframe], ['Created', trade.gapCreatedAt], ['Mitigated', trade.gapMitigatedAt], ['High', trade.gapHigh], ['Low', trade.gapLow], ['Midpoint / CE', trade.gapMidpoint], ['Size points/pips', trade.gapSizePoints], ['Size %', trade.gapSizePercent], ['Entry position %', trade.gapEntryPositionPercent], ['Fill status', trade.gapFillStatus && humanizeEnum(trade.gapFillStatus)], ['Liquidity relation', trade.gapRelationToLiquidity && humanizeEnum(trade.gapRelationToLiquidity)], ['Confluence notes', trade.gapConfluenceNotes]])}</Grid>}</Box>
+        <Divider />
+        <Box><Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Evidence</Typography><Typography variant="body2">{trade.screenshotCount || 0} linked screenshots</Typography></Box>
+        <Box><Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Notes</Typography><Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>{trade.notes || 'No notes.'}</Typography></Box>
+      </Stack></DialogContent>
+      <DialogActions><Button onClick={onClose}>Close</Button><Button variant="contained" startIcon={<EditRoundedIcon />} onClick={() => onEdit(trade)}>Edit trade</Button></DialogActions>
     </Dialog>
   )
 }
@@ -1723,6 +1933,22 @@ function tradeToPayload(trade: BacktestingTrade): BacktestingTradePayload {
     session: trade.session || '',
     setupName: trade.setupName || '',
     strategyId: trade.strategyId || null,
+    strategySource: trade.strategySource || null,
+    strategyNameSnapshot: trade.strategyNameSnapshot || '',
+    gapPresent: Boolean(trade.gapPresent),
+    gapType: trade.gapType || null,
+    gapTimeframe: trade.gapTimeframe || '',
+    gapCreatedAt: trade.gapCreatedAt || '',
+    gapMitigatedAt: trade.gapMitigatedAt || '',
+    gapHigh: trade.gapHigh ?? null,
+    gapLow: trade.gapLow ?? null,
+    gapMidpoint: trade.gapMidpoint ?? null,
+    gapSizePoints: trade.gapSizePoints ?? null,
+    gapSizePercent: trade.gapSizePercent ?? null,
+    gapEntryPositionPercent: trade.gapEntryPositionPercent ?? null,
+    gapFillStatus: trade.gapFillStatus || null,
+    gapRelationToLiquidity: trade.gapRelationToLiquidity || null,
+    gapConfluenceNotes: trade.gapConfluenceNotes || '',
     riskPercent: trade.riskPercent ?? null,
     plannedRR: trade.plannedRR ?? null,
     result: trade.result,
@@ -1759,6 +1985,13 @@ function applyFilters(trades: BacktestingTrade[], filters: FilterState, screensh
     if (filters.session && (trade.session || '').toLowerCase() !== filters.session.toLowerCase()) return false
     if (filters.setup && !(trade.setupName || '').toLowerCase().includes(filters.setup.toLowerCase())) return false
     if (filters.result && trade.result !== filters.result) return false
+    if (filters.strategyId && trade.strategyId !== filters.strategyId) return false
+    if (filters.strategySource && trade.strategySource !== filters.strategySource) return false
+    if (filters.gapPresent === 'YES' && !trade.gapPresent) return false
+    if (filters.gapPresent === 'NO' && trade.gapPresent) return false
+    if (filters.gapType && trade.gapType !== filters.gapType) return false
+    if (filters.gapTimeframe && (trade.gapTimeframe || '').toLowerCase() !== filters.gapTimeframe.toLowerCase()) return false
+    if (filters.gapFillStatus && trade.gapFillStatus !== filters.gapFillStatus) return false
     const time = trade.entryTime?.slice(0, 5) || ''
     if (filters.timeFrom && time < filters.timeFrom) return false
     if (filters.timeTo && time > filters.timeTo) return false
@@ -1835,6 +2068,13 @@ function buildBreakdowns(trades: BacktestingTrade[], baseline: BacktestingMetric
     setup: groupRows('setup', trades, baseline, (trade) => trade.setupName || 'Unspecified', (label) => ({ setup: label })),
     direction: groupRows('direction', trades, baseline, (trade) => trade.direction, (label) => ({ direction: label })),
     timeframe: groupRows('timeframe', trades, baseline, (trade) => `${trade.contextTimeframe || '-'} / ${trade.executionTimeframe || '-'} / ${trade.entryTimeframe || '-'}`, (label) => ({ timeframeSet: label })),
+    strategy: groupRows('strategy', trades, baseline, (trade) => trade.strategyNameSnapshot || 'Unlinked', (label) => ({ strategyName: label })),
+    strategySource: groupRows('strategySource', trades, baseline, (trade) => trade.strategySource || 'Unlinked', (label) => ({ strategySource: label })),
+    gapPresent: groupRows('gapPresent', trades, baseline, (trade) => trade.gapPresent ? 'Gap/FVG' : 'No gap', (label) => ({ gapPresent: label === 'Gap/FVG' ? 'YES' : 'NO' })),
+    gapType: groupRows('gapType', trades, baseline, (trade) => trade.gapPresent ? trade.gapType || 'Unspecified' : 'No gap', (label) => ({ gapType: label })),
+    gapTimeframe: groupRows('gapTimeframe', trades, baseline, (trade) => trade.gapPresent ? trade.gapTimeframe || 'Unspecified' : 'No gap', (label) => ({ gapTimeframe: label })),
+    gapFillStatus: groupRows('gapFillStatus', trades, baseline, (trade) => trade.gapPresent ? trade.gapFillStatus || 'Unspecified' : 'No gap', (label) => ({ gapFillStatus: label })),
+    gapEntryPosition: groupRows('gapEntryPosition', trades.filter((trade) => trade.gapEntryPositionPercent != null), baseline, (trade) => gapEntryBucket(trade.gapEntryPositionPercent!), (label) => ({ gapEntryPosition: label })),
     custom
   }
 }
@@ -1888,6 +2128,13 @@ function halfHourBucket(trade: BacktestingTrade) {
   return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}-${String(endHour).padStart(2, '0')}:${String(endMinute).padStart(2, '0')}`
 }
 
+function gapEntryBucket(value: number) {
+  if (value < 25) return '0-24%'
+  if (value < 50) return '25-49%'
+  if (value < 75) return '50-74%'
+  return '75-100%'
+}
+
 function activeFilterChips(filters: FilterState) {
   return (Object.keys(filters) as Array<keyof FilterState>)
     .filter((key) => filters[key])
@@ -1927,6 +2174,12 @@ function labelForKey(key: string) {
     session: 'Session',
     setup: 'Setup',
     result: 'Result',
+    strategyId: 'Strategy',
+    strategySource: 'Strategy source',
+    gapPresent: 'Gap/FVG',
+    gapType: 'Gap type',
+    gapTimeframe: 'Gap timeframe',
+    gapFillStatus: 'Gap fill status',
     timeFrom: 'After',
     timeTo: 'Before',
     weekday: 'Weekday',

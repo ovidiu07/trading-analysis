@@ -4,6 +4,11 @@ import com.tradevault.domain.enums.BacktestingTradeDirection;
 import com.tradevault.domain.enums.BacktestingTradeResult;
 import com.tradevault.domain.enums.BacktestingTradeScope;
 import com.tradevault.domain.enums.BacktestingTradeSource;
+import com.tradevault.domain.enums.BacktestingGapFillStatus;
+import com.tradevault.domain.enums.BacktestingGapLiquidityRelation;
+import com.tradevault.domain.enums.BacktestingGapType;
+import jakarta.validation.constraints.DecimalMax;
+import jakarta.validation.constraints.DecimalMin;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
 import lombok.Data;
@@ -27,6 +32,24 @@ public class BacktestingTradeRequest {
     private String session;
     private String setupName;
     private UUID strategyId;
+    private String strategySource;
+    private String strategyNameSnapshot;
+    private boolean gapPresent;
+    private BacktestingGapType gapType;
+    private String gapTimeframe;
+    private LocalTime gapCreatedAt;
+    private LocalTime gapMitigatedAt;
+    private BigDecimal gapHigh;
+    private BigDecimal gapLow;
+    private BigDecimal gapMidpoint;
+    private BigDecimal gapSizePoints;
+    @DecimalMin("0")
+    private BigDecimal gapSizePercent;
+    @DecimalMin("0") @DecimalMax("100")
+    private BigDecimal gapEntryPositionPercent;
+    private BacktestingGapFillStatus gapFillStatus;
+    private BacktestingGapLiquidityRelation gapRelationToLiquidity;
+    private String gapConfluenceNotes;
     private BigDecimal riskPercent;
     private BigDecimal plannedRR;
     @NotNull

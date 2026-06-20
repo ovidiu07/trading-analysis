@@ -210,7 +210,20 @@ describe('BacktestingPage', () => {
           archived: false
         }
       ],
-      mentorStrategies: []
+      mentorStrategies: [
+        {
+          id: 'mentor-strategy-1',
+          source: 'MENTOR',
+          name: 'Mentor London FVG',
+          model: 'Liquidity + MSS + FVG',
+          entryConditions: ['External sweep'],
+          invalidationLogic: 'Close through origin',
+          tpFramework: 'Opposing liquidity',
+          sessionSuitability: ['London'],
+          tags: ['fvg'],
+          archived: false
+        }
+      ]
     })
   })
 
@@ -238,5 +251,20 @@ describe('BacktestingPage', () => {
 
     expect(await screen.findByText('Result is WIN but P&L(R) is negative. You can save it, but check the row.')).toBeInTheDocument()
     expect(backtestingApiMock.createBacktestingTrade).not.toHaveBeenCalled()
+  })
+
+  it('exposes optional strategy and structured Gap/FVG fields', async () => {
+    renderBacktestingPage()
+
+    await screen.findByText('Latest evidence')
+    await userEvent.click(screen.getByRole('button', { name: /Quick add trade/i }))
+    expect(await screen.findByRole('combobox', { name: /Linked Strategy/i })).toBeInTheDocument()
+
+    await userEvent.click(screen.getByLabelText('Gap/FVG used?'))
+    await userEvent.click(await screen.findByRole('option', { name: 'Yes' }))
+
+    expect(await screen.findByRole('combobox', { name: /Gap type/i })).toBeInTheDocument()
+    expect(screen.getByRole('spinbutton', { name: /Entry inside gap/i })).toHaveAttribute('max', '100')
+    expect(screen.getByRole('textbox', { name: /Gap confluence notes/i })).toBeInTheDocument()
   })
 })

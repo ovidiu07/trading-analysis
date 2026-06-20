@@ -30,6 +30,13 @@ const string OVERLAP_MODE_HORIZONTAL = "Horizontal Stagger"
 const string HTF_FVG_DISPLAY_NEAREST = "Nearest Active"
 const string HTF_FVG_DISPLAY_LATEST = "Latest Active"
 const string HTF_FVG_DISPLAY_ALL = "All Active"
+const string HTF_FVG_MITIGATION_HTF_CLOSE = "HTF Close Through Far Side"
+const string HTF_FVG_MITIGATION_CHART_CLOSE = "Chart Close Through Far Side"
+const string HTF_FVG_MITIGATION_WICK_TOUCH = "Wick Touch"
+const string HTF_FVG_TEXT_TF_ONLY = "TF Only"
+const string HTF_FVG_TEXT_DIRECTION_TF = "Direction + TF"
+const string HTF_FVG_TEXT_PREFIX_TF = "Prefix + TF"
+const string HTF_FVG_TEXT_CUSTOM = "Custom"
 
 const string FIRST_SESSION_GROUP = "First Session"
 showFirstSession         = input.bool(true, "Show session", group = FIRST_SESSION_GROUP)
@@ -83,12 +90,19 @@ sessionLevelsWidth = input.int(1, "Line Width", minval = 1, group = groupSession
 showHtfFvgBlocks       = input.bool(false, "Show HTF FVG Blocks", group = groupHTFFVG)
 htfFvgTimeframesInput  = input.string("15,60,240", "HTF FVG Timeframes", group = groupHTFFVG, active = showHtfFvgBlocks, tooltip = "Comma-separated TradingView timeframe strings. Example: 15,60,240,D")
 htfFvgRightOffsetBars  = input.int(20, "Right Offset Bars", minval = 1, group = groupHTFFVG, active = showHtfFvgBlocks)
-htfFvgBlockWidth       = input.int(8, "Block Width", minval = 1, group = groupHTFFVG, active = showHtfFvgBlocks)
+htfFvgResponsiveBlocks = input.bool(true, "Responsive Block Width", group = groupHTFFVG, active = showHtfFvgBlocks)
+htfFvgBlockWidth       = input.int(8, "Manual Block Width", minval = 1, group = groupHTFFVG, active = showHtfFvgBlocks and not htfFvgResponsiveBlocks)
 overlapSpacingMode = input.string("Horizontal Stagger", "Overlapping FVG Display Mode", options = ["Vertical Offset", "Horizontal Stagger"], group = groupRightFVG, active = showHtfFvgBlocks)
 overlapVerticalSpacingTicks = input.int(20, "Overlap Vertical Spacing In Ticks", minval = 0, group = groupRightFVG, active = showHtfFvgBlocks)
 overlapHorizontalSpacingBars = input.int(3, "Overlap Horizontal Spacing In Bars", minval = 0, group = groupRightFVG, active = showHtfFvgBlocks)
 htfFvgDisplayMode      = input.string(HTF_FVG_DISPLAY_ALL, "HTF FVG Display Mode", options = [HTF_FVG_DISPLAY_NEAREST, HTF_FVG_DISPLAY_LATEST, HTF_FVG_DISPLAY_ALL], group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgMaxPerTimeframe  = input.int(10, "Max Gaps Per Timeframe", minval = 1, maxval = HTF_FVG_MAX_PER_TIMEFRAME, group = groupHTFFVG, active = showHtfFvgBlocks and htfFvgDisplayMode == HTF_FVG_DISPLAY_ALL)
+htfFvgMitigationMode   = input.string(HTF_FVG_MITIGATION_HTF_CLOSE, "Mitigation Mode", options = [HTF_FVG_MITIGATION_HTF_CLOSE, HTF_FVG_MITIGATION_CHART_CLOSE, HTF_FVG_MITIGATION_WICK_TOUCH], group = groupHTFFVG, active = showHtfFvgBlocks)
+htfFvgTextMode         = input.string(HTF_FVG_TEXT_TF_ONLY, "Box Text", options = [HTF_FVG_TEXT_TF_ONLY, HTF_FVG_TEXT_DIRECTION_TF, HTF_FVG_TEXT_PREFIX_TF, HTF_FVG_TEXT_CUSTOM], group = groupHTFFVG, active = showHtfFvgBlocks)
+htfFvgTextPrefix       = input.string("GAP", "Text Prefix", group = groupHTFFVG, active = showHtfFvgBlocks and htfFvgTextMode == HTF_FVG_TEXT_PREFIX_TF)
+htfFvgCustomText       = input.string("", "Custom Box Text", group = groupHTFFVG, active = showHtfFvgBlocks and htfFvgTextMode == HTF_FVG_TEXT_CUSTOM, tooltip = "Use {tf}, {dir}, and {prefix} as optional placeholders.")
+showHtfFvgDistance     = input.bool(false, "Show Distance To Price", group = groupHTFFVG, active = showHtfFvgBlocks)
+htfFvgMinDistanceTicks = input.int(0, "Minimum Distance From Price In Ticks", minval = 0, group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgThresholdPercent = input.float(0.0, "Threshold %", minval = 0.0, maxval = 100.0, step = 0.1, inline = "htfFvgThreshold", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgThresholdAuto    = input.bool(true, "Auto", inline = "htfFvgThreshold", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgBullBgColor      = input.color(color.new(#2962FF, 85), "Bullish FVG Background Color", group = groupHTFFVG, active = showHtfFvgBlocks)
@@ -96,7 +110,6 @@ htfFvgBearBgColor      = input.color(color.new(#f23645, 85), "Bearish FVG Backgr
 htfFvgBorderColor      = input.color(color.new(#787B86, 70), "Border Color", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgBorderWidth      = input.int(1, "Border Width", minval = 0, maxval = 3, group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgTextSizeInput    = input.string("Small", "Text Size", options = ["Tiny", "Small", "Normal"], group = groupHTFFVG, active = showHtfFvgBlocks)
-htfFvgTextPrefix       = input.string("GAP", "Text Prefix", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgAutoTextColor    = input.bool(true, "Auto Text Color", group = groupHTFFVG, active = showHtfFvgBlocks)
 htfFvgManualTextColor  = input.color(color.white, "Manual Text Color", group = groupHTFFVG, active = showHtfFvgBlocks and not htfFvgAutoTextColor)
 htfFvgDebugMode        = input.bool(false, "Debug HTF Gap Engine", group = groupHTFFVG, active = showHtfFvgBlocks)
@@ -325,6 +338,20 @@ f_getTextSize(string textSizeInput) =>
 f_gapDistance(float zoneTop, float zoneBottom, float referencePrice) =>
     referencePrice > zoneTop ? referencePrice - zoneTop : referencePrice < zoneBottom ? zoneBottom - referencePrice : 0.0
 
+// Visual-only filter: records stay active internally, but very close zones can be hidden to reduce right-side clutter.
+f_htfFvgPassesDistanceFilter(float zoneTop, float zoneBottom, float referencePrice) =>
+    htfFvgMinDistanceTicks <= 0 or f_gapDistance(zoneTop, zoneBottom, referencePrice) >= htfFvgMinDistanceTicks * syminfo.mintick
+
+f_isHtfFvgMitigated(HtfFvgRecord rec, float htfClose) =>
+    bool mitigated = false
+    if htfFvgMitigationMode == HTF_FVG_MITIGATION_HTF_CLOSE
+        mitigated := not na(htfClose) and (rec.isBull ? htfClose < rec.min : htfClose > rec.max)
+    else if htfFvgMitigationMode == HTF_FVG_MITIGATION_CHART_CLOSE
+        mitigated := rec.isBull ? close < rec.min : close > rec.max
+    else
+        mitigated := rec.isBull ? low <= rec.min : high >= rec.max
+    mitigated
+
 f_htfFvgThreshold() =>
     htfFvgThresholdAuto ? (bar_index > 0 ? ta.cum((high - low) / low) / bar_index : 0.0) : htfFvgThresholdPercent / 100.0
 
@@ -335,7 +362,7 @@ f_htfFvgDetectPayload() =>
     bool bearFvg = high < low[2] and close[1] < low[2] and (low[2] - high) / high > threshold
     float recordMax = bullFvg ? low : bearFvg ? low[2] : na
     float recordMin = bullFvg ? high[2] : bearFvg ? high : na
-    [bullFvg, bearFvg, recordMax, recordMin, time, time[2], bar_index]
+    [bullFvg, bearFvg, recordMax, recordMin, time, time[2], bar_index, close]
 
 f_findHtfFvgRecord(string tf, int sourceTime) =>
     int foundIndex = na
@@ -375,6 +402,15 @@ f_countHtfFvgActiveForTf(string tf) =>
                 activeCount += 1
     activeCount
 
+f_findStringIndex(array<string> values, string needle) =>
+    int foundIndex = na
+    if array.size(values) > 0
+        for i = 0 to array.size(values) - 1
+            if array.get(values, i) == needle
+                foundIndex := i
+                break
+    foundIndex
+
 f_clearHtfFvgObjects() =>
     while array.size(htfFvgBoxes) > 0
         box.delete(array.pop(htfFvgBoxes))
@@ -392,7 +428,37 @@ f_getOverlapIndex(float newTop, float newBottom, array<float> drawnTops, array<f
                 overlapIndex += 1
     overlapIndex
 
-f_resolveFvgDisplay(float zoneTop, float zoneBottom, int overlapIndex) =>
+f_htfFvgBlockText(string tf, bool isBullish, float distanceToPrice) =>
+    string tfText = f_formatTfLabel(tf)
+    string directionText = isBullish ? "BULL" : "BEAR"
+    string blockText = tfText
+    if htfFvgTextMode == HTF_FVG_TEXT_DIRECTION_TF
+        blockText := directionText + " " + tfText
+    else if htfFvgTextMode == HTF_FVG_TEXT_PREFIX_TF
+        blockText := htfFvgTextPrefix + " " + tfText
+    else if htfFvgTextMode == HTF_FVG_TEXT_CUSTOM
+        string customText = str.length(str.trim(htfFvgCustomText)) > 0 ? htfFvgCustomText : tfText
+        customText := str.replace_all(customText, "{tf}", tfText)
+        customText := str.replace_all(customText, "{dir}", directionText)
+        customText := str.replace_all(customText, "{prefix}", htfFvgTextPrefix)
+        blockText := customText
+    blockText := showHtfFvgDistance ? blockText + "\n" + str.tostring(distanceToPrice, format.mintick) + " pts" : blockText
+    blockText
+
+f_htfFvgLongestTextLine(string blockText) =>
+    int longestLine = 0
+    array<string> textLines = str.split(blockText, "\n")
+    if array.size(textLines) > 0
+        for i = 0 to array.size(textLines) - 1
+            longestLine := math.max(longestLine, str.length(array.get(textLines, i)))
+    longestLine
+
+f_htfFvgResponsiveWidth(string blockText) =>
+    int textLength = f_htfFvgLongestTextLine(blockText)
+    int fittedWidth = int(math.ceil(textLength / 3.0))
+    htfFvgResponsiveBlocks ? math.max(4, math.min(18, fittedWidth)) : htfFvgBlockWidth
+
+f_resolveFvgDisplay(float zoneTop, float zoneBottom, int overlapIndex, int blockWidthBars) =>
     float displayTop = zoneTop
     float displayBottom = zoneBottom
     int horizontalOffsetBars = 0
@@ -401,14 +467,14 @@ f_resolveFvgDisplay(float zoneTop, float zoneBottom, int overlapIndex) =>
         displayTop := zoneTop - verticalOffset
         displayBottom := zoneBottom - verticalOffset
     else
-        horizontalOffsetBars := overlapIndex * overlapHorizontalSpacingBars
+        int maxHorizontalOffset = math.max(0, 499 - htfFvgRightOffsetBars - blockWidthBars)
+        horizontalOffsetBars := math.min(overlapIndex * overlapHorizontalSpacingBars, maxHorizontalOffset)
     [displayTop, displayBottom, horizontalOffsetBars]
 
-f_drawHtfFvgBlock(string tf, bool isBullish, float zoneTop, float zoneBottom, int horizontalOffsetBars, color textColor, string textSize) =>
+f_drawHtfFvgBlock(float zoneTop, float zoneBottom, int horizontalOffsetBars, color textColor, string textSize, string blockText, int blockWidthBars, bool isBullish) =>
     int leftBar = math.min(bar_index + htfFvgRightOffsetBars + horizontalOffsetBars, bar_index + 499)
-    int rightBar = math.min(leftBar + htfFvgBlockWidth, bar_index + 500)
+    int rightBar = math.min(leftBar + blockWidthBars, bar_index + 500)
     color blockColor = isBullish ? htfFvgBullBgColor : htfFvgBearBgColor
-    string blockText = htfFvgTextPrefix + " " + f_formatTfLabel(tf)
     box fvgBox = box.new(left = leftBar, top = zoneTop, right = rightBar, bottom = zoneBottom, xloc = xloc.bar_index, bgcolor = blockColor, border_color = htfFvgBorderColor, border_width = htfFvgBorderWidth, text = blockText, text_color = textColor, text_size = textSize, text_halign = text.align_center, text_valign = text.align_center)
     array.push(htfFvgBoxes, fvgBox)
 
@@ -741,27 +807,32 @@ array<float> htfFvgDebugDrawnTops = array.new<float>()
 array<float> htfFvgDebugDrawnBottoms = array.new<float>()
 array<int> htfFvgDebugDrawnSources = array.new<int>()
 array<int> htfFvgDebugDrawnOverlaps = array.new<int>()
+array<string> htfFvgDebugTfCloseTfs = array.new<string>()
+array<float> htfFvgDebugTfCloses = array.new<float>()
+array<int> htfFvgDebugTfRemovedCounts = array.new<int>()
 color htfFvgTextColor = htfFvgAutoTextColor ? chart.fg_color : htfFvgManualTextColor
 string htfFvgTextSize = f_getTextSize(htfFvgTextSizeInput)
 
 if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
     for i = 0 to array.size(htfFvgTimeframes) - 1
         string htfTf = array.get(htfFvgTimeframes, i)
-        [htfBullRaw, htfBearRaw, htfMaxRaw, htfMinRaw, htfSourceTimeRaw, htfAnchorTimeRaw, htfSourceBarIndexRaw] = request.security(syminfo.tickerid, htfTf, f_htfFvgDetectPayload(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
+        [htfBullRaw, htfBearRaw, htfMaxRaw, htfMinRaw, htfSourceTimeRaw, htfAnchorTimeRaw, htfSourceBarIndexRaw, htfCloseRaw] = request.security(syminfo.tickerid, htfTf, f_htfFvgDetectPayload(), gaps = barmerge.gaps_off, lookahead = barmerge.lookahead_off)
         bool htfNewSignal = (htfBullRaw or htfBearRaw) and not na(htfSourceTimeRaw) and not f_htfFvgSourceSeen(htfTf, htfSourceTimeRaw)
         if htfNewSignal
             HtfFvgRecord newRecord = HtfFvgRecord.new(htfMaxRaw, htfMinRaw, htfBullRaw, htfSourceTimeRaw, htfAnchorTimeRaw, htfSourceBarIndexRaw, htfTf)
             array.unshift(htfFvgActiveRecords, newRecord)
             f_markHtfFvgSourceSeen(htfTf, htfSourceTimeRaw)
             f_trimHtfFvgRecords()
-
-// Mirrors devtrader-chart.pine mitigation: active gaps are removed only after chart price closes through the far side.
-if array.size(htfFvgActiveRecords) > 0
-    for i = array.size(htfFvgActiveRecords) - 1 to 0
-        HtfFvgRecord rec = array.get(htfFvgActiveRecords, i)
-        bool mitigated = rec.isBull ? close < rec.min : close > rec.max
-        if mitigated
-            array.remove(htfFvgActiveRecords, i)
+        int removedForTf = 0
+        if array.size(htfFvgActiveRecords) > 0
+            for recordIndex = array.size(htfFvgActiveRecords) - 1 to 0
+                HtfFvgRecord rec = array.get(htfFvgActiveRecords, recordIndex)
+                if rec.sourceTf == htfTf and f_isHtfFvgMitigated(rec, htfCloseRaw)
+                    array.remove(htfFvgActiveRecords, recordIndex)
+                    removedForTf += 1
+        array.push(htfFvgDebugTfCloseTfs, htfTf)
+        array.push(htfFvgDebugTfCloses, htfCloseRaw)
+        array.push(htfFvgDebugTfRemovedCounts, removedForTf)
 
 if barstate.islast
     f_clearHtfFvgObjects()
@@ -777,7 +848,7 @@ if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
                 if recordCount > 0
                     for recordIndex = 0 to recordCount - 1
                         HtfFvgRecord candidate = array.get(htfFvgActiveRecords, recordIndex)
-                        if candidate.sourceTf == htfTf and not na(candidate.max) and not na(candidate.min)
+                        if candidate.sourceTf == htfTf and not na(candidate.max) and not na(candidate.min) and f_htfFvgPassesDistanceFilter(candidate.max, candidate.min, close)
                             float candidateDistance = f_gapDistance(candidate.max, candidate.min, close)
                             if na(bestDistance) or candidateDistance < bestDistance
                                 bestRecordIndex := recordIndex
@@ -785,8 +856,11 @@ if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
                 if not na(bestRecordIndex) and array.size(htfFvgBoxes) < 500
                     HtfFvgRecord best = array.get(htfFvgActiveRecords, bestRecordIndex)
                     int bestOverlapIndex = f_getOverlapIndex(best.max, best.min, htfFvgDrawnTops, htfFvgDrawnBottoms)
-                    [bestDisplayTop, bestDisplayBottom, bestHorizontalOffsetBars] = f_resolveFvgDisplay(best.max, best.min, bestOverlapIndex)
-                    f_drawHtfFvgBlock(htfTf, best.isBull, bestDisplayTop, bestDisplayBottom, bestHorizontalOffsetBars, htfFvgTextColor, htfFvgTextSize)
+                    float bestDistanceToPrice = f_gapDistance(best.max, best.min, close)
+                    string bestBlockText = f_htfFvgBlockText(htfTf, best.isBull, bestDistanceToPrice)
+                    int bestBlockWidthBars = f_htfFvgResponsiveWidth(bestBlockText)
+                    [bestDisplayTop, bestDisplayBottom, bestHorizontalOffsetBars] = f_resolveFvgDisplay(best.max, best.min, bestOverlapIndex, bestBlockWidthBars)
+                    f_drawHtfFvgBlock(bestDisplayTop, bestDisplayBottom, bestHorizontalOffsetBars, htfFvgTextColor, htfFvgTextSize, bestBlockText, bestBlockWidthBars, best.isBull)
                     array.push(htfFvgDrawnTops, best.max)
                     array.push(htfFvgDrawnBottoms, best.min)
                     array.push(htfFvgOverlapCounts, bestOverlapIndex)
@@ -802,10 +876,13 @@ if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
                 if recordCount > 0
                     for recordIndex = 0 to recordCount - 1
                         HtfFvgRecord latest = array.get(htfFvgActiveRecords, recordIndex)
-                        if not latestDrawn and latest.sourceTf == htfTf and not na(latest.max) and not na(latest.min) and array.size(htfFvgBoxes) < 500
+                        if not latestDrawn and latest.sourceTf == htfTf and not na(latest.max) and not na(latest.min) and f_htfFvgPassesDistanceFilter(latest.max, latest.min, close) and array.size(htfFvgBoxes) < 500
                             int latestOverlapIndex = f_getOverlapIndex(latest.max, latest.min, htfFvgDrawnTops, htfFvgDrawnBottoms)
-                            [latestDisplayTop, latestDisplayBottom, latestHorizontalOffsetBars] = f_resolveFvgDisplay(latest.max, latest.min, latestOverlapIndex)
-                            f_drawHtfFvgBlock(htfTf, latest.isBull, latestDisplayTop, latestDisplayBottom, latestHorizontalOffsetBars, htfFvgTextColor, htfFvgTextSize)
+                            float latestDistanceToPrice = f_gapDistance(latest.max, latest.min, close)
+                            string latestBlockText = f_htfFvgBlockText(htfTf, latest.isBull, latestDistanceToPrice)
+                            int latestBlockWidthBars = f_htfFvgResponsiveWidth(latestBlockText)
+                            [latestDisplayTop, latestDisplayBottom, latestHorizontalOffsetBars] = f_resolveFvgDisplay(latest.max, latest.min, latestOverlapIndex, latestBlockWidthBars)
+                            f_drawHtfFvgBlock(latestDisplayTop, latestDisplayBottom, latestHorizontalOffsetBars, htfFvgTextColor, htfFvgTextSize, latestBlockText, latestBlockWidthBars, latest.isBull)
                             array.push(htfFvgDrawnTops, latest.max)
                             array.push(htfFvgDrawnBottoms, latest.min)
                             array.push(htfFvgOverlapCounts, latestOverlapIndex)
@@ -822,10 +899,13 @@ if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
                 if recordCount > 0
                     for recordIndex = 0 to recordCount - 1
                         HtfFvgRecord multi = array.get(htfFvgActiveRecords, recordIndex)
-                        if drawnForTimeframe < htfFvgMaxPerTimeframe and multi.sourceTf == htfTf and not na(multi.max) and not na(multi.min) and array.size(htfFvgBoxes) < 500
+                        if drawnForTimeframe < htfFvgMaxPerTimeframe and multi.sourceTf == htfTf and not na(multi.max) and not na(multi.min) and f_htfFvgPassesDistanceFilter(multi.max, multi.min, close) and array.size(htfFvgBoxes) < 500
                             int multiOverlapIndex = f_getOverlapIndex(multi.max, multi.min, htfFvgDrawnTops, htfFvgDrawnBottoms)
-                            [multiDisplayTop, multiDisplayBottom, multiHorizontalOffsetBars] = f_resolveFvgDisplay(multi.max, multi.min, multiOverlapIndex)
-                            f_drawHtfFvgBlock(htfTf, multi.isBull, multiDisplayTop, multiDisplayBottom, multiHorizontalOffsetBars, htfFvgTextColor, htfFvgTextSize)
+                            float multiDistanceToPrice = f_gapDistance(multi.max, multi.min, close)
+                            string multiBlockText = f_htfFvgBlockText(htfTf, multi.isBull, multiDistanceToPrice)
+                            int multiBlockWidthBars = f_htfFvgResponsiveWidth(multiBlockText)
+                            [multiDisplayTop, multiDisplayBottom, multiHorizontalOffsetBars] = f_resolveFvgDisplay(multi.max, multi.min, multiOverlapIndex, multiBlockWidthBars)
+                            f_drawHtfFvgBlock(multiDisplayTop, multiDisplayBottom, multiHorizontalOffsetBars, htfFvgTextColor, htfFvgTextSize, multiBlockText, multiBlockWidthBars, multi.isBull)
                             array.push(htfFvgDrawnTops, multi.max)
                             array.push(htfFvgDrawnBottoms, multi.min)
                             array.push(htfFvgOverlapCounts, multiOverlapIndex)
@@ -840,13 +920,12 @@ if showHtfFvgBlocks and array.size(htfFvgTimeframes) > 0
 if barstate.islast
     table.clear(htfFvgDebugTable, 0, 0, 5, 29)
     if showHtfFvgBlocks and htfFvgDebugMode
-        string maxText = htfFvgDisplayMode == HTF_FVG_DISPLAY_ALL ? str.tostring(htfFvgMaxPerTimeframe) : "1"
         table.cell(htfFvgDebugTable, 0, 0, "TF", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
         table.cell(htfFvgDebugTable, 1, 0, "Active", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
         table.cell(htfFvgDebugTable, 2, 0, "Drawn", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
-        table.cell(htfFvgDebugTable, 3, 0, htfFvgDisplayMode, text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
-        table.cell(htfFvgDebugTable, 4, 0, "Max " + maxText, text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
-        table.cell(htfFvgDebugTable, 5, 0, "Idx/Ovl", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+        table.cell(htfFvgDebugTable, 3, 0, "Removed", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+        table.cell(htfFvgDebugTable, 4, 0, "HTF Close", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+        table.cell(htfFvgDebugTable, 5, 0, "Mode/Status", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
         int debugRow = 1
         if array.size(htfFvgTimeframes) > 0
             for i = 0 to array.size(htfFvgTimeframes) - 1
@@ -857,13 +936,25 @@ if barstate.islast
                     for drawnIndex = 0 to array.size(htfFvgDebugDrawnTfs) - 1
                         if array.get(htfFvgDebugDrawnTfs, drawnIndex) == htfTf
                             drawnCount += 1
+                int tfDebugIndex = f_findStringIndex(htfFvgDebugTfCloseTfs, htfTf)
+                float tfClose = not na(tfDebugIndex) ? array.get(htfFvgDebugTfCloses, tfDebugIndex) : na
+                int removedCount = not na(tfDebugIndex) ? array.get(htfFvgDebugTfRemovedCounts, tfDebugIndex) : 0
+                string filterStatus = activeCount > drawnCount ? "Filtered" : ""
                 table.cell(htfFvgDebugTable, 0, debugRow, f_formatTfLabel(htfTf), text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
                 table.cell(htfFvgDebugTable, 1, debugRow, str.tostring(activeCount), text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
                 table.cell(htfFvgDebugTable, 2, debugRow, str.tostring(drawnCount), text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
-                table.cell(htfFvgDebugTable, 3, debugRow, activeCount > drawnCount ? "Filtered" : "", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
-                table.cell(htfFvgDebugTable, 4, debugRow, "", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
-                table.cell(htfFvgDebugTable, 5, debugRow, "", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+                table.cell(htfFvgDebugTable, 3, debugRow, str.tostring(removedCount), text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+                table.cell(htfFvgDebugTable, 4, debugRow, str.tostring(tfClose, format.mintick), text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+                table.cell(htfFvgDebugTable, 5, debugRow, filterStatus, text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
                 debugRow += 1
+        if debugRow < 29
+            table.cell(htfFvgDebugTable, 0, debugRow, "Mitigation", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+            table.cell(htfFvgDebugTable, 1, debugRow, htfFvgMitigationMode, text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+            table.cell(htfFvgDebugTable, 2, debugRow, htfFvgDisplayMode, text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+            table.cell(htfFvgDebugTable, 3, debugRow, htfFvgDisplayMode == HTF_FVG_DISPLAY_ALL ? "Max " + str.tostring(htfFvgMaxPerTimeframe) : "Max 1", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+            table.cell(htfFvgDebugTable, 4, debugRow, htfFvgMinDistanceTicks > 0 ? "Min " + str.tostring(htfFvgMinDistanceTicks) + "t" : "No min", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+            table.cell(htfFvgDebugTable, 5, debugRow, showHtfFvgDistance ? "Dist on" : "Dist off", text_color = chart.fg_color, bgcolor = chart.bg_color, text_size = size.tiny)
+            debugRow += 1
         int detailCount = math.min(array.size(htfFvgDebugDrawnTfs), math.max(0, 29 - debugRow))
         if detailCount > 0
             for detailIndex = 0 to detailCount - 1
