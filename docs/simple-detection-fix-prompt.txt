@@ -1,0 +1,496 @@
+================================================================================
+SIMPLE DETECTION — FIX PROMPT (round 2)
+================================================================================
+
+CONTEXT
+-------
+File: backend/src/main/resources/pine/prod/devtrader-chart.pine
+
+The first refactor is in place (f_detectPivotSweep, waitRejectedS/L, Stage 3
+LTF MSS validation, Stage 4 entry trigger) but on live charts the stats row
+reads "Det 2 | Val 2 | Pend 0 | Ent 0" and the preview box spans a ~400pt
+range that wrecks chart auto-zoom. Diagnosis of the current code shows five
+distinct bugs that each have to be fixed.
+
+Symptoms from the screenshot:
+  - Det = 2 for a full month of NQ data (should be 30–80)
+  - LONG PLAN label at E=25293.50, SL=24892.25, TP=25356.25 (risk 401, reward
+    62, RR 0.16 — not an enterable plan)
+  - Dashboard rows contradict each other: "Sweep: Bearish LTF MSS | entry
+    armed" but "Timing: EXEC: LONG LTF_MSS" on the same render pass
+  - The big pink box covers roughly 24,880 → 25,280, matching the oversized
+    risk range of the LONG PLAN above (so the preview is accurate for the
+    broken stop, the stop itself is wrong)
+  - `Read: Blocked: HTF bias is strongly opposed` fires against a counter-HTF
+    short validation while the bull setup is armed
+
+All five problems are in the Pine file, not in the prompt logic. This prompt
+specifies exact replacements for each.
+
+
+================================================================================
+BUG A — f_detectPivotSweep is too narrow (Det is stuck at 2)
+================================================================================
+
+Where: lines 1995–2050 (approx). The current body:
+
+    bool taken = ref >= p and high[1] < p            // BSL
+    bool taken = ref <= p and low[1]  > p            // SSL
+
+Why it's wrong
+--------------
+This is a single-bar transition gate. It requires that the PREVIOUS bar's
+high was strictly below the pivot AND the current bar's high is at-or-above
+the pivot. In real price action pivot sweeps rarely happen in one bar:
+
+  - price creeps toward the level for 2–4 bars, then wicks through it
+  - `high[1]` is already == pivot or > pivot by the time the sweep prints
+  - first contact in a gradual approach is missed entirely
+  - the newest-first break also makes us return whichever pivot sits closest
+    to the current bar rather than the pivot whose sweep actually matters
+
+Fix
+---
+Replace the sweep detection with a "first-contact since confirmation" model:
+a pivot is "swept" the first bar its price is crossed, and once fired it is
+recorded so it cannot fire again. Use two new tracker variables to keep state.
+
+Add near the existing wait-state declarations (around line 1678, next to
+`var bool waitRejectedL = false`):
+
+    var int lastSweptPivotBarBSL = na
+    var int lastSweptPivotBarSSL = na
+
+Replace the whole body of `f_detectPivotSweep` (lines 1995–2050) with:
+
+    // Returns [pivotPrice, pivotBar, tier] for the most significant pivot
+    // the current bar just crossed for the first time since confirmation.
+    // Side: "BSL" = pivot high (for short setup), "SSL" = pivot low (for long setup).
+    f_detectPivotSweep(string side) =>
+        float hitPrice = na
+        int   hitBar   = na
+        string hitTier = ""
+        float ref = side == "BSL" ? high : low
+        int minBar = bar_index - sweepLookbackBars
+        float atrRef = math.max(nz(atrVal, syminfo.mintick * 20), syminfo.mintick * 10)
+        float depthLimit = atrRef * sweepMaxDepth * 3.0
+        int  lastSwept = side == "BSL" ? lastSweptPivotBarBSL : lastSweptPivotBarSSL
+
+        // 1) Try major pivots first (iterate newest -> oldest)
+        array<float> majorArr    = side == "BSL" ? majorHighPivotPrices : majorLowPivotPrices
+        array<int>   majorBarArr = side == "BSL" ? majorHighPivotBars   : majorLowPivotBars
+        if array.size(majorArr) > 0
+            for i = array.size(majorArr) - 1 to 0
+                float p = array.get(majorArr, i)
+                int   b = array.get(majorBarArr, i)
+                if b < minBar
+                    break
+                if not f_isConfirmedPivot(b)
+                    continue
+                if not na(lastSwept) and b <= lastSwept
+                    continue   // already fired for this pivot or older
+                bool depthOk = math.abs(close - p) <= depthLimit
+                bool taken = side == "BSL" ? ref >= p : ref <= p
+                if depthOk and taken
+                    hitPrice := p
+                    hitBar := b
+                    hitTier := "MAJOR"
+                    break
+
+        // 2) Fall through to minor pivots
+        if na(hitPrice)
+            array<float> minorArr    = side == "BSL" ? minorHighPivotPrices : minorLowPivotPrices
+            array<int>   minorBarArr = side == "BSL" ? minorHighPivotBars   : minorLowPivotBars
+            if array.size(minorArr) > 0
+                for i = array.size(minorArr) - 1 to 0
+                    float p = array.get(minorArr, i)
+                    int   b = array.get(minorBarArr, i)
+                    if b < minBar
+                        break
+                    if not f_isConfirmedPivot(b)
+                        continue
+                    if not na(lastSwept) and b <= lastSwept
+                        continue
+                    bool depthOk = math.abs(close - p) <= depthLimit
+                    bool taken = side == "BSL" ? ref >= p : ref <= p
+                    if depthOk and taken
+                        hitPrice := p
+                        hitBar := b
+                        hitTier := "MINOR"
+                        break
+        [hitPrice, hitBar, hitTier]
+
+Then update the arming blocks to record the sweep into the tracker so each
+pivot only fires once. Inside `if armShortNow` (line 3086), BEFORE the
+`setupsDetectedCount += 1` line, add:
+
+    lastSweptPivotBarBSL := bslSweepBar
+
+Inside `if armLongNow` (line 3107), BEFORE `setupsDetectedCount += 1`, add:
+
+    lastSweptPivotBarSSL := sslSweepBar
+
+NOTE: Pine Script v6 doesn't support `continue` inside `for` — if the
+compiler rejects it, rewrite as nested `if/else` chains. If the compiler
+accepts it, leave it.
+
+Expected impact: Det should jump from 2 to something like 30–80 on the same
+chart window.
+
+
+================================================================================
+BUG B — stops are pinned to the HTF sweep extreme, not the LTF MSS extreme
+================================================================================
+
+Where: Stage 3 at lines 3196–3227 (LTF MSS validation writes `waitExecEntry*`
+but NEVER updates `waitStopAnchor*`). Then at line 3389:
+
+    float shortStopCandidate = nz(waitStopAnchorS, f_resolveWaitStopAnchor(...))
+    float longStopCandidate  = nz(waitStopAnchorL, f_resolveWaitStopAnchor(...))
+
+`waitStopAnchor*` was stamped during Stage 1 (sweep arming) at lines 3092 and
+3113 as `math.max(high, bslSweepPrice + atrVal * 0.1)` — i.e. the HTF sweep
+extreme, which may be HUNDREDS of points away from the LTF MSS entry. Result:
+LONG PLAN at 25293 with stop at 24892 (400pt risk).
+
+Why the prompt missed it
+------------------------
+The original prompt told Stage 3 to stamp the entry price but left the stop
+logic untouched, assuming the wait stop anchor would get re-resolved. It
+doesn't. An LTF MSS entry needs its own LTF stop.
+
+Fix
+---
+Step 1. Add two new helper functions alongside `f_ltfBullMssPrice` /
+`f_ltfBearMssPrice` (around lines 2246 and 2270). These return the LTF swing
+that the MSS candle broke, which IS the correct stop location:
+
+    f_ltfBullMssStop(int minSignalTime) =>
+        float lRange = high - low
+        float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
+        float lBody = math.abs(close - open)
+        float lAvgBody = ta.sma(math.abs(close - open), 20)
+        float lAtr = ta.atr(14)
+        int ltfBarMs = int(math.max(float(timeframe.in_seconds(timeframe.period)), 60.0) * 1000.0)
+        int minDelayedTime = na(minSignalTime) ? na : minSignalTime + ltfBarMs * modeLtfMssDelayBars
+        float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
+        int lPivotLowTime = not na(lPivotLow) ? int(time[ltfEntrySwingLen]) : na
+        bool reclaimLowEligible = not na(lPivotLow) and (not modeLtfRequiresPostSweepPivot or na(minDelayedTime) or lPivotLowTime > minDelayedTime)
+        float lLastReclaimLow = ta.valuewhen(reclaimLowEligible, lPivotLow, 0)
+        int lLastReclaimLowTime = int(ta.valuewhen(reclaimLowEligible, lPivotLowTime, 0))
+        float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
+        int lPivotHighTime = not na(lPivotHigh) ? int(time[ltfEntrySwingLen]) : na
+        bool breakHighEligible = not na(lPivotHigh) and (na(minDelayedTime) or lPivotHighTime > minDelayedTime) and (not modeLtfRequiresPostSweepPivot or (not na(lLastReclaimLowTime) and lPivotHighTime > lLastReclaimLowTime))
+        float lLastPivotHigh = ta.valuewhen(breakHighEligible, lPivotHigh, 0)
+        int lLastPivotHighTime = int(ta.valuewhen(breakHighEligible, lPivotHighTime, 0))
+        float lStructureLeg = not na(lLastPivotHigh) and not na(lLastReclaimLow) ? (lLastPivotHigh - lLastReclaimLow) : na
+        bool structuralSeparation = not na(lStructureLeg) and (lAtr <= 0 or lStructureLeg >= lAtr * modeLtfMssMinLegAtr)
+        bool lBullImpulse = close > open and lBody > lAvgBody * modeLtfEntryDispMult and ((high - close) / lSafeRange) <= 0.25 and (low > high[2] or lRange >= lAtr * 0.75)
+        bool lBullMss = not na(lLastPivotHigh) and (na(minDelayedTime) or time > minDelayedTime) and (na(lLastPivotHighTime) or time > lLastPivotHighTime) and structuralSeparation and close > lLastPivotHigh and lBullImpulse
+        ta.valuewhen(lBullMss, lLastReclaimLow, 0)
+
+    f_ltfBearMssStop(int minSignalTime) =>
+        float lRange = high - low
+        float lSafeRange = lRange > 0 ? lRange : syminfo.mintick
+        float lBody = math.abs(close - open)
+        float lAvgBody = ta.sma(math.abs(close - open), 20)
+        float lAtr = ta.atr(14)
+        int ltfBarMs = int(math.max(float(timeframe.in_seconds(timeframe.period)), 60.0) * 1000.0)
+        int minDelayedTime = na(minSignalTime) ? na : minSignalTime + ltfBarMs * modeLtfMssDelayBars
+        float lPivotHigh = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
+        int lPivotHighTime = not na(lPivotHigh) ? int(time[ltfEntrySwingLen]) : na
+        bool reclaimHighEligible = not na(lPivotHigh) and (not modeLtfRequiresPostSweepPivot or na(minDelayedTime) or lPivotHighTime > minDelayedTime)
+        float lLastReclaimHigh = ta.valuewhen(reclaimHighEligible, lPivotHigh, 0)
+        int lLastReclaimHighTime = int(ta.valuewhen(reclaimHighEligible, lPivotHighTime, 0))
+        float lPivotLow = ta.pivotlow(low, ltfEntrySwingLen, ltfEntrySwingLen)
+        int lPivotLowTime = not na(lPivotLow) ? int(time[ltfEntrySwingLen]) : na
+        bool breakLowEligible = not na(lPivotLow) and (na(minDelayedTime) or lPivotLowTime > minDelayedTime) and (not modeLtfRequiresPostSweepPivot or (not na(lLastReclaimHighTime) and lPivotLowTime > lLastReclaimHighTime))
+        float lLastPivotLow = ta.valuewhen(breakLowEligible, lPivotLow, 0)
+        int lLastPivotLowTime = int(ta.valuewhen(breakLowEligible, lPivotLowTime, 0))
+        float lStructureLeg = not na(lLastReclaimHigh) and not na(lLastPivotLow) ? (lLastReclaimHigh - lLastPivotLow) : na
+        bool structuralSeparation = not na(lStructureLeg) and (lAtr <= 0 or lStructureLeg >= lAtr * modeLtfMssMinLegAtr)
+        bool lBearImpulse = close < open and lBody > lAvgBody * modeLtfEntryDispMult and ((close - low) / lSafeRange) <= 0.25 and (high < low[2] or lRange >= lAtr * 0.75)
+        bool lBearMss = not na(lLastPivotLow) and (na(minDelayedTime) or time > minDelayedTime) and (na(lLastPivotLowTime) or time > lLastPivotLowTime) and structuralSeparation and close < lLastPivotLow and lBearImpulse
+        ta.valuewhen(lBearMss, lLastReclaimHigh, 0)
+
+Step 2. Extend `f_ltfEntrySignals` at line 2326 to also fetch the stops via
+`request.security`. Replace its body with:
+
+    f_ltfEntrySignals(bool ltfEntryTfValid, string ltfEntryTf, int waitStartTimeL, int waitStartTimeS) =>
+        int ltfBullMssTime = int(na)
+        int ltfBearMssTime = int(na)
+        float ltfBullEntryPrice = na
+        float ltfBearEntryPrice = na
+        float ltfBullStopPrice  = na
+        float ltfBearStopPrice  = na
+        if ltfEntryTfValid
+            ltfBullMssTime    := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssTime(waitStartTimeL),  lookahead=barmerge.lookahead_off)
+            ltfBearMssTime    := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssTime(waitStartTimeS),  lookahead=barmerge.lookahead_off)
+            ltfBullEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssPrice(waitStartTimeL), lookahead=barmerge.lookahead_off)
+            ltfBearEntryPrice := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssPrice(waitStartTimeS), lookahead=barmerge.lookahead_off)
+            ltfBullStopPrice  := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBullMssStop(waitStartTimeL),  lookahead=barmerge.lookahead_off)
+            ltfBearStopPrice  := request.security(syminfo.tickerid, ltfEntryTf, f_ltfBearMssStop(waitStartTimeS),  lookahead=barmerge.lookahead_off)
+        [ltfBullMssTime, ltfBearMssTime, ltfBullEntryPrice, ltfBearEntryPrice, ltfBullStopPrice, ltfBearStopPrice]
+
+Step 3. Update the call site (search for the single `f_ltfEntrySignals(` call
+around line 2832 in the prod file). Change:
+
+    [ltfBullMssTime, ltfBearMssTime, ltfBullEntryPrice, ltfBearEntryPrice] = f_ltfEntrySignals(ltfEntryTfValid, ltfEntryTf, waitStartTimeL, waitStartTimeS)
+
+to:
+
+    [ltfBullMssTime, ltfBearMssTime, ltfBullEntryPrice, ltfBearEntryPrice, ltfBullStopPrice, ltfBearStopPrice] = f_ltfEntrySignals(ltfEntryTfValid, ltfEntryTf, waitStartTimeL, waitStartTimeS)
+
+Step 4. Inside Stage 3 at line 3199 (`if ltfValShortNow`) replace the
+entry/zone/armed block with the version below so the WAIT STOP gets re-pinned
+to the LTF swing with a small buffer:
+
+    if ltfValShortNow
+        float ltfStopCandS = not na(ltfBearStopPrice) ? ltfBearStopPrice + math.max(atrVal * 0.10, syminfo.mintick * 10) : waitStopAnchorS
+        waitStructureConfirmedS := true
+        waitStructureConfirmBarS := bar_index
+        waitExecModelS := "LTF_MSS"
+        waitExecEntryS := ltfBearEntryPrice
+        waitExecTopS := ltfBearEntryPrice
+        waitExecBottomS := ltfBearEntryPrice - math.max(atrVal * 0.05, syminfo.mintick * 5)
+        waitExecArmedBarS := bar_index
+        waitStructureBreakTypeS := "LTF_MSS"
+        waitStopAnchorS := ltfStopCandS
+        sExtH := waitStopAnchorS
+        if not waitSetupValidatedS
+            waitSetupValidatedS := true
+            lastShortValidationKey := time
+            setupsValidatedCount += 1
+        structureStatus := "Bearish LTF MSS confirmed @ " + ltfEntryLabel
+
+And the long mirror at line 3214 (`if ltfValLongNow`):
+
+    if ltfValLongNow
+        float ltfStopCandL = not na(ltfBullStopPrice) ? ltfBullStopPrice - math.max(atrVal * 0.10, syminfo.mintick * 10) : waitStopAnchorL
+        waitStructureConfirmedL := true
+        waitStructureConfirmBarL := bar_index
+        waitExecModelL := "LTF_MSS"
+        waitExecEntryL := ltfBullEntryPrice
+        waitExecTopL := ltfBullEntryPrice + math.max(atrVal * 0.05, syminfo.mintick * 5)
+        waitExecBottomL := ltfBullEntryPrice
+        waitExecArmedBarL := bar_index
+        waitStructureBreakTypeL := "LTF_MSS"
+        waitStopAnchorL := ltfStopCandL
+        sExtL := waitStopAnchorL
+        if not waitSetupValidatedL
+            waitSetupValidatedL := true
+            lastLongValidationKey := time
+            setupsValidatedCount += 1
+        structureStatus := "Bullish LTF MSS confirmed @ " + ltfEntryLabel
+
+Step 5. Sanity-guard the entry trigger at lines 3393-3394. If the new LTF
+stop ends up on the WRONG side of the entry (shouldn't happen, but defend
+against NaN / clock skew), `shortEntryRiskValid` / `longEntryRiskValid` will
+catch it. Leave that logic intact.
+
+Expected impact: LONG PLAN risk shrinks from ~400pt to ~20–60pt on NQ 1H,
+preview box becomes reasonable, chart auto-zoom recovers.
+
+
+================================================================================
+BUG C — waitS and waitL can coexist, confusing the dashboard
+================================================================================
+
+Where: arming blocks at lines 3086 (`if armShortNow`) and 3107
+(`if armLongNow`). They are independent — a single bar can arm BOTH a short
+and a long wait state. The dashboard then renders one direction in the Sweep
+row and a different direction in the Timing row.
+
+Fix
+---
+Make arming mutually exclusive: if we just armed a short, don't also arm a
+long on the same bar; if a long is already active, don't arm a short over it.
+
+Change the arm predicates at lines 3081-3082 from:
+
+    bool armShortNow = showSMC and not na(bslSweepPrice) and not waitS and not active
+    bool armLongNow  = showSMC and not na(sslSweepPrice) and not waitL and not active
+
+To:
+
+    bool armShortNow = showSMC and not na(bslSweepPrice) and not waitS and not waitL and not active
+    bool armLongNow  = showSMC and not na(sslSweepPrice) and not waitS and not waitL and not active
+
+This enforces "only one setup in flight at a time". Combined with the
+per-pivot dedupe from Bug A, the dashboard becomes coherent again.
+
+If both sides fire on the same bar (can happen on pin bars), prefer the one
+that aligns with HTF bias. Immediately after the two arming blocks (after
+line 3126), add:
+
+    // Resolve simultaneous arm collisions (should be rare with Bug C fix,
+    // but guard anyway). Prefer the side aligned with HTF bias.
+    if waitS and waitL
+        if htfLongStrong
+            // Drop the short, keep the long
+            [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] = f_resetWaitState()
+            [waitTierS, waitTimeoutBarsS, waitRejectionTierS, waitStructureConfirmedS, waitStructureConfirmBarS, waitConfirmSwingPriceS, waitConfirmSwingBarS, waitConfirmSwingTierS, waitStructureBreakTypeS, waitExecEntryS, waitExecTopS, waitExecBottomS, waitExecArmedBarS] = f_resetWaitAdvanced()
+            [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] = f_resetSetupTracking()
+            waitRejectedS := false
+            waitRejectBarS := na
+            sExtH := na
+            setupsDetectedCount -= 1   // undo the double-count from this bar
+        else
+            [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] = f_resetWaitState()
+            [waitTierL, waitTimeoutBarsL, waitRejectionTierL, waitStructureConfirmedL, waitStructureConfirmBarL, waitConfirmSwingPriceL, waitConfirmSwingBarL, waitConfirmSwingTierL, waitStructureBreakTypeL, waitExecEntryL, waitExecTopL, waitExecBottomL, waitExecArmedBarL] = f_resetWaitAdvanced()
+            [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] = f_resetSetupTracking()
+            waitRejectedL := false
+            waitRejectBarL := na
+            sExtL := na
+            setupsDetectedCount -= 1
+
+
+================================================================================
+BUG D — HTF bias filter is vetoing every counter-trend validation
+================================================================================
+
+Where: lines 571–572:
+
+    bool blockLongEntry  = useHTFEntryFilter and htfShortStrong
+    bool blockShortEntry = useHTFEntryFilter and htfLongStrong
+
+And the block evaluation at lines 3385–3386.
+
+In a trending market `htfLongStrong` is nearly always true, so every short
+validation immediately hits `shortEntryBlocked` and increments `blockedTradesCount`
+instead of entering. This is correct behavior for trend-following — but:
+
+  1. The user explicitly wants a simple "sweep + reclaim + LTF MSS" model
+     that trades BOTH directions.
+  2. Counter-trend reversal setups with LTF MSS confirmation are the single
+     highest-EV ICT pattern. Blocking them 100% is wrong.
+
+Fix
+---
+Turn the HTF bias filter into a SCORE rather than a hard block, and expose a
+toggle so the user can disable it entirely. Replace lines 571–572 with:
+
+    bool htfBiasBlockLongs  = useHTFEntryFilter and htfShortStrong and htfStrictBlock
+    bool htfBiasBlockShorts = useHTFEntryFilter and htfLongStrong  and htfStrictBlock
+    bool blockLongEntry  = htfBiasBlockLongs
+    bool blockShortEntry = htfBiasBlockShorts
+
+Add the new input near `useHTFEntryFilter` (search for that input
+declaration, probably around line 212–213):
+
+    htfStrictBlock = input.bool(false, "Strict HTF Block",
+        group=G_HTF,
+        tooltip="When OFF, HTF bias is shown in the dashboard but does NOT block counter-trend entries. When ON, entries against a strong HTF bias are blocked (legacy behavior).")
+
+Default to `false` so the user sees trades immediately; they can re-enable
+the legacy strict behavior per their discretion.
+
+Also, in the dashboard, surface the new mode so the user can see whether the
+filter is acting. Search for the Read row in the dashboard block (look for
+"Read" in the table.cell calls near line 3820) and update the status text to
+include `" | HTF filter: " + (htfStrictBlock ? "STRICT" : "ADVISORY")`.
+
+
+================================================================================
+BUG E — stale preview labels aren't being cleared on state reset
+================================================================================
+
+Where: `f_renderSetupPreview` path at lines 3720–3760.
+
+When the wait state resets mid-bar (e.g. sweep blown through, MSS timeout)
+the next bar's else-branch calls `f_hideSetupPreview()`. But on the LAST bar
+of the chart, if the reset happened inside this bar's conditional branches
+AFTER the label was already drawn, the label persists at render time.
+
+This is why the screenshot shows a LONG PLAN label even though Pend=0 and
+active=false.
+
+Fix
+---
+Force the plan render to re-evaluate from a CLEAN state at the top of the
+`if barstate.islast` section. Before the `if liveTradePlan` block (around
+line 3720), add an explicit hide when no valid wait state exists:
+
+    if not active and not (waitL and waitStructureConfirmedL) and not (waitS and waitStructureConfirmedS)
+        f_hideSetupPreview()
+
+This guarantees that if neither a live trade nor an armed-and-validated
+preview exists, the preview is hidden regardless of prior state.
+
+Also, the `longSetupPreview` / `shortSetupPreview` predicates at lines
+3721–3722 currently allow rendering when `waitL` is merely true. That's too
+early — we should only preview once the setup is VALIDATED (LTF MSS fired).
+Tighten them to:
+
+    bool longSetupPreview  = showTradePlans and not active and waitL and waitStructureConfirmedL and not longEntryBlocked  and not na(waitStopAnchorL) and not na(waitExecEntryL)
+    bool shortSetupPreview = showTradePlans and not active and waitS and waitStructureConfirmedS and not shortEntryBlocked and not na(waitStopAnchorS) and not na(waitExecEntryS)
+
+And in the render body replace the entry-seed math:
+
+    float longEntrySeed  = na(ltfBullEntryPrice) ? (not na(previewLongZone)  ? previewLongZone.ce  : nz(waitSweepLevelL, waitStopAnchorL + longPlanBuffer)) : ltfBullEntryPrice
+    float longEntryPx    = math.max(longEntrySeed, waitStopAnchorL + longPlanBuffer)
+
+With the simpler, correct version:
+
+    float longEntryPx = waitExecEntryL
+    float longStopPx  = waitStopAnchorL
+
+(same for short with sign flipped). The plan should now render using the
+validated LTF MSS entry + the LTF MSS stop from Bug B.
+
+
+================================================================================
+ORDER OF OPERATIONS
+===================
+Apply the fixes in this order, testing after each:
+
+  1. BUG A   (f_detectPivotSweep + lastSweptPivotBar* trackers)
+     → verify Det jumps from 2 to 20+
+  2. BUG C   (mutual exclusion on arm)
+     → verify dashboard direction rows are consistent
+  3. BUG B   (LTF MSS stop propagation via f_ltfBullMssStop / f_ltfBearMssStop)
+     → verify LONG PLAN / SHORT PLAN risk is reasonable (1–2x ATR)
+  4. BUG E   (preview clean-slate + validation-gated preview)
+     → verify stale labels are gone and only validated setups preview
+  5. BUG D   (HTF filter toggle + advisory default)
+     → verify Ent > 0 on the screenshot window
+
+
+VALIDATION PLAN
+---------------
+After all five fixes applied, reload the exact NQ chart from the screenshot
+(Apr 5 → Apr 12, 2026) and confirm:
+
+    Expected stats minimums:
+      Det  ≥ 25
+      Val  ≥  8
+      Pend ≤  2 (coexists only briefly)
+      Ent  ≥  4
+      Blk  = 0 (with htfStrictBlock=false default)
+
+    Expected visuals:
+      - Preview boxes span at most ~1.5 ATR, not 400pt
+      - LONG PLAN / SHORT PLAN risk:reward ratio ≥ 1.0
+      - Chart auto-zoom fits price comfortably
+      - Dashboard Sweep / Structure / Timing rows agree on direction
+
+If Det is still low after Bug A, log `array.size(majorHighPivotBars)` and
+`array.size(minorHighPivotBars)` to a debug label — the pivot arrays may be
+too short (maxItems=50/80 at lines 2349/2357), in which case bump to 200.
+
+If Val is still 0 after Bug A+C, the LTF MSS engine itself is failing — log
+`ltfBullMssTime`, `ltfBearMssTime`, and `ltfEntryTfValid` on barstate.islast
+to the structure status ribbon.
+
+
+OUT OF SCOPE
+------------
+- Changing the sweep rejection tier semantics (already binary via Bug A)
+- Changing the target resolver f_tradeTargetPrice (still correct)
+- Changing webhook payload schema
+- Changing msConfirmationMode semantics (still used for MAJOR-only pivot
+  priority in Bug A)
+
+================================================================================
+END OF FIX PROMPT
+================================================================================

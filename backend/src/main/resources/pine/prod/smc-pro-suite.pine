@@ -1,0 +1,300 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("Institutional SMC + SD Trade Stats", shorttitle="SMC Stats Pro", overlay=true, max_labels_count=500, max_lines_count=500, max_boxes_count=500)
+
+// --- Groups ---
+G_KZ    = "Killzones & Sessions"
+G_VP    = "Volume Profile (Daily)"
+G_FVG   = "Fair Value Gaps (SMC)"
+G_PROJ  = "SD Projections & Targets"
+G_STATS = "Trade Statistics Settings"
+G_SMC   = "SMC Engine"
+G_DASH  = "Dashboard Settings"
+G_LVLS  = "Important Market Levels"
+
+// --- Constants ---
+COLOR_BULL = #08ffd6
+COLOR_BEAR = #ff0015
+COLOR_NEUT = #5b9cf6
+
+// --- Inputs ---
+showAsia     = input.bool(true, "Asia Session Box", group=G_KZ)
+asiaSession  = input.session("0000-0900:1234567", "Asia Session", group=G_KZ)
+colorAsia    = input.color(color.new(#5b9cf6, 85), "Asia Color", group=G_KZ)
+
+showLondon   = input.bool(true, "London Killzone", group=G_KZ)
+londonSess   = input.session("0700-1000:1234567", "London Session", group=G_KZ)
+colorLon     = input.color(color.new(#089981, 93), "London Color", group=G_KZ)
+
+showNY       = input.bool(true, "NY Killzone", group=G_KZ)
+nySess       = input.session("1200-1500:1234567", "NY Session", group=G_KZ)
+colorNYK     = input.color(color.new(#f23645, 93), "NY Color", group=G_KZ)
+
+showVP       = input.bool(true, "Show Daily POC", group=G_VP)
+colorPOC     = input.color(color.orange, "POC Color", group=G_VP)
+
+showFVG      = input.bool(true, "Detect Fair Value Gaps", group=G_FVG)
+bullFVGColor = input.color(color.new(#089981, 85), "Bullish FVG", group=G_FVG)
+bearFVGColor = input.color(color.new(#f23645, 85), "Bearish FVG", group=G_FVG)
+
+showProj     = input.bool(true, "Show SD Targets", group=G_PROJ)
+colorProj    = input.color(color.new(#5b9cf6, 30), "Projection Color", group=G_PROJ)
+
+enableStats  = input.bool(true, "Evaluate SD Statistics", group=G_STATS)
+entryModel   = input.string("Next Candle Open", "Entry Model", options=["Next Candle Open", "MSS Close"], group=G_STATS)
+stopModel    = input.string("Sweep Extreme", "Stop Model", options=["Sweep Extreme", "MSS Candle Extreme"], group=G_STATS)
+showStatsTbl = input.bool(true, "Show Stats Table", group=G_STATS)
+
+showSMC      = input.bool(true, "SFP & MSS Detection", group=G_SMC)
+volConfirm   = input.bool(true, "Require Volume on Sweeps", group=G_SMC)
+dispMult     = input.float(1.4, "Disp. Multiplier", step=0.1, group=G_SMC)
+swingLen     = input.int(3, "Swing Strength", minval=1, group=G_SMC)
+
+showDash     = input.bool(true, "Show Bias Dashboard", group=G_DASH)
+dashPos      = input.string("Top Right", "Position", options=["Top Right", "Bottom Right", "Top Left"], group=G_DASH)
+
+// --- Market Levels Inputs ---
+showPDH  = input.bool(true, "PDH (Prev Day High)", group=G_LVLS)
+showPDL  = input.bool(true, "PDL (Prev Day Low)", group=G_LVLS)
+showPDC  = input.bool(false, "PDC (Prev Day Close)", group=G_LVLS)
+showDO   = input.bool(true, "DO (Daily Open)", group=G_LVLS)
+showPWH  = input.bool(false, "PWH (Prev Week High)", group=G_LVLS)
+showPWL  = input.bool(false, "PWL (Prev Week Low)", group=G_LVLS)
+showPMH  = input.bool(false, "PMH (Prev Month High)", group=G_LVLS)
+showPML  = input.bool(false, "PML (Prev Month Low)", group=G_LVLS)
+
+colorPDLvl = input.color(color.new(color.gray, 30), "Daily Levels Color", group=G_LVLS, inline="d")
+colorPWLvl = input.color(color.new(#5b9cf6, 30), "Weekly Levels Color", group=G_LVLS, inline="w")
+colorPMLvl = input.color(color.new(#ff9800, 30), "Monthly Levels Color", group=G_LVLS, inline="m")
+
+// --- User-Defined Functions ---
+f_drawLevelLabel(show, val, txt, col) =>
+    var label lbl = na
+    if show and barstate.islast and not na(val)
+        lbl := label.new(bar_index + 2, val, txt, xloc.bar_index, yloc.price, color.new(col, 0), label.style_label_left, color.white, size.small)
+        label.delete(lbl[1])
+
+// --- Calculations ---
+isNewDay = ta.change(time("D")) != 0
+avgVol   = ta.sma(volume, 20)
+highVol  = volume > avgVol
+
+[pdh, pdl, pdc, dO] = request.security(syminfo.tickerid, "D", [high[1], low[1], close[1], open[0]], lookahead=barmerge.lookahead_on)
+[pwh, pwl] = request.security(syminfo.tickerid, "W", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+[pmh, pml] = request.security(syminfo.tickerid, "M", [high[1], low[1]], lookahead=barmerge.lookahead_on)
+
+inAsia   = not na(time(timeframe.period, asiaSession, "UTC"))
+inLondon = not na(time(timeframe.period, londonSess, "UTC"))
+inNY     = not na(time(timeframe.period, nySess, "UTC"))
+
+bgcolor(showLondon and inLondon ? colorLon : na)
+bgcolor(showNY and inNY ? colorNYK : na)
+
+var float asiaH = na, var float asiaL = na
+var box asiaBox = na
+if inAsia and not inAsia[1]
+    asiaH := high, asiaL := low
+    if showAsia
+        asiaBox := box.new(bar_index, asiaH, bar_index, asiaL, border_color=colorAsia, bgcolor=colorAsia)
+else if inAsia
+    asiaH := math.max(high, nz(asiaH, high)), asiaL := math.min(low, nz(asiaL, low))
+    if showAsia and not na(asiaBox)
+        box.set_top(asiaBox, asiaH), box.set_bottom(asiaBox, asiaL), box.set_right(asiaBox, bar_index)
+
+var float dPOC = na
+if isNewDay
+    dPOC := hl2
+else if highVol
+    dPOC := hl2
+
+plot(showVP ? dPOC : na, "Daily POC", colorPOC, 2, plot.style_linebr)
+
+// --- Market Levels Plotting ---
+plot(showPDH ? pdh : na, "PDH", colorPDLvl, 1, plot.style_linebr)
+plot(showPDL ? pdl : na, "PDL", colorPDLvl, 1, plot.style_linebr)
+plot(showPDC ? pdc : na, "PDC", colorPDLvl, 1, plot.style_circles)
+plot(showDO  ? dO  : na, "DO",  colorPDLvl, 1, plot.style_linebr)
+plot(showPWH ? pwh : na, "PWH", colorPWLvl, 2, plot.style_linebr)
+plot(showPWL ? pwl : na, "PWL", colorPWLvl, 2, plot.style_linebr)
+plot(showPMH ? pmh : na, "PMH", colorPMLvl, 2, plot.style_linebr)
+plot(showPML ? pml : na, "PML", colorPMLvl, 2, plot.style_linebr)
+
+// --- Level Labels ---
+f_drawLevelLabel(showPDH, pdh, "PDH", colorPDLvl)
+f_drawLevelLabel(showPDL, pdl, "PDL", colorPDLvl)
+f_drawLevelLabel(showPDC, pdc, "PDC", colorPDLvl)
+f_drawLevelLabel(showDO,  dO,  "DO",  colorPDLvl)
+f_drawLevelLabel(showPWH, pwh, "PWH", colorPWLvl)
+f_drawLevelLabel(showPWL, pwl, "PWL", colorPWLvl)
+f_drawLevelLabel(showPMH, pmh, "PMH", colorPMLvl)
+f_drawLevelLabel(showPML, pml, "PML", colorPMLvl)
+
+if showFVG
+    bImb = low > high[2] and close[1] > high[2]
+    sImb = high < low[2] and close[1] < low[2]
+    if bImb
+        box.new(bar_index-2, low, bar_index, high[2], border_color=na, bgcolor=bullFVGColor)
+    if sImb
+        box.new(bar_index-2, low[2], bar_index, high, border_color=na, bgcolor=bearFVGColor)
+
+var bool waitS = false, var bool waitL = false
+var float sExtH = na, var float sExtL = na
+var float lSwh = na, var float lSwl = na
+var string structureStatus = "Neutral"
+
+avgBody = ta.sma(math.abs(close - open), 20)
+disp    = math.abs(close - open) > (avgBody * dispMult)
+
+swH = ta.pivothigh(high, swingLen, swingLen), swL = ta.pivotlow(low, swingLen, swingLen)
+if not na(swH)
+    lSwh := swH
+if not na(swL)
+    lSwl := swL
+
+cR = high - low
+rBull = (close - low) / (cR > 0 ? cR : 1) > 0.7
+rBear = (high - close) / (cR > 0 ? cR : 1) > 0.7
+
+isSFP_H = (high > pdh and close < pdh) or (high > asiaH and close < asiaH)
+isSFP_L = (low < pdl and close > pdl) or (low < asiaL and close > asiaL)
+
+vSFP_H = isSFP_H and rBear and (not volConfirm or highVol)
+vSFP_L = isSFP_L and rBull and (not volConfirm or highVol)
+
+if vSFP_H
+    label.new(bar_index, high, "V-SWEEP", color=#00000000, textcolor=COLOR_BEAR, style=label.style_label_down, size=size.tiny)
+    waitS := true, waitL := false, sExtH := high
+if vSFP_L
+    label.new(bar_index, low, "V-SWEEP", color=#00000000, textcolor=COLOR_BULL, style=label.style_label_up, size=size.tiny)
+    waitL := true, waitS := false, sExtL := low
+
+mssS = waitS and close < lSwl and disp
+mssL = waitL and close > lSwh and disp
+
+// --- Stats Engine ---
+var int tSetups = 0
+var int w10 = 0, var int l10 = 0
+var int w15 = 0, var int l15 = 0
+var int w20 = 0, var int l20 = 0
+var int w25 = 0, var int l25 = 0
+
+var bool active = false, var bool bull = false
+var float tSL = na, var float t10 = na, var float t15 = na, var float t20 = na, var float t25 = na
+var bool h10 = false, var bool h15 = false, var bool h20 = false, var bool h25 = false
+
+f_draw(p, txt) =>
+    line.new(bar_index, p, bar_index+15, p, color=colorProj, style=line.style_dashed)
+    label.new(bar_index+15, p, txt, color=#00000000, textcolor=colorProj, style=label.style_label_left, size=size.tiny)
+
+if mssS and not active
+    active := true, bull := false, tSetups += 1
+    tSL := stopModel == "Sweep Extreme" ? sExtH : high
+    r = sExtH - lSwl
+    t10 := lSwl - r*1.0, t15 := lSwl - r*1.5, t20 := lSwl - r*2.0, t25 := lSwl - r*2.5
+    h10 := false, h15 := false, h20 := false, h25 := false
+    waitS := false, structureStatus := "Bearish"
+    if showProj
+        f_draw(t10, "-1.0 SD"), f_draw(t15, "-1.5 SD"), f_draw(t20, "-2.0 SD"), f_draw(t25, "-2.5 SD")
+    label.new(bar_index, low, "INST. ENTRY ↘", color=COLOR_BEAR, textcolor=color.white, style=label.style_label_down, size=size.small)
+
+if mssL and not active
+    active := true, bull := true, tSetups += 1
+    tSL := stopModel == "Sweep Extreme" ? sExtL : low
+    r = lSwh - sExtL
+    t10 := lSwh + r*1.0, t15 := lSwh + r*1.5, t20 := lSwh + r*2.0, t25 := lSwh + r*2.5
+    h10 := false, h15 := false, h20 := false, h25 := false
+    waitL := false, structureStatus := "Bullish"
+    if showProj
+        f_draw(t10, "-1.0 SD"), f_draw(t15, "-1.5 SD"), f_draw(t20, "-2.0 SD"), f_draw(t25, "-2.5 SD")
+    label.new(bar_index, high, "INST. ENTRY ↗", color=COLOR_BULL, textcolor=color.white, style=label.style_label_up, size=size.small)
+
+if active
+    if bull
+        if not h10 and high >= t10
+            h10 := true, w10 += 1
+        if not h15 and high >= t15
+            h15 := true, w15 += 1
+        if not h20 and high >= t20
+            h20 := true, w20 += 1
+        if not h25 and high >= t25
+            h25 := true, w25 += 1
+        if low <= tSL
+            if not h10
+                l10 += 1
+            if not h15
+                l15 += 1
+            if not h20
+                l20 += 1
+            if not h25
+                l25 += 1
+            active := false
+    else
+        if not h10 and low <= t10
+            h10 := true, w10 += 1
+        if not h15 and low <= t15
+            h15 := true, w15 += 1
+        if not h20 and low <= t20
+            h20 := true, w20 += 1
+        if not h25 and low <= t25
+            h25 := true, w25 += 1
+        if high >= tSL
+            if not h10
+                l10 += 1
+            if not h15
+                l15 += 1
+            if not h20
+                l20 += 1
+            if not h25
+                l25 += 1
+            active := false
+
+// --- Dashboards ---
+if barstate.islast
+    pPos = dashPos == "Top Right" ? position.top_right : dashPos == "Top Left" ? position.top_left : position.bottom_right
+    dt = table.new(pPos, 2, 4, border_width=1, border_color=chart.fg_color)
+    table.cell(dt, 0, 0, "INST. BIAS", bgcolor=chart.fg_color, text_color=chart.bg_color)
+    table.cell(dt, 1, 0, "DATA", bgcolor=chart.fg_color, text_color=chart.bg_color)
+    table.cell(dt, 0, 1, "Structure", text_color=chart.fg_color)
+    table.cell(dt, 1, 1, structureStatus, text_color=color.white, bgcolor=structureStatus == "Bullish" ? COLOR_BULL : structureStatus == "Bearish" ? COLOR_BEAR : #787b86)
+    table.cell(dt, 0, 2, "Daily Bias", text_color=chart.fg_color)
+    table.cell(dt, 1, 2, close > dO ? "BULL" : "BEAR", text_color=color.white, bgcolor=close > dO ? COLOR_BULL : COLOR_BEAR)
+    table.cell(dt, 0, 3, "Volatility", text_color=chart.fg_color)
+    table.cell(dt, 1, 3, highVol ? "HIGH" : "LOW", text_color=color.white, bgcolor=highVol ? COLOR_NEUT : #787b86)
+
+    if showStatsTbl and enableStats
+        stP = dashPos == "Top Right" ? position.bottom_right : position.bottom_left
+        st = table.new(stP, 4, 6, border_width=1, border_color=chart.fg_color)
+        table.cell(st, 0, 0, "SD TARGET", bgcolor=chart.fg_color, text_color=chart.bg_color)
+        table.cell(st, 1, 0, "WINS", bgcolor=chart.fg_color, text_color=chart.bg_color)
+        table.cell(st, 2, 0, "LOSSES", bgcolor=chart.fg_color, text_color=chart.bg_color)
+        table.cell(st, 3, 0, "WIN RATE", bgcolor=chart.fg_color, text_color=chart.bg_color)
+
+        // Target -1.0
+        wr10 = (w10 + l10) > 0 ? (w10 / (w10 + l10)) * 100 : 0
+        table.cell(st, 0, 1, "-1.0 SD", text_color=chart.fg_color)
+        table.cell(st, 1, 1, str.tostring(w10), text_color=COLOR_BULL)
+        table.cell(st, 2, 1, str.tostring(l10), text_color=COLOR_BEAR)
+        table.cell(st, 3, 1, str.tostring(wr10, "#.#") + "%", bgcolor=wr10 > 50 ? color.new(COLOR_BULL, 20) : color.new(COLOR_BEAR, 20))
+
+        // Target -1.5
+        wr15 = (w15 + l15) > 0 ? (w15 / (w15 + l15)) * 100 : 0
+        table.cell(st, 0, 2, "-1.5 SD", text_color=chart.fg_color)
+        table.cell(st, 1, 2, str.tostring(w15), text_color=COLOR_BULL)
+        table.cell(st, 2, 2, str.tostring(l15), text_color=COLOR_BEAR)
+        table.cell(st, 3, 2, str.tostring(wr15, "#.#") + "%", bgcolor=wr15 > 50 ? color.new(COLOR_BULL, 20) : color.new(COLOR_BEAR, 20))
+
+        // Target -2.0
+        wr20 = (w20 + l20) > 0 ? (w20 / (w20 + l20)) * 100 : 0
+        table.cell(st, 0, 3, "-2.0 SD", text_color=chart.fg_color)
+        table.cell(st, 1, 3, str.tostring(w20), text_color=COLOR_BULL)
+        table.cell(st, 2, 3, str.tostring(l20), text_color=COLOR_BEAR)
+        table.cell(st, 3, 3, str.tostring(wr20, "#.#") + "%", bgcolor=wr20 > 50 ? color.new(COLOR_BULL, 20) : color.new(COLOR_BEAR, 20))
+
+        // Target -2.5
+        wr25 = (w25 + l25) > 0 ? (w25 / (w25 + l25)) * 100 : 0
+        table.cell(st, 0, 4, "-2.5 SD", text_color=chart.fg_color)
+        table.cell(st, 1, 4, str.tostring(w25), text_color=COLOR_BULL)
+        table.cell(st, 2, 4, str.tostring(l25), text_color=COLOR_BEAR)
+        table.cell(st, 3, 4, str.tostring(wr25, "#.#") + "%", bgcolor=wr25 > 50 ? color.new(COLOR_BULL, 20) : color.new(COLOR_BEAR, 20))
+
+        table.cell(st, 0, 5, "Total Setups: " + str.tostring(tSetups), text_color=chart.fg_color)

@@ -1,0 +1,548 @@
+================================================================================
+ DEVTRADER CHART — ENTRY SETUP CONFIRMATION PIPELINE (CURRENT IMPLEMENTATION)
+ File analyzed: backend/src/main/resources/pine/prod/devtrader-chart.pine
+================================================================================
+
+OVERVIEW
+--------
+The indicator confirms an entry setup through a strict four-stage state machine:
+
+    SWEEP DETECTED -> WAIT STATE -> STRUCTURE CONFIRMED -> ENTRY SIGNAL -> ACTIVATION
+
+Each stage has its own gating conditions, and only setups that pass every stage
+become live trades. The lifecycle is tracked per-side (short / long) with two
+independent sets of state variables (`waitS`, `waitL`, `waitSetupIdS`, etc.),
+and a unique monotonic `setupSequence` id is assigned at detection time to
+prevent duplicate counting.
+
+There are TWO parallel confirmation modes, chosen automatically:
+
+    MODE A: LTF (Lower-Timeframe) MSS mode  -> when `ltfEntryTfValid` is true
+    MODE B: HTF (Chart-Timeframe) MSS mode  -> fallback when LTF is invalid
+
+`ltfEntryTfValid` is computed at line 2415 as:
+    ltfEntrySecs > 0 and chartTfSecs > 0 and ltfEntrySecs < chartTfSecs
+
+The LTF is picked automatically by `f_autoLtfSeconds(baseSecs)` at line 827:
+    - chart <= 60s          -> LTF = 1m
+    - chart >  60s          -> LTF = floor(chartSecs / 180) * 60, clamped
+                               to [60s, chartSecs - 60s]
+
+================================================================================
+ STAGE 1: SWEEP DETECTION  (lines 2707–2728)
+================================================================================
+
+INPUTS
+    bearSweep = showSMC and swpBSL      (a buy-side-liquidity raid)
+    bullSweep = showSMC and swpSSL      (a sell-side-liquidity raid)
+
+`swpBSL` / `swpSSL` come from the high-fidelity sweep engine (lines 2417+)
+which scans the `liq_pools` array and selects the best candidate by structural
+rank, reclaim quality, wick ratio, volume confirmation, and session context.
+
+GATE
+    if bearSweep and not active and not waitS
+        setupsDetectedCount += 1
+        setupSequence += 1
+        [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, ...,
+         waitStopAnchorS] = f_startWaitState(...)
+        [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS,
+         lastShortValidationKey] = f_startSetupTracking(setupSequence)
+        ... resets the opposing-side state machine ...
+        sExtH := sweepExtreme
+        structureStatus := "Bearish sweep validated; awaiting ladder"
+
+Detection only fires when:
+    - the opposing trade is not active
+    - no wait state is already alive on the same side
+    - the sweep engine produced a `swpBSL` / `swpSSL` trigger
+
+This guarantees ONE detection per logical setup. `setupsDetectedCount` is the
+truth source for "Det" in the dashboard.
+
+STATE STORED AT DETECTION
+    waitS / waitL          -> bool flag that the wait state is alive
+    waitStartBarS/L        -> bar_index at sweep time
+    waitStartTimeS/L       -> timestamp at sweep time (used later for LTF dedup)
+    waitSweepLevelS/L      -> the liquidity level that was swept
+    waitSweepTolS/L        -> price tolerance around the level
+    waitStopAnchorS/L      -> initial stop candidate (sweep extreme)
+    waitSetupIdS/L         -> unique setup id from setupSequence
+    sExtH / sExtL          -> running sweep extreme (gets refined later)
+
+================================================================================
+ STAGE 2: WAIT STATE LIFECYCLE  (lines 2730–2771, 2694–2705)
+================================================================================
+
+Between detection and entry the wait state can be:
+
+ (a) UPGRADED by a follow-up wick (bearRaidUpgrade / bullRaidUpgrade, 2734, 2745)
+     - another candle extends the sweep extreme
+     - `waitStopAnchorS/L` is widened
+     - `waitStartBarS/L` is refreshed (the wait clock restarts)
+
+ (b) EXPIRED by timeout (sweepWaitExpiredS/L, 2752–2771)
+     sweepWaitExpiredS = waitS and (bar_index - waitStartBarS) > sweepMssTimeoutBars
+     Default `sweepMssTimeoutBars = 6`.
+     When this fires, `f_resetWaitState()` nukes all wait-side variables and
+     `f_resetSetupTracking()` clears the setup id. The setup dies silently.
+     Optionally an "SWEEP EXPIRED" label is drawn.
+
+ (c) INVALIDATED by opposing breakout (2694–2705)
+     If the sweep engine finds a `bestBreakoutIdx` on the same cluster as the
+     current wait-level (within tolerance), the wait state is force-reset.
+     Rationale: the liquidity we raided got raided back, so the narrative
+     collapsed.
+
+ (d) CONSUMED by entry activation (see stage 5)
+
+If none of (a)–(d) happen, the wait state persists and is eligible for
+structure confirmation on every new bar.
+
+================================================================================
+ STAGE 3: STRUCTURE CONFIRMATION (TWO PARALLEL PATHS)
+================================================================================
+
+--- PATH A: LOWER-TIMEFRAME MSS (LTF mode) ---
+--- used when ltfEntryTfValid is true ---
+
+Lines 1792–1930 define `f_ltfBullMssTime`, `f_ltfBearMssTime`,
+`f_ltfBullMssPrice`, `f_ltfBearMssPrice`, and the wrapper `f_ltfEntrySignals`
+which fetches them via `request.security(ltfEntryTf, ...)`.
+
+Inside each LTF function (bear example, 1816–1838):
+
+    int ltfBarMs      = timeframe_in_seconds * 1000
+    int minDelayedTime = waitStartTimeS + ltfBarMs * ltfMssDelayBars
+                         (default ltfMssDelayBars = 2)
+
+    lPivotHigh  = ta.pivothigh(high, ltfEntrySwingLen, ltfEntrySwingLen)
+                         (default ltfEntrySwingLen = 2)
+    reclaimHighEligible  = pivot formed AFTER sweep (if post-sweep-pivot required)
+    lPivotLow   = ta.pivotlow (low , ltfEntrySwingLen, ltfEntrySwingLen)
+    breakLowEligible     = pivot formed after the post-sweep reclaim pivot
+
+    lStructureLeg        = reclaimHigh - pivotLow
+    structuralSeparation = lStructureLeg >= lAtr * ltfMssMinLegAtr
+                         (default ltfMssMinLegAtr = 0.15)
+
+    lBearImpulse = close < open
+               and body > avgBody * ltfEntryDispMult  (default 1.15)
+               and ((close - low) / range) <= 0.25
+               and (high < low[2] or range >= lAtr * 0.75)
+
+    lBearMss = not na(lLastPivotLow)
+           and time > minDelayedTime
+           and time > lLastPivotLowTime
+           and structuralSeparation
+           and close < lLastPivotLow
+           and lBearImpulse
+
+The function returns `valuewhen(lBearMss, time, 0)` — the TIMESTAMP of the
+most recent qualifying LTF bearish MSS. The parallel `*MssPrice` function
+returns the CLOSE at the same bar; this is later used as the LTF entry price.
+
+`ltfBearMssTime` is compared against `waitStartTimeS` on the chart TF:
+
+    waitS and not na(ltfBearMssTime) and ltfBearMssTime >= waitStartTimeS
+
+That is the actual structure-confirmation test for LTF mode.
+
+What "LTF MSS" really requires:
+    1. A valid post-sweep reclaim pivot on the LTF.
+    2. A subsequent break pivot AFTER the reclaim pivot.
+    3. The leg between the two pivots must be >= 0.15 * LTF ATR.
+    4. A displacement candle closing through the break pivot.
+    5. At least `ltfMssDelayBars` LTF bars must have printed after the sweep
+       (default 2) before anything can qualify.
+    6. If `ltfRequiresPostSweepPivot` is on (default true), both pivots must
+       have formed strictly after the sweep start.
+
+If any of these fails, the LTF call returns `na` and the setup sits in wait.
+
+
+--- PATH B: CHART-TF MSS (HTF / fallback mode) ---
+--- used when ltfEntryTfValid is false ---
+
+On the chart timeframe the same logic is expressed as:
+
+    internalBreakS (2812) = showSMC
+                        and waitS
+                        and not internalShiftDoneS
+                        and not na(internalRefS)
+                        and close < (internalRefS - internalBreakTolS)
+                        and bearStructureImpulse
+
+    externalBreakS (2815) = showSMC
+                        and waitS
+                        and (internalShiftDoneS or internalBreakS)
+                        and not externalShiftDoneS
+                        and not na(externalRefS)
+                        and close < (externalRefS - externalBreakTolS)
+                        and bearStructureImpulse
+
+    mssS (2857) = showSMC and (useMajorMSS ? externalBreakS : internalBreakS)
+
+`internalRefS` / `externalRefS` are swing pivots resolved from minor / major
+pivot arrays at sweep time via `f_resolveBearStructureRefs` /
+`f_resolveBullStructureRefs` (lines 1888–1918). These are the levels that the
+chart-tf impulse candle must close through.
+
+`bearStructureImpulse` (2802) requires:
+    - close < open
+    - `disp` (body > avgBody * dispMult)
+    - (close - low) / range <= 0.25 (small lower wick)
+    - bearish imbalance created OR obvious repricing (large ATR-weighted body)
+
+Critically, `internalBreakS` REQUIRES `waitS`. This means HTF MSS can never
+fire without a live wait state — so detection always precedes validation.
+
+
+--- PARALLEL (informational) PATH: MS_ STRUCTURE ENGINE ---
+
+The imported `ms_` market-structure engine computes its own CHoCH / BOS events
+(`ms_lastBearChochBar`, `ms_lastBearBosBar`, `ms_protectedLow`, etc.). These
+are used to compute `msPostSweepStructureConfirmedS/L` (line 2781) which feeds
+text labels, the sweep state narrative, and the `shortMsEntryBlock` /
+`longMsEntryBlock` filter in Conservative confirmation mode. This is NOT part
+of the entry signal itself; it only gates or narrates.
+
+================================================================================
+ STAGE 4: RAW ENTRY SIGNAL + VALIDATION EVENT  (lines 2937–2958)
+================================================================================
+
+RISK VALIDITY
+    shortStopCandidate  = ltfEntryTfValid
+                            ? waitStopAnchorS
+                            : (na(waitStopAnchorS)
+                                ? (stopModel == "Sweep Extreme" ? sExtH : high)
+                                : waitStopAnchorS)
+    shortEntryCandidate = na(ltfBearEntryPrice) ? close : ltfBearEntryPrice
+
+    shortEntryRiskValid = not na(shortStopCandidate)
+                      and not na(shortEntryCandidate)
+                      and shortStopCandidate > shortEntryCandidate
+
+In LTF mode, if `waitStopAnchorS` is `na` at this point, the entire signal
+collapses. That is a hard prerequisite that is easy to miss.
+
+RAW SIGNAL
+    rawShortEntrySignal = ltfEntryTfValid
+        ? (waitS and not active and not na(waitStartTimeS)
+               and not na(ltfBearMssTime)
+               and ltfBearMssTime >= waitStartTimeS
+               and shortEntryRiskValid)
+        : (mssS and not active and shortEntryRiskValid)
+
+    rawLongEntrySignal  = mirror-symmetric
+
+DE-DUPLICATION KEY
+    shortValidationKey = ltfEntryTfValid
+                           ? (rawShortEntrySignal ? int(ltfBearMssTime) : na)
+                           : (rawShortEntrySignal ? time : na)
+
+VALIDATION EVENT
+    shortEntrySignalEvent = rawShortEntrySignal
+                          and waitS
+                          and not active
+                          and not na(waitSetupIdS)
+                          and not na(shortValidationKey)
+                          and (na(lastShortValidationKey)
+                               or shortValidationKey != lastShortValidationKey)
+
+This is the single moment where the setup transitions from "waiting for
+structure" to "validated and entry-ready". It is where the dashboard counters
+are updated (after the recent patch):
+
+    if shortEntrySignalEvent
+        lastShortValidationKey := shortValidationKey
+        if not waitSetupValidatedS
+            waitSetupValidatedS := true
+            setupsValidatedCount += 1
+        if shortEntryBlocked and not waitSetupBlockedCountedS
+            waitSetupBlockedCountedS := true
+            blockedTradesCount += 1
+
+Per-setup dedup is enforced by `waitSetupValidatedS` and
+`waitSetupBlockedCountedS`, which are reset only by `f_resetSetupTracking()`.
+
+================================================================================
+ STAGE 5: ENTRY BLOCKERS  (lines 2929–2935)
+================================================================================
+
+A validated entry signal can still be REJECTED by any of four blockers:
+
+    blockShortLiquidityConflict =
+          useDirectionalLiquidityEntryFilter
+        and bullishExecutionContext
+        and shortCounterFound
+        and (not shortTargetFound
+             or shortCounterDist <= shortTargetDist * 1.15)
+
+       -> rejects short if the nearest BSL (against us) is closer than or
+          equal to the nearest SSL (in our favour), within 15%.
+
+    shortMsEntryBlock =
+          msConfirmationMode == "Conservative"
+        and waitS
+        and not msPostSweepStructureConfirmedS
+
+       -> in Conservative mode, demands that the ms_ engine has also
+          confirmed post-sweep CHoCH / BOS / protected-low break.
+
+    blockShortEntry  (from earlier filter code, HTF bias disagreement)
+
+    -> combined:
+    shortEntryBlocked = blockShortEntry
+                      or blockShortLiquidityConflict
+                      or shortMsEntryBlock
+
+If `shortEntryBlocked` is true when `shortEntrySignalEvent` fires,
+`blockedTradesCount` increments and the dashboard shows the reason via
+`f_entryBlockReason(...)` in `structureStatus`.
+
+================================================================================
+ STAGE 6: ENTRY ACTIVATION  (lines 2961–3037)
+================================================================================
+
+GATE (LTF mode)
+    ltfBearEntryReady = ltfEntryTfValid and rawShortEntrySignal and not shortEntryBlocked
+    ltfBullEntryReady = ltfEntryTfValid and rawLongEntrySignal  and not longEntryBlocked
+
+    if ltfBearEntryReady
+        if shortEntryRiskValid
+            tSetups             += 1
+            entriesTriggeredCount += 1
+            active              := true
+            bull                := false
+            activeEntryPrice    := shortEntryCandidate
+            activeInitialStop   := shortStopCandidate
+            tSL                 := shortStopCandidate
+            t10                 := f_tradeTargetPrice(false, entry, stop)
+            activeBreakEvenArmed := false
+            activeEntryBar      := bar_index
+            [reset waitS + setup tracking + structure refs]
+            structureStatus     := "Bearish entry live after ladder"
+
+GATE (non-LTF / HTF mode)
+    if not ltfEntryTfValid and mssS and not active
+            and not shortEntryBlocked and shortEntryRiskValid
+        [same activation block]
+
+Entry activation is always atomic: on the bar the gate opens, the trade is
+live, the wait state is torn down, and the setup id is cleared so no second
+activation can double-count.
+
+TARGET CALCULATION  (`f_tradeTargetPrice`, lines 2886–2919)
+    1. Risk = |entry - stop|
+    2. Minimum target = entry +/- risk * tradeMinRR
+    3. Scan `liq_pools` for directional liquidity that is:
+        - same side (BSL for longs, SSL for shorts)
+        - active, not consumed, meaningful
+        - ahead of entry by more than the anchor tolerance
+        - within ATR * tradeTargetWindowAtr
+    4. Prefer the nearest MAJOR liquidity (HTF / PERIOD / SESSION / high-rank
+       EXTERNAL). Fallback to nearest pool.
+    5. If `targetModel == "Next Liquidity + RR Floor"`, clamp to the minimum
+       RR target as a floor.
+    6. If nothing found, return minimum target.
+
+================================================================================
+ STAGE 7: TRADE MANAGEMENT  (lines 3039–3077)
+================================================================================
+
+GUARD AGAINST SAME-BAR RESOLUTION
+    activeTradeManageable = active and bar_index > nz(activeEntryBar, bar_index)
+
+The trade can only be resolved on a bar STRICTLY AFTER the activation bar,
+preventing single-bar round-trips from double-counting.
+
+BREAK-EVEN ARMING
+    if not activeBreakEvenArmed
+        initialRisk = |entry - initialStop|
+        beTrigger   = bull ? entry + initialRisk * breakEvenTriggerR
+                           : entry - initialRisk * breakEvenTriggerR
+        if price reaches beTrigger
+            tSL := activeEntryPrice
+            activeBreakEvenArmed := true
+
+STOP / TARGET CHECK
+    tradeHitStop   = bull ? low  < tSL : high > tSL
+    tradeHitTarget = bull ? high > t10 : low  < t10
+
+    if tradeHitStop
+        if activeBreakEvenArmed and |tSL - entry| <= 2 ticks
+            be10 += 1 ; breakEvensCount += 1
+        else
+            l10  += 1 ; lossesCount     += 1
+        active := false ; clear all trade state
+    else if tradeHitTarget
+        w10 += 1 ; winsCount += 1
+        active := false ; clear all trade state
+
+================================================================================
+ STAGE 8: DASHBOARD AGGREGATION  (lines 3371–3375)
+================================================================================
+
+    int decisiveTrades = winsCount + lossesCount
+    int resolvedTrades = winsCount + lossesCount + breakEvensCount
+    int pendingPlans   = active ? 0
+                         : (waitL and not na(waitSetupIdL) ? 1 : 0)
+                         + (waitS and not na(waitSetupIdS) ? 1 : 0)
+    string winrateText = decisiveTrades > 0
+                           ? str.tostring(wins * 100 / decisiveTrades, "#.0") + "%"
+                           : "—"
+
+The `Stats` row shows:
+    WR   Det   Val   Pend   Ent   Res   W / L / BE   Blk
+
+Invariants enforced by the current code:
+    Det  >=  Val  >=  Ent
+    Val  >=  Blk  (a block is a subset of validated signals)
+    Res  =   W + L + BE
+    Pend =   0 when a trade is active
+    Pend =   count of live wait states otherwise
+    WR   =   wins / (wins + losses); break-evens excluded; "—" when no
+             decisive trades
+
+================================================================================
+ END-TO-END CONFIRMATION REQUIREMENTS (CHECKLIST)
+================================================================================
+
+For a setup to become an "Entry" in the stats row it MUST satisfy, in order:
+
+  [DETECTION]
+  [x] A high-fidelity sweep (`swpBSL` or `swpSSL`) fires on the chart TF
+  [x] No opposing trade is currently active
+  [x] No same-side wait state already exists
+  [x] `showSMC` is on
+
+  [STRUCTURE CONFIRMATION — LTF mode]
+  [x] `ltfEntryTfValid` is true (auto LTF is strictly below chart TF)
+  [x] Wait state is still alive (not expired, not invalidated)
+  [x] At least `ltfMssDelayBars` LTF bars have printed since the sweep
+  [x] A post-sweep reclaim pivot exists on the LTF
+  [x] A subsequent break pivot exists (after the reclaim pivot)
+  [x] The leg between the two pivots >= `ltfMssMinLegAtr * LTF_ATR`
+  [x] A displacement candle closes through the break pivot
+      (body > avgBody * `ltfEntryDispMult`, small counter-wick,
+       imbalance or 0.75 * ATR range)
+  [x] The resulting `ltfBearMssTime` >= `waitStartTimeS`
+
+  [STRUCTURE CONFIRMATION — HTF fallback]
+  [x] `ltfEntryTfValid` is false
+  [x] `internalBreakS` (or `externalBreakS` if `useMajorMSS`) fires
+  [x] That requires: `bearStructureImpulse` + close through internal/external
+      structure ref + wait state still alive
+
+  [RISK VALIDITY]
+  [x] `shortStopCandidate` is not na
+  [x] `shortEntryCandidate` is not na
+  [x] `shortStopCandidate > shortEntryCandidate`
+  [x] (Mirror for longs: `longStopCandidate < longEntryCandidate`)
+
+  [FILTERS — any failure blocks, counted in Blk]
+  [x] `blockShortEntry`                (HTF bias disagreement)
+  [x] `blockShortLiquidityConflict`    (nearer counter liquidity)
+  [x] `shortMsEntryBlock`              (Conservative mode MS unconfirmed)
+
+  [ACTIVATION]
+  [x] `ltfBearEntryReady` (or non-LTF equivalent) evaluates true
+  [x] `not active`
+  [x] `shortEntryRiskValid` (re-checked inside the block)
+
+Only after ALL of those pass does `entriesTriggeredCount` increment, `active`
+become true, and the trade begin management.
+
+================================================================================
+ NOTABLE FAILURE MODES (WHY Det >> Ent IS COMMON)
+================================================================================
+
+1. Sweep timeout attrition
+   Default `sweepMssTimeoutBars = 6`. On illiquid / ranging periods the LTF
+   MSS rarely qualifies within 6 chart bars -> all setups expire.
+
+2. Strict post-sweep pivot requirement
+   `ltfRequiresPostSweepPivot = true` forces BOTH the reclaim and the break
+   pivot to form after the sweep. On fast moves, the break pivot often
+   forms before the reclaim pivot can mature, killing the signal.
+
+3. Structural-leg gate
+   `ltfMssMinLegAtr = 0.15` rejects micro-MSS breaks. Setups where the
+   reclaim and break pivots are tight get filtered.
+
+4. Displacement requirement
+   `ltfEntryDispMult = 1.15` requires a candle whose body is 15% larger
+   than the 20-bar average body. Soft drifts never qualify.
+
+5. Missing stop anchor
+   In LTF mode `shortStopCandidate = waitStopAnchorS`. If no raid upgrade
+   ever happens and the initial `waitStopAnchorS` is `na`, every entry
+   dies on the risk-validity check.
+
+6. Conservative MS mode
+   With `msConfirmationMode == "Conservative"`, entries require both the
+   LTF/HTF MSS AND a ms_-engine CHoCH/BOS/protected-level break. Double
+   confirmation is rare.
+
+7. Liquidity-conflict filter
+   `useDirectionalLiquidityEntryFilter` with a tight 15% margin routinely
+   blocks shorts that have closer BSL than SSL.
+
+================================================================================
+ STATE-MACHINE DIAGRAM (ASCII)
+================================================================================
+
+                         +--------------------+
+                         |       IDLE         |
+                         |  waitS=false       |
+                         |  active=false      |
+                         +---------+----------+
+                                   |
+                        bearSweep and not active
+                                   v
+                         +--------------------+
+                         |    WAIT (short)    |
+                         |  waitS=true        |
+                         |  waitSetupIdS=n    |
+                         |  waitStopAnchorS=x |
+              timeout    +-----+-------+------+     breakout invalidation
+           <-------------------+       +----------------------->
+                                   |
+                (LTF) ltfBearMssTime >= waitStartTimeS
+                (HTF) mssS=true  (internal/external break)
+                                   v
+                         +--------------------+
+                         |     VALIDATED      |
+                         |  raw signal=true   |
+                         |  Val += 1          |
+                         +-----+-------+------+
+                               |       |
+                       blocked?|       | not blocked
+                               v       v
+                    +----------+----+  +---+-----------------+
+                    |   BLOCKED      |  |    ENTRY READY      |
+                    |  Blk += 1      |  |  ltfBearEntryReady  |
+                    +--------+-------+  +---+-----------------+
+                             |              |
+                 (next bar or new validation key loop)
+                                            v
+                                 +-------------------+
+                                 |      ACTIVE       |
+                                 |  active=true      |
+                                 |  Ent += 1         |
+                                 +---------+---------+
+                                           |
+                                   bar > entryBar
+                                           v
+                              +-------+----+----+-------+
+                              | SL hit |   TP hit  | BE hit|
+                              +---+----+-----+-----+---+---+
+                                  |          |         |
+                                  v          v         v
+                                L += 1     W += 1    BE += 1
+                                       Res = W+L+BE
+
+================================================================================
+ END OF ANALYSIS
+================================================================================

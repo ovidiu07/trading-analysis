@@ -1,0 +1,91 @@
+//@version=6
+indicator("Devtrader Custom Chart Information", shorttitle = "Devtrader Chart Info", overlay = true)
+
+// A fixed bottom-center table keeps the motto centered while the chart is
+// panned or zoomed. TradingView currently supports Default and Monospace fonts.
+
+string GROUP_CONTENT = "Content"
+string GROUP_MOTTO = "Motto typography"
+string GROUP_DETAILS = "Instrument & timeframe typography"
+string GROUP_PANEL = "Panel style"
+
+bool showMotto = input.bool(true, "Show motto", group = GROUP_CONTENT)
+string mottoText = input.text_area("Plan the trade. Trade the plan.", "Motto", group = GROUP_CONTENT)
+bool showExchange = input.bool(false, "Show exchange", group = GROUP_CONTENT,
+     tooltip = "Off: EURUSD   On: OANDA:EURUSD")
+string detailsSeparator = input.string("  •  ", "Separator", group = GROUP_CONTENT)
+
+color mottoColor = input.color(color.white, "Color", inline = "motto-color", group = GROUP_MOTTO)
+int mottoSize = input.int(24, "Size (pt)", minval = 8, maxval = 72, inline = "motto-color", group = GROUP_MOTTO)
+string mottoFontInput = input.string("Default", "Font", options = ["Default", "Monospace"], inline = "motto-font", group = GROUP_MOTTO)
+string mottoStyleInput = input.string("Bold", "Style", options = ["Regular", "Bold", "Italic", "Bold Italic"], inline = "motto-font", group = GROUP_MOTTO)
+
+color detailsColor = input.color(color.new(color.white, 35), "Color", inline = "details-color", group = GROUP_DETAILS)
+int detailsSize = input.int(12, "Size (pt)", minval = 8, maxval = 40, inline = "details-color", group = GROUP_DETAILS)
+string detailsFontInput = input.string("Default", "Font", options = ["Default", "Monospace"], inline = "details-font", group = GROUP_DETAILS)
+string detailsStyleInput = input.string("Regular", "Style", options = ["Regular", "Bold", "Italic", "Bold Italic"], inline = "details-font", group = GROUP_DETAILS)
+
+color panelColor = input.color(color.new(color.black, 78), "Background", inline = "panel", group = GROUP_PANEL)
+color frameColor = input.color(color.new(color.white, 80), "Frame", inline = "panel", group = GROUP_PANEL)
+int frameWidth = input.int(0, "Frame width", minval = 0, maxval = 5, inline = "borders", group = GROUP_PANEL)
+int rowDividerWidth = input.int(0, "Row divider", minval = 0, maxval = 5, inline = "borders", group = GROUP_PANEL)
+
+f_font(string selection) =>
+    selection == "Monospace" ? font.family_monospace : font.family_default
+
+f_formatting(string selection) =>
+    selection == "Bold" ? text.format_bold :
+     selection == "Italic" ? text.format_italic :
+     selection == "Bold Italic" ? text.format_bold + text.format_italic :
+     text.format_none
+
+f_timeframe_label() =>
+    string label = timeframe.period
+    if timeframe.isseconds
+        label := str.tostring(timeframe.multiplier) + "s"
+    else if timeframe.isminutes
+        label := timeframe.multiplier >= 60 and timeframe.multiplier % 60 == 0 ?
+             str.tostring(int(timeframe.multiplier / 60)) + "H" :
+             str.tostring(timeframe.multiplier) + "m"
+    else if timeframe.isdaily
+        label := str.tostring(timeframe.multiplier) + "D"
+    else if timeframe.isweekly
+        label := str.tostring(timeframe.multiplier) + "W"
+    else if timeframe.ismonthly
+        label := str.tostring(timeframe.multiplier) + "M"
+    label
+
+string instrumentText = showExchange ? syminfo.tickerid : syminfo.ticker
+string detailsText = instrumentText + detailsSeparator + f_timeframe_label()
+
+var table mottoTable = table.new(position.bottom_center, 1, 2,
+     bgcolor = panelColor,
+     frame_color = frameColor,
+     frame_width = frameWidth,
+     border_color = frameColor,
+     border_width = rowDividerWidth)
+
+if barstate.islast
+    color activePanelColor = showMotto ? panelColor : color.new(panelColor, 100)
+    string activeMottoText = showMotto ? mottoText : ""
+    string activeDetailsText = showMotto ? detailsText : ""
+
+    table.set_bgcolor(mottoTable, activePanelColor)
+    table.set_frame_color(mottoTable, showMotto ? frameColor : color.new(frameColor, 100))
+    table.set_border_color(mottoTable, showMotto ? frameColor : color.new(frameColor, 100))
+
+    table.cell(mottoTable, 0, 0, activeMottoText,
+         text_color = mottoColor,
+         text_size = mottoSize,
+         text_halign = text.align_center,
+         text_valign = text.align_center,
+         text_font_family = f_font(mottoFontInput),
+         text_formatting = f_formatting(mottoStyleInput))
+
+    table.cell(mottoTable, 0, 1, activeDetailsText,
+         text_color = detailsColor,
+         text_size = detailsSize,
+         text_halign = text.align_center,
+         text_valign = text.align_center,
+         text_font_family = f_font(detailsFontInput),
+         text_formatting = f_formatting(detailsStyleInput))

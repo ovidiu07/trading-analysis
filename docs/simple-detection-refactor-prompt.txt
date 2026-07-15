@@ -1,0 +1,548 @@
+================================================================================
+SIMPLE DETECTION REFACTOR — devtrader-chart.pine
+================================================================================
+
+CONTEXT
+-------
+File: backend/src/main/resources/pine/prod/devtrader-chart.pine
+Symptom: stats row shows "Det 46 | Val 0 | Pend 0 | Ent 0". Sweeps are being
+qualified (Det ticks up) but nothing ever reaches validation. The current
+validation path has too many tight wick/ATR/grace-window filters stacked in
+series, and any one of them failing silently discards the whole setup.
+
+Chart reality: red/cyan dots on the chart are already the confirmed pivots
+(minorHighPivotPrices / minorLowPivotPrices / majorHighPivotPrices /
+majorLowPivotPrices at lines 1740-1746). Those ARE the liquidity the indicator
+should hunt. The existing LTF MSS engine (f_ltfEntrySignals at ~2252 and its
+helpers f_ltfBullMssTime / f_ltfBearMssTime) already detects lower-timeframe
+structure shifts and returns entry prices. Nothing downstream uses that output
+as a first-class validation signal today.
+
+
+GOAL
+----
+Replace the validation path with a dead-simple 4-stage pipeline:
+
+    1. LIQUIDITY GRAB    price takes out a recent swing-high / swing-low pivot
+    2. REJECTION         price closes back through the swept level within N bars
+    3. LTF MSS           the lower-timeframe MSS engine confirms the reversal
+    4. ENTRY             trade goes live on the LTF MSS price
+
+No rejection tier, no chart-timeframe BreakA/B/C/D zoo, no confirmation-swing
+ATR leg, no execution-model selection. The LTF MSS price IS the entry.
+
+Keep existing HTF bias block, existing stop model (sweep extreme), and the
+existing f_tradeTargetPrice target resolver unchanged.
+
+Keep the existing stats columns (Det, Val, Pend, Ent, Res, W, L, BE, Blk) and
+the existing webhook/alert payloads. This refactor only swaps the INTERNAL
+logic that moves a setup from Det -> Val -> Pend -> Ent.
+
+
+NEW PIPELINE SPECIFICATION
+--------------------------
+
+STAGE 1 — LIQUIDITY GRAB (Det)
+
+    Trigger (short side, BSL sweep):
+        current bar high >= most recent eligible pivot-high price
+        AND that pivot-high was confirmed at least `swingLen` bars ago
+        AND the pivot price is within last `sweepLookbackBars` bars (default 300)
+        AND no active trade, no active waitS
+
+    Trigger (long side, SSL sweep): mirror on pivot-low.
+
+    Eligible pivot source (in this priority):
+        majorHighPivotPrices -> majorLowPivotPrices (HTF bubbles)
+        minorHighPivotPrices -> minorLowPivotPrices (LTF bubbles)
+        Fall through from major to minor if no major within lookback.
+
+    Depth filter (soft): reject pivots whose distance from current price is
+    more than `sweepMaxDepth * ATR * 3` away (so we don't fire on ancient
+    out-of-range pivots).
+
+    On fire:
+        waitS / waitL := true
+        waitStartBar*, waitStartTime*, waitSweepLevel*, waitStopAnchor*
+        setupsDetectedCount += 1
+        structureStatus := "Bearish pivot sweep @ <price>" / mirror long
+
+STAGE 2 — REJECTION (binary, no tiers)
+
+    Grace window: `rejectGraceBars` = 8 bars (was 1-3 in legacy code).
+
+    Success condition (short):
+        within rejectGraceBars after waitStartBarS,
+        any bar prints: close < waitSweepLevelS
+        (the bar that swept is allowed to qualify as its own rejection — so
+         a same-bar sweep+close-back counts)
+
+    Failure condition (short):
+        current high > waitStopAnchorS + atrVal * sweepMaxDepth
+        OR bars_since_sweep > rejectGraceBars without any bar closing back
+        inside. Failure resets wait state (no Val increment, no Blk increment).
+
+    Long side: mirror.
+
+    On success:
+        set waitRejectedS / waitRejectedL := true
+        DO NOT increment Val here. Val only happens at Stage 3.
+
+STAGE 3 — LTF MSS CONFIRMATION (Val)
+
+    Inputs already computed:
+        ltfEntryTfValid, ltfEntryTf  (auto-selected lower timeframe)
+        ltfBullMssTime, ltfBearMssTime  (last MSS event time on that TF)
+        ltfBullEntryPrice, ltfBearEntryPrice  (MSS swing price)
+
+    Short validation:
+        waitS AND waitRejectedS
+        AND ltfEntryTfValid
+        AND not na(ltfBearMssTime)
+        AND ltfBearMssTime >= waitStartTimeS
+        AND not na(ltfBearEntryPrice)
+
+    Long validation: mirror with Bull.
+
+    On fire:
+        waitStructureConfirmedS / L := true
+        waitExecModel* := "LTF_MSS"
+        waitExecEntry*  := ltfBearEntryPrice / ltfBullEntryPrice
+        waitStructureBreakType* := "LTF_MSS"
+        setupsValidatedCount += 1
+        structureStatus := "Bearish LTF MSS confirmed" / mirror
+
+    Timeout: if no LTF MSS within `mssWaitBars` = 20 bars after rejection,
+    reset wait state silently.
+
+STAGE 4 — ENTRY (Ent)
+
+    Trigger (short):
+        waitStructureConfirmedS AND not active AND not na(waitExecEntryS)
+        AND high >= waitExecEntryS            (price has touched the MSS price)
+        AND risk valid: waitStopAnchorS > waitExecEntryS
+
+    Trigger (long): mirror.
+
+    Filters (these still block):
+        blockLongEntry / blockShortEntry  (HTF bias block, line 568-569)
+        blockLong/ShortLiquidityConflict  (line 3574-3575) — keep as-is
+
+    Remove: shortMsEntryBlock / longMsEntryBlock  (Conservative bias gate)
+
+    On fire:
+        entriesTriggeredCount += 1
+        active := true
+        activeEntryPrice := waitExecEntry*
+        tSL := waitStopAnchor*  (sweep extreme + existing stop model)
+        t10 := f_tradeTargetPrice(bull, entry, stop)  (unchanged)
+        Reset wait state.
+
+
+FILES TO EDIT
+-------------
+Only: backend/src/main/resources/pine/prod/devtrader-chart.pine
+
+
+VARIABLES TO ADD
+----------------
+Add near existing wait state declarations (around line 1661-1704):
+
+    var bool  waitRejectedL = false
+    var bool  waitRejectedS = false
+    var int   waitRejectBarL = na
+    var int   waitRejectBarS = na
+
+Add to inputs (group G_STATS, near line 97-100):
+
+    rejectGraceBars = input.int(8, "Rejection Grace Bars",
+        minval=1, maxval=30, group=G_STATS,
+        tooltip="Bars after a pivot sweep to wait for price to close back through the level.")
+    mssWaitBars     = input.int(20, "MSS Wait Bars",
+        minval=1, maxval=60, group=G_STATS,
+        tooltip="Bars after rejection to wait for LTF MSS confirmation before discarding the setup.")
+    sweepLookbackBars = input.int(300, "Pivot Sweep Lookback",
+        minval=20, maxval=1000, group=G_STATS,
+        tooltip="Only pivots formed within this many bars are eligible as sweep targets.")
+
+
+VARIABLES TO STOP USING (but DO NOT delete the declarations yet)
+-----------------------
+These remain declared so the stats/dashboard code compiles, but nothing writes
+to them during validation anymore:
+
+    waitRejectionTierL / waitRejectionTierS      (always "" now)
+    waitConfirmSwingPrice* / waitConfirmSwingBar* / waitConfirmSwingTier*
+    chartConfirmSwing* / activeConfirmSwing*
+    shortBreakA / shortBreakB / shortBreakC / shortBreakD  (dead code)
+    longBreakA  / longBreakB  / longBreakC  / longBreakD
+    chartBreakTypeS / chartBreakTypeL                      (always "")
+    shortWeakAllowed / longWeakAllowed / shortStructureBiasOk / longStructureBiasOk
+    shortArmExecNow / longArmExecNow                       (exec model dead)
+
+f_evalRejectionTier, f_selectConfirmationSwing, f_findEligibleConfirmationPivot,
+and f_confirmationPivotEligible become unused — leave declared, remove callers.
+
+
+CODE CHANGES BY SECTION
+-----------------------
+
+CHANGE 1 — Add new simple sweep detector
+Location: insert as a new helper near line 2020 (just before
+f_selectConfirmationSwing), or anywhere above line 2975.
+
+    // Returns [sweepPrice, sweepBar, sweepTier] for the most recent pivot
+    // the current bar just took out. Side: "BSL" = pivot high, "SSL" = pivot low.
+    f_detectPivotSweep(string side) =>
+        float hitPrice = na
+        int   hitBar   = na
+        string hitTier = ""
+        float ref = side == "BSL" ? high : low
+        int minBar = bar_index - sweepLookbackBars
+
+        // Try major pivots first
+        array<float> majorArr = side == "BSL" ? majorHighPivotPrices : majorLowPivotPrices
+        array<int>   majorBarArr = side == "BSL" ? majorHighPivotBars : majorLowPivotBars
+        if array.size(majorArr) > 0
+            for i = array.size(majorArr) - 1 to 0
+                float p = array.get(majorArr, i)
+                int   b = array.get(majorBarArr, i)
+                if b < minBar
+                    break
+                if not f_isConfirmedPivot(b)
+                    continue
+                bool taken = side == "BSL" ? ref >= p and high[1] < p : ref <= p and low[1] > p
+                if taken
+                    hitPrice := p
+                    hitBar := b
+                    hitTier := "MAJOR"
+                    break
+
+        // Fall through to minor pivots
+        if na(hitPrice)
+            array<float> minorArr = side == "BSL" ? minorHighPivotPrices : minorLowPivotPrices
+            array<int>   minorBarArr = side == "BSL" ? minorHighPivotBars : minorLowPivotBars
+            if array.size(minorArr) > 0
+                for i = array.size(minorArr) - 1 to 0
+                    float p = array.get(minorArr, i)
+                    int   b = array.get(minorBarArr, i)
+                    if b < minBar
+                        break
+                    if not f_isConfirmedPivot(b)
+                        continue
+                    bool taken = side == "BSL" ? ref >= p and high[1] < p : ref <= p and low[1] > p
+                    if taken
+                        hitPrice := p
+                        hitBar := b
+                        hitTier := "MINOR"
+                        break
+        [hitPrice, hitBar, hitTier]
+
+CHANGE 2 — Replace the sweep arming block at lines 2972-3081
+Rip out everything inside `if not na(bestSweepIdx)` down to the end of the two
+`f_startWaitAdvanced` blocks and replace with the simplified version below.
+Keep the breakout-pool consumption at lines 3021-3034 (those just clean up
+liquidity pool state — still valuable).
+
+Replacement logic (insert AFTER the existing breakout cleanup at line 3034):
+
+    // --- SIMPLE PIVOT SWEEP DETECTION ---
+    [bslSweepPrice, bslSweepBar, bslSweepTier] = f_detectPivotSweep("BSL")
+    [sslSweepPrice, sslSweepBar, sslSweepTier] = f_detectPivotSweep("SSL")
+
+    bool armShortNow = not na(bslSweepPrice) and not waitS and not active
+    bool armLongNow  = not na(sslSweepPrice) and not waitL and not active
+
+    if armShortNow
+        waitS := true
+        waitStartBarS := bar_index
+        waitStartTimeS := time
+        waitSweepLevelS := bslSweepPrice
+        waitSweepTolS := math.max(atrVal * 0.05, syminfo.mintick * 5)
+        waitStopAnchorS := math.max(high, bslSweepPrice + atrVal * 0.1)
+        waitSweepBaseScoreS := bslSweepTier == "MAJOR" ? 80.0 : 60.0
+        waitSweepPoolLabelS := bslSweepTier + " Pivot High"
+        waitRejectedS := false
+        waitRejectBarS := na
+        waitExecModelS := ""
+        waitExecEntryS := na
+        waitStructureConfirmedS := false
+        waitSetupIdS := time
+        waitSetupValidatedS := false
+        waitSetupBlockedCountedS := false
+        setupsDetectedCount += 1
+        structureStatus := "Bearish " + bslSweepTier + " pivot sweep @ " + str.tostring(bslSweepPrice, format.mintick)
+
+    if armLongNow
+        waitL := true
+        waitStartBarL := bar_index
+        waitStartTimeL := time
+        waitSweepLevelL := sslSweepPrice
+        waitSweepTolL := math.max(atrVal * 0.05, syminfo.mintick * 5)
+        waitStopAnchorL := math.min(low, sslSweepPrice - atrVal * 0.1)
+        waitSweepBaseScoreL := sslSweepTier == "MAJOR" ? 80.0 : 60.0
+        waitSweepPoolLabelL := sslSweepTier + " Pivot Low"
+        waitRejectedL := false
+        waitRejectBarL := na
+        waitExecModelL := ""
+        waitExecEntryL := na
+        waitStructureConfirmedL := false
+        waitSetupIdL := time
+        waitSetupValidatedL := false
+        waitSetupBlockedCountedL := false
+        setupsDetectedCount += 1
+        structureStatus := "Bullish " + sslSweepTier + " pivot sweep @ " + str.tostring(sslSweepPrice, format.mintick)
+
+NOTE: keep the block at lines 3006-3019 (the cluster-sweep mark that updates
+`liq_pools` state from FRESH -> SWEPT) intact. It runs off `bestSweepIdx`
+which will still populate from the existing legacy detection; we just stop
+acting on `bestSweepTier`. That way the liquidity engine dashboards and
+reaction zones keep working unchanged.
+
+CHANGE 3 — Replace rejection tier evaluation at lines 3107-3123
+Delete the existing `waitRejectionTierS/L := f_evalRejectionTier(...)` block
+and the two `waitRejectionTier* == "FAILED"` reset blocks.
+
+Replace with:
+
+    // --- SIMPLE REJECTION (no tiers) ---
+    if waitS and not waitRejectedS
+        // Failure first: blown through the sweep extreme
+        if high > waitStopAnchorS + atrVal * sweepMaxDepth
+            [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] := f_resetWaitState()
+            [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] := f_resetSetupTracking()
+            waitRejectedS := false
+            waitRejectBarS := na
+            structureStatus := "Bearish sweep failed — blown through extreme"
+        else if close < waitSweepLevelS
+            waitRejectedS := true
+            waitRejectBarS := bar_index
+            structureStatus := "Bearish sweep rejected — awaiting LTF MSS"
+        else if (bar_index - waitStartBarS) > rejectGraceBars
+            [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] := f_resetWaitState()
+            [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] := f_resetSetupTracking()
+            waitRejectedS := false
+            waitRejectBarS := na
+            structureStatus := "Bearish sweep expired — no reclaim"
+
+    if waitL and not waitRejectedL
+        if low < waitStopAnchorL - atrVal * sweepMaxDepth
+            [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] := f_resetWaitState()
+            [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] := f_resetSetupTracking()
+            waitRejectedL := false
+            waitRejectBarL := na
+            structureStatus := "Bullish sweep failed — blown through extreme"
+        else if close > waitSweepLevelL
+            waitRejectedL := true
+            waitRejectBarL := bar_index
+            structureStatus := "Bullish sweep rejected — awaiting LTF MSS"
+        else if (bar_index - waitStartBarL) > rejectGraceBars
+            [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] := f_resetWaitState()
+            [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] := f_resetSetupTracking()
+            waitRejectedL := false
+            waitRejectBarL := na
+            structureStatus := "Bullish sweep expired — no reclaim"
+
+CHANGE 4 — Delete the confirmation-swing + chart-break-type block
+Lines 3200-3303: delete all of:
+    - shortRejectionAlive / longRejectionAlive
+    - f_selectConfirmationSwing calls and result stamping
+    - chartBreakTolS / chartBreakTolL
+    - shortBreakA/B/C/D / longBreakA/B/C/D
+    - chartBreakTypeS / chartBreakTypeL
+    - shortWeakAllowed / longWeakAllowed / shortStructureBiasOk / longStructureBiasOk
+    - chartStructureConfirmS / chartStructureConfirmL
+    - the two `if chartStructureConfirm*` blocks
+    - the localPivot / internal / external break labels and state writes
+
+Keep internalShiftDoneS/L and externalShiftDoneS/L writes ONLY if they are
+referenced by the dashboard. If not, delete them. (They gate the old exec
+model and are now useless.)
+
+Keep `bool mssS = ...` / `bool mssL = ...` at 3302-3303 only if they feed
+dashboard rendering; otherwise delete.
+
+CHANGE 5 — Replace Stage 3 with LTF MSS validation
+Insert this block where the deleted chart-structure-confirm block used to be
+(around old line 3237):
+
+    // --- LTF MSS VALIDATION (new Stage 3) ---
+    bool ltfValShortNow = waitS and waitRejectedS and not waitStructureConfirmedS
+       and ltfEntryTfValid and not na(ltfBearMssTime) and not na(waitStartTimeS)
+       and ltfBearMssTime >= waitStartTimeS
+       and not na(ltfBearEntryPrice)
+    bool ltfValLongNow = waitL and waitRejectedL and not waitStructureConfirmedL
+       and ltfEntryTfValid and not na(ltfBullMssTime) and not na(waitStartTimeL)
+       and ltfBullMssTime >= waitStartTimeL
+       and not na(ltfBullEntryPrice)
+
+    if ltfValShortNow
+        waitStructureConfirmedS := true
+        waitStructureConfirmBarS := bar_index
+        waitExecModelS := "LTF_MSS"
+        waitExecEntryS := ltfBearEntryPrice
+        waitExecTopS := ltfBearEntryPrice
+        waitExecBottomS := ltfBearEntryPrice - math.max(atrVal * 0.05, syminfo.mintick * 5)
+        waitExecArmedBarS := bar_index
+        waitStructureBreakTypeS := "LTF_MSS"
+        if not waitSetupValidatedS
+            waitSetupValidatedS := true
+            lastShortValidationKey := time
+            setupsValidatedCount += 1
+        structureStatus := "Bearish LTF MSS confirmed @ " + ltfEntryLabel
+
+    if ltfValLongNow
+        waitStructureConfirmedL := true
+        waitStructureConfirmBarL := bar_index
+        waitExecModelL := "LTF_MSS"
+        waitExecEntryL := ltfBullEntryPrice
+        waitExecTopL := ltfBullEntryPrice + math.max(atrVal * 0.05, syminfo.mintick * 5)
+        waitExecBottomL := ltfBullEntryPrice
+        waitExecArmedBarL := bar_index
+        waitStructureBreakTypeL := "LTF_MSS"
+        if not waitSetupValidatedL
+            waitSetupValidatedL := true
+            lastLongValidationKey := time
+            setupsValidatedCount += 1
+        structureStatus := "Bullish LTF MSS confirmed @ " + ltfEntryLabel
+
+    // MSS timeout — reset if rejection happened but MSS never came
+    if waitS and waitRejectedS and not waitStructureConfirmedS
+       and not na(waitRejectBarS) and (bar_index - waitRejectBarS) > mssWaitBars
+        [waitS, waitStartBarS, waitStartTimeS, waitSweepLevelS, waitSweepTolS, waitSweepBaseScoreS, waitSweepVolumeOkS, waitSweepSessionOkS, waitSweepReclaimOkS, waitSweepPoolLabelS, waitStopAnchorS] := f_resetWaitState()
+        [waitSetupIdS, waitSetupValidatedS, waitSetupBlockedCountedS, lastShortValidationKey] := f_resetSetupTracking()
+        waitRejectedS := false
+        waitRejectBarS := na
+        structureStatus := "Bearish setup expired — no LTF MSS"
+
+    if waitL and waitRejectedL and not waitStructureConfirmedL
+       and not na(waitRejectBarL) and (bar_index - waitRejectBarL) > mssWaitBars
+        [waitL, waitStartBarL, waitStartTimeL, waitSweepLevelL, waitSweepTolL, waitSweepBaseScoreL, waitSweepVolumeOkL, waitSweepSessionOkL, waitSweepReclaimOkL, waitSweepPoolLabelL, waitStopAnchorL] := f_resetWaitState()
+        [waitSetupIdL, waitSetupValidatedL, waitSetupBlockedCountedL, lastLongValidationKey] := f_resetSetupTracking()
+        waitRejectedL := false
+        waitRejectBarL := na
+        structureStatus := "Bullish setup expired — no LTF MSS"
+
+CHANGE 6 — Delete the entire exec-model selection block at lines 3418-3551
+The old four-model priority selector (CONT/FVG/OB/RECLAIM) is gone.
+`waitExecModel*` is now stamped directly by Stage 3 as "LTF_MSS".
+
+Also delete lines 3553-3562 (the LTF-refined-entry block inside the old
+exec zone) — it's subsumed by Stage 3.
+
+CHANGE 7 — Simplify the raw entry trigger at lines 3586-3587
+Replace:
+
+    bool rawShortEntrySignal = waitS and not active and waitStructureConfirmedS and waitExecModelS != "" and shortEntryRiskValid and (waitExecModelS == "CONT" ? ... : false)
+    bool rawLongEntrySignal  = waitL and not active and waitStructureConfirmedL and waitExecModelL != "" and longEntryRiskValid and (...)
+
+With:
+
+    bool rawShortEntrySignal = waitS and not active and waitStructureConfirmedS
+       and not na(waitExecEntryS) and shortEntryRiskValid
+       and high >= waitExecEntryS
+    bool rawLongEntrySignal  = waitL and not active and waitStructureConfirmedL
+       and not na(waitExecEntryL) and longEntryRiskValid
+       and low  <= waitExecEntryL
+
+Also, because LTF MSS can fire on the same bar as the retest, allow same-bar
+entry: do NOT require `bar_index > waitExecArmedBar*`.
+
+CHANGE 8 — Remove Conservative MS bias block at lines 3576-3577
+Delete:
+    bool shortMsEntryBlock = msConfirmationMode == "Conservative" and waitS and ms_structureBias == 1
+    bool longMsEntryBlock  = msConfirmationMode == "Conservative" and waitL and ms_structureBias == -1
+
+And remove `shortMsEntryBlock` / `longMsEntryBlock` from the
+`shortEntryBlocked` / `longEntryBlocked` OR-chain at 3578-3579.
+
+Keep blockLong/ShortEntry (HTF filter) and block*LiquidityConflict.
+
+CHANGE 9 — Stats row stays the same
+The stats row at line 4006 already reads `setupsDetectedCount`,
+`setupsValidatedCount`, `entriesTriggeredCount`, etc. These are now written by
+the new pipeline, so the display will "just work".
+
+Verify that the dashboard status strings at 3173-3175 and the table narrative
+at 3727 / 3739 don't crash when `waitRejectionTierS/L` is always empty. If
+they do, replace the tiered branches with:
+
+    sweepStateText := waitStructureConfirmedS ? "Bearish LTF MSS | entry armed"
+        : waitRejectedS ? "Bearish sweep rejected | awaiting LTF MSS"
+        : "Bearish sweep | awaiting reclaim"
+
+(mirror for long).
+
+
+PARAMETER DEFAULTS (conservative, tune from here)
+-------------------------------------------------
+    rejectGraceBars    = 8     (was 1-3)
+    mssWaitBars        = 20
+    sweepLookbackBars  = 300
+    sweepMaxDepth      = leave at existing default (used for failure threshold)
+
+These should be the first knobs to turn once data comes in. If `Val` still
+lags `Det`, first raise `mssWaitBars`. If `Det` is too noisy, lower
+`sweepLookbackBars`.
+
+
+WHAT'S PRESERVED
+----------------
+- All existing liquidity pool dashboards, reaction zones, HTF overlay candles
+- All existing pivot detection (the bubbles)
+- Existing stop model (sweep extreme / MSS candle extreme via `stopModel` input)
+- Existing target resolver f_tradeTargetPrice (next-liq-with-RR-floor)
+- Existing HTF bias block (useHTFEntryFilter)
+- Existing directional liquidity conflict block
+- Existing trade resolution (SL/TP simulation → W/L/BE stats)
+- Existing webhook / alert payload structure
+- `msConfirmationMode` input — now only influences Stage 1 pivot-tier priority
+  (Conservative = MAJOR-only, Balanced/Aggressive = MAJOR-then-MINOR).
+  If you want to hard-remove the mode, that's a separate cleanup pass.
+
+
+WHAT'S DELETED
+--------------
+- f_qualifySweep downstream effect (bestSweepTier becomes advisory only,
+  used for nothing)
+- f_evalRejectionTier (body) — can stay declared as dead code
+- f_selectConfirmationSwing callers
+- f_findEligibleConfirmationPivot / f_confirmationPivotEligible callers
+- Chart-timeframe Break A/B/C/D detection
+- Rejection tier (CONFIRMED/WEAK/FAILED) state machine
+- Execution model priority selector (CONT/FVG/OB/RECLAIM)
+- Conservative MS bias entry block
+
+
+VALIDATION PLAN
+---------------
+After applying, replay the exact chart in the screenshot (NQ, Apr 5-12 2026
+range) and verify:
+
+    1. Det count stays roughly similar (expect 30-60 in that window)
+    2. Val count goes from 0 to 5-15 (we expect maybe 20-30% of sweeps to
+       produce an LTF MSS)
+    3. Ent count > 0 — at least a couple of trades should fire
+    4. Visually: each Ent should align with one of the red/cyan bubble
+       sweeps + an obvious wick rejection + a visible LTF structure shift
+    5. W/L/BE stats should populate downstream
+    6. Structure status ribbon cycles: "pivot sweep" -> "rejected" ->
+       "LTF MSS confirmed" -> "entry live" -> (trade resolution)
+
+If Val is still 0 after this refactor, the LTF MSS engine itself is the
+culprit, not the validation path — next step would be to log
+`ltfBullMssTime` / `ltfBearMssTime` to the status ribbon and verify the
+request.security calls are returning valid times.
+
+
+OUT OF SCOPE (for this pass)
+----------------------------
+- Changing msConfirmationMode semantics
+- Changing stopModel or target resolver
+- Changing webhook payload schema
+- Changing reaction-zone or dashboard rendering
+- Any frontend changes
+
+================================================================================
+END OF PROMPT
+================================================================================

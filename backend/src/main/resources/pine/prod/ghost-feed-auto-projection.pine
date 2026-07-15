@@ -1,0 +1,219 @@
+// This Pine Script(R) code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+//@version=6
+indicator("Ghost Feed Manual Projection", overlay = true, max_boxes_count = 140, max_lines_count = 320, max_labels_count = 20, max_bars_back = 2000)
+
+// Ghost Feed Manual Projection is a visual scenario tool.
+// The user defines the future path. The script only converts that path into projected candles.
+
+//------------------------------------------------------------------------------
+// Inputs
+//------------------------------------------------------------------------------
+string CORE_GROUP = "Projection"
+int lookbackInput = input.int(500, "Lookback Bars", minval = 50, maxval = 2000, group = CORE_GROUP, tooltip = "Historical candles used only for candle body/wick scale. This script does not auto-predict direction.")
+int projectionInput = input.int(20, "Projection Candles", minval = 1, maxval = 80, group = CORE_GROUP)
+float smoothingInput = input.float(0.65, "Candle Size Smoothing", minval = 0.0, maxval = 1.0, step = 0.05, group = CORE_GROUP, tooltip = "0 uses straight segment interpolation. 1 uses fully eased interpolation between anchors.")
+float bodyMultInput = input.float(1.0, "Body Size Multiplier", minval = 0.1, maxval = 3.0, step = 0.1, group = CORE_GROUP, tooltip = "Scales each projected open-to-close move around the manually defined path.")
+
+string TRAJECTORY_GROUP = "Draw Trajectory Points"
+int point1TimeInput = input.time(0, "P1", group = TRAJECTORY_GROUP, inline = "p1", confirm = true)
+float point1PriceInput = input.price(0.0, "", group = TRAJECTORY_GROUP, inline = "p1", confirm = true)
+
+int point2TimeInput = input.time(0, "P2", group = TRAJECTORY_GROUP, inline = "p2", confirm = true)
+float point2PriceInput = input.price(0.0, "", group = TRAJECTORY_GROUP, inline = "p2", confirm = true)
+
+int point3TimeInput = input.time(0, "P3", group = TRAJECTORY_GROUP, inline = "p3", confirm = true)
+float point3PriceInput = input.price(0.0, "", group = TRAJECTORY_GROUP, inline = "p3", confirm = true)
+
+int point4TimeInput = input.time(0, "P4", group = TRAJECTORY_GROUP, inline = "p4", confirm = true)
+float point4PriceInput = input.price(0.0, "", group = TRAJECTORY_GROUP, inline = "p4", confirm = true)
+
+string WICK_GROUP = "Candle Shape"
+string wickModeInput = input.string("Historical average", "Wick Size Behavior", options = ["Historical average", "ATR based", "Body proportional", "Tight", "Wide"], group = WICK_GROUP)
+float wickMultInput = input.float(1.0, "Wick Size Multiplier", minval = 0.0, maxval = 5.0, step = 0.1, group = WICK_GROUP)
+
+string VISUAL_GROUP = "Visuals"
+bool showPathInput = input.bool(true, "Show Projection Path", group = VISUAL_GROUP)
+bool showInfoInput = input.bool(true, "Show Projection Info Label", group = VISUAL_GROUP)
+color bullColorInput = input.color(color.rgb(8, 153, 129), "Bullish Candle Color", group = VISUAL_GROUP)
+color bearColorInput = input.color(color.rgb(242, 54, 69), "Bearish Candle Color", group = VISUAL_GROUP)
+string wickColorModeInput = input.string("Candle color", "Wick Color Mode", options = ["Candle color", "Custom"], group = VISUAL_GROUP)
+color customWickColorInput = input.color(color.gray, "Custom Wick Color", group = VISUAL_GROUP)
+int transparencyInput = input.int(55, "Projection Transparency", minval = 0, maxval = 95, group = VISUAL_GROUP)
+
+//------------------------------------------------------------------------------
+// Helpers
+//------------------------------------------------------------------------------
+f_clamp_float(float value, float minValue, float maxValue) =>
+    math.max(minValue, math.min(maxValue, value))
+
+f_clamp_int(int value, int minValue, int maxValue) =>
+    math.max(minValue, math.min(maxValue, value))
+
+f_blend(float a, float b, float weight) =>
+    a * (1.0 - weight) + b * weight
+
+f_slot_from_time(int pointTime, int anchorTime, int maxSlot) =>
+    int timeframeSeconds = nz(timeframe.in_seconds(timeframe.period), 60)
+    int barMs = math.max(timeframeSeconds * 1000, 1)
+    int rawSlot = int(math.round(float(pointTime - anchorTime) / float(barMs))) + 1
+    f_clamp_int(rawSlot, 1, maxSlot)
+
+f_segment_value(int slot, int leftSlot, float leftPrice, int rightSlot, float rightPrice, float smoothing) =>
+    float span = math.max(float(rightSlot - leftSlot), 1.0)
+    float rawT = f_clamp_float(float(slot - leftSlot) / span, 0.0, 1.0)
+    float easedT = rawT * rawT * (3.0 - 2.0 * rawT)
+    float shapedT = f_blend(rawT, easedT, smoothing)
+    leftPrice + (rightPrice - leftPrice) * shapedT
+
+f_path_target(int slot, float startPrice, int s1, float p1, int s2, float p2, int s3, float p3, int s4, float p4, float smoothing) =>
+    float target = p4
+    if slot <= s1
+        target := f_segment_value(slot, 0, startPrice, s1, p1, smoothing)
+    else if slot <= s2
+        target := f_segment_value(slot, s1, p1, s2, p2, smoothing)
+    else if slot <= s3
+        target := f_segment_value(slot, s2, p2, s3, p3, smoothing)
+    else if slot <= s4
+        target := f_segment_value(slot, s3, p3, s4, p4, smoothing)
+    target
+
+f_clear_drawings(array<box> boxes, array<line> lines) =>
+    int boxCount = array.size(boxes)
+    if boxCount > 0
+        for idx = 0 to boxCount - 1
+            box.delete(array.get(boxes, idx))
+    array.clear(boxes)
+
+    int lineCount = array.size(lines)
+    if lineCount > 0
+        for idx = 0 to lineCount - 1
+            line.delete(array.get(lines, idx))
+    array.clear(lines)
+
+f_wick_sizes(string mode, float avgUpper, float avgLower, float avgAtr, float body, float multiplier) =>
+    float upper = avgUpper
+    float lower = avgLower
+    if mode == "ATR based"
+        float atrWick = avgAtr * 0.16
+        upper := atrWick
+        lower := atrWick
+    else if mode == "Body proportional"
+        float bodyWick = math.max(body * 0.35, syminfo.mintick)
+        upper := bodyWick
+        lower := bodyWick
+    else if mode == "Tight"
+        upper := avgUpper * 0.45
+        lower := avgLower * 0.45
+    else if mode == "Wide"
+        upper := avgUpper * 1.65
+        lower := avgLower * 1.65
+    [math.max(upper * multiplier, syminfo.mintick), math.max(lower * multiplier, syminfo.mintick)]
+
+//------------------------------------------------------------------------------
+// Historical candle scale. Direction comes from user anchors, not from this data.
+//------------------------------------------------------------------------------
+float candleRange = high - low
+float bodySize = math.abs(close - open)
+float upperWick = high - math.max(open, close)
+float lowerWick = math.min(open, close) - low
+
+max_bars_back(candleRange, 2000)
+max_bars_back(bodySize, 2000)
+max_bars_back(upperWick, 2000)
+max_bars_back(lowerWick, 2000)
+
+float atrValue = ta.atr(14)
+float avgATR = ta.sma(atrValue, lookbackInput)
+float avgBody = ta.sma(bodySize, lookbackInput)
+float avgUpperWick = ta.sma(upperWick, lookbackInput)
+float avgLowerWick = ta.sma(lowerWick, lookbackInput)
+
+//------------------------------------------------------------------------------
+// Interactive trajectory anchors.
+// Pine cannot read normal user drawing-tool lines, so this uses draggable script input points.
+//------------------------------------------------------------------------------
+int slot1Raw = f_slot_from_time(point1TimeInput, time_close, projectionInput)
+int slot2Raw = f_slot_from_time(point2TimeInput, time_close, projectionInput)
+int slot3Raw = f_slot_from_time(point3TimeInput, time_close, projectionInput)
+int slot4Raw = f_slot_from_time(point4TimeInput, time_close, projectionInput)
+
+int slot1 = f_clamp_int(slot1Raw, 1, projectionInput)
+int slot2 = f_clamp_int(math.max(slot2Raw, slot1 + 1), 1, projectionInput)
+int slot3 = f_clamp_int(math.max(slot3Raw, slot2 + 1), 1, projectionInput)
+int slot4 = f_clamp_int(math.max(slot4Raw, slot3 + 1), 1, projectionInput)
+
+float target1 = point1PriceInput > 0.0 ? point1PriceInput : close
+float target2 = point2PriceInput > 0.0 ? point2PriceInput : target1
+float target3 = point3PriceInput > 0.0 ? point3PriceInput : target2
+float target4 = point4PriceInput > 0.0 ? point4PriceInput : target3
+
+//------------------------------------------------------------------------------
+// Drawing state
+//------------------------------------------------------------------------------
+var array<box> ghostBodies = array.new<box>()
+var array<line> ghostLines = array.new<line>()
+var table infoTable = table.new(position.top_right, 1, 3)
+
+//------------------------------------------------------------------------------
+// Projection rendering
+//------------------------------------------------------------------------------
+if barstate.islast
+    f_clear_drawings(ghostBodies, ghostLines)
+
+    bool ready = not na(avgATR) and not na(avgBody) and not na(avgUpperWick) and not na(avgLowerWick)
+
+    if ready
+        float previousClose = close
+        float previousPathClose = close
+        int previousPathX = bar_index
+        color pathColor = color.new(customWickColorInput, math.min(transparencyInput + 12, 95))
+
+        for i = 1 to projectionInput
+            float targetClose = f_path_target(i, close, slot1, target1, slot2, target2, slot3, target3, slot4, target4, smoothingInput)
+            float openPrice = previousClose
+            float rawClosePrice = targetClose
+            float closePrice = openPrice + (rawClosePrice - openPrice) * bodyMultInput
+            bool bullishCandle = closePrice >= openPrice
+
+            float bodyTop = math.max(openPrice, closePrice)
+            float bodyBottom = math.min(openPrice, closePrice)
+            float bodyHeight = math.max(math.abs(closePrice - openPrice), avgBody * 0.08)
+            [upperWickSize, lowerWickSize] = f_wick_sizes(wickModeInput, avgUpperWick, avgLowerWick, avgATR, bodyHeight, wickMultInput)
+
+            float renderTop = bodyTop
+            float renderBottom = bodyBottom
+            if renderTop == renderBottom
+                renderTop += syminfo.mintick * 0.5
+                renderBottom -= syminfo.mintick * 0.5
+
+            float highPrice = bodyTop + upperWickSize
+            float lowPrice = bodyBottom - lowerWickSize
+            int futureX = bar_index + i
+
+            color candleBaseColor = bullishCandle ? bullColorInput : bearColorInput
+            color bodyColor = color.new(candleBaseColor, transparencyInput)
+            color borderColor = color.new(candleBaseColor, math.min(transparencyInput + 5, 95))
+            color wickColor = wickColorModeInput == "Candle color" ? borderColor : color.new(customWickColorInput, transparencyInput)
+
+            line wickLine = line.new(futureX, highPrice, futureX, lowPrice, xloc = xloc.bar_index, color = wickColor, width = 1)
+            array.push(ghostLines, wickLine)
+
+            box bodyBox = box.new(futureX, renderTop, futureX + 1, renderBottom, xloc = xloc.bar_index, border_color = borderColor, bgcolor = bodyColor)
+            array.push(ghostBodies, bodyBox)
+
+            if showPathInput
+                line pathLine = line.new(previousPathX, previousPathClose, futureX, closePrice, xloc = xloc.bar_index, color = pathColor, style = line.style_dotted, width = 1)
+                array.push(ghostLines, pathLine)
+
+            previousClose := closePrice
+            previousPathClose := closePrice
+            previousPathX := futureX
+
+    if showInfoInput
+        table.cell(infoTable, 0, 0, "Ghost Feed", text_color = color.white, bgcolor = color.new(color.black, 20), text_size = size.tiny)
+        table.cell(infoTable, 0, 1, "Draggable points", text_color = color.white, bgcolor = color.new(color.gray, 70), text_size = size.tiny)
+        table.cell(infoTable, 0, 2, "P4 " + str.tostring(target4, format.mintick), text_color = color.white, bgcolor = color.new(color.black, 55), text_size = size.tiny)
+    else
+        table.cell(infoTable, 0, 0, "", bgcolor = color.new(color.black, 100))
+        table.cell(infoTable, 0, 1, "", bgcolor = color.new(color.black, 100))
+        table.cell(infoTable, 0, 2, "", bgcolor = color.new(color.black, 100))
