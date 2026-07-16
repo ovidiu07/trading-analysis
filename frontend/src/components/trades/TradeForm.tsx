@@ -22,6 +22,7 @@ import { useI18n } from '../../i18n'
 import { formatNumber, formatPercent } from '../../utils/format'
 import { resolveTradeContractMultiplier } from '../../utils/futuresContractMetadata'
 import { calculateTradeLiveMetrics } from '../../utils/tradeCalculations'
+import { tradeDateTimeToUtcIso } from '../../utils/tradeDateTime'
 import { TradeFormValues } from '../../utils/tradePayload'
 
 export type ComputedTradeMetrics = {
@@ -44,17 +45,7 @@ export type TradeFormProps = {
   strategyOptions?: Array<{ id: string; label: string }>
   planOptions?: Array<{ id: string; label: string; source?: PlanSource }>
   ruleBreakOptions?: string[]
-}
-
-const localDateTimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/
-const timezoneRegex = /(Z|[+-]\d{2}:\d{2})$/i
-
-const toIsoDateTime = (value: string): string => {
-  if (localDateTimeRegex.test(value) && !timezoneRegex.test(value)) {
-    const withSeconds = value.length === 16 ? `${value}:00` : value
-    return new Date(`${withSeconds}Z`).toISOString()
-  }
-  return new Date(value).toISOString()
+  timezone: string
 }
 
 export function TradeForm({
@@ -68,7 +59,8 @@ export function TradeForm({
   stickyActions = false,
   strategyOptions = [],
   planOptions = [],
-  ruleBreakOptions = []
+  ruleBreakOptions = [],
+  timezone
 }: TradeFormProps) {
   const { t } = useI18n()
   const {
@@ -95,11 +87,11 @@ export function TradeForm({
   const openedAtIso = useMemo(() => {
     if (!openedAtValue || !openedAtValue.trim()) return ''
     try {
-      return toIsoDateTime(openedAtValue)
+      return tradeDateTimeToUtcIso(openedAtValue, timezone)
     } catch {
       return ''
     }
-  }, [openedAtValue])
+  }, [openedAtValue, timezone])
 
   const activePlansQuery = useActivePlansForTradeQuery(openedAtIso, undefined, Boolean(openedAtIso))
   const activePlanOptions = useMemo(() => (

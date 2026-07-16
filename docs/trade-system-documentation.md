@@ -221,6 +221,14 @@ The system provides a breakdown of P&L by strategy:
 
 ## API Endpoints
 
+### Trade datetime contract
+
+- `datetime-local` controls contain a timezone-free wall-clock value in the authenticated user's configured IANA timezone (default `Europe/Bucharest`).
+- The frontend resolves that wall clock through the IANA timezone and sends one UTC ISO instant for both create and update requests.
+- `openedAt` and `closedAt` are persisted as PostgreSQL `TIMESTAMP WITH TIME ZONE` instants.
+- API timestamps are interpreted as instants. Before populating a `datetime-local` control or rendering a trade timestamp, the frontend formats the instant in the user's configured timezone.
+- Offset arithmetic is never hardcoded. Nonexistent wall times during a daylight-saving transition are rejected instead of being silently shifted.
+
 ### Trade Endpoints
 
 #### List Trades

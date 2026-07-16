@@ -37,6 +37,7 @@ import { resolveTradeContractMultiplier } from '../../utils/futuresContractMetad
 import { parseLocalizedNumberInput } from '../../utils/numberInput'
 import { TradeFormValues } from '../../utils/tradePayload'
 import { calculateTradeLiveMetrics } from '../../utils/tradeCalculations'
+import { currentDateTimeForInput, tradeDateTimeToUtcIso } from '../../utils/tradeDateTime'
 import { tradeValidationSchema } from '../../utils/tradeValidationSchema'
 import { BottomActionBar } from './BottomActionBar'
 import { SessionChips } from './SessionChips'
@@ -133,18 +134,6 @@ const toTradeFormValues = (values: TradeFormValues): TradeFormValues => ({
   linkedPlanIds: values.linkedPlanIds || values.linkedContentIds || []
 })
 
-const getLocalDateTime = () => new Date().toISOString().slice(0, 16)
-const localDateTimeRegex = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?$/
-const timezoneRegex = /(Z|[+-]\d{2}:\d{2})$/i
-
-const toIsoDateTime = (value: string): string => {
-  if (localDateTimeRegex.test(value) && !timezoneRegex.test(value)) {
-    const withSeconds = value.length === 16 ? `${value}:00` : value
-    return new Date(`${withSeconds}Z`).toISOString()
-  }
-  return new Date(value).toISOString()
-}
-
 function SectionHeader({ title, summary }: { title: string; summary?: string }) {
   return (
     <Stack
@@ -233,9 +222,9 @@ export function TradeCreateFormV2({
     }
 
     if (status === 'CLOSED' && !getValues('closedAt')) {
-      setValue('closedAt', getLocalDateTime(), { shouldValidate: true })
+      setValue('closedAt', currentDateTimeForInput(timezone), { shouldValidate: true })
     }
-  }, [getValues, setValue, status])
+  }, [getValues, setValue, status, timezone])
 
   useEffect(() => {
     if (isValid) {
@@ -252,11 +241,11 @@ export function TradeCreateFormV2({
   const openedAtIso = useMemo(() => {
     if (!watchedOpenedAt || !watchedOpenedAt.trim()) return ''
     try {
-      return toIsoDateTime(watchedOpenedAt)
+      return tradeDateTimeToUtcIso(watchedOpenedAt, timezone)
     } catch {
       return ''
     }
-  }, [watchedOpenedAt])
+  }, [timezone, watchedOpenedAt])
 
   const activePlansQuery = useActivePlansForTradeQuery(openedAtIso, timezone, Boolean(openedAtIso))
 

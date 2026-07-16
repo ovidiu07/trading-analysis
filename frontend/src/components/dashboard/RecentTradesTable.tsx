@@ -28,6 +28,7 @@ type RecentTradesTableProps = {
   trades: TradeResponse[]
   loading?: boolean
   currency: string
+  timezone: string
   onRowClick?: (trade: TradeResponse) => void
   onViewAll?: () => void
 }
@@ -43,6 +44,7 @@ export default function RecentTradesTable({
   trades,
   loading,
   currency,
+  timezone,
   onRowClick,
   onViewAll
 }: RecentTradesTableProps) {
@@ -99,7 +101,7 @@ export default function RecentTradesTable({
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{trade.symbol}</Typography>
-                <Typography variant="caption" color="text.secondary">{formatDateTime(trade.openedAt)}</Typography>
+                <Typography variant="caption" color="text.secondary">{formatDateTime(trade.openedAt, timezone)}</Typography>
               </Box>
               <Typography
                 variant="subtitle2"
@@ -185,7 +187,7 @@ export default function RecentTradesTable({
                         <TableCell>
                           <Chip size="small" label={t(`trades.status.${trade.status}`)} color={buildStatusColor(trade.status)} variant="outlined" />
                         </TableCell>
-                        <TableCell>{formatDateTime(trade.openedAt)}</TableCell>
+                        <TableCell>{formatDateTime(trade.openedAt, timezone)}</TableCell>
                         <TableCell
                           align="right"
                           sx={{

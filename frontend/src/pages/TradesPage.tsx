@@ -49,6 +49,7 @@ import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, getTrad
 import { createNotebookNote } from '../api/notebook'
 import { AssetItem, listTradeAssets } from '../api/assets'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
+import { currentDateTimeForInput, formatUtcForDateTimeLocal } from '../utils/tradeDateTime'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
 import { formatCurrency, formatDateTime, formatNumber, formatPercent, formatSignedCurrency } from '../utils/format'
@@ -346,12 +347,12 @@ function TradeScreenshotViewerDialog({
   )
 }
 
-const buildDefaultValues = (): TradeFormValues => ({
+const buildDefaultValues = (timeZone: string): TradeFormValues => ({
   symbol: '',
   market: 'STOCK',
   direction: 'LONG',
   status: 'OPEN',
-  openedAt: new Date().toISOString().slice(0, 16),
+  openedAt: currentDateTimeForInput(timeZone),
   closedAt: '',
   timeframe: '',
   quantity: 1,
@@ -384,11 +385,11 @@ const buildDefaultValues = (): TradeFormValues => ({
   contractMultiplier: undefined
 })
 
-const buildQuickLogDefaults = (): TradeFormValues => ({
-  ...buildDefaultValues(),
+const buildQuickLogDefaults = (timeZone: string): TradeFormValues => ({
+  ...buildDefaultValues(timeZone),
   market: 'FOREX',
   quantity: 1,
-  openedAt: new Date().toISOString().slice(0, 16)
+  openedAt: currentDateTimeForInput(timeZone)
 })
 
 const defaultFilters = {
@@ -463,17 +464,10 @@ const deriveRouteState = (search: string, timezone: string): TradesRouteState =>
 const countActiveFilters = (filters: typeof defaultFilters) =>
   Object.values(filters).filter((value) => value !== '').length
 
-const mapTradeToFormValues = (trade: TradeResponse): TradeFormValues => {
+const mapTradeToFormValues = (trade: TradeResponse, timeZone: string): TradeFormValues => {
   const toInputDate = (value?: string | null) => {
     if (!value) return ''
-    const d = new Date(value)
-    const pad = (n: number) => String(n).padStart(2, '0')
-    const yyyy = d.getFullYear()
-    const mm = pad(d.getMonth() + 1)
-    const dd = pad(d.getDate())
-    const hh = pad(d.getHours())
-    const mi = pad(d.getMinutes())
-    return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
+    return formatUtcForDateTimeLocal(value, timeZone)
   }
   return {
     symbol: trade.symbol,
@@ -553,7 +547,7 @@ export default function TradesPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<TradeResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TradeResponse | null>(null)
-  const [createFormValues, setCreateFormValues] = useState<TradeFormValues>(buildDefaultValues())
+  const [createFormValues, setCreateFormValues] = useState<TradeFormValues>(() => buildDefaultValues(timezone))
   const [optionsLoadError, setOptionsLoadError] = useState('')
   const [strategyOptions, setStrategyOptions] = useState<ContentOption[]>([])
   const [planOptions, setPlanOptions] = useState<ContentOption[]>([])
@@ -673,7 +667,7 @@ export default function TradesPage() {
       headerName: t('trades.table.opened'),
       flex: 1.1,
       minWidth: 170,
-      valueFormatter: (params) => formatDateTime(params.value),
+      valueFormatter: (params) => formatDateTime(params.value, timezone),
       sortComparator: (a, b) => new Date(a as string).getTime() - new Date(b as string).getTime()
     },
     { field: 'symbol', headerName: t('trades.table.symbol'), flex: 1, minWidth: 110 },
@@ -823,7 +817,7 @@ export default function TradesPage() {
         </Stack>
       )
     }
-  ], [baseCurrency, handleCreateTradeNote, handleDeleteClick, handleEditClick, handleOpenScreenshotViewer, t])
+  ], [baseCurrency, handleCreateTradeNote, handleDeleteClick, handleEditClick, handleOpenScreenshotViewer, t, timezone])
 
   const fetchTrades = useCallback(async () => {
     if (!isAuthenticated) {
@@ -1012,7 +1006,7 @@ export default function TradesPage() {
         .map((value) => value.trim())
         .filter(Boolean)
 
-      const quickDefaults = buildQuickLogDefaults()
+      const quickDefaults = buildQuickLogDefaults(timezone)
       setCreateFormValues({
         ...quickDefaults,
         symbol: params.get('symbol') || quickDefaults.symbol,
@@ -1027,7 +1021,7 @@ export default function TradesPage() {
       setCreateDiscardDialogOpen(false)
       setCreateDialogOpen(true)
     }
-  }, [location.search])
+  }, [location.search, timezone])
 
   useEffect(() => {
     if (!highlightTradeId) return
@@ -1040,7 +1034,7 @@ export default function TradesPage() {
     setCreateSuccess('')
     setCreateError('')
     try {
-      const payload = buildTradePayload(values)
+      const payload = buildTradePayload(values, timezone)
       await createTrade(payload)
       trackEvent('trade_create_submit', {
         method: 'manual_form',
@@ -1048,7 +1042,7 @@ export default function TradesPage() {
         feature_area: 'trades'
       })
       setCreateSuccess(t('trades.messages.created'))
-      const freshDefaults = buildDefaultValues()
+      const freshDefaults = buildDefaultValues(timezone)
       setCreateFormValues(freshDefaults)
       closeCreateDialog()
       fetchTrades()
@@ -1082,7 +1076,7 @@ export default function TradesPage() {
     if (!editTarget) return
     setEditError('')
     try {
-      const payload = buildTradePayload(values)
+      const payload = buildTradePayload(values, timezone)
       const updated = await updateTrade(editTarget.id, payload)
       setTrades((prev) => prev.map((t) => t.id === updated.id ? updated : t))
       setExpandedTrade((prev) => prev?.id === updated.id ? updated : prev)
@@ -1141,7 +1135,7 @@ export default function TradesPage() {
   }
 
   const openCreateDialog = () => {
-    setCreateFormValues(buildDefaultValues())
+    setCreateFormValues(buildDefaultValues(timezone))
     setCreateDialogMode('advanced')
     setCreateError('')
     setCreateFormDirty(false)
@@ -1151,7 +1145,7 @@ export default function TradesPage() {
   }
 
   const openQuickLogDialog = () => {
-    setCreateFormValues(buildQuickLogDefaults())
+    setCreateFormValues(buildQuickLogDefaults(timezone))
     setCreateDialogMode('quick')
     setCreateError('')
     setCreateFormDirty(false)
@@ -1253,7 +1247,7 @@ export default function TradesPage() {
             <Stack direction="row" justifyContent="space-between" alignItems="center">
               <Box>
                 <Typography variant="h6">{trade.symbol}</Typography>
-                <Typography variant="body2" color="text.secondary">{formatDateTime(trade.openedAt)}</Typography>
+                <Typography variant="body2" color="text.secondary">{formatDateTime(trade.openedAt, timezone)}</Typography>
               </Box>
               <Stack direction="row" spacing={1}>
                 <Chip size="small" label={t(`trades.direction.${trade.direction}`)} color={trade.direction === 'LONG' ? 'success' : 'error'} variant="outlined" />
@@ -1470,7 +1464,7 @@ export default function TradesPage() {
                       <Typography variant="body2">{t('trades.details.pnlTrade')}: {formatSignedCurrency(expandedTrade.pnlNet, tradeCurrency)}</Typography>
                       <Typography variant="body2">{t('trades.details.fxRate')}: {formatNumber(expandedTrade.fxRateTradeToProfile ?? 1, 6)}</Typography>
                       <Typography variant="body2">{t('trades.details.fxSource')}: {expandedTrade.fxRateSource || t('common.na')}</Typography>
-                      <Typography variant="body2">{t('trades.details.fxTimestamp')}: {expandedTrade.fxRateTimestamp ? formatDateTime(expandedTrade.fxRateTimestamp) : t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.details.fxTimestamp')}: {expandedTrade.fxRateTimestamp ? formatDateTime(expandedTrade.fxRateTimestamp, timezone) : t('common.na')}</Typography>
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
                       <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
@@ -1494,7 +1488,7 @@ export default function TradesPage() {
                       </Typography>
                       {expandedTrade.latestTradeNoteUpdatedAt && (
                         <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>
-                          {t('trades.details.latestTradeNoteUpdated', { date: formatDateTime(expandedTrade.latestTradeNoteUpdatedAt) })}
+                          {t('trades.details.latestTradeNoteUpdated', { date: formatDateTime(expandedTrade.latestTradeNoteUpdatedAt, timezone) })}
                         </Typography>
                       )}
                       <Stack direction="row" spacing={1} flexWrap="wrap">
@@ -1712,7 +1706,7 @@ export default function TradesPage() {
           <DialogTitle>{t('trades.actions.editTrade')}</DialogTitle>
           <DialogContent sx={{ pt: 1 }}>
             <TradeForm
-              initialValues={mapTradeToFormValues(editTarget)}
+              initialValues={mapTradeToFormValues(editTarget, timezone)}
               submitLabel={t('trades.actions.updateTrade')}
               onSubmit={handleUpdateTrade}
               onCancel={() => setEditDialogOpen(false)}
@@ -1727,6 +1721,7 @@ export default function TradesPage() {
               strategyOptions={strategyOptions}
               planOptions={planOptions}
               ruleBreakOptions={[...RULE_BREAK_OPTIONS]}
+              timezone={timezone}
             />
           </DialogContent>
         </Dialog>

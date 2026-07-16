@@ -333,6 +333,7 @@ export default function DashboardPage() {
         trades={recentTrades}
         loading={loading}
         currency={baseCurrency}
+        timezone={timezone}
         onViewAll={toTradesList}
         onRowClick={toTradeDetail}
       />

@@ -1067,7 +1067,7 @@ export default function CalendarPage() {
                     <Box>
                       <Typography variant="subtitle2">{trade.symbol}</Typography>
                       <Typography variant="caption" color="text.secondary">
-                        {t(`trades.direction.${trade.direction}`)} · {formatDateTime(trade.closedAt)}
+                        {t(`trades.direction.${trade.direction}`)} · {formatDateTime(trade.closedAt, timezone)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
                         {t('trades.form.accountId')}: {trade.accountId || t('calendar.dialog.unassignedAccount')}

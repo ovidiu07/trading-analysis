@@ -422,7 +422,7 @@ export default function TodayPage() {
                           )}
                         </Stack>
                         <Typography variant="caption" color="text.secondary">
-                          {formatDateTime(trade.openedAt)}
+                          {formatDateTime(trade.openedAt, timezone)}
                         </Typography>
                       </Stack>
                       <Typography
