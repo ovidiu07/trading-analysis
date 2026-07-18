@@ -130,12 +130,10 @@
       "downloadFailed": "Could not download asset"
     }
   },
-  "backtesting": {
-    "subtitle": "Visual strategy research by symbol, setup, and screenshot evidence."
-  },
   "layout": {
     "collapseSidebar": "Collapse sidebar",
-    "expandSidebar": "Expand sidebar"
+    "expandSidebar": "Expand sidebar",
+    "homeLabel": "TradeJAudit home"
   },
   "footer": {
     "terms": "Terms",
@@ -144,6 +142,8 @@
   },
   "errors": {
     "genericTitle": "Something went wrong",
+    "renderFailure": "An unexpected error occurred while rendering this page.",
+    "reload": "Reload page",
     "generic": "Something went wrong. Please try again.",
     "network": "Cannot reach the server. Please check your connection.",
     "unauthorized": "Unauthorized or expired session. Please log in again.",
@@ -513,6 +513,13 @@
     "title": "Analytics",
     "heading": "Performance diagnostics",
     "subtitle": "Pro-grade diagnostics across performance, consistency, and edge.",
+    "signals": {
+      "title": "Signal intelligence", "body": "TradingView webhook signals are analyzed separately from manually logged trades so setup degradation, regime drift, and profile-fit changes stay visible.",
+      "emptyTitle": "No structured signals available", "emptyBody": "Connect the TradingView webhook from Settings and let the Pine alert stream build a sample before using this analytics layer.",
+      "trend": "Signal quality trend", "recommended": "Recommended profile pack", "expectancyBySetup": "Expectancy by setup", "performanceByRegime": "Performance by regime", "buckets": "Strongest and weakest buckets",
+      "noSetupTitle": "No setup sample yet", "noSetupBody": "Setup-level expectancy appears after the first closed signal outcomes land.", "noRegimeTitle": "No regime sample yet", "noRegimeBody": "Regime analytics become meaningful after enough closed signals are labeled.",
+      "noMatrixTitle": "No symbol matrix yet", "noMatrixBody": "The symbol/timeframe matrix fills in after the webhook has a closed-signal sample."
+    },
     "mobileTabsLabel": "Analytics view",
     "errors": {
       "loadAnalytics": "Failed to load analytics data.",
@@ -776,6 +783,12 @@
   "calendar": {
     "title": "Calendar",
     "subtitle": "Realized P&L by trade close date in {{timezone}}.",
+    "plans": {
+      "title": "Plans saved to Calendar", "subtitle": "Today plans stay on their day. Weekly and monthly plans stay pinned while their period is active.",
+      "today": "Today Plan", "activeMonthly": "Active Monthly Plan", "activeWeekly": "Active Weekly Plan", "savedAria": "Today Plan saved in Calendar",
+      "images": "{{count}} images", "remove": "Remove plan", "open": "Open plan", "empty": "No active plan saved for this period.",
+      "removeBody": "Uploaded images will no longer be shown with the removed plan. Setups linked only to this plan will no longer appear in active planning. This does not delete trades or executions already recorded."
+    },
     "previousMonth": "Previous month",
     "nextMonth": "Next month",
     "noTrades": "No trades",
@@ -923,6 +936,12 @@
     "subtitle": "Plan, execute, journal, and review from one daily workspace.",
     "heading": "Plan your session",
     "subheading": "Daily and weekly focus, coaching prompts, and quick trade access.",
+    "signals": {
+      "title": "Signal intelligence", "symbol": "Symbol", "symbolPlaceholder": "BINANCE:BTCUSDT", "timeframe": "Timeframe", "timeframePlaceholder": "15",
+      "unavailable": "Signal recommendations will appear here after the webhook is connected in Settings.",
+      "emptyTitle": "No recommendation yet", "emptyBody": "Once enough closed signal outcomes exist for this symbol and timeframe, the suggested Pine profile pack will appear here.",
+      "expectancy": "Expectancy {{value}}R from {{count}} closed signals.", "weakCondition": "{{action}}: {{setup}} in {{regime}} at {{value}}R", "confidence": "Recent average confidence: {{value}}/100"
+    },
     "errors": {
       "load": "Could not load today data. Please try again."
     },
@@ -1020,6 +1039,31 @@
     "session": {
       "title": "Session mode",
       "subtitle": "Focused execution view with checklist, mentor plan, and trade execution.",
+      "simple": {
+        "tradingSession": "Trading session",
+        "saveState": { "saving": "Saving…", "saved": "Saved", "failed": "Could not save" },
+        "errors": { "load": "Could not load Session.", "save": "Changes could not be saved.", "startSetup": "Could not start the current setup.", "savePlan": "Could not save plan.", "upload": "Upload failed.", "removeScreenshot": "Could not remove screenshot." },
+        "plans": {
+          "title": "Plans", "today": "Today Plan", "weekly": "Weekly Plan", "monthly": "Monthly Plan",
+          "emptyToday": "No Today Plan yet", "emptyWeekly": "No weekly focus set", "emptyMonthly": "No monthly focus set", "ready": "Plan ready for review",
+          "bias": "Bias", "symbols": "Symbols", "symbolsHint": "Comma-separated", "objectives": "Narrative / objectives", "notes": "Important levels and notes",
+          "save": "Save plan", "saved": "Plan saved.", "create": "Create plan", "open": "Open plan", "charts": "Charts", "chartsStorage": "Screenshots attached to this plan",
+          "images": { "addScreenshots": "Add screenshots", "open": "Open plan image {{index}}", "remove": "Remove plan image {{index}}", "count": "{{count}} images", "openCalendar": "Open in Calendar", "dropTitle": "Add images to this plan", "dropHint": "PNG, JPG, WEBP, or GIF. Images stay attached to this saved plan.", "upload": "Upload images", "empty": "No images added to this plan yet", "alt": "Plan image", "loadFailed": "Image could not be loaded.", "previous": "Previous plan image", "next": "Next plan image", "delete": "Delete" }
+        },
+        "header": { "back": "Back to Today", "focus": "Focus mode" },
+        "chart": {
+          "title": "Chart", "symbol": "Symbol", "symbolPlaceholder": "GER30", "useForSetup": "Use for setup",
+          "symbolChanged": "The chart changed without overwriting the setup you are editing.", "region": "Chart for {{symbol}}", "regionEmpty": "Trading chart", "empty": "Enter a symbol to load the chart."
+        },
+        "setup": {
+          "title": "Current setup", "empty": "Start typing to prepare your current setup.", "setupTitle": "Setup title", "direction": "Direction",
+          "long": "Long", "short": "Short", "undecided": "Undecided", "narrative": "Narrative", "liquidity": "Liquidity", "entryZone": "Entry zone",
+          "invalidation": "Invalidation", "target": "Target", "notes": "Notes", "moreDetails": "More details", "strategy": "Strategy", "timeframe": "Timeframe",
+          "session": "Session", "notSet": "Not set", "asia": "Asia", "london": "London", "newYork": "New York", "newYorkAm": "New York AM",
+          "newYorkPm": "New York PM", "custom": "Custom", "riskNotes": "Risk notes", "executed": "Trade executed?", "logTrade": "Log trade"
+        },
+        "summary": { "title": "Session summary", "line": "Trades: {{trades}} · Realized P&L: {{pnl}}", "riskUsed": " · Risk used: {{risk}}" }
+      },
       "workspace": {
         "liveWorkspace": "Live workspace",
         "locked": "Locked",
@@ -2201,6 +2245,20 @@
     "title": "Settings",
     "heading": "Preferences",
     "subtitle": "Update your base currency and timezone. Changes apply across the app.",
+    "tradingView": {
+      "title": "TradingView signal intelligence", "body": "Generate a webhook secret, paste the JSON alert payload into the Pine signal engine, and TradeJAudit will start storing structured signal events for recommendations and diagnostics.",
+      "enabled": "Enabled", "disabled": "Disabled", "loading": "Loading TradingView integration settings…", "enable": "Enable TradingView webhook ingestion",
+      "resetSecret": "Reset webhook secret", "generateSecret": "Generate webhook secret", "secretHint": "Current secret hint: {{hint}}", "newSecret": "New webhook secret", "copy": "Copy",
+      "secretHelp": "This secret is shown only after reset. Store it in TradingView or a password manager.", "openUrl": "Open signal webhook URL", "closeUrl": "Close signal webhook URL",
+      "openPayload": "Sample SIGNAL_OPEN payload", "closePayload": "Sample SIGNAL_CLOSE payload",
+      "messages": { "enabled": "TradingView signal ingestion enabled.", "disabled": "TradingView signal ingestion disabled.", "reset": "TradingView webhook secret reset. Copy the new secret into TradingView now; it is shown only once.", "copied": "Copied to clipboard.", "copyFailed": "Clipboard copy failed. You can still copy the text manually." }
+    },
+    "chartStudies": {
+      "title": "Indicators preloaded in chart", "body": "Add TradingView built-in study identifiers, one per line. Example: MASimple@tv-basicstudies, RSI@tv-basicstudies, MACD@tv-basicstudies.",
+      "loading": "Loading chart settings…", "label": "TradingView study identifiers", "help": "Use valid TradingView built-in study identifiers. Unsupported studies may be ignored by TradingView.",
+      "saving": "Saving…", "save": "Save chart indicators", "note": "These studies are preloaded only when the chart initializes; users can remove them inside TradingView.",
+      "required": "Add at least one TradingView built-in study identifier.", "saved": "Chart indicator settings saved."
+    },
     "timezone": "Timezone",
     "timezoneHint": "IANA timezone (e.g., Europe/Bucharest)",
     "baseCurrency": "Base currency",
@@ -2910,6 +2968,26 @@
   "diagnostics": {
     "title": "Strategy diagnostics",
     "subtitle": "Deep diagnostics for what works, what fails, and what to refine.",
+    "live": {
+      "title": "Live diagnostics", "subtitle": "Backtest metrics are intentionally hidden here. This view only reflects live trades and live session behavior.",
+      "errors": { "load": "Could not load live diagnostics." },
+      "kpis": { "winRate": "Win rate", "averageR": "Average R", "profitFactor": "Profit factor", "sampleSize": "Sample size", "signals": "Signals", "closed": "Closed", "expectancy": "Expectancy", "avgConfidence": "Avg confidence" },
+      "filters": { "from": "From", "to": "To", "symbol": "Symbol", "symbolPlaceholder": "EURUSD", "session": "Session", "allSessions": "All sessions" },
+      "empty": { "title": "No live trades matched these filters", "body": "Live diagnostics turns on after you log closed trades with session and strategy context." },
+      "sessionPerformance": { "title": "Live session performance", "body": "Session breakdown highlights where expectancy is concentrated in actual live trading." },
+      "failureModes": { "title": "Failure modes", "body": "The biggest live leaks stay visible so you can correct them during the next session, not after a review cycle.", "none": "No dominant live failure mode is standing out yet.", "tradeCount": "{{count}} trades", "impact": "Average impact {{value}}" },
+      "strategyPerformance": "Strategy performance", "symbolBreakdown": "Symbol breakdown",
+      "table": { "strategy": "Strategy", "symbol": "Symbol", "setup": "Setup", "regime": "Regime", "trades": "Trades", "winRate": "Win rate", "expectancy": "Expectancy" },
+      "suggestions": { "title": "What to change", "moreData": "Keep logging live context. More sample will sharpen the recommendations." },
+      "signals": {
+        "title": "Signal intelligence", "body": "Structured TradingView signals, their recent quality trend, and the strongest profile recommendations are shown separately from manual trade journaling.",
+        "ready": "Recommendation ready", "learning": "Learning", "unavailable": "Signal intelligence is available after TradingView webhooks are connected and signals start landing in TradeJAudit.",
+        "emptyTitle": "No signal events yet", "emptyBody": "Generate a TradingView webhook secret in Settings, paste the alert JSON into Pine, and the signal engine will start populating this panel.",
+        "trend": "Recent signal quality trend", "recommended": "Recommended profile", "needsData": "TradeJAudit needs more closed signal outcomes before it will recommend a profile pack.",
+        "score": "{{value}} score", "expectancySample": "{{expectancy}} expectancy from {{count}} closed signals.", "bySetup": "By setup type", "byRegime": "By regime", "weak": "Weak conditions",
+        "noWeak": "No persistent weak signal bucket is standing out.", "weakLine": "{{action}} at {{expectancy}} across {{count}} signals."
+      }
+    },
     "tabs": {
       "overview": "Overview",
       "strategyDetails": "Strategy details",
@@ -2972,6 +3050,8 @@
     }
   },
   "backtesting": {
+    "subtitle": "Visual strategy research by symbol, setup, and screenshot evidence.",
+    "replayChart": "Replay candlestick chart",
     "strategy": "Strategy",
     "linkedStrategy": "Linked Strategy",
     "mentorStrategy": "Mentor strategy",

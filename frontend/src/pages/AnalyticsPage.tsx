@@ -1306,9 +1306,9 @@ export default function AnalyticsPage() {
             <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
               <Stack spacing={2}>
                 <Stack spacing={0.5}>
-                  <Typography variant="h6" fontWeight={700}>Signal intelligence</Typography>
+                  <Typography variant="h6" fontWeight={700}>{t('analytics.signals.title')}</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    TradingView webhook signals are analyzed separately from manually logged trades so setup degradation, regime drift, and profile-fit changes stay visible.
+                    {t('analytics.signals.body')}
                   </Typography>
                 </Stack>
 
@@ -1318,8 +1318,8 @@ export default function AnalyticsPage() {
                   <ErrorBanner message={signalError} />
                 ) : !signalSummary || signalSummary.overview.totalSignals === 0 ? (
                   <EmptyState
-                    title="No structured signals available"
-                    description="Connect the TradingView webhook from Settings and let the Pine alert stream build a sample before using this analytics layer."
+                    title={t('analytics.signals.emptyTitle')}
+                    description={t('analytics.signals.emptyBody')}
                   />
                 ) : (
                   <>
@@ -1331,11 +1331,11 @@ export default function AnalyticsPage() {
                       }}
                     >
                       {[
-                        { label: 'Signals', value: signalSummary.overview.totalSignals },
-                        { label: 'Closed', value: signalSummary.overview.closedSignals },
-                        { label: 'Win rate', value: formatPercent(signalSummary.overview.winRate) },
-                        { label: 'Expectancy', value: `${signalSummary.overview.expectancyR > 0 ? '+' : ''}${formatNumber(signalSummary.overview.expectancyR, 2)}R` },
-                        { label: 'Avg confidence', value: `${formatNumber(signalSummary.overview.avgConfidenceScore, 1)}/100` }
+                        { label: t('diagnostics.live.kpis.signals'), value: signalSummary.overview.totalSignals },
+                        { label: t('diagnostics.live.kpis.closed'), value: signalSummary.overview.closedSignals },
+                        { label: t('diagnostics.live.kpis.winRate'), value: formatPercent(signalSummary.overview.winRate) },
+                        { label: t('diagnostics.live.kpis.expectancy'), value: `${signalSummary.overview.expectancyR > 0 ? '+' : ''}${formatNumber(signalSummary.overview.expectancyR, 2)}R` },
+                        { label: t('diagnostics.live.kpis.avgConfidence'), value: `${formatNumber(signalSummary.overview.avgConfidenceScore, 1)}/100` }
                       ].map((item) => (
                         <Box key={item.label} sx={{ p: 1.25, borderRadius: 2, backgroundColor: 'action.hover' }}>
                           <Typography variant="caption" color="text.secondary">{item.label}</Typography>
@@ -1349,7 +1349,7 @@ export default function AnalyticsPage() {
                         <Card variant="outlined" sx={{ height: '100%' }}>
                           <CardContent sx={chartCardContentSx}>
                             <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                              Signal quality trend
+                              {t('analytics.signals.trend')}
                             </Typography>
                             <Box sx={{ width: '100%', height: chartHeights.medium }}>
                               <ResponsiveContainer width="100%" height="100%">
@@ -1377,21 +1377,21 @@ export default function AnalyticsPage() {
                         <Card variant="outlined" sx={{ height: '100%' }}>
                           <CardContent sx={chartCardContentSx}>
                             <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                              Recommended profile pack
+                              {t('analytics.signals.recommended')}
                             </Typography>
                             {signalRecommendations.length === 0 ? (
-                              <Alert severity="info">TradeJAudit needs more closed signal outcomes before it will recommend a profile pack.</Alert>
+                              <Alert severity="info">{t('diagnostics.live.signals.needsData')}</Alert>
                             ) : (
                               <Stack spacing={1.2}>
                                 <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                                   <Typography variant="body1" fontWeight={800}>{signalRecommendations[0].profileId}</Typography>
-                                  <Chip size="small" color="success" label={`${formatNumber(signalRecommendations[0].recommendationScore, 1)} score`} />
+                                  <Chip size="small" color="success" label={t('diagnostics.live.signals.score', { value: formatNumber(signalRecommendations[0].recommendationScore, 1) })} />
                                 </Stack>
                                 <Typography variant="body2" color="text.secondary">
                                   {signalRecommendations[0].symbolScope} · {signalRecommendations[0].timeframe} · {signalRecommendations[0].regimeScope}
                                 </Typography>
                                 <Typography variant="body2">
-                                  {`${signalRecommendations[0].expectancyR > 0 ? '+' : ''}${formatNumber(signalRecommendations[0].expectancyR, 2)}R`} expectancy from {signalRecommendations[0].sampleSize} closed signals.
+                                  {t('diagnostics.live.signals.expectancySample', { expectancy: `${signalRecommendations[0].expectancyR > 0 ? '+' : ''}${formatNumber(signalRecommendations[0].expectancyR, 2)}R`, count: signalRecommendations[0].sampleSize })}
                                 </Typography>
                                 {signalRecommendations[0].reasons.map((reason) => (
                                   <Typography key={reason} variant="body2" color="text.secondary">
@@ -1410,16 +1410,16 @@ export default function AnalyticsPage() {
                         <Card variant="outlined" sx={{ height: '100%' }}>
                           <CardContent sx={chartCardContentSx}>
                             <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                              Expectancy by setup
+                              {t('analytics.signals.expectancyBySetup')}
                             </Typography>
                             {signalSetupBreakdown?.rows?.length ? (
                               <TableContainer>
                                 <Table size="small">
                                   <TableHead>
                                     <TableRow>
-                                      <TableCell>Setup</TableCell>
-                                      <TableCell align="right">Trades</TableCell>
-                                      <TableCell align="right">Expectancy</TableCell>
+                                      <TableCell>{t('diagnostics.live.table.setup')}</TableCell>
+                                      <TableCell align="right">{t('diagnostics.live.table.trades')}</TableCell>
+                                      <TableCell align="right">{t('diagnostics.live.table.expectancy')}</TableCell>
                                     </TableRow>
                                   </TableHead>
                                   <TableBody>
@@ -1434,7 +1434,7 @@ export default function AnalyticsPage() {
                                 </Table>
                               </TableContainer>
                             ) : (
-                              <EmptyState title="No setup sample yet" description="Setup-level expectancy appears after the first closed signal outcomes land." />
+                              <EmptyState title={t('analytics.signals.noSetupTitle')} description={t('analytics.signals.noSetupBody')} />
                             )}
                           </CardContent>
                         </Card>
@@ -1443,7 +1443,7 @@ export default function AnalyticsPage() {
                         <Card variant="outlined" sx={{ height: '100%' }}>
                           <CardContent sx={chartCardContentSx}>
                             <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                              Performance by regime
+                              {t('analytics.signals.performanceByRegime')}
                             </Typography>
                             {signalRegimeBreakdown?.rows?.length ? (
                               <Box sx={{ width: '100%', height: chartHeights.small }}>
@@ -1461,7 +1461,7 @@ export default function AnalyticsPage() {
                                 </ResponsiveContainer>
                               </Box>
                             ) : (
-                              <EmptyState title="No regime sample yet" description="Regime analytics become meaningful after enough closed signals are labeled." />
+                              <EmptyState title={t('analytics.signals.noRegimeTitle')} description={t('analytics.signals.noRegimeBody')} />
                             )}
                           </CardContent>
                         </Card>
@@ -1470,7 +1470,7 @@ export default function AnalyticsPage() {
                         <Card variant="outlined" sx={{ height: '100%' }}>
                           <CardContent sx={chartCardContentSx}>
                             <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                              Strongest and weakest buckets
+                              {t('analytics.signals.buckets')}
                             </Typography>
                             {signalSymbolMatrix?.rows?.length ? (
                               <Stack spacing={1}>
@@ -1492,7 +1492,7 @@ export default function AnalyticsPage() {
                                 )}
                               </Stack>
                             ) : (
-                              <EmptyState title="No symbol matrix yet" description="The symbol/timeframe matrix fills in after the webhook has a closed-signal sample." />
+                              <EmptyState title={t('analytics.signals.noMatrixTitle')} description={t('analytics.signals.noMatrixBody')} />
                             )}
                           </CardContent>
                         </Card>

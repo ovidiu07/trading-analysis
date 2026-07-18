@@ -286,12 +286,12 @@ export default function TopBar({
                   </IconButton>
                 )}
 
-                {showTitle && !isNarrow && (
+                {showTitle && (
                   <Stack sx={{ minWidth: 0, pl: showMenuToggle ? 0.5 : 0 }}>
-                    <Typography variant="subtitle1" noWrap>
+                    <Typography component="h1" variant="subtitle1" noWrap sx={{ fontSize: { xs: '0.9rem', md: '0.98rem' } }}>
                       {title}
                     </Typography>
-                    {subtitle && (
+                    {subtitle && !isNarrow && (
                       <Typography variant="caption" color="text.secondary" noWrap>
                         {subtitle}
                       </Typography>

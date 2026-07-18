@@ -748,7 +748,7 @@ describe('SessionPage simplified workflow', () => {
 
     renderWithProviders(<SessionPage />)
 
-    expect(await screen.findByRole('heading', { name: 'Session', level: 1 })).toBeInTheDocument()
+    expect(await screen.findByText(/Trading session/)).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Plans' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Chart' })).toBeInTheDocument()
     expect(screen.getByRole('heading', { name: 'Current setup' })).toBeInTheDocument()

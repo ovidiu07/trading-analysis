@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Box, Typography, useTheme } from '@mui/material'
 import { BacktestCandle } from '../../api/backtest'
+import { useI18n } from '../../i18n'
 
 type ReplayCandlestickChartProps = {
   candles: BacktestCandle[]
@@ -26,6 +27,7 @@ export default function ReplayCandlestickChart({
   loading = false
 }: ReplayCandlestickChartProps) {
   const theme = useTheme()
+  const { t } = useI18n()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const [size, setSize] = useState({ width: 0, height: minHeight })
   const [hover, setHover] = useState<HoverState>(null)
@@ -110,7 +112,7 @@ export default function ReplayCandlestickChart({
           width={width}
           height={chartHeight}
           role="img"
-          aria-label="Replay candlestick chart"
+          aria-label={t('backtesting.replayChart')}
           data-testid="backtest-replay-chart-svg"
           onMouseLeave={() => setHover(null)}
           onMouseMove={(event) => {

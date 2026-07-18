@@ -11,6 +11,20 @@ declare module '@mui/material/styles' {
       positive: string
       negative: string
     }
+    trading: {
+      profit: string
+      loss: string
+      flat: string
+      long: string
+      short: string
+      bullish: string
+      bearish: string
+      neutral: string
+      open: string
+      closed: string
+      pending: string
+      archived: string
+    }
   }
 
   interface PaletteOptions {
@@ -20,6 +34,7 @@ declare module '@mui/material/styles' {
       positive: string
       negative: string
     }
+    trading?: Palette['trading']
   }
 }
 
@@ -81,6 +96,9 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
         axis: tokens.chart.axis,
         positive: tokens.chart.positive,
         negative: tokens.chart.negative
+      },
+      trading: {
+        ...tokens.trading
       }
     },
     typography: {
@@ -158,6 +176,22 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           '*, *::before, *::after': {
             boxSizing: 'border-box'
           },
+          '@media (prefers-reduced-motion: reduce)': {
+            '*, *::before, *::after': {
+              scrollBehavior: 'auto !important',
+              animationDuration: '0.01ms !important',
+              animationIterationCount: '1 !important',
+              transitionDuration: '0.01ms !important'
+            },
+            '.interactive-lift:hover': {
+              transform: 'none'
+            }
+          },
+          '@media (max-width: 899.98px), (pointer: coarse)': {
+            'button, [role="button"], a.MuiButtonBase-root': {
+              minHeight: '44px !important'
+            }
+          },
           html: {
             width: '100%',
             maxWidth: '100%',
@@ -168,6 +202,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             maxWidth: '100%',
             overflowX: 'clip',
             margin: 0,
+            paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             color: tokens.text.primary,
             backgroundColor: tokens.surface.background,
             backgroundImage: isLight
@@ -433,6 +468,59 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             border: `1px solid ${tokens.border.subtle}`,
             color: tokens.text.primary,
             boxShadow: tokens.elevation.card
+          }
+        }
+      },
+      MuiDialog: {
+        defaultProps: {
+          scroll: 'paper'
+        },
+        styleOverrides: {
+          paper: {
+            maxHeight: 'min(90dvh, 960px)',
+            backgroundImage: 'none',
+            '@media (max-width: 599.98px)': {
+              width: '100%',
+              maxWidth: '100%',
+              maxHeight: '100dvh',
+              height: '100dvh',
+              margin: 0,
+              borderRadius: 0,
+              paddingBottom: 'env(safe-area-inset-bottom, 0px)'
+            }
+          }
+        }
+      },
+      MuiDialogTitle: {
+        styleOverrides: {
+          root: {
+            borderBottom: `1px solid ${tokens.border.subtle}`,
+            padding: '18px 20px'
+          }
+        }
+      },
+      MuiDialogContent: {
+        styleOverrides: {
+          root: {
+            padding: '20px',
+            overscrollBehavior: 'contain'
+          }
+        }
+      },
+      MuiDialogActions: {
+        styleOverrides: {
+          root: {
+            position: 'sticky',
+            bottom: 0,
+            zIndex: 1,
+            gap: 8,
+            padding: '12px 20px calc(12px + env(safe-area-inset-bottom, 0px))',
+            borderTop: `1px solid ${tokens.border.subtle}`,
+            backgroundColor: tokens.surface.panel,
+            '@media (max-width: 599.98px)': {
+              '& > :not(style) ~ :not(style)': { marginLeft: 0 },
+              '& .MuiButton-root': { flex: 1, minHeight: 44 }
+            }
           }
         }
       },

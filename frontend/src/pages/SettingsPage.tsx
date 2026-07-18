@@ -358,7 +358,7 @@ export default function SettingsPage() {
     try {
       const updated = await updateTradingViewWebhookSettings(enabled)
       setTradingViewSettings(updated)
-      setTradingViewMessage(enabled ? 'TradingView signal ingestion enabled.' : 'TradingView signal ingestion disabled.')
+      setTradingViewMessage(enabled ? t('settings.tradingView.messages.enabled') : t('settings.tradingView.messages.disabled'))
     } catch (err) {
       const apiErr = err as ApiError
       setTradingViewError(translateApiError(apiErr, t))
@@ -376,7 +376,7 @@ export default function SettingsPage() {
       setNewTradingViewSecret(response.secret)
       const refreshed = await fetchTradingViewWebhookSettings()
       setTradingViewSettings(refreshed)
-      setTradingViewMessage('TradingView webhook secret reset. Copy the new secret into TradingView now; it is shown only once.')
+      setTradingViewMessage(t('settings.tradingView.messages.reset'))
     } catch (err) {
       const apiErr = err as ApiError
       setTradingViewError(translateApiError(apiErr, t))
@@ -388,16 +388,16 @@ export default function SettingsPage() {
   const handleCopyText = async (value: string) => {
     try {
       await navigator.clipboard.writeText(value)
-      setTradingViewMessage('Copied to clipboard.')
+      setTradingViewMessage(t('settings.tradingView.messages.copied'))
     } catch {
-      setTradingViewError('Clipboard copy failed. You can still copy the text manually.')
+      setTradingViewError(t('settings.tradingView.messages.copyFailed'))
     }
   }
 
   const handleSaveChartSettings = async () => {
     const preloadedIndicators = normalizeIndicatorLines(chartIndicatorsDraft)
     if (preloadedIndicators.length === 0) {
-      setChartSettingsError('Add at least one TradingView built-in study identifier.')
+      setChartSettingsError(t('settings.chartStudies.required'))
       setChartSettingsMessage('')
       return
     }
@@ -407,7 +407,7 @@ export default function SettingsPage() {
     try {
       const updated = await updateAdminChartSettings({ preloadedIndicators })
       setChartIndicatorsDraft(updated.preloadedIndicators.join('\n'))
-      setChartSettingsMessage('Chart indicator settings saved.')
+      setChartSettingsMessage(t('settings.chartStudies.saved'))
     } catch (err) {
       const apiErr = err as ApiError
       setChartSettingsError(translateApiError(apiErr, t))
@@ -480,18 +480,18 @@ export default function SettingsPage() {
           <Stack spacing={2}>
             <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
               <Stack spacing={0.5}>
-                <Typography variant="h6">TradingView signal intelligence</Typography>
+                <Typography variant="h6">{t('settings.tradingView.title')}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Generate a webhook secret, paste the JSON alert payload into the Pine signal engine, and TradeJAudit will start storing structured signal events for recommendations and diagnostics.
+                  {t('settings.tradingView.body')}
                 </Typography>
               </Stack>
               {tradingViewSettings?.hasSecret && (
-                <Chip size="small" color={tradingViewSettings.enabled ? 'success' : 'default'} label={tradingViewSettings.enabled ? 'Enabled' : 'Disabled'} />
+                <Chip size="small" color={tradingViewSettings.enabled ? 'success' : 'default'} label={tradingViewSettings.enabled ? t('settings.tradingView.enabled') : t('settings.tradingView.disabled')} />
               )}
             </Stack>
 
             {tradingViewLoading ? (
-              <Typography variant="body2" color="text.secondary">Loading TradingView integration settings...</Typography>
+              <Typography variant="body2" color="text.secondary">{t('settings.tradingView.loading')}</Typography>
             ) : (
               <>
                 <FormControlLabel
@@ -502,21 +502,21 @@ export default function SettingsPage() {
                       disabled={tradingViewSaving}
                     />
                   )}
-                  label="Enable TradingView webhook ingestion"
+                  label={t('settings.tradingView.enable')}
                 />
 
                 <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25}>
                   <Button variant="contained" onClick={handleTradingViewResetSecret} disabled={tradingViewSaving}>
-                    {tradingViewSettings?.hasSecret ? 'Reset webhook secret' : 'Generate webhook secret'}
+                    {tradingViewSettings?.hasSecret ? t('settings.tradingView.resetSecret') : t('settings.tradingView.generateSecret')}
                   </Button>
                   {tradingViewSettings?.secretHint && (
-                    <Chip variant="outlined" label={`Current secret hint: ${tradingViewSettings.secretHint}`} />
+                    <Chip variant="outlined" label={t('settings.tradingView.secretHint', { hint: tradingViewSettings.secretHint })} />
                   )}
                 </Stack>
 
                 {newTradingViewSecret && (
                   <TextField
-                    label="New webhook secret"
+                    label={t('settings.tradingView.newSecret')}
                     value={newTradingViewSecret}
                     fullWidth
                     InputProps={{
@@ -524,17 +524,17 @@ export default function SettingsPage() {
                       endAdornment: (
                         <InputAdornment position="end">
                           <Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={() => handleCopyText(newTradingViewSecret)}>
-                            Copy
+                            {t('settings.tradingView.copy')}
                           </Button>
                         </InputAdornment>
                       )
                     }}
-                    helperText="This secret is shown only after reset. Store it in TradingView or a password manager."
+                    helperText={t('settings.tradingView.secretHelp')}
                   />
                 )}
 
                 <TextField
-                  label="Open signal webhook URL"
+                  label={t('settings.tradingView.openUrl')}
                   value={tradingViewSettings?.openSignalWebhookUrl || ''}
                   fullWidth
                   multiline
@@ -542,7 +542,7 @@ export default function SettingsPage() {
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
-                  label="Close signal webhook URL"
+                  label={t('settings.tradingView.closeUrl')}
                   value={tradingViewSettings?.closeSignalWebhookUrl || ''}
                   fullWidth
                   multiline
@@ -550,7 +550,7 @@ export default function SettingsPage() {
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
-                  label="Sample SIGNAL_OPEN payload"
+                  label={t('settings.tradingView.openPayload')}
                   value={tradingViewSettings?.sampleOpenPayload || ''}
                   fullWidth
                   multiline
@@ -558,7 +558,7 @@ export default function SettingsPage() {
                   InputProps={{ readOnly: true }}
                 />
                 <TextField
-                  label="Sample SIGNAL_CLOSE payload"
+                  label={t('settings.tradingView.closePayload')}
                   value={tradingViewSettings?.sampleClosePayload || ''}
                   fullWidth
                   multiline
@@ -576,32 +576,32 @@ export default function SettingsPage() {
           <CardContent>
             <Stack spacing={2} maxWidth={720}>
               <Stack spacing={0.5}>
-                <Typography variant="h6">Indicators preloaded in chart</Typography>
+                <Typography variant="h6">{t('settings.chartStudies.title')}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Add TradingView built-in study identifiers, one per line. Example: MASimple@tv-basicstudies, RSI@tv-basicstudies, MACD@tv-basicstudies.
+                  {t('settings.chartStudies.body')}
                 </Typography>
               </Stack>
               {chartSettingsMessage && <Alert severity="success">{chartSettingsMessage}</Alert>}
               {chartSettingsError && <Alert severity="error">{chartSettingsError}</Alert>}
               {chartSettingsLoading ? (
-                <Typography variant="body2" color="text.secondary">Loading chart settings...</Typography>
+                <Typography variant="body2" color="text.secondary">{t('settings.chartStudies.loading')}</Typography>
               ) : (
                 <>
                   <TextField
-                    label="TradingView study identifiers"
+                    label={t('settings.chartStudies.label')}
                     value={chartIndicatorsDraft}
                     onChange={(event) => setChartIndicatorsDraft(event.target.value)}
                     fullWidth
                     multiline
                     minRows={6}
-                    helperText="Use valid TradingView built-in study identifiers. Unsupported studies may be ignored by TradingView."
+                    helperText={t('settings.chartStudies.help')}
                   />
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
                     <Button variant="contained" onClick={() => void handleSaveChartSettings()} disabled={chartSettingsSaving}>
-                      {chartSettingsSaving ? 'Saving...' : 'Save chart indicators'}
+                      {chartSettingsSaving ? t('settings.chartStudies.saving') : t('settings.chartStudies.save')}
                     </Button>
                     <Typography variant="caption" color="text.secondary">
-                      These studies are preloaded only when the chart initializes; users can remove them inside TradingView.
+                      {t('settings.chartStudies.note')}
                     </Typography>
                   </Stack>
                 </>

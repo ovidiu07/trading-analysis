@@ -71,12 +71,6 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const planScopeToApiScope = (scope: PlanScopeTab): PlanScope => scope === 'TODAY' ? 'DAILY' : scope
 
-const planLabel = (scope: PlanScopeTab) => {
-  if (scope === 'WEEKLY') return 'Weekly Plan'
-  if (scope === 'MONTHLY') return 'Monthly Plan'
-  return 'Today Plan'
-}
-
 const readExpandedPlans = (): PlanScopeTab[] => {
   try {
     const parsed = JSON.parse(localStorage.getItem(EXPANDED_PLANS_KEY) || '[]') as PlanScopeTab[]
@@ -169,15 +163,6 @@ const planRange = (plan: PeriodPlan | null | undefined, timezone: string) => {
   return `${formatDate(plan.periodStart, timezone)} – ${formatDate(plan.periodEnd, timezone)}`
 }
 
-const planSummary = (plan: PeriodPlan | null | undefined, scope: PlanScopeTab) => {
-  if (!plan?.exists) {
-    if (scope === 'TODAY') return 'No Today Plan yet'
-    if (scope === 'WEEKLY') return 'No weekly focus set'
-    return 'No monthly focus set'
-  }
-  return plan.bias || plan.objectives || plan.focusSymbols?.join(', ') || 'Plan ready for review'
-}
-
 export default function SessionPage() {
   const { user } = useAuth()
   const { t } = useI18n()
@@ -186,6 +171,13 @@ export default function SessionPage() {
   const queryClient = useQueryClient()
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
+  const planLabel = (scope: PlanScopeTab) => t(`today.session.simple.plans.${scope === 'TODAY' ? 'today' : scope === 'WEEKLY' ? 'weekly' : 'monthly'}`)
+  const planSummary = (plan: PeriodPlan | null | undefined, scope: PlanScopeTab) => {
+    if (!plan?.exists) {
+      return t(`today.session.simple.plans.${scope === 'TODAY' ? 'emptyToday' : scope === 'WEEKLY' ? 'emptyWeekly' : 'emptyMonthly'}`)
+    }
+    return plan.bias || plan.objectives || plan.focusSymbols?.join(', ') || t('today.session.simple.plans.ready')
+  }
   const requestedPlan = (searchParams.get('plan') || '').toUpperCase()
 
   const [expandedPlans, setExpandedPlans] = useState<PlanScopeTab[]>(() => {
@@ -252,7 +244,7 @@ export default function SessionPage() {
     },
     onError: (error) => {
       setSaveState('error')
-      setFeedback((error as ApiError).message || 'Changes could not be saved.')
+      setFeedback((error as ApiError).message || t('today.session.simple.errors.save'))
     }
   })
 
@@ -267,7 +259,7 @@ export default function SessionPage() {
     },
     onError: (error) => {
       setSaveState('error')
-      setFeedback((error as ApiError).message || 'Could not start the current setup.')
+      setFeedback((error as ApiError).message || t('today.session.simple.errors.startSetup'))
     }
   })
 
@@ -276,9 +268,9 @@ export default function SessionPage() {
       upsertSessionPeriodPlan(planScopeToApiScope(payload.scope), toPeriodPlanPayload(payload.draft)),
     onSuccess: (next) => {
       queryClient.setQueryData(['liveWorkspace'], ensureWorkspace(next))
-      setFeedback('Plan saved.')
+      setFeedback(t('today.session.simple.plans.saved'))
     },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not save plan.')
+    onError: (error) => setFeedback((error as ApiError).message || t('today.session.simple.errors.savePlan'))
   })
   const saveSetup = setupMutation.mutate
   const createSetup = createSetupMutation.mutate
@@ -380,7 +372,7 @@ export default function SessionPage() {
       setPlanImageUploads((current) => ({ ...current, [scope]: current[scope].filter((item) => !queue.some((row) => row.id === item.id)) }))
       await queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })
     } catch (error) {
-      queue.forEach((item) => updatePlanImageUpload(scope, item.id, { progress: 0, error: (error as ApiError).message || 'Upload failed.' }))
+      queue.forEach((item) => updatePlanImageUpload(scope, item.id, { progress: 0, error: (error as ApiError).message || t('today.session.simple.errors.upload') }))
     }
   }
 
@@ -390,7 +382,7 @@ export default function SessionPage() {
       await deleteSessionPlanImage(planScopeToApiScope(scope), image.id)
       await queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })
     } catch (error) {
-      setFeedback((error as ApiError).message || 'Could not remove screenshot.')
+      setFeedback((error as ApiError).message || t('today.session.simple.errors.removeScreenshot'))
     } finally {
       setDeletingPlanImageIds((current) => {
         const next = new Set(current)
@@ -420,15 +412,21 @@ export default function SessionPage() {
 
   if (workspaceQuery.isLoading) return <LoadingState rows={8} height={38} />
   if (workspaceQuery.isError || !workspace) {
-    return <Alert severity="error">{(workspaceQuery.error as ApiError)?.message || 'Could not load Session.'}</Alert>
+    return <Alert severity="error">{(workspaceQuery.error as ApiError)?.message || t('today.session.simple.errors.load')}</Alert>
   }
 
   const setupSymbolDiffers = Boolean(setupDraft?.symbol && normalizeSymbol(setupDraft.symbol) !== normalizeSymbol(chartSymbol))
   const meaningfulSummary = workspace.session.quickStats.tradesTaken > 0
     || Boolean(workspace.session.quickStats.realizedPnl)
     || Boolean(workspace.session.quickStats.riskConfigured)
-  const sessionLabel = workspace.session.sessionName || setupDraft?.tradeSession?.replace('_', ' ') || 'Trading session'
-  const saveLabel = saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Could not save' : saveState === 'saved' ? 'Saved' : ''
+  const sessionLabel = workspace.session.sessionName || setupDraft?.tradeSession?.replace('_', ' ') || t('today.session.simple.tradingSession')
+  const saveLabel = saveState === 'saving'
+    ? t('today.session.simple.saveState.saving')
+    : saveState === 'error'
+      ? t('today.session.simple.saveState.failed')
+      : saveState === 'saved'
+        ? t('today.session.simple.saveState.saved')
+        : ''
 
   const renderPlan = (scope: PlanScopeTab, plan: PeriodPlan | null | undefined) => {
     const draft = planDrafts[scope]
@@ -452,11 +450,11 @@ export default function SessionPage() {
         <AccordionDetails id={`${scope.toLowerCase()}-plan-content`} sx={{ pt: 0 }}>
           <Stack spacing={1.25}>
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.1 }}>
-              <TextField label="Bias" value={draft?.bias || ''} onChange={(event) => updatePlanDraft(scope, { bias: event.target.value })} fullWidth />
-              <TextField label="Symbols" value={draft?.focusSymbols || ''} onChange={(event) => updatePlanDraft(scope, { focusSymbols: event.target.value })} helperText="Comma-separated" fullWidth />
+              <TextField label={t('today.session.simple.plans.bias')} value={draft?.bias || ''} onChange={(event) => updatePlanDraft(scope, { bias: event.target.value })} fullWidth />
+              <TextField label={t('today.session.simple.plans.symbols')} value={draft?.focusSymbols || ''} onChange={(event) => updatePlanDraft(scope, { focusSymbols: event.target.value })} helperText={t('today.session.simple.plans.symbolsHint')} fullWidth />
             </Box>
-            <TextField label="Narrative / objectives" value={draft?.objectives || ''} onChange={(event) => updatePlanDraft(scope, { objectives: event.target.value })} multiline minRows={2} fullWidth />
-            <TextField label="Important levels and notes" value={draft?.notes || ''} onChange={(event) => updatePlanDraft(scope, { notes: event.target.value })} multiline minRows={2} fullWidth />
+            <TextField label={t('today.session.simple.plans.objectives')} value={draft?.objectives || ''} onChange={(event) => updatePlanDraft(scope, { objectives: event.target.value })} multiline minRows={2} fullWidth />
+            <TextField label={t('today.session.simple.plans.notes')} value={draft?.notes || ''} onChange={(event) => updatePlanDraft(scope, { notes: event.target.value })} multiline minRows={2} fullWidth />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
               <Button
                 variant="outlined"
@@ -464,17 +462,17 @@ export default function SessionPage() {
                 disabled={!draft || planMutation.isPending}
                 sx={{ minHeight: 44 }}
               >
-                {plan?.exists ? 'Save plan' : 'Create plan'}
+                {plan?.exists ? t('today.session.simple.plans.save') : t('today.session.simple.plans.create')}
               </Button>
               <Button endIcon={<OpenInNewRoundedIcon />} onClick={() => navigate(`/calendar?plan=${scope.toLowerCase()}`)} sx={{ minHeight: 44 }}>
-                Open plan
+                {t('today.session.simple.plans.open')}
               </Button>
             </Stack>
             {plan?.exists ? (
               <PlanImagesSection
                 compact
-                title="Charts"
-                storageLabel="Screenshots attached to this plan"
+                title={t('today.session.simple.plans.charts')}
+                storageLabel={t('today.session.simple.plans.chartsStorage')}
                 images={plan.images || []}
                 uploads={planImageUploads[scope]}
                 deletingIds={deletingPlanImageIds}
@@ -511,14 +509,13 @@ export default function SessionPage() {
       <Stack spacing={{ xs: 2, md: 3 }}>
         <Stack component="header" direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.25}>
           <Box sx={{ minWidth: 0 }}>
-            <Typography component="h1" variant="h4" sx={{ fontWeight: 850 }}>Session</Typography>
             <Typography color="text.secondary">
               {formatDate(workspace.session.tradingDate, timezone)} · {sessionLabel}
               {chartSymbol ? ` · ${chartSymbol}` : ''}
             </Typography>
           </Box>
           <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
-            <Button startIcon={<ArrowBackRoundedIcon />} onClick={() => navigate('/today')}>Back to Today</Button>
+            <Button startIcon={<ArrowBackRoundedIcon />} onClick={() => navigate('/today')}>{t('today.session.simple.header.back')}</Button>
             <Button
               variant={focusMode ? 'contained' : 'outlined'}
               startIcon={<CenterFocusStrongRoundedIcon />}
@@ -529,7 +526,7 @@ export default function SessionPage() {
                 localStorage.setItem(FOCUS_MODE_KEY, String(next))
               }}
             >
-              Focus mode
+              {t('today.session.simple.header.focus')}
             </Button>
           </Stack>
         </Stack>
@@ -538,7 +535,7 @@ export default function SessionPage() {
 
         {!focusMode ? (
           <Box component="section" aria-labelledby="plans-heading">
-            <Typography id="plans-heading" component="h2" variant="h5" sx={{ fontWeight: 800, mb: 1.25 }}>Plans</Typography>
+            <Typography id="plans-heading" component="h2" variant="h5" sx={{ fontWeight: 700, mb: 1.25 }}>{t('today.session.simple.plans.title')}</Typography>
             <Stack spacing={1}>
               {renderPlan('TODAY', workspace.planningContext?.today)}
               {renderPlan('WEEKLY', workspace.planningContext?.weekly)}
@@ -551,28 +548,28 @@ export default function SessionPage() {
           <CardContent sx={{ p: { xs: 1.5, sm: 2.25 }, '&:last-child': { pb: { xs: 1.5, sm: 2.25 } } }}>
             <Stack spacing={1.5} sx={{ minWidth: 0 }}>
               <TextField
-                label="Symbol"
+                label={t('today.session.simple.chart.symbol')}
                 value={chartSymbol}
                 onChange={(event) => handleChartSymbolChange(event.target.value)}
-                placeholder="GER30"
+                placeholder={t('today.session.simple.chart.symbolPlaceholder')}
                 inputProps={{ autoCapitalize: 'characters', spellCheck: false }}
                 fullWidth
               />
               {setupSymbolDiffers ? (
-                <Alert severity="info" action={<Button size="small" onClick={syncChartSymbolToSetup}>Use for setup</Button>}>
-                  The chart changed without overwriting the setup you are editing.
+                <Alert severity="info" action={<Button size="small" onClick={syncChartSymbolToSetup}>{t('today.session.simple.chart.useForSetup')}</Button>}>
+                  {t('today.session.simple.chart.symbolChanged')}
                 </Alert>
               ) : null}
               <Stack direction="row" spacing={1} alignItems="center">
                 <CandlestickChartRoundedIcon color="primary" />
                 <Box sx={{ minWidth: 0 }}>
-                  <Typography id="chart-heading" component="h2" variant="h5" sx={{ fontWeight: 800 }}>Chart</Typography>
+                  <Typography id="chart-heading" component="h2" variant="h5" sx={{ fontWeight: 700 }}>{t('today.session.simple.chart.title')}</Typography>
                   {chartSymbol ? <Typography variant="body2" color="text.secondary" noWrap>{chartSymbol}</Typography> : null}
                 </Box>
               </Stack>
               <Box
                 role="region"
-                aria-label={chartSymbol ? `Chart for ${chartSymbol}` : 'Trading chart'}
+                aria-label={chartSymbol ? t('today.session.simple.chart.region', { symbol: chartSymbol }) : t('today.session.simple.chart.regionEmpty')}
                 sx={{
                   width: '100%',
                   minWidth: 0,
@@ -590,12 +587,12 @@ export default function SessionPage() {
                     hideControls={false}
                     allowSymbolChange={false}
                     preloadedIndicators={chartSettingsQuery.data?.preloadedIndicators || []}
-                    fallbackMessage={t('today.mentor.liveChartFallback')}
-                    fallbackLinkLabel={t('today.mentor.openOnTradingView')}
+                    fallbackMessage={t('today.session.mentor.liveChartFallback')}
+                    fallbackLinkLabel={t('today.session.mentor.openOnTradingView')}
                   />
                 ) : (
                   <Stack alignItems="center" justifyContent="center" sx={{ height: '100%', px: 2 }}>
-                    <Typography color="grey.400" textAlign="center">Enter a symbol to load the chart.</Typography>
+                    <Typography color="text.secondary" textAlign="center">{t('today.session.simple.chart.empty')}</Typography>
                   </Stack>
                 )}
               </Box>
@@ -607,7 +604,7 @@ export default function SessionPage() {
           <CardContent sx={{ p: { xs: 1.5, sm: 2.25 }, '&:last-child': { pb: { xs: 1.5, sm: 2.25 } } }}>
             <Stack spacing={1.5}>
               <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={1}>
-                <Typography id="setup-heading" component="h2" variant="h5" sx={{ fontWeight: 800 }}>Current setup</Typography>
+                <Typography id="setup-heading" component="h2" variant="h5" sx={{ fontWeight: 700 }}>{t('today.session.simple.setup.title')}</Typography>
                 <Typography
                   variant="caption"
                   color={saveState === 'error' ? 'error.main' : 'text.secondary'}
@@ -617,15 +614,15 @@ export default function SessionPage() {
                   {saveLabel}
                 </Typography>
               </Stack>
-              {!setupDraft ? <Typography color="text.secondary">Start typing to prepare your current setup.</Typography> : null}
+              {!setupDraft ? <Typography color="text.secondary">{t('today.session.simple.setup.empty')}</Typography> : null}
               <TextField
-                label="Setup title"
+                label={t('today.session.simple.setup.setupTitle')}
                 value={setupDraft?.setupTitle || ''}
                 onChange={(event) => updateSetup((current) => ({ ...current, setupTitle: event.target.value }))}
                 fullWidth
               />
               <Box>
-                <Typography component="label" id="direction-label" variant="body2" sx={{ display: 'block', mb: 0.75, fontWeight: 700 }}>Direction</Typography>
+                <Typography component="label" id="direction-label" variant="body2" sx={{ display: 'block', mb: 0.75, fontWeight: 700 }}>{t('today.session.simple.setup.direction')}</Typography>
                 <ToggleButtonGroup
                   exclusive
                   fullWidth
@@ -634,17 +631,17 @@ export default function SessionPage() {
                   aria-labelledby="direction-label"
                   sx={{ '& .MuiToggleButton-root': { minHeight: 44 } }}
                 >
-                  <ToggleButton value="LONG">Long</ToggleButton>
-                  <ToggleButton value="SHORT">Short</ToggleButton>
-                  <ToggleButton value="UNDECIDED">Undecided</ToggleButton>
+                  <ToggleButton value="LONG">{t('today.session.simple.setup.long')}</ToggleButton>
+                  <ToggleButton value="SHORT">{t('today.session.simple.setup.short')}</ToggleButton>
+                  <ToggleButton value="UNDECIDED">{t('today.session.simple.setup.undecided')}</ToggleButton>
                 </ToggleButtonGroup>
               </Box>
-              <TextField label="Narrative" value={setupDraft?.context.narrative || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, narrative: event.target.value } }))} multiline minRows={3} fullWidth />
-              <TextField label="Liquidity" value={setupDraft?.context.liquidityNotes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, liquidityNotes: event.target.value } }))} multiline minRows={2} fullWidth />
-              <TextField label="Entry zone" value={setupDraft?.trigger.entryZone || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, entryZone: event.target.value } }))} multiline minRows={2} fullWidth />
-              <TextField label="Invalidation" value={setupDraft?.context.invalidationIdea || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} fullWidth />
-              <TextField label="Target" value={setupDraft?.trigger.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, notes: event.target.value } }))} multiline minRows={2} fullWidth />
-              <TextField label="Notes" value={setupDraft?.context.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, notes: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label={t('today.session.simple.setup.narrative')} value={setupDraft?.context.narrative || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, narrative: event.target.value } }))} multiline minRows={3} fullWidth />
+              <TextField label={t('today.session.simple.setup.liquidity')} value={setupDraft?.context.liquidityNotes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, liquidityNotes: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label={t('today.session.simple.setup.entryZone')} value={setupDraft?.trigger.entryZone || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, entryZone: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label={t('today.session.simple.setup.invalidation')} value={setupDraft?.context.invalidationIdea || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label={t('today.session.simple.setup.target')} value={setupDraft?.trigger.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, notes: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label={t('today.session.simple.setup.notes')} value={setupDraft?.context.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, notes: event.target.value } }))} multiline minRows={2} fullWidth />
 
               <Button
                 variant="text"
@@ -653,38 +650,38 @@ export default function SessionPage() {
                 endIcon={<ExpandMoreRoundedIcon sx={{ transform: moreDetailsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 160ms' }} />}
                 sx={{ alignSelf: 'flex-start' }}
               >
-                More details
+                {t('today.session.simple.setup.moreDetails')}
               </Button>
               <Collapse in={moreDetailsOpen}>
                 <Stack spacing={1.25} sx={{ pt: 0.5 }}>
-                  <TextField label="Strategy" value={setupDraft?.strategyLabel || ''} onChange={(event) => updateSetup((current) => ({ ...current, strategyLabel: event.target.value }))} fullWidth />
+                  <TextField label={t('today.session.simple.setup.strategy')} value={setupDraft?.strategyLabel || ''} onChange={(event) => updateSetup((current) => ({ ...current, strategyLabel: event.target.value }))} fullWidth />
                   <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.1 }}>
-                    <TextField label="Timeframe" value={setupDraft?.trigger.confirmationTimeframe || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, confirmationTimeframe: event.target.value } }))} fullWidth />
+                    <TextField label={t('today.session.simple.setup.timeframe')} value={setupDraft?.trigger.confirmationTimeframe || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, confirmationTimeframe: event.target.value } }))} fullWidth />
                     <FormControl fullWidth>
-                      <InputLabel id="trade-session-label">Session</InputLabel>
+                      <InputLabel id="trade-session-label">{t('today.session.simple.setup.session')}</InputLabel>
                       <Select
                         labelId="trade-session-label"
-                        label="Session"
+                        label={t('today.session.simple.setup.session')}
                         value={setupDraft?.tradeSession || ''}
                         onChange={(event) => updateSetup((current) => ({ ...current, tradeSession: (event.target.value || null) as SetupItem['tradeSession'] }))}
                       >
-                        <MenuItem value="">Not set</MenuItem>
-                        <MenuItem value="ASIA">Asia</MenuItem>
-                        <MenuItem value="LONDON">London</MenuItem>
-                        <MenuItem value="NY">New York</MenuItem>
-                        <MenuItem value="NY_AM">New York AM</MenuItem>
-                        <MenuItem value="NY_PM">New York PM</MenuItem>
-                        <MenuItem value="CUSTOM">Custom</MenuItem>
+                        <MenuItem value="">{t('today.session.simple.setup.notSet')}</MenuItem>
+                        <MenuItem value="ASIA">{t('today.session.simple.setup.asia')}</MenuItem>
+                        <MenuItem value="LONDON">{t('today.session.simple.setup.london')}</MenuItem>
+                        <MenuItem value="NY">{t('today.session.simple.setup.newYork')}</MenuItem>
+                        <MenuItem value="NY_AM">{t('today.session.simple.setup.newYorkAm')}</MenuItem>
+                        <MenuItem value="NY_PM">{t('today.session.simple.setup.newYorkPm')}</MenuItem>
+                        <MenuItem value="CUSTOM">{t('today.session.simple.setup.custom')}</MenuItem>
                       </Select>
                     </FormControl>
                   </Box>
-                  <TextField label="Risk notes" value={setupDraft?.context.newsSafety || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, newsSafety: event.target.value } }))} multiline minRows={2} fullWidth />
+                  <TextField label={t('today.session.simple.setup.riskNotes')} value={setupDraft?.context.newsSafety || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, newsSafety: event.target.value } }))} multiline minRows={2} fullWidth />
                 </Stack>
               </Collapse>
 
               <Box sx={{ pt: 1 }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>Trade executed?</Typography>
-                <Button variant="contained" size="large" onClick={openTradeLog} fullWidth sx={{ minHeight: 48 }}>Log trade</Button>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>{t('today.session.simple.setup.executed')}</Typography>
+                <Button variant="contained" size="large" onClick={openTradeLog} fullWidth sx={{ minHeight: 48 }}>{t('today.session.simple.setup.logTrade')}</Button>
               </Box>
             </Stack>
           </CardContent>
@@ -692,10 +689,10 @@ export default function SessionPage() {
 
         {!focusMode && meaningfulSummary ? (
           <Box component="section" aria-labelledby="summary-heading" sx={{ px: { xs: 0.5, sm: 1 } }}>
-            <Typography id="summary-heading" component="h2" variant="h6" sx={{ fontWeight: 800, mb: 0.5 }}>Session summary</Typography>
+            <Typography id="summary-heading" component="h2" variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>{t('today.session.simple.summary.title')}</Typography>
             <Typography color="text.secondary">
-              Trades: {workspace.session.quickStats.tradesTaken} · Realized P&amp;L: {formatSignedCurrency(workspace.session.quickStats.realizedPnl, baseCurrency)}
-              {workspace.session.quickStats.riskConfigured ? ` · Risk used: ${workspace.session.quickStats.riskUsed || 0}` : ''}
+              {t('today.session.simple.summary.line', { trades: workspace.session.quickStats.tradesTaken, pnl: formatSignedCurrency(workspace.session.quickStats.realizedPnl, baseCurrency) })}
+              {workspace.session.quickStats.riskConfigured ? t('today.session.simple.summary.riskUsed', { risk: workspace.session.quickStats.riskUsed || 0 }) : ''}
             </Typography>
           </Box>
         ) : null}
@@ -717,7 +714,7 @@ export default function SessionPage() {
           borderColor: 'divider'
         }}
       >
-        <Button variant="contained" size="large" onClick={openTradeLog} fullWidth sx={{ minHeight: 48 }}>Log trade</Button>
+        <Button variant="contained" size="large" onClick={openTradeLog} fullWidth sx={{ minHeight: 48 }}>{t('today.session.simple.setup.logTrade')}</Button>
       </Box>
     </Box>
   )

@@ -32,9 +32,10 @@ import { resolveRouteMeta } from '../config/routeMeta'
 import DemoDataBanner from '../components/demo/DemoDataBanner'
 import { ThemePreference, toBackendThemePreference, useThemeMode } from '../themeMode'
 import { isAdminUser } from '../auth/roles'
+import { layoutTokens } from '../theme/tokens'
 
-const SIDEBAR_WIDTH = 286
-const SIDEBAR_COLLAPSED_WIDTH = 96
+const SIDEBAR_WIDTH = layoutTokens.sidebar.expanded
+const SIDEBAR_COLLAPSED_WIDTH = layoutTokens.sidebar.collapsed
 const SIDEBAR_STORAGE_KEY = 'layout.sidebarCollapsed'
 
 export default function AppShell() {
@@ -217,6 +218,7 @@ export default function AppShell() {
               onNavigate={() => setMobileOpen(false)}
               collapseLabel={t('layout.collapseSidebar')}
               expandLabel={t('layout.expandSidebar')}
+              homeLabel={t('layout.homeLabel')}
             />
           </Drawer>
         </Box>
@@ -254,12 +256,13 @@ export default function AppShell() {
         />
 
         <Container
-          maxWidth="xl"
+          maxWidth={false}
           sx={{
             py: { xs: 1.5, md: 3 },
             px: { xs: 1.5, sm: 2.5, md: 3 },
             flexGrow: 1,
             width: '100%',
+            maxWidth: layoutTokens.content.wide,
             minWidth: 0,
             overflowX: 'clip',
             '& > *': {
@@ -272,7 +275,7 @@ export default function AppShell() {
         </Container>
 
         <Box component="footer" sx={{ borderTop: '1px solid', borderColor: 'divider', py: 2, width: '100%' }}>
-          <Container maxWidth="xl">
+          <Container maxWidth={false} sx={{ maxWidth: layoutTokens.content.wide }}>
             <Stack
               direction={{ xs: 'column', md: 'row' }}
               spacing={1}

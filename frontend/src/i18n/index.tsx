@@ -11,6 +11,7 @@ type I18nContextType = {
   locale: string
   setLanguage: (language: AppLanguage) => void
   t: (key: string, params?: TranslationParams) => string
+  tp: (singularKey: string, pluralKey: string, count: number, params?: TranslationParams) => string
 }
 
 type TranslationTree = Record<string, unknown>
@@ -22,6 +23,7 @@ const LOCALES: Record<AppLanguage, string> = {
 }
 
 const RESOURCES: Record<AppLanguage, TranslationTree> = { en, ro }
+const reportedMissingKeys = new Set<string>()
 
 const I18nContext = createContext<I18nContextType | undefined>(undefined)
 
@@ -96,6 +98,13 @@ const resolveTranslation = (language: AppLanguage, key: string, params?: Transla
   if (english) {
     return interpolate(english, params)
   }
+  if (import.meta.env.DEV) {
+    const warningKey = `${language}:${key}`
+    if (!reportedMissingKeys.has(warningKey)) {
+      reportedMissingKeys.add(warningKey)
+      console.warn(`[i18n] Missing translation key "${key}" for ${language}`)
+    }
+  }
   return key
 }
 
@@ -118,12 +127,19 @@ export function I18nProvider({ children }: PropsWithChildren) {
     return resolveTranslation(language, key, params)
   }, [language])
 
+  const tp = useCallback((singularKey: string, pluralKey: string, count: number, params?: TranslationParams) => {
+    const category = new Intl.PluralRules(LOCALES[language]).select(count)
+    const key = category === 'one' ? singularKey : pluralKey
+    return resolveTranslation(language, key, { count, ...params })
+  }, [language])
+
   const value = useMemo<I18nContextType>(() => ({
     language,
     locale: LOCALES[language],
     setLanguage,
-    t
-  }), [language, setLanguage, t])
+    t,
+    tp
+  }), [language, setLanguage, t, tp])
 
   return (
     <I18nContext.Provider value={value}>

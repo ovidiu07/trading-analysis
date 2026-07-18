@@ -130,12 +130,10 @@
       "downloadFailed": "Asset-ul nu a putut fi descărcat"
     }
   },
-  "backtesting": {
-    "subtitle": "Cercetare vizuală de strategii pe simbol, setup și dovezi din screenshot-uri."
-  },
   "layout": {
     "collapseSidebar": "Restrânge bara laterală",
-    "expandSidebar": "Extinde bara laterală"
+    "expandSidebar": "Extinde bara laterală",
+    "homeLabel": "Pagina principală TradeJAudit"
   },
   "footer": {
     "terms": "Termeni",
@@ -144,6 +142,8 @@
   },
   "errors": {
     "genericTitle": "A apărut o eroare",
+    "renderFailure": "A apărut o eroare neașteptată la afișarea acestei pagini.",
+    "reload": "Reîncarcă pagina",
     "generic": "A apărut o eroare. Încearcă din nou.",
     "network": "Serverul nu poate fi accesat. Verifică conexiunea.",
     "unauthorized": "Sesiune expirată sau neautorizată. Autentifică-te din nou.",
@@ -513,6 +513,13 @@
     "title": "Analiză",
     "heading": "Diagnoză de performanță",
     "subtitle": "Diagnoză avansată pentru performanță, consistență și avantaj.",
+    "signals": {
+      "title": "Inteligență semnale", "body": "Semnalele webhook TradingView sunt analizate separat de tranzacțiile înregistrate manual, pentru a evidenția degradarea setup-urilor, schimbarea regimului și potrivirea profilului.",
+      "emptyTitle": "Nu există semnale structurate", "emptyBody": "Conectează webhook-ul TradingView din Setări și lasă fluxul de alerte Pine să construiască un eșantion înainte de a folosi acest strat de analiză.",
+      "trend": "Tendința calității semnalelor", "recommended": "Pachet de profil recomandat", "expectancyBySetup": "Expectancy după setup", "performanceByRegime": "Performanță după regim", "buckets": "Cele mai puternice și slabe segmente",
+      "noSetupTitle": "Nu există încă un eșantion de setup", "noSetupBody": "Expectancy la nivel de setup apare după primele rezultate închise.", "noRegimeTitle": "Nu există încă un eșantion de regim", "noRegimeBody": "Analiza pe regim devine relevantă după etichetarea unui eșantion suficient.",
+      "noMatrixTitle": "Nu există încă matricea simbolurilor", "noMatrixBody": "Matricea simbol/timeframe se completează după ce webhook-ul are un eșantion de semnale închise."
+    },
     "mobileTabsLabel": "Vizualizare analiză",
     "errors": {
       "loadAnalytics": "Nu s-au putut încărca datele de analiză.",
@@ -776,6 +783,12 @@
   "calendar": {
     "title": "Calendar",
     "subtitle": "P&L realizat după data închiderii tranzacției în {{timezone}}.",
+    "plans": {
+      "title": "Planuri salvate în Calendar", "subtitle": "Planurile zilei rămân la data lor, iar planurile săptămânale și lunare rămân fixate cât timp perioada este activă.",
+      "today": "Planul zilei", "activeMonthly": "Plan lunar activ", "activeWeekly": "Plan săptămânal activ", "savedAria": "Planul zilei este salvat în Calendar",
+      "images": "{{count}} imagini", "remove": "Elimină planul", "open": "Deschide planul", "empty": "Nu există un plan activ salvat pentru această perioadă.",
+      "removeBody": "Imaginile încărcate nu vor mai fi afișate cu planul eliminat. Setup-urile asociate numai acestui plan nu vor mai apărea în planificarea activă. Tranzacțiile și execuțiile deja înregistrate nu sunt șterse."
+    },
     "previousMonth": "Luna anterioară",
     "nextMonth": "Luna următoare",
     "noTrades": "Fără tranzacții",
@@ -923,6 +936,12 @@
     "subtitle": "Planifică, execută, jurnalizează și revizuiește dintr-un spațiu zilnic unic.",
     "heading": "Planifică sesiunea",
     "subheading": "Focus zilnic/săptămânal, recomandări de coaching și acces rapid la tranzacții.",
+    "signals": {
+      "title": "Inteligență semnale", "symbol": "Simbol", "symbolPlaceholder": "BINANCE:BTCUSDT", "timeframe": "Timeframe", "timeframePlaceholder": "15",
+      "unavailable": "Recomandările de semnal vor apărea după conectarea webhook-ului în Setări.",
+      "emptyTitle": "Nu există încă o recomandare", "emptyBody": "Pachetul de profil Pine sugerat va apărea după ce există suficiente rezultate închise pentru acest simbol și timeframe.",
+      "expectancy": "Expectancy {{value}}R din {{count}} semnale închise.", "weakCondition": "{{action}}: {{setup}} în {{regime}} la {{value}}R", "confidence": "Încredere medie recentă: {{value}}/100"
+    },
     "errors": {
       "load": "Datele pentru astăzi nu au putut fi încărcate. Încearcă din nou."
     },
@@ -1020,6 +1039,31 @@
     "session": {
       "title": "Mod sesiune",
       "subtitle": "Vizualizare focusată cu checklist, plan mentor și execuție tranzacții.",
+      "simple": {
+        "tradingSession": "Sesiune de tranzacționare",
+        "saveState": { "saving": "Se salvează…", "saved": "Salvat", "failed": "Nu s-a putut salva" },
+        "errors": { "load": "Sesiunea nu a putut fi încărcată.", "save": "Modificările nu au putut fi salvate.", "startSetup": "Setup-ul curent nu a putut fi pornit.", "savePlan": "Planul nu a putut fi salvat.", "upload": "Încărcarea a eșuat.", "removeScreenshot": "Captura de ecran nu a putut fi eliminată." },
+        "plans": {
+          "title": "Planuri", "today": "Planul zilei", "weekly": "Planul săptămânal", "monthly": "Planul lunar",
+          "emptyToday": "Planul zilei nu este creat încă", "emptyWeekly": "Obiectivul săptămânal nu este stabilit", "emptyMonthly": "Obiectivul lunar nu este stabilit", "ready": "Plan pregătit pentru revizuire",
+          "bias": "Bias", "symbols": "Simboluri", "symbolsHint": "Separate prin virgulă", "objectives": "Narațiune / obiective", "notes": "Niveluri importante și note",
+          "save": "Salvează planul", "saved": "Plan salvat.", "create": "Creează planul", "open": "Deschide planul", "charts": "Grafice", "chartsStorage": "Capturi de ecran atașate acestui plan",
+          "images": { "addScreenshots": "Adaugă capturi", "open": "Deschide imaginea {{index}} a planului", "remove": "Elimină imaginea {{index}} a planului", "count": "{{count}} imagini", "openCalendar": "Deschide în Calendar", "dropTitle": "Adaugă imagini la acest plan", "dropHint": "PNG, JPG, WEBP sau GIF. Imaginile rămân atașate planului salvat.", "upload": "Încarcă imagini", "empty": "Nu există imagini adăugate la acest plan", "alt": "Imagine plan", "loadFailed": "Imaginea nu a putut fi încărcată.", "previous": "Imaginea precedentă a planului", "next": "Imaginea următoare a planului", "delete": "Șterge" }
+        },
+        "header": { "back": "Înapoi la Astăzi", "focus": "Mod concentrare" },
+        "chart": {
+          "title": "Grafic", "symbol": "Simbol", "symbolPlaceholder": "GER30", "useForSetup": "Folosește în setup",
+          "symbolChanged": "Graficul s-a schimbat fără să suprascrie setup-ul pe care îl editezi.", "region": "Grafic pentru {{symbol}}", "regionEmpty": "Grafic de tranzacționare", "empty": "Introdu un simbol pentru a încărca graficul."
+        },
+        "setup": {
+          "title": "Setup curent", "empty": "Începe să scrii pentru a pregăti setup-ul curent.", "setupTitle": "Titlu setup", "direction": "Direcție",
+          "long": "Long", "short": "Short", "undecided": "Nehotărât", "narrative": "Narațiune", "liquidity": "Lichiditate", "entryZone": "Zonă de intrare",
+          "invalidation": "Invalidare", "target": "Țintă", "notes": "Note", "moreDetails": "Mai multe detalii", "strategy": "Strategie", "timeframe": "Timeframe",
+          "session": "Sesiune", "notSet": "Nesetat", "asia": "Asia", "london": "Londra", "newYork": "New York", "newYorkAm": "New York AM",
+          "newYorkPm": "New York PM", "custom": "Personalizată", "riskNotes": "Note despre risc", "executed": "Tranzacție executată?", "logTrade": "Înregistrează tranzacția"
+        },
+        "summary": { "title": "Rezumatul sesiunii", "line": "Tranzacții: {{trades}} · P&L realizat: {{pnl}}", "riskUsed": " · Risc utilizat: {{risk}}" }
+      },
       "workspace": {
         "liveWorkspace": "Workspace live",
         "locked": "Blocat",
@@ -2201,6 +2245,20 @@
     "title": "Setări",
     "heading": "Preferințe",
     "subtitle": "Actualizează moneda de bază și fusul orar; modificările se aplică în toată aplicația.",
+    "tradingView": {
+      "title": "Inteligență semnale TradingView", "body": "Generează un secret webhook, adaugă payload-ul JSON al alertei în motorul Pine, iar TradeJAudit va stoca evenimente structurate pentru recomandări și diagnostic.",
+      "enabled": "Activat", "disabled": "Dezactivat", "loading": "Se încarcă setările integrării TradingView…", "enable": "Activează primirea webhook-urilor TradingView",
+      "resetSecret": "Resetează secretul webhook", "generateSecret": "Generează secret webhook", "secretHint": "Indiciu secret curent: {{hint}}", "newSecret": "Secret webhook nou", "copy": "Copiază",
+      "secretHelp": "Secretul este afișat numai după resetare. Salvează-l în TradingView sau într-un manager de parole.", "openUrl": "URL webhook pentru deschidere semnal", "closeUrl": "URL webhook pentru închidere semnal",
+      "openPayload": "Payload SIGNAL_OPEN exemplu", "closePayload": "Payload SIGNAL_CLOSE exemplu",
+      "messages": { "enabled": "Primirea semnalelor TradingView a fost activată.", "disabled": "Primirea semnalelor TradingView a fost dezactivată.", "reset": "Secretul webhook TradingView a fost resetat. Copiază-l acum în TradingView; este afișat o singură dată.", "copied": "Copiat în clipboard.", "copyFailed": "Copierea în clipboard a eșuat. Poți copia textul manual." }
+    },
+    "chartStudies": {
+      "title": "Indicatori preîncărcați în grafic", "body": "Adaugă identificatorii studiilor TradingView integrate, câte unul pe linie. Exemplu: MASimple@tv-basicstudies, RSI@tv-basicstudies, MACD@tv-basicstudies.",
+      "loading": "Se încarcă setările graficului…", "label": "Identificatori studii TradingView", "help": "Folosește identificatori valizi pentru studiile TradingView integrate. Studiile neacceptate pot fi ignorate.",
+      "saving": "Se salvează…", "save": "Salvează indicatorii graficului", "note": "Studiile sunt preîncărcate numai la inițializarea graficului și pot fi eliminate din TradingView.",
+      "required": "Adaugă cel puțin un identificator de studiu TradingView integrat.", "saved": "Setările indicatorilor au fost salvate."
+    },
     "timezone": "Fus orar",
     "timezoneHint": "Fus orar IANA (ex: Europe/Bucharest)",
     "baseCurrency": "Monedă de bază",
@@ -2910,6 +2968,26 @@
   "diagnostics": {
     "title": "Diagnoză strategii",
     "subtitle": "Diagnoză detaliată pentru ce funcționează, ce eșuează și ce trebuie ajustat.",
+    "live": {
+      "title": "Diagnostic live", "subtitle": "Metricile de backtest sunt ascunse intenționat. Această vizualizare reflectă doar tranzacțiile și comportamentul din sesiunile live.",
+      "errors": { "load": "Diagnosticul live nu a putut fi încărcat." },
+      "kpis": { "winRate": "Rată de câștig", "averageR": "R mediu", "profitFactor": "Profit factor", "sampleSize": "Mărime eșantion", "signals": "Semnale", "closed": "Închise", "expectancy": "Expectancy", "avgConfidence": "Încredere medie" },
+      "filters": { "from": "De la", "to": "Până la", "symbol": "Simbol", "symbolPlaceholder": "EURUSD", "session": "Sesiune", "allSessions": "Toate sesiunile" },
+      "empty": { "title": "Nicio tranzacție live nu corespunde filtrelor", "body": "Diagnosticul live devine disponibil după ce înregistrezi tranzacții închise cu context de sesiune și strategie." },
+      "sessionPerformance": { "title": "Performanța sesiunilor live", "body": "Defalcarea pe sesiuni evidențiază unde se concentrează expectancy în tranzacționarea live." },
+      "failureModes": { "title": "Moduri de eșec", "body": "Cele mai mari scurgeri live rămân vizibile ca să le poți corecta în sesiunea următoare.", "none": "Nu se evidențiază încă un mod dominant de eșec live.", "tradeCount": "{{count}} tranzacții", "impact": "Impact mediu {{value}}" },
+      "strategyPerformance": "Performanță pe strategie", "symbolBreakdown": "Defalcare pe simbol",
+      "table": { "strategy": "Strategie", "symbol": "Simbol", "setup": "Setup", "regime": "Regim", "trades": "Tranzacții", "winRate": "Rată de câștig", "expectancy": "Expectancy" },
+      "suggestions": { "title": "Ce să schimbi", "moreData": "Continuă să înregistrezi contextul live. Un eșantion mai mare va rafina recomandările." },
+      "signals": {
+        "title": "Inteligență semnale", "body": "Semnalele structurate din TradingView, tendința lor recentă și cele mai bune recomandări de profil sunt afișate separat de jurnalul manual.",
+        "ready": "Recomandare pregătită", "learning": "În învățare", "unavailable": "Inteligența semnalelor devine disponibilă după conectarea webhook-urilor TradingView și primirea semnalelor în TradeJAudit.",
+        "emptyTitle": "Nu există evenimente de semnal", "emptyBody": "Generează un secret webhook TradingView în Setări și adaugă JSON-ul alertei în Pine pentru a popula acest panou.",
+        "trend": "Tendința recentă a calității semnalelor", "recommended": "Profil recomandat", "needsData": "TradeJAudit are nevoie de mai multe rezultate închise înainte de a recomanda un pachet de profil.",
+        "score": "scor {{value}}", "expectancySample": "Expectancy {{expectancy}} din {{count}} semnale închise.", "bySetup": "După tipul de setup", "byRegime": "După regim", "weak": "Condiții slabe",
+        "noWeak": "Nu se evidențiază un segment persistent slab.", "weakLine": "{{action}} la {{expectancy}} în {{count}} semnale."
+      }
+    },
     "tabs": {
       "overview": "Sumar",
       "strategyDetails": "Detalii strategie",
@@ -2972,6 +3050,8 @@
     }
   },
   "backtesting": {
+    "subtitle": "Cercetare vizuală de strategii pe simbol, setup și dovezi din screenshot-uri.",
+    "replayChart": "Grafic cu lumânări pentru replay",
     "strategy": "Strategie",
     "linkedStrategy": "Strategie asociată",
     "mentorStrategy": "Strategie Mentor",

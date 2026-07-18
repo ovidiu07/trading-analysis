@@ -18,7 +18,8 @@ import {
   TableHead,
   TableRow,
   TextField,
-  Typography
+  Typography,
+  useTheme
 } from '@mui/material'
 import InsightsRoundedIcon from '@mui/icons-material/InsightsRounded'
 import BoltRoundedIcon from '@mui/icons-material/BoltRounded'
@@ -37,6 +38,7 @@ import {
 import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import { formatNumber } from '../utils/format'
+import { useI18n } from '../i18n'
 
 const sessionFilters = ['', 'ASIA', 'LONDON', 'NY_AM', 'NY_PM', 'NY']
 
@@ -59,6 +61,13 @@ function formatPercent(value?: number | null) {
 }
 
 export default function DiagnosticsPage() {
+  const { t } = useI18n()
+  const theme = useTheme()
+  const chartPalette = theme.palette.chart || {
+    grid: theme.palette.divider,
+    axis: theme.palette.text.secondary,
+    positive: theme.palette.success.main
+  }
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
   const [symbol, setSymbol] = useState('')
@@ -114,7 +123,7 @@ export default function DiagnosticsPage() {
 
   if (summaryQuery.isError || !summaryQuery.data) {
     const apiError = summaryQuery.error as ApiError
-    return <Alert severity="error">{apiError?.message || 'Could not load live diagnostics.'}</Alert>
+    return <Alert severity="error">{apiError?.message || t('diagnostics.live.errors.load')}</Alert>
   }
 
   const summary = summaryQuery.data
@@ -134,11 +143,11 @@ export default function DiagnosticsPage() {
                 <Stack direction="row" spacing={1} alignItems="center">
                   <InsightsRoundedIcon color="primary" />
                   <Typography variant="h4" sx={{ fontSize: { xs: 28, md: 34 }, fontWeight: 800 }}>
-                    Live diagnostics
+                    {t('diagnostics.live.title')}
                   </Typography>
                 </Stack>
                 <Typography variant="body1" color="text.secondary">
-                  Backtest metrics are intentionally hidden here. This view only reflects live trades and live session behavior.
+                  {t('diagnostics.live.subtitle')}
                 </Typography>
               </Stack>
 
@@ -151,10 +160,10 @@ export default function DiagnosticsPage() {
                 }}
               >
                 {[
-                  { label: 'Win rate', value: formatPercent(summary.coreMetrics.winRate), icon: <BoltRoundedIcon color="primary" /> },
-                  { label: 'Average R', value: formatSignedR(summary.coreMetrics.expectancyR), icon: <CandlestickChartRoundedIcon color="primary" /> },
-                  { label: 'Profit factor', value: formatNumber(summary.coreMetrics.profitFactor, 2), icon: <ChecklistRoundedIcon color="primary" /> },
-                  { label: 'Sample size', value: String(summary.coreMetrics.sampleSize), icon: <InsightsRoundedIcon color="primary" /> }
+                  { label: t('diagnostics.live.kpis.winRate'), value: formatPercent(summary.coreMetrics.winRate), icon: <BoltRoundedIcon color="primary" /> },
+                  { label: t('diagnostics.live.kpis.averageR'), value: formatSignedR(summary.coreMetrics.expectancyR), icon: <CandlestickChartRoundedIcon color="primary" /> },
+                  { label: t('diagnostics.live.kpis.profitFactor'), value: formatNumber(summary.coreMetrics.profitFactor, 2), icon: <ChecklistRoundedIcon color="primary" /> },
+                  { label: t('diagnostics.live.kpis.sampleSize'), value: String(summary.coreMetrics.sampleSize), icon: <InsightsRoundedIcon color="primary" /> }
                 ].map((item) => (
                   <Card key={item.label} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
                     <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
@@ -177,7 +186,7 @@ export default function DiagnosticsPage() {
               }}
             >
               <TextField
-                label="From"
+                label={t('diagnostics.live.filters.from')}
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={from}
@@ -185,7 +194,7 @@ export default function DiagnosticsPage() {
                 fullWidth
               />
               <TextField
-                label="To"
+                label={t('diagnostics.live.filters.to')}
                 type="date"
                 InputLabelProps={{ shrink: true }}
                 value={to}
@@ -193,22 +202,22 @@ export default function DiagnosticsPage() {
                 fullWidth
               />
               <TextField
-                label="Symbol"
+                label={t('diagnostics.live.filters.symbol')}
                 value={symbol}
                 onChange={(event) => setSymbol(event.target.value.toUpperCase())}
-                placeholder="EURUSD"
+                placeholder={t('diagnostics.live.filters.symbolPlaceholder')}
                 fullWidth
               />
               <FormControl fullWidth>
-                <InputLabel id="diag-live-session-label">Session</InputLabel>
+                <InputLabel id="diag-live-session-label">{t('diagnostics.live.filters.session')}</InputLabel>
                 <Select
                   labelId="diag-live-session-label"
-                  label="Session"
+                  label={t('diagnostics.live.filters.session')}
                   value={sessionWindow}
                   onChange={(event) => setSessionWindow(event.target.value)}
                 >
                   {sessionFilters.map((value) => (
-                    <MenuItem key={value || 'all'} value={value}>{value || 'All sessions'}</MenuItem>
+                    <MenuItem key={value || 'all'} value={value}>{value || t('diagnostics.live.filters.allSessions')}</MenuItem>
                   ))}
                 </Select>
               </FormControl>
@@ -219,8 +228,8 @@ export default function DiagnosticsPage() {
 
       {!hasSample ? (
         <EmptyState
-          title="No live trades matched these filters"
-          description="Live diagnostics turns on after you log closed trades with session and strategy context."
+          title={t('diagnostics.live.empty.title')}
+          description={t('diagnostics.live.empty.body')}
           icon={<InsightsRoundedIcon fontSize="inherit" />}
         />
       ) : (
@@ -235,18 +244,18 @@ export default function DiagnosticsPage() {
             <Card sx={panelSx}>
               <CardContent>
                 <Stack spacing={1.5}>
-                  <Typography variant="h6" fontWeight={800}>Live session performance</Typography>
+                  <Typography variant="h6" fontWeight={700}>{t('diagnostics.live.sessionPerformance.title')}</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    Session breakdown highlights where expectancy is concentrated in actual live trading.
+                    {t('diagnostics.live.sessionPerformance.body')}
                   </Typography>
                   <Box sx={{ width: '100%', height: 280 }}>
                     <ResponsiveContainer width="100%" height="100%">
                       <BarChart data={summary.breakdownBySession}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="key" />
-                        <YAxis />
+                        <CartesianGrid stroke={chartPalette.grid} strokeDasharray="3 3" />
+                        <XAxis dataKey="key" stroke={chartPalette.axis} />
+                        <YAxis stroke={chartPalette.axis} />
                         <ChartTooltip formatter={(value: number) => formatSignedR(value)} />
-                        <Bar dataKey="expectancyR" fill="#0f766e" radius={[8, 8, 0, 0]} />
+                        <Bar dataKey="expectancyR" fill={chartPalette.positive} radius={[8, 8, 0, 0]} />
                       </BarChart>
                     </ResponsiveContainer>
                   </Box>
@@ -257,22 +266,22 @@ export default function DiagnosticsPage() {
             <Card sx={panelSx}>
               <CardContent>
                 <Stack spacing={1.5}>
-                  <Typography variant="h6" fontWeight={800}>Failure modes</Typography>
+                  <Typography variant="h6" fontWeight={700}>{t('diagnostics.live.failureModes.title')}</Typography>
                   <Typography variant="body2" color="text.secondary">
-                    The biggest live leaks stay visible so you can correct them during the next session, not after a review cycle.
+                    {t('diagnostics.live.failureModes.body')}
                   </Typography>
                   {summary.failureModes.length === 0 ? (
-                    <Alert severity="success">No dominant live failure mode is standing out yet.</Alert>
+                    <Alert severity="success">{t('diagnostics.live.failureModes.none')}</Alert>
                   ) : (
                     <Stack spacing={1}>
                       {summary.failureModes.map((item) => (
                         <Box key={item.label} sx={{ p: 1.25, borderRadius: 3, backgroundColor: 'action.hover' }}>
                           <Stack direction="row" justifyContent="space-between" spacing={1}>
                             <Typography variant="body2" fontWeight={700}>{item.label}</Typography>
-                            <Chip size="small" label={`${item.count} trades`} />
+                            <Chip size="small" label={t('diagnostics.live.failureModes.tradeCount', { count: item.count })} />
                           </Stack>
                           <Typography variant="caption" color="text.secondary">
-                            Average impact {formatSignedR(item.avgR)}
+                            {t('diagnostics.live.failureModes.impact', { value: formatSignedR(item.avgR) })}
                           </Typography>
                         </Box>
                       ))}
@@ -293,15 +302,15 @@ export default function DiagnosticsPage() {
             <Card sx={panelSx}>
               <CardContent>
                 <Stack spacing={1.25}>
-                  <Typography variant="h6" fontWeight={800}>Strategy performance</Typography>
+                  <Typography variant="h6" fontWeight={700}>{t('diagnostics.live.strategyPerformance')}</Typography>
                   <TableContainer>
                     <Table size="small">
                       <TableHead>
                         <TableRow>
-                          <TableCell>Strategy</TableCell>
-                          <TableCell align="right">Trades</TableCell>
-                          <TableCell align="right">Win rate</TableCell>
-                          <TableCell align="right">Expectancy</TableCell>
+                          <TableCell>{t('diagnostics.live.table.strategy')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.trades')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.winRate')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.expectancy')}</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -323,15 +332,15 @@ export default function DiagnosticsPage() {
             <Card sx={panelSx}>
               <CardContent>
                 <Stack spacing={1.25}>
-                  <Typography variant="h6" fontWeight={800}>Symbol breakdown</Typography>
+                  <Typography variant="h6" fontWeight={700}>{t('diagnostics.live.symbolBreakdown')}</Typography>
                   <TableContainer>
                     <Table size="small">
                       <TableHead>
                         <TableRow>
-                          <TableCell>Symbol</TableCell>
-                          <TableCell align="right">Trades</TableCell>
-                          <TableCell align="right">Win rate</TableCell>
-                          <TableCell align="right">Expectancy</TableCell>
+                          <TableCell>{t('diagnostics.live.table.symbol')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.trades')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.winRate')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.expectancy')}</TableCell>
                         </TableRow>
                       </TableHead>
                       <TableBody>
@@ -353,9 +362,9 @@ export default function DiagnosticsPage() {
             <Card sx={panelSx}>
               <CardContent>
                 <Stack spacing={1.25}>
-                  <Typography variant="h6" fontWeight={800}>What to change</Typography>
+                  <Typography variant="h6" fontWeight={700}>{t('diagnostics.live.suggestions.title')}</Typography>
                   {summary.suggestions.length === 0 ? (
-                    <Alert severity="info">Keep logging live context. More sample will sharpen the recommendations.</Alert>
+                    <Alert severity="info">{t('diagnostics.live.suggestions.moreData')}</Alert>
                   ) : (
                     <Stack spacing={1}>
                       {summary.suggestions.map((item) => (
@@ -376,15 +385,15 @@ export default function DiagnosticsPage() {
               <Stack spacing={1.75}>
                 <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
                   <Stack spacing={0.35}>
-                    <Typography variant="h6" fontWeight={800}>Signal intelligence</Typography>
+                    <Typography variant="h6" fontWeight={700}>{t('diagnostics.live.signals.title')}</Typography>
                     <Typography variant="body2" color="text.secondary">
-                      Structured TradingView signals, their recent quality trend, and the strongest profile recommendations are shown separately from manual trade journaling.
+                      {t('diagnostics.live.signals.body')}
                     </Typography>
                   </Stack>
                   <Chip
                     size="small"
                     color={signalSummary?.topRecommendation ? 'success' : 'default'}
-                    label={signalSummary?.topRecommendation ? 'Recommendation ready' : 'Learning'}
+                    label={signalSummary?.topRecommendation ? t('diagnostics.live.signals.ready') : t('diagnostics.live.signals.learning')}
                   />
                 </Stack>
 
@@ -392,12 +401,12 @@ export default function DiagnosticsPage() {
                   <LoadingState rows={4} height={20} />
                 ) : signalSummaryQuery.isError || signalSetupQuery.isError || signalRegimeQuery.isError || signalRecommendationsQuery.isError ? (
                   <Alert severity="warning">
-                    Signal intelligence is available after TradingView webhooks are connected and signals start landing in TradeJAudit.
+                    {t('diagnostics.live.signals.unavailable')}
                   </Alert>
                 ) : !signalSummary || signalSummary.overview.totalSignals === 0 ? (
                   <EmptyState
-                    title="No signal events yet"
-                    description="Generate a TradingView webhook secret in Settings, paste the alert JSON into Pine, and the signal engine will start populating this panel."
+                    title={t('diagnostics.live.signals.emptyTitle')}
+                    description={t('diagnostics.live.signals.emptyBody')}
                     icon={<InsightsRoundedIcon fontSize="inherit" />}
                   />
                 ) : (
@@ -410,11 +419,11 @@ export default function DiagnosticsPage() {
                       }}
                     >
                       {[
-                        { label: 'Signals', value: signalSummary.overview.totalSignals },
-                        { label: 'Closed', value: signalSummary.overview.closedSignals },
-                        { label: 'Win rate', value: formatPercent(signalSummary.overview.winRate) },
-                        { label: 'Expectancy', value: formatSignedR(signalSummary.overview.expectancyR) },
-                        { label: 'Avg confidence', value: `${formatNumber(signalSummary.overview.avgConfidenceScore, 1)}/100` }
+                        { label: t('diagnostics.live.kpis.signals'), value: signalSummary.overview.totalSignals },
+                        { label: t('diagnostics.live.kpis.closed'), value: signalSummary.overview.closedSignals },
+                        { label: t('diagnostics.live.kpis.winRate'), value: formatPercent(signalSummary.overview.winRate) },
+                        { label: t('diagnostics.live.kpis.expectancy'), value: formatSignedR(signalSummary.overview.expectancyR) },
+                        { label: t('diagnostics.live.kpis.avgConfidence'), value: `${formatNumber(signalSummary.overview.avgConfidenceScore, 1)}/100` }
                       ].map((item) => (
                         <Box key={item.label} sx={{ p: 1.25, borderRadius: 3, backgroundColor: 'action.hover' }}>
                           <Typography variant="caption" color="text.secondary">{item.label}</Typography>
@@ -431,42 +440,42 @@ export default function DiagnosticsPage() {
                       }}
                     >
                       <Box>
-                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Recent signal quality trend</Typography>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>{t('diagnostics.live.signals.trend')}</Typography>
                         <Box sx={{ width: '100%', height: 260 }}>
                           <ResponsiveContainer width="100%" height="100%">
                             <LineChart data={signalSummary.confidenceTrend}>
-                              <CartesianGrid strokeDasharray="3 3" />
-                              <XAxis dataKey="label" />
-                              <YAxis yAxisId="confidence" />
-                              <YAxis yAxisId="expectancy" orientation="right" />
+                              <CartesianGrid stroke={chartPalette.grid} strokeDasharray="3 3" />
+                              <XAxis dataKey="label" stroke={chartPalette.axis} />
+                              <YAxis yAxisId="confidence" stroke={chartPalette.axis} />
+                              <YAxis yAxisId="expectancy" orientation="right" stroke={chartPalette.axis} />
                               <ChartTooltip formatter={(value: number, name: string) => (
                                 name === 'avgConfidenceScore'
                                   ? `${formatNumber(value, 1)}/100`
                                   : formatSignedR(value)
                               )} />
-                              <Line yAxisId="confidence" type="monotone" dataKey="avgConfidenceScore" stroke="#0f766e" strokeWidth={2} dot={false} />
-                              <Line yAxisId="expectancy" type="monotone" dataKey="expectancyR" stroke="#f59e0b" strokeWidth={2} dot={false} />
+                              <Line yAxisId="confidence" type="monotone" dataKey="avgConfidenceScore" stroke={theme.palette.info.main} strokeWidth={2} dot={false} />
+                              <Line yAxisId="expectancy" type="monotone" dataKey="expectancyR" stroke={theme.palette.warning.main} strokeWidth={2} dot={false} />
                             </LineChart>
                           </ResponsiveContainer>
                         </Box>
                       </Box>
 
                       <Box>
-                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Recommended profile</Typography>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>{t('diagnostics.live.signals.recommended')}</Typography>
                         {signalRecommendations.length === 0 ? (
-                          <Alert severity="info">TradeJAudit needs more closed signal outcomes before it will recommend a profile pack.</Alert>
+                          <Alert severity="info">{t('diagnostics.live.signals.needsData')}</Alert>
                         ) : (
                           <Stack spacing={1.1}>
                             <Box sx={{ p: 1.25, borderRadius: 3, backgroundColor: 'rgba(15, 118, 110, 0.08)' }}>
                               <Stack direction="row" justifyContent="space-between" spacing={1}>
                                 <Typography variant="body2" fontWeight={800}>{signalRecommendations[0].profileId}</Typography>
-                                <Chip size="small" color="success" label={`${formatNumber(signalRecommendations[0].recommendationScore, 1)} score`} />
+                                <Chip size="small" color="success" label={t('diagnostics.live.signals.score', { value: formatNumber(signalRecommendations[0].recommendationScore, 1) })} />
                               </Stack>
                               <Typography variant="caption" color="text.secondary">
                                 {signalRecommendations[0].symbolScope} · {signalRecommendations[0].timeframe} · {signalRecommendations[0].regimeScope}
                               </Typography>
                               <Typography variant="body2" sx={{ mt: 1 }}>
-                                {formatSignedR(signalRecommendations[0].expectancyR)} expectancy from {signalRecommendations[0].sampleSize} closed signals.
+                                {t('diagnostics.live.signals.expectancySample', { expectancy: formatSignedR(signalRecommendations[0].expectancyR), count: signalRecommendations[0].sampleSize })}
                               </Typography>
                             </Box>
                             {signalRecommendations[0].reasons.map((reason) => (
@@ -489,14 +498,14 @@ export default function DiagnosticsPage() {
                       }}
                     >
                       <Box>
-                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>By setup type</Typography>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>{t('diagnostics.live.signals.bySetup')}</Typography>
                         <TableContainer>
                           <Table size="small">
                             <TableHead>
                               <TableRow>
-                                <TableCell>Setup</TableCell>
-                                <TableCell align="right">Trades</TableCell>
-                                <TableCell align="right">Expectancy</TableCell>
+                                <TableCell>{t('diagnostics.live.table.setup')}</TableCell>
+                                <TableCell align="right">{t('diagnostics.live.table.trades')}</TableCell>
+                                <TableCell align="right">{t('diagnostics.live.table.expectancy')}</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -513,14 +522,14 @@ export default function DiagnosticsPage() {
                       </Box>
 
                       <Box>
-                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>By regime</Typography>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>{t('diagnostics.live.signals.byRegime')}</Typography>
                         <TableContainer>
                           <Table size="small">
                             <TableHead>
                               <TableRow>
-                                <TableCell>Regime</TableCell>
-                                <TableCell align="right">Trades</TableCell>
-                                <TableCell align="right">Win rate</TableCell>
+                                <TableCell>{t('diagnostics.live.table.regime')}</TableCell>
+                                <TableCell align="right">{t('diagnostics.live.table.trades')}</TableCell>
+                                <TableCell align="right">{t('diagnostics.live.table.winRate')}</TableCell>
                               </TableRow>
                             </TableHead>
                             <TableBody>
@@ -537,9 +546,9 @@ export default function DiagnosticsPage() {
                       </Box>
 
                       <Box>
-                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>Weak conditions</Typography>
+                        <Typography variant="subtitle1" fontWeight={700} sx={{ mb: 1 }}>{t('diagnostics.live.signals.weak')}</Typography>
                         {signalSummary.weakConditions.length === 0 ? (
-                          <Alert severity="success">No persistent weak signal bucket is standing out.</Alert>
+                          <Alert severity="success">{t('diagnostics.live.signals.noWeak')}</Alert>
                         ) : (
                           <Stack spacing={1}>
                             {signalSummary.weakConditions.map((condition) => (
@@ -551,7 +560,7 @@ export default function DiagnosticsPage() {
                                   {condition.timeframe} · {condition.regime} · {condition.direction}
                                 </Typography>
                                 <Typography variant="body2" sx={{ mt: 0.5 }}>
-                                  {condition.action} at {formatSignedR(condition.expectancyR)} across {condition.sampleSize} signals.
+                                  {t('diagnostics.live.signals.weakLine', { action: condition.action, expectancy: formatSignedR(condition.expectancyR), count: condition.sampleSize })}
                                 </Typography>
                               </Box>
                             ))}

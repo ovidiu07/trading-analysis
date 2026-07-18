@@ -23,6 +23,7 @@ import AssetUploadDropzone from '../assets/AssetUploadDropzone'
 import SecureAssetImage from '../assets/SecureAssetImage'
 import type { UploadQueueItem } from '../assets/AssetListRenderer'
 import { formatFileSize } from '../../utils/format'
+import { useI18n } from '../../i18n'
 
 type PlanImagesSectionProps = {
   compact?: boolean
@@ -53,6 +54,7 @@ export default function PlanImagesSection({
   onRetry,
   onOpenCalendar
 }: PlanImagesSectionProps) {
+  const { t } = useI18n()
   const [activeIndex, setActiveIndex] = useState(0)
   const touchStartX = useRef<number | null>(null)
   const hasMultiple = images.length > 1
@@ -97,7 +99,7 @@ export default function PlanImagesSection({
             {images.length > 0 ? <Chip size="small" label={images.length} /> : null}
           </Stack>
           <Button component="label" variant="outlined" size="small" disabled={disabled}>
-            Add screenshots
+            {t('today.session.simple.plans.images.addScreenshots')}
             <input
               hidden
               type="file"
@@ -128,12 +130,12 @@ export default function PlanImagesSection({
           <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', maxWidth: '100%', pb: 0.5 }}>
             {images.map((image, index) => (
               <Box key={image.id} sx={{ position: 'relative', flex: '0 0 auto' }}>
-                <ButtonBase onClick={() => setActiveIndex(index)} aria-label={`Open plan image ${index + 1}`} sx={{ borderRadius: 1, border: '1px solid', borderColor: index === activeIndex ? 'primary.main' : 'divider', p: 0.35 }}>
-                  <AssetThumbnail url={image.thumbnailUrl || image.viewUrl || image.url || image.downloadUrl} alt={image.originalFileName || `Plan image ${index + 1}`} />
+                <ButtonBase onClick={() => setActiveIndex(index)} aria-label={t('today.session.simple.plans.images.open', { index: index + 1 })} sx={{ borderRadius: 1, border: '1px solid', borderColor: index === activeIndex ? 'primary.main' : 'divider', p: 0.35 }}>
+                  <AssetThumbnail url={image.thumbnailUrl || image.viewUrl || image.url || image.downloadUrl} alt={image.originalFileName || t('today.session.simple.plans.images.open', { index: index + 1 })} />
                 </ButtonBase>
                 <IconButton
                   size="small"
-                  aria-label={`Remove plan image ${index + 1}`}
+                  aria-label={t('today.session.simple.plans.images.remove', { index: index + 1 })}
                   disabled={deletingIds.has(image.id)}
                   onClick={() => onDelete(image)}
                   sx={{ position: 'absolute', top: -8, right: -8, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}
@@ -156,7 +158,7 @@ export default function PlanImagesSection({
             <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
               <ImageOutlinedIcon color="primary" fontSize="small" />
               <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>{title}</Typography>
-              <Chip size="small" label={`${images.length} image${images.length === 1 ? '' : 's'}`} />
+              <Chip size="small" label={t('today.session.simple.plans.images.count', { count: images.length })} />
             </Stack>
             <Typography variant="body2" color="text.secondary">{storageLabel}</Typography>
           </Stack>
@@ -167,7 +169,7 @@ export default function PlanImagesSection({
             onClick={onOpenCalendar}
             sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' } }}
           >
-            Open in Calendar
+            {t('today.session.simple.plans.images.openCalendar')}
           </Button>
         </Stack>
 
@@ -175,9 +177,9 @@ export default function PlanImagesSection({
           <Alert severity="info">{disabledReason}</Alert>
         ) : (
           <AssetUploadDropzone
-            title="Add images to this plan"
-            hint="PNG, JPG, WEBP, or GIF. Images stay attached to this saved plan."
-            buttonLabel="Upload images"
+            title={t('today.session.simple.plans.images.dropTitle')}
+            hint={t('today.session.simple.plans.images.dropHint')}
+            buttonLabel={t('today.session.simple.plans.images.upload')}
             accept="image/png,image/jpeg,image/webp,image/gif"
             multiple
             disabled={disabled}
@@ -204,7 +206,7 @@ export default function PlanImagesSection({
 
         {images.length === 0 ? (
           <Box sx={{ border: '1px dashed', borderColor: 'divider', borderRadius: 1, p: 2, textAlign: 'center' }}>
-            <Typography variant="body2" color="text.secondary">No images added to this plan yet</Typography>
+            <Typography variant="body2" color="text.secondary">{t('today.session.simple.plans.images.empty')}</Typography>
           </Box>
         ) : (
           <Stack spacing={1}>
@@ -238,13 +240,13 @@ export default function PlanImagesSection({
                 {activeImage ? (
                   <SecureAssetImage
                     url={activeImage.viewUrl || activeImage.url || activeImage.downloadUrl}
-                    alt={activeImage.originalFileName || 'Plan image'}
+                    alt={activeImage.originalFileName || t('today.session.simple.plans.images.alt')}
                     fallback={(
                       <Stack alignItems="center" spacing={1} sx={{ p: 2 }}>
                         <BrokenImageOutlinedIcon />
-                        <Typography variant="body2" color="text.secondary" textAlign="center">Image could not be loaded.</Typography>
+                        <Typography variant="body2" color="text.secondary" textAlign="center">{t('today.session.simple.plans.images.loadFailed')}</Typography>
                         {onRetry ? (
-                          <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={onRetry}>Retry</Button>
+                          <Button size="small" startIcon={<RefreshRoundedIcon />} onClick={onRetry}>{t('common.retry')}</Button>
                         ) : null}
                       </Stack>
                     )}
@@ -261,14 +263,14 @@ export default function PlanImagesSection({
               {hasMultiple ? (
                 <>
                   <IconButton
-                    aria-label="Previous plan image"
+                    aria-label={t('today.session.simple.plans.images.previous')}
                     onClick={goPrevious}
                     sx={{ position: 'absolute', left: 8, top: '50%', transform: 'translateY(-50%)', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}
                   >
                     <NavigateBeforeRoundedIcon />
                   </IconButton>
                   <IconButton
-                    aria-label="Next plan image"
+                    aria-label={t('today.session.simple.plans.images.next')}
                     onClick={goNext}
                     sx={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}
                   >
@@ -293,7 +295,7 @@ export default function PlanImagesSection({
                     disabled={deletingIds.has(activeImage.id)}
                     onClick={() => onDelete(activeImage)}
                   >
-                    Delete
+                    {t('today.session.simple.plans.images.delete')}
                   </Button>
                 ) : null}
               </Stack>
@@ -305,7 +307,7 @@ export default function PlanImagesSection({
                   <ButtonBase
                     key={image.id}
                     onClick={() => setActiveIndex(index)}
-                    aria-label={`Open plan image ${index + 1}`}
+                    aria-label={t('today.session.simple.plans.images.open', { index: index + 1 })}
                     sx={{
                       flex: '0 0 auto',
                       borderRadius: 1,
@@ -317,7 +319,7 @@ export default function PlanImagesSection({
                   >
                     <AssetThumbnail
                       url={image.thumbnailUrl || image.viewUrl || image.url || image.downloadUrl}
-                      alt={image.originalFileName || `Plan image ${index + 1}`}
+                      alt={image.originalFileName || t('today.session.simple.plans.images.open', { index: index + 1 })}
                     />
                   </ButtonBase>
                 ))}

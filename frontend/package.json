@@ -6,6 +6,8 @@
     "seo:generate": "node scripts/generate-seo-pages.mjs",
     "dev": "npm run seo:generate && vite",
     "lint": "eslint \"src/**/*.{ts,tsx}\"",
+    "i18n:audit": "node scripts/audit-i18n.mjs",
+    "i18n:audit:strict": "node scripts/audit-i18n.mjs --strict",
     "build": "npm run seo:generate && tsc && vite build",
     "preview": "vite preview",
     "test": "vitest"

@@ -18,6 +18,8 @@ type SurfaceTokens = {
   app: string
   background: string
   panel: string
+  elevated: string
+  muted: string
   panelMuted: string
   sidebar: string
   header: string
@@ -49,9 +51,28 @@ type BrandTokens = {
 
 type FeedbackTokens = {
   success: string
+  successMuted: string
   warning: string
+  warningMuted: string
   error: string
+  errorMuted: string
   info: string
+  infoMuted: string
+}
+
+type TradingTokens = {
+  profit: string
+  loss: string
+  flat: string
+  long: string
+  short: string
+  bullish: string
+  bearish: string
+  neutral: string
+  open: string
+  closed: string
+  pending: string
+  archived: string
 }
 
 type ChartTokens = {
@@ -75,6 +96,7 @@ export type DesignTokens = {
   border: BorderTokens
   brand: BrandTokens
   feedback: FeedbackTokens
+  trading: TradingTokens
   chart: ChartTokens
   interaction: InteractionTokens
 }
@@ -97,6 +119,8 @@ const lightTokens: DesignTokens = {
     app: '#eef3fb',
     background: '#f6f9ff',
     panel: 'rgba(255, 255, 255, 0.92)',
+    elevated: '#ffffff',
+    muted: '#f1f5fb',
     panelMuted: '#e9f0fb',
     sidebar: 'rgba(252, 254, 255, 0.9)',
     header: 'rgba(246, 250, 255, 0.82)'
@@ -124,9 +148,27 @@ const lightTokens: DesignTokens = {
   },
   feedback: {
     success: '#0f9050',
+    successMuted: '#d9f4e5',
     warning: '#b67610',
+    warningMuted: '#fff0cb',
     error: '#c63a4d',
-    info: '#2f6fe9'
+    errorMuted: '#fde1e5',
+    info: '#2f6fe9',
+    infoMuted: '#dce9ff'
+  },
+  trading: {
+    profit: '#0f9050',
+    loss: '#c63a4d',
+    flat: '#5f7190',
+    long: '#1f63dd',
+    short: '#7654c6',
+    bullish: '#0d9384',
+    bearish: '#b74a6a',
+    neutral: '#5f7190',
+    open: '#2f6fe9',
+    closed: '#0f9050',
+    pending: '#b67610',
+    archived: '#71819a'
   },
   chart: {
     grid: 'rgba(41, 66, 105, 0.2)',
@@ -151,6 +193,8 @@ const darkTokens: DesignTokens = {
     app: '#050c18',
     background: '#091222',
     panel: 'rgba(16, 29, 48, 0.9)',
+    elevated: '#152943',
+    muted: '#101f34',
     panelMuted: '#162842',
     sidebar: 'rgba(9, 21, 35, 0.9)',
     header: 'rgba(7, 17, 31, 0.8)'
@@ -178,9 +222,27 @@ const darkTokens: DesignTokens = {
   },
   feedback: {
     success: '#3dca8e',
+    successMuted: 'rgba(61, 202, 142, 0.18)',
     warning: '#efbb5e',
+    warningMuted: 'rgba(239, 187, 94, 0.18)',
     error: '#ef7a86',
-    info: '#93c9ff'
+    errorMuted: 'rgba(239, 122, 134, 0.18)',
+    info: '#93c9ff',
+    infoMuted: 'rgba(147, 201, 255, 0.18)'
+  },
+  trading: {
+    profit: '#3dca8e',
+    loss: '#ef7a86',
+    flat: '#9aafcb',
+    long: '#74b1ff',
+    short: '#b69cff',
+    bullish: '#54d8c2',
+    bearish: '#f090ad',
+    neutral: '#9aafcb',
+    open: '#93c9ff',
+    closed: '#3dca8e',
+    pending: '#efbb5e',
+    archived: '#8798b2'
   },
   chart: {
     grid: 'rgba(148, 173, 213, 0.26)',
@@ -205,6 +267,8 @@ const blackShinyTokens: DesignTokens = {
     app: '#020202',
     background: '#060606',
     panel: 'rgba(15, 15, 15, 0.86)',
+    elevated: '#181818',
+    muted: '#101010',
     panelMuted: 'rgba(20, 20, 20, 0.92)',
     sidebar: 'rgba(7, 7, 7, 0.88)',
     header: 'rgba(6, 6, 6, 0.82)'
@@ -232,9 +296,27 @@ const blackShinyTokens: DesignTokens = {
   },
   feedback: {
     success: '#3fd89e',
+    successMuted: 'rgba(63, 216, 158, 0.18)',
     warning: '#f6bf63',
+    warningMuted: 'rgba(246, 191, 99, 0.18)',
     error: '#ff8b94',
-    info: '#7dd3ff'
+    errorMuted: 'rgba(255, 139, 148, 0.18)',
+    info: '#7dd3ff',
+    infoMuted: 'rgba(125, 211, 255, 0.18)'
+  },
+  trading: {
+    profit: '#3fd89e',
+    loss: '#ff8b94',
+    flat: '#a8b2c8',
+    long: '#2ed2ff',
+    short: '#aa9cff',
+    bullish: '#48dbc1',
+    bearish: '#ff94b2',
+    neutral: '#a8b2c8',
+    open: '#7dd3ff',
+    closed: '#3fd89e',
+    pending: '#f6bf63',
+    archived: '#8b93a6'
   },
   chart: {
     grid: 'rgba(166, 181, 210, 0.28)',
@@ -258,3 +340,22 @@ export const getDesignTokens = (mode: AppThemeMode): DesignTokens =>
 
 export const toMuiPaletteMode = (mode: AppThemeMode): MuiPaletteMode =>
   mode === 'light' ? 'light' : 'dark'
+
+export const layoutTokens = {
+  content: {
+    reading: 960,
+    standard: 1360,
+    wide: 1600
+  },
+  sidebar: {
+    expanded: 286,
+    collapsed: 96
+  },
+  touchTarget: 44
+} as const
+
+export const motionTokens = {
+  fast: 150,
+  standard: 200,
+  slow: 250
+} as const

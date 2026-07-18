@@ -529,7 +529,7 @@ export default function CalendarPage() {
             </Typography>
             <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
               <Chip size="small" label={planRangeLabel(plan)} />
-              <Chip size="small" icon={<ImageOutlinedIcon />} label={`${plan.imageCount || 0} images`} />
+              <Chip size="small" icon={<ImageOutlinedIcon />} label={t('calendar.plans.images', { count: plan.imageCount || 0 })} />
             </Stack>
           </Stack>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}>
@@ -541,7 +541,7 @@ export default function CalendarPage() {
               onClick={() => setPlanPendingRemoval(plan)}
               sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
             >
-              Remove plan
+              {t('calendar.plans.remove')}
             </Button>
             <Button
               variant="outlined"
@@ -550,14 +550,14 @@ export default function CalendarPage() {
               onClick={() => openSessionPlan(plan)}
               sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
             >
-              Open plan
+              {t('calendar.plans.open')}
             </Button>
           </Stack>
         </Stack>
       ) : (
         <Stack spacing={0.5}>
           <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{label}</Typography>
-          <Typography variant="body2" color="text.secondary">No active plan saved for this period.</Typography>
+          <Typography variant="body2" color="text.secondary">{t('calendar.plans.empty')}</Typography>
         </Stack>
       )}
     </Box>
@@ -582,7 +582,7 @@ export default function CalendarPage() {
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
     ariaLabelParts.push(t('calendar.aria.accountContext', { account: selectedAccountLabel }))
     if (plan) {
-      ariaLabelParts.push('Today Plan saved in Calendar')
+      ariaLabelParts.push(t('calendar.plans.savedAria'))
     }
 
     return (
@@ -653,7 +653,7 @@ export default function CalendarPage() {
                 borderColor: alpha(theme.palette.primary.main, 0.35)
               }}
             >
-              <Typography variant="caption" noWrap sx={{ fontWeight: 700, minWidth: 0 }}>Today Plan</Typography>
+              <Typography variant="caption" noWrap sx={{ fontWeight: 700, minWidth: 0 }}>{t('calendar.plans.today')}</Typography>
               {(plan.imageCount || 0) > 0 ? <ImageOutlinedIcon sx={{ fontSize: 14 }} /> : null}
             </Box>
           ) : null}
@@ -679,7 +679,7 @@ export default function CalendarPage() {
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
     ariaLabelParts.push(t('calendar.aria.accountContext', { account: selectedAccountLabel }))
     if (plan) {
-      ariaLabelParts.push('Today Plan saved in Calendar')
+      ariaLabelParts.push(t('calendar.plans.savedAria'))
     }
 
     return (
@@ -710,7 +710,7 @@ export default function CalendarPage() {
             </Typography>
             {plan ? (
               <Stack direction="row" spacing={0.5} alignItems="center">
-                <Chip size="small" label="Today Plan" />
+                <Chip size="small" label={t('calendar.plans.today')} />
                 {(plan.imageCount || 0) > 0 ? <Chip size="small" icon={<ImageOutlinedIcon />} label={plan.imageCount} /> : null}
               </Stack>
             ) : null}
@@ -810,17 +810,17 @@ export default function CalendarPage() {
           <Stack spacing={1.25}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }}>
               <Stack spacing={0.25}>
-                <Typography variant="h6" sx={{ fontWeight: 800 }}>Plans saved to Calendar</Typography>
+                <Typography variant="h6" sx={{ fontWeight: 700 }}>{t('calendar.plans.title')}</Typography>
                 <Typography variant="body2" color="text.secondary">
-                  Today plans stay on their day. Weekly and monthly plans stay pinned while their period is active.
+                  {t('calendar.plans.subtitle')}
                 </Typography>
               </Stack>
               {calendarPlansLoading ? <CircularProgress size={22} /> : null}
             </Stack>
             {calendarPlansError ? <Alert severity="warning">{calendarPlansError}</Alert> : null}
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' }, gap: 1.25, minWidth: 0 }}>
-              {renderPinnedPlanCard(calendarPlans.activeMonthlyPlan, 'Active Monthly Plan')}
-              {renderPinnedPlanCard(calendarPlans.activeWeeklyPlan, 'Active Weekly Plan')}
+              {renderPinnedPlanCard(calendarPlans.activeMonthlyPlan, t('calendar.plans.activeMonthly'))}
+              {renderPinnedPlanCard(calendarPlans.activeWeeklyPlan, t('calendar.plans.activeWeekly'))}
             </Box>
           </Stack>
         </CardContent>
@@ -1044,21 +1044,21 @@ export default function CalendarPage() {
         fullScreen={isMobile}
         maxWidth="xs"
       >
-        <DialogTitle>Remove plan</DialogTitle>
+        <DialogTitle>{t('calendar.plans.remove')}</DialogTitle>
         <DialogContent dividers sx={{ px: { xs: 2, sm: 3 }, py: { xs: 2, sm: 2.5 } }}>
           <Stack spacing={1.25}>
             <Typography variant="body1" sx={{ fontWeight: 700 }}>
               {planPendingRemoval ? planRemovalLead(planPendingRemoval) : ''}
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Uploaded images will no longer be shown with the removed plan. Setups linked only to this plan will no longer appear in active planning. This does not delete trades or executions already recorded.
+              {t('calendar.plans.removeBody')}
             </Typography>
           </Stack>
         </DialogContent>
         <DialogActions sx={{ flexDirection: { xs: 'column-reverse', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1, px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 2 } }}>
-          <Button onClick={() => setPlanPendingRemoval(null)} disabled={removingPlan} fullWidth={isMobile}>Cancel</Button>
+          <Button onClick={() => setPlanPendingRemoval(null)} disabled={removingPlan} fullWidth={isMobile}>{t('common.cancel')}</Button>
           <Button color="error" variant="contained" onClick={() => void confirmRemovePlan()} disabled={removingPlan} fullWidth={isMobile}>
-            Remove plan
+            {t('calendar.plans.remove')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -1083,7 +1083,7 @@ export default function CalendarPage() {
                   </Box>
                 ) : null}
                 <Stack spacing={0.5} sx={{ minWidth: 0, flex: 1 }}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>Today Plan</Typography>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 700 }}>{t('calendar.plans.today')}</Typography>
                   <Typography variant="body2" color="text.secondary">
                     {selectedPlan.bias || selectedPlan.objectives || `${selectedPlan.setupCount || 0} setup${selectedPlan.setupCount === 1 ? '' : 's'} saved`}
                   </Typography>

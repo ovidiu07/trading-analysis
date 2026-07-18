@@ -41,6 +41,7 @@ type SideNavProps = {
   onNavigate: () => void
   collapseLabel: string
   expandLabel: string
+  homeLabel: string
 }
 
 const logoFilterByMode = (mode: 'light' | 'dark') =>
@@ -59,7 +60,8 @@ export default function SideNav({
   onToggleCollapse,
   onNavigate,
   collapseLabel,
-  expandLabel
+  expandLabel,
+  homeLabel
 }: SideNavProps) {
   const theme = useTheme()
 
@@ -82,7 +84,7 @@ export default function SideNav({
           component={Link}
           to="/today"
           onClick={onNavigate}
-          aria-label="TradeJAudit home"
+          aria-label={homeLabel}
           sx={{
             display: 'inline-flex',
             alignItems: 'center',

@@ -2,6 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { act, render, screen, waitFor } from '@testing-library/react'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import ReplayCandlestickChart from './ReplayCandlestickChart'
+import { I18nProvider } from '../../i18n'
 
 let measuredWidth = 680
 let measuredHeight = 420
@@ -75,7 +76,8 @@ describe('ReplayCandlestickChart', () => {
 
   it('renders candles after transitioning from empty to loaded data', async () => {
     const { rerender } = render(
-      <ReplayCandlestickChart candles={[]} cursorIndex={0} minHeight={300} loading={false} />
+      <ReplayCandlestickChart candles={[]} cursorIndex={0} minHeight={300} loading={false} />,
+      { wrapper: I18nProvider }
     )
 
     expect(screen.getByText('No replay data')).toBeInTheDocument()
@@ -92,7 +94,8 @@ describe('ReplayCandlestickChart', () => {
 
   it('resizes the chart when container dimensions change', async () => {
     render(
-      <ReplayCandlestickChart candles={candles} cursorIndex={3} minHeight={300} loading={false} />
+      <ReplayCandlestickChart candles={candles} cursorIndex={3} minHeight={300} loading={false} />,
+      { wrapper: I18nProvider }
     )
 
     const svg = await screen.findByTestId('backtest-replay-chart-svg')
@@ -115,7 +118,8 @@ describe('ReplayCandlestickChart', () => {
     measuredHeight = 180
 
     render(
-      <ReplayCandlestickChart candles={candles} cursorIndex={1} minHeight={220} loading={false} />
+      <ReplayCandlestickChart candles={candles} cursorIndex={1} minHeight={220} loading={false} />,
+      { wrapper: I18nProvider }
     )
 
     const container = screen.getByTestId('backtest-replay-chart-container')

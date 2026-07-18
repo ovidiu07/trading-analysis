@@ -203,23 +203,23 @@ export default function TodayPage() {
             <Stack spacing={1.5}>
               <Stack direction="row" alignItems="center" spacing={1}>
                 <InsightsRoundedIcon color="primary" fontSize="small" />
-                <Typography variant="subtitle1">Signal intelligence</Typography>
+                <Typography variant="subtitle1">{t('today.signals.title')}</Typography>
               </Stack>
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                 <TextField
-                  label="Symbol"
+                  label={t('today.signals.symbol')}
                   size="small"
                   value={signalSymbol}
                   onChange={(event) => setSignalSymbol(event.target.value.toUpperCase())}
-                  placeholder="BINANCE:BTCUSDT"
+                  placeholder={t('today.signals.symbolPlaceholder')}
                   fullWidth
                 />
                 <TextField
-                  label="Timeframe"
+                  label={t('today.signals.timeframe')}
                   size="small"
                   value={signalTimeframe}
                   onChange={(event) => setSignalTimeframe(event.target.value.toUpperCase())}
-                  placeholder="15"
+                  placeholder={t('today.signals.timeframePlaceholder')}
                   sx={{ minWidth: { sm: 120 } }}
                 />
               </Stack>
@@ -227,11 +227,11 @@ export default function TodayPage() {
               {signalRecommendationQuery.isLoading || signalSummaryQuery.isLoading ? (
                 <LoadingState rows={4} height={20} />
               ) : signalRecommendationQuery.isError || signalSummaryQuery.isError ? (
-                <Alert severity="warning">Signal recommendations will appear here after the webhook is connected in Settings.</Alert>
+                <Alert severity="warning">{t('today.signals.unavailable')}</Alert>
               ) : (signalRecommendationQuery.data?.recommendations || []).length === 0 || !signalSummaryQuery.data ? (
                 <EmptyState
-                  title="No recommendation yet"
-                  description="Once enough closed signal outcomes exist for this symbol and timeframe, the suggested Pine profile pack will appear here."
+                  title={t('today.signals.emptyTitle')}
+                  description={t('today.signals.emptyBody')}
                   icon={<InsightsRoundedIcon fontSize="inherit" />}
                 />
               ) : (
@@ -243,15 +243,15 @@ export default function TodayPage() {
                     sx={{ alignSelf: 'flex-start' }}
                   />
                   <Typography variant="body2" color="text.secondary">
-                    Expectancy {signalRecommendationQuery.data.recommendations[0].expectancyR > 0 ? '+' : ''}{signalRecommendationQuery.data.recommendations[0].expectancyR.toFixed(2)}R from {signalRecommendationQuery.data.recommendations[0].sampleSize} closed signals.
+                    {t('today.signals.expectancy', { value: `${signalRecommendationQuery.data.recommendations[0].expectancyR > 0 ? '+' : ''}${signalRecommendationQuery.data.recommendations[0].expectancyR.toFixed(2)}`, count: signalRecommendationQuery.data.recommendations[0].sampleSize })}
                   </Typography>
                   {signalSummaryQuery.data.weakConditions.slice(0, 2).map((condition) => (
                     <Typography key={`${condition.symbol}-${condition.setupType}-${condition.regime}`} variant="body2" color="text.secondary">
-                      {condition.action}: {condition.setupType} in {condition.regime} at {condition.expectancyR > 0 ? '+' : ''}{condition.expectancyR.toFixed(2)}R
+                      {t('today.signals.weakCondition', { action: condition.action, setup: condition.setupType, regime: condition.regime, value: `${condition.expectancyR > 0 ? '+' : ''}${condition.expectancyR.toFixed(2)}` })}
                     </Typography>
                   ))}
                   <Typography variant="body2">
-                    Recent average confidence: <strong>{signalSummaryQuery.data.overview.avgConfidenceScore.toFixed(1)}/100</strong>
+                    {t('today.signals.confidence', { value: signalSummaryQuery.data.overview.avgConfidenceScore.toFixed(1) })}
                   </Typography>
                 </>
               )}
