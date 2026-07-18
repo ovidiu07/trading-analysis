@@ -2,6 +2,7 @@ package com.tradevault.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.domain.entity.Asset;
+import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.Plan;
 import com.tradevault.domain.entity.PlanAsset;
 import com.tradevault.domain.entity.TodaySession;
@@ -16,6 +17,7 @@ import com.tradevault.repository.PlanRepository;
 import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.AccountRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -32,9 +34,11 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.verify;
 
 class TradeCalendarServicePlanSummaryTest {
     private TradeRepository tradeRepository;
+    private AccountRepository accountRepository;
     private TodaySessionRepository todaySessionRepository;
     private PlanRepository planRepository;
     private PlanAssetRepository planAssetRepository;
@@ -50,6 +54,7 @@ class TradeCalendarServicePlanSummaryTest {
     @BeforeEach
     void setup() {
         tradeRepository = mock(TradeRepository.class);
+        accountRepository = mock(AccountRepository.class);
         todaySessionRepository = mock(TodaySessionRepository.class);
         planRepository = mock(PlanRepository.class);
         planAssetRepository = mock(PlanAssetRepository.class);
@@ -61,6 +66,7 @@ class TradeCalendarServicePlanSummaryTest {
 
         tradeCalendarService = new TradeCalendarService(
                 tradeRepository,
+                accountRepository,
                 todaySessionRepository,
                 planRepository,
                 planAssetRepository,
@@ -141,6 +147,43 @@ class TradeCalendarServicePlanSummaryTest {
             assertThat(plan.getImageCount()).isEqualTo(1);
             assertThat(plan.getThumbnailUrl()).contains("/api/assets/");
         });
+    }
+
+    @Test
+    void accountOptionsAreUserScopedAndBrokerIdsAreTrimmedAndDeduplicated() {
+        UUID managedId = UUID.randomUUID();
+        when(accountRepository.findByUserIdOrderByNameAsc(user.getId())).thenReturn(List.of(
+                Account.builder().id(managedId).user(user).name("Funded 50K").build()
+        ));
+        when(tradeRepository.findDistinctBrokerAccountIdsByUserId(user.getId())).thenReturn(List.of(
+                " Account A ", "account a", "Account B"
+        ));
+
+        var options = tradeCalendarService.fetchAccountOptions();
+
+        assertThat(options).extracting("value", "label", "source").containsExactly(
+                org.assertj.core.groups.Tuple.tuple(managedId.toString(), "Funded 50K", "managed"),
+                org.assertj.core.groups.Tuple.tuple("Account A", "Account A", "broker"),
+                org.assertj.core.groups.Tuple.tuple("Account B", "Account B", "broker")
+        );
+        verify(accountRepository).findByUserIdOrderByNameAsc(user.getId());
+        verify(tradeRepository).findDistinctBrokerAccountIdsByUserId(user.getId());
+    }
+
+    @Test
+    void unassignedCalendarFilterIsAppliedBeforeDailyAggregation() {
+        when(tradeRepository.aggregateDailyPnlByClosedDate(
+                user.getId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), zone.getId(), null, null, true
+        )).thenReturn(List.of());
+
+        tradeCalendarService.fetchDailyPnl(
+                LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), null,
+                com.tradevault.domain.enums.PnlBasis.CLOSE, "unassigned"
+        );
+
+        verify(tradeRepository).aggregateDailyPnlByClosedDate(
+                user.getId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), zone.getId(), null, null, true
+        );
     }
 
     @Test

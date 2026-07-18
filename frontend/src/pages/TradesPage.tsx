@@ -1007,9 +1007,18 @@ export default function TradesPage() {
         .filter(Boolean)
 
       const quickDefaults = buildQuickLogDefaults(timezone)
+      const requestedDirection = params.get('direction')
+      const direction = requestedDirection === 'LONG' || requestedDirection === 'SHORT'
+        ? requestedDirection
+        : quickDefaults.direction
       setCreateFormValues({
         ...quickDefaults,
         symbol: params.get('symbol') || quickDefaults.symbol,
+        direction,
+        setup: params.get('setup') || quickDefaults.setup,
+        timeframe: params.get('timeframe') || quickDefaults.timeframe,
+        session: (params.get('session') || quickDefaults.session) as TradeFormValues['session'],
+        accountId: params.get('accountId') || quickDefaults.accountId,
         strategyTag: params.get('strategyTag') || quickDefaults.strategyTag,
         strategyId: params.get('strategyId') || quickDefaults.strategyId,
         linkedContentIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedContentIds,

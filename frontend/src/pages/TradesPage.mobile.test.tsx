@@ -339,4 +339,21 @@ describe('TradesPage mobile create dialog', () => {
       rows: [tabsRow as HTMLElement, chipsRow as HTMLElement, summaryRow as HTMLElement]
     })
   })
+
+  it('prefills Quick Log context supplied by Session Mode', async () => {
+    setViewportSize(390, 844)
+    render(
+      <MemoryRouter initialEntries={['/trades?quickLog=1&symbol=GER30&direction=SHORT&setup=London+rejection&timeframe=5&session=LONDON']}>
+        <I18nProvider>
+          <TradesPage />
+        </I18nProvider>
+      </MemoryRouter>
+    )
+
+    const dialog = await screen.findByRole('dialog')
+    expect((await within(dialog).findAllByLabelText('Symbol'))[0]).toHaveValue('GER30')
+    expect(within(dialog).getByRole('button', { name: 'Short' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Advanced' }))
+    expect((await within(dialog).findAllByLabelText('Setup'))[0]).toHaveValue('London rejection')
+  })
 })

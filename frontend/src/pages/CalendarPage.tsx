@@ -14,10 +14,12 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  MenuItem,
   IconButton,
   Skeleton,
   Stack,
   Typography,
+  TextField,
   useMediaQuery,
   useTheme,
 } from '@mui/material'
@@ -30,12 +32,12 @@ import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import PushPinRoundedIcon from '@mui/icons-material/PushPinRounded'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
-import { CalendarPlanSummary, fetchCalendarPlans } from '../api/calendar'
+import { CalendarAccountOption, CalendarPlanSummary, fetchCalendarAccountOptions, fetchCalendarPlans } from '../api/calendar'
 import { removeSessionPlan } from '../api/liveWorkspace'
 import { DailyPnlResponse, DailySummaryResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
 import { formatCompactCurrency, formatDateTime, formatSignedCurrency } from '../utils/format'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import AssetThumbnail from '../components/assets/AssetThumbnail'
 import EmptyState from '../components/ui/EmptyState'
 import PageHero from '../components/ui/PageHero'
@@ -44,6 +46,16 @@ import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
 
 const weekStartsOn = 1
+const UNASSIGNED_ACCOUNT = 'unassigned'
+
+function monthFromQuery(value: string | null) {
+  const match = /^(\d{4})-(\d{2})$/.exec(value || '')
+  if (!match) return startOfMonth(new Date())
+  const year = Number(match[1])
+  const month = Number(match[2])
+  if (month < 1 || month > 12) return startOfMonth(new Date())
+  return new Date(year, month - 1, 1)
+}
 
 function buildDailySummaryFromTrades(dateKey: string, trades: TradeResponse[]): DailySummaryResponse {
   const orderedTrades = [...trades].sort((left, right) => {
@@ -107,12 +119,17 @@ export default function CalendarPage() {
   const isTablet = useMediaQuery(theme.breakpoints.between('sm', 'lg'))
   const isCompact = useMediaQuery('(max-width:560px)')
   const navigate = useNavigate()
+  const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuth()
   const { refreshToken } = useDemoData()
   const baseCurrency = user?.baseCurrency || 'USD'
   const timezone = user?.timezone || 'Europe/Bucharest'
 
-  const [currentMonth, setCurrentMonth] = useState(() => startOfMonth(new Date()))
+  const [currentMonth, setCurrentMonth] = useState(() => monthFromQuery(searchParams.get('month')))
+  const [selectedAccountId, setSelectedAccountId] = useState(() => searchParams.get('accountId') || '')
+  const [accountOptions, setAccountOptions] = useState<CalendarAccountOption[]>([])
+  const [accountOptionsLoaded, setAccountOptionsLoaded] = useState(false)
+  const [accountOptionsError, setAccountOptionsError] = useState('')
   const [dailyPnl, setDailyPnl] = useState<DailyPnlResponse[]>([])
   const [calendarPlans, setCalendarPlans] = useState<{
     activeMonthlyPlan?: CalendarPlanSummary | null
@@ -149,7 +166,50 @@ export default function CalendarPage() {
   }, [calendarStart, locale])
   const monthKey = useMemo(() => format(currentMonth, 'yyyy-MM'), [currentMonth])
   const monthLabel = useMemo(() => new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(currentMonth), [currentMonth, locale])
-  const summaryCacheKey = useMemo(() => `${monthKey}-${timezone}`, [monthKey, timezone])
+  const summaryCacheKey = useMemo(() => `${monthKey}-${timezone}-${selectedAccountId || 'all'}`, [monthKey, selectedAccountId, timezone])
+
+  const selectedAccountLabel = useMemo(() => {
+    if (!selectedAccountId) return t('calendar.accounts.all')
+    if (selectedAccountId === UNASSIGNED_ACCOUNT) return t('calendar.accounts.unassignedContext')
+    return accountOptions.find((option) => option.value === selectedAccountId)?.label || selectedAccountId
+  }, [accountOptions, selectedAccountId, t])
+
+  const updateCalendarUrl = useCallback((month: Date, accountId: string, replace = false) => {
+    const next = new URLSearchParams(searchParams)
+    next.set('month', format(month, 'yyyy-MM'))
+    if (accountId) next.set('accountId', accountId)
+    else next.delete('accountId')
+    setSearchParams(next, { replace })
+  }, [searchParams, setSearchParams])
+
+  useEffect(() => {
+    updateCalendarUrl(currentMonth, selectedAccountId, true)
+  // URL initialization is intentionally run once; later changes use explicit handlers.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    let active = true
+    fetchCalendarAccountOptions()
+      .then((options) => {
+        if (!active) return
+        setAccountOptions(options)
+        setAccountOptionsLoaded(true)
+      })
+      .catch((err) => {
+        if (!active) return
+        setAccountOptionsError(translateApiError(err, t, 'calendar.errors.loadAccounts'))
+      })
+    return () => { active = false }
+  }, [refreshToken, t])
+
+  useEffect(() => {
+    if (!accountOptionsLoaded || !selectedAccountId || selectedAccountId === UNASSIGNED_ACCOUNT) return
+    if (!accountOptions.some((option) => option.value === selectedAccountId)) {
+      setSelectedAccountId('')
+      updateCalendarUrl(currentMonth, '', true)
+    }
+  }, [accountOptions, accountOptionsLoaded, currentMonth, selectedAccountId, updateCalendarUrl])
 
   const pnlByDate = useMemo(() => new Map(dailyPnl.map((entry) => [entry.date, entry])), [dailyPnl])
   const plansByDate = useMemo(() => new Map(calendarPlans.dailyPlans.map((plan) => [plan.periodStart, plan])), [calendarPlans.dailyPlans])
@@ -178,7 +238,7 @@ export default function CalendarPage() {
       try {
         const from = format(calendarStart, 'yyyy-MM-dd')
         const to = format(calendarEnd, 'yyyy-MM-dd')
-        const data = await fetchDailyPnl({ from, to, tz: timezone, basis: 'close' })
+        const data = await fetchDailyPnl({ from, to, tz: timezone, basis: 'close', accountId: selectedAccountId || undefined })
         setDailyPnl(data)
       } catch (err) {
         const message = translateApiError(err, t, 'calendar.errors.loadCalendar')
@@ -189,7 +249,7 @@ export default function CalendarPage() {
       }
     }
     fetchData()
-  }, [calendarEnd, calendarStart, timezone, refreshToken])
+  }, [calendarEnd, calendarStart, timezone, refreshToken, selectedAccountId, t])
 
   const reloadCalendarPlans = useCallback(async () => {
     setCalendarPlansLoading(true)
@@ -228,7 +288,7 @@ export default function CalendarPage() {
       try {
         const year = currentMonth.getFullYear()
         const month = currentMonth.getMonth() + 1
-        const data = await fetchMonthlyPnlSummary({ year, month, tz: timezone, basis: 'close' })
+        const data = await fetchMonthlyPnlSummary({ year, month, tz: timezone, basis: 'close', accountId: selectedAccountId || undefined })
         if (!active) return
         monthSummaryCache.current.set(summaryCacheKey, data)
         setMonthSummary(data)
@@ -247,7 +307,7 @@ export default function CalendarPage() {
     return () => {
       active = false
     }
-  }, [currentMonth, summaryCacheKey, timezone, refreshToken])
+  }, [currentMonth, summaryCacheKey, timezone, refreshToken, selectedAccountId, t])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -258,7 +318,7 @@ export default function CalendarPage() {
       setSelectedTrades([])
       try {
         const dateKey = format(selectedDate, 'yyyy-MM-dd')
-        const tradesData = await listClosedTradesForDate(dateKey, timezone)
+        const tradesData = await listClosedTradesForDate(dateKey, timezone, selectedAccountId || undefined)
         setSelectedTrades(tradesData)
         setSelectedSummary(buildDailySummaryFromTrades(dateKey, tradesData))
       } catch (err) {
@@ -271,7 +331,7 @@ export default function CalendarPage() {
       }
     }
     loadTrades()
-  }, [selectedDate, timezone, refreshToken])
+  }, [selectedDate, timezone, refreshToken, selectedAccountId, t])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -291,7 +351,7 @@ export default function CalendarPage() {
       }
     }
     loadNotes()
-  }, [selectedDate, refreshToken])
+  }, [selectedDate, refreshToken, t])
 
   const selectedDateKey = selectedDate ? format(selectedDate, 'yyyy-MM-dd') : ''
   const selectedAggregate = selectedDateKey ? pnlByDate.get(selectedDateKey) : undefined
@@ -391,8 +451,21 @@ export default function CalendarPage() {
   const handleViewInTrades = () => {
     if (!selectedDate) return
     const dateKey = format(selectedDate, 'yyyy-MM-dd')
-    navigate(`/trades?closedDate=${dateKey}&status=CLOSED&tz=${encodeURIComponent(timezone)}`)
+    const params = new URLSearchParams({ closedDate: dateKey, status: 'CLOSED', tz: timezone })
+    if (selectedAccountId) params.set('accountId', selectedAccountId)
+    navigate(`/trades?${params.toString()}`)
     handleCloseDialog()
+  }
+
+  const moveMonth = (nextMonth: Date) => {
+    setCurrentMonth(nextMonth)
+    updateCalendarUrl(nextMonth, selectedAccountId)
+  }
+
+  const handleAccountChange = (accountId: string) => {
+    setSelectedAccountId(accountId)
+    setSelectedDate(null)
+    updateCalendarUrl(currentMonth, accountId)
   }
 
   const openSessionPlan = (plan?: CalendarPlanSummary | null) => {
@@ -507,6 +580,7 @@ export default function CalendarPage() {
         t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
+    ariaLabelParts.push(t('calendar.aria.accountContext', { account: selectedAccountLabel }))
     if (plan) {
       ariaLabelParts.push('Today Plan saved in Calendar')
     }
@@ -603,6 +677,7 @@ export default function CalendarPage() {
         t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
+    ariaLabelParts.push(t('calendar.aria.accountContext', { account: selectedAccountLabel }))
     if (plan) {
       ariaLabelParts.push('Today Plan saved in Calendar')
     }
@@ -681,7 +756,7 @@ export default function CalendarPage() {
       >
         <IconButton
           aria-label={t('calendar.previousMonth')}
-          onClick={() => setCurrentMonth((prev) => subMonths(prev, 1))}
+          onClick={() => moveMonth(subMonths(currentMonth, 1))}
           sx={{ width: 44, height: 44 }}
         >
           <ChevronLeftIcon />
@@ -695,11 +770,39 @@ export default function CalendarPage() {
         </Typography>
         <IconButton
           aria-label={t('calendar.nextMonth')}
-          onClick={() => setCurrentMonth((prev) => addMonths(prev, 1))}
+          onClick={() => moveMonth(addMonths(currentMonth, 1))}
           sx={{ width: 44, height: 44 }}
         >
           <ChevronRightIcon />
         </IconButton>
+      </Box>
+
+      <Box sx={{ width: { xs: '100%', sm: 360 }, maxWidth: '100%' }}>
+        <TextField
+          select
+          fullWidth
+          size="small"
+          label={t('calendar.accounts.label')}
+          value={selectedAccountId}
+          onChange={(event) => handleAccountChange(event.target.value)}
+          SelectProps={{
+            displayEmpty: true,
+            inputProps: { 'aria-label': t('calendar.accounts.label') }
+          }}
+          error={Boolean(accountOptionsError)}
+          helperText={accountOptionsError || t('calendar.accounts.helper')}
+          sx={{
+            '& .MuiSelect-select': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
+          }}
+        >
+          <MenuItem value="">{t('calendar.accounts.all')}</MenuItem>
+          {accountOptions.map((option) => (
+            <MenuItem key={`${option.source}-${option.value}`} value={option.value} title={option.label}>
+              {option.label}
+            </MenuItem>
+          ))}
+          <MenuItem value={UNASSIGNED_ACCOUNT}>{t('calendar.accounts.unassigned')}</MenuItem>
+        </TextField>
       </Box>
 
       <Card>
@@ -761,7 +864,7 @@ export default function CalendarPage() {
                   </Typography>
                 )}
                 <Typography variant="caption" color="text.secondary">
-                  {monthLabel} · {timezone}
+                  {monthLabel} · {selectedAccountLabel} · {timezone}
                 </Typography>
               </Stack>
               <Stack
@@ -925,8 +1028,8 @@ export default function CalendarPage() {
               )}
               {!error && dailyPnl.length === 0 && (
                 <EmptyState
-                  title={t('calendar.empty.closedTradesTitle')}
-                  description={t('calendar.empty.closedTradesBody')}
+                  title={selectedAccountId ? t('calendar.empty.accountTitle', { account: selectedAccountLabel }) : t('calendar.empty.closedTradesTitle')}
+                  description={selectedAccountId ? t('calendar.empty.accountBody', { month: monthLabel }) : t('calendar.empty.closedTradesBody')}
                 />
               )}
             </>

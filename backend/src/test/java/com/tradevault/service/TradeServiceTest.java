@@ -36,6 +36,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
@@ -959,7 +960,7 @@ public class TradeServiceTest {
         List<Map<String, String>> fieldErrors = (List<Map<String, String>>) details.get("fieldErrors");
         assertEquals("openedAtFrom", fieldErrors.get(0).get("field"));
         assertEquals("openedAtTo", fieldErrors.get(1).get("field"));
-        verify(tradeRepository, never()).searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(tradeRepository, never()).searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any());
     }
 
     @Test
@@ -997,7 +998,7 @@ public class TradeServiceTest {
     @Test
     void searchPassesBrokerAccountFilterToRepository() {
         when(timezoneService.resolveZone(null, user)).thenReturn(ZoneId.of("UTC"));
-        when(tradeRepository.searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(tradeRepository.searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
 
         tradeService.search(
@@ -1026,6 +1027,7 @@ public class TradeServiceTest {
                 isNull(),
                 eq("APEX4855840000003"),
                 isNull(),
+                eq(false),
                 isNull(),
                 isNull(),
                 any()
@@ -1040,7 +1042,7 @@ public class TradeServiceTest {
         UUID secondId = UUID.randomUUID();
 
         when(timezoneService.resolveZone("Europe/Bucharest", user)).thenReturn(zone);
-        when(tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId(), null, null))
+        when(tradeRepository.findClosedTradeIdsForLocalDate(user.getId(), date, zone.getId(), null, null, false))
                 .thenReturn(List.of(firstId, secondId));
         when(tradeRepository.findAllByIdInWithTagsAndAccount(List.of(firstId, secondId)))
                 .thenReturn(List.of(

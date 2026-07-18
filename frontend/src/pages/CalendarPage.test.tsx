@@ -17,6 +17,7 @@ const mockFetchMonthlyPnlSummary = vi.fn()
 const mockListClosedTradesForDate = vi.fn()
 const mockListNotebookNotesByDate = vi.fn()
 const mockFetchCalendarPlans = vi.fn()
+const mockFetchCalendarAccountOptions = vi.fn()
 const mockRemoveSessionPlan = vi.fn()
 
 vi.mock('../api/trades', async () => {
@@ -38,7 +39,8 @@ vi.mock('../api/notebook', async () => {
 })
 
 vi.mock('../api/calendar', () => ({
-  fetchCalendarPlans: (...args: unknown[]) => mockFetchCalendarPlans(...args)
+  fetchCalendarPlans: (...args: unknown[]) => mockFetchCalendarPlans(...args),
+  fetchCalendarAccountOptions: (...args: unknown[]) => mockFetchCalendarAccountOptions(...args)
 }))
 
 vi.mock('../api/liveWorkspace', () => ({
@@ -78,6 +80,10 @@ describe('CalendarPage', () => {
     localStorage.setItem('app.language', 'en')
     mockFetchDailyPnl.mockResolvedValue([])
     mockFetchCalendarPlans.mockResolvedValue({ activeMonthlyPlan: null, activeWeeklyPlan: null, dailyPlans: [] })
+    mockFetchCalendarAccountOptions.mockResolvedValue([
+      { value: 'account-a', label: 'Account A', source: 'broker' },
+      { value: 'account-b', label: 'Account B', source: 'broker' }
+    ])
     mockRemoveSessionPlan.mockResolvedValue(undefined)
     mockListClosedTradesForDate.mockResolvedValue([])
     mockListNotebookNotesByDate.mockResolvedValue([])
@@ -121,8 +127,87 @@ describe('CalendarPage', () => {
       year: expectedNextMonth.getFullYear(),
       month: expectedNextMonth.getMonth() + 1,
       tz: 'Europe/Bucharest',
-      basis: 'close'
+      basis: 'close',
+      accountId: undefined
     })
+  })
+
+  it('restores an account from the URL, filters every trade request, and preserves it across months', async () => {
+    mockFetchMonthlyPnlSummary.mockResolvedValue(buildSummary(7, -100))
+    mockFetchDailyPnl.mockResolvedValue([
+      { date: '2026-07-16', netPnl: -100, tradeCount: 1, wins: 0, losses: 1 }
+    ])
+
+    render(
+      <MemoryRouter initialEntries={['/calendar?month=2026-07&accountId=account-a']}>
+        <AuthProvider>
+          <I18nProvider>
+            <ThemeProvider theme={theme}>
+              <CalendarPage />
+            </ThemeProvider>
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledWith(expect.objectContaining({
+      year: 2026,
+      month: 7,
+      accountId: 'account-a'
+    })))
+    expect(mockFetchDailyPnl).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'account-a' }))
+    expect(await screen.findByText(/July 2026 · Account A · Europe\/Bucharest/)).toBeInTheDocument()
+
+    await userEvent.setup().click(screen.getByLabelText(/View realized P&L for 2026-07-16/))
+    await waitFor(() => expect(mockListClosedTradesForDate).toHaveBeenCalledWith(
+      '2026-07-16', 'Europe/Bucharest', 'account-a'
+    ))
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
+
+    await userEvent.setup().click(screen.getByLabelText('Next month'))
+    await waitFor(() => expect(mockFetchMonthlyPnlSummary).toHaveBeenLastCalledWith(expect.objectContaining({
+      month: 8,
+      accountId: 'account-a'
+    })))
+  })
+
+  it('uses the explicit unassigned filter and shows an account-specific empty state', async () => {
+    mockFetchMonthlyPnlSummary.mockResolvedValue({ ...buildSummary(7, 0), tradeCount: 0, tradingDays: 0 })
+
+    render(
+      <MemoryRouter initialEntries={['/calendar?month=2026-07&accountId=unassigned']}>
+        <AuthProvider>
+          <I18nProvider>
+            <ThemeProvider theme={theme}>
+              <CalendarPage />
+            </ThemeProvider>
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'unassigned' })))
+    expect(await screen.findByText('No closed trades for Unassigned trades')).toBeInTheDocument()
+    expect(screen.getByText('No closed trades match this account in July 2026.')).toBeInTheDocument()
+  })
+
+  it('safely falls back to all accounts for an unknown URL account', async () => {
+    mockFetchMonthlyPnlSummary.mockResolvedValue(buildSummary(7, 50))
+
+    render(
+      <MemoryRouter initialEntries={['/calendar?month=2026-07&accountId=not-owned']}>
+        <AuthProvider>
+          <I18nProvider>
+            <ThemeProvider theme={theme}>
+              <CalendarPage />
+            </ThemeProvider>
+          </I18nProvider>
+        </AuthProvider>
+      </MemoryRouter>
+    )
+
+    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: undefined })))
+    expect(await screen.findByText(/July 2026 · All accounts · Europe\/Bucharest/)).toBeInTheDocument()
   })
 
   it('shows a per-account breakdown when opening a day', async () => {

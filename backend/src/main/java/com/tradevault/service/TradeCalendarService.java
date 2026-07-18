@@ -2,6 +2,7 @@ package com.tradevault.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.Plan;
 import com.tradevault.domain.entity.PlanAsset;
 import com.tradevault.domain.entity.TodaySession;
@@ -11,10 +12,12 @@ import com.tradevault.domain.enums.PlanScope;
 import com.tradevault.domain.enums.PlanSource;
 import com.tradevault.domain.enums.TodaySessionStatus;
 import com.tradevault.dto.asset.AssetResponse;
+import com.tradevault.dto.calendar.CalendarAccountOptionResponse;
 import com.tradevault.dto.calendar.CalendarPlanSummaryResponse;
 import com.tradevault.dto.calendar.CalendarPlansResponse;
 import com.tradevault.dto.trade.DailyPnlResponse;
 import com.tradevault.dto.trade.MonthlyPnlSummaryResponse;
+import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.PlanAssetRepository;
 import com.tradevault.repository.PlanRepository;
 import com.tradevault.repository.SessionSetupRepository;
@@ -32,10 +35,14 @@ import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.temporal.TemporalAdjusters;
 import java.time.temporal.WeekFields;
+import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
@@ -44,6 +51,7 @@ public class TradeCalendarService {
     private static final Logger log = LoggerFactory.getLogger(TradeCalendarService.class);
 
     private final TradeRepository tradeRepository;
+    private final AccountRepository accountRepository;
     private final TodaySessionRepository todaySessionRepository;
     private final PlanRepository planRepository;
     private final PlanAssetRepository planAssetRepository;
@@ -68,7 +76,8 @@ public class TradeCalendarService {
                     to,
                     zone.getId(),
                     accountFilter.brokerAccountId(),
-                    accountFilter.accountRefId()
+                    accountFilter.accountRefId(),
+                    accountFilter.unassigned()
             );
             case CLOSE -> tradeRepository.aggregateDailyPnlByClosedDate(
                     user.getId(),
@@ -76,7 +85,8 @@ public class TradeCalendarService {
                     to,
                     zone.getId(),
                     accountFilter.brokerAccountId(),
-                    accountFilter.accountRefId()
+                    accountFilter.accountRefId(),
+                    accountFilter.unassigned()
             );
         };
 
@@ -107,7 +117,8 @@ public class TradeCalendarService {
                     monthEnd,
                     zone.getId(),
                     accountFilter.brokerAccountId(),
-                    accountFilter.accountRefId()
+                    accountFilter.accountRefId(),
+                    accountFilter.unassigned()
             );
             case OPEN -> throw new IllegalArgumentException("Monthly summary supports CLOSE basis only");
         };
@@ -126,6 +137,26 @@ public class TradeCalendarService {
                 tradeCount,
                 tradingDays
         );
+    }
+
+    @Transactional(readOnly = true)
+    public List<CalendarAccountOptionResponse> fetchAccountOptions() {
+        User user = currentUserService.getCurrentUser();
+        List<CalendarAccountOptionResponse> options = new ArrayList<>();
+
+        for (Account account : accountRepository.findByUserIdOrderByNameAsc(user.getId())) {
+            String label = firstNonBlank(account.getName(), account.getId().toString());
+            options.add(new CalendarAccountOptionResponse(account.getId().toString(), label, "managed"));
+        }
+
+        Set<String> normalizedBrokerIds = new HashSet<>();
+        for (String rawId : tradeRepository.findDistinctBrokerAccountIdsByUserId(user.getId())) {
+            String displayId = normalizeOptionalText(rawId);
+            if (displayId != null && normalizedBrokerIds.add(displayId.toLowerCase(Locale.ROOT))) {
+                options.add(new CalendarAccountOptionResponse(displayId, displayId, "broker"));
+            }
+        }
+        return options;
     }
 
     @Transactional
@@ -342,7 +373,10 @@ public class TradeCalendarService {
 
     private AccountFilter resolveAccountFilter(String accountId) {
         String brokerAccountId = normalizeOptionalText(accountId);
-        return new AccountFilter(brokerAccountId, parseUuidOrNull(brokerAccountId));
+        if ("unassigned".equalsIgnoreCase(brokerAccountId)) {
+            return new AccountFilter(null, null, true);
+        }
+        return new AccountFilter(brokerAccountId, parseUuidOrNull(brokerAccountId), false);
     }
 
     private UUID parseUuidOrNull(String value) {
@@ -364,7 +398,7 @@ public class TradeCalendarService {
         return normalized.isEmpty() ? null : normalized;
     }
 
-    private record AccountFilter(String brokerAccountId, UUID accountRefId) {}
+    private record AccountFilter(String brokerAccountId, UUID accountRefId, boolean unassigned) {}
 
     private record PeriodWindow(OffsetDateTime start, OffsetDateTime end, LocalDate periodStart, LocalDate periodEnd) {}
 }

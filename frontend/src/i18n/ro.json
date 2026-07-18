@@ -784,6 +784,13 @@
     "grossPnl": "P&L brut",
     "tradingDays": "Zile de tranzacționare",
     "tradesClosed": "Tranzacții închise",
+    "accounts": {
+      "label": "Cont de tranzacționare",
+      "all": "Toate conturile",
+      "unassigned": "Nealocat",
+      "unassignedContext": "Tranzacții nealocate",
+      "helper": "Filtrează toate rezultatele Calendarului derivate din tranzacții. Planurile rămân globale."
+    },
     "legend": {
       "profit": "Profit",
       "loss": "Pierdere",
@@ -791,12 +798,22 @@
     },
     "empty": {
       "closedTradesTitle": "Nu există tranzacții închise în acest interval",
-      "closedTradesBody": "După închiderea tranzacțiilor, P&L-ul zilnic va apărea aici."
+      "closedTradesBody": "După închiderea tranzacțiilor, P&L-ul zilnic va apărea aici.",
+      "accountTitle": "Nu există tranzacții închise pentru {{account}}",
+      "accountBody": "Nicio tranzacție închisă nu corespunde acestui cont în {{month}}."
+    },
+    "errors": {
+      "loadAccounts": "Conturile de tranzacționare nu au putut fi încărcate.",
+      "loadCalendar": "Datele Calendarului nu au putut fi încărcate.",
+      "loadMonthlySummary": "Rezumatul lunar nu a putut fi încărcat.",
+      "loadTrades": "Tranzacțiile zilei nu au putut fi încărcate.",
+      "loadNotes": "Notele zilei nu au putut fi încărcate."
     },
     "aria": {
       "viewRealizedPnl": "Vezi P&L realizat pentru {{date}}",
       "netPnl": "P&L net {{value}}",
-      "tradeCount": "{{count}} tranzacții"
+      "tradeCount": "{{count}} tranzacții",
+      "accountContext": "Cont {{account}}"
     },
     "dialog": {
       "closedOn": "Tranzacții închise la {{date}}",

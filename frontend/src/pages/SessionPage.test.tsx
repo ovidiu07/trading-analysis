@@ -1,7 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { LiveWorkspaceResponse, SetupItem } from '../api/liveWorkspace'
 import type { DailyPlan } from '../api/plans'
@@ -494,13 +494,19 @@ function renderWithProviders(ui: JSX.Element) {
       <QueryClientProvider client={queryClient}>
         <I18nProvider>
           {ui}
+          <LocationProbe />
         </I18nProvider>
       </QueryClientProvider>
     </MemoryRouter>
   )
 }
 
-describe('SessionPage trader plan workstation', () => {
+function LocationProbe() {
+  const location = useLocation()
+  return <output data-testid="location-probe">{`${location.pathname}${location.search}`}</output>
+}
+
+describe.skip('legacy SessionPage trader plan workstation', () => {
   beforeAll(() => {
     class ResizeObserverMock {
       observe() {}
@@ -714,5 +720,171 @@ describe('SessionPage trader plan workstation', () => {
 
     await waitFor(() => expect(workspaceApiMock.upsertSessionPeriodPlan).toHaveBeenCalledWith('DAILY', {}))
     expect(await screen.findByText('Active today plan')).toBeInTheDocument()
+  })
+})
+
+describe('SessionPage simplified workflow', () => {
+  beforeAll(() => {
+    class ResizeObserverMock {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    ;(globalThis as typeof globalThis & { ResizeObserver?: typeof ResizeObserver }).ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver
+  })
+
+  beforeEach(() => {
+    localStorage.clear()
+    localStorage.setItem('app.language', 'en')
+    resetWorkspaceState()
+    vi.clearAllMocks()
+    setupMocks()
+  })
+
+  it('renders the core workflow without lock, readiness, or workstation tabs', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+
+    renderWithProviders(<SessionPage />)
+
+    expect(await screen.findByRole('heading', { name: 'Session', level: 1 })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Plans' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Chart' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Current setup' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Log trade' }).length).toBeGreaterThan(0)
+    expect(screen.queryByRole('button', { name: /Lock session/i })).not.toBeInTheDocument()
+    expect(screen.queryByText(/Plan not ready to lock/i)).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab')).not.toBeInTheDocument()
+    expect(screen.queryByText('Trader Plan Workstation')).not.toBeInTheDocument()
+  })
+
+  it('shows all plans as accessible accordions with Today expanded by default', async () => {
+    renderWithProviders(<SessionPage />)
+
+    const today = await screen.findByRole('button', { name: /Today Plan/i })
+    const weekly = screen.getByRole('button', { name: /Weekly Plan/i })
+    const monthly = screen.getByRole('button', { name: /Monthly Plan/i })
+    expect(today).toHaveAttribute('aria-expanded', 'true')
+    expect(weekly).toHaveAttribute('aria-expanded', 'false')
+    expect(monthly).toHaveAttribute('aria-expanded', 'false')
+
+    fireEvent.click(weekly)
+    expect(weekly).toHaveAttribute('aria-expanded', 'true')
+    expect(screen.getByDisplayValue('Long EUR')).toBeInTheDocument()
+    expect(screen.queryByText(/^0 images$/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/No images added/i)).not.toBeInTheDocument()
+  })
+
+  it('loads the chart from a symbol without requiring a pre-existing setup', async () => {
+    renderWithProviders(<SessionPage />)
+
+    const symbol = await screen.findByLabelText('Symbol')
+    fireEvent.change(symbol, { target: { value: ' ger 30 ' } })
+
+    expect(await screen.findByTestId('mock-chart')).toHaveTextContent('chart:GER30:15')
+    expect(localStorage.getItem('tradejaudit.session.lastSymbol')).toBe('GER30')
+    await waitFor(() => expect(workspaceApiMock.createSetupCandidate).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({ symbol: 'GER30', direction: 'UNDECIDED' })
+    ), { timeout: 2500 })
+  })
+
+  it('autosaves current setup fields and keeps Undecided as a valid direction', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'UNDECIDED', ''))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+    renderWithProviders(<SessionPage />)
+
+    expect(await screen.findByRole('button', { name: 'Undecided', pressed: true })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Setup title'), { target: { value: 'London continuation' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Long' }))
+    fireEvent.change(screen.getByLabelText('Narrative'), { target: { value: 'Sweep then reclaim' } })
+
+    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate).toHaveBeenCalledWith(
+      'session-1',
+      workspaceState.setups[0].id,
+      expect.objectContaining({
+        setupTitle: 'London continuation',
+        direction: 'LONG',
+        context: expect.objectContaining({ narrative: 'Sweep then reclaim' })
+      })
+    ), { timeout: 2500 })
+    expect(await screen.findByText('Saved')).toBeInTheDocument()
+  })
+
+  it('does not overwrite a meaningful setup when only the chart symbol changes', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+    renderWithProviders(<SessionPage />)
+
+    fireEvent.change(await screen.findByLabelText('Symbol'), { target: { value: 'GER30' } })
+    expect(await screen.findByText('The chart changed without overwriting the setup you are editing.')).toBeInTheDocument()
+    expect(screen.getByTestId('mock-chart')).toHaveTextContent('chart:GER30')
+    expect(workspaceApiMock.updateSetupCandidate).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Use for setup' }))
+    await waitFor(() => expect(workspaceApiMock.updateSetupCandidate).toHaveBeenCalledWith(
+      'session-1',
+      workspaceState.setups[0].id,
+      expect.objectContaining({ symbol: 'GER30' })
+    ), { timeout: 2500 })
+  })
+
+  it('opens the existing Quick Log with available setup context and no readiness gate', async () => {
+    const setup = buildSetup('GER30', 'SHORT', 'London rejection')
+    setup.strategyId = 'strategy-1'
+    setup.strategyLabel = 'Sweep model'
+    setup.tradeSession = 'LONDON'
+    setup.trigger.confirmationTimeframe = '5'
+    workspaceState.setups.push(setup)
+    workspaceState.activeSetupId = setup.id
+    workspaceState.session.readiness = makeReadiness(['risk configured', 'lock session'])
+    recalcWorkspace()
+    renderWithProviders(<SessionPage />)
+
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Log trade' }))[0])
+
+    const location = screen.getByTestId('location-probe').textContent || ''
+    expect(location).toContain('/trades?')
+    expect(location).toContain('quickLog=1')
+    expect(location).toContain('symbol=GER30')
+    expect(location).toContain('direction=SHORT')
+    expect(location).toContain('setup=London+rejection')
+    expect(location).toContain('session=LONDON')
+    expect(location).toContain('timeframe=5')
+    expect(location).toContain('planId=session-1')
+  })
+
+  it('saves plan edits in place and preserves the plan scope', async () => {
+    renderWithProviders(<SessionPage />)
+
+    const weeklySummary = await screen.findByRole('button', { name: /Weekly Plan/i })
+    fireEvent.click(weeklySummary)
+    const weeklyAccordion = weeklySummary.closest('.MuiAccordion-root') as HTMLElement
+    fireEvent.change(within(weeklyAccordion).getByDisplayValue('Long EUR'), { target: { value: 'Short dollar week' } })
+    fireEvent.click(within(weeklyAccordion).getByRole('button', { name: 'Save plan' }))
+
+    await waitFor(() => expect(workspaceApiMock.upsertSessionPeriodPlan).toHaveBeenCalledWith(
+      'WEEKLY',
+      expect.objectContaining({ bias: 'Short dollar week' })
+    ))
+  })
+
+  it('focus mode hides planning context but keeps symbol, chart, setup, and logging visible', async () => {
+    workspaceState.setups.push(buildSetup('EURUSD', 'LONG', 'London reclaim'))
+    workspaceState.activeSetupId = workspaceState.setups[0].id
+    recalcWorkspace()
+    renderWithProviders(<SessionPage />)
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Focus mode' }))
+
+    expect(screen.queryByRole('heading', { name: 'Plans' })).not.toBeInTheDocument()
+    expect(screen.getByLabelText('Symbol')).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Chart' })).toBeInTheDocument()
+    expect(screen.getByRole('heading', { name: 'Current setup' })).toBeInTheDocument()
+    expect(screen.getAllByRole('button', { name: 'Log trade' }).length).toBeGreaterThan(0)
+    expect(localStorage.getItem('tradejaudit.session.focusMode')).toBe('true')
   })
 })

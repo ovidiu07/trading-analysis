@@ -108,6 +108,7 @@ public class TradeService {
                 normalizedStrategy,
                 accountFilter.brokerAccountId(),
                 accountFilter.accountRefId(),
+                accountFilter.unassigned(),
                 direction,
                 status,
                 pageable
@@ -473,7 +474,8 @@ public class TradeService {
                 date,
                 zone.getId(),
                 accountFilter.brokerAccountId(),
-                accountFilter.accountRefId()
+                accountFilter.accountRefId(),
+                accountFilter.unassigned()
         );
         var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
@@ -494,7 +496,8 @@ public class TradeService {
                 date,
                 zone.getId(),
                 accountFilter.brokerAccountId(),
-                accountFilter.accountRefId()
+                accountFilter.accountRefId(),
+                accountFilter.unassigned()
         );
         var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
         if (trades == null || trades.isEmpty()) {
@@ -633,7 +636,10 @@ public class TradeService {
 
     private AccountFilter resolveAccountFilter(String accountId) {
         String brokerAccountId = normalizeOptionalText(accountId);
-        return new AccountFilter(brokerAccountId, parseUuidOrNull(brokerAccountId));
+        if ("unassigned".equalsIgnoreCase(brokerAccountId)) {
+            return new AccountFilter(null, null, true);
+        }
+        return new AccountFilter(brokerAccountId, parseUuidOrNull(brokerAccountId), false);
     }
 
     private UUID parseUuidOrNull(String value) {
@@ -1269,7 +1275,7 @@ public class TradeService {
 
     public record ImportUpsertResult(TradeResponse trade, boolean updated) {}
 
-    private record AccountFilter(String brokerAccountId, UUID accountRefId) {}
+    private record AccountFilter(String brokerAccountId, UUID accountRefId, boolean unassigned) {}
 
     private record LatestTradeNotePreview(UUID noteId, String preview, OffsetDateTime updatedAt) {}
 }

@@ -1,225 +1,122 @@
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
 import {
+  Accordion,
+  AccordionDetails,
+  AccordionSummary,
   Alert,
-  AlertTitle,
   Box,
   Button,
   Card,
   CardContent,
-  Checkbox,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
+  Collapse,
   FormControl,
-  FormControlLabel,
-  IconButton,
   InputLabel,
-  LinearProgress,
-  Menu,
   MenuItem,
   Select,
   Stack,
-  Switch,
-  Tab,
-  Tabs,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography
 } from '@mui/material'
-import type { ChipProps } from '@mui/material'
 import { alpha } from '@mui/material/styles'
-import AddRoundedIcon from '@mui/icons-material/AddRounded'
-import BoltRoundedIcon from '@mui/icons-material/BoltRounded'
+import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
-import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
-import DeleteRoundedIcon from '@mui/icons-material/DeleteRounded'
-import ImportExportRoundedIcon from '@mui/icons-material/ImportExportRounded'
-import LockOpenRoundedIcon from '@mui/icons-material/LockOpenRounded'
-import LockRoundedIcon from '@mui/icons-material/LockRounded'
-import NotesRoundedIcon from '@mui/icons-material/NotesRounded'
-import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded'
-import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
-import TimelineRoundedIcon from '@mui/icons-material/TimelineRounded'
+import CenterFocusStrongRoundedIcon from '@mui/icons-material/CenterFocusStrongRounded'
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded'
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ALLOWED_IMAGE_MIME_TYPES, MAX_UPLOAD_SIZE_BYTES } from '../api/assets'
 import { ApiError } from '../api/client'
 import {
   createSetupCandidate,
   deleteSessionPlanImage,
-  duplicateSetupCandidate,
   getSessionWorkspace,
-  removeSessionPlan,
-  saveSetupAnalysisNote,
-  selectActiveSetupCandidate,
-  startTradeFromSetupCandidate,
-  updateSessionWorkspace,
   updateSetupCandidate,
-  updateSetupCandidateStatus,
   uploadSessionPlanImages,
   upsertSessionPeriodPlan,
-  type ConfluenceItem,
-  type ExecutionTicket,
   type LiveWorkspaceResponse,
-  type PlanImage,
   type PeriodPlan,
-  type ReviewTimelineEntry,
-  type SetupItem,
-  type SetupStatus
+  type PlanImage,
+  type SetupDirection,
+  type SetupItem
 } from '../api/liveWorkspace'
 import { fetchTodayMentorPlan, type PlanScope } from '../api/plans'
-import { listStrategies, type StrategyResponse } from '../api/strategies'
 import { fetchChartSettings } from '../api/chartSettings'
 import { useAuth } from '../auth/AuthContext'
 import TradingViewWidget from '../components/charts/TradingViewWidget'
 import type { UploadQueueItem } from '../components/assets/AssetListRenderer'
 import PlanImagesSection from '../components/session/PlanImagesSection'
-import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
-import RichTextContent from '../components/ui/RichTextContent'
 import {
-  applyStrategyImport,
-  appendTimeline,
-  buildQuickLogUpdate,
-  buildTimeline,
-  computeRr,
-  createTimelineEntry,
   defaultConfluences,
-  dedupeConfluences,
   ensureExecutionWorkspace,
   ensureWorkspace,
-  formatDirection,
   generateId,
-  getSimpleReadinessLabel,
-  parseNumberInput,
-  quickLogActions,
-  strategyConfluences,
-  summarizeStrategySnapshot,
   toPeriodPlanDraft,
   toPeriodPlanPayload,
-  toSessionDraft,
-  toSessionPayload,
   toSetupPayload,
   toTradingViewSymbol,
-  type CreateSetupDraft,
   type PeriodPlanDraft,
-  type PlanScopeTab,
-  type QuickLogActionId,
-  type SessionDraft,
-  type StrategyImportDraft
+  type PlanScopeTab
 } from '../features/session-workstation/sessionWorkstation'
 import { useI18n } from '../i18n'
-import { formatCurrency, formatDate, formatDateTime, formatNumber, formatSignedCurrency } from '../utils/format'
+import { formatDate, formatSignedCurrency } from '../utils/format'
 
-type SideTab = 'SETUPS' | 'SETUP' | 'STRATEGY' | 'RISK' | 'CONFLUENCES' | 'EXECUTE' | 'JOURNAL' | 'TIMELINE'
-type PlanRemovalTarget = {
-  scope: PlanScopeTab
-  plan: PeriodPlan
-}
+const LAST_SYMBOL_KEY = 'tradejaudit.session.lastSymbol'
+const FOCUS_MODE_KEY = 'tradejaudit.session.focusMode'
+const EXPANDED_PLANS_KEY = 'tradejaudit.session.expandedPlans'
+
+type SaveState = 'idle' | 'saving' | 'saved' | 'error'
 
 const planScopeToApiScope = (scope: PlanScopeTab): PlanScope => scope === 'TODAY' ? 'DAILY' : scope
 
-const planScopeToCalendarParam = (scope: PlanScopeTab) => scope.toLowerCase()
-
-const isImageFile = (file: File) => (
-  (file.type ? ALLOWED_IMAGE_MIME_TYPES.has(file.type) : false)
-  || /\.(png|jpe?g|webp|gif)$/i.test(file.name)
-)
-
-const directionOptions: SetupItem['direction'][] = ['UNDECIDED', 'LONG', 'SHORT']
-
-function chipColorForStatus(status: SetupStatus): ChipProps['color'] {
-  if (status === 'READY' || status === 'TRIGGERED') return 'success'
-  if (status === 'EXECUTED' || status === 'CLOSED') return 'primary'
-  if (status === 'INVALIDATED' || status === 'ARCHIVED') return 'error'
-  if (status === 'SKIPPED') return 'default'
-  return 'warning'
-}
-
-function readinessColor(label: string): ChipProps['color'] {
-  if (label === 'Locked' || label === 'Ready to Lock') return 'success'
-  if (label === 'Not Ready') return 'warning'
-  if (label === 'Empty') return 'default'
-  return 'primary'
-}
-
-function setupStatusForQuickAction(actionId: QuickLogActionId): SetupStatus | null {
-  if (actionId === 'WATCHING') return 'WATCHING'
-  if (actionId === 'TRIGGER_CONFIRMED') return 'TRIGGERED'
-  if (actionId === 'ENTRY_TAKEN') return 'EXECUTED'
-  if (actionId === 'CLOSE_WIN' || actionId === 'CLOSE_LOSS') return 'CLOSED'
-  if (actionId === 'SKIPPED' || actionId === 'MISSED_TRADE') return 'SKIPPED'
-  if (actionId === 'INVALIDATED') return 'INVALIDATED'
-  return null
-}
-
-function SurfaceMetric({ label, value, detail }: { label: string; value: string | number; detail?: string }) {
-  return (
-    <Box className="ws-subpanel" sx={{ p: 1.25, minWidth: 0 }}>
-      <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800, textTransform: 'uppercase' }}>
-        {label}
-      </Typography>
-      <Typography variant="subtitle1" sx={{ mt: 0.25, fontWeight: 900 }} noWrap>
-        {value}
-      </Typography>
-      {detail ? <Typography variant="caption" color="text.secondary">{detail}</Typography> : null}
-    </Box>
-  )
-}
-
-function isRiskConfiguredDraft(draft: SessionDraft | null | undefined) {
-  return Boolean(
-    draft
-    && (draft.dailyMaxLoss ?? 0) > 0
-    && (draft.profitTarget ?? 0) > 0
-    && (draft.riskPerTrade ?? 0) > 0
-    && (draft.maxTrades ?? 0) > 0
-    && (draft.maxConsecutiveLosses ?? 0) > 0
-  )
-}
-
-function periodRange(plan?: PeriodPlan | null, timezone?: string) {
-  if (!plan) return '—'
-  if (plan.periodStart === plan.periodEnd) return formatDate(plan.periodStart, timezone)
-  return `${formatDate(plan.periodStart, timezone)} - ${formatDate(plan.periodEnd, timezone)}`
-}
-
-function planScopeLabel(scope: PlanScopeTab) {
+const planLabel = (scope: PlanScopeTab) => {
   if (scope === 'WEEKLY') return 'Weekly Plan'
   if (scope === 'MONTHLY') return 'Monthly Plan'
   return 'Today Plan'
 }
 
-function planRemovalLead(scope: PlanScopeTab) {
-  if (scope === 'WEEKLY') return 'Remove this Weekly Plan? It will no longer stay pinned for this week.'
-  if (scope === 'MONTHLY') return 'Remove this Monthly Plan? It will no longer stay pinned for this month.'
-  return 'Remove this Today Plan? It will no longer appear on this calendar day or in Session Mode.'
+const readExpandedPlans = (): PlanScopeTab[] => {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(EXPANDED_PLANS_KEY) || '[]') as PlanScopeTab[]
+    return parsed.length ? parsed : ['TODAY']
+  } catch {
+    return ['TODAY']
+  }
 }
 
-function createEmptySetup(workspace: LiveWorkspaceResponse, draft: CreateSetupDraft): SetupItem {
+const normalizeSymbol = (value: string) => value.replace(/\s+/g, '').toUpperCase()
+
+const hasMeaningfulSetupContent = (setup: SetupItem) => Boolean(
+  setup.setupTitle.trim()
+  || setup.direction !== 'UNDECIDED'
+  || setup.context.narrative?.trim()
+  || setup.context.liquidityNotes?.trim()
+  || setup.context.invalidationIdea?.trim()
+  || setup.context.notes?.trim()
+  || setup.trigger.entryZone?.trim()
+  || setup.execution.takeProfitPrice != null
+  || setup.strategyId
+  || setup.strategySnapshot
+)
+
+function createEmptySetup(workspace: LiveWorkspaceResponse, symbol: string): SetupItem {
   const now = new Date().toISOString()
   return ensureExecutionWorkspace({
     id: `draft-${generateId()}`,
-    symbol: draft.symbol.trim().toUpperCase(),
-    direction: draft.direction,
+    symbol,
+    direction: 'UNDECIDED',
     market: 'FOREX',
     tradeSession: null,
     strategyId: null,
     strategyLabel: '',
-    setupTitle: draft.setupTitle.trim() || draft.symbol.trim().toUpperCase(),
+    setupTitle: '',
     biasAlignment: '',
     status: 'DRAFT',
     linkedTradeId: null,
     readiness: workspace.session.readiness,
-    context: {
-      narrative: '',
-      liquidityNotes: '',
-      invalidationIdea: '',
-      newsSafety: '',
-      notes: ''
-    },
+    context: { narrative: '', liquidityNotes: '', invalidationIdea: '', newsSafety: '', notes: '' },
     strategySnapshot: null,
     trigger: {
       sweepIdentified: false,
@@ -254,18 +151,8 @@ function createEmptySetup(workspace: LiveWorkspaceResponse, draft: CreateSetupDr
       initialNotes: '',
       tickets: []
     },
-    executions: {
-      activeExecutionId: null,
-      tickets: []
-    },
-    review: {
-      liveNotes: '',
-      mistakes: '',
-      lessons: '',
-      outcomeSummary: '',
-      tags: [],
-      timeline: []
-    },
+    executions: { activeExecutionId: null, tickets: [] },
+    review: { liveNotes: '', mistakes: '', lessons: '', outcomeSummary: '', tags: [], timeline: [] },
     levels: [],
     mentorReference: null,
     confluences: defaultConfluences(),
@@ -276,89 +163,62 @@ function createEmptySetup(workspace: LiveWorkspaceResponse, draft: CreateSetupDr
   })
 }
 
-function TimelineEntryCard({ entry, timezone }: { entry: ReviewTimelineEntry; timezone: string }) {
-  return (
-    <Box className="ws-subpanel" sx={{ p: 1.15 }}>
-      <Stack spacing={0.4}>
-        <Stack direction="row" justifyContent="space-between" spacing={1}>
-          <Typography variant="body2" sx={{ fontWeight: 800 }}>{entry.title || 'Event'}</Typography>
-          <Typography variant="caption" color="text.secondary">{entry.occurredAt ? formatDateTime(entry.occurredAt, timezone) : '—'}</Typography>
-        </Stack>
-        {entry.body ? <Typography variant="body2" color="text.secondary">{entry.body}</Typography> : null}
-      </Stack>
-    </Box>
-  )
+const planRange = (plan: PeriodPlan | null | undefined, timezone: string) => {
+  if (!plan?.exists) return ''
+  if (plan.periodStart === plan.periodEnd) return formatDate(plan.periodStart, timezone)
+  return `${formatDate(plan.periodStart, timezone)} – ${formatDate(plan.periodEnd, timezone)}`
+}
+
+const planSummary = (plan: PeriodPlan | null | undefined, scope: PlanScopeTab) => {
+  if (!plan?.exists) {
+    if (scope === 'TODAY') return 'No Today Plan yet'
+    if (scope === 'WEEKLY') return 'No weekly focus set'
+    return 'No monthly focus set'
+  }
+  return plan.bias || plan.objectives || plan.focusSymbols?.join(', ') || 'Plan ready for review'
 }
 
 export default function SessionPage() {
   const { user } = useAuth()
   const { t } = useI18n()
-  const queryClient = useQueryClient()
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
+  const queryClient = useQueryClient()
   const timezone = user?.timezone || 'Europe/Bucharest'
   const baseCurrency = user?.baseCurrency || 'USD'
+  const requestedPlan = (searchParams.get('plan') || '').toUpperCase()
 
-  const initialPlanScope = useMemo<PlanScopeTab>(() => {
-    const requested = (searchParams.get('plan') || '').toUpperCase()
-    if (requested === 'WEEKLY') return 'WEEKLY'
-    if (requested === 'MONTHLY') return 'MONTHLY'
-    return 'TODAY'
-  }, [searchParams])
-
-  const [planScope, setPlanScope] = useState<PlanScopeTab>(initialPlanScope)
-  const [sideTab, setSideTab] = useState<SideTab>('SETUPS')
-  const [selectedSetupId, setSelectedSetupId] = useState<string | null>(null)
-  const [sessionDraft, setSessionDraft] = useState<SessionDraft | null>(null)
-  const [weeklyDraft, setWeeklyDraft] = useState<PeriodPlanDraft | null>(null)
-  const [monthlyDraft, setMonthlyDraft] = useState<PeriodPlanDraft | null>(null)
+  const [expandedPlans, setExpandedPlans] = useState<PlanScopeTab[]>(() => {
+    if (requestedPlan === 'WEEKLY' || requestedPlan === 'MONTHLY') return [requestedPlan]
+    return readExpandedPlans()
+  })
+  const [focusMode, setFocusMode] = useState(() => localStorage.getItem(FOCUS_MODE_KEY) === 'true')
+  const [chartSymbol, setChartSymbol] = useState('')
   const [setupDraft, setSetupDraft] = useState<SetupItem | null>(null)
-  const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [strategyDialogOpen, setStrategyDialogOpen] = useState(false)
-  const [strategyDetailOpen, setStrategyDetailOpen] = useState(false)
-  const [selectedStrategyId, setSelectedStrategyId] = useState<string | null>(null)
+  const [planDrafts, setPlanDrafts] = useState<Record<PlanScopeTab, PeriodPlanDraft | null>>({ TODAY: null, WEEKLY: null, MONTHLY: null })
+  const [moreDetailsOpen, setMoreDetailsOpen] = useState(false)
+  const [saveState, setSaveState] = useState<SaveState>('idle')
   const [feedback, setFeedback] = useState<string | null>(null)
-  const [planRemovalTarget, setPlanRemovalTarget] = useState<PlanRemovalTarget | null>(null)
-  const [planImageUploads, setPlanImageUploads] = useState<Record<PlanScopeTab, UploadQueueItem[]>>({
-    TODAY: [],
-    WEEKLY: [],
-    MONTHLY: []
-  })
+  const [planImageUploads, setPlanImageUploads] = useState<Record<PlanScopeTab, UploadQueueItem[]>>({ TODAY: [], WEEKLY: [], MONTHLY: [] })
   const [deletingPlanImageIds, setDeletingPlanImageIds] = useState<Set<string>>(new Set())
-  const [quickLogAnchorEl, setQuickLogAnchorEl] = useState<null | HTMLElement>(null)
-  const [quickNote, setQuickNote] = useState('')
-  const [newConfluence, setNewConfluence] = useState('')
-  const [createSetupDraft, setCreateSetupDraft] = useState<CreateSetupDraft>({ symbol: '', direction: 'UNDECIDED', setupTitle: '' })
-  const [importDraft, setImportDraft] = useState<StrategyImportDraft>({
-    search: '',
-    source: 'ALL',
-    createNewSetup: false,
-    symbol: '',
-    direction: 'UNDECIDED',
-    setupTitle: ''
-  })
-
-  const sessionSignatureRef = useRef('')
   const setupSignatureRef = useRef('')
+  const initializedWorkspaceRef = useRef(false)
 
   const workspaceQuery = useQuery({
     queryKey: ['liveWorkspace'],
     queryFn: async () => ensureWorkspace(await getSessionWorkspace())
   })
 
-  const mentorPlanQuery = useQuery({
-    queryKey: ['todayMentorPlanWorkspace', workspaceQuery.data?.session.tradingDate || '', timezone],
-    queryFn: () => fetchTodayMentorPlan({
-      date: workspaceQuery.data?.session.tradingDate || '',
-      tz: timezone
-    }),
-    enabled: Boolean(workspaceQuery.data?.session.tradingDate)
-  })
+  const workspace = workspaceQuery.data
+  const activeWorkspaceSetup = useMemo(() => {
+    if (!workspace) return null
+    return workspace.setups.find((item) => item.id === workspace.activeSetupId) || workspace.setups[0] || null
+  }, [workspace])
 
-  const strategiesQuery = useQuery({
-    queryKey: ['strategies', 'session-import'],
-    queryFn: () => listStrategies({ includeArchived: false }),
-    enabled: strategyDialogOpen
+  const mentorPlanQuery = useQuery({
+    queryKey: ['todayMentorPlanWorkspace', workspace?.session.tradingDate || '', timezone],
+    queryFn: () => fetchTodayMentorPlan({ date: workspace?.session.tradingDate || '', tz: timezone }),
+    enabled: Boolean(workspace?.session.tradingDate)
   })
 
   const chartSettingsQuery = useQuery({
@@ -367,426 +227,139 @@ export default function SessionPage() {
     staleTime: 5 * 60 * 1000
   })
 
-  useEffect(() => {
-    setPlanScope(initialPlanScope)
-  }, [initialPlanScope])
-
-  const applyWorkspace = (workspace: LiveWorkspaceResponse, preferredSetupId?: string | null) => {
-    const normalized = ensureWorkspace(workspace)
+  const applyWorkspace = (next: LiveWorkspaceResponse, preferredSetupId?: string | null) => {
+    const normalized = ensureWorkspace(next)
     queryClient.setQueryData(['liveWorkspace'], normalized)
-    const nextSelectedSetupId = preferredSetupId && normalized.setups.some((item) => item.id === preferredSetupId)
-      ? preferredSetupId
-      : normalized.activeSetupId && normalized.setups.some((item) => item.id === normalized.activeSetupId)
-        ? normalized.activeSetupId
-        : normalized.setups[0]?.id || null
-    setSelectedSetupId(nextSelectedSetupId)
+    const active = normalized.setups.find((item) => item.id === preferredSetupId)
+      || normalized.setups.find((item) => item.id === normalized.activeSetupId)
+      || normalized.setups[0]
+      || null
+    if (active) {
+      const normalizedSetup = ensureExecutionWorkspace(active)
+      setupSignatureRef.current = JSON.stringify(toSetupPayload(normalizedSetup))
+      setSetupDraft(normalizedSetup)
+    }
   }
 
-  const updateSessionMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; data: ReturnType<typeof toSessionPayload>; signature: string }) =>
-      updateSessionWorkspace(payload.sessionId, payload.data),
-    onSuccess: (workspace, variables) => {
-      sessionSignatureRef.current = variables.signature
-      applyWorkspace(workspace, selectedSetupId)
-    },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not save session guardrails.')
-  })
-
-  const updateSetupMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; setupId: string; data: ReturnType<typeof toSetupPayload>; signature: string }) =>
-      updateSetupCandidate(payload.sessionId, payload.setupId, payload.data),
-    onSuccess: (workspace, variables) => {
+  const setupMutation = useMutation({
+    mutationFn: (payload: { sessionId: string; setup: SetupItem; signature: string }) =>
+      updateSetupCandidate(payload.sessionId, payload.setup.id, toSetupPayload(payload.setup)),
+    onMutate: () => setSaveState('saving'),
+    onSuccess: (next, variables) => {
       setupSignatureRef.current = variables.signature
-      applyWorkspace(workspace, variables.setupId)
+      queryClient.setQueryData(['liveWorkspace'], ensureWorkspace(next))
+      setSaveState('saved')
     },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not save setup changes.')
-  })
-
-  const createSetupMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; data: ReturnType<typeof toSetupPayload> }) =>
-      createSetupCandidate(payload.sessionId, payload.data),
-    onSuccess: (workspace) => {
-      const last = workspace.setups[workspace.setups.length - 1]
-      applyWorkspace(workspace, last?.id || workspace.activeSetupId || null)
-      setCreateDialogOpen(false)
-      setCreateSetupDraft({ symbol: '', direction: 'UNDECIDED', setupTitle: '' })
-      setFeedback('Setup added.')
-    },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not create setup.')
-  })
-
-  const duplicateSetupMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; setupId: string }) =>
-      duplicateSetupCandidate(payload.sessionId, payload.setupId),
-    onSuccess: (workspace) => {
-      const last = workspace.setups[workspace.setups.length - 1]
-      applyWorkspace(workspace, last?.id || workspace.activeSetupId || null)
-      setFeedback('Setup duplicated.')
+    onError: (error) => {
+      setSaveState('error')
+      setFeedback((error as ApiError).message || 'Changes could not be saved.')
     }
   })
 
-  const selectSetupMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; setupId: string | null }) =>
-      selectActiveSetupCandidate(payload.sessionId, payload.setupId),
-    onSuccess: (workspace, variables) => applyWorkspace(workspace, variables.setupId)
-  })
-
-  const statusMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; setupId: string; status: SetupStatus }) =>
-      updateSetupCandidateStatus(payload.sessionId, payload.setupId, payload.status),
-    onSuccess: (workspace, variables) => applyWorkspace(workspace, variables.setupId)
-  })
-
-  const startTradeMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; setupId: string; executionId?: string | null }) =>
-      startTradeFromSetupCandidate(payload.sessionId, payload.setupId, payload.executionId),
-    onSuccess: (workspace, variables) => {
-      applyWorkspace(workspace, variables.setupId)
-      setFeedback('Execution started.')
+  const createSetupMutation = useMutation({
+    mutationFn: (payload: { sessionId: string; setup: SetupItem }) =>
+      createSetupCandidate(payload.sessionId, toSetupPayload(payload.setup)),
+    onMutate: () => setSaveState('saving'),
+    onSuccess: (next) => {
+      const created = next.setups[next.setups.length - 1] || next.setups[0]
+      applyWorkspace(next, created?.id)
+      setSaveState('saved')
     },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not start trade.')
+    onError: (error) => {
+      setSaveState('error')
+      setFeedback((error as ApiError).message || 'Could not start the current setup.')
+    }
   })
 
-  const saveAnalysisNoteMutation = useMutation({
-    mutationFn: (payload: { sessionId: string; setupId: string }) =>
-      saveSetupAnalysisNote(payload.sessionId, payload.setupId),
-    onSuccess: (workspace, variables) => {
-      applyWorkspace(workspace, variables.setupId)
-      setFeedback('Analysis saved to Notebook.')
-    },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not save analysis note.')
-  })
-
-  const periodPlanMutation = useMutation({
-    mutationFn: (payload: { scope: 'WEEKLY' | 'MONTHLY'; draft: PeriodPlanDraft }) =>
-      upsertSessionPeriodPlan(payload.scope, toPeriodPlanPayload(payload.draft)),
-    onSuccess: (workspace) => {
-      applyWorkspace(workspace, selectedSetupId)
+  const planMutation = useMutation({
+    mutationFn: (payload: { scope: PlanScopeTab; draft: PeriodPlanDraft }) =>
+      upsertSessionPeriodPlan(planScopeToApiScope(payload.scope), toPeriodPlanPayload(payload.draft)),
+    onSuccess: (next) => {
+      queryClient.setQueryData(['liveWorkspace'], ensureWorkspace(next))
       setFeedback('Plan saved.')
     },
     onError: (error) => setFeedback((error as ApiError).message || 'Could not save plan.')
   })
-
-  const todayPlanMutation = useMutation({
-    mutationFn: () => upsertSessionPeriodPlan('DAILY', {}),
-    onSuccess: async (workspace) => {
-      applyWorkspace(workspace, workspace.activeSetupId || selectedSetupId)
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] }),
-        queryClient.invalidateQueries({ queryKey: ['todayMyPlan'] }),
-        queryClient.invalidateQueries({ queryKey: ['featuredDailyPlan'] }),
-        queryClient.invalidateQueries({ queryKey: ['activeTradePlans'] }),
-        queryClient.invalidateQueries({ queryKey: ['calendarPlans'] })
-      ])
-      setFeedback('Today Plan is active.')
-    },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not activate Today Plan.')
-  })
-
-  const removePlanMutation = useMutation({
-    mutationFn: (target: PlanRemovalTarget) => {
-      if (!target.plan.id) {
-        throw new ApiError('Plan not found.')
-      }
-      return removeSessionPlan(planScopeToApiScope(target.scope), target.plan.id)
-    },
-    onSuccess: async (_result, target) => {
-      setPlanRemovalTarget(null)
-      if (target.scope === 'TODAY') {
-        setSelectedSetupId(null)
-        setSetupDraft(null)
-      }
-      await Promise.all([
-        queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] }),
-        queryClient.invalidateQueries({ queryKey: ['todayMyPlan'] }),
-        queryClient.invalidateQueries({ queryKey: ['featuredDailyPlan'] }),
-        queryClient.invalidateQueries({ queryKey: ['activeTradePlans'] }),
-        queryClient.invalidateQueries({ queryKey: ['calendarPlans'] })
-      ])
-      setFeedback(`${planScopeLabel(target.scope)} removed.`)
-    },
-    onError: (error) => setFeedback((error as ApiError).message || 'Could not remove plan.')
-  })
+  const saveSetup = setupMutation.mutate
+  const createSetup = createSetupMutation.mutate
 
   useEffect(() => {
-    const workspace = workspaceQuery.data
     if (!workspace) return
-    const sessionSavePending = updateSessionMutation.isPending
-    const setupSavePending = updateSetupMutation.isPending
-    const nextSelectedSetupId = selectedSetupId && workspace.setups.some((item) => item.id === selectedSetupId)
-      ? selectedSetupId
-      : workspace.activeSetupId && workspace.setups.some((item) => item.id === workspace.activeSetupId)
-        ? workspace.activeSetupId
-        : workspace.setups[0]?.id || null
-    if (nextSelectedSetupId !== selectedSetupId) {
-      setSelectedSetupId(nextSelectedSetupId)
+    const selected = activeWorkspaceSetup ? ensureExecutionWorkspace(activeWorkspaceSetup) : null
+    if (!initializedWorkspaceRef.current) {
+      initializedWorkspaceRef.current = true
+      setSetupDraft(selected)
+      setupSignatureRef.current = selected ? JSON.stringify(toSetupPayload(selected)) : ''
+      const todaySymbol = workspace.planningContext?.today?.focusSymbols?.[0] || ''
+      const rememberedSymbol = localStorage.getItem(LAST_SYMBOL_KEY) || ''
+      setChartSymbol(normalizeSymbol(selected?.symbol || todaySymbol || rememberedSymbol))
+    } else if (selected && setupDraft?.id !== selected.id && !setupMutation.isPending) {
+      setSetupDraft(selected)
+      setupSignatureRef.current = JSON.stringify(toSetupPayload(selected))
     }
-
-    const nextSessionDraft = toSessionDraft(workspace.session)
-    const nextSessionSignature = JSON.stringify(toSessionPayload(nextSessionDraft))
-    setSessionDraft((current) => {
-      const currentSignature = current ? JSON.stringify(toSessionPayload(current)) : ''
-      const hasLocalChanges = Boolean(current && currentSignature !== sessionSignatureRef.current)
-      if (hasLocalChanges || sessionSavePending) return current
-      sessionSignatureRef.current = nextSessionSignature
-      return nextSessionDraft
+    setPlanDrafts({
+      TODAY: toPeriodPlanDraft(workspace.planningContext?.today),
+      WEEKLY: toPeriodPlanDraft(workspace.planningContext?.weekly),
+      MONTHLY: toPeriodPlanDraft(workspace.planningContext?.monthly)
     })
-    setWeeklyDraft(toPeriodPlanDraft(workspace.planningContext?.weekly))
-    setMonthlyDraft(toPeriodPlanDraft(workspace.planningContext?.monthly))
-
-    const nextSetup = workspace.setups.find((item) => item.id === nextSelectedSetupId) || null
-    if (nextSetup) {
-      const normalized = ensureExecutionWorkspace(nextSetup)
-      const nextSetupSignature = JSON.stringify(toSetupPayload(normalized))
-      setSetupDraft((current) => {
-        const isSameSetup = current?.id === normalized.id
-        const currentSignature = current ? JSON.stringify(toSetupPayload(current)) : ''
-        const hasLocalChanges = Boolean(isSameSetup && currentSignature !== setupSignatureRef.current)
-        if (hasLocalChanges || (isSameSetup && setupSavePending)) return current
-        setupSignatureRef.current = nextSetupSignature
-        return normalized
-      })
-    } else {
-      setSetupDraft((current) => {
-        const currentSignature = current ? JSON.stringify(toSetupPayload(current)) : ''
-        const hasLocalChanges = Boolean(current && currentSignature !== setupSignatureRef.current)
-        if (hasLocalChanges || setupSavePending) return current
-        setupSignatureRef.current = ''
-        return null
-      })
-    }
-  }, [workspaceQuery.data, selectedSetupId, updateSessionMutation.isPending, updateSetupMutation.isPending])
+  }, [activeWorkspaceSetup, setupDraft?.id, setupMutation.isPending, workspace])
 
   useEffect(() => {
-    const sessionId = workspaceQuery.data?.session.id
-    if (!sessionId || !sessionDraft) return
-    const signature = JSON.stringify(toSessionPayload(sessionDraft))
-    if (signature === sessionSignatureRef.current) return
-    const timer = window.setTimeout(() => {
-      updateSessionMutation.mutate({
-        sessionId,
-        data: toSessionPayload(sessionDraft),
-        signature
-      })
-    }, 650)
-    return () => window.clearTimeout(timer)
-  }, [sessionDraft, updateSessionMutation.mutate, workspaceQuery.data?.session.id])
-
-  useEffect(() => {
-    const sessionId = workspaceQuery.data?.session.id
-    if (!sessionId || !setupDraft) return
+    if (!workspace || !setupDraft || setupDraft.id.startsWith('draft-')) return
     const signature = JSON.stringify(toSetupPayload(setupDraft))
     if (signature === setupSignatureRef.current) return
+    setSaveState('idle')
     const timer = window.setTimeout(() => {
-      updateSetupMutation.mutate({
-        sessionId,
-        setupId: setupDraft.id,
-        data: toSetupPayload(setupDraft),
-        signature
-      })
-    }, 550)
+      saveSetup({ sessionId: workspace.session.id, setup: setupDraft, signature })
+    }, 600)
     return () => window.clearTimeout(timer)
-  }, [setupDraft, updateSetupMutation.mutate, workspaceQuery.data?.session.id])
+  }, [saveSetup, setupDraft, workspace])
 
-  const workspace = workspaceQuery.data
-  const selectedSetup = setupDraft || workspace?.setups.find((item) => item.id === selectedSetupId) || null
-  const selectedExecution = selectedSetup?.executions.tickets.find((ticket) => ticket.id === selectedSetup.executions.activeExecutionId)
-    || selectedSetup?.executions.tickets[0]
-    || null
-  const selectedStrategy = useMemo(() => {
-    const all = [...(strategiesQuery.data?.myStrategies || []), ...(strategiesQuery.data?.mentorStrategies || [])]
-    return all.find((item) => item.id === selectedStrategyId) || null
-  }, [selectedStrategyId, strategiesQuery.data])
-  const strategyList = useMemo(() => {
-    const all = [...(strategiesQuery.data?.myStrategies || []), ...(strategiesQuery.data?.mentorStrategies || [])]
-    const term = importDraft.search.trim().toLowerCase()
-    return all.filter((item) => {
-      if (importDraft.source !== 'ALL' && item.source !== importDraft.source) return false
-      if (!term) return true
-      return [item.name, item.model, ...(item.entryConditions || []), ...(item.tags || [])]
-        .some((value) => value?.toLowerCase().includes(term))
-    })
-  }, [importDraft.search, importDraft.source, strategiesQuery.data])
-
-  const deferredChartSymbol = useDeferredValue(toTradingViewSymbol(
-    selectedSetup?.symbol || null,
-    mentorPlanQuery.data?.tradingViewSymbol || null
-  ))
-  const deferredChartInterval = useDeferredValue(mentorPlanQuery.data?.tradingViewInterval || '15')
-
-  if (workspaceQuery.isLoading) {
-    return <LoadingState rows={10} height={34} />
-  }
-
-  if (workspaceQuery.isError || !workspace) {
-    return <Alert severity="error">{(workspaceQuery.error as ApiError)?.message || 'Could not load Session Mode.'}</Alert>
-  }
-
-  const readinessLabel = getSimpleReadinessLabel(workspace, selectedSetup)
-  const strategySummary = summarizeStrategySnapshot(selectedSetup?.strategySnapshot)
-  const timeline = selectedSetup ? buildTimeline(selectedSetup, workspace.activity) : []
-  const activeRr = selectedSetup && selectedExecution ? computeRr(selectedSetup.direction, selectedExecution) : null
-  const riskConfigured = isRiskConfiguredDraft(sessionDraft)
-  const canLock = readinessLabel === 'Ready to Lock'
-  const autoSaveState = updateSetupMutation.isPending || updateSessionMutation.isPending ? 'Saving...' : 'Saved'
-  const todayPlan = workspace.planningContext?.today
-  const todayPlanActive = todayPlan?.exists !== false
-  const todayPlanRestoreLabel = todayPlan?.id ? 'Restore Today Plan' : 'Create Today Plan'
-
-  const updateSelectedSetup = (updater: (setup: SetupItem) => SetupItem) => {
-    setSetupDraft((current) => current ? ensureExecutionWorkspace(updater(current)) : current)
-  }
-
-  const updateActiveExecution = (updater: (ticket: ExecutionTicket) => ExecutionTicket) => {
-    updateSelectedSetup((current) => {
-      const activeExecutionId = current.executions.activeExecutionId || current.executions.tickets[0]?.id
-      const tickets = current.executions.tickets.map((ticket) => (
-        ticket.id === activeExecutionId ? { ...updater(ticket), updatedAt: new Date().toISOString() } : ticket
-      ))
-      const active = tickets.find((ticket) => ticket.id === activeExecutionId) || tickets[0]
-      return {
-        ...current,
-        execution: {
-          ...current.execution,
-          activeExecutionId,
-          entryPrice: active?.entryPrice ?? null,
-          stopLossPrice: active?.stopLossPrice ?? null,
-          takeProfitPrice: active?.takeProfitPrice ?? null,
-          riskAmount: active?.riskAmount ?? null,
-          quantity: active?.quantity ?? null,
-          invalidation: active?.invalidation || '',
-          whyWrong: active?.whyWrong || '',
-          initialNotes: active?.initialNotes || '',
-          tickets
-        },
-        executions: { activeExecutionId, tickets }
-      }
-    })
-  }
-
-  const handleCreateSetup = () => {
+  const updateSetup = (updater: (current: SetupItem) => SetupItem) => {
     if (!workspace) return
-    createSetupMutation.mutate({
-      sessionId: workspace.session.id,
-      data: toSetupPayload(createEmptySetup(workspace, createSetupDraft))
+    setSetupDraft((current) => {
+      const base = current || createEmptySetup(workspace, normalizeSymbol(chartSymbol))
+      return ensureExecutionWorkspace(updater(base))
     })
   }
 
-  const handleSelectSetup = (setupId: string) => {
-    setSelectedSetupId(setupId)
-    if (setupId !== workspace.activeSetupId) {
-      selectSetupMutation.mutate({ sessionId: workspace.session.id, setupId })
+  useEffect(() => {
+    if (!workspace || !setupDraft?.id.startsWith('draft-') || createSetupMutation.isPending) return
+    const timer = window.setTimeout(() => {
+      createSetup({ sessionId: workspace.session.id, setup: setupDraft })
+    }, 650)
+    return () => window.clearTimeout(timer)
+  }, [createSetup, createSetupMutation.isPending, setupDraft, workspace])
+
+  const handleChartSymbolChange = (value: string) => {
+    const normalized = normalizeSymbol(value)
+    setChartSymbol(normalized)
+    localStorage.setItem(LAST_SYMBOL_KEY, normalized)
+    if (!workspace) return
+    if (!setupDraft) {
+      setSetupDraft(createEmptySetup(workspace, normalized))
+      return
+    }
+    if (!hasMeaningfulSetupContent(setupDraft)) {
+      updateSetup((current) => ({ ...current, symbol: normalized }))
     }
   }
 
-  const openStrategyDialog = () => {
-    setSelectedStrategyId(null)
-    setImportDraft((current) => ({
+  const syncChartSymbolToSetup = () => {
+    updateSetup((current) => ({ ...current, symbol: normalizeSymbol(chartSymbol) }))
+  }
+
+  const togglePlan = (scope: PlanScopeTab, expanded: boolean) => {
+    const next = expanded ? [...new Set([...expandedPlans, scope])] : expandedPlans.filter((item) => item !== scope)
+    setExpandedPlans(next)
+    localStorage.setItem(EXPANDED_PLANS_KEY, JSON.stringify(next))
+  }
+
+  const updatePlanDraft = (scope: PlanScopeTab, patch: Partial<PeriodPlanDraft>) => {
+    setPlanDrafts((current) => ({
       ...current,
-      search: '',
-      createNewSetup: !selectedSetup,
-      symbol: selectedSetup?.symbol || '',
-      direction: selectedSetup?.direction || 'UNDECIDED',
-      setupTitle: selectedSetup?.setupTitle || ''
+      [scope]: { ...(current[scope] || toPeriodPlanDraft(null)), ...patch }
     }))
-    setStrategyDialogOpen(true)
-  }
-
-  const handleImportStrategy = () => {
-    if (!selectedStrategy) return
-    if (!selectedSetup || importDraft.createNewSetup) {
-      const setup = createEmptySetup(workspace, {
-        symbol: importDraft.symbol,
-        direction: importDraft.direction,
-        setupTitle: importDraft.setupTitle || selectedStrategy.name
-      })
-      createSetupMutation.mutate({
-        sessionId: workspace.session.id,
-        data: toSetupPayload(applyStrategyImport(setup, selectedStrategy))
-      })
-    } else {
-      updateSelectedSetup((current) => applyStrategyImport(current, selectedStrategy))
-      setFeedback('Strategy imported.')
-    }
-    setStrategyDialogOpen(false)
-  }
-
-  const addExecution = () => {
-    updateSelectedSetup((current) => {
-      const ticket: ExecutionTicket = {
-        id: generateId(),
-        label: `Execution ${current.executions.tickets.length + 1}`,
-        status: 'DRAFT',
-        createdAt: new Date().toISOString()
-      }
-      return appendTimeline(ensureExecutionWorkspace({
-        ...current,
-        executions: {
-          activeExecutionId: ticket.id,
-          tickets: [...current.executions.tickets, ticket]
-        }
-      }), createTimelineEntry('execution_created', 'Execution created', ticket.label, ticket.id))
-    })
-    setSideTab('EXECUTE')
-  }
-
-  const handleQuickLogAction = async (actionId: QuickLogActionId) => {
-    if (!selectedSetup) return
-    setQuickLogAnchorEl(null)
-    if ((actionId === 'ADD_NOTE' || actionId === 'ADD_LESSON') && !quickNote.trim()) {
-      setFeedback('Write a quick note first.')
-      return
-    }
-    if (actionId === 'ENTRY_TAKEN' && selectedExecution && workspace.session.lockedInAt) {
-      startTradeMutation.mutate({ sessionId: workspace.session.id, setupId: selectedSetup.id, executionId: selectedExecution.id })
-      return
-    }
-    const result = buildQuickLogUpdate(selectedSetup, actionId, { note: quickNote, executionId: selectedExecution?.id || null })
-    setSetupDraft(result.setup)
-    setFeedback(result.feedback)
-    setQuickNote('')
-    const signature = JSON.stringify(toSetupPayload(result.setup))
-    await updateSetupMutation.mutateAsync({
-      sessionId: workspace.session.id,
-      setupId: selectedSetup.id,
-      data: toSetupPayload(result.setup),
-      signature
-    })
-    const status = setupStatusForQuickAction(actionId)
-    if (status) {
-      await statusMutation.mutateAsync({ sessionId: workspace.session.id, setupId: selectedSetup.id, status })
-    }
-  }
-
-  const saveCurrentPeriodPlan = () => {
-    if (planScope === 'WEEKLY' && weeklyDraft) {
-      periodPlanMutation.mutate({ scope: 'WEEKLY', draft: weeklyDraft })
-    }
-    if (planScope === 'MONTHLY' && monthlyDraft) {
-      periodPlanMutation.mutate({ scope: 'MONTHLY', draft: monthlyDraft })
-    }
-  }
-
-  const handleAddPlanSession = () => {
-    if (planScope === 'TODAY') {
-      if (todayPlanActive) {
-        setCreateDialogOpen(true)
-      } else {
-        todayPlanMutation.mutate()
-      }
-      return
-    }
-    saveCurrentPeriodPlan()
-  }
-
-  const requestRemovePlan = (scope: PlanScopeTab, plan?: PeriodPlan | null) => {
-    if (!plan?.id || !plan.exists) return
-    setPlanRemovalTarget({ scope, plan })
-  }
-
-  const confirmRemovePlan = () => {
-    if (!planRemovalTarget) return
-    removePlanMutation.mutate(planRemovalTarget)
   }
 
   const updatePlanImageUpload = (scope: PlanScopeTab, id: string, patch: Partial<UploadQueueItem>) => {
@@ -796,69 +369,28 @@ export default function SessionPage() {
     }))
   }
 
-  const handleUploadPlanImages = async (scope: PlanScopeTab, files: File[]) => {
-    if (files.length === 0) return
-    const queueItems: UploadQueueItem[] = files.map((file) => ({
-      id: `${scope}-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-      fileName: file.name,
-      sizeBytes: file.size,
-      progress: 2
-    }))
-    setPlanImageUploads((current) => ({
-      ...current,
-      [scope]: [...current[scope], ...queueItems]
-    }))
-
-    const acceptedFiles: File[] = []
-    files.forEach((file, index) => {
-      const queueItem = queueItems[index]
-      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
-        updatePlanImageUpload(scope, queueItem.id, { progress: 0, error: 'File is too large.' })
-        return
-      }
-      if (!isImageFile(file)) {
-        updatePlanImageUpload(scope, queueItem.id, { progress: 0, error: 'Only image files are accepted.' })
-        return
-      }
-      acceptedFiles.push(file)
-    })
-
-    if (acceptedFiles.length === 0) return
-
+  const uploadPlanImages = async (scope: PlanScopeTab, files: File[]) => {
+    if (!files.length) return
+    const queue = files.map((file) => ({ id: `${scope}-${generateId()}`, fileName: file.name, sizeBytes: file.size, progress: 2 }))
+    setPlanImageUploads((current) => ({ ...current, [scope]: [...current[scope], ...queue] }))
     try {
-      await uploadSessionPlanImages(planScopeToApiScope(scope), acceptedFiles, (progress) => {
-        acceptedFiles.forEach((file) => {
-          const queueItem = queueItems.find((item) => item.fileName === file.name && item.sizeBytes === file.size)
-          if (queueItem) {
-            updatePlanImageUpload(scope, queueItem.id, { progress })
-          }
-        })
+      await uploadSessionPlanImages(planScopeToApiScope(scope), files, (progress) => {
+        queue.forEach((item) => updatePlanImageUpload(scope, item.id, { progress }))
       })
-      setPlanImageUploads((current) => ({
-        ...current,
-        [scope]: current[scope].filter((item) => !acceptedFiles.some((file) => file.name === item.fileName && file.size === item.sizeBytes))
-      }))
+      setPlanImageUploads((current) => ({ ...current, [scope]: current[scope].filter((item) => !queue.some((row) => row.id === item.id)) }))
       await queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })
-      setFeedback('Plan images uploaded.')
     } catch (error) {
-      const message = (error as ApiError)?.message || 'Could not upload plan images.'
-      acceptedFiles.forEach((file) => {
-        const queueItem = queueItems.find((item) => item.fileName === file.name && item.sizeBytes === file.size)
-        if (queueItem) {
-          updatePlanImageUpload(scope, queueItem.id, { progress: 0, error: message })
-        }
-      })
+      queue.forEach((item) => updatePlanImageUpload(scope, item.id, { progress: 0, error: (error as ApiError).message || 'Upload failed.' }))
     }
   }
 
-  const handleDeletePlanImage = async (scope: PlanScopeTab, image: PlanImage) => {
+  const deletePlanImage = async (scope: PlanScopeTab, image: PlanImage) => {
     setDeletingPlanImageIds((current) => new Set(current).add(image.id))
     try {
       await deleteSessionPlanImage(planScopeToApiScope(scope), image.id)
       await queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })
-      setFeedback('Plan image deleted.')
     } catch (error) {
-      setFeedback((error as ApiError)?.message || 'Could not delete plan image.')
+      setFeedback((error as ApiError).message || 'Could not remove screenshot.')
     } finally {
       setDeletingPlanImageIds((current) => {
         const next = new Set(current)
@@ -868,796 +400,325 @@ export default function SessionPage() {
     }
   }
 
-  const openPlanInCalendar = (scope: PlanScopeTab) => {
-    navigate(`/calendar?plan=${planScopeToCalendarParam(scope)}`)
+  const openTradeLog = () => {
+    const params = new URLSearchParams({ quickLog: '1' })
+    const symbol = normalizeSymbol(setupDraft?.symbol || chartSymbol)
+    if (symbol) params.set('symbol', symbol)
+    if (setupDraft?.direction === 'LONG' || setupDraft?.direction === 'SHORT') params.set('direction', setupDraft.direction)
+    if (setupDraft?.setupTitle) params.set('setup', setupDraft.setupTitle)
+    if (setupDraft?.strategyLabel) params.set('strategyTag', setupDraft.strategyLabel)
+    if (setupDraft?.strategyId) params.set('strategyId', setupDraft.strategyId)
+    if (setupDraft?.tradeSession) params.set('session', setupDraft.tradeSession)
+    if (setupDraft?.trigger.confirmationTimeframe) params.set('timeframe', setupDraft.trigger.confirmationTimeframe)
+    const todayPlanId = workspace?.planningContext?.today?.id
+    if (todayPlanId) params.set('planId', todayPlanId)
+    navigate(`/trades?${params.toString()}`)
   }
 
-  const planCalendarStorageLabel = (scope: PlanScopeTab, plan?: PeriodPlan | null) => {
-    if (scope === 'TODAY') {
-      return `Visible in Calendar on ${formatDate(plan?.periodStart || workspace.session.tradingDate, timezone)}.`
-    }
-    if (scope === 'WEEKLY') {
-      return `Pinned in Calendar for this week until ${formatDate(plan?.periodEnd, timezone)}.`
-    }
-    return `Pinned in Calendar for this month until ${formatDate(plan?.periodEnd, timezone)}.`
+  const deferredChartSymbol = useDeferredValue(toTradingViewSymbol(chartSymbol, null))
+  const deferredChartInterval = useDeferredValue(mentorPlanQuery.data?.tradingViewInterval || '15')
+
+  if (workspaceQuery.isLoading) return <LoadingState rows={8} height={38} />
+  if (workspaceQuery.isError || !workspace) {
+    return <Alert severity="error">{(workspaceQuery.error as ApiError)?.message || 'Could not load Session.'}</Alert>
   }
 
-  const setupListPanel = (
-    <Stack spacing={1.3}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-        <Typography variant="h6" sx={{ fontWeight: 900 }}>Setups</Typography>
-        <Button size="small" startIcon={<AddRoundedIcon />} onClick={() => setCreateDialogOpen(true)}>Add</Button>
-      </Stack>
-      {workspace.setups.length ? workspace.setups.map((setup) => (
-        <Box
-          key={setup.id}
-          className="ws-subpanel"
-          sx={(theme) => ({
-            p: 1.15,
-            borderColor: selectedSetup?.id === setup.id ? theme.palette.primary.main : 'var(--ws-border)',
-            background: selectedSetup?.id === setup.id ? alpha(theme.palette.primary.main, 0.11) : undefined
-          })}
-        >
-          <Stack spacing={0.75}>
-            <Stack direction="row" justifyContent="space-between" spacing={1}>
-              <Box sx={{ minWidth: 0 }}>
-                <Typography variant="body2" sx={{ fontWeight: 900 }} noWrap>{setup.setupTitle}</Typography>
-                <Typography variant="caption" color="text.secondary">{setup.symbol} / {formatDirection(setup.direction)}</Typography>
-              </Box>
-              <Chip size="small" color={chipColorForStatus(setup.status)} label={setup.status.replaceAll('_', ' ')} />
-            </Stack>
-            <LinearProgress variant="determinate" value={setup.readiness.score} />
-            <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
-              <Chip size="small" variant="outlined" label={`${setup.readiness.score}%`} />
-              {setup.strategySnapshot?.name ? <Chip size="small" variant="outlined" label={setup.strategySnapshot.name} /> : <Chip size="small" variant="outlined" label="Manual" />}
-              {setup.analysisNoteId ? <Chip size="small" color="success" variant="outlined" label="Notebook saved" /> : null}
-            </Stack>
-            <Stack direction="row" spacing={0.6}>
-              <Button size="small" variant={selectedSetup?.id === setup.id ? 'contained' : 'text'} onClick={() => {
-                handleSelectSetup(setup.id)
-                setSideTab('SETUP')
-              }}>Open</Button>
-              <Button size="small" startIcon={<ContentCopyRoundedIcon />} onClick={() => duplicateSetupMutation.mutate({ sessionId: workspace.session.id, setupId: setup.id })}>Duplicate</Button>
-            </Stack>
+  const setupSymbolDiffers = Boolean(setupDraft?.symbol && normalizeSymbol(setupDraft.symbol) !== normalizeSymbol(chartSymbol))
+  const meaningfulSummary = workspace.session.quickStats.tradesTaken > 0
+    || Boolean(workspace.session.quickStats.realizedPnl)
+    || Boolean(workspace.session.quickStats.riskConfigured)
+  const sessionLabel = workspace.session.sessionName || setupDraft?.tradeSession?.replace('_', ' ') || 'Trading session'
+  const saveLabel = saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Could not save' : saveState === 'saved' ? 'Saved' : ''
+
+  const renderPlan = (scope: PlanScopeTab, plan: PeriodPlan | null | undefined) => {
+    const draft = planDrafts[scope]
+    const isOpen = expandedPlans.includes(scope) && !focusMode
+    return (
+      <Accordion
+        key={scope}
+        expanded={isOpen}
+        onChange={(_, expanded) => togglePlan(scope, expanded)}
+        disableGutters
+        elevation={0}
+        sx={{ border: '1px solid', borderColor: 'divider', borderRadius: '12px !important', '&::before': { display: 'none' }, overflow: 'hidden' }}
+      >
+        <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />} aria-controls={`${scope.toLowerCase()}-plan-content`} id={`${scope.toLowerCase()}-plan-header`}>
+          <Stack spacing={0.25} sx={{ minWidth: 0, pr: 1 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 800 }}>{planLabel(scope)}</Typography>
+            <Typography variant="body2" color="text.secondary" noWrap>{planSummary(plan, scope)}</Typography>
+            {plan?.exists ? <Typography variant="caption" color="text.secondary">{[plan.focusSymbols?.join(', '), planRange(plan, timezone)].filter(Boolean).join(' · ')}</Typography> : null}
           </Stack>
-        </Box>
-      )) : (
-        <EmptyState title="No setups yet" description="Add a setup to drive the chart and checklist." icon={<AddRoundedIcon fontSize="inherit" />} />
-      )}
-    </Stack>
-  )
-
-  const setupEditorPanel = (
-    <Stack spacing={1.25}>
-      <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-        <Typography variant="h6" sx={{ fontWeight: 900 }}>Setup Editor</Typography>
-        <Typography variant="caption" color="text.secondary">{autoSaveState}</Typography>
-      </Stack>
-      {selectedSetup ? (
-        <>
-          <TextField label="Setup title" value={selectedSetup.setupTitle} onChange={(event) => updateSelectedSetup((current) => ({ ...current, setupTitle: event.target.value }))} />
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-            <TextField label="Symbol" value={selectedSetup.symbol} onChange={(event) => updateSelectedSetup((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
-            <FormControl fullWidth>
-              <InputLabel id="setup-direction-label">Direction</InputLabel>
-              <Select labelId="setup-direction-label" label="Direction" value={selectedSetup.direction} onChange={(event) => updateSelectedSetup((current) => ({ ...current, direction: event.target.value as SetupItem['direction'] }))}>
-                {directionOptions.map((direction) => <MenuItem key={direction} value={direction}>{formatDirection(direction)}</MenuItem>)}
-              </Select>
-            </FormControl>
-          </Box>
-          <TextField label="Setup note" value={selectedSetup.context.notes || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, notes: event.target.value } }))} multiline minRows={2} />
-          <TextField label="Invalidation note" value={selectedSetup.context.invalidationIdea || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} />
-          <TextField label="Target note" value={selectedSetup.trigger.entryZone || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, trigger: { ...current.trigger, entryZone: event.target.value } }))} multiline minRows={2} />
-          <TextField label="Liquidity / narrative" value={selectedSetup.context.liquidityNotes || ''} onChange={(event) => updateSelectedSetup((current) => ({ ...current, context: { ...current.context, liquidityNotes: event.target.value } }))} multiline minRows={2} />
-        </>
-      ) : (
-        <EmptyState title="No setup selected" description="Create a setup to edit title, symbol, and direction." icon={<NotesRoundedIcon fontSize="inherit" />} />
-      )}
-    </Stack>
-  )
-
-  const sidePanel = (
-    <Card data-testid="execution-control-panel" className="ws-panel" component="aside" sx={{ position: { xl: 'sticky' }, top: { xl: 104 }, maxHeight: { xl: 'calc(100vh - 124px)' }, overflow: 'auto' }}>
-      <CardContent sx={{ p: 2 }}>
-        <Stack spacing={1.6}>
-          <Tabs value={sideTab} onChange={(_, value: SideTab) => setSideTab(value)} variant="scrollable" allowScrollButtonsMobile>
-            <Tab value="SETUPS" label="Setups" />
-            <Tab value="SETUP" label="Setup" />
-            <Tab value="STRATEGY" label="Strategy" />
-            <Tab value="RISK" label="Risk" />
-            <Tab value="CONFLUENCES" label="Confluences" />
-            <Tab value="EXECUTE" label="Execute" />
-            <Tab value="JOURNAL" label="Journal" />
-            <Tab value="TIMELINE" label="Timeline" />
-          </Tabs>
-
-          {sideTab === 'SETUPS' ? setupListPanel : null}
-          {sideTab === 'SETUP' ? setupEditorPanel : null}
-
-          {sideTab === 'STRATEGY' ? (
-            <Stack spacing={1.4}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>Strategy Focus</Typography>
-                <Button size="small" startIcon={<ImportExportRoundedIcon />} onClick={openStrategyDialog}>Import</Button>
-              </Stack>
-              {strategySummary ? (
-                <Box className="ws-subpanel" sx={{ p: 1.25 }}>
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>{strategySummary.importedFrom}</Typography>
-                    <Typography variant="body2" color="text.secondary">{strategySummary.model}</Typography>
-                    <Typography variant="body2">{strategySummary.entrySummary}</Typography>
-                    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                      <Chip size="small" variant="outlined" label={selectedSetup?.strategySnapshot?.source || 'Strategy'} />
-                      {(selectedSetup?.strategySnapshot?.sessionSuitability || []).map((item) => <Chip key={item} size="small" label={item} />)}
-                    </Stack>
-                    <Button size="small" onClick={() => setStrategyDetailOpen(true)}>View full strategy</Button>
-                  </Stack>
-                </Box>
-              ) : (
-                <Box className="ws-subpanel" sx={{ p: 1.25 }}>
-                  <Stack spacing={1}>
-                    <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Manual setup mode</Typography>
-                    <Typography variant="body2" color="text.secondary">Use the checklist below without importing a strategy.</Typography>
-                    <FormControlLabel
-                      control={(
-                        <Switch
-                          checked={Boolean(selectedSetup?.manualSetupMode ?? true)}
-                          onChange={(event) => updateSelectedSetup((current) => ({ ...current, manualSetupMode: event.target.checked }))}
-                          disabled={!selectedSetup}
-                        />
-                      )}
-                      label="Manual setup mode"
-                    />
-                  </Stack>
-                </Box>
-              )}
-            </Stack>
-          ) : null}
-
-          {sideTab === 'RISK' ? (
-            <Stack spacing={1.25}>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>Risk Guardrails</Typography>
-              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                <TextField label="Max loss" type="number" value={sessionDraft?.dailyMaxLoss ?? ''} onChange={(event) => setSessionDraft((current) => current ? { ...current, dailyMaxLoss: parseNumberInput(event.target.value) } : current)} />
-                <TextField label="Profit target" type="number" value={sessionDraft?.profitTarget ?? ''} onChange={(event) => setSessionDraft((current) => current ? { ...current, profitTarget: parseNumberInput(event.target.value) } : current)} />
-                <TextField label="Risk per trade" type="number" value={sessionDraft?.riskPerTrade ?? ''} onChange={(event) => setSessionDraft((current) => current ? { ...current, riskPerTrade: parseNumberInput(event.target.value) } : current)} />
-                <TextField label="Max trades" type="number" value={sessionDraft?.maxTrades ?? ''} onChange={(event) => setSessionDraft((current) => current ? { ...current, maxTrades: parseNumberInput(event.target.value) } : current)} />
-                <TextField label="Max consecutive losses" type="number" value={sessionDraft?.maxConsecutiveLosses ?? ''} onChange={(event) => setSessionDraft((current) => current ? { ...current, maxConsecutiveLosses: parseNumberInput(event.target.value) } : current)} sx={{ gridColumn: '1 / -1' }} />
-              </Box>
-              <FormControlLabel control={<Switch checked={Boolean(sessionDraft?.stopAfterTargetReached)} onChange={(event) => setSessionDraft((current) => current ? { ...current, stopAfterTargetReached: event.target.checked } : current)} />} label="Stop after target reached" />
-              <FormControlLabel control={<Switch checked={sessionDraft?.stopAfterMaxLossReached ?? true} onChange={(event) => setSessionDraft((current) => current ? { ...current, stopAfterMaxLossReached: event.target.checked } : current)} />} label="Stop after max loss reached" />
-              <Box className="ws-subpanel" sx={{ p: 1.25 }}>
-                <Stack spacing={0.75}>
-                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                    <Chip size="small" label={`Risk used ${formatCurrency(workspace.session.quickStats.riskUsed, baseCurrency)}`} />
-                    <Chip size="small" label={`Remaining ${formatCurrency(workspace.session.quickStats.remainingRisk, baseCurrency)}`} />
-                    <Chip size="small" label={`${workspace.session.quickStats.remainingTrades ?? 0} trades left`} />
-                  </Stack>
-                  <Alert severity={riskConfigured && workspace.session.quickStats.tradingAllowed !== false ? 'success' : 'warning'}>
-                    {riskConfigured ? 'Trading allowed by current guardrails.' : 'Complete all risk guardrails before locking.'}
-                  </Alert>
-                </Stack>
-              </Box>
-            </Stack>
-          ) : null}
-
-          {sideTab === 'CONFLUENCES' ? (
-            <Stack spacing={1.25}>
-              <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>Confluence Checklist</Typography>
-                <Chip size="small" color={readinessColor(readinessLabel)} label={readinessLabel} />
-              </Stack>
-              {selectedSetup ? (
-                <>
-                  <Stack spacing={0.75}>
-                    {dedupeConfluences(selectedSetup.confluences || []).map((item) => {
-                      const isRiskItem = item.label.toLowerCase() === 'risk configured'
-                      const checked = isRiskItem ? riskConfigured : item.checked
-                      return (
-                        <Box key={item.id} className="ws-subpanel" sx={{ p: 0.9 }}>
-                          <Stack direction="row" spacing={0.75} alignItems="center">
-                            <Checkbox
-                              checked={checked}
-                              disabled={isRiskItem}
-                              onChange={(event) => updateSelectedSetup((current) => ({
-                                ...current,
-                                confluences: current.confluences.map((row) => row.id === item.id ? { ...row, checked: event.target.checked } : row)
-                              }))}
-                            />
-                            <Box sx={{ flex: 1, minWidth: 0 }}>
-                              <Typography variant="body2" sx={{ fontWeight: 800 }}>{item.label}</Typography>
-                              <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap>
-                                <Chip size="small" variant="outlined" label={item.source} />
-                                {item.required ? <Chip size="small" color="warning" variant="outlined" label="Required" /> : <Chip size="small" variant="outlined" label="Optional" />}
-                              </Stack>
-                            </Box>
-                            <Switch
-                              size="small"
-                              checked={item.required}
-                              onChange={(event) => updateSelectedSetup((current) => ({
-                                ...current,
-                                confluences: current.confluences.map((row) => row.id === item.id ? { ...row, required: event.target.checked } : row)
-                              }))}
-                              disabled={isRiskItem}
-                            />
-                            {item.source === 'CUSTOM' ? (
-                              <IconButton size="small" onClick={() => updateSelectedSetup((current) => ({ ...current, confluences: current.confluences.filter((row) => row.id !== item.id) }))}>
-                                <DeleteRoundedIcon fontSize="small" />
-                              </IconButton>
-                            ) : null}
-                          </Stack>
-                        </Box>
-                      )
-                    })}
-                  </Stack>
-                  <Stack direction="row" spacing={1}>
-                    <TextField size="small" label="Add confluence" value={newConfluence} onChange={(event) => setNewConfluence(event.target.value)} fullWidth />
-                    <Button
-                      variant="outlined"
-                      startIcon={<AddRoundedIcon />}
-                      onClick={() => {
-                        if (!newConfluence.trim()) return
-                        updateSelectedSetup((current) => ({
-                          ...current,
-                          confluences: dedupeConfluences([...current.confluences, { id: generateId(), label: newConfluence.trim(), checked: false, required: true, source: 'CUSTOM' }])
-                        }))
-                        setNewConfluence('')
-                      }}
-                    >
-                      Add
-                    </Button>
-                  </Stack>
-                </>
-              ) : (
-                <EmptyState title="No setup selected" description="Create a setup to manage confluences." icon={<NotesRoundedIcon fontSize="inherit" />} />
-              )}
-            </Stack>
-          ) : null}
-
-          {sideTab === 'EXECUTE' ? (
-            <Stack spacing={1.25}>
-              <Stack direction="row" justifyContent="space-between" spacing={1}>
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>Execution</Typography>
-                <Button size="small" startIcon={<AddRoundedIcon />} onClick={addExecution} disabled={!selectedSetup}>New execution</Button>
-              </Stack>
-              {selectedExecution ? (
-                <>
-                  <Box className="ws-subpanel" sx={{ p: 1.25 }}>
-                    <Stack spacing={0.75}>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>{selectedExecution.label}</Typography>
-                      <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                        <Chip size="small" label={`RR ${activeRr != null ? formatNumber(activeRr, 2) : '—'}`} />
-                        <Chip size="small" label={formatCurrency(selectedExecution.riskAmount, baseCurrency)} />
-                      </Stack>
-                    </Stack>
-                  </Box>
-                  <TextField label="Execution label" value={selectedExecution.label} onChange={(event) => updateActiveExecution((ticket) => ({ ...ticket, label: event.target.value }))} />
-                  <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                    <TextField label="Risk amount" type="number" value={selectedExecution.riskAmount ?? ''} onChange={(event) => updateActiveExecution((ticket) => ({ ...ticket, riskAmount: parseNumberInput(event.target.value) }))} />
-                    <TextField label="Quantity" type="number" value={selectedExecution.quantity ?? ''} onChange={(event) => updateActiveExecution((ticket) => ({ ...ticket, quantity: parseNumberInput(event.target.value) }))} />
-                    <TextField label="Entry" type="number" value={selectedExecution.entryPrice ?? ''} onChange={(event) => updateActiveExecution((ticket) => ({ ...ticket, entryPrice: parseNumberInput(event.target.value) }))} />
-                    <TextField label="Stop loss" type="number" value={selectedExecution.stopLossPrice ?? ''} onChange={(event) => updateActiveExecution((ticket) => ({ ...ticket, stopLossPrice: parseNumberInput(event.target.value) }))} />
-                    <TextField label="Take profit" type="number" value={selectedExecution.takeProfitPrice ?? ''} onChange={(event) => updateActiveExecution((ticket) => ({ ...ticket, takeProfitPrice: parseNumberInput(event.target.value) }))} sx={{ gridColumn: '1 / -1' }} />
-                  </Box>
-                  <TextField label="Execution invalidation" value={selectedExecution.invalidation || ''} onChange={(event) => updateActiveExecution((ticket) => ({ ...ticket, invalidation: event.target.value }))} multiline minRows={2} />
-                  {workspace.session.lockedInAt ? (
-                    <Button variant="contained" startIcon={<PlayArrowRoundedIcon />} onClick={() => void handleQuickLogAction('ENTRY_TAKEN')}>
-                      Mark active
-                    </Button>
-                  ) : (
-                    <Alert severity="warning">Lock the Today Plan before starting execution.</Alert>
-                  )}
-                </>
-              ) : (
-                <EmptyState title="No execution ticket" description="Create an execution ticket after the plan is locked." icon={<PlayArrowRoundedIcon fontSize="inherit" />} />
-              )}
-            </Stack>
-          ) : null}
-
-          {sideTab === 'JOURNAL' ? (
-            <Stack spacing={1.25}>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>Quick Log</Typography>
-              <TextField label="Quick note" value={quickNote} onChange={(event) => setQuickNote(event.target.value)} multiline minRows={2} />
-              <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                {quickLogActions.map((action) => (
-                  <Button key={action.id} size="small" variant={action.id === 'ENTRY_TAKEN' ? 'contained' : 'outlined'} onClick={() => void handleQuickLogAction(action.id)}>
-                    {action.title}
-                  </Button>
-                ))}
-              </Stack>
-              <Box className="ws-subpanel" sx={{ p: 1.25 }}>
-                <Stack spacing={0.75}>
-                  <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Notebook preservation</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    Executions create trades. Non-executed analysis is saved as a session recap note.
-                  </Typography>
-                  <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      startIcon={<NotesRoundedIcon />}
-                      disabled={!selectedSetup || saveAnalysisNoteMutation.isPending}
-                      onClick={() => selectedSetup && saveAnalysisNoteMutation.mutate({ sessionId: workspace.session.id, setupId: selectedSetup.id })}
-                    >
-                      {saveAnalysisNoteMutation.isPending ? 'Saving note...' : selectedSetup?.analysisNoteId ? 'Update analysis note' : 'Save analysis note'}
-                    </Button>
-                    {selectedSetup?.analysisNoteId ? <Chip size="small" color="success" label="Saved in Notebook" /> : <Chip size="small" variant="outlined" label="Not yet in Notebook" />}
-                  </Stack>
-                </Stack>
-              </Box>
-            </Stack>
-          ) : null}
-
-          {sideTab === 'TIMELINE' ? (
-            <Stack spacing={1.25}>
-              <Divider />
-              <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>Activity Timeline</Typography>
-              {timeline.length > 0 ? timeline.slice(0, 8).map((entry) => <TimelineEntryCard key={entry.id} entry={entry} timezone={timezone} />) : (
-                <EmptyState title="No activity yet" description="Plan changes and execution events appear here." icon={<TimelineRoundedIcon fontSize="inherit" />} />
-              )}
-            </Stack>
-          ) : null}
-        </Stack>
-      </CardContent>
-    </Card>
-  )
-
-  const periodEditor = (scope: 'WEEKLY' | 'MONTHLY', plan: PeriodPlan | undefined, draft: PeriodPlanDraft | null, setDraft: (updater: (current: PeriodPlanDraft | null) => PeriodPlanDraft | null) => void) => (
-    <Card className="ws-panel">
-      <CardContent sx={{ p: 2.2 }}>
-        <Stack spacing={1.5}>
-          <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.2}>
-            <Stack spacing={0.4}>
-              <Chip size="small" color={plan?.exists ? 'success' : 'default'} label={plan?.exists ? `Active ${scope.toLowerCase()} plan` : `Create this ${scope.toLowerCase()} plan`} />
-              <Typography variant="h5" sx={{ fontWeight: 900 }}>{scope === 'WEEKLY' ? 'Weekly Plan' : 'Monthly Plan'}</Typography>
-              <Typography variant="body2" color="text.secondary">{periodRange(plan, timezone)}</Typography>
-            </Stack>
+        </AccordionSummary>
+        <AccordionDetails id={`${scope.toLowerCase()}-plan-content`} sx={{ pt: 0 }}>
+          <Stack spacing={1.25}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.1 }}>
+              <TextField label="Bias" value={draft?.bias || ''} onChange={(event) => updatePlanDraft(scope, { bias: event.target.value })} fullWidth />
+              <TextField label="Symbols" value={draft?.focusSymbols || ''} onChange={(event) => updatePlanDraft(scope, { focusSymbols: event.target.value })} helperText="Comma-separated" fullWidth />
+            </Box>
+            <TextField label="Narrative / objectives" value={draft?.objectives || ''} onChange={(event) => updatePlanDraft(scope, { objectives: event.target.value })} multiline minRows={2} fullWidth />
+            <TextField label="Important levels and notes" value={draft?.notes || ''} onChange={(event) => updatePlanDraft(scope, { notes: event.target.value })} multiline minRows={2} fullWidth />
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ xs: 'stretch', sm: 'center' }}>
-              {plan?.exists ? (
-                <Button
-                  variant="text"
-                  color="error"
-                  size="small"
-                  startIcon={<DeleteRoundedIcon />}
-                  onClick={() => requestRemovePlan(scope, plan)}
-                >
-                  Remove plan
-                </Button>
-              ) : null}
-              <Button variant="contained" onClick={saveCurrentPeriodPlan}>{plan?.exists ? 'Save plan' : 'Create plan'}</Button>
+              <Button
+                variant="outlined"
+                onClick={() => draft && planMutation.mutate({ scope, draft })}
+                disabled={!draft || planMutation.isPending}
+                sx={{ minHeight: 44 }}
+              >
+                {plan?.exists ? 'Save plan' : 'Create plan'}
+              </Button>
+              <Button endIcon={<OpenInNewRoundedIcon />} onClick={() => navigate(`/calendar?plan=${scope.toLowerCase()}`)} sx={{ minHeight: 44 }}>
+                Open plan
+              </Button>
             </Stack>
+            {plan?.exists ? (
+              <PlanImagesSection
+                compact
+                title="Charts"
+                storageLabel="Screenshots attached to this plan"
+                images={plan.images || []}
+                uploads={planImageUploads[scope]}
+                deletingIds={deletingPlanImageIds}
+                onUpload={(files) => void uploadPlanImages(scope, files)}
+                onDelete={(image) => void deletePlanImage(scope, image)}
+                onRetry={() => void queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })}
+                onOpenCalendar={() => navigate(`/calendar?plan=${scope.toLowerCase()}`)}
+              />
+            ) : null}
           </Stack>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 1.2 }}>
-            <TextField label="Title" value={draft?.title || ''} onChange={(event) => setDraft((current) => current ? { ...current, title: event.target.value } : current)} />
-            <TextField label={scope === 'WEEKLY' ? 'Weekly bias' : 'Monthly bias/context'} value={draft?.bias || ''} onChange={(event) => setDraft((current) => current ? { ...current, bias: event.target.value } : current)} />
-            <TextField label="Focus symbols" value={draft?.focusSymbols || ''} onChange={(event) => setDraft((current) => current ? { ...current, focusSymbols: event.target.value } : current)} helperText="Comma-separated" />
-            <TextField label={scope === 'WEEKLY' ? 'Weekly objectives' : 'Monthly target'} value={draft?.objectives || ''} onChange={(event) => setDraft((current) => current ? { ...current, objectives: event.target.value } : current)} />
-            <TextField label={scope === 'WEEKLY' ? 'Weekly max loss' : 'Monthly max loss'} type="number" value={draft?.maxLoss ?? ''} onChange={(event) => setDraft((current) => current ? { ...current, maxLoss: parseNumberInput(event.target.value) } : current)} />
-            <TextField label={scope === 'WEEKLY' ? 'Weekly target' : 'Monthly target value'} type="number" value={draft?.target ?? ''} onChange={(event) => setDraft((current) => current ? { ...current, target: parseNumberInput(event.target.value) } : current)} />
-          </Box>
-          <TextField label="Notes" value={draft?.notes || ''} onChange={(event) => setDraft((current) => current ? { ...current, notes: event.target.value } : current)} multiline minRows={3} />
-          {scope === 'MONTHLY' ? (
-            <TextField label="Review / intentions" value={draft?.reviewIntentions || ''} onChange={(event) => setDraft((current) => current ? { ...current, reviewIntentions: event.target.value } : current)} multiline minRows={2} />
-          ) : null}
-          <PlanImagesSection
-            title={`${scope === 'WEEKLY' ? 'Weekly' : 'Monthly'} Plan Images`}
-            storageLabel={plan?.exists ? planCalendarStorageLabel(scope, plan) : `Save this ${scope.toLowerCase()} plan before uploading images.`}
-            images={plan?.images || []}
-            uploads={planImageUploads[scope]}
-            disabled={!plan?.exists}
-            disabledReason={!plan?.exists ? `Create this ${scope.toLowerCase()} plan before uploading images.` : undefined}
-            deletingIds={deletingPlanImageIds}
-            onUpload={(files) => void handleUploadPlanImages(scope, files)}
-            onDelete={(image) => void handleDeletePlanImage(scope, image)}
-            onRetry={() => void queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })}
-            onOpenCalendar={() => openPlanInCalendar(scope)}
-          />
-        </Stack>
-      </CardContent>
-    </Card>
-  )
+        </AccordionDetails>
+      </Accordion>
+    )
+  }
 
   return (
-    <Stack spacing={2} sx={(theme) => ({
+    <Box sx={(theme) => ({
+      width: '100%',
+      maxWidth: 1160,
+      mx: 'auto',
       minWidth: 0,
-      pb: 3,
-      '--ws-panel-radius': '12px',
-      '--ws-tile-radius': '10px',
-      '--ws-border': alpha(theme.palette.divider, theme.palette.mode === 'dark' ? 0.78 : 0.66),
-      '& .ws-panel': {
-        border: '1px solid var(--ws-border)',
-        borderRadius: 'var(--ws-panel-radius)',
-        background: theme.palette.background.paper,
-        boxShadow: theme.palette.mode === 'dark' ? '0 18px 42px rgba(0,0,0,0.28)' : '0 18px 42px rgba(15,23,42,0.07)'
+      overflowX: 'clip',
+      pb: { xs: 'calc(96px + env(safe-area-inset-bottom))', md: 5 },
+      '& .session-section': {
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 3,
+        backgroundColor: 'background.paper',
+        boxShadow: theme.palette.mode === 'dark' ? 'none' : `0 12px 32px ${alpha(theme.palette.common.black, 0.045)}`
       },
-      '& .ws-subpanel': {
-        border: '1px solid var(--ws-border)',
-        borderRadius: 'var(--ws-tile-radius)',
-        background: alpha(theme.palette.primary.main, theme.palette.mode === 'dark' ? 0.05 : 0.035)
-      },
-      '& .MuiOutlinedInput-root': { borderRadius: '10px' }
+      '& .MuiInputBase-root': { minWidth: 0 },
+      '& .MuiButton-root': { minHeight: 44 }
     })}>
-      <Card className="ws-panel" sx={{ position: 'sticky', top: 16, zIndex: 6 }}>
-        <CardContent sx={{ p: { xs: 2, md: 2.35 }, '&:last-child': { pb: { xs: 2, md: 2.35 } } }}>
-          <Stack spacing={1.6}>
-            <Stack direction={{ xs: 'column', xl: 'row' }} justifyContent="space-between" spacing={1.6}>
-              <Stack spacing={0.8}>
-                <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                  <Chip color="primary" label="Trader Plan Workstation" />
-                  <Chip color={readinessColor(readinessLabel)} icon={workspace.session.lockedInAt ? <LockRoundedIcon /> : <LockOpenRoundedIcon />} label={readinessLabel} />
-                  <Chip variant="outlined" label={formatDate(workspace.session.tradingDate, timezone)} />
-                  <Chip variant="outlined" label={selectedSetup ? `${selectedSetup.symbol} / ${formatDirection(selectedSetup.direction)}` : 'No setup selected'} />
-                </Stack>
-                <Typography variant="h4" sx={{ fontWeight: 900 }}>Session Mode</Typography>
-              </Stack>
-              <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap alignItems="flex-start">
-                <Button variant="outlined" startIcon={<ImportExportRoundedIcon />} onClick={openStrategyDialog} disabled={!todayPlanActive}>Import strategy</Button>
-                <Button variant="outlined" startIcon={<AddRoundedIcon />} onClick={() => setCreateDialogOpen(true)} disabled={!todayPlanActive}>Add setup</Button>
-                <Button
-                  variant="outlined"
-                  startIcon={<AddRoundedIcon />}
-                  onClick={handleAddPlanSession}
-                  disabled={todayPlanMutation.isPending || periodPlanMutation.isPending}
-                >
-                  {planScope === 'TODAY' && !todayPlanActive ? todayPlanRestoreLabel : 'Add plan/session'}
-                </Button>
-                <Button variant="outlined" startIcon={<BoltRoundedIcon />} onClick={(event) => setQuickLogAnchorEl(event.currentTarget)} disabled={!selectedSetup}>Quick log</Button>
-                <Button
-                  variant={workspace.session.lockedInAt ? 'outlined' : 'contained'}
-                  startIcon={workspace.session.lockedInAt ? <LockOpenRoundedIcon /> : <LockRoundedIcon />}
-                  disabled={!todayPlanActive || (!workspace.session.lockedInAt && !canLock)}
-                  onClick={() => updateSessionMutation.mutate({
-                    sessionId: workspace.session.id,
-                    data: {
-                      ...toSessionPayload(sessionDraft || toSessionDraft(workspace.session)),
-                      lockSession: !Boolean(workspace.session.lockedInAt)
-                    },
-                    signature: sessionSignatureRef.current
-                  })}
-                >
-                  {workspace.session.lockedInAt ? 'Unlock session' : 'Lock session'}
-                </Button>
-              </Stack>
-            </Stack>
-
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, minmax(0, 1fr))', lg: 'repeat(7, minmax(0, 1fr))' }, gap: 1 }}>
-              <SurfaceMetric label="Selected setup" value={selectedSetup?.setupTitle || '—'} detail={selectedSetup?.symbol} />
-              <SurfaceMetric label="Max loss" value={formatCurrency(workspace.session.quickStats.maxLoss, baseCurrency)} />
-              <SurfaceMetric label="Profit target" value={formatCurrency(workspace.session.quickStats.profitTarget, baseCurrency)} />
-              <SurfaceMetric label="Risk used" value={formatCurrency(workspace.session.quickStats.riskUsed, baseCurrency)} />
-              <SurfaceMetric label="Realized PnL" value={formatSignedCurrency(workspace.session.quickStats.realizedPnl, baseCurrency)} />
-              <SurfaceMetric label="Remaining risk" value={formatCurrency(workspace.session.quickStats.remainingRisk, baseCurrency)} />
-              <SurfaceMetric label="Setups" value={workspace.setups.length} detail={`${workspace.session.quickStats.remainingTrades ?? 0} trades left`} />
-            </Box>
+      <Stack spacing={{ xs: 2, md: 3 }}>
+        <Stack component="header" direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.25}>
+          <Box sx={{ minWidth: 0 }}>
+            <Typography component="h1" variant="h4" sx={{ fontWeight: 850 }}>Session</Typography>
+            <Typography color="text.secondary">
+              {formatDate(workspace.session.tradingDate, timezone)} · {sessionLabel}
+              {chartSymbol ? ` · ${chartSymbol}` : ''}
+            </Typography>
+          </Box>
+          <Stack direction="row" spacing={1} flexWrap="wrap" useFlexGap>
+            <Button startIcon={<ArrowBackRoundedIcon />} onClick={() => navigate('/today')}>Back to Today</Button>
+            <Button
+              variant={focusMode ? 'contained' : 'outlined'}
+              startIcon={<CenterFocusStrongRoundedIcon />}
+              aria-pressed={focusMode}
+              onClick={() => {
+                const next = !focusMode
+                setFocusMode(next)
+                localStorage.setItem(FOCUS_MODE_KEY, String(next))
+              }}
+            >
+              Focus mode
+            </Button>
           </Stack>
-        </CardContent>
-      </Card>
+        </Stack>
 
-      {feedback ? <Alert severity="info" onClose={() => setFeedback(null)}>{feedback}</Alert> : null}
-      {workspace.session.readiness.blockers.length > 0 && !workspace.session.lockedInAt ? (
-        <Alert severity="warning">
-          <AlertTitle>Plan not ready to lock</AlertTitle>
-          {workspace.session.readiness.blockers.join(', ')}
-        </Alert>
-      ) : null}
+        {feedback ? <Alert severity={saveState === 'error' ? 'error' : 'info'} onClose={() => setFeedback(null)}>{feedback}</Alert> : null}
 
-      <Card className="ws-panel">
-        <CardContent sx={{ p: 1.4 }}>
-          <Stack spacing={1.25}>
-            <Tabs value={planScope} onChange={(_, value: PlanScopeTab) => setPlanScope(value)} variant="fullWidth">
-              <Tab value="TODAY" label="Today Plan" />
-              <Tab value="WEEKLY" label="Weekly Plan" />
-              <Tab value="MONTHLY" label="Monthly Plan" />
-            </Tabs>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, minmax(0, 1fr))' }, gap: 1 }}>
-              <Box className="ws-subpanel" sx={{ p: 1.1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>Monthly Plan</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>{workspace.planningContext?.monthly?.bias || 'No monthly bias set'}</Typography>
-                <Typography variant="caption" color="text.secondary">{periodRange(workspace.planningContext?.monthly, timezone)}</Typography>
-                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                  <Chip size="small" color={workspace.planningContext?.monthly?.exists ? 'success' : 'default'} label={workspace.planningContext?.monthly?.exists ? 'Saved to Calendar' : 'Not saved'} />
-                  <Chip size="small" variant="outlined" label={`${workspace.planningContext?.monthly?.imageCount || 0} images`} />
-                </Stack>
-              </Box>
-              <Box className="ws-subpanel" sx={{ p: 1.1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>Weekly Plan</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>{workspace.planningContext?.weekly?.objectives || workspace.planningContext?.weekly?.bias || 'No weekly focus set'}</Typography>
-                <Typography variant="caption" color="text.secondary">{periodRange(workspace.planningContext?.weekly, timezone)}</Typography>
-                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                  <Chip size="small" color={workspace.planningContext?.weekly?.exists ? 'success' : 'default'} label={workspace.planningContext?.weekly?.exists ? 'Saved to Calendar' : 'Not saved'} />
-                  <Chip size="small" variant="outlined" label={`${workspace.planningContext?.weekly?.imageCount || 0} images`} />
-                </Stack>
-              </Box>
-              <Box className="ws-subpanel" sx={{ p: 1.1 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 800 }}>Today Plan</Typography>
-                <Typography variant="body2" sx={{ fontWeight: 900 }}>{todayPlanActive ? selectedSetup?.setupTitle || 'Create or select a setup' : 'No active Today Plan'}</Typography>
-                <Typography variant="caption" color="text.secondary">{todayPlanActive ? workspace.session.lockedInAt ? 'Locked for execution' : 'Planning' : 'Removed from active planning'}</Typography>
-                <Stack direction="row" spacing={0.6} flexWrap="wrap" useFlexGap sx={{ mt: 0.75 }}>
-                  <Chip size="small" color={todayPlanActive ? 'success' : 'default'} label={todayPlanActive ? 'Visible in Calendar' : 'Not active'} />
-                  <Chip size="small" variant="outlined" label={`${todayPlanActive ? workspace.planningContext?.today?.imageCount || 0 : 0} images`} />
-                </Stack>
-              </Box>
-            </Box>
-          </Stack>
-        </CardContent>
-      </Card>
-
-      {planScope === 'WEEKLY' ? periodEditor('WEEKLY', workspace.planningContext?.weekly, weeklyDraft, setWeeklyDraft) : null}
-      {planScope === 'MONTHLY' ? periodEditor('MONTHLY', workspace.planningContext?.monthly, monthlyDraft, setMonthlyDraft) : null}
-
-      {planScope === 'TODAY' ? (
-        <Stack spacing={1.25}>
-          <Box className="ws-subpanel" sx={{ p: { xs: 1.25, sm: 1.5 }, minWidth: 0 }}>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} justifyContent="space-between" alignItems={{ xs: 'stretch', sm: 'center' }}>
-              <Stack spacing={0.4} sx={{ minWidth: 0 }}>
-                <Chip size="small" color={todayPlanActive ? 'success' : 'default'} label={todayPlanActive ? 'Active today plan' : 'No active today plan'} />
-                <Typography variant="h5" sx={{ fontWeight: 900 }}>Today Plan</Typography>
-                <Typography variant="body2" color="text.secondary">{periodRange(todayPlan, timezone)}</Typography>
-              </Stack>
-              {todayPlanActive && todayPlan ? (
-                <Button
-                  variant="text"
-                  color="error"
-                  size="small"
-                  startIcon={<DeleteRoundedIcon />}
-                  onClick={() => requestRemovePlan('TODAY', todayPlan)}
-                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
-                >
-                  Remove plan
-                </Button>
-              ) : (
-                <Button
-                  variant="contained"
-                  size="small"
-                  startIcon={<AddRoundedIcon />}
-                  onClick={() => todayPlanMutation.mutate()}
-                  disabled={todayPlanMutation.isPending}
-                  sx={{ alignSelf: { xs: 'stretch', sm: 'center' } }}
-                >
-                  {todayPlanMutation.isPending ? 'Activating...' : todayPlanRestoreLabel}
-                </Button>
-              )}
+        {!focusMode ? (
+          <Box component="section" aria-labelledby="plans-heading">
+            <Typography id="plans-heading" component="h2" variant="h5" sx={{ fontWeight: 800, mb: 1.25 }}>Plans</Typography>
+            <Stack spacing={1}>
+              {renderPlan('TODAY', workspace.planningContext?.today)}
+              {renderPlan('WEEKLY', workspace.planningContext?.weekly)}
+              {renderPlan('MONTHLY', workspace.planningContext?.monthly)}
             </Stack>
           </Box>
+        ) : null}
 
-          {todayPlanActive ? (
-            <PlanImagesSection
-              title="Today Plan Images"
-              storageLabel={planCalendarStorageLabel('TODAY', workspace.planningContext?.today)}
-              images={workspace.planningContext?.today?.images || []}
-              uploads={planImageUploads.TODAY}
-              deletingIds={deletingPlanImageIds}
-              onUpload={(files) => void handleUploadPlanImages('TODAY', files)}
-              onDelete={(image) => void handleDeletePlanImage('TODAY', image)}
-              onRetry={() => void queryClient.invalidateQueries({ queryKey: ['liveWorkspace'] })}
-              onOpenCalendar={() => openPlanInCalendar('TODAY')}
-            />
-          ) : (
-            <EmptyState
-              title="No active Today Plan"
-              description={todayPlan?.id ? 'The removed plan is hidden from Session Mode and Calendar. Restore it to continue planning today.' : 'Create a Today Plan to start Session Mode and show it in Calendar.'}
-              icon={<NotesRoundedIcon fontSize="inherit" />}
-              action={(
-                <Button variant="contained" startIcon={<AddRoundedIcon />} onClick={() => todayPlanMutation.mutate()} disabled={todayPlanMutation.isPending}>
-                  {todayPlanMutation.isPending ? 'Activating...' : todayPlanRestoreLabel}
-                </Button>
-              )}
-            />
-          )}
-        </Stack>
-      ) : null}
-
-      {planScope === 'TODAY' && todayPlanActive ? (
-        <Box
-          data-testid="execution-workspace"
-          sx={{
-            display: 'grid',
-            gridTemplateColumns: { xs: '1fr', lg: 'minmax(0, 1fr) minmax(360px, 420px)' },
-            gap: { xs: 2, lg: 3 },
-            alignItems: 'stretch',
-            minWidth: 0,
-            minHeight: 0
-          }}
-        >
-          <Card
-            data-testid="chart-workspace-column"
-            className="ws-panel"
-            sx={{
-              display: 'flex',
-              flexDirection: 'column',
-              minWidth: 0,
-              minHeight: { xs: 480, md: 560, lg: 'clamp(620px, calc(100vh - 360px), 780px)' }
-            }}
-          >
-            <CardContent sx={{ p: 2.15, flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, '&:last-child': { pb: 2.15 } }}>
-              <Stack spacing={1.5} sx={{ flex: 1, minHeight: 0 }}>
-                <Stack direction={{ xs: 'column', md: 'row' }} justifyContent="space-between" spacing={1.2}>
-                  <Stack spacing={0.35}>
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <CandlestickChartRoundedIcon color="primary" />
-                      <Typography variant="h5" sx={{ fontWeight: 900 }}>Chart Workspace</Typography>
-                    </Stack>
-                    <Typography variant="body2" color="text.secondary">
-                      {selectedSetup ? `${selectedSetup.symbol} drives the live chart.` : 'Select a setup to drive the live chart.'}
-                    </Typography>
-                  </Stack>
-                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap alignItems="center">
-                    <Chip color={readinessColor(readinessLabel)} label={readinessLabel} />
-                    <Chip variant="outlined" label={selectedSetup ? formatDirection(selectedSetup.direction) : 'No setup'} />
-                    <Typography variant="caption" color="text.secondary">{autoSaveState}</Typography>
-                  </Stack>
-                </Stack>
-
-                <Box
-                  sx={{
-                    flex: 1,
-                    position: 'relative',
-                    minHeight: { xs: 480, md: 560, lg: 560 },
-                    borderRadius: '12px',
-                    overflow: 'hidden',
-                    border: '1px solid var(--ws-border)',
-                    backgroundColor: '#050608'
-                  }}
-                >
-                  {deferredChartSymbol ? (
-                    <TradingViewWidget
-                      symbol={deferredChartSymbol}
-                      interval={deferredChartInterval}
-                      minHeight={480}
-                      hideControls={false}
-                      allowSymbolChange
-                      preloadedIndicators={chartSettingsQuery.data?.preloadedIndicators || []}
-                      fallbackMessage={t('today.mentor.liveChartFallback')}
-                      fallbackLinkLabel={t('today.mentor.openOnTradingView')}
-                    />
-                  ) : (
-                    <EmptyState sx={{ height: '100%', minHeight: 'inherit', border: 0 }} title="Select a setup symbol" description="The chart appears as soon as a setup has a symbol." icon={<CandlestickChartRoundedIcon fontSize="inherit" />} />
-                  )}
+        <Card component="section" className="session-section" aria-labelledby="chart-heading" elevation={0}>
+          <CardContent sx={{ p: { xs: 1.5, sm: 2.25 }, '&:last-child': { pb: { xs: 1.5, sm: 2.25 } } }}>
+            <Stack spacing={1.5} sx={{ minWidth: 0 }}>
+              <TextField
+                label="Symbol"
+                value={chartSymbol}
+                onChange={(event) => handleChartSymbolChange(event.target.value)}
+                placeholder="GER30"
+                inputProps={{ autoCapitalize: 'characters', spellCheck: false }}
+                fullWidth
+              />
+              {setupSymbolDiffers ? (
+                <Alert severity="info" action={<Button size="small" onClick={syncChartSymbolToSetup}>Use for setup</Button>}>
+                  The chart changed without overwriting the setup you are editing.
+                </Alert>
+              ) : null}
+              <Stack direction="row" spacing={1} alignItems="center">
+                <CandlestickChartRoundedIcon color="primary" />
+                <Box sx={{ minWidth: 0 }}>
+                  <Typography id="chart-heading" component="h2" variant="h5" sx={{ fontWeight: 800 }}>Chart</Typography>
+                  {chartSymbol ? <Typography variant="body2" color="text.secondary" noWrap>{chartSymbol}</Typography> : null}
                 </Box>
               </Stack>
-            </CardContent>
-          </Card>
-
-          {sidePanel}
-        </Box>
-      ) : null}
-
-      <Menu anchorEl={quickLogAnchorEl} open={Boolean(quickLogAnchorEl)} onClose={() => setQuickLogAnchorEl(null)}>
-        {quickLogActions.map((action) => (
-          <MenuItem key={action.id} onClick={() => void handleQuickLogAction(action.id)}>{action.title}</MenuItem>
-        ))}
-      </Menu>
-
-      <Dialog open={Boolean(planRemovalTarget)} onClose={() => setPlanRemovalTarget(null)} fullWidth maxWidth="xs">
-        <DialogTitle>Remove plan</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <Stack spacing={1.25}>
-            <Typography variant="body1" sx={{ fontWeight: 700 }}>
-              {planRemovalTarget ? planRemovalLead(planRemovalTarget.scope) : ''}
-            </Typography>
-            <Typography variant="body2" color="text.secondary">
-              Uploaded images will no longer be shown with the removed plan. Setups linked only to this plan will no longer appear in active planning. This does not delete trades or executions already recorded.
-            </Typography>
-          </Stack>
-        </DialogContent>
-        <DialogActions sx={{ flexDirection: { xs: 'column-reverse', sm: 'row' }, alignItems: { xs: 'stretch', sm: 'center' }, gap: 1, px: { xs: 2, sm: 3 }, pb: { xs: 2, sm: 2 } }}>
-          <Button onClick={() => setPlanRemovalTarget(null)} disabled={removePlanMutation.isPending}>Cancel</Button>
-          <Button color="error" variant="contained" onClick={confirmRemovePlan} disabled={removePlanMutation.isPending}>
-            Remove plan
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={createDialogOpen} onClose={() => setCreateDialogOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle>Add setup</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <Stack spacing={1.4} sx={{ mt: 0.5 }}>
-            <TextField autoFocus label="Symbol" value={createSetupDraft.symbol} onChange={(event) => setCreateSetupDraft((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
-            <FormControl fullWidth>
-              <InputLabel id="create-direction-label">Direction</InputLabel>
-              <Select labelId="create-direction-label" label="Direction" value={createSetupDraft.direction} onChange={(event) => setCreateSetupDraft((current) => ({ ...current, direction: event.target.value as CreateSetupDraft['direction'] }))}>
-                {directionOptions.map((direction) => <MenuItem key={direction} value={direction}>{formatDirection(direction)}</MenuItem>)}
-              </Select>
-            </FormControl>
-            <TextField label="Setup title" value={createSetupDraft.setupTitle} onChange={(event) => setCreateSetupDraft((current) => ({ ...current, setupTitle: event.target.value }))} />
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setCreateDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleCreateSetup} disabled={!createSetupDraft.symbol.trim()}>Create</Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={strategyDetailOpen} onClose={() => setStrategyDetailOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle>Strategy details</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          {selectedSetup?.strategySnapshot ? (
-            <Stack spacing={1.25} sx={{ mt: 0.5 }}>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>{selectedSetup.strategySnapshot.name || '—'}</Typography>
-              <Typography variant="body2" color="text.secondary">{selectedSetup.strategySnapshot.model || '—'}</Typography>
-              {selectedSetup.strategySnapshot.entryConditionsRich ? <RichTextContent html={selectedSetup.strategySnapshot.entryConditionsRich} /> : <Typography variant="body2">{selectedSetup.strategySnapshot.entryConditions?.join(' / ') || '—'}</Typography>}
-              <Divider />
-              <Typography variant="body2"><strong>Invalidation:</strong> {selectedSetup.strategySnapshot.invalidationLogic || '—'}</Typography>
-              <Typography variant="body2"><strong>Targets:</strong> {selectedSetup.strategySnapshot.tpFramework || '—'}</Typography>
-              <Typography variant="body2"><strong>Avoid:</strong> {selectedSetup.strategySnapshot.noTradeRules || '—'}</Typography>
+              <Box
+                role="region"
+                aria-label={chartSymbol ? `Chart for ${chartSymbol}` : 'Trading chart'}
+                sx={{
+                  width: '100%',
+                  minWidth: 0,
+                  height: { xs: 'clamp(340px, 58vh, 440px)', md: 'clamp(500px, 64vh, 680px)' },
+                  overflow: 'hidden',
+                  borderRadius: 2,
+                  bgcolor: '#050608'
+                }}
+              >
+                {deferredChartSymbol ? (
+                  <TradingViewWidget
+                    symbol={deferredChartSymbol}
+                    interval={deferredChartInterval}
+                    minHeight={340}
+                    hideControls={false}
+                    allowSymbolChange={false}
+                    preloadedIndicators={chartSettingsQuery.data?.preloadedIndicators || []}
+                    fallbackMessage={t('today.mentor.liveChartFallback')}
+                    fallbackLinkLabel={t('today.mentor.openOnTradingView')}
+                  />
+                ) : (
+                  <Stack alignItems="center" justifyContent="center" sx={{ height: '100%', px: 2 }}>
+                    <Typography color="grey.400" textAlign="center">Enter a symbol to load the chart.</Typography>
+                  </Stack>
+                )}
+              </Box>
             </Stack>
-          ) : <EmptyState title="No strategy imported" description="Import a strategy or stay in manual setup mode." icon={<ImportExportRoundedIcon fontSize="inherit" />} />}
-        </DialogContent>
-        <DialogActions><Button onClick={() => setStrategyDetailOpen(false)}>Close</Button></DialogActions>
-      </Dialog>
+          </CardContent>
+        </Card>
 
-      <Dialog open={strategyDialogOpen} onClose={() => setStrategyDialogOpen(false)} fullWidth maxWidth="lg">
-        <DialogTitle>Import strategy</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '300px minmax(0, 1fr)' }, gap: 2, mt: 0.5 }}>
-            <Stack spacing={1.25}>
-              <TextField label="Search" value={importDraft.search} onChange={(event) => setImportDraft((current) => ({ ...current, search: event.target.value }))} InputProps={{ startAdornment: <SearchRoundedIcon fontSize="small" style={{ marginRight: 8 }} /> }} />
-              <FormControl fullWidth>
-                <InputLabel id="strategy-source-label">Source</InputLabel>
-                <Select labelId="strategy-source-label" label="Source" value={importDraft.source} onChange={(event) => setImportDraft((current) => ({ ...current, source: event.target.value as StrategyImportDraft['source'] }))}>
-                  <MenuItem value="ALL">All strategies</MenuItem>
-                  <MenuItem value="MY">My strategies</MenuItem>
-                  <MenuItem value="MENTOR">Mentor strategies</MenuItem>
-                </Select>
-              </FormControl>
-              <FormControlLabel control={<Switch checked={importDraft.createNewSetup || !selectedSetup} onChange={(event) => setImportDraft((current) => ({ ...current, createNewSetup: event.target.checked }))} />} label="Create new setup" />
-              {(importDraft.createNewSetup || !selectedSetup) ? (
-                <Stack spacing={1.1}>
-                  <TextField label="Symbol" value={importDraft.symbol} onChange={(event) => setImportDraft((current) => ({ ...current, symbol: event.target.value.toUpperCase() }))} />
-                  <FormControl fullWidth>
-                    <InputLabel id="import-direction-label">Direction</InputLabel>
-                    <Select labelId="import-direction-label" label="Direction" value={importDraft.direction} onChange={(event) => setImportDraft((current) => ({ ...current, direction: event.target.value as StrategyImportDraft['direction'] }))}>
-                      {directionOptions.map((direction) => <MenuItem key={direction} value={direction}>{formatDirection(direction)}</MenuItem>)}
-                    </Select>
-                  </FormControl>
-                  <TextField label="Setup title" value={importDraft.setupTitle} onChange={(event) => setImportDraft((current) => ({ ...current, setupTitle: event.target.value }))} />
-                </Stack>
-              ) : <Alert severity="info">Import into {selectedSetup.setupTitle}.</Alert>}
-              <Divider />
-              <Stack spacing={1}>
-                {strategiesQuery.isLoading ? <LoadingState rows={5} height={18} /> : strategyList.length ? strategyList.map((strategy) => (
-                  <Box key={strategy.id} className="ws-subpanel" sx={{ p: 1.1, cursor: 'pointer', borderColor: selectedStrategyId === strategy.id ? 'primary.main' : 'var(--ws-border)' }} onClick={() => {
-                    setSelectedStrategyId(strategy.id)
-                    setImportDraft((current) => ({ ...current, setupTitle: current.setupTitle || strategy.name, symbol: current.symbol || selectedSetup?.symbol || '' }))
-                  }}>
-                    <Stack spacing={0.45}>
-                      <Stack direction="row" justifyContent="space-between" spacing={1}>
-                        <Typography variant="body2" sx={{ fontWeight: 900 }}>{strategy.name}</Typography>
-                        <Chip size="small" label={strategy.source} />
-                      </Stack>
-                      <Typography variant="caption" color="text.secondary">{strategy.model}</Typography>
-                      <Typography variant="caption" color="text.secondary">{(strategy.entryConditions || []).slice(0, 3).join(' / ')}</Typography>
-                    </Stack>
-                  </Box>
-                )) : <EmptyState title="No strategies" description="Create a strategy first or continue in manual setup mode." icon={<ImportExportRoundedIcon fontSize="inherit" />} />}
+        <Card component="section" className="session-section" aria-labelledby="setup-heading" elevation={0}>
+          <CardContent sx={{ p: { xs: 1.5, sm: 2.25 }, '&:last-child': { pb: { xs: 1.5, sm: 2.25 } } }}>
+            <Stack spacing={1.5}>
+              <Stack direction="row" justifyContent="space-between" alignItems="baseline" spacing={1}>
+                <Typography id="setup-heading" component="h2" variant="h5" sx={{ fontWeight: 800 }}>Current setup</Typography>
+                <Typography
+                  variant="caption"
+                  color={saveState === 'error' ? 'error.main' : 'text.secondary'}
+                  role="status"
+                  aria-live="polite"
+                >
+                  {saveLabel}
+                </Typography>
               </Stack>
-            </Stack>
-            <Box className="ws-subpanel" sx={{ p: 1.5, minHeight: 420 }}>
-              {selectedStrategy ? (
-                <Stack spacing={1.25}>
-                  <Stack direction="row" justifyContent="space-between" spacing={1} alignItems="center">
-                    <Typography variant="h6" sx={{ fontWeight: 900 }}>{selectedStrategy.name}</Typography>
-                    <Chip size="small" variant="outlined" label={selectedStrategy.source} />
-                  </Stack>
-                  <Typography variant="body2" color="text.secondary">{selectedStrategy.model}</Typography>
-                  <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                    {strategyConfluences(selectedStrategy).slice(0, 8).map((item) => <Chip key={item.id} size="small" variant="outlined" label={item.label} />)}
-                  </Stack>
-                  {selectedStrategy.entryConditionsRich ? <RichTextContent html={selectedStrategy.entryConditionsRich} /> : <Typography variant="body2">{(selectedStrategy.entryConditions || []).join(' / ') || '—'}</Typography>}
-                  <Divider />
-                  <Typography variant="body2"><strong>Invalidation:</strong> {selectedStrategy.invalidationLogic || '—'}</Typography>
-                  <Typography variant="body2"><strong>Targets:</strong> {selectedStrategy.tpFramework || '—'}</Typography>
-                  <Typography variant="body2"><strong>Avoid:</strong> {selectedStrategy.noTradeRules || '—'}</Typography>
+              {!setupDraft ? <Typography color="text.secondary">Start typing to prepare your current setup.</Typography> : null}
+              <TextField
+                label="Setup title"
+                value={setupDraft?.setupTitle || ''}
+                onChange={(event) => updateSetup((current) => ({ ...current, setupTitle: event.target.value }))}
+                fullWidth
+              />
+              <Box>
+                <Typography component="label" id="direction-label" variant="body2" sx={{ display: 'block', mb: 0.75, fontWeight: 700 }}>Direction</Typography>
+                <ToggleButtonGroup
+                  exclusive
+                  fullWidth
+                  value={setupDraft?.direction || 'UNDECIDED'}
+                  onChange={(_, value: SetupDirection | null) => value && updateSetup((current) => ({ ...current, direction: value }))}
+                  aria-labelledby="direction-label"
+                  sx={{ '& .MuiToggleButton-root': { minHeight: 44 } }}
+                >
+                  <ToggleButton value="LONG">Long</ToggleButton>
+                  <ToggleButton value="SHORT">Short</ToggleButton>
+                  <ToggleButton value="UNDECIDED">Undecided</ToggleButton>
+                </ToggleButtonGroup>
+              </Box>
+              <TextField label="Narrative" value={setupDraft?.context.narrative || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, narrative: event.target.value } }))} multiline minRows={3} fullWidth />
+              <TextField label="Liquidity" value={setupDraft?.context.liquidityNotes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, liquidityNotes: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label="Entry zone" value={setupDraft?.trigger.entryZone || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, entryZone: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label="Invalidation" value={setupDraft?.context.invalidationIdea || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label="Target" value={setupDraft?.trigger.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, notes: event.target.value } }))} multiline minRows={2} fullWidth />
+              <TextField label="Notes" value={setupDraft?.context.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, notes: event.target.value } }))} multiline minRows={2} fullWidth />
+
+              <Button
+                variant="text"
+                onClick={() => setMoreDetailsOpen((current) => !current)}
+                aria-expanded={moreDetailsOpen}
+                endIcon={<ExpandMoreRoundedIcon sx={{ transform: moreDetailsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 160ms' }} />}
+                sx={{ alignSelf: 'flex-start' }}
+              >
+                More details
+              </Button>
+              <Collapse in={moreDetailsOpen}>
+                <Stack spacing={1.25} sx={{ pt: 0.5 }}>
+                  <TextField label="Strategy" value={setupDraft?.strategyLabel || ''} onChange={(event) => updateSetup((current) => ({ ...current, strategyLabel: event.target.value }))} fullWidth />
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.1 }}>
+                    <TextField label="Timeframe" value={setupDraft?.trigger.confirmationTimeframe || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, confirmationTimeframe: event.target.value } }))} fullWidth />
+                    <FormControl fullWidth>
+                      <InputLabel id="trade-session-label">Session</InputLabel>
+                      <Select
+                        labelId="trade-session-label"
+                        label="Session"
+                        value={setupDraft?.tradeSession || ''}
+                        onChange={(event) => updateSetup((current) => ({ ...current, tradeSession: (event.target.value || null) as SetupItem['tradeSession'] }))}
+                      >
+                        <MenuItem value="">Not set</MenuItem>
+                        <MenuItem value="ASIA">Asia</MenuItem>
+                        <MenuItem value="LONDON">London</MenuItem>
+                        <MenuItem value="NY">New York</MenuItem>
+                        <MenuItem value="NY_AM">New York AM</MenuItem>
+                        <MenuItem value="NY_PM">New York PM</MenuItem>
+                        <MenuItem value="CUSTOM">Custom</MenuItem>
+                      </Select>
+                    </FormControl>
+                  </Box>
+                  <TextField label="Risk notes" value={setupDraft?.context.newsSafety || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, newsSafety: event.target.value } }))} multiline minRows={2} fullWidth />
                 </Stack>
-              ) : <EmptyState title="Select a strategy" description="The selected strategy imports a compact snapshot and checklist." icon={<ImportExportRoundedIcon fontSize="inherit" />} />}
-            </Box>
+              </Collapse>
+
+              <Box sx={{ pt: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ mb: 0.75 }}>Trade executed?</Typography>
+                <Button variant="contained" size="large" onClick={openTradeLog} fullWidth sx={{ minHeight: 48 }}>Log trade</Button>
+              </Box>
+            </Stack>
+          </CardContent>
+        </Card>
+
+        {!focusMode && meaningfulSummary ? (
+          <Box component="section" aria-labelledby="summary-heading" sx={{ px: { xs: 0.5, sm: 1 } }}>
+            <Typography id="summary-heading" component="h2" variant="h6" sx={{ fontWeight: 800, mb: 0.5 }}>Session summary</Typography>
+            <Typography color="text.secondary">
+              Trades: {workspace.session.quickStats.tradesTaken} · Realized P&amp;L: {formatSignedCurrency(workspace.session.quickStats.realizedPnl, baseCurrency)}
+              {workspace.session.quickStats.riskConfigured ? ` · Risk used: ${workspace.session.quickStats.riskUsed || 0}` : ''}
+            </Typography>
           </Box>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setStrategyDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleImportStrategy} disabled={!selectedStrategy || ((importDraft.createNewSetup || !selectedSetup) && !importDraft.symbol.trim())}>Import</Button>
-        </DialogActions>
-      </Dialog>
-    </Stack>
+        ) : null}
+      </Stack>
+
+      <Box
+        sx={{
+          display: { xs: 'block', md: 'none' },
+          position: 'fixed',
+          zIndex: 20,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          px: 2,
+          pt: 1,
+          pb: 'calc(12px + env(safe-area-inset-bottom))',
+          bgcolor: 'background.paper',
+          borderTop: '1px solid',
+          borderColor: 'divider'
+        }}
+      >
+        <Button variant="contained" size="large" onClick={openTradeLog} fullWidth sx={{ minHeight: 48 }}>Log trade</Button>
+      </Box>
+    </Box>
   )
 }

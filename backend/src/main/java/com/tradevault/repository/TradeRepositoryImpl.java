@@ -41,6 +41,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
       String strategy,
       String brokerAccountId,
       UUID accountRefId,
+      boolean unassigned,
       Direction direction,
       TradeStatus status,
       Pageable pageable) {
@@ -49,7 +50,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<UUID> idQuery = cb.createQuery(UUID.class);
     Root<Trade> idRoot = idQuery.from(Trade.class);
     List<Predicate> idPredicates = buildSearchPredicates(cb, idRoot, userId, openedAtFrom, openedAtTo,
-        closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
+        closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, unassigned, direction, status);
     idQuery.select(idRoot.get("id"));
     idQuery.where(idPredicates.toArray(Predicate[]::new));
     applySort(cb, idRoot, idQuery, pageable.getSort());
@@ -62,7 +63,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
     Root<Trade> countRoot = countQuery.from(Trade.class);
     List<Predicate> countPredicates = buildSearchPredicates(cb, countRoot, userId, openedAtFrom,
-        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
+        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, unassigned, direction, status);
     countQuery.select(cb.count(countRoot));
     countQuery.where(countPredicates.toArray(Predicate[]::new));
     long total = entityManager.createQuery(countQuery).getSingleResult();
@@ -80,6 +81,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
       String strategy,
       String brokerAccountId,
       UUID accountRefId,
+      boolean unassigned,
       Direction direction,
       TradeStatus status,
       Pageable pageable) {
@@ -88,7 +90,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<Trade> entityQuery = cb.createQuery(Trade.class);
     Root<Trade> entityRoot = entityQuery.from(Trade.class);
     List<Predicate> entityPredicates = buildSearchPredicates(cb, entityRoot, userId, openedAtFrom,
-        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
+        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, unassigned, direction, status);
     entityQuery.select(entityRoot);
     entityQuery.where(entityPredicates.toArray(Predicate[]::new));
     applySort(cb, entityRoot, entityQuery, pageable.getSort());
@@ -101,7 +103,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
     Root<Trade> countRoot = countQuery.from(Trade.class);
     List<Predicate> countPredicates = buildSearchPredicates(cb, countRoot, userId, openedAtFrom,
-        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, direction, status);
+        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, brokerAccountId, accountRefId, unassigned, direction, status);
     countQuery.select(cb.count(countRoot));
     countQuery.where(countPredicates.toArray(Predicate[]::new));
     long total = entityManager.createQuery(countQuery).getSingleResult();
@@ -120,6 +122,7 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
       String strategy,
       String brokerAccountId,
       UUID accountRefId,
+      boolean unassigned,
       Direction direction,
       TradeStatus status) {
     List<Predicate> predicates = new ArrayList<>();
@@ -145,10 +148,15 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
       predicates.add(cb.equal(cb.lower(root.get("strategyTag")),
           strategy.toLowerCase(Locale.ROOT)));
     }
-    if (brokerAccountId != null || accountRefId != null) {
+    if (unassigned) {
+      predicates.add(cb.and(
+          cb.isNull(root.get("account")),
+          cb.or(cb.isNull(root.get("brokerAccountId")), cb.equal(cb.trim(root.get("brokerAccountId")), ""))
+      ));
+    } else if (brokerAccountId != null || accountRefId != null) {
       List<Predicate> accountPredicates = new ArrayList<>();
       if (brokerAccountId != null) {
-        accountPredicates.add(cb.equal(cb.lower(root.get("brokerAccountId")), brokerAccountId.toLowerCase(Locale.ROOT)));
+        accountPredicates.add(cb.equal(cb.lower(cb.trim(root.get("brokerAccountId"))), brokerAccountId.trim().toLowerCase(Locale.ROOT)));
       }
       if (accountRefId != null) {
         Join<Trade, ?> accountJoin = root.join("account", JoinType.LEFT);

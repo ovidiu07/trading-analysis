@@ -96,7 +96,8 @@ class TradeMonthlyPnlAggregationTest {
                 LocalDate.of(2026, 2, 28),
                 "Europe/Bucharest",
                 null,
-                null
+                null,
+                false
         );
 
         assertThat(result).isNotNull();
@@ -104,6 +105,71 @@ class TradeMonthlyPnlAggregationTest {
         assertThat(result.getGrossPnl()).isEqualByComparingTo("160");
         assertThat(result.getTradeCount()).isEqualTo(3);
         assertThat(result.getTradingDays()).isEqualTo(3);
+    }
+
+    @Test
+    void filtersAccountsBeforeAggregationIncludingUnassignedAndUserScope() {
+        User user = saveUser("calendar-accounts@test.com");
+        User otherUser = saveUser("other-calendar@test.com");
+        OffsetDateTime closedAt = OffsetDateTime.of(LocalDateTime.of(2026, 7, 16, 12, 0), ZoneOffset.UTC);
+
+        tradeRepository.save(withBrokerAccount(buildTrade(user, TradeStatus.CLOSED, closedAt,
+                new BigDecimal("-100"), new BigDecimal("-90")), " Account A "));
+        tradeRepository.save(withBrokerAccount(buildTrade(user, TradeStatus.CLOSED, closedAt,
+                new BigDecimal("200"), new BigDecimal("210")), "Account B"));
+        tradeRepository.save(buildTrade(user, TradeStatus.CLOSED, closedAt,
+                new BigDecimal("-50"), new BigDecimal("-45")));
+        tradeRepository.save(withBrokerAccount(buildTrade(otherUser, TradeStatus.CLOSED, closedAt,
+                new BigDecimal("999"), new BigDecimal("999")), "Account A"));
+
+        assertThat(monthly(user, null, false).getNetPnl()).isEqualByComparingTo("50");
+        assertThat(monthly(user, "account a", false).getNetPnl()).isEqualByComparingTo("-100");
+        assertThat(monthly(user, "Account B", false).getNetPnl()).isEqualByComparingTo("200");
+        assertThat(monthly(user, null, true).getNetPnl()).isEqualByComparingTo("-50");
+    }
+
+    @Test
+    void reassignmentMovesTradeBetweenAccountCalendarsWithoutChangingAllAccounts() {
+        User user = saveUser("calendar-reassignment@test.com");
+        OffsetDateTime closedAt = OffsetDateTime.of(LocalDateTime.of(2026, 7, 16, 12, 0), ZoneOffset.UTC);
+        Trade trade = tradeRepository.save(withBrokerAccount(buildTrade(user, TradeStatus.CLOSED, closedAt,
+                new BigDecimal("75"), new BigDecimal("80")), "Account A"));
+
+        assertThat(monthly(user, "Account A", false).getNetPnl()).isEqualByComparingTo("75");
+        assertThat(monthly(user, null, false).getNetPnl()).isEqualByComparingTo("75");
+
+        trade.setBrokerAccountId("Account B");
+        tradeRepository.saveAndFlush(trade);
+        assertThat(monthly(user, "Account A", false).getTradeCount()).isZero();
+        assertThat(monthly(user, "Account B", false).getNetPnl()).isEqualByComparingTo("75");
+        assertThat(monthly(user, null, false).getNetPnl()).isEqualByComparingTo("75");
+
+        trade.setBrokerAccountId(null);
+        tradeRepository.saveAndFlush(trade);
+        assertThat(monthly(user, "Account B", false).getTradeCount()).isZero();
+        assertThat(monthly(user, null, true).getNetPnl()).isEqualByComparingTo("75");
+    }
+
+    private User saveUser(String email) {
+        return userRepository.save(User.builder()
+                .id(UUID.randomUUID())
+                .email(email)
+                .passwordHash("hash")
+                .role(Role.USER)
+                .timezone("Europe/Bucharest")
+                .build());
+    }
+
+    private Trade withBrokerAccount(Trade trade, String accountId) {
+        trade.setBrokerAccountId(accountId);
+        return trade;
+    }
+
+    private TradeRepository.MonthlyPnlAggregate monthly(User user, String accountId, boolean unassigned) {
+        return tradeRepository.aggregateMonthlyPnlByClosedDate(
+                user.getId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31),
+                "Europe/Bucharest", accountId, null, unassigned
+        );
     }
 
     private Trade buildTrade(User user, TradeStatus status, OffsetDateTime closedAt, BigDecimal pnlNet, BigDecimal pnlGross) {

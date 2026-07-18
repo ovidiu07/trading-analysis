@@ -25,6 +25,7 @@ import type { UploadQueueItem } from '../assets/AssetListRenderer'
 import { formatFileSize } from '../../utils/format'
 
 type PlanImagesSectionProps = {
+  compact?: boolean
   title: string
   storageLabel: string
   images: PlanImage[]
@@ -39,6 +40,7 @@ type PlanImagesSectionProps = {
 }
 
 export default function PlanImagesSection({
+  compact = false,
   title,
   storageLabel,
   images,
@@ -83,6 +85,67 @@ export default function PlanImagesSection({
     } else {
       goNext()
     }
+  }
+
+  if (compact) {
+    return (
+      <Stack spacing={1} sx={{ minWidth: 0 }}>
+        <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap" useFlexGap>
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            <ImageOutlinedIcon color="primary" fontSize="small" />
+            <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{title}</Typography>
+            {images.length > 0 ? <Chip size="small" label={images.length} /> : null}
+          </Stack>
+          <Button component="label" variant="outlined" size="small" disabled={disabled}>
+            Add screenshots
+            <input
+              hidden
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/gif"
+              multiple
+              onChange={(event) => {
+                onUpload(Array.from(event.target.files || []))
+                event.target.value = ''
+              }}
+            />
+          </Button>
+        </Stack>
+        {disabled && disabledReason ? <Typography variant="caption" color="text.secondary">{disabledReason}</Typography> : null}
+        {uploads.length > 0 ? (
+          <Stack spacing={0.5}>
+            {uploads.map((upload) => (
+              <Box key={upload.id}>
+                <Stack direction="row" justifyContent="space-between" spacing={1}>
+                  <Typography variant="caption" noWrap>{upload.fileName}</Typography>
+                  <Typography variant="caption" color={upload.error ? 'error.main' : 'text.secondary'}>{upload.error || `${upload.progress}%`}</Typography>
+                </Stack>
+                <LinearProgress color={upload.error ? 'error' : 'primary'} variant="determinate" value={upload.error ? 100 : Math.max(2, upload.progress)} />
+              </Box>
+            ))}
+          </Stack>
+        ) : null}
+        {images.length > 0 ? (
+          <Stack direction="row" spacing={1} sx={{ overflowX: 'auto', maxWidth: '100%', pb: 0.5 }}>
+            {images.map((image, index) => (
+              <Box key={image.id} sx={{ position: 'relative', flex: '0 0 auto' }}>
+                <ButtonBase onClick={() => setActiveIndex(index)} aria-label={`Open plan image ${index + 1}`} sx={{ borderRadius: 1, border: '1px solid', borderColor: index === activeIndex ? 'primary.main' : 'divider', p: 0.35 }}>
+                  <AssetThumbnail url={image.thumbnailUrl || image.viewUrl || image.url || image.downloadUrl} alt={image.originalFileName || `Plan image ${index + 1}`} />
+                </ButtonBase>
+                <IconButton
+                  size="small"
+                  aria-label={`Remove plan image ${index + 1}`}
+                  disabled={deletingIds.has(image.id)}
+                  onClick={() => onDelete(image)}
+                  sx={{ position: 'absolute', top: -8, right: -8, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}
+                >
+                  <DeleteOutlineRoundedIcon fontSize="small" />
+                </IconButton>
+              </Box>
+            ))}
+          </Stack>
+        ) : null}
+      </Stack>
+    )
   }
 
   return (

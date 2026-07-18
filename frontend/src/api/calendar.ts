@@ -25,6 +25,12 @@ export type CalendarPlansResponse = {
   dailyPlans: CalendarPlanSummary[]
 }
 
+export type CalendarAccountOption = {
+  value: string
+  label: string
+  source: 'managed' | 'broker'
+}
+
 const toQuery = (params: Record<string, string | undefined>) => {
   const sp = new URLSearchParams()
   Object.entries(params).forEach(([key, value]) => {
@@ -38,4 +44,8 @@ const toQuery = (params: Record<string, string | undefined>) => {
 
 export async function fetchCalendarPlans(params: { from: string; to: string; tz?: string }) {
   return apiGet<CalendarPlansResponse>(`/calendar/plans${toQuery(params)}`)
+}
+
+export async function fetchCalendarAccountOptions() {
+  return apiGet<CalendarAccountOption[]>('/calendar/accounts')
 }

@@ -2,6 +2,7 @@ package com.tradevault.controller;
 
 import com.tradevault.domain.enums.PnlBasis;
 import com.tradevault.dto.calendar.CalendarPlansResponse;
+import com.tradevault.dto.calendar.CalendarAccountOptionResponse;
 import com.tradevault.dto.trade.MonthlyPnlSummaryResponse;
 import com.tradevault.service.TradeCalendarService;
 import lombok.RequiredArgsConstructor;
@@ -14,12 +15,18 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
+import java.util.List;
 
 @RestController
 @RequestMapping("/api/calendar")
 @RequiredArgsConstructor
 public class CalendarController {
     private final TradeCalendarService tradeCalendarService;
+
+    @GetMapping("/accounts")
+    public List<CalendarAccountOptionResponse> accounts() {
+        return tradeCalendarService.fetchAccountOptions();
+    }
 
     @GetMapping("/month-summary")
     public MonthlyPnlSummaryResponse monthSummary(@RequestParam int year,

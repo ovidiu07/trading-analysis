@@ -784,6 +784,13 @@
     "grossPnl": "Gross P&L",
     "tradingDays": "Trading days",
     "tradesClosed": "Trades closed",
+    "accounts": {
+      "label": "Trading account",
+      "all": "All accounts",
+      "unassigned": "Unassigned",
+      "unassignedContext": "Unassigned trades",
+      "helper": "Filters all trade-derived calendar results. Plans remain global."
+    },
     "legend": {
       "profit": "Profit",
       "loss": "Loss",
@@ -791,12 +798,22 @@
     },
     "empty": {
       "closedTradesTitle": "No closed trades in this range",
-      "closedTradesBody": "Once trades close, daily P&L will populate here."
+      "closedTradesBody": "Once trades close, daily P&L will populate here.",
+      "accountTitle": "No closed trades for {{account}}",
+      "accountBody": "No closed trades match this account in {{month}}."
+    },
+    "errors": {
+      "loadAccounts": "Could not load trading accounts.",
+      "loadCalendar": "Could not load calendar data.",
+      "loadMonthlySummary": "Could not load the monthly summary.",
+      "loadTrades": "Could not load trades for this day.",
+      "loadNotes": "Could not load notes for this day."
     },
     "aria": {
       "viewRealizedPnl": "View realized P&L for {{date}}",
       "netPnl": "Net P&L {{value}}",
-      "tradeCount": "{{count}} trades"
+      "tradeCount": "{{count}} trades",
+      "accountContext": "Account {{account}}"
     },
     "dialog": {
       "closedOn": "Trades closed on {{date}}",

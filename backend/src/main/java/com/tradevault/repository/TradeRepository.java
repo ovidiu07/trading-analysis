@@ -70,8 +70,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
           AND t.status = 'CLOSED'
           AND t.closed_at IS NOT NULL
           AND (
-            (:brokerAccountId IS NULL AND :accountRefId IS NULL)
-            OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+            (:unassigned = TRUE AND t.account_id IS NULL AND NULLIF(TRIM(t.broker_account_id), '') IS NULL)
+            OR (:unassigned = FALSE AND :brokerAccountId IS NULL AND :accountRefId IS NULL)
+            OR (:brokerAccountId IS NOT NULL AND LOWER(TRIM(t.broker_account_id)) = LOWER(TRIM(:brokerAccountId)))
             OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
           )
       )
@@ -90,7 +91,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
       @Param("tz") String tz,
       @Param("brokerAccountId") String brokerAccountId,
-      @Param("accountRefId") UUID accountRefId);
+      @Param("accountRefId") UUID accountRefId,
+      @Param("unassigned") boolean unassigned);
 
   @Query(value = """
       WITH x AS (
@@ -100,8 +102,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
         WHERE t.user_id = :userId
           AND t.opened_at IS NOT NULL
           AND (
-            (:brokerAccountId IS NULL AND :accountRefId IS NULL)
-            OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+            (:unassigned = TRUE AND t.account_id IS NULL AND NULLIF(TRIM(t.broker_account_id), '') IS NULL)
+            OR (:unassigned = FALSE AND :brokerAccountId IS NULL AND :accountRefId IS NULL)
+            OR (:brokerAccountId IS NOT NULL AND LOWER(TRIM(t.broker_account_id)) = LOWER(TRIM(:brokerAccountId)))
             OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
           )
       )
@@ -120,7 +123,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
       @Param("tz") String tz,
       @Param("brokerAccountId") String brokerAccountId,
-      @Param("accountRefId") UUID accountRefId);
+      @Param("accountRefId") UUID accountRefId,
+      @Param("unassigned") boolean unassigned);
 
   @Query(value = """
       WITH x AS (
@@ -132,8 +136,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
           AND t.status = 'CLOSED'
           AND t.closed_at IS NOT NULL
           AND (
-            (:brokerAccountId IS NULL AND :accountRefId IS NULL)
-            OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+            (:unassigned = TRUE AND t.account_id IS NULL AND NULLIF(TRIM(t.broker_account_id), '') IS NULL)
+            OR (:unassigned = FALSE AND :brokerAccountId IS NULL AND :accountRefId IS NULL)
+            OR (:brokerAccountId IS NOT NULL AND LOWER(TRIM(t.broker_account_id)) = LOWER(TRIM(:brokerAccountId)))
             OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
           )
       )
@@ -149,7 +154,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       @Param("fromDate") LocalDate fromDate, @Param("toDate") LocalDate toDate,
       @Param("tz") String tz,
       @Param("brokerAccountId") String brokerAccountId,
-      @Param("accountRefId") UUID accountRefId);
+      @Param("accountRefId") UUID accountRefId,
+      @Param("unassigned") boolean unassigned);
 
   @Query(value = """
       SELECT t.id FROM trades t
@@ -158,8 +164,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
         AND t.closed_at IS NOT NULL
         AND CAST((t.closed_at AT TIME ZONE :tz) AS date) = :date
         AND (
-          (:brokerAccountId IS NULL AND :accountRefId IS NULL)
-          OR (:brokerAccountId IS NOT NULL AND LOWER(t.broker_account_id) = LOWER(:brokerAccountId))
+          (:unassigned = TRUE AND t.account_id IS NULL AND NULLIF(TRIM(t.broker_account_id), '') IS NULL)
+          OR (:unassigned = FALSE AND :brokerAccountId IS NULL AND :accountRefId IS NULL)
+          OR (:brokerAccountId IS NOT NULL AND LOWER(TRIM(t.broker_account_id)) = LOWER(TRIM(:brokerAccountId)))
           OR (:accountRefId IS NOT NULL AND t.account_id = :accountRefId)
         )
       ORDER BY t.closed_at
@@ -168,7 +175,18 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       @Param("date") LocalDate date,
       @Param("tz") String tz,
       @Param("brokerAccountId") String brokerAccountId,
-      @Param("accountRefId") UUID accountRefId);
+      @Param("accountRefId") UUID accountRefId,
+      @Param("unassigned") boolean unassigned);
+
+  @Query("""
+      SELECT DISTINCT t.brokerAccountId
+      FROM Trade t
+      WHERE t.user.id = :userId
+        AND t.brokerAccountId IS NOT NULL
+        AND TRIM(t.brokerAccountId) <> ''
+      ORDER BY t.brokerAccountId
+      """)
+  List<String> findDistinctBrokerAccountIdsByUserId(@Param("userId") UUID userId);
 
   @Query("""
       SELECT t.id
