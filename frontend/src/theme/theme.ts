@@ -194,17 +194,22 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             '.MuiButton-root': {
               whiteSpace: 'normal',
               textAlign: 'center'
+            },
+            'input, select, textarea, [contenteditable="true"], .MuiInputBase-input, .MuiSelect-select': {
+              fontSize: '16px !important'
             }
           },
           html: {
             width: '100%',
             maxWidth: '100%',
-            overflowX: 'clip'
+            minWidth: 0,
+            overflowX: 'hidden'
           },
           body: {
             width: '100%',
             maxWidth: '100%',
-            overflowX: 'clip',
+            minWidth: 0,
+            overflowX: 'hidden',
             margin: 0,
             paddingBottom: 'env(safe-area-inset-bottom, 0px)',
             color: tokens.text.primary,
@@ -220,11 +225,15 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             minHeight: '100%',
             width: '100%',
             maxWidth: '100%',
-            overflowX: 'clip'
+            minWidth: 0,
+            overflowX: 'hidden'
           },
           'img, video, canvas': {
             maxWidth: '100%',
             height: 'auto'
+          },
+          'svg:not(.MuiSvgIcon-root)': {
+            maxWidth: '100%'
           },
           '.MuiContainer-root, .MuiGrid-root, .MuiStack-root, .MuiPaper-root, .MuiCard-root, .MuiTabs-root': {
             minWidth: 0
@@ -458,6 +467,17 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           body: {
             borderBottom: `1px solid ${alpha(tokens.border.subtle, 0.7)}`,
             fontSize: 13
+          }
+        }
+      },
+      MuiTableContainer: {
+        styleOverrides: {
+          root: {
+            width: '100%',
+            maxWidth: '100%',
+            minWidth: 0,
+            overflowX: 'auto',
+            WebkitOverflowScrolling: 'touch'
           }
         }
       },

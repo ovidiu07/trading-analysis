@@ -137,11 +137,17 @@ export default function RichTextEditor({
           }}
         >
           <Stack
+            data-testid="rich-text-toolbar"
+            data-mobile-wrap={compactToolbar ? 'true' : undefined}
             direction="row"
             spacing={0.5}
-            flexWrap={compactToolbar ? 'nowrap' : 'wrap'}
+            flexWrap={compactToolbar ? { xs: 'wrap', sm: 'nowrap' } : 'wrap'}
             alignItems="center"
-            sx={{ overflowX: compactToolbar ? 'auto' : 'visible' }}
+            useFlexGap
+            sx={{
+              overflowX: compactToolbar ? { xs: 'visible', sm: 'auto' } : 'visible',
+              '& .MuiDivider-vertical': compactToolbar ? { display: { xs: 'none', sm: 'block' } } : undefined
+            }}
           >
             <Tooltip title={t('editor.heading', { level: 1 })}>
               <IconButton size="small" onClick={() => handleHeading(1)} aria-label={t('editor.heading', { level: 1 })} sx={compactButtonSx}>

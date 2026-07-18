@@ -388,7 +388,7 @@ export default function StrategiesPage() {
   }
 
   return (
-    <Stack spacing={2.5} sx={{ minWidth: 0 }}>
+    <Stack data-testid='strategies-page' spacing={2.5} sx={{ width: '100%', maxWidth: '100%', minWidth: 0, mx: 'auto' }}>
       <Stack spacing={0.5}>
         <Typography variant='h5' sx={{ fontWeight: 700 }}>{t('nav.strategies')}</Typography>
         <Typography variant='body2' color='text.secondary'>
@@ -399,7 +399,7 @@ export default function StrategiesPage() {
       {apiError && <Alert severity='error'>{apiError}</Alert>}
       {apiSuccess && <Alert severity='success' onClose={() => setApiSuccess('')}>{apiSuccess}</Alert>}
 
-      <Grid container spacing={2}>
+      <Grid data-testid='strategies-grid' data-mobile-column-spacing='0' container rowSpacing={2} columnSpacing={{ xs: 0, lg: 2 }} sx={{ width: '100%', ml: 0 }}>
         <Grid item xs={12} lg={7}>
           <Card>
             <CardContent>
@@ -411,29 +411,33 @@ export default function StrategiesPage() {
                   <List disablePadding sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
                     {myStrategies.map((item, index) => (
                       <ListItem
+                        data-testid='strategy-list-row'
+                        data-mobile-layout='single-column'
                         key={item.id}
                         disableGutters
                         sx={{
                           px: 1.25,
                           py: 1,
+                          gap: 1,
+                          alignItems: { xs: 'stretch', sm: 'center' },
+                          flexDirection: { xs: 'column', sm: 'row' },
                           borderBottom: index < myStrategies.length - 1 ? '1px solid' : 'none',
                           borderColor: 'divider'
                         }}
-                        secondaryAction={(
-                          <Stack direction='row' spacing={1}>
-                            <Button size='small' variant='outlined' onClick={() => fillDraft(item)}>{t('common.edit')}</Button>
-                            {!item.archived && (
-                              <Button size='small' color='error' onClick={() => archiveMutation.mutate(item.id)}>{t('adminContent.actions.archive')}</Button>
-                            )}
-                          </Stack>
-                        )}
                       >
                         <ListItemText
                           primary={item.name}
                           secondary={item.model}
+                          sx={{ minWidth: 0, m: 0 }}
                           secondaryTypographyProps={{ noWrap: true }}
                         />
                         {item.archived && <Chip size='small' label={t('adminContent.statuses.archived')} color='default' variant='outlined' />}
+                        <Stack direction='row' spacing={1} useFlexGap flexWrap='wrap' sx={{ flexShrink: 0 }}>
+                          <Button size='small' variant='outlined' onClick={() => fillDraft(item)}>{t('common.edit')}</Button>
+                          {!item.archived && (
+                            <Button size='small' color='error' onClick={() => archiveMutation.mutate(item.id)}>{t('adminContent.actions.archive')}</Button>
+                          )}
+                        </Stack>
                       </ListItem>
                     ))}
                   </List>
@@ -563,17 +567,19 @@ export default function StrategiesPage() {
                       />
                     </Grid>
                     <Grid item xs={12}>
-                      <Stack direction='row' spacing={1}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
                         <Button
                           type='submit'
                           variant='contained'
                           disabled={createMutation.isLoading || updateMutation.isLoading}
+                          sx={{ width: { xs: '100%', sm: 'auto' } }}
                         >
                           {editingId ? t('common.save') : t('strategies.form.createAction')}
                         </Button>
                         {editingId && (
                           <Button
                             variant='outlined'
+                            sx={{ width: { xs: '100%', sm: 'auto' } }}
                             onClick={() => {
                               setEditingId(null)
                               setDraft(emptyDraft)

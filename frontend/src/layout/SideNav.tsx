@@ -9,15 +9,13 @@ import {
   ListSubheader,
   Stack,
   Tooltip,
-  Typography,
-  useTheme
+  Typography
 } from '@mui/material'
 import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import { Link } from 'react-router-dom'
 import { ReactNode } from 'react'
-import logoLockup from '../assets/brand/tradejaudit-navbar.png'
-import logoMark from '../assets/brand/tradejaudit-mark.png'
+import BrandLogo from '../components/brand/BrandLogo'
 
 export type SideNavItem = {
   label: string
@@ -58,8 +56,6 @@ export default function SideNav({
   expandLabel,
   homeLabel
 }: SideNavProps) {
-  const theme = useTheme()
-
   return (
     <Stack sx={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <Stack
@@ -86,22 +82,13 @@ export default function SideNav({
             textDecoration: 'none',
             minWidth: 0,
             overflow: 'hidden',
-            borderRadius: 1.5,
-            p: theme.palette.mode === 'dark' ? (collapsed ? 0.25 : 0.5) : 0,
-            bgcolor: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.94)' : 'transparent'
+            borderRadius: 1.5
           }}
         >
-          <Box
-            component="img"
-            src={collapsed ? logoMark : logoLockup}
-            alt="TradeJAudit"
-            sx={{
-              width: collapsed ? 40 : 205,
-              maxWidth: '100%',
-              maxHeight: collapsed ? 46 : 52,
-              height: 'auto',
-              objectFit: 'contain'
-            }}
+          <BrandLogo
+            layout={collapsed ? 'mark' : 'horizontal'}
+            size="md"
+            decorative
           />
         </Box>
 

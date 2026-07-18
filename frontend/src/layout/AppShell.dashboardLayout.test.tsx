@@ -87,6 +87,7 @@ const hasBlockingOverlay = (target: HTMLElement) => {
 
 describe('AppShell dashboard filters and logo placement', () => {
   beforeEach(() => {
+    vi.stubGlobal('scrollTo', vi.fn())
     localStorage.setItem('app.language', 'en')
     localStorage.setItem('app.themePreference', 'dark')
     localStorage.setItem('layout.sidebarCollapsed', 'false')
@@ -130,14 +131,11 @@ describe('AppShell dashboard filters and logo placement', () => {
       renderShell(route)
 
       const sidebar = screen.getByRole('navigation')
-      expect(within(sidebar).getByAltText('TradeJAudit')).toHaveAttribute(
-        'src',
-        expect.stringContaining('tradejaudit-navbar.png')
-      )
+      expect(within(sidebar).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'horizontal')
 
       const banner = screen.getByRole('banner')
-      expect(within(banner).queryByAltText('TradeJAudit')).not.toBeInTheDocument()
-      expect(screen.getAllByAltText('TradeJAudit')).toHaveLength(1)
+      expect(within(banner).queryByTestId('brand-logo')).not.toBeInTheDocument()
+      expect(screen.getAllByTestId('brand-logo')).toHaveLength(1)
     }
   )
 
@@ -148,10 +146,7 @@ describe('AppShell dashboard filters and logo placement', () => {
     const user = userEvent.setup()
     await user.click(screen.getByLabelText('Collapse sidebar'))
 
-    expect(within(screen.getByRole('navigation')).getByAltText('TradeJAudit')).toHaveAttribute(
-      'src',
-      expect.stringContaining('tradejaudit-mark.png')
-    )
+    expect(within(screen.getByRole('navigation')).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'mark')
   })
 
   it('keeps a single page heading and exposes the branded mobile drawer at 320px', async () => {
@@ -160,13 +155,11 @@ describe('AppShell dashboard filters and logo placement', () => {
 
     expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
     expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Analytics')
+    expect(within(screen.getByRole('banner')).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'mark')
 
     const user = userEvent.setup()
     await user.click(screen.getByLabelText('Open menu'))
-    expect(within(screen.getByRole('navigation')).getByAltText('TradeJAudit')).toHaveAttribute(
-      'src',
-      expect.stringContaining('tradejaudit-navbar.png')
-    )
+    expect(within(screen.getByRole('navigation')).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'horizontal')
   })
 
   it('orders trading nav with dashboard directly under today and diagnostics before calendar', () => {

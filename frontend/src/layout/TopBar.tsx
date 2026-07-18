@@ -39,6 +39,7 @@ import type { DashboardQueryState, DashboardStatusFilter } from '../features/das
 import { useI18n } from '../i18n'
 import type { ThemePreference } from '../themeMode'
 import NotificationBell from '../components/layout/NotificationBell'
+import BrandLogo from '../components/brand/BrandLogo'
 
 const MARKET_OPTIONS = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'] as const
 
@@ -284,6 +285,17 @@ export default function TopBar({
                   <IconButton onClick={onMenuToggle} aria-label={t('nav.openMenu')} sx={{ width: 40, height: 40 }}>
                     <MenuIcon />
                   </IconButton>
+                )}
+
+                {showMenuToggle && (
+                  <Box
+                    component={Link}
+                    to="/today"
+                    aria-label={t('layout.homeLabel')}
+                    sx={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none' }}
+                  >
+                    <BrandLogo layout={isXs ? 'mark' : 'horizontal'} size="sm" decorative />
+                  </Box>
                 )}
 
                 {showTitle && !isNarrow && (

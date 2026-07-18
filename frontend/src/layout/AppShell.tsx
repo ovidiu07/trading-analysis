@@ -22,7 +22,7 @@ import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSetting
 import TroubleshootRoundedIcon from '@mui/icons-material/TroubleshootRounded'
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useI18n } from '../i18n'
 import TopBar from './TopBar'
 import SideNav, { SideNavSection } from './SideNav'
@@ -33,6 +33,8 @@ import DemoDataBanner from '../components/demo/DemoDataBanner'
 import { ThemePreference, toBackendThemePreference, useThemeMode } from '../themeMode'
 import { isAdminUser } from '../auth/roles'
 import { layoutTokens } from '../theme/tokens'
+import useRouteViewportReset from '../hooks/useRouteViewportReset'
+import { collectViewportOverflow } from '../utils/viewportDiagnostics'
 
 const SIDEBAR_WIDTH = layoutTokens.sidebar.expanded
 const SIDEBAR_COLLAPSED_WIDTH = layoutTokens.sidebar.collapsed
@@ -50,6 +52,17 @@ export default function AppShell() {
   const [mobileOpen, setMobileOpen] = useState(false)
   const [definitionsOpen, setDefinitionsOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true')
+  const mainRef = useRef<HTMLElement | null>(null)
+
+  const closeRouteOverlays = useCallback(() => {
+    setMobileOpen(false)
+    setDefinitionsOpen(false)
+  }, [])
+
+  useRouteViewportReset({
+    scrollContainerRef: mainRef,
+    onRouteChange: closeRouteOverlays
+  })
 
   const handleLogout = () => {
     logout()
@@ -156,6 +169,21 @@ export default function AppShell() {
     }
   }, [isDashboard])
 
+  useEffect(() => {
+    if (!import.meta.env.DEV || new URLSearchParams(location.search).get('debugViewport') !== '1') {
+      return undefined
+    }
+
+    const frame = window.requestAnimationFrame(() => {
+      const report = collectViewportOverflow()
+      if (report.hasOverflow || report.offenders.length > 0) {
+        console.warn(`[viewport] Overflow detected on ${location.pathname}`, report)
+      }
+    })
+
+    return () => window.cancelAnimationFrame(frame)
+  }, [location.pathname, location.search])
+
   const desktopCollapsed = isMobile ? false : sidebarCollapsed
   const effectiveSidebarWidth = desktopCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH
 
@@ -201,7 +229,8 @@ export default function AppShell() {
             PaperProps={isMobile ? { component: 'nav', 'aria-label': t('app.name') } : undefined}
             sx={{
               '& .MuiDrawer-paper': {
-                width: isMobile ? SIDEBAR_WIDTH : effectiveSidebarWidth,
+                width: isMobile ? 'min(86vw, 320px)' : effectiveSidebarWidth,
+                maxWidth: '100%',
                 transition: theme.transitions.create('width', {
                   duration: 200,
                   easing: theme.transitions.easing.easeInOut
@@ -257,6 +286,8 @@ export default function AppShell() {
         />
 
         <Container
+          component="main"
+          ref={mainRef}
           maxWidth={false}
           sx={{
             py: { xs: 1.5, md: 3 },
@@ -264,6 +295,7 @@ export default function AppShell() {
             flexGrow: 1,
             width: '100%',
             maxWidth: layoutTokens.content.wide,
+            mx: 'auto',
             minWidth: 0,
             overflowX: 'clip',
             '& > *': {
