@@ -89,6 +89,7 @@ describe('AppShell dashboard filters and logo placement', () => {
   beforeEach(() => {
     localStorage.setItem('app.language', 'en')
     localStorage.setItem('app.themePreference', 'dark')
+    localStorage.setItem('layout.sidebarCollapsed', 'false')
   })
 
   it('keeps dashboard Filters button clickable with no click-blocking overlay and opens filters drawer', async () => {
@@ -129,13 +130,44 @@ describe('AppShell dashboard filters and logo placement', () => {
       renderShell(route)
 
       const sidebar = screen.getByRole('navigation')
-      expect(within(sidebar).getByAltText('TradeJAudit')).toBeInTheDocument()
+      expect(within(sidebar).getByAltText('TradeJAudit')).toHaveAttribute(
+        'src',
+        expect.stringContaining('tradejaudit-navbar.png')
+      )
 
       const banner = screen.getByRole('banner')
       expect(within(banner).queryByAltText('TradeJAudit')).not.toBeInTheDocument()
       expect(screen.getAllByAltText('TradeJAudit')).toHaveLength(1)
     }
   )
+
+  it('uses the supplied emblem when the desktop sidebar is collapsed', async () => {
+    setViewportWidth(1280)
+    renderShell('/today')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByLabelText('Collapse sidebar'))
+
+    expect(within(screen.getByRole('navigation')).getByAltText('TradeJAudit')).toHaveAttribute(
+      'src',
+      expect.stringContaining('tradejaudit-mark.png')
+    )
+  })
+
+  it('keeps a single page heading and exposes the branded mobile drawer at 320px', async () => {
+    setViewportWidth(320)
+    renderShell('/analytics')
+
+    expect(screen.getAllByRole('heading', { level: 1 })).toHaveLength(1)
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('Analytics')
+
+    const user = userEvent.setup()
+    await user.click(screen.getByLabelText('Open menu'))
+    expect(within(screen.getByRole('navigation')).getByAltText('TradeJAudit')).toHaveAttribute(
+      'src',
+      expect.stringContaining('tradejaudit-navbar.png')
+    )
+  })
 
   it('orders trading nav with dashboard directly under today and diagnostics before calendar', () => {
     setViewportWidth(1280)

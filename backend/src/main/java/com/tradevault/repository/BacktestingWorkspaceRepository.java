@@ -11,7 +11,12 @@ import java.util.UUID;
 public interface BacktestingWorkspaceRepository extends JpaRepository<BacktestingWorkspace, UUID> {
     List<BacktestingWorkspace> findByUser_IdAndStatusOrderByUpdatedAtDesc(UUID userId, BacktestingWorkspaceStatus status);
 
+    List<BacktestingWorkspace> findByUser_IdOrderByUpdatedAtDesc(UUID userId);
+
     Optional<BacktestingWorkspace> findByIdAndUser_Id(UUID id, UUID userId);
 
     Optional<BacktestingWorkspace> findByIdAndUser_IdAndStatus(UUID id, UUID userId, BacktestingWorkspaceStatus status);
+
+    List<BacktestingWorkspace> findByUser_IdAndStatusAndStrategy_IdOrderByUpdatedAtDesc(
+            UUID userId, BacktestingWorkspaceStatus status, UUID strategyId);
 }

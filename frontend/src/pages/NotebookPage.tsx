@@ -1953,7 +1953,7 @@ export default function NotebookPage() {
       <Dialog open={templateDialogOpen} onClose={() => setTemplateDialogOpen(false)}>
         <DialogTitle>{t('notebook.actions.fromTemplate')}</DialogTitle>
         <DialogContent>
-          <Stack spacing={1.5} sx={{ mt: 1, minWidth: 320 }}>
+          <Stack spacing={1.5} sx={{ mt: 1, width: { xs: '100%', sm: 320 }, maxWidth: '100%', minWidth: 0 }}>
             <TextField
               select
               label={t('notebook.fields.template')}

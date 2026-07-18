@@ -87,6 +87,7 @@ function App() {
             <Route path="/trades" element={<ProtectedRoute>{withSuspense(<TradesPage />)}</ProtectedRoute>} />
             <Route path="/strategies" element={<ProtectedRoute>{withSuspense(<StrategiesPage />)}</ProtectedRoute>} />
             <Route path="/backtesting" element={<ProtectedRoute>{withSuspense(<BacktestingPage />)}</ProtectedRoute>} />
+            <Route path="/backtesting/:workspaceId" element={<ProtectedRoute>{withSuspense(<BacktestingPage />)}</ProtectedRoute>} />
             <Route path="/calendar" element={<ProtectedRoute>{withSuspense(<CalendarPage />)}</ProtectedRoute>} />
             <Route path="/notebook" element={<ProtectedRoute>{withSuspense(<NotebookPage />)}</ProtectedRoute>} />
             <Route path="/analytics" element={<ProtectedRoute>{withSuspense(<AnalyticsPage />)}</ProtectedRoute>} />

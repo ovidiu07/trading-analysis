@@ -22,6 +22,7 @@ import java.util.UUID;
 public class BacktestingTradeResponse {
     UUID id;
     UUID workspaceId;
+    UUID liveTradeId;
     LocalDate date;
     String weekday;
     LocalTime entryTime;
@@ -57,6 +58,11 @@ public class BacktestingTradeResponse {
     String notes;
     BacktestingTradeSource source;
     BacktestingTradeScope tradeScope;
+    String syncStatus;
+    String classificationStatus;
+    boolean includedInAnalytics;
+    String excludedReason;
+    Integer ruleBreakCount;
     Integer screenshotCount;
     OffsetDateTime createdAt;
     OffsetDateTime updatedAt;

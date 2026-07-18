@@ -11,6 +11,11 @@ public class BacktestingSummaryResponse {
     Integer totalBacktests;
     Integer totalScreenshots;
     Integer totalTradesTested;
+    Integer manualTrades;
+    Integer importedTrades;
+    Integer liveTrades;
     BigDecimal averageWinRate;
+    BigDecimal averageExpectancy;
+    Integer strategiesNeedingReview;
     String bestPerformer;
 }

@@ -16,8 +16,8 @@ import ChevronLeftRoundedIcon from '@mui/icons-material/ChevronLeftRounded'
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded'
 import { Link } from 'react-router-dom'
 import { ReactNode } from 'react'
-import logoLockup from '../assets/brand/logo-lockup.svg'
-import logoMark from '../assets/brand/logo-mark.svg'
+import logoLockup from '../assets/brand/tradejaudit-navbar.png'
+import logoMark from '../assets/brand/tradejaudit-mark.png'
 
 export type SideNavItem = {
   label: string
@@ -44,11 +44,6 @@ type SideNavProps = {
   homeLabel: string
 }
 
-const logoFilterByMode = (mode: 'light' | 'dark') =>
-  mode === 'dark'
-    ? 'brightness(0) invert(1) saturate(0.2)'
-    : 'none'
-
 const isItemActive = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`)
 
 export default function SideNav({
@@ -72,10 +67,10 @@ export default function SideNav({
         alignItems="center"
         justifyContent="space-between"
         sx={{
-          px: collapsed ? 1.5 : 2,
+          px: collapsed ? 0.75 : 2,
           py: 1.75,
-          minHeight: 72,
-          gap: 1,
+          minHeight: collapsed ? 72 : 82,
+          gap: collapsed ? 0.5 : 1,
           borderBottom: '1px solid',
           borderColor: 'divider'
         }}
@@ -90,7 +85,10 @@ export default function SideNav({
             alignItems: 'center',
             textDecoration: 'none',
             minWidth: 0,
-            overflow: 'hidden'
+            overflow: 'hidden',
+            borderRadius: 1.5,
+            p: theme.palette.mode === 'dark' ? (collapsed ? 0.25 : 0.5) : 0,
+            bgcolor: theme.palette.mode === 'dark' ? 'rgba(255, 255, 255, 0.94)' : 'transparent'
           }}
         >
           <Box
@@ -98,9 +96,11 @@ export default function SideNav({
             src={collapsed ? logoMark : logoLockup}
             alt="TradeJAudit"
             sx={{
-              width: collapsed ? 38 : 170,
+              width: collapsed ? 40 : 205,
+              maxWidth: '100%',
+              maxHeight: collapsed ? 46 : 52,
               height: 'auto',
-              filter: logoFilterByMode(theme.palette.mode)
+              objectFit: 'contain'
             }}
           />
         </Box>

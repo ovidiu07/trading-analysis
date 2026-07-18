@@ -11,8 +11,13 @@ import com.tradevault.dto.backtesting.BacktestingTradeRequest;
 import com.tradevault.dto.backtesting.BacktestingTradeResponse;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceRequest;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceResponse;
+import com.tradevault.dto.backtesting.BacktestingEvidenceResponse;
+import com.tradevault.dto.backtesting.BacktestingEvidenceUpdateRequest;
+import com.tradevault.dto.backtesting.BacktestingResearchInboxResponse;
 import com.tradevault.service.BacktestingResearchService;
 import com.tradevault.service.BacktestingService;
+import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.backtesting.LiveTradeEvidenceSyncService;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
@@ -38,10 +43,13 @@ import java.util.UUID;
 public class BacktestingController {
     private final BacktestingService backtestingService;
     private final BacktestingResearchService researchService;
+    private final LiveTradeEvidenceSyncService evidenceSyncService;
+    private final CurrentUserService currentUserService;
 
     @GetMapping("/workspaces")
-    public BacktestingListResponse listWorkspaces() {
-        return backtestingService.listActiveWorkspaces();
+    public BacktestingListResponse listWorkspaces(
+            @RequestParam(value = "includeArchived", defaultValue = "false") boolean includeArchived) {
+        return backtestingService.listWorkspaces(includeArchived);
     }
 
     @PostMapping("/workspaces")
@@ -64,6 +72,27 @@ public class BacktestingController {
     public ResponseEntity<Void> archiveWorkspace(@PathVariable UUID workspaceId) {
         backtestingService.archiveWorkspace(workspaceId);
         return ResponseEntity.noContent().build();
+    }
+
+    @PostMapping("/workspaces/{workspaceId}/restore")
+    public BacktestingWorkspaceResponse restoreWorkspace(@PathVariable UUID workspaceId) {
+        return backtestingService.restoreWorkspace(workspaceId);
+    }
+
+    @GetMapping("/research-inbox")
+    public BacktestingResearchInboxResponse researchInbox() {
+        return evidenceSyncService.researchInbox(currentUserService.getCurrentUser().getId());
+    }
+
+    @PatchMapping("/evidence/{evidenceId}")
+    public BacktestingEvidenceResponse updateEvidence(@PathVariable UUID evidenceId,
+                                                      @RequestBody BacktestingEvidenceUpdateRequest request) {
+        return evidenceSyncService.updateEvidence(evidenceId, currentUserService.getCurrentUser().getId(), request);
+    }
+
+    @PostMapping("/evidence/{evidenceId}/retry")
+    public BacktestingEvidenceResponse retryEvidence(@PathVariable UUID evidenceId) {
+        return evidenceSyncService.retry(evidenceId, currentUserService.getCurrentUser().getId());
     }
 
     @DeleteMapping("/workspaces/{workspaceId}")

@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
 import org.mockito.ArgumentCaptor;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -65,7 +66,7 @@ public class TradeServiceTest {
         currentUserService = Mockito.mock(CurrentUserService.class);
         timezoneService = Mockito.mock(TimezoneService.class);
         futuresContractMetadataService = new FuturesContractMetadataService();
-        tradeService = new TradeService(tradeRepository, notebookNoteRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService);
+        tradeService = new TradeService(tradeRepository, notebookNoteRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService, Mockito.mock(ApplicationEventPublisher.class));
         user = User.builder().id(UUID.randomUUID()).email("user@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
         when(notebookNoteRepository.findByUserIdAndTypeAndRelatedTrade_IdInAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(any(), any(), any()))

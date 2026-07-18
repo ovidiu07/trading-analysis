@@ -45,6 +45,7 @@ public class DatabaseResetService {
             "strategy_asset",
             "notebook_attachment",
             "notebook_tag_link",
+            "backtest_evidence_links",
             "backtesting_screenshots",
             "backtesting_edge_lenses",
             "backtesting_trades",

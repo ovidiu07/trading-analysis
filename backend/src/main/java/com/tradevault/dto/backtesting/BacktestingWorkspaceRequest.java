@@ -1,5 +1,6 @@
 package com.tradevault.dto.backtesting;
 
+import com.tradevault.domain.enums.BacktestingAutoImportMode;
 import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 
@@ -18,6 +19,14 @@ public class BacktestingWorkspaceRequest {
     private String contextTimeframe;
     private String executionTimeframe;
     private String entryTimeframe;
+    private String session;
+    private BacktestingAutoImportMode autoImportMode;
+    private String description;
+    private String researchObjective;
+    private String executionObservations;
+    private String liveExecutionGap;
+    private String nextTestingObjective;
+    private String researchConclusion;
     private Integer numberOfTrades;
     private Integer winningTrades;
     private Integer losingTrades;

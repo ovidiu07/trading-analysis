@@ -3050,8 +3050,431 @@
     }
   },
   "backtesting": {
-    "subtitle": "Visual strategy research by symbol, setup, and screenshot evidence.",
+    "subtitle": "Validate strategies using historical testing and live execution.",
     "replayChart": "Replay candlestick chart",
+    "page": {
+      "title": "Backtesting",
+      "subtitle": "Validate strategies using historical testing and live execution."
+    },
+    "common": {
+      "all": "All",
+      "none": "None",
+      "unknown": "Unknown"
+    },
+    "actions": {
+      "newBacktest": "New backtest",
+      "importHistorical": "Import historical trades",
+      "openWorkspace": "Open workspace",
+      "editWorkspace": "Edit workspace",
+      "addManualTrade": "Add manual trade",
+      "import": "Import",
+      "continue": "Continue",
+      "archive": "Archive",
+      "cancel": "Cancel",
+      "save": "Save",
+      "saving": "Saving…",
+      "chooseCsv": "Choose CSV file",
+      "importing": "Importing…",
+      "backToLibrary": "Back to library",
+      "filters": "Filters",
+      "clearFilters": "Clear filters",
+      "showResults": "Show {{count}} results",
+      "edit": "Edit",
+      "delete": "Delete",
+      "openLiveTrade": "Open live trade",
+      "exclude": "Exclude",
+      "link": "Link",
+      "classify": "Classify",
+      "retrySync": "Retry sync",
+      "saveClassification": "Save classification",
+      "saveEdgeLens": "Save as Edge Lens",
+      "apply": "Apply",
+      "duplicate": "Duplicate",
+      "uploadScreenshots": "Upload screenshots",
+      "uploading": "Uploading…",
+      "deleteScreenshot": "Delete screenshot",
+      "saveNotes": "Save notes",
+      "showAdvanced": "Show optional fields",
+      "hideAdvanced": "Hide optional fields"
+    },
+    "library": {
+      "workspaces": "Research workspaces",
+      "search": "Search workspaces",
+      "filtersLabel": "Workspace filters"
+    },
+    "workspace": {
+      "name": "Workspace name",
+      "instrument": "Instrument",
+      "linkedStrategy": "Linked strategy",
+      "manualStrategyName": "Strategy name",
+      "market": "Market",
+      "session": "Session",
+      "timeframe": "Timeframe",
+      "autoImportMode": "Auto-import mode",
+      "description": "Description",
+      "researchObjective": "Research objective",
+      "unlinkedStrategy": "No linked strategy",
+      "anySession": "Any session",
+      "anyTimeframe": "Any timeframe",
+      "updated": "Updated {{date}}",
+      "filteredTrades": "{{count}} filtered trades"
+    },
+    "autoImport": {
+      "EXACT_MATCH": {
+        "label": "Exact match",
+        "description": "Synchronize closed live trades when strategy, instrument, and any configured session or timeframe match."
+      },
+      "STRATEGY_MATCH": {
+        "label": "Strategy match",
+        "description": "Synchronize every closed live trade linked to this strategy."
+      },
+      "REVIEW_BEFORE_IMPORT": {
+        "label": "Review before import",
+        "description": "Send eligible live trades to the Research Inbox for confirmation."
+      },
+      "DISABLED": {
+        "label": "Disabled",
+        "description": "Do not synchronize new live trades; existing evidence remains intact."
+      }
+    },
+    "tabs": {
+      "overview": "Overview",
+      "trades": "Trades",
+      "edge": "Edge analysis",
+      "evidence": "Evidence",
+      "notes": "Notes"
+    },
+    "metrics": {
+      "researchWorkspaces": "Research workspaces",
+      "tradesAnalyzed": "Trades analyzed",
+      "manualTrades": "Manual trades",
+      "liveTrades": "Live trades",
+      "averageExpectancy": "Average expectancy",
+      "needsReview": "Strategies needing review",
+      "trades": "Trades",
+      "manual": "Manual",
+      "live": "Live",
+      "winRate": "Win rate",
+      "totalR": "Total R",
+      "expectancy": "Expectancy",
+      "totalCompleted": "Completed trades",
+      "profitFactor": "Profit factor",
+      "maximumDrawdown": "Maximum drawdown",
+      "averageR": "Average R",
+      "averageWinner": "Average winner",
+      "averageLoser": "Average loser",
+      "ruleBreakFrequency": "Rule-break frequency",
+      "cumulativeR": "Cumulative R",
+      "evidenceConfidence": "Evidence confidence"
+    },
+    "filters": {
+      "title": "Trade filters",
+      "instrument": "Instrument",
+      "strategy": "Strategy",
+      "session": "Session",
+      "classificationStatus": "Classification status",
+      "evidenceStatus": "Evidence status",
+      "sourceAvailability": "Source availability",
+      "searchTrades": "Search trades, setups, tags, or notes",
+      "from": "From",
+      "to": "To",
+      "source": "Source",
+      "result": "Result",
+      "direction": "Direction",
+      "resultCount": "{{count}} results"
+    },
+    "sources": {
+      "MANUAL": "Manual",
+      "IMPORT": "Imported",
+      "IMPORTED": "Imported",
+      "LIVE": "Live",
+      "SCREENSHOT": "Screenshot"
+    },
+    "results": {
+      "WIN": "Winner",
+      "LOSS": "Loser",
+      "BREAKEVEN": "Breakeven"
+    },
+    "direction": {
+      "LONG": "Long",
+      "SHORT": "Short",
+      "UNDECIDED": "Undecided"
+    },
+    "evidenceStatus": {
+      "INSUFFICIENT_DATA": {
+        "label": "Insufficient data",
+        "description": "Fewer than 5 completed trades; no edge conclusion is supported."
+      },
+      "EXPLORATORY": {
+        "label": "Exploratory",
+        "description": "5–9 completed trades; use findings only to guide further testing."
+      },
+      "EARLY_SIGNAL": {
+        "label": "Early signal",
+        "description": "10–29 completed trades; a signal may exist but remains sensitive to variance."
+      },
+      "DEVELOPING_EDGE": {
+        "label": "Developing edge",
+        "description": "30–49 completed trades with enough evidence for cautious comparison."
+      },
+      "VALIDATED_EVIDENCE": {
+        "label": "Validated evidence",
+        "description": "At least 50 completed trades with non-negative expectancy and no material review flags."
+      },
+      "NEEDS_REVIEW": {
+        "label": "Needs review",
+        "description": "Negative expectancy, unresolved evidence, or material live/historical divergence needs attention."
+      }
+    },
+    "confidence": {
+      "VERY_LOW": {
+        "label": "Very low",
+        "description": "The sample or classification coverage is too limited for confident conclusions."
+      },
+      "LOW": {
+        "label": "Low",
+        "description": "Some evidence exists, but source diversity or sample quality is limited."
+      },
+      "MODERATE": {
+        "label": "Moderate",
+        "description": "The sample, source diversity, and consistency support cautious conclusions."
+      },
+      "HIGH": {
+        "label": "High",
+        "description": "A broad, classified sample shows stable and consistent evidence across sources."
+      }
+    },
+    "syncStatus": {
+      "SYNCED": "Synced",
+      "NEEDS_REVIEW": "Needs review",
+      "NOT_LINKED": "Not linked",
+      "EXCLUDED": "Excluded",
+      "PENDING": "Pending",
+      "ERROR": "Sync error"
+    },
+    "classificationStatus": {
+      "COMPLETE": "Complete",
+      "NEEDS_CLASSIFICATION": "Needs classification",
+      "PARTIAL": "Partial"
+    },
+    "inbox": {
+      "title": "Research Inbox",
+      "description": "Review live trades that need a workspace, classification, or synchronization decision.",
+      "needsWorkspace": "Needs workspace",
+      "needsClassification": "Needs classification",
+      "ambiguousMatch": "Ambiguous match",
+      "syncErrors": "Sync errors",
+      "workspace": "Research workspace",
+      "userExcludedReason": "Excluded from research by user",
+      "classificationHelp": "Research classifications are optional and never block synchronization. Mark Partial while fields still need review."
+    },
+    "overview": {
+      "filteredNotice": "Charts and metrics show {{visible}} of {{total}} trades because filters are active."
+    },
+    "comparison": {
+      "title": "Manual versus live",
+      "description": "Compare historical/manual evidence with actual live execution. Findings are analytical signals, not certainties.",
+      "liveUnderperforms": "Live execution underperforms the historical baseline by {{gap}} expectancy across {{count}} live trades.",
+      "liveConfirms": "Live execution is in line with or above the historical baseline by {{gap}} across {{count}} live trades."
+    },
+    "regression": {
+      "title": "Live edge regression",
+      "status": {
+        "STABLE": "Stable",
+        "IMPROVING": "Improving",
+        "WATCH": "Watch",
+        "DETERIORATING": "Deteriorating",
+        "INSUFFICIENT_LIVE_DATA": "Insufficient live data"
+      },
+      "description": {
+        "STABLE": "Recent live expectancy remains close to the historical baseline across {{count}} live trades.",
+        "IMPROVING": "Recent live expectancy is improving across {{count}} live trades; keep monitoring sample growth.",
+        "WATCH": "Recent live expectancy is below baseline across {{count}} trades, but the decline is not yet material.",
+        "DETERIORATING": "Recent live expectancy is materially below the historical baseline across {{count}} trades.",
+        "INSUFFICIENT_LIVE_DATA": "At least 5 recent live trades and a historical baseline are required; current live sample: {{count}}."
+      }
+    },
+    "charts": {
+      "cumulativeR": "Cumulative R curve",
+      "cumulativeRSummary": "Running realized outcome across {{count}} filtered completed trades.",
+      "drawdown": "Drawdown in R",
+      "drawdownSummary": "Peak-to-trough drawdown calculated from the filtered trade sequence.",
+      "performanceBySource": "Performance by source",
+      "performanceBySourceSummary": "Expectancy for manual, imported, and synchronized live evidence.",
+      "showConditionCharts": "Show condition charts",
+      "hideConditionCharts": "Hide condition charts",
+      "performanceBySession": "Performance by session",
+      "performanceBySessionSummary": "Expectancy by session across {{count}} filtered trades; up to eight sessions are shown.",
+      "resultsByDirection": "Results by direction",
+      "resultsByDirectionSummary": "Expectancy by long and short direction across {{count}} filtered trades.",
+      "performanceByWeekday": "Performance by weekday",
+      "performanceByWeekdaySummary": "Expectancy by weekday across {{count}} filtered trades."
+    },
+    "trades": {
+      "date": "Date",
+      "instrument": "Instrument",
+      "direction": "Direction",
+      "strategySetup": "Strategy / setup",
+      "session": "Session",
+      "source": "Source",
+      "result": "Result",
+      "r": "R",
+      "classification": "Classification",
+      "actions": "Actions",
+      "rMultiple": "R multiple",
+      "setup": "Strategy / setup",
+      "entryTime": "Entry time",
+      "riskPercent": "Risk percent",
+      "plannedRR": "Planned R:R",
+      "contextTimeframe": "Context timeframe",
+      "executionTimeframe": "Execution timeframe",
+      "entryTimeframe": "Entry timeframe",
+      "tags": "Research tags",
+      "notes": "Trade notes"
+    },
+    "edge": {
+      "title": "Edge analysis",
+      "description": "Conditions are ranked with sample size, expectancy, and source mix visible.",
+      "bestSupported": "Best supported condition",
+      "weakestSupported": "Weakest supported condition",
+      "condition": "Condition",
+      "tradeCount": "Trade count",
+      "winRate": "Win rate",
+      "expectancy": "Expectancy",
+      "sourceMix": "Source mix",
+      "strength": "Evidence strength",
+      "savedLenses": "Edge Lenses",
+      "copy": "Copy",
+      "sampleWarning": "The current filtered sample contains {{count}} trades. One- or two-trade findings are not treated as meaningful.",
+      "findingSummary": "{{count}} trades · {{expectancy}} expectancy · {{winRate}} win rate",
+      "notEnoughSupported": "No condition has at least 5 trades yet.",
+      "dimension": {
+        "session": "Session",
+        "direction": "Direction",
+        "weekday": "Weekday",
+        "source": "Source"
+      }
+    },
+    "evidence": {
+      "title": "Screenshot evidence",
+      "description": "Organize chart context inside the workspace instead of treating screenshot count as performance.",
+      "chooseCategory": "Choose evidence category",
+      "linkedTrade": "Linked trade evidence",
+      "workspaceEvidence": "Workspace evidence",
+      "liveReuse": "{{count}} synchronized live trades already expose screenshot evidence; avoid duplicate uploads.",
+      "linkedLiveTitle": "Linked live-trade screenshots",
+      "canonicalLiveAsset": "Read-only evidence reused from the original live trade.",
+      "noLinkedLiveScreenshots": "No synchronized live-trade screenshots are available yet.",
+      "dropScreenshots": "Drop images here or choose files",
+      "previewTitle": "Screenshot preview",
+      "categories": {
+        "higherTimeframe": "Higher timeframe",
+        "beforeEntry": "Before entry",
+        "atEntry": "At entry",
+        "duringTrade": "During trade",
+        "afterExit": "After exit",
+        "reviewAnnotation": "Review annotation"
+      }
+    },
+    "notes": {
+      "title": "Research notes and conclusion",
+      "description": "Capture what the evidence supports, what invalidates it, and what to test next.",
+      "whatWorks": "What works",
+      "whatFails": "What fails",
+      "requiredConditions": "Required conditions",
+      "invalidConditions": "Invalid conditions",
+      "executionObservations": "Execution observations",
+      "liveExecutionGap": "Live execution gap",
+      "nextTestingObjective": "Next testing objective",
+      "researchConclusion": "Research conclusion",
+      "freeformNotes": "Freeform notes",
+      "savingStatus": "Saving research notes…",
+      "readyStatus": "Changes are saved only when you choose Save notes."
+    },
+    "dialogs": {
+      "newWorkspace": "New research workspace",
+      "editWorkspace": "Edit research workspace",
+      "addManualTrade": "Add manual trade",
+      "editManualTrade": "Edit manual trade",
+      "importTrades": "Import historical trades",
+      "chooseImportWorkspace": "Choose a research workspace",
+      "classifyEvidence": "Classify live evidence",
+      "importDescription": "Upload a CSV with date, instrument, direction, result, and R multiple. Imported rows remain visibly separate from live evidence.",
+      "archiveConfirm": "Archive this workspace? All trades, evidence, screenshots, notes, and links will be preserved, and new auto-imports will stop.",
+      "deleteTradeConfirm": "Delete this manual research trade?",
+      "deleteScreenshotConfirm": "Remove this screenshot evidence?",
+      "lensNamePrompt": "Name this Edge Lens"
+    },
+    "empty": {
+      "libraryTitle": "No matching research workspaces",
+      "libraryBody": "Create a workspace or change the library filters.",
+      "workspaceMissingTitle": "Research workspace not found",
+      "workspaceMissingBody": "It may have been archived or is no longer available.",
+      "inboxTitle": "Research Inbox is clear",
+      "inboxBody": "No live trades currently need linking, classification, or sync review.",
+      "tradesTitle": "No evidence trades yet",
+      "tradesBody": "Add a manual trade, import history, or close a matching live trade.",
+      "edgeTitle": "No edge conditions yet",
+      "edgeBody": "Add classified trades to compare supported conditions.",
+      "evidenceTitle": "No screenshot evidence yet",
+      "evidenceBody": "Upload workspace evidence or reuse screenshots from synchronized live trades.",
+      "chartsTitle": "No chart data yet",
+      "chartsBody": "Completed included trades are required before charts can be rendered.",
+      "lenses": "No saved Edge Lenses yet."
+    },
+    "feedback": {
+      "workspaceCreated": "Research workspace created.",
+      "workspaceUpdated": "Research workspace updated.",
+      "workspaceArchived": "Research workspace archived.",
+      "imported": "Imported {{count}} trades; {{invalid}} invalid rows were skipped.",
+      "tradeSaved": "Manual trade saved.",
+      "tradeDeleted": "Manual trade deleted.",
+      "evidenceUpdated": "Evidence updated.",
+      "evidenceExcluded": "Live evidence excluded from analytics.",
+      "syncRetried": "Synchronization retry requested.",
+      "lensSaved": "Edge Lens saved.",
+      "lensDeleted": "Edge Lens deleted.",
+      "screenshotsUploaded": "Screenshot evidence uploaded.",
+      "screenshotDeleted": "Screenshot evidence deleted.",
+      "notesSaved": "Research notes saved."
+    },
+    "errors": {
+      "workspaceSave": "Could not save the research workspace.",
+      "archive": "Could not archive the research workspace.",
+      "import": "Could not import historical trades.",
+      "tradeSave": "Could not save the manual trade.",
+      "tradeDelete": "Could not delete the manual trade.",
+      "evidenceUpdate": "Could not update live evidence.",
+      "lensSave": "Could not save the Edge Lens.",
+      "lensDelete": "Could not delete the Edge Lens.",
+      "screenshotUpload": "Could not upload screenshot evidence.",
+      "screenshotDelete": "Could not delete screenshot evidence.",
+      "screenshotSave": "Could not update screenshot evidence.",
+      "notesSave": "Could not save research notes.",
+      "resultMismatch": "Result and R multiple point in opposite directions. Correct them before saving."
+    },
+    "accessibility": {
+      "sectionNavigation": "Backtesting workspace sections",
+      "screenshotDropZone": "Screenshot evidence upload area",
+      "openScreenshot": "Open screenshot {{name}}"
+    },
+    "pagination": {
+      "previous": "Previous",
+      "next": "Next",
+      "status": "Page {{current}} of {{total}}"
+    },
+    "classification": {
+      "marketRegime": "Market regime",
+      "htfBiasQuality": "HTF bias quality",
+      "liquidityType": "Liquidity type",
+      "sweepType": "Sweep type",
+      "displacementQuality": "Displacement quality",
+      "mssQuality": "MSS quality",
+      "gapType": "Gap type",
+      "gapFillStatus": "Gap fill status",
+      "entryModel": "Entry model",
+      "researchTags": "Research tags"
+    },
     "strategy": "Strategy",
     "linkedStrategy": "Linked Strategy",
     "mentorStrategy": "Mentor strategy",

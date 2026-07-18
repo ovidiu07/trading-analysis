@@ -198,6 +198,7 @@ export default function AppShell() {
             open={isMobile ? mobileOpen : true}
             onClose={() => setMobileOpen(false)}
             ModalProps={{ keepMounted: false }}
+            PaperProps={isMobile ? { component: 'nav', 'aria-label': t('app.name') } : undefined}
             sx={{
               '& .MuiDrawer-paper': {
                 width: isMobile ? SIDEBAR_WIDTH : effectiveSidebarWidth,

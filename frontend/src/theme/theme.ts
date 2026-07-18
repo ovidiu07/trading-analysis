@@ -190,6 +190,10 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           '@media (max-width: 899.98px), (pointer: coarse)': {
             'button, [role="button"], a.MuiButtonBase-root': {
               minHeight: '44px !important'
+            },
+            '.MuiButton-root': {
+              whiteSpace: 'normal',
+              textAlign: 'center'
             }
           },
           html: {
@@ -221,6 +225,12 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
           'img, video, canvas': {
             maxWidth: '100%',
             height: 'auto'
+          },
+          '.MuiContainer-root, .MuiGrid-root, .MuiStack-root, .MuiPaper-root, .MuiCard-root, .MuiTabs-root': {
+            minWidth: 0
+          },
+          '.MuiTabs-root, .MuiTabs-scroller': {
+            maxWidth: '100%'
           },
           'textarea[aria-hidden="true"], textarea[readonly][tabindex="-1"]': {
             // Keep MUI TextareaAutosize measurement nodes hidden to avoid ghost "x" mirrors.

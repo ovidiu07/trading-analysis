@@ -28,7 +28,22 @@ describe('translation coverage', () => {
       'calendar.plans.today',
       'analytics.signals.title',
       'diagnostics.live.title',
-      'settings.tradingView.title'
+      'settings.tradingView.title',
+      'backtesting.page.title',
+      'backtesting.library.workspaces',
+      'backtesting.workspace.autoImportMode',
+      'backtesting.inbox.title',
+      'backtesting.tabs.edge',
+      'backtesting.comparison.title',
+      'backtesting.regression.status.DETERIORATING',
+      'backtesting.charts.performanceBySource',
+      'backtesting.charts.performanceBySession',
+      'backtesting.classification.marketRegime',
+      'backtesting.evidence.linkedLiveTitle',
+      'backtesting.dialogs.classifyEvidence',
+      'backtesting.notes.researchConclusion',
+      'backtesting.accessibility.sectionNavigation',
+      'backtesting.accessibility.openScreenshot'
     ]
 
     required.forEach((key) => {

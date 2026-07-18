@@ -3050,8 +3050,431 @@
     }
   },
   "backtesting": {
-    "subtitle": "Cercetare vizuală de strategii pe simbol, setup și dovezi din screenshot-uri.",
+    "subtitle": "Validează strategiile prin testare istorică și execuție live.",
     "replayChart": "Grafic cu lumânări pentru replay",
+    "page": {
+      "title": "Backtesting",
+      "subtitle": "Validează strategiile prin testare istorică și execuție live."
+    },
+    "common": {
+      "all": "Toate",
+      "none": "Niciuna",
+      "unknown": "Necunoscut"
+    },
+    "actions": {
+      "newBacktest": "Backtest nou",
+      "importHistorical": "Importă tranzacții istorice",
+      "openWorkspace": "Deschide spațiul",
+      "editWorkspace": "Editează spațiul",
+      "addManualTrade": "Adaugă tranzacție manuală",
+      "import": "Importă",
+      "continue": "Continuă",
+      "archive": "Arhivează",
+      "cancel": "Anulează",
+      "save": "Salvează",
+      "saving": "Se salvează…",
+      "chooseCsv": "Alege fișierul CSV",
+      "importing": "Se importă…",
+      "backToLibrary": "Înapoi la bibliotecă",
+      "filters": "Filtre",
+      "clearFilters": "Șterge filtrele",
+      "showResults": "Arată {{count}} rezultate",
+      "edit": "Editează",
+      "delete": "Șterge",
+      "openLiveTrade": "Deschide tranzacția live",
+      "exclude": "Exclude",
+      "link": "Asociază",
+      "classify": "Clasifică",
+      "retrySync": "Reîncearcă sincronizarea",
+      "saveClassification": "Salvează clasificarea",
+      "saveEdgeLens": "Salvează ca filtru de avantaj",
+      "apply": "Aplică",
+      "duplicate": "Duplică",
+      "uploadScreenshots": "Încarcă capturi de ecran",
+      "uploading": "Se încarcă…",
+      "deleteScreenshot": "Șterge captura de ecran",
+      "saveNotes": "Salvează notițele",
+      "showAdvanced": "Arată câmpurile opționale",
+      "hideAdvanced": "Ascunde câmpurile opționale"
+    },
+    "library": {
+      "workspaces": "Spații de cercetare",
+      "search": "Caută spații de cercetare",
+      "filtersLabel": "Filtre pentru spațiile de cercetare"
+    },
+    "workspace": {
+      "name": "Numele spațiului",
+      "instrument": "Instrument",
+      "linkedStrategy": "Strategie asociată",
+      "manualStrategyName": "Numele strategiei",
+      "market": "Piață",
+      "session": "Sesiune",
+      "timeframe": "Interval de timp",
+      "autoImportMode": "Mod de import automat",
+      "description": "Descriere",
+      "researchObjective": "Obiectivul cercetării",
+      "unlinkedStrategy": "Fără strategie asociată",
+      "anySession": "Orice sesiune",
+      "anyTimeframe": "Orice interval",
+      "updated": "Actualizat {{date}}",
+      "filteredTrades": "{{count}} tranzacții filtrate"
+    },
+    "autoImport": {
+      "EXACT_MATCH": {
+        "label": "Potrivire exactă",
+        "description": "Sincronizează tranzacțiile live închise când strategia, instrumentul și sesiunea sau intervalul configurat se potrivesc."
+      },
+      "STRATEGY_MATCH": {
+        "label": "Potrivire după strategie",
+        "description": "Sincronizează toate tranzacțiile live închise asociate acestei strategii."
+      },
+      "REVIEW_BEFORE_IMPORT": {
+        "label": "Verifică înainte de import",
+        "description": "Trimite tranzacțiile live eligibile în Inboxul de cercetare pentru confirmare."
+      },
+      "DISABLED": {
+        "label": "Dezactivat",
+        "description": "Nu sincroniza tranzacții live noi; dovezile existente rămân intacte."
+      }
+    },
+    "tabs": {
+      "overview": "Prezentare generală",
+      "trades": "Tranzacții",
+      "edge": "Analiza avantajului",
+      "evidence": "Dovezi",
+      "notes": "Notițe"
+    },
+    "metrics": {
+      "researchWorkspaces": "Spații de cercetare",
+      "tradesAnalyzed": "Tranzacții analizate",
+      "manualTrades": "Tranzacții manuale",
+      "liveTrades": "Tranzacții live",
+      "averageExpectancy": "Expectanță medie",
+      "needsReview": "Strategii de verificat",
+      "trades": "Tranzacții",
+      "manual": "Manuale",
+      "live": "Live",
+      "winRate": "Rată de câștig",
+      "totalR": "R total",
+      "expectancy": "Expectanță",
+      "totalCompleted": "Tranzacții finalizate",
+      "profitFactor": "Factor de profit",
+      "maximumDrawdown": "Drawdown maxim",
+      "averageR": "R mediu",
+      "averageWinner": "Câștig mediu",
+      "averageLoser": "Pierdere medie",
+      "ruleBreakFrequency": "Frecvența încălcării regulilor",
+      "cumulativeR": "R cumulativ",
+      "evidenceConfidence": "Încrederea în dovezi"
+    },
+    "filters": {
+      "title": "Filtre pentru tranzacții",
+      "instrument": "Instrument",
+      "strategy": "Strategie",
+      "session": "Sesiune",
+      "classificationStatus": "Starea clasificării",
+      "evidenceStatus": "Starea dovezilor",
+      "sourceAvailability": "Surse disponibile",
+      "searchTrades": "Caută tranzacții, setup-uri, etichete sau notițe",
+      "from": "De la",
+      "to": "Până la",
+      "source": "Sursă",
+      "result": "Rezultat",
+      "direction": "Direcție",
+      "resultCount": "{{count}} rezultate"
+    },
+    "sources": {
+      "MANUAL": "Manuală",
+      "IMPORT": "Importată",
+      "IMPORTED": "Importată",
+      "LIVE": "Live",
+      "SCREENSHOT": "Captură de ecran"
+    },
+    "results": {
+      "WIN": "Câștigătoare",
+      "LOSS": "Pierzătoare",
+      "BREAKEVEN": "Breakeven"
+    },
+    "direction": {
+      "LONG": "Long",
+      "SHORT": "Short",
+      "UNDECIDED": "Nedecisă"
+    },
+    "evidenceStatus": {
+      "INSUFFICIENT_DATA": {
+        "label": "Date insuficiente",
+        "description": "Mai puțin de 5 tranzacții finalizate; datele nu susțin o concluzie despre avantaj."
+      },
+      "EXPLORATORY": {
+        "label": "Exploratoriu",
+        "description": "5–9 tranzacții finalizate; folosește observațiile doar pentru a ghida testarea următoare."
+      },
+      "EARLY_SIGNAL": {
+        "label": "Semnal timpuriu",
+        "description": "10–29 de tranzacții finalizate; poate exista un semnal, dar este sensibil la variație."
+      },
+      "DEVELOPING_EDGE": {
+        "label": "Avantaj în dezvoltare",
+        "description": "30–49 de tranzacții finalizate oferă date suficiente pentru comparații prudente."
+      },
+      "VALIDATED_EVIDENCE": {
+        "label": "Dovezi validate",
+        "description": "Cel puțin 50 de tranzacții finalizate, expectanță nenegativă și fără alerte importante."
+      },
+      "NEEDS_REVIEW": {
+        "label": "Necesită verificare",
+        "description": "Expectanța negativă, dovezile nerezolvate sau diferența live/istoric necesită atenție."
+      }
+    },
+    "confidence": {
+      "VERY_LOW": {
+        "label": "Foarte scăzută",
+        "description": "Eșantionul sau acoperirea clasificării este prea mică pentru concluzii sigure."
+      },
+      "LOW": {
+        "label": "Scăzută",
+        "description": "Există unele dovezi, dar diversitatea surselor sau calitatea eșantionului este limitată."
+      },
+      "MODERATE": {
+        "label": "Moderată",
+        "description": "Eșantionul, diversitatea surselor și consecvența susțin concluzii prudente."
+      },
+      "HIGH": {
+        "label": "Ridicată",
+        "description": "Un eșantion amplu și clasificat arată dovezi stabile și consecvente între surse."
+      }
+    },
+    "syncStatus": {
+      "SYNCED": "Sincronizat",
+      "NEEDS_REVIEW": "Necesită verificare",
+      "NOT_LINKED": "Neasociat",
+      "EXCLUDED": "Exclus",
+      "PENDING": "În așteptare",
+      "ERROR": "Eroare de sincronizare"
+    },
+    "classificationStatus": {
+      "COMPLETE": "Complet",
+      "NEEDS_CLASSIFICATION": "Necesită clasificare",
+      "PARTIAL": "Parțial"
+    },
+    "inbox": {
+      "title": "Inbox de cercetare",
+      "description": "Verifică tranzacțiile live care necesită un spațiu, clasificare sau o decizie de sincronizare.",
+      "needsWorkspace": "Necesită un spațiu",
+      "needsClassification": "Necesită clasificare",
+      "ambiguousMatch": "Potrivire ambiguă",
+      "syncErrors": "Erori de sincronizare",
+      "workspace": "Spațiu de cercetare",
+      "userExcludedReason": "Exclusă din cercetare de utilizator",
+      "classificationHelp": "Clasificările de cercetare sunt opționale și nu blochează sincronizarea. Păstrează starea Parțial cât timp mai sunt câmpuri de verificat."
+    },
+    "overview": {
+      "filteredNotice": "Graficele și metricile arată {{visible}} din {{total}} tranzacții deoarece există filtre active."
+    },
+    "comparison": {
+      "title": "Manual comparativ cu live",
+      "description": "Compară dovezile istorice/manuale cu execuția live reală. Constatările sunt semnale analitice, nu certitudini.",
+      "liveUnderperforms": "Execuția live este sub referința istorică cu {{gap}} expectanță în {{count}} tranzacții live.",
+      "liveConfirms": "Execuția live este la nivelul sau peste referința istorică cu {{gap}} în {{count}} tranzacții live."
+    },
+    "regression": {
+      "title": "Regresia avantajului live",
+      "status": {
+        "STABLE": "Stabil",
+        "IMPROVING": "În îmbunătățire",
+        "WATCH": "De urmărit",
+        "DETERIORATING": "În deteriorare",
+        "INSUFFICIENT_LIVE_DATA": "Date live insuficiente"
+      },
+      "description": {
+        "STABLE": "Expectanța live recentă rămâne aproape de referința istorică în {{count}} tranzacții live.",
+        "IMPROVING": "Expectanța live recentă se îmbunătățește în {{count}} tranzacții; urmărește în continuare creșterea eșantionului.",
+        "WATCH": "Expectanța live recentă este sub referință în {{count}} tranzacții, dar scăderea nu este încă semnificativă.",
+        "DETERIORATING": "Expectanța live recentă este semnificativ sub referința istorică în {{count}} tranzacții.",
+        "INSUFFICIENT_LIVE_DATA": "Sunt necesare cel puțin 5 tranzacții live recente și o referință istorică; eșantion live curent: {{count}}."
+      }
+    },
+    "charts": {
+      "cumulativeR": "Curba R cumulativă",
+      "cumulativeRSummary": "Rezultatul realizat cumulat pentru {{count}} tranzacții finalizate și filtrate.",
+      "drawdown": "Drawdown în R",
+      "drawdownSummary": "Drawdown de la vârf la minim, calculat din secvența filtrată de tranzacții.",
+      "performanceBySource": "Performanță după sursă",
+      "performanceBySourceSummary": "Expectanța dovezilor manuale, importate și live sincronizate.",
+      "showConditionCharts": "Arată graficele condițiilor",
+      "hideConditionCharts": "Ascunde graficele condițiilor",
+      "performanceBySession": "Performanță după sesiune",
+      "performanceBySessionSummary": "Expectanța după sesiune pentru {{count}} tranzacții filtrate; sunt afișate maximum opt sesiuni.",
+      "resultsByDirection": "Rezultate după direcție",
+      "resultsByDirectionSummary": "Expectanța pentru direcțiile long și short în {{count}} tranzacții filtrate.",
+      "performanceByWeekday": "Performanță după ziua săptămânii",
+      "performanceByWeekdaySummary": "Expectanța după ziua săptămânii în {{count}} tranzacții filtrate."
+    },
+    "trades": {
+      "date": "Dată",
+      "instrument": "Instrument",
+      "direction": "Direcție",
+      "strategySetup": "Strategie / setup",
+      "session": "Sesiune",
+      "source": "Sursă",
+      "result": "Rezultat",
+      "r": "R",
+      "classification": "Clasificare",
+      "actions": "Acțiuni",
+      "rMultiple": "Multiplu R",
+      "setup": "Strategie / setup",
+      "entryTime": "Ora intrării",
+      "riskPercent": "Procent de risc",
+      "plannedRR": "R:R planificat",
+      "contextTimeframe": "Interval de context",
+      "executionTimeframe": "Interval de execuție",
+      "entryTimeframe": "Interval de intrare",
+      "tags": "Etichete de cercetare",
+      "notes": "Notițele tranzacției"
+    },
+    "edge": {
+      "title": "Analiza avantajului",
+      "description": "Condițiile sunt ordonate cu dimensiunea eșantionului, expectanța și sursele vizibile.",
+      "bestSupported": "Cea mai bună condiție susținută de date",
+      "weakestSupported": "Cea mai slabă condiție susținută de date",
+      "condition": "Condiție",
+      "tradeCount": "Număr de tranzacții",
+      "winRate": "Rată de câștig",
+      "expectancy": "Expectanță",
+      "sourceMix": "Structura surselor",
+      "strength": "Puterea dovezilor",
+      "savedLenses": "Filtre de avantaj",
+      "copy": "Copie",
+      "sampleWarning": "Eșantionul filtrat curent conține {{count}} tranzacții. Constatările din una sau două tranzacții nu sunt considerate relevante.",
+      "findingSummary": "{{count}} tranzacții · expectanță {{expectancy}} · rată de câștig {{winRate}}",
+      "notEnoughSupported": "Nicio condiție nu are încă minimum 5 tranzacții.",
+      "dimension": {
+        "session": "Sesiune",
+        "direction": "Direcție",
+        "weekday": "Ziua săptămânii",
+        "source": "Sursă"
+      }
+    },
+    "evidence": {
+      "title": "Dovezi din capturi de ecran",
+      "description": "Organizează contextul graficului în spațiul de cercetare fără a trata numărul capturilor ca performanță.",
+      "chooseCategory": "Alege categoria dovezii",
+      "linkedTrade": "Dovadă asociată tranzacției",
+      "workspaceEvidence": "Dovadă la nivel de spațiu",
+      "liveReuse": "{{count}} tranzacții live sincronizate conțin deja capturi; evită încărcările duplicate.",
+      "linkedLiveTitle": "Capturi asociate tranzacțiilor live",
+      "canonicalLiveAsset": "Dovadă reutilizată în mod read-only din tranzacția live originală.",
+      "noLinkedLiveScreenshots": "Nu există încă capturi din tranzacții live sincronizate.",
+      "dropScreenshots": "Trage imaginile aici sau alege fișiere",
+      "previewTitle": "Previzualizare captură",
+      "categories": {
+        "higherTimeframe": "Timeframe superior",
+        "beforeEntry": "Înainte de intrare",
+        "atEntry": "La intrare",
+        "duringTrade": "În timpul tranzacției",
+        "afterExit": "După ieșire",
+        "reviewAnnotation": "Adnotare pentru analiză"
+      }
+    },
+    "notes": {
+      "title": "Notițe și concluzia cercetării",
+      "description": "Notează ce susțin dovezile, ce invalidează strategia și ce trebuie testat în continuare.",
+      "whatWorks": "Ce funcționează",
+      "whatFails": "Ce nu funcționează",
+      "requiredConditions": "Condiții necesare",
+      "invalidConditions": "Condiții nevalide",
+      "executionObservations": "Observații despre execuție",
+      "liveExecutionGap": "Diferența față de execuția live",
+      "nextTestingObjective": "Următorul obiectiv de testare",
+      "researchConclusion": "Concluzia cercetării",
+      "freeformNotes": "Notițe libere",
+      "savingStatus": "Se salvează notițele de cercetare…",
+      "readyStatus": "Modificările sunt salvate doar când alegi Salvează notițele."
+    },
+    "dialogs": {
+      "newWorkspace": "Spațiu de cercetare nou",
+      "editWorkspace": "Editează spațiul de cercetare",
+      "addManualTrade": "Adaugă tranzacție manuală",
+      "editManualTrade": "Editează tranzacția manuală",
+      "importTrades": "Importă tranzacții istorice",
+      "chooseImportWorkspace": "Alege un spațiu de cercetare",
+      "classifyEvidence": "Clasifică dovada live",
+      "importDescription": "Încarcă un CSV cu dată, instrument, direcție, rezultat și multiplu R. Rândurile importate rămân vizibil separate de dovezile live.",
+      "archiveConfirm": "Arhivezi acest spațiu? Toate tranzacțiile, dovezile, capturile, notițele și asocierile vor fi păstrate, iar importurile automate noi se vor opri.",
+      "deleteTradeConfirm": "Ștergi această tranzacție manuală de cercetare?",
+      "deleteScreenshotConfirm": "Elimini această captură din dovezi?",
+      "lensNamePrompt": "Numele filtrului de avantaj"
+    },
+    "empty": {
+      "libraryTitle": "Nu există spații de cercetare potrivite",
+      "libraryBody": "Creează un spațiu sau modifică filtrele bibliotecii.",
+      "workspaceMissingTitle": "Spațiul de cercetare nu a fost găsit",
+      "workspaceMissingBody": "Este posibil să fi fost arhivat sau să nu mai fie disponibil.",
+      "inboxTitle": "Inboxul de cercetare este gol",
+      "inboxBody": "Nicio tranzacție live nu necesită acum asociere, clasificare sau verificarea sincronizării.",
+      "tradesTitle": "Nu există încă tranzacții-dovadă",
+      "tradesBody": "Adaugă o tranzacție manuală, importă istoricul sau închide o tranzacție live potrivită.",
+      "edgeTitle": "Nu există încă suficiente condiții",
+      "edgeBody": "Adaugă tranzacții clasificate pentru a compara condițiile susținute de date.",
+      "evidenceTitle": "Nu există încă dovezi din capturi",
+      "evidenceBody": "Încarcă dovezi în spațiu sau reutilizează capturile tranzacțiilor live sincronizate.",
+      "chartsTitle": "Nu există încă date pentru grafice",
+      "chartsBody": "Sunt necesare tranzacții finalizate și incluse pentru afișarea graficelor.",
+      "lenses": "Nu există filtre de avantaj salvate."
+    },
+    "feedback": {
+      "workspaceCreated": "Spațiul de cercetare a fost creat.",
+      "workspaceUpdated": "Spațiul de cercetare a fost actualizat.",
+      "workspaceArchived": "Spațiul de cercetare a fost arhivat.",
+      "imported": "Au fost importate {{count}} tranzacții; {{invalid}} rânduri nevalide au fost omise.",
+      "tradeSaved": "Tranzacția manuală a fost salvată.",
+      "tradeDeleted": "Tranzacția manuală a fost ștearsă.",
+      "evidenceUpdated": "Dovada a fost actualizată.",
+      "evidenceExcluded": "Dovada live a fost exclusă din analiză.",
+      "syncRetried": "Reîncercarea sincronizării a fost solicitată.",
+      "lensSaved": "Filtrul de avantaj a fost salvat.",
+      "lensDeleted": "Filtrul de avantaj a fost șters.",
+      "screenshotsUploaded": "Capturile-dovadă au fost încărcate.",
+      "screenshotDeleted": "Captura-dovadă a fost ștearsă.",
+      "notesSaved": "Notițele de cercetare au fost salvate."
+    },
+    "errors": {
+      "workspaceSave": "Spațiul de cercetare nu a putut fi salvat.",
+      "archive": "Spațiul de cercetare nu a putut fi arhivat.",
+      "import": "Tranzacțiile istorice nu au putut fi importate.",
+      "tradeSave": "Tranzacția manuală nu a putut fi salvată.",
+      "tradeDelete": "Tranzacția manuală nu a putut fi ștearsă.",
+      "evidenceUpdate": "Dovada live nu a putut fi actualizată.",
+      "lensSave": "Filtrul de avantaj nu a putut fi salvat.",
+      "lensDelete": "Filtrul de avantaj nu a putut fi șters.",
+      "screenshotUpload": "Captura-dovadă nu a putut fi încărcată.",
+      "screenshotDelete": "Captura-dovadă nu a putut fi ștearsă.",
+      "screenshotSave": "Captura-dovadă nu a putut fi actualizată.",
+      "notesSave": "Notițele de cercetare nu au putut fi salvate.",
+      "resultMismatch": "Rezultatul și multiplul R au semne opuse. Corectează-le înainte de salvare."
+    },
+    "accessibility": {
+      "sectionNavigation": "Secțiunile spațiului de backtesting",
+      "screenshotDropZone": "Zonă pentru încărcarea capturilor-dovadă",
+      "openScreenshot": "Deschide captura {{name}}"
+    },
+    "pagination": {
+      "previous": "Anterior",
+      "next": "Următorul",
+      "status": "Pagina {{current}} din {{total}}"
+    },
+    "classification": {
+      "marketRegime": "Regim de piață",
+      "htfBiasQuality": "Calitatea biasului HTF",
+      "liquidityType": "Tip de lichiditate",
+      "sweepType": "Tip de sweep",
+      "displacementQuality": "Calitatea displacement-ului",
+      "mssQuality": "Calitatea MSS",
+      "gapType": "Tip de gap",
+      "gapFillStatus": "Starea de umplere a gap-ului",
+      "entryModel": "Model de intrare",
+      "researchTags": "Etichete de cercetare"
+    },
     "strategy": "Strategie",
     "linkedStrategy": "Strategie asociată",
     "mentorStrategy": "Strategie Mentor",

@@ -1,6 +1,7 @@
 package com.tradevault.domain.entity;
 
 import com.tradevault.domain.enums.BacktestingWorkspaceStatus;
+import com.tradevault.domain.enums.BacktestingAutoImportMode;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -70,6 +71,31 @@ public class BacktestingWorkspace {
     @Column(name = "entry_timeframe", length = 40)
     private String entryTimeframe;
 
+    @Column(length = 40)
+    private String session;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "auto_import_mode", nullable = false, length = 32)
+    private BacktestingAutoImportMode autoImportMode;
+
+    @Column(columnDefinition = "TEXT")
+    private String description;
+
+    @Column(name = "research_objective", columnDefinition = "TEXT")
+    private String researchObjective;
+
+    @Column(name = "execution_observations", columnDefinition = "TEXT")
+    private String executionObservations;
+
+    @Column(name = "live_execution_gap", columnDefinition = "TEXT")
+    private String liveExecutionGap;
+
+    @Column(name = "next_testing_objective", columnDefinition = "TEXT")
+    private String nextTestingObjective;
+
+    @Column(name = "research_conclusion", columnDefinition = "TEXT")
+    private String researchConclusion;
+
     @Column(name = "number_of_trades", nullable = false)
     private Integer numberOfTrades;
 
@@ -119,5 +145,6 @@ public class BacktestingWorkspace {
         if (losingTrades == null) losingTrades = 0;
         if (breakevenTrades == null) breakevenTrades = 0;
         if (status == null) status = BacktestingWorkspaceStatus.ACTIVE;
+        if (autoImportMode == null) autoImportMode = BacktestingAutoImportMode.EXACT_MATCH;
     }
 }

@@ -23,6 +23,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
+  List<Trade> findByUser_IdAndStrategyIdAndStatus(UUID userId, UUID strategyId, TradeStatus status);
+
   @Query(value = """
       SELECT t.id FROM Trade t
       WHERE t.user.id = :userId

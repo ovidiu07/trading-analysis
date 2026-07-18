@@ -6,6 +6,7 @@ import com.tradevault.domain.entity.BacktestingEdgeLens;
 import com.tradevault.domain.entity.BacktestingScreenshot;
 import com.tradevault.domain.entity.BacktestingTrade;
 import com.tradevault.domain.entity.BacktestingWorkspace;
+import com.tradevault.domain.entity.BacktestEvidenceLink;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.BacktestingTradeDirection;
 import com.tradevault.domain.enums.BacktestingTradeResult;
@@ -26,6 +27,7 @@ import com.tradevault.repository.BacktestingEdgeLensRepository;
 import com.tradevault.repository.BacktestingScreenshotRepository;
 import com.tradevault.repository.BacktestingTradeRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
+import com.tradevault.service.backtesting.LiveTradeEvidenceSyncService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.apache.commons.csv.CSVFormat;
@@ -78,12 +80,21 @@ public class BacktestingResearchService {
     private final BacktestingEdgeLensRepository edgeLensRepository;
     private final CurrentUserService currentUserService;
     private final ObjectMapper objectMapper;
+    private final LiveTradeEvidenceSyncService evidenceSyncService;
+    private final BacktestingEvidenceAssessmentService evidenceAssessmentService;
 
     @Transactional(readOnly = true)
     public List<BacktestingTradeResponse> listTrades(UUID workspaceId) {
         User user = currentUserService.getCurrentUser();
         requireOwnedWorkspace(workspaceId, user);
-        return toTradeResponses(tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId()));
+        List<BacktestingTradeResponse> responses = new ArrayList<>(toTradeResponses(
+                tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId())));
+        evidenceSyncService.includedLinks(workspaceId, user.getId()).stream()
+                .map(evidenceSyncService::toTradeResponse)
+                .forEach(responses::add);
+        responses.sort(Comparator.comparing(BacktestingTradeResponse::getDate)
+                .thenComparing(BacktestingTradeResponse::getEntryTime));
+        return responses;
     }
 
     @Transactional
@@ -165,7 +176,7 @@ public class BacktestingResearchService {
     public BacktestingAnalyticsResponse analytics(UUID workspaceId) {
         User user = currentUserService.getCurrentUser();
         requireOwnedWorkspace(workspaceId, user);
-        List<BacktestingTrade> trades = tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId());
+        List<BacktestingTrade> trades = researchTrades(workspaceId, user);
         BacktestingMetricResponse baseline = calculateMetrics(trades);
         Map<String, List<BacktestingBreakdownRowResponse>> breakdowns = new LinkedHashMap<>();
         breakdowns.put("hour", breakdown("hour", trades, baseline, trade -> "%02d:00".formatted(trade.getEntryTime().getHour()), label -> Map.of("hour", label)));
@@ -182,18 +193,39 @@ public class BacktestingResearchService {
         breakdowns.put("gapType", breakdown("gapType", trades, baseline, trade -> trade.isGapPresent() && trade.getGapType() != null ? trade.getGapType().name() : "Unspecified", label -> Map.of("gapType", label)));
         breakdowns.put("gapTimeframe", breakdown("gapTimeframe", trades, baseline, trade -> trade.isGapPresent() ? fallback(trade.getGapTimeframe(), "Unspecified") : "No gap", label -> Map.of("gapTimeframe", label)));
         breakdowns.put("gapFillStatus", breakdown("gapFillStatus", trades, baseline, trade -> trade.isGapPresent() && trade.getGapFillStatus() != null ? trade.getGapFillStatus().name() : "Unspecified", label -> Map.of("gapFillStatus", label)));
+        breakdowns.put("source", breakdown("source", trades, baseline, trade -> trade.getSource().name(), label -> Map.of("source", label)));
         List<BacktestingBreakdownRowResponse> impacts = breakdowns.values().stream()
                 .flatMap(List::stream)
                 .sorted(Comparator.comparing((BacktestingBreakdownRowResponse row) -> row.getExpectancyDelta() == null ? BigDecimal.ZERO : row.getExpectancyDelta()).reversed())
                 .toList();
-        return BacktestingAnalyticsResponse.builder().baseline(baseline).breakdowns(breakdowns).impactRows(impacts).build();
+        Map<String, BacktestingMetricResponse> sourceMetrics = new LinkedHashMap<>();
+        for (BacktestingTradeSource source : List.of(BacktestingTradeSource.MANUAL, BacktestingTradeSource.IMPORT, BacktestingTradeSource.LIVE)) {
+            sourceMetrics.put(source.name(), calculateMetrics(trades.stream().filter(trade -> trade.getSource() == source).toList()));
+        }
+        List<BacktestingTrade> historical = trades.stream().filter(trade -> trade.getSource() != BacktestingTradeSource.LIVE).toList();
+        List<BacktestingTrade> live = trades.stream().filter(trade -> trade.getSource() == BacktestingTradeSource.LIVE).toList();
+        BigDecimal liveGap = live.isEmpty() ? null : scale(calculateMetrics(live).getExpectancy().subtract(calculateMetrics(historical).getExpectancy()));
+        List<BacktestingTrade> recentLive = live.stream()
+                .sorted(Comparator.comparing(BacktestingTrade::getDate).thenComparing(BacktestingTrade::getEntryTime).reversed())
+                .limit(evidenceAssessmentService.recentLiveWindow())
+                .toList();
+        String regressionStatus = regressionStatus(historical, recentLive);
+        return BacktestingAnalyticsResponse.builder()
+                .baseline(baseline)
+                .breakdowns(breakdowns)
+                .impactRows(impacts)
+                .sourceMetrics(sourceMetrics)
+                .liveExpectancyGap(liveGap)
+                .regressionStatus(regressionStatus)
+                .recentLiveSampleSize(recentLive.size())
+                .build();
     }
 
     @Transactional(readOnly = true)
     public List<BacktestingEdgeLensResponse> listEdgeLenses(UUID workspaceId) {
         User user = currentUserService.getCurrentUser();
         requireOwnedWorkspace(workspaceId, user);
-        List<BacktestingTrade> trades = tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId());
+        List<BacktestingTrade> trades = researchTrades(workspaceId, user);
         return edgeLensRepository.findByWorkspace_IdAndUser_IdOrderByUpdatedAtDesc(workspaceId, user.getId()).stream()
                 .map(lens -> toEdgeLensResponse(lens, trades))
                 .toList();
@@ -211,7 +243,7 @@ public class BacktestingResearchService {
                 .filterDefinitionJson(writeJson(request.getFilterDefinition()))
                 .recalculatedAt(OffsetDateTime.now())
                 .build();
-        List<BacktestingTrade> trades = tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId());
+        List<BacktestingTrade> trades = researchTrades(workspaceId, user);
         BacktestingEdgeLens saved = edgeLensRepository.save(lens);
         recalculateLens(saved, trades);
         workspace.setUpdatedAt(OffsetDateTime.now());
@@ -226,7 +258,7 @@ public class BacktestingResearchService {
         lens.setName(requireText(request.getName(), "name"));
         lens.setDescription(normalizeText(request.getDescription()));
         lens.setFilterDefinitionJson(writeJson(request.getFilterDefinition()));
-        List<BacktestingTrade> trades = tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(lens.getWorkspace().getId(), user.getId());
+        List<BacktestingTrade> trades = researchTrades(lens.getWorkspace().getId(), user);
         recalculateLens(lens, trades);
         lens.getWorkspace().setUpdatedAt(OffsetDateTime.now());
         return toEdgeLensResponse(edgeLensRepository.save(lens), trades);
@@ -237,7 +269,7 @@ public class BacktestingResearchService {
         User user = currentUserService.getCurrentUser();
         BacktestingEdgeLens lens = edgeLensRepository.findByIdAndUser_Id(lensId, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Edge Lens not found"));
-        List<BacktestingTrade> trades = tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(lens.getWorkspace().getId(), user.getId());
+        List<BacktestingTrade> trades = researchTrades(lens.getWorkspace().getId(), user);
         recalculateLens(lens, trades);
         return toEdgeLensResponse(edgeLensRepository.save(lens), trades);
     }
@@ -261,6 +293,26 @@ public class BacktestingResearchService {
         BigDecimal grossLoss = rows.stream().map(BacktestingTrade::getPnlR).filter(Objects::nonNull).filter(value -> value.compareTo(BigDecimal.ZERO) < 0).reduce(BigDecimal.ZERO, BigDecimal::add).abs();
         BigDecimal avgWin = average(rows.stream().map(BacktestingTrade::getPnlR).filter(value -> value != null && value.compareTo(BigDecimal.ZERO) > 0).toList());
         BigDecimal avgLoss = average(rows.stream().map(BacktestingTrade::getPnlR).filter(value -> value != null && value.compareTo(BigDecimal.ZERO) < 0).toList());
+        List<BigDecimal> sortedR = rows.stream().map(BacktestingTrade::getPnlR).filter(Objects::nonNull).sorted().toList();
+        BigDecimal medianR = median(sortedR);
+        BigDecimal cumulative = BigDecimal.ZERO;
+        BigDecimal peak = BigDecimal.ZERO;
+        BigDecimal maximumDrawdown = BigDecimal.ZERO;
+        int losingStreak = 0;
+        int maximumLosingStreak = 0;
+        for (BacktestingTrade row : rows) {
+            BigDecimal value = row.getPnlR() == null ? BigDecimal.ZERO : row.getPnlR();
+            cumulative = cumulative.add(value);
+            if (cumulative.compareTo(peak) > 0) peak = cumulative;
+            BigDecimal drawdown = peak.subtract(cumulative);
+            if (drawdown.compareTo(maximumDrawdown) > 0) maximumDrawdown = drawdown;
+            if (value.compareTo(BigDecimal.ZERO) < 0) {
+                losingStreak++;
+                maximumLosingStreak = Math.max(maximumLosingStreak, losingStreak);
+            } else {
+                losingStreak = 0;
+            }
+        }
         return BacktestingMetricResponse.builder()
                 .trades(total)
                 .wins(wins)
@@ -277,15 +329,20 @@ public class BacktestingResearchService {
                 .averageLossR(avgLoss)
                 .largestWinR(rows.stream().map(BacktestingTrade::getPnlR).filter(Objects::nonNull).max(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO))
                 .largestLossR(rows.stream().map(BacktestingTrade::getPnlR).filter(Objects::nonNull).min(Comparator.naturalOrder()).map(this::scale).orElse(BigDecimal.ZERO))
+                .medianR(medianR)
+                .maximumDrawdownR(scale(maximumDrawdown))
+                .maximumLosingStreak(maximumLosingStreak)
+                .currentLosingStreak(losingStreak)
                 .sampleQuality(sampleQuality(total))
                 .build();
     }
 
     public String sampleQuality(int trades) {
-        if (trades < 10) return "Exploratory only";
+        if (trades < 5) return "Insufficient data";
+        if (trades < 10) return "Exploratory";
         if (trades < 30) return "Early signal";
-        if (trades < 60) return "Developing evidence";
-        return "More reliable pattern";
+        if (trades < 50) return "Developing edge";
+        return "Validated sample";
     }
 
     private List<BacktestingBreakdownRowResponse> breakdown(String dimension,
@@ -361,7 +418,8 @@ public class BacktestingResearchService {
         trade.setEntryTimeframe(normalizeText(request.getEntryTimeframe()));
         trade.setTagsJson(writeList(normalizeList(request.getTags())));
         trade.setNotes(normalizeText(request.getNotes()));
-        trade.setSource(request.getSource() == null ? fallbackSource : request.getSource());
+        trade.setSource(request.getSource() == null || request.getSource() == BacktestingTradeSource.LIVE
+                ? fallbackSource : request.getSource());
         trade.setTradeScope(request.getTradeScope() == null ? BacktestingTradeScope.BACKTEST : request.getTradeScope());
     }
 
@@ -443,6 +501,10 @@ public class BacktestingResearchService {
                 .notes(trade.getNotes())
                 .source(trade.getSource())
                 .tradeScope(trade.getTradeScope())
+                .syncStatus("SYNCED")
+                .classificationStatus("COMPLETE")
+                .includedInAnalytics(true)
+                .ruleBreakCount(0)
                 .screenshotCount(screenshotCount)
                 .createdAt(trade.getCreatedAt())
                 .updatedAt(trade.getUpdatedAt())
@@ -510,6 +572,7 @@ public class BacktestingResearchService {
                 case "gapType" -> value.equalsIgnoreCase(trade.getGapType() == null ? "Unspecified" : trade.getGapType().name());
                 case "gapTimeframe" -> value.equalsIgnoreCase(fallback(trade.getGapTimeframe(), "No gap"));
                 case "gapFillStatus" -> value.equalsIgnoreCase(trade.getGapFillStatus() == null ? "Unspecified" : trade.getGapFillStatus().name());
+                case "source" -> value.equalsIgnoreCase(trade.getSource().name());
                 default -> true;
             };
             if (!matched) return false;
@@ -542,6 +605,32 @@ public class BacktestingResearchService {
     private BigDecimal average(List<BigDecimal> values) {
         if (values == null || values.isEmpty()) return BigDecimal.ZERO;
         return scale(values.stream().reduce(BigDecimal.ZERO, BigDecimal::add).divide(BigDecimal.valueOf(values.size()), 4, RoundingMode.HALF_UP));
+    }
+
+    private BigDecimal median(List<BigDecimal> values) {
+        if (values == null || values.isEmpty()) return BigDecimal.ZERO;
+        int middle = values.size() / 2;
+        if (values.size() % 2 == 1) return scale(values.get(middle));
+        return scale(values.get(middle - 1).add(values.get(middle)).divide(BigDecimal.valueOf(2), 4, RoundingMode.HALF_UP));
+    }
+
+    private List<BacktestingTrade> researchTrades(UUID workspaceId, User user) {
+        List<BacktestingTrade> trades = new ArrayList<>(
+                tradeRepository.findByWorkspace_IdAndUser_IdOrderByDateAscEntryTimeAscCreatedAtAsc(workspaceId, user.getId()));
+        evidenceSyncService.includedLinks(workspaceId, user.getId()).stream()
+                .map(evidenceSyncService::materialize)
+                .forEach(trades::add);
+        trades.sort(Comparator.comparing(BacktestingTrade::getDate).thenComparing(BacktestingTrade::getEntryTime));
+        return trades;
+    }
+
+    private String regressionStatus(List<BacktestingTrade> historical, List<BacktestingTrade> recentLive) {
+        if (recentLive.size() < 5 || historical.isEmpty()) return "INSUFFICIENT_LIVE_DATA";
+        BigDecimal delta = calculateMetrics(recentLive).getExpectancy().subtract(calculateMetrics(historical).getExpectancy());
+        if (delta.compareTo(evidenceAssessmentService.materialExpectancyGap().negate()) <= 0) return "DETERIORATING";
+        if (delta.compareTo(BigDecimal.valueOf(-0.2)) < 0) return "WATCH";
+        if (delta.compareTo(BigDecimal.valueOf(0.2)) > 0) return "IMPROVING";
+        return "STABLE";
     }
 
     private BigDecimal scale(BigDecimal value) {

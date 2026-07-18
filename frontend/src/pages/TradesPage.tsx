@@ -1253,12 +1253,12 @@ export default function TradesPage() {
       {trades.map((trade) => (
         <Paper key={trade.id} className="interactive-lift" sx={{ p: 2 }}>
           <Stack spacing={1}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center">
-              <Box>
-                <Typography variant="h6">{trade.symbol}</Typography>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="h6" sx={{ overflowWrap: 'anywhere' }}>{trade.symbol}</Typography>
                 <Typography variant="body2" color="text.secondary">{formatDateTime(trade.openedAt, timezone)}</Typography>
               </Box>
-              <Stack direction="row" spacing={1}>
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
                 <Chip size="small" label={t(`trades.direction.${trade.direction}`)} color={trade.direction === 'LONG' ? 'success' : 'error'} variant="outlined" />
                 <Chip size="small" label={t(`trades.status.${trade.status}`)} color={trade.status === 'CLOSED' ? 'primary' : 'warning'} variant="outlined" />
               </Stack>
@@ -1311,14 +1311,14 @@ export default function TradesPage() {
                 <Chip size="small" variant="outlined" label={`${t('trades.form.session')}: ${t(`trades.form.sessions.${trade.session}`)}`} />
               )}
             </Stack>
-            <Stack direction="row" spacing={1}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
               {hasTradeScreenshots(trade) && (
-                <Button size="small" startIcon={<PhotoLibraryRoundedIcon />} onClick={() => handleOpenScreenshotViewer(trade)}>
+                <Button fullWidth size="small" startIcon={<PhotoLibraryRoundedIcon />} onClick={() => handleOpenScreenshotViewer(trade)}>
                   {t('trades.actions.previewScreenshots')}
                 </Button>
               )}
-              <Button size="small" startIcon={<EditIcon />} onClick={() => handleEditClick(trade)}>{t('common.edit')}</Button>
-              <Button size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteClick(trade)}>{t('common.delete')}</Button>
+              <Button fullWidth size="small" startIcon={<EditIcon />} onClick={() => handleEditClick(trade)}>{t('common.edit')}</Button>
+              <Button fullWidth size="small" color="error" startIcon={<DeleteIcon />} onClick={() => handleDeleteClick(trade)}>{t('common.delete')}</Button>
             </Stack>
           </Stack>
         </Paper>

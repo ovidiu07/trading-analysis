@@ -4,8 +4,13 @@ import type { AssetItem } from './assets'
 export type BacktestingScreenshotResult = 'WIN' | 'LOSS' | 'BREAKEVEN' | 'MISSED' | 'INVALID' | 'GOOD_EXAMPLE' | 'BAD_EXAMPLE'
 export type BacktestingTradeDirection = 'LONG' | 'SHORT'
 export type BacktestingTradeResult = 'WIN' | 'LOSS' | 'BREAKEVEN'
-export type BacktestingTradeSource = 'MANUAL' | 'IMPORT' | 'SCREENSHOT'
+export type BacktestingTradeSource = 'MANUAL' | 'IMPORT' | 'SCREENSHOT' | 'LIVE'
 export type BacktestingTradeScope = 'BACKTEST' | 'LIVE' | 'REPLAY'
+export type BacktestingAutoImportMode = 'EXACT_MATCH' | 'STRATEGY_MATCH' | 'REVIEW_BEFORE_IMPORT' | 'DISABLED'
+export type BacktestingSyncStatus = 'SYNCED' | 'NEEDS_REVIEW' | 'NOT_LINKED' | 'EXCLUDED' | 'PENDING' | 'ERROR'
+export type BacktestingClassificationStatus = 'COMPLETE' | 'NEEDS_CLASSIFICATION' | 'PARTIAL'
+export type BacktestingEvidenceStatus = 'INSUFFICIENT_DATA' | 'EXPLORATORY' | 'EARLY_SIGNAL' | 'DEVELOPING_EDGE' | 'VALIDATED_EVIDENCE' | 'NEEDS_REVIEW'
+export type BacktestingEvidenceConfidence = 'VERY_LOW' | 'LOW' | 'MODERATE' | 'HIGH'
 export type BacktestingGapType = 'BULLISH' | 'BEARISH' | 'UNKNOWN'
 export type BacktestingGapFillStatus = 'UNFILLED' | 'PARTIALLY_FILLED' | 'FILLED' | 'REJECTED_FROM_GAP' | 'RELIQUIDATED_GAP' | 'UNKNOWN'
 export type BacktestingGapLiquidityRelation = 'AFTER_EXTERNAL_LIQUIDITY_SWEEP' | 'AFTER_INTERNAL_LIQUIDITY_SWEEP' | 'INTO_SESSION_POI' | 'AFTER_MSS' | 'CONTINUATION_DISPLACEMENT' | 'UNKNOWN'
@@ -32,6 +37,14 @@ export type BacktestingWorkspace = {
   contextTimeframe?: string | null
   executionTimeframe?: string | null
   entryTimeframe?: string | null
+  session?: string | null
+  autoImportMode?: BacktestingAutoImportMode | null
+  description?: string | null
+  researchObjective?: string | null
+  executionObservations?: string | null
+  liveExecutionGap?: string | null
+  nextTestingObjective?: string | null
+  researchConclusion?: string | null
   numberOfTrades: number
   winningTrades: number
   losingTrades: number
@@ -50,8 +63,14 @@ export type BacktestingWorkspace = {
   categorizedTrades: number
   missingClassificationCount: number
   structuredTradeCount?: number
+  manualTradeCount?: number
+  importedTradeCount?: number
+  liveTradeCount?: number
+  inboxCount?: number
   statsSource?: 'STRUCTURED' | 'LEGACY_MANUAL'
   sampleQuality?: string | null
+  evidenceStatus?: BacktestingEvidenceStatus | null
+  evidenceConfidence?: BacktestingEvidenceConfidence | null
   bestEdgeLensName?: string | null
   screenshotCount: number
   notes?: string | null
@@ -75,6 +94,14 @@ export type BacktestingWorkspacePayload = {
   contextTimeframe?: string | null
   executionTimeframe?: string | null
   entryTimeframe?: string | null
+  session?: string | null
+  autoImportMode?: BacktestingAutoImportMode | null
+  description?: string | null
+  researchObjective?: string | null
+  executionObservations?: string | null
+  liveExecutionGap?: string | null
+  nextTestingObjective?: string | null
+  researchConclusion?: string | null
   numberOfTrades?: number
   winningTrades?: number
   losingTrades?: number
@@ -91,7 +118,12 @@ export type BacktestingSummary = {
   totalBacktests: number
   totalScreenshots: number
   totalTradesTested: number
+  manualTrades?: number
+  importedTrades?: number
+  liveTrades?: number
   averageWinRate: number
+  averageExpectancy?: number
+  strategiesNeedingReview?: number
   bestPerformer?: string | null
 }
 
@@ -136,6 +168,7 @@ export type BacktestingScreenshotPayload = {
 export type BacktestingTrade = {
   id: string
   workspaceId: string
+  liveTradeId?: string | null
   date: string
   weekday?: string | null
   entryTime: string
@@ -171,6 +204,11 @@ export type BacktestingTrade = {
   notes?: string | null
   source: BacktestingTradeSource
   tradeScope: BacktestingTradeScope
+  syncStatus?: BacktestingSyncStatus | null
+  classificationStatus?: BacktestingClassificationStatus | null
+  includedInAnalytics?: boolean
+  excludedReason?: string | null
+  ruleBreakCount?: number
   screenshotCount?: number
   createdAt?: string | null
   updatedAt?: string | null
@@ -194,6 +232,10 @@ export type BacktestingMetric = {
   averageLossR: number
   largestWinR: number
   largestLossR: number
+  medianR?: number
+  maximumDrawdownR?: number
+  maximumLosingStreak?: number
+  currentLosingStreak?: number
   sampleQuality: string
 }
 
@@ -212,6 +254,62 @@ export type BacktestingAnalytics = {
   baseline: BacktestingMetric
   breakdowns: Record<string, BacktestingBreakdownRow[]>
   impactRows: BacktestingBreakdownRow[]
+  sourceMetrics?: Partial<Record<BacktestingTradeSource, BacktestingMetric>>
+  liveExpectancyGap?: number | null
+  regressionStatus?: 'STABLE' | 'IMPROVING' | 'WATCH' | 'DETERIORATING' | 'INSUFFICIENT_LIVE_DATA'
+  recentLiveSampleSize?: number
+}
+
+export type BacktestingEvidence = {
+  id: string
+  workspaceId?: string | null
+  workspaceName?: string | null
+  liveTradeId: string
+  sourceType: 'LIVE'
+  syncStatus: BacktestingSyncStatus
+  classificationStatus: BacktestingClassificationStatus
+  includedInAnalytics: boolean
+  excludedReason?: string | null
+  researchClassification: Record<string, unknown>
+  tradeDate?: string | null
+  openedAt?: string | null
+  closedAt?: string | null
+  instrument?: string | null
+  direction?: string | null
+  session?: string | null
+  timeframe?: string | null
+  strategyId?: string | null
+  strategyName?: string | null
+  setupName?: string | null
+  setupGrade?: string | null
+  result?: string | null
+  realizedR?: number | null
+  netPnl?: number | null
+  riskPercent?: number | null
+  ruleBreakCount: number
+  screenshotCount: number
+  notes?: string | null
+  lastSyncedAt?: string | null
+  createdAt?: string | null
+  updatedAt?: string | null
+}
+
+export type BacktestingResearchInbox = {
+  total: number
+  needsWorkspace: number
+  needsClassification: number
+  ambiguousMatch: number
+  syncErrors: number
+  excluded: number
+  items: BacktestingEvidence[]
+}
+
+export type BacktestingEvidenceUpdatePayload = {
+  workspaceId?: string | null
+  classificationStatus?: BacktestingClassificationStatus
+  includedInAnalytics?: boolean
+  excludedReason?: string | null
+  researchClassification?: Record<string, unknown>
 }
 
 export type BacktestingEdgeLens = {
@@ -239,8 +337,8 @@ export type BacktestingImportResponse = {
   trades: BacktestingTrade[]
 }
 
-export async function listBacktestingWorkspaces() {
-  return apiGet<BacktestingListResponse>('/backtesting/workspaces')
+export async function listBacktestingWorkspaces(includeArchived = false) {
+  return apiGet<BacktestingListResponse>(`/backtesting/workspaces?includeArchived=${includeArchived}`)
 }
 
 export async function createBacktestingWorkspace(payload: BacktestingWorkspacePayload) {
@@ -257,6 +355,22 @@ export async function updateBacktestingWorkspace(id: string, payload: Backtestin
 
 export async function archiveBacktestingWorkspace(id: string) {
   return apiPost<void>(`/backtesting/workspaces/${encodeURIComponent(id)}/archive`, {})
+}
+
+export async function restoreBacktestingWorkspace(id: string) {
+  return apiPost<BacktestingWorkspace>(`/backtesting/workspaces/${encodeURIComponent(id)}/restore`, {})
+}
+
+export async function getBacktestingResearchInbox() {
+  return apiGet<BacktestingResearchInbox>('/backtesting/research-inbox')
+}
+
+export async function updateBacktestingEvidence(id: string, payload: BacktestingEvidenceUpdatePayload) {
+  return apiPatch<BacktestingEvidence>(`/backtesting/evidence/${encodeURIComponent(id)}`, payload)
+}
+
+export async function retryBacktestingEvidence(id: string) {
+  return apiPost<BacktestingEvidence>(`/backtesting/evidence/${encodeURIComponent(id)}/retry`, {})
 }
 
 export async function listBacktestingScreenshots(workspaceId: string) {

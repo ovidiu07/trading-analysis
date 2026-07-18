@@ -20,12 +20,14 @@ import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
+import com.tradevault.service.backtesting.LiveTradeEvidenceChangedEvent;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -69,6 +71,7 @@ public class TradeService {
     private final CurrentUserService currentUserService;
     private final TimezoneService timezoneService;
     private final FuturesContractMetadataService futuresContractMetadataService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public Page<TradeResponse> search(int page, int size,
                                       String openedAtFromRaw,
@@ -316,6 +319,7 @@ public class TradeService {
         recalculateProfileCurrencyAmounts(trade);
         logNarrativeSnapshotState("create", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), null, trade.getNarrativeSnapshotJson());
         Trade savedTrade = tradeRepository.save(trade);
+        publishEvidenceChange(savedTrade, false);
         Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(savedTrade), user.getId());
         return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()), latestTradeNoteFor(latestTradeNotes, savedTrade));
     }
@@ -423,6 +427,7 @@ public class TradeService {
         trade.setUpdatedAt(OffsetDateTime.now());
         logNarrativeSnapshotState("update", trade.getId(), trade.getStatus(), request.getNarrativeSnapshotJson(), previousNarrativeSnapshot, trade.getNarrativeSnapshotJson());
         Trade savedTrade = tradeRepository.save(trade);
+        publishEvidenceChange(savedTrade, false);
         Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(savedTrade), user.getId());
         return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()), latestTradeNoteFor(latestTradeNotes, savedTrade));
     }
@@ -454,14 +459,22 @@ public class TradeService {
         trade.setEntryScreenshotAssetIds(normalizeLinkedAssetIds(entryScreenshotAssetIds));
         trade.setUpdatedAt(OffsetDateTime.now());
         Trade savedTrade = tradeRepository.save(trade);
+        publishEvidenceChange(savedTrade, false);
         Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(List.of(savedTrade), user.getId());
         return toResponse(savedTrade, loadStrategyNames(List.of(savedTrade), user.getId()), latestTradeNoteFor(latestTradeNotes, savedTrade));
     }
 
+    @Transactional
     public void delete(UUID id) {
         User user = currentUserService.getCurrentUser();
         Trade trade = tradeRepository.findByIdAndUserId(id, user.getId()).orElseThrow(() -> new EntityNotFoundException("Trade not found"));
         tradeRepository.delete(trade);
+        publishEvidenceChange(trade, true);
+    }
+
+    private void publishEvidenceChange(Trade trade, boolean deleted) {
+        if (trade == null || trade.getId() == null || trade.getUser() == null) return;
+        eventPublisher.publishEvent(new LiveTradeEvidenceChangedEvent(trade.getId(), trade.getUser().getId(), deleted));
     }
 
     public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz, String accountId) {

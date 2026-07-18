@@ -22,7 +22,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class BacktestingResearchServiceTest {
-    private final BacktestingResearchService service = new BacktestingResearchService(null, null, null, null, null, new ObjectMapper());
+    private final BacktestingResearchService service = new BacktestingResearchService(null, null, null, null, null, new ObjectMapper(), null, null);
 
     @Test
     void calculatesCoreMetricsAndSampleQuality() {
@@ -48,15 +48,19 @@ class BacktestingResearchServiceTest {
         assertThat(metrics.getAverageLossR()).isEqualByComparingTo("-1");
         assertThat(metrics.getLargestWinR()).isEqualByComparingTo("2");
         assertThat(metrics.getLargestLossR()).isEqualByComparingTo("-1");
-        assertThat(metrics.getSampleQuality()).isEqualTo("Exploratory only");
+        assertThat(metrics.getSampleQuality()).isEqualTo("Insufficient data");
+        assertThat(metrics.getMedianR()).isEqualByComparingTo("0.5");
+        assertThat(metrics.getMaximumDrawdownR()).isEqualByComparingTo("1");
     }
 
     @Test
     void classifiesSampleQualityThresholds() {
-        assertThat(service.sampleQuality(9)).isEqualTo("Exploratory only");
+        assertThat(service.sampleQuality(4)).isEqualTo("Insufficient data");
+        assertThat(service.sampleQuality(5)).isEqualTo("Exploratory");
+        assertThat(service.sampleQuality(9)).isEqualTo("Exploratory");
         assertThat(service.sampleQuality(10)).isEqualTo("Early signal");
-        assertThat(service.sampleQuality(30)).isEqualTo("Developing evidence");
-        assertThat(service.sampleQuality(60)).isEqualTo("More reliable pattern");
+        assertThat(service.sampleQuality(30)).isEqualTo("Developing edge");
+        assertThat(service.sampleQuality(50)).isEqualTo("Validated sample");
     }
 
     @Test

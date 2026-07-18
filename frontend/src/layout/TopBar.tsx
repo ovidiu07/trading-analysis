@@ -286,7 +286,7 @@ export default function TopBar({
                   </IconButton>
                 )}
 
-                {showTitle && (
+                {showTitle && !isNarrow && (
                   <Stack sx={{ minWidth: 0, pl: showMenuToggle ? 0.5 : 0 }}>
                     <Typography component="h1" variant="subtitle1" noWrap sx={{ fontSize: { xs: '0.9rem', md: '0.98rem' } }}>
                       {title}
@@ -361,7 +361,7 @@ export default function TopBar({
 
             {showTitle && isNarrow && (
               <Box sx={{ px: 0.5, minWidth: 0 }}>
-                <Typography variant="h4" sx={{ fontSize: { xs: 19, sm: 22 }, lineHeight: 1.2 }}>
+                <Typography component="h1" variant="h4" sx={{ fontSize: { xs: 19, sm: 22 }, lineHeight: 1.2, overflowWrap: 'anywhere' }}>
                   {title}
                 </Typography>
                 {subtitle && (

@@ -23,5 +23,9 @@ public class BacktestingMetricResponse {
     BigDecimal averageLossR;
     BigDecimal largestWinR;
     BigDecimal largestLossR;
+    BigDecimal medianR;
+    BigDecimal maximumDrawdownR;
+    Integer maximumLosingStreak;
+    Integer currentLosingStreak;
     String sampleQuality;
 }

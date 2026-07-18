@@ -1,9 +1,10 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { I18nProvider } from '../i18n'
 import BacktestingPage from './BacktestingPage'
 
 const backtestingApiMock = vi.hoisted(() => ({
@@ -17,254 +18,149 @@ const backtestingApiMock = vi.hoisted(() => ({
   updateBacktestingTrade: vi.fn(),
   deleteBacktestingTrade: vi.fn(),
   importBacktestingTrades: vi.fn(),
+  getBacktestingAnalytics: vi.fn(),
+  getBacktestingResearchInbox: vi.fn(),
+  updateBacktestingEvidence: vi.fn(),
+  retryBacktestingEvidence: vi.fn(),
   listBacktestingEdgeLenses: vi.fn(),
   createBacktestingEdgeLens: vi.fn(),
   updateBacktestingEdgeLens: vi.fn(),
   deleteBacktestingEdgeLens: vi.fn(),
-  recalculateBacktestingEdgeLens: vi.fn(),
   listBacktestingScreenshots: vi.fn(),
   uploadBacktestingScreenshots: vi.fn(),
   updateBacktestingScreenshot: vi.fn(),
-  deleteBacktestingScreenshot: vi.fn(),
-  detachBacktestingScreenshotTrade: vi.fn()
+  deleteBacktestingScreenshot: vi.fn()
 }))
 
-const strategiesApiMock = vi.hoisted(() => ({
-  listStrategies: vi.fn()
-}))
+const strategiesApiMock = vi.hoisted(() => ({ listStrategies: vi.fn() }))
 
 vi.mock('../api/backtesting', async () => {
   const actual = await vi.importActual<typeof import('../api/backtesting')>('../api/backtesting')
   return { ...actual, ...backtestingApiMock }
 })
-
 vi.mock('../api/strategies', () => strategiesApiMock)
-
-vi.mock('../components/assets/SecureAssetImage', () => ({
-  default: ({ alt }: { alt: string }) => <img alt={alt} src="data:image/png;base64,stub" />
-}))
+vi.mock('../components/assets/SecureAssetImage', () => ({ default: ({ alt }: { alt: string }) => <img alt={alt} /> }))
+vi.mock('../features/backtesting/BacktestingCharts', () => ({ default: () => <div data-testid="backtesting-charts" /> }))
 
 const workspace = {
   id: 'workspace-1',
   symbol: 'NQ',
+  title: 'NQ Liquidity Research',
   marketType: 'Futures',
   strategyId: 'strategy-1',
-  strategyNameSnapshot: 'Liquidity Sweep + FVG Mitigation',
-  strategyName: 'Liquidity Sweep + FVG Mitigation',
-  title: null,
-  primaryTimeframe: null,
+  strategyNameSnapshot: 'Liquidity Sweep',
+  strategyName: 'Liquidity Sweep',
+  primaryTimeframe: '5m',
   contextTimeframe: '15m',
   executionTimeframe: '5m',
   entryTimeframe: '1m',
-  numberOfTrades: 20,
-  winningTrades: 12,
-  losingTrades: 6,
-  breakevenTrades: 2,
-  averageR: null,
-  winRate: 60,
-  lossRate: 30,
-  breakevenRate: 10,
-  categorizedTrades: 20,
-  missingClassificationCount: 0,
-  screenshotCount: 2,
-  notes: '',
-  whatWorked: 'Clean displacement after sweep',
-  whatFailed: 'Late entries',
-  bestConditions: '',
-  avoidConditions: '',
+  session: 'NY AM',
+  autoImportMode: 'EXACT_MATCH' as const,
+  numberOfTrades: 12,
+  winningTrades: 7,
+  losingTrades: 5,
+  breakevenTrades: 0,
+  winRate: 58.3,
+  lossRate: 41.7,
+  breakevenRate: 0,
+  categorizedTrades: 12,
+  missingClassificationCount: 1,
+  manualTradeCount: 6,
+  importedTradeCount: 2,
+  liveTradeCount: 4,
+  inboxCount: 1,
+  evidenceStatus: 'NEEDS_REVIEW' as const,
+  evidenceConfidence: 'MODERATE' as const,
+  screenshotCount: 0,
+  totalR: 4,
+  expectancy: 0.33,
   status: 'ACTIVE' as const,
-  createdAt: '2026-04-26T10:00:00Z',
-  updatedAt: '2026-04-26T10:00:00Z',
-  strategy: {
-    id: 'strategy-1',
-    name: 'Liquidity Sweep + FVG Mitigation',
-    model: 'Sweep + MSS',
-    entryConditions: ['Sweep liquidity', 'Displacement'],
-    invalidationLogic: 'Close below origin',
-    tpFramework: 'Target opposing liquidity',
-    noTradeRules: 'No displacement'
-  }
+  updatedAt: '2026-07-18T10:00:00Z'
 }
 
-const screenshots = [
-  {
-    id: 'shot-1',
-    workspaceId: 'workspace-1',
-    assetId: 'asset-1',
-    originalFileName: 'winner.png',
-    contentType: 'image/png',
-    sizeBytes: 100,
-    url: '/api/assets/asset-1/view',
-    viewUrl: '/api/assets/asset-1/view',
-    downloadUrl: '/api/assets/asset-1/download',
-    thumbnailUrl: '/api/assets/asset-1/view',
-    caption: 'Clean winner',
-    tradeResult: 'WIN' as const,
-    session: 'NY',
-    timeframe: '1m',
-    tags: ['clean sweep'],
-    sortOrder: 0,
-    createdAt: '2026-04-26T10:00:00Z',
-    updatedAt: '2026-04-26T10:00:00Z',
-    asset: null
-  },
-  {
-    id: 'shot-2',
-    workspaceId: 'workspace-1',
-    assetId: 'asset-2',
-    originalFileName: 'loss.png',
-    contentType: 'image/png',
-    sizeBytes: 100,
-    url: '/api/assets/asset-2/view',
-    viewUrl: '/api/assets/asset-2/view',
-    downloadUrl: '/api/assets/asset-2/download',
-    thumbnailUrl: '/api/assets/asset-2/view',
-    caption: 'Late loss',
-    tradeResult: 'LOSS' as const,
-    session: 'London',
-    timeframe: '5m',
-    tags: ['late entry'],
-    sortOrder: 1,
-    createdAt: '2026-04-26T10:00:00Z',
-    updatedAt: '2026-04-26T10:00:00Z',
-    asset: null
-  }
-]
-
-const structuredTrades = Array.from({ length: 20 }, (_, index) => ({
-  id: `trade-${index + 1}`,
-  workspaceId: 'workspace-1',
-  date: `2026-04-${String((index % 20) + 1).padStart(2, '0')}`,
+const trades = Array.from({ length: 12 }, (_, index) => ({
+  id: `trade-${index}`,
+  workspaceId: workspace.id,
+  liveTradeId: index >= 8 ? `live-${index}` : null,
+  date: `2026-07-${String(index + 1).padStart(2, '0')}`,
   weekday: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'][index % 5],
-  entryTime: `${String(9 + (index % 4)).padStart(2, '0')}:30:00`,
+  entryTime: '09:30:00',
   instrument: 'NQ',
-  direction: index % 2 === 0 ? 'LONG' as const : 'SHORT' as const,
-  session: index % 2 === 0 ? 'NY AM' : 'London',
-  setupName: 'Sweep + FVG',
+  direction: index % 2 ? 'SHORT' as const : 'LONG' as const,
+  session: 'NY AM',
+  setupName: 'Sweep + MSS',
   strategyId: 'strategy-1',
-  riskPercent: 1,
-  plannedRR: 2,
-  result: index < 12 ? 'WIN' as const : index < 18 ? 'LOSS' as const : 'BREAKEVEN' as const,
-  pnlR: index < 12 ? 1 : index < 18 ? -1 : 0,
-  contextTimeframe: '15m',
-  executionTimeframe: '5m',
-  entryTimeframe: '1m',
-  tags: ['clean sweep'],
-  notes: index < 12 ? 'Clean winner' : 'Late entry',
-  source: 'MANUAL' as const,
-  tradeScope: 'BACKTEST' as const,
-  screenshotCount: index < 2 ? 1 : 0,
-  createdAt: '2026-04-26T10:00:00Z',
-  updatedAt: '2026-04-26T10:00:00Z'
+  strategyNameSnapshot: 'Liquidity Sweep',
+  result: index < 7 ? 'WIN' as const : 'LOSS' as const,
+  pnlR: index < 7 ? 1 : -0.6,
+  tags: [],
+  source: index >= 8 ? 'LIVE' as const : index >= 6 ? 'IMPORT' as const : 'MANUAL' as const,
+  tradeScope: index >= 8 ? 'LIVE' as const : 'BACKTEST' as const,
+  syncStatus: 'SYNCED' as const,
+  classificationStatus: index === 11 ? 'NEEDS_CLASSIFICATION' as const : 'COMPLETE' as const,
+  includedInAnalytics: true,
+  screenshotCount: 0
 }))
 
-const renderBacktestingPage = () => {
-  const queryClient = new QueryClient({
-    defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false }
-    }
-  })
-
+const renderPage = (path = '/backtesting') => {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
   return render(
-    <MemoryRouter initialEntries={['/backtesting']}>
-      <QueryClientProvider client={queryClient}>
-        <BacktestingPage />
-      </QueryClientProvider>
+    <MemoryRouter initialEntries={[path]}>
+      <I18nProvider>
+        <QueryClientProvider client={client}>
+          <Routes>
+            <Route path="/backtesting" element={<BacktestingPage />} />
+            <Route path="/backtesting/:workspaceId" element={<BacktestingPage />} />
+          </Routes>
+        </QueryClientProvider>
+      </I18nProvider>
     </MemoryRouter>
   )
 }
 
-describe('BacktestingPage', () => {
+describe('BacktestingPage Evidence Engine', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    localStorage.setItem('app.language', 'en')
     backtestingApiMock.listBacktestingWorkspaces.mockResolvedValue({
-      summary: {
-        totalBacktests: 1,
-        totalScreenshots: 2,
-        totalTradesTested: 20,
-        averageWinRate: 60,
-        bestPerformer: 'NQ · Liquidity Sweep + FVG Mitigation'
-      },
+      summary: { totalBacktests: 1, totalTradesTested: 12, manualTrades: 6, importedTrades: 2, liveTrades: 4, averageWinRate: 58.3, averageExpectancy: 0.33, strategiesNeedingReview: 1 },
       workspaces: [workspace]
     })
     backtestingApiMock.getBacktestingWorkspace.mockResolvedValue(workspace)
-    backtestingApiMock.listBacktestingTrades.mockResolvedValue(structuredTrades)
+    backtestingApiMock.listBacktestingTrades.mockResolvedValue(trades)
+    backtestingApiMock.getBacktestingResearchInbox.mockResolvedValue({ total: 0, needsWorkspace: 0, needsClassification: 0, ambiguousMatch: 0, syncErrors: 0, excluded: 0, items: [] })
+    backtestingApiMock.getBacktestingAnalytics.mockResolvedValue({ baseline: {}, breakdowns: {}, impactRows: [], sourceMetrics: {}, regressionStatus: 'INSUFFICIENT_LIVE_DATA', recentLiveSampleSize: 4 })
+    backtestingApiMock.listBacktestingScreenshots.mockResolvedValue([])
     backtestingApiMock.listBacktestingEdgeLenses.mockResolvedValue([])
-    backtestingApiMock.listBacktestingScreenshots.mockResolvedValue(screenshots)
-    backtestingApiMock.updateBacktestingWorkspace.mockResolvedValue(workspace)
-    backtestingApiMock.createBacktestingTrade.mockResolvedValue(structuredTrades[0])
-    backtestingApiMock.deleteBacktestingScreenshot.mockResolvedValue(undefined)
-    strategiesApiMock.listStrategies.mockResolvedValue({
-      myStrategies: [
-        {
-          id: 'strategy-1',
-          source: 'MY',
-          name: 'Liquidity Sweep + FVG Mitigation',
-          model: 'Sweep + MSS',
-          entryConditions: ['Sweep liquidity'],
-          invalidationLogic: 'Close below origin',
-          tpFramework: 'Target opposing liquidity',
-          sessionSuitability: [],
-          tags: [],
-          archived: false
-        }
-      ],
-      mentorStrategies: [
-        {
-          id: 'mentor-strategy-1',
-          source: 'MENTOR',
-          name: 'Mentor London FVG',
-          model: 'Liquidity + MSS + FVG',
-          entryConditions: ['External sweep'],
-          invalidationLogic: 'Close through origin',
-          tpFramework: 'Opposing liquidity',
-          sessionSuitability: ['London'],
-          tags: ['fvg'],
-          archived: false
-        }
-      ]
-    })
+    backtestingApiMock.createBacktestingTrade.mockResolvedValue(trades[0])
+    strategiesApiMock.listStrategies.mockResolvedValue({ myStrategies: [{ id: 'strategy-1', source: 'MY', name: 'Liquidity Sweep', sessionSuitability: [], tags: [], archived: false }], mentorStrategies: [] })
   })
 
-  it('renders structured workspace stats, evidence, and carousel review', async () => {
-    renderBacktestingPage()
-
-    expect((await screen.findAllByText(/NQ · Liquidity Sweep \+ FVG Mitigation/i)).length).toBeGreaterThan(0)
-    expect(screen.getAllByText('60%').length).toBeGreaterThan(0)
-    expect(screen.getAllByText('Early signal').length).toBeGreaterThan(0)
-
-    await userEvent.click(await screen.findByAltText('Clean winner'))
-    expect(await screen.findByText('1 / 2')).toBeInTheDocument()
-    await userEvent.click(screen.getByLabelText('Close carousel'))
+  it('separates the workspace library and surfaces source-aware research summary', async () => {
+    renderPage()
+    expect(await screen.findByRole('heading', { name: 'Backtesting' })).toBeInTheDocument()
+    expect(screen.getByText('NQ Liquidity Research')).toBeInTheDocument()
+    expect(screen.getAllByText('Live trades').length).toBeGreaterThan(0)
+    expect(screen.getByRole('heading', { name: 'Research Inbox' })).toBeInTheDocument()
+    expect(screen.queryByText('Manual versus live')).not.toBeInTheDocument()
   })
 
-  it('shows trade validation warnings in Quick Add', async () => {
-    renderBacktestingPage()
+  it('renders a focused workspace with manual/live comparison and source labels', async () => {
+    renderPage('/backtesting/workspace-1')
+    expect(await screen.findByRole('heading', { name: 'NQ Liquidity Research' })).toBeInTheDocument()
+    expect(await screen.findByRole('heading', { name: 'Manual versus live' })).toBeInTheDocument()
+    expect(screen.getAllByText('Live').length).toBeGreaterThan(0)
+    expect(screen.getByText(/Insufficient live data/)).toBeInTheDocument()
+  })
 
-    await screen.findByText('Latest evidence')
-    await userEvent.click(screen.getByRole('button', { name: /Quick add trade/i }))
-    expect(await screen.findByText('Quick Add Trade')).toBeInTheDocument()
-    const pnl = await screen.findByRole('spinbutton', { name: /P&L/i })
-    await userEvent.clear(pnl)
-    await userEvent.type(pnl, '-1')
-
-    expect(await screen.findByText('Result is WIN but P&L(R) is negative. You can save it, but check the row.')).toBeInTheDocument()
+  it('requires a consistent result and R multiple before saving a manual trade', async () => {
+    renderPage('/backtesting/workspace-1')
+    await screen.findByRole('heading', { name: 'NQ Liquidity Research' })
+    await userEvent.click(screen.getAllByRole('button', { name: 'Add manual trade' })[0])
+    const rMultiple = await screen.findByRole('spinbutton', { name: 'R multiple' })
+    fireEvent.change(rMultiple, { target: { value: '-1' } })
+    expect(await screen.findByText('Result and R multiple point in opposite directions. Correct them before saving.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save' })).toBeDisabled()
     expect(backtestingApiMock.createBacktestingTrade).not.toHaveBeenCalled()
-  })
-
-  it('exposes optional strategy and structured Gap/FVG fields', async () => {
-    renderBacktestingPage()
-
-    await screen.findByText('Latest evidence')
-    await userEvent.click(screen.getByRole('button', { name: /Quick add trade/i }))
-    expect(await screen.findByRole('combobox', { name: /Linked Strategy/i })).toBeInTheDocument()
-
-    await userEvent.click(screen.getByLabelText('Gap/FVG used?'))
-    await userEvent.click(await screen.findByRole('option', { name: 'Yes' }))
-
-    expect(await screen.findByRole('combobox', { name: /Gap type/i })).toBeInTheDocument()
-    expect(screen.getByRole('spinbutton', { name: /Entry inside gap/i })).toHaveAttribute('max', '100')
-    expect(screen.getByRole('textbox', { name: /Gap confluence notes/i })).toBeInTheDocument()
   })
 })

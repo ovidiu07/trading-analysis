@@ -478,8 +478,8 @@ export default function SettingsPage() {
           {tradingViewMessage && <Alert severity="success" sx={{ mb: 2 }}>{tradingViewMessage}</Alert>}
           {tradingViewError && <Alert severity="error" sx={{ mb: 2 }}>{tradingViewError}</Alert>}
           <Stack spacing={2}>
-            <Stack direction="row" justifyContent="space-between" alignItems="center" spacing={1}>
-              <Stack spacing={0.5}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ xs: 'flex-start', sm: 'center' }} spacing={1}>
+              <Stack spacing={0.5} sx={{ minWidth: 0 }}>
                 <Typography variant="h6">{t('settings.tradingView.title')}</Typography>
                 <Typography variant="body2" color="text.secondary">
                   {t('settings.tradingView.body')}

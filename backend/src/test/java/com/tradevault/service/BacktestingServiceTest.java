@@ -13,10 +13,14 @@ import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceRequest;
 import com.tradevault.repository.AssetRepository;
 import com.tradevault.repository.BacktestingEdgeLensRepository;
+import com.tradevault.repository.BacktestEvidenceLinkRepository;
 import com.tradevault.repository.BacktestingScreenshotRepository;
 import com.tradevault.repository.BacktestingTradeRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.repository.UserStrategyRepository;
+import com.tradevault.service.backtesting.LiveTradeEvidenceSyncService;
+import com.tradevault.domain.enums.BacktestingEvidenceStatus;
+import com.tradevault.domain.enums.BacktestingEvidenceConfidence;
 import com.tradevault.service.storage.ObjectStorageService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -41,6 +45,7 @@ class BacktestingServiceTest {
     private BacktestingScreenshotRepository screenshotRepository;
     private BacktestingTradeRepository tradeRepository;
     private BacktestingEdgeLensRepository edgeLensRepository;
+    private BacktestEvidenceLinkRepository evidenceLinkRepository;
     private UserStrategyRepository userStrategyRepository;
     private AssetRepository assetRepository;
     private CurrentUserService currentUserService;
@@ -55,6 +60,7 @@ class BacktestingServiceTest {
         screenshotRepository = Mockito.mock(BacktestingScreenshotRepository.class);
         tradeRepository = Mockito.mock(BacktestingTradeRepository.class);
         edgeLensRepository = Mockito.mock(BacktestingEdgeLensRepository.class);
+        evidenceLinkRepository = Mockito.mock(BacktestEvidenceLinkRepository.class);
         userStrategyRepository = Mockito.mock(UserStrategyRepository.class);
         assetRepository = Mockito.mock(AssetRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
@@ -66,12 +72,19 @@ class BacktestingServiceTest {
 
         user = User.builder().id(UUID.randomUUID()).email("trader@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
+        LiveTradeEvidenceSyncService evidenceSyncService = Mockito.mock(LiveTradeEvidenceSyncService.class);
+        BacktestingEvidenceAssessmentService assessmentService = Mockito.mock(BacktestingEvidenceAssessmentService.class);
+        Mockito.doReturn(BacktestingEvidenceStatus.INSUFFICIENT_DATA).when(assessmentService)
+                .status(Mockito.any(), Mockito.anyInt(), Mockito.nullable(java.math.BigDecimal.class));
+        Mockito.doReturn(BacktestingEvidenceConfidence.VERY_LOW).when(assessmentService)
+                .confidence(Mockito.any(), Mockito.anyInt(), Mockito.anyInt(), Mockito.nullable(java.math.BigDecimal.class));
 
         backtestingService = new BacktestingService(
                 workspaceRepository,
                 screenshotRepository,
                 tradeRepository,
                 edgeLensRepository,
+                evidenceLinkRepository,
                 userStrategyRepository,
                 assetRepository,
                 currentUserService,
@@ -79,7 +92,9 @@ class BacktestingServiceTest {
                 assetService,
                 new ObjectMapper(),
                 uploadProperties,
-                new BacktestingResearchService(null, null, null, null, null, null)
+                new BacktestingResearchService(null, null, null, null, null, null, null, null),
+                evidenceSyncService,
+                assessmentService
         );
     }
 
