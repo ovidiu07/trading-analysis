@@ -6,6 +6,7 @@ import lombok.Value;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.OffsetDateTime;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
@@ -18,9 +19,13 @@ public class BacktestingEvidenceResponse {
     UUID liveTradeId;
     String sourceType;
     String syncStatus;
+    String researchInclusionStatus;
+    String workspaceLinkStatus;
     String classificationStatus;
     boolean includedInAnalytics;
     String excludedReason;
+    String canonicalInstrumentId;
+    List<BacktestingWorkspaceCompatibilityResponse> workspaceOptions;
     Map<String, Object> researchClassification;
     LocalDate tradeDate;
     OffsetDateTime openedAt;

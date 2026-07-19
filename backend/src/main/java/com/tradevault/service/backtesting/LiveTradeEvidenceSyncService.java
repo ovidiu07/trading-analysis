@@ -19,9 +19,11 @@ import com.tradevault.domain.enums.BacktestingWorkspaceStatus;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.backtesting.BacktestingEvidenceResponse;
+import com.tradevault.dto.backtesting.BacktestingEvidenceLinkRequest;
 import com.tradevault.dto.backtesting.BacktestingEvidenceUpdateRequest;
 import com.tradevault.dto.backtesting.BacktestingResearchInboxResponse;
 import com.tradevault.dto.backtesting.BacktestingTradeResponse;
+import com.tradevault.dto.backtesting.BacktestingWorkspaceCompatibilityResponse;
 import com.tradevault.repository.BacktestEvidenceLinkRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.repository.TradeRepository;
@@ -55,6 +57,8 @@ public class LiveTradeEvidenceSyncService {
     private final TradeRepository tradeRepository;
     private final UserStrategyRepository strategyRepository;
     private final ObjectMapper objectMapper;
+    private final InstrumentAliasService instrumentAliasService;
+    private final BacktestingWorkspaceCompatibilityService compatibilityService;
 
     @Transactional
     public BacktestEvidenceLink synchronize(UUID liveTradeId, UUID userId) {
@@ -114,8 +118,7 @@ public class LiveTradeEvidenceSyncService {
                 .findByUser_IdAndStatusAndStrategy_IdOrderByUpdatedAtDesc(
                         user.getId(), BacktestingWorkspaceStatus.ACTIVE, trade.getStrategyId());
         List<BacktestingWorkspace> automaticMatches = strategyWorkspaces.stream()
-                .filter(workspace -> workspace.getAutoImportMode() == BacktestingAutoImportMode.STRATEGY_MATCH
-                        || (workspace.getAutoImportMode() == BacktestingAutoImportMode.EXACT_MATCH && exactMatch(workspace, trade)))
+                .filter(workspace -> compatibilityService.isAutomaticMatch(workspace, link))
                 .toList();
 
         if (automaticMatches.size() == 1) {
@@ -135,7 +138,7 @@ public class LiveTradeEvidenceSyncService {
         }
 
         List<BacktestingWorkspace> reviewMatches = strategyWorkspaces.stream()
-                .filter(workspace -> workspace.getAutoImportMode() == BacktestingAutoImportMode.REVIEW_BEFORE_IMPORT)
+                .filter(workspace -> compatibilityService.isReviewMatch(workspace, link))
                 .toList();
         if (reviewMatches.size() == 1) {
             link.setWorkspace(reviewMatches.get(0));
@@ -202,10 +205,12 @@ public class LiveTradeEvidenceSyncService {
 
     @Transactional(readOnly = true)
     public BacktestingResearchInboxResponse researchInbox(UUID userId) {
+        List<BacktestingWorkspace> activeWorkspaces = workspaceRepository
+                .findByUser_IdAndStatusOrderByUpdatedAtDesc(userId, BacktestingWorkspaceStatus.ACTIVE);
         List<BacktestingEvidenceResponse> items = evidenceRepository.findByUser_IdOrderByUpdatedAtDesc(userId).stream()
                 .filter(link -> link.getSyncStatus() != BacktestingSyncStatus.SYNCED
                         || link.getClassificationStatus() != BacktestingClassificationStatus.COMPLETE)
-                .map(this::toEvidenceResponse)
+                .map(link -> toEvidenceResponse(link, activeWorkspaces))
                 .toList();
         return BacktestingResearchInboxResponse.builder()
                 .total(items.size())
@@ -223,8 +228,15 @@ public class LiveTradeEvidenceSyncService {
         BacktestEvidenceLink link = evidenceRepository.findByIdAndUser_Id(evidenceId, userId)
                 .orElseThrow(() -> new EntityNotFoundException("Backtesting evidence not found"));
         if (request.getWorkspaceId() != null) {
-            BacktestingWorkspace workspace = workspaceRepository.findByIdAndUser_Id(request.getWorkspaceId(), userId)
-                    .orElseThrow(() -> new EntityNotFoundException("Backtesting workspace not found"));
+            if (link.getSyncStatus() == BacktestingSyncStatus.EXCLUDED) {
+                throw new IllegalArgumentException("Excluded evidence must be included before linking");
+            }
+            BacktestingWorkspace workspace = workspaceRepository
+                    .findByIdAndUser_IdAndStatus(request.getWorkspaceId(), userId, BacktestingWorkspaceStatus.ACTIVE)
+                    .orElseThrow(() -> new EntityNotFoundException("Active backtesting workspace not found"));
+            if (!compatibilityService.evaluate(workspace, link).isSelectable()) {
+                throw new IllegalArgumentException("Backtesting workspace is not compatible with this trade");
+            }
             link.setWorkspace(workspace);
             link.setSyncStatus(BacktestingSyncStatus.SYNCED);
             link.setExcludedReason(null);
@@ -236,7 +248,7 @@ public class LiveTradeEvidenceSyncService {
             link.setResearchClassificationJson(writeMap(request.getResearchClassification()));
         }
         if (StringUtils.hasText(request.getExcludedReason())) {
-            link.setExcludedReason(request.getExcludedReason().trim());
+            link.setExcludedReason("USER_EXCLUDED");
             link.setSyncStatus(BacktestingSyncStatus.EXCLUDED);
             link.setIncludedInAnalytics(false);
         } else if (request.getIncludedInAnalytics() != null) {
@@ -246,7 +258,65 @@ public class LiveTradeEvidenceSyncService {
             if (link.isIncludedInAnalytics()) link.setSyncStatus(BacktestingSyncStatus.SYNCED);
         }
         link.setLastSyncedAt(OffsetDateTime.now());
-        return toEvidenceResponse(evidenceRepository.save(link));
+        return toEvidenceResponseWithOptions(evidenceRepository.save(link), userId);
+    }
+
+    @Transactional
+    public BacktestingEvidenceResponse includeInResearch(UUID evidenceId, UUID userId) {
+        BacktestEvidenceLink link = evidenceRepository.findByIdAndUser_Id(evidenceId, userId)
+                .orElseThrow(() -> new EntityNotFoundException("Backtesting evidence not found"));
+        if (link.getSyncStatus() != BacktestingSyncStatus.EXCLUDED) {
+            return toEvidenceResponseWithOptions(link, userId);
+        }
+        if ("LIVE_TRADE_DELETED".equals(link.getExcludedReason())) {
+            throw new IllegalArgumentException("Deleted live-trade evidence cannot be re-included");
+        }
+        link.setSyncStatus(BacktestingSyncStatus.PENDING);
+        link.setIncludedInAnalytics(false);
+        link.setExcludedReason(null);
+        link.setLastSyncedAt(OffsetDateTime.now());
+        evidenceRepository.save(link);
+        return toEvidenceResponseWithOptions(synchronize(link.getLiveTradeId(), userId), userId);
+    }
+
+    @Transactional
+    public BacktestingEvidenceResponse excludeFromResearch(UUID evidenceId, UUID userId) {
+        BacktestEvidenceLink link = evidenceRepository.findByIdAndUser_Id(evidenceId, userId)
+                .orElseThrow(() -> new EntityNotFoundException("Backtesting evidence not found"));
+        if (link.getSyncStatus() != BacktestingSyncStatus.EXCLUDED) {
+            link.setSyncStatus(BacktestingSyncStatus.EXCLUDED);
+            link.setIncludedInAnalytics(false);
+            link.setExcludedReason("USER_EXCLUDED");
+            link.setLastSyncedAt(OffsetDateTime.now());
+            if (link.getWorkspace() != null) link.getWorkspace().setUpdatedAt(OffsetDateTime.now());
+            link = evidenceRepository.save(link);
+        }
+        return toEvidenceResponseWithOptions(link, userId);
+    }
+
+    @Transactional
+    public BacktestingEvidenceResponse linkToWorkspace(UUID evidenceId, UUID userId,
+                                                       BacktestingEvidenceLinkRequest request) {
+        BacktestEvidenceLink link = evidenceRepository.findByIdAndUser_Id(evidenceId, userId)
+                .orElseThrow(() -> new EntityNotFoundException("Backtesting evidence not found"));
+        if (link.getSyncStatus() == BacktestingSyncStatus.EXCLUDED) {
+            throw new IllegalArgumentException("Excluded evidence must be included before linking");
+        }
+        BacktestingWorkspace workspace = workspaceRepository
+                .findByIdAndUser_IdAndStatus(request.getWorkspaceId(), userId, BacktestingWorkspaceStatus.ACTIVE)
+                .orElseThrow(() -> new EntityNotFoundException("Active backtesting workspace not found"));
+        BacktestingWorkspaceCompatibilityResponse compatibility = compatibilityService.evaluate(workspace, link);
+        if (!compatibility.isSelectable()) {
+            throw new IllegalArgumentException("Backtesting workspace is not compatible with this trade");
+        }
+        link.setWorkspace(workspace);
+        link.setSyncStatus(BacktestingSyncStatus.SYNCED);
+        link.setExcludedReason(null);
+        link.setIncludedInAnalytics(link.getClosedAt() != null && link.getResult() != null
+                && link.getDirection() != null && link.getRealizedR() != null);
+        link.setLastSyncedAt(OffsetDateTime.now());
+        workspace.setUpdatedAt(OffsetDateTime.now());
+        return toEvidenceResponseWithOptions(evidenceRepository.save(link), userId);
     }
 
     @Transactional
@@ -256,7 +326,7 @@ public class LiveTradeEvidenceSyncService {
         if (link.getSyncStatus() == BacktestingSyncStatus.EXCLUDED) {
             throw new IllegalArgumentException("Excluded evidence must be included explicitly before retrying");
         }
-        return toEvidenceResponse(synchronize(link.getLiveTradeId(), userId));
+        return toEvidenceResponseWithOptions(synchronize(link.getLiveTradeId(), userId), userId);
     }
 
     public BacktestingTrade materialize(BacktestEvidenceLink link) {
@@ -333,6 +403,23 @@ public class LiveTradeEvidenceSyncService {
     }
 
     public BacktestingEvidenceResponse toEvidenceResponse(BacktestEvidenceLink link) {
+        return toEvidenceResponse(link, List.of());
+    }
+
+    private BacktestingEvidenceResponse toEvidenceResponseWithOptions(BacktestEvidenceLink link, UUID userId) {
+        List<BacktestingWorkspace> activeWorkspaces = workspaceRepository
+                .findByUser_IdAndStatusOrderByUpdatedAtDesc(userId, BacktestingWorkspaceStatus.ACTIVE);
+        return toEvidenceResponse(link, activeWorkspaces);
+    }
+
+    private BacktestingEvidenceResponse toEvidenceResponse(BacktestEvidenceLink link,
+                                                            List<BacktestingWorkspace> activeWorkspaces) {
+        List<BacktestingWorkspaceCompatibilityResponse> workspaceOptions = activeWorkspaces.stream()
+                .map(workspace -> compatibilityService.evaluate(workspace, link))
+                .sorted(Comparator.comparing(BacktestingWorkspaceCompatibilityResponse::isCompatible).reversed()
+                        .thenComparing(BacktestingWorkspaceCompatibilityResponse::getWorkspaceName,
+                                Comparator.nullsLast(String.CASE_INSENSITIVE_ORDER)))
+                .toList();
         return BacktestingEvidenceResponse.builder()
                 .id(link.getId())
                 .workspaceId(link.getWorkspace() == null ? null : link.getWorkspace().getId())
@@ -340,9 +427,14 @@ public class LiveTradeEvidenceSyncService {
                 .liveTradeId(link.getLiveTradeId())
                 .sourceType(link.getSourceType().name())
                 .syncStatus(link.getSyncStatus().name())
+                .researchInclusionStatus(link.getSyncStatus() == BacktestingSyncStatus.EXCLUDED ? "EXCLUDED" : "INCLUDED")
+                .workspaceLinkStatus(workspaceLinkStatus(link))
                 .classificationStatus(link.getClassificationStatus().name())
                 .includedInAnalytics(link.isIncludedInAnalytics())
                 .excludedReason(link.getExcludedReason())
+                .canonicalInstrumentId(instrumentAliasService.resolveCanonicalInstrument(link.getInstrument())
+                        .map(InstrumentAliasService.CanonicalInstrument::id).orElse(null))
+                .workspaceOptions(workspaceOptions)
                 .researchClassification(readMap(link.getResearchClassificationJson()))
                 .tradeDate(link.getTradeDate())
                 .openedAt(link.getOpenedAt())
@@ -366,12 +458,6 @@ public class LiveTradeEvidenceSyncService {
                 .createdAt(link.getCreatedAt())
                 .updatedAt(link.getUpdatedAt())
                 .build();
-    }
-
-    private boolean exactMatch(BacktestingWorkspace workspace, Trade trade) {
-        return matchToken(workspace.getSymbol(), trade.getSymbol())
-                && optionalSessionMatch(workspace.getSession(), trade.getSession() == null ? null : trade.getSession().name())
-                && optionalTimeframeMatch(workspace.getPrimaryTimeframe(), trade.getTimeframe());
     }
 
     private boolean hasValidOutcome(Trade trade) {
@@ -418,53 +504,15 @@ public class LiveTradeEvidenceSyncService {
         return BacktestingTradeResult.BREAKEVEN;
     }
 
-    private boolean optionalMatch(String expected, String actual) {
-        return !StringUtils.hasText(expected) || matchToken(expected, actual);
-    }
-
-    private boolean optionalSessionMatch(String expected, String actual) {
-        if (!StringUtils.hasText(expected)) return true;
-        if (!StringUtils.hasText(actual)) return false;
-        return normalizeSession(expected).equals(normalizeSession(actual));
-    }
-
-    private boolean optionalTimeframeMatch(String expected, String actual) {
-        if (!StringUtils.hasText(expected)) return true;
-        if (!StringUtils.hasText(actual)) return false;
-        return normalizeTimeframe(expected).equals(normalizeTimeframe(actual));
-    }
-
-    private boolean matchToken(String left, String right) {
-        return StringUtils.hasText(left) && StringUtils.hasText(right)
-                && normalizeMatch(left).equals(normalizeMatch(right));
-    }
-
-    private String normalizeMatch(String value) {
-        return value.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", "");
-    }
-
-    private String normalizeSession(String value) {
-        return switch (normalizeMatch(value)) {
-            case "NEWYORKAM", "NYAM" -> "NYAM";
-            case "NEWYORKPM", "NYPM" -> "NYPM";
-            case "NEWYORK", "NY" -> "NY";
-            default -> normalizeMatch(value);
+    private String workspaceLinkStatus(BacktestEvidenceLink link) {
+        if (link.getWorkspace() != null) {
+            return link.getSyncStatus() == BacktestingSyncStatus.NEEDS_REVIEW ? "NEEDS_REVIEW" : "LINKED";
+        }
+        return switch (link.getSyncStatus()) {
+            case NEEDS_REVIEW -> "AMBIGUOUS";
+            case ERROR -> "ERROR";
+            default -> "NOT_LINKED";
         };
-    }
-
-    private String normalizeTimeframe(String value) {
-        String normalized = normalizeMatch(value)
-                .replace("MINUTES", "M")
-                .replace("MINUTE", "M")
-                .replace("MINS", "M")
-                .replace("MIN", "M")
-                .replace("HOURS", "H")
-                .replace("HOUR", "H")
-                .replace("HRS", "H")
-                .replace("HR", "H");
-        if (normalized.matches("M[0-9]+")) return normalized.substring(1) + "M";
-        if (normalized.matches("H[0-9]+")) return normalized.substring(1) + "H";
-        return normalized;
     }
 
     private String workspaceName(BacktestingWorkspace workspace) {

@@ -35,12 +35,10 @@ import AddRoundedIcon from '@mui/icons-material/AddRounded'
 import ArchiveOutlinedIcon from '@mui/icons-material/ArchiveOutlined'
 import ArrowBackRoundedIcon from '@mui/icons-material/ArrowBackRounded'
 import AutoGraphRoundedIcon from '@mui/icons-material/AutoGraphRounded'
-import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded'
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded'
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded'
 import EditRoundedIcon from '@mui/icons-material/EditRounded'
 import FilterAltRoundedIcon from '@mui/icons-material/FilterAltRounded'
-import InboxRoundedIcon from '@mui/icons-material/InboxRounded'
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import PhotoLibraryRoundedIcon from '@mui/icons-material/PhotoLibraryRounded'
 import RestartAltRoundedIcon from '@mui/icons-material/RestartAltRounded'
@@ -53,7 +51,6 @@ import {
   BacktestingAnalytics,
   BacktestingClassificationStatus,
   BacktestingEdgeLens,
-  BacktestingEvidence,
   BacktestingEvidenceStatus,
   BacktestingMetric,
   BacktestingResearchInbox,
@@ -76,9 +73,8 @@ import {
   listBacktestingScreenshots,
   listBacktestingTrades,
   listBacktestingWorkspaces,
-  retryBacktestingEvidence,
+  excludeBacktestingEvidence,
   updateBacktestingEdgeLens,
-  updateBacktestingEvidence,
   updateBacktestingScreenshot,
   updateBacktestingTrade,
   updateBacktestingWorkspace,
@@ -102,6 +98,7 @@ import {
   ResearchFilters,
   sourceCounts
 } from '../features/backtesting/research'
+import ResearchInboxPanel from '../features/backtesting/ResearchInboxPanel'
 import { useI18n } from '../i18n'
 
 const BacktestingCharts = lazy(() => import('../features/backtesting/BacktestingCharts'))
@@ -324,7 +321,7 @@ function BacktestingLibrary({ data, inbox, loadingInbox, onCreate, onOpen, onEdi
         <Typography component="h2" variant="h6" sx={{ fontWeight: 850, mb: 1 }}>{t('backtesting.library.workspaces')}</Typography>
         {filtered.length ? <Grid container spacing={1.5}>{filtered.map((workspace) => <Grid key={workspace.id} item xs={12} md={6} xl={4}><WorkspaceCard workspace={workspace} locale={locale} onOpen={() => onOpen(workspace)} onEdit={() => onEdit(workspace)} onImport={() => onImport(workspace)} /></Grid>)}</Grid> : <EmptyState title={t('backtesting.empty.libraryTitle')} description={t('backtesting.empty.libraryBody')} action={<Button variant="contained" onClick={onCreate}>{t('backtesting.actions.newBacktest')}</Button>} />}
       </Box>
-      <ResearchInboxPanel inbox={inbox} loading={loadingInbox} workspaces={workspaces} onChanged={onInboxChanged} onError={onError} />
+      <ResearchInboxPanel inbox={inbox} loading={loadingInbox} onChanged={onInboxChanged} onError={onError} />
       <Dialog open={importPicker} onClose={() => setImportPicker(false)} fullWidth maxWidth="xs"><DialogTitle>{t('backtesting.dialogs.chooseImportWorkspace')}</DialogTitle><DialogContent><FormControl fullWidth sx={{ mt: 1 }}><InputLabel>{t('backtesting.workspace.name')}</InputLabel><Select label={t('backtesting.workspace.name')} value={importWorkspaceId} onChange={(event) => setImportWorkspaceId(event.target.value)}>{workspaces.map((item) => <MenuItem key={item.id} value={item.id}>{item.title || item.symbol}</MenuItem>)}</Select></FormControl><Stack direction="row" justifyContent="flex-end" spacing={1} sx={{ mt: 2 }}><Button onClick={() => setImportPicker(false)}>{t('common.cancel')}</Button><Button variant="contained" disabled={!importWorkspaceId} onClick={() => { const selected = workspaces.find((item) => item.id === importWorkspaceId); if (selected) onImport(selected); setImportPicker(false); setImportWorkspaceId('') }}>{t('backtesting.actions.continue')}</Button></Stack></DialogContent></Dialog>
     </Stack>
   )
@@ -355,53 +352,6 @@ function WorkspaceCard({ workspace, locale, onOpen, onEdit, onImport }: { worksp
           <Tooltip title={t('backtesting.actions.editWorkspace')}><IconButton size="small" aria-label={t('backtesting.actions.editWorkspace')} onClick={onEdit}><EditRoundedIcon fontSize="small" /></IconButton></Tooltip>
         </Stack>
       </Stack>
-    </Paper>
-  )
-}
-
-function ResearchInboxPanel({ inbox, loading, workspaces, onChanged, onError }: { inbox?: BacktestingResearchInbox; loading: boolean; workspaces: BacktestingWorkspace[]; onChanged: (message: string) => Promise<void>; onError: (caught: unknown) => void }) {
-  const { t, locale } = useI18n()
-  const theme = useTheme()
-  const mobile = useMediaQuery(theme.breakpoints.down('sm'))
-  const [workspaceSelections, setWorkspaceSelections] = useState<Record<string, string>>({})
-  const [classificationItem, setClassificationItem] = useState<BacktestingEvidence | null>(null)
-  const [classificationStatus, setClassificationStatus] = useState<BacktestingClassificationStatus>('PARTIAL')
-  const [classificationDraft, setClassificationDraft] = useState<Record<string, string>>({})
-  const updateMutation = useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: Parameters<typeof updateBacktestingEvidence>[1] }) => updateBacktestingEvidence(id, payload),
-    onSuccess: () => onChanged(t('backtesting.feedback.evidenceUpdated')),
-    onError
-  })
-  const retryMutation = useMutation({ mutationFn: retryBacktestingEvidence, onSuccess: () => onChanged(t('backtesting.feedback.syncRetried')), onError })
-  const openClassification = (item: BacktestingEvidence) => {
-    setClassificationItem(item)
-    setClassificationStatus(item.classificationStatus === 'COMPLETE' ? 'COMPLETE' : 'PARTIAL')
-    setClassificationDraft(Object.fromEntries(Object.entries(item.researchClassification || {}).map(([key, value]) => [key, String(value ?? '')])))
-  }
-  const classificationFields = ['marketRegime', 'htfBiasQuality', 'liquidityType', 'sweepType', 'displacementQuality', 'mssQuality', 'gapType', 'gapFillStatus', 'entryModel', 'researchTags']
-  return (
-    <Paper variant="outlined" sx={{ p: 1.5 }}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1} sx={{ mb: 1.5 }}>
-        <Box><Typography component="h2" variant="h6" sx={{ fontWeight: 850 }}><InboxRoundedIcon fontSize="small" sx={{ verticalAlign: 'middle', mr: 0.75 }} />{t('backtesting.inbox.title')}</Typography><Typography variant="body2" color="text.secondary">{t('backtesting.inbox.description')}</Typography></Box>
-        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap">{[
-          ['needsWorkspace', inbox?.needsWorkspace || 0], ['needsClassification', inbox?.needsClassification || 0], ['ambiguousMatch', inbox?.ambiguousMatch || 0], ['syncErrors', inbox?.syncErrors || 0]
-        ].map(([key, value]) => <Chip key={key} size="small" variant="outlined" label={`${t(`backtesting.inbox.${key}`)} · ${value}`} />)}</Stack>
-      </Stack>
-      {loading ? <LoadingState rows={2} height={94} /> : !inbox?.items.length ? <EmptyState title={t('backtesting.empty.inboxTitle')} description={t('backtesting.empty.inboxBody')} /> : <Stack spacing={1}>{inbox.items.map((item) => (
-        <Paper key={item.id} variant="outlined" sx={{ p: 1.25 }}>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.25} justifyContent="space-between" alignItems={{ md: 'center' }}>
-            <Box sx={{ minWidth: 0 }}><Typography variant="subtitle2" sx={{ fontWeight: 850 }}>{item.instrument || t('backtesting.common.unknown')} · {item.direction ? t(`backtesting.direction.${item.direction}`) : t('backtesting.common.unknown')}</Typography><Typography variant="caption" color="text.secondary">{formatDate(item.tradeDate, locale)} · {item.session || t('backtesting.workspace.anySession')} · {formatR(item.realizedR, locale)}</Typography><Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap" sx={{ mt: 0.75 }}><SyncStatusBadge status={item.syncStatus} /><ClassificationBadge status={item.classificationStatus} /><SourceBadge source="LIVE" /></Stack></Box>
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={0.75} sx={{ minWidth: { md: 420 } }}>
-              {(item.syncStatus === 'NOT_LINKED' || item.syncStatus === 'NEEDS_REVIEW') && <FormControl size="small" fullWidth><InputLabel>{t('backtesting.inbox.workspace')}</InputLabel><Select label={t('backtesting.inbox.workspace')} value={workspaceSelections[item.id] || item.workspaceId || ''} onChange={(event) => setWorkspaceSelections((current) => ({ ...current, [item.id]: event.target.value }))}>{workspaces.map((workspace) => <MenuItem key={workspace.id} value={workspace.id}>{workspace.title || workspace.symbol}</MenuItem>)}</Select></FormControl>}
-              {(item.syncStatus === 'NOT_LINKED' || item.syncStatus === 'NEEDS_REVIEW') && <Button variant="contained" disabled={!workspaceSelections[item.id] && !item.workspaceId} onClick={() => updateMutation.mutate({ id: item.id, payload: { workspaceId: workspaceSelections[item.id] || item.workspaceId, includedInAnalytics: true } })}>{t('backtesting.actions.link')}</Button>}
-              {item.classificationStatus !== 'COMPLETE' && <Button variant="outlined" startIcon={<CheckCircleOutlineRoundedIcon />} onClick={() => openClassification(item)}>{t('backtesting.actions.classify')}</Button>}
-              {item.syncStatus === 'ERROR' && <Button variant="outlined" startIcon={<RestartAltRoundedIcon />} onClick={() => retryMutation.mutate(item.id)}>{t('backtesting.actions.retrySync')}</Button>}
-              {item.syncStatus !== 'EXCLUDED' && <Button color="warning" onClick={() => updateMutation.mutate({ id: item.id, payload: { excludedReason: t('backtesting.inbox.userExcludedReason') } })}>{t('backtesting.actions.exclude')}</Button>}
-            </Stack>
-          </Stack>
-        </Paper>
-      ))}</Stack>}
-      <Dialog open={Boolean(classificationItem)} onClose={() => setClassificationItem(null)} fullScreen={mobile} fullWidth maxWidth="md"><DialogTitle>{t('backtesting.dialogs.classifyEvidence')}</DialogTitle><DialogContent><Stack spacing={1.5} sx={{ pt: 1 }}><Alert severity="info">{t('backtesting.inbox.classificationHelp')}</Alert><FormControl fullWidth size="small"><InputLabel>{t('backtesting.filters.classificationStatus')}</InputLabel><Select label={t('backtesting.filters.classificationStatus')} value={classificationStatus} onChange={(event) => setClassificationStatus(event.target.value as BacktestingClassificationStatus)}>{(['PARTIAL', 'COMPLETE'] as const).map((value) => <MenuItem key={value} value={value}>{t(`backtesting.classificationStatus.${value}`)}</MenuItem>)}</Select></FormControl><Grid container spacing={1.25}>{classificationFields.map((key) => <Grid key={key} item xs={12} sm={6}><TextField fullWidth size="small" label={t(`backtesting.classification.${key}`)} value={classificationDraft[key] || ''} onChange={(event) => setClassificationDraft((current) => ({ ...current, [key]: event.target.value }))} /></Grid>)}</Grid><Stack direction="row" justifyContent="flex-end" spacing={1}><Button onClick={() => setClassificationItem(null)}>{t('common.cancel')}</Button><Button variant="contained" disabled={updateMutation.isLoading} onClick={() => { if (!classificationItem) return; updateMutation.mutate({ id: classificationItem.id, payload: { classificationStatus, researchClassification: Object.fromEntries(Object.entries(classificationDraft).filter(([, value]) => value.trim())) } }, { onSuccess: () => setClassificationItem(null) }) }}>{t('backtesting.actions.saveClassification')}</Button></Stack></Stack></DialogContent></Dialog>
     </Paper>
   )
 }
@@ -517,7 +467,7 @@ function TradesSection({ trades, locale, onAdd, onEdit, onFeedback, onError, inv
   const visiblePage = Math.min(page, pageCount - 1)
   const visibleTrades = trades.slice(visiblePage * pageSize, (visiblePage + 1) * pageSize)
   const deleteMutation = useMutation({ mutationFn: deleteBacktestingTrade, onSuccess: async () => { onFeedback(t('backtesting.feedback.tradeDeleted')); await invalidate() }, onError: (caught) => onError(caught, 'backtesting.errors.tradeDelete') })
-  const evidenceMutation = useMutation({ mutationFn: (id: string) => updateBacktestingEvidence(id, { excludedReason: t('backtesting.inbox.userExcludedReason') }), onSuccess: async () => { onFeedback(t('backtesting.feedback.evidenceExcluded')); await invalidate() }, onError: (caught) => onError(caught, 'backtesting.errors.evidenceUpdate') })
+  const evidenceMutation = useMutation({ mutationFn: excludeBacktestingEvidence, onSuccess: async () => { onFeedback(t('backtesting.feedback.evidenceExcluded')); await invalidate() }, onError: (caught) => onError(caught, 'backtesting.errors.evidenceUpdate') })
   if (!trades.length) return <EmptyState title={t('backtesting.empty.tradesTitle')} description={t('backtesting.empty.tradesBody')} action={<Button variant="contained" onClick={onAdd}>{t('backtesting.actions.addManualTrade')}</Button>} />
   const actions = (trade: BacktestingTrade) => trade.source === 'LIVE' ? <Stack direction="row" spacing={0.5}><Button size="small" startIcon={<OpenInNewRoundedIcon />} href={`/trades?tradeId=${trade.liveTradeId}`}>{t('backtesting.actions.openLiveTrade')}</Button><Button size="small" color="warning" onClick={() => evidenceMutation.mutate(trade.id)}>{t('backtesting.actions.exclude')}</Button></Stack> : <Stack direction="row" spacing={0.5}><Button size="small" onClick={() => onEdit(trade)}>{t('backtesting.actions.edit')}</Button><Button size="small" color="error" onClick={() => { if (window.confirm(t('backtesting.dialogs.deleteTradeConfirm'))) deleteMutation.mutate(trade.id) }}>{t('backtesting.actions.delete')}</Button></Stack>
   const content = mobile ? <Stack spacing={1}>{visibleTrades.map((trade) => <Paper key={trade.id} variant="outlined" sx={{ p: 1.25 }}><Stack spacing={1}><Stack direction="row" justifyContent="space-between" spacing={1}><Box><Typography variant="subtitle2" sx={{ fontWeight: 850 }}>{trade.instrument} · {t(`backtesting.direction.${trade.direction}`)}</Typography><Typography variant="caption" color="text.secondary">{formatDate(trade.date, locale)} · {trade.session || t('backtesting.workspace.anySession')}</Typography></Box><ResultBadge result={trade.result} /></Stack><Typography variant="body2">{trade.strategyNameSnapshot || trade.setupName || t('backtesting.workspace.unlinkedStrategy')}</Typography><Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap"><SourceBadge source={trade.source} /><ClassificationBadge status={trade.classificationStatus || 'COMPLETE'} /><Chip size="small" label={formatR(trade.pnlR, locale)} /></Stack>{actions(trade)}</Stack></Paper>)}</Stack> : <TableContainer><Table size="small"><TableHead><TableRow>{['date', 'instrument', 'direction', 'strategySetup', 'session', 'source', 'result', 'r', 'classification', 'actions'].map((key) => <TableCell key={key}>{t(`backtesting.trades.${key}`)}</TableCell>)}</TableRow></TableHead><TableBody>{visibleTrades.map((trade) => <TableRow key={trade.id} hover><TableCell>{formatDate(trade.date, locale)}</TableCell><TableCell>{trade.instrument}</TableCell><TableCell>{t(`backtesting.direction.${trade.direction}`)}</TableCell><TableCell>{trade.strategyNameSnapshot || trade.setupName || '-'}</TableCell><TableCell>{trade.session || '-'}</TableCell><TableCell><SourceBadge source={trade.source} /></TableCell><TableCell><ResultBadge result={trade.result} /></TableCell><TableCell sx={{ fontWeight: 800 }}>{formatR(trade.pnlR, locale)}</TableCell><TableCell><ClassificationBadge status={trade.classificationStatus || 'COMPLETE'} /></TableCell><TableCell>{actions(trade)}</TableCell></TableRow>)}</TableBody></Table></TableContainer>
@@ -637,11 +587,6 @@ function ConfidenceBadge({ confidence }: { confidence: string }) {
 function SourceBadge({ source }: { source: string }) {
   const { t } = useI18n()
   return <Chip size="small" color={source === 'LIVE' ? 'success' : source === 'IMPORT' ? 'info' : 'default'} label={t(`backtesting.sources.${source}`)} />
-}
-
-function SyncStatusBadge({ status }: { status: string }) {
-  const { t } = useI18n()
-  return <Chip size="small" variant="outlined" color={status === 'ERROR' ? 'error' : status === 'SYNCED' ? 'success' : status === 'NEEDS_REVIEW' ? 'warning' : 'default'} label={t(`backtesting.syncStatus.${status}`)} />
 }
 
 function ClassificationBadge({ status }: { status: BacktestingClassificationStatus }) {

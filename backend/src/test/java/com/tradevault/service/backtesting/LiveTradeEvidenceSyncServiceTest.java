@@ -8,6 +8,7 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.BacktestingAutoImportMode;
 import com.tradevault.domain.enums.BacktestingClassificationStatus;
+import com.tradevault.domain.enums.BacktestingEvidenceSource;
 import com.tradevault.domain.enums.BacktestingSyncStatus;
 import com.tradevault.domain.enums.BacktestingWorkspaceStatus;
 import com.tradevault.domain.enums.Direction;
@@ -17,6 +18,7 @@ import com.tradevault.repository.BacktestEvidenceLinkRepository;
 import com.tradevault.repository.BacktestingWorkspaceRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
+import com.tradevault.dto.backtesting.BacktestingEvidenceLinkRequest;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -27,9 +29,11 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
@@ -44,16 +48,21 @@ class LiveTradeEvidenceSyncServiceTest {
     @Mock UserStrategyRepository strategyRepository;
 
     private LiveTradeEvidenceSyncService service;
+    private InstrumentAliasService instrumentAliasService;
+    private BacktestingWorkspaceCompatibilityService compatibilityService;
     private User user;
     private UserStrategy strategy;
 
     @BeforeEach
     void setUp() {
+        instrumentAliasService = new InstrumentAliasService();
+        compatibilityService = new BacktestingWorkspaceCompatibilityService(instrumentAliasService);
         service = new LiveTradeEvidenceSyncService(
-                evidenceRepository, workspaceRepository, tradeRepository, strategyRepository, new ObjectMapper());
+                evidenceRepository, workspaceRepository, tradeRepository, strategyRepository, new ObjectMapper(),
+                instrumentAliasService, compatibilityService);
         user = User.builder().id(UUID.randomUUID()).build();
         strategy = UserStrategy.builder().id(UUID.randomUUID()).user(user).name("Liquidity Sweep").build();
-        when(evidenceRepository.save(any(BacktestEvidenceLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        lenient().when(evidenceRepository.save(any(BacktestEvidenceLink.class))).thenAnswer(invocation -> invocation.getArgument(0));
         lenient().when(strategyRepository.findByIdAndUser_Id(strategy.getId(), user.getId())).thenReturn(Optional.of(strategy));
     }
 
@@ -71,6 +80,22 @@ class LiveTradeEvidenceSyncServiceTest {
         assertThat(link.getSyncStatus()).isEqualTo(BacktestingSyncStatus.SYNCED);
         assertThat(link.isIncludedInAnalytics()).isTrue();
         assertThat(link.getRealizedR()).isEqualByComparingTo("1.5");
+    }
+
+    @Test
+    void daxAliasSynchronizesGer40TradeWithoutChangingItsDisplaySymbol() {
+        Trade trade = closedTrade();
+        trade.setSymbol("GER40.cash");
+        BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "DAX", "New York AM", "5 minutes");
+        when(evidenceRepository.findByLiveTradeIdAndUser_Id(trade.getId(), user.getId())).thenReturn(Optional.empty());
+        when(workspaceRepository.findByUser_IdAndStatusAndStrategy_IdOrderByUpdatedAtDesc(
+                user.getId(), BacktestingWorkspaceStatus.ACTIVE, strategy.getId())).thenReturn(List.of(workspace));
+
+        BacktestEvidenceLink link = service.synchronize(trade);
+
+        assertThat(link.getWorkspace()).isSameAs(workspace);
+        assertThat(link.getInstrument()).isEqualTo("GER40.cash");
+        assertThat(link.isIncludedInAnalytics()).isTrue();
     }
 
     @Test
@@ -200,6 +225,105 @@ class LiveTradeEvidenceSyncServiceTest {
     }
 
     @Test
+    void reIncludingExcludedEvidenceClearsExclusionAndReusesTheSameLink() {
+        Trade trade = closedTrade();
+        BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "NQ", "New York AM", "5 minutes");
+        BacktestEvidenceLink existing = BacktestEvidenceLink.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .liveTradeId(trade.getId())
+                .workspace(workspace)
+                .sourceType(BacktestingEvidenceSource.LIVE)
+                .syncStatus(BacktestingSyncStatus.EXCLUDED)
+                .classificationStatus(BacktestingClassificationStatus.PARTIAL)
+                .researchClassificationJson("{\"marketRegime\":\"trend\"}")
+                .screenshotCount(2)
+                .includedInAnalytics(false)
+                .excludedReason("USER_EXCLUDED")
+                .build();
+        trade.setEntryScreenshotAssetIds(Set.of(UUID.randomUUID(), UUID.randomUUID()));
+        when(evidenceRepository.findByIdAndUser_Id(existing.getId(), user.getId())).thenReturn(Optional.of(existing));
+        when(evidenceRepository.findByLiveTradeIdAndUser_Id(trade.getId(), user.getId())).thenReturn(Optional.of(existing));
+        when(tradeRepository.findByIdAndUserId(trade.getId(), user.getId())).thenReturn(Optional.of(trade));
+        when(workspaceRepository.findByUser_IdAndStatusAndStrategy_IdOrderByUpdatedAtDesc(
+                user.getId(), BacktestingWorkspaceStatus.ACTIVE, strategy.getId())).thenReturn(List.of(workspace));
+        when(workspaceRepository.findByUser_IdAndStatusOrderByUpdatedAtDesc(
+                user.getId(), BacktestingWorkspaceStatus.ACTIVE)).thenReturn(List.of(workspace));
+
+        var response = service.includeInResearch(existing.getId(), user.getId());
+
+        assertThat(existing.getSyncStatus()).isEqualTo(BacktestingSyncStatus.SYNCED);
+        assertThat(existing.getExcludedReason()).isNull();
+        assertThat(existing.getClassificationStatus()).isEqualTo(BacktestingClassificationStatus.PARTIAL);
+        assertThat(existing.getResearchClassificationJson()).isEqualTo("{\"marketRegime\":\"trend\"}");
+        assertThat(existing.getScreenshotCount()).isEqualTo(2);
+        assertThat(existing.isIncludedInAnalytics()).isTrue();
+        assertThat(response.getId()).isEqualTo(existing.getId());
+        assertThat(response.getCanonicalInstrumentId()).isNull();
+    }
+
+    @Test
+    void repeatedReInclusionIsIdempotentAndDoesNotResynchronize() {
+        BacktestEvidenceLink existing = BacktestEvidenceLink.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .liveTradeId(UUID.randomUUID())
+                .sourceType(BacktestingEvidenceSource.LIVE)
+                .syncStatus(BacktestingSyncStatus.SYNCED)
+                .classificationStatus(BacktestingClassificationStatus.COMPLETE)
+                .includedInAnalytics(true)
+                .build();
+        when(evidenceRepository.findByIdAndUser_Id(existing.getId(), user.getId())).thenReturn(Optional.of(existing));
+        when(workspaceRepository.findByUser_IdAndStatusOrderByUpdatedAtDesc(
+                user.getId(), BacktestingWorkspaceStatus.ACTIVE)).thenReturn(List.of());
+
+        service.includeInResearch(existing.getId(), user.getId());
+
+        verify(tradeRepository, never()).findByIdAndUserId(any(), any());
+        verify(evidenceRepository, never()).save(existing);
+    }
+
+    @Test
+    void manualLinkAcceptsAliasCompatibleEvidenceWithIncompleteClassificationAndIncludesItOnce() {
+        BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "DAX", "London", "1m");
+        BacktestEvidenceLink existing = linkableEvidence("GER40", strategy.getId());
+        BacktestingEvidenceLinkRequest request = new BacktestingEvidenceLinkRequest();
+        request.setWorkspaceId(workspace.getId());
+        when(evidenceRepository.findByIdAndUser_Id(existing.getId(), user.getId())).thenReturn(Optional.of(existing));
+        when(workspaceRepository.findByIdAndUser_IdAndStatus(
+                workspace.getId(), user.getId(), BacktestingWorkspaceStatus.ACTIVE)).thenReturn(Optional.of(workspace));
+        when(workspaceRepository.findByUser_IdAndStatusOrderByUpdatedAtDesc(
+                user.getId(), BacktestingWorkspaceStatus.ACTIVE)).thenReturn(List.of(workspace));
+
+        var first = service.linkToWorkspace(existing.getId(), user.getId(), request);
+        var second = service.linkToWorkspace(existing.getId(), user.getId(), request);
+
+        assertThat(first.getId()).isEqualTo(existing.getId());
+        assertThat(second.getId()).isEqualTo(existing.getId());
+        assertThat(existing.getWorkspace()).isSameAs(workspace);
+        assertThat(existing.getSyncStatus()).isEqualTo(BacktestingSyncStatus.SYNCED);
+        assertThat(existing.getClassificationStatus()).isEqualTo(BacktestingClassificationStatus.NEEDS_CLASSIFICATION);
+        assertThat(existing.isIncludedInAnalytics()).isTrue();
+    }
+
+    @Test
+    void manualLinkRejectsStrategyMismatchWithoutChangingTheEvidence() {
+        BacktestingWorkspace workspace = workspace(BacktestingAutoImportMode.EXACT_MATCH, "DAX", "London", "1m");
+        BacktestEvidenceLink existing = linkableEvidence("GER40", UUID.randomUUID());
+        BacktestingEvidenceLinkRequest request = new BacktestingEvidenceLinkRequest();
+        request.setWorkspaceId(workspace.getId());
+        when(evidenceRepository.findByIdAndUser_Id(existing.getId(), user.getId())).thenReturn(Optional.of(existing));
+        when(workspaceRepository.findByIdAndUser_IdAndStatus(
+                workspace.getId(), user.getId(), BacktestingWorkspaceStatus.ACTIVE)).thenReturn(Optional.of(workspace));
+
+        assertThatThrownBy(() -> service.linkToWorkspace(existing.getId(), user.getId(), request))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("not compatible");
+        assertThat(existing.getWorkspace()).isNull();
+        assertThat(existing.isIncludedInAnalytics()).isFalse();
+    }
+
+    @Test
     void disabledWorkspacePreservesPreviouslyLinkedEvidenceButStopsRematching() {
         Trade trade = closedTrade();
         BacktestingWorkspace disabled = workspace(BacktestingAutoImportMode.DISABLED, "NQ", null, null);
@@ -270,6 +394,27 @@ class LiveTradeEvidenceSyncServiceTest {
                 .primaryTimeframe(timeframe)
                 .autoImportMode(mode)
                 .status(BacktestingWorkspaceStatus.ACTIVE)
+                .build();
+    }
+
+    private BacktestEvidenceLink linkableEvidence(String instrument, UUID strategyId) {
+        return BacktestEvidenceLink.builder()
+                .id(UUID.randomUUID())
+                .user(user)
+                .liveTradeId(UUID.randomUUID())
+                .sourceType(BacktestingEvidenceSource.LIVE)
+                .syncStatus(BacktestingSyncStatus.NOT_LINKED)
+                .classificationStatus(BacktestingClassificationStatus.NEEDS_CLASSIFICATION)
+                .includedInAnalytics(false)
+                .instrument(instrument)
+                .strategyId(strategyId)
+                .strategyNameSnapshot("Liquidity Sweep")
+                .session("London")
+                .timeframe("1m")
+                .direction("LONG")
+                .closedAt(OffsetDateTime.parse("2026-07-18T10:00:00+03:00"))
+                .result("WIN")
+                .realizedR(new BigDecimal("1.5"))
                 .build();
     }
 }

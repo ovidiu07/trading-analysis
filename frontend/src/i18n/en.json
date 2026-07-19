@@ -3084,6 +3084,13 @@
       "openLiveTrade": "Open live trade",
       "exclude": "Exclude",
       "link": "Link",
+      "includeInResearch": "Include in research",
+      "viewExclusionReason": "View exclusion reason",
+      "linkToWorkspace": "Link to workspace",
+      "chooseWorkspace": "Choose workspace",
+      "viewWorkspace": "View workspace",
+      "showIncompatibleWorkspaces": "Show incompatible workspaces",
+      "assignTradeStrategy": "Assign trade strategy",
       "classify": "Classify",
       "retrySync": "Retry sync",
       "saveClassification": "Save classification",
@@ -3257,6 +3264,17 @@
       "NEEDS_CLASSIFICATION": "Needs classification",
       "PARTIAL": "Partial"
     },
+    "inclusionStatus": {
+      "INCLUDED": "Included",
+      "EXCLUDED": "Excluded"
+    },
+    "workspaceLinkStatus": {
+      "LINKED": "Linked",
+      "NEEDS_REVIEW": "Needs confirmation",
+      "AMBIGUOUS": "Ambiguous",
+      "NOT_LINKED": "Not linked",
+      "ERROR": "Error"
+    },
     "inbox": {
       "title": "Research Inbox",
       "description": "Review live trades that need a workspace, classification, or synchronization decision.",
@@ -3264,9 +3282,43 @@
       "needsClassification": "Needs classification",
       "ambiguousMatch": "Ambiguous match",
       "syncErrors": "Sync errors",
+      "excluded": "Excluded",
       "workspace": "Research workspace",
+      "exclusionReason": "Exclusion reason",
       "userExcludedReason": "Excluded from research by user",
       "classificationHelp": "Research classifications are optional and never block synchronization. Mark Partial while fields still need review."
+    },
+    "compatibility": {
+      "title": "Compatibility",
+      "cannotLinkYet": "This trade cannot be linked yet.",
+      "tradeLabel": "Trade",
+      "workspaceLabel": "Workspace",
+      "pickerHelp": "Compatible workspaces are shown first. Expand compatibility to see every matching rule.",
+      "searchWorkspaces": "Search workspaces",
+      "compatibleWorkspace": "Compatible workspace",
+      "incompatibleWorkspace": "Incompatible workspace",
+      "noCompatibleWorkspace": "No compatible workspace found. Show incompatible workspaces to see the exact blockers.",
+      "noVisibleWorkspace": "No workspace matches the current search and visibility filters.",
+      "aliasSummary": "Compatible through {{trade}} → {{workspace}} alias",
+      "codes": {
+        "TRADE_INCLUDED": "Trade is included in research",
+        "TRADE_EXCLUDED": "Trade is excluded from research",
+        "STRATEGY_MATCH": "Strategy matches",
+        "STRATEGY_MISMATCH": "Strategy does not match — trade: {{trade}}; workspace: {{workspace}}",
+        "INSTRUMENT_MATCH": "Instrument matches",
+        "INSTRUMENT_ALIAS_MATCH": "Instrument matches through alias: {{trade}} → {{workspace}}",
+        "INSTRUMENT_MISMATCH": "Instrument does not match — trade: {{trade}}; workspace: {{workspace}}",
+        "SESSION_MATCH": "Session matches",
+        "SESSION_MISMATCH": "Session does not match — trade: {{trade}}; workspace: {{workspace}}",
+        "TIMEFRAME_MATCH": "Timeframe matches",
+        "TIMEFRAME_MISMATCH": "Timeframe does not match — trade: {{trade}}; workspace: {{workspace}}",
+        "CLASSIFICATION_INCOMPLETE": "Classification is incomplete; this does not block linking",
+        "WORKSPACE_IMPORT_DISABLED": "Workspace does not accept live evidence"
+      }
+    },
+    "exclusionReasons": {
+      "USER_EXCLUDED": "Excluded from research by user",
+      "LIVE_TRADE_DELETED": "The original live trade was deleted"
     },
     "overview": {
       "filteredNotice": "Charts and metrics show {{visible}} of {{total}} trades because filters are active."
@@ -3398,7 +3450,10 @@
       "editManualTrade": "Edit manual trade",
       "importTrades": "Import historical trades",
       "chooseImportWorkspace": "Choose a research workspace",
+      "chooseWorkspace": "Choose workspace",
       "classifyEvidence": "Classify live evidence",
+      "includeEvidenceTitle": "Include this trade in research?",
+      "includeEvidenceBody": "The trade will be evaluated against your backtesting workspaces and may be added to strategy analytics.",
       "importDescription": "Upload a CSV with date, instrument, direction, result, and R multiple. Imported rows remain visibly separate from live evidence.",
       "archiveConfirm": "Archive this workspace? All trades, evidence, screenshots, notes, and links will be preserved, and new auto-imports will stop.",
       "deleteTradeConfirm": "Delete this manual research trade?",
@@ -3431,6 +3486,8 @@
       "tradeDeleted": "Manual trade deleted.",
       "evidenceUpdated": "Evidence updated.",
       "evidenceExcluded": "Live evidence excluded from analytics.",
+      "evidenceIncluded": "Trade was successfully included in research.",
+      "evidenceLinked": "Trade was successfully linked to the workspace.",
       "syncRetried": "Synchronization retry requested.",
       "lensSaved": "Edge Lens saved.",
       "lensDeleted": "Edge Lens deleted.",
@@ -3445,6 +3502,8 @@
       "tradeSave": "Could not save the manual trade.",
       "tradeDelete": "Could not delete the manual trade.",
       "evidenceUpdate": "Could not update live evidence.",
+      "evidenceInclude": "Re-inclusion failed.",
+      "evidenceLink": "Workspace linking failed.",
       "lensSave": "Could not save the Edge Lens.",
       "lensDelete": "Could not delete the Edge Lens.",
       "screenshotUpload": "Could not upload screenshot evidence.",
@@ -3456,7 +3515,10 @@
     "accessibility": {
       "sectionNavigation": "Backtesting workspace sections",
       "screenshotDropZone": "Screenshot evidence upload area",
-      "openScreenshot": "Open screenshot {{name}}"
+      "openScreenshot": "Open screenshot {{name}}",
+      "evidenceStatuses": "Research inclusion, workspace link, classification, and source statuses",
+      "workspaceOptions": "Workspace options",
+      "compatibilityChecklist": "Compatibility checklist"
     },
     "pagination": {
       "previous": "Previous",

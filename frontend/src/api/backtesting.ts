@@ -9,6 +9,8 @@ export type BacktestingTradeScope = 'BACKTEST' | 'LIVE' | 'REPLAY'
 export type BacktestingAutoImportMode = 'EXACT_MATCH' | 'STRATEGY_MATCH' | 'REVIEW_BEFORE_IMPORT' | 'DISABLED'
 export type BacktestingSyncStatus = 'SYNCED' | 'NEEDS_REVIEW' | 'NOT_LINKED' | 'EXCLUDED' | 'PENDING' | 'ERROR'
 export type BacktestingClassificationStatus = 'COMPLETE' | 'NEEDS_CLASSIFICATION' | 'PARTIAL'
+export type BacktestingResearchInclusionStatus = 'INCLUDED' | 'EXCLUDED'
+export type BacktestingWorkspaceLinkStatus = 'LINKED' | 'NEEDS_REVIEW' | 'AMBIGUOUS' | 'NOT_LINKED' | 'ERROR'
 export type BacktestingEvidenceStatus = 'INSUFFICIENT_DATA' | 'EXPLORATORY' | 'EARLY_SIGNAL' | 'DEVELOPING_EDGE' | 'VALIDATED_EVIDENCE' | 'NEEDS_REVIEW'
 export type BacktestingEvidenceConfidence = 'VERY_LOW' | 'LOW' | 'MODERATE' | 'HIGH'
 export type BacktestingGapType = 'BULLISH' | 'BEARISH' | 'UNKNOWN'
@@ -267,9 +269,13 @@ export type BacktestingEvidence = {
   liveTradeId: string
   sourceType: 'LIVE'
   syncStatus: BacktestingSyncStatus
+  researchInclusionStatus?: BacktestingResearchInclusionStatus
+  workspaceLinkStatus?: BacktestingWorkspaceLinkStatus
   classificationStatus: BacktestingClassificationStatus
   includedInAnalytics: boolean
   excludedReason?: string | null
+  canonicalInstrumentId?: string | null
+  workspaceOptions?: BacktestingWorkspaceCompatibility[]
   researchClassification: Record<string, unknown>
   tradeDate?: string | null
   openedAt?: string | null
@@ -292,6 +298,28 @@ export type BacktestingEvidence = {
   lastSyncedAt?: string | null
   createdAt?: string | null
   updatedAt?: string | null
+}
+
+export type BacktestingCompatibilityCheck = {
+  code: string
+  matches: boolean
+  blocking: boolean
+  tradeValue?: string | null
+  workspaceValue?: string | null
+}
+
+export type BacktestingWorkspaceCompatibility = {
+  workspaceId: string
+  workspaceName: string
+  strategyName?: string | null
+  instrument: string
+  canonicalInstrumentId?: string | null
+  session?: string | null
+  timeframe?: string | null
+  autoImportMode: BacktestingAutoImportMode
+  compatible: boolean
+  selectable: boolean
+  checks: BacktestingCompatibilityCheck[]
 }
 
 export type BacktestingResearchInbox = {
@@ -371,6 +399,18 @@ export async function updateBacktestingEvidence(id: string, payload: Backtesting
 
 export async function retryBacktestingEvidence(id: string) {
   return apiPost<BacktestingEvidence>(`/backtesting/evidence/${encodeURIComponent(id)}/retry`, {})
+}
+
+export async function includeBacktestingEvidence(id: string) {
+  return apiPost<BacktestingEvidence>(`/backtesting/evidence/${encodeURIComponent(id)}/include`, {})
+}
+
+export async function excludeBacktestingEvidence(id: string) {
+  return apiPost<BacktestingEvidence>(`/backtesting/evidence/${encodeURIComponent(id)}/exclude`, {})
+}
+
+export async function linkBacktestingEvidence(id: string, workspaceId: string) {
+  return apiPost<BacktestingEvidence>(`/backtesting/evidence/${encodeURIComponent(id)}/link`, { workspaceId })
 }
 
 export async function listBacktestingScreenshots(workspaceId: string) {

@@ -12,6 +12,7 @@ import com.tradevault.dto.backtesting.BacktestingTradeResponse;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceRequest;
 import com.tradevault.dto.backtesting.BacktestingWorkspaceResponse;
 import com.tradevault.dto.backtesting.BacktestingEvidenceResponse;
+import com.tradevault.dto.backtesting.BacktestingEvidenceLinkRequest;
 import com.tradevault.dto.backtesting.BacktestingEvidenceUpdateRequest;
 import com.tradevault.dto.backtesting.BacktestingResearchInboxResponse;
 import com.tradevault.service.BacktestingResearchService;
@@ -93,6 +94,22 @@ public class BacktestingController {
     @PostMapping("/evidence/{evidenceId}/retry")
     public BacktestingEvidenceResponse retryEvidence(@PathVariable UUID evidenceId) {
         return evidenceSyncService.retry(evidenceId, currentUserService.getCurrentUser().getId());
+    }
+
+    @PostMapping("/evidence/{evidenceId}/include")
+    public BacktestingEvidenceResponse includeEvidence(@PathVariable UUID evidenceId) {
+        return evidenceSyncService.includeInResearch(evidenceId, currentUserService.getCurrentUser().getId());
+    }
+
+    @PostMapping("/evidence/{evidenceId}/exclude")
+    public BacktestingEvidenceResponse excludeEvidence(@PathVariable UUID evidenceId) {
+        return evidenceSyncService.excludeFromResearch(evidenceId, currentUserService.getCurrentUser().getId());
+    }
+
+    @PostMapping("/evidence/{evidenceId}/link")
+    public BacktestingEvidenceResponse linkEvidence(@PathVariable UUID evidenceId,
+                                                    @Valid @RequestBody BacktestingEvidenceLinkRequest request) {
+        return evidenceSyncService.linkToWorkspace(evidenceId, currentUserService.getCurrentUser().getId(), request);
     }
 
     @DeleteMapping("/workspaces/{workspaceId}")

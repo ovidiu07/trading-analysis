@@ -3084,6 +3084,13 @@
       "openLiveTrade": "Deschide tranzacția live",
       "exclude": "Exclude",
       "link": "Asociază",
+      "includeInResearch": "Include în cercetare",
+      "viewExclusionReason": "Vezi motivul excluderii",
+      "linkToWorkspace": "Asociază cu un spațiu de cercetare",
+      "chooseWorkspace": "Alege spațiul de cercetare",
+      "viewWorkspace": "Vezi spațiul de cercetare",
+      "showIncompatibleWorkspaces": "Afișează spațiile incompatibile",
+      "assignTradeStrategy": "Asociază strategia tranzacției",
       "classify": "Clasifică",
       "retrySync": "Reîncearcă sincronizarea",
       "saveClassification": "Salvează clasificarea",
@@ -3257,6 +3264,17 @@
       "NEEDS_CLASSIFICATION": "Necesită clasificare",
       "PARTIAL": "Parțial"
     },
+    "inclusionStatus": {
+      "INCLUDED": "Inclusă",
+      "EXCLUDED": "Exclusă"
+    },
+    "workspaceLinkStatus": {
+      "LINKED": "Asociată",
+      "NEEDS_REVIEW": "Necesită confirmare",
+      "AMBIGUOUS": "Ambiguă",
+      "NOT_LINKED": "Neasociată",
+      "ERROR": "Eroare"
+    },
     "inbox": {
       "title": "Inbox de cercetare",
       "description": "Verifică tranzacțiile live care necesită un spațiu, clasificare sau o decizie de sincronizare.",
@@ -3264,9 +3282,43 @@
       "needsClassification": "Necesită clasificare",
       "ambiguousMatch": "Potrivire ambiguă",
       "syncErrors": "Erori de sincronizare",
+      "excluded": "Excluse",
       "workspace": "Spațiu de cercetare",
+      "exclusionReason": "Motivul excluderii",
       "userExcludedReason": "Exclusă din cercetare de utilizator",
       "classificationHelp": "Clasificările de cercetare sunt opționale și nu blochează sincronizarea. Păstrează starea Parțial cât timp mai sunt câmpuri de verificat."
+    },
+    "compatibility": {
+      "title": "Compatibilitate",
+      "cannotLinkYet": "Această tranzacție nu poate fi asociată încă.",
+      "tradeLabel": "Tranzacție",
+      "workspaceLabel": "Spațiu de cercetare",
+      "pickerHelp": "Spațiile compatibile sunt afișate primele. Extinde secțiunea de compatibilitate pentru a vedea fiecare regulă.",
+      "searchWorkspaces": "Caută spații de cercetare",
+      "compatibleWorkspace": "Spațiu compatibil",
+      "incompatibleWorkspace": "Spațiu incompatibil",
+      "noCompatibleWorkspace": "Nu a fost găsit niciun spațiu compatibil. Afișează spațiile incompatibile pentru a vedea blocajele exacte.",
+      "noVisibleWorkspace": "Niciun spațiu nu corespunde căutării și filtrelor de vizibilitate curente.",
+      "aliasSummary": "Compatibilă prin aliasul {{trade}} → {{workspace}}",
+      "codes": {
+        "TRADE_INCLUDED": "Tranzacția este inclusă în cercetare",
+        "TRADE_EXCLUDED": "Tranzacția este exclusă din cercetare",
+        "STRATEGY_MATCH": "Strategia corespunde",
+        "STRATEGY_MISMATCH": "Strategia nu corespunde — tranzacție: {{trade}}; spațiu: {{workspace}}",
+        "INSTRUMENT_MATCH": "Instrumentul corespunde",
+        "INSTRUMENT_ALIAS_MATCH": "Instrumentul corespunde printr-un alias: {{trade}} → {{workspace}}",
+        "INSTRUMENT_MISMATCH": "Instrumentul nu corespunde — tranzacție: {{trade}}; spațiu: {{workspace}}",
+        "SESSION_MATCH": "Sesiunea corespunde",
+        "SESSION_MISMATCH": "Sesiunea nu corespunde — tranzacție: {{trade}}; spațiu: {{workspace}}",
+        "TIMEFRAME_MATCH": "Intervalul de timp corespunde",
+        "TIMEFRAME_MISMATCH": "Intervalul de timp nu corespunde — tranzacție: {{trade}}; spațiu: {{workspace}}",
+        "CLASSIFICATION_INCOMPLETE": "Clasificarea este incompletă; acest lucru nu blochează asocierea",
+        "WORKSPACE_IMPORT_DISABLED": "Spațiul nu acceptă dovezi din tranzacții live"
+      }
+    },
+    "exclusionReasons": {
+      "USER_EXCLUDED": "Exclusă din cercetare de utilizator",
+      "LIVE_TRADE_DELETED": "Tranzacția live originală a fost ștearsă"
     },
     "overview": {
       "filteredNotice": "Graficele și metricile arată {{visible}} din {{total}} tranzacții deoarece există filtre active."
@@ -3398,7 +3450,10 @@
       "editManualTrade": "Editează tranzacția manuală",
       "importTrades": "Importă tranzacții istorice",
       "chooseImportWorkspace": "Alege un spațiu de cercetare",
+      "chooseWorkspace": "Alege spațiul de cercetare",
       "classifyEvidence": "Clasifică dovada live",
+      "includeEvidenceTitle": "Include această tranzacție în cercetare?",
+      "includeEvidenceBody": "Tranzacția va fi evaluată în raport cu spațiile tale de backtesting și poate fi inclusă în analiza strategiei.",
       "importDescription": "Încarcă un CSV cu dată, instrument, direcție, rezultat și multiplu R. Rândurile importate rămân vizibil separate de dovezile live.",
       "archiveConfirm": "Arhivezi acest spațiu? Toate tranzacțiile, dovezile, capturile, notițele și asocierile vor fi păstrate, iar importurile automate noi se vor opri.",
       "deleteTradeConfirm": "Ștergi această tranzacție manuală de cercetare?",
@@ -3431,6 +3486,8 @@
       "tradeDeleted": "Tranzacția manuală a fost ștearsă.",
       "evidenceUpdated": "Dovada a fost actualizată.",
       "evidenceExcluded": "Dovada live a fost exclusă din analiză.",
+      "evidenceIncluded": "Tranzacția a fost inclusă cu succes în cercetare.",
+      "evidenceLinked": "Tranzacția a fost asociată cu succes spațiului de cercetare.",
       "syncRetried": "Reîncercarea sincronizării a fost solicitată.",
       "lensSaved": "Filtrul de avantaj a fost salvat.",
       "lensDeleted": "Filtrul de avantaj a fost șters.",
@@ -3445,6 +3502,8 @@
       "tradeSave": "Tranzacția manuală nu a putut fi salvată.",
       "tradeDelete": "Tranzacția manuală nu a putut fi ștearsă.",
       "evidenceUpdate": "Dovada live nu a putut fi actualizată.",
+      "evidenceInclude": "Reintroducerea a eșuat.",
+      "evidenceLink": "Asocierea cu spațiul de cercetare a eșuat.",
       "lensSave": "Filtrul de avantaj nu a putut fi salvat.",
       "lensDelete": "Filtrul de avantaj nu a putut fi șters.",
       "screenshotUpload": "Captura-dovadă nu a putut fi încărcată.",
@@ -3456,7 +3515,10 @@
     "accessibility": {
       "sectionNavigation": "Secțiunile spațiului de backtesting",
       "screenshotDropZone": "Zonă pentru încărcarea capturilor-dovadă",
-      "openScreenshot": "Deschide captura {{name}}"
+      "openScreenshot": "Deschide captura {{name}}",
+      "evidenceStatuses": "Stările includerii în cercetare, asocierii cu spațiul, clasificării și sursei",
+      "workspaceOptions": "Opțiuni pentru spațiul de cercetare",
+      "compatibilityChecklist": "Lista de verificare a compatibilității"
     },
     "pagination": {
       "previous": "Anterior",
