@@ -1101,6 +1101,7 @@ public class TradeCsvImportService {
                     : null;
 
             ImportedTradeCandidate candidate = ImportedTradeCandidate.builder()
+                    .source(com.tradevault.domain.enums.TradeSource.TRADOVATE)
                     .symbol(symbol)
                     .market(Market.FUTURES)
                     .direction(direction)

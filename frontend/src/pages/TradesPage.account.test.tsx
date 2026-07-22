@@ -157,7 +157,7 @@ describe('TradesPage account display', () => {
     mockListMyPlans.mockResolvedValue([])
   })
 
-  it('shows the broker account on trade cards and uses the Tradovate import label', async () => {
+  it('shows the broker account on trade cards and opens the multi-provider import entry point', async () => {
     render(
       <MemoryRouter>
         <I18nProvider>
@@ -170,7 +170,7 @@ describe('TradesPage account display', () => {
       expect(mockListTrades).toHaveBeenCalled()
     })
 
-    expect(screen.getByRole('button', { name: 'Import from Tradovate' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Import trades' })).toBeInTheDocument()
     expect(screen.getByText('Account ID: APEX4855840000003')).toBeInTheDocument()
     expect(mockListStrategies).not.toHaveBeenCalled()
     expect(mockListMyPlans).not.toHaveBeenCalled()

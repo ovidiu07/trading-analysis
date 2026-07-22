@@ -23,6 +23,10 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
+  Optional<Trade> findByUserIdAndSourceAndSourceBrokerServerIgnoreCaseAndExternalAccountIdAndExternalPositionId(
+      UUID userId, com.tradevault.domain.enums.TradeSource source, String sourceBrokerServer,
+      String externalAccountId, String externalPositionId);
+
   List<Trade> findByUser_IdAndStrategyIdAndStatus(UUID userId, UUID strategyId, TradeStatus status);
 
   @Query(value = """

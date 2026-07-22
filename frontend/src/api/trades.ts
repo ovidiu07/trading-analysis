@@ -52,6 +52,8 @@ export type TradeRequest = {
 
 export type TradeResponse = {
   id: string
+  source?: 'MANUAL' | 'TRADOVATE' | 'MT5_HTML'
+  importStatus?: 'IMPORTED' | 'NEEDS_REVIEW' | 'VALIDATED' | 'WARNING' | 'FAILED' | null
   symbol: string
   market: TradeRequest['market']
   direction: TradeRequest['direction']

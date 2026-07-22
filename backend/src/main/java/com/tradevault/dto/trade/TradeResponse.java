@@ -6,6 +6,8 @@ import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeGrade;
 import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.domain.enums.TradeSource;
+import com.tradevault.domain.enums.TradeImportStatus;
 import lombok.Builder;
 import lombok.Data;
 
@@ -18,6 +20,8 @@ import java.util.UUID;
 @Builder
 public class TradeResponse {
     private UUID id;
+    private TradeSource source;
+    private TradeImportStatus importStatus;
     private String symbol;
     private Market market;
     private Direction direction;

@@ -3,6 +3,7 @@ package com.tradevault.dto.trade;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.domain.enums.TradeSource;
 import lombok.Builder;
 import lombok.Data;
 
@@ -13,6 +14,7 @@ import java.util.UUID;
 @Data
 @Builder
 public class ImportedTradeCandidate {
+    private TradeSource source;
     private String symbol;
     private Market market;
     private Direction direction;

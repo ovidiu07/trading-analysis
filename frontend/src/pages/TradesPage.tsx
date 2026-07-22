@@ -69,6 +69,7 @@ import { trackEvent } from '../utils/analytics/ga4'
 import { listMyPlans } from '../api/plans'
 import { listStrategies } from '../api/strategies'
 import { RULE_BREAK_OPTIONS } from '../constants/tradeTaxonomy'
+import TradeImportDialog from '../components/trades/TradeImportDialog'
 
 type ContentOption = {
   id: string
@@ -554,6 +555,7 @@ export default function TradesPage() {
   const [importSummary, setImportSummary] = useState<TradeCsvImportSummary | null>(null)
   const [importError, setImportError] = useState('')
   const [importLoading, setImportLoading] = useState(false)
+  const [importDialogOpen, setImportDialogOpen] = useState(false)
   const [highlightTradeId, setHighlightTradeId] = useState(() => routeState.highlightTradeId)
   const [screenshotViewer, setScreenshotViewer] = useState<ScreenshotViewerState>(emptyScreenshotViewerState)
   const importInputRef = useRef<HTMLInputElement | null>(null)
@@ -671,6 +673,12 @@ export default function TradesPage() {
       sortComparator: (a, b) => new Date(a as string).getTime() - new Date(b as string).getTime()
     },
     { field: 'symbol', headerName: t('trades.table.symbol'), flex: 1, minWidth: 110 },
+    {
+      field: 'source',
+      headerName: t('trades.table.source'),
+      minWidth: 105,
+      renderCell: (params) => <Chip size="small" variant="outlined" label={t(`trades.source.${params.value || 'MANUAL'}`)} />
+    },
     { field: 'market', headerName: t('trades.table.market'), flex: 1, minWidth: 110 },
     {
       field: 'direction',
@@ -864,6 +872,10 @@ export default function TradesPage() {
   }, [activeFilters, handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize, t, timezone, viewMode, refreshToken])
 
   const handleImportClick = useCallback(() => {
+    setImportDialogOpen(true)
+  }, [])
+
+  const handleTradovateImport = useCallback(() => {
     importInputRef.current?.click()
   }, [])
 
@@ -1259,8 +1271,10 @@ export default function TradesPage() {
                 <Typography variant="body2" color="text.secondary">{formatDateTime(trade.openedAt, timezone)}</Typography>
               </Box>
               <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+                <Chip size="small" label={t(`trades.source.${trade.source || 'MANUAL'}`)} variant="outlined" />
                 <Chip size="small" label={t(`trades.direction.${trade.direction}`)} color={trade.direction === 'LONG' ? 'success' : 'error'} variant="outlined" />
                 <Chip size="small" label={t(`trades.status.${trade.status}`)} color={trade.status === 'CLOSED' ? 'primary' : 'warning'} variant="outlined" />
+                {trade.importStatus === 'NEEDS_REVIEW' && <Chip size="small" color="warning" label={t('trades.mt5.needsReview')} />}
               </Stack>
             </Stack>
             <Grid container spacing={1}>
@@ -1381,7 +1395,7 @@ export default function TradesPage() {
                   onClick={handleImportClick}
                   disabled={importLoading}
                 >
-                  {t('trades.list.importCsv')}
+                  {t('trades.list.importTrades')}
                 </Button>
                 <input
                   ref={importInputRef}
@@ -1739,6 +1753,14 @@ export default function TradesPage() {
       <TradeScreenshotViewerDialog
         {...screenshotViewer}
         onClose={handleCloseScreenshotViewer}
+      />
+
+      <TradeImportDialog
+        open={importDialogOpen}
+        userTimezone={timezone}
+        onClose={() => setImportDialogOpen(false)}
+        onTradovate={handleTradovateImport}
+        onCommitted={() => { void fetchTrades() }}
       />
 
       <Dialog open={!!deleteTarget} onClose={() => setDeleteTarget(null)}>

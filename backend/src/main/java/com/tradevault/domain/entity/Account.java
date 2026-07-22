@@ -27,6 +27,12 @@ public class Account {
 
     private String name;
     private String broker;
+    @Column(name = "external_account_id", length = 128)
+    private String externalAccountId;
+    @Column(name = "broker_server", length = 160)
+    private String brokerServer;
+    @Column(name = "broker_timezone", length = 80)
+    private String brokerTimezone;
     private String accountCurrency;
     private BigDecimal startingBalance;
     private OffsetDateTime createdAt;

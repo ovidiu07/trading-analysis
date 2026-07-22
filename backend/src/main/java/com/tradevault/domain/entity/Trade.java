@@ -7,6 +7,8 @@ import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeGrade;
 import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.domain.enums.TradeSource;
+import com.tradevault.domain.enums.TradeImportStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
@@ -40,6 +42,68 @@ public class Trade {
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "account_id")
     private Account account;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "source", nullable = false, length = 32)
+    @Builder.Default
+    private TradeSource source = TradeSource.MANUAL;
+
+    @Column(name = "external_account_id", length = 128)
+    private String externalAccountId;
+    @Column(name = "external_position_id", length = 128)
+    private String externalPositionId;
+    @Column(name = "source_broker")
+    private String sourceBroker;
+    @Column(name = "source_broker_server", length = 160)
+    private String sourceBrokerServer;
+    @Column(name = "source_timezone", length = 80)
+    private String sourceTimezone;
+    @Column(name = "account_currency", length = 16)
+    private String accountCurrency;
+    @Column(name = "broker_reported_pnl_currency", length = 16)
+    private String brokerReportedPnlCurrency;
+    @Column(name = "broker_reported_gross_pnl")
+    private BigDecimal brokerReportedGrossPnl;
+    @Column(name = "broker_reported_net_pnl")
+    private BigDecimal brokerReportedNetPnl;
+    @Column(name = "calculated_gross_pnl")
+    private BigDecimal calculatedGrossPnl;
+    @Column(name = "calculated_net_pnl")
+    private BigDecimal calculatedNetPnl;
+    @Column(name = "pnl_reconciliation_difference")
+    private BigDecimal pnlReconciliationDifference;
+    @Column(name = "initial_stop_loss_price")
+    private BigDecimal initialStopLossPrice;
+    @Column(name = "initial_take_profit_price")
+    private BigDecimal initialTakeProfitPrice;
+    @Column(name = "final_stop_loss_price")
+    private BigDecimal finalStopLossPrice;
+    @Column(name = "final_take_profit_price")
+    private BigDecimal finalTakeProfitPrice;
+    @Column(name = "entry_order_type", length = 80)
+    private String entryOrderType;
+    @Column(name = "exit_reason", length = 80)
+    private String exitReason;
+    @Column(name = "requested_entry_price")
+    private BigDecimal requestedEntryPrice;
+    @Column(name = "requested_exit_price")
+    private BigDecimal requestedExitPrice;
+    @Column(name = "entry_slippage_points")
+    private BigDecimal entrySlippagePoints;
+    @Column(name = "exit_slippage_points")
+    private BigDecimal exitSlippagePoints;
+    private BigDecimal swap;
+    @Column(name = "broker_fees")
+    private BigDecimal brokerFees;
+    @Column(name = "import_batch_id")
+    private UUID importBatchId;
+    @Enumerated(EnumType.STRING)
+    @Column(name = "import_status", length = 32)
+    private TradeImportStatus importStatus;
+    @Column(name = "imported_at")
+    private OffsetDateTime importedAt;
+    @Column(name = "last_synchronized_at")
+    private OffsetDateTime lastSynchronizedAt;
 
     @Column(name = "broker_account_id", length = 128)
     private String brokerAccountId;
@@ -238,6 +302,9 @@ public class Trade {
         }
         if (contractMultiplier == null) {
             contractMultiplier = BigDecimal.ONE;
+        }
+        if (source == null) {
+            source = TradeSource.MANUAL;
         }
     }
 }

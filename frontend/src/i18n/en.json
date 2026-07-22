@@ -34,6 +34,7 @@
     "none": "None",
     "all": "All",
     "back": "Back",
+    "next": "Next",
     "viewDetails": "View details",
     "download": "Download",
     "noData": "No data",
@@ -2429,7 +2430,8 @@
     "list": {
       "title": "Trades list",
       "searchResults": "Search results",
-      "importCsv": "Import from Tradovate"
+      "importCsv": "Import from Tradovate",
+      "importTrades": "Import trades"
     },
     "import": {
       "summary": "Imported {{rows}} rows across {{groups}} ISIN groups.",
@@ -2443,6 +2445,61 @@
         "IMPORTED": "Imported"
       }
     },
+    "mt5": {
+      "title": "Import trades",
+      "chooseProvider": "Choose the broker report provider.",
+      "tradovateDescription": "Import the existing Tradovate Orders CSV format.",
+      "mt5Description": "Upload an MT5 Trade History Report in HTML format, review executions, and commit selected trades.",
+      "chooseTradovate": "Choose Tradovate",
+      "chooseMt5": "Choose MetaTrader 5",
+      "steps": { "upload": "Upload", "account": "Account & timezone", "mapping": "Symbol mapping", "preview": "Trade preview", "confirm": "Confirmation", "result": "Result" },
+      "uploadTitle": "Upload an MT5 HTML report",
+      "uploadHint": "Accepted formats: .html and .htm, up to 10 MB. Uploaded HTML is parsed server-side and is never rendered.",
+      "selectFile": "Select report",
+      "parsing": "Parsing…",
+      "brokerTimezoneWarning": "MT5 report times are broker-server times. Confirm the broker's IANA timezone; they are not assumed to be your profile timezone.",
+      "targetAccount": "Target TradeJAudit account",
+      "sourceTimezone": "Broker source timezone",
+      "timezoneHint": "Enter an IANA timezone such as Europe/London or America/New_York.",
+      "saveTimezone": "Save this broker timezone on the selected account",
+      "internalSymbol": "Internal symbol",
+      "market": "Market",
+      "tradeCurrency": "Trade currency",
+      "contractMultiplier": "Contract multiplier (optional)",
+      "tickSize": "Tick size (optional)",
+      "tickValue": "Tick value (optional)",
+      "pointValue": "Point value (optional)",
+      "saveMapping": "Save this mapping for future imports",
+      "include": "Include",
+      "importState": "Import state",
+      "closed": "Closed",
+      "gross": "Gross P&L",
+      "net": "Net P&L",
+      "manualMatch": "Potential manual match",
+      "warnings": "Warnings",
+      "existing": "Existing / update",
+      "newTrade": "New",
+      "importAsNew": "Import as new",
+      "linkMatch": "Link {{symbol}} ({{confidence}}%)",
+      "confirmMessage": "Only broker-owned execution fields are synchronized. Journal fields, plans, notes, screenshots, tags, and rule breaks are preserved on reimport.",
+      "selectedTrades": "Selected trades",
+      "newTrades": "New trades",
+      "updates": "Updates",
+      "excluded": "Excluded",
+      "totalGross": "Total gross P&L",
+      "totalCosts": "Total costs",
+      "totalNet": "Total net P&L",
+      "commit": "Import selected trades",
+      "importing": "Importing…",
+      "complete": "MT5 import completed.",
+      "created": "Created",
+      "updated": "Updated",
+      "duplicates": "Existing positions synchronized",
+      "resultNet": "Imported broker net result",
+      "needsReview": "Needs review",
+      "account": { "externalAccountId": "External account ID", "accountName": "Account name", "currency": "Account currency", "broker": "Broker", "server": "Server", "accountType": "Account type", "accountMode": "Accounting mode", "reportGeneratedAt": "Report generated" },
+      "errors": { "preview": "Could not preview the MT5 report.", "commit": "Could not commit the MT5 import." }
+    },
     "card": {
       "entry": "Entry",
       "exit": "Exit",
@@ -2452,6 +2509,7 @@
     },
     "table": {
       "opened": "Opened",
+      "source": "Source",
       "symbol": "Symbol",
       "market": "Market",
       "direction": "Direction",
@@ -2689,6 +2747,11 @@
     "status": {
       "OPEN": "Open",
       "CLOSED": "Closed"
+    },
+    "source": {
+      "MANUAL": "Manual",
+      "TRADOVATE": "Tradovate",
+      "MT5_HTML": "MT5"
     }
   },
   "verifyEmail": {

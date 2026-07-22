@@ -438,10 +438,17 @@ public class TradeService {
         Optional<Trade> existing = findExistingImportedTrade(user.getId(), candidate);
         TradeRequest request = existing.map(this::copyTradeToRequest).orElseGet(TradeRequest::new);
         applyImportedCandidate(request, candidate);
-        if (existing.isPresent()) {
-            return new ImportUpsertResult(update(existing.get().getId(), request), true);
+        ImportUpsertResult result = existing.isPresent()
+                ? new ImportUpsertResult(update(existing.get().getId(), request), true)
+                : new ImportUpsertResult(create(request), false);
+        if (candidate.getSource() != null) {
+            tradeRepository.findByIdAndUserId(result.trade().getId(), user.getId()).ifPresent(trade -> {
+                trade.setSource(candidate.getSource());
+                tradeRepository.save(trade);
+                result.trade().setSource(candidate.getSource());
+            });
         }
-        return new ImportUpsertResult(create(request), false);
+        return result;
     }
 
     @Transactional
@@ -1154,6 +1161,8 @@ public class TradeService {
                                      LatestTradeNotePreview latestTradeNote) {
         return TradeResponse.builder()
                 .id(trade.getId())
+                .source(trade.getSource())
+                .importStatus(trade.getImportStatus())
                 .symbol(trade.getSymbol())
                 .market(trade.getMarket())
                 .direction(trade.getDirection())

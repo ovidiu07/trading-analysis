@@ -34,6 +34,7 @@
     "none": "Niciunul",
     "all": "Toate",
     "back": "Înapoi",
+    "next": "Înainte",
     "viewDetails": "Vezi detalii",
     "download": "Descarcă",
     "noData": "Fără date",
@@ -2429,7 +2430,8 @@
     "list": {
       "title": "Lista tranzacțiilor",
       "searchResults": "Rezultate filtrate",
-      "importCsv": "Importă din Tradovate"
+      "importCsv": "Importă din Tradovate",
+      "importTrades": "Importă tranzacții"
     },
     "import": {
       "summary": "Au fost importate {{rows}} rânduri din {{groups}} grupuri ISIN.",
@@ -2443,6 +2445,61 @@
         "IMPORTED": "Importat"
       }
     },
+    "mt5": {
+      "title": "Importă tranzacții",
+      "chooseProvider": "Alege furnizorul raportului brokerului.",
+      "tradovateDescription": "Importă formatul CSV existent Tradovate Orders.",
+      "mt5Description": "Încarcă un raport MT5 Trade History în format HTML, verifică execuțiile și confirmă tranzacțiile selectate.",
+      "chooseTradovate": "Alege Tradovate",
+      "chooseMt5": "Alege MetaTrader 5",
+      "steps": { "upload": "Încărcare", "account": "Cont și fus orar", "mapping": "Mapare simbol", "preview": "Previzualizare", "confirm": "Confirmare", "result": "Rezultat" },
+      "uploadTitle": "Încarcă un raport HTML MT5",
+      "uploadHint": "Formate acceptate: .html și .htm, maximum 10 MB. HTML-ul este analizat pe server și nu este randat niciodată.",
+      "selectFile": "Selectează raportul",
+      "parsing": "Se analizează…",
+      "brokerTimezoneWarning": "Orele din raportul MT5 sunt orele serverului brokerului. Confirmă fusul IANA al brokerului; nu presupunem că este fusul profilului tău.",
+      "targetAccount": "Cont TradeJAudit țintă",
+      "sourceTimezone": "Fus orar sursă al brokerului",
+      "timezoneHint": "Introdu un fus IANA precum Europe/London sau America/New_York.",
+      "saveTimezone": "Salvează fusul brokerului pe contul selectat",
+      "internalSymbol": "Simbol intern",
+      "market": "Piață",
+      "tradeCurrency": "Moneda tranzacției",
+      "contractMultiplier": "Multiplicator contract (opțional)",
+      "tickSize": "Mărime tick (opțional)",
+      "tickValue": "Valoare tick (opțional)",
+      "pointValue": "Valoare punct (opțional)",
+      "saveMapping": "Salvează maparea pentru importuri viitoare",
+      "include": "Include",
+      "importState": "Stare import",
+      "closed": "Închis la",
+      "gross": "P&L brut",
+      "net": "P&L net",
+      "manualMatch": "Posibilă potrivire manuală",
+      "warnings": "Avertismente",
+      "existing": "Existent / actualizare",
+      "newTrade": "Nouă",
+      "importAsNew": "Importă drept nouă",
+      "linkMatch": "Leagă {{symbol}} ({{confidence}}%)",
+      "confirmMessage": "Se sincronizează doar câmpurile de execuție deținute de broker. Jurnalul, planurile, notele, capturile, etichetele și încălcările regulilor sunt păstrate la reimport.",
+      "selectedTrades": "Tranzacții selectate",
+      "newTrades": "Tranzacții noi",
+      "updates": "Actualizări",
+      "excluded": "Excluse",
+      "totalGross": "P&L brut total",
+      "totalCosts": "Costuri totale",
+      "totalNet": "P&L net total",
+      "commit": "Importă tranzacțiile selectate",
+      "importing": "Se importă…",
+      "complete": "Importul MT5 s-a încheiat.",
+      "created": "Create",
+      "updated": "Actualizate",
+      "duplicates": "Poziții existente sincronizate",
+      "resultNet": "Rezultat net raportat de broker",
+      "needsReview": "Necesită verificare",
+      "account": { "externalAccountId": "ID cont extern", "accountName": "Nume cont", "currency": "Moneda contului", "broker": "Broker", "server": "Server", "accountType": "Tip cont", "accountMode": "Mod contabil", "reportGeneratedAt": "Raport generat" },
+      "errors": { "preview": "Raportul MT5 nu a putut fi previzualizat.", "commit": "Importul MT5 nu a putut fi confirmat." }
+    },
     "card": {
       "entry": "Intrare",
       "exit": "Ieșire",
@@ -2452,6 +2509,7 @@
     },
     "table": {
       "opened": "Deschis la",
+      "source": "Sursă",
       "symbol": "Simbol",
       "market": "Piață",
       "direction": "Direcție",
@@ -2689,6 +2747,11 @@
     "status": {
       "OPEN": "Deschisă",
       "CLOSED": "Închisă"
+    },
+    "source": {
+      "MANUAL": "Manual",
+      "TRADOVATE": "Tradovate",
+      "MT5_HTML": "MT5"
     }
   },
   "verifyEmail": {
