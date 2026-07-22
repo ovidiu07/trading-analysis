@@ -190,7 +190,7 @@ export async function apiPost<T>(path: string, body: unknown): Promise<T> {
 }
 
 export async function apiPostMultipart<T>(path: string, formData: FormData): Promise<T> {
-  return apiRequest<T>(path, { method: 'POST', body: formData, headers: authHeader() })
+  return apiRequest<T>(path, { method: 'POST', body: formData })
 }
 
 export async function apiPut<T>(path: string, body: unknown): Promise<T> {
