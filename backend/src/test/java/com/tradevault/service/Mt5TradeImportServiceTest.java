@@ -22,6 +22,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.*;
 
@@ -139,6 +140,21 @@ class Mt5TradeImportServiceTest {
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("10 MB");
         assertThatThrownBy(() -> service.preview(invalid, null, null))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("not recognizable HTML");
+    }
+
+    @Test
+    void acceptsUtf16HtmlAndLetsTheParserValidateItsDecodedContent() throws Exception {
+        byte[] utf8 = fixture();
+        byte[] encoded = new String(utf8, StandardCharsets.UTF_8).getBytes(StandardCharsets.UTF_16LE);
+        byte[] utf16 = new byte[encoded.length + 2];
+        utf16[0] = (byte) 0xFF;
+        utf16[1] = (byte) 0xFE;
+        System.arraycopy(encoded, 0, utf16, 2, encoded.length);
+
+        var preview = service.preview(new MockMultipartFile("file", "report.html", "text/html", utf16), account.getId(), "UTC");
+
+        assertThat(preview.summary().positionsFound()).isEqualTo(4);
+        assertThat(preview.summary().netPnl()).isEqualByComparingTo("-222.71");
     }
 
     @Test

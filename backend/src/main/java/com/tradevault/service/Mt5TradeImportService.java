@@ -18,7 +18,6 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
@@ -384,10 +383,6 @@ public class Mt5TradeImportService {
         String name = safeFilename(file.getOriginalFilename()).toLowerCase(Locale.ROOT);
         if (!name.endsWith(".html") && !name.endsWith(".htm")) throw badRequest("Only .html and .htm MetaTrader reports are accepted");
         if (file.getSize() > MAX_FILE_SIZE) throw badRequest("The MT5 report exceeds the 10 MB limit");
-        try {
-            String prefix = new String(file.getBytes(), 0, (int) Math.min(file.getSize(), 4096), StandardCharsets.UTF_8).toLowerCase(Locale.ROOT);
-            if (!prefix.contains("<html") && !prefix.contains("<table") && !prefix.contains("<!doctype")) throw badRequest("The uploaded file is not recognizable HTML");
-        } catch (IOException ex) { throw badRequest("The uploaded report could not be read"); }
     }
 
     private Account ownedAccount(UUID id, UUID userId) { return accountRepository.findByIdAndUserId(id, userId).orElseThrow(() -> forbidden("Target account not found")); }

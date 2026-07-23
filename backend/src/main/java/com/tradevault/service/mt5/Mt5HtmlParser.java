@@ -26,7 +26,12 @@ public class Mt5HtmlParser {
         if (bytes == null || bytes.length == 0) {
             throw badRequest("The MetaTrader report is empty");
         }
-        Document document = Jsoup.parse(decodeHtml(bytes));
+        String html = decodeHtml(bytes);
+        String prefix = html.substring(0, Math.min(html.length(), 4096)).toLowerCase(Locale.ROOT);
+        if (!prefix.contains("<html") && !prefix.contains("<table") && !prefix.contains("<!doctype")) {
+            throw badRequest("The uploaded file is not recognizable HTML");
+        }
+        Document document = Jsoup.parse(html);
         document.select("script,iframe,object,embed").remove();
         String visibleText = clean(document.text());
         if (!containsIgnoreCase(visibleText, "Positions") || !containsIgnoreCase(visibleText, "Deals")) {
