@@ -18,6 +18,7 @@ import java.util.UUID;
 public class ImportedTradeOrder {
     @Id @GeneratedValue(generator = "UUID")
     @GenericGenerator(name = "UUID", strategy = "org.hibernate.id.UUIDGenerator") private UUID id;
+    @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "user_id") private User user;
     @ManyToOne(fetch = FetchType.LAZY) @JoinColumn(name = "trade_id") private Trade trade;
     @ManyToOne(fetch = FetchType.LAZY, optional = false) @JoinColumn(name = "import_batch_id") private TradeImportBatch importBatch;
     @Enumerated(EnumType.STRING) private TradeSource source;

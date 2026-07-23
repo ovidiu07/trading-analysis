@@ -8,6 +8,6 @@ import java.util.Optional;
 import java.util.UUID;
 
 public interface ImportedTradeOrderRepository extends JpaRepository<ImportedTradeOrder, UUID> {
-    Optional<ImportedTradeOrder> findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(
-            TradeSource source, String brokerServer, String externalAccountId, String externalOrderId);
+    Optional<ImportedTradeOrder> findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(
+            UUID userId, TradeSource source, String brokerServer, String externalAccountId, String externalOrderId);
 }

@@ -12,6 +12,7 @@ public interface AccountRepository extends JpaRepository<Account, UUID> {
     List<Account> findByUserIdOrderByNameAsc(UUID userId);
     Optional<Account> findByIdAndUserId(UUID id, UUID userId);
     Optional<Account> findFirstByUserIdAndExternalAccountIdAndBrokerServerIgnoreCase(UUID userId, String externalAccountId, String brokerServer);
+    List<Account> findByUserIdAndExternalAccountIdAndBrokerServerIgnoreCase(UUID userId, String externalAccountId, String brokerServer);
 
     boolean existsByUserIdAndDemoSeedIdIsNotNull(UUID userId);
 

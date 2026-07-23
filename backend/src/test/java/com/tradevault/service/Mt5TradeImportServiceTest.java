@@ -73,8 +73,9 @@ class Mt5TradeImportServiceTest {
             if (trade.getId() == null) trade.setId(UUID.randomUUID());
             return trade;
         });
-        when(executionRepository.findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(any(), anyString(), anyString(), anyString())).thenReturn(Optional.empty());
-        when(orderRepository.findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(any(), anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(executionRepository.findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(any(), any(), anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(orderRepository.findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(any(), any(), anyString(), anyString(), anyString())).thenReturn(Optional.empty());
+        when(accountRepository.findByUserIdAndExternalAccountIdAndBrokerServerIgnoreCase(any(), anyString(), anyString())).thenReturn(List.of());
     }
 
     @Test
@@ -87,9 +88,26 @@ class Mt5TradeImportServiceTest {
         assertThat(result.created()).isEqualTo(4);
         assertThat(result.updated()).isZero();
         assertThat(result.netPnl()).isEqualByComparingTo("-222.71");
+        assertThat(account.getExternalAccountId()).isEqualTo("7785088");
+        assertThat(account.getBrokerServer()).isEqualTo("TRDX-Server");
+        assertThat(account.getBrokerTimezone()).isEqualTo("UTC");
+        assertThat(account.getAccountCurrency()).isEqualTo("USD");
         verify(tradeRepository, times(4)).save(any(Trade.class));
         verify(executionRepository, times(9)).save(any(ImportedTradeExecution.class));
         verify(orderRepository, times(9)).save(any(ImportedTradeOrder.class));
+        verify(executionRepository, times(9))
+                .findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(
+                        eq(user.getId()), eq(TradeSource.MT5_HTML), eq("TRDX-Server"), eq("7785088"), anyString());
+        verify(orderRepository, times(9))
+                .findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(
+                        eq(user.getId()), eq(TradeSource.MT5_HTML), eq("TRDX-Server"), eq("7785088"), anyString());
+        verify(tradeRepository, times(4)).save(argThat(trade ->
+                trade.getAccount() == account
+                        && trade.getUser() == user
+                        && "7785088".equals(trade.getExternalAccountId())
+                        && "7785088".equals(trade.getBrokerAccountId())));
+        verify(executionRepository, times(9)).save(argThat(execution -> execution.getUser() == user));
+        verify(orderRepository, times(9)).save(argThat(order -> order.getUser() == user));
     }
 
     @Test
@@ -101,12 +119,12 @@ class Mt5TradeImportServiceTest {
         when(tradeRepository.findByUserIdAndSourceAndSourceBrokerServerIgnoreCaseAndExternalAccountIdAndExternalPositionId(
                 eq(user.getId()), eq(TradeSource.MT5_HTML), eq("TRDX-Server"), eq("7785088"), anyString()))
                 .thenAnswer(invocation -> Optional.of(existing.get(invocation.getArgument(4))));
-        when(executionRepository.findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(
-                any(), anyString(), anyString(), anyString())).thenAnswer(invocation -> Optional.of(
-                ImportedTradeExecution.builder().id(UUID.randomUUID()).externalDealId(invocation.getArgument(3)).build()));
-        when(orderRepository.findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(
-                any(), anyString(), anyString(), anyString())).thenAnswer(invocation -> Optional.of(
-                ImportedTradeOrder.builder().id(UUID.randomUUID()).externalOrderId(invocation.getArgument(3)).build()));
+        when(executionRepository.findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(
+                any(), any(), anyString(), anyString(), anyString())).thenAnswer(invocation -> Optional.of(
+                ImportedTradeExecution.builder().id(UUID.randomUUID()).externalDealId(invocation.getArgument(4)).build()));
+        when(orderRepository.findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(
+                any(), any(), anyString(), anyString(), anyString())).thenAnswer(invocation -> Optional.of(
+                ImportedTradeOrder.builder().id(UUID.randomUUID()).externalOrderId(invocation.getArgument(4)).build()));
 
         var result = service.commit(batch.getId(), request());
 
@@ -179,6 +197,31 @@ class Mt5TradeImportServiceTest {
         assertThatThrownBy(() -> service.commit(batch.getId(), request()))
                 .isInstanceOf(ResponseStatusException.class).hasMessageContaining("Target account not found");
         verify(tradeRepository, never()).save(any());
+    }
+
+    @Test
+    void previewReusesTheUniqueOwnedExternalAccountMappingAndItsTimezone() throws Exception {
+        account.setExternalAccountId("7785088");
+        account.setBrokerServer("TRDX-Server");
+        account.setBrokerTimezone("Europe/London");
+        when(accountRepository.findFirstByUserIdAndExternalAccountIdAndBrokerServerIgnoreCase(
+                user.getId(), "7785088", "TRDX-Server")).thenReturn(Optional.of(account));
+
+        var preview = service.preview(new MockMultipartFile("file", "report.html", "text/html", fixture()), null, null);
+
+        assertThat(preview.targetAccountId()).isEqualTo(account.getId());
+        assertThat(preview.sourceTimezone()).isEqualTo("Europe/London");
+    }
+
+    @Test
+    void refusesToCreateAnAmbiguousExternalAccountMapping() {
+        Account other = Account.builder().id(UUID.randomUUID()).user(user).name("Other").build();
+        when(accountRepository.findByUserIdAndExternalAccountIdAndBrokerServerIgnoreCase(
+                user.getId(), "7785088", "TRDX-Server")).thenReturn(List.of(other));
+
+        assertThatThrownBy(() -> service.commit(batch.getId(), request()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("already mapped to another TradeJAudit account");
     }
 
     @Test

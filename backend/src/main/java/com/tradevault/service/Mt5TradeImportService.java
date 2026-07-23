@@ -157,10 +157,7 @@ public class Mt5TradeImportService {
         persistUnlinkedAccountTransactions(batch, report, sourceZone);
         persistUnlinkedOrders(batch, report, candidates, sourceZone);
         if (request.saveBrokerTimezone()) {
-            account.setBrokerTimezone(request.sourceTimezone());
-            if (account.getExternalAccountId() == null) account.setExternalAccountId(report.metadata().externalAccountId());
-            if (account.getBrokerServer() == null) account.setBrokerServer(report.metadata().brokerServer());
-            accountRepository.save(account);
+            saveAccountMapping(account, user, report, request.sourceTimezone());
         }
         int excluded = candidates.size() - selected.size();
         TradeImportStatus status = warnings.isEmpty() ? TradeImportStatus.IMPORTED : TradeImportStatus.WARNING;
@@ -176,8 +173,10 @@ public class Mt5TradeImportService {
         batch.setCompletedAt(OffsetDateTime.now());
         batch.setResultPayload(objectMapper.valueToTree(response));
         batchRepository.save(batch);
-        log.info("MT5 import committed batchId={} userId={} created={} updated={} duplicates={} excluded={} warnings={}",
-                batch.getId(), user.getId(), created, updated, duplicates, response.excluded(), response.warnings().size());
+        log.info("MT5 import committed batchId={} userId={} targetAccountId={} source={} externalAccountId={} broker={} server={} created={} updated={} duplicates={} excluded={} warnings={}",
+                batch.getId(), user.getId(), account.getId(), SOURCE, report.metadata().externalAccountId(),
+                report.metadata().company(), safeServer(report.metadata().brokerServer()), created, updated,
+                duplicates, response.excluded(), response.warnings().size());
         return response;
     }
 
@@ -307,9 +306,9 @@ public class Mt5TradeImportService {
         for (Mt5ParsedReport.Deal deal : report.deals()) {
             if (deal.externalDealId() == null || !ids.contains(deal.externalDealId())) continue;
             ImportedTradeExecution entity = executionRepository
-                    .findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(SOURCE, safeServer(report.metadata().brokerServer()),
+                    .findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(batch.getUser().getId(), SOURCE, safeServer(report.metadata().brokerServer()),
                             report.metadata().externalAccountId(), deal.externalDealId()).orElseGet(ImportedTradeExecution::new);
-            entity.setTrade(trade); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
+            entity.setUser(batch.getUser()); entity.setTrade(trade); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
             entity.setExternalAccountId(report.metadata().externalAccountId()); entity.setExternalDealId(deal.externalDealId());
             entity.setExternalOrderId(deal.externalOrderId()); entity.setExternalPositionId(candidate.externalPositionId()); entity.setSymbol(deal.symbol());
             entity.setExecutionDirection(deal.type()); entity.setEntryExitClassification(deal.direction()); entity.setQuantity(deal.volume());
@@ -324,9 +323,9 @@ public class Mt5TradeImportService {
         for (Mt5ParsedReport.Deal deal : report.deals()) {
             if (deal.isTradingExecution() || deal.externalDealId() == null) continue;
             ImportedTradeExecution entity = executionRepository
-                    .findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(SOURCE, safeServer(report.metadata().brokerServer()),
+                    .findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalDealId(batch.getUser().getId(), SOURCE, safeServer(report.metadata().brokerServer()),
                             report.metadata().externalAccountId(), deal.externalDealId()).orElseGet(ImportedTradeExecution::new);
-            entity.setTrade(null); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
+            entity.setUser(batch.getUser()); entity.setTrade(null); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
             entity.setExternalAccountId(report.metadata().externalAccountId()); entity.setExternalDealId(deal.externalDealId());
             entity.setExternalOrderId(deal.externalOrderId()); entity.setExternalPositionId(deal.externalPositionId()); entity.setSymbol(deal.symbol());
             entity.setExecutionDirection(deal.type()); entity.setEntryExitClassification(deal.direction()); entity.setQuantity(deal.volume());
@@ -342,9 +341,9 @@ public class Mt5TradeImportService {
         for (Mt5ParsedReport.Order order : report.orders()) {
             if (order.externalOrderId() == null || !ids.contains(order.externalOrderId())) continue;
             ImportedTradeOrder entity = orderRepository
-                    .findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(SOURCE, safeServer(report.metadata().brokerServer()),
+                    .findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(batch.getUser().getId(), SOURCE, safeServer(report.metadata().brokerServer()),
                             report.metadata().externalAccountId(), order.externalOrderId()).orElseGet(ImportedTradeOrder::new);
-            entity.setTrade(trade); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
+            entity.setUser(batch.getUser()); entity.setTrade(trade); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
             entity.setExternalAccountId(report.metadata().externalAccountId()); entity.setExternalOrderId(order.externalOrderId());
             entity.setExternalPositionId(candidate.externalPositionId()); entity.setSymbol(order.symbol()); entity.setOrderType(order.type());
             entity.setRequestedQuantity(order.requestedVolume()); entity.setFilledQuantity(order.filledVolume()); entity.setRequestedPrice(order.requestedPrice());
@@ -360,9 +359,9 @@ public class Mt5TradeImportService {
         for (Mt5ParsedReport.Order order : report.orders()) {
             if (order.externalOrderId() == null || linkedOrderIds.contains(order.externalOrderId())) continue;
             ImportedTradeOrder entity = orderRepository
-                    .findBySourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(SOURCE, safeServer(report.metadata().brokerServer()),
+                    .findByUserIdAndSourceAndBrokerServerIgnoreCaseAndExternalAccountIdAndExternalOrderId(batch.getUser().getId(), SOURCE, safeServer(report.metadata().brokerServer()),
                             report.metadata().externalAccountId(), order.externalOrderId()).orElseGet(ImportedTradeOrder::new);
-            entity.setTrade(null); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
+            entity.setUser(batch.getUser()); entity.setTrade(null); entity.setImportBatch(batch); entity.setSource(SOURCE); entity.setBrokerServer(safeServer(report.metadata().brokerServer()));
             entity.setExternalAccountId(report.metadata().externalAccountId()); entity.setExternalOrderId(order.externalOrderId());
             entity.setExternalPositionId(order.externalPositionId()); entity.setSymbol(order.symbol()); entity.setOrderType(order.type());
             entity.setRequestedQuantity(order.requestedVolume()); entity.setFilledQuantity(order.filledVolume()); entity.setRequestedPrice(order.requestedPrice());
@@ -386,6 +385,26 @@ public class Mt5TradeImportService {
     }
 
     private Account ownedAccount(UUID id, UUID userId) { return accountRepository.findByIdAndUserId(id, userId).orElseThrow(() -> forbidden("Target account not found")); }
+    private void saveAccountMapping(Account account, User user, Mt5ParsedReport report, String sourceTimezone) {
+        String externalAccountId = report.metadata().externalAccountId();
+        String brokerServer = safeServer(report.metadata().brokerServer());
+        List<Account> mappedAccounts = accountRepository.findByUserIdAndExternalAccountIdAndBrokerServerIgnoreCase(
+                user.getId(), externalAccountId, brokerServer);
+        if (mappedAccounts.stream().anyMatch(mapped -> !mapped.getId().equals(account.getId()))) {
+            throw conflict("This MT5 account is already mapped to another TradeJAudit account");
+        }
+        if (account.getExternalAccountId() != null
+                && (!account.getExternalAccountId().equalsIgnoreCase(externalAccountId)
+                || !safeServer(account.getBrokerServer()).equalsIgnoreCase(brokerServer))) {
+            throw conflict("The selected TradeJAudit account is already mapped to a different broker account");
+        }
+        account.setExternalAccountId(externalAccountId);
+        account.setBrokerServer(report.metadata().brokerServer());
+        account.setBrokerTimezone(sourceTimezone);
+        if (account.getBroker() == null) account.setBroker(report.metadata().company());
+        if (account.getAccountCurrency() == null) account.setAccountCurrency(report.metadata().currency());
+        accountRepository.save(account);
+    }
     private TradeImportBatch ownedBatch(UUID id, UUID userId) { return batchRepository.findByIdAndUserId(id, userId).orElseThrow(() -> forbidden("Import batch not found")); }
     private ZoneId validZone(String value) { try { return ZoneId.of(value); } catch (Exception ex) { throw badRequest("Invalid IANA source timezone: " + value); } }
     private static String safeFilename(String value) { String name = value == null ? "report.html" : value.replace('\\', '/'); int slash = name.lastIndexOf('/'); return (slash >= 0 ? name.substring(slash + 1) : name).replaceAll("[\\r\\n]", "_"); }
