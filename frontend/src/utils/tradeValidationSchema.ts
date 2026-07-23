@@ -81,7 +81,7 @@ export const tradeValidationSchema = z
     linkedContentIds: z.array(z.string().trim().min(1)).optional(),
     linkedPlanIds: z.array(z.string().trim().min(1)).optional(),
     notes: z.preprocess(toUndefinedIfEmpty, z.string().trim().max(2000).optional()),
-    accountId: z.preprocess(toUndefinedIfEmpty, z.string().trim().max(120).optional())
+    accountRefId: z.preprocess(toUndefinedIfEmpty, z.string().uuid().optional())
   })
   .superRefine((values, ctx) => {
     if (values.status === 'CLOSED') {

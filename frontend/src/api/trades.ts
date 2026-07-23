@@ -1,4 +1,5 @@
 import { apiDelete, apiGet, apiPost, apiPostMultipart, apiPut } from './client'
+import { announceAnalyticsDataChanged } from './dataEvents'
 
 export type TradeSetupGrade = 'A' | 'B' | 'C'
 export type TradeSession = 'ASIA' | 'LONDON' | 'NY' | 'CUSTOM' | 'NY_AM' | 'NY_PM'
@@ -46,6 +47,7 @@ export type TradeRequest = {
   entryInvalidation?: string
   entryScreenshotAssetIds?: string[]
   accountId?: string
+  accountRefId?: string | null
   contractMultiplier?: number
   tagIds?: string[]
 }
@@ -108,6 +110,11 @@ export type TradeResponse = {
   updatedAt?: string | null
   accountId?: string | null
   accountRefId?: string | null
+  accountName?: string | null
+  accountBroker?: string | null
+  accountCurrency?: string | null
+  accountType?: string | null
+  accountStatus?: 'ACTIVE' | 'ARCHIVED' | 'DISABLED' | null
   contractMultiplier?: number | null
   tags?: string[]
 }
@@ -234,19 +241,27 @@ export async function getTradeById(id: string) {
 }
 
 export async function createTrade(request: TradeRequest) {
-  return apiPost('/trades', request)
+  const created = await apiPost('/trades', request)
+  announceAnalyticsDataChanged()
+  return created
 }
 
 export async function updateTrade(id: string, request: TradeRequest) {
-  return apiPut<TradeResponse>(`/trades/${id}`, request)
+  const updated = await apiPut<TradeResponse>(`/trades/${id}`, request)
+  announceAnalyticsDataChanged()
+  return updated
 }
 
 export async function deleteTrade(id: string) {
-  return apiDelete(`/trades/${id}`)
+  const deleted = await apiDelete(`/trades/${id}`)
+  announceAnalyticsDataChanged()
+  return deleted
 }
 
 export async function importTradesCsv(file: File) {
   const formData = new FormData()
   formData.append('file', file)
-  return apiPostMultipart<TradeCsvImportSummary>('/trades/import/csv', formData)
+  const imported = await apiPostMultipart<TradeCsvImportSummary>('/trades/import/csv', formData)
+  announceAnalyticsDataChanged()
+  return imported
 }

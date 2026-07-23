@@ -15,7 +15,7 @@ vi.mock('../features/accountScope/useAccountScope', () => ({
     scope: { mode: 'all', accountIds: [] },
     setScope: vi.fn(),
     clearScope: vi.fn(),
-    accounts: [],
+    accounts: [{ id: 'account-1', name: 'Main account', broker: 'TRDX', currency: 'USD', status: 'ACTIVE' }],
     isLoading: false,
     isError: false,
     retry: vi.fn(),
@@ -154,7 +154,11 @@ describe('TradesPage account display', () => {
           profileCurrency: 'USD',
           tradeCurrency: 'USD',
           notes: 'Imported from Tradovate',
-          accountId: 'APEX4855840000003'
+          accountId: 'account-1',
+          accountRefId: 'account-1',
+          accountName: 'Main account',
+          accountBroker: 'TRDX',
+          accountCurrency: 'USD'
         }
       ],
       totalElements: 1,
@@ -187,7 +191,7 @@ describe('TradesPage account display', () => {
     })
 
     expect(screen.getByRole('button', { name: 'Import trades' })).toBeInTheDocument()
-    expect(screen.getByText('Account ID: APEX4855840000003')).toBeInTheDocument()
+    expect(screen.getByText('Trading account: Main account')).toBeInTheDocument()
     expect(mockListStrategies).not.toHaveBeenCalled()
     expect(mockListMyPlans).not.toHaveBeenCalled()
   })

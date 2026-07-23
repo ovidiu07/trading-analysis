@@ -20,6 +20,7 @@ import type { NotebookAttachment, NotebookFolder, NotebookNote, NotebookTag, Not
 import type { TradeResponse } from '../../api/trades'
 import { useI18n } from '../../i18n'
 import { formatCurrency, formatDateTime } from '../../utils/format'
+import { Link as RouterLink } from 'react-router-dom'
 import AssetListRenderer, { type UploadQueueItem } from '../assets/AssetListRenderer'
 import AssetUploadDropzone from '../assets/AssetUploadDropzone'
 
@@ -165,6 +166,30 @@ export default function NoteMetaSidebar({
                   <Typography variant="body2" fontWeight={700}>
                     {formatCurrency(tradeDetail.pnlNet ?? 0, baseCurrency)}
                   </Typography>
+                  <Divider />
+                  <Stack spacing={0.5}>
+                    <Typography variant="caption" color="text.secondary">
+                      {t('tradingAccounts.selectorLabel')}
+                    </Typography>
+                    <Typography variant="body2" fontWeight={700}>
+                      {tradeDetail.accountName || t('tradingAccounts.unassigned')}
+                    </Typography>
+                    {(tradeDetail.accountBroker || tradeDetail.accountCurrency) && (
+                      <Typography variant="caption" color="text.secondary">
+                        {[tradeDetail.accountBroker, tradeDetail.accountCurrency].filter(Boolean).join(' · ')}
+                      </Typography>
+                    )}
+                    {!readOnly && (
+                      <Button
+                        component={RouterLink}
+                        to={`/trades?editTradeId=${tradeDetail.id}`}
+                        size="small"
+                        sx={{ alignSelf: 'flex-start' }}
+                      >
+                        {t('tradingAccounts.actions.changeTradeAccount')}
+                      </Button>
+                    )}
+                  </Stack>
                 </Stack>
               </Box>
             )}

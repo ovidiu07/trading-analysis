@@ -29,6 +29,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { useEffect, useMemo, useRef, useState, type FocusEvent } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { TradeRequest } from '../../api/trades'
+import type { TradingAccountOption } from '../../api/accounts'
 import { PlanSource } from '../../api/plans'
 import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
@@ -44,6 +45,7 @@ import { SessionChips } from './SessionChips'
 import { saveRecentSymbol, SymbolAutocomplete } from './SymbolAutocomplete'
 import { TradeLiveSummary } from './TradeLiveSummary'
 import { TradeModeSwitch, type TradeEntryMode } from './TradeModeSwitch'
+import TradingAccountSelector from '../accounts/TradingAccountSelector'
 
 type ContentOption = {
   id: string
@@ -65,6 +67,11 @@ type TradeCreateFormV2Props = {
   baseCurrency: string
   timezone: string
   defaultMode?: TradeEntryMode
+  accounts: TradingAccountOption[]
+  accountsLoading?: boolean
+  accountsError?: boolean
+  onRetryAccounts?: () => void
+  onAccountsChanged?: () => void | Promise<unknown>
 }
 
 const MARKET_OPTIONS: Array<{ value: TradeRequest['market']; short: string }> = [
@@ -111,7 +118,7 @@ const normalizeDefaults = (values: TradeFormValues): TradeFormValues => ({
   linkedContentIds: values.linkedContentIds || [],
   linkedPlanIds: values.linkedPlanIds || values.linkedContentIds || [],
   notes: values.notes || undefined,
-  accountId: values.accountId || undefined,
+  accountRefId: values.accountRefId || undefined,
   contractMultiplier: values.contractMultiplier
 })
 
@@ -173,7 +180,12 @@ export function TradeCreateFormV2({
   ruleBreakOptions = [],
   baseCurrency,
   timezone,
-  defaultMode = 'advanced'
+  defaultMode = 'advanced',
+  accounts,
+  accountsLoading = false,
+  accountsError = false,
+  onRetryAccounts,
+  onAccountsChanged
 }: TradeCreateFormV2Props) {
   const { t } = useI18n()
   const theme = useTheme()
@@ -213,6 +225,9 @@ export function TradeCreateFormV2({
   }, [isDirty, onDirtyChange])
 
   const status = watch('status')
+  const selectedAccountId = watch('accountRefId')
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId)
+  const eligibleAccounts = accounts.filter((account) => !account.status || account.status === 'ACTIVE')
 
   useEffect(() => {
     if (status === 'OPEN') {
@@ -356,6 +371,10 @@ export function TradeCreateFormV2({
   ), [watchedProfileCurrency])
 
   const submit = handleSubmit(async (values) => {
+    if (eligibleAccounts.length > 0 && !values.accountRefId) {
+      setShowValidationBanner(true)
+      return
+    }
     const tradeCurrency = (values.tradeCurrency || baseCurrency).trim().toUpperCase()
     const profileCurrency = (values.profileCurrency || baseCurrency).trim().toUpperCase()
     const fxRate = tradeCurrency === profileCurrency ? 1 : (values.fxRateTradeToProfile || 1)
@@ -486,6 +505,39 @@ export function TradeCreateFormV2({
   const executionSection = (
     <Stack spacing={2} sx={{ minWidth: 0 }}>
       <Grid container rowSpacing={2} columnSpacing={{ xs: 0, md: 2 }}>
+        <Grid item xs={12}>
+          <Controller
+            name="accountRefId"
+            control={control}
+            render={({ field }) => (
+              <TradingAccountSelector
+                value={field.value || null}
+                onChange={(accountId) => {
+                  field.onChange(accountId || undefined)
+                  setShowValidationBanner(false)
+                }}
+                accounts={accounts}
+                loading={accountsLoading}
+                error={accountsError}
+                onRetry={onRetryAccounts}
+                onAccountsChanged={onAccountsChanged}
+                required={eligibleAccounts.length > 0}
+                context={mode === 'quick' ? 'quick-log' : 'trade-create'}
+                suggestedCurrency={watchedTradeCurrency}
+              />
+            )}
+          />
+          {selectedAccount?.currency
+            && selectedAccount.currency.toUpperCase() !== watchedTradeCurrency
+            && (
+              <Alert severity="warning" sx={{ mt: 1 }}>
+                {t('tradingAccounts.currencyWarning', {
+                  accountCurrency: selectedAccount.currency.toUpperCase(),
+                  tradeCurrency: watchedTradeCurrency
+                })}
+              </Alert>
+            )}
+        </Grid>
         <Grid item xs={12} md={6}>
           <Controller
             name="symbol"
@@ -793,15 +845,6 @@ export function TradeCreateFormV2({
                 inputProps={{ ...decimalInputProps, step: '0.01', min: 0 }}
                 InputProps={{ endAdornment: tradeCurrencyAdornment }}
                 {...register('capitalUsed', { setValueAs: parseLocalizedNumberInput })}
-              />
-            </Grid>
-            <Grid item xs={12} md={6}>
-              <TextField
-                label={t('trades.form.accountId')}
-                fullWidth
-                error={!!errors.accountId}
-                helperText={resolveError('accountId')}
-                {...register('accountId')}
               />
             </Grid>
           </Grid>

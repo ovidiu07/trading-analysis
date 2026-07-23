@@ -9,12 +9,14 @@ import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.Direction;
+import com.tradevault.domain.enums.AccountStatus;
 import com.tradevault.domain.enums.NotebookNoteType;
 import com.tradevault.dto.trade.DailyAccountSummaryResponse;
 import com.tradevault.dto.trade.ImportedTradeCandidate;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.dto.trade.TradeResponse;
 import com.tradevault.exception.TradeSearchValidationException;
+import com.tradevault.exception.AccountDomainException;
 import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.TagRepository;
@@ -29,6 +31,7 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.transaction.annotation.Transactional;
 import org.slf4j.Logger;
@@ -262,12 +265,31 @@ public class TradeService {
     }
 
     @Transactional
+    public TradeResponse createManual(TradeRequest request) {
+        User user = currentUserService.getCurrentUser();
+        if (resolveAccountRefId(request) == null
+                && accountRepository.existsByUserIdAndStatus(user.getId(), AccountStatus.ACTIVE)) {
+            throw new AccountDomainException(
+                    "ACCOUNT_REQUIRED",
+                    HttpStatus.BAD_REQUEST,
+                    "Select an active TradeJAudit trading account."
+            );
+        }
+        return createInternal(request, user);
+    }
+
+    @Transactional
     public TradeResponse create(TradeRequest request) {
         User user = currentUserService.getCurrentUser();
+        return createInternal(request, user);
+    }
+
+    private TradeResponse createInternal(TradeRequest request, User user) {
         validateClosedTrade(request);
         Trade trade = new Trade();
         trade.setUser(user);
-        trade.setBrokerAccountId(normalizeOptionalText(request.getAccountId()));
+        String legacyAccountId = normalizeOptionalText(request.getAccountId());
+        trade.setBrokerAccountId(parseUuidOrNull(legacyAccountId) == null ? legacyAccountId : null);
         trade.setSymbol(request.getSymbol());
         trade.setMarket(request.getMarket());
         trade.setDirection(requireTradeDirection(request.getDirection()));
@@ -326,7 +348,9 @@ public class TradeService {
         trade.setCreatedAt(OffsetDateTime.now());
         trade.setUpdatedAt(trade.getCreatedAt());
         applyCurrencyContextForCreate(trade, request, user);
-        trade.setAccount(resolveAccount(request, user));
+        Account selectedAccount = resolveAccount(request, user, null);
+        trade.setAccount(selectedAccount);
+        trade.setAccountCurrency(selectedAccount == null ? null : selectedAccount.getAccountCurrency());
         if (request.getTagIds() != null && !request.getTagIds().isEmpty()) {
             Set<Tag> tags = tagRepository.findByIdInAndUserId(request.getTagIds(), user.getId()).stream()
                     .collect(Collectors.toSet());
@@ -351,7 +375,12 @@ public class TradeService {
         boolean shouldRecalculate = pnlInputsChanged(trade, request);
 
         // Map incoming fields onto entity (do not trust client-provided PnL values)
-        trade.setBrokerAccountId(normalizeOptionalText(request.getAccountId()));
+        if (request.getAccountId() != null) {
+            String legacyAccountId = normalizeOptionalText(request.getAccountId());
+            if (parseUuidOrNull(legacyAccountId) == null) {
+                trade.setBrokerAccountId(legacyAccountId);
+            }
+        }
         trade.setSymbol(request.getSymbol());
         trade.setMarket(request.getMarket());
         trade.setDirection(requireTradeDirection(request.getDirection()));
@@ -431,7 +460,11 @@ public class TradeService {
             trade.setEntryScreenshotAssetIds(new LinkedHashSet<>());
         }
         applyCurrencyContextForUpdate(trade, request, user);
-        trade.setAccount(resolveAccount(request, user));
+        Account selectedAccount = resolveAccount(request, user, trade.getAccount());
+        trade.setAccount(selectedAccount);
+        if (selectedAccount != null) {
+            trade.setAccountCurrency(selectedAccount.getAccountCurrency());
+        }
         if (request.getTagIds() != null) {
             Set<Tag> tags = tagRepository.findByIdInAndUserId(request.getTagIds(), user.getId()).stream()
                     .collect(Collectors.toSet());
@@ -676,13 +709,27 @@ public class TradeService {
         return value == null ? BigDecimal.ONE : value;
     }
 
-    private Account resolveAccount(TradeRequest request, User user) {
+    private Account resolveAccount(TradeRequest request, User user, Account currentAccount) {
         UUID accountRefId = resolveAccountRefId(request);
         if (accountRefId == null) {
             return null;
         }
-        return accountRepository.findByIdAndUserId(accountRefId, user.getId())
-                .orElseThrow(() -> new EntityNotFoundException("Account not found"));
+        Account account = accountRepository.findByIdAndUserId(accountRefId, user.getId())
+                .orElseThrow(() -> new AccountDomainException(
+                        "ACCOUNT_NOT_ACCESSIBLE",
+                        HttpStatus.NOT_FOUND,
+                        "Trading account was not found."
+                ));
+        boolean unchangedArchivedAccount = currentAccount != null
+                && Objects.equals(currentAccount.getId(), account.getId());
+        if (account.getStatus() != AccountStatus.ACTIVE && !unchangedArchivedAccount) {
+            throw new AccountDomainException(
+                    "ACCOUNT_ARCHIVED",
+                    HttpStatus.CONFLICT,
+                    "Archived or disabled accounts cannot receive new trades."
+            );
+        }
+        return account;
     }
 
     private UUID resolveAccountRefId(TradeRequest request) {
@@ -1274,6 +1321,14 @@ public class TradeService {
                 .updatedAt(trade.getUpdatedAt())
                 .accountId(resolvedDisplayAccountId(trade))
                 .accountRefId(trade.getAccount() != null ? trade.getAccount().getId() : null)
+                .accountName(trade.getAccount() != null ? trade.getAccount().getName() : null)
+                .accountBroker(trade.getAccount() != null ? trade.getAccount().getBroker() : null)
+                .accountCurrency(firstNonBlank(
+                        trade.getAccountCurrency(),
+                        trade.getAccount() != null ? trade.getAccount().getAccountCurrency() : null
+                ))
+                .accountType(trade.getAccount() != null ? trade.getAccount().getAccountType() : null)
+                .accountStatus(trade.getAccount() != null ? trade.getAccount().getStatus() : null)
                 .contractMultiplier(defaultOne(trade.getContractMultiplier()))
                 .tags((trade.getTags() == null ? java.util.Collections.<String>emptySet() : trade.getTags().stream().map(Tag::getName).collect(Collectors.toSet())))
                 .build();

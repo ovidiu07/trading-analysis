@@ -32,8 +32,60 @@
     },
     "mixedCurrency": "Analizele monetare combinate nu sunt disponibile deoarece conturile selectate folosesc monede de bază diferite."
   },
+  "tradingAccounts": {
+    "selectorLabel": "Cont de tranzacționare",
+    "placeholder": "Selectează un cont de tranzacționare",
+    "loading": "Se încarcă conturile de tranzacționare…",
+    "empty": "Nu au fost găsite conturi de tranzacționare",
+    "emptyHelp": "Creează un cont pentru a asocia această tranzacție.",
+    "noResults": "Niciun cont de tranzacționare corespunzător",
+    "default": "Implicit",
+    "unassigned": "Nealocat",
+    "unassignedLegacy": "Cont vechi nealocat",
+    "archivedSelection": "Acest cont arhivat este afișat pentru istoric și nu poate primi tranzacții noi.",
+    "currencyWarning": "Contul selectat folosește {{accountCurrency}}. Verifică moneda tranzacției {{tradeCurrency}} și conversia FX înainte de salvare.",
+    "createTitle": "Creează cont de tranzacționare",
+    "editTitle": "Editează contul de tranzacționare",
+    "fields": {
+      "name": "Numele contului",
+      "currency": "Moneda de bază",
+      "broker": "Broker",
+      "accountType": "Tipul contului",
+      "externalAccountId": "ID-ul extern al contului broker",
+      "server": "Server broker",
+      "timezone": "Fus orar broker",
+      "startingBalance": "Sold inițial"
+    },
+    "types": { "LIVE": "Live", "DEMO": "Demo", "FUNDED": "Finanțat", "PERSONAL": "Personal" },
+    "status": { "ACTIVE": "Activ", "ARCHIVED": "Arhivat", "DISABLED": "Dezactivat" },
+    "actions": {
+      "create": "Creează cont nou",
+      "edit": "Editează contul selectat",
+      "manage": "Gestionează conturile",
+      "archive": "Arhivează",
+      "restore": "Restaurează",
+      "setDefault": "Setează ca implicit",
+      "changeTradeAccount": "Schimbă contul tranzacției"
+    },
+    "manager": {
+      "title": "Conturi de tranzacționare",
+      "subtitle": "Gestionează conturile interne folosite pentru tranzacții manuale, importuri și analize.",
+      "linkedTrades": "{{count}} tranzacții asociate"
+    },
+    "messages": {
+      "saved": "Contul de tranzacționare a fost salvat.",
+      "archived": "Contul a fost arhivat. Tranzacțiile asociate au fost păstrate.",
+      "restored": "Contul de tranzacționare a fost restaurat.",
+      "defaultSet": "Contul de tranzacționare implicit a fost actualizat."
+    },
+    "errors": {
+      "load": "Conturile de tranzacționare nu au putut fi încărcate.",
+      "save": "Contul de tranzacționare nu a putut fi salvat."
+    }
+  },
   "common": {
     "loading": "Se încarcă...",
+    "saving": "Se salvează…",
     "save": "Salvează",
     "cancel": "Anulează",
     "delete": "Șterge",
@@ -2541,6 +2593,7 @@
       "opened": "Deschis la",
       "source": "Sursă",
       "symbol": "Simbol",
+      "account": "Cont",
       "market": "Piață",
       "direction": "Direcție",
       "status": "Stare",

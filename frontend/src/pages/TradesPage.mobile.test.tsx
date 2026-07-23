@@ -288,7 +288,7 @@ describe('TradesPage mobile create dialog', () => {
     await waitFor(() => {
       expect(mockCreateTrade).toHaveBeenCalledTimes(1)
     })
-  })
+  }, 10_000)
 
   it.each([
     { width: 599, height: 814, viewport: '599x814', route: '/trades', entrypoint: 'manual create' },

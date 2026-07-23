@@ -3,6 +3,7 @@ package com.tradevault.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.tradevault.dto.account.CreateTradingAccountRequest;
 import com.tradevault.dto.account.TradingAccountOptionResponse;
+import com.tradevault.domain.enums.AccountStatus;
 import com.tradevault.security.CustomUserDetailsService;
 import com.tradevault.security.JwtAuthenticationFilter;
 import com.tradevault.security.JwtTokenProvider;
@@ -52,7 +53,8 @@ class TradingAccountControllerSecurityTest {
     void authenticatedUserCanListAndCreateInternalAccounts() throws Exception {
         UUID id = UUID.randomUUID();
         TradingAccountOptionResponse option = new TradingAccountOptionResponse(
-                id, "Institutional Funding 50K", "TRDX", "USD", null, null, null);
+                id, "Institutional Funding 50K", "TRDX", "USD", null, null, null,
+                null, AccountStatus.ACTIVE, false, null, 0, null, null);
         when(service.listEligibleAccounts()).thenReturn(List.of(option));
         when(service.create(any())).thenReturn(option);
 

@@ -71,6 +71,8 @@ import { listStrategies } from '../api/strategies'
 import { RULE_BREAK_OPTIONS } from '../constants/tradeTaxonomy'
 import TradeImportDialog from '../components/trades/TradeImportDialog'
 import { useAccountScope } from '../features/accountScope/useAccountScope'
+import type { AccountScopeValue } from '../features/accountScope/accountScope'
+import type { TradingAccountOption } from '../api/accounts'
 import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
 import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
 
@@ -351,7 +353,7 @@ function TradeScreenshotViewerDialog({
   )
 }
 
-const buildDefaultValues = (timeZone: string): TradeFormValues => ({
+const buildDefaultValues = (timeZone: string, accountRefId = ''): TradeFormValues => ({
   symbol: '',
   market: 'STOCK',
   direction: 'LONG',
@@ -385,16 +387,36 @@ const buildDefaultValues = (timeZone: string): TradeFormValues => ({
   linkedContentIds: [],
   linkedPlanIds: [],
   notes: '',
-  accountId: '',
+  accountRefId,
   contractMultiplier: undefined
 })
 
-const buildQuickLogDefaults = (timeZone: string): TradeFormValues => ({
-  ...buildDefaultValues(timeZone),
+const buildQuickLogDefaults = (timeZone: string, accountRefId = ''): TradeFormValues => ({
+  ...buildDefaultValues(timeZone, accountRefId),
   market: 'FOREX',
   quantity: 1,
   openedAt: currentDateTimeForInput(timeZone)
 })
+
+const resolveTradeAccountPreselection = (
+  accounts: TradingAccountOption[],
+  scope: AccountScopeValue,
+  explicitAccountId?: string | null
+) => {
+  const eligible = accounts.filter((account) => !account.status || account.status === 'ACTIVE')
+  if (explicitAccountId && eligible.some((account) => account.id === explicitAccountId)) {
+    return explicitAccountId
+  }
+  if (scope.mode === 'selected' && scope.accountIds.length === 1) {
+    const scopedId = scope.accountIds[0]
+    if (eligible.some((account) => account.id === scopedId)) {
+      return scopedId
+    }
+  }
+  const defaultAccount = eligible.find((account) => account.isDefault)
+  if (defaultAccount) return defaultAccount.id
+  return eligible.length === 1 ? eligible[0].id : ''
+}
 
 const defaultFilters = {
   openedAtFrom: '',
@@ -507,7 +529,7 @@ const mapTradeToFormValues = (trade: TradeResponse, timeZone: string): TradeForm
     linkedContentIds: trade.linkedContentIds ?? [],
     linkedPlanIds: trade.linkedPlanIds ?? trade.linkedContentIds ?? [],
     notes: trade.notes ?? '',
-    accountId: trade.accountId ?? '',
+    accountRefId: trade.accountRefId ?? '',
     contractMultiplier: trade.contractMultiplier ?? undefined
   }
 }
@@ -528,10 +550,29 @@ export default function TradesPage() {
   const { isAuthenticated, logout, user } = useAuth()
   const { refreshToken } = useDemoData()
   const accountScope = useAccountScope()
+  const accountPreselectionRef = useRef({
+    accounts: accountScope.accounts,
+    scope: accountScope.scope
+  })
+  accountPreselectionRef.current = {
+    accounts: accountScope.accounts,
+    scope: accountScope.scope
+  }
+  const accountPreselectionKey = [
+    accountScope.scope.mode,
+    accountScope.scope.mode === 'selected' ? accountScope.scope.accountIds.join(',') : '',
+    ...accountScope.accounts.map((account) => (
+      `${account.id}:${account.status || 'ACTIVE'}:${account.isDefault ? 'default' : ''}`
+    ))
+  ].join('|')
   const scopedAccountIds = accountScope.apiParams.accountIds
   const hasSelectedAccountScope = accountScope.scope.mode === 'selected'
   const baseCurrency = user?.baseCurrency || 'USD'
   const timezone = user?.timezone || 'Europe/Bucharest'
+  const resolvePreselectedAccountId = useCallback((explicitAccountId?: string | null) => {
+    const context = accountPreselectionRef.current
+    return resolveTradeAccountPreselection(context.accounts, context.scope, explicitAccountId)
+  }, [])
   const theme = useTheme()
   const isSmallScreen = useMediaQuery(theme.breakpoints.down('md'))
   const isCreateDialogMobile = useMediaQuery(theme.breakpoints.down('sm'))
@@ -554,7 +595,9 @@ export default function TradesPage() {
   const [editDialogOpen, setEditDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<TradeResponse | null>(null)
   const [deleteTarget, setDeleteTarget] = useState<TradeResponse | null>(null)
-  const [createFormValues, setCreateFormValues] = useState<TradeFormValues>(() => buildDefaultValues(timezone))
+  const [createFormValues, setCreateFormValues] = useState<TradeFormValues>(() => (
+    buildDefaultValues(timezone, resolvePreselectedAccountId())
+  ))
   const [optionsLoadError, setOptionsLoadError] = useState('')
   const [strategyOptions, setStrategyOptions] = useState<ContentOption[]>([])
   const [planOptions, setPlanOptions] = useState<ContentOption[]>([])
@@ -598,7 +641,9 @@ export default function TradesPage() {
   const tradeAccountLabel = useCallback(
     (trade: TradeResponse) => {
       const internalId = trade.accountRefId || ''
-      return accountNameById.get(internalId) || trade.accountId || t('common.na')
+      return trade.accountName || accountNameById.get(internalId) || (
+        trade.accountId && !trade.accountRefId ? t('tradingAccounts.unassignedLegacy') : t('tradingAccounts.unassigned')
+      )
     },
     [accountNameById, t]
   )
@@ -690,6 +735,26 @@ export default function TradesPage() {
       sortComparator: (a, b) => new Date(a as string).getTime() - new Date(b as string).getTime()
     },
     { field: 'symbol', headerName: t('trades.table.symbol'), flex: 1, minWidth: 110 },
+    {
+      field: 'accountName',
+      headerName: t('trades.table.account'),
+      flex: 1.2,
+      minWidth: 170,
+      valueGetter: (params) => tradeAccountLabel(params.row as TradeResponse),
+      renderCell: (params) => {
+        const row = params.row as TradeResponse
+        return (
+          <Stack spacing={0.1} sx={{ minWidth: 0 }}>
+            <Typography variant="body2" fontWeight={600} noWrap>{params.value}</Typography>
+            {(row.accountBroker || row.accountCurrency) && (
+              <Typography variant="caption" color="text.secondary" noWrap>
+                {[row.accountBroker, row.accountCurrency].filter(Boolean).join(' · ')}
+              </Typography>
+            )}
+          </Stack>
+        )
+      }
+    },
     {
       field: 'source',
       headerName: t('trades.table.source'),
@@ -842,7 +907,7 @@ export default function TradesPage() {
         </Stack>
       )
     }
-  ], [baseCurrency, handleCreateTradeNote, handleDeleteClick, handleEditClick, handleOpenScreenshotViewer, t, timezone])
+  ], [baseCurrency, handleCreateTradeNote, handleDeleteClick, handleEditClick, handleOpenScreenshotViewer, t, timezone, tradeAccountLabel])
 
   const fetchTrades = useCallback(async () => {
     if (!isAuthenticated) {
@@ -1043,7 +1108,8 @@ export default function TradesPage() {
         .map((value) => value.trim())
         .filter(Boolean)
 
-      const quickDefaults = buildQuickLogDefaults(timezone)
+      const requestedAccountId = params.get('accountRefId') || params.get('accountId')
+      const quickDefaults = buildQuickLogDefaults(timezone, resolvePreselectedAccountId(requestedAccountId))
       const requestedDirection = params.get('direction')
       const direction = requestedDirection === 'LONG' || requestedDirection === 'SHORT'
         ? requestedDirection
@@ -1055,7 +1121,7 @@ export default function TradesPage() {
         setup: params.get('setup') || quickDefaults.setup,
         timeframe: params.get('timeframe') || quickDefaults.timeframe,
         session: (params.get('session') || quickDefaults.session) as TradeFormValues['session'],
-        accountId: params.get('accountId') || quickDefaults.accountId,
+        accountRefId: quickDefaults.accountRefId,
         strategyTag: params.get('strategyTag') || quickDefaults.strategyTag,
         strategyId: params.get('strategyId') || quickDefaults.strategyId,
         linkedContentIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedContentIds,
@@ -1067,7 +1133,7 @@ export default function TradesPage() {
       setCreateDiscardDialogOpen(false)
       setCreateDialogOpen(true)
     }
-  }, [location.search, timezone])
+  }, [accountPreselectionKey, location.search, resolvePreselectedAccountId, timezone])
 
   useEffect(() => {
     if (!highlightTradeId) return
@@ -1075,6 +1141,14 @@ export default function TradesPage() {
       .then((trade) => setExpandedTrade(trade))
       .catch(() => {})
   }, [highlightTradeId])
+
+  useEffect(() => {
+    const editTradeId = new URLSearchParams(location.search).get('editTradeId')
+    if (!editTradeId) return
+    getTradeById(editTradeId)
+      .then((trade) => handleEditClick(trade))
+      .catch(() => setEditError(t('trades.errors.fetchFailed')))
+  }, [handleEditClick, location.search, t])
 
   const handleCreate = async (values: TradeFormValues) => {
     setCreateSuccess('')
@@ -1088,7 +1162,7 @@ export default function TradesPage() {
         feature_area: 'trades'
       })
       setCreateSuccess(t('trades.messages.created'))
-      const freshDefaults = buildDefaultValues(timezone)
+      const freshDefaults = buildDefaultValues(timezone, resolvePreselectedAccountId())
       setCreateFormValues(freshDefaults)
       closeCreateDialog()
       fetchTrades()
@@ -1182,7 +1256,7 @@ export default function TradesPage() {
   }
 
   const openCreateDialog = () => {
-    setCreateFormValues(buildDefaultValues(timezone))
+    setCreateFormValues(buildDefaultValues(timezone, resolvePreselectedAccountId()))
     setCreateDialogMode('advanced')
     setCreateError('')
     setCreateFormDirty(false)
@@ -1192,7 +1266,7 @@ export default function TradesPage() {
   }
 
   const openQuickLogDialog = () => {
-    setCreateFormValues(buildQuickLogDefaults(timezone))
+    setCreateFormValues(buildQuickLogDefaults(timezone, resolvePreselectedAccountId()))
     setCreateDialogMode('quick')
     setCreateError('')
     setCreateFormDirty(false)
@@ -1337,7 +1411,7 @@ export default function TradesPage() {
               </Grid>
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {getTradeNotesPreview(trade) || t('common.na')}</Typography>
-            <Typography variant="body2" color="text.secondary">{t('trades.form.accountId')}: {tradeAccountLabel(trade)}</Typography>
+            <Typography variant="body2" color="text.secondary">{t('tradingAccounts.selectorLabel')}: {tradeAccountLabel(trade)}</Typography>
             {trade.initialNotes && (
               <Typography variant="body2" color="text.secondary">{t('trades.details.initialNotes')}: {trade.initialNotes}</Typography>
             )}
@@ -1524,7 +1598,7 @@ export default function TradesPage() {
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
                       <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
-                      <Typography variant="body2">{t('trades.details.accountId')}: {tradeAccountLabel(expandedTrade)}</Typography>
+                      <Typography variant="body2">{t('tradingAccounts.selectorLabel')}: {tradeAccountLabel(expandedTrade)}</Typography>
                       <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.strategy')}: {expandedTrade.strategyName || (expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
@@ -1748,6 +1822,11 @@ export default function TradesPage() {
               baseCurrency={baseCurrency}
               timezone={timezone}
               defaultMode={createDialogMode}
+              accounts={accountScope.accounts}
+              accountsLoading={accountScope.isLoading}
+              accountsError={accountScope.isError}
+              onRetryAccounts={() => { void accountScope.retry() }}
+              onAccountsChanged={() => accountScope.retry()}
             />
           </DialogContent>
         </Dialog>
@@ -1785,6 +1864,11 @@ export default function TradesPage() {
               planOptions={planOptions}
               ruleBreakOptions={[...RULE_BREAK_OPTIONS]}
               timezone={timezone}
+              accounts={accountScope.accounts}
+              accountsLoading={accountScope.isLoading}
+              accountsError={accountScope.isError}
+              onRetryAccounts={() => { void accountScope.retry() }}
+              onAccountsChanged={() => accountScope.retry()}
             />
           </DialogContent>
         </Dialog>

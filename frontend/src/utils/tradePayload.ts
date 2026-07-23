@@ -37,7 +37,7 @@ type TradeFormValues = {
   linkedContentIds?: string[]
   linkedPlanIds?: string[]
   notes?: string
-  accountId?: string
+  accountRefId?: string
   contractMultiplier?: number
 }
 
@@ -83,7 +83,7 @@ export function buildTradePayload(values: TradeFormValues, timeZone: string): Tr
     linkedContentIds: toStringArray(values.linkedContentIds),
     linkedPlanIds: toStringArray(values.linkedPlanIds),
     notes: values.notes,
-    accountId: values.accountId || undefined,
+    accountRefId: values.accountRefId || null,
     contractMultiplier: toNullableNumber(values.contractMultiplier) ?? undefined,
   }
 }

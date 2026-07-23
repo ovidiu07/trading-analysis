@@ -21,6 +21,8 @@ import org.springframework.data.repository.query.Param;
 public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecificationExecutor<Trade>,
     TradeRepositoryCustom {
 
+  long countByAccount_Id(UUID accountId);
+
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
   Optional<Trade> findByUserIdAndSourceAndSourceBrokerServerIgnoreCaseAndExternalAccountIdAndExternalPositionId(

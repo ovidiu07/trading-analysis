@@ -32,8 +32,60 @@
     },
     "mixedCurrency": "Combined monetary analytics are unavailable because the selected accounts use different base currencies."
   },
+  "tradingAccounts": {
+    "selectorLabel": "Trading account",
+    "placeholder": "Select a trading account",
+    "loading": "Loading trading accounts…",
+    "empty": "No trading accounts found",
+    "emptyHelp": "Create an account to link this trade.",
+    "noResults": "No matching trading accounts",
+    "default": "Default",
+    "unassigned": "Unassigned",
+    "unassignedLegacy": "Unassigned legacy account",
+    "archivedSelection": "This archived account is shown for history and cannot receive new trades.",
+    "currencyWarning": "The selected account uses {{accountCurrency}}. Review the {{tradeCurrency}} trade currency and FX conversion before saving.",
+    "createTitle": "Create trading account",
+    "editTitle": "Edit trading account",
+    "fields": {
+      "name": "Account name",
+      "currency": "Base currency",
+      "broker": "Broker",
+      "accountType": "Account type",
+      "externalAccountId": "External broker account ID",
+      "server": "Broker server",
+      "timezone": "Broker timezone",
+      "startingBalance": "Initial balance"
+    },
+    "types": { "LIVE": "Live", "DEMO": "Demo", "FUNDED": "Funded", "PERSONAL": "Personal" },
+    "status": { "ACTIVE": "Active", "ARCHIVED": "Archived", "DISABLED": "Disabled" },
+    "actions": {
+      "create": "Create new account",
+      "edit": "Edit selected account",
+      "manage": "Manage accounts",
+      "archive": "Archive",
+      "restore": "Restore",
+      "setDefault": "Set as default",
+      "changeTradeAccount": "Change trade account"
+    },
+    "manager": {
+      "title": "Trading accounts",
+      "subtitle": "Manage the internal accounts used by manual trades, imports, and analytics.",
+      "linkedTrades": "{{count}} linked trades"
+    },
+    "messages": {
+      "saved": "Trading account saved.",
+      "archived": "Trading account archived. Linked trades were preserved.",
+      "restored": "Trading account restored.",
+      "defaultSet": "Default trading account updated."
+    },
+    "errors": {
+      "load": "Trading accounts could not be loaded.",
+      "save": "The trading account could not be saved."
+    }
+  },
   "common": {
     "loading": "Loading...",
+    "saving": "Saving…",
     "save": "Save",
     "cancel": "Cancel",
     "delete": "Delete",
@@ -2541,6 +2593,7 @@
       "opened": "Opened",
       "source": "Source",
       "symbol": "Symbol",
+      "account": "Account",
       "market": "Market",
       "direction": "Direction",
       "status": "Status",

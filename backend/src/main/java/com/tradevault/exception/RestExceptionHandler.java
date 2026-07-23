@@ -157,6 +157,15 @@ public class RestExceptionHandler {
         return ResponseEntity.badRequest().body(response);
     }
 
+    @ExceptionHandler(AccountDomainException.class)
+    public ResponseEntity<ApiErrorResponse> handleAccountDomain(AccountDomainException ex) {
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error(ex.getCode())
+                .message(ex.getMessage())
+                .build();
+        return ResponseEntity.status(ex.getStatus()).body(response);
+    }
+
     @ExceptionHandler(EntityNotFoundException.class)
     public ResponseEntity<ApiErrorResponse> handleNotFound(EntityNotFoundException ex) {
         ApiErrorResponse response = ApiErrorResponse.builder()

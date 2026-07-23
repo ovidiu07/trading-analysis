@@ -77,7 +77,7 @@ public class TradeController {
 
     @PostMapping
     public ResponseEntity<TradeResponse> create(@Valid @RequestBody TradeRequest request) {
-        return ResponseEntity.ok(tradeService.create(request));
+        return ResponseEntity.ok(tradeService.createManual(request));
     }
 
     @PostMapping("/startFromSession")

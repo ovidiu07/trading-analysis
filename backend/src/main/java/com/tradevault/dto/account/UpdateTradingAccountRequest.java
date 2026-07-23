@@ -6,7 +6,7 @@ import jakarta.validation.constraints.Size;
 
 import java.math.BigDecimal;
 
-public record CreateTradingAccountRequest(
+public record UpdateTradingAccountRequest(
         @NotBlank @Size(max = 120) String name,
         @Size(max = 120) String broker,
         @NotBlank
@@ -18,7 +18,4 @@ public record CreateTradingAccountRequest(
         @Size(max = 80) String brokerTimezone,
         BigDecimal startingBalance
 ) {
-    public CreateTradingAccountRequest(String name, String broker, String currency) {
-        this(name, broker, currency, null, null, null, null, null);
-    }
 }

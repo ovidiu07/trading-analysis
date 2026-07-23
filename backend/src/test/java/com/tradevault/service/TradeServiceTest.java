@@ -3,16 +3,19 @@ package com.tradevault.service;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.tradevault.domain.entity.NotebookNote;
+import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.UserStrategy;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.NotebookNoteType;
+import com.tradevault.domain.enums.AccountStatus;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.trade.ImportedTradeCandidate;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.exception.TradeSearchValidationException;
+import com.tradevault.exception.AccountDomainException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.NotebookNoteRepository;
 import com.tradevault.repository.TagRepository;
@@ -426,6 +429,64 @@ public class TradeServiceTest {
         assertEquals(new BigDecimal("4000"), response.getPnlGross());
         assertEquals(new BigDecimal("3995"), response.getPnlNet());
         verify(accountRepository, never()).findByIdAndUserId(any(), any());
+    }
+
+    @Test
+    void manualCreateRequiresAnInternalAccountWhenTheUserHasActiveAccounts() {
+        TradeRequest request = baseRequest();
+        when(accountRepository.existsByUserIdAndStatus(user.getId(), AccountStatus.ACTIVE)).thenReturn(true);
+
+        AccountDomainException error = assertThrows(
+                AccountDomainException.class,
+                () -> tradeService.createManual(request)
+        );
+
+        assertEquals("ACCOUNT_REQUIRED", error.getCode());
+        verify(tradeRepository, never()).save(any());
+    }
+
+    @Test
+    void manualCreateRejectsAccountsOutsideTheAuthenticatedUserScope() {
+        TradeRequest request = baseRequest();
+        request.setExitPrice(new BigDecimal("110"));
+        UUID accountId = UUID.randomUUID();
+        request.setAccountRefId(accountId);
+        when(accountRepository.findByIdAndUserId(accountId, user.getId()))
+                .thenReturn(java.util.Optional.empty());
+
+        AccountDomainException error = assertThrows(
+                AccountDomainException.class,
+                () -> tradeService.createManual(request)
+        );
+
+        assertEquals("ACCOUNT_NOT_ACCESSIBLE", error.getCode());
+        verify(tradeRepository, never()).save(any());
+    }
+
+    @Test
+    void manualCreatePersistsTheOwnedAccountAndUsesItsCurrencySnapshot() {
+        TradeRequest request = baseRequest();
+        request.setExitPrice(new BigDecimal("110"));
+        UUID accountId = UUID.randomUUID();
+        Account account = Account.builder()
+                .id(accountId)
+                .user(user)
+                .name("Main account")
+                .broker("TRDX")
+                .accountCurrency("USD")
+                .status(AccountStatus.ACTIVE)
+                .build();
+        request.setAccountRefId(accountId);
+        when(accountRepository.findByIdAndUserId(accountId, user.getId()))
+                .thenReturn(java.util.Optional.of(account));
+        when(tradeRepository.save(any())).thenAnswer(invocation -> invocation.getArgument(0, Trade.class));
+
+        var response = tradeService.createManual(request);
+
+        assertEquals(accountId, response.getAccountRefId());
+        assertEquals("Main account", response.getAccountName());
+        assertEquals("TRDX", response.getAccountBroker());
+        assertEquals("USD", response.getAccountCurrency());
     }
 
     @Test

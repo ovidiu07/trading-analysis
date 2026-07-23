@@ -1,5 +1,6 @@
 import { apiGet, apiPost, apiPostMultipart } from './client'
 import type { TradeRequest } from './trades'
+import { announceAnalyticsDataChanged } from './dataEvents'
 
 export type Mt5ManualMatch = {
   tradeId: string
@@ -117,7 +118,9 @@ export async function commitMt5Import(importBatchId: string, request: {
   linkToExistingTradeIds: Record<string, string>
   saveBrokerTimezone: boolean
 }) {
-  return apiPost<Mt5ImportCommitResult>(`/trade-imports/${importBatchId}/commit`, request)
+  const committed = await apiPost<Mt5ImportCommitResult>(`/trade-imports/${importBatchId}/commit`, request)
+  announceAnalyticsDataChanged()
+  return committed
 }
 
 export async function getTradeImport(importBatchId: string) {

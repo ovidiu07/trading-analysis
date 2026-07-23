@@ -1168,7 +1168,7 @@ export default function CalendarPage() {
                         {t(`trades.direction.${trade.direction}`)} · {formatDateTime(trade.closedAt, timezone)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        {t('trades.form.accountId')}: {accountDisplayName(trade.accountRefId || trade.accountId)}
+                        {t('tradingAccounts.selectorLabel')}: {accountDisplayName(trade.accountRefId || trade.accountId)}
                       </Typography>
                     </Box>
                     <Typography variant="subtitle2" className="metric-value" sx={{ whiteSpace: 'nowrap' }}>

@@ -1,4 +1,5 @@
 import ReplayRoundedIcon from '@mui/icons-material/ReplayRounded'
+import ManageAccountsRoundedIcon from '@mui/icons-material/ManageAccountsRounded'
 import {
   Autocomplete,
   Box,
@@ -8,6 +9,7 @@ import {
   TextField,
   Typography
 } from '@mui/material'
+import Tooltip from '@mui/material/Tooltip'
 import type { TradingAccountOption } from '../../api/accounts'
 import type { AccountScopeValue } from '../../features/accountScope/accountScope'
 import { allAccountsScope, selectedAccountsScope } from '../../features/accountScope/accountScope'
@@ -136,6 +138,17 @@ export default function AccountScopeSelector({
                     <ReplayRoundedIcon fontSize="small" />
                   </IconButton>
                 ) : null}
+                <Tooltip title={t('tradingAccounts.actions.manage')}>
+                  <IconButton
+                    size="small"
+                    component="a"
+                    href="/settings#trading-accounts"
+                    onClick={(event) => event.stopPropagation()}
+                    aria-label={t('tradingAccounts.actions.manage')}
+                  >
+                    <ManageAccountsRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
                 {params.InputProps.endAdornment}
               </>
             )

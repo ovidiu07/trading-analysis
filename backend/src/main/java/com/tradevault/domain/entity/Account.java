@@ -1,5 +1,6 @@
 package com.tradevault.domain.entity;
 
+import com.tradevault.domain.enums.AccountStatus;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
@@ -33,10 +34,36 @@ public class Account {
     private String brokerServer;
     @Column(name = "broker_timezone", length = 80)
     private String brokerTimezone;
+    @Column(name = "account_type", length = 40)
+    private String accountType;
     private String accountCurrency;
     private BigDecimal startingBalance;
+    @Enumerated(EnumType.STRING)
+    @Column(nullable = false, length = 16)
+    @Builder.Default
+    private AccountStatus status = AccountStatus.ACTIVE;
+    @Column(name = "is_default", nullable = false)
+    private boolean isDefault;
     private OffsetDateTime createdAt;
+    private OffsetDateTime updatedAt;
 
     @Column(name = "demo_seed_id")
     private UUID demoSeedId;
+
+    @PrePersist
+    void onCreate() {
+        OffsetDateTime now = OffsetDateTime.now();
+        if (createdAt == null) {
+            createdAt = now;
+        }
+        updatedAt = now;
+        if (status == null) {
+            status = AccountStatus.ACTIVE;
+        }
+    }
+
+    @PreUpdate
+    void onUpdate() {
+        updatedAt = OffsetDateTime.now();
+    }
 }

@@ -56,6 +56,7 @@ import {
   normalizeIndicatorLines,
   updateAdminChartSettings
 } from '../api/chartSettings'
+import TradingAccountsManager from '../components/accounts/TradingAccountsManager'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
@@ -570,6 +571,8 @@ export default function SettingsPage() {
           </Stack>
         </CardContent>
       </Card>
+
+      <TradingAccountsManager />
 
       {isAdmin ? (
         <Card>

@@ -6,6 +6,7 @@ import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeGrade;
 import com.tradevault.domain.enums.TradeSession;
 import com.tradevault.domain.enums.TradeStatus;
+import com.tradevault.domain.enums.AccountStatus;
 import com.tradevault.domain.enums.TradeSource;
 import com.tradevault.domain.enums.TradeImportStatus;
 import lombok.Builder;
@@ -94,6 +95,11 @@ public class TradeResponse {
     private OffsetDateTime updatedAt;
     private String accountId;
     private UUID accountRefId;
+    private String accountName;
+    private String accountBroker;
+    private String accountCurrency;
+    private String accountType;
+    private AccountStatus accountStatus;
     private BigDecimal contractMultiplier;
     private Set<String> tags;
 }

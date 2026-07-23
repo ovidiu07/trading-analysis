@@ -24,9 +24,9 @@ vi.mock('../../api/accounts', async () => {
   }
 })
 
-const selectedTargetAccountId = () => {
-  const select = screen.getByRole('combobox', { name: 'Target TradeJAudit account' })
-  return (select.parentElement?.querySelector('input') as HTMLInputElement | null)?.value
+const selectedTargetAccountName = () => {
+  const select = screen.getByRole('combobox', { name: 'Trading account' }) as HTMLInputElement
+  return select.value
 }
 
 describe('TradeImportDialog', () => {
@@ -57,7 +57,7 @@ describe('TradeImportDialog', () => {
     fireEvent.change(input, { target: { files: [new File(['<html>MT5</html>'], 'report.html', { type: 'text/html' })] } })
     await screen.findByText('7785088')
 
-    expect(selectedTargetAccountId()).toBe('account-1')
+    expect(selectedTargetAccountName()).toBe('Main account')
     await user.type(screen.getByLabelText('Broker source timezone'), 'Europe/London')
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
@@ -93,7 +93,7 @@ describe('TradeImportDialog', () => {
       target: { files: [new File(['<html>MT5</html>'], 'report.html', { type: 'text/html' })] }
     })
     await screen.findByText('7785088')
-    expect(selectedTargetAccountId()).toBe('account-1')
+    expect(selectedTargetAccountName()).toBe('Main account')
     await user.type(screen.getByLabelText('Broker source timezone'), 'Europe/London')
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.type(screen.getByLabelText(/Internal symbol/), 'GER40')
@@ -135,15 +135,15 @@ describe('TradeImportDialog', () => {
     fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
       target: { files: [new File(['<html>MT5</html>'], 'report.html', { type: 'text/html' })] }
     })
-    expect(await screen.findByText('Loading TradeJAudit accounts…')).toBeInTheDocument()
+    expect(await screen.findByText('Loading trading accounts…')).toBeInTheDocument()
 
     rejectAccounts(new Error('offline'))
-    expect(await screen.findByText('TradeJAudit accounts could not be loaded. Please try again.')).toBeInTheDocument()
+    expect(await screen.findByText('Trading accounts could not be loaded.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
 
     fetchAccounts.mockResolvedValueOnce([])
     await user.click(screen.getByRole('button', { name: 'Retry' }))
-    expect(await screen.findByText('No TradeJAudit trading accounts were found. Create an account before importing trades.')).toBeInTheDocument()
+    expect(await screen.findByText('Create an account to link this trade.')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 
@@ -160,7 +160,7 @@ describe('TradeImportDialog', () => {
       target: { files: [new File(['<html>MT5</html>'], 'report.html', { type: 'text/html' })] }
     })
     await screen.findByText('7785088')
-    expect(selectedTargetAccountId()).toBe('')
+    expect(selectedTargetAccountName()).toBe('')
     expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
   })
 
@@ -181,7 +181,7 @@ describe('TradeImportDialog', () => {
       target: { files: [new File(['<html>MT5</html>'], 'report.html', { type: 'text/html' })] }
     })
     await screen.findByText('7785088')
-    expect(selectedTargetAccountId()).toBe('account-2')
+    expect(selectedTargetAccountName()).toBe('Mapped account')
   })
 
   it('creates an internal account only after the explicit create action and selects it', async () => {
@@ -194,13 +194,14 @@ describe('TradeImportDialog', () => {
     fireEvent.change(document.querySelector('input[type="file"]') as HTMLInputElement, {
       target: { files: [new File(['<html>MT5</html>'], 'report.html', { type: 'text/html' })] }
     })
-    await screen.findByText('No TradeJAudit trading accounts were found. Create an account before importing trades.')
+    await screen.findByText('Create an account to link this trade.')
     expect(createAccount).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: 'Create account' }))
-    const createButtons = screen.getAllByRole('button', { name: 'Create account' })
-    await user.click(createButtons[createButtons.length - 1])
+    await user.click(screen.getByRole('button', { name: 'Create new account' }))
+    await user.type(await screen.findByLabelText(/Account name/), 'Ovidiu')
+    await user.type(await screen.findByLabelText('Broker'), 'TRDX')
+    await user.click(screen.getByRole('button', { name: 'Save' }))
 
-    await waitFor(() => expect(createAccount).toHaveBeenCalledWith({ name: 'Ovidiu', broker: 'TRDX', currency: 'USD' }))
-    expect(selectedTargetAccountId()).toBe('created-account')
+    await waitFor(() => expect(createAccount).toHaveBeenCalledWith(expect.objectContaining({ name: 'Ovidiu', broker: 'TRDX', currency: 'USD' })))
+    await waitFor(() => expect(selectedTargetAccountName()).toBe('Ovidiu'))
   })
 })

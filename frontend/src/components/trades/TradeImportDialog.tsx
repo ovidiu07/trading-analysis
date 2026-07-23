@@ -6,7 +6,7 @@ import {
 } from '@mui/material'
 import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded'
 import {
-  createTradingAccount, fetchTradingAccounts, type TradingAccountOption
+  fetchTradingAccounts, type TradingAccountOption
 } from '../../api/accounts'
 import {
   commitMt5Import, previewMt5Import, type Mt5ImportCommitResult, type Mt5ImportPreview,
@@ -15,6 +15,7 @@ import {
 import { ApiError } from '../../api/client'
 import { useI18n } from '../../i18n'
 import { formatCurrency, formatDateTime } from '../../utils/format'
+import TradingAccountSelector from '../accounts/TradingAccountSelector'
 
 type Props = {
   open: boolean
@@ -25,14 +26,6 @@ type Props = {
 }
 
 const markets: Mt5SymbolMapping['market'][] = ['STOCK', 'CFD', 'FOREX', 'FUTURES', 'CRYPTO', 'OPTIONS', 'OTHER']
-
-const accountLabel = (account: TradingAccountOption) => {
-  const details = [account.broker, account.currency].filter(Boolean)
-  const externalSuffix = account.externalAccountId
-    ? `••••${account.externalAccountId.slice(-4)}`
-    : null
-  return [account.name, ...details, externalSuffix].filter(Boolean).join(' — ')
-}
 
 const initialTargetAccountId = (accounts: TradingAccountOption[], mappedAccountId?: string | null) => {
   if (mappedAccountId && accounts.some((account) => account.id === mappedAccountId)) return mappedAccountId
@@ -51,14 +44,8 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
   const [filename, setFilename] = useState('')
   const [accounts, setAccounts] = useState<TradingAccountOption[]>([])
   const [accountsLoading, setAccountsLoading] = useState(false)
-  const [accountsLoaded, setAccountsLoaded] = useState(false)
   const [accountsError, setAccountsError] = useState(false)
   const [targetAccountId, setTargetAccountId] = useState('')
-  const [showCreateAccount, setShowCreateAccount] = useState(false)
-  const [newAccountName, setNewAccountName] = useState('')
-  const [newAccountBroker, setNewAccountBroker] = useState('')
-  const [newAccountCurrency, setNewAccountCurrency] = useState('')
-  const [creatingAccount, setCreatingAccount] = useState(false)
   const accountRequestId = useRef(0)
   const [sourceTimezone, setSourceTimezone] = useState('')
   const [saveTimezone, setSaveTimezone] = useState(true)
@@ -72,27 +59,30 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
     accountRequestId.current += 1
     setProvider(null); setStep(0); setPreview(null); setResult(null); setFilename(''); setTargetAccountId('')
     setSourceTimezone(''); setMappings({}); setSelected(new Set()); setLinks({}); setError(''); setLoading(false)
-    setAccounts([]); setAccountsLoading(false); setAccountsLoaded(false); setAccountsError(false)
-    setShowCreateAccount(false); setNewAccountName(''); setNewAccountBroker(''); setNewAccountCurrency(''); setCreatingAccount(false)
+    setAccounts([]); setAccountsLoading(false); setAccountsError(false)
   }
 
-  const loadAccounts = async (preferredAccountId?: string | null) => {
+  const loadAccounts = async (
+    preferredAccountId?: string | null,
+    optimisticAccount?: TradingAccountOption
+  ) => {
     const requestId = ++accountRequestId.current
     setAccountsLoading(true)
     setAccountsError(false)
     try {
       const items = await fetchTradingAccounts()
       if (requestId !== accountRequestId.current) return
-      setAccounts(items)
-      setAccountsLoaded(true)
+      const nextItems = optimisticAccount && !items.some((account) => account.id === optimisticAccount.id)
+        ? [...items, optimisticAccount]
+        : items
+      setAccounts(nextItems)
       setTargetAccountId((current) => {
-        if (current && items.some((account) => account.id === current)) return current
-        return initialTargetAccountId(items, preferredAccountId)
+        if (current && nextItems.some((account) => account.id === current)) return current
+        return initialTargetAccountId(nextItems, preferredAccountId)
       })
     } catch {
       if (requestId !== accountRequestId.current) return
       setAccounts([])
-      setAccountsLoaded(false)
       setAccountsError(true)
       setTargetAccountId('')
     } finally {
@@ -117,10 +107,6 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
       setPreview(next)
       setTargetAccountId(initialTargetAccountId(accounts, next.targetAccountId))
       setSourceTimezone(next.sourceTimezone || '')
-      setShowCreateAccount(false)
-      setNewAccountName(next.account.accountName || '')
-      setNewAccountBroker(next.account.broker || '')
-      setNewAccountCurrency(next.account.currency || '')
       setSelected(new Set(next.trades.map((trade) => trade.externalPositionId)))
       const initialMappings: Record<string, Mt5SymbolMapping> = {}
       next.trades.forEach((trade) => {
@@ -179,30 +165,6 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
     } finally { setLoading(false) }
   }
 
-  const createAccount = async () => {
-    const name = newAccountName.trim()
-    const currency = newAccountCurrency.trim().toUpperCase()
-    if (!name || !/^[A-Z]{3}$/.test(currency)) return
-    setCreatingAccount(true)
-    setError('')
-    try {
-      const created = await createTradingAccount({
-        name,
-        broker: newAccountBroker.trim() || undefined,
-        currency
-      })
-      setAccounts((current) => [...current, created].sort((left, right) => left.name.localeCompare(right.name)))
-      setAccountsLoaded(true)
-      setAccountsError(false)
-      setTargetAccountId(created.id)
-      setShowCreateAccount(false)
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : t('trades.mt5.accounts.createError'))
-    } finally {
-      setCreatingAccount(false)
-    }
-  }
-
   const stepLabels = [
     t('trades.mt5.steps.upload'), t('trades.mt5.steps.account'), t('trades.mt5.steps.mapping'),
     t('trades.mt5.steps.preview'), t('trades.mt5.steps.confirm'), t('trades.mt5.steps.result')
@@ -257,56 +219,24 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
                 <Divider />
                 <Grid container spacing={2}>
                   <Grid item xs={12} md={6}>
-                    <TextField
-                      select
-                      fullWidth
-                      label={t('trades.mt5.targetAccount')}
-                      value={targetAccountId}
-                      disabled={accountsLoading || accountsError || accounts.length === 0}
-                      onChange={(e) => setTargetAccountId(e.target.value)}
-                      helperText={accountsLoading ? t('trades.mt5.accounts.loading') : undefined}
-                      SelectProps={{ displayEmpty: true }}
-                    >
-                      <MenuItem value="" disabled>{t('trades.mt5.accounts.placeholder')}</MenuItem>
-                      {accounts.map((account) => <MenuItem key={account.id} value={account.id}>{accountLabel(account)}</MenuItem>)}
-                    </TextField>
+                    <TradingAccountSelector
+                      value={targetAccountId || null}
+                      onChange={(accountId) => setTargetAccountId(accountId || '')}
+                      accounts={accounts}
+                      loading={accountsLoading}
+                      error={accountsError}
+                      onRetry={() => { void loadAccounts(preview.targetAccountId) }}
+                      onAccountsChanged={(savedAccount) => loadAccounts(
+                        savedAccount?.id || targetAccountId,
+                        savedAccount
+                      )}
+                      required
+                      context="import"
+                      suggestedCurrency={preview.account.currency || 'USD'}
+                    />
                   </Grid>
                   <Grid item xs={12} md={6}><TextField fullWidth label={t('trades.mt5.sourceTimezone')} placeholder="Europe/London" value={sourceTimezone} onChange={(e) => setSourceTimezone(e.target.value)} helperText={t('trades.mt5.timezoneHint')} /></Grid>
                 </Grid>
-                {accountsError && (
-                  <Alert
-                    severity="error"
-                    action={<Button color="inherit" size="small" onClick={() => void loadAccounts(preview.targetAccountId)}>{t('common.retry')}</Button>}
-                  >
-                    {t('trades.mt5.accounts.loadError')}
-                  </Alert>
-                )}
-                {!accountsLoading && !accountsError && accountsLoaded && accounts.length === 0 && (
-                  <Alert
-                    severity="warning"
-                    action={<Button color="inherit" size="small" onClick={() => setShowCreateAccount(true)}>{t('trades.mt5.accounts.create')}</Button>}
-                  >
-                    {t('trades.mt5.accounts.empty')}
-                  </Alert>
-                )}
-                {showCreateAccount && (
-                  <Paper variant="outlined" sx={{ p: 2 }}>
-                    <Stack spacing={2}>
-                      <Typography variant="subtitle1">{t('trades.mt5.accounts.createTitle')}</Typography>
-                      <Grid container spacing={2}>
-                        <Grid item xs={12} md={4}><TextField required fullWidth label={t('trades.mt5.accounts.name')} value={newAccountName} onChange={(event) => setNewAccountName(event.target.value)} /></Grid>
-                        <Grid item xs={12} md={4}><TextField fullWidth label={t('trades.mt5.accounts.broker')} value={newAccountBroker} onChange={(event) => setNewAccountBroker(event.target.value)} /></Grid>
-                        <Grid item xs={12} md={4}><TextField required fullWidth label={t('trades.mt5.accounts.currency')} value={newAccountCurrency} onChange={(event) => setNewAccountCurrency(event.target.value.toUpperCase())} inputProps={{ maxLength: 3 }} /></Grid>
-                      </Grid>
-                      <Stack direction="row" spacing={1} justifyContent="flex-end">
-                        <Button onClick={() => setShowCreateAccount(false)}>{t('common.cancel')}</Button>
-                        <Button variant="contained" disabled={creatingAccount || !newAccountName.trim() || !/^[A-Za-z]{3}$/.test(newAccountCurrency.trim())} onClick={() => void createAccount()}>
-                          {creatingAccount ? t('trades.mt5.accounts.creating') : t('trades.mt5.accounts.create')}
-                        </Button>
-                      </Stack>
-                    </Stack>
-                  </Paper>
-                )}
                 <FormControlLabel control={<Checkbox checked={saveTimezone} onChange={(e) => setSaveTimezone(e.target.checked)} />} label={t('trades.mt5.saveTimezone')} />
               </Stack>
             )}
@@ -355,7 +285,11 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
                   [t('trades.mt5.selectedTrades'), selected.size], [t('trades.mt5.newTrades'), selectedTrades.filter((trade) => !trade.duplicate).length],
                   [t('trades.mt5.updates'), selectedTrades.filter((trade) => trade.duplicate).length], [t('trades.mt5.excluded'), preview.trades.length - selected.size]
                 ].map(([label, value]) => <Grid item xs={6} md={3} key={String(label)}><Paper variant="outlined" sx={{ p: 2 }}><Typography color="text.secondary">{label}</Typography><Typography variant="h5">{value}</Typography></Paper></Grid>)}</Grid>
-                <Typography>{t('trades.mt5.targetAccount')}: {selectedAccount ? accountLabel(selectedAccount) : t('trades.mt5.accounts.placeholder')}</Typography>
+                <Typography>
+                  {t('trades.mt5.targetAccount')}: {selectedAccount
+                    ? [selectedAccount.name, selectedAccount.broker, selectedAccount.currency].filter(Boolean).join(' — ')
+                    : t('trades.mt5.accounts.placeholder')}
+                </Typography>
                 <Typography>{t('trades.mt5.totalGross')}: {formatCurrency(totals.gross, preview.account.currency || 'USD')}</Typography>
                 <Typography>{t('trades.mt5.totalCosts')}: {formatCurrency(totals.costs, preview.account.currency || 'USD')}</Typography>
                 <Typography>{t('trades.mt5.totalNet')}: {formatCurrency(totals.net, preview.account.currency || 'USD')}</Typography>

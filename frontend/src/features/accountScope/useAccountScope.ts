@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { fetchTradingAccounts } from '../../api/accounts'
+import type { TradingAccountOption } from '../../api/accounts'
 import {
   AccountScopeValue,
   accountScopeApiParams,
@@ -13,6 +14,8 @@ import {
 } from './accountScope'
 
 export const accountQueryKey = ['tradingAccounts'] as const
+const tradingAccountsChangedEvent = 'tradejaudit:trading-accounts-changed'
+const emptyTradingAccounts: TradingAccountOption[] = []
 
 export function useAccountScope(enabled = true) {
   const [searchParams, setSearchParams] = useSearchParams()
@@ -24,6 +27,15 @@ export function useAccountScope(enabled = true) {
     enabled,
     staleTime: 60_000
   })
+  const refetchAccounts = accountsQuery.refetch
+
+  useEffect(() => {
+    const refresh = () => {
+      void refetchAccounts()
+    }
+    window.addEventListener(tradingAccountsChangedEvent, refresh)
+    return () => window.removeEventListener(tradingAccountsChangedEvent, refresh)
+  }, [refetchAccounts])
 
   const requestedScope = useMemo(
     () => readAccountScope(new URLSearchParams(searchParamsKey)),
@@ -64,7 +76,7 @@ export function useAccountScope(enabled = true) {
     scope,
     setScope,
     clearScope,
-    accounts: accountsQuery.data || [],
+    accounts: accountsQuery.data || emptyTradingAccounts,
     isLoading: accountsQuery.isLoading,
     isError: accountsQuery.isError,
     retry: accountsQuery.refetch,

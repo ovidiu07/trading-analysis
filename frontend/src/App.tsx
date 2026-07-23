@@ -7,6 +7,8 @@ import AdminRoute from './components/AdminRoute'
 import AppErrorBoundary from './components/ui/AppErrorBoundary'
 import LoadingState from './components/ui/LoadingState'
 import { trackPageView } from './utils/analytics/ga4'
+import { useQueryClient } from '@tanstack/react-query'
+import { analyticsDataChangedEvent } from './api/dataEvents'
 
 const LoginPage = lazy(() => import('./pages/LoginPage'))
 const RegisterPage = lazy(() => import('./pages/RegisterPage'))
@@ -48,6 +50,20 @@ function GaRouteTracker() {
   return null
 }
 
+function DataCacheInvalidationBridge() {
+  const queryClient = useQueryClient()
+
+  useEffect(() => {
+    const invalidateAccountDependentData = () => {
+      void queryClient.invalidateQueries()
+    }
+    window.addEventListener(analyticsDataChangedEvent, invalidateAccountDependentData)
+    return () => window.removeEventListener(analyticsDataChangedEvent, invalidateAccountDependentData)
+  }, [queryClient])
+
+  return null
+}
+
 function RouteFallback() {
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', py: 6 }}>
@@ -69,6 +85,7 @@ function App() {
     <AppErrorBoundary>
       <>
         <GaRouteTracker />
+        <DataCacheInvalidationBridge />
         <Routes>
           <Route path="/login" element={withSuspense(<LoginPage />)} />
           <Route path="/register" element={withSuspense(<RegisterPage />)} />

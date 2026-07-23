@@ -3,6 +3,7 @@ import {
   Accordion,
   AccordionDetails,
   AccordionSummary,
+  Alert,
   Autocomplete,
   Box,
   Button,
@@ -17,6 +18,7 @@ import { alpha } from '@mui/material/styles'
 import { ReactNode, useEffect, useMemo } from 'react'
 import { Controller, useForm } from 'react-hook-form'
 import { PlanSource } from '../../api/plans'
+import type { TradingAccountOption } from '../../api/accounts'
 import { useActivePlansForTradeQuery } from '../../hooks/usePlans'
 import { useI18n } from '../../i18n'
 import { formatNumber, formatPercent } from '../../utils/format'
@@ -24,6 +26,7 @@ import { resolveTradeContractMultiplier } from '../../utils/futuresContractMetad
 import { calculateTradeLiveMetrics } from '../../utils/tradeCalculations'
 import { tradeDateTimeToUtcIso } from '../../utils/tradeDateTime'
 import { TradeFormValues } from '../../utils/tradePayload'
+import TradingAccountSelector from '../accounts/TradingAccountSelector'
 
 export type ComputedTradeMetrics = {
   pnlGross?: number | null
@@ -46,6 +49,11 @@ export type TradeFormProps = {
   planOptions?: Array<{ id: string; label: string; source?: PlanSource }>
   ruleBreakOptions?: string[]
   timezone: string
+  accounts: TradingAccountOption[]
+  accountsLoading?: boolean
+  accountsError?: boolean
+  onRetryAccounts?: () => void
+  onAccountsChanged?: () => void | Promise<unknown>
 }
 
 export function TradeForm({
@@ -60,7 +68,12 @@ export function TradeForm({
   strategyOptions = [],
   planOptions = [],
   ruleBreakOptions = [],
-  timezone
+  timezone,
+  accounts,
+  accountsLoading = false,
+  accountsError = false,
+  onRetryAccounts,
+  onAccountsChanged
 }: TradeFormProps) {
   const { t } = useI18n()
   const {
@@ -81,6 +94,9 @@ export function TradeForm({
   const openedAtValue = watch('openedAt')
   const tradeCurrencyValue = watch('tradeCurrency')
   const profileCurrencyValue = watch('profileCurrency')
+  const selectedAccountId = watch('accountRefId')
+  const selectedAccount = accounts.find((account) => account.id === selectedAccountId)
+  const eligibleAccounts = accounts.filter((account) => !account.status || account.status === 'ACTIVE')
   const watchedValues = watch()
   const showClosedFields = statusValue === 'CLOSED'
 
@@ -387,8 +403,36 @@ export function TradeForm({
                   {...register('capitalUsed', { valueAsNumber: true })}
                 />
               </Grid>
-              <Grid item xs={12} sm={6} md={4}>
-                <TextField label={t('trades.form.accountId')} fullWidth {...register('accountId')} />
+              <Grid item xs={12}>
+                <Controller
+                  name="accountRefId"
+                  control={control}
+                  render={({ field }) => (
+                    <TradingAccountSelector
+                      value={field.value || null}
+                      onChange={(accountId) => field.onChange(accountId || undefined)}
+                      accounts={accounts}
+                      loading={accountsLoading}
+                      error={accountsError}
+                      onRetry={onRetryAccounts}
+                      onAccountsChanged={onAccountsChanged}
+                      required={eligibleAccounts.length > 0}
+                      context="trade-edit"
+                      suggestedCurrency={tradeCurrencyValue || profileCurrencyValue || 'USD'}
+                    />
+                  )}
+                />
+                {selectedAccount?.currency
+                  && tradeCurrencyValue
+                  && selectedAccount.currency.toUpperCase() !== tradeCurrencyValue.toUpperCase()
+                  && (
+                    <Alert severity="warning" sx={{ mt: 1 }}>
+                      {t('tradingAccounts.currencyWarning', {
+                        accountCurrency: selectedAccount.currency.toUpperCase(),
+                        tradeCurrency: tradeCurrencyValue.toUpperCase()
+                      })}
+                    </Alert>
+                  )}
               </Grid>
             </Grid>
           </AccordionDetails>
