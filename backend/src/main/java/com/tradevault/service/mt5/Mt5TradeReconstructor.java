@@ -168,10 +168,10 @@ public class Mt5TradeReconstructor {
 
     private List<Mt5ParsedReport.Position> positionsWithDealOnlyFallbacks(Mt5ParsedReport report) {
         List<Mt5ParsedReport.Position> positions = new ArrayList<>(report.positions());
-        Set<String> represented = positions.stream().map(Mt5ParsedReport.Position::externalPositionId)
-                .filter(Objects::nonNull).map(Mt5TradeReconstructor::clean).collect(java.util.stream.Collectors.toSet());
+        Set<Mt5ParsedReport.Deal> matchedByPositions = new HashSet<>();
+        positions.forEach(position -> matchedByPositions.addAll(matchingDeals(position, report.deals())));
         Map<String, List<Mt5ParsedReport.Deal>> missing = report.deals().stream().filter(Mt5ParsedReport.Deal::isTradingExecution)
-                .filter(d -> d.externalPositionId() == null || !represented.contains(clean(d.externalPositionId())))
+                .filter(d -> !matchedByPositions.contains(d))
                 .collect(java.util.stream.Collectors.groupingBy(d -> !clean(d.externalPositionId()).isBlank()
                         ? clean(d.externalPositionId()) : "DEALS-" + clean(d.symbol())));
         for (Map.Entry<String, List<Mt5ParsedReport.Deal>> entry : missing.entrySet()) {

@@ -11,6 +11,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.bind.annotation.ControllerAdvice;
 import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.LocalDate;
 import java.util.LinkedHashMap;
@@ -68,6 +69,19 @@ public class RestExceptionHandler {
                 .details(ex.getMostSpecificCause() == null ? null : ex.getMostSpecificCause().getMessage())
                 .build();
         return ResponseEntity.badRequest().body(response);
+    }
+
+    @ExceptionHandler(ResponseStatusException.class)
+    public ResponseEntity<ApiErrorResponse> handleResponseStatus(ResponseStatusException ex) {
+        int status = ex.getStatusCode().value();
+        String error = status == HttpStatus.UNAUTHORIZED.value() ? "UNAUTHORIZED"
+                : status == HttpStatus.FORBIDDEN.value() ? "FORBIDDEN"
+                : ex.getStatusCode().is4xxClientError() ? "VALIDATION_ERROR" : "REQUEST_FAILED";
+        ApiErrorResponse response = ApiErrorResponse.builder()
+                .error(error)
+                .message(ex.getReason() == null ? ex.getMessage() : ex.getReason())
+                .build();
+        return ResponseEntity.status(ex.getStatusCode()).body(response);
     }
 
     @ExceptionHandler(DuplicateEmailException.class)

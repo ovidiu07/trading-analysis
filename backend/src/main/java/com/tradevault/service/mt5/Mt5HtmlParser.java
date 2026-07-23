@@ -26,7 +26,7 @@ public class Mt5HtmlParser {
         if (bytes == null || bytes.length == 0) {
             throw badRequest("The MetaTrader report is empty");
         }
-        Document document = Jsoup.parse(new String(bytes, StandardCharsets.UTF_8));
+        Document document = Jsoup.parse(decodeHtml(bytes));
         document.select("script,iframe,object,embed").remove();
         String visibleText = clean(document.text());
         if (!containsIgnoreCase(visibleText, "Positions") || !containsIgnoreCase(visibleText, "Deals")) {
@@ -94,7 +94,10 @@ public class Mt5HtmlParser {
             if (value == null) continue;
             switch (key) {
                 case "name", "account name" -> result.accountName = value;
-                case "account", "account id", "account number", "login" -> result.externalAccountId = digitsOrText(value);
+                case "account", "account id", "account number", "login" -> {
+                    result.externalAccountId = digitsOrText(value);
+                    parseAccountDescriptor(result, value);
+                }
                 case "currency", "account currency" -> result.currency = firstCurrency(value);
                 case "server", "broker server" -> result.brokerServer = value;
                 case "company", "broker" -> result.company = value;
@@ -193,7 +196,53 @@ public class Mt5HtmlParser {
     }
 
     private static String normalizeHeader(String value) {
-        return clean(value).toLowerCase(Locale.ROOT).replace(':', ' ').replaceAll("\\s+", " ").trim();
+        return clean(value).toLowerCase(Locale.ROOT).replace(':', ' ')
+                .replaceAll("\\s*/\\s*", "/").replaceAll("\\s+", " ").trim();
+    }
+
+    private static String decodeHtml(byte[] bytes) {
+        if (startsWith(bytes, 0xFF, 0xFE)) {
+            return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16LE);
+        }
+        if (startsWith(bytes, 0xFE, 0xFF)) {
+            return new String(bytes, 2, bytes.length - 2, StandardCharsets.UTF_16BE);
+        }
+        if (startsWith(bytes, 0xEF, 0xBB, 0xBF)) {
+            return new String(bytes, 3, bytes.length - 3, StandardCharsets.UTF_8);
+        }
+        if (looksLikeUtf16(bytes, true)) return new String(bytes, StandardCharsets.UTF_16LE);
+        if (looksLikeUtf16(bytes, false)) return new String(bytes, StandardCharsets.UTF_16BE);
+        return new String(bytes, StandardCharsets.UTF_8);
+    }
+
+    private static boolean startsWith(byte[] bytes, int... prefix) {
+        if (bytes.length < prefix.length) return false;
+        for (int i = 0; i < prefix.length; i++) {
+            if ((bytes[i] & 0xFF) != prefix[i]) return false;
+        }
+        return true;
+    }
+
+    private static boolean looksLikeUtf16(byte[] bytes, boolean littleEndian) {
+        int pairs = Math.min(bytes.length / 2, 64);
+        if (pairs < 4) return false;
+        int zeroes = 0;
+        for (int i = 0; i < pairs; i++) {
+            int zeroIndex = i * 2 + (littleEndian ? 1 : 0);
+            if (bytes[zeroIndex] == 0) zeroes++;
+        }
+        return zeroes >= pairs * 3 / 4;
+    }
+
+    private static void parseAccountDescriptor(MetadataAccumulator result, String value) {
+        Matcher matcher = Pattern.compile("\\(([^)]*)\\)").matcher(value);
+        if (!matcher.find()) return;
+        List<String> parts = Arrays.stream(matcher.group(1).split(","))
+                .map(Mt5HtmlParser::clean).filter(part -> !part.isBlank()).toList();
+        if (parts.size() > 0 && parts.get(0).matches("(?i)[A-Z]{3,6}")) result.currency = parts.get(0).toUpperCase(Locale.ROOT);
+        if (parts.size() > 1) result.brokerServer = parts.get(1);
+        if (parts.size() > 2) result.accountType = parts.get(2);
+        if (parts.size() > 3) result.accountingMode = parts.get(3);
     }
 
     private static boolean containsIgnoreCase(String haystack, String needle) {

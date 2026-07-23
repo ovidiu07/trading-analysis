@@ -14,10 +14,12 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
 import org.springframework.context.annotation.Import;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.security.test.context.support.WithMockUser;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.math.BigDecimal;
 import java.util.List;
@@ -26,6 +28,7 @@ import java.util.UUID;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -69,6 +72,19 @@ class TradeImportControllerSecurityTest {
                 .andExpect(jsonPath("$.importBatchId").value(batchId.toString()))
                 .andExpect(jsonPath("$.summary.positionsFound").value(4))
                 .andExpect(jsonPath("$.summary.netPnl").value(-222.71));
+    }
+
+    @Test
+    @WithMockUser(username = "trader@example.com", roles = "USER")
+    void invalidMt5ReportReturnsBadRequestInsteadOfAuthenticationFailure() throws Exception {
+        MockMultipartFile report = new MockMultipartFile("file", "report.html", "text/html", "<html></html>".getBytes());
+        doThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "Unsupported MetaTrader report encoding"))
+                .when(service).preview(any(), any(), any());
+
+        mockMvc.perform(multipart("/api/trade-imports/metatrader5/preview").file(report))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.error").value("VALIDATION_ERROR"))
+                .andExpect(jsonPath("$.message").value("Unsupported MetaTrader report encoding"));
     }
 
     @Test

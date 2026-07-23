@@ -4,6 +4,7 @@ import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
 import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
 import java.time.ZoneId;
 import java.util.List;
 import java.util.Map;
@@ -42,6 +43,51 @@ class Mt5HtmlParserTest {
         assertThat(report.positions()).hasSize(4);
         assertThat(report.positions().get(0).comment()).isEqualTo("Trade #1");
         assertThat(report.positions().get(0).volume()).isEqualByComparingTo("7");
+    }
+
+    @Test
+    void parsesUtf16BrokerExportWithCombinedAccountMetadataAndUnlinkedDeals() {
+        String html = """
+                <html><body><table>
+                <tr><th>Name:</th><th>Example Account</th></tr>
+                <tr><th>Account:</th><th>12345678 (USD, Broker-Server, real, Netting)</th></tr>
+                <tr><th>Company:</th><th>Example Broker</th></tr>
+                <tr><th>Date:</th><th>2026.07.22 17:08</th></tr>
+                <tr><th>Positions</th></tr>
+                <tr><td>Time</td><td>Position</td><td>Symbol</td><td>Type</td><td>Volume</td><td>Price</td><td>S / L</td><td>T / P</td><td>Time</td><td>Price</td><td>Commission</td><td>Swap</td><td>Profit</td></tr>
+                <tr><td>2026.07.20 12:54:38</td><td>670367</td><td>GECEUR</td><td>sell</td><td></td><td>7.92</td><td>24910.95</td><td>24910.00</td><td>24859.00</td><td>2026.07.20 13:17:57</td><td>24863.72</td><td>-23.76</td><td>0.00</td><td>427.61</td></tr>
+                <tr><th>Orders</th></tr>
+                <tr><td>Open Time</td><td>Order</td><td>Symbol</td><td>Type</td><td>Volume</td><td>Price</td><td>S / L</td><td>T / P</td><td>Time</td><td>State</td><td>Comment</td></tr>
+                <tr><td>2026.07.20 12:54:38</td><td>670367</td><td>GECEUR</td><td>sell</td><td>7.92 / 7.92</td><td>market</td><td>24934.00</td><td>24874.00</td><td>2026.07.20 12:54:38</td><td>filled</td><td></td></tr>
+                <tr><td>2026.07.20 13:17:57</td><td>670518</td><td>GECEUR</td><td>buy</td><td>7.92 / 7.92</td><td>market</td><td></td><td></td><td>2026.07.20 13:17:57</td><td>filled</td><td></td></tr>
+                <tr><th>Deals</th></tr>
+                <tr><td>Time</td><td>Deal</td><td>Symbol</td><td>Type</td><td>Direction</td><td>Volume</td><td>Price</td><td>Order</td><td>Cost</td><td>Commission</td><td>Fee</td><td>Swap</td><td>Profit</td><td>Balance</td><td>Comment</td></tr>
+                <tr><td>2026.07.20 12:54:38</td><td>644058</td><td>GECEUR</td><td>sell</td><td>in</td><td>7.92</td><td>24910.95</td><td>670367</td><td></td><td>-23.76</td><td>0.00</td><td>0.00</td><td>0.00</td><td>49349.68</td><td></td></tr>
+                <tr><td>2026.07.20 13:17:57</td><td>644190</td><td>GECEUR</td><td>buy</td><td>out</td><td>7.92</td><td>24863.72</td><td>670518</td><td></td><td>0.00</td><td>0.00</td><td>0.00</td><td>427.61</td><td>49777.29</td><td></td></tr>
+                </table></body></html>
+                """;
+        byte[] encoded = html.getBytes(StandardCharsets.UTF_16LE);
+        byte[] bytes = new byte[encoded.length + 2];
+        bytes[0] = (byte) 0xFF;
+        bytes[1] = (byte) 0xFE;
+        System.arraycopy(encoded, 0, bytes, 2, encoded.length);
+
+        Mt5ParsedReport report = parser.parse(bytes);
+        List<Mt5TradeCandidate> trades = reconstructor.reconstruct(report, ZoneId.of("UTC"));
+
+        assertThat(report.metadata().externalAccountId()).isEqualTo("12345678");
+        assertThat(report.metadata().currency()).isEqualTo("USD");
+        assertThat(report.metadata().brokerServer()).isEqualTo("Broker-Server");
+        assertThat(report.metadata().accountType()).isEqualTo("real");
+        assertThat(report.metadata().accountingMode()).isEqualTo("Netting");
+        assertThat(report.positions()).hasSize(1);
+        assertThat(report.positions().get(0).stopLoss()).isEqualByComparingTo("24910.00");
+        assertThat(report.positions().get(0).takeProfit()).isEqualByComparingTo("24859.00");
+        assertThat(report.orders()).hasSize(2);
+        assertThat(report.deals()).hasSize(2);
+        assertThat(trades).hasSize(1);
+        assertThat(trades.get(0).externalPositionId()).isEqualTo("670367");
+        assertThat(trades.get(0).brokerReportedNetPnl()).isEqualByComparingTo("403.85");
     }
 
     @Test
