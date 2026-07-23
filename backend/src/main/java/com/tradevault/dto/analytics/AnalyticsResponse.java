@@ -9,6 +9,7 @@ import java.util.Map;
 @Data
 @Builder
 public class AnalyticsResponse {
+    private AccountScopeMetadata accountScope;
     private KpiSummary kpi;
     private CostSummary costs;
     private DrawdownSummary drawdown;

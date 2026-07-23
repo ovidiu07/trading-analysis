@@ -30,6 +30,9 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import EmptyState from '../components/ui/EmptyState'
 import { useDemoData } from '../features/demo/DemoDataContext'
 import PageHero from '../components/ui/PageHero'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
+import { writeAccountScope } from '../features/accountScope/accountScope'
 
 type KpiCard = {
   label: string
@@ -63,14 +66,19 @@ export default function DashboardPage() {
   const [error, setError] = useState('')
   const { user } = useAuth()
   const { refreshToken } = useDemoData()
-  const baseCurrency = user?.baseCurrency || 'USD'
+  const accountScope = useAccountScope()
+  const scopedAccountIds = accountScope.apiParams.accountIds
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const isCompact = useMediaQuery(theme.breakpoints.down('md'))
   const chartHeight = isMobile ? 220 : isCompact ? 260 : 320
 
-  const queryState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
+  const searchParamsKey = searchParams.toString()
+  const queryState = useMemo(
+    () => readDashboardQueryState(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey]
+  )
 
   useEffect(() => {
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
@@ -81,8 +89,8 @@ export default function DashboardPage() {
     to: queryState.to,
     status: queryState.status,
     market: (queryState.market as any) || undefined,
-    accountId: queryState.accountId || undefined
-  }), [queryState.accountId, queryState.from, queryState.market, queryState.status, queryState.to])
+    ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
+  }), [queryState.from, queryState.market, queryState.status, queryState.to, scopedAccountIds])
 
   useEffect(() => {
     const load = async () => {
@@ -97,7 +105,7 @@ export default function DashboardPage() {
             to: queryState.to,
             tz: timezone,
             basis: 'close',
-            accountId: queryState.accountId || undefined
+            ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
           }).catch(() => [] as DailyPnlResponse[]),
         ])
         setSummary(summaryResponse)
@@ -112,19 +120,22 @@ export default function DashboardPage() {
     }
 
     load()
-  }, [dashboardFilters, queryState.from, queryState.to, t, timezone, refreshToken])
+  }, [dashboardFilters, queryState.from, queryState.to, refreshToken, scopedAccountIds, t, timezone])
+
+  const monetaryAnalyticsAvailable = summary?.accountScope?.monetaryAnalyticsAvailable !== false
+  const baseCurrency = summary?.accountScope?.reportingCurrency || user?.baseCurrency || 'USD'
 
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: t('dashboard.kpis.netPnl'), value: summary.kpi.totalPnlNet, formatType: 'currency', tooltipText: t('dashboard.help.kpiNetGross') },
-      { label: t('dashboard.kpis.grossPnl'), value: summary.kpi.totalPnlGross, formatType: 'currency', tooltipText: t('dashboard.help.kpiNetGross') },
+      { label: t('dashboard.kpis.netPnl'), value: monetaryAnalyticsAvailable ? summary.kpi.totalPnlNet : null, formatType: 'currency', tooltipText: t('dashboard.help.kpiNetGross') },
+      { label: t('dashboard.kpis.grossPnl'), value: monetaryAnalyticsAvailable ? summary.kpi.totalPnlGross : null, formatType: 'currency', tooltipText: t('dashboard.help.kpiNetGross') },
       { label: t('dashboard.kpis.winRate'), value: summary.kpi.winRate, formatType: 'percent', tooltipText: t('dashboard.help.kpiWinRate') },
-      { label: t('dashboard.kpis.profitFactor'), value: summary.kpi.profitFactor, formatType: 'ratio', tooltipText: t('dashboard.help.kpiProfitFactor') },
-      { label: t('dashboard.kpis.expectancy'), value: summary.kpi.expectancy, formatType: 'currency', tooltipText: t('dashboard.help.kpiExpectancy') },
-      { label: t('dashboard.kpis.maxDrawdown'), value: -Math.abs(summary.drawdown?.maxDrawdown || 0), formatType: 'currency', tooltipText: t('dashboard.help.kpiDrawdown') },
+      { label: t('dashboard.kpis.profitFactor'), value: monetaryAnalyticsAvailable ? summary.kpi.profitFactor : null, formatType: 'ratio', tooltipText: t('dashboard.help.kpiProfitFactor') },
+      { label: t('dashboard.kpis.expectancy'), value: monetaryAnalyticsAvailable ? summary.kpi.expectancy : null, formatType: 'currency', tooltipText: t('dashboard.help.kpiExpectancy') },
+      { label: t('dashboard.kpis.maxDrawdown'), value: monetaryAnalyticsAvailable ? -Math.abs(summary.drawdown?.maxDrawdown || 0) : null, formatType: 'currency', tooltipText: t('dashboard.help.kpiDrawdown') },
     ]
-  }, [summary, t])
+  }, [monetaryAnalyticsAvailable, summary, t])
 
   const kpiCards = useMemo<KpiCard[]>(() => {
     if (loading) {
@@ -138,8 +149,9 @@ export default function DashboardPage() {
     return kpis
   }, [kpis, loading, t])
 
-  const equityData = useMemo(() => summary?.equityCurve || [], [summary])
+  const equityData = useMemo(() => monetaryAnalyticsAvailable ? summary?.equityCurve || [] : [], [monetaryAnalyticsAvailable, summary])
   const groupedPnl = useMemo<DailyPnlPoint[]>(() => {
+    if (!monetaryAnalyticsAvailable) return []
     if (dailyPnlSeries.length > 0) {
       return dailyPnlSeries.map((point) => ({
         date: point.date,
@@ -152,7 +164,7 @@ export default function DashboardPage() {
       date: point.date,
       value: point.value
     }))
-  }, [dailyPnlSeries, summary?.groupedPnl])
+  }, [dailyPnlSeries, monetaryAnalyticsAvailable, summary?.groupedPnl])
 
   const toTradesList = useCallback(() => {
     const params = new URLSearchParams()
@@ -161,11 +173,9 @@ export default function DashboardPage() {
     if (queryState.status !== 'ALL') {
       params.set('status', queryState.status)
     }
-    if (queryState.accountId) {
-      params.set('accountId', queryState.accountId)
-    }
-    navigate(`/trades?${params.toString()}`)
-  }, [navigate, queryState.accountId, queryState.from, queryState.status, queryState.to])
+    const scoped = writeAccountScope(params, accountScope.scope)
+    navigate(`/trades?${scoped.toString()}`)
+  }, [accountScope.scope, navigate, queryState.from, queryState.status, queryState.to])
 
   const toTradeDetail = useCallback((trade: TradeResponse) => {
     const params = new URLSearchParams()
@@ -175,11 +185,13 @@ export default function DashboardPage() {
     if (queryState.status !== 'ALL') {
       params.set('status', queryState.status)
     }
-    if (queryState.accountId) {
-      params.set('accountId', queryState.accountId)
-    }
-    navigate(`/trades?${params.toString()}`)
-  }, [navigate, queryState.accountId, queryState.from, queryState.status, queryState.to])
+    const scoped = writeAccountScope(params, accountScope.scope)
+    navigate(`/trades?${scoped.toString()}`)
+  }, [accountScope.scope, navigate, queryState.from, queryState.status, queryState.to])
+  const scopedPath = useCallback((path: string) => {
+    const scoped = writeAccountScope(new URLSearchParams(), accountScope.scope)
+    return `${path}?${scoped.toString()}`
+  }, [accountScope.scope])
 
   const chartError = error ? t('dashboard.chartError') : ''
   const hasNoTrades = !loading && !error && (summary?.kpi?.totalTrades ?? 0) === 0 && recentTrades.length === 0
@@ -211,10 +223,17 @@ export default function DashboardPage() {
         description={t('dashboard.subtitle')}
         icon={<DashboardRoundedIcon fontSize="small" />}
         action={(
-          <Button variant="contained" size="small" onClick={() => navigate('/today')}>
+          <Button variant="contained" size="small" onClick={() => navigate(scopedPath('/today'))}>
             {t('dashboard.goToToday')}
           </Button>
         )}
+      />
+
+      <AccountScopeSummary
+        scope={accountScope.scope}
+        accounts={accountScope.accounts}
+        notice={accountScope.selectionNotice}
+        mixedCurrency={!monetaryAnalyticsAvailable}
       />
 
       {error && <ErrorBanner message={error} />}
@@ -224,10 +243,10 @@ export default function DashboardPage() {
           description={t('dashboard.empty.noTradesBody')}
           action={(
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
-              <Button variant="contained" onClick={() => navigate('/trades')}>
+              <Button variant="contained" onClick={() => navigate(scopedPath('/trades'))}>
                 {t('dashboard.empty.importTrades')}
               </Button>
-              <Button variant="outlined" onClick={() => navigate('/trades')}>
+              <Button variant="outlined" onClick={() => navigate(scopedPath('/trades'))}>
                 {t('dashboard.empty.addTrade')}
               </Button>
             </Stack>

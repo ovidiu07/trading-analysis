@@ -16,6 +16,7 @@ import jakarta.persistence.criteria.Predicate;
 import jakarta.persistence.criteria.Root;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -72,6 +73,44 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
   }
 
   @Override
+  public Page<UUID> searchTradeIdsByAccountScope(UUID userId,
+      OffsetDateTime openedAtFrom,
+      OffsetDateTime openedAtTo,
+      OffsetDateTime closedAtFrom,
+      OffsetDateTime closedAtTo,
+      String symbol,
+      String strategy,
+      Collection<UUID> accountRefIds,
+      Direction direction,
+      TradeStatus status,
+      Pageable pageable) {
+    CriteriaBuilder cb = entityManager.getCriteriaBuilder();
+
+    CriteriaQuery<UUID> idQuery = cb.createQuery(UUID.class);
+    Root<Trade> idRoot = idQuery.from(Trade.class);
+    List<Predicate> idPredicates = buildAccountScopePredicates(cb, idRoot, userId, openedAtFrom, openedAtTo,
+        closedAtFrom, closedAtTo, symbol, strategy, accountRefIds, direction, status);
+    idQuery.select(idRoot.get("id"));
+    idQuery.where(idPredicates.toArray(Predicate[]::new));
+    applySort(cb, idRoot, idQuery, pageable.getSort());
+
+    TypedQuery<UUID> typedIdQuery = entityManager.createQuery(idQuery);
+    typedIdQuery.setFirstResult((int) pageable.getOffset());
+    typedIdQuery.setMaxResults(pageable.getPageSize());
+    List<UUID> ids = typedIdQuery.getResultList();
+
+    CriteriaQuery<Long> countQuery = cb.createQuery(Long.class);
+    Root<Trade> countRoot = countQuery.from(Trade.class);
+    List<Predicate> countPredicates = buildAccountScopePredicates(cb, countRoot, userId, openedAtFrom,
+        openedAtTo, closedAtFrom, closedAtTo, symbol, strategy, accountRefIds, direction, status);
+    countQuery.select(cb.count(countRoot));
+    countQuery.where(countPredicates.toArray(Predicate[]::new));
+    long total = entityManager.createQuery(countQuery).getSingleResult();
+
+    return new PageImpl<>(ids, pageable, total);
+  }
+
+  @Override
   public Page<Trade> search(UUID userId,
       OffsetDateTime openedAtFrom,
       OffsetDateTime openedAtTo,
@@ -109,6 +148,28 @@ public class TradeRepositoryImpl implements TradeRepositoryCustom {
     long total = entityManager.createQuery(countQuery).getSingleResult();
 
     return new PageImpl<>(content, pageable, total);
+  }
+
+  private List<Predicate> buildAccountScopePredicates(CriteriaBuilder cb,
+      Root<Trade> root,
+      UUID userId,
+      OffsetDateTime openedAtFrom,
+      OffsetDateTime openedAtTo,
+      OffsetDateTime closedAtFrom,
+      OffsetDateTime closedAtTo,
+      String symbol,
+      String strategy,
+      Collection<UUID> accountRefIds,
+      Direction direction,
+      TradeStatus status) {
+    List<Predicate> predicates = buildSearchPredicates(
+        cb, root, userId, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo,
+        symbol, strategy, null, null, false, direction, status
+    );
+    if (accountRefIds != null && !accountRefIds.isEmpty()) {
+      predicates.add(root.get("account").get("id").in(accountRefIds));
+    }
+    return predicates;
   }
 
   private List<Predicate> buildSearchPredicates(CriteriaBuilder cb,

@@ -32,7 +32,7 @@ import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded'
 import PushPinRoundedIcon from '@mui/icons-material/PushPinRounded'
 import { addDays, addMonths, eachDayOfInterval, endOfMonth, endOfWeek, format, isSameMonth, startOfMonth, startOfWeek, subMonths } from 'date-fns'
 import { useAuth } from '../auth/AuthContext'
-import { CalendarAccountOption, CalendarPlanSummary, fetchCalendarAccountOptions, fetchCalendarPlans } from '../api/calendar'
+import { CalendarPlanSummary, fetchCalendarPlans } from '../api/calendar'
 import { removeSessionPlan } from '../api/liveWorkspace'
 import { DailyPnlResponse, DailySummaryResponse, MonthlyPnlSummaryResponse, fetchMonthlyPnlSummary, listClosedTradesForDate, fetchDailyPnl, TradeResponse } from '../api/trades'
 import { NotebookNoteSummary, listNotebookNotesByDate } from '../api/notebook'
@@ -41,12 +41,15 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import AssetThumbnail from '../components/assets/AssetThumbnail'
 import EmptyState from '../components/ui/EmptyState'
 import PageHero from '../components/ui/PageHero'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
+import { writeAccountScope } from '../features/accountScope/accountScope'
 import { useI18n } from '../i18n'
 import { translateApiError } from '../i18n/errorMessages'
 import { useDemoData } from '../features/demo/DemoDataContext'
 
 const weekStartsOn = 1
-const UNASSIGNED_ACCOUNT = 'unassigned'
 
 function monthFromQuery(value: string | null) {
   const match = /^(\d{4})-(\d{2})$/.exec(value || '')
@@ -126,10 +129,8 @@ export default function CalendarPage() {
   const timezone = user?.timezone || 'Europe/Bucharest'
 
   const [currentMonth, setCurrentMonth] = useState(() => monthFromQuery(searchParams.get('month')))
-  const [selectedAccountId, setSelectedAccountId] = useState(() => searchParams.get('accountId') || '')
-  const [accountOptions, setAccountOptions] = useState<CalendarAccountOption[]>([])
-  const [accountOptionsLoaded, setAccountOptionsLoaded] = useState(false)
-  const [accountOptionsError, setAccountOptionsError] = useState('')
+  const accountScope = useAccountScope()
+  const scopedAccountIds = accountScope.apiParams.accountIds
   const [dailyPnl, setDailyPnl] = useState<DailyPnlResponse[]>([])
   const [calendarPlans, setCalendarPlans] = useState<{
     activeMonthlyPlan?: CalendarPlanSummary | null
@@ -166,50 +167,45 @@ export default function CalendarPage() {
   }, [calendarStart, locale])
   const monthKey = useMemo(() => format(currentMonth, 'yyyy-MM'), [currentMonth])
   const monthLabel = useMemo(() => new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric' }).format(currentMonth), [currentMonth, locale])
-  const summaryCacheKey = useMemo(() => `${monthKey}-${timezone}-${selectedAccountId || 'all'}`, [monthKey, selectedAccountId, timezone])
+  const summaryCacheKey = useMemo(() => `${monthKey}-${timezone}-${accountScope.cacheKey}`, [accountScope.cacheKey, monthKey, timezone])
 
   const selectedAccountLabel = useMemo(() => {
-    if (!selectedAccountId) return t('calendar.accounts.all')
-    if (selectedAccountId === UNASSIGNED_ACCOUNT) return t('calendar.accounts.unassignedContext')
-    return accountOptions.find((option) => option.value === selectedAccountId)?.label || selectedAccountId
-  }, [accountOptions, selectedAccountId, t])
+    if (accountScope.scope.mode === 'all') return t('calendar.accounts.all')
+    const selectedIds: string[] = accountScope.scope.accountIds
+    const selected = accountScope.accounts.filter((account) => selectedIds.includes(account.id))
+    if (selected.length === 1) return selected[0].name
+    return t('accountScope.manySelected', { count: accountScope.scope.accountIds.length })
+  }, [accountScope.accounts, accountScope.scope, t])
+  const mixedAccountCurrencies = useMemo(() => {
+    const selectedIds: string[] = accountScope.scope.mode === 'selected' ? accountScope.scope.accountIds : []
+    const scopedAccounts = accountScope.scope.mode === 'all'
+      ? accountScope.accounts
+      : accountScope.accounts.filter((account) => selectedIds.includes(account.id))
+    const currencies = new Set(scopedAccounts.map((account) => account.currency).filter(Boolean))
+    return currencies.size > 1
+  }, [accountScope.accounts, accountScope.scope])
+  const accountNameById = useMemo(
+    () => new Map(accountScope.accounts.map((account) => [account.id, account.name])),
+    [accountScope.accounts]
+  )
+  const accountDisplayName = useCallback(
+    (accountId?: string | null) => accountId
+      ? accountNameById.get(accountId) || accountId
+      : t('calendar.dialog.unassignedAccount'),
+    [accountNameById, t]
+  )
 
-  const updateCalendarUrl = useCallback((month: Date, accountId: string, replace = false) => {
+  const updateCalendarUrl = useCallback((month: Date, replace = false) => {
     const next = new URLSearchParams(searchParams)
     next.set('month', format(month, 'yyyy-MM'))
-    if (accountId) next.set('accountId', accountId)
-    else next.delete('accountId')
     setSearchParams(next, { replace })
   }, [searchParams, setSearchParams])
 
   useEffect(() => {
-    updateCalendarUrl(currentMonth, selectedAccountId, true)
+    updateCalendarUrl(currentMonth, true)
   // URL initialization is intentionally run once; later changes use explicit handlers.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-
-  useEffect(() => {
-    let active = true
-    fetchCalendarAccountOptions()
-      .then((options) => {
-        if (!active) return
-        setAccountOptions(options)
-        setAccountOptionsLoaded(true)
-      })
-      .catch((err) => {
-        if (!active) return
-        setAccountOptionsError(translateApiError(err, t, 'calendar.errors.loadAccounts'))
-      })
-    return () => { active = false }
-  }, [refreshToken, t])
-
-  useEffect(() => {
-    if (!accountOptionsLoaded || !selectedAccountId || selectedAccountId === UNASSIGNED_ACCOUNT) return
-    if (!accountOptions.some((option) => option.value === selectedAccountId)) {
-      setSelectedAccountId('')
-      updateCalendarUrl(currentMonth, '', true)
-    }
-  }, [accountOptions, accountOptionsLoaded, currentMonth, selectedAccountId, updateCalendarUrl])
 
   const pnlByDate = useMemo(() => new Map(dailyPnl.map((entry) => [entry.date, entry])), [dailyPnl])
   const plansByDate = useMemo(() => new Map(calendarPlans.dailyPlans.map((plan) => [plan.periodStart, plan])), [calendarPlans.dailyPlans])
@@ -238,7 +234,13 @@ export default function CalendarPage() {
       try {
         const from = format(calendarStart, 'yyyy-MM-dd')
         const to = format(calendarEnd, 'yyyy-MM-dd')
-        const data = await fetchDailyPnl({ from, to, tz: timezone, basis: 'close', accountId: selectedAccountId || undefined })
+        const data = await fetchDailyPnl({
+          from,
+          to,
+          tz: timezone,
+          basis: 'close',
+          ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
+        })
         setDailyPnl(data)
       } catch (err) {
         const message = translateApiError(err, t, 'calendar.errors.loadCalendar')
@@ -249,7 +251,7 @@ export default function CalendarPage() {
       }
     }
     fetchData()
-  }, [calendarEnd, calendarStart, timezone, refreshToken, selectedAccountId, t])
+  }, [calendarEnd, calendarStart, refreshToken, scopedAccountIds, t, timezone])
 
   const reloadCalendarPlans = useCallback(async () => {
     setCalendarPlansLoading(true)
@@ -288,7 +290,13 @@ export default function CalendarPage() {
       try {
         const year = currentMonth.getFullYear()
         const month = currentMonth.getMonth() + 1
-        const data = await fetchMonthlyPnlSummary({ year, month, tz: timezone, basis: 'close', accountId: selectedAccountId || undefined })
+        const data = await fetchMonthlyPnlSummary({
+          year,
+          month,
+          tz: timezone,
+          basis: 'close',
+          ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
+        })
         if (!active) return
         monthSummaryCache.current.set(summaryCacheKey, data)
         setMonthSummary(data)
@@ -307,7 +315,7 @@ export default function CalendarPage() {
     return () => {
       active = false
     }
-  }, [currentMonth, summaryCacheKey, timezone, refreshToken, selectedAccountId, t])
+  }, [currentMonth, refreshToken, scopedAccountIds, summaryCacheKey, t, timezone])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -318,7 +326,7 @@ export default function CalendarPage() {
       setSelectedTrades([])
       try {
         const dateKey = format(selectedDate, 'yyyy-MM-dd')
-        const tradesData = await listClosedTradesForDate(dateKey, timezone, selectedAccountId || undefined)
+        const tradesData = await listClosedTradesForDate(dateKey, timezone, scopedAccountIds)
         setSelectedTrades(tradesData)
         setSelectedSummary(buildDailySummaryFromTrades(dateKey, tradesData))
       } catch (err) {
@@ -331,7 +339,7 @@ export default function CalendarPage() {
       }
     }
     loadTrades()
-  }, [selectedDate, timezone, refreshToken, selectedAccountId, t])
+  }, [refreshToken, scopedAccountIds, selectedDate, t, timezone])
 
   useEffect(() => {
     if (!selectedDate) return
@@ -452,20 +460,14 @@ export default function CalendarPage() {
     if (!selectedDate) return
     const dateKey = format(selectedDate, 'yyyy-MM-dd')
     const params = new URLSearchParams({ closedDate: dateKey, status: 'CLOSED', tz: timezone })
-    if (selectedAccountId) params.set('accountId', selectedAccountId)
-    navigate(`/trades?${params.toString()}`)
+    const scoped = writeAccountScope(params, accountScope.scope)
+    navigate(`/trades?${scoped.toString()}`)
     handleCloseDialog()
   }
 
   const moveMonth = (nextMonth: Date) => {
     setCurrentMonth(nextMonth)
-    updateCalendarUrl(nextMonth, selectedAccountId)
-  }
-
-  const handleAccountChange = (accountId: string) => {
-    setSelectedAccountId(accountId)
-    setSelectedDate(null)
-    updateCalendarUrl(currentMonth, accountId)
+    updateCalendarUrl(nextMonth)
   }
 
   const openSessionPlan = (plan?: CalendarPlanSummary | null) => {
@@ -570,13 +572,13 @@ export default function CalendarPage() {
     const netPnl = entry?.netPnl
     const isCurrentMonth = isSameMonth(day, currentMonth)
     const { isPositive, isNegative, backgroundColor, borderColor, badgeColor, badgeTextColor } = resolveDayTone(netPnl)
-    const pnlLabel = netPnl === undefined
+    const pnlLabel = mixedAccountCurrencies || netPnl === undefined
       ? t('common.na')
       : (isMobile ? formatCompactCurrency(netPnl, baseCurrency) : formatSignedCurrency(netPnl, baseCurrency))
     const ariaLabelParts = entry
       ? [
         t('calendar.aria.viewRealizedPnl', { date: dateKey }),
-        t('calendar.aria.netPnl', { value: formatSignedCurrency(netPnl ?? 0, baseCurrency) }),
+        t('calendar.aria.netPnl', { value: mixedAccountCurrencies ? t('common.na') : formatSignedCurrency(netPnl ?? 0, baseCurrency) }),
         t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
@@ -668,12 +670,12 @@ export default function CalendarPage() {
     const plan = plansByDate.get(dateKey)
     const netPnl = entry?.netPnl
     const { isPositive, isNegative, backgroundColor, borderColor, badgeColor, badgeTextColor } = resolveDayTone(netPnl)
-    const pnlLabel = netPnl === undefined ? t('common.na') : formatSignedCurrency(netPnl, baseCurrency)
+    const pnlLabel = mixedAccountCurrencies || netPnl === undefined ? t('common.na') : formatSignedCurrency(netPnl, baseCurrency)
     const tradeLabel = entry ? t('calendar.tradeCount', { count: entry.tradeCount }) : t('calendar.noTrades')
     const ariaLabelParts = entry
       ? [
         t('calendar.aria.viewRealizedPnl', { date: dateKey }),
-        t('calendar.aria.netPnl', { value: formatSignedCurrency(netPnl ?? 0, baseCurrency) }),
+        t('calendar.aria.netPnl', { value: mixedAccountCurrencies ? t('common.na') : formatSignedCurrency(netPnl ?? 0, baseCurrency) }),
         t('calendar.aria.tradeCount', { count: entry.tradeCount })
       ]
       : [t('calendar.aria.viewRealizedPnl', { date: dateKey }), t('calendar.noTrades')]
@@ -778,32 +780,25 @@ export default function CalendarPage() {
       </Box>
 
       <Box sx={{ width: { xs: '100%', sm: 360 }, maxWidth: '100%' }}>
-        <TextField
-          select
-          fullWidth
-          size="small"
-          label={t('calendar.accounts.label')}
-          value={selectedAccountId}
-          onChange={(event) => handleAccountChange(event.target.value)}
-          SelectProps={{
-            displayEmpty: true,
-            inputProps: { 'aria-label': t('calendar.accounts.label') }
+        <AccountScopeSelector
+          value={accountScope.scope}
+          onChange={(scope) => {
+            setSelectedDate(null)
+            accountScope.setScope(scope)
           }}
-          error={Boolean(accountOptionsError)}
-          helperText={accountOptionsError || t('calendar.accounts.helper')}
-          sx={{
-            '& .MuiSelect-select': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }
-          }}
-        >
-          <MenuItem value="">{t('calendar.accounts.all')}</MenuItem>
-          {accountOptions.map((option) => (
-            <MenuItem key={`${option.source}-${option.value}`} value={option.value} title={option.label}>
-              {option.label}
-            </MenuItem>
-          ))}
-          <MenuItem value={UNASSIGNED_ACCOUNT}>{t('calendar.accounts.unassigned')}</MenuItem>
-        </TextField>
+          accounts={accountScope.accounts}
+          loading={accountScope.isLoading}
+          error={accountScope.isError}
+          onRetry={() => void accountScope.retry()}
+        />
       </Box>
+
+      <AccountScopeSummary
+        scope={accountScope.scope}
+        accounts={accountScope.accounts}
+        notice={accountScope.selectionNotice}
+        mixedCurrency={mixedAccountCurrencies}
+      />
 
       <Card>
         <CardContent sx={{ p: { xs: 1.5, sm: 2 } }}>
@@ -860,7 +855,7 @@ export default function CalendarPage() {
                     className="metric-value"
                     sx={{ fontWeight: 700, color: summaryTextColor, textAlign: isCompact ? 'center' : 'left' }}
                   >
-                    {formatSignedCurrency(summaryNetPnl, baseCurrency)}
+                    {mixedAccountCurrencies ? t('common.na') : formatSignedCurrency(summaryNetPnl, baseCurrency)}
                   </Typography>
                 )}
                 <Typography variant="caption" color="text.secondary">
@@ -894,7 +889,7 @@ export default function CalendarPage() {
                       <Skeleton variant="text" width={120} height={20} />
                     ) : (
                     <Typography variant="subtitle2" className="metric-value">
-                        {formatSignedCurrency(summaryGrossPnl ?? 0, baseCurrency)}
+                        {mixedAccountCurrencies ? t('common.na') : formatSignedCurrency(summaryGrossPnl ?? 0, baseCurrency)}
                     </Typography>
                     )}
                   </Box>
@@ -1028,8 +1023,8 @@ export default function CalendarPage() {
               )}
               {!error && dailyPnl.length === 0 && (
                 <EmptyState
-                  title={selectedAccountId ? t('calendar.empty.accountTitle', { account: selectedAccountLabel }) : t('calendar.empty.closedTradesTitle')}
-                  description={selectedAccountId ? t('calendar.empty.accountBody', { month: monthLabel }) : t('calendar.empty.closedTradesBody')}
+                  title={accountScope.scope.mode === 'selected' ? t('calendar.empty.accountTitle', { account: selectedAccountLabel }) : t('calendar.empty.closedTradesTitle')}
+                  description={accountScope.scope.mode === 'selected' ? t('calendar.empty.accountBody', { month: monthLabel }) : t('calendar.empty.closedTradesBody')}
                 />
               )}
             </>
@@ -1119,7 +1114,7 @@ export default function CalendarPage() {
           <Stack spacing={1} sx={{ mb: 2 }}>
             <Typography variant="subtitle2" color="text.secondary">{t('calendar.dialog.dailySummary')}</Typography>
             <Typography variant={isMobile ? 'subtitle1' : 'h6'} className="metric-value">
-              {formatSignedCurrency(selectedNetPnl, baseCurrency)}
+              {mixedAccountCurrencies ? t('common.na') : formatSignedCurrency(selectedNetPnl, baseCurrency)}
             </Typography>
             <Typography variant="body2" color="text.secondary">
               {t('calendar.dialog.tradeCountClosed', { count: selectedTradeCount })}
@@ -1138,14 +1133,14 @@ export default function CalendarPage() {
                     <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1.5}>
                       <Box>
                         <Typography variant="subtitle2">
-                          {summary.accountId || t('calendar.dialog.unassignedAccount')}
+                          {accountDisplayName(summary.accountId)}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
                           {t('calendar.dialog.tradeCountClosed', { count: summary.tradeCount })}
                         </Typography>
                       </Box>
                       <Typography variant="subtitle2" className="metric-value" sx={{ whiteSpace: 'nowrap' }}>
-                        {formatSignedCurrency(summary.netPnl, baseCurrency)}
+                        {mixedAccountCurrencies ? t('common.na') : formatSignedCurrency(summary.netPnl, baseCurrency)}
                       </Typography>
                     </Stack>
                   </Box>
@@ -1173,11 +1168,11 @@ export default function CalendarPage() {
                         {t(`trades.direction.${trade.direction}`)} · {formatDateTime(trade.closedAt, timezone)}
                       </Typography>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                        {t('trades.form.accountId')}: {trade.accountId || t('calendar.dialog.unassignedAccount')}
+                        {t('trades.form.accountId')}: {accountDisplayName(trade.accountRefId || trade.accountId)}
                       </Typography>
                     </Box>
                     <Typography variant="subtitle2" className="metric-value" sx={{ whiteSpace: 'nowrap' }}>
-                      {formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
+                      {mixedAccountCurrencies ? t('common.na') : formatSignedCurrency(trade.pnlNet ?? 0, baseCurrency)}
                     </Typography>
                   </Stack>
                 </Box>

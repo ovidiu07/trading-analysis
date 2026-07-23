@@ -11,6 +11,7 @@ import theme from '../theme'
 import { formatSignedCurrency } from '../utils/format'
 import { I18nProvider } from '../i18n'
 import { format } from 'date-fns'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 const mockFetchDailyPnl = vi.fn()
 const mockFetchMonthlyPnlSummary = vi.fn()
@@ -19,6 +20,16 @@ const mockListNotebookNotesByDate = vi.fn()
 const mockFetchCalendarPlans = vi.fn()
 const mockFetchCalendarAccountOptions = vi.fn()
 const mockRemoveSessionPlan = vi.fn()
+const FIRST_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001'
+const SECOND_ACCOUNT_ID = '00000000-0000-4000-8000-000000000002'
+const UNKNOWN_ACCOUNT_ID = '00000000-0000-4000-8000-000000000099'
+
+vi.mock('../api/accounts', () => ({
+  fetchTradingAccounts: vi.fn().mockResolvedValue([
+    { id: '00000000-0000-4000-8000-000000000001', name: 'Account A', broker: 'Broker A', currency: 'USD' },
+    { id: '00000000-0000-4000-8000-000000000002', name: 'Account B', broker: 'Broker B', currency: 'USD' }
+  ])
+}))
 
 vi.mock('../api/trades', async () => {
   const actual = await vi.importActual<typeof import('../api/trades')>('../api/trades')
@@ -29,6 +40,25 @@ vi.mock('../api/trades', async () => {
     listClosedTradesForDate: (...args: unknown[]) => mockListClosedTradesForDate(...args)
   }
 })
+
+const renderCalendar = (initialEntry = '/calendar') => {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false } }
+  })
+  return render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <QueryClientProvider client={queryClient}>
+        <AuthProvider>
+          <I18nProvider>
+            <ThemeProvider theme={theme}>
+              <CalendarPage />
+            </ThemeProvider>
+          </I18nProvider>
+        </AuthProvider>
+      </QueryClientProvider>
+    </MemoryRouter>
+  )
+}
 
 vi.mock('../api/notebook', async () => {
   const actual = await vi.importActual<typeof import('../api/notebook')>('../api/notebook')
@@ -94,17 +124,7 @@ describe('CalendarPage', () => {
       .mockResolvedValueOnce(buildSummary(2, 1200))
       .mockResolvedValueOnce(buildSummary(3, -300))
 
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <I18nProvider>
-            <ThemeProvider theme={theme}>
-              <CalendarPage />
-            </ThemeProvider>
-          </I18nProvider>
-        </AuthProvider>
-      </MemoryRouter>
-    )
+    renderCalendar()
 
     await waitFor(() => {
       expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledTimes(1)
@@ -123,13 +143,12 @@ describe('CalendarPage', () => {
     await waitFor(() => {
       expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledTimes(2)
     })
-    expect(mockFetchMonthlyPnlSummary).toHaveBeenLastCalledWith({
+    expect(mockFetchMonthlyPnlSummary).toHaveBeenLastCalledWith(expect.objectContaining({
       year: expectedNextMonth.getFullYear(),
       month: expectedNextMonth.getMonth() + 1,
       tz: 'Europe/Bucharest',
-      basis: 'close',
-      accountId: undefined
-    })
+      basis: 'close'
+    }))
   })
 
   it('restores an account from the URL, filters every trade request, and preserves it across months', async () => {
@@ -138,75 +157,49 @@ describe('CalendarPage', () => {
       { date: '2026-07-16', netPnl: -100, tradeCount: 1, wins: 0, losses: 1 }
     ])
 
-    render(
-      <MemoryRouter initialEntries={['/calendar?month=2026-07&accountId=account-a']}>
-        <AuthProvider>
-          <I18nProvider>
-            <ThemeProvider theme={theme}>
-              <CalendarPage />
-            </ThemeProvider>
-          </I18nProvider>
-        </AuthProvider>
-      </MemoryRouter>
-    )
+    renderCalendar(`/calendar?month=2026-07&accountIds=${FIRST_ACCOUNT_ID}`)
 
     await waitFor(() => expect(mockFetchMonthlyPnlSummary).toHaveBeenCalledWith(expect.objectContaining({
       year: 2026,
       month: 7,
-      accountId: 'account-a'
+      accountIds: FIRST_ACCOUNT_ID
     })))
-    expect(mockFetchDailyPnl).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'account-a' }))
+    expect(mockFetchDailyPnl).toHaveBeenCalledWith(expect.objectContaining({ accountIds: FIRST_ACCOUNT_ID }))
     expect(await screen.findByText(/July 2026 · Account A · Europe\/Bucharest/)).toBeInTheDocument()
 
     await userEvent.setup().click(screen.getByLabelText(/View realized P&L for 2026-07-16/))
     await waitFor(() => expect(mockListClosedTradesForDate).toHaveBeenCalledWith(
-      '2026-07-16', 'Europe/Bucharest', 'account-a'
+      '2026-07-16', 'Europe/Bucharest', FIRST_ACCOUNT_ID
     ))
     await userEvent.setup().click(screen.getByRole('button', { name: 'Close' }))
 
     await userEvent.setup().click(screen.getByLabelText('Next month'))
     await waitFor(() => expect(mockFetchMonthlyPnlSummary).toHaveBeenLastCalledWith(expect.objectContaining({
       month: 8,
-      accountId: 'account-a'
+      accountIds: FIRST_ACCOUNT_ID
     })))
   })
 
-  it('uses the explicit unassigned filter and shows an account-specific empty state', async () => {
+  it('restores a multi-account selection and shows a scoped empty state', async () => {
     mockFetchMonthlyPnlSummary.mockResolvedValue({ ...buildSummary(7, 0), tradeCount: 0, tradingDays: 0 })
 
-    render(
-      <MemoryRouter initialEntries={['/calendar?month=2026-07&accountId=unassigned']}>
-        <AuthProvider>
-          <I18nProvider>
-            <ThemeProvider theme={theme}>
-              <CalendarPage />
-            </ThemeProvider>
-          </I18nProvider>
-        </AuthProvider>
-      </MemoryRouter>
-    )
+    renderCalendar(`/calendar?month=2026-07&accountIds=${FIRST_ACCOUNT_ID},${SECOND_ACCOUNT_ID}`)
 
-    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenCalledWith(expect.objectContaining({ accountId: 'unassigned' })))
-    expect(await screen.findByText('No closed trades for Unassigned trades')).toBeInTheDocument()
+    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenCalledWith(expect.objectContaining({
+      accountIds: `${FIRST_ACCOUNT_ID},${SECOND_ACCOUNT_ID}`
+    })))
+    expect(await screen.findAllByText('2 accounts selected')).not.toHaveLength(0)
     expect(screen.getByText('No closed trades match this account in July 2026.')).toBeInTheDocument()
   })
 
   it('safely falls back to all accounts for an unknown URL account', async () => {
     mockFetchMonthlyPnlSummary.mockResolvedValue(buildSummary(7, 50))
 
-    render(
-      <MemoryRouter initialEntries={['/calendar?month=2026-07&accountId=not-owned']}>
-        <AuthProvider>
-          <I18nProvider>
-            <ThemeProvider theme={theme}>
-              <CalendarPage />
-            </ThemeProvider>
-          </I18nProvider>
-        </AuthProvider>
-      </MemoryRouter>
-    )
+    renderCalendar(`/calendar?month=2026-07&accountIds=${UNKNOWN_ACCOUNT_ID}`)
 
-    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenLastCalledWith(expect.objectContaining({ accountId: undefined })))
+    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ accountIds: expect.anything() })
+    ))
     expect(await screen.findByText(/July 2026 · All accounts · Europe\/Bucharest/)).toBeInTheDocument()
   })
 
@@ -253,17 +246,7 @@ describe('CalendarPage', () => {
       }
     ])
 
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <I18nProvider>
-            <ThemeProvider theme={theme}>
-              <CalendarPage />
-            </ThemeProvider>
-          </I18nProvider>
-        </AuthProvider>
-      </MemoryRouter>
-    )
+    renderCalendar()
 
     const user = userEvent.setup()
     await waitFor(() => {
@@ -302,17 +285,7 @@ describe('CalendarPage', () => {
       .mockResolvedValueOnce({ activeMonthlyPlan: null, activeWeeklyPlan: null, dailyPlans: [dailyPlan] })
       .mockResolvedValue({ activeMonthlyPlan: null, activeWeeklyPlan: null, dailyPlans: [] })
 
-    render(
-      <MemoryRouter>
-        <AuthProvider>
-          <I18nProvider>
-            <ThemeProvider theme={theme}>
-              <CalendarPage />
-            </ThemeProvider>
-          </I18nProvider>
-        </AuthProvider>
-      </MemoryRouter>
-    )
+    renderCalendar()
 
     const user = userEvent.setup()
     await waitFor(() => {

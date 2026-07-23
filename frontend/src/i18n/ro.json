@@ -16,6 +16,22 @@
     "blackShiny": "Black Shiny",
     "system": "Sistem"
   },
+  "accountScope": {
+    "label": "Cont",
+    "all": "Toate conturile",
+    "oneSelected": "1 cont selectat",
+    "manySelected": "{{count}} conturi selectate",
+    "active": "Domeniul conturilor",
+    "loading": "Se încarcă conturile…",
+    "error": "Conturile nu au putut fi încărcate. Încearcă din nou.",
+    "retry": "Reîncearcă încărcarea conturilor",
+    "empty": "Nu au fost găsite conturi TradeJAudit.",
+    "noResults": "Niciun cont corespunzător",
+    "notice": {
+      "removed": "Un cont care nu mai este accesibil a fost eliminat din selecție."
+    },
+    "mixedCurrency": "Analizele monetare combinate nu sunt disponibile deoarece conturile selectate folosesc monede de bază diferite."
+  },
   "common": {
     "loading": "Se încarcă...",
     "save": "Salvează",

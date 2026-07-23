@@ -6,7 +6,7 @@ export type DashboardFilters = {
   to?: string
   status?: 'OPEN' | 'CLOSED' | 'ALL'
   market?: TradeRequest['market']
-  accountId?: string
+  accountIds?: string
 }
 
 export async function fetchDashboardSummary(filters: DashboardFilters = {}) {
@@ -16,7 +16,7 @@ export async function fetchDashboardSummary(filters: DashboardFilters = {}) {
     dateMode: 'CLOSE',
     status: filters.status && filters.status !== 'ALL' ? filters.status : undefined,
     market: filters.market || undefined,
-    accountId: filters.accountId || undefined
+    accountIds: filters.accountIds || undefined
   })
 }
 
@@ -28,13 +28,12 @@ export async function fetchRecentTrades(limit = 5, filters: DashboardFilters = {
     openedAtTo: filters.to,
     status: filters.status && filters.status !== 'ALL' ? filters.status : undefined,
     market: filters.market || undefined,
-    accountId: filters.accountId || undefined
+    accountIds: filters.accountIds || undefined
   })
 
   const rows = (page.content || [])
     .filter((trade) => {
       if (filters.market && trade.market !== filters.market) return false
-      if (filters.accountId && trade.accountId !== filters.accountId) return false
       return true
     })
     .sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime())

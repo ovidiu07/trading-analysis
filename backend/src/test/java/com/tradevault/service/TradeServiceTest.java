@@ -55,6 +55,7 @@ public class TradeServiceTest {
     private FuturesContractMetadataService futuresContractMetadataService;
     private TradeService tradeService;
     private User user;
+    private com.tradevault.service.account.AccountScopeService accountScopeService;
 
     @BeforeEach
     void setup() {
@@ -66,9 +67,18 @@ public class TradeServiceTest {
         currentUserService = Mockito.mock(CurrentUserService.class);
         timezoneService = Mockito.mock(TimezoneService.class);
         futuresContractMetadataService = new FuturesContractMetadataService();
-        tradeService = new TradeService(tradeRepository, notebookNoteRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService, Mockito.mock(ApplicationEventPublisher.class));
+        accountScopeService = Mockito.mock(com.tradevault.service.account.AccountScopeService.class);
+        tradeService = new TradeService(tradeRepository, notebookNoteRepository, accountRepository, tagRepository, userStrategyRepository, currentUserService, timezoneService, futuresContractMetadataService, Mockito.mock(ApplicationEventPublisher.class), accountScopeService);
         user = User.builder().id(UUID.randomUUID()).email("user@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(accountScopeService.resolve(any(), any())).thenReturn(
+                new com.tradevault.service.account.AuthorizedAccountScope(
+                        user.getId(),
+                        com.tradevault.service.account.AuthorizedAccountScope.Mode.ALL,
+                        Set.of(),
+                        List.of()
+                )
+        );
         when(notebookNoteRepository.findByUserIdAndTypeAndRelatedTrade_IdInAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(any(), any(), any()))
                 .thenReturn(List.of());
     }
@@ -961,7 +971,7 @@ public class TradeServiceTest {
         List<Map<String, String>> fieldErrors = (List<Map<String, String>>) details.get("fieldErrors");
         assertEquals("openedAtFrom", fieldErrors.get(0).get("field"));
         assertEquals("openedAtTo", fieldErrors.get(1).get("field"));
-        verify(tradeRepository, never()).searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any());
+        verify(tradeRepository, never()).searchTradeIdsByAccountScope(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -997,9 +1007,18 @@ public class TradeServiceTest {
     }
 
     @Test
-    void searchPassesBrokerAccountFilterToRepository() {
+    void searchPassesAuthorizedInternalAccountScopeToRepository() {
         when(timezoneService.resolveZone(null, user)).thenReturn(ZoneId.of("UTC"));
-        when(tradeRepository.searchTradeIds(any(), any(), any(), any(), any(), any(), any(), any(), any(), anyBoolean(), any(), any(), any()))
+        UUID accountId = UUID.randomUUID();
+        when(accountScopeService.resolve(null, accountId.toString())).thenReturn(
+                new com.tradevault.service.account.AuthorizedAccountScope(
+                        user.getId(),
+                        com.tradevault.service.account.AuthorizedAccountScope.Mode.SELECTED,
+                        Set.of(accountId),
+                        List.of()
+                )
+        );
+        when(tradeRepository.searchTradeIdsByAccountScope(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new org.springframework.data.domain.PageImpl<>(List.of()));
 
         tradeService.search(
@@ -1013,12 +1032,12 @@ public class TradeServiceTest {
                 null,
                 null,
                 null,
-                " APEX4855840000003 ",
+                accountId.toString(),
                 null,
                 null
         );
 
-        verify(tradeRepository).searchTradeIds(
+        verify(tradeRepository).searchTradeIdsByAccountScope(
                 eq(user.getId()),
                 isNull(),
                 isNull(),
@@ -1026,9 +1045,7 @@ public class TradeServiceTest {
                 isNull(),
                 isNull(),
                 isNull(),
-                eq("APEX4855840000003"),
-                isNull(),
-                eq(false),
+                eq(Set.of(accountId)),
                 isNull(),
                 isNull(),
                 any()

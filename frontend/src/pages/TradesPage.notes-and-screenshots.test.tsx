@@ -12,6 +12,22 @@ const mockListStrategies = vi.fn()
 const mockListMyPlans = vi.fn()
 const mockListTradeAssets = vi.fn()
 
+vi.mock('../features/accountScope/useAccountScope', () => ({
+  useAccountScope: () => ({
+    scope: { mode: 'all', accountIds: [] },
+    setScope: vi.fn(),
+    clearScope: vi.fn(),
+    accounts: [],
+    isLoading: false,
+    isError: false,
+    retry: vi.fn(),
+    apiParams: {},
+    cacheKey: 'all',
+    selectionNotice: '',
+    clearSelectionNotice: vi.fn()
+  })
+}))
+
 vi.mock('@mui/x-data-grid', () => ({
   DataGrid: ({ rows, columns, getRowId }: any) => (
     <div data-testid="trades-grid">

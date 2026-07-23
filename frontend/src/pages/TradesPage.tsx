@@ -70,6 +70,9 @@ import { listMyPlans } from '../api/plans'
 import { listStrategies } from '../api/strategies'
 import { RULE_BREAK_OPTIONS } from '../constants/tradeTaxonomy'
 import TradeImportDialog from '../components/trades/TradeImportDialog'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
 
 type ContentOption = {
   id: string
@@ -524,6 +527,9 @@ export default function TradesPage() {
   const location = useLocation()
   const { isAuthenticated, logout, user } = useAuth()
   const { refreshToken } = useDemoData()
+  const accountScope = useAccountScope()
+  const scopedAccountIds = accountScope.apiParams.accountIds
+  const hasSelectedAccountScope = accountScope.scope.mode === 'selected'
   const baseCurrency = user?.baseCurrency || 'USD'
   const timezone = user?.timezone || 'Europe/Bucharest'
   const theme = useTheme()
@@ -585,6 +591,17 @@ export default function TradesPage() {
     strategyOptions.forEach((item) => map.set(item.id, item.label))
     return map
   }, [strategyOptions])
+  const accountNameById = useMemo(
+    () => new Map(accountScope.accounts.map((account) => [account.id, account.name])),
+    [accountScope.accounts]
+  )
+  const tradeAccountLabel = useCallback(
+    (trade: TradeResponse) => {
+      const internalId = trade.accountRefId || ''
+      return accountNameById.get(internalId) || trade.accountId || t('common.na')
+    },
+    [accountNameById, t]
+  )
 
   const handleCreateTradeNote = useCallback(async (trade: TradeResponse) => {
     setNoteNavError('')
@@ -839,12 +856,20 @@ export default function TradesPage() {
     setFetchError('')
 
     try {
-      const response = viewMode === 'search' && activeFilters
+      const shouldSearch = viewMode === 'search' || hasSelectedAccountScope
+      const appliedFilters = activeFilters || defaultFilters
+      const response = shouldSearch
         ? await searchTrades({
-          ...activeFilters,
-          direction: activeFilters.direction ? activeFilters.direction as 'LONG' | 'SHORT' : undefined,
-          status: activeFilters.status ? activeFilters.status as 'OPEN' | 'CLOSED' : undefined,
-          tz: activeFilters.closedDate ? (activeFilters.tz || timezone) : activeFilters.tz || undefined,
+          openedAtFrom: appliedFilters.openedAtFrom || undefined,
+          openedAtTo: appliedFilters.openedAtTo || undefined,
+          closedAtFrom: appliedFilters.closedAtFrom || undefined,
+          closedAtTo: appliedFilters.closedAtTo || undefined,
+          closedDate: appliedFilters.closedDate || undefined,
+          symbol: appliedFilters.symbol || undefined,
+          direction: appliedFilters.direction ? appliedFilters.direction as 'LONG' | 'SHORT' : undefined,
+          status: appliedFilters.status ? appliedFilters.status as 'OPEN' | 'CLOSED' : undefined,
+          tz: appliedFilters.closedDate ? (appliedFilters.tz || timezone) : appliedFilters.tz || undefined,
+          ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {}),
           page: paginationModel.page,
           size: paginationModel.pageSize,
         })
@@ -869,7 +894,7 @@ export default function TradesPage() {
     } finally {
       setLoading(false)
     }
-  }, [activeFilters, handleAuthFailure, isAuthenticated, paginationModel.page, paginationModel.pageSize, t, timezone, viewMode, refreshToken])
+  }, [activeFilters, handleAuthFailure, hasSelectedAccountScope, isAuthenticated, paginationModel.page, paginationModel.pageSize, scopedAccountIds, t, timezone, viewMode])
 
   const handleImportClick = useCallback(() => {
     setImportDialogOpen(true)
@@ -1153,6 +1178,7 @@ export default function TradesPage() {
     setActiveFilters(null)
     setViewMode('list')
     setPaginationModel((prev) => ({ ...prev, page: 0 }))
+    accountScope.clearScope()
   }
 
   const openCreateDialog = () => {
@@ -1249,6 +1275,7 @@ export default function TradesPage() {
         getRowClassName={(params) => (params.id === highlightTradeId ? 'trade-row-highlight' : '')}
         onRowClick={(params) => setExpandedTrade((prev) => prev?.id === params.id ? null : params.row as TradeResponse)}
       />
+
       {!loading && trades.length === 0 && (
         <Box sx={{ position: 'absolute', inset: 0 }}>
           <EmptyState
@@ -1310,7 +1337,7 @@ export default function TradesPage() {
               </Grid>
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {getTradeNotesPreview(trade) || t('common.na')}</Typography>
-            <Typography variant="body2" color="text.secondary">{t('trades.form.accountId')}: {trade.accountId || t('common.na')}</Typography>
+            <Typography variant="body2" color="text.secondary">{t('trades.form.accountId')}: {tradeAccountLabel(trade)}</Typography>
             {trade.initialNotes && (
               <Typography variant="body2" color="text.secondary">{t('trades.details.initialNotes')}: {trade.initialNotes}</Typography>
             )}
@@ -1373,6 +1400,12 @@ export default function TradesPage() {
             </Button>
           </Stack>
         )}
+      />
+
+      <AccountScopeSummary
+        scope={accountScope.scope}
+        accounts={accountScope.accounts}
+        notice={accountScope.selectionNotice}
       />
 
       <Card className="interactive-lift">
@@ -1491,7 +1524,7 @@ export default function TradesPage() {
                     </Grid>
                     <Grid item xs={12} sm={6} md={4}>
                       <Typography variant="subtitle2" gutterBottom>{t('trades.details.setup')}</Typography>
-                      <Typography variant="body2">{t('trades.details.accountId')}: {expandedTrade.accountId || t('common.na')}</Typography>
+                      <Typography variant="body2">{t('trades.details.accountId')}: {tradeAccountLabel(expandedTrade)}</Typography>
                       <Typography variant="body2">{t('trades.form.setup')}: {expandedTrade.setup || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.strategy')}: {expandedTrade.strategyName || (expandedTrade.strategyId ? strategyNameById.get(expandedTrade.strategyId) : expandedTrade.strategyTag) || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.form.strategyTag')}: {expandedTrade.strategyTag || t('common.na')}</Typography>
@@ -1558,7 +1591,14 @@ export default function TradesPage() {
                 <Grid item xs={12} md={6}>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
                     <TextField size="small" label={t('trades.filters.symbol')} value={filters.symbol} onChange={(e) => setFilters((prev) => ({ ...prev, symbol: e.target.value }))} fullWidth />
-                    <TextField size="small" label={t('trades.filters.accountId')} value={filters.accountId} onChange={(e) => setFilters((prev) => ({ ...prev, accountId: e.target.value }))} fullWidth />
+                    <AccountScopeSelector
+                      value={accountScope.scope}
+                      onChange={accountScope.setScope}
+                      accounts={accountScope.accounts}
+                      loading={accountScope.isLoading}
+                      error={accountScope.isError}
+                      onRetry={() => void accountScope.retry()}
+                    />
                   </Stack>
                   <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} mb={2}>
                     <TextField size="small" label={t('trades.filters.direction')} select value={filters.direction} onChange={(e) => setFilters((prev) => ({ ...prev, direction: e.target.value }))} fullWidth>

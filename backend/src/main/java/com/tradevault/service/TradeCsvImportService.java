@@ -49,6 +49,7 @@ public class TradeCsvImportService {
     private static final CSVFormat CSV_FORMAT = CSVFormat.DEFAULT.builder()
             .setHeader()
             .setSkipHeaderRecord(true)
+            .setCommentMarker('#')
             .setIgnoreEmptyLines(true)
             .setTrim(true)
             .build();

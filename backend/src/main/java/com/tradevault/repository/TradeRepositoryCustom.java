@@ -4,6 +4,7 @@ import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -29,6 +30,18 @@ public interface TradeRepositoryCustom {
       String brokerAccountId,
       UUID accountRefId,
       boolean unassigned,
+      Direction direction,
+      TradeStatus status,
+      Pageable pageable);
+
+  Page<UUID> searchTradeIdsByAccountScope(UUID userId,
+      OffsetDateTime openedAtFrom,
+      OffsetDateTime openedAtTo,
+      OffsetDateTime closedAtFrom,
+      OffsetDateTime closedAtTo,
+      String symbol,
+      String strategy,
+      Collection<UUID> accountRefIds,
       Direction direction,
       TradeStatus status,
       Pageable pageable);

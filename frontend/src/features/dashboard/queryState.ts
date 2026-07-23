@@ -5,10 +5,9 @@ export type DashboardQueryState = {
   to: string
   status: DashboardStatusFilter
   market: string
-  accountId: string
 }
 
-export const DASHBOARD_QUERY_KEYS = ['from', 'to', 'status', 'market', 'accountId'] as const
+export const DASHBOARD_QUERY_KEYS = ['from', 'to', 'status', 'market'] as const
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const DEFAULT_LOOKBACK_DAYS = 30
 
@@ -38,8 +37,7 @@ export const getDefaultDashboardQueryState = (): DashboardQueryState => {
     from,
     to,
     status: 'CLOSED',
-    market: '',
-    accountId: ''
+    market: ''
   }
 }
 
@@ -70,8 +68,7 @@ export const readDashboardQueryState = (params: URLSearchParams): DashboardQuery
     from: range.from,
     to: range.to,
     status: normalizeStatus(params.get('status')),
-    market: (params.get('market') || '').trim(),
-    accountId: (params.get('accountId') || '').trim()
+    market: (params.get('market') || '').trim()
   }
 }
 
@@ -89,7 +86,6 @@ export const buildDashboardSearchParams = (
   stateParams.set('to', state.to)
   stateParams.set('status', state.status)
   stateParams.set('market', state.market)
-  stateParams.set('accountId', state.accountId)
   const normalized = readDashboardQueryState(stateParams)
 
   DASHBOARD_QUERY_KEYS.forEach((key) => params.delete(key))
@@ -98,7 +94,5 @@ export const buildDashboardSearchParams = (
   params.set('status', normalized.status)
 
   if (normalized.market) params.set('market', normalized.market)
-  if (normalized.accountId) params.set('accountId', normalized.accountId)
-
   return params
 }

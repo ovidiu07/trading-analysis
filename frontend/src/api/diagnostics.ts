@@ -120,8 +120,8 @@ const toQuery = (params: Record<string, string | undefined>) => {
   return query ? `?${query}` : ''
 }
 
-export async function listDiagnosticsStrategies() {
-  return apiGet<DiagnosticsStrategiesResponse>('/diagnostics/strategies')
+export async function listDiagnosticsStrategies(params: { accountIds?: string } = {}) {
+  return apiGet<DiagnosticsStrategiesResponse>(`/diagnostics/strategies${toQuery(params)}`)
 }
 
 export async function getDiagnosticsStrategyDetail(strategyId: string, params: {
@@ -131,6 +131,7 @@ export async function getDiagnosticsStrategyDetail(strategyId: string, params: {
   to?: string
   symbol?: string
   sessionWindow?: string
+  accountIds?: string
 } = {}) {
   return apiGet<DiagnosticsStrategyDetailResponse>(`/diagnostics/strategy/${strategyId}${toQuery(params)}`)
 }
@@ -149,6 +150,7 @@ export async function getLiveDiagnosticsSummary(params: {
   to?: string
   symbol?: string
   sessionWindow?: string
+  accountIds?: string
 } = {}) {
   return apiGet<LiveDiagnosticsSummaryResponse>(`/diagnostics/live-summary${toQuery(params)}`)
 }

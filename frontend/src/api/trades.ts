@@ -138,7 +138,7 @@ export type TradeSearchFilters = {
   market?: TradeRequest['market']
   direction?: TradeRequest['direction']
   status?: TradeRequest['status']
-  accountId?: string
+  accountIds?: string
 }
 
 export type DailyPnlResponse = {
@@ -213,20 +213,20 @@ export async function searchTrades(filters: TradeSearchFilters = {}) {
   return apiGet<PageResponse<TradeResponse>>(`/trades/search${toQuery(filters)}`)
 }
 
-export async function fetchDailyPnl(params: { from: string; to: string; tz?: string; basis?: 'open' | 'close'; accountId?: string }) {
+export async function fetchDailyPnl(params: { from: string; to: string; tz?: string; basis?: 'open' | 'close'; accountIds?: string }) {
   return apiGet<DailyPnlResponse[]>(`/trades/daily-pnl${toQuery(params)}`)
 }
 
-export async function fetchMonthlyPnlSummary(params: { year: number; month: number; tz?: string; basis?: 'open' | 'close'; accountId?: string }) {
+export async function fetchMonthlyPnlSummary(params: { year: number; month: number; tz?: string; basis?: 'open' | 'close'; accountIds?: string }) {
   return apiGet<MonthlyPnlSummaryResponse>(`/calendar/month-summary${toQuery(params)}`)
 }
 
-export async function fetchDailySummary(params: { date: string; tz?: string; accountId?: string }) {
+export async function fetchDailySummary(params: { date: string; tz?: string; accountIds?: string }) {
   return apiGet<DailySummaryResponse>(`/trades/daily-summary${toQuery(params)}`)
 }
 
-export async function listClosedTradesForDate(date: string, tz?: string, accountId?: string) {
-  return apiGet<TradeResponse[]>(`/trades/closed-day${toQuery({ date, tz, accountId })}`)
+export async function listClosedTradesForDate(date: string, tz?: string, accountIds?: string) {
+  return apiGet<TradeResponse[]>(`/trades/closed-day${toQuery({ date, tz, accountIds })}`)
 }
 
 export async function getTradeById(id: string) {

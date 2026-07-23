@@ -85,6 +85,10 @@ import { useDemoData } from '../features/demo/DemoDataContext'
 import { trackEvent } from '../utils/analytics/ga4'
 import { ChecklistTemplateItemInput } from '../api/checklist'
 import { useChecklistTemplateQuery, useSaveChecklistTemplateMutation } from '../hooks/useChecklist'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
+import { writeAccountScope } from '../features/accountScope/accountScope'
 
 const DEFAULT_FILTERS: AnalyticsFilters = { status: 'CLOSED', dateMode: 'CLOSE' }
 type KpiCard = { label: string; value: string | number }
@@ -149,7 +153,8 @@ export default function AnalyticsPage() {
   const [checklistSavedOpen, setChecklistSavedOpen] = useState(false)
   const { user } = useAuth()
   const { refreshToken } = useDemoData()
-  const baseCurrency = user?.baseCurrency || 'USD'
+  const accountScope = useAccountScope()
+  const scopedAccountIds = accountScope.apiParams.accountIds
   const navigate = useNavigate()
   const checklistTemplateQuery = useChecklistTemplateQuery()
   const saveChecklistTemplateMutation = useSaveChecklistTemplateMutation()
@@ -227,7 +232,10 @@ export default function AnalyticsPage() {
     setLoading(true)
     setError('')
     try {
-      const data = await fetchAnalyticsSummary(activeFilters)
+      const data = await fetchAnalyticsSummary({
+        ...activeFilters,
+        ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
+      })
       setSummary(data)
     } catch (err) {
       const apiErr = err as ApiError
@@ -235,13 +243,16 @@ export default function AnalyticsPage() {
     } finally {
       setLoading(false)
     }
-  }, [t])
+  }, [scopedAccountIds, t])
 
   const loadCoach = useCallback(async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setCoachLoading(true)
     setCoachError('')
     try {
-      const data = await fetchAnalyticsCoach(activeFilters)
+      const data = await fetchAnalyticsCoach({
+        ...activeFilters,
+        ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
+      })
       setCoach(data)
     } catch (err) {
       const apiErr = err as ApiError
@@ -249,7 +260,7 @@ export default function AnalyticsPage() {
     } finally {
       setCoachLoading(false)
     }
-  }, [t])
+  }, [scopedAccountIds, t])
 
   const loadSignalIntel = useCallback(async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
     setSignalLoading(true)
@@ -284,7 +295,7 @@ export default function AnalyticsPage() {
     loadAnalytics(DEFAULT_FILTERS)
     loadCoach(DEFAULT_FILTERS)
     loadSignalIntel(DEFAULT_FILTERS)
-  }, [loadAnalytics, loadCoach, loadSignalIntel])
+  }, [accountScope.cacheKey, loadAnalytics, loadCoach, loadSignalIntel])
 
   useEffect(() => {
     if (refreshToken === 0) return
@@ -418,64 +429,84 @@ export default function AnalyticsPage() {
 
   const resetFilters = () => {
     setFilters(DEFAULT_FILTERS)
+    accountScope.clearScope()
     loadAnalytics(DEFAULT_FILTERS)
     loadCoach(DEFAULT_FILTERS)
     loadSignalIntel(DEFAULT_FILTERS)
   }
 
+  const monetaryAnalyticsAvailable = summary?.accountScope?.monetaryAnalyticsAvailable !== false
+  const baseCurrency = summary?.accountScope?.reportingCurrency || user?.baseCurrency || 'USD'
+  const formatAnalyticsCurrency = useCallback(
+    (value?: number | null) => monetaryAnalyticsAvailable
+      ? formatSignedCurrency(value, baseCurrency)
+      : t('common.na'),
+    [baseCurrency, monetaryAnalyticsAvailable, t]
+  )
+  const formatAnalyticsAbsoluteCurrency = useCallback(
+    (value?: number | null) => monetaryAnalyticsAvailable
+      ? formatCurrency(value, baseCurrency)
+      : t('common.na'),
+    [baseCurrency, monetaryAnalyticsAvailable, t]
+  )
+
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     const grossLoss = summary.kpi.grossLoss
-    const pf =
+    const pf = !monetaryAnalyticsAvailable
+      ? '—'
+      :
       grossLoss === 0 && summary.kpi.grossProfit > 0
         ? '∞'
         : summary.kpi.profitFactor?.toFixed(2) ?? '—'
     return [
-      { label: t('analytics.kpis.netPnl'), value: formatSignedCurrency(summary.kpi.totalPnlNet, baseCurrency) },
+      { label: t('analytics.kpis.netPnl'), value: formatAnalyticsCurrency(summary.kpi.totalPnlNet) },
       { label: t('analytics.kpis.winRate'), value: formatPercent(summary.kpi.winRate) },
       { label: t('analytics.kpis.profitFactor'), value: pf },
-      { label: t('analytics.kpis.expectancy'), value: formatSignedCurrency(summary.kpi.expectancy, baseCurrency) },
+      { label: t('analytics.kpis.expectancy'), value: formatAnalyticsCurrency(summary.kpi.expectancy) },
       { label: t('analytics.kpis.trades'), value: summary.kpi.totalTrades ?? 0 },
       { label: t('analytics.kpis.openTrades'), value: summary.kpi.openTrades ?? 0 },
     ]
-  }, [baseCurrency, summary, t])
+  }, [formatAnalyticsCurrency, monetaryAnalyticsAvailable, summary, t])
 
   const secondaryKpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: t('analytics.kpis.grossProfit'), value: formatSignedCurrency(summary.kpi.grossProfit, baseCurrency) },
-      { label: t('analytics.kpis.grossLoss'), value: formatSignedCurrency(-Math.abs(summary.kpi.grossLoss), baseCurrency) },
-      { label: t('analytics.kpis.avgWin'), value: formatSignedCurrency(summary.kpi.averageWin, baseCurrency) },
-      { label: t('analytics.kpis.avgLoss'), value: formatSignedCurrency(-Math.abs(summary.kpi.averageLoss), baseCurrency) },
-      { label: t('analytics.kpis.medianTrade'), value: formatSignedCurrency(summary.kpi.medianPnl, baseCurrency) },
+      { label: t('analytics.kpis.grossProfit'), value: formatAnalyticsCurrency(summary.kpi.grossProfit) },
+      { label: t('analytics.kpis.grossLoss'), value: formatAnalyticsCurrency(-Math.abs(summary.kpi.grossLoss)) },
+      { label: t('analytics.kpis.avgWin'), value: formatAnalyticsCurrency(summary.kpi.averageWin) },
+      { label: t('analytics.kpis.avgLoss'), value: formatAnalyticsCurrency(-Math.abs(summary.kpi.averageLoss)) },
+      { label: t('analytics.kpis.medianTrade'), value: formatAnalyticsCurrency(summary.kpi.medianPnl) },
       { label: t('analytics.kpis.payoffRatio'), value: summary.kpi.payoffRatio?.toFixed(2) ?? t('common.na') },
     ]
-  }, [baseCurrency, summary, t])
+  }, [formatAnalyticsCurrency, summary, t])
 
   const costKpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
     return [
-      { label: t('analytics.kpis.fees'), value: formatSignedCurrency(summary.costs.totalFees, baseCurrency) },
-      { label: t('analytics.kpis.commission'), value: formatSignedCurrency(summary.costs.totalCommission, baseCurrency) },
-      { label: t('analytics.kpis.slippage'), value: formatSignedCurrency(summary.costs.totalSlippage, baseCurrency) },
-      { label: t('analytics.kpis.totalCosts'), value: formatSignedCurrency(summary.costs.totalCosts, baseCurrency) },
-      { label: t('analytics.kpis.netVsGross'), value: formatSignedCurrency(summary.costs.netVsGrossDelta, baseCurrency) },
+      { label: t('analytics.kpis.fees'), value: formatAnalyticsCurrency(summary.costs.totalFees) },
+      { label: t('analytics.kpis.commission'), value: formatAnalyticsCurrency(summary.costs.totalCommission) },
+      { label: t('analytics.kpis.slippage'), value: formatAnalyticsCurrency(summary.costs.totalSlippage) },
+      { label: t('analytics.kpis.totalCosts'), value: formatAnalyticsCurrency(summary.costs.totalCosts) },
+      { label: t('analytics.kpis.netVsGross'), value: formatAnalyticsCurrency(summary.costs.netVsGrossDelta) },
     ]
-  }, [baseCurrency, summary, t])
+  }, [formatAnalyticsCurrency, summary, t])
 
   const kpiCards = loading ? Array.from({ length: 6 }, (_, idx) => ({ label: `placeholder-${idx}`, value: '' })) : kpis
 
-  const pnlHistogram = summary?.distribution?.pnlHistogram ?? []
-  const drawdownSeries = summary?.drawdownSeries ?? []
-  const rolling20 = summary?.rolling20 ?? []
-  const rolling50 = summary?.rolling50 ?? []
+  const equityCurve = monetaryAnalyticsAvailable ? summary?.equityCurve ?? [] : []
+  const weeklyPnl = monetaryAnalyticsAvailable ? summary?.weeklyPnl ?? [] : []
+  const pnlHistogram = monetaryAnalyticsAvailable ? summary?.distribution?.pnlHistogram ?? [] : []
+  const drawdownSeries = monetaryAnalyticsAvailable ? summary?.drawdownSeries ?? [] : []
+  const rolling20 = monetaryAnalyticsAvailable ? summary?.rolling20 ?? [] : []
+  const rolling50 = monetaryAnalyticsAvailable ? summary?.rolling50 ?? [] : []
 
   const symbolBars = useMemo(() => {
-    if (!summary) return []
+    if (!summary || !monetaryAnalyticsAvailable) return []
     return summary.attribution.symbols.slice(0, 8)
-  }, [summary])
+  }, [monetaryAnalyticsAvailable, summary])
 
-  const heatmapData = summary?.timeEdge?.hourOfDay ?? []
+  const heatmapData = monetaryAnalyticsAvailable ? summary?.timeEdge?.hourOfDay ?? [] : []
   const heatmapMax = Math.max(...heatmapData.map((d) => Math.abs(d.netPnl)), 0)
 
   const sortedCoachAdvice = useMemo(() => {
@@ -505,14 +536,11 @@ export default function AnalyticsPage() {
       if (dateMode === 'OPEN') params.set('openedAtTo', filters.to)
       else params.set('closedAtTo', filters.to)
     }
-    if (filters.accountId) {
-      params.set('accountId', filters.accountId)
-    }
     if (card.filters?.symbol || filters.symbol) params.set('symbol', card.filters?.symbol || filters.symbol || '')
     if (card.filters?.direction || filters.direction) params.set('direction', card.filters?.direction || filters.direction || '')
     if (card.filters?.status || filters.status) params.set('status', card.filters?.status || filters.status || '')
-    const qs = params.toString()
-    navigate(`/trades${qs ? `?${qs}` : ''}`)
+    const scoped = writeAccountScope(params, accountScope.scope)
+    navigate(`/trades?${scoped.toString()}`)
   }
 
   const filterFieldSx = { width: '100%', minWidth: 0, ...compactInputSx }
@@ -682,6 +710,13 @@ export default function AnalyticsPage() {
         icon={<QueryStatsRoundedIcon fontSize="small" />}
       />
 
+      <AccountScopeSummary
+        scope={accountScope.scope}
+        accounts={accountScope.accounts}
+        notice={accountScope.selectionNotice}
+        mixedCurrency={!monetaryAnalyticsAvailable}
+      />
+
       <Card>
         <CardContent sx={{ p: { xs: 1.5, sm: 2.5 } }}>
           <Stack spacing={isCompact ? 1.5 : 2}>
@@ -730,13 +765,13 @@ export default function AnalyticsPage() {
                 fullWidth
                 sx={filterFieldSx}
               />
-              <TextField
-                size="small"
-                label={t('analytics.filters.accountId')}
-                value={filters.accountId || ''}
-                onChange={(e) => setFilters((prev) => ({ ...prev, accountId: e.target.value }))}
-                fullWidth
-                sx={filterFieldSx}
+              <AccountScopeSelector
+                value={accountScope.scope}
+                onChange={accountScope.setScope}
+                accounts={accountScope.accounts}
+                loading={accountScope.isLoading}
+                error={accountScope.isError}
+                onRetry={() => void accountScope.retry()}
               />
               <TextField
                 size="small"
@@ -1023,7 +1058,7 @@ export default function AnalyticsPage() {
                       <Typography variant="caption" color="text.secondary">{t('analytics.coachingSummary.bestStrategy')}</Typography>
                       <Typography variant="body1" fontWeight={600} sx={{ mt: 0.5 }}>{coachingSummary?.bestStrategy || t('common.na')}</Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {t('analytics.coachingSummary.expectancy')}: {formatSignedCurrency(coachingSummary?.bestStrategyExpectancy ?? null, baseCurrency)} • N={coachingSummary?.bestStrategyTrades ?? 0}
+                        {t('analytics.coachingSummary.expectancy')}: {formatAnalyticsCurrency(coachingSummary?.bestStrategyExpectancy ?? null)} • N={coachingSummary?.bestStrategyTrades ?? 0}
                       </Typography>
                     </CardContent>
                   </Card>
@@ -1032,7 +1067,7 @@ export default function AnalyticsPage() {
                       <Typography variant="caption" color="text.secondary">{t('analytics.coachingSummary.biggestLeak')}</Typography>
                       <Typography variant="body1" fontWeight={600} sx={{ mt: 0.5 }}>{coachingSummary?.biggestLeak || t('common.na')}</Typography>
                       <Typography variant="body2" color="text.secondary">
-                        {t('analytics.coachingSummary.expectancy')}: {formatSignedCurrency(coachingSummary?.biggestLeakExpectancy ?? null, baseCurrency)}
+                        {t('analytics.coachingSummary.expectancy')}: {formatAnalyticsCurrency(coachingSummary?.biggestLeakExpectancy ?? null)}
                       </Typography>
                     </CardContent>
                   </Card>
@@ -1061,16 +1096,16 @@ export default function AnalyticsPage() {
                   </Stack>
                   {loading ? (
                     <Skeleton variant="rectangular" height={chartHeights.large} />
-                  ) : (summary?.equityCurve?.length ?? 0) === 0 ? (
+                  ) : equityCurve.length === 0 ? (
                     <EmptyState title={t('analytics.overview.equityCurve.emptyTitle')} description={t('analytics.overview.equityCurve.emptyBody')} />
                   ) : (
                     <ResponsiveContainer width="100%" height={chartHeights.large}>
-                      <AreaChart data={summary?.equityCurve}>
+                      <AreaChart data={equityCurve}>
                         <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                         <XAxis dataKey="date" {...xAxisProps} />
                         <YAxis tick={chartAxisTick} />
                         <ChartTooltip
-                          formatter={(v: number) => formatCurrency(v as number, baseCurrency)}
+                          formatter={(v: number) => formatAnalyticsAbsoluteCurrency(v as number)}
                           {...chartTooltipProps}
                         />
                         <Area
@@ -1105,7 +1140,7 @@ export default function AnalyticsPage() {
                         <XAxis dataKey="date" {...xAxisProps} />
                         <YAxis tick={chartAxisTick} />
                         <ChartTooltip
-                          formatter={(v: number) => formatCurrency(v as number, baseCurrency)}
+                          formatter={(v: number) => formatAnalyticsAbsoluteCurrency(v as number)}
                           {...chartTooltipProps}
                         />
                         <Area
@@ -1208,7 +1243,7 @@ export default function AnalyticsPage() {
                   <Divider sx={{ my: 2 }} />
                   <Stack spacing={1}>
                     <Typography variant="subtitle2">{t('analytics.overview.drawdownHighlights.title')}</Typography>
-                    <Typography className="analytics-copy" variant="body2">{t('analytics.overview.drawdownHighlights.maxDrawdown')}: {formatCurrency(summary?.drawdown?.maxDrawdown, baseCurrency)}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.overview.drawdownHighlights.maxDrawdown')}: {formatAnalyticsAbsoluteCurrency(summary?.drawdown?.maxDrawdown)}</Typography>
                     <Typography className="analytics-copy" variant="body2">{t('analytics.overview.drawdownHighlights.recoveryFactor')}: {summary?.drawdown?.recoveryFactor?.toFixed(2) ?? t('common.na')}</Typography>
                     <Typography className="analytics-copy" variant="body2">{t('analytics.overview.drawdownHighlights.ulcerIndex')}: {summary?.drawdown?.ulcerIndex?.toFixed(2) ?? t('common.na')}</Typography>
                   </Stack>
@@ -1248,7 +1283,7 @@ export default function AnalyticsPage() {
                               <TableCell>{row.market}</TableCell>
                               <TableCell align="right">{row.trades}</TableCell>
                               <TableCell align="right">{formatPercent(row.winRate)}</TableCell>
-                              <TableCell align="right">{formatSignedCurrency(row.expectancy, baseCurrency)}</TableCell>
+                              <TableCell align="right">{formatAnalyticsCurrency(row.expectancy)}</TableCell>
                               <TableCell align="right">{row.profitFactor?.toFixed(2) ?? t('common.na')}</TableCell>
                             </TableRow>
                           ))}
@@ -1277,7 +1312,7 @@ export default function AnalyticsPage() {
                             sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 1, p: 1 }}
                           >
                             <Typography variant="body2">{formatSessionLabel(row.session)}</Typography>
-                            <Typography variant="body2">{formatSignedCurrency(row.expectancy, baseCurrency)} • {formatPercent(row.winRate)} • N={row.trades}</Typography>
+                            <Typography variant="body2">{formatAnalyticsCurrency(row.expectancy)} • {formatPercent(row.winRate)} • N={row.trades}</Typography>
                           </Stack>
                         ))}
                       </Stack>
@@ -1290,8 +1325,8 @@ export default function AnalyticsPage() {
                     {planAdherence ? (
                       <Stack spacing={1}>
                         <Typography variant="body2">{t('analytics.phase4.planAdherenceLinkedPct')}: {formatPercent(planAdherence.linkedPct)}</Typography>
-                        <Typography variant="body2">{t('analytics.phase4.planAdherenceLinked')}: {planAdherence.linkedTrades} ({formatSignedCurrency(planAdherence.linkedNetPnl, baseCurrency)}, {formatPercent(planAdherence.linkedWinRate)})</Typography>
-                        <Typography variant="body2">{t('analytics.phase4.planAdherenceUnlinked')}: {planAdherence.unlinkedTrades} ({formatSignedCurrency(planAdherence.unlinkedNetPnl, baseCurrency)}, {formatPercent(planAdherence.unlinkedWinRate)})</Typography>
+                        <Typography variant="body2">{t('analytics.phase4.planAdherenceLinked')}: {planAdherence.linkedTrades} ({formatAnalyticsCurrency(planAdherence.linkedNetPnl)}, {formatPercent(planAdherence.linkedWinRate)})</Typography>
+                        <Typography variant="body2">{t('analytics.phase4.planAdherenceUnlinked')}: {planAdherence.unlinkedTrades} ({formatAnalyticsCurrency(planAdherence.unlinkedNetPnl)}, {formatPercent(planAdherence.unlinkedWinRate)})</Typography>
                       </Stack>
                     ) : (
                       <EmptyState title={t('analytics.phase4.planAdherenceEmptyTitle')} description={t('analytics.phase4.planAdherenceEmptyBody')} />
@@ -1580,8 +1615,8 @@ export default function AnalyticsPage() {
                   <Divider sx={{ my: 1 }} />
                   <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.greenWeeks')}: {summary?.consistency?.greenWeeks ?? 0}</Typography>
                   <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.redWeeks')}: {summary?.consistency?.redWeeks ?? 0}</Typography>
-                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.bestDay')}: {summary?.consistency?.bestDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.bestDay?.value, baseCurrency)})</Typography>
-                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.worstDay')}: {summary?.consistency?.worstDay?.date ?? t('common.na')} ({formatSignedCurrency(summary?.consistency?.worstDay?.value, baseCurrency)})</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.bestDay')}: {summary?.consistency?.bestDay?.date ?? t('common.na')} ({formatAnalyticsCurrency(summary?.consistency?.bestDay?.value)})</Typography>
+                  <Typography className="analytics-copy" variant="body2">{t('analytics.consistency.streaks.worstDay')}: {summary?.consistency?.worstDay?.date ?? t('common.na')} ({formatAnalyticsCurrency(summary?.consistency?.worstDay?.value)})</Typography>
                 </Stack>
               </CardContent>
             </Card>
@@ -1592,15 +1627,15 @@ export default function AnalyticsPage() {
                 <Typography variant="h6" gutterBottom>{t('analytics.consistency.weeklyPnl.title')}</Typography>
                 {loading ? (
                   <Skeleton variant="rectangular" height={chartHeights.small} />
-                ) : (summary?.weeklyPnl?.length ?? 0) === 0 ? (
+                ) : weeklyPnl.length === 0 ? (
                   <EmptyState title={t('analytics.consistency.weeklyPnl.emptyTitle')} description={t('analytics.consistency.weeklyPnl.emptyBody')} />
                 ) : (
                   <ResponsiveContainer width="100%" height={chartHeights.small}>
-                    <BarChart data={summary?.weeklyPnl}>
+                    <BarChart data={weeklyPnl}>
                       <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                       <XAxis dataKey="date" {...xAxisProps} />
                       <YAxis tick={chartAxisTick} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
+                      <ChartTooltip formatter={(v: number) => formatAnalyticsAbsoluteCurrency(v as number)} {...chartTooltipProps} />
                       <Bar dataKey="value" fill={theme.palette.primary.main} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1627,7 +1662,7 @@ export default function AnalyticsPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                       <XAxis dataKey="bucket" {...xAxisProps} />
                       <YAxis tick={chartAxisTick} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
+                      <ChartTooltip formatter={(v: number) => formatAnalyticsAbsoluteCurrency(v as number)} {...chartTooltipProps} />
                       <Bar dataKey="netPnl" fill={theme.palette.primary.main} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1649,7 +1684,7 @@ export default function AnalyticsPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                       <XAxis dataKey="bucket" {...xAxisProps} />
                       <YAxis tick={chartAxisTick} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
+                      <ChartTooltip formatter={(v: number) => formatAnalyticsAbsoluteCurrency(v as number)} {...chartTooltipProps} />
                       <Bar dataKey="netPnl" fill={theme.palette.success.main} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -1713,7 +1748,7 @@ export default function AnalyticsPage() {
                       <CartesianGrid strokeDasharray="3 3" stroke={chartGridStroke} />
                       <XAxis dataKey="name" {...xAxisProps} />
                       <YAxis tick={chartAxisTick} />
-                      <ChartTooltip formatter={(v: number) => formatCurrency(v as number, baseCurrency)} {...chartTooltipProps} />
+                      <ChartTooltip formatter={(v: number) => formatAnalyticsAbsoluteCurrency(v as number)} {...chartTooltipProps} />
                       <Bar
                         dataKey="netPnl"
                         fill={theme.palette.primary.main}
@@ -1746,7 +1781,7 @@ export default function AnalyticsPage() {
                           <Typography className="analytics-copy" variant="body2">{row.name}</Typography>
                           {row.lowSample && <Chip size="small" label={t('analytics.symbols.strategyLeaderboard.lowSample')} />}
                         </Stack>
-                        <Typography className="analytics-copy" variant="body2">{formatSignedCurrency(row.netPnl, baseCurrency)} • N={row.trades}</Typography>
+                        <Typography className="analytics-copy" variant="body2">{formatAnalyticsCurrency(row.netPnl)} • N={row.trades}</Typography>
                       </Stack>
                     ))}
                   </Stack>
@@ -1754,7 +1789,7 @@ export default function AnalyticsPage() {
                 <Divider sx={{ my: 2 }} />
                 <Typography variant="subtitle2">{t('analytics.symbols.strategyLeaderboard.stopDoing')}</Typography>
                 {(summary?.attribution?.bottomSymbols ?? []).map((row) => (
-                  <Typography className="analytics-copy" key={row.name} variant="body2">• {row.name} ({formatSignedCurrency(row.netPnl, baseCurrency)}, N={row.trades})</Typography>
+                  <Typography className="analytics-copy" key={row.name} variant="body2">• {row.name} ({formatAnalyticsCurrency(row.netPnl)}, N={row.trades})</Typography>
                 ))}
               </CardContent>
             </Card>
@@ -1774,7 +1809,7 @@ export default function AnalyticsPage() {
                     <Typography className="analytics-copy" variant="body2">{t('analytics.risk.medianR')}: {summary.risk.medianR?.toFixed(2) ?? t('common.na')}</Typography>
                     <Typography className="analytics-copy" variant="body2">{t('analytics.risk.expectancyR')}: {summary.risk.expectancyR?.toFixed(2) ?? t('common.na')}</Typography>
                     <Typography className="analytics-copy" variant="body2">{t('analytics.risk.winRateR')}: {formatPercent(summary.risk.winRateR)}</Typography>
-                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.avgRiskAmount')}: {formatCurrency(summary.risk.averageRiskAmount, baseCurrency)}</Typography>
+                    <Typography className="analytics-copy" variant="body2">{t('analytics.risk.avgRiskAmount')}: {formatAnalyticsAbsoluteCurrency(summary.risk.averageRiskAmount)}</Typography>
                     <Typography className="analytics-copy" variant="body2">{t('analytics.risk.avgRiskPercent')}: {formatPercent(summary.risk.averageRiskPercent)}</Typography>
                   </Stack>
                 </Grid>

@@ -27,11 +27,15 @@ import PageHero from '../components/ui/PageHero'
 import { useAuth } from '../auth/AuthContext'
 import { useI18n } from '../i18n'
 import { formatDateTime, formatSignedCurrency } from '../utils/format'
-import { listTrades, TradeResponse } from '../api/trades'
+import { searchTrades, TradeResponse } from '../api/trades'
 import { fetchCoachFocus } from '../api/today'
 import { DailyPlan } from '../api/plans'
 import { useTodayMentorPlanQuery } from '../hooks/usePlans'
 import { fetchSignalAnalyticsSummary, fetchSignalRecommendations } from '../api/signalIntel'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
+import { AccountScopeValue, writeAccountScope } from '../features/accountScope/accountScope'
 
 const coachChipColor = (severity: string): ChipProps['color'] => {
   if (severity === 'critical') return 'error'
@@ -71,7 +75,15 @@ const normalizePlanText = (value?: string | null, maxLength = 220) => {
   return `${compact.slice(0, maxLength).trimEnd()}...`
 }
 
-const tradeLogPath = () => '/trades?quickLog=1'
+const tradeLogPath = (scope: AccountScopeValue) => {
+  const params = writeAccountScope(new URLSearchParams({ quickLog: '1' }), scope)
+  return `/trades?${params.toString()}`
+}
+
+const scopedPath = (path: string, scope: AccountScopeValue, hash = '') => {
+  const params = writeAccountScope(new URLSearchParams(), scope)
+  return `${path}?${params.toString()}${hash}`
+}
 
 export default function TodayPage() {
   const { t } = useI18n()
@@ -81,18 +93,19 @@ export default function TodayPage() {
   const todayDate = useMemo(() => getTodayDateInTimezone(timezone), [timezone])
   const [signalSymbol, setSignalSymbol] = useState('')
   const [signalTimeframe, setSignalTimeframe] = useState('')
+  const accountScope = useAccountScope()
 
   const mentorPlanQuery = useTodayMentorPlanQuery(todayDate, timezone)
 
   const coachFocusQuery = useQuery({
-    queryKey: ['coachFocus'],
-    queryFn: () => fetchCoachFocus()
+    queryKey: ['coachFocus', accountScope.cacheKey],
+    queryFn: () => fetchCoachFocus(accountScope.apiParams)
   })
 
   const recentTradesQuery = useQuery({
-    queryKey: ['recentTrades'],
+    queryKey: ['recentTrades', accountScope.cacheKey],
     queryFn: async () => {
-      const page = await listTrades({ page: 0, size: 6 })
+      const page = await searchTrades({ page: 0, size: 6, ...accountScope.apiParams })
       return page.content || []
     }
   })
@@ -141,6 +154,24 @@ export default function TodayPage() {
         )}
       />
 
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5} alignItems={{ md: 'flex-start' }}>
+        <Box sx={{ width: { xs: '100%', md: 360 }, maxWidth: '100%' }}>
+          <AccountScopeSelector
+            value={accountScope.scope}
+            onChange={accountScope.setScope}
+            accounts={accountScope.accounts}
+            loading={accountScope.isLoading}
+            error={accountScope.isError}
+            onRetry={() => void accountScope.retry()}
+          />
+        </Box>
+        <AccountScopeSummary
+          scope={accountScope.scope}
+          accounts={accountScope.accounts}
+          notice={accountScope.selectionNotice}
+        />
+      </Stack>
+
       {(mentorPlanQuery.isError || coachFocusQuery.isError || recentTradesQuery.isError) && (
         <Alert severity="error">{t('today.errors.load')}</Alert>
       )}
@@ -164,7 +195,7 @@ export default function TodayPage() {
               <Typography variant="body2" color="text.secondary">
                 {t('today.recentTrades.emptyBody')}
               </Typography>
-              <Button component={Link} to={tradeLogPath()} variant="contained" startIcon={<AddCircleOutlineRoundedIcon />}>
+              <Button component={Link} to={tradeLogPath(accountScope.scope)} variant="contained" startIcon={<AddCircleOutlineRoundedIcon />}>
                 {t('today.actions.logTrade')}
               </Button>
             </Stack>
@@ -291,7 +322,7 @@ export default function TodayPage() {
                   )}
                   <Button
                     component={Link}
-                    to={`/insights/${mentorPlan.slug || mentorPlan.id}`}
+                    to={scopedPath(`/insights/${mentorPlan.slug || mentorPlan.id}`, accountScope.scope)}
                     variant="outlined"
                     size="small"
                     startIcon={<OpenInNewRoundedIcon />}
@@ -305,7 +336,7 @@ export default function TodayPage() {
                   description={t('today.mentor.emptyBody')}
                   icon={<InsightsRoundedIcon fontSize="inherit" />}
                   action={(
-                    <Button component={Link} to="/insights/today" size="small" variant="outlined">
+                    <Button component={Link} to={scopedPath('/insights/today', accountScope.scope)} size="small" variant="outlined">
                       {t('today.actions.openInsights')}
                     </Button>
                   )}
@@ -342,7 +373,7 @@ export default function TodayPage() {
                     <Typography component="span" color="text.secondary">{t('today.cards.coach.action')}:</Typography>{' '}
                     <strong>{coachFocusQuery.data.action}</strong>
                   </Typography>
-                  <Button component={Link} to="/analytics#coach-focus" variant="outlined" size="small">
+                  <Button component={Link} to={scopedPath('/analytics', accountScope.scope, '#coach-focus')} variant="outlined" size="small">
                     {t('today.actions.seeWhy')}
                   </Button>
                 </>
@@ -372,7 +403,7 @@ export default function TodayPage() {
                 </Stack>
                 <Button
                   component={Link}
-                  to="/trades"
+                  to={scopedPath('/trades', accountScope.scope)}
                   size="small"
                   variant="outlined"
                   startIcon={<OpenInNewRoundedIcon />}

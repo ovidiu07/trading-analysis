@@ -18,6 +18,22 @@ const mockFetchSignalBySymbolTimeframe = vi.fn()
 const mockUseChecklistTemplateQuery = vi.fn()
 const mockUseSaveChecklistTemplateMutation = vi.fn()
 
+vi.mock('../features/accountScope/useAccountScope', () => ({
+  useAccountScope: () => ({
+    scope: { mode: 'all', accountIds: [] },
+    setScope: vi.fn(),
+    clearScope: vi.fn(),
+    accounts: [],
+    isLoading: false,
+    isError: false,
+    retry: vi.fn(),
+    apiParams: {},
+    cacheKey: 'all',
+    selectionNotice: '',
+    clearSelectionNotice: vi.fn()
+  })
+}))
+
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
   window.matchMedia = vi.fn().mockImplementation((query: string) => {
@@ -276,12 +292,11 @@ describe('AnalyticsPage', () => {
 
     const user = userEvent.setup()
     await user.type(screen.getByLabelText('Symbol'), 'AAPL')
-    await user.type(screen.getByLabelText('Account ID'), 'APEX4855840000003')
     await user.click(screen.getByRole('button', { name: 'Apply' }))
 
     await waitFor(() => {
-      expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL', accountId: 'APEX4855840000003' }))
-      expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL', accountId: 'APEX4855840000003' }))
+      expect(mockFetchAnalyticsSummary).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
+      expect(mockFetchAnalyticsCoach).toHaveBeenLastCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
       expect(mockFetchSignalAnalyticsSummary).toHaveBeenCalledWith(expect.objectContaining({ symbol: 'AAPL' }))
     })
   })

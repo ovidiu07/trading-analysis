@@ -35,6 +35,7 @@ import { isAdminUser } from '../auth/roles'
 import { layoutTokens } from '../theme/tokens'
 import useRouteViewportReset from '../hooks/useRouteViewportReset'
 import { collectViewportOverflow } from '../utils/viewportDiagnostics'
+import { readAccountScope, writeAccountScope } from '../features/accountScope/accountScope'
 
 const SIDEBAR_WIDTH = layoutTokens.sidebar.expanded
 const SIDEBAR_COLLAPSED_WIDTH = layoutTokens.sidebar.collapsed
@@ -138,7 +139,15 @@ export default function AppShell() {
 
   const isDashboard = pageMeta.id === 'dashboard'
   const publicLocaleBase = language === 'ro' ? '/ro' : '/en'
-  const dashboardState = useMemo(() => readDashboardQueryState(searchParams), [searchParams.toString()])
+  const searchParamsKey = searchParams.toString()
+  const dashboardState = useMemo(
+    () => readDashboardQueryState(new URLSearchParams(searchParamsKey)),
+    [searchParamsKey]
+  )
+  const accountScopeSearch = useMemo(() => {
+    const scoped = writeAccountScope(new URLSearchParams(), readAccountScope(new URLSearchParams(searchParamsKey)))
+    return `?${scoped.toString()}`
+  }, [searchParamsKey])
 
   const updateDashboardState = useCallback((patch: Partial<DashboardQueryState>) => {
     const nextState: DashboardQueryState = { ...dashboardState, ...patch }
@@ -249,6 +258,7 @@ export default function AppShell() {
               collapseLabel={t('layout.collapseSidebar')}
               expandLabel={t('layout.expandSidebar')}
               homeLabel={t('layout.homeLabel')}
+              accountScopeSearch={accountScopeSearch}
             />
           </Drawer>
         </Box>

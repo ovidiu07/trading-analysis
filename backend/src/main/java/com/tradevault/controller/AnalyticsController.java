@@ -34,6 +34,7 @@ public class AnalyticsController {
                                      @RequestParam(required = false) String symbol,
                                      @RequestParam(required = false) Direction direction,
                                      @RequestParam(required = false) TradeStatus status,
+                                     @RequestParam(required = false) String accountIds,
                                      @RequestParam(required = false) String accountId,
                                      @RequestParam(required = false) String strategy,
                                      @RequestParam(required = false) String setup,
@@ -44,7 +45,7 @@ public class AnalyticsController {
                                      @RequestParam(required = false) String holdingBucket) {
         OffsetDateTime fromDate = toStartOfDay(from);
         OffsetDateTime toDate = toEndOfDay(to);
-        return analyticsService.summarize(fromDate, toDate, symbol, direction, status, accountId, strategy, setup, catalyst, market, dateMode, excludeOutliers, holdingBucket);
+        return analyticsService.summarize(fromDate, toDate, symbol, direction, status, accountIds, accountId, strategy, setup, catalyst, market, dateMode, excludeOutliers, holdingBucket);
     }
 
     @GetMapping("/timeseries")
@@ -53,6 +54,7 @@ public class AnalyticsController {
                                                   @RequestParam(required = false) String symbol,
                                                   @RequestParam(required = false) Direction direction,
                                                   @RequestParam(required = false) TradeStatus status,
+                                                  @RequestParam(required = false) String accountIds,
                                                   @RequestParam(required = false) String accountId,
                                                   @RequestParam(required = false) String strategy,
                                                   @RequestParam(required = false) String setup,
@@ -63,7 +65,7 @@ public class AnalyticsController {
                                                   @RequestParam(required = false) Integer window) {
         OffsetDateTime fromDate = toStartOfDay(from);
         OffsetDateTime toDate = toEndOfDay(to);
-        return analyticsService.timeseries(fromDate, toDate, symbol, direction, status, accountId, strategy, setup, catalyst, market, dateMode, bucket, window);
+        return analyticsService.timeseries(fromDate, toDate, symbol, direction, status, accountIds, accountId, strategy, setup, catalyst, market, dateMode, bucket, window);
     }
 
     @GetMapping("/breakdown")
@@ -72,6 +74,7 @@ public class AnalyticsController {
                                                 @RequestParam(required = false) String symbol,
                                                 @RequestParam(required = false) Direction direction,
                                                 @RequestParam(required = false) TradeStatus status,
+                                                @RequestParam(required = false) String accountIds,
                                                 @RequestParam(required = false) String accountId,
                                                 @RequestParam(required = false) String strategy,
                                                 @RequestParam(required = false) String setup,
@@ -81,7 +84,7 @@ public class AnalyticsController {
                                                 @RequestParam(required = false) String groupBy) {
         OffsetDateTime fromDate = toStartOfDay(from);
         OffsetDateTime toDate = toEndOfDay(to);
-        return analyticsService.breakdown(fromDate, toDate, symbol, direction, status, accountId, strategy, setup, catalyst, market, dateMode, groupBy);
+        return analyticsService.breakdown(fromDate, toDate, symbol, direction, status, accountIds, accountId, strategy, setup, catalyst, market, dateMode, groupBy);
     }
 
     @GetMapping("/coach")
@@ -90,6 +93,7 @@ public class AnalyticsController {
                                @RequestParam(required = false) String symbol,
                                @RequestParam(required = false) Direction direction,
                                @RequestParam(required = false) TradeStatus status,
+                               @RequestParam(required = false) String accountIds,
                                @RequestParam(required = false) String accountId,
                                @RequestParam(required = false) String strategy,
                                @RequestParam(required = false) String setup,
@@ -99,7 +103,7 @@ public class AnalyticsController {
                                @RequestParam(required = false, defaultValue = "false") boolean excludeOutliers) {
         OffsetDateTime fromDate = toStartOfDay(from);
         OffsetDateTime toDate = toEndOfDay(to);
-        return tradeCoachService.coach(fromDate, toDate, symbol, direction, status, accountId, strategy, setup, catalyst, market, dateMode, excludeOutliers);
+        return tradeCoachService.coach(fromDate, toDate, symbol, direction, status, accountIds, accountId, strategy, setup, catalyst, market, dateMode, excludeOutliers);
     }
 
     private OffsetDateTime toStartOfDay(LocalDate date) {

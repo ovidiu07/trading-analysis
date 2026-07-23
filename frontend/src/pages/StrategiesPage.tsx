@@ -44,6 +44,9 @@ import {
 } from '../api/strategies'
 import { MAX_UPLOAD_SIZE_BYTES, ALLOWED_UPLOAD_MIME_TYPES } from '../api/assets'
 import { useI18n } from '../i18n'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
 
 const parseList = (value: string) => value
   .split(/\r?\n|,/)
@@ -135,6 +138,7 @@ export default function StrategiesPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<StrategyDraft>(emptyDraft)
   const [uploads, setUploads] = useState<UploadQueueItem[]>([])
+  const accountScope = useAccountScope()
 
   const strategiesQuery = useQuery({
     queryKey: ['strategies', true],
@@ -395,6 +399,22 @@ export default function StrategiesPage() {
           {t('strategies.subtitle')}
         </Typography>
       </Stack>
+
+      <Box sx={{ width: { xs: '100%', sm: 360 }, maxWidth: '100%' }}>
+        <AccountScopeSelector
+          value={accountScope.scope}
+          onChange={accountScope.setScope}
+          accounts={accountScope.accounts}
+          loading={accountScope.isLoading}
+          error={accountScope.isError}
+          onRetry={() => void accountScope.retry()}
+        />
+      </Box>
+      <AccountScopeSummary
+        scope={accountScope.scope}
+        accounts={accountScope.accounts}
+        notice={accountScope.selectionNotice}
+      />
 
       {apiError && <Alert severity='error'>{apiError}</Alert>}
       {apiSuccess && <Alert severity='success' onClose={() => setApiSuccess('')}>{apiSuccess}</Alert>}

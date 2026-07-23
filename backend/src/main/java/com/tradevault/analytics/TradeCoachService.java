@@ -7,9 +7,13 @@ import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.analytics.*;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.spec.TradeSpecifications;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -38,23 +42,41 @@ public class TradeCoachService {
     private final TradeRepository tradeRepository;
     private final CurrentUserService currentUserService;
     private final TradeCoachConfig config;
+    private final AccountScopeService accountScopeService;
 
     public CoachResponse coach(OffsetDateTime from,
                                OffsetDateTime to,
                                String symbol,
                                Direction direction,
                                TradeStatus status,
-                               String accountId,
+                               String legacyAccountId,
                                String strategy,
                                String setup,
                                String catalyst,
                                String market,
                                String dateMode,
                                boolean excludeOutliers) {
-        User user = currentUserService.getCurrentUser();
-        List<Trade> trades = tradeRepository.findByUserId(user.getId());
+        return coach(from, to, symbol, direction, status, null, legacyAccountId, strategy, setup,
+                catalyst, market, dateMode, excludeOutliers);
+    }
+
+    public CoachResponse coach(OffsetDateTime from,
+                               OffsetDateTime to,
+                               String symbol,
+                               Direction direction,
+                               TradeStatus status,
+                               String accountIds,
+                               String legacyAccountId,
+                               String strategy,
+                               String setup,
+                               String catalyst,
+                               String market,
+                               String dateMode,
+                               boolean excludeOutliers) {
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
+        List<Trade> trades = findTrades(accountScope);
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, null, strategy, setup, catalyst, market, mode);
         CoachDataQuality dataQuality = buildDataQuality(filtered);
 
         List<Trade> closedTrades = filtered.stream()
@@ -81,6 +103,14 @@ public class TradeCoachService {
                 .dataQuality(dataQuality)
                 .advice(advice)
                 .build();
+    }
+
+    private List<Trade> findTrades(AuthorizedAccountScope scope) {
+        Specification<Trade> specification = Specification.where(TradeSpecifications.userId(scope.userId()));
+        if (!scope.isAll()) {
+            specification = specification.and(TradeSpecifications.accountIds(scope.accountIds()));
+        }
+        return tradeRepository.findAll(specification);
     }
 
     private List<Trade> filterTrades(List<Trade> trades,

@@ -25,8 +25,10 @@ public class CsvController {
 
     @GetMapping("/export/csv")
     public ResponseEntity<String> exportCsv(@RequestParam(required = false) OffsetDateTime from,
-                                            @RequestParam(required = false) OffsetDateTime to) throws IOException {
-        String csv = importExportService.exportCsv(from, to);
+                                            @RequestParam(required = false) OffsetDateTime to,
+                                            @RequestParam(required = false) String accountIds,
+                                            @RequestParam(required = false) String accountId) throws IOException {
+        String csv = importExportService.exportCsv(from, to, accountIds, accountId);
         return ResponseEntity.ok()
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=trades.csv")
                 .contentType(MediaType.TEXT_PLAIN)

@@ -4,6 +4,7 @@ import com.tradevault.domain.entity.Trade;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
 import java.time.OffsetDateTime;
+import java.util.Collection;
 import java.util.UUID;
 import org.springframework.data.jpa.domain.Specification;
 
@@ -45,5 +46,11 @@ public final class TradeSpecifications {
 
   public static Specification<Trade> status(TradeStatus status) {
     return status == null ? null : (root, query, cb) -> cb.equal(root.get("status"), status);
+  }
+
+  public static Specification<Trade> accountIds(Collection<UUID> accountIds) {
+    return accountIds == null || accountIds.isEmpty()
+        ? null
+        : (root, query, cb) -> root.get("account").get("id").in(accountIds);
   }
 }

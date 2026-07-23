@@ -23,8 +23,9 @@ public class DiagnosticsController {
     private final DiagnosticsService diagnosticsService;
 
     @GetMapping("/strategies")
-    public DiagnosticsStrategiesResponse listStrategies() {
-        return diagnosticsService.listStrategies();
+    public DiagnosticsStrategiesResponse listStrategies(@RequestParam(required = false) String accountIds,
+                                                        @RequestParam(required = false) String accountId) {
+        return diagnosticsService.listStrategies(accountIds, accountId);
     }
 
     @GetMapping("/strategy/{id}")
@@ -35,9 +36,11 @@ public class DiagnosticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String symbol,
             @RequestParam(name = "sessionWindow", required = false) String sessionWindow,
-            @RequestParam(name = "backtestSource", required = false) String backtestSource
+            @RequestParam(name = "backtestSource", required = false) String backtestSource,
+            @RequestParam(required = false) String accountIds,
+            @RequestParam(required = false) String accountId
     ) {
-        return diagnosticsService.getStrategyDetail(id, mode, from, to, symbol, sessionWindow, backtestSource);
+        return diagnosticsService.getStrategyDetail(id, mode, from, to, symbol, sessionWindow, backtestSource, accountIds, accountId);
     }
 
     @GetMapping("/reports")
@@ -55,8 +58,10 @@ public class DiagnosticsController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate to,
             @RequestParam(required = false) String symbol,
-            @RequestParam(name = "sessionWindow", required = false) String sessionWindow
+            @RequestParam(name = "sessionWindow", required = false) String sessionWindow,
+            @RequestParam(required = false) String accountIds,
+            @RequestParam(required = false) String accountId
     ) {
-        return diagnosticsService.getLiveSummary(from, to, symbol, sessionWindow);
+        return diagnosticsService.getLiveSummary(from, to, symbol, sessionWindow, accountIds, accountId);
     }
 }

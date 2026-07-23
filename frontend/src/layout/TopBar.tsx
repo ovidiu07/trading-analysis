@@ -40,6 +40,9 @@ import { useI18n } from '../i18n'
 import type { ThemePreference } from '../themeMode'
 import NotificationBell from '../components/layout/NotificationBell'
 import BrandLogo from '../components/brand/BrandLogo'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import { writeAccountScope } from '../features/accountScope/accountScope'
 
 const MARKET_OPTIONS = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'] as const
 
@@ -85,6 +88,7 @@ export default function TopBar({
   const isNarrow = useMediaQuery(theme.breakpoints.down('md'))
   const isXs = useMediaQuery(theme.breakpoints.down('sm'))
   const isDashboardMobile = isDashboard && isNarrow
+  const accountScope = useAccountScope(isAuthenticated)
 
   const [profileAnchor, setProfileAnchor] = useState<null | HTMLElement>(null)
   const [themeAnchor, setThemeAnchor] = useState<null | HTMLElement>(null)
@@ -141,18 +145,16 @@ export default function TopBar({
         sx={{ minWidth: { xs: '100%', md: 145 } }}
         inputProps={{ 'aria-label': t('dashboard.topBar.to') }}
       />
-      <Tooltip title={t('dashboard.topBar.comingSoon')} arrow>
-        <span>
-          <TextField
-            size="small"
-            label={t('dashboard.topBar.account')}
-            value={dashboardState.accountId}
-            disabled
-            sx={{ minWidth: { xs: '100%', md: 140 } }}
-            inputProps={{ 'aria-label': t('dashboard.topBar.account') }}
-          />
-        </span>
-      </Tooltip>
+      <Box sx={{ minWidth: { xs: '100%', md: 240 }, maxWidth: { md: 320 } }}>
+        <AccountScopeSelector
+          value={accountScope.scope}
+          onChange={accountScope.setScope}
+          accounts={accountScope.accounts}
+          loading={accountScope.isLoading}
+          error={accountScope.isError}
+          onRetry={() => void accountScope.retry()}
+        />
+      </Box>
       <FormControl size="small" sx={{ minWidth: { xs: '100%', md: 155 } }}>
         <InputLabel id="dashboard-market-label">{t('dashboard.topBar.market')}</InputLabel>
         <Select
@@ -192,7 +194,7 @@ export default function TopBar({
         {t('dashboard.definitions.open')}
       </Button>
     </Stack>
-  ), [dashboardState.accountId, dashboardState.from, dashboardState.to, marketValue, onDashboardStateChange, onOpenDefinitions, statusValue, t])
+  ), [accountScope, dashboardState.from, dashboardState.to, marketValue, onDashboardStateChange, onOpenDefinitions, statusValue, t])
 
   const dashboardFilterSummary = useMemo(() => {
     const statusLabel = statusValue === 'ALL' ? t('trades.filters.any') : t(`trades.status.${statusValue}`)
@@ -203,8 +205,9 @@ export default function TopBar({
     if (marketValue) {
       summaryParts.push(`${t('dashboard.topBar.market')}: ${marketValue}`)
     }
+    summaryParts.push(`${t('dashboard.topBar.account')}: ${accountScope.scope.mode === 'all' ? t('accountScope.all') : t('accountScope.manySelected', { count: accountScope.scope.accountIds.length })}`)
     return summaryParts.join(' | ')
-  }, [dashboardState.from, dashboardState.to, marketValue, statusValue, t])
+  }, [accountScope.scope, dashboardState.from, dashboardState.to, marketValue, statusValue, t])
 
   const languageControl = (
     <ToggleButtonGroup
@@ -290,7 +293,7 @@ export default function TopBar({
                 {showMenuToggle && (
                   <Box
                     component={Link}
-                    to="/today"
+                    to={`/today?${writeAccountScope(new URLSearchParams(), accountScope.scope).toString()}`}
                     aria-label={t('layout.homeLabel')}
                     sx={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none' }}
                   >

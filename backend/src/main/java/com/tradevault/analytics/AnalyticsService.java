@@ -7,11 +7,15 @@ import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.analytics.*;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.repository.spec.TradeSpecifications;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -30,6 +34,7 @@ public class AnalyticsService {
     private static final Logger log = LoggerFactory.getLogger(AnalyticsService.class);
     private final TradeRepository tradeRepository;
     private final CurrentUserService currentUserService;
+    private final AccountScopeService accountScopeService;
     private static final ZoneId DISPLAY_ZONE = ZoneId.of("Europe/Bucharest");
     private static final int LOW_SAMPLE_THRESHOLD = 20;
 
@@ -38,7 +43,25 @@ public class AnalyticsService {
                                        String symbol,
                                        Direction direction,
                                        TradeStatus status,
-                                       String accountId,
+                                       String legacyAccountId,
+                                       String strategy,
+                                       String setup,
+                                       String catalyst,
+                                       String market,
+                                       String dateMode,
+                                       boolean excludeOutliers,
+                                       String holdingBucket) {
+        return summarize(from, to, symbol, direction, status, null, legacyAccountId, strategy,
+                setup, catalyst, market, dateMode, excludeOutliers, holdingBucket);
+    }
+
+    public AnalyticsResponse summarize(OffsetDateTime from,
+                                       OffsetDateTime to,
+                                       String symbol,
+                                       Direction direction,
+                                       TradeStatus status,
+                                       String accountIds,
+                                       String legacyAccountId,
                                        String strategy,
                                        String setup,
                                        String catalyst,
@@ -47,9 +70,10 @@ public class AnalyticsService {
                                        boolean excludeOutliers,
                                        String holdingBucket) {
         User user = currentUserService.getCurrentUser();
-        List<Trade> trades = tradeRepository.findByUserId(user.getId());
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
+        List<Trade> trades = findTrades(accountScope);
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode, holdingBucket);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, null, strategy, setup, catalyst, market, mode, holdingBucket);
         FilterOptions filterOptions = buildFilterOptions(trades);
 
         List<Trade> closedTrades = filtered.stream()
@@ -87,6 +111,7 @@ public class AnalyticsService {
                 Collectors.summingDouble(t -> t.getPnlNet() == null ? 0 : t.getPnlNet().doubleValue())));
 
         return AnalyticsResponse.builder()
+                .accountScope(buildAccountScopeMetadata(accountScope, filtered, user))
                 .kpi(kpi)
                 .costs(costs)
                 .drawdown(drawdownResult.summary)
@@ -112,12 +137,54 @@ public class AnalyticsService {
                 .build();
     }
 
+    private AccountScopeMetadata buildAccountScopeMetadata(AuthorizedAccountScope scope,
+                                                           List<Trade> trades,
+                                                           User user) {
+        List<String> currencies = java.util.stream.Stream.concat(
+                        scope.accounts().stream().map(account -> account.getAccountCurrency()),
+                        trades.stream().map(trade -> firstNonBlank(
+                                trade.getAccountCurrency(),
+                                trade.getTradeCurrency(),
+                                trade.getProfileCurrency()
+                        ))
+                )
+                .filter(Objects::nonNull)
+                .filter(value -> !value.isBlank())
+                .map(String::trim)
+                .map(value -> value.toUpperCase(Locale.ROOT))
+                .distinct()
+                .sorted()
+                .toList();
+        if (currencies.isEmpty() && user.getBaseCurrency() != null) {
+            currencies = List.of(user.getBaseCurrency().toUpperCase(Locale.ROOT));
+        }
+        boolean monetaryAvailable = currencies.size() <= 1;
+        return AccountScopeMetadata.builder()
+                .mode(scope.isAll() ? "all" : "selected")
+                .accountIds(scope.accountIds().stream().toList())
+                .accountNames(scope.accounts().stream().map(account -> account.getName()).toList())
+                .reportingCurrencies(currencies)
+                .reportingCurrency(monetaryAvailable && !currencies.isEmpty() ? currencies.get(0) : null)
+                .monetaryAnalyticsAvailable(monetaryAvailable)
+                .build();
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
+    }
+
     public AnalyticsTimeseriesResponse timeseries(OffsetDateTime from,
                                                   OffsetDateTime to,
                                                   String symbol,
                                                   Direction direction,
                                                   TradeStatus status,
-                                                  String accountId,
+                                                  String accountIds,
+                                                  String legacyAccountId,
                                                   String strategy,
                                                   String setup,
                                                   String catalyst,
@@ -125,10 +192,10 @@ public class AnalyticsService {
                                                   String dateMode,
                                                   String bucket,
                                                   Integer rollingWindow) {
-        User user = currentUserService.getCurrentUser();
-        List<Trade> trades = tradeRepository.findByUserId(user.getId());
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
+        List<Trade> trades = findTrades(accountScope);
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode, null);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, null, strategy, setup, catalyst, market, mode, null);
         List<Trade> closedTrades = filtered.stream()
                 .filter(t -> t.getStatus() == TradeStatus.CLOSED && t.getClosedAt() != null)
                 .toList();
@@ -150,17 +217,18 @@ public class AnalyticsService {
                                                 String symbol,
                                                 Direction direction,
                                                 TradeStatus status,
-                                                String accountId,
+                                                String accountIds,
+                                                String legacyAccountId,
                                                 String strategy,
                                                 String setup,
                                                 String catalyst,
                                                 String market,
                                                 String dateMode,
                                                 String groupBy) {
-        User user = currentUserService.getCurrentUser();
-        List<Trade> trades = tradeRepository.findByUserId(user.getId());
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
+        List<Trade> trades = findTrades(accountScope);
         DateMode mode = DateMode.fromString(dateMode);
-        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, accountId, strategy, setup, catalyst, market, mode, null);
+        List<Trade> filtered = filterTrades(trades, from, to, symbol, direction, status, null, strategy, setup, catalyst, market, mode, null);
         List<Trade> closedTrades = filtered.stream()
                 .filter(t -> t.getStatus() == TradeStatus.CLOSED && t.getClosedAt() != null)
                 .toList();
@@ -177,6 +245,14 @@ public class AnalyticsService {
         };
 
         return AnalyticsBreakdownResponse.builder().rows(rows).build();
+    }
+
+    private List<Trade> findTrades(AuthorizedAccountScope scope) {
+        Specification<Trade> specification = Specification.where(TradeSpecifications.userId(scope.userId()));
+        if (!scope.isAll()) {
+            specification = specification.and(TradeSpecifications.accountIds(scope.accountIds()));
+        }
+        return tradeRepository.findAll(specification);
     }
 
     private List<Trade> filterTrades(List<Trade> trades,

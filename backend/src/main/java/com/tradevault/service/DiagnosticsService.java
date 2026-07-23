@@ -27,8 +27,12 @@ import com.tradevault.repository.BacktestTradeRepository;
 import com.tradevault.repository.ContextSnapshotRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
+import com.tradevault.repository.spec.TradeSpecifications;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -63,13 +67,19 @@ public class DiagnosticsService {
     private final BacktestRunReportRepository backtestRunReportRepository;
     private final UserStrategyRepository userStrategyRepository;
     private final ContextSnapshotRepository contextSnapshotRepository;
+    private final AccountScopeService accountScopeService;
 
     public DiagnosticsStrategiesResponse listStrategies() {
+        return listStrategies(null, null);
+    }
+
+    public DiagnosticsStrategiesResponse listStrategies(String accountIds, String legacyAccountId) {
         User user = currentUserService.getCurrentUser();
         UUID userId = user.getId();
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
         Map<UUID, String> strategyNames = mapStrategyNames(userId);
 
-        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.BOTH, null, null, null, null, null, null);
+        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.BOTH, null, null, null, null, null, null, accountScope);
 
         Map<UUID, StatsBucket> grouped = new LinkedHashMap<>();
         for (TradeSample sample : samples) {
@@ -139,11 +149,21 @@ public class DiagnosticsService {
                                                          LocalDate to,
                                                          String symbol,
                                                          String sessionWindow) {
+        return getLiveSummary(from, to, symbol, sessionWindow, null, null);
+    }
+
+    public LiveDiagnosticsSummaryResponse getLiveSummary(LocalDate from,
+                                                         LocalDate to,
+                                                         String symbol,
+                                                         String sessionWindow,
+                                                         String accountIds,
+                                                         String legacyAccountId) {
         User user = currentUserService.getCurrentUser();
         UUID userId = user.getId();
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
         Map<UUID, String> strategyNames = mapStrategyNames(userId);
 
-        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.LIVE, from, to, symbol, sessionWindow, null, null);
+        List<TradeSample> samples = loadSamples(userId, DiagnosticsMode.LIVE, from, to, symbol, sessionWindow, null, null, accountScope);
         DiagnosticsCoreMetrics coreMetrics = buildCoreMetrics(samples);
         List<DiagnosticsBreakdownRow> bySession = buildBreakdown(samples, TradeSample::sessionLabel);
         List<DiagnosticsBreakdownRow> bySymbol = buildBreakdown(samples, TradeSample::symbol);
@@ -209,12 +229,25 @@ public class DiagnosticsService {
                                                                String symbol,
                                                                String sessionWindow,
                                                                String backtestSource) {
+        return getStrategyDetail(strategyId, modeRaw, from, to, symbol, sessionWindow, backtestSource, null, null);
+    }
+
+    public DiagnosticsStrategyDetailResponse getStrategyDetail(UUID strategyId,
+                                                               String modeRaw,
+                                                               LocalDate from,
+                                                               LocalDate to,
+                                                               String symbol,
+                                                               String sessionWindow,
+                                                               String backtestSource,
+                                                               String accountIds,
+                                                               String legacyAccountId) {
         User user = currentUserService.getCurrentUser();
         UUID userId = user.getId();
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
         DiagnosticsMode mode = DiagnosticsMode.from(modeRaw);
         Map<UUID, String> strategyNames = mapStrategyNames(userId);
 
-        List<TradeSample> samples = loadSamples(userId, mode, from, to, symbol, sessionWindow, backtestSource, strategyId);
+        List<TradeSample> samples = loadSamples(userId, mode, from, to, symbol, sessionWindow, backtestSource, strategyId, accountScope);
 
         DiagnosticsCoreMetrics coreMetrics = buildCoreMetrics(samples);
         List<DiagnosticsBreakdownRow> bySession = buildBreakdown(samples, TradeSample::sessionLabel);
@@ -271,7 +304,8 @@ public class DiagnosticsService {
                                           String symbol,
                                           String sessionWindow,
                                           String backtestSource,
-                                          UUID strategyFilter) {
+                                          UUID strategyFilter,
+                                          AuthorizedAccountScope accountScope) {
         OffsetDateTime fromTs = from == null ? null : from.atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
         OffsetDateTime toTs = to == null ? null : to.plusDays(1).atStartOfDay().atOffset(java.time.ZoneOffset.UTC).minusNanos(1);
         String normalizedSymbol = normalizeOptionalText(symbol);
@@ -282,7 +316,11 @@ public class DiagnosticsService {
         List<TradeSample> rows = new ArrayList<>();
 
         if (mode == DiagnosticsMode.BOTH || mode == DiagnosticsMode.LIVE) {
-            for (Trade trade : tradeRepository.findByUserId(userId)) {
+            Specification<Trade> liveSpecification = Specification.where(TradeSpecifications.userId(userId));
+            if (!accountScope.isAll()) {
+                liveSpecification = liveSpecification.and(TradeSpecifications.accountIds(accountScope.accountIds()));
+            }
+            for (Trade trade : tradeRepository.findAll(liveSpecification)) {
                 if (trade.getStatus() != com.tradevault.domain.enums.TradeStatus.CLOSED) {
                     continue;
                 }

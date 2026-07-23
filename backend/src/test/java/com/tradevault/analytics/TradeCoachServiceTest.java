@@ -8,6 +8,9 @@ import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.analytics.CoachResponse;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
+import org.springframework.data.jpa.domain.Specification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -18,6 +21,7 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.when;
@@ -27,21 +31,25 @@ class TradeCoachServiceTest {
     private TradeRepository tradeRepository;
     private CurrentUserService currentUserService;
     private TradeCoachService tradeCoachService;
+    private AccountScopeService accountScopeService;
 
     @BeforeEach
     void setup() {
         tradeRepository = Mockito.mock(TradeRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
         TradeCoachConfig config = new TradeCoachConfig();
-        tradeCoachService = new TradeCoachService(tradeRepository, currentUserService, config);
+        accountScopeService = Mockito.mock(AccountScopeService.class);
+        tradeCoachService = new TradeCoachService(tradeRepository, currentUserService, config, accountScopeService);
         User user = User.builder().id(UUID.randomUUID()).email("test@example.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(accountScopeService.resolve(Mockito.any(), Mockito.any()))
+                .thenReturn(new AuthorizedAccountScope(user.getId(), AuthorizedAccountScope.Mode.ALL, Set.of(), List.of()));
     }
 
     @Test
     void coachBuildsRuleBasedAdvice() {
         List<Trade> trades = buildTrades();
-        when(tradeRepository.findByUserId(Mockito.any())).thenReturn(trades);
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(trades);
 
         CoachResponse response = tradeCoachService.coach(
                 null,

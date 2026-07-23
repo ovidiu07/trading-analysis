@@ -26,8 +26,9 @@ public class TodayController {
     private final LocaleResolverService localeResolverService;
 
     @GetMapping("/coach-focus")
-    public CoachFocusResponse coachFocus() {
-        return todayService.getCoachFocus();
+    public CoachFocusResponse coachFocus(@RequestParam(required = false) String accountIds,
+                                         @RequestParam(required = false) String accountId) {
+        return todayService.getCoachFocus(accountIds, accountId);
     }
 
     @GetMapping("/mentor-plan")

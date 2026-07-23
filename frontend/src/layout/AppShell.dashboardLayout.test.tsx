@@ -35,6 +35,22 @@ vi.mock('../components/dashboard/DefinitionsDrawer', () => ({
   default: () => null
 }))
 
+vi.mock('../features/accountScope/useAccountScope', () => ({
+  useAccountScope: () => ({
+    scope: { mode: 'all', accountIds: [] },
+    setScope: vi.fn(),
+    clearScope: vi.fn(),
+    accounts: [],
+    isLoading: false,
+    isError: false,
+    retry: vi.fn(),
+    apiParams: {},
+    cacheKey: 'all',
+    selectionNotice: '',
+    clearSelectionNotice: vi.fn()
+  })
+}))
+
 const setViewportWidth = (width: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
   window.matchMedia = vi.fn().mockImplementation((query: string) => {
@@ -176,5 +192,19 @@ describe('AppShell dashboard filters and logo placement', () => {
       const relation = first.compareDocumentPosition(second)
       expect(Boolean(relation & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true)
     }
+  })
+
+  it('preserves a canonical multi-account scope across scoped navigation links only', () => {
+    setViewportWidth(1280)
+    const firstId = '00000000-0000-4000-8000-000000000001'
+    const secondId = '00000000-0000-4000-8000-000000000002'
+    renderShell(`/analytics?accountIds=${secondId},${firstId}`)
+
+    const nav = screen.getByRole('navigation')
+    expect(within(nav).getByRole('link', { name: 'Trades' })).toHaveAttribute(
+      'href',
+      `/trades?accountIds=${firstId}%2C${secondId}`
+    )
+    expect(within(nav).getByRole('link', { name: 'Backtesting' })).toHaveAttribute('href', '/backtesting')
   })
 })

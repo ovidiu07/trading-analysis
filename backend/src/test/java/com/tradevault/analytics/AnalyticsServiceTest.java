@@ -1,12 +1,16 @@
 package com.tradevault.analytics;
 
 import com.tradevault.domain.entity.Trade;
+import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.analytics.AnalyticsResponse;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
+import org.springframework.data.jpa.domain.Specification;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -21,6 +25,7 @@ import java.util.UUID;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.mockito.Mockito.when;
 
 class AnalyticsServiceTest {
@@ -28,14 +33,18 @@ class AnalyticsServiceTest {
     private TradeRepository tradeRepository;
     private CurrentUserService currentUserService;
     private AnalyticsService analyticsService;
+    private AccountScopeService accountScopeService;
 
     @BeforeEach
     void setup() {
         tradeRepository = Mockito.mock(TradeRepository.class);
         currentUserService = Mockito.mock(CurrentUserService.class);
-        analyticsService = new AnalyticsService(tradeRepository, currentUserService);
+        accountScopeService = Mockito.mock(AccountScopeService.class);
+        analyticsService = new AnalyticsService(tradeRepository, currentUserService, accountScopeService);
         User user = User.builder().id(UUID.randomUUID()).email("test@example.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(accountScopeService.resolve(Mockito.any(), Mockito.any()))
+                .thenReturn(new AuthorizedAccountScope(user.getId(), AuthorizedAccountScope.Mode.ALL, Set.of(), List.of()));
         when(tradeRepository.findTradeIdsWithLinkedContentForUser(Mockito.any(), Mockito.anyCollection())).thenReturn(Set.of());
     }
 
@@ -46,7 +55,7 @@ class AnalyticsServiceTest {
                 buildTrade(UUID.randomUUID(), "MSFT", Direction.SHORT, TradeStatus.CLOSED, "2026-01-03T09:00:00Z", "2026-01-03T10:00:00Z", "-20.00"),
                 buildTrade(UUID.randomUUID(), "NVDA", Direction.LONG, TradeStatus.OPEN, "2026-01-04T09:00:00Z", null, null)
         );
-        when(tradeRepository.findByUserId(Mockito.any())).thenReturn(trades);
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(trades);
 
         AnalyticsResponse response = analyticsService.summarize(
                 null,
@@ -100,7 +109,7 @@ class AnalyticsServiceTest {
         unlinkedTrade.setPnlNet(new BigDecimal("-20.00"));
         unlinkedTrade.setLinkedContentIds(null);
 
-        when(tradeRepository.findByUserId(Mockito.any())).thenReturn(List.of(linkedTrade, unlinkedTrade));
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of(linkedTrade, unlinkedTrade));
         when(tradeRepository.findTradeIdsWithLinkedContentForUser(Mockito.any(), Mockito.anyCollection()))
                 .thenReturn(Set.of(linkedTradeId));
 
@@ -127,12 +136,12 @@ class AnalyticsServiceTest {
     }
 
     @Test
-    void summarizeFiltersTradesByBrokerAccountId() {
+    void summarizeUsesRepositoryScopedTradesForInternalAccount() {
         Trade accountOne = buildTrade(UUID.randomUUID(), "AAPL", Direction.LONG, TradeStatus.CLOSED, "2026-01-02T10:00:00Z", "2026-01-02T10:10:00Z", "125.50");
         accountOne.setBrokerAccountId("APEX4855840000003");
         Trade accountTwo = buildTrade(UUID.randomUUID(), "MSFT", Direction.SHORT, TradeStatus.CLOSED, "2026-01-03T09:00:00Z", "2026-01-03T10:00:00Z", "-20.00");
         accountTwo.setBrokerAccountId("APEX4855840000004");
-        when(tradeRepository.findByUserId(Mockito.any())).thenReturn(List.of(accountOne, accountTwo));
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of(accountOne));
 
         AnalyticsResponse response = analyticsService.summarize(
                 null,
@@ -140,7 +149,7 @@ class AnalyticsServiceTest {
                 null,
                 null,
                 null,
-                "APEX4855840000003",
+                UUID.randomUUID().toString(),
                 null,
                 null,
                 null,
@@ -152,6 +161,32 @@ class AnalyticsServiceTest {
 
         assertEquals(1, response.getKpi().getTotalTrades());
         assertEquals(0, response.getKpi().getTotalPnlNet().compareTo(new BigDecimal("125.50")));
+    }
+
+    @Test
+    void summarizeMarksMixedAccountCurrenciesAsUnsafeForMonetaryAggregation() {
+        User user = currentUserService.getCurrentUser();
+        UUID usdAccountId = UUID.randomUUID();
+        UUID eurAccountId = UUID.randomUUID();
+        when(accountScopeService.resolve(Mockito.any(), Mockito.any())).thenReturn(new AuthorizedAccountScope(
+                user.getId(),
+                AuthorizedAccountScope.Mode.SELECTED,
+                Set.of(usdAccountId, eurAccountId),
+                List.of(
+                        Account.builder().id(usdAccountId).name("USD account").accountCurrency("USD").build(),
+                        Account.builder().id(eurAccountId).name("EUR account").accountCurrency("EUR").build()
+                )
+        ));
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of());
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null, null, null, null, null, null, null, null, null, null,
+                "CLOSE", false, null
+        );
+
+        assertFalse(response.getAccountScope().isMonetaryAnalyticsAvailable());
+        assertEquals(List.of("EUR", "USD"), response.getAccountScope().getReportingCurrencies());
+        assertEquals(null, response.getAccountScope().getReportingCurrency());
     }
 
     private Trade buildTrade(UUID id, String symbol, Direction direction, TradeStatus status, String openedAt, String closedAt, String pnlNet) {

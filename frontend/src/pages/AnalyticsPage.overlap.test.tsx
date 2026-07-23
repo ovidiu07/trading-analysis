@@ -18,6 +18,22 @@ const mockFetchSignalBySymbolTimeframe = vi.fn()
 const mockUseChecklistTemplateQuery = vi.fn()
 const mockUseSaveChecklistTemplateMutation = vi.fn()
 
+vi.mock('../features/accountScope/useAccountScope', () => ({
+  useAccountScope: () => ({
+    scope: { mode: 'all', accountIds: [] },
+    setScope: vi.fn(),
+    clearScope: vi.fn(),
+    accounts: [],
+    isLoading: false,
+    isError: false,
+    retry: vi.fn(),
+    apiParams: {},
+    cacheKey: 'all',
+    selectionNotice: '',
+    clearSelectionNotice: vi.fn()
+  })
+}))
+
 const setViewportSize = (width: number, height: number) => {
   Object.defineProperty(window, 'innerWidth', { configurable: true, writable: true, value: width })
   Object.defineProperty(window, 'innerHeight', { configurable: true, writable: true, value: height })

@@ -20,6 +20,7 @@ import java.math.BigDecimal;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 import java.util.stream.StreamSupport;
 
@@ -38,6 +39,7 @@ class DiagnosticsServiceTest {
     private DiagnosticsService diagnosticsService;
     private ObjectMapper objectMapper;
     private User user;
+    private com.tradevault.service.account.AccountScopeService accountScopeService;
 
     @BeforeEach
     void setup() {
@@ -48,6 +50,7 @@ class DiagnosticsServiceTest {
         backtestRunReportRepository = mock(BacktestRunReportRepository.class);
         userStrategyRepository = mock(UserStrategyRepository.class);
         contextSnapshotRepository = mock(ContextSnapshotRepository.class);
+        accountScopeService = mock(com.tradevault.service.account.AccountScopeService.class);
         diagnosticsService = new DiagnosticsService(
                 currentUserService,
                 tradeRepository,
@@ -55,11 +58,20 @@ class DiagnosticsServiceTest {
                 backtestRunRepository,
                 backtestRunReportRepository,
                 userStrategyRepository,
-                contextSnapshotRepository
+                contextSnapshotRepository,
+                accountScopeService
         );
         objectMapper = new ObjectMapper();
         user = User.builder().id(UUID.randomUUID()).email("diag@test.com").build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(accountScopeService.resolve(any(), any())).thenReturn(
+                new com.tradevault.service.account.AuthorizedAccountScope(
+                        user.getId(),
+                        com.tradevault.service.account.AuthorizedAccountScope.Mode.ALL,
+                        Set.of(),
+                        List.of()
+                )
+        );
     }
 
     @Test
@@ -106,7 +118,7 @@ class DiagnosticsServiceTest {
                 .rMultiple(new BigDecimal("-0.8000"))
                 .contextSnapshotId(snapshotLossId)
                 .build();
-        when(tradeRepository.findByUserId(user.getId())).thenReturn(List.of(winTrade, lossTrade));
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(winTrade, lossTrade));
 
         ContextSnapshot winSnapshot = ContextSnapshot.builder()
                 .id(snapshotWinId)
@@ -169,7 +181,7 @@ class DiagnosticsServiceTest {
                 .closedAt(OffsetDateTime.of(2026, 2, 12, 8, 20, 0, 0, ZoneOffset.UTC))
                 .rMultiple(null)
                 .build();
-        when(tradeRepository.findByUserId(user.getId())).thenReturn(List.of(closedWithoutR));
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(closedWithoutR));
         when(contextSnapshotRepository.findAllById(any())).thenReturn(List.of());
 
         var response = diagnosticsService.getStrategyDetail(strategyId, "LIVE", null, null, null, null, null);
@@ -207,7 +219,7 @@ class DiagnosticsServiceTest {
                 .closedAt(OffsetDateTime.of(2026, 3, 4, 7, 30, 0, 0, ZoneOffset.UTC))
                 .rMultiple(new BigDecimal("1.8000"))
                 .build();
-        when(tradeRepository.findByUserId(user.getId())).thenReturn(List.of(liveTrade));
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(liveTrade));
         when(contextSnapshotRepository.findAllById(any())).thenReturn(List.of());
 
         var response = diagnosticsService.getLiveSummary(null, null, null, null);

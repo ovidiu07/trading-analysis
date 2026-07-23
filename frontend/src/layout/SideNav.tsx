@@ -40,6 +40,7 @@ type SideNavProps = {
   collapseLabel: string
   expandLabel: string
   homeLabel: string
+  accountScopeSearch?: string
 }
 
 const isItemActive = (pathname: string, path: string) => pathname === path || pathname.startsWith(`${path}/`)
@@ -54,8 +55,11 @@ export default function SideNav({
   onNavigate,
   collapseLabel,
   expandLabel,
-  homeLabel
+  homeLabel,
+  accountScopeSearch = ''
 }: SideNavProps) {
+  const scopedPaths = new Set(['/today', '/dashboard', '/trades', '/strategies', '/insights', '/analytics', '/diagnostics', '/calendar'])
+  const toPath = (path: string) => scopedPaths.has(path) ? `${path}${accountScopeSearch}` : path
   return (
     <Stack sx={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>
       <Stack
@@ -73,7 +77,7 @@ export default function SideNav({
       >
         <Box
           component={Link}
-          to="/today"
+          to={toPath('/today')}
           onClick={onNavigate}
           aria-label={homeLabel}
           sx={{
@@ -148,7 +152,7 @@ export default function SideNav({
                 <ListItemButton
                   key={item.path}
                   component={Link}
-                  to={item.path}
+                  to={toPath(item.path)}
                   selected={selected}
                   onClick={onNavigate}
                   sx={{

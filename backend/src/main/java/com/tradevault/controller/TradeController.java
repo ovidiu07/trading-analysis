@@ -56,11 +56,12 @@ public class TradeController {
                                       @RequestParam(required = false) String tz,
                                       @RequestParam(required = false) String symbol,
                                       @RequestParam(required = false) String strategy,
+                                      @RequestParam(required = false) String accountIds,
                                       @RequestParam(required = false) String accountId,
                                       @RequestParam(required = false) String direction,
                                       @RequestParam(required = false) TradeStatus status) {
         var parsedDirection = parseDirection(direction);
-        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, closedDate, tz, symbol, strategy, accountId, parsedDirection, status);
+        return tradeService.search(page, size, openedAtFrom, openedAtTo, closedAtFrom, closedAtTo, closedDate, tz, symbol, strategy, accountIds, accountId, parsedDirection, status);
     }
 
     private com.tradevault.domain.enums.Direction parseDirection(String direction) {
@@ -102,21 +103,23 @@ public class TradeController {
     public java.util.List<DailyPnlResponse> dailyPnl(@RequestParam LocalDate from,
                                                      @RequestParam LocalDate to,
                                                      @RequestParam(required = false) String tz,
+                                                     @RequestParam(required = false) String accountIds,
                                                      @RequestParam(required = false) String accountId,
                                                      @RequestParam(defaultValue = "close") String basis) {
         PnlBasis resolved = resolveBasis(basis);
-        return tradeCalendarService.fetchDailyPnl(from, to, tz, resolved, accountId);
+        return tradeCalendarService.fetchDailyPnl(from, to, tz, resolved, accountIds, accountId);
     }
 
     @GetMapping("/daily-summary")
     public DailySummaryResponse dailySummary(@RequestParam LocalDate date,
                                              @RequestParam(required = false) String tz,
+                                             @RequestParam(required = false) String accountIds,
                                              @RequestParam(required = false) String accountId,
                                              @RequestParam(defaultValue = "close") String basis) {
         if (basis != null && !basis.isBlank() && !"close".equalsIgnoreCase(basis)) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Only close basis is supported for daily summary");
         }
-        return tradeService.dailySummary(date, tz, accountId);
+        return tradeService.dailySummary(date, tz, accountIds, accountId);
     }
 
     @GetMapping("/{id}")
@@ -127,8 +130,9 @@ public class TradeController {
     @GetMapping("/closed-day")
     public java.util.List<TradeResponse> closedDay(@RequestParam LocalDate date,
                                                    @RequestParam(required = false) String tz,
+                                                   @RequestParam(required = false) String accountIds,
                                                    @RequestParam(required = false) String accountId) {
-        return tradeService.listClosedTradesByDate(date, tz, accountId);
+        return tradeService.listClosedTradesByDate(date, tz, accountIds, accountId);
     }
 
     @PutMapping("/{id}")

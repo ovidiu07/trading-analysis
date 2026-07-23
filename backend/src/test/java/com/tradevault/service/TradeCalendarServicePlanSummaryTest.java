@@ -18,6 +18,8 @@ import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.AccountRepository;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -35,6 +37,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.never;
 
 class TradeCalendarServicePlanSummaryTest {
     private TradeRepository tradeRepository;
@@ -46,6 +49,7 @@ class TradeCalendarServicePlanSummaryTest {
     private CurrentUserService currentUserService;
     private TimezoneService timezoneService;
     private AssetService assetService;
+    private AccountScopeService accountScopeService;
     private TradeCalendarService tradeCalendarService;
 
     private User user;
@@ -62,6 +66,7 @@ class TradeCalendarServicePlanSummaryTest {
         currentUserService = mock(CurrentUserService.class);
         timezoneService = mock(TimezoneService.class);
         assetService = mock(AssetService.class);
+        accountScopeService = mock(AccountScopeService.class);
         zone = ZoneId.of("Europe/Bucharest");
 
         tradeCalendarService = new TradeCalendarService(
@@ -74,7 +79,8 @@ class TradeCalendarServicePlanSummaryTest {
                 currentUserService,
                 timezoneService,
                 assetService,
-                new ObjectMapper().findAndRegisterModules()
+                new ObjectMapper().findAndRegisterModules(),
+                accountScopeService
         );
 
         user = User.builder()
@@ -84,6 +90,9 @@ class TradeCalendarServicePlanSummaryTest {
                 .build();
         when(currentUserService.getCurrentUser()).thenReturn(user);
         when(timezoneService.resolveZone(null, user)).thenReturn(zone);
+        when(accountScopeService.resolve(any(), any())).thenReturn(new AuthorizedAccountScope(
+                user.getId(), AuthorizedAccountScope.Mode.ALL, java.util.Set.of(), List.of()
+        ));
     }
 
     @Test
@@ -150,7 +159,7 @@ class TradeCalendarServicePlanSummaryTest {
     }
 
     @Test
-    void accountOptionsAreUserScopedAndBrokerIdsAreTrimmedAndDeduplicated() {
+    void accountOptionsAreUserScopedAndUseOnlyInternalAccountIds() {
         UUID managedId = UUID.randomUUID();
         when(accountRepository.findByUserIdOrderByNameAsc(user.getId())).thenReturn(List.of(
                 Account.builder().id(managedId).user(user).name("Funded 50K").build()
@@ -162,27 +171,29 @@ class TradeCalendarServicePlanSummaryTest {
         var options = tradeCalendarService.fetchAccountOptions();
 
         assertThat(options).extracting("value", "label", "source").containsExactly(
-                org.assertj.core.groups.Tuple.tuple(managedId.toString(), "Funded 50K", "managed"),
-                org.assertj.core.groups.Tuple.tuple("Account A", "Account A", "broker"),
-                org.assertj.core.groups.Tuple.tuple("Account B", "Account B", "broker")
+                org.assertj.core.groups.Tuple.tuple(managedId.toString(), "Funded 50K", "managed")
         );
         verify(accountRepository).findByUserIdOrderByNameAsc(user.getId());
-        verify(tradeRepository).findDistinctBrokerAccountIdsByUserId(user.getId());
+        verify(tradeRepository, never()).findDistinctBrokerAccountIdsByUserId(user.getId());
     }
 
     @Test
-    void unassignedCalendarFilterIsAppliedBeforeDailyAggregation() {
+    void selectedInternalAccountFilterIsAppliedBeforeDailyAggregation() {
+        UUID accountId = UUID.randomUUID();
+        when(accountScopeService.resolve(accountId.toString(), null)).thenReturn(new AuthorizedAccountScope(
+                user.getId(), AuthorizedAccountScope.Mode.SELECTED, java.util.Set.of(accountId), List.of()
+        ));
         when(tradeRepository.aggregateDailyPnlByClosedDate(
-                user.getId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), zone.getId(), null, null, true
+                user.getId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), zone.getId(), null, accountId, false
         )).thenReturn(List.of());
 
         tradeCalendarService.fetchDailyPnl(
                 LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), null,
-                com.tradevault.domain.enums.PnlBasis.CLOSE, "unassigned"
+                com.tradevault.domain.enums.PnlBasis.CLOSE, accountId.toString(), null
         );
 
         verify(tradeRepository).aggregateDailyPnlByClosedDate(
-                user.getId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), zone.getId(), null, null, true
+                user.getId(), LocalDate.of(2026, 7, 1), LocalDate.of(2026, 7, 31), zone.getId(), null, accountId, false
         );
     }
 

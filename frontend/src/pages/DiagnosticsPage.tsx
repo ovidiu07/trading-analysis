@@ -39,6 +39,9 @@ import EmptyState from '../components/ui/EmptyState'
 import LoadingState from '../components/ui/LoadingState'
 import { formatNumber } from '../utils/format'
 import { useI18n } from '../i18n'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
 
 const sessionFilters = ['', 'ASIA', 'LONDON', 'NY_AM', 'NY_PM', 'NY']
 
@@ -72,14 +75,16 @@ export default function DiagnosticsPage() {
   const [to, setTo] = useState('')
   const [symbol, setSymbol] = useState('')
   const [sessionWindow, setSessionWindow] = useState('')
+  const accountScope = useAccountScope()
 
   const summaryQuery = useQuery({
-    queryKey: ['liveDiagnosticsSummary', from, to, symbol, sessionWindow],
+    queryKey: ['liveDiagnosticsSummary', from, to, symbol, sessionWindow, accountScope.cacheKey],
     queryFn: () => getLiveDiagnosticsSummary({
       from: from || undefined,
       to: to || undefined,
       symbol: symbol || undefined,
-      sessionWindow: sessionWindow || undefined
+      sessionWindow: sessionWindow || undefined,
+      ...accountScope.apiParams
     })
   })
 
@@ -135,6 +140,11 @@ export default function DiagnosticsPage() {
 
   return (
     <Stack spacing={2.5} sx={{ minWidth: 0, pb: 3 }}>
+      <AccountScopeSummary
+        scope={accountScope.scope}
+        accounts={accountScope.accounts}
+        notice={accountScope.selectionNotice}
+      />
       <Card sx={{ ...panelSx, background: 'linear-gradient(135deg, rgba(14, 116, 144, 0.12), rgba(245, 158, 11, 0.10))' }}>
         <CardContent>
           <Stack spacing={2}>
@@ -181,7 +191,7 @@ export default function DiagnosticsPage() {
             <Box
               sx={{
                 display: 'grid',
-                gridTemplateColumns: { xs: '1fr', md: 'repeat(4, minmax(0, 1fr))' },
+                gridTemplateColumns: { xs: '1fr', md: 'repeat(2, minmax(0, 1fr))', xl: 'repeat(5, minmax(0, 1fr))' },
                 gap: 1.25
               }}
             >
@@ -221,6 +231,14 @@ export default function DiagnosticsPage() {
                   ))}
                 </Select>
               </FormControl>
+              <AccountScopeSelector
+                value={accountScope.scope}
+                onChange={accountScope.setScope}
+                accounts={accountScope.accounts}
+                loading={accountScope.isLoading}
+                error={accountScope.isError}
+                onRetry={() => void accountScope.retry()}
+              />
             </Box>
           </Stack>
         </CardContent>

@@ -102,6 +102,6 @@ export async function fetchFeaturedWeeklyPlan(timezone?: string): Promise<Featur
   return fetchFeaturedPlanByType('weekly', timezone)
 }
 
-export async function fetchCoachFocus(): Promise<CoachFocus> {
-  return apiGet<CoachFocus>('/today/coach-focus')
+export async function fetchCoachFocus(params: { accountIds?: string } = {}): Promise<CoachFocus> {
+  return apiGet<CoachFocus>(`/today/coach-focus${toQuery(params)}`)
 }

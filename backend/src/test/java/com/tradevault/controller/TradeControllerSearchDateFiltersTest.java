@@ -33,7 +33,7 @@ class TradeControllerSearchDateFiltersTest {
     @BeforeEach
     void setUp() {
         tradeService = Mockito.mock(TradeService.class);
-        when(tradeService.search(anyInt(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
+        when(tradeService.search(anyInt(), anyInt(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any()))
                 .thenReturn(new PageImpl<>(List.of(), PageRequest.of(0, 20), 0));
 
         TradeController controller = new TradeController(
@@ -85,6 +85,7 @@ class TradeControllerSearchDateFiltersTest {
                 any(),
                 any(),
                 any(),
+                any(),
                 any()))
                 .thenThrow(new TradeSearchValidationException(
                         "Invalid date range: 'openedAtFrom' must be before or equal to 'openedAtTo'.",
@@ -110,6 +111,7 @@ class TradeControllerSearchDateFiltersTest {
                 eq(20),
                 eq("2026-02-07"),
                 eq("2026-02-06"),
+                any(),
                 any(),
                 any(),
                 any(),

@@ -16,6 +16,22 @@
     "blackShiny": "Black Shiny",
     "system": "System"
   },
+  "accountScope": {
+    "label": "Account",
+    "all": "All accounts",
+    "oneSelected": "1 account selected",
+    "manySelected": "{{count}} accounts selected",
+    "active": "Account scope",
+    "loading": "Loading accounts…",
+    "error": "Accounts could not be loaded. Please try again.",
+    "retry": "Retry loading accounts",
+    "empty": "No TradeJAudit accounts were found.",
+    "noResults": "No matching accounts",
+    "notice": {
+      "removed": "An account that is no longer accessible was removed from the selection."
+    },
+    "mixedCurrency": "Combined monetary analytics are unavailable because the selected accounts use different base currencies."
+  },
   "common": {
     "loading": "Loading...",
     "save": "Save",

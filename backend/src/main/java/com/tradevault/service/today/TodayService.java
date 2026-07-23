@@ -97,14 +97,15 @@ public class TodayService {
                 .build();
     }
 
-    public CoachFocusResponse getCoachFocus() {
+    public CoachFocusResponse getCoachFocus(String accountIds, String legacyAccountId) {
         CoachResponse coach = tradeCoachService.coach(
                 null,
                 null,
                 null,
                 null,
                 null,
-                null,
+                accountIds,
+                legacyAccountId,
                 null,
                 null,
                 null,

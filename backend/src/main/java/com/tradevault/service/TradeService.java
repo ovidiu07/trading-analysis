@@ -21,6 +21,8 @@ import com.tradevault.repository.TagRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.repository.UserStrategyRepository;
 import com.tradevault.service.backtesting.LiveTradeEvidenceChangedEvent;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
@@ -41,6 +43,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -72,6 +75,7 @@ public class TradeService {
     private final TimezoneService timezoneService;
     private final FuturesContractMetadataService futuresContractMetadataService;
     private final ApplicationEventPublisher eventPublisher;
+    private final AccountScopeService accountScopeService;
 
     public Page<TradeResponse> search(int page, int size,
                                       String openedAtFromRaw,
@@ -85,11 +89,28 @@ public class TradeService {
                                       String accountId,
                                       Direction direction,
                                       com.tradevault.domain.enums.TradeStatus status) {
+        return search(page, size, openedAtFromRaw, openedAtToRaw, closedAtFrom, closedAtTo,
+                closedDate, tz, symbol, strategy, null, accountId, direction, status);
+    }
+
+    public Page<TradeResponse> search(int page, int size,
+                                      String openedAtFromRaw,
+                                      String openedAtToRaw,
+                                      OffsetDateTime closedAtFrom,
+                                      OffsetDateTime closedAtTo,
+                                      LocalDate closedDate,
+                                      String tz,
+                                      String symbol,
+                                      String strategy,
+                                      String accountIds,
+                                      String legacyAccountId,
+                                      Direction direction,
+                                      com.tradevault.domain.enums.TradeStatus status) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
         OffsetDateTime openedAtFrom = parseDateTimeFilter(openedAtFromRaw, zone, false, "openedAtFrom");
         OffsetDateTime openedAtTo = parseDateTimeFilter(openedAtToRaw, zone, true, "openedAtTo");
-        AccountFilter accountFilter = resolveAccountFilter(accountId);
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
         logSearchParams(symbol, strategy);
         var pageable = PageRequest.of(Math.max(page, 0), size, Sort.by(Sort.Direction.DESC, "openedAt", "createdAt"));
         var normalizedSymbol = normalizeSearchToken(symbol);
@@ -101,7 +122,7 @@ public class TradeService {
         validateDateRange(openedAtFrom, openedAtTo, "openedAtFrom", "openedAtTo");
         validateDateRange(closedAtFrom, closedAtTo, "closedAtFrom", "closedAtTo");
 
-        Page<UUID> idPage = tradeRepository.searchTradeIds(
+        Page<UUID> idPage = tradeRepository.searchTradeIdsByAccountScope(
                 user.getId(),
                 openedAtFrom,
                 openedAtTo,
@@ -109,9 +130,7 @@ public class TradeService {
                 closedAtTo,
                 normalizedSymbol,
                 normalizedStrategy,
-                accountFilter.brokerAccountId(),
-                accountFilter.accountRefId(),
-                accountFilter.unassigned(),
+                accountScope.isAll() ? null : accountScope.accountIds(),
                 direction,
                 status,
                 pageable
@@ -485,19 +504,17 @@ public class TradeService {
     }
 
     public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz, String accountId) {
+        return listClosedTradesByDate(date, tz, null, accountId);
+    }
+
+    public java.util.List<TradeResponse> listClosedTradesByDate(LocalDate date, String tz,
+                                                                String accountIds, String legacyAccountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
-        AccountFilter accountFilter = resolveAccountFilter(accountId);
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
         //log.info("[CALENDAR] listClosedTradesByDate userId={}, date={}, tz={}", user.getId(), date, zone.getId());
-        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(
-                user.getId(),
-                date,
-                zone.getId(),
-                accountFilter.brokerAccountId(),
-                accountFilter.accountRefId(),
-                accountFilter.unassigned()
-        );
-        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
+        List<UUID> tradeIds = findClosedTradeIdsForScope(user.getId(), date, zone, accountScope);
+        var trades = sortTradesByClosedAt(loadTradesInOrderWithTagsAndAccount(tradeIds));
         Map<UUID, String> strategyNames = loadStrategyNames(trades, user.getId());
         Map<UUID, LatestTradeNotePreview> latestTradeNotes = loadLatestTradeNotePreviews(trades, user.getId());
         //log.info("[CALENDAR] listClosedTradesByDate result size={}", (trades != null ? trades.size() : 0));
@@ -508,18 +525,16 @@ public class TradeService {
     }
 
     public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz, String accountId) {
+        return dailySummary(date, tz, null, accountId);
+    }
+
+    public com.tradevault.dto.trade.DailySummaryResponse dailySummary(LocalDate date, String tz,
+                                                                      String accountIds, String legacyAccountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
-        AccountFilter accountFilter = resolveAccountFilter(accountId);
-        List<UUID> tradeIds = tradeRepository.findClosedTradeIdsForLocalDate(
-                user.getId(),
-                date,
-                zone.getId(),
-                accountFilter.brokerAccountId(),
-                accountFilter.accountRefId(),
-                accountFilter.unassigned()
-        );
-        var trades = loadTradesInOrderWithTagsAndAccount(tradeIds);
+        AuthorizedAccountScope accountScope = accountScopeService.resolve(accountIds, legacyAccountId);
+        List<UUID> tradeIds = findClosedTradeIdsForScope(user.getId(), date, zone, accountScope);
+        var trades = sortTradesByClosedAt(loadTradesInOrderWithTagsAndAccount(tradeIds));
         if (trades == null || trades.isEmpty()) {
             return com.tradevault.dto.trade.DailySummaryResponse.builder()
                     .date(date)
@@ -567,6 +582,30 @@ public class TradeService {
                 .equityPoints(equityPoints)
                 .accounts(accountSummaries)
                 .build();
+    }
+
+    private List<UUID> findClosedTradeIdsForScope(UUID userId, LocalDate date, ZoneId zone,
+                                                   AuthorizedAccountScope accountScope) {
+        if (accountScope.isAll()) {
+            return tradeRepository.findClosedTradeIdsForLocalDate(
+                    userId, date, zone.getId(), null, null, false
+            );
+        }
+        return accountScope.accountIds().stream()
+                .flatMap(accountId -> tradeRepository.findClosedTradeIdsForLocalDate(
+                        userId, date, zone.getId(), null, accountId, false
+                ).stream())
+                .distinct()
+                .toList();
+    }
+
+    private List<Trade> sortTradesByClosedAt(List<Trade> trades) {
+        return trades.stream()
+                .sorted(Comparator.comparing(
+                        Trade::getClosedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())
+                ))
+                .toList();
     }
 
     public java.util.List<TradeResponse> listLosses(LocalDate from, LocalDate to, String tz, BigDecimal minLoss) {
@@ -1083,8 +1122,8 @@ public class TradeService {
 
     private String resolvedDisplayAccountId(Trade trade) {
         return firstNonBlank(
-                trade.getBrokerAccountId(),
-                trade.getAccount() != null ? trade.getAccount().getId().toString() : null
+                trade.getAccount() != null ? trade.getAccount().getId().toString() : null,
+                trade.getBrokerAccountId()
         );
     }
 

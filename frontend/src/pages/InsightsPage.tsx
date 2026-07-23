@@ -26,6 +26,10 @@ import { useAuth } from '../auth/AuthContext'
 import { useI18n } from '../i18n'
 import { formatDateTime } from '../utils/format'
 import { trackEvent } from '../utils/analytics/ga4'
+import { useAccountScope } from '../features/accountScope/useAccountScope'
+import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
+import AccountScopeSummary from '../components/accounts/AccountScopeSummary'
+import { writeAccountScope } from '../features/accountScope/accountScope'
 
 type InsightsTab = 'today' | 'week' | 'playbooks' | 'learn'
 
@@ -86,6 +90,7 @@ export default function InsightsPage() {
   const timezone = user?.timezone ?? 'Europe/Bucharest'
   const location = useLocation()
   const navigate = useNavigate()
+  const accountScope = useAccountScope()
   const loadMoreRef = useRef<HTMLDivElement | null>(null)
 
   const activeTab = useMemo(() => resolveTabFromPath(location.pathname), [location.pathname])
@@ -311,6 +316,22 @@ export default function InsightsPage() {
         icon={<AutoStoriesRoundedIcon fontSize="small" />}
       />
 
+      <Box sx={{ width: { xs: '100%', sm: 360 }, maxWidth: '100%' }}>
+        <AccountScopeSelector
+          value={accountScope.scope}
+          onChange={accountScope.setScope}
+          accounts={accountScope.accounts}
+          loading={accountScope.isLoading}
+          error={accountScope.isError}
+          onRetry={() => void accountScope.retry()}
+        />
+      </Box>
+      <AccountScopeSummary
+        scope={accountScope.scope}
+        accounts={accountScope.accounts}
+        notice={accountScope.selectionNotice}
+      />
+
       <Card sx={{ overflow: 'hidden' }}>
         <CardContent sx={{ p: { xs: 2, sm: 2.5 } }}>
           <Stack spacing={2} sx={{ minWidth: 0 }}>
@@ -319,7 +340,8 @@ export default function InsightsPage() {
               onChange={(_, value: InsightsTab) => {
                 const next = TAB_CONFIGS.find((config) => config.key === value)
                 if (!next) return
-                navigate(next.path)
+                const scoped = writeAccountScope(new URLSearchParams(), accountScope.scope)
+                navigate(`${next.path}?${scoped.toString()}`)
               }}
               variant="scrollable"
               allowScrollButtonsMobile
@@ -399,7 +421,13 @@ export default function InsightsPage() {
                   {t('insights.updated')} {formatDateTime(featuredCard.updatedAt)}
                 </Typography>
               )}
-              <Button component={Link} to={featuredCard.ctaPath} size="small" variant="contained" sx={{ alignSelf: 'flex-start' }}>
+              <Button
+                component={Link}
+                to={`${featuredCard.ctaPath}?${writeAccountScope(new URLSearchParams(), accountScope.scope).toString()}`}
+                size="small"
+                variant="contained"
+                sx={{ alignSelf: 'flex-start' }}
+              >
                 {featuredCard.ctaLabel}
               </Button>
             </Stack>

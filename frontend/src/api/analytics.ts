@@ -168,6 +168,14 @@ export type FilterOptions = {
 }
 
 export type AnalyticsResponse = {
+  accountScope?: {
+    mode: 'all' | 'selected'
+    accountIds: string[]
+    accountNames: string[]
+    reportingCurrencies: string[]
+    reportingCurrency?: string | null
+    monetaryAnalyticsAvailable: boolean
+  }
   kpi: KpiSummary
   costs: CostSummary
   drawdown: DrawdownSummary
@@ -285,7 +293,7 @@ export type AnalyticsFilters = {
   direction?: 'LONG' | 'SHORT'
   market?: string
   status?: 'OPEN' | 'CLOSED'
-  accountId?: string
+  accountIds?: string
   strategy?: string[]
   setup?: string[]
   catalyst?: string[]

@@ -23,6 +23,8 @@ import com.tradevault.repository.PlanRepository;
 import com.tradevault.repository.SessionSetupRepository;
 import com.tradevault.repository.TodaySessionRepository;
 import com.tradevault.repository.TradeRepository;
+import com.tradevault.service.account.AccountScopeService;
+import com.tradevault.service.account.AuthorizedAccountScope;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.slf4j.Logger;
@@ -60,16 +62,27 @@ public class TradeCalendarService {
     private final TimezoneService timezoneService;
     private final AssetService assetService;
     private final ObjectMapper objectMapper;
+    private final AccountScopeService accountScopeService;
 
     public List<DailyPnlResponse> fetchDailyPnl(LocalDate from, LocalDate to, String tz, PnlBasis basis, String accountId) {
+        return fetchDailyPnl(from, to, tz, basis, null, accountId);
+    }
+
+    public List<DailyPnlResponse> fetchDailyPnl(LocalDate from, LocalDate to, String tz, PnlBasis basis,
+                                                String accountIds, String legacyAccountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
-        AccountFilter accountFilter = resolveAccountFilter(accountId);
+        AuthorizedAccountScope scope = accountScopeService.resolve(accountIds, legacyAccountId);
         String statusExpectation = (basis == PnlBasis.CLOSE) ? "CLOSED" : "OPEN";
         /*log.info("[CALENDAR] fetchDailyPnl userId={}, from={}, to={}, tz={}, basis={}, statusExpectation={}",
                 user.getId(), from, to, zone.getId(), basis, statusExpectation);*/
 
-        List<TradeRepository.DailyPnlAggregate> aggregates = switch (basis) {
+        List<AccountFilter> accountFilters = scope.isAll()
+                ? List.of(new AccountFilter(null, null, false))
+                : scope.accountIds().stream().map(id -> new AccountFilter(null, id, false)).toList();
+        Map<LocalDate, DailyPnlAccumulator> byDate = new LinkedHashMap<>();
+        for (AccountFilter accountFilter : accountFilters) {
+            List<TradeRepository.DailyPnlAggregate> aggregates = switch (basis) {
             case OPEN -> tradeRepository.aggregateDailyPnlByOpenedDate(
                     user.getId(),
                     from,
@@ -88,45 +101,60 @@ public class TradeCalendarService {
                     accountFilter.accountRefId(),
                     accountFilter.unassigned()
             );
-        };
+            };
+            for (TradeRepository.DailyPnlAggregate row : aggregates) {
+                byDate.computeIfAbsent(row.getDate(), ignored -> new DailyPnlAccumulator())
+                        .add(row);
+            }
+        }
 
         /*log.info("[CALENDAR] fetchDailyPnl result size={}", (aggregates != null ? aggregates.size() : 0));*/
 
-        return aggregates.stream()
-                .map(row -> new DailyPnlResponse(
-                        row.getDate(),
-                        row.getNetPnl(),
-                        row.getTradeCount(),
-                        row.getWins(),
-                        row.getLosses()
+        return byDate.entrySet().stream()
+                .sorted(Map.Entry.comparingByKey())
+                .map(entry -> new DailyPnlResponse(
+                        entry.getKey(),
+                        entry.getValue().netPnl,
+                        entry.getValue().tradeCount,
+                        entry.getValue().wins,
+                        entry.getValue().losses
                 ))
                 .toList();
     }
 
     public MonthlyPnlSummaryResponse fetchMonthlySummary(int year, int month, String tz, PnlBasis basis, String accountId) {
+        return fetchMonthlySummary(year, month, tz, basis, null, accountId);
+    }
+
+    public MonthlyPnlSummaryResponse fetchMonthlySummary(int year, int month, String tz, PnlBasis basis,
+                                                         String accountIds, String legacyAccountId) {
         User user = currentUserService.getCurrentUser();
         ZoneId zone = timezoneService.resolveZone(tz, user);
-        AccountFilter accountFilter = resolveAccountFilter(accountId);
+        AuthorizedAccountScope scope = accountScopeService.resolve(accountIds, legacyAccountId);
         LocalDate monthStart = LocalDate.of(year, month, 1);
         LocalDate monthEnd = monthStart.with(TemporalAdjusters.lastDayOfMonth());
 
-        TradeRepository.MonthlyPnlAggregate aggregate = switch (basis) {
-            case CLOSE -> tradeRepository.aggregateMonthlyPnlByClosedDate(
-                    user.getId(),
-                    monthStart,
-                    monthEnd,
-                    zone.getId(),
-                    accountFilter.brokerAccountId(),
-                    accountFilter.accountRefId(),
-                    accountFilter.unassigned()
+        if (basis != PnlBasis.CLOSE) {
+            throw new IllegalArgumentException("Monthly summary supports CLOSE basis only");
+        }
+        List<AccountFilter> accountFilters = scope.isAll()
+                ? List.of(new AccountFilter(null, null, false))
+                : scope.accountIds().stream().map(id -> new AccountFilter(null, id, false)).toList();
+        BigDecimal netPnl = BigDecimal.ZERO;
+        BigDecimal grossPnl = BigDecimal.ZERO;
+        long tradeCount = 0;
+        for (AccountFilter accountFilter : accountFilters) {
+            TradeRepository.MonthlyPnlAggregate aggregate = tradeRepository.aggregateMonthlyPnlByClosedDate(
+                    user.getId(), monthStart, monthEnd, zone.getId(),
+                    accountFilter.brokerAccountId(), accountFilter.accountRefId(), accountFilter.unassigned()
             );
-            case OPEN -> throw new IllegalArgumentException("Monthly summary supports CLOSE basis only");
-        };
-
-        BigDecimal netPnl = aggregate != null && aggregate.getNetPnl() != null ? aggregate.getNetPnl() : BigDecimal.ZERO;
-        BigDecimal grossPnl = aggregate != null && aggregate.getGrossPnl() != null ? aggregate.getGrossPnl() : BigDecimal.ZERO;
-        long tradeCount = aggregate != null ? aggregate.getTradeCount() : 0;
-        long tradingDays = aggregate != null ? aggregate.getTradingDays() : 0;
+            if (aggregate != null) {
+                netPnl = netPnl.add(aggregate.getNetPnl() == null ? BigDecimal.ZERO : aggregate.getNetPnl());
+                grossPnl = grossPnl.add(aggregate.getGrossPnl() == null ? BigDecimal.ZERO : aggregate.getGrossPnl());
+                tradeCount += aggregate.getTradeCount();
+            }
+        }
+        long tradingDays = fetchDailyPnl(monthStart, monthEnd, zone.getId(), PnlBasis.CLOSE, accountIds, legacyAccountId).size();
 
         return new MonthlyPnlSummaryResponse(
                 year,
@@ -149,14 +177,21 @@ public class TradeCalendarService {
             options.add(new CalendarAccountOptionResponse(account.getId().toString(), label, "managed"));
         }
 
-        Set<String> normalizedBrokerIds = new HashSet<>();
-        for (String rawId : tradeRepository.findDistinctBrokerAccountIdsByUserId(user.getId())) {
-            String displayId = normalizeOptionalText(rawId);
-            if (displayId != null && normalizedBrokerIds.add(displayId.toLowerCase(Locale.ROOT))) {
-                options.add(new CalendarAccountOptionResponse(displayId, displayId, "broker"));
-            }
-        }
         return options;
+    }
+
+    private static final class DailyPnlAccumulator {
+        private BigDecimal netPnl = BigDecimal.ZERO;
+        private long tradeCount;
+        private long wins;
+        private long losses;
+
+        private void add(TradeRepository.DailyPnlAggregate row) {
+            netPnl = netPnl.add(row.getNetPnl() == null ? BigDecimal.ZERO : row.getNetPnl());
+            tradeCount += row.getTradeCount();
+            wins += row.getWins();
+            losses += row.getLosses();
+        }
     }
 
     @Transactional
