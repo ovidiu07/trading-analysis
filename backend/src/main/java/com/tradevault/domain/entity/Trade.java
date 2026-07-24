@@ -52,6 +52,12 @@ public class Trade {
     private String externalAccountId;
     @Column(name = "external_position_id", length = 128)
     private String externalPositionId;
+    @Column(name = "external_order_id", length = 128)
+    private String externalOrderId;
+    @Column(name = "external_instrument_name")
+    private String externalInstrumentName;
+    @Column(name = "external_symbol", length = 80)
+    private String externalSymbol;
     @Column(name = "source_broker")
     private String sourceBroker;
     @Column(name = "source_broker_server", length = 160)
@@ -64,8 +70,22 @@ public class Trade {
     private String brokerReportedPnlCurrency;
     @Column(name = "broker_reported_gross_pnl")
     private BigDecimal brokerReportedGrossPnl;
+    @Column(name = "broker_reported_result_after_fx_fee")
+    private BigDecimal brokerReportedResultAfterFxFee;
     @Column(name = "broker_reported_net_pnl")
     private BigDecimal brokerReportedNetPnl;
+    @Column(name = "source_exchange_rate")
+    private BigDecimal sourceExchangeRate;
+    @Column(name = "broker_reported_spread")
+    private BigDecimal brokerReportedSpread;
+    @Column(name = "fx_fee")
+    private BigDecimal fxFee;
+    @Column(name = "overnight_interest")
+    private BigDecimal overnightInterest;
+    @Column(name = "dividend_adjustment")
+    private BigDecimal dividendAdjustment;
+    @Column(name = "source_recorded_at")
+    private OffsetDateTime sourceRecordedAt;
     @Column(name = "calculated_gross_pnl")
     private BigDecimal calculatedGrossPnl;
     @Column(name = "calculated_net_pnl")

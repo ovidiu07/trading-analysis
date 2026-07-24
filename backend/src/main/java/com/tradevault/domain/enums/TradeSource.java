@@ -3,5 +3,6 @@ package com.tradevault.domain.enums;
 public enum TradeSource {
     MANUAL,
     TRADOVATE,
-    MT5_HTML
+    MT5_HTML,
+    TRADING212_CSV
 }

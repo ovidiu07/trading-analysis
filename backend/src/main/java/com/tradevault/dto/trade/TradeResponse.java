@@ -23,6 +23,11 @@ public class TradeResponse {
     private UUID id;
     private TradeSource source;
     private TradeImportStatus importStatus;
+    private String externalPositionId;
+    private String externalOrderId;
+    private String externalInstrumentName;
+    private String externalSymbol;
+    private String sourceBroker;
     private String symbol;
     private Market market;
     private Direction direction;
@@ -40,6 +45,15 @@ public class TradeResponse {
     private BigDecimal slippage;
     private BigDecimal pnlNet;
     private BigDecimal pnlGross;
+    private BigDecimal brokerReportedGrossPnl;
+    private BigDecimal brokerReportedResultAfterFxFee;
+    private BigDecimal brokerReportedNetPnl;
+    private BigDecimal brokerReportedSpread;
+    private BigDecimal sourceExchangeRate;
+    private BigDecimal fxFee;
+    private BigDecimal overnightInterest;
+    private BigDecimal dividendAdjustment;
+    private BigDecimal pnlReconciliationDifference;
     private BigDecimal pnlProfileCurrency;
     private String tradeCurrency;
     private String profileCurrency;

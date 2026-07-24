@@ -1,10 +1,10 @@
 package com.tradevault.controller;
 
-import com.tradevault.dto.tradeimport.Mt5ImportCommitRequest;
-import com.tradevault.dto.tradeimport.Mt5ImportCommitResponse;
 import com.tradevault.dto.tradeimport.Mt5ImportPreviewResponse;
 import com.tradevault.service.Mt5TradeImportService;
-import jakarta.validation.Valid;
+import com.tradevault.service.TradeImportCoordinatorService;
+import com.tradevault.service.Trading212TradeImportService;
+import com.fasterxml.jackson.databind.JsonNode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
@@ -18,6 +18,8 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class TradeImportController {
     private final Mt5TradeImportService mt5TradeImportService;
+    private final Trading212TradeImportService trading212TradeImportService;
+    private final TradeImportCoordinatorService coordinatorService;
 
     @PostMapping(value = "/metatrader5/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public Mt5ImportPreviewResponse preview(@RequestPart("file") MultipartFile file,
@@ -26,13 +28,19 @@ public class TradeImportController {
         return mt5TradeImportService.preview(file, targetAccountId, sourceTimezone);
     }
 
+    @PostMapping(value = "/trading212/preview", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public Object previewTrading212(@RequestPart("file") MultipartFile file,
+                                    @RequestParam(required = false) UUID targetAccountId) throws IOException {
+        return trading212TradeImportService.preview(file, targetAccountId);
+    }
+
     @PostMapping("/{importBatchId}/commit")
-    public Mt5ImportCommitResponse commit(@PathVariable UUID importBatchId, @Valid @RequestBody Mt5ImportCommitRequest request) {
-        return mt5TradeImportService.commit(importBatchId, request);
+    public Object commit(@PathVariable UUID importBatchId, @RequestBody JsonNode request) {
+        return coordinatorService.commit(importBatchId, request);
     }
 
     @GetMapping("/{importBatchId}")
     public Object details(@PathVariable UUID importBatchId) {
-        return mt5TradeImportService.details(importBatchId);
+        return coordinatorService.details(importBatchId);
     }
 }

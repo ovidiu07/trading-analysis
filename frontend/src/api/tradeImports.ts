@@ -11,6 +11,8 @@ export type Mt5ManualMatch = {
 
 export type Mt5TradePreview = {
   externalPositionId: string
+  externalOrderId?: string | null
+  externalInstrument?: string | null
   externalSymbol: string
   mappedSymbol?: string | null
   market?: TradeRequest['market'] | null
@@ -31,6 +33,17 @@ export type Mt5TradePreview = {
   otherCosts?: number | null
   netPnl?: number | null
   accountCurrency?: string | null
+  instrumentCurrency?: string | null
+  sourceExchangeRate?: number | null
+  reportedSpread?: number | null
+  fxFee?: number | null
+  resultAfterFxFee?: number | null
+  overnightInterest?: number | null
+  dividendAdjustment?: number | null
+  priceDerivedPnl?: number | null
+  pnlReconciliationDifference?: number | null
+  durationSeconds?: number | null
+  recordType?: string | null
   entryOrderType?: string | null
   requestedEntryPrice?: number | null
   requestedExitPrice?: number | null
@@ -42,6 +55,7 @@ export type Mt5TradePreview = {
   existingTradeId?: string | null
   potentialManualMatches: Mt5ManualMatch[]
   warnings: string[]
+  rawSource?: Record<string, string>
 }
 
 export type Mt5ImportPreview = {
@@ -68,11 +82,22 @@ export type Mt5ImportPreview = {
     grossPnl: number
     costs: number
     netPnl: number
+    unsupportedRows?: number
+    reportedSpread?: number
+    earliestTimestamp?: string | null
+    latestTimestamp?: string | null
   }
   sourceTimezone?: string | null
   targetAccountId?: string | null
-  unmappedSymbols: Array<{ externalSymbol: string; suggestedInternalSymbol?: string | null }>
+  unmappedSymbols: Array<{
+    externalSymbol: string
+    suggestedInternalSymbol?: string | null
+    externalInstrument?: string | null
+    instrumentCurrency?: string | null
+    suggestedMarket?: TradeRequest['market'] | null
+  }>
   trades: Mt5TradePreview[]
+  unsupportedRows?: Array<{ rowNumber: number; recordType?: string | null; warnings: string[] }>
   warnings: string[]
   errors: string[]
 }
@@ -110,6 +135,13 @@ export async function previewMt5Import(file: File) {
   return apiPostMultipart<Mt5ImportPreview>('/trade-imports/metatrader5/preview', formData)
 }
 
+export async function previewTrading212Import(file: File, targetAccountId?: string) {
+  const formData = new FormData()
+  formData.append('file', file)
+  const query = targetAccountId ? `?targetAccountId=${encodeURIComponent(targetAccountId)}` : ''
+  return apiPostMultipart<Mt5ImportPreview>(`/trade-imports/trading212/preview${query}`, formData)
+}
+
 export async function commitMt5Import(importBatchId: string, request: {
   targetAccountId: string
   sourceTimezone: string
@@ -117,6 +149,17 @@ export async function commitMt5Import(importBatchId: string, request: {
   symbolMappings: Mt5SymbolMapping[]
   linkToExistingTradeIds: Record<string, string>
   saveBrokerTimezone: boolean
+}) {
+  const committed = await apiPost<Mt5ImportCommitResult>(`/trade-imports/${importBatchId}/commit`, request)
+  announceAnalyticsDataChanged()
+  return committed
+}
+
+export async function commitTrading212Import(importBatchId: string, request: {
+  targetAccountId: string
+  selectedPositionIds: string[]
+  symbolMappings: Mt5SymbolMapping[]
+  linkToExistingTradeIds: Record<string, string>
 }) {
   const committed = await apiPost<Mt5ImportCommitResult>(`/trade-imports/${importBatchId}/commit`, request)
   announceAnalyticsDataChanged()

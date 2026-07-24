@@ -19,6 +19,7 @@ public class InstrumentAlias {
     private String broker;
     private String brokerServer;
     private String externalSymbol;
+    private String externalInstrumentName;
     private String internalSymbol;
     @Enumerated(EnumType.STRING) private Market market;
     private String tradeCurrency;

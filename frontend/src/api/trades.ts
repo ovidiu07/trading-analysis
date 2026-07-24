@@ -54,8 +54,13 @@ export type TradeRequest = {
 
 export type TradeResponse = {
   id: string
-  source?: 'MANUAL' | 'TRADOVATE' | 'MT5_HTML'
+  source?: 'MANUAL' | 'TRADOVATE' | 'MT5_HTML' | 'TRADING212_CSV'
   importStatus?: 'IMPORTED' | 'NEEDS_REVIEW' | 'VALIDATED' | 'WARNING' | 'FAILED' | null
+  externalPositionId?: string | null
+  externalOrderId?: string | null
+  externalInstrumentName?: string | null
+  externalSymbol?: string | null
+  sourceBroker?: string | null
   symbol: string
   market: TradeRequest['market']
   direction: TradeRequest['direction']
@@ -73,6 +78,15 @@ export type TradeResponse = {
   slippage?: number | null
   pnlGross?: number | null
   pnlNet?: number | null
+  brokerReportedGrossPnl?: number | null
+  brokerReportedResultAfterFxFee?: number | null
+  brokerReportedNetPnl?: number | null
+  brokerReportedSpread?: number | null
+  sourceExchangeRate?: number | null
+  fxFee?: number | null
+  overnightInterest?: number | null
+  dividendAdjustment?: number | null
+  pnlReconciliationDifference?: number | null
   pnlProfileCurrency?: number | null
   tradeCurrency?: string | null
   profileCurrency?: string | null

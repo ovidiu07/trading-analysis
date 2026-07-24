@@ -29,6 +29,9 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
       UUID userId, com.tradevault.domain.enums.TradeSource source, String sourceBrokerServer,
       String externalAccountId, String externalPositionId);
 
+  Optional<Trade> findByUserIdAndAccountIdAndSourceAndExternalPositionId(
+      UUID userId, UUID accountId, com.tradevault.domain.enums.TradeSource source, String externalPositionId);
+
   List<Trade> findByUser_IdAndStrategyIdAndStatus(UUID userId, UUID strategyId, TradeStatus status);
 
   @Query(value = """

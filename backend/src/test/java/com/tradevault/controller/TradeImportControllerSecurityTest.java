@@ -9,6 +9,8 @@ import com.tradevault.security.JwtAuthenticationFilter;
 import com.tradevault.security.JwtTokenProvider;
 import com.tradevault.security.SecurityConfig;
 import com.tradevault.service.Mt5TradeImportService;
+import com.tradevault.service.TradeImportCoordinatorService;
+import com.tradevault.service.Trading212TradeImportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -43,6 +45,8 @@ class TradeImportControllerSecurityTest {
     @Autowired MockMvc mockMvc;
     @Autowired ObjectMapper objectMapper;
     @MockBean Mt5TradeImportService service;
+    @MockBean Trading212TradeImportService trading212Service;
+    @MockBean TradeImportCoordinatorService coordinatorService;
     @MockBean JwtTokenProvider jwtTokenProvider;
     @MockBean CustomUserDetailsService customUserDetailsService;
 
@@ -52,11 +56,14 @@ class TradeImportControllerSecurityTest {
         UUID batchId = UUID.randomUUID();
 
         mockMvc.perform(multipart("/api/trade-imports/metatrader5/preview").file(report)).andExpect(status().isUnauthorized());
+        mockMvc.perform(multipart("/api/trade-imports/trading212/preview")
+                .file(new MockMultipartFile("file", "report.csv", "text/csv", "csv".getBytes())))
+                .andExpect(status().isUnauthorized());
         mockMvc.perform(post("/api/trade-imports/{id}/commit", batchId).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnauthorized());
         mockMvc.perform(get("/api/trade-imports/{id}", batchId)).andExpect(status().isUnauthorized());
         verify(service, never()).preview(any(), any(), any());
-        verify(service, never()).commit(any(), any());
+        verify(coordinatorService, never()).commit(any(), any());
     }
 
     @Test
@@ -92,9 +99,11 @@ class TradeImportControllerSecurityTest {
     void authenticatedCommitValidatesInputAndReturnsResult() throws Exception {
         UUID batchId = UUID.randomUUID();
         UUID accountId = UUID.randomUUID();
-        when(service.commit(eq(batchId), any())).thenReturn(new Mt5ImportCommitResponse(batchId, TradeImportStatus.IMPORTED,
+        var response = new Mt5ImportCommitResponse(batchId, TradeImportStatus.IMPORTED,
                 4, 0, 0, 0, new BigDecimal("-145.46"), new BigDecimal("77.25"), new BigDecimal("-222.71"),
-                List.of(UUID.randomUUID()), List.of(), List.of()));
+                List.of(UUID.randomUUID()), List.of(), List.of());
+        when(coordinatorService.commit(eq(batchId), any())).thenReturn(response)
+                .thenThrow(new ResponseStatusException(HttpStatus.BAD_REQUEST, "targetAccountId is required"));
 
         mockMvc.perform(post("/api/trade-imports/{id}/commit", batchId).contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsBytes(java.util.Map.of(
@@ -116,7 +125,7 @@ class TradeImportControllerSecurityTest {
     @WithMockUser(username = "trader@example.com", roles = "USER")
     void authenticatedDetailsReturnsOwnedBatchPayload() throws Exception {
         UUID batchId = UUID.randomUUID();
-        when(service.details(batchId)).thenReturn(preview(batchId));
+        when(coordinatorService.details(batchId)).thenReturn(preview(batchId));
 
         mockMvc.perform(get("/api/trade-imports/{id}", batchId))
                 .andExpect(status().isOk())

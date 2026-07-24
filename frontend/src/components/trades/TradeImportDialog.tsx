@@ -9,7 +9,8 @@ import {
   fetchTradingAccounts, type TradingAccountOption
 } from '../../api/accounts'
 import {
-  commitMt5Import, previewMt5Import, type Mt5ImportCommitResult, type Mt5ImportPreview,
+  commitMt5Import, commitTrading212Import, previewMt5Import, previewTrading212Import,
+  type Mt5ImportCommitResult, type Mt5ImportPreview,
   type Mt5SymbolMapping
 } from '../../api/tradeImports'
 import { ApiError } from '../../api/client'
@@ -37,7 +38,7 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
   const inputRef = useRef<HTMLInputElement | null>(null)
-  const [provider, setProvider] = useState<'MT5' | null>(null)
+  const [provider, setProvider] = useState<'MT5' | 'TRADING212' | null>(null)
   const [step, setStep] = useState(0)
   const [preview, setPreview] = useState<Mt5ImportPreview | null>(null)
   const [result, setResult] = useState<Mt5ImportCommitResult | null>(null)
@@ -103,7 +104,10 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
     if (!file) return
     setError(''); setLoading(true); setFilename(file.name)
     try {
-      const next = await previewMt5Import(file)
+      const preferredAccountId = targetAccountId || (accounts.length === 1 ? accounts[0].id : undefined)
+      const next = provider === 'TRADING212'
+        ? await previewTrading212Import(file, preferredAccountId)
+        : await previewMt5Import(file)
       setPreview(next)
       setTargetAccountId(initialTargetAccountId(accounts, next.targetAccountId))
       setSourceTimezone(next.sourceTimezone || '')
@@ -113,9 +117,9 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
         if (!initialMappings[trade.externalSymbol]) {
           initialMappings[trade.externalSymbol] = {
             externalSymbol: trade.externalSymbol,
-            internalSymbol: trade.mappedSymbol || '',
+            internalSymbol: trade.mappedSymbol || (provider === 'TRADING212' ? trade.externalSymbol : ''),
             market: trade.market || 'CFD',
-            tradeCurrency: trade.tradeCurrency || '',
+            tradeCurrency: trade.tradeCurrency || trade.instrumentCurrency || '',
             saveForFuture: true
           }
         }
@@ -129,7 +133,9 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
 
   const mappingComplete = useMemo(() => Object.values(mappings).every((m) => m.internalSymbol.trim() && m.tradeCurrency.trim()), [mappings])
   const selectedAccount = accounts.find((account) => account.id === targetAccountId)
-  const configurationComplete = Boolean(selectedAccount && sourceTimezone.trim() && !accountsLoading && !accountsError)
+  const configurationComplete = Boolean(selectedAccount
+    && (provider === 'TRADING212' || sourceTimezone.trim())
+    && !accountsLoading && !accountsError)
   const selectedTrades = preview?.trades.filter((trade) => selected.has(trade.externalPositionId)) || []
   const totals = selectedTrades.reduce((sum, trade) => ({
     gross: sum.gross + (trade.grossPnl || 0),
@@ -150,14 +156,19 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
     }
     setLoading(true); setError('')
     try {
-      const committed = await commitMt5Import(preview.importBatchId, {
+      const commonRequest = {
         targetAccountId,
-        sourceTimezone: sourceTimezone.trim(),
         selectedPositionIds: [...selected],
         symbolMappings: Object.values(mappings),
-        linkToExistingTradeIds: links,
-        saveBrokerTimezone: saveTimezone
-      })
+        linkToExistingTradeIds: links
+      }
+      const committed = provider === 'TRADING212'
+        ? await commitTrading212Import(preview.importBatchId, commonRequest)
+        : await commitMt5Import(preview.importBatchId, {
+          ...commonRequest,
+          sourceTimezone: sourceTimezone.trim(),
+          saveBrokerTimezone: saveTimezone
+        })
       setResult(committed); setStep(5); onCommitted()
     } catch (cause) {
       const apiError = cause as ApiError
@@ -178,18 +189,25 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
           <Stack spacing={2}>
             <Typography>{t('trades.mt5.chooseProvider')}</Typography>
             <Grid container spacing={2}>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={4}>
                 <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-                  <Typography variant="h6">Tradovate</Typography>
+                  <Typography variant="h6">{t('trades.mt5.providerTradovate')}</Typography>
                   <Typography color="text.secondary" sx={{ mb: 2 }}>{t('trades.mt5.tradovateDescription')}</Typography>
                   <Button variant="outlined" onClick={() => { handleClose(); onTradovate() }}>{t('trades.mt5.chooseTradovate')}</Button>
                 </Paper>
               </Grid>
-              <Grid item xs={12} md={6}>
+              <Grid item xs={12} md={4}>
                 <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
-                  <Typography variant="h6">MetaTrader 5</Typography>
+                  <Typography variant="h6">{t('trades.mt5.providerMt5')}</Typography>
                   <Typography color="text.secondary" sx={{ mb: 2 }}>{t('trades.mt5.mt5Description')}</Typography>
                   <Button variant="contained" onClick={() => setProvider('MT5')}>{t('trades.mt5.chooseMt5')}</Button>
+                </Paper>
+              </Grid>
+              <Grid item xs={12} md={4}>
+                <Paper variant="outlined" sx={{ p: 2, height: '100%' }}>
+                  <Typography variant="h6">{t('trades.mt5.providerTrading212')}</Typography>
+                  <Typography color="text.secondary" sx={{ mb: 2 }}>{t('trades.mt5.trading212Description')}</Typography>
+                  <Button variant="contained" onClick={() => setProvider('TRADING212')}>{t('trades.mt5.chooseTrading212')}</Button>
                 </Paper>
               </Grid>
             </Grid>
@@ -203,16 +221,20 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
             {step === 0 && (
               <Paper variant="outlined" sx={{ p: 3, textAlign: 'center' }}>
                 <FileUploadRoundedIcon color="primary" sx={{ fontSize: 44 }} />
-                <Typography variant="h6">{t('trades.mt5.uploadTitle')}</Typography>
-                <Typography color="text.secondary">{t('trades.mt5.uploadHint')}</Typography>
+                <Typography variant="h6">{t(provider === 'TRADING212' ? 'trades.mt5.trading212UploadTitle' : 'trades.mt5.uploadTitle')}</Typography>
+                <Typography color="text.secondary">{t(provider === 'TRADING212' ? 'trades.mt5.trading212UploadHint' : 'trades.mt5.uploadHint')}</Typography>
                 {filename && <Chip label={filename} sx={{ my: 2 }} />}
                 <Box><Button variant="contained" disabled={loading} onClick={() => inputRef.current?.click()}>{loading ? t('trades.mt5.parsing') : t('trades.mt5.selectFile')}</Button></Box>
-                <input ref={inputRef} type="file" hidden accept=".html,.htm,text/html" onChange={(event) => { void handleFile(event.target.files?.[0]); event.target.value = '' }} />
+                <input ref={inputRef} type="file" hidden
+                  accept={provider === 'TRADING212' ? '.csv,text/csv' : '.html,.htm,text/html'}
+                  onChange={(event) => { void handleFile(event.target.files?.[0]); event.target.value = '' }} />
               </Paper>
             )}
             {step === 1 && preview && (
               <Stack spacing={2}>
-                <Alert severity="info">{t('trades.mt5.brokerTimezoneWarning')}</Alert>
+                <Alert severity="info">{t(provider === 'TRADING212'
+                  ? 'trades.mt5.trading212AccountNotice'
+                  : 'trades.mt5.brokerTimezoneWarning')}</Alert>
                 <Grid container spacing={2}>
                   {Object.entries(preview.account).map(([key, value]) => value ? <Grid item xs={12} sm={6} md={3} key={key}><Typography variant="caption" color="text.secondary">{t(`trades.mt5.account.${key}`)}</Typography><Typography>{value}</Typography></Grid> : null)}
                 </Grid>
@@ -235,16 +257,26 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
                       suggestedCurrency={preview.account.currency || 'USD'}
                     />
                   </Grid>
-                  <Grid item xs={12} md={6}><TextField fullWidth label={t('trades.mt5.sourceTimezone')} placeholder="Europe/London" value={sourceTimezone} onChange={(e) => setSourceTimezone(e.target.value)} helperText={t('trades.mt5.timezoneHint')} /></Grid>
+                  {provider === 'MT5' && <Grid item xs={12} md={6}><TextField fullWidth label={t('trades.mt5.sourceTimezone')} placeholder="Europe/London" value={sourceTimezone} onChange={(e) => setSourceTimezone(e.target.value)} helperText={t('trades.mt5.timezoneHint')} /></Grid>}
                 </Grid>
-                <FormControlLabel control={<Checkbox checked={saveTimezone} onChange={(e) => setSaveTimezone(e.target.checked)} />} label={t('trades.mt5.saveTimezone')} />
+                {provider === 'MT5' && <FormControlLabel control={<Checkbox checked={saveTimezone} onChange={(e) => setSaveTimezone(e.target.checked)} />} label={t('trades.mt5.saveTimezone')} />}
+                {provider === 'TRADING212' && selectedAccount?.currency && preview.account.currency
+                  && selectedAccount.currency.toUpperCase() !== preview.account.currency.toUpperCase()
+                  && <Alert severity="warning">{t('trades.mt5.currencyMismatch', {
+                    source: preview.account.currency, target: selectedAccount.currency
+                  })}</Alert>}
               </Stack>
             )}
             {step === 2 && preview && (
               <Stack spacing={2}>
                 {Object.values(mappings).map((mapping) => (
                   <Paper variant="outlined" sx={{ p: 2 }} key={mapping.externalSymbol}>
-                    <Typography variant="subtitle1" sx={{ mb: 1 }}>{mapping.externalSymbol}</Typography>
+                    <Typography variant="subtitle1" sx={{ mb: 1 }}>
+                      {mapping.externalSymbol}
+                      {provider === 'TRADING212' && preview.unmappedSymbols.find((item) => item.externalSymbol === mapping.externalSymbol)?.externalInstrument
+                        ? ` — ${preview.unmappedSymbols.find((item) => item.externalSymbol === mapping.externalSymbol)?.externalInstrument}`
+                        : ''}
+                    </Typography>
                     <Grid container spacing={2}>
                       <Grid item xs={12} sm={6} md={3}><TextField fullWidth required label={t('trades.mt5.internalSymbol')} value={mapping.internalSymbol} onChange={(e) => updateMapping(mapping.externalSymbol, { internalSymbol: e.target.value })} /></Grid>
                       <Grid item xs={12} sm={6} md={3}><TextField select fullWidth label={t('trades.mt5.market')} value={mapping.market} onChange={(e) => updateMapping(mapping.externalSymbol, { market: e.target.value as Mt5SymbolMapping['market'] })}>{markets.map((market) => <MenuItem key={market} value={market}>{market}</MenuItem>)}</TextField></Grid>
@@ -262,17 +294,48 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
             {step === 3 && preview && (
               <TableContainer component={Paper} variant="outlined" sx={{ maxHeight: 430 }}>
                 <Table stickyHeader size="small" sx={{ minWidth: 1500 }}>
-                  <TableHead><TableRow><TableCell>{t('trades.mt5.include')}</TableCell><TableCell>{t('trades.mt5.importState')}</TableCell><TableCell>{t('trades.table.symbol')}</TableCell><TableCell>{t('trades.table.direction')}</TableCell><TableCell>{t('trades.table.status')}</TableCell><TableCell>{t('trades.table.opened')}</TableCell><TableCell>{t('trades.mt5.closed')}</TableCell><TableCell>{t('trades.table.qty')}</TableCell><TableCell>{t('trades.table.entry')}</TableCell><TableCell>{t('trades.table.exit')}</TableCell><TableCell>SL / TP</TableCell><TableCell>{t('trades.mt5.gross')}</TableCell><TableCell>{t('trades.form.commission')}</TableCell><TableCell>{t('trades.mt5.net')}</TableCell><TableCell>{t('trades.mt5.manualMatch')}</TableCell><TableCell>{t('trades.mt5.warnings')}</TableCell></TableRow></TableHead>
+                  <TableHead><TableRow>
+                    <TableCell>{t('trades.mt5.include')}</TableCell><TableCell>{t('trades.mt5.importState')}</TableCell>
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.externalPositionId')}</TableCell>}
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.externalOrderId')}</TableCell>}
+                    <TableCell>{t('trades.table.symbol')}</TableCell><TableCell>{t('trades.table.direction')}</TableCell><TableCell>{t('trades.table.status')}</TableCell><TableCell>{t('trades.table.opened')}</TableCell><TableCell>{t('trades.mt5.closed')}</TableCell><TableCell>{t('trades.table.qty')}</TableCell><TableCell>{t('trades.table.entry')}</TableCell><TableCell>{t('trades.table.exit')}</TableCell><TableCell>SL / TP</TableCell>
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.exchangeRate')}</TableCell>}
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.reportedSpread')}</TableCell>}
+                    <TableCell>{t('trades.mt5.gross')}</TableCell>
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.fxFee')}</TableCell>}
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.overnightInterest')}</TableCell>}
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.dividendAdjustment')}</TableCell>}
+                    {provider === 'MT5' && <TableCell>{t('trades.form.commission')}</TableCell>}
+                    <TableCell>{t('trades.mt5.net')}</TableCell><TableCell>{t('trades.mt5.manualMatch')}</TableCell><TableCell>{t('trades.mt5.warnings')}</TableCell>
+                    {provider === 'TRADING212' && <TableCell>{t('trades.mt5.sourceRow')}</TableCell>}
+                  </TableRow></TableHead>
                   <TableBody>{preview.trades.map((trade) => (
                     <TableRow key={trade.externalPositionId}>
                       <TableCell><Checkbox checked={selected.has(trade.externalPositionId)} onChange={(e) => setSelected((current) => { const next = new Set(current); e.target.checked ? next.add(trade.externalPositionId) : next.delete(trade.externalPositionId); return next })} /></TableCell>
                       <TableCell><Chip size="small" color={trade.duplicate ? 'warning' : 'success'} label={trade.duplicate ? t('trades.mt5.existing') : t('trades.mt5.newTrade')} /></TableCell>
+                      {provider === 'TRADING212' && <TableCell>{trade.externalPositionId}</TableCell>}
+                      {provider === 'TRADING212' && <TableCell>{trade.externalOrderId || '—'}</TableCell>}
                       <TableCell>{trade.externalSymbol} → {mappings[trade.externalSymbol]?.internalSymbol}</TableCell><TableCell>{trade.direction}</TableCell><TableCell>{trade.status}</TableCell>
                       <TableCell>{trade.openedAt ? formatDateTime(trade.openedAt, userTimezone) : '—'}</TableCell><TableCell>{trade.closedAt ? formatDateTime(trade.closedAt, userTimezone) : '—'}</TableCell>
                       <TableCell>{trade.quantity}</TableCell><TableCell>{trade.entryPrice}</TableCell><TableCell>{trade.exitPrice ?? '—'}</TableCell><TableCell>{trade.initialStopLossPrice ?? '—'} / {trade.initialTakeProfitPrice ?? '—'}</TableCell>
-                      <TableCell>{formatCurrency(trade.grossPnl, trade.accountCurrency || 'USD')}</TableCell><TableCell>{formatCurrency(trade.commission, trade.accountCurrency || 'USD')}</TableCell><TableCell>{formatCurrency(trade.netPnl, trade.accountCurrency || 'USD')}</TableCell>
+                      {provider === 'TRADING212' && <TableCell>{trade.sourceExchangeRate ?? '—'}</TableCell>}
+                      {provider === 'TRADING212' && <TableCell>{formatCurrency(trade.reportedSpread, trade.accountCurrency || 'USD')}</TableCell>}
+                      <TableCell>{formatCurrency(trade.grossPnl, trade.accountCurrency || 'USD')}</TableCell>
+                      {provider === 'TRADING212' && <TableCell>{formatCurrency(trade.fxFee, trade.accountCurrency || 'USD')}</TableCell>}
+                      {provider === 'TRADING212' && <TableCell>{formatCurrency(trade.overnightInterest, trade.accountCurrency || 'USD')}</TableCell>}
+                      {provider === 'TRADING212' && <TableCell>{formatCurrency(trade.dividendAdjustment, trade.accountCurrency || 'USD')}</TableCell>}
+                      {provider === 'MT5' && <TableCell>{formatCurrency(trade.commission, trade.accountCurrency || 'USD')}</TableCell>}
+                      <TableCell>{formatCurrency(trade.netPnl, trade.accountCurrency || 'USD')}</TableCell>
                       <TableCell>{trade.potentialManualMatches.length ? <TextField select size="small" value={links[trade.externalPositionId] || ''} onChange={(e) => setLinks((current) => ({ ...current, [trade.externalPositionId]: e.target.value }))}><MenuItem value="">{t('trades.mt5.importAsNew')}</MenuItem>{trade.potentialManualMatches.map((match) => <MenuItem value={match.tradeId} key={match.tradeId}>{t('trades.mt5.linkMatch', { symbol: match.symbol, confidence: match.confidence })}</MenuItem>)}</TextField> : '—'}</TableCell>
                       <TableCell><Typography variant="caption">{trade.warnings.join(' • ') || '—'}</Typography></TableCell>
+                      {provider === 'TRADING212' && <TableCell>
+                        <Box component="details">
+                          <Box component="summary" sx={{ cursor: 'pointer', whiteSpace: 'nowrap' }}>{t('trades.mt5.inspectSourceRow')}</Box>
+                          <Box component="pre" sx={{ m: 0, mt: 1, maxWidth: 420, whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 11 }}>
+                            {JSON.stringify(trade.rawSource || {}, null, 2)}
+                          </Box>
+                        </Box>
+                      </TableCell>}
                     </TableRow>
                   ))}</TableBody>
                 </Table>
@@ -293,10 +356,15 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
                 <Typography>{t('trades.mt5.totalGross')}: {formatCurrency(totals.gross, preview.account.currency || 'USD')}</Typography>
                 <Typography>{t('trades.mt5.totalCosts')}: {formatCurrency(totals.costs, preview.account.currency || 'USD')}</Typography>
                 <Typography>{t('trades.mt5.totalNet')}: {formatCurrency(totals.net, preview.account.currency || 'USD')}</Typography>
+                {provider === 'TRADING212' && <Alert severity="info">{t('trades.mt5.spreadInformational', {
+                  spread: formatCurrency(preview.summary.reportedSpread, preview.account.currency || 'USD')
+                })}</Alert>}
+                {provider === 'TRADING212' && Boolean(preview.unsupportedRows?.length)
+                  && <Alert severity="warning">{t('trades.mt5.unsupportedRows', { count: preview.unsupportedRows?.length || 0 })}</Alert>}
               </Stack>
             )}
             {step === 5 && result && (
-              <Stack spacing={2}><Alert severity={result.errors.length ? 'error' : 'success'}>{t('trades.mt5.complete')}</Alert><Typography>{t('trades.mt5.created')}: {result.created}</Typography><Typography>{t('trades.mt5.updated')}: {result.updated}</Typography><Typography>{t('trades.mt5.duplicates')}: {result.duplicatesSkipped}</Typography><Typography>{t('trades.mt5.resultNet')}: {formatCurrency(result.netPnl, preview?.account.currency || 'USD')}</Typography>{result.warnings.length > 0 && <Alert severity="warning">{result.warnings.join(' • ')}</Alert>}</Stack>
+              <Stack spacing={2}><Alert severity={result.errors.length ? 'error' : 'success'}>{t(provider === 'TRADING212' ? 'trades.mt5.trading212Complete' : 'trades.mt5.complete')}</Alert><Typography>{t('trades.mt5.created')}: {result.created}</Typography><Typography>{t('trades.mt5.updated')}: {result.updated}</Typography><Typography>{t('trades.mt5.duplicates')}: {result.duplicatesSkipped}</Typography><Typography>{t('trades.mt5.resultNet')}: {formatCurrency(result.netPnl, preview?.account.currency || 'USD')}</Typography>{result.warnings.length > 0 && <Alert severity="warning">{result.warnings.join(' • ')}</Alert>}</Stack>
             )}
           </Stack>
         )}

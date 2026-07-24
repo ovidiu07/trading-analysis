@@ -1409,6 +1409,15 @@ export default function TradesPage() {
                   {t('trades.details.fxRate')}: {formatNumber(trade.fxRateTradeToProfile ?? 1, 6)} • {t('trades.details.fxSource')}: {trade.fxRateSource || t('common.na')}
                 </Typography>
               </Grid>
+              {trade.source === 'TRADING212_CSV' && (
+                <Grid item xs={12}>
+                  <Typography variant="caption" color="text.secondary">
+                    {t('trades.mt5.externalPositionId')}: {trade.externalPositionId || t('common.na')} •
+                    {' '}{t('trades.mt5.reportedSpread')}: {formatCurrency(trade.brokerReportedSpread, trade.accountCurrency || baseCurrency)}
+                    {' '}({t('trades.mt5.spreadNotDeducted')})
+                  </Typography>
+                </Grid>
+              )}
             </Grid>
             <Typography variant="body2" color="text.secondary">{t('trades.card.notes')}: {getTradeNotesPreview(trade) || t('common.na')}</Typography>
             <Typography variant="body2" color="text.secondary">{t('tradingAccounts.selectorLabel')}: {tradeAccountLabel(trade)}</Typography>

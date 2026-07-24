@@ -100,6 +100,11 @@ uploads:
   max-file-size-mb: ${UPLOADS_MAX_FILE_SIZE_MB:20}
   allowed-mime-types: ${UPLOADS_ALLOWED_MIME_TYPES:image/jpeg,image/png,image/webp,image/gif,application/pdf,text/plain,text/csv,application/json,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet}
 
+trade-import:
+  trading212:
+    max-file-size-mb: ${TRADING212_IMPORT_MAX_FILE_SIZE_MB:10}
+    max-rows: ${TRADING212_IMPORT_MAX_ROWS:10000}
+
 logging:
   level:
     root: INFO
