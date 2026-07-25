@@ -29,13 +29,21 @@ public class MonthlyGrowthPlanRevision {
     @ManyToOne(fetch = FetchType.LAZY, optional = false)
     @JoinColumn(name = "plan_id", nullable = false)
     private MonthlyGrowthPlan plan;
+    @Column(name = "previous_target_type")
     private String previousTargetType;
+    @Column(name = "previous_target_pct")
     private BigDecimal previousTargetPct;
+    @Column(name = "previous_target_amount")
     private BigDecimal previousTargetAmount;
+    @Column(name = "previous_target_r")
     private BigDecimal previousTargetR;
+    @Column(name = "new_target_type")
     private String newTargetType;
+    @Column(name = "new_target_pct")
     private BigDecimal newTargetPct;
+    @Column(name = "new_target_amount")
     private BigDecimal newTargetAmount;
+    @Column(name = "new_target_r")
     private BigDecimal newTargetR;
     private String reason;
     @Column(name = "changed_at", nullable = false)
