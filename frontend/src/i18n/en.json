@@ -83,6 +83,381 @@
       "save": "The trading account could not be saved."
     }
   },
+  "growthCoach": {
+    "title": "Account Growth Coach",
+    "subtitle": "Account-specific targets, realised progress, open exposure, risk rules, and evidence-based projections.",
+    "disclaimer": "For journaling, analytics, and risk planning only. Projections are uncertain, do not promise returns, and are not financial advice.",
+    "accountSelector": "Growth coach account",
+    "monthSelector": "Plan month",
+    "unknown": "Unknown",
+    "errors": {
+      "load": "The Account Growth Coach could not be loaded.",
+      "save": "The growth plan changes could not be saved."
+    },
+    "accountTypes": {
+      "PERSONAL": "Personal",
+      "PROP_CHALLENGE": "Prop challenge",
+      "PROP_FUNDED": "Prop funded",
+      "FUTURES_EVALUATION": "Futures evaluation",
+      "FUTURES_FUNDED": "Futures funded",
+      "DEMO": "Demo",
+      "OTHER": "Other"
+    },
+    "capitalSources": {
+      "USER_ENTERED": "User entered",
+      "IMPORTED": "Imported",
+      "RECONSTRUCTED": "Reconstructed",
+      "ACCOUNT_DEFAULT": "Account default"
+    },
+    "drawdownTypes": {
+      "NONE": "No configured drawdown",
+      "STATIC": "Static drawdown",
+      "TRAILING_INTRADAY": "Trailing intraday",
+      "TRAILING_END_OF_DAY": "Trailing end of day"
+    },
+    "targetTypes": {
+      "PERCENTAGE": "Percentage",
+      "FIXED_AMOUNT": "Fixed amount",
+      "R_MULTIPLE": "R multiple",
+      "PROP_TARGET": "Prop target",
+      "CAPITAL_MILESTONE": "Capital milestone"
+    },
+    "targetBases": {
+      "MONTH_START_BALANCE": "Beginning-of-month balance",
+      "INITIAL_CAPITAL": "Initial capital",
+      "CURRENT_EQUITY": "Month-start equity",
+      "COMPOUNDED_MONTHLY_BALANCE": "Compounded monthly balance"
+    },
+    "riskStates": {
+      "REDUCED": "Reduced",
+      "CONSERVATIVE": "Conservative",
+      "STANDARD": "Standard",
+      "ELEVATED": "Elevated",
+      "BLOCKED": "Blocked",
+      "UNKNOWN": "Unknown"
+    },
+    "portfolio": {
+      "title": "Portfolio overview",
+      "subtitle": "Money is kept per account and currency. Risk rules are never merged across accounts.",
+      "selectAccount": "Select one account for a detailed plan and risk recommendation. Combined risk advice is intentionally unavailable for heterogeneous accounts.",
+      "openPlan": "Open account plan",
+      "emptyTitle": "No active trading accounts",
+      "emptyBody": "Create a trading account before configuring a growth plan."
+    },
+    "confidence": {
+      "label": "Data confidence",
+      "levels": {
+        "HIGH": "High",
+        "MEDIUM": "Medium",
+        "LOW": "Low",
+        "INSUFFICIENT": "Insufficient"
+      },
+      "reasons": {
+        "lowSample": "Only {{tradeCount}} valid closed trades are available, so statistical confidence is limited.",
+        "missingRisk": "Initial-risk coverage is {{riskCoveragePct}}%; R-based conclusions remain incomplete.",
+        "inconsistentPnl": "{{inconsistentCount}} trades have inconsistent P&L data.",
+        "openRiskUnknown": "At least one active trade has unknown open risk.",
+        "reconstructedSnapshot": "The month-start snapshot was reconstructed from the available ledger and trade history."
+      }
+    },
+    "snapshot": {
+      "reconstructed": "Reconstructed snapshot",
+      "sources": {
+        "CAPTURED": "Captured and locked",
+        "RECONSTRUCTED": "Reconstructed from available history",
+        "USER_CORRECTED": "User-corrected with an audit note"
+      }
+    },
+    "profile": {
+      "title": "Account growth profile",
+      "subtitle": "Rules are applied to this account only. Missing values remain unknown rather than being guessed.",
+      "edit": "Edit account profile",
+      "accountType": "Account type",
+      "currency": "Account currency",
+      "initialCapital": "Initial capital",
+      "capitalSource": "Capital source",
+      "defaultRisk": "Default risk per trade (%)",
+      "maxRisk": "Preferred maximum risk per trade (%)",
+      "maxConcurrentRisk": "Maximum concurrent risk (%)",
+      "maxDailyRiskPct": "Maximum daily risk (%)",
+      "maxDailyLossAmount": "Maximum daily loss amount",
+      "maxDrawdownPct": "Maximum total drawdown (%)",
+      "maxDrawdownAmount": "Maximum total drawdown amount",
+      "drawdownType": "Drawdown type",
+      "monthlyTarget": "Default monthly target (%)",
+      "compoundsMonthly": "Compound the default target monthly",
+      "rulesTitle": "Evaluation, funded, and payout rules",
+      "profitTargetPct": "Account profit target (%)",
+      "profitTargetAmount": "Account profit target amount",
+      "minimumTradingDays": "Minimum trading days",
+      "deadline": "Challenge deadline",
+      "consistencyRuleType": "Consistency rule type",
+      "consistencyRuleValue": "Consistency rule value",
+      "trailingEnabled": "Trailing drawdown enabled",
+      "trailingAmount": "Trailing drawdown amount",
+      "highWaterMark": "Trailing high-water mark",
+      "profitSplit": "Trader profit split (%)",
+      "payoutThreshold": "Payout threshold",
+      "payoutFrequency": "Payout frequency",
+      "payoutRules": "Payout eligibility rules",
+      "contractLimit": "Contract limit",
+      "scalingRestrictions": "Scaling restrictions",
+      "resetDetails": "Account reset details"
+    },
+    "plan": {
+      "edit": "Edit monthly plan",
+      "editTitle": "Edit monthly growth plan",
+      "targetType": "Target type",
+      "targetBasis": "Target reference",
+      "targetPct": "Target (%)",
+      "targetAmount": "Target amount / milestone",
+      "targetR": "Target (R)",
+      "minimumRr": "Planned minimum R:R",
+      "plannedRisk": "Planned risk per trade (%)",
+      "hardMaxRisk": "Hard maximum risk per trade (%)",
+      "maxTradesDay": "Maximum trades per day",
+      "maxTradesWeek": "Maximum trades per week",
+      "changeReason": "Reason for changing the target"
+    },
+    "overview": {
+      "title": "Monthly goal overview",
+      "subtitle": "Realised balance and current equity remain separate throughout the plan."
+    },
+    "metrics": {
+      "monthStartBalance": "Month-start balance",
+      "realisedBalance": "Current realised balance",
+      "currentEquity": "Current equity",
+      "monthlyTarget": "Monthly target",
+      "monthlyRealised": "Realised monthly P&L",
+      "floatingPnl": "Floating P&L",
+      "remainingTarget": "Remaining target",
+      "tradingDaysRemaining": "Trading days remaining",
+      "dailyLossRemaining": "Daily loss allowance remaining",
+      "drawdownBuffer": "Total drawdown buffer",
+      "withdrawableProfit": "Withdrawable profit",
+      "profitAfterSplit": "Profit after split",
+      "equityUnavailable": "Equity unavailable because some open prices are unavailable.",
+      "notRealised": "Not counted as completed target progress.",
+      "feasibility": "Target feasibility",
+      "recommendedRisk": "Recommended risk per trade",
+      "maxSupportedRisk": "Maximum supported risk",
+      "currentOpenRisk": "Current open risk",
+      "requiredR": "Required R remaining",
+      "expectedTrades": "Estimated quality trades",
+      "estimatedDays": "Estimated trading days",
+      "expectancyR": "Validated expectancy",
+      "maxTradesDay": "Plan max trades / day",
+      "maxTradesWeek": "Plan max trades / week",
+      "minimumRr": "Planned minimum R:R",
+      "targetProbability": "Target probability",
+      "openTrades": "Active trades",
+      "netExposure": "Net exposure"
+    },
+    "progress": {
+      "realised": "Realised progress",
+      "realisedHint": "Closed current-month net P&L only.",
+      "equityAdjusted": "Equity-adjusted progress",
+      "equityHint": "Includes floating P&L for context; it is not completed progress."
+    },
+    "chart": {
+      "title": "Target progress",
+      "subtitle": "The planned line and projection context are guides, not guaranteed outcomes.",
+      "realised": "Realised balance",
+      "planned": "Planned trajectory",
+      "target": "Target balance",
+      "currentEquity": "Current equity"
+    },
+    "recommendedPlan": {
+      "title": "Recommended plan",
+      "subtitle": "Risk is capped by account rules, open exposure, drawdown buffer, and data confidence—not by the desire to catch up."
+    },
+    "projection": {
+      "basis": "Projection basis",
+      "datasets": {
+        "TRAILING_50": "Trailing 50 valid trades",
+        "TRAILING_20": "Trailing 20 valid trades",
+        "ALL_VALID": "All valid trades"
+      },
+      "unavailable": {
+        "data": "Projection unavailable because the dataset or open-risk data is not reliable enough.",
+        "negativeExpectancy": "No completion estimate is shown because validated expectancy is not positive."
+      }
+    },
+    "feasibility": {
+      "levels": {
+        "CONSERVATIVE": "Conservative",
+        "REALISTIC": "Realistic",
+        "AMBITIOUS": "Ambitious",
+        "UNLIKELY": "Unlikely",
+        "UNSAFE": "Unsafe",
+        "NOT_ENOUGH_DATA": "Not enough data"
+      },
+      "reasons": {
+        "sample": "The available valid sample is too small for a statistically supported classification.",
+        "reached": "The realised monthly target has already been reached.",
+        "ruleBlocked": "Account rules currently block additional risk.",
+        "nonPositiveExpectancy": "Validated expectancy is not positive, so a target date would be misleading.",
+        "missingRisk": "Required R or safe risk capacity cannot be calculated reliably.",
+        "noTime": "No normal trading days remain in the selected month.",
+        "exceedsSafePace": "The remaining target materially exceeds the safe historical pace and would imply rule-threatening risk.",
+        "aboveNormalRange": "{{requiredR}}R remains with {{daysRemaining}} trading days, materially above the validated range.",
+        "aboveAverage": "The target requires above-average outcomes or trade frequency.",
+        "belowNormal": "The remaining target is below the account's normal validated output.",
+        "normalRange": "The remaining target is consistent with validated expectancy and normal trade frequency."
+      }
+    },
+    "risk": {
+      "reasons": {
+        "missingData": "Capital or open-risk data is missing.",
+        "ruleCap": "One or more account-rule caps are below the planned base risk.",
+        "losingStreakBuffer": "The drawdown cap includes the historical losing streak plus a two-loss safety buffer."
+        ,"contractLimit": "The configured futures contract limit is already in use."
+      },
+      "stopConditions": {
+        "completeRiskData": "Record entry, quantity, and protective stops before adding risk.",
+        "noCapacity": "Existing positions already consume the configured concurrent-risk budget.",
+        "dailyLimit": "Do not add trades after the daily loss limit is reached.",
+        "drawdownLimit": "Do not add trades at or beyond the total drawdown boundary."
+        ,"contractLimit": "Do not add contracts beyond the configured futures limit."
+      }
+    },
+    "exposure": {
+      "title": "Active trade exposure",
+      "subtitle": "Every currently open trade for this account is included, regardless of when it was opened.",
+      "emptyTitle": "No active trades",
+      "emptyBody": "There is currently no floating P&L or open risk for this account.",
+      "missingStops": "{{count}} active trades do not have a valid protective stop, so total open risk is unknown.",
+      "entry": "Entry",
+      "current": "Current price",
+      "openRisk": "Open risk",
+      "floating": "Floating P&L",
+      "editTrade": "Edit trade",
+      "columns": {
+        "symbol": "Symbol", "direction": "Direction", "entry": "Entry", "current": "Current",
+        "quantity": "Quantity", "stop": "Stop", "target": "Target", "floating": "Floating P&L",
+        "openRisk": "Open risk", "plannedRr": "Planned R:R", "currentR": "Current R",
+        "age": "Age", "actions": "Actions"
+      },
+      "warnings": {
+        "MISSING_QUANTITY": "Missing quantity",
+        "MISSING_ENTRY": "Missing entry",
+        "MISSING_STOP": "Missing stop",
+        "PRICE_UNAVAILABLE": "Price unavailable",
+        "STALE_PRICE": "Stale price",
+        "RISK_UNKNOWN": "Risk unknown"
+      }
+    },
+    "liveCoach": {
+      "title": "Live Coach",
+      "subtitle": "Prioritised, non-contradictory guidance linked to the current account evidence.",
+      "emptyTitle": "No coaching message",
+      "emptyBody": "Configure the account and add valid trades to generate coaching.",
+      "more": "{{count}} more insights"
+    },
+    "scenarios": {
+      "title": "Scenario comparison",
+      "subtitle": "Scenarios remain under the same hard account limits; unsafe aggressive plans are omitted.",
+      "names": { "CONSERVATIVE": "Conservative", "STANDARD": "Standard", "AGGRESSIVE": "Aggressive" },
+      "recommended": "Recommended",
+      "risk": "Risk per trade",
+      "estimatedDays": "Estimated trading days",
+      "targetProbability": "Target probability",
+      "drawdownProbability": "Drawdown probability",
+      "aggressiveWarning": "Higher risk increases drawdown probability and is not a recommendation to catch up."
+    },
+    "drivers": {
+      "title": "Performance drivers",
+      "subtitle": "Every driver shows its sample size, expectancy, and confidence.",
+      "strongestStrategy": "Strongest strategy",
+      "weakestStrategy": "Weakest strategy",
+      "strongestSession": "Strongest session",
+      "weakestSession": "Weakest session",
+      "strongestSymbol": "Strongest symbol",
+      "weakestSymbol": "Weakest symbol",
+      "strongestRrBucket": "Strongest planned R:R bucket",
+      "costImpact": "Costs as % of gross profit",
+      "costPerTrade": "Average cost per trade: {{amount}}"
+    },
+    "dataQuality": {
+      "title": "Data Quality & Confidence",
+      "subtitle": "Existing diagnostic warnings remain visible and directly reduce recommendation confidence.",
+      "viewTrades": "View relevant trades",
+      "editSettings": "Edit account settings",
+      "metrics": {
+        "validClosedTrades": "Valid closed trades",
+        "missingCloseTime": "Missing close time",
+        "missingPnl": "Missing P&L",
+        "inconsistentPnl": "Inconsistent P&L",
+        "missingRisk": "Missing initial risk",
+        "missingStop": "Open trades missing stop",
+        "missingQuantity": "Open trades missing quantity",
+        "missingStrategy": "Missing strategy",
+        "missingSetup": "Missing setup"
+      }
+    },
+    "ledger": {
+      "title": "Account ledger",
+      "subtitle": "Deposits, withdrawals, payouts, fees, resets, and adjustments are separated from trade P&L.",
+      "add": "Add ledger event",
+      "addTitle": "Add account ledger event",
+      "empty": "No non-trade account events are recorded.",
+      "type": "Event type",
+      "amount": "Amount",
+      "date": "Event date",
+      "description": "Description",
+      "reference": "External reference",
+      "confirmDelete": "Delete this ledger event? This changes the calculated account balance.",
+      "types": {
+        "INITIAL_CAPITAL": "Initial capital", "DEPOSIT": "Deposit", "WITHDRAWAL": "Withdrawal",
+        "PAYOUT": "Payout", "COMMISSION": "Commission", "PLATFORM_FEE": "Platform fee",
+        "DATA_FEE": "Data fee", "RESET_FEE": "Reset fee", "SWAP": "Swap", "TAX": "Tax",
+        "MANUAL_ADJUSTMENT": "Manual adjustment", "PROFIT_SPLIT": "Profit split",
+        "ACCOUNT_RESET": "Account reset", "OTHER": "Other"
+      }
+    },
+    "actions": {
+      "editProfile": "Set account capital",
+      "addStops": "Record protective stops",
+      "reviewOpenTrades": "Review active trades",
+      "stopTrading": "Stop adding risk",
+      "reviewExposure": "Review total exposure",
+      "protectResult": "Protect the result",
+      "reduceRisk": "Reduce risk",
+      "followPlan": "Follow the planned process",
+      "maintainRisk": "Maintain disciplined risk",
+      "reviewTarget": "Review the target",
+      "doNotChase": "Do not chase losses or targets",
+      "reviewRecentTrades": "Review recent execution",
+      "reviewExecution": "Improve selection and execution",
+      "addTrades": "Add or import valid trades",
+      "fixData": "Fix incomplete trade data",
+      "reviewCosts": "Review execution costs"
+    },
+    "messages": {
+      "MISSING_CAPITAL": { "title": "Starting capital required", "message": "Set the account's starting capital before the Coach can calculate targets, risk, and drawdown." },
+      "OPEN_TRADE_WITHOUT_STOP": { "title": "Open risk is unknown", "message": "{{count}} active trades do not have complete stop or quantity data. Total open risk cannot be calculated reliably." },
+      "NO_ADDITIONAL_RISK_CAPACITY": { "title": "No additional risk capacity", "message": "Existing open positions already use the available risk budget. Opening another trade would exceed the account plan." },
+      "DAILY_LIMIT_REACHED": { "title": "Daily limit reached", "message": "The daily loss limit has been reached. The Coach recommends no additional trades today." },
+      "TARGET_REACHED": { "title": "Monthly target reached", "message": "The monthly target has been reached. Consider reducing risk and protecting the result rather than forcing additional trades." },
+      "TARGET_EXCEEDED": { "title": "Target exceeded", "message": "You are {{amountAboveTarget}} above the monthly target. Additional risk is no longer required to complete the plan." },
+      "MONTH_NOT_STARTED": { "title": "No realised result this month", "message": "No realised trades have been closed this month. Your monthly target is {{targetPct}}% or {{targetAmount}}." },
+      "ON_TRACK": { "title": "On track", "message": "You have completed {{progressPct}}% of the monthly target and remain on track at your normal trading pace." },
+      "BEHIND_BUT_RECOVERABLE": { "title": "Behind, but recoverable", "message": "You are behind the planned trajectory, but the target remains achievable without increasing standard risk." },
+      "BEHIND_UNREALISTIC": { "title": "Required pace is outside the normal range", "message": "Reaching the remaining target would require {{requiredR}}R in {{daysRemaining}} trading days, which is outside your normal performance range." },
+      "DO_NOT_INCREASE_TO_CATCH_UP": { "title": "Do not increase risk to catch up", "message": "The account is behind target, but increasing risk would materially increase the probability of breaching the plan." },
+      "OPEN_PROFIT_NOT_REALIZED": { "title": "Open profit is not realised", "message": "Open trades currently add {{floatingPnL}} to equity, but this profit is not realised and is not counted as completed target progress." },
+      "OPEN_LOSS_REDUCES_BUFFER": { "title": "Open loss reduces the buffer", "message": "Current open losses reduce the available drawdown buffer by {{bufferReduction}}. Review exposure before opening another trade." },
+      "REDUCE_RISK": { "title": "Reduced risk recommended", "message": "Reduce risk from {{currentRiskPct}}% to approximately {{recommendedRiskPct}}% until drawdown and execution quality stabilise." },
+      "STANDARD_RISK": { "title": "Current risk recommendation", "message": "The current recommended risk is {{riskPct}}% or {{riskAmount}} per trade." },
+      "LOSING_STREAK": { "title": "Losing streak protection", "message": "You have recorded {{lossCount}} consecutive losses. Historical data supports reduced risk until compliant execution stabilises." },
+      "NEGATIVE_EXPECTANCY": { "title": "Target not statistically supported", "message": "Current expectancy is {{expectancyR}}R per trade. The monthly target is not statistically supported without improving trade selection or execution." },
+      "POSITIVE_EXPECTANCY": { "title": "Positive validated expectancy", "message": "The selected projection dataset currently produces an expectancy of {{expectancyR}}R per trade." },
+      "NO_CLOSED_TRADES": { "title": "No closed-trade sample", "message": "No closed trades are available for this account. Add or import trades before using performance-based projections." },
+      "LOW_SAMPLE_SIZE": { "title": "Low sample size", "message": "Only {{tradeCount}} valid trades are available. The current projection has low statistical confidence." },
+      "INCONSISTENT_PNL": { "title": "P&L inconsistencies detected", "message": "{{count}} trades have P&L values that do not match the available reconciliation data. Recommendations have reduced confidence." },
+      "COSTS_MATERIAL": { "title": "Costs are material", "message": "Trading costs represent {{costPct}}% of gross profit and reduce expectancy by {{costR}}R per trade." }
+    }
+  },
   "common": {
     "loading": "Loading...",
     "saving": "Saving…",
@@ -118,6 +493,7 @@
     "calendar": "Calendar",
     "notebook": "Notebook",
     "analytics": "Analytics",
+    "growthCoach": "Growth Coach",
     "diagnostics": "Diagnostics",
     "insights": "Mentor",
     "settings": "Settings",
@@ -736,6 +1112,7 @@
     "coachSection": {
       "title": "Coach insights",
       "subtitle": "Actionable guidance generated from your own trade history.",
+      "openGrowthCoach": "Open Account Growth Coach",
       "emptyTitle": "No coach insights yet",
       "emptyBody": "Log more closed trades to unlock coach insights."
     },

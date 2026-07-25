@@ -20,6 +20,7 @@ import MenuBookRoundedIcon from '@mui/icons-material/MenuBookRounded'
 import SettingsRoundedIcon from '@mui/icons-material/SettingsRounded'
 import AdminPanelSettingsRoundedIcon from '@mui/icons-material/AdminPanelSettingsRounded'
 import TroubleshootRoundedIcon from '@mui/icons-material/TroubleshootRounded'
+import TrackChangesRoundedIcon from '@mui/icons-material/TrackChangesRounded'
 import { Link, Outlet, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 import { useAuth } from '../auth/AuthContext'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -90,6 +91,7 @@ export default function AppShell() {
       { label: t('nav.backtesting'), path: '/backtesting', icon: <PhotoLibraryRoundedIcon fontSize="small" /> },
       { label: t('nav.insights'), path: '/insights', icon: <AutoStoriesOutlinedIcon fontSize="small" /> },
       { label: t('nav.analytics'), path: '/analytics', icon: <QueryStatsRoundedIcon fontSize="small" /> },
+      { label: t('nav.growthCoach'), path: '/coach', icon: <TrackChangesRoundedIcon fontSize="small" /> },
       { label: t('nav.diagnostics'), path: '/diagnostics', icon: <TroubleshootRoundedIcon fontSize="small" /> },
       { label: t('nav.calendar'), path: '/calendar', icon: <CalendarMonthRoundedIcon fontSize="small" /> },
     ]

@@ -132,6 +132,11 @@ tradecoach:
   critical-expectancy: ${TRADECOACH_CRITICAL_EXPECTANCY:-50.0}
   data-quality-penalty-ratio: ${TRADECOACH_DQ_PENALTY:0.2}
 
+growthcoach:
+  projection-min-sample: ${GROWTHCOACH_PROJECTION_MIN_SAMPLE:20}
+  simulation-count: ${GROWTHCOACH_SIMULATION_COUNT:5000}
+  losing-streak-safety-buffer: ${GROWTHCOACH_LOSING_STREAK_BUFFER:2}
+
 notifications:
   dispatch:
     fixed-delay-ms: ${NOTIFICATIONS_DISPATCH_INTERVAL_MS:60000}

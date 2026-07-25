@@ -58,7 +58,7 @@ export default function SideNav({
   homeLabel,
   accountScopeSearch = ''
 }: SideNavProps) {
-  const scopedPaths = new Set(['/today', '/dashboard', '/trades', '/strategies', '/insights', '/analytics', '/diagnostics', '/calendar'])
+  const scopedPaths = new Set(['/today', '/dashboard', '/trades', '/strategies', '/insights', '/analytics', '/coach', '/diagnostics', '/calendar'])
   const toPath = (path: string) => scopedPaths.has(path) ? `${path}${accountScopeSearch}` : path
   return (
     <Stack sx={{ height: '100%', minHeight: 0, overflow: 'hidden' }}>

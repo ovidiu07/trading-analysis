@@ -20,6 +20,7 @@ const DashboardPage = lazy(() => import('./pages/DashboardPage'))
 const TodayPage = lazy(() => import('./pages/TodayPage'))
 const TradesPage = lazy(() => import('./pages/TradesPage'))
 const AnalyticsPage = lazy(() => import('./pages/AnalyticsPage'))
+const GrowthCoachPage = lazy(() => import('./pages/GrowthCoachPage'))
 const DiagnosticsPage = lazy(() => import('./pages/DiagnosticsPage'))
 const SettingsPage = lazy(() => import('./pages/SettingsPage'))
 const ProfilePage = lazy(() => import('./pages/ProfilePage'))
@@ -108,6 +109,7 @@ function App() {
             <Route path="/calendar" element={<ProtectedRoute>{withSuspense(<CalendarPage />)}</ProtectedRoute>} />
             <Route path="/notebook" element={<ProtectedRoute>{withSuspense(<NotebookPage />)}</ProtectedRoute>} />
             <Route path="/analytics" element={<ProtectedRoute>{withSuspense(<AnalyticsPage />)}</ProtectedRoute>} />
+            <Route path="/coach" element={<ProtectedRoute>{withSuspense(<GrowthCoachPage />)}</ProtectedRoute>} />
             <Route path="/diagnostics" element={<ProtectedRoute>{withSuspense(<DiagnosticsPage />)}</ProtectedRoute>} />
             <Route path="/insights" element={<ProtectedRoute><Navigate to="/insights/today" replace /></ProtectedRoute>} />
             <Route path="/insights/today" element={<ProtectedRoute>{withSuspense(<InsightsPage />)}</ProtectedRoute>} />

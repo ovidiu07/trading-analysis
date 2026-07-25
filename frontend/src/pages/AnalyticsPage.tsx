@@ -1549,12 +1549,17 @@ export default function AnalyticsPage() {
 
       <TabPanel value={tab} index={1}>
         <Stack spacing={2}>
-          <Box>
-            <Typography variant="h6" fontWeight={700}>{t('analytics.coachSection.title')}</Typography>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between">
+            <Box>
+              <Typography variant="h6" fontWeight={700}>{t('analytics.coachSection.title')}</Typography>
             <Typography variant="body2" color="text.secondary">
               {t('analytics.coachSection.subtitle')}
             </Typography>
-          </Box>
+            </Box>
+            <Button variant="contained" onClick={() => navigate('/coach')}>
+              {t('analytics.coachSection.openGrowthCoach')}
+            </Button>
+          </Stack>
           {coachLoading && (
             <Stack spacing={2}>
               {Array.from({ length: 3 }).map((_, idx) => (

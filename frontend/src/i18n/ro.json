@@ -83,6 +83,381 @@
       "save": "Contul de tranzacționare nu a putut fi salvat."
     }
   },
+  "growthCoach": {
+    "title": "Account Growth Coach",
+    "subtitle": "Ținte specifice contului, progres realizat, expunere deschisă, reguli de risc și proiecții bazate pe date.",
+    "disclaimer": "Exclusiv pentru jurnal, analiză și planificarea riscului. Proiecțiile sunt incerte, nu promit randamente și nu reprezintă consultanță financiară.",
+    "accountSelector": "Cont pentru Growth Coach",
+    "monthSelector": "Luna planului",
+    "unknown": "Necunoscut",
+    "errors": {
+      "load": "Account Growth Coach nu a putut fi încărcat.",
+      "save": "Modificările planului de creștere nu au putut fi salvate."
+    },
+    "accountTypes": {
+      "PERSONAL": "Personal",
+      "PROP_CHALLENGE": "Prop challenge",
+      "PROP_FUNDED": "Prop finanțat",
+      "FUTURES_EVALUATION": "Evaluare futures",
+      "FUTURES_FUNDED": "Futures finanțat",
+      "DEMO": "Demo",
+      "OTHER": "Alt tip"
+    },
+    "capitalSources": {
+      "USER_ENTERED": "Introdus de utilizator",
+      "IMPORTED": "Importat",
+      "RECONSTRUCTED": "Reconstruit",
+      "ACCOUNT_DEFAULT": "Implicit din cont"
+    },
+    "drawdownTypes": {
+      "NONE": "Fără drawdown configurat",
+      "STATIC": "Drawdown static",
+      "TRAILING_INTRADAY": "Trailing intraday",
+      "TRAILING_END_OF_DAY": "Trailing la final de zi"
+    },
+    "targetTypes": {
+      "PERCENTAGE": "Procent",
+      "FIXED_AMOUNT": "Sumă fixă",
+      "R_MULTIPLE": "Multiplu R",
+      "PROP_TARGET": "Țintă prop",
+      "CAPITAL_MILESTONE": "Prag de capital"
+    },
+    "targetBases": {
+      "MONTH_START_BALANCE": "Sold la începutul lunii",
+      "INITIAL_CAPITAL": "Capital inițial",
+      "CURRENT_EQUITY": "Equity la începutul lunii",
+      "COMPOUNDED_MONTHLY_BALANCE": "Sold lunar compus"
+    },
+    "riskStates": {
+      "REDUCED": "Redus",
+      "CONSERVATIVE": "Conservator",
+      "STANDARD": "Standard",
+      "ELEVATED": "Ridicat",
+      "BLOCKED": "Blocat",
+      "UNKNOWN": "Necunoscut"
+    },
+    "portfolio": {
+      "title": "Prezentare portofoliu",
+      "subtitle": "Valorile monetare rămân separate pe cont și monedă. Regulile de risc nu sunt combinate între conturi.",
+      "selectAccount": "Selectează un singur cont pentru un plan detaliat și o recomandare de risc. Recomandarea combinată este indisponibilă intenționat pentru conturi eterogene.",
+      "openPlan": "Deschide planul contului",
+      "emptyTitle": "Nu există conturi active",
+      "emptyBody": "Creează un cont de tranzacționare înainte de a configura un plan de creștere."
+    },
+    "confidence": {
+      "label": "Încrederea în date",
+      "levels": {
+        "HIGH": "Ridicată",
+        "MEDIUM": "Medie",
+        "LOW": "Redusă",
+        "INSUFFICIENT": "Insuficientă"
+      },
+      "reasons": {
+        "lowSample": "Sunt disponibile doar {{tradeCount}} tranzacții închise valide, astfel încât încrederea statistică este limitată.",
+        "missingRisk": "Acoperirea datelor de risc inițial este {{riskCoveragePct}}%; concluziile bazate pe R sunt incomplete.",
+        "inconsistentPnl": "{{inconsistentCount}} tranzacții au date P&L inconsistente.",
+        "openRiskUnknown": "Cel puțin o tranzacție activă are risc deschis necunoscut.",
+        "reconstructedSnapshot": "Snapshot-ul de început de lună a fost reconstruit din registrul și istoricul disponibile."
+      }
+    },
+    "snapshot": {
+      "reconstructed": "Snapshot reconstruit",
+      "sources": {
+        "CAPTURED": "Capturat și blocat",
+        "RECONSTRUCTED": "Reconstruit din istoricul disponibil",
+        "USER_CORRECTED": "Corectat de utilizator cu notă de audit"
+      }
+    },
+    "profile": {
+      "title": "Profilul de creștere al contului",
+      "subtitle": "Regulile se aplică doar acestui cont. Valorile lipsă rămân necunoscute și nu sunt inventate.",
+      "edit": "Editează profilul contului",
+      "accountType": "Tipul contului",
+      "currency": "Moneda contului",
+      "initialCapital": "Capital inițial",
+      "capitalSource": "Sursa capitalului",
+      "defaultRisk": "Risc implicit per tranzacție (%)",
+      "maxRisk": "Risc maxim preferat per tranzacție (%)",
+      "maxConcurrentRisk": "Risc simultan maxim (%)",
+      "maxDailyRiskPct": "Risc zilnic maxim (%)",
+      "maxDailyLossAmount": "Pierdere zilnică maximă",
+      "maxDrawdownPct": "Drawdown total maxim (%)",
+      "maxDrawdownAmount": "Valoare drawdown total maxim",
+      "drawdownType": "Tip drawdown",
+      "monthlyTarget": "Țintă lunară implicită (%)",
+      "compoundsMonthly": "Compune lunar ținta implicită",
+      "rulesTitle": "Reguli de evaluare, finanțare și payout",
+      "profitTargetPct": "Țintă profit cont (%)",
+      "profitTargetAmount": "Valoare țintă profit cont",
+      "minimumTradingDays": "Zile minime de tranzacționare",
+      "deadline": "Termen challenge",
+      "consistencyRuleType": "Tip regulă de consistență",
+      "consistencyRuleValue": "Valoare regulă de consistență",
+      "trailingEnabled": "Trailing drawdown activ",
+      "trailingAmount": "Valoare trailing drawdown",
+      "highWaterMark": "High-water mark trailing",
+      "profitSplit": "Procent profit trader (%)",
+      "payoutThreshold": "Prag payout",
+      "payoutFrequency": "Frecvență payout",
+      "payoutRules": "Reguli eligibilitate payout",
+      "contractLimit": "Limită contracte",
+      "scalingRestrictions": "Restricții de scalare",
+      "resetDetails": "Detalii resetare cont"
+    },
+    "plan": {
+      "edit": "Editează planul lunar",
+      "editTitle": "Editează planul lunar de creștere",
+      "targetType": "Tipul țintei",
+      "targetBasis": "Referința țintei",
+      "targetPct": "Țintă (%)",
+      "targetAmount": "Valoare țintă / prag",
+      "targetR": "Țintă (R)",
+      "minimumRr": "R:R minim planificat",
+      "plannedRisk": "Risc planificat per tranzacție (%)",
+      "hardMaxRisk": "Risc maxim absolut per tranzacție (%)",
+      "maxTradesDay": "Tranzacții maxime pe zi",
+      "maxTradesWeek": "Tranzacții maxime pe săptămână",
+      "changeReason": "Motivul modificării țintei"
+    },
+    "overview": {
+      "title": "Prezentarea obiectivului lunar",
+      "subtitle": "Soldul realizat și equity-ul curent rămân separate în întregul plan."
+    },
+    "metrics": {
+      "monthStartBalance": "Sold la începutul lunii",
+      "realisedBalance": "Sold realizat curent",
+      "currentEquity": "Equity curent",
+      "monthlyTarget": "Țintă lunară",
+      "monthlyRealised": "P&L lunar realizat",
+      "floatingPnl": "P&L flotant",
+      "remainingTarget": "Țintă rămasă",
+      "tradingDaysRemaining": "Zile de tranzacționare rămase",
+      "dailyLossRemaining": "Pierdere zilnică disponibilă",
+      "drawdownBuffer": "Buffer total de drawdown",
+      "withdrawableProfit": "Profit retragibil",
+      "profitAfterSplit": "Profit după split",
+      "equityUnavailable": "Equity indisponibil deoarece lipsesc unele prețuri curente.",
+      "notRealised": "Nu este considerat progres finalizat către țintă.",
+      "feasibility": "Fezabilitatea țintei",
+      "recommendedRisk": "Risc recomandat per tranzacție",
+      "maxSupportedRisk": "Risc maxim susținut",
+      "currentOpenRisk": "Risc deschis curent",
+      "requiredR": "R necesar rămas",
+      "expectedTrades": "Tranzacții de calitate estimate",
+      "estimatedDays": "Zile de tranzacționare estimate",
+      "expectancyR": "Expectanță validată",
+      "maxTradesDay": "Maxim plan / zi",
+      "maxTradesWeek": "Maxim plan / săptămână",
+      "minimumRr": "R:R minim planificat",
+      "targetProbability": "Probabilitatea țintei",
+      "openTrades": "Tranzacții active",
+      "netExposure": "Expunere netă"
+    },
+    "progress": {
+      "realised": "Progres realizat",
+      "realisedHint": "Doar P&L net din tranzacții închise în luna curentă.",
+      "equityAdjusted": "Progres ajustat cu equity",
+      "equityHint": "Include P&L flotant pentru context; nu este progres finalizat."
+    },
+    "chart": {
+      "title": "Progresul către țintă",
+      "subtitle": "Linia planificată și proiecția sunt orientative, nu rezultate garantate.",
+      "realised": "Sold realizat",
+      "planned": "Traiectorie planificată",
+      "target": "Sold țintă",
+      "currentEquity": "Equity curent"
+    },
+    "recommendedPlan": {
+      "title": "Plan recomandat",
+      "subtitle": "Riscul este limitat de reguli, expunere, bufferul de drawdown și încrederea în date, nu de dorința de recuperare."
+    },
+    "projection": {
+      "basis": "Baza proiecției",
+      "datasets": {
+        "TRAILING_50": "Ultimele 50 de tranzacții valide",
+        "TRAILING_20": "Ultimele 20 de tranzacții valide",
+        "ALL_VALID": "Toate tranzacțiile valide"
+      },
+      "unavailable": {
+        "data": "Proiecția este indisponibilă deoarece setul de date sau riscul deschis nu sunt suficient de fiabile.",
+        "negativeExpectancy": "Nu este afișată o estimare de finalizare deoarece expectanța validată nu este pozitivă."
+      }
+    },
+    "feasibility": {
+      "levels": {
+        "CONSERVATIVE": "Conservatoare",
+        "REALISTIC": "Realistă",
+        "AMBITIOUS": "Ambițioasă",
+        "UNLIKELY": "Improbabilă",
+        "UNSAFE": "Nesigură",
+        "NOT_ENOUGH_DATA": "Date insuficiente"
+      },
+      "reasons": {
+        "sample": "Eșantionul valid disponibil este prea mic pentru o clasificare susținută statistic.",
+        "reached": "Ținta lunară realizată a fost deja atinsă.",
+        "ruleBlocked": "Regulile contului blochează în prezent riscul suplimentar.",
+        "nonPositiveExpectancy": "Expectanța validată nu este pozitivă, deci o dată țintă ar fi înșelătoare.",
+        "missingRisk": "R necesar sau capacitatea sigură de risc nu pot fi calculate fiabil.",
+        "noTime": "Nu mai există zile normale de tranzacționare în luna selectată.",
+        "exceedsSafePace": "Ținta rămasă depășește semnificativ ritmul istoric sigur și ar implica risc asupra regulilor.",
+        "aboveNormalRange": "Mai sunt necesari {{requiredR}}R în {{daysRemaining}} zile, mult peste intervalul validat.",
+        "aboveAverage": "Ținta necesită rezultate sau frecvență peste medie.",
+        "belowNormal": "Ținta rămasă este sub producția validată obișnuită a contului.",
+        "normalRange": "Ținta rămasă corespunde expectanței validate și frecvenței normale."
+      }
+    },
+    "risk": {
+      "reasons": {
+        "missingData": "Lipsesc date despre capital sau risc deschis.",
+        "ruleCap": "Una sau mai multe limite ale contului sunt sub riscul de bază planificat.",
+        "losingStreakBuffer": "Limita de drawdown include seria istorică de pierderi plus un buffer de două pierderi."
+        ,"contractLimit": "Limita configurată de contracte futures este deja utilizată."
+      },
+      "stopConditions": {
+        "completeRiskData": "Înregistrează intrarea, cantitatea și stopurile de protecție înainte de risc suplimentar.",
+        "noCapacity": "Pozițiile existente consumă deja bugetul de risc simultan.",
+        "dailyLimit": "Nu adăuga tranzacții după atingerea limitei zilnice.",
+        "drawdownLimit": "Nu adăuga tranzacții la sau dincolo de limita totală de drawdown."
+        ,"contractLimit": "Nu adăuga contracte peste limita futures configurată."
+      }
+    },
+    "exposure": {
+      "title": "Expunerea tranzacțiilor active",
+      "subtitle": "Sunt incluse toate tranzacțiile deschise ale contului, indiferent de data deschiderii.",
+      "emptyTitle": "Nu există tranzacții active",
+      "emptyBody": "Contul nu are în prezent P&L flotant sau risc deschis.",
+      "missingStops": "{{count}} tranzacții active nu au un stop de protecție valid, deci riscul total deschis este necunoscut.",
+      "entry": "Intrare",
+      "current": "Preț curent",
+      "openRisk": "Risc deschis",
+      "floating": "P&L flotant",
+      "editTrade": "Editează tranzacția",
+      "columns": {
+        "symbol": "Simbol", "direction": "Direcție", "entry": "Intrare", "current": "Curent",
+        "quantity": "Cantitate", "stop": "Stop", "target": "Țintă", "floating": "P&L flotant",
+        "openRisk": "Risc deschis", "plannedRr": "R:R planificat", "currentR": "R curent",
+        "age": "Vechime", "actions": "Acțiuni"
+      },
+      "warnings": {
+        "MISSING_QUANTITY": "Cantitate lipsă",
+        "MISSING_ENTRY": "Intrare lipsă",
+        "MISSING_STOP": "Stop lipsă",
+        "PRICE_UNAVAILABLE": "Preț indisponibil",
+        "STALE_PRICE": "Preț învechit",
+        "RISK_UNKNOWN": "Risc necunoscut"
+      }
+    },
+    "liveCoach": {
+      "title": "Live Coach",
+      "subtitle": "Recomandări prioritizate, fără contradicții, legate de dovezile contului curent.",
+      "emptyTitle": "Nu există mesaj de coaching",
+      "emptyBody": "Configurează contul și adaugă tranzacții valide pentru a genera coaching.",
+      "more": "Încă {{count}} insight-uri"
+    },
+    "scenarios": {
+      "title": "Comparația scenariilor",
+      "subtitle": "Scenariile respectă aceleași limite absolute; planurile agresive nesigure sunt omise.",
+      "names": { "CONSERVATIVE": "Conservator", "STANDARD": "Standard", "AGGRESSIVE": "Agresiv" },
+      "recommended": "Recomandat",
+      "risk": "Risc per tranzacție",
+      "estimatedDays": "Zile estimate",
+      "targetProbability": "Probabilitatea țintei",
+      "drawdownProbability": "Probabilitatea drawdown-ului",
+      "aggressiveWarning": "Riscul mai mare crește probabilitatea drawdown-ului și nu este o recomandare de recuperare."
+    },
+    "drivers": {
+      "title": "Factorii performanței",
+      "subtitle": "Fiecare factor afișează eșantionul, expectanța și nivelul de încredere.",
+      "strongestStrategy": "Cea mai bună strategie",
+      "weakestStrategy": "Cea mai slabă strategie",
+      "strongestSession": "Cea mai bună sesiune",
+      "weakestSession": "Cea mai slabă sesiune",
+      "strongestSymbol": "Cel mai bun simbol",
+      "weakestSymbol": "Cel mai slab simbol",
+      "strongestRrBucket": "Cel mai bun interval R:R planificat",
+      "costImpact": "Costuri ca % din profitul brut",
+      "costPerTrade": "Cost mediu per tranzacție: {{amount}}"
+    },
+    "dataQuality": {
+      "title": "Calitatea datelor și încredere",
+      "subtitle": "Avertismentele existente rămân vizibile și reduc direct încrederea recomandărilor.",
+      "viewTrades": "Vezi tranzacțiile relevante",
+      "editSettings": "Editează setările contului",
+      "metrics": {
+        "validClosedTrades": "Tranzacții închise valide",
+        "missingCloseTime": "Oră de închidere lipsă",
+        "missingPnl": "P&L lipsă",
+        "inconsistentPnl": "P&L inconsistent",
+        "missingRisk": "Risc inițial lipsă",
+        "missingStop": "Tranzacții fără stop",
+        "missingQuantity": "Tranzacții fără cantitate",
+        "missingStrategy": "Strategie lipsă",
+        "missingSetup": "Setup lipsă"
+      }
+    },
+    "ledger": {
+      "title": "Registrul contului",
+      "subtitle": "Depunerile, retragerile, payout-urile, taxele, resetările și ajustările sunt separate de P&L-ul tranzacțiilor.",
+      "add": "Adaugă eveniment",
+      "addTitle": "Adaugă eveniment în registrul contului",
+      "empty": "Nu sunt înregistrate evenimente non-tranzacționale.",
+      "type": "Tip eveniment",
+      "amount": "Valoare",
+      "date": "Data evenimentului",
+      "description": "Descriere",
+      "reference": "Referință externă",
+      "confirmDelete": "Ștergi acest eveniment? Soldul calculat al contului se va modifica.",
+      "types": {
+        "INITIAL_CAPITAL": "Capital inițial", "DEPOSIT": "Depunere", "WITHDRAWAL": "Retragere",
+        "PAYOUT": "Payout", "COMMISSION": "Comision", "PLATFORM_FEE": "Taxă platformă",
+        "DATA_FEE": "Taxă date", "RESET_FEE": "Taxă resetare", "SWAP": "Swap", "TAX": "Impozit",
+        "MANUAL_ADJUSTMENT": "Ajustare manuală", "PROFIT_SPLIT": "Split profit",
+        "ACCOUNT_RESET": "Resetare cont", "OTHER": "Alt tip"
+      }
+    },
+    "actions": {
+      "editProfile": "Setează capitalul contului",
+      "addStops": "Înregistrează stopurile",
+      "reviewOpenTrades": "Verifică tranzacțiile active",
+      "stopTrading": "Oprește riscul suplimentar",
+      "reviewExposure": "Verifică expunerea totală",
+      "protectResult": "Protejează rezultatul",
+      "reduceRisk": "Redu riscul",
+      "followPlan": "Urmează procesul planificat",
+      "maintainRisk": "Menține riscul disciplinat",
+      "reviewTarget": "Revizuiește ținta",
+      "doNotChase": "Nu urmări pierderile sau ținta",
+      "reviewRecentTrades": "Revizuiește execuțiile recente",
+      "reviewExecution": "Îmbunătățește selecția și execuția",
+      "addTrades": "Adaugă sau importă tranzacții valide",
+      "fixData": "Corectează datele incomplete",
+      "reviewCosts": "Revizuiește costurile de execuție"
+    },
+    "messages": {
+      "MISSING_CAPITAL": { "title": "Capital inițial necesar", "message": "Setează capitalul inițial înainte ca modulul Coach să poată calcula ținte, risc și drawdown." },
+      "OPEN_TRADE_WITHOUT_STOP": { "title": "Riscul deschis este necunoscut", "message": "{{count}} tranzacții active nu au date complete despre stop sau cantitate. Riscul total nu poate fi calculat fiabil." },
+      "NO_ADDITIONAL_RISK_CAPACITY": { "title": "Nu mai există capacitate de risc", "message": "Pozițiile existente folosesc bugetul de risc disponibil. O nouă tranzacție ar depăși planul contului." },
+      "DAILY_LIMIT_REACHED": { "title": "Limita zilnică a fost atinsă", "message": "Limita zilnică de pierdere a fost atinsă. Coach recomandă să nu mai deschizi tranzacții astăzi." },
+      "TARGET_REACHED": { "title": "Ținta lunară a fost atinsă", "message": "Ținta lunară a fost atinsă. Ia în calcul reducerea riscului și protejarea rezultatului în locul tranzacțiilor forțate." },
+      "TARGET_EXCEEDED": { "title": "Ținta a fost depășită", "message": "Ești cu {{amountAboveTarget}} peste ținta lunară. Nu mai este necesar risc suplimentar pentru finalizarea planului." },
+      "MONTH_NOT_STARTED": { "title": "Nu există rezultat realizat în această lună", "message": "Nu a fost închisă nicio tranzacție realizată în această lună. Ținta este {{targetPct}}% sau {{targetAmount}}." },
+      "ON_TRACK": { "title": "Ești în grafic", "message": "Ai realizat {{progressPct}}% din ținta lunară și rămâi în grafic la ritmul normal." },
+      "BEHIND_BUT_RECOVERABLE": { "title": "În urmă, dar recuperabil", "message": "Ești în urma traiectoriei, însă ținta rămâne realizabilă fără creșterea riscului standard." },
+      "BEHIND_UNREALISTIC": { "title": "Ritmul necesar depășește intervalul normal", "message": "Ținta rămasă ar necesita {{requiredR}}R în {{daysRemaining}} zile, în afara intervalului normal de performanță." },
+      "DO_NOT_INCREASE_TO_CATCH_UP": { "title": "Nu crește riscul pentru recuperare", "message": "Contul este în urma țintei, dar creșterea riscului ar mări semnificativ probabilitatea încălcării planului." },
+      "OPEN_PROFIT_NOT_REALIZED": { "title": "Profitul deschis nu este realizat", "message": "Tranzacțiile deschise adaugă {{floatingPnL}} la equity, dar profitul nu este realizat și nu este progres finalizat." },
+      "OPEN_LOSS_REDUCES_BUFFER": { "title": "Pierderea deschisă reduce bufferul", "message": "Pierderile deschise reduc bufferul de drawdown cu {{bufferReduction}}. Verifică expunerea înainte de o nouă tranzacție." },
+      "REDUCE_RISK": { "title": "Se recomandă risc redus", "message": "Redu riscul de la {{currentRiskPct}}% la aproximativ {{recommendedRiskPct}}% până la stabilizarea execuției." },
+      "STANDARD_RISK": { "title": "Recomandarea curentă de risc", "message": "Riscul recomandat este {{riskPct}}% sau {{riskAmount}} per tranzacție." },
+      "LOSING_STREAK": { "title": "Protecție în serie de pierderi", "message": "Ai înregistrat {{lossCount}} pierderi consecutive. Istoricul susține risc redus până la stabilizarea execuției conforme." },
+      "NEGATIVE_EXPECTANCY": { "title": "Ținta nu este susținută statistic", "message": "Expectanța curentă este {{expectancyR}}R per tranzacție. Ținta nu este susținută fără îmbunătățirea selecției sau execuției." },
+      "POSITIVE_EXPECTANCY": { "title": "Expectanță validată pozitivă", "message": "Setul selectat produce o expectanță de {{expectancyR}}R per tranzacție." },
+      "NO_CLOSED_TRADES": { "title": "Nu există eșantion închis", "message": "Nu există tranzacții închise pentru acest cont. Adaugă sau importă tranzacții înaintea proiecțiilor." },
+      "LOW_SAMPLE_SIZE": { "title": "Eșantion redus", "message": "Sunt disponibile doar {{tradeCount}} tranzacții valide. Proiecția are încredere statistică redusă." },
+      "INCONSISTENT_PNL": { "title": "Au fost detectate inconsistențe P&L", "message": "{{count}} tranzacții au valori P&L care nu corespund reconcilierii disponibile. Recomandările au încredere redusă." },
+      "COSTS_MATERIAL": { "title": "Costurile sunt semnificative", "message": "Costurile reprezintă {{costPct}}% din profitul brut și reduc expectanța cu {{costR}}R per tranzacție." }
+    }
+  },
   "common": {
     "loading": "Se încarcă...",
     "saving": "Se salvează…",
@@ -118,6 +493,7 @@
     "calendar": "Calendar",
     "notebook": "Caiet",
     "analytics": "Analiză",
+    "growthCoach": "Coach de creștere",
     "diagnostics": "Diagnoză strategii",
     "insights": "Mentor",
     "settings": "Setări",
@@ -736,6 +1112,7 @@
     "coachSection": {
       "title": "Insight-uri coach",
       "subtitle": "Recomandări acționabile generate din istoricul tău de tranzacționare.",
+      "openGrowthCoach": "Deschide Account Growth Coach",
       "emptyTitle": "Nu există încă insight-uri coach",
       "emptyBody": "Loghează mai multe tranzacții închise pentru a debloca insight-uri coach."
     },

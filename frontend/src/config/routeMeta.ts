@@ -84,6 +84,12 @@ export const ROUTE_META_DEFINITIONS: RouteMetaDefinition[] = [
     pageSubtitleKey: 'analytics.subtitle'
   },
   {
+    id: 'growthCoach',
+    match: matchesPrefix('/coach'),
+    pageTitleKey: 'growthCoach.title',
+    pageSubtitleKey: 'growthCoach.subtitle'
+  },
+  {
     id: 'diagnostics',
     match: matchesPrefix('/diagnostics'),
     pageTitleKey: 'diagnostics.title',

@@ -25,6 +25,8 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
 
   Page<Trade> findByUserId(UUID userId, Pageable pageable);
 
+  List<Trade> findByUser_IdAndAccount_IdOrderByClosedAtAsc(UUID userId, UUID accountId);
+
   Optional<Trade> findByUserIdAndSourceAndSourceBrokerServerIgnoreCaseAndExternalAccountIdAndExternalPositionId(
       UUID userId, com.tradevault.domain.enums.TradeSource source, String sourceBrokerServer,
       String externalAccountId, String externalPositionId);

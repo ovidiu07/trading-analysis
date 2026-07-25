@@ -1,5 +1,8 @@
 # TradeVault
 
+Account-specific monthly target, ledger, open-risk, and coaching architecture is documented in
+[`docs/ACCOUNT_GROWTH_COACH.md`](docs/ACCOUNT_GROWTH_COACH.md).
+
 TradeVault is a Java + React application for tracking trades and generating analytics dashboards. It includes a Spring Boot backend, React/MUI frontend, PostgreSQL database, and Docker-based local setup.
 
 ## Prerequisites
