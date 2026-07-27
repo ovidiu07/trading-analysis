@@ -18,9 +18,12 @@ import com.tradevault.service.QuoteService;
 import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -57,6 +60,7 @@ public class GrowthCoachService {
     private final QuoteService quoteService;
     private final GrowthCoachMessageEngine messageEngine;
     private final GrowthCoachOperatingService operatingService;
+    private final PlatformTransactionManager transactionManager;
 
     @Transactional
     public GrowthCoachResponse getPage(UUID accountId, String monthKey) {
@@ -443,21 +447,10 @@ public class GrowthCoachService {
 
     private PortfolioAccount buildPortfolioAccount(User user, Account account, YearMonth month) {
         try {
-            LocalDate anchor = YearMonth.now().equals(month) ? LocalDate.now() : month.atEndOfMonth();
-            Detail detail = buildDetail(user, account, month, "MONTH", anchor);
-            return new PortfolioAccount(
-                    account.getId(),
-                    account.getName(),
-                    detail.profile().accountType(),
-                    account.getAccountCurrency(),
-                    detail.capital().currentRealisedBalance(),
-                    detail.capital().currentEquity(),
-                    detail.target().realisedCurrentMonthPnl(),
-                    detail.capital().currentFloatingPnl(),
-                    detail.openExposure().openTradeCount(),
-                    detail.riskPlan().state(),
-                    detail.confidence().level()
-            );
+            TransactionTemplate transaction = new TransactionTemplate(transactionManager);
+            transaction.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+            return Objects.requireNonNull(transaction.execute(
+                    status -> buildPortfolioAccountSummary(user, account, month)));
         } catch (RuntimeException ex) {
             log.warn("Growth coach portfolio summary failed [userId={}, accountId={}, reason={}]",
                     user.getId(), account.getId(), ex.getMessage());
@@ -465,6 +458,24 @@ public class GrowthCoachService {
                     GrowthAccountType.from(account.getAccountType()).name(), account.getAccountCurrency(),
                     null, null, null, null, null, "UNKNOWN", "INSUFFICIENT");
         }
+    }
+
+    private PortfolioAccount buildPortfolioAccountSummary(User user, Account account, YearMonth month) {
+        LocalDate anchor = YearMonth.now().equals(month) ? LocalDate.now() : month.atEndOfMonth();
+        Detail detail = buildDetail(user, account, month, "MONTH", anchor);
+        return new PortfolioAccount(
+                account.getId(),
+                account.getName(),
+                detail.profile().accountType(),
+                account.getAccountCurrency(),
+                detail.capital().currentRealisedBalance(),
+                detail.capital().currentEquity(),
+                detail.target().realisedCurrentMonthPnl(),
+                detail.capital().currentFloatingPnl(),
+                detail.openExposure().openTradeCount(),
+                detail.riskPlan().state(),
+                detail.confidence().level()
+        );
     }
 
     private AccountGrowthProfile getOrCreateProfile(User user, Account account) {
@@ -491,6 +502,7 @@ public class GrowthCoachService {
                                                YearMonth month,
                                                List<Trade> trades) {
         return planRepository.findByAccountIdAndUserIdAndMonthKey(account.getId(), user.getId(), month.toString())
+                .map(plan -> restoreTargetAmount(plan, profile))
                 .orElseGet(() -> {
                     ZoneId zone = resolveZone(account, user);
                     OffsetDateTime monthStart = month.atDay(1).atStartOfDay(zone).toOffsetDateTime();
@@ -522,6 +534,14 @@ public class GrowthCoachService {
                     created.setTargetAmount(resolveTargetAmount(created, profile, null));
                     return planRepository.save(created);
                 });
+    }
+
+    private MonthlyGrowthPlan restoreTargetAmount(MonthlyGrowthPlan plan, AccountGrowthProfile profile) {
+        if (plan.getTargetAmount() != null) return plan;
+        BigDecimal resolvedTarget = resolveTargetAmount(plan, profile, null);
+        if (resolvedTarget == null) return plan;
+        plan.setTargetAmount(resolvedTarget);
+        return planRepository.save(plan);
     }
 
     private OpenExposure buildOpenExposure(UUID userId, Account account, List<Trade> trades) {

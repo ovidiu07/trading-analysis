@@ -22,6 +22,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.atLeastOnce;
@@ -122,6 +123,59 @@ class GrowthCoachOperatingServiceTest {
                 result.tradingPermission().recommendedRiskWhenTradingResumes()));
         assertEquals(0, new BigDecimal("97.7040").compareTo(result.tradingPermission().theoreticalMaximumRisk()));
         assertEquals("LOSS_WITHIN_LIMIT", result.periodComparisons().get(1).periodStatus());
+    }
+
+    @Test
+    void restoresNullableMigratedMonthlyTargetBeforeBuildingChart() {
+        monthlyPlan.setTargetAmount(null);
+        PeriodContext context = GrowthCoachPeriodResolver.resolve(
+                "MONTH", LocalDate.parse("2026-07-27"), ZoneId.of("Europe/Bucharest"),
+                Clock.fixed(Instant.parse("2026-07-27T12:00:00Z"), ZoneOffset.UTC));
+        AccountPeriodPlan migrated = AccountPeriodPlan.builder()
+                .id(UUID.randomUUID()).user(user).account(account)
+                .periodType("MONTH").periodKey("2026-07").timezone("Europe/Bucharest")
+                .targetType(GrowthTargetType.PERCENTAGE).targetValue(new BigDecimal("3"))
+                .targetAmount(null).maxLossType("FIXED_AMOUNT")
+                .allocationMode("MANUAL").active(true).version(1)
+                .effectiveFrom(context.startsAt()).build();
+        when(planRepository.findByAccountIdAndUserIdAndPeriodTypeAndPeriodKey(
+                account.getId(), user.getId(), "MONTH", "2026-07")).thenReturn(Optional.of(migrated));
+
+        OperatingSystem result = service.build(user, account, profile, monthlyPlan, context,
+                List.of(), List.of(), new BigDecimal("10000"),
+                BigDecimal.ZERO, BigDecimal.ZERO, true);
+
+        assertEquals(0, new BigDecimal("300.0000").compareTo(migrated.getTargetAmount()));
+        assertEquals(0, new BigDecimal("300.0000").compareTo(result.selectedSummary().targetAmount()));
+        assertEquals(0, new BigDecimal("300.0000").compareTo(
+                result.chartSeries().get(result.chartSeries().size() - 1).target()));
+    }
+
+    @Test
+    void keepsUnresolvedRTargetNullAndBuildsAZeroBaselineChart() {
+        monthlyPlan.setTargetType(GrowthTargetType.R_MULTIPLE);
+        monthlyPlan.setTargetAmount(null);
+        PeriodContext context = GrowthCoachPeriodResolver.resolve(
+                "MONTH", LocalDate.parse("2026-07-27"), ZoneId.of("Europe/Bucharest"),
+                Clock.fixed(Instant.parse("2026-07-27T12:00:00Z"), ZoneOffset.UTC));
+        AccountPeriodPlan migrated = AccountPeriodPlan.builder()
+                .id(UUID.randomUUID()).user(user).account(account)
+                .periodType("MONTH").periodKey("2026-07").timezone("Europe/Bucharest")
+                .targetType(GrowthTargetType.R_MULTIPLE).targetValue(new BigDecimal("3"))
+                .targetAmount(null).maxLossType("FIXED_AMOUNT")
+                .allocationMode("MANUAL").active(true).version(1)
+                .effectiveFrom(context.startsAt()).build();
+        when(planRepository.findByAccountIdAndUserIdAndPeriodTypeAndPeriodKey(
+                account.getId(), user.getId(), "MONTH", "2026-07")).thenReturn(Optional.of(migrated));
+
+        OperatingSystem result = service.build(user, account, profile, monthlyPlan, context,
+                List.of(), List.of(), new BigDecimal("10000"),
+                BigDecimal.ZERO, BigDecimal.ZERO, true);
+
+        assertNull(migrated.getTargetAmount());
+        assertEquals(0, BigDecimal.ZERO.compareTo(result.selectedSummary().targetAmount()));
+        assertEquals(0, BigDecimal.ZERO.compareTo(
+                result.chartSeries().get(result.chartSeries().size() - 1).target()));
     }
 
     @Test

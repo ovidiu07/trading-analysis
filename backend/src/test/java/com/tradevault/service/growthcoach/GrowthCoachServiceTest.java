@@ -15,6 +15,9 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.support.SimpleTransactionStatus;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -24,7 +27,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.when;
+import static org.mockito.Mockito.*;
 
 @ExtendWith(MockitoExtension.class)
 class GrowthCoachServiceTest {
@@ -38,6 +41,7 @@ class GrowthCoachServiceTest {
     @Mock AnalyticsService analyticsService;
     @Mock QuoteService quoteService;
     @Mock GrowthCoachOperatingService operatingService;
+    @Mock PlatformTransactionManager transactionManager;
 
     private GrowthCoachService service;
     private User user;
@@ -50,7 +54,7 @@ class GrowthCoachServiceTest {
         service = new GrowthCoachService(
                 currentUserService, accountRepository, tradeRepository, profileRepository,
                 planRepository, revisionRepository, ledgerRepository, analyticsService,
-                quoteService, new GrowthCoachMessageEngine(), operatingService);
+                quoteService, new GrowthCoachMessageEngine(), operatingService, transactionManager);
         user = User.builder().id(UUID.randomUUID()).timezone("Europe/Bucharest").build();
         account = Account.builder()
                 .id(UUID.randomUUID()).user(user).name("Primary").accountCurrency("USD")
@@ -77,6 +81,7 @@ class GrowthCoachServiceTest {
 
     @Test
     void usesCloseTimeForMonthlyRealisedAndIncludesEveryCurrentlyOpenTrade() {
+        plan.setTargetAmount(null);
         OffsetDateTime previousMonth = OffsetDateTime.parse("2026-06-29T10:00:00+03:00");
         Trade closedThisMonth = Trade.builder()
                 .id(UUID.randomUUID()).user(user).account(account).symbol("EUR_USD")
@@ -97,6 +102,7 @@ class GrowthCoachServiceTest {
         when(profileRepository.findByAccountIdAndUserId(account.getId(), user.getId())).thenReturn(Optional.of(profile));
         when(planRepository.findByAccountIdAndUserIdAndMonthKey(account.getId(), user.getId(), "2026-07"))
                 .thenReturn(Optional.of(plan));
+        when(planRepository.save(plan)).thenReturn(plan);
         when(tradeRepository.findByUser_IdAndAccount_IdOrderByClosedAtAsc(user.getId(), account.getId()))
                 .thenReturn(List.of(closedThisMonth, oldOpenTrade));
         when(ledgerRepository.findByAccountIdAndUserIdOrderByEventTimeAsc(account.getId(), user.getId()))
@@ -110,6 +116,7 @@ class GrowthCoachServiceTest {
 
         GrowthCoachResponse response = service.getPage(account.getId(), "2026-07");
 
+        assertEquals(0, new BigDecimal("300.0000").compareTo(plan.getTargetAmount()));
         assertEquals(0, new BigDecimal("100").compareTo(response.detail().target().realisedCurrentMonthPnl()));
         assertEquals(1, response.detail().openExposure().openTradeCount());
         assertEquals(oldOpenTrade.getId(), response.detail().openExposure().trades().get(0).tradeId());
@@ -124,5 +131,38 @@ class GrowthCoachServiceTest {
         when(accountRepository.findByIdAndUserId(account.getId(), user.getId())).thenReturn(Optional.empty());
 
         assertThrows(EntityNotFoundException.class, () -> service.getPage(account.getId(), "2026-07"));
+    }
+
+    @Test
+    void isolatesFailedPortfolioAccountBeforeReturningItsFallbackSummary() {
+        SimpleTransactionStatus status = new SimpleTransactionStatus();
+        when(currentUserService.getCurrentUser()).thenReturn(user);
+        when(accountRepository.findByUserIdOrderByNameAsc(user.getId())).thenReturn(List.of(account));
+        when(profileRepository.findByAccountIdAndUserId(account.getId(), user.getId()))
+                .thenReturn(Optional.of(profile));
+        when(planRepository.findByAccountIdAndUserIdAndMonthKey(account.getId(), user.getId(), "2026-07"))
+                .thenReturn(Optional.of(plan));
+        when(tradeRepository.findByUser_IdAndAccount_IdOrderByClosedAtAsc(user.getId(), account.getId()))
+                .thenReturn(List.of());
+        when(ledgerRepository.findByAccountIdAndUserIdOrderByEventTimeAsc(account.getId(), user.getId()))
+                .thenReturn(List.of());
+        when(analyticsService.summarize(any(), any(), isNull(), isNull(), isNull(), anyString(), isNull(),
+                isNull(), isNull(), isNull(), isNull(), eq("CLOSE"), eq(false), isNull()))
+                .thenReturn(AnalyticsResponse.builder().build());
+        when(transactionManager.getTransaction(any())).thenReturn(status);
+        doThrow(new IllegalStateException("account summary failed")).when(operatingService)
+                .build(any(), any(), any(), any(), any(), anyList(), anyList(),
+                        any(), any(), any(), anyBoolean());
+
+        GrowthCoachResponse response = service.getPage(null, "2026-07");
+
+        assertEquals("PORTFOLIO", response.mode());
+        assertEquals(1, response.portfolioAccounts().size());
+        assertNull(response.portfolioAccounts().get(0).realisedBalance());
+        assertEquals("UNKNOWN", response.portfolioAccounts().get(0).riskState());
+        verify(transactionManager).getTransaction(argThat(definition ->
+                definition.getPropagationBehavior() == TransactionDefinition.PROPAGATION_REQUIRES_NEW));
+        verify(transactionManager).rollback(status);
+        verify(transactionManager, never()).commit(status);
     }
 }

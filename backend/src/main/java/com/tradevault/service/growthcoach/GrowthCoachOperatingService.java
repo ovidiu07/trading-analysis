@@ -225,6 +225,7 @@ public class GrowthCoachOperatingService {
                                           PeriodContext context) {
         return planRepository.findByAccountIdAndUserIdAndPeriodTypeAndPeriodKey(
                         account.getId(), user.getId(), context.periodType(), context.periodKey())
+                .map(plan -> restoreTargetAmount(plan, account, profile, legacyMonthPlan, context))
                 .orElseGet(() -> {
                     BigDecimal baseline = baseline(account, profile);
                     BigDecimal monthlyTarget = legacyMonthPlan == null
@@ -286,6 +287,27 @@ public class GrowthCoachOperatingService {
                             .createdBy(user)
                             .build());
                 });
+    }
+
+    private AccountPeriodPlan restoreTargetAmount(AccountPeriodPlan plan,
+                                                  Account account,
+                                                  AccountGrowthProfile profile,
+                                                  MonthlyGrowthPlan legacyMonthPlan,
+                                                  PeriodContext context) {
+        if (plan.getTargetAmount() != null) return plan;
+
+        BigDecimal resolved = null;
+        if ("MONTH".equals(context.periodType()) && legacyMonthPlan != null
+                && Objects.equals(context.periodKey(), legacyMonthPlan.getMonthKey())) {
+            resolved = legacyMonthPlan.getTargetAmount();
+        }
+        if (resolved == null && plan.getTargetType() == GrowthTargetType.PERCENTAGE) {
+            resolved = amountFromPct(plan.getTargetValue(), baseline(account, profile));
+        } else if (resolved == null && plan.getTargetType() == GrowthTargetType.FIXED_AMOUNT) {
+            resolved = plan.getTargetValue();
+        }
+        if (resolved != null) plan.setTargetAmount(scale(resolved));
+        return plan;
     }
 
     private void refreshAutomaticTarget(AccountPeriodPlan plan,
@@ -576,6 +598,7 @@ public class GrowthCoachOperatingService {
         List<OperatingChartPoint> result = new ArrayList<>();
         LocalDate start = context.startsAt().atZoneSameInstant(zone).toLocalDate();
         LocalDate end = context.endsAtExclusive().atZoneSameInstant(zone).toLocalDate();
+        BigDecimal targetAmount = first(plan.getTargetAmount(), summary.targetAmount(), ZERO);
         for (LocalDate date = start; date.isBefore(end); date = date.plusDays(1)) {
             BigDecimal daily = pnlByDay.getOrDefault(date, ZERO);
             cumulativePnl = cumulativePnl.add(daily);
@@ -589,8 +612,8 @@ public class GrowthCoachOperatingService {
             result.add(new OperatingChartPoint(
                     date, scale(cumulativePnl), scale(daily), scale(cumulativeR), scale(dailyR), scale(balance),
                     floating == null ? null : scale(balance.add(floating)),
-                    scale(plan.getTargetAmount().multiply(fraction)),
-                    scale(plan.getTargetAmount()),
+                    scale(targetAmount.multiply(fraction)),
+                    scale(targetAmount),
                     plan.getMaxLossAmount() == null ? null : plan.getMaxLossAmount().negate(),
                     summary.periodStartBalance() == null || plan.getMaxLossAmount() == null ? null
                             : summary.periodStartBalance().subtract(plan.getMaxLossAmount()),
