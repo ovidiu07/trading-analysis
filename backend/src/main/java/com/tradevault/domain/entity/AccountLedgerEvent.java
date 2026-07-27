@@ -4,6 +4,8 @@ import com.tradevault.domain.enums.LedgerEventType;
 import jakarta.persistence.*;
 import lombok.*;
 import org.hibernate.annotations.GenericGenerator;
+import org.hibernate.annotations.JdbcTypeCode;
+import org.hibernate.type.SqlTypes;
 
 import java.math.BigDecimal;
 import java.time.OffsetDateTime;
@@ -40,6 +42,19 @@ public class AccountLedgerEvent {
     private String description;
     @Column(name = "external_reference", length = 160)
     private String externalReference;
+    @Column(name = "event_status", nullable = false, length = 24)
+    private String eventStatus;
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "metadata_json", nullable = false, columnDefinition = "jsonb")
+    private String metadataJson;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "created_by")
+    private User createdBy;
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "reversal_event_id")
+    private AccountLedgerEvent reversalEvent;
+    @Column(name = "planning_behavior", nullable = false, length = 32)
+    private String planningBehavior;
     @Column(name = "created_at", nullable = false, updatable = false)
     private OffsetDateTime createdAt;
     @Column(name = "updated_at", nullable = false)
@@ -50,6 +65,9 @@ public class AccountLedgerEvent {
         OffsetDateTime now = OffsetDateTime.now();
         if (createdAt == null) createdAt = now;
         updatedAt = now;
+        if (eventStatus == null) eventStatus = "COMPLETED";
+        if (metadataJson == null) metadataJson = "{}";
+        if (planningBehavior == null) planningBehavior = "PRESERVE_BASELINE";
     }
 
     @PreUpdate

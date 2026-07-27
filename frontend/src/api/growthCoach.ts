@@ -265,7 +265,179 @@ export type GrowthCoachDetail = {
     plannedBalance: number
     drawdownBoundary?: number | null
   }>
+  operatingSystem?: GrowthOperatingSystem | null
   disclaimer: string
+}
+
+export type GrowthPeriodType = 'DAY' | 'WEEK' | 'MONTH'
+
+export type GrowthPeriodPlan = {
+  id: string
+  periodType: GrowthPeriodType
+  periodKey: string
+  timezone: string
+  targetType: string
+  targetValue: number
+  targetAmount?: number | null
+  maxLossType: string
+  maxLossValue?: number | null
+  maxLossAmount?: number | null
+  maxTrades?: number | null
+  maxRiskBudget?: number | null
+  maxConsecutiveLosses?: number | null
+  maxLosingDays?: number | null
+  defaultRiskPerTrade?: number | null
+  minimumRr?: number | null
+  stopAfterTarget: boolean
+  reduceRiskAfterTarget: boolean
+  riskReductionPct?: number | null
+  stopAfterMaxLoss: boolean
+  stopAfterConsecutiveLosses: boolean
+  permittedSessions?: string | null
+  focus?: string | null
+  notes?: string | null
+  allocationMode: 'MANUAL' | 'AUTOMATIC'
+  active: boolean
+  version: number
+  effectiveFrom: string
+  updatedAt?: string | null
+}
+
+export type GrowthPeriodSummary = {
+  periodType: GrowthPeriodType
+  periodStartBalance?: number | null
+  realisedTradingPnl: number
+  realisedPnlPct?: number | null
+  realisedR: number
+  netLedgerMovement: number
+  netAccountChange: number
+  currentRealisedBalance?: number | null
+  currentEquity?: number | null
+  floatingPnl?: number | null
+  targetAmount: number
+  targetProgressPct: number
+  targetRemaining: number
+  lossAllowanceRemaining?: number | null
+  completedTrades: number
+  winningTrades: number
+  losingTrades: number
+  winRate: number
+  averageTrade: number
+  grossProfit: number
+  grossLoss: number
+  riskUsed: number
+  riskRemaining?: number | null
+  tradesRemaining?: number | null
+  currentConsecutiveLosses: number
+  maximumDrawdown: number
+  openRisk?: number | null
+}
+
+export type GrowthOperatingSystem = {
+  selectedPeriod: {
+    periodType: GrowthPeriodType
+    periodKey: string
+    anchorDate: string
+    startsAt: string
+    endsAtExclusive: string
+    timezone: string
+  }
+  plans: { day: GrowthPeriodPlan; week: GrowthPeriodPlan; month: GrowthPeriodPlan }
+  selectedSummary: GrowthPeriodSummary
+  todayActivity: {
+    summary: GrowthPeriodSummary
+    currentlyOpenTrades: number
+    tradingPermission: string
+    closedTrades: Array<{
+      tradeId: string
+      symbol: string
+      direction: string
+      openedAt: string
+      closedAt: string
+      pnl: number
+      realisedR?: number | null
+      initialRisk?: number | null
+      strategy?: string | null
+      setup?: string | null
+      session?: string | null
+    }>
+  }
+  tradingPermission: {
+    state: string
+    primaryReason: string
+    secondaryReasons: string[]
+    maximumPermittedRisk?: number | null
+    maximumPermittedRiskPct?: number | null
+    remainingTrades?: number | null
+    applicableLimit: GrowthPeriodType
+    recommendedAction: string
+  }
+  periodComparisons: Array<{
+    periodType: GrowthPeriodType
+    realisedPnl: number
+    realisedPct?: number | null
+    realisedR: number
+    target: number
+    targetProgress: number
+    trades: number
+    winRate: number
+    averageTrade: number
+    riskUsed: number
+    riskRemaining?: number | null
+    drawdown: number
+    adherenceScore: number
+    tradingStatus: string
+  }>
+  planAdherence: {
+    score: number
+    passedRules: number
+    failedRules: number
+    unavailableRules: number
+    confidence: string
+    passed: string[]
+    failed: string[]
+    unavailable: string[]
+  }
+  metricConfidence: Array<{
+    metric: string
+    status: string
+    score: number
+    reason: string
+    missingDataCount: number
+    affectedMetrics: string[]
+    action: string
+  }>
+  chartSeries: Array<{
+    date: string
+    cumulativeTradingPnl: number
+    dailyTradingPnl: number
+    cumulativeR: number
+    dailyR: number
+    realisedBalance?: number | null
+    equity?: number | null
+    plannedProgress: number
+    target: number
+    maximumLoss?: number | null
+    drawdownLimit?: number | null
+    cumulativeRisk: number
+  }>
+  chartMarkers: Array<{
+    id: string
+    type: string
+    timestamp: string
+    amount?: number | null
+    label?: string | null
+    tradeId?: string | null
+    ledgerEventId?: string | null
+  }>
+  planHistory: Array<{
+    id: string
+    periodType: GrowthPeriodType
+    periodKey: string
+    version: number
+    reason: string
+    changedAt: string
+  }>
 }
 
 export type Driver = {
@@ -284,6 +456,10 @@ export type LedgerEvent = {
   eventTime: string
   description?: string | null
   externalReference?: string | null
+  eventStatus?: string | null
+  planningBehavior?: string | null
+  reversalEventId?: string | null
+  createdAt?: string | null
 }
 
 export type GrowthCoachResponse = {
@@ -308,17 +484,34 @@ export type MonthlyPlanRequest = {
   plannedMinimumRr?: number | null
   changeReason?: string
 }
-export type LedgerEventRequest = Omit<LedgerEvent, 'id'>
+export type LedgerEventRequest = Omit<LedgerEvent,
+  'id' | 'eventStatus' | 'planningBehavior' | 'reversalEventId' | 'createdAt'>
+export type PeriodPlanRequest = Omit<GrowthPeriodPlan,
+  'id' | 'periodType' | 'periodKey' | 'timezone' | 'targetAmount' | 'maxLossAmount' |
+  'version' | 'effectiveFrom' | 'updatedAt'> & { changeReason: string }
+export type ReconcileBalanceRequest = {
+  brokerReportedBalance: number
+  effectiveDate: string
+  effectiveTime: string
+  timezone: string
+  reason: string
+  note?: string
+  externalReference?: string
+  planningBehavior: 'PRESERVE_BASELINE' | 'REBASE_FUTURE' | 'RESET_CURRENT'
+  resetConfirmed: boolean
+}
 
-const query = (accountId?: string, month?: string) => {
+const query = (accountId?: string, month?: string, period?: GrowthPeriodType, date?: string) => {
   const params = new URLSearchParams()
   if (accountId) params.set('accountId', accountId)
   if (month) params.set('month', month)
+  if (period) params.set('period', period)
+  if (date) params.set('date', date)
   return params.toString() ? `?${params.toString()}` : ''
 }
 
-export const fetchGrowthCoach = (accountId?: string, month?: string) =>
-  apiGet<GrowthCoachResponse>(`/growth-coach${query(accountId, month)}`)
+export const fetchGrowthCoach = (accountId?: string, month?: string, period?: GrowthPeriodType, date?: string) =>
+  apiGet<GrowthCoachResponse>(`/growth-coach${query(accountId, month, period, date)}`)
 
 export async function updateGrowthProfile(accountId: string, request: GrowthProfileRequest) {
   const result = await apiPut<GrowthProfile>(`/growth-coach/accounts/${accountId}/profile`, request)
@@ -328,6 +521,21 @@ export async function updateGrowthProfile(accountId: string, request: GrowthProf
 
 export async function updateMonthlyPlan(accountId: string, month: string, request: MonthlyPlanRequest) {
   const result = await apiPut<MonthlyGrowthPlan>(`/growth-coach/accounts/${accountId}/plans/${month}`, request)
+  announceAnalyticsDataChanged()
+  return result
+}
+
+export async function updatePeriodPlan(accountId: string, plan: GrowthPeriodPlan, request: PeriodPlanRequest) {
+  const result = await apiPut<GrowthPeriodPlan>(
+    `/growth-coach/accounts/${accountId}/period-plans/${plan.periodType}/${plan.periodKey}`,
+    request
+  )
+  announceAnalyticsDataChanged()
+  return result
+}
+
+export async function reconcileAccountBalance(accountId: string, request: ReconcileBalanceRequest) {
+  const result = await apiPost<LedgerEvent>(`/growth-coach/accounts/${accountId}/reconcile`, request)
   announceAnalyticsDataChanged()
   return result
 }

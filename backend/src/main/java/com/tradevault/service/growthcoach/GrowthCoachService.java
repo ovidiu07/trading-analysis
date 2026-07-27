@@ -9,6 +9,8 @@ import com.tradevault.dto.growthcoach.GrowthCoachResponse;
 import com.tradevault.dto.growthcoach.GrowthProfileRequest;
 import com.tradevault.dto.growthcoach.LedgerEventRequest;
 import com.tradevault.dto.growthcoach.MonthlyGrowthPlanRequest;
+import com.tradevault.dto.growthcoach.PeriodPlanRequest;
+import com.tradevault.dto.growthcoach.ReconcileBalanceRequest;
 import com.tradevault.dto.session.LiveQuoteResponse;
 import com.tradevault.repository.*;
 import com.tradevault.service.CurrentUserService;
@@ -54,11 +56,20 @@ public class GrowthCoachService {
     private final AnalyticsService analyticsService;
     private final QuoteService quoteService;
     private final GrowthCoachMessageEngine messageEngine;
+    private final GrowthCoachOperatingService operatingService;
 
     @Transactional
     public GrowthCoachResponse getPage(UUID accountId, String monthKey) {
+        return getPage(accountId, monthKey, "MONTH", null);
+    }
+
+    @Transactional
+    public GrowthCoachResponse getPage(UUID accountId, String monthKey, String periodType, LocalDate requestedDate) {
         User user = currentUserService.getCurrentUser();
         YearMonth month = parseMonth(monthKey);
+        LocalDate anchor = requestedDate == null
+                ? (YearMonth.now().equals(month) ? LocalDate.now() : month.atEndOfMonth())
+                : requestedDate;
         if (accountId == null) {
             List<Account> accounts = accountRepository.findByUserIdOrderByNameAsc(user.getId());
             List<PortfolioAccount> summaries = accounts.stream()
@@ -69,8 +80,95 @@ public class GrowthCoachService {
         }
 
         Account account = requireOwnedAccount(accountId, user.getId());
-        Detail detail = buildDetail(user, account, month);
+        Detail detail = buildDetail(user, account, YearMonth.from(anchor), periodType, anchor);
         return new GrowthCoachResponse("ACCOUNT", OffsetDateTime.now(), false, List.of(), detail);
+    }
+
+    @Transactional
+    public PeriodPlan updatePeriodPlan(UUID accountId,
+                                       String periodType,
+                                       String periodKey,
+                                       PeriodPlanRequest request) {
+        User user = currentUserService.getCurrentUser();
+        Account account = requireOwnedAccount(accountId, user.getId());
+        AccountGrowthProfile profile = getOrCreateProfile(user, account);
+        ZoneId zone = resolveZone(account, user);
+        LocalDate anchor = parsePeriodKey(periodType, periodKey);
+        PeriodContext context = GrowthCoachPeriodResolver.resolve(periodType, anchor, zone, Clock.systemUTC());
+        if (!context.periodKey().equals(periodKey)) {
+            throw new IllegalArgumentException("Period key does not match the requested period boundary");
+        }
+        List<Trade> trades = loadTrades(user.getId(), accountId);
+        MonthlyGrowthPlan legacy = getOrCreatePlan(user, account, profile, YearMonth.from(anchor), trades);
+        List<AccountLedgerEvent> ledgerBefore = ledgerRepository
+                .findByAccountIdAndUserIdAndEventTimeBeforeOrderByEventTimeAsc(
+                        accountId, user.getId(), context.startsAt());
+        BigDecimal planBaseline = add(resolveInitialCapital(profile, ledgerBefore),
+                ledgerNet(ledgerBefore),
+                sum(validClosed(trades).stream().filter(t -> t.getClosedAt().isBefore(context.startsAt())).toList(),
+                        Trade::getPnlNet));
+        PeriodPlan result = operatingService.update(
+                user, account, profile, legacy, context, planBaseline, request);
+        log.info("Growth period plan updated [userId={}, accountId={}, period={}, key={}, version={}]",
+                user.getId(), accountId, context.periodType(), context.periodKey(), result.version());
+        return result;
+    }
+
+    @Transactional
+    public LedgerEvent reconcileBalance(UUID accountId, ReconcileBalanceRequest request) {
+        User user = currentUserService.getCurrentUser();
+        Account account = requireOwnedAccount(accountId, user.getId());
+        if ("RESET_CURRENT".equals(request.planningBehavior()) && !request.resetConfirmed()) {
+            throw new IllegalArgumentException("Resetting the current plan requires confirmation");
+        }
+        ZoneId zone;
+        try {
+            zone = ZoneId.of(request.timezone());
+        } catch (DateTimeException exception) {
+            throw new IllegalArgumentException("Timezone must be a valid IANA timezone");
+        }
+        OffsetDateTime effectiveAt = ZonedDateTime.of(
+                request.effectiveDate(), request.effectiveTime(), zone).toOffsetDateTime();
+        AccountGrowthProfile profile = getOrCreateProfile(user, account);
+        List<Trade> closedBefore = validClosed(loadTrades(user.getId(), accountId)).stream()
+                .filter(t -> t.getClosedAt().isBefore(effectiveAt)).toList();
+        List<AccountLedgerEvent> ledgerBefore = ledgerRepository
+                .findByAccountIdAndUserIdAndEventTimeBeforeOrderByEventTimeAsc(accountId, user.getId(), effectiveAt);
+        BigDecimal systemBalance = add(resolveInitialCapital(profile, ledgerBefore),
+                sum(closedBefore, Trade::getPnlNet), ledgerNet(ledgerBefore));
+        if (systemBalance == null) {
+            throw new IllegalArgumentException("System balance is unavailable until initial capital is configured");
+        }
+        BigDecimal difference = scale(request.brokerReportedBalance().subtract(systemBalance));
+        if (difference.signum() == 0) {
+            throw new IllegalArgumentException("Broker balance already matches the system-calculated balance");
+        }
+        AccountLedgerEvent event = AccountLedgerEvent.builder()
+                .user(user)
+                .account(account)
+                .eventType(LedgerEventType.BALANCE_CORRECTION)
+                .amount(difference)
+                .currency(normalizeCurrency(account.getAccountCurrency()))
+                .eventTime(effectiveAt)
+                .description(trimToNull(request.reason() + (request.note() == null ? "" : " — " + request.note())))
+                .externalReference(trimToNull(request.externalReference()))
+                .eventStatus("COMPLETED")
+                .metadataJson("{\"systemBalance\":" + systemBalance.toPlainString()
+                        + ",\"brokerReportedBalance\":" + request.brokerReportedBalance().toPlainString() + "}")
+                .createdBy(user)
+                .planningBehavior(request.planningBehavior())
+                .build();
+        AccountLedgerEvent saved = ledgerRepository.save(event);
+        if ("RESET_CURRENT".equals(request.planningBehavior())) {
+            List<Trade> trades = loadTrades(user.getId(), accountId);
+            MonthlyGrowthPlan legacy = getOrCreatePlan(user, account, profile,
+                    YearMonth.from(request.effectiveDate()), trades);
+            operatingService.resetActivePlans(user, account, profile, legacy, request.effectiveDate(),
+                    zone, effectiveAt, request.reason());
+        }
+        log.info("Account balance reconciled [userId={}, accountId={}, difference={}, behavior={}]",
+                user.getId(), accountId, difference, request.planningBehavior());
+        return toLedgerEvent(saved);
     }
 
     @Transactional
@@ -206,14 +304,37 @@ public class GrowthCoachService {
     @Transactional
     public void deleteLedgerEvent(UUID accountId, UUID eventId) {
         User user = currentUserService.getCurrentUser();
-        requireOwnedAccount(accountId, user.getId());
+        Account account = requireOwnedAccount(accountId, user.getId());
         AccountLedgerEvent event = ledgerRepository.findByIdAndAccountIdAndUserId(eventId, accountId, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Ledger event was not found"));
-        ledgerRepository.delete(event);
-        log.info("Account ledger event deleted [userId={}, accountId={}, eventId={}]", user.getId(), accountId, eventId);
+        BigDecimal originalMovement = event.getEventType().permitsSignedAmount()
+                ? event.getAmount()
+                : event.getEventType().isDebit() ? event.getAmount().abs().negate() : event.getAmount().abs();
+        AccountLedgerEvent reversal = AccountLedgerEvent.builder()
+                .user(user)
+                .account(account)
+                .eventType(LedgerEventType.BALANCE_CORRECTION)
+                .amount(originalMovement.negate())
+                .currency(event.getCurrency())
+                .eventTime(OffsetDateTime.now())
+                .description("Reversal of " + event.getEventType().name() + " event " + event.getId())
+                .externalReference(event.getExternalReference())
+                .eventStatus("COMPLETED")
+                .metadataJson("{\"reverses\":\"" + event.getId() + "\"}")
+                .createdBy(user)
+                .reversalEvent(event)
+                .planningBehavior("PRESERVE_BASELINE")
+                .build();
+        ledgerRepository.save(reversal);
+        log.info("Account ledger event reversed [userId={}, accountId={}, eventId={}, reversalId={}]",
+                user.getId(), accountId, eventId, reversal.getId());
     }
 
-    private Detail buildDetail(User user, Account account, YearMonth month) {
+    private Detail buildDetail(User user,
+                               Account account,
+                               YearMonth month,
+                               String periodType,
+                               LocalDate anchorDate) {
         AccountGrowthProfile profile = getOrCreateProfile(user, account);
         List<Trade> trades = loadTrades(user.getId(), account.getId());
         ZoneId zone = resolveZone(account, user);
@@ -290,6 +411,10 @@ public class GrowthCoachService {
                 costPct,
                 costR
         ));
+        PeriodContext periodContext = GrowthCoachPeriodResolver.resolve(periodType, anchorDate, zone, Clock.systemUTC());
+        OperatingSystem operatingSystem = operatingService.build(
+                user, account, profile, plan, periodContext, trades, ledgerEvents, initialCapital,
+                floating, exposure.totalOpenRisk(), exposure.openRiskKnown());
 
         return new Detail(
                 new AccountInfo(account.getId(), account.getName(), account.getBroker(), profile.getAccountType().name(),
@@ -311,13 +436,15 @@ public class GrowthCoachService {
                 ledgerEvents.stream().sorted(Comparator.comparing(AccountLedgerEvent::getEventTime).reversed())
                         .map(this::toLedgerEvent).toList(),
                 buildProgressSeries(plan, monthClosed, capitalRules.totalDrawdownBoundary(), zone),
+                operatingSystem,
                 "growthCoach.disclaimer"
         );
     }
 
     private PortfolioAccount buildPortfolioAccount(User user, Account account, YearMonth month) {
         try {
-            Detail detail = buildDetail(user, account, month);
+            LocalDate anchor = YearMonth.now().equals(month) ? LocalDate.now() : month.atEndOfMonth();
+            Detail detail = buildDetail(user, account, month, "MONTH", anchor);
             return new PortfolioAccount(
                     account.getId(),
                     account.getName(),
@@ -879,17 +1006,24 @@ public class GrowthCoachService {
     private PerformanceDrivers buildPerformanceDrivers(List<Trade> trades, AnalyticsResponse analytics) {
         Driver strongestStrategy = driver(trades, Trade::getStrategyTag, true);
         Driver weakestStrategy = driver(trades, Trade::getStrategyTag, false);
+        weakestStrategy = distinctWeakest(strongestStrategy, weakestStrategy);
         Driver strongestSession = driver(trades,
                 t -> t.getSession() == null ? null : t.getSession().name(), true);
         Driver weakestSession = driver(trades,
                 t -> t.getSession() == null ? null : t.getSession().name(), false);
+        weakestSession = distinctWeakest(strongestSession, weakestSession);
         Driver strongestSymbol = driver(trades, Trade::getSymbol, true);
         Driver weakestSymbol = driver(trades, Trade::getSymbol, false);
+        weakestSymbol = distinctWeakest(strongestSymbol, weakestSymbol);
         Driver strongestRr = driver(trades, this::rrBucket, true);
         BigDecimal costPct = costPct(analytics);
         BigDecimal costPerTrade = analytics.getCosts() == null ? null : analytics.getCosts().getAvgCosts();
         return new PerformanceDrivers(strongestStrategy, weakestStrategy, strongestSession, weakestSession,
                 strongestSymbol, weakestSymbol, strongestRr, costPct, costPerTrade);
+    }
+
+    private Driver distinctWeakest(Driver strongest, Driver weakest) {
+        return strongest != null && weakest != null && strongest.name().equals(weakest.name()) ? null : weakest;
     }
 
     private Driver driver(List<Trade> trades, Function<Trade, String> classifier, boolean strongest) {
@@ -1024,7 +1158,11 @@ public class GrowthCoachService {
 
     private LedgerEvent toLedgerEvent(AccountLedgerEvent event) {
         return new LedgerEvent(event.getId(), event.getEventType().name(), event.getAmount(), event.getCurrency(),
-                event.getEventTime(), event.getDescription(), event.getExternalReference());
+                event.getEventTime(), event.getDescription(), event.getExternalReference(),
+                firstNonNull(event.getEventStatus(), "COMPLETED"),
+                firstNonNull(event.getPlanningBehavior(), "PRESERVE_BASELINE"),
+                event.getReversalEvent() == null ? null : event.getReversalEvent().getId(),
+                event.getCreatedAt());
     }
 
     private void applyLedgerRequest(AccountLedgerEvent event, User user, Account account, LedgerEventRequest request) {
@@ -1046,6 +1184,10 @@ public class GrowthCoachService {
         event.setEventTime(request.eventTime());
         event.setDescription(trimToNull(request.description()));
         event.setExternalReference(trimToNull(request.externalReference()));
+        event.setEventStatus("COMPLETED");
+        event.setMetadataJson("{}");
+        event.setCreatedBy(user);
+        event.setPlanningBehavior("PRESERVE_BASELINE");
     }
 
     private BigDecimal resolveTargetAmount(MonthlyGrowthPlan plan,
@@ -1117,6 +1259,19 @@ public class GrowthCoachService {
             return YearMonth.parse(value);
         } catch (DateTimeException ex) {
             throw new IllegalArgumentException("month must use YYYY-MM");
+        }
+    }
+
+    private LocalDate parsePeriodKey(String periodType, String periodKey) {
+        String type = periodType == null ? "" : periodType.trim().toUpperCase(Locale.ROOT);
+        try {
+            return switch (type) {
+                case "DAY", "WEEK" -> LocalDate.parse(periodKey);
+                case "MONTH" -> YearMonth.parse(periodKey).atDay(1);
+                default -> throw new IllegalArgumentException("Period must be DAY, WEEK, or MONTH");
+            };
+        } catch (DateTimeException exception) {
+            throw new IllegalArgumentException("Period key is invalid for " + type);
         }
     }
 

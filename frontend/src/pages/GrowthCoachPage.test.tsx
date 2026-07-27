@@ -134,6 +134,100 @@ const response = {
   }
 } as unknown as GrowthCoachResponse
 
+const operatingResponse = {
+  ...response,
+  detail: {
+    ...response.detail!,
+    openExposure: {
+      ...response.detail!.openExposure,
+      openTradeCount: 0,
+      trades: [],
+      totalFloatingPnl: 0,
+      totalOpenRisk: 0,
+      openRiskKnown: true,
+      tradesWithoutStop: 0
+    },
+    operatingSystem: {
+      selectedPeriod: {
+        periodType: 'MONTH', periodKey: '2026-07', anchorDate: '2026-07-27',
+        startsAt: '2026-07-01T00:00:00+03:00', endsAtExclusive: '2026-08-01T00:00:00+03:00',
+        timezone: 'Europe/Bucharest'
+      },
+      plans: {
+        day: { id: 'day-plan', periodType: 'DAY', periodKey: '2026-07-27', timezone: 'Europe/Bucharest',
+          targetType: 'FIXED_AMOUNT', targetValue: 50, targetAmount: 50, maxLossType: 'FIXED_AMOUNT',
+          maxLossValue: 100, maxLossAmount: 100, maxTrades: 4, maxRiskBudget: 100, maxConsecutiveLosses: 2,
+          defaultRiskPerTrade: 0.5, minimumRr: 1.5, stopAfterTarget: false, reduceRiskAfterTarget: true,
+          riskReductionPct: 50, stopAfterMaxLoss: true, stopAfterConsecutiveLosses: true,
+          allocationMode: 'MANUAL', active: true, version: 1, effectiveFrom: '2026-07-27T00:00:00+03:00' },
+        week: { id: 'week-plan', periodType: 'WEEK', periodKey: '2026-07-27', timezone: 'Europe/Bucharest',
+          targetType: 'FIXED_AMOUNT', targetValue: 150, targetAmount: 150, maxLossType: 'FIXED_AMOUNT',
+          maxLossValue: 300, maxLossAmount: 300, maxTrades: 12, maxRiskBudget: 300, maxConsecutiveLosses: 3,
+          defaultRiskPerTrade: 0.5, minimumRr: 1.5, stopAfterTarget: false, reduceRiskAfterTarget: true,
+          riskReductionPct: 50, stopAfterMaxLoss: true, stopAfterConsecutiveLosses: true,
+          allocationMode: 'MANUAL', active: true, version: 1, effectiveFrom: '2026-07-27T00:00:00+03:00' },
+        month: { id: 'month-plan', periodType: 'MONTH', periodKey: '2026-07', timezone: 'Europe/Bucharest',
+          targetType: 'FIXED_AMOUNT', targetValue: 300, targetAmount: 300, maxLossType: 'FIXED_AMOUNT',
+          maxLossValue: 800, maxLossAmount: 800, maxTrades: 40, maxRiskBudget: 800, maxConsecutiveLosses: 3,
+          defaultRiskPerTrade: 0.5, minimumRr: 1.5, stopAfterTarget: false, reduceRiskAfterTarget: true,
+          riskReductionPct: 50, stopAfterMaxLoss: true, stopAfterConsecutiveLosses: true,
+          allocationMode: 'MANUAL', active: true, version: 1, effectiveFrom: '2026-07-01T00:00:00+03:00' }
+      },
+      selectedSummary: {
+        periodType: 'MONTH', periodStartBalance: 10000, realisedTradingPnl: 150, realisedPnlPct: 1.5,
+        realisedR: 3, netLedgerMovement: -100, netAccountChange: 50, currentRealisedBalance: 10050,
+        currentEquity: 10050, floatingPnl: 0, targetAmount: 300, targetProgressPct: 50, targetRemaining: 150,
+        lossAllowanceRemaining: 650, completedTrades: 2, winningTrades: 2, losingTrades: 0, winRate: 100,
+        averageTrade: 75, grossProfit: 150, grossLoss: 0, riskUsed: 100, riskRemaining: 700,
+        tradesRemaining: 38, currentConsecutiveLosses: 0, maximumDrawdown: 0, openRisk: 0
+      },
+      todayActivity: {
+        summary: {
+          periodType: 'DAY', periodStartBalance: 10000, realisedTradingPnl: 150, realisedPnlPct: 1.5,
+          realisedR: 3, netLedgerMovement: -100, netAccountChange: 50, currentRealisedBalance: 10050,
+          currentEquity: 10050, floatingPnl: 0, targetAmount: 50, targetProgressPct: 300, targetRemaining: 0,
+          lossAllowanceRemaining: 100, completedTrades: 2, winningTrades: 2, losingTrades: 0, winRate: 100,
+          averageTrade: 75, grossProfit: 150, grossLoss: 0, riskUsed: 100, riskRemaining: 0,
+          tradesRemaining: 2, currentConsecutiveLosses: 0, maximumDrawdown: 0, openRisk: 0
+        },
+        currentlyOpenTrades: 0,
+        tradingPermission: 'REDUCED_RISK_ONLY',
+        closedTrades: [
+          { tradeId: 'closed-1', symbol: 'EURUSD', direction: 'LONG', openedAt: '2026-07-27T08:00:00+03:00',
+            closedAt: '2026-07-27T09:00:00+03:00', pnl: 100, realisedR: 2, initialRisk: 50 },
+          { tradeId: 'closed-2', symbol: 'GBPUSD', direction: 'SHORT', openedAt: '2026-07-27T10:00:00+03:00',
+            closedAt: '2026-07-27T11:00:00+03:00', pnl: 50, realisedR: 1, initialRisk: 50 }
+        ]
+      },
+      tradingPermission: {
+        state: 'REDUCED_RISK_ONLY', primaryReason: 'growthCoach.permission.reasons.targetReached',
+        secondaryReasons: [], maximumPermittedRisk: 25, maximumPermittedRiskPct: 0.25,
+        remainingTrades: 2, applicableLimit: 'DAY', recommendedAction: 'growthCoach.permission.actions.protectResult'
+      },
+      periodComparisons: ['DAY', 'WEEK', 'MONTH'].map((periodType) => ({
+        periodType, realisedPnl: 150, realisedPct: 1.5, realisedR: 3, target: 300, targetProgress: 50,
+        trades: 2, winRate: 100, averageTrade: 75, riskUsed: 100, riskRemaining: 100,
+        drawdown: 0, adherenceScore: 100, tradingStatus: 'REDUCED_RISK_ONLY'
+      })),
+      planAdherence: {
+        score: 100, passedRules: 5, failedRules: 0, unavailableRules: 0, confidence: 'HIGH',
+        passed: [], failed: [], unavailable: []
+      },
+      metricConfidence: [
+        { metric: 'BALANCE', status: 'HIGH', score: 95, reason: 'growthCoach.confidenceMetrics.balance',
+          missingDataCount: 0, affectedMetrics: ['CURRENT_REALISED_BALANCE'], action: 'growthCoach.confidenceMetrics.action' }
+      ],
+      chartSeries: [
+        { date: '2026-07-27', cumulativeTradingPnl: 150, dailyTradingPnl: 150, cumulativeR: 3, dailyR: 3,
+          realisedBalance: 10050, equity: 10050, plannedProgress: 260, target: 300, maximumLoss: -800,
+          drawdownLimit: 9200, cumulativeRisk: 100 }
+      ],
+      chartMarkers: [],
+      planHistory: []
+    }
+  }
+} as unknown as GrowthCoachResponse
+
 const renderPage = () => {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -176,5 +270,19 @@ test('opens the monthly target editing flow', async () => {
   expect(screen.getByRole('dialog')).toBeInTheDocument()
   expect(screen.getByText('Edit monthly growth plan')).toBeInTheDocument()
   expect(screen.getByLabelText('Target (%)')).toHaveValue(3)
-  await waitFor(() => expect(mockFetchGrowthCoach).toHaveBeenCalledWith('account-1', expect.any(String)))
+  await waitFor(() => expect(mockFetchGrowthCoach).toHaveBeenCalledWith(
+    'account-1', expect.any(String), 'MONTH', expect.any(String)
+  ))
+})
+
+test('shows two closed trades in today activity while active exposure remains empty at 320px', async () => {
+  mockFetchGrowthCoach.mockResolvedValueOnce(operatingResponse)
+  renderPage()
+
+  expect(await screen.findByText("Today's Trading Activity")).toBeInTheDocument()
+  expect(screen.getByText(/EURUSD/)).toBeInTheDocument()
+  expect(screen.getByText(/GBPUSD/)).toBeInTheDocument()
+  expect(screen.getByText('No active trades')).toBeInTheDocument()
+  expect(screen.getByText('Reduced risk only')).toBeInTheDocument()
+  expect(screen.getAllByText('Today').length).toBeGreaterThan(0)
 })

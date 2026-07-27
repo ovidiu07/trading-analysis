@@ -89,6 +89,11 @@
     "disclaimer": "Exclusiv pentru jurnal, analiză și planificarea riscului. Proiecțiile sunt incerte, nu promit randamente și nu reprezintă consultanță financiară.",
     "accountSelector": "Cont pentru Growth Coach",
     "monthSelector": "Luna planului",
+    "periodSelector": "Perioada planului",
+    "dateSelector": "Data perioadei",
+    "previousPeriod": "Perioada anterioară",
+    "nextPeriod": "Perioada următoare",
+    "periods": { "DAY": "Astăzi", "WEEK": "Săptămâna aceasta", "MONTH": "Luna aceasta" },
     "unknown": "Necunoscut",
     "errors": {
       "load": "Account Growth Coach nu a putut fi încărcat.",
@@ -406,14 +411,153 @@
       "date": "Data evenimentului",
       "description": "Descriere",
       "reference": "Referință externă",
-      "confirmDelete": "Ștergi acest eveniment? Soldul calculat al contului se va modifica.",
+      "reverse": "Inversează evenimentul din registru",
+      "confirmDelete": "Inversezi acest eveniment? Înregistrarea originală de audit va fi păstrată.",
       "types": {
         "INITIAL_CAPITAL": "Capital inițial", "DEPOSIT": "Depunere", "WITHDRAWAL": "Retragere",
         "PAYOUT": "Payout", "COMMISSION": "Comision", "PLATFORM_FEE": "Taxă platformă",
         "DATA_FEE": "Taxă date", "RESET_FEE": "Taxă resetare", "SWAP": "Swap", "TAX": "Impozit",
         "MANUAL_ADJUSTMENT": "Ajustare manuală", "PROFIT_SPLIT": "Split profit",
-        "ACCOUNT_RESET": "Resetare cont", "OTHER": "Alt tip"
+        "ACCOUNT_RESET": "Resetare cont", "OTHER": "Alt tip", "PROP_FIRM_PAYOUT": "Payout prop-firm",
+        "PAYOUT_REQUEST": "Cerere payout", "PAYOUT_RECEIVED": "Payout primit", "BROKER_FEE": "Taxă broker",
+        "COMMISSION_ADJUSTMENT": "Ajustare comision", "FINANCING_ADJUSTMENT": "Ajustare finanțare",
+        "SWAP_ADJUSTMENT": "Ajustare swap", "TAX_DEDUCTION": "Deducere fiscală",
+        "BALANCE_CORRECTION": "Corecție sold", "REFUND": "Rambursare", "TRANSFER": "Transfer"
       }
+    },
+    "periodPlan": {
+      "editTitle": "Editează planul pentru {{period}}",
+      "referenceHint": "Ținta de profit este o referință de planificare, nu o obligație de a forța tranzacții. Limitele de protecție au întotdeauna prioritate.",
+      "targetValue": "Valoarea țintei", "maxLossType": "Tipul pierderii maxime", "maxLossValue": "Pierderea maximă",
+      "maxTrades": "Număr maxim de tranzacții", "maxRiskBudget": "Buget maxim de risc",
+      "maxConsecutiveLosses": "Pierderi consecutive maxime", "maxLosingDays": "Zile pierzătoare maxime",
+      "defaultRisk": "Risc implicit per tranzacție (%)", "riskReduction": "Reducerea riscului după țintă (%)",
+      "allocationMode": "Mod de alocare",
+      "allocationModes": { "MANUAL": "Alocare manuală", "AUTOMATIC": "Ghidare automată" },
+      "sessions": "Sesiuni permise", "focus": "Focusul planului", "notes": "Notele planului",
+      "stopAfterTarget": "Oprește tranzacționarea după atingerea țintei",
+      "reduceAfterTarget": "Redu riscul după atingerea țintei",
+      "stopAfterLoss": "Oprește tranzacționarea la pierderea maximă",
+      "stopAfterStreak": "Oprește după seria maximă de pierderi", "active": "Plan activ"
+    },
+    "permission": {
+      "states": {
+        "TRADING_PERMITTED": "Tranzacționare permisă", "REDUCED_RISK_ONLY": "Doar risc redus",
+        "REVIEW_REQUIRED": "Revizuire necesară", "DAILY_LOCKOUT": "Blocare zilnică",
+        "WEEKLY_LOCKOUT": "Blocare săptămânală", "MONTHLY_PROTECTION_MODE": "Mod de protecție lunară",
+        "ACCOUNT_RULE_BREACHED": "Regulă de cont încălcată", "INSUFFICIENT_DATA": "Date insuficiente"
+      },
+      "maximumRisk": "Riscul maxim acceptat", "remainingTrades": "Tranzacții rămase", "limit": "Limita aplicabilă",
+      "reasons": {
+        "withinLimits": "Datele curente se află în limitele active ale contului și planului.",
+        "monthlyLoss": "Bugetul lunar de pierdere a fost epuizat.",
+        "weeklyLoss": "Bugetul săptămânal de pierdere a fost epuizat.",
+        "dailyLoss": "Bugetul zilnic de pierdere a fost epuizat.",
+        "consecutiveLosses": "A fost atinsă limita configurată de pierderi consecutive.",
+        "openRiskUnknown": "Riscul deschis nu poate fi verificat deoarece lipsesc stopul sau cantitatea.",
+        "targetReached": "O țintă a fost atinsă; ierarhia planului prioritizează protejarea rezultatului.",
+        "monthlyTargetComplete": "Obiectivul lunar este finalizat.",
+        "weeklyTargetComplete": "Obiectivul săptămânal este finalizat."
+      },
+      "actions": {
+        "followPlan": "Continuă doar cu setup-uri valide în limitele planului.",
+        "stopAndReview": "Oprește riscul nou și finalizează revizuirea lunară.",
+        "stopForWeek": "Oprește tranzacționarea săptămânii și revizuiește zilele pierzătoare.",
+        "stopForDay": "Oprește tranzacționarea astăzi și revizuiește execuția.",
+        "completeRiskData": "Completează stop-loss-ul și cantitatea înainte de o nouă expunere.",
+        "protectResult": "Protejează rezultatul; ținta perioadei inferioare nu este o obligație."
+      }
+    },
+    "scorecard": {
+      "title": "Scorecard {{period}}",
+      "separation": "P&L tranzacțional {{trading}} + mișcare registru {{ledger}} = schimbare netă cont {{change}}. Mișcările de numerar nu schimbă progresul țintei.",
+      "metrics": {
+        "periodStartBalance": "Sold la începutul perioadei", "realisedBalance": "Sold realizat curent",
+        "currentEquity": "Equity curent", "tradingPnl": "P&L tranzacțional realizat",
+        "ledgerMovement": "Mișcare netă registru", "floatingPnl": "P&L flotant",
+        "target": "Ținta planului", "targetProgress": "Progresul țintei",
+        "lossRemaining": "Buget de pierdere rămas", "tradesCompleted": "Tranzacții finalizate",
+        "openRisk": "Risc deschis", "adherence": "Respectarea planului"
+      }
+    },
+    "operatingChart": {
+      "title": "Progresul țintei și riscului",
+      "subtitle": "Performanța, soldul, equity, ritmul planificat, riscul și evenimentele rămân separate.",
+      "dailyMode": "Bare zilnice", "balance": "Sold", "equity": "Equity", "risk": "Risc utilizat",
+      "valueMode": "Unitatea graficului", "modes": { "CURRENCY": "Bani", "PERCENTAGE": "%", "R": "R" },
+      "events": "Evenimente tranzacții și registru",
+      "dailyPnl": "P&L zilnic", "tradingPnl": "P&L tranzacțional cumulat", "plan": "Progres planificat",
+      "accessibleSummary": "P&L-ul realizat este {{pnl}} față de ținta de referință {{target}}. Sunt disponibile {{markers}} evenimente."
+    },
+    "todayActivity": {
+      "title": "Activitatea de tranzacționare de astăzi",
+      "subtitle": "Tranzacțiile închise sunt alocate după ora închiderii în fusul contului și nu apar ca expunere activă.",
+      "review": "Revizuiește tranzacțiile", "empty": "Astăzi nu au fost înregistrate tranzacții închise valide.",
+      "metrics": {
+        "closedTrades": "Tranzacții închise", "openTrades": "Deschise acum", "realisedPnl": "P&L realizat",
+        "realisedR": "R realizat", "winRate": "Rată de câștig", "grossProfit": "Profit brut",
+        "grossLoss": "Pierdere brută", "averageTrade": "Media pe tranzacție", "lossStreak": "Serie curentă de pierderi",
+        "riskUsed": "Risc utilizat",
+        "riskRemaining": "Risc rămas", "tradesRemaining": "Tranzacții rămase"
+      }
+    },
+    "comparison": {
+      "title": "Comparația planurilor zilnic, săptămânal și lunar",
+      "subtitle": "Cea mai conservatoare constrângere activă controlează permisiunea de tranzacționare.",
+      "period": "Perioadă", "pnl": "P&L realizat", "r": "R realizat", "progress": "Progres țintă",
+      "trades": "Tranzacții", "winRate": "Rată de câștig", "riskUsed": "Risc utilizat", "drawdown": "Drawdown",
+      "adherence": "Conformitate", "status": "Stare"
+    },
+    "adherence": {
+      "title": "Respectarea planului",
+      "subtitle": "Fiecare regulă este evaluată separat; datele indisponibile nu sunt considerate dovadă de conformitate.",
+      "score": "Scor de conformitate: {{score}}/100",
+      "groups": { "passed": "Respectată", "failed": "Încălcată", "unavailable": "Date indisponibile" },
+      "rules": {
+        "maxTrades": "Numărul maxim de tranzacții respectat", "riskPerTrade": "Riscul per tranzacție respectat",
+        "stopRecorded": "Stopul de protecție înregistrat", "strategyRecorded": "Strategia înregistrată",
+        "setupRecorded": "Setup-ul înregistrat"
+      }
+    },
+    "planHistory": {
+      "title": "Istoricul versiunilor planului",
+      "empty": "Nu există versiuni anterioare pentru planul selectat."
+    },
+    "metricConfidence": {
+      "title": "Încredere specifică fiecărei metrici",
+      "subtitle": "Etichetele lipsă reduc doar metricile dependente; încrederea soldului rămâne separată.",
+      "missing": "Lipsesc {{count}} puncte de date necesare.",
+      "metrics": {
+        "BALANCE": "Încredere sold", "REALISED_PNL": "Încredere P&L realizat",
+        "EQUITY": "Încredere equity", "R_METRICS": "Încredere metrici R", "RISK": "Încredere risc",
+        "STRATEGY": "Încredere strategie", "SETUP": "Încredere setup", "SESSION": "Încredere sesiune",
+        "PROJECTION": "Încredere proiecție"
+      }
+    },
+    "confidenceMetrics": {
+      "balance": "Bazat pe capitalul configurat și evenimente de registru auditabile.",
+      "realisedPnl": "Bazat pe tranzacții închise valide, alocate după ora închiderii.",
+      "equity": "Depinde de prețuri live fiabile pentru fiecare poziție deschisă.",
+      "rMetrics": "Depinde de acoperirea riscului inițial al tranzacțiilor închise.",
+      "risk": "Depinde de stop-loss, cantitate și expunerea curentă.",
+      "strategy": "Depinde de acoperirea etichetelor de strategie.", "setup": "Depinde de acoperirea setup-urilor.",
+      "session": "Depinde de acoperirea sesiunilor.", "projection": "Depinde de eșantion și riscul inițial.",
+      "action": "Completează datele lipsă pentru a îmbunătăți încrederea."
+    },
+    "reconcile": {
+      "title": "Reconciliază soldul contului",
+      "subtitle": "Reconcilierea creează un eveniment auditabil de corecție și nu suprascrie P&L-ul istoric.",
+      "systemBalance": "Sold calculat de sistem", "brokerBalance": "Sold raportat de broker",
+      "difference": "Ajustare registru", "effectiveDate": "Data efectivă", "effectiveTime": "Ora efectivă",
+      "timezone": "Fus orar", "reason": "Motivul ajustării", "note": "Notă opțională",
+      "planningBehavior": "Comportament pentru planificare",
+      "behaviors": {
+        "PRESERVE_BASELINE": "Păstrează baza planului curent",
+        "REBASE_FUTURE": "Rebazează planurile procentuale viitoare",
+        "RESET_CURRENT": "Resetează planul curent cu o versiune nouă"
+      },
+      "confirmReset": "Confirm crearea unei versiuni noi a planului curent",
+      "save": "Creează evenimentul de reconciliere"
     },
     "actions": {
       "editProfile": "Setează capitalul contului",

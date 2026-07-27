@@ -37,6 +37,7 @@ class GrowthCoachServiceTest {
     @Mock AccountLedgerEventRepository ledgerRepository;
     @Mock AnalyticsService analyticsService;
     @Mock QuoteService quoteService;
+    @Mock GrowthCoachOperatingService operatingService;
 
     private GrowthCoachService service;
     private User user;
@@ -49,7 +50,7 @@ class GrowthCoachServiceTest {
         service = new GrowthCoachService(
                 currentUserService, accountRepository, tradeRepository, profileRepository,
                 planRepository, revisionRepository, ledgerRepository, analyticsService,
-                quoteService, new GrowthCoachMessageEngine());
+                quoteService, new GrowthCoachMessageEngine(), operatingService);
         user = User.builder().id(UUID.randomUUID()).timezone("Europe/Bucharest").build();
         account = Account.builder()
                 .id(UUID.randomUUID()).user(user).name("Primary").accountCurrency("USD")

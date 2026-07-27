@@ -89,6 +89,11 @@
     "disclaimer": "For journaling, analytics, and risk planning only. Projections are uncertain, do not promise returns, and are not financial advice.",
     "accountSelector": "Growth coach account",
     "monthSelector": "Plan month",
+    "periodSelector": "Planning period",
+    "dateSelector": "Period date",
+    "previousPeriod": "Previous period",
+    "nextPeriod": "Next period",
+    "periods": { "DAY": "Today", "WEEK": "This week", "MONTH": "This month" },
     "unknown": "Unknown",
     "errors": {
       "load": "The Account Growth Coach could not be loaded.",
@@ -406,14 +411,154 @@
       "date": "Event date",
       "description": "Description",
       "reference": "External reference",
-      "confirmDelete": "Delete this ledger event? This changes the calculated account balance.",
+      "reverse": "Reverse ledger event",
+      "confirmDelete": "Reverse this ledger event? The original audit record will be preserved.",
       "types": {
         "INITIAL_CAPITAL": "Initial capital", "DEPOSIT": "Deposit", "WITHDRAWAL": "Withdrawal",
         "PAYOUT": "Payout", "COMMISSION": "Commission", "PLATFORM_FEE": "Platform fee",
         "DATA_FEE": "Data fee", "RESET_FEE": "Reset fee", "SWAP": "Swap", "TAX": "Tax",
         "MANUAL_ADJUSTMENT": "Manual adjustment", "PROFIT_SPLIT": "Profit split",
-        "ACCOUNT_RESET": "Account reset", "OTHER": "Other"
+        "ACCOUNT_RESET": "Account reset", "OTHER": "Other", "PROP_FIRM_PAYOUT": "Prop-firm payout",
+        "PAYOUT_REQUEST": "Payout request", "PAYOUT_RECEIVED": "Payout received", "BROKER_FEE": "Broker fee",
+        "COMMISSION_ADJUSTMENT": "Commission adjustment", "FINANCING_ADJUSTMENT": "Financing adjustment",
+        "SWAP_ADJUSTMENT": "Swap adjustment", "TAX_DEDUCTION": "Tax deduction",
+        "BALANCE_CORRECTION": "Balance correction", "REFUND": "Refund", "TRANSFER": "Transfer"
       }
+    },
+    "periodPlan": {
+      "editTitle": "Edit {{period}} plan",
+      "referenceHint": "The profit target is a planning reference, not an obligation to force trades. Protection limits always take priority.",
+      "targetValue": "Target value", "maxLossType": "Maximum loss type", "maxLossValue": "Maximum loss value",
+      "maxTrades": "Maximum trades", "maxRiskBudget": "Maximum risk budget",
+      "maxConsecutiveLosses": "Maximum consecutive losses", "maxLosingDays": "Maximum losing days",
+      "defaultRisk": "Default risk per trade (%)", "riskReduction": "Risk reduction after target (%)",
+      "allocationMode": "Allocation mode",
+      "allocationModes": { "MANUAL": "Manual allocation", "AUTOMATIC": "Automatic guidance" },
+      "sessions": "Permitted sessions", "focus": "Plan focus", "notes": "Plan notes",
+      "stopAfterTarget": "Stop trading after reaching the target",
+      "reduceAfterTarget": "Reduce risk after reaching the target",
+      "stopAfterLoss": "Stop trading after maximum loss",
+      "stopAfterStreak": "Stop after maximum consecutive losses", "active": "Plan is active"
+    },
+    "permission": {
+      "states": {
+        "TRADING_PERMITTED": "Trading permitted", "REDUCED_RISK_ONLY": "Reduced risk only",
+        "REVIEW_REQUIRED": "Review required", "DAILY_LOCKOUT": "Daily lockout",
+        "WEEKLY_LOCKOUT": "Weekly lockout", "MONTHLY_PROTECTION_MODE": "Monthly protection mode",
+        "ACCOUNT_RULE_BREACHED": "Account rule breached", "INSUFFICIENT_DATA": "Insufficient data"
+      },
+      "maximumRisk": "Maximum supported risk", "remainingTrades": "Remaining trades", "limit": "Applicable limit",
+      "reasons": {
+        "withinLimits": "Current evidence remains within the active account and plan limits.",
+        "monthlyLoss": "The monthly loss allowance has been exhausted.",
+        "weeklyLoss": "The weekly loss allowance has been exhausted.",
+        "dailyLoss": "The daily loss allowance has been exhausted.",
+        "consecutiveLosses": "The configured consecutive-loss stop has been reached.",
+        "openRiskUnknown": "Open risk cannot be verified because required stop or quantity data is missing.",
+        "targetReached": "A target has been reached; the plan hierarchy prioritises protecting the achieved result.",
+        "monthlyTargetComplete": "The monthly objective is complete.",
+        "weeklyTargetComplete": "The weekly objective is complete."
+      },
+      "actions": {
+        "followPlan": "Continue only with valid setups inside the configured plan.",
+        "stopAndReview": "Stop adding risk and complete a monthly review.",
+        "stopForWeek": "Stop trading for the week and review the losing days.",
+        "stopForDay": "Stop trading for today and review execution.",
+        "completeRiskData": "Record stop-loss and quantity data before adding exposure.",
+        "protectResult": "Protect the achieved result; the lower-period target is not a requirement."
+      }
+    },
+    "scorecard": {
+      "title": "{{period}} scorecard",
+      "separation": "Trading P&L {{trading}} + ledger movement {{ledger}} = net account change {{change}}. Cash movements do not change target progress.",
+      "metrics": {
+        "periodStartBalance": "Period-start balance", "realisedBalance": "Current realised balance",
+        "currentEquity": "Current equity", "tradingPnl": "Realised trading P&L",
+        "ledgerMovement": "Net ledger movement", "floatingPnl": "Floating P&L",
+        "target": "Plan target", "targetProgress": "Target progress",
+        "lossRemaining": "Loss allowance remaining", "tradesCompleted": "Trades completed",
+        "openRisk": "Open risk", "adherence": "Plan adherence"
+      }
+    },
+    "operatingChart": {
+      "title": "Target and risk progress",
+      "subtitle": "Trading performance, account balance, equity, planned pace, risk, and event markers remain separate.",
+      "dailyMode": "Daily bars", "balance": "Balance", "equity": "Equity", "risk": "Risk used",
+      "valueMode": "Chart value mode", "modes": { "CURRENCY": "Money", "PERCENTAGE": "%", "R": "R" },
+      "events": "Trade and ledger events",
+      "dailyPnl": "Daily trading P&L", "tradingPnl": "Cumulative trading P&L", "plan": "Planned progress",
+      "accessibleSummary": "Realised trading P&L is {{pnl}} against a {{target}} reference target. {{markers}} trade or ledger events are available."
+    },
+    "todayActivity": {
+      "title": "Today's Trading Activity",
+      "subtitle": "Closed trades are assigned by close time in the account timezone and never appear as active exposure.",
+      "review": "Review trades", "empty": "No valid closed trades were recorded today.",
+      "metrics": {
+        "closedTrades": "Closed trades", "openTrades": "Currently open", "realisedPnl": "Realised P&L",
+        "realisedR": "Realised R", "winRate": "Win rate", "grossProfit": "Gross profit",
+        "grossLoss": "Gross loss", "averageTrade": "Average trade", "lossStreak": "Current losing streak",
+        "riskUsed": "Risk used",
+        "riskRemaining": "Risk remaining", "tradesRemaining": "Trades remaining"
+      }
+    },
+    "comparison": {
+      "title": "Daily, weekly, and monthly plan comparison",
+      "subtitle": "The most conservative active constraint controls the trading permission.",
+      "period": "Period", "pnl": "Realised P&L", "r": "Realised R", "progress": "Target progress",
+      "trades": "Trades", "winRate": "Win rate", "riskUsed": "Risk used", "drawdown": "Drawdown",
+      "adherence": "Adherence", "status": "Status"
+    },
+    "adherence": {
+      "title": "Plan adherence",
+      "subtitle": "Each rule is evaluated independently; unavailable inputs are not treated as passing evidence.",
+      "score": "Adherence score: {{score}}/100",
+      "groups": { "passed": "Passed", "failed": "Failed", "unavailable": "Data unavailable" },
+      "rules": {
+        "maxTrades": "Maximum trades respected", "riskPerTrade": "Risk per trade respected",
+        "stopRecorded": "Protective stop recorded", "strategyRecorded": "Strategy recorded",
+        "setupRecorded": "Setup recorded"
+      }
+    },
+    "planHistory": {
+      "title": "Plan version history",
+      "empty": "No previous versions exist for the selected plan."
+    },
+    "metricConfidence": {
+      "title": "Metric-specific data confidence",
+      "subtitle": "Missing tags reduce only the metrics that depend on them; monetary balance confidence remains separate.",
+      "missing": "{{count}} required data points are missing.",
+      "metrics": {
+        "BALANCE": "Balance confidence", "REALISED_PNL": "Realised P&L confidence",
+        "EQUITY": "Equity confidence", "R_METRICS": "R-metric confidence", "RISK": "Risk confidence",
+        "STRATEGY": "Strategy confidence", "SETUP": "Setup confidence", "SESSION": "Session confidence",
+        "PROJECTION": "Projection confidence"
+      }
+    },
+    "confidenceMetrics": {
+      "balance": "Based on configured capital and auditable ledger events.",
+      "realisedPnl": "Based on valid closed trades assigned by close timestamp.",
+      "equity": "Depends on reliable live prices for every open position.",
+      "rMetrics": "Depends on initial-risk coverage for closed trades.",
+      "risk": "Depends on stop-loss, quantity, and current exposure data.",
+      "strategy": "Depends on strategy-tag coverage.", "setup": "Depends on setup-tag coverage.",
+      "session": "Depends on session-tag coverage.",
+      "projection": "Depends on sample size and initial-risk coverage.",
+      "action": "Complete the missing trade or account data to improve confidence."
+    },
+    "reconcile": {
+      "title": "Reconcile Account Balance",
+      "subtitle": "A reconciliation creates an auditable balance-correction event. It never overwrites historical trading P&L.",
+      "systemBalance": "System-calculated balance", "brokerBalance": "Broker-reported balance",
+      "difference": "Ledger adjustment", "effectiveDate": "Effective date", "effectiveTime": "Effective time",
+      "timezone": "Timezone", "reason": "Adjustment reason", "note": "Optional note",
+      "planningBehavior": "Future planning behavior",
+      "behaviors": {
+        "PRESERVE_BASELINE": "Preserve current plan baseline",
+        "REBASE_FUTURE": "Rebase future percentage plans",
+        "RESET_CURRENT": "Reset current plan with a new version"
+      },
+      "confirmReset": "I confirm that a new current-plan version should be created",
+      "save": "Create reconciliation event"
     },
     "actions": {
       "editProfile": "Set account capital",

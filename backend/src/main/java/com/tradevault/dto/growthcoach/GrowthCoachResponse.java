@@ -49,6 +49,7 @@ public record GrowthCoachResponse(
             DataQuality dataQuality,
             List<LedgerEvent> ledgerEvents,
             List<ProgressPoint> progressSeries,
+            OperatingSystem operatingSystem,
             String disclaimer
     ) {
     }
@@ -321,7 +322,11 @@ public record GrowthCoachResponse(
             String currency,
             OffsetDateTime eventTime,
             String description,
-            String externalReference
+            String externalReference,
+            String eventStatus,
+            String planningBehavior,
+            UUID reversalEventId,
+            OffsetDateTime createdAt
     ) {
     }
 
@@ -331,6 +336,215 @@ public record GrowthCoachResponse(
             BigDecimal targetBalance,
             BigDecimal plannedBalance,
             BigDecimal drawdownBoundary
+    ) {
+    }
+
+    public record OperatingSystem(
+            PeriodContext selectedPeriod,
+            PlanBundle plans,
+            PeriodSummary selectedSummary,
+            TodayActivity todayActivity,
+            TradingPermission tradingPermission,
+            List<PeriodComparison> periodComparisons,
+            PlanAdherence planAdherence,
+            List<MetricConfidence> metricConfidence,
+            List<OperatingChartPoint> chartSeries,
+            List<ChartMarker> chartMarkers,
+            List<PlanRevision> planHistory
+    ) {
+    }
+
+    public record PeriodContext(
+            String periodType,
+            String periodKey,
+            LocalDate anchorDate,
+            OffsetDateTime startsAt,
+            OffsetDateTime endsAtExclusive,
+            String timezone
+    ) {
+    }
+
+    public record PlanBundle(
+            PeriodPlan day,
+            PeriodPlan week,
+            PeriodPlan month
+    ) {
+    }
+
+    public record PeriodPlan(
+            UUID id,
+            String periodType,
+            String periodKey,
+            String timezone,
+            String targetType,
+            BigDecimal targetValue,
+            BigDecimal targetAmount,
+            String maxLossType,
+            BigDecimal maxLossValue,
+            BigDecimal maxLossAmount,
+            Integer maxTrades,
+            BigDecimal maxRiskBudget,
+            Integer maxConsecutiveLosses,
+            Integer maxLosingDays,
+            BigDecimal defaultRiskPerTrade,
+            BigDecimal minimumRr,
+            boolean stopAfterTarget,
+            boolean reduceRiskAfterTarget,
+            BigDecimal riskReductionPct,
+            boolean stopAfterMaxLoss,
+            boolean stopAfterConsecutiveLosses,
+            String permittedSessions,
+            String focus,
+            String notes,
+            String allocationMode,
+            boolean active,
+            int version,
+            OffsetDateTime effectiveFrom,
+            OffsetDateTime updatedAt
+    ) {
+    }
+
+    public record PeriodSummary(
+            String periodType,
+            BigDecimal periodStartBalance,
+            BigDecimal realisedTradingPnl,
+            BigDecimal realisedPnlPct,
+            BigDecimal realisedR,
+            BigDecimal netLedgerMovement,
+            BigDecimal netAccountChange,
+            BigDecimal currentRealisedBalance,
+            BigDecimal currentEquity,
+            BigDecimal floatingPnl,
+            BigDecimal targetAmount,
+            BigDecimal targetProgressPct,
+            BigDecimal targetRemaining,
+            BigDecimal lossAllowanceRemaining,
+            int completedTrades,
+            int winningTrades,
+            int losingTrades,
+            BigDecimal winRate,
+            BigDecimal averageTrade,
+            BigDecimal grossProfit,
+            BigDecimal grossLoss,
+            BigDecimal riskUsed,
+            BigDecimal riskRemaining,
+            Integer tradesRemaining,
+            int currentConsecutiveLosses,
+            BigDecimal maximumDrawdown,
+            BigDecimal openRisk
+    ) {
+    }
+
+    public record TodayActivity(
+            PeriodSummary summary,
+            int currentlyOpenTrades,
+            List<ClosedTradeActivity> closedTrades,
+            String tradingPermission
+    ) {
+    }
+
+    public record ClosedTradeActivity(
+            UUID tradeId,
+            String symbol,
+            String direction,
+            OffsetDateTime openedAt,
+            OffsetDateTime closedAt,
+            BigDecimal pnl,
+            BigDecimal realisedR,
+            BigDecimal initialRisk,
+            String strategy,
+            String setup,
+            String session
+    ) {
+    }
+
+    public record TradingPermission(
+            String state,
+            String primaryReason,
+            List<String> secondaryReasons,
+            BigDecimal maximumPermittedRisk,
+            BigDecimal maximumPermittedRiskPct,
+            Integer remainingTrades,
+            String applicableLimit,
+            String recommendedAction
+    ) {
+    }
+
+    public record PeriodComparison(
+            String periodType,
+            BigDecimal realisedPnl,
+            BigDecimal realisedPct,
+            BigDecimal realisedR,
+            BigDecimal target,
+            BigDecimal targetProgress,
+            int trades,
+            BigDecimal winRate,
+            BigDecimal averageTrade,
+            BigDecimal riskUsed,
+            BigDecimal riskRemaining,
+            BigDecimal drawdown,
+            int adherenceScore,
+            String tradingStatus
+    ) {
+    }
+
+    public record PlanAdherence(
+            int score,
+            int passedRules,
+            int failedRules,
+            int unavailableRules,
+            String confidence,
+            List<String> passed,
+            List<String> failed,
+            List<String> unavailable
+    ) {
+    }
+
+    public record MetricConfidence(
+            String metric,
+            String status,
+            int score,
+            String reason,
+            int missingDataCount,
+            List<String> affectedMetrics,
+            String action
+    ) {
+    }
+
+    public record OperatingChartPoint(
+            LocalDate date,
+            BigDecimal cumulativeTradingPnl,
+            BigDecimal dailyTradingPnl,
+            BigDecimal cumulativeR,
+            BigDecimal dailyR,
+            BigDecimal realisedBalance,
+            BigDecimal equity,
+            BigDecimal plannedProgress,
+            BigDecimal target,
+            BigDecimal maximumLoss,
+            BigDecimal drawdownLimit,
+            BigDecimal cumulativeRisk
+    ) {
+    }
+
+    public record ChartMarker(
+            String id,
+            String type,
+            OffsetDateTime timestamp,
+            BigDecimal amount,
+            String label,
+            UUID tradeId,
+            UUID ledgerEventId
+    ) {
+    }
+
+    public record PlanRevision(
+            UUID id,
+            String periodType,
+            String periodKey,
+            int version,
+            String reason,
+            OffsetDateTime changedAt
     ) {
     }
 }

@@ -189,7 +189,7 @@ export default function TopBar({
         startIcon={<InfoOutlinedIcon />}
         onClick={onOpenDefinitions}
         aria-label={t('dashboard.definitions.open')}
-        sx={{ minHeight: 40 }}
+        sx={{ minHeight: 44 }}
       >
         {t('dashboard.definitions.open')}
       </Button>
@@ -223,8 +223,8 @@ export default function TopBar({
       sx={{
         '& .MuiToggleButton-root': {
           borderColor: 'divider',
-          minWidth: 42,
-          height: 34,
+          minWidth: 44,
+          height: 44,
           px: 1,
           fontSize: 12,
           fontWeight: 700,
@@ -285,7 +285,7 @@ export default function TopBar({
             >
               <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
                 {showMenuToggle && (
-                  <IconButton onClick={onMenuToggle} aria-label={t('nav.openMenu')} sx={{ width: 40, height: 40 }}>
+                  <IconButton onClick={onMenuToggle} aria-label={t('nav.openMenu')} sx={{ width: 44, height: 44 }}>
                     <MenuIcon />
                   </IconButton>
                 )}
@@ -295,7 +295,15 @@ export default function TopBar({
                     component={Link}
                     to={`/today?${writeAccountScope(new URLSearchParams(), accountScope.scope).toString()}`}
                     aria-label={t('layout.homeLabel')}
-                    sx={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0, textDecoration: 'none' }}
+                    sx={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      minWidth: 44,
+                      minHeight: 44,
+                      flexShrink: 0,
+                      textDecoration: 'none'
+                    }}
                   >
                     <BrandLogo layout={isXs ? 'mark' : 'horizontal'} size="sm" decorative />
                   </Box>
@@ -330,7 +338,7 @@ export default function TopBar({
                     <IconButton
                       aria-label={t('theme.label')}
                       onClick={(event) => setThemeAnchor(event.currentTarget)}
-                      sx={{ width: 38, height: 38 }}
+                      sx={{ width: 44, height: 44 }}
                     >
                       {getThemeIcon(themePreference)}
                     </IconButton>
@@ -340,7 +348,7 @@ export default function TopBar({
                     <IconButton
                       aria-label={t('nav.settings')}
                       onClick={(event) => setMobileActionsAnchor(event.currentTarget)}
-                      sx={{ width: 38, height: 38 }}
+                      sx={{ width: 44, height: 44 }}
                     >
                       <MoreVertRoundedIcon />
                     </IconButton>
@@ -349,7 +357,7 @@ export default function TopBar({
                   <IconButton
                     aria-label={t('nav.profile')}
                     onClick={(event) => setProfileAnchor(event.currentTarget)}
-                    sx={{ width: 40, height: 40 }}
+                    sx={{ width: 44, height: 44 }}
                   >
                     <Avatar sx={{ width: 30, height: 30, bgcolor: 'primary.main', fontSize: 13, fontWeight: 700 }}>
                       {(user?.email || 'U')[0].toUpperCase()}
@@ -363,7 +371,7 @@ export default function TopBar({
                     <IconButton
                       aria-label={t('theme.label')}
                       onClick={(event) => setThemeAnchor(event.currentTarget)}
-                      sx={{ width: 38, height: 38 }}
+                      sx={{ width: 44, height: 44 }}
                     >
                       {getThemeIcon(themePreference)}
                     </IconButton>
@@ -556,7 +564,7 @@ export default function TopBar({
               <IconButton
                 onClick={() => setDashboardFiltersOpen(false)}
                 aria-label={t('dashboard.topBar.closeFilters')}
-                sx={{ width: 40, height: 40 }}
+                sx={{ width: 44, height: 44 }}
               >
                 <CloseRoundedIcon />
               </IconButton>
