@@ -55,6 +55,10 @@ public class AccountPeriodPlan {
     private Integer maxConsecutiveLosses;
     @Column(name = "max_losing_days")
     private Integer maxLosingDays;
+    @Column(name = "max_consecutive_losing_days")
+    private Integer maxConsecutiveLosingDays;
+    @Column(name = "minimum_review_days")
+    private Integer minimumReviewDays;
     @Column(name = "default_risk_per_trade")
     private BigDecimal defaultRiskPerTrade;
     @Column(name = "minimum_rr")
@@ -65,6 +69,20 @@ public class AccountPeriodPlan {
     private boolean reduceRiskAfterTarget;
     @Column(name = "risk_reduction_pct")
     private BigDecimal riskReductionPct;
+    @Column(name = "risk_reduction_type", nullable = false, length = 24)
+    private String riskReductionType;
+    @Column(name = "risk_reduction_value")
+    private BigDecimal riskReductionValue;
+    @Column(name = "risk_reduction_after_drawdown_pct")
+    private BigDecimal riskReductionAfterDrawdownPct;
+    @Column(name = "maximum_drawdown_tolerance")
+    private BigDecimal maximumDrawdownTolerance;
+    @Column(name = "planned_trading_days")
+    private Integer plannedTradingDays;
+    @Column(name = "withdrawal_policy", length = 240)
+    private String withdrawalPolicy;
+    @Column(name = "compounding_behavior", length = 40)
+    private String compoundingBehavior;
     @Column(name = "stop_after_max_loss", nullable = false)
     private boolean stopAfterMaxLoss;
     @Column(name = "stop_after_consecutive_losses", nullable = false)
@@ -100,6 +118,7 @@ public class AccountPeriodPlan {
         if (targetType == null) targetType = GrowthTargetType.FIXED_AMOUNT;
         if (targetValue == null) targetValue = BigDecimal.ZERO;
         if (maxLossType == null) maxLossType = "FIXED_AMOUNT";
+        if (riskReductionType == null) riskReductionType = "PERCENTAGE";
         if (allocationMode == null) allocationMode = "MANUAL";
         if (version < 1) version = 1;
     }
@@ -109,4 +128,3 @@ public class AccountPeriodPlan {
         updatedAt = OffsetDateTime.now();
     }
 }
-

@@ -20,12 +20,29 @@ public final class GrowthCoachMath {
 
     public static BigDecimal progressPercent(BigDecimal realised, BigDecimal target) {
         if (realised == null || target == null || target.signum() <= 0) return BigDecimal.ZERO;
-        return realised.multiply(HUNDRED).divide(target, SCALE, RoundingMode.HALF_UP);
+        return realised.max(BigDecimal.ZERO).multiply(HUNDRED)
+                .divide(target, SCALE, RoundingMode.HALF_UP);
     }
 
     public static BigDecimal remainingTarget(BigDecimal realised, BigDecimal target) {
         if (realised == null || target == null) return null;
         return target.subtract(realised).max(BigDecimal.ZERO);
+    }
+
+    public static BigDecimal distanceToBreakeven(BigDecimal realised) {
+        if (realised == null) return null;
+        return realised.min(BigDecimal.ZERO).abs();
+    }
+
+    public static BigDecimal targetExceededAmount(BigDecimal realised, BigDecimal target) {
+        if (realised == null || target == null) return null;
+        return realised.subtract(target).max(BigDecimal.ZERO);
+    }
+
+    public static BigDecimal lossLimitUtilisationPercent(BigDecimal realised, BigDecimal maximumLoss) {
+        if (realised == null || maximumLoss == null || maximumLoss.signum() <= 0) return null;
+        return distanceToBreakeven(realised).multiply(HUNDRED)
+                .divide(maximumLoss, SCALE, RoundingMode.HALF_UP);
     }
 
     public static BigDecimal expectancy(List<BigDecimal> netOutcomes) {

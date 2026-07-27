@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, vi } from 'vitest'
@@ -9,6 +9,8 @@ import type { GrowthCoachResponse } from '../api/growthCoach'
 import GrowthCoachPage from './GrowthCoachPage'
 
 const mockFetchGrowthCoach = vi.fn()
+const mockUpdatePeriodPlan = vi.fn()
+const mockUpdateMonthlyPlan = vi.fn()
 const mockSetScope = vi.fn()
 
 vi.mock('../features/accountScope/useAccountScope', () => ({
@@ -31,7 +33,9 @@ vi.mock('../api/growthCoach', async () => {
   const actual = await vi.importActual<typeof import('../api/growthCoach')>('../api/growthCoach')
   return {
     ...actual,
-    fetchGrowthCoach: (...args: unknown[]) => mockFetchGrowthCoach(...args)
+    fetchGrowthCoach: (...args: unknown[]) => mockFetchGrowthCoach(...args),
+    updatePeriodPlan: (...args: unknown[]) => mockUpdatePeriodPlan(...args),
+    updateMonthlyPlan: (...args: unknown[]) => mockUpdateMonthlyPlan(...args)
   }
 })
 
@@ -159,24 +163,28 @@ const operatingResponse = {
           maxLossValue: 100, maxLossAmount: 100, maxTrades: 4, maxRiskBudget: 100, maxConsecutiveLosses: 2,
           defaultRiskPerTrade: 0.5, minimumRr: 1.5, stopAfterTarget: false, reduceRiskAfterTarget: true,
           riskReductionPct: 50, stopAfterMaxLoss: true, stopAfterConsecutiveLosses: true,
+          riskReductionType: 'PERCENTAGE',
           allocationMode: 'MANUAL', active: true, version: 1, effectiveFrom: '2026-07-27T00:00:00+03:00' },
         week: { id: 'week-plan', periodType: 'WEEK', periodKey: '2026-07-27', timezone: 'Europe/Bucharest',
           targetType: 'FIXED_AMOUNT', targetValue: 150, targetAmount: 150, maxLossType: 'FIXED_AMOUNT',
           maxLossValue: 300, maxLossAmount: 300, maxTrades: 12, maxRiskBudget: 300, maxConsecutiveLosses: 3,
           defaultRiskPerTrade: 0.5, minimumRr: 1.5, stopAfterTarget: false, reduceRiskAfterTarget: true,
           riskReductionPct: 50, stopAfterMaxLoss: true, stopAfterConsecutiveLosses: true,
+          riskReductionType: 'PERCENTAGE',
           allocationMode: 'MANUAL', active: true, version: 1, effectiveFrom: '2026-07-27T00:00:00+03:00' },
         month: { id: 'month-plan', periodType: 'MONTH', periodKey: '2026-07', timezone: 'Europe/Bucharest',
           targetType: 'FIXED_AMOUNT', targetValue: 300, targetAmount: 300, maxLossType: 'FIXED_AMOUNT',
           maxLossValue: 800, maxLossAmount: 800, maxTrades: 40, maxRiskBudget: 800, maxConsecutiveLosses: 3,
           defaultRiskPerTrade: 0.5, minimumRr: 1.5, stopAfterTarget: false, reduceRiskAfterTarget: true,
           riskReductionPct: 50, stopAfterMaxLoss: true, stopAfterConsecutiveLosses: true,
+          riskReductionType: 'PERCENTAGE',
           allocationMode: 'MANUAL', active: true, version: 1, effectiveFrom: '2026-07-01T00:00:00+03:00' }
       },
       selectedSummary: {
         periodType: 'MONTH', periodStartBalance: 10000, realisedTradingPnl: 150, realisedPnlPct: 1.5,
         realisedR: 3, netLedgerMovement: -100, netAccountChange: 50, currentRealisedBalance: 10050,
         currentEquity: 10050, floatingPnl: 0, targetAmount: 300, targetProgressPct: 50, targetRemaining: 150,
+        targetExceededAmount: 0, distanceToBreakeven: 0, distanceToTarget: 150, lossLimitUtilisationPct: 0,
         lossAllowanceRemaining: 650, completedTrades: 2, winningTrades: 2, losingTrades: 0, winRate: 100,
         averageTrade: 75, grossProfit: 150, grossLoss: 0, riskUsed: 100, riskRemaining: 700,
         tradesRemaining: 38, currentConsecutiveLosses: 0, maximumDrawdown: 0, openRisk: 0
@@ -186,6 +194,7 @@ const operatingResponse = {
           periodType: 'DAY', periodStartBalance: 10000, realisedTradingPnl: 150, realisedPnlPct: 1.5,
           realisedR: 3, netLedgerMovement: -100, netAccountChange: 50, currentRealisedBalance: 10050,
           currentEquity: 10050, floatingPnl: 0, targetAmount: 50, targetProgressPct: 300, targetRemaining: 0,
+          targetExceededAmount: 100, distanceToBreakeven: 0, distanceToTarget: 0, lossLimitUtilisationPct: 0,
           lossAllowanceRemaining: 100, completedTrades: 2, winningTrades: 2, losingTrades: 0, winRate: 100,
           averageTrade: 75, grossProfit: 150, grossLoss: 0, riskUsed: 100, riskRemaining: 0,
           tradesRemaining: 2, currentConsecutiveLosses: 0, maximumDrawdown: 0, openRisk: 0
@@ -202,15 +211,17 @@ const operatingResponse = {
       tradingPermission: {
         state: 'REDUCED_RISK_ONLY', primaryReason: 'growthCoach.permission.reasons.targetReached',
         secondaryReasons: [], maximumPermittedRisk: 25, maximumPermittedRiskPct: 0.25,
+        recommendedRiskWhenTradingResumes: 50, recommendedRiskWhenTradingResumesPct: 0.5,
+        theoreticalMaximumRisk: 100, theoreticalMaximumRiskPct: 1,
         remainingTrades: 2, applicableLimit: 'DAY', recommendedAction: 'growthCoach.permission.actions.protectResult'
       },
       periodComparisons: ['DAY', 'WEEK', 'MONTH'].map((periodType) => ({
         periodType, realisedPnl: 150, realisedPct: 1.5, realisedR: 3, target: 300, targetProgress: 50,
         trades: 2, winRate: 100, averageTrade: 75, riskUsed: 100, riskRemaining: 100,
-        drawdown: 0, adherenceScore: 100, tradingStatus: 'REDUCED_RISK_ONLY'
+        drawdown: 0, adherenceScore: 100, adherenceCoverage: 100, periodStatus: 'PROFITABLE_BELOW_TARGET'
       })),
       planAdherence: {
-        score: 100, passedRules: 5, failedRules: 0, unavailableRules: 0, confidence: 'HIGH',
+        score: 100, passedRules: 5, failedRules: 0, unavailableRules: 0, evaluationCoverage: 100, confidence: 'HIGH',
         passed: [], failed: [], unavailable: []
       },
       metricConfidence: [
@@ -240,6 +251,9 @@ const renderPage = () => {
 }
 
 beforeEach(() => {
+  mockFetchGrowthCoach.mockReset()
+  mockUpdatePeriodPlan.mockReset()
+  mockUpdateMonthlyPlan.mockReset()
   localStorage.setItem('app.language', 'en')
   globalThis.ResizeObserver = class ResizeObserver {
     observe() {}
@@ -248,6 +262,8 @@ beforeEach(() => {
   }
   setViewportWidth(320)
   mockFetchGrowthCoach.mockResolvedValue(response)
+  mockUpdatePeriodPlan.mockResolvedValue({})
+  mockUpdateMonthlyPlan.mockResolvedValue({})
 })
 
 test('separates realised and equity-adjusted progress and renders old open trades on mobile', async () => {
@@ -285,4 +301,93 @@ test('shows two closed trades in today activity while active exposure remains em
   expect(screen.getByText('No active trades')).toBeInTheDocument()
   expect(screen.getByText('Reduced risk only')).toBeInTheDocument()
   expect(screen.getAllByText('Today').length).toBeGreaterThan(0)
+})
+
+test('switches contextual plan actions and exposes all three plans in the manager', async () => {
+  const user = userEvent.setup()
+  mockFetchGrowthCoach.mockResolvedValue(operatingResponse)
+  renderPage()
+
+  expect(await screen.findByRole('button', { name: 'Edit monthly plan' })).toBeInTheDocument()
+  await user.click(screen.getByRole('tab', { name: 'Today' }))
+  expect(await screen.findByRole('button', { name: 'Edit daily plan' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Today' })).toHaveAttribute('aria-selected', 'true')
+  await user.click(screen.getByRole('tab', { name: 'This week' }))
+  expect(await screen.findByRole('button', { name: 'Edit weekly plan' })).toBeInTheDocument()
+
+  await user.click(screen.getByRole('button', { name: 'Manage all plans' }))
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Daily' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Weekly' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: 'Monthly' })).toBeInTheDocument()
+})
+
+test('edits and saves daily, weekly, and monthly plans independently', async () => {
+  const user = userEvent.setup()
+  mockFetchGrowthCoach.mockResolvedValue(operatingResponse)
+  renderPage()
+
+  const periods = [
+    ['Today', 'Edit daily plan'],
+    ['This week', 'Edit weekly plan'],
+    ['This month', 'Edit monthly plan']
+  ] as const
+  for (const [tab, editButton] of periods) {
+    await user.click(await screen.findByRole('tab', { name: tab }))
+    await user.click(await screen.findByRole('button', { name: editButton }))
+    const dialog = screen.getByRole('dialog')
+    await user.type(within(dialog).getByRole('textbox', { name: /Reason for changing/ }), `Update ${tab}`)
+    await user.click(within(dialog).getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  }
+
+  expect(mockUpdatePeriodPlan).toHaveBeenCalledTimes(3)
+  expect(mockUpdatePeriodPlan.mock.calls.map((call) => call[1].periodType)).toEqual(['DAY', 'WEEK', 'MONTH'])
+  expect(mockUpdatePeriodPlan.mock.calls[2][2]).toMatchObject({
+    dailyAllocationMode: 'MANUAL',
+    weeklyAllocationMode: 'MANUAL'
+  })
+}, 15_000)
+
+test('uses simple chart by default and reveals advanced controls on request', async () => {
+  const user = userEvent.setup()
+  mockFetchGrowthCoach.mockResolvedValue(operatingResponse)
+  renderPage()
+
+  const simple = await screen.findByRole('button', { name: 'Simple chart' })
+  expect(simple).toHaveAttribute('aria-pressed', 'true')
+  expect(screen.queryByText('Balance')).not.toBeInTheDocument()
+  await user.click(screen.getByRole('button', { name: 'Advanced chart' }))
+  expect(screen.getByText('Balance')).toBeInTheDocument()
+  expect(screen.getByText('Equity')).toBeInTheDocument()
+})
+
+test('shows zero target completion, deficit, separate loss use, and adherence coverage', async () => {
+  const negativeResponse = {
+    ...operatingResponse,
+    detail: {
+      ...operatingResponse.detail!,
+      operatingSystem: {
+        ...operatingResponse.detail!.operatingSystem!,
+        selectedSummary: {
+          ...operatingResponse.detail!.operatingSystem!.selectedSummary,
+          realisedTradingPnl: -229.6, targetProgressPct: 0, targetRemaining: 604.6,
+          targetExceededAmount: 0, distanceToBreakeven: 229.6, distanceToTarget: 604.6,
+          lossLimitUtilisationPct: 30.61, lossAllowanceRemaining: 520.4
+        },
+        planAdherence: {
+          score: 100, passedRules: 1, failedRules: 0, unavailableRules: 4,
+          evaluationCoverage: 20, confidence: 'LOW', passed: [], failed: [], unavailable: []
+        }
+      }
+    }
+  } as unknown as GrowthCoachResponse
+  mockFetchGrowthCoach.mockResolvedValue(negativeResponse)
+  renderPage()
+
+  expect(await screen.findByRole('progressbar', { name: 'Target achieved' })).toHaveAttribute('aria-valuenow', '0')
+  expect(screen.getByText('Distance to breakeven')).toBeInTheDocument()
+  expect(screen.getByText('Loss-limit utilisation')).toBeInTheDocument()
+  expect(screen.getByText('Evaluation coverage: 20%')).toBeInTheDocument()
+  expect(screen.getByText('Insufficient data to calculate a reliable adherence score.')).toBeInTheDocument()
 })

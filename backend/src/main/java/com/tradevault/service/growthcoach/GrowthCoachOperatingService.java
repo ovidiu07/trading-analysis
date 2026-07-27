@@ -50,6 +50,8 @@ public class GrowthCoachOperatingService {
         AccountPeriodPlan day = getOrCreate(user, account, profile, legacyMonthPlan, dayContext);
         AccountPeriodPlan week = getOrCreate(user, account, profile, legacyMonthPlan, weekContext);
         AccountPeriodPlan month = getOrCreate(user, account, profile, legacyMonthPlan, monthContext);
+        refreshAutomaticTarget(day, month, monthContext, trades, selected.anchorDate());
+        refreshAutomaticTarget(week, month, monthContext, trades, selected.anchorDate());
         Map<String, AccountPeriodPlan> plans = Map.of("DAY", day, "WEEK", week, "MONTH", month);
 
         PeriodSummary daySummary = summarize(dayContext, day, trades, ledger, initialCapital,
@@ -78,9 +80,9 @@ public class GrowthCoachOperatingService {
                         permission.state()),
                 permission,
                 List.of(
-                        comparison(daySummary, adherence(day, tradesIn(dayContext, trades)), permission.state()),
-                        comparison(weekSummary, adherence(week, tradesIn(weekContext, trades)), permission.state()),
-                        comparison(monthSummary, adherence(month, tradesIn(monthContext, trades)), permission.state())),
+                        comparison(daySummary, day, adherence(day, tradesIn(dayContext, trades))),
+                        comparison(weekSummary, week, adherence(week, tradesIn(weekContext, trades))),
+                        comparison(monthSummary, month, adherence(month, tradesIn(monthContext, trades)))),
                 adherence,
                 confidence(trades, initialCapital, floatingPnl, openRisk, openRiskKnown),
                 chart(selected, plans.get(selected.periodType()), selectedSummary, trades, ledger, initialCapital, floatingPnl),
@@ -116,11 +118,20 @@ public class GrowthCoachOperatingService {
         plan.setMaxRiskBudget(scale(request.maxRiskBudget()));
         plan.setMaxConsecutiveLosses(request.maxConsecutiveLosses());
         plan.setMaxLosingDays(request.maxLosingDays());
+        plan.setMaxConsecutiveLosingDays(request.maxConsecutiveLosingDays());
+        plan.setMinimumReviewDays(request.minimumReviewDays());
         plan.setDefaultRiskPerTrade(scale(request.defaultRiskPerTrade()));
         plan.setMinimumRr(scale(request.minimumRr()));
         plan.setStopAfterTarget(request.stopAfterTarget());
         plan.setReduceRiskAfterTarget(request.reduceRiskAfterTarget());
         plan.setRiskReductionPct(scale(request.riskReductionPct()));
+        plan.setRiskReductionType(request.riskReductionType());
+        plan.setRiskReductionValue(scale(request.riskReductionValue()));
+        plan.setRiskReductionAfterDrawdownPct(scale(request.riskReductionAfterDrawdownPct()));
+        plan.setMaximumDrawdownTolerance(scale(request.maximumDrawdownTolerance()));
+        plan.setPlannedTradingDays(request.plannedTradingDays());
+        plan.setWithdrawalPolicy(trim(request.withdrawalPolicy()));
+        plan.setCompoundingBehavior(trim(request.compoundingBehavior()));
         plan.setStopAfterMaxLoss(request.stopAfterMaxLoss());
         plan.setStopAfterConsecutiveLosses(request.stopAfterConsecutiveLosses());
         plan.setPermittedSessions(trim(request.permittedSessions()));
@@ -133,7 +144,41 @@ public class GrowthCoachOperatingService {
         plan.setTargetAmount(resolveAmount(plan.getTargetType(), plan.getTargetValue(), effectiveBaseline));
         plan.setMaxLossAmount(resolveAmount(parseTargetType(plan.getMaxLossType()), plan.getMaxLossValue(),
                 effectiveBaseline));
-        return toPlan(planRepository.save(plan));
+        AccountPeriodPlan saved = planRepository.save(plan);
+        if ("MONTH".equals(context.periodType())) {
+            updateChildAllocation(user, account, profile, legacyMonthPlan, context, "DAY",
+                    request.dailyAllocationMode(), request.changeReason());
+            updateChildAllocation(user, account, profile, legacyMonthPlan, context, "WEEK",
+                    request.weeklyAllocationMode(), request.changeReason());
+        }
+        return toPlan(saved);
+    }
+
+    private void updateChildAllocation(User user,
+                                       Account account,
+                                       AccountGrowthProfile profile,
+                                       MonthlyGrowthPlan legacyMonthPlan,
+                                       PeriodContext monthContext,
+                                       String periodType,
+                                       String allocationMode,
+                                       String changeReason) {
+        if (allocationMode == null) return;
+        PeriodContext context = GrowthCoachPeriodResolver.resolve(
+                periodType, monthContext.anchorDate(), ZoneId.of(monthContext.timezone()), Clock.systemUTC());
+        AccountPeriodPlan child = getOrCreate(user, account, profile, legacyMonthPlan, context);
+        if (allocationMode.equals(child.getAllocationMode())) return;
+        revisionRepository.save(AccountPeriodPlanRevision.builder()
+                .user(user)
+                .account(account)
+                .plan(child)
+                .version(child.getVersion())
+                .snapshotJson(snapshot(child))
+                .changeReason(changeReason.trim())
+                .changedBy(user)
+                .build());
+        child.setAllocationMode(allocationMode);
+        child.setVersion(child.getVersion() + 1);
+        planRepository.save(child);
     }
 
     public List<PlanRevision> revisions(UUID planId, UUID userId, UUID accountId) {
@@ -219,20 +264,58 @@ public class GrowthCoachOperatingService {
                             .maxRiskBudget(loss)
                             .maxConsecutiveLosses(context.periodType().equals("DAY") ? 2 : 3)
                             .maxLosingDays(context.periodType().equals("DAY") ? null : 2)
+                            .maxConsecutiveLosingDays(context.periodType().equals("WEEK") ? 2 : null)
+                            .minimumReviewDays(context.periodType().equals("WEEK") ? 1 : null)
                             .defaultRiskPerTrade(profile.getDefaultRiskPerTradePct())
                             .minimumRr(legacyMonthPlan == null ? new BigDecimal("1.5") : legacyMonthPlan.getPlannedMinimumRr())
                             .stopAfterTarget(false)
                             .reduceRiskAfterTarget(true)
                             .riskReductionPct(new BigDecimal("50"))
+                            .riskReductionType("PERCENTAGE")
+                            .riskReductionValue(new BigDecimal("50"))
+                            .riskReductionAfterDrawdownPct(new BigDecimal("50"))
+                            .maximumDrawdownTolerance(loss)
+                            .plannedTradingDays(context.periodType().equals("MONTH") ? 20 : null)
+                            .compoundingBehavior(profile.isCompoundsMonthly() ? "COMPOUND" : "FIXED_BASELINE")
                             .stopAfterMaxLoss(true)
                             .stopAfterConsecutiveLosses(true)
-                            .allocationMode("MANUAL")
+                            .allocationMode(context.periodType().equals("MONTH") ? "MANUAL" : "AUTOMATIC")
                             .active(true)
                             .version(1)
                             .effectiveFrom(context.startsAt())
                             .createdBy(user)
                             .build());
                 });
+    }
+
+    private void refreshAutomaticTarget(AccountPeriodPlan plan,
+                                        AccountPeriodPlan monthPlan,
+                                        PeriodContext monthContext,
+                                        List<Trade> trades,
+                                        LocalDate anchorDate) {
+        if (plan == null || monthPlan == null || "MONTH".equals(plan.getPeriodType())
+                || !"AUTOMATIC".equals(plan.getAllocationMode())) {
+            return;
+        }
+        BigDecimal realisedMonth = sumTrades(tradesIn(monthContext, trades));
+        BigDecimal remaining = first(monthPlan.getTargetAmount(), ZERO)
+                .subtract(realisedMonth).max(ZERO);
+        LocalDate monthEnd = monthContext.endsAtExclusive().toLocalDate();
+        LocalDate cursor = anchorDate.isBefore(monthContext.startsAt().toLocalDate())
+                ? monthContext.startsAt().toLocalDate() : anchorDate;
+        int remainingTradingDays = 0;
+        while (cursor.isBefore(monthEnd)) {
+            DayOfWeek day = cursor.getDayOfWeek();
+            if (day != DayOfWeek.SATURDAY && day != DayOfWeek.SUNDAY) remainingTradingDays++;
+            cursor = cursor.plusDays(1);
+        }
+        int divisor = "DAY".equals(plan.getPeriodType())
+                ? Math.max(1, remainingTradingDays)
+                : Math.max(1, (int) Math.ceil(remainingTradingDays / 5.0));
+        BigDecimal derived = remaining.divide(BigDecimal.valueOf(divisor), 4, RoundingMode.HALF_UP);
+        plan.setTargetType(GrowthTargetType.FIXED_AMOUNT);
+        plan.setTargetValue(derived);
+        plan.setTargetAmount(derived);
     }
 
     private PeriodSummary summarize(PeriodContext context,
@@ -280,6 +363,10 @@ public class GrowthCoachOperatingService {
                 scale(target),
                 GrowthCoachMath.progressPercent(pnl, target),
                 GrowthCoachMath.remainingTarget(pnl, target),
+                GrowthCoachMath.targetExceededAmount(pnl, target),
+                GrowthCoachMath.distanceToBreakeven(pnl),
+                GrowthCoachMath.remainingTarget(pnl, target),
+                GrowthCoachMath.lossLimitUtilisationPercent(pnl, maxLoss),
                 maxLoss == null ? null : scale(maxLoss.add(pnl.min(ZERO)).max(ZERO)),
                 inPeriod.size(),
                 (int) wins,
@@ -316,6 +403,9 @@ public class GrowthCoachOperatingService {
         String limit = "DAY";
         BigDecimal baseline = day.currentRealisedBalance();
         BigDecimal profileCap = amountFromPct(profile.getPreferredMaxRiskPerTradePct(), baseline);
+        BigDecimal plannedResumeRisk = amountFromPct(
+                first(dayPlan.getDefaultRiskPerTrade(), profile.getDefaultRiskPerTradePct()), baseline);
+        BigDecimal resumeRisk = min(plannedResumeRisk, profileCap);
         BigDecimal cap = min(profileCap, day.riskRemaining(), week.riskRemaining(), month.riskRemaining());
         if (cap != null && openRiskKnown && openRisk != null) cap = cap.subtract(openRisk).max(ZERO);
 
@@ -354,15 +444,38 @@ public class GrowthCoachOperatingService {
             state = "REDUCED_RISK_ONLY";
             primary = "growthCoach.permission.reasons.targetReached";
             action = "growthCoach.permission.actions.protectResult";
-            BigDecimal reduction = first(dayPlan.getRiskReductionPct(), new BigDecimal("50"));
+            AccountPeriodPlan reductionPlan = month.targetProgressPct().compareTo(HUNDRED) >= 0
+                    ? monthPlan : week.targetProgressPct().compareTo(HUNDRED) >= 0 ? weekPlan : dayPlan;
+            cap = applyTargetReduction(cap, reductionPlan);
+        } else if (drawdownReductionTriggered(week, weekPlan) || drawdownReductionTriggered(month, monthPlan)) {
+            state = "REDUCED_RISK_ONLY";
+            primary = "growthCoach.permission.reasons.drawdownReduction";
+            action = "growthCoach.permission.actions.protectResult";
+            AccountPeriodPlan reductionPlan = drawdownReductionTriggered(month, monthPlan) ? monthPlan : weekPlan;
+            BigDecimal reduction = first(reductionPlan.getRiskReductionAfterDrawdownPct(), new BigDecimal("50"));
             if (cap != null) cap = cap.multiply(HUNDRED.subtract(reduction))
                     .divide(HUNDRED, 4, RoundingMode.HALF_UP);
         }
         if (month.targetProgressPct().compareTo(HUNDRED) >= 0) secondary.add("growthCoach.permission.reasons.monthlyTargetComplete");
         if (week.targetProgressPct().compareTo(HUNDRED) >= 0) secondary.add("growthCoach.permission.reasons.weeklyTargetComplete");
         return new TradingPermission(state, primary, secondary, scale(cap), pct(cap, baseline),
+                scale(resumeRisk), pct(resumeRisk, baseline), scale(profileCap), pct(profileCap, baseline),
                 minInteger(day.tradesRemaining(), week.tradesRemaining(), month.tradesRemaining()),
                 limit, action);
+    }
+
+    private BigDecimal applyTargetReduction(BigDecimal cap, AccountPeriodPlan plan) {
+        if (cap == null) return null;
+        BigDecimal value = first(plan.getRiskReductionValue(), plan.getRiskReductionPct(), new BigDecimal("50"));
+        if ("FIXED_AMOUNT".equals(plan.getRiskReductionType())) return cap.subtract(value).max(ZERO);
+        return cap.multiply(HUNDRED.subtract(value.min(HUNDRED)))
+                .divide(HUNDRED, 4, RoundingMode.HALF_UP);
+    }
+
+    private boolean drawdownReductionTriggered(PeriodSummary summary, AccountPeriodPlan plan) {
+        BigDecimal threshold = first(plan.getMaximumDrawdownTolerance(), plan.getMaxLossAmount());
+        return plan.getRiskReductionAfterDrawdownPct() != null && threshold != null
+                && summary.maximumDrawdown().compareTo(threshold.multiply(new BigDecimal("0.5"))) >= 0;
     }
 
     private PlanAdherence adherence(AccountPeriodPlan plan, List<Trade> trades) {
@@ -372,7 +485,7 @@ public class GrowthCoachOperatingService {
         check(plan.getMaxTrades() == null, trades.size() <= first(plan.getMaxTrades(), Integer.MAX_VALUE),
                 "growthCoach.adherence.rules.maxTrades", passed, failed, unavailable);
         BigDecimal maxRisk = plan.getDefaultRiskPerTrade();
-        boolean riskAvailable = trades.stream().allMatch(t -> t.getRiskAmount() != null);
+        boolean riskAvailable = !trades.isEmpty() && trades.stream().allMatch(t -> t.getRiskAmount() != null);
         boolean riskPassed = maxRisk == null || trades.stream().allMatch(t -> t.getRiskPercent() == null
                 || t.getRiskPercent().compareTo(maxRisk) <= 0);
         check(!riskAvailable, riskPassed, "growthCoach.adherence.rules.riskPerTrade", passed, failed, unavailable);
@@ -387,8 +500,9 @@ public class GrowthCoachOperatingService {
                 "growthCoach.adherence.rules.setupRecorded", passed, failed, unavailable);
         int applicable = passed.size() + failed.size();
         int score = applicable == 0 ? 0 : (int) Math.round(100.0 * passed.size() / applicable);
+        int coverage = (int) Math.round(100.0 * applicable / (applicable + unavailable.size()));
         String confidence = unavailable.isEmpty() ? "HIGH" : unavailable.size() <= 2 ? "MEDIUM" : "LOW";
-        return new PlanAdherence(score, passed.size(), failed.size(), unavailable.size(), confidence,
+        return new PlanAdherence(score, passed.size(), failed.size(), unavailable.size(), coverage, confidence,
                 passed, failed, unavailable);
     }
 
@@ -508,11 +622,26 @@ public class GrowthCoachOperatingService {
                 .toList();
     }
 
-    private PeriodComparison comparison(PeriodSummary summary, PlanAdherence adherence, String status) {
+    private PeriodComparison comparison(PeriodSummary summary, AccountPeriodPlan plan, PlanAdherence adherence) {
         return new PeriodComparison(summary.periodType(), summary.realisedTradingPnl(), summary.realisedPnlPct(),
                 summary.realisedR(), summary.targetAmount(), summary.targetProgressPct(), summary.completedTrades(),
                 summary.winRate(), summary.averageTrade(), summary.riskUsed(), summary.riskRemaining(),
-                summary.maximumDrawdown(), adherence.score(), status);
+                summary.maximumDrawdown(), adherence.score(), adherence.evaluationCoverage(),
+                periodStatus(summary, plan));
+    }
+
+    private String periodStatus(PeriodSummary summary, AccountPeriodPlan plan) {
+        if (!plan.isActive()) return "INACTIVE";
+        if (summary.lossAllowanceRemaining() != null && summary.lossAllowanceRemaining().signum() <= 0) {
+            return "LOSS_LIMIT_REACHED";
+        }
+        if (summary.targetExceededAmount() != null && summary.targetExceededAmount().signum() > 0) {
+            return "TARGET_EXCEEDED";
+        }
+        if (summary.targetProgressPct().compareTo(HUNDRED) >= 0) return "TARGET_ACHIEVED";
+        if (summary.realisedTradingPnl().signum() < 0) return "LOSS_WITHIN_LIMIT";
+        if (summary.realisedTradingPnl().signum() > 0) return "PROFITABLE_BELOW_TARGET";
+        return "FLAT";
     }
 
     private ClosedTradeActivity toClosedTrade(Trade trade) {
@@ -528,8 +657,12 @@ public class GrowthCoachOperatingService {
                 plan.getTargetType().name(), plan.getTargetValue(), plan.getTargetAmount(),
                 plan.getMaxLossType(), plan.getMaxLossValue(), plan.getMaxLossAmount(), plan.getMaxTrades(),
                 plan.getMaxRiskBudget(), plan.getMaxConsecutiveLosses(), plan.getMaxLosingDays(),
+                plan.getMaxConsecutiveLosingDays(), plan.getMinimumReviewDays(),
                 plan.getDefaultRiskPerTrade(), plan.getMinimumRr(), plan.isStopAfterTarget(),
-                plan.isReduceRiskAfterTarget(), plan.getRiskReductionPct(), plan.isStopAfterMaxLoss(),
+                plan.isReduceRiskAfterTarget(), plan.getRiskReductionPct(), plan.getRiskReductionType(),
+                plan.getRiskReductionValue(), plan.getRiskReductionAfterDrawdownPct(),
+                plan.getMaximumDrawdownTolerance(), plan.getPlannedTradingDays(), plan.getWithdrawalPolicy(),
+                plan.getCompoundingBehavior(), plan.isStopAfterMaxLoss(),
                 plan.isStopAfterConsecutiveLosses(), plan.getPermittedSessions(), plan.getFocus(), plan.getNotes(),
                 plan.getAllocationMode(), plan.isActive(), plan.getVersion(), plan.getEffectiveFrom(), plan.getUpdatedAt());
     }

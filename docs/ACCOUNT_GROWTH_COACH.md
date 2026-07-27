@@ -145,12 +145,23 @@ GET    /api/growth-coach?accountId={uuid}&month=YYYY-MM
 GET    /api/growth-coach?month=YYYY-MM
 PUT    /api/growth-coach/accounts/{accountId}/profile
 PUT    /api/growth-coach/accounts/{accountId}/plans/{monthKey}
+PUT    /api/growth-coach/accounts/{accountId}/period-plans/{periodType}/{periodKey}
 POST   /api/growth-coach/accounts/{accountId}/ledger
 PUT    /api/growth-coach/accounts/{accountId}/ledger/{eventId}
 DELETE /api/growth-coach/accounts/{accountId}/ledger/{eventId}
 ```
 
 The account-less GET returns per-account portfolio cards and intentionally omits a combined risk recommendation.
+
+## Daily, weekly, and monthly operating plans
+
+`account_period_plans` stores independently editable `DAY`, `WEEK`, and `MONTH` plans. Daily and weekly plans support `AUTOMATIC` allocation from the remaining monthly target or a `MANUAL` custom override. The monthly editor exposes both allocation policies together, while the daily and weekly editors retain independent override control. Automatic allocation changes only the planning reference; it never raises risk because performance is behind target.
+
+The selected period controls the edit action, period picker, analytical summary, chart axis, and period status. Current trading permission is calculated separately from the selected period status. A daily lockout can therefore coexist with a weekly loss that remains within its limit or a completed monthly target.
+
+User-facing target completion is floored at zero when realised P&L is negative. The response also exposes distance to breakeven, distance to target, target surplus, loss-limit utilisation, and remaining loss capacity as separate metrics. Current permitted risk, recommended risk after trading resumes, and the theoretical account maximum are distinct fields.
+
+Simple chart mode is the default and shows cumulative realised trading P&L, the selected target, and the selected maximum loss. Today uses trade-close times; week uses weekdays; month uses calendar dates. Balance, equity, planned pace, risk, and event markers remain optional advanced series.
 
 ## Message catalogue
 
@@ -169,9 +180,11 @@ The React page resolves all text from matching English and Romanian catalogues. 
 Focused coverage includes:
 
 - target, progress, expectancy, profit factor, break-even rate, required R, expected trades/days, open risk, and drawdown math;
+- negative-result completion, breakeven distance, target distance, target surplus, and loss utilisation;
+- automatic daily/weekly target derivation, custom overrides, period analytical status, risk-now versus resume risk, and adherence coverage;
 - message priority, target-reached suppression, and negative-expectancy behavior;
 - close-time month inclusion, prior-month open-trade exposure, unknown-risk handling, and account ownership;
-- mobile UI rendering, realised/equity progress separation, missing-stop warnings, active trades, and target editing;
+- mobile UI rendering, contextual daily/weekly/monthly editing, all-plan management, simple/advanced chart modes, negative progress, adherence coverage, missing-stop warnings, and active trades;
 - EN/RO key parity and production TypeScript/Vite compilation.
 
 ## Current model boundaries

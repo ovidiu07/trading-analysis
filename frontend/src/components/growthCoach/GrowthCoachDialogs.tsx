@@ -8,6 +8,8 @@ import {
   FormControlLabel,
   Grid,
   MenuItem,
+  Tab,
+  Tabs,
   Stack,
   Switch,
   TextField,
@@ -22,6 +24,7 @@ import type {
   MonthlyGrowthPlan,
   MonthlyPlanRequest,
   GrowthPeriodPlan,
+  GrowthPeriodType,
   PeriodPlanRequest,
   ReconcileBalanceRequest
 } from '../../api/growthCoach'
@@ -351,12 +354,15 @@ export function LedgerEventDialog({ open, currency, saving, onClose, onSave }: L
 type PeriodPlanDialogProps = {
   open: boolean
   plan: GrowthPeriodPlan
+  allocationPlans?: { day: GrowthPeriodPlan; week: GrowthPeriodPlan }
   saving: boolean
   onClose: () => void
   onSave: (request: PeriodPlanRequest) => Promise<void>
 }
 
-export function PeriodPlanDialog({ open, plan, saving, onClose, onSave }: PeriodPlanDialogProps) {
+export function PeriodPlanDialog({
+  open, plan, allocationPlans, saving, onClose, onSave
+}: PeriodPlanDialogProps) {
   const { t } = useI18n()
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
@@ -369,17 +375,28 @@ export function PeriodPlanDialog({ open, plan, saving, onClose, onSave }: Period
     maxRiskBudget: plan.maxRiskBudget,
     maxConsecutiveLosses: plan.maxConsecutiveLosses,
     maxLosingDays: plan.maxLosingDays,
+    maxConsecutiveLosingDays: plan.maxConsecutiveLosingDays,
+    minimumReviewDays: plan.minimumReviewDays,
     defaultRiskPerTrade: plan.defaultRiskPerTrade,
     minimumRr: plan.minimumRr,
     stopAfterTarget: plan.stopAfterTarget,
     reduceRiskAfterTarget: plan.reduceRiskAfterTarget,
     riskReductionPct: plan.riskReductionPct,
+    riskReductionType: plan.riskReductionType || 'PERCENTAGE',
+    riskReductionValue: plan.riskReductionValue ?? plan.riskReductionPct,
+    riskReductionAfterDrawdownPct: plan.riskReductionAfterDrawdownPct,
+    maximumDrawdownTolerance: plan.maximumDrawdownTolerance,
+    plannedTradingDays: plan.plannedTradingDays,
+    withdrawalPolicy: plan.withdrawalPolicy,
+    compoundingBehavior: plan.compoundingBehavior,
     stopAfterMaxLoss: plan.stopAfterMaxLoss,
     stopAfterConsecutiveLosses: plan.stopAfterConsecutiveLosses,
     permittedSessions: plan.permittedSessions,
     focus: plan.focus,
     notes: plan.notes,
     allocationMode: plan.allocationMode,
+    dailyAllocationMode: allocationPlans?.day.allocationMode,
+    weeklyAllocationMode: allocationPlans?.week.allocationMode,
     active: plan.active,
     changeReason: ''
   })
@@ -394,21 +411,32 @@ export function PeriodPlanDialog({ open, plan, saving, onClose, onSave }: Period
       maxRiskBudget: plan.maxRiskBudget,
       maxConsecutiveLosses: plan.maxConsecutiveLosses,
       maxLosingDays: plan.maxLosingDays,
+      maxConsecutiveLosingDays: plan.maxConsecutiveLosingDays,
+      minimumReviewDays: plan.minimumReviewDays,
       defaultRiskPerTrade: plan.defaultRiskPerTrade,
       minimumRr: plan.minimumRr,
       stopAfterTarget: plan.stopAfterTarget,
       reduceRiskAfterTarget: plan.reduceRiskAfterTarget,
       riskReductionPct: plan.riskReductionPct,
+      riskReductionType: plan.riskReductionType || 'PERCENTAGE',
+      riskReductionValue: plan.riskReductionValue ?? plan.riskReductionPct,
+      riskReductionAfterDrawdownPct: plan.riskReductionAfterDrawdownPct,
+      maximumDrawdownTolerance: plan.maximumDrawdownTolerance,
+      plannedTradingDays: plan.plannedTradingDays,
+      withdrawalPolicy: plan.withdrawalPolicy,
+      compoundingBehavior: plan.compoundingBehavior,
       stopAfterMaxLoss: plan.stopAfterMaxLoss,
       stopAfterConsecutiveLosses: plan.stopAfterConsecutiveLosses,
       permittedSessions: plan.permittedSessions,
       focus: plan.focus,
       notes: plan.notes,
       allocationMode: plan.allocationMode,
+      dailyAllocationMode: allocationPlans?.day.allocationMode,
+      weeklyAllocationMode: allocationPlans?.week.allocationMode,
       active: plan.active,
       changeReason: ''
     })
-  }, [plan])
+  }, [allocationPlans, plan])
 
   const update = <K extends keyof PeriodPlanRequest>(key: K, value: PeriodPlanRequest[K]) =>
     setDraft((current) => ({ ...current, [key]: value }))
@@ -420,11 +448,17 @@ export function PeriodPlanDialog({ open, plan, saving, onClose, onSave }: Period
   )
 
   return (
-    <Dialog open={open} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="md">
+    <Dialog open={open} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="md"
+      PaperProps={{ sx: { '& input, & textarea': { fontSize: { xs: 16, sm: 'inherit' } } } }}>
       <DialogTitle>{t('growthCoach.periodPlan.editTitle', { period: t(`growthCoach.periods.${plan.periodType}`) })}</DialogTitle>
       <DialogContent>
         <Stack spacing={2.5} sx={{ pt: 1 }}>
           <Typography variant="body2" color="text.secondary">{t('growthCoach.periodPlan.referenceHint')}</Typography>
+          {plan.periodType !== 'MONTH' && draft.allocationMode === 'AUTOMATIC' && (
+            <Typography variant="body2" color="primary.main" fontWeight={700}>
+              {t(`growthCoach.periodPlan.automaticExplanation.${plan.periodType}`)}
+            </Typography>
+          )}
           <Grid container spacing={2}>
             <Grid item xs={12} sm={6}>
               <TextField select fullWidth label={t('growthCoach.plan.targetType')} value={draft.targetType}
@@ -447,22 +481,87 @@ export function PeriodPlanDialog({ open, plan, saving, onClose, onSave }: Period
             <Grid item xs={12} sm={6}>{numberField('maxTrades', 'growthCoach.periodPlan.maxTrades')}</Grid>
             <Grid item xs={12} sm={6}>{numberField('maxRiskBudget', 'growthCoach.periodPlan.maxRiskBudget')}</Grid>
             <Grid item xs={12} sm={6}>{numberField('maxConsecutiveLosses', 'growthCoach.periodPlan.maxConsecutiveLosses')}</Grid>
-            <Grid item xs={12} sm={6}>{numberField('maxLosingDays', 'growthCoach.periodPlan.maxLosingDays')}</Grid>
+            {plan.periodType !== 'DAY' && (
+              <Grid item xs={12} sm={6}>{numberField('maxLosingDays', 'growthCoach.periodPlan.maxLosingDays')}</Grid>
+            )}
+            {plan.periodType === 'WEEK' && (
+              <>
+                <Grid item xs={12} sm={6}>{numberField('maxConsecutiveLosingDays', 'growthCoach.periodPlan.maxConsecutiveLosingDays')}</Grid>
+                <Grid item xs={12} sm={6}>{numberField('minimumReviewDays', 'growthCoach.periodPlan.minimumReviewDays')}</Grid>
+              </>
+            )}
             <Grid item xs={12} sm={6}>{numberField('defaultRiskPerTrade', 'growthCoach.periodPlan.defaultRisk')}</Grid>
             <Grid item xs={12} sm={6}>{numberField('minimumRr', 'growthCoach.plan.minimumRr')}</Grid>
             <Grid item xs={12} sm={6}>{numberField('riskReductionPct', 'growthCoach.periodPlan.riskReduction')}</Grid>
             <Grid item xs={12} sm={6}>
-              <TextField select fullWidth label={t('growthCoach.periodPlan.allocationMode')} value={draft.allocationMode}
-                onChange={(event) => update('allocationMode', event.target.value as PeriodPlanRequest['allocationMode'])}>
-                {['MANUAL', 'AUTOMATIC'].map((value) => (
-                  <MenuItem key={value} value={value}>{t(`growthCoach.periodPlan.allocationModes.${value}`)}</MenuItem>
+              <TextField select fullWidth label={t('growthCoach.periodPlan.riskReductionType')}
+                value={draft.riskReductionType}
+                onChange={(event) => update('riskReductionType', event.target.value as PeriodPlanRequest['riskReductionType'])}>
+                {['PERCENTAGE', 'FIXED_AMOUNT'].map((value) => (
+                  <MenuItem key={value} value={value}>{t(`growthCoach.periodPlan.riskReductionTypes.${value}`)}</MenuItem>
                 ))}
               </TextField>
             </Grid>
-            <Grid item xs={12}><TextField fullWidth label={t('growthCoach.periodPlan.sessions')}
-              value={draft.permittedSessions || ''} onChange={(event) => update('permittedSessions', event.target.value)} /></Grid>
-            <Grid item xs={12}><TextField fullWidth label={t('growthCoach.periodPlan.focus')}
-              value={draft.focus || ''} onChange={(event) => update('focus', event.target.value)} /></Grid>
+            <Grid item xs={12} sm={6}>{numberField('riskReductionValue', 'growthCoach.periodPlan.riskReductionValue')}</Grid>
+            {plan.periodType !== 'DAY' && (
+              <Grid item xs={12} sm={6}>{numberField('riskReductionAfterDrawdownPct', 'growthCoach.periodPlan.riskReductionAfterDrawdown')}</Grid>
+            )}
+            {plan.periodType === 'MONTH' && (
+              <>
+                <Grid item xs={12} sm={6}>{numberField('maximumDrawdownTolerance', 'growthCoach.periodPlan.maximumDrawdownTolerance')}</Grid>
+                <Grid item xs={12} sm={6}>{numberField('plannedTradingDays', 'growthCoach.periodPlan.plannedTradingDays')}</Grid>
+                <Grid item xs={12} sm={6}>
+                  <TextField select fullWidth label={t('growthCoach.periodPlan.compoundingBehavior')}
+                    value={draft.compoundingBehavior || 'FIXED_BASELINE'}
+                    onChange={(event) => update('compoundingBehavior', event.target.value)}>
+                    {['FIXED_BASELINE', 'COMPOUND'].map((value) => (
+                      <MenuItem key={value} value={value}>{t(`growthCoach.periodPlan.compoundingBehaviors.${value}`)}</MenuItem>
+                    ))}
+                  </TextField>
+                </Grid>
+                <Grid item xs={12}><TextField fullWidth label={t('growthCoach.periodPlan.withdrawalPolicy')}
+                  value={draft.withdrawalPolicy || ''} onChange={(event) => update('withdrawalPolicy', event.target.value)} /></Grid>
+              </>
+            )}
+            {plan.periodType === 'MONTH' ? (
+              <>
+                <Grid item xs={12}>
+                  <Typography variant="body2" color="text.secondary">
+                    {t('growthCoach.periodPlan.monthlyAllocationHint')}
+                  </Typography>
+                </Grid>
+                {(['dailyAllocationMode', 'weeklyAllocationMode'] as const).map((key) => (
+                  <Grid item xs={12} sm={6} key={key}>
+                    <TextField select fullWidth label={t(`growthCoach.periodPlan.${key}`)}
+                      value={draft[key] || 'AUTOMATIC'}
+                      onChange={(event) => update(key, event.target.value as 'MANUAL' | 'AUTOMATIC')}>
+                      {['MANUAL', 'AUTOMATIC'].map((value) => (
+                        <MenuItem key={value} value={value}>
+                          {t(`growthCoach.periodPlan.allocationModes.${value}`)}
+                        </MenuItem>
+                      ))}
+                    </TextField>
+                  </Grid>
+                ))}
+              </>
+            ) : (
+              <Grid item xs={12} sm={6}>
+                <TextField select fullWidth label={t('growthCoach.periodPlan.allocationMode')} value={draft.allocationMode}
+                  onChange={(event) => update('allocationMode', event.target.value as PeriodPlanRequest['allocationMode'])}>
+                  {['MANUAL', 'AUTOMATIC'].map((value) => (
+                    <MenuItem key={value} value={value}>{t(`growthCoach.periodPlan.allocationModes.${value}`)}</MenuItem>
+                  ))}
+                </TextField>
+              </Grid>
+            )}
+            {plan.periodType === 'DAY' && (
+              <>
+                <Grid item xs={12}><TextField fullWidth label={t('growthCoach.periodPlan.sessions')}
+                  value={draft.permittedSessions || ''} onChange={(event) => update('permittedSessions', event.target.value)} /></Grid>
+                <Grid item xs={12}><TextField fullWidth label={t('growthCoach.periodPlan.focus')}
+                  value={draft.focus || ''} onChange={(event) => update('focus', event.target.value)} /></Grid>
+              </>
+            )}
             <Grid item xs={12}><TextField fullWidth multiline minRows={2} label={t('growthCoach.periodPlan.notes')}
               value={draft.notes || ''} onChange={(event) => update('notes', event.target.value)} /></Grid>
             <Grid item xs={12}>
@@ -489,11 +588,72 @@ export function PeriodPlanDialog({ open, plan, saving, onClose, onSave }: Period
           </Grid>
         </Stack>
       </DialogContent>
-      <DialogActions sx={{ px: 3, pb: 2.5 }}>
+      <DialogActions sx={{ px: 3, py: 2, position: 'sticky', bottom: 0, bgcolor: 'background.paper', zIndex: 1 }}>
         <Button onClick={onClose}>{t('common.cancel')}</Button>
         <Button variant="contained" disabled={saving || !draft.changeReason.trim()} onClick={() => void onSave(draft)}>
           {saving ? t('common.saving') : t('common.save')}
         </Button>
+      </DialogActions>
+    </Dialog>
+  )
+}
+
+type ManageAllPlansDialogProps = {
+  open: boolean
+  plans: { day: GrowthPeriodPlan; week: GrowthPeriodPlan; month: GrowthPeriodPlan }
+  onClose: () => void
+  onEdit: (plan: GrowthPeriodPlan) => void
+}
+
+export function ManageAllPlansDialog({ open, plans, onClose, onEdit }: ManageAllPlansDialogProps) {
+  const { t } = useI18n()
+  const theme = useTheme()
+  const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
+  const [tab, setTab] = useState<GrowthPeriodType>('DAY')
+  const plan = tab === 'DAY' ? plans.day : tab === 'WEEK' ? plans.week : plans.month
+  return (
+    <Dialog open={open} onClose={onClose} fullScreen={fullScreen} fullWidth maxWidth="sm">
+      <DialogTitle>{t('growthCoach.plan.manageAll')}</DialogTitle>
+      <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
+        <Tabs value={tab} onChange={(_, value: GrowthPeriodType) => setTab(value)}
+          variant="fullWidth" aria-label={t('growthCoach.plan.manageAll')}>
+          {(['DAY', 'WEEK', 'MONTH'] as GrowthPeriodType[]).map((value) => (
+            <Tab key={value} value={value} label={t(`growthCoach.plan.tabs.${value}`)}
+              sx={{ minHeight: 48 }} />
+          ))}
+        </Tabs>
+        <Stack spacing={2} sx={{ pt: 3 }}>
+          <Typography variant="h6" fontWeight={800}>{t(`growthCoach.periods.${plan.periodType}`)}</Typography>
+          <Typography variant="body2" color="text.secondary">
+            {plan.allocationMode === 'AUTOMATIC' && plan.periodType !== 'MONTH'
+              ? t(`growthCoach.periodPlan.automaticExplanation.${plan.periodType}`)
+              : t('growthCoach.periodPlan.customExplanation')}
+          </Typography>
+          <Grid container spacing={1.5}>
+            <Grid item xs={6}>
+              <Typography variant="caption" color="text.secondary">{t('growthCoach.periodPlan.targetValue')}</Typography>
+              <Typography fontWeight={700}>{plan.targetValue}</Typography>
+            </Grid>
+            <Grid item xs={6}>
+              <Typography variant="caption" color="text.secondary">{t('growthCoach.periodPlan.maxLossValue')}</Typography>
+              <Typography fontWeight={700}>{plan.maxLossValue ?? '—'}</Typography>
+            </Grid>
+            <Grid item xs={6}>
+              <Typography variant="caption" color="text.secondary">{t('growthCoach.periodPlan.maxTrades')}</Typography>
+              <Typography fontWeight={700}>{plan.maxTrades ?? '—'}</Typography>
+            </Grid>
+            <Grid item xs={6}>
+              <Typography variant="caption" color="text.secondary">{t('growthCoach.periodPlan.status')}</Typography>
+              <Typography fontWeight={700}>{t(plan.active ? 'growthCoach.periodPlan.activeStatus' : 'growthCoach.periodPlan.inactiveStatus')}</Typography>
+            </Grid>
+          </Grid>
+          <Button variant="contained" fullWidth onClick={() => onEdit(plan)} sx={{ minHeight: 48 }}>
+            {t(`growthCoach.plan.editByPeriod.${plan.periodType}`)}
+          </Button>
+        </Stack>
+      </DialogContent>
+      <DialogActions sx={{ px: 3, py: 2, position: 'sticky', bottom: 0, bgcolor: 'background.paper' }}>
+        <Button onClick={onClose}>{t('common.cancel')}</Button>
       </DialogActions>
     </Dialog>
   )

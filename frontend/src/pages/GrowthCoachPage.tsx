@@ -54,6 +54,7 @@ import {
   GrowthProfileRequest,
   LedgerEventRequest,
   MonthlyPlanRequest,
+  GrowthPeriodPlan,
   GrowthPeriodType,
   PeriodPlanRequest,
   ReconcileBalanceRequest,
@@ -81,6 +82,7 @@ import {
   GrowthProfileDialog,
   LedgerEventDialog,
   MonthlyPlanDialog,
+  ManageAllPlansDialog,
   PeriodPlanDialog,
   ReconcileBalanceDialog
 } from '../components/growthCoach/GrowthCoachDialogs'
@@ -92,6 +94,26 @@ const currentMonthKey = () => {
 
 const currentDateKey = () => new Date().toISOString().slice(0, 10)
 
+const isoWeekValue = (dateKey: string) => {
+  const date = new Date(`${dateKey}T12:00:00Z`)
+  const day = date.getUTCDay() || 7
+  date.setUTCDate(date.getUTCDate() + 4 - day)
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1))
+  const week = Math.ceil((((date.getTime() - yearStart.getTime()) / 86_400_000) + 1) / 7)
+  return `${date.getUTCFullYear()}-W${String(week).padStart(2, '0')}`
+}
+
+const dateFromIsoWeek = (value: string) => {
+  const match = value.match(/^(\d{4})-W(\d{2})$/)
+  if (!match) return currentDateKey()
+  const year = Number(match[1])
+  const week = Number(match[2])
+  const januaryFourth = new Date(Date.UTC(year, 0, 4))
+  const monday = new Date(januaryFourth)
+  monday.setUTCDate(januaryFourth.getUTCDate() - (januaryFourth.getUTCDay() || 7) + 1 + (week - 1) * 7)
+  return monday.toISOString().slice(0, 10)
+}
+
 const shiftAnchor = (value: string, period: GrowthPeriodType, direction: number) => {
   const next = new Date(`${value}T12:00:00`)
   if (period === 'MONTH') next.setMonth(next.getMonth() + direction)
@@ -101,6 +123,17 @@ const shiftAnchor = (value: string, period: GrowthPeriodType, direction: number)
 
 const sectionCardSx = { borderRadius: 3, overflow: 'hidden' }
 const metricGrid = { xs: 12, sm: 6, md: 4, lg: 3 }
+const permissionChipSx = {
+  width: { xs: '100%', sm: 'auto' },
+  height: 'auto',
+  justifyContent: 'flex-start',
+  '& .MuiChip-label': {
+    display: 'block',
+    py: 0.75,
+    textAlign: 'left',
+    whiteSpace: 'normal'
+  }
+}
 const ledgerDebitTypes = new Set([
   'WITHDRAWAL', 'PAYOUT', 'COMMISSION', 'PLATFORM_FEE', 'DATA_FEE', 'RESET_FEE',
   'SWAP', 'TAX', 'PROFIT_SPLIT', 'PROP_FIRM_PAYOUT', 'PAYOUT_REQUEST',
@@ -148,7 +181,7 @@ const severityColor = (severity: GrowthCoachMessage['severity']) => {
 }
 
 export default function GrowthCoachPage() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('sm'))
   const accountScope = useAccountScope()
@@ -160,6 +193,8 @@ export default function GrowthCoachPage() {
   const month = anchorDate.slice(0, 7) || currentMonthKey()
   const [profileOpen, setProfileOpen] = useState(false)
   const [planOpen, setPlanOpen] = useState(false)
+  const [managePlansOpen, setManagePlansOpen] = useState(false)
+  const [editingPlan, setEditingPlan] = useState<GrowthPeriodPlan>()
   const [ledgerOpen, setLedgerOpen] = useState(false)
   const [reconcileOpen, setReconcileOpen] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -203,11 +238,29 @@ export default function GrowthCoachPage() {
   const handleProfileSave = (request: GrowthProfileRequest) =>
     mutate(() => updateGrowthProfile(detail!.account.id, request), () => setProfileOpen(false))
   const handlePlanSave = (request: PeriodPlanRequest) =>
-    mutate(() => updatePeriodPlan(detail!.account.id, selectedPlan!, request), () => setPlanOpen(false))
+    mutate(() => updatePeriodPlan(detail!.account.id, editingPlan!, request), () => {
+      setPlanOpen(false)
+      setEditingPlan(undefined)
+    })
   const handleLedgerSave = (request: LedgerEventRequest) =>
     mutate(() => createLedgerEvent(detail!.account.id, request), () => setLedgerOpen(false))
   const handleReconcile = (request: ReconcileBalanceRequest) =>
     mutate(() => reconcileAccountBalance(detail!.account.id, request), () => setReconcileOpen(false))
+  const periodInputType = period === 'MONTH' ? 'month' : period === 'WEEK' ? 'week' : 'date'
+  const periodInputValue = period === 'MONTH' ? anchorDate.slice(0, 7)
+    : period === 'WEEK' ? isoWeekValue(anchorDate) : anchorDate
+  const selectedPeriodLabel = operatingSystem ? (() => {
+    const start = new Date(operatingSystem.selectedPeriod.startsAt)
+    const end = new Date(new Date(operatingSystem.selectedPeriod.endsAtExclusive).getTime() - 86_400_000)
+    const day = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long', year: 'numeric',
+      timeZone: operatingSystem.selectedPeriod.timezone })
+    if (period === 'DAY') return day.format(start)
+    if (period === 'MONTH') return new Intl.DateTimeFormat(locale, { month: 'long', year: 'numeric',
+      timeZone: operatingSystem.selectedPeriod.timezone }).format(start)
+    const short = new Intl.DateTimeFormat(locale, { day: 'numeric', month: 'long',
+      timeZone: operatingSystem.selectedPeriod.timezone })
+    return `${short.format(start)} – ${day.format(end)}`
+  })() : anchorDate
 
   if (accountScope.isLoading || coachQuery.isLoading) {
     return <Stack spacing={2}>{Array.from({ length: 4 }, (_, index) => <Skeleton key={index} variant="rounded" height={140} />)}</Stack>
@@ -253,20 +306,28 @@ export default function GrowthCoachPage() {
                 <ToggleButtonGroup
                   exclusive size="small" fullWidth value={period}
                   aria-label={t('growthCoach.periodSelector')}
+                  role="tablist"
                   onChange={(_, value: GrowthPeriodType | null) => value && setPeriod(value)}
-                  sx={{ '& .MuiToggleButton-root': { minHeight: 44, px: { xs: 1, sm: 2 } } }}
+                  sx={{ '& .MuiToggleButton-root': { minHeight: 44, px: { xs: 1, sm: 2 },
+                    borderWidth: 2, '&.Mui-selected': { bgcolor: 'primary.main', color: 'primary.contrastText',
+                      borderColor: 'primary.dark', '&:hover': { bgcolor: 'primary.dark' } } } }}
                 >
                   {(['DAY', 'WEEK', 'MONTH'] as GrowthPeriodType[]).map((value) => (
-                    <ToggleButton key={value} value={value}>{t(`growthCoach.periods.${value}`)}</ToggleButton>
+                    <ToggleButton key={value} value={value} role="tab" aria-selected={period === value}>
+                      {t(`growthCoach.periods.${value}`)}
+                    </ToggleButton>
                   ))}
                 </ToggleButtonGroup>
+                <Typography fontWeight={800} textAlign="center" aria-live="polite">{selectedPeriodLabel}</Typography>
                 <Stack direction="row" spacing={0.5} alignItems="center">
                   <IconButton aria-label={t('growthCoach.previousPeriod')} onClick={() => setAnchorDate(shiftAnchor(anchorDate, period, -1))}
                     sx={{ minWidth: 44, minHeight: 44 }}><ChevronLeftRoundedIcon /></IconButton>
                   <TextField
-                    fullWidth size="small" type="date" value={anchorDate}
+                    fullWidth size="small" type={periodInputType} value={periodInputValue}
                     aria-label={t('growthCoach.dateSelector')}
-                    onChange={(event) => setAnchorDate(event.target.value)}
+                    onChange={(event) => setAnchorDate(period === 'MONTH'
+                      ? `${event.target.value}-01`
+                      : period === 'WEEK' ? dateFromIsoWeek(event.target.value) : event.target.value)}
                     inputProps={{ 'aria-label': t('growthCoach.dateSelector') }}
                     sx={{ minWidth: 145, '& .MuiInputBase-root': { minHeight: 44 } }}
                   />
@@ -288,7 +349,11 @@ export default function GrowthCoachPage() {
         />
       ) : detail ? (
         <>
-          <AccountHeader detail={detail} onEditProfile={() => setProfileOpen(true)} onEditPlan={() => setPlanOpen(true)} />
+          <AccountHeader detail={detail} period={period} onEditProfile={() => setProfileOpen(true)}
+            onEditPlan={() => {
+              if (selectedPlan) setEditingPlan(selectedPlan)
+              setPlanOpen(true)
+            }} onManagePlans={() => setManagePlansOpen(true)} />
           {operatingSystem ? (
             <>
               <TradingPermissionPanel detail={detail} />
@@ -302,34 +367,59 @@ export default function GrowthCoachPage() {
               <ProgressChart detail={detail} />
             </>
           )}
-          <RecommendedPlan detail={detail} />
           <ActiveExposure detail={detail} isMobile={isMobile} />
           {operatingSystem && <PeriodComparison detail={detail} isMobile={isMobile} />}
-          {operatingSystem && <PlanAdherenceAndHistory detail={detail} />}
           <LiveCoach detail={detail} messageParams={messageParams} />
-          <ScenarioComparison detail={detail} />
-          <PerformanceDrivers detail={detail} />
-          <DataQuality detail={detail} />
-          {operatingSystem && <MetricConfidence detail={detail} />}
-          <Ledger detail={detail} onAdd={() => setLedgerOpen(true)} onReconcile={() => setReconcileOpen(true)} onDelete={async (eventId) => {
-            if (!window.confirm(t('growthCoach.ledger.confirmDelete'))) return
-            await mutate(() => deleteLedgerEvent(detail.account.id, eventId), () => {})
-          }} />
+          {operatingSystem && <PlanAdherenceAndHistory detail={detail} />}
+          <Accordion disableGutters sx={sectionCardSx}>
+            <AccordionSummary expandIcon={<ExpandMoreRoundedIcon />} sx={{ minHeight: 56 }}>
+              <Typography variant="h6" fontWeight={800}>{t('growthCoach.advanced.title')}</Typography>
+            </AccordionSummary>
+            <AccordionDetails>
+              <Stack spacing={{ xs: 2, md: 3 }}>
+                <RecommendedPlan detail={detail} />
+                <ScenarioComparison detail={detail} />
+                <PerformanceDrivers detail={detail} />
+                <DataQuality detail={detail} />
+                {operatingSystem && <MetricConfidence detail={detail} />}
+                <Ledger detail={detail} onAdd={() => setLedgerOpen(true)} onReconcile={() => setReconcileOpen(true)} onDelete={async (eventId) => {
+                  if (!window.confirm(t('growthCoach.ledger.confirmDelete'))) return
+                  await mutate(() => deleteLedgerEvent(detail.account.id, eventId), () => {})
+                }} />
+              </Stack>
+            </AccordionDetails>
+          </Accordion>
           <Alert severity="info" icon={<ShieldOutlinedIcon />}>{t(detail.disclaimer)}</Alert>
 
           <GrowthProfileDialog
             open={profileOpen} profile={detail.profile} currency={currency} saving={saving}
             onClose={() => setProfileOpen(false)} onSave={handleProfileSave}
           />
-          {selectedPlan ? (
-            <PeriodPlanDialog open={planOpen} plan={selectedPlan} saving={saving}
-              onClose={() => setPlanOpen(false)} onSave={handlePlanSave} />
+          {editingPlan ? (
+            <PeriodPlanDialog open={planOpen} plan={editingPlan}
+              allocationPlans={editingPlan.periodType === 'MONTH' && operatingSystem
+                ? operatingSystem.plans
+                : undefined}
+              saving={saving}
+              onClose={() => {
+                setPlanOpen(false)
+                setEditingPlan(undefined)
+              }} onSave={handlePlanSave} />
           ) : (
             <MonthlyPlanDialog
               open={planOpen} plan={detail.monthlyPlan} saving={saving}
               onClose={() => setPlanOpen(false)} onSave={(request: MonthlyPlanRequest) =>
                 mutate(() => updateMonthlyPlan(detail.account.id, month, request), () => setPlanOpen(false))}
             />
+          )}
+          {operatingSystem && (
+            <ManageAllPlansDialog open={managePlansOpen} plans={operatingSystem.plans}
+              onClose={() => setManagePlansOpen(false)}
+              onEdit={(plan) => {
+                setManagePlansOpen(false)
+                setEditingPlan(plan)
+                setPlanOpen(true)
+              }} />
           )}
           <LedgerEventDialog
             open={ledgerOpen} currency={currency} saving={saving}
@@ -402,10 +492,12 @@ function PortfolioOverview({ accounts, onSelect }: {
   )
 }
 
-function AccountHeader({ detail, onEditProfile, onEditPlan }: {
+function AccountHeader({ detail, period, onEditProfile, onEditPlan, onManagePlans }: {
   detail: GrowthCoachDetail
+  period: GrowthPeriodType
   onEditProfile: () => void
   onEditPlan: () => void
+  onManagePlans: () => void
 }) {
   const { t } = useI18n()
   return (
@@ -418,9 +510,12 @@ function AccountHeader({ detail, onEditProfile, onEditPlan }: {
           <Chip color="warning" variant="outlined" label={t('growthCoach.snapshot.reconstructed')} />
         )}
       </Stack>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', sm: 'auto' } }}>
         <Button startIcon={<EditRoundedIcon />} variant="outlined" onClick={onEditProfile}>{t('growthCoach.profile.edit')}</Button>
-        <Button startIcon={<EditRoundedIcon />} variant="contained" onClick={onEditPlan}>{t('growthCoach.plan.edit')}</Button>
+        <Button variant="outlined" onClick={onManagePlans}>{t('growthCoach.plan.manageAll')}</Button>
+        <Button startIcon={<EditRoundedIcon />} variant="contained" onClick={onEditPlan}>
+          {t(`growthCoach.plan.editByPeriod.${period}`)}
+        </Button>
       </Stack>
     </Stack>
   )
@@ -489,14 +584,25 @@ function TradingPermissionPanel({ detail }: { detail: GrowthCoachDetail }) {
         <Typography variant="h6" fontWeight={900}>{t(`growthCoach.permission.states.${permission.state}`)}</Typography>
         <Typography>{t(permission.primaryReason)}</Typography>
         {permission.secondaryReasons.map((reason) => <Typography key={reason} variant="body2">{t(reason)}</Typography>)}
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} flexWrap="wrap">
-          <Chip color="default" label={`${t('growthCoach.permission.maximumRisk')}: ${
+        <Stack
+          direction={{ xs: 'column', sm: 'row' }}
+          alignItems={{ xs: 'stretch', sm: 'flex-start' }}
+          spacing={1}
+          flexWrap="wrap"
+        >
+          <Chip color="default" sx={permissionChipSx} label={`${t('growthCoach.permission.riskAllowedNow')}: ${
             formatCurrency(permission.maximumPermittedRisk, detail.account.currency)
           }`} />
-          <Chip color="default" label={`${t('growthCoach.permission.remainingTrades')}: ${
+          <Chip color="default" sx={permissionChipSx} label={`${t('growthCoach.permission.riskWhenResumes')}: ${
+            formatPercent(permission.recommendedRiskWhenTradingResumesPct)
+          } · ${formatCurrency(permission.recommendedRiskWhenTradingResumes, detail.account.currency)}`} />
+          <Chip color="default" sx={permissionChipSx} label={`${t('growthCoach.permission.theoreticalMaximum')}: ${
+            formatPercent(permission.theoreticalMaximumRiskPct)
+          } · ${formatCurrency(permission.theoreticalMaximumRisk, detail.account.currency)}`} />
+          <Chip color="default" sx={permissionChipSx} label={`${t('growthCoach.permission.remainingTrades')}: ${
             permission.remainingTrades ?? '—'
           }`} />
-          <Chip color="default" label={`${t('growthCoach.permission.limit')}: ${
+          <Chip color="default" sx={permissionChipSx} label={`${t('growthCoach.permission.limit')}: ${
             t(`growthCoach.periods.${permission.applicableLimit}`)
           }`} />
         </Stack>
@@ -510,58 +616,132 @@ function SelectedPeriodScorecard({ detail }: { detail: GrowthCoachDetail }) {
   const { t } = useI18n()
   const os = detail.operatingSystem!
   const summary = os.selectedSummary
-  const values = [
-    ['periodStartBalance', formatCurrency(summary.periodStartBalance, detail.account.currency)],
-    ['realisedBalance', formatCurrency(summary.currentRealisedBalance, detail.account.currency)],
-    ['currentEquity', formatCurrency(summary.currentEquity, detail.account.currency)],
-    ['tradingPnl', formatSignedCurrency(summary.realisedTradingPnl, detail.account.currency)],
-    ['ledgerMovement', formatSignedCurrency(summary.netLedgerMovement, detail.account.currency)],
-    ['floatingPnl', formatSignedCurrency(summary.floatingPnl, detail.account.currency)],
-    ['target', formatCurrency(summary.targetAmount, detail.account.currency)],
-    ['targetProgress', formatPercent(summary.targetProgressPct)],
-    ['lossRemaining', formatCurrency(summary.lossAllowanceRemaining, detail.account.currency)],
-    ['tradesCompleted', formatNumber(summary.completedTrades, 0)],
-    ['openRisk', formatCurrency(summary.openRisk, detail.account.currency)],
-    ['adherence', `${os.planAdherence.score}/100`]
-  ] as const
+  const targetCompletion = Math.max(0, summary.targetProgressPct || 0)
+  const lossUtilisation = Math.max(0, summary.lossLimitUtilisationPct || 0)
+  const distanceLabel = summary.targetExceededAmount > 0 ? 'amountAboveTarget' : 'distanceToTarget'
+  const distanceValue = summary.targetExceededAmount > 0 ? summary.targetExceededAmount : summary.distanceToTarget
   return (
-    <Stack spacing={2}>
+    <Card variant="outlined" sx={sectionCardSx}>
+      <CardContent sx={{ p: { xs: 2, md: 3 } }}>
       <SectionTitle title={t('growthCoach.scorecard.title', {
         period: t(`growthCoach.periods.${os.selectedPeriod.periodType}`)
       })} subtitle={`${os.selectedPeriod.periodKey} · ${os.selectedPeriod.timezone}`} />
-      <Grid container spacing={1.5}>
-        {values.map(([key, value]) => (
-          <Grid item xs={6} sm={4} lg={3} key={key}>
-            <MetricCard label={t(`growthCoach.scorecard.metrics.${key}`)} value={value}
-              tone={key === 'tradingPnl' ? (summary.realisedTradingPnl >= 0 ? 'positive' : 'warning') : undefined} />
+        <Grid container spacing={1.5} sx={{ mt: 0.5 }}>
+          <Grid item xs={6} md={3}><MetricCard label={t('growthCoach.scorecard.metrics.currentResult')}
+            value={formatSignedCurrency(summary.realisedTradingPnl, detail.account.currency)}
+            tone={summary.realisedTradingPnl >= 0 ? 'positive' : 'warning'} /></Grid>
+          <Grid item xs={6} md={3}><MetricCard label={t('growthCoach.scorecard.metrics.target')}
+            value={formatCurrency(summary.targetAmount, detail.account.currency)} /></Grid>
+          <Grid item xs={6} md={3}><MetricCard label={t(`growthCoach.scorecard.metrics.${distanceLabel}`)}
+            value={formatCurrency(distanceValue, detail.account.currency)} /></Grid>
+          <Grid item xs={6} md={3}><MetricCard label={t('growthCoach.scorecard.metrics.lossRemaining')}
+            value={formatCurrency(summary.lossAllowanceRemaining, detail.account.currency)} /></Grid>
+          {summary.distanceToBreakeven > 0 && (
+            <Grid item xs={12} sm={6}><MetricCard label={t('growthCoach.scorecard.metrics.distanceToBreakeven')}
+              value={formatCurrency(summary.distanceToBreakeven, detail.account.currency)} /></Grid>
+          )}
+        </Grid>
+        <Grid container spacing={2} sx={{ mt: 0.5 }}>
+          <Grid item xs={12} md={6}>
+            <Stack spacing={0.75}>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography fontWeight={700}>{t('growthCoach.scorecard.targetAchieved')}</Typography>
+                <Typography>{formatPercent(targetCompletion)}</Typography>
+              </Stack>
+              <LinearProgress variant="determinate" value={Math.min(100, targetCompletion)}
+                aria-label={t('growthCoach.scorecard.targetAchieved')} sx={{ height: 10, borderRadius: 5 }} />
+              <Typography variant="caption" color="text.secondary">
+                {t('growthCoach.scorecard.targetSummary', {
+                  achieved: formatCurrency(Math.max(0, summary.realisedTradingPnl), detail.account.currency),
+                  target: formatCurrency(summary.targetAmount, detail.account.currency)
+                })}
+              </Typography>
+            </Stack>
           </Grid>
-        ))}
-      </Grid>
-      <Alert severity="info">{t('growthCoach.scorecard.separation', {
+          <Grid item xs={12} md={6}>
+            <Stack spacing={0.75}>
+              <Stack direction="row" justifyContent="space-between">
+                <Typography fontWeight={700}>{t('growthCoach.scorecard.lossUtilisation')}</Typography>
+                <Typography>{formatPercent(lossUtilisation)}</Typography>
+              </Stack>
+              <LinearProgress color="warning" variant="determinate" value={Math.min(100, lossUtilisation)}
+                aria-label={t('growthCoach.scorecard.lossUtilisation')} sx={{ height: 10, borderRadius: 5 }} />
+              <Typography variant="caption" color="text.secondary">
+                {t('growthCoach.scorecard.lossSummary', {
+                  used: formatCurrency(summary.distanceToBreakeven, detail.account.currency),
+                  remaining: formatCurrency(summary.lossAllowanceRemaining, detail.account.currency)
+                })}
+              </Typography>
+            </Stack>
+          </Grid>
+        </Grid>
+      <Alert severity="info" sx={{ mt: 2 }}>{t('growthCoach.scorecard.separation', {
         trading: formatSignedCurrency(summary.realisedTradingPnl, detail.account.currency),
         ledger: formatSignedCurrency(summary.netLedgerMovement, detail.account.currency),
         change: formatSignedCurrency(summary.netAccountChange, detail.account.currency)
       })}</Alert>
-    </Stack>
+      </CardContent>
+    </Card>
   )
 }
 
 function OperatingProgressChart({ detail }: { detail: GrowthCoachDetail }) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
   const os = detail.operatingSystem!
-  const [showBalance, setShowBalance] = useState(true)
-  const [showEquity, setShowEquity] = useState(true)
-  const [showRisk, setShowRisk] = useState(true)
+  const selectedPlan = os.selectedPeriod.periodType === 'DAY' ? os.plans.day
+    : os.selectedPeriod.periodType === 'WEEK' ? os.plans.week : os.plans.month
+  const [chartMode, setChartMode] = useState<'SIMPLE' | 'ADVANCED'>('SIMPLE')
+  const [showBalance, setShowBalance] = useState(false)
+  const [showEquity, setShowEquity] = useState(false)
+  const [showRisk, setShowRisk] = useState(false)
   const [dailyMode, setDailyMode] = useState(false)
   const [valueMode, setValueMode] = useState<'CURRENCY' | 'PERCENTAGE' | 'R'>('CURRENCY')
   const baseline = os.selectedSummary.periodStartBalance || 0
-  const riskUnit = os.tradingPermission.maximumPermittedRisk || 0
+  const riskUnit = os.tradingPermission.recommendedRiskWhenTradingResumes || 0
   const convert = (value?: number | null, rValue?: number | null) => {
     if (valueMode === 'R') return rValue ?? (riskUnit > 0 && value != null ? value / riskUnit : 0)
     if (valueMode === 'PERCENTAGE') return baseline > 0 && value != null ? value * 100 / baseline : 0
     return value ?? 0
   }
-  const series = os.chartSeries.map((point) => ({
+  let runningPnl = 0
+  let runningR = 0
+  const dayTradeSeries = os.todayActivity.closedTrades.map((trade, index) => {
+    runningPnl += trade.pnl
+    runningR += trade.realisedR || 0
+    return {
+      date: trade.closedAt,
+      cumulativeTradingPnl: runningPnl,
+      dailyTradingPnl: trade.pnl,
+      cumulativeR: runningR,
+      dailyR: trade.realisedR || 0,
+      realisedBalance: baseline + runningPnl,
+      equity: undefined,
+      plannedProgress: selectedPlan.targetAmount || 0,
+      target: selectedPlan.targetAmount || 0,
+      maximumLoss: selectedPlan.maxLossAmount == null ? undefined : -Math.abs(selectedPlan.maxLossAmount),
+      cumulativeRisk: os.todayActivity.closedTrades.slice(0, index + 1)
+        .reduce((sum, item) => sum + (item.initialRisk || 0), 0),
+      tradeNumber: index + 1,
+      symbol: trade.symbol,
+      direction: trade.direction,
+      realisedR: trade.realisedR,
+      strategy: trade.strategy,
+      setup: trade.setup,
+      session: trade.session
+    }
+  })
+  const sourceSeries = os.selectedPeriod.periodType === 'DAY' && dayTradeSeries.length > 0
+    ? dayTradeSeries : os.chartSeries.map((point) => ({
+      ...point,
+      tradeNumber: undefined,
+      symbol: undefined,
+      direction: undefined,
+      realisedR: undefined,
+      strategy: undefined,
+      setup: undefined,
+      session: undefined
+    }))
+  const series = sourceSeries.map((point) => ({
     ...point,
     displayCumulative: convert(point.cumulativeTradingPnl, point.cumulativeR),
     displayDaily: convert(point.dailyTradingPnl, point.dailyR),
@@ -571,7 +751,7 @@ function OperatingProgressChart({ detail }: { detail: GrowthCoachDetail }) {
     displayRisk: convert(point.cumulativeRisk)
   }))
   const markerSeries = os.chartMarkers.map((marker) => ({
-    date: marker.timestamp.slice(0, 10),
+    date: marker.timestamp,
     markerValue: convert(marker.amount),
     markerType: marker.type,
     label: marker.label
@@ -579,11 +759,57 @@ function OperatingProgressChart({ detail }: { detail: GrowthCoachDetail }) {
   const formatChartValue = (value: number) => valueMode === 'CURRENCY'
     ? formatCurrency(value, detail.account.currency)
     : valueMode === 'PERCENTAGE' ? formatPercent(value) : `${formatNumber(value)}R`
+  const xAxisLabel = (value: string) => {
+    const date = new Date(value.length === 10 ? `${value}T12:00:00` : value)
+    if (os.selectedPeriod.periodType === 'DAY') {
+      return new Intl.DateTimeFormat(locale, { hour: '2-digit', minute: '2-digit',
+        timeZone: os.selectedPeriod.timezone }).format(date)
+    }
+    return new Intl.DateTimeFormat(locale, os.selectedPeriod.periodType === 'WEEK'
+      ? { weekday: 'short', timeZone: os.selectedPeriod.timezone }
+      : { day: 'numeric', month: 'short', timeZone: os.selectedPeriod.timezone }).format(date)
+  }
+  const tooltip = ({ active, payload }: {
+    active?: boolean
+    payload?: Array<{ payload: (typeof series)[number] }>
+  }) => {
+    if (!active || !payload?.length) return null
+    const point = payload[0].payload
+    return (
+      <Card variant="outlined" sx={{ maxWidth: 280 }}>
+        <CardContent sx={{ p: 1.5, '&:last-child': { pb: 1.5 } }}>
+          <Typography fontWeight={800}>{point.tradeNumber
+            ? t('growthCoach.operatingChart.tooltip.trade', { number: point.tradeNumber, time: xAxisLabel(point.date) })
+            : xAxisLabel(point.date)}</Typography>
+          {point.tradeNumber && <Typography variant="body2">{point.symbol} · {point.direction}</Typography>}
+          <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.periodPnl')}: {formatChartValue(point.displayDaily)}</Typography>
+          <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.cumulativePnl')}: {formatChartValue(point.displayCumulative)}</Typography>
+          <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.target')}: {formatChartValue(convert(point.target))}</Typography>
+          <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.lossLimit')}: {formatChartValue(convert(point.maximumLoss))}</Typography>
+          {point.tradeNumber && (
+            <>
+              <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.realisedR')}: {point.realisedR == null ? '—' : `${formatNumber(point.realisedR)}R`}</Typography>
+              <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.strategy')}: {point.strategy || '—'}</Typography>
+              <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.setup')}: {point.setup || '—'}</Typography>
+              <Typography variant="body2">{t('growthCoach.operatingChart.tooltip.session')}: {point.session || '—'}</Typography>
+            </>
+          )}
+        </CardContent>
+      </Card>
+    )
+  }
   return (
     <Card variant="outlined" sx={sectionCardSx}>
       <CardContent sx={{ p: { xs: 1.5, sm: 2.5 }, minWidth: 0 }}>
-        <SectionTitle title={t('growthCoach.operatingChart.title')} subtitle={t('growthCoach.operatingChart.subtitle')} />
-        <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 1 }}>
+        <SectionTitle title={t('growthCoach.operatingChart.title')}
+          subtitle={t(`growthCoach.operatingChart.explanation.${os.selectedPeriod.periodType}`)} />
+        <ToggleButtonGroup exclusive fullWidth value={chartMode} sx={{ mt: 2 }}
+          aria-label={t('growthCoach.operatingChart.chartMode')}
+          onChange={(_, value) => value && setChartMode(value)}>
+          <ToggleButton value="SIMPLE" sx={{ minHeight: 44 }}>{t('growthCoach.operatingChart.simple')}</ToggleButton>
+          <ToggleButton value="ADVANCED" sx={{ minHeight: 44 }}>{t('growthCoach.operatingChart.advanced')}</ToggleButton>
+        </ToggleButtonGroup>
+        {chartMode === 'ADVANCED' && <Stack direction="row" flexWrap="wrap" gap={0.5} sx={{ mt: 1 }}>
           <ToggleButtonGroup exclusive size="small" value={valueMode}
             aria-label={t('growthCoach.operatingChart.valueMode')}
             onChange={(_, value) => value && setValueMode(value)}>
@@ -601,31 +827,34 @@ function OperatingProgressChart({ detail }: { detail: GrowthCoachDetail }) {
             label={t('growthCoach.operatingChart.equity')} />
           <FormControlLabel control={<Switch size="small" checked={showRisk} onChange={(_, value) => setShowRisk(value)} />}
             label={t('growthCoach.operatingChart.risk')} />
-        </Stack>
+        </Stack>}
         <Box sx={{ width: '100%', height: { xs: 290, md: 380 }, mt: 1, minWidth: 0 }}>
           <ResponsiveContainer width="100%" height="100%">
             <ComposedChart data={series} margin={{ top: 12, right: 8, bottom: 8, left: 0 }}>
               <CartesianGrid strokeDasharray="3 3" opacity={0.2} />
-              <XAxis dataKey="date" minTickGap={28} tick={{ fontSize: 11 }} />
+              <XAxis dataKey="date" minTickGap={os.selectedPeriod.periodType === 'MONTH' ? 34 : 18}
+                tickFormatter={xAxisLabel} tick={{ fontSize: 11 }} />
               <YAxis width={64} tick={{ fontSize: 11 }} />
-              <ChartTooltip formatter={(value: number) => formatChartValue(value)} />
-              {dailyMode && <Bar dataKey="displayDaily" fill="#64748b" name={t('growthCoach.operatingChart.dailyPnl')} />}
+              <ChartTooltip content={tooltip} />
+              {chartMode === 'ADVANCED' && dailyMode && <Bar dataKey="displayDaily" fill="#64748b" name={t('growthCoach.operatingChart.dailyPnl')} />}
               <Line type="monotone" dataKey="displayCumulative" stroke="#16a34a" strokeWidth={2.5}
-                dot={false} name={t('growthCoach.operatingChart.tradingPnl')} />
-              <Line type="monotone" dataKey="displayPlan" stroke="#7c8aa5" strokeDasharray="5 5"
-                dot={false} name={t('growthCoach.operatingChart.plan')} />
-              {showBalance && <Line type="monotone" dataKey="displayBalance" stroke="#8b5cf6" dot={false}
+                dot={os.selectedPeriod.periodType === 'DAY'} name={t('growthCoach.operatingChart.tradingPnl')} />
+              {chartMode === 'ADVANCED' && <Line type="monotone" dataKey="displayPlan" stroke="#7c8aa5" strokeDasharray="5 5"
+                dot={false} name={t('growthCoach.operatingChart.plan')} />}
+              {chartMode === 'ADVANCED' && showBalance && <Line type="monotone" dataKey="displayBalance" stroke="#8b5cf6" dot={false}
                 name={t('growthCoach.operatingChart.balance')} />}
-              {showEquity && <Line type="monotone" dataKey="displayEquity" stroke="#0ea5e9" dot={false}
+              {chartMode === 'ADVANCED' && showEquity && <Line type="monotone" dataKey="displayEquity" stroke="#0ea5e9" dot={false}
                 name={t('growthCoach.operatingChart.equity')} />}
-              {showRisk && <Line type="monotone" dataKey="displayRisk" stroke="#f59e0b" dot={false}
+              {chartMode === 'ADVANCED' && showRisk && <Line type="monotone" dataKey="displayRisk" stroke="#f59e0b" dot={false}
                 name={t('growthCoach.operatingChart.risk')} />}
-              <Scatter data={markerSeries} dataKey="markerValue" fill="#ef4444"
-                name={t('growthCoach.operatingChart.events')} />
+              {chartMode === 'ADVANCED' && <Scatter data={markerSeries} dataKey="markerValue" fill="#ef4444"
+                name={t('growthCoach.operatingChart.events')} />}
               <ReferenceLine y={0} stroke="#64748b" />
-              <ReferenceLine y={convert(os.selectedSummary.targetAmount)} stroke="#16a34a" strokeDasharray="4 4" />
-              {os.selectedSummary.lossAllowanceRemaining != null && (
-                <ReferenceLine y={-Math.abs(convert(os.selectedSummary.lossAllowanceRemaining))} stroke="#dc2626" strokeDasharray="4 4" />
+              <ReferenceLine y={convert(os.selectedSummary.targetAmount)} stroke="#16a34a" strokeDasharray="4 4"
+                label={{ value: t('growthCoach.operatingChart.targetLine'), fill: '#16a34a', fontSize: 11 }} />
+              {selectedPlan.maxLossAmount != null && (
+                <ReferenceLine y={-Math.abs(convert(selectedPlan.maxLossAmount))} stroke="#dc2626" strokeDasharray="4 4"
+                  label={{ value: t('growthCoach.operatingChart.lossLine'), fill: '#dc2626', fontSize: 11 }} />
               )}
             </ComposedChart>
           </ResponsiveContainer>
@@ -635,6 +864,13 @@ function OperatingProgressChart({ detail }: { detail: GrowthCoachDetail }) {
             pnl: formatSignedCurrency(os.selectedSummary.realisedTradingPnl, detail.account.currency),
             target: formatCurrency(os.selectedSummary.targetAmount, detail.account.currency),
             markers: os.chartMarkers.length
+          })}
+        </Typography>
+        <Typography variant="caption" color="text.secondary">
+          {t('growthCoach.operatingChart.mobileSummary', {
+            result: formatSignedCurrency(os.selectedSummary.realisedTradingPnl, detail.account.currency),
+            target: formatCurrency(os.selectedSummary.targetAmount, detail.account.currency),
+            loss: formatCurrency(selectedPlan.maxLossAmount, detail.account.currency)
           })}
         </Typography>
       </CardContent>
@@ -722,10 +958,20 @@ function PeriodComparison({ detail, isMobile }: { detail: GrowthCoachDetail; isM
                   value={formatSignedCurrency(item.realisedPnl, detail.account.currency)} /></Grid>
                 <Grid item xs={6}><MetricCard label={t('growthCoach.comparison.progress')}
                   value={formatPercent(item.targetProgress)} /></Grid>
+                <Grid item xs={6}><MetricCard label={t('growthCoach.comparison.target')}
+                  value={formatCurrency(item.target, detail.account.currency)} /></Grid>
                 <Grid item xs={6}><MetricCard label={t('growthCoach.comparison.trades')}
                   value={formatNumber(item.trades, 0)} /></Grid>
+                <Grid item xs={6}><MetricCard label={t('growthCoach.comparison.winRate')}
+                  value={formatPercent(item.winRate)} /></Grid>
+                <Grid item xs={6}><MetricCard label={t('growthCoach.comparison.riskUsed')}
+                  value={formatCurrency(item.riskUsed, detail.account.currency)} /></Grid>
+                <Grid item xs={6}><MetricCard label={t('growthCoach.comparison.drawdown')}
+                  value={formatCurrency(item.drawdown, detail.account.currency)} /></Grid>
                 <Grid item xs={6}><MetricCard label={t('growthCoach.comparison.adherence')}
-                  value={`${item.adherenceScore}/100`} /></Grid>
+                  value={`${item.adherenceScore}% · ${item.adherenceCoverage}% ${t('growthCoach.comparison.coverage').toLowerCase()}`} /></Grid>
+                <Grid item xs={12}><MetricCard label={t('growthCoach.comparison.status')}
+                  value={t(`growthCoach.periodStatus.${item.periodStatus}`)} /></Grid>
               </Grid>
             </CardContent>
           </Card>
@@ -740,21 +986,22 @@ function PeriodComparison({ detail, isMobile }: { detail: GrowthCoachDetail; isM
         <TableContainer sx={{ mt: 2, overflowX: 'auto' }}>
           <Table size="small">
             <TableHead><TableRow>
-              {['period', 'pnl', 'r', 'progress', 'trades', 'winRate', 'riskUsed', 'drawdown', 'adherence', 'status']
+              {['period', 'pnl', 'target', 'progress', 'trades', 'winRate', 'riskUsed', 'drawdown', 'adherence', 'coverage', 'status']
                 .map((key) => <TableCell key={key}>{t(`growthCoach.comparison.${key}`)}</TableCell>)}
             </TableRow></TableHead>
             <TableBody>
               {comparisons.map((item) => <TableRow key={item.periodType}>
                 <TableCell>{t(`growthCoach.periods.${item.periodType}`)}</TableCell>
                 <TableCell>{formatSignedCurrency(item.realisedPnl, detail.account.currency)}</TableCell>
-                <TableCell>{formatNumber(item.realisedR)}R</TableCell>
+                <TableCell>{formatCurrency(item.target, detail.account.currency)}</TableCell>
                 <TableCell>{formatPercent(item.targetProgress)}</TableCell>
                 <TableCell>{item.trades}</TableCell>
                 <TableCell>{formatPercent(item.winRate)}</TableCell>
                 <TableCell>{formatCurrency(item.riskUsed, detail.account.currency)}</TableCell>
                 <TableCell>{formatCurrency(item.drawdown, detail.account.currency)}</TableCell>
                 <TableCell>{item.adherenceScore}/100</TableCell>
-                <TableCell>{t(`growthCoach.permission.states.${item.tradingStatus}`)}</TableCell>
+                <TableCell>{formatPercent(item.adherenceCoverage)}</TableCell>
+                <TableCell>{t(`growthCoach.periodStatus.${item.periodStatus}`)}</TableCell>
               </TableRow>)}
             </TableBody>
           </Table>
@@ -781,8 +1028,16 @@ function PlanAdherenceAndHistory({ detail }: { detail: GrowthCoachDetail }) {
             <Stack spacing={1.25}>
               <Stack direction="row" spacing={1} flexWrap="wrap">
                 <Chip color="primary" label={t('growthCoach.adherence.score', { score: os.planAdherence.score })} />
-                <Chip variant="outlined" label={t(`growthCoach.confidence.levels.${os.planAdherence.confidence}`)} />
+                <Chip variant="outlined" label={t('growthCoach.adherence.coverage', {
+                  coverage: os.planAdherence.evaluationCoverage
+                })} />
+                <Chip variant="outlined" label={t('growthCoach.adherence.confidence', {
+                  confidence: t(`growthCoach.confidence.levels.${os.planAdherence.confidence}`)
+                })} />
               </Stack>
+              {os.planAdherence.evaluationCoverage < 50 && (
+                <Alert severity="warning">{t('growthCoach.adherence.insufficient')}</Alert>
+              )}
               {ruleGroups.map(([group, rules, color]) => rules.map((rule) => (
                 <Alert key={`${group}-${rule}`} severity={color}>
                   <Typography fontWeight={700}>{t(`growthCoach.adherence.groups.${group}`)}</Typography>

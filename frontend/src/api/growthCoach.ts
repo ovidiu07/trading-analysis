@@ -286,11 +286,20 @@ export type GrowthPeriodPlan = {
   maxRiskBudget?: number | null
   maxConsecutiveLosses?: number | null
   maxLosingDays?: number | null
+  maxConsecutiveLosingDays?: number | null
+  minimumReviewDays?: number | null
   defaultRiskPerTrade?: number | null
   minimumRr?: number | null
   stopAfterTarget: boolean
   reduceRiskAfterTarget: boolean
   riskReductionPct?: number | null
+  riskReductionType: 'FIXED_AMOUNT' | 'PERCENTAGE'
+  riskReductionValue?: number | null
+  riskReductionAfterDrawdownPct?: number | null
+  maximumDrawdownTolerance?: number | null
+  plannedTradingDays?: number | null
+  withdrawalPolicy?: string | null
+  compoundingBehavior?: string | null
   stopAfterMaxLoss: boolean
   stopAfterConsecutiveLosses: boolean
   permittedSessions?: string | null
@@ -317,6 +326,10 @@ export type GrowthPeriodSummary = {
   targetAmount: number
   targetProgressPct: number
   targetRemaining: number
+  targetExceededAmount: number
+  distanceToBreakeven: number
+  distanceToTarget: number
+  lossLimitUtilisationPct?: number | null
   lossAllowanceRemaining?: number | null
   completedTrades: number
   winningTrades: number
@@ -368,6 +381,10 @@ export type GrowthOperatingSystem = {
     secondaryReasons: string[]
     maximumPermittedRisk?: number | null
     maximumPermittedRiskPct?: number | null
+    recommendedRiskWhenTradingResumes?: number | null
+    recommendedRiskWhenTradingResumesPct?: number | null
+    theoreticalMaximumRisk?: number | null
+    theoreticalMaximumRiskPct?: number | null
     remainingTrades?: number | null
     applicableLimit: GrowthPeriodType
     recommendedAction: string
@@ -386,13 +403,15 @@ export type GrowthOperatingSystem = {
     riskRemaining?: number | null
     drawdown: number
     adherenceScore: number
-    tradingStatus: string
+    adherenceCoverage: number
+    periodStatus: string
   }>
   planAdherence: {
     score: number
     passedRules: number
     failedRules: number
     unavailableRules: number
+    evaluationCoverage: number
     confidence: string
     passed: string[]
     failed: string[]
@@ -488,7 +507,11 @@ export type LedgerEventRequest = Omit<LedgerEvent,
   'id' | 'eventStatus' | 'planningBehavior' | 'reversalEventId' | 'createdAt'>
 export type PeriodPlanRequest = Omit<GrowthPeriodPlan,
   'id' | 'periodType' | 'periodKey' | 'timezone' | 'targetAmount' | 'maxLossAmount' |
-  'version' | 'effectiveFrom' | 'updatedAt'> & { changeReason: string }
+  'version' | 'effectiveFrom' | 'updatedAt'> & {
+    dailyAllocationMode?: 'MANUAL' | 'AUTOMATIC' | null
+    weeklyAllocationMode?: 'MANUAL' | 'AUTOMATIC' | null
+    changeReason: string
+  }
 export type ReconcileBalanceRequest = {
   brokerReportedBalance: number
   effectiveDate: string

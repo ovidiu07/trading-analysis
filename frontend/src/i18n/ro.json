@@ -211,6 +211,9 @@
     },
     "plan": {
       "edit": "Editează planul lunar",
+      "manageAll": "Gestionează toate planurile",
+      "editByPeriod": { "DAY": "Editează planul zilnic", "WEEK": "Editează planul săptămânal", "MONTH": "Editează planul lunar" },
+      "tabs": { "DAY": "Zilnic", "WEEK": "Săptămânal", "MONTH": "Lunar" },
       "editTitle": "Editează planul lunar de creștere",
       "targetType": "Tipul țintei",
       "targetBasis": "Referința țintei",
@@ -428,17 +431,34 @@
     "periodPlan": {
       "editTitle": "Editează planul pentru {{period}}",
       "referenceHint": "Ținta de profit este o referință de planificare, nu o obligație de a forța tranzacții. Limitele de protecție au întotdeauna prioritate.",
+      "automaticExplanation": {
+        "DAY": "Derivat automat din ținta lunară rămasă și zilele de tranzacționare rămase. Alege Plan personalizat pentru suprascriere.",
+        "WEEK": "Derivat automat din ținta lunară rămasă și săptămânile de tranzacționare rămase. Alege Plan personalizat pentru suprascriere."
+      },
+      "customExplanation": "Valorile planului personalizat sunt salvate independent pentru această perioadă.",
       "targetValue": "Valoarea țintei", "maxLossType": "Tipul pierderii maxime", "maxLossValue": "Pierderea maximă",
       "maxTrades": "Număr maxim de tranzacții", "maxRiskBudget": "Buget maxim de risc",
       "maxConsecutiveLosses": "Pierderi consecutive maxime", "maxLosingDays": "Zile pierzătoare maxime",
+      "maxConsecutiveLosingDays": "Zile pierzătoare consecutive maxime", "minimumReviewDays": "Zile minime de revizuire sau fără tranzacții",
       "defaultRisk": "Risc implicit per tranzacție (%)", "riskReduction": "Reducerea riscului după țintă (%)",
+      "riskReductionType": "Tipul reducerii de risc", "riskReductionValue": "Valoarea reducerii de risc",
+      "riskReductionTypes": { "PERCENTAGE": "Procent", "FIXED_AMOUNT": "Valoare fixă" },
+      "riskReductionAfterDrawdown": "Reducerea riscului după drawdown (%)",
+      "maximumDrawdownTolerance": "Toleranță maximă de drawdown",
+      "plannedTradingDays": "Zile de tranzacționare planificate", "withdrawalPolicy": "Politică de retragere",
+      "compoundingBehavior": "Comportament de capitalizare",
+      "compoundingBehaviors": { "FIXED_BASELINE": "Păstrează baza fixă", "COMPOUND": "Capitalizează câștigurile" },
       "allocationMode": "Mod de alocare",
-      "allocationModes": { "MANUAL": "Alocare manuală", "AUTOMATIC": "Ghidare automată" },
+      "dailyAllocationMode": "Alocarea țintei zilnice",
+      "weeklyAllocationMode": "Alocarea țintei săptămânale",
+      "monthlyAllocationHint": "Alege dacă țintele zilnice și săptămânale sunt recalculate automat din ținta lunară rămasă sau păstrate ca suprascrieri personalizate.",
+      "allocationModes": { "MANUAL": "Plan personalizat", "AUTOMATIC": "Derivat automat" },
       "sessions": "Sesiuni permise", "focus": "Focusul planului", "notes": "Notele planului",
       "stopAfterTarget": "Oprește tranzacționarea după atingerea țintei",
       "reduceAfterTarget": "Redu riscul după atingerea țintei",
       "stopAfterLoss": "Oprește tranzacționarea la pierderea maximă",
-      "stopAfterStreak": "Oprește după seria maximă de pierderi", "active": "Plan activ"
+      "stopAfterStreak": "Oprește după seria maximă de pierderi", "active": "Plan activ",
+      "status": "Stare", "activeStatus": "Activ", "inactiveStatus": "Inactiv"
     },
     "permission": {
       "states": {
@@ -447,7 +467,10 @@
         "WEEKLY_LOCKOUT": "Blocare săptămânală", "MONTHLY_PROTECTION_MODE": "Mod de protecție lunară",
         "ACCOUNT_RULE_BREACHED": "Regulă de cont încălcată", "INSUFFICIENT_DATA": "Date insuficiente"
       },
-      "maximumRisk": "Riscul maxim acceptat", "remainingTrades": "Tranzacții rămase", "limit": "Limita aplicabilă",
+      "maximumRisk": "Riscul maxim acceptat", "riskAllowedNow": "Risc permis acum",
+      "riskWhenResumes": "Risc recomandat la reluarea tranzacționării",
+      "theoreticalMaximum": "Risc maxim teoretic al contului",
+      "remainingTrades": "Tranzacții rămase", "limit": "Limita aplicabilă",
       "reasons": {
         "withinLimits": "Datele curente se află în limitele active ale contului și planului.",
         "monthlyLoss": "Bugetul lunar de pierdere a fost epuizat.",
@@ -456,6 +479,7 @@
         "consecutiveLosses": "A fost atinsă limita configurată de pierderi consecutive.",
         "openRiskUnknown": "Riscul deschis nu poate fi verificat deoarece lipsesc stopul sau cantitatea.",
         "targetReached": "O țintă a fost atinsă; ierarhia planului prioritizează protejarea rezultatului.",
+        "drawdownReduction": "Pragul de drawdown configurat impune reducerea riscului.",
         "monthlyTargetComplete": "Obiectivul lunar este finalizat.",
         "weeklyTargetComplete": "Obiectivul săptămânal este finalizat."
       },
@@ -477,17 +501,35 @@
         "ledgerMovement": "Mișcare netă registru", "floatingPnl": "P&L flotant",
         "target": "Ținta planului", "targetProgress": "Progresul țintei",
         "lossRemaining": "Buget de pierdere rămas", "tradesCompleted": "Tranzacții finalizate",
-        "openRisk": "Risc deschis", "adherence": "Respectarea planului"
-      }
+        "openRisk": "Risc deschis", "adherence": "Respectarea planului",
+        "currentResult": "Rezultat curent", "distanceToTarget": "Distanța până la țintă",
+        "distanceToBreakeven": "Distanța până la breakeven", "amountAboveTarget": "Valoare peste țintă"
+      },
+      "targetAchieved": "Țintă atinsă", "lossUtilisation": "Utilizarea limitei de pierdere",
+      "targetSummary": "{{achieved}} din {{target}} atins",
+      "lossSummary": "{{used}} utilizat; capacitate de pierdere rămasă {{remaining}}"
     },
     "operatingChart": {
       "title": "Progresul țintei și riscului",
       "subtitle": "Performanța, soldul, equity, ritmul planificat, riscul și evenimentele rămân separate.",
+      "chartMode": "Mod grafic", "simple": "Grafic simplu", "advanced": "Grafic avansat",
+      "explanation": {
+        "DAY": "Linia continuă arată P&L-ul cumulat al tranzacțiilor închise astăzi. Linia întreruptă de sus este ținta zilnică, iar cea de jos este pierderea zilnică maximă.",
+        "WEEK": "Linia continuă arată P&L-ul cumulat al tranzacțiilor închise săptămâna aceasta. Linia întreruptă de sus este ținta săptămânală, iar cea de jos este pierderea săptămânală maximă.",
+        "MONTH": "Linia continuă arată P&L-ul cumulat al tranzacțiilor închise luna aceasta. Linia întreruptă de sus este ținta lunară, iar cea de jos este pierderea lunară maximă."
+      },
+      "targetLine": "Țintă", "lossLine": "Pierdere maximă",
       "dailyMode": "Bare zilnice", "balance": "Sold", "equity": "Equity", "risk": "Risc utilizat",
       "valueMode": "Unitatea graficului", "modes": { "CURRENCY": "Bani", "PERCENTAGE": "%", "R": "R" },
       "events": "Evenimente tranzacții și registru",
       "dailyPnl": "P&L zilnic", "tradingPnl": "P&L tranzacțional cumulat", "plan": "Progres planificat",
-      "accessibleSummary": "P&L-ul realizat este {{pnl}} față de ținta de referință {{target}}. Sunt disponibile {{markers}} evenimente."
+      "accessibleSummary": "P&L-ul realizat este {{pnl}} față de ținta de referință {{target}}. Sunt disponibile {{markers}} evenimente.",
+      "mobileSummary": "Rezultat curent {{result}}. Țintă {{target}}. Pierdere maximă permisă {{loss}}.",
+      "tooltip": {
+        "trade": "Tranzacția {{number}} · {{time}}", "periodPnl": "P&L realizat al tranzacției sau zilei",
+        "cumulativePnl": "P&L cumulat al perioadei", "target": "Țintă", "lossLimit": "Limită de pierdere",
+        "realisedR": "R realizat", "strategy": "Strategie", "setup": "Setup", "session": "Sesiune"
+      }
     },
     "todayActivity": {
       "title": "Activitatea de tranzacționare de astăzi",
@@ -506,12 +548,21 @@
       "subtitle": "Cea mai conservatoare constrângere activă controlează permisiunea de tranzacționare.",
       "period": "Perioadă", "pnl": "P&L realizat", "r": "R realizat", "progress": "Progres țintă",
       "trades": "Tranzacții", "winRate": "Rată de câștig", "riskUsed": "Risc utilizat", "drawdown": "Drawdown",
-      "adherence": "Conformitate", "status": "Stare"
+      "adherence": "Conformitate evaluată", "coverage": "Acoperire", "status": "Starea perioadei", "target": "Țintă"
+    },
+    "periodStatus": {
+      "INACTIVE": "Plan inactiv", "LOSS_LIMIT_REACHED": "Limită de pierdere atinsă",
+      "TARGET_EXCEEDED": "Țintă depășită", "TARGET_ACHIEVED": "Țintă atinsă",
+      "LOSS_WITHIN_LIMIT": "Pierdere în perioadă, în limita planului", "PROFITABLE_BELOW_TARGET": "Profitabil, sub țintă",
+      "FLAT": "Fără schimbare realizată"
     },
     "adherence": {
       "title": "Respectarea planului",
       "subtitle": "Fiecare regulă este evaluată separat; datele indisponibile nu sunt considerate dovadă de conformitate.",
-      "score": "Scor de conformitate: {{score}}/100",
+      "score": "Conformitate evaluată: {{score}}% din regulile evaluabile respectate",
+      "coverage": "Acoperirea evaluării: {{coverage}}%",
+      "confidence": "Încredere: {{confidence}}",
+      "insufficient": "Date insuficiente pentru calcularea unui scor de conformitate fiabil.",
       "groups": { "passed": "Respectată", "failed": "Încălcată", "unavailable": "Date indisponibile" },
       "rules": {
         "maxTrades": "Numărul maxim de tranzacții respectat", "riskPerTrade": "Riscul per tranzacție respectat",
@@ -523,6 +574,7 @@
       "title": "Istoricul versiunilor planului",
       "empty": "Nu există versiuni anterioare pentru planul selectat."
     },
+    "advanced": { "title": "Analize avansate și detalii de audit" },
     "metricConfidence": {
       "title": "Încredere specifică fiecărei metrici",
       "subtitle": "Etichetele lipsă reduc doar metricile dependente; încrederea soldului rămâne separată.",

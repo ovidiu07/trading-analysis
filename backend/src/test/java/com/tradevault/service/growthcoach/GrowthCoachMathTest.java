@@ -22,6 +22,30 @@ class GrowthCoachMathTest {
     }
 
     @Test
+    void negativeResultUsesZeroCompletionAndKeepsDeficitSeparate() {
+        BigDecimal realised = new BigDecimal("-229.60");
+        BigDecimal target = new BigDecimal("375");
+
+        assertEquals(0, BigDecimal.ZERO.compareTo(GrowthCoachMath.progressPercent(realised, target)));
+        assertEquals(0, new BigDecimal("229.60").compareTo(GrowthCoachMath.distanceToBreakeven(realised)));
+        assertEquals(0, new BigDecimal("604.60").compareTo(GrowthCoachMath.remainingTarget(realised, target)));
+        assertEquals(0, new BigDecimal("30.613333").compareTo(
+                GrowthCoachMath.lossLimitUtilisationPercent(realised, new BigDecimal("750"))));
+    }
+
+    @Test
+    void targetExceededKeepsCompletionAndSurplusExplicit() {
+        BigDecimal realised = new BigDecimal("450");
+        BigDecimal target = new BigDecimal("375");
+
+        assertEquals(0, new BigDecimal("120.000000").compareTo(
+                GrowthCoachMath.progressPercent(realised, target)));
+        assertEquals(0, BigDecimal.ZERO.compareTo(GrowthCoachMath.remainingTarget(realised, target)));
+        assertEquals(0, new BigDecimal("75").compareTo(
+                GrowthCoachMath.targetExceededAmount(realised, target)));
+    }
+
+    @Test
     void calculatesExpectancyProfitFactorAndBreakEvenWinRate() {
         assertEquals(0, new BigDecimal("0.250000").compareTo(
                 GrowthCoachMath.expectancy(List.of(

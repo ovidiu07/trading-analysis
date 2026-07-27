@@ -211,6 +211,9 @@
     },
     "plan": {
       "edit": "Edit monthly plan",
+      "manageAll": "Manage all plans",
+      "editByPeriod": { "DAY": "Edit daily plan", "WEEK": "Edit weekly plan", "MONTH": "Edit monthly plan" },
+      "tabs": { "DAY": "Daily", "WEEK": "Weekly", "MONTH": "Monthly" },
       "editTitle": "Edit monthly growth plan",
       "targetType": "Target type",
       "targetBasis": "Target reference",
@@ -428,17 +431,34 @@
     "periodPlan": {
       "editTitle": "Edit {{period}} plan",
       "referenceHint": "The profit target is a planning reference, not an obligation to force trades. Protection limits always take priority.",
+      "automaticExplanation": {
+        "DAY": "Automatically derived from the remaining monthly target and remaining trading days. Switch to Custom plan to override it.",
+        "WEEK": "Automatically derived from the remaining monthly target and remaining trading weeks. Switch to Custom plan to override it."
+      },
+      "customExplanation": "Custom plan values are saved independently for this period.",
       "targetValue": "Target value", "maxLossType": "Maximum loss type", "maxLossValue": "Maximum loss value",
       "maxTrades": "Maximum trades", "maxRiskBudget": "Maximum risk budget",
       "maxConsecutiveLosses": "Maximum consecutive losses", "maxLosingDays": "Maximum losing days",
+      "maxConsecutiveLosingDays": "Maximum consecutive losing days", "minimumReviewDays": "Minimum review or no-trade days",
       "defaultRisk": "Default risk per trade (%)", "riskReduction": "Risk reduction after target (%)",
+      "riskReductionType": "Risk reduction type", "riskReductionValue": "Risk reduction value",
+      "riskReductionTypes": { "PERCENTAGE": "Percentage", "FIXED_AMOUNT": "Fixed amount" },
+      "riskReductionAfterDrawdown": "Risk reduction after drawdown (%)",
+      "maximumDrawdownTolerance": "Maximum drawdown tolerance",
+      "plannedTradingDays": "Planned trading days", "withdrawalPolicy": "Withdrawal policy",
+      "compoundingBehavior": "Compounding behaviour",
+      "compoundingBehaviors": { "FIXED_BASELINE": "Keep a fixed baseline", "COMPOUND": "Compound gains" },
       "allocationMode": "Allocation mode",
-      "allocationModes": { "MANUAL": "Manual allocation", "AUTOMATIC": "Automatic guidance" },
+      "dailyAllocationMode": "Daily target allocation",
+      "weeklyAllocationMode": "Weekly target allocation",
+      "monthlyAllocationHint": "Choose whether daily and weekly targets are automatically recalculated from the remaining monthly target or kept as custom overrides.",
+      "allocationModes": { "MANUAL": "Custom plan", "AUTOMATIC": "Automatically derived" },
       "sessions": "Permitted sessions", "focus": "Plan focus", "notes": "Plan notes",
       "stopAfterTarget": "Stop trading after reaching the target",
       "reduceAfterTarget": "Reduce risk after reaching the target",
       "stopAfterLoss": "Stop trading after maximum loss",
-      "stopAfterStreak": "Stop after maximum consecutive losses", "active": "Plan is active"
+      "stopAfterStreak": "Stop after maximum consecutive losses", "active": "Plan is active",
+      "status": "Status", "activeStatus": "Active", "inactiveStatus": "Inactive"
     },
     "permission": {
       "states": {
@@ -447,7 +467,10 @@
         "WEEKLY_LOCKOUT": "Weekly lockout", "MONTHLY_PROTECTION_MODE": "Monthly protection mode",
         "ACCOUNT_RULE_BREACHED": "Account rule breached", "INSUFFICIENT_DATA": "Insufficient data"
       },
-      "maximumRisk": "Maximum supported risk", "remainingTrades": "Remaining trades", "limit": "Applicable limit",
+      "maximumRisk": "Maximum supported risk", "riskAllowedNow": "Risk allowed now",
+      "riskWhenResumes": "Recommended risk when trading resumes",
+      "theoreticalMaximum": "Theoretical account maximum risk",
+      "remainingTrades": "Remaining trades", "limit": "Applicable limit",
       "reasons": {
         "withinLimits": "Current evidence remains within the active account and plan limits.",
         "monthlyLoss": "The monthly loss allowance has been exhausted.",
@@ -456,6 +479,7 @@
         "consecutiveLosses": "The configured consecutive-loss stop has been reached.",
         "openRiskUnknown": "Open risk cannot be verified because required stop or quantity data is missing.",
         "targetReached": "A target has been reached; the plan hierarchy prioritises protecting the achieved result.",
+        "drawdownReduction": "The configured drawdown threshold requires reduced risk.",
         "monthlyTargetComplete": "The monthly objective is complete.",
         "weeklyTargetComplete": "The weekly objective is complete."
       },
@@ -477,17 +501,35 @@
         "ledgerMovement": "Net ledger movement", "floatingPnl": "Floating P&L",
         "target": "Plan target", "targetProgress": "Target progress",
         "lossRemaining": "Loss allowance remaining", "tradesCompleted": "Trades completed",
-        "openRisk": "Open risk", "adherence": "Plan adherence"
-      }
+        "openRisk": "Open risk", "adherence": "Plan adherence",
+        "currentResult": "Current result", "distanceToTarget": "Distance to target",
+        "distanceToBreakeven": "Distance to breakeven", "amountAboveTarget": "Amount above target"
+      },
+      "targetAchieved": "Target achieved", "lossUtilisation": "Loss-limit utilisation",
+      "targetSummary": "{{achieved}} of {{target}} achieved",
+      "lossSummary": "{{used}} used; {{remaining}} loss capacity remaining"
     },
     "operatingChart": {
       "title": "Target and risk progress",
       "subtitle": "Trading performance, account balance, equity, planned pace, risk, and event markers remain separate.",
+      "chartMode": "Chart mode", "simple": "Simple chart", "advanced": "Advanced chart",
+      "explanation": {
+        "DAY": "The solid line shows cumulative closed-trade P&L today. The upper dashed line is the daily target and the lower dashed line is the maximum daily loss.",
+        "WEEK": "The solid line shows cumulative closed-trade P&L this week. The upper dashed line is the weekly target and the lower dashed line is the maximum weekly loss.",
+        "MONTH": "The solid line shows cumulative closed-trade P&L this month. The upper dashed line is the monthly target and the lower dashed line is the maximum monthly loss."
+      },
+      "targetLine": "Target", "lossLine": "Maximum loss",
       "dailyMode": "Daily bars", "balance": "Balance", "equity": "Equity", "risk": "Risk used",
       "valueMode": "Chart value mode", "modes": { "CURRENCY": "Money", "PERCENTAGE": "%", "R": "R" },
       "events": "Trade and ledger events",
       "dailyPnl": "Daily trading P&L", "tradingPnl": "Cumulative trading P&L", "plan": "Planned progress",
-      "accessibleSummary": "Realised trading P&L is {{pnl}} against a {{target}} reference target. {{markers}} trade or ledger events are available."
+      "accessibleSummary": "Realised trading P&L is {{pnl}} against a {{target}} reference target. {{markers}} trade or ledger events are available.",
+      "mobileSummary": "Current result {{result}}. Target {{target}}. Maximum permitted loss {{loss}}.",
+      "tooltip": {
+        "trade": "Trade {{number}} · {{time}}", "periodPnl": "Trade or daily realised P&L",
+        "cumulativePnl": "Cumulative period P&L", "target": "Target", "lossLimit": "Loss limit",
+        "realisedR": "Realised R", "strategy": "Strategy", "setup": "Setup", "session": "Session"
+      }
     },
     "todayActivity": {
       "title": "Today's Trading Activity",
@@ -506,12 +548,21 @@
       "subtitle": "The most conservative active constraint controls the trading permission.",
       "period": "Period", "pnl": "Realised P&L", "r": "Realised R", "progress": "Target progress",
       "trades": "Trades", "winRate": "Win rate", "riskUsed": "Risk used", "drawdown": "Drawdown",
-      "adherence": "Adherence", "status": "Status"
+      "adherence": "Evaluated adherence", "coverage": "Coverage", "status": "Period status", "target": "Target"
+    },
+    "periodStatus": {
+      "INACTIVE": "Plan inactive", "LOSS_LIMIT_REACHED": "Loss limit reached",
+      "TARGET_EXCEEDED": "Target exceeded", "TARGET_ACHIEVED": "Target achieved",
+      "LOSS_WITHIN_LIMIT": "Period loss, within limit", "PROFITABLE_BELOW_TARGET": "Profitable, below target",
+      "FLAT": "No realised change"
     },
     "adherence": {
       "title": "Plan adherence",
       "subtitle": "Each rule is evaluated independently; unavailable inputs are not treated as passing evidence.",
-      "score": "Adherence score: {{score}}/100",
+      "score": "Evaluated adherence: {{score}}% of evaluable rules passed",
+      "coverage": "Evaluation coverage: {{coverage}}%",
+      "confidence": "Confidence: {{confidence}}",
+      "insufficient": "Insufficient data to calculate a reliable adherence score.",
       "groups": { "passed": "Passed", "failed": "Failed", "unavailable": "Data unavailable" },
       "rules": {
         "maxTrades": "Maximum trades respected", "riskPerTrade": "Risk per trade respected",
@@ -523,6 +574,7 @@
       "title": "Plan version history",
       "empty": "No previous versions exist for the selected plan."
     },
+    "advanced": { "title": "Advanced analytics and audit details" },
     "metricConfidence": {
       "title": "Metric-specific data confidence",
       "subtitle": "Missing tags reduce only the metrics that depend on them; monetary balance confidence remains separate.",
