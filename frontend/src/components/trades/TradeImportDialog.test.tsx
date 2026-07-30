@@ -143,8 +143,8 @@ describe('TradeImportDialog', () => {
     await user.click(screen.getByRole('button', { name: 'Import selected trades' }))
 
     await waitFor(() => expect(commitTrading212Import).toHaveBeenCalledWith('t212-batch',
-      expect.objectContaining({ targetAccountId: 'account-1', selectedPositionIds: [
-        'POS54611997543', 'POS54650170715', 'POS54650174676'
+      expect.objectContaining({ targetAccountId: 'account-1', selectedExternalTradeIds: [
+        '54650150042', '54650179424', '54650186134'
       ] })))
     expect(await screen.findByText('Trading 212 import completed.')).toBeInTheDocument()
   })
@@ -175,7 +175,7 @@ describe('TradeImportDialog', () => {
     await user.type(screen.getByLabelText(/Trade currency/), 'EUR')
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    expect(await screen.findByText('Existing / update')).toBeInTheDocument()
+    expect(await screen.findByText('Already imported')).toBeInTheDocument()
     const include = screen.getAllByRole('checkbox')
     await user.click(include[1])
     await user.click(screen.getByRole('button', { name: 'Next' }))

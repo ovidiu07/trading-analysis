@@ -21,6 +21,8 @@ public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID
             Collection<UUID> tradeIds
     );
 
+    long countByUserIdAndRelatedTrade_IdInAndIsDeletedFalse(UUID userId, Collection<UUID> tradeIds);
+
     Optional<NotebookNote> findFirstByUserIdAndRelatedSession_IdAndRelatedSetup_IdAndTypeAndIsDeletedFalseOrderByUpdatedAtDescCreatedAtDesc(
             UUID userId,
             UUID relatedSessionId,

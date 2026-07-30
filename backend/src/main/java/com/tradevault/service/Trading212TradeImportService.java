@@ -19,6 +19,8 @@ import com.tradevault.repository.TradeImportBatchRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.trading212.Trading212ClosedPosition;
 import com.tradevault.service.trading212.Trading212CsvParser;
+import com.tradevault.service.trading212.Trading212ExternalIdentity;
+import com.tradevault.service.trading212.Trading212ImportLockService;
 import com.tradevault.service.trading212.Trading212ParsedReport;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +55,8 @@ public class Trading212TradeImportService {
     private final InstrumentAliasRepository aliasRepository;
     private final AccountRepository accountRepository;
     private final TradeRepository tradeRepository;
+    private final Trading212ExternalIdentity externalIdentity;
+    private final Trading212ImportLockService importLockService;
 
     @Value("${trade-import.trading212.max-file-size-mb:10}")
     private int maximumFileSizeMb = 10;
@@ -63,7 +67,10 @@ public class Trading212TradeImportService {
     public Trading212ImportPreviewResponse preview(MultipartFile file, UUID targetAccountId) throws IOException {
         validateFile(file);
         User user = currentUserService.getCurrentUser();
-        Account target = targetAccountId == null ? null : ownedAccount(targetAccountId, user.getId());
+        if (targetAccountId == null) {
+            throw badRequest("Select the target TradeJAudit account before uploading a Trading 212 CSV");
+        }
+        Account target = ownedAccount(targetAccountId, user.getId());
         byte[] bytes = file.getBytes();
         Trading212ParsedReport report;
         try {
@@ -117,29 +124,60 @@ public class Trading212TradeImportService {
         Account account = ownedAccount(request.targetAccountId(), user.getId());
         Trading212ParsedReport report = objectMapper.convertValue(batch.getParsedPayload(), Trading212ParsedReport.class);
         Map<String, InstrumentAlias> mappings = resolveMappings(user, report.closedPositions(), request.symbolMappings());
-        Set<String> selected = request.selectedPositionIds() == null || request.selectedPositionIds().isEmpty()
-                ? report.closedPositions().stream().map(Trading212ClosedPosition::positionId).collect(Collectors.toSet())
-                : new HashSet<>(request.selectedPositionIds());
+        Set<String> selectedIdentities = request.selectedExternalTradeIds() == null
+                ? Set.of()
+                : request.selectedExternalTradeIds().stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        Set<String> legacySelectedPositions = request.selectedPositionIds() == null
+                ? Set.of()
+                : request.selectedPositionIds().stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        boolean selectAll = request.selectedExternalTradeIds() == null && request.selectedPositionIds() == null;
         Map<String, UUID> links = request.linkToExistingTradeIds() == null ? Map.of() : request.linkToExistingTradeIds();
         int created = 0;
         int updated = 0;
         int duplicates = 0;
+        int parserDuplicatesInFile = (int) report.rows().stream()
+                .filter(Trading212TradeImportService::isDuplicateRow).count();
+        int duplicatesInFile = parserDuplicatesInFile;
         List<UUID> tradeIds = new ArrayList<>();
         List<String> warnings = new ArrayList<>(report.warnings());
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal net = BigDecimal.ZERO;
+        BigDecimal skippedNet = BigDecimal.ZERO;
 
         if (currencyMismatch(account, report.accountCurrency())) {
             warnings.add("Trading 212 account currency " + report.accountCurrency()
                     + " differs from target account currency " + account.getAccountCurrency());
         }
 
+        LinkedHashMap<String, Trading212ClosedPosition> selectedRows = new LinkedHashMap<>();
         for (Trading212ClosedPosition position : report.closedPositions()) {
-            if (!selected.contains(position.positionId())) continue;
+            String identity = externalIdentity.resolve(account.getId(), position);
+            boolean selected = selectAll
+                    || selectedIdentities.contains(identity)
+                    || legacySelectedPositions.contains(position.positionId());
+            if (!selected) continue;
+            if (selectedRows.putIfAbsent(identity, position) != null) {
+                duplicatesInFile++;
+                skippedNet = skippedNet.add(position.totalResult());
+            }
+        }
+
+        importLockService.lockAll(account.getId(), selectedRows.keySet());
+        Map<String, Trade> existingByIdentity = selectedRows.isEmpty()
+                ? new HashMap<>()
+                : tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalTradeIdIn(
+                                user.getId(), account.getId(), SOURCE, selectedRows.keySet())
+                        .stream()
+                        .collect(Collectors.toMap(Trade::getExternalTradeId, Function.identity(), (a, b) -> a));
+        List<Trade> tradesToSave = new ArrayList<>();
+
+        for (Map.Entry<String, Trading212ClosedPosition> selectedRow : selectedRows.entrySet()) {
+            String identity = selectedRow.getKey();
+            Trading212ClosedPosition position = selectedRow.getValue();
             InstrumentAlias mapping = mappings.get(key(position.symbol()));
             if (mapping == null) throw badRequest("Resolve symbol mapping for " + position.symbol());
 
-            UUID linkedId = links.get(position.positionId());
+            UUID linkedId = firstNonNull(links.get(identity), links.get(position.positionId()));
             Trade trade;
             boolean newTrade = false;
             boolean explicitLink = linkedId != null;
@@ -153,49 +191,59 @@ public class Trading212TradeImportService {
                     throw conflict("The selected trade is already owned by another import source");
                 }
             } else {
-                Optional<Trade> existing = findExternalTrade(user, account, position);
-                if (existing.isPresent()) {
-                    trade = existing.get();
-                    if (!brokerFieldsChanged(trade, position, mapping, account)) {
-                        duplicates++;
-                        tradeIds.add(trade.getId());
-                        gross = gross.add(position.result());
-                        net = net.add(position.totalResult());
-                        warnings.addAll(position.warnings());
-                        continue;
-                    }
-                } else {
-                    trade = Trade.builder().user(user).createdAt(OffsetDateTime.now()).build();
-                    newTrade = true;
+                Trade existing = existingByIdentity.get(identity);
+                if (existing == null && position.orderId() == null) {
+                    existing = findLegacyExternalTrade(user, account, position).orElse(null);
                 }
+                if (existing != null) {
+                    duplicates++;
+                    tradeIds.add(existing.getId());
+                    skippedNet = skippedNet.add(position.totalResult());
+                    warnings.addAll(position.warnings());
+                    continue;
+                }
+                trade = Trade.builder().user(user).createdAt(OffsetDateTime.now()).build();
+                newTrade = true;
             }
 
-            applyBrokerFields(trade, account, batch, position, mapping, newTrade);
-            trade = tradeRepository.save(trade);
-            tradeIds.add(trade.getId());
+            applyBrokerFields(trade, account, batch, position, identity, mapping, newTrade);
+            tradesToSave.add(trade);
             if (newTrade) created++; else updated++;
             gross = gross.add(position.result());
             net = net.add(position.totalResult());
             warnings.addAll(position.warnings());
         }
 
-        int excluded = Math.max(0, report.closedPositions().size() - selected.size());
+        if (!tradesToSave.isEmpty()) {
+            tradeRepository.saveAll(tradesToSave).forEach(trade -> tradeIds.add(trade.getId()));
+        }
+        int selectedCount = selectedRows.size() + duplicatesInFile - parserDuplicatesInFile;
+        int excluded = Math.max(0, report.closedPositions().size() - selectedCount);
+        int invalidRows = (int) report.rows().stream()
+                .filter(row -> row.supported() && !row.valid() && !isDuplicateRow(row))
+                .count();
         BigDecimal costs = gross.subtract(net);
         List<String> distinctWarnings = warnings.stream().distinct().toList();
         TradeImportStatus status = distinctWarnings.isEmpty() ? TradeImportStatus.IMPORTED : TradeImportStatus.WARNING;
-        Trading212ImportCommitResponse response = new Trading212ImportCommitResponse(batch.getId(), status, created,
-                updated, duplicates, excluded, gross, costs, net, tradeIds, distinctWarnings, List.of());
+        OffsetDateTime importedAt = OffsetDateTime.now();
+        Trading212ImportCommitResponse response = new Trading212ImportCommitResponse(
+                batch.getId(), status, report.rows().size(), report.closedPositions().size(),
+                created, updated, duplicates, duplicatesInFile, invalidRows, 0, excluded,
+                account.getId(), account.getName(), batch.getOriginalFilename(), importedAt,
+                gross, costs, net, skippedNet, tradeIds, distinctWarnings, List.of());
         batch.setTargetAccount(account);
         batch.setStatus(status);
         batch.setCreatedTrades(created);
         batch.setUpdatedTrades(updated);
-        batch.setDuplicates(duplicates);
+        batch.setDuplicates(duplicates + duplicatesInFile);
         batch.setWarningCount(distinctWarnings.size());
-        batch.setCompletedAt(OffsetDateTime.now());
+        batch.setErrorCount(invalidRows);
+        batch.setCompletedAt(importedAt);
         batch.setResultPayload(objectMapper.valueToTree(response));
         batchRepository.save(batch);
-        log.info("Trading 212 import committed batchId={} userId={} targetAccountId={} created={} updated={} duplicates={} excluded={} warnings={}",
-                batch.getId(), user.getId(), account.getId(), created, updated, duplicates, excluded, distinctWarnings.size());
+        log.info("Trading 212 import committed batchId={} userId={} targetAccountId={} created={} linked={} existing={} duplicateRows={} invalid={} excluded={} warnings={}",
+                batch.getId(), user.getId(), account.getId(), created, updated, duplicates, duplicatesInFile,
+                invalidRows, excluded, distinctWarnings.size());
         return response;
     }
 
@@ -214,31 +262,51 @@ public class Trading212TradeImportService {
                         mappings.put(key(position.symbol()), found.get(0));
                     }
                 });
-        int duplicateCount = account == null ? 0 : (int) report.closedPositions().stream()
-                .filter(position -> findExternalTrade(user, account, position).isPresent()).count();
-        int ready = account == null ? 0 : (int) report.closedPositions().stream()
+        Map<Long, String> identities = report.closedPositions().stream().collect(Collectors.toMap(
+                Trading212ClosedPosition::rowNumber,
+                position -> externalIdentity.resolve(account.getId(), position)));
+        Set<Long> duplicateRows = new HashSet<>();
+        Set<String> seen = new HashSet<>();
+        report.closedPositions().forEach(position -> {
+            String identity = identities.get(position.rowNumber());
+            if (!seen.add(identity)) duplicateRows.add(position.rowNumber());
+        });
+        Map<String, Trade> existing = identities.isEmpty()
+                ? new HashMap<>()
+                : tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalTradeIdIn(
+                                user.getId(), account.getId(), SOURCE, new HashSet<>(identities.values()))
+                        .stream()
+                        .collect(Collectors.toMap(Trade::getExternalTradeId, Function.identity(), (a, b) -> a));
+        report.closedPositions().stream()
+                .filter(position -> position.orderId() == null)
+                .forEach(position -> findLegacyExternalTrade(user, account, position)
+                        .ifPresent(trade -> existing.putIfAbsent(identities.get(position.rowNumber()), trade)));
+        int duplicateCount = (int) report.closedPositions().stream()
+                .filter(position -> existing.containsKey(identities.get(position.rowNumber()))).count();
+        int ready = (int) report.closedPositions().stream()
                 .filter(position -> mappings.containsKey(key(position.symbol()))).count();
         List<String> warnings = new ArrayList<>(report.warnings());
-        if (account == null) warnings.add("Select the target TradeJAudit account before committing");
         if (account != null && currencyMismatch(account, report.accountCurrency())) {
             warnings.add("Trading 212 account currency " + report.accountCurrency()
                     + " differs from target account currency " + account.getAccountCurrency());
         }
         if (!unmapped.isEmpty()) warnings.add("Confirm all Trading 212 symbol and market mappings before importing");
         int rowWarnings = report.closedPositions().stream().mapToInt(position -> position.warnings().size()).sum();
-        return new PreviewParts(mappings, unmapped, duplicateCount, ready, warnings, warnings.size() + rowWarnings);
+        int parserDuplicates = (int) report.rows().stream().filter(Trading212TradeImportService::isDuplicateRow).count();
+        return new PreviewParts(mappings, unmapped, identities, existing, duplicateRows,
+                parserDuplicates + duplicateRows.size(),
+                duplicateCount, ready, warnings, warnings.size() + rowWarnings);
     }
 
     private Trading212ImportPreviewResponse toPreview(TradeImportBatch batch, Trading212ParsedReport report, PreviewParts parts) {
         List<Trading212ImportPreviewResponse.TradePreview> trades = report.closedPositions().stream().map(position -> {
             InstrumentAlias mapping = parts.mappings().get(key(position.symbol()));
-            Optional<Trade> existing = batch.getTargetAccount() == null
-                    ? Optional.empty()
-                    : findExternalTrade(batch.getUser(), batch.getTargetAccount(), position);
+            String identity = parts.identities().get(position.rowNumber());
+            Optional<Trade> existing = Optional.ofNullable(parts.existing().get(identity));
             List<Trading212ImportPreviewResponse.ManualMatch> matches =
                     manualMatches(batch.getUser(), batch.getTargetAccount(), position, mapping);
             return new Trading212ImportPreviewResponse.TradePreview(
-                    position.positionId(), position.orderId(), position.instrument(), position.symbol(),
+                    position.positionId(), position.orderId(), identity, position.instrument(), position.symbol(),
                     mapping == null ? null : mapping.getInternalSymbol(), mapping == null ? null : mapping.getMarket(),
                     mapping == null ? position.instrumentCurrency() : mapping.getTradeCurrency(),
                     position.direction(), TradeStatus.CLOSED, position.openedAt(), position.closedAt(),
@@ -248,23 +316,30 @@ public class Trading212TradeImportService {
                     position.accountCurrency(), position.instrumentCurrency(), position.exchangeRate(), position.spread(),
                     position.fxFee(), position.resultAfterFxFee(), position.overnightInterest(),
                     position.dividendAdjustment(), position.priceDerivedPnl(),
-                    position.totalReconciliationDifference(), position.recordType(), existing.isPresent(),
+                    position.totalReconciliationDifference(), position.recordType(),
+                    existing.isPresent() || parts.duplicateRows().contains(position.rowNumber()),
                     existing.map(Trade::getId).orElse(null), matches, position.warnings(), position.raw());
         }).toList();
         BigDecimal gross = sum(report.closedPositions(), Trading212ClosedPosition::result);
         BigDecimal net = sum(report.closedPositions(), Trading212ClosedPosition::totalResult);
         BigDecimal spread = sum(report.closedPositions(), Trading212ClosedPosition::spread);
         List<Trading212ImportPreviewResponse.UnsupportedRow> unsupported = report.rows().stream()
-                .filter(row -> !row.supported())
-                .map(row -> new Trading212ImportPreviewResponse.UnsupportedRow(row.rowNumber(), row.recordType(), row.warnings()))
+                .filter(row -> !row.valid())
+                .map(row -> new Trading212ImportPreviewResponse.UnsupportedRow(
+                        row.rowNumber(), row.recordType(), row.supported(), row.warnings(), row.errors()))
                 .toList();
+        int invalidRows = (int) report.rows().stream()
+                .filter(row -> row.supported() && !row.valid() && !isDuplicateRow(row))
+                .count();
+        int unsupportedRows = (int) report.rows().stream().filter(row -> !row.supported()).count();
         return new Trading212ImportPreviewResponse(
                 batch.getId(), batch.getStatus(),
                 new Trading212ImportPreviewResponse.AccountMetadata(null, null, report.accountCurrency(), BROKER,
                         null, null, null, report.latestTimestamp() == null ? null : report.latestTimestamp().toString()),
                 new Trading212ImportPreviewResponse.Summary(report.closedPositions().size(), 0, report.rows().size(),
-                        unsupported.size(), parts.ready(), parts.duplicates(), parts.warningCount(), gross,
-                        gross.subtract(net), net, unsupported.size(), spread, report.earliestTimestamp(), report.latestTimestamp()),
+                        unsupportedRows, parts.ready(), parts.duplicates(), parts.warningCount(), gross,
+                        gross.subtract(net), net, unsupportedRows, invalidRows, parts.duplicatesInFile(), spread,
+                        report.earliestTimestamp(), report.latestTimestamp()),
                 "UTC", batch.getTargetAccount() == null ? null : batch.getTargetAccount().getId(),
                 parts.unmapped(), trades, unsupported, parts.warnings().stream().distinct().toList(), List.of());
     }
@@ -332,13 +407,15 @@ public class Trading212TradeImportService {
     }
 
     private void applyBrokerFields(Trade trade, Account account, TradeImportBatch batch,
-                                   Trading212ClosedPosition position, InstrumentAlias mapping, boolean isNew) {
+                                   Trading212ClosedPosition position, String identity,
+                                   InstrumentAlias mapping, boolean isNew) {
         OffsetDateTime now = OffsetDateTime.now();
         trade.setUser(batch.getUser());
         trade.setAccount(account);
         trade.setSource(SOURCE);
         trade.setExternalPositionId(position.positionId());
         trade.setExternalOrderId(position.orderId());
+        trade.setExternalTradeId(identity);
         trade.setExternalInstrumentName(position.instrument());
         trade.setExternalSymbol(position.symbol());
         trade.setSourceBroker(BROKER);
@@ -393,40 +470,11 @@ public class Trading212TradeImportService {
         }
     }
 
-    private boolean brokerFieldsChanged(Trade trade, Trading212ClosedPosition position,
-                                        InstrumentAlias mapping, Account account) {
-        return !Objects.equals(id(trade.getAccount()), account.getId())
-                || !equalsIgnoreCase(trade.getExternalOrderId(), position.orderId())
-                || !equalsIgnoreCase(trade.getExternalInstrumentName(), position.instrument())
-                || !equalsIgnoreCase(trade.getExternalSymbol(), position.symbol())
-                || !equalsIgnoreCase(trade.getSymbol(), mapping.getInternalSymbol())
-                || !equalsIgnoreCase(trade.getTradeCurrency(), mapping.getTradeCurrency())
-                || !equalsIgnoreCase(trade.getAccountCurrency(), position.accountCurrency())
-                || !equalsIgnoreCase(trade.getBrokerReportedPnlCurrency(), position.accountCurrency())
-                || trade.getMarket() != mapping.getMarket()
-                || trade.getDirection() != position.direction()
-                || trade.getStatus() != TradeStatus.CLOSED
-                || !Objects.equals(trade.getOpenedAt(), position.openedAt())
-                || !Objects.equals(trade.getClosedAt(), position.closedAt())
-                || !Objects.equals(trade.getSourceRecordedAt(), position.recordDate())
-                || !same(trade.getQuantity(), position.units())
-                || !same(trade.getEntryPrice(), position.averagePrice())
-                || !same(trade.getExitPrice(), position.closePrice())
-                || !sameNullable(trade.getContractMultiplier(),
-                    firstNonNull(mapping.getContractMultiplier(), BigDecimal.ONE))
-                || !same(trade.getBrokerReportedGrossPnl(), position.result())
-                || !sameNullable(trade.getBrokerReportedResultAfterFxFee(), position.resultAfterFxFee())
-                || !same(trade.getBrokerReportedNetPnl(), position.totalResult())
-                || !sameNullable(trade.getSourceExchangeRate(), position.exchangeRate())
-                || !sameNullable(trade.getBrokerReportedSpread(), position.spread())
-                || !sameNullable(trade.getFxFee(), position.fxFee())
-                || !sameNullable(trade.getOvernightInterest(), position.overnightInterest())
-                || !sameNullable(trade.getDividendAdjustment(), position.dividendAdjustment());
-    }
-
-    private Optional<Trade> findExternalTrade(User user, Account account, Trading212ClosedPosition position) {
+    private Optional<Trade> findLegacyExternalTrade(User user, Account account, Trading212ClosedPosition position) {
+        if (position.orderId() != null) return Optional.empty();
         return tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalPositionId(
-                user.getId(), account.getId(), SOURCE, position.positionId());
+                        user.getId(), account.getId(), SOURCE, position.positionId())
+                .filter(trade -> trade.getExternalTradeId() == null);
     }
 
     private void validateFile(MultipartFile file) {
@@ -492,16 +540,8 @@ public class Trading212TradeImportService {
         return a != null && b != null && a.compareTo(b) == 0;
     }
 
-    private static boolean sameNullable(BigDecimal a, BigDecimal b) {
-        return a == null ? b == null : b != null && a.compareTo(b) == 0;
-    }
-
     private static boolean near(OffsetDateTime a, OffsetDateTime b) {
         return a != null && b != null && Math.abs(Duration.between(a, b).toMinutes()) <= 5;
-    }
-
-    private static UUID id(Account account) {
-        return account == null ? null : account.getId();
     }
 
     private static BigDecimal zero(BigDecimal value) {
@@ -514,6 +554,10 @@ public class Trading212TradeImportService {
 
     private static String normalizeCurrency(String value) {
         return value == null || value.isBlank() ? null : value.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static boolean isDuplicateRow(Trading212ParsedReport.SourceRow row) {
+        return row.errors().stream().anyMatch(error -> error.startsWith("Duplicate Trading 212 Order ID"));
     }
 
     private static ResponseStatusException badRequest(String message) {
@@ -531,6 +575,10 @@ public class Trading212TradeImportService {
     private record PreviewParts(
             Map<String, InstrumentAlias> mappings,
             List<Trading212ImportPreviewResponse.UnmappedSymbol> unmapped,
+            Map<Long, String> identities,
+            Map<String, Trade> existing,
+            Set<Long> duplicateRows,
+            int duplicatesInFile,
             int duplicates,
             int ready,
             List<String> warnings,

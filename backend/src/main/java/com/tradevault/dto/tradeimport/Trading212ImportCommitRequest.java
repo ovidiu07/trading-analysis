@@ -13,6 +13,7 @@ import java.util.UUID;
 public record Trading212ImportCommitRequest(
         @NotNull UUID targetAccountId,
         List<String> selectedPositionIds,
+        List<String> selectedExternalTradeIds,
         @Valid List<SymbolMapping> symbolMappings,
         Map<String, UUID> linkToExistingTradeIds
 ) {

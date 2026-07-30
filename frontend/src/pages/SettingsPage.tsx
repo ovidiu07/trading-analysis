@@ -57,6 +57,7 @@ import {
   updateAdminChartSettings
 } from '../api/chartSettings'
 import TradingAccountsManager from '../components/accounts/TradingAccountsManager'
+import TradeDataManagementCard from '../components/settings/TradeDataManagementCard'
 
 export default function SettingsPage() {
   const { t, language, setLanguage } = useI18n()
@@ -573,6 +574,7 @@ export default function SettingsPage() {
       </Card>
 
       <TradingAccountsManager />
+      <TradeDataManagementCard timezone={form.timezone || 'Europe/Bucharest'} />
 
       {isAdmin ? (
         <Card>

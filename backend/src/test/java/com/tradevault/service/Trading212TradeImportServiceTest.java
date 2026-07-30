@@ -15,6 +15,8 @@ import com.tradevault.repository.InstrumentAliasRepository;
 import com.tradevault.repository.TradeImportBatchRepository;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.trading212.Trading212CsvParser;
+import com.tradevault.service.trading212.Trading212ExternalIdentity;
+import com.tradevault.service.trading212.Trading212ImportLockService;
 import com.tradevault.service.trading212.Trading212ParsedReport;
 import com.tradevault.service.trading212.Trading212PnlReconciler;
 import org.junit.jupiter.api.BeforeEach;
@@ -48,8 +50,10 @@ class Trading212TradeImportServiceTest {
     @Mock InstrumentAliasRepository aliasRepository;
     @Mock AccountRepository accountRepository;
     @Mock TradeRepository tradeRepository;
+    @Mock Trading212ImportLockService importLockService;
 
     private final ObjectMapper objectMapper = new ObjectMapper().findAndRegisterModules();
+    private final Trading212ExternalIdentity externalIdentity = new Trading212ExternalIdentity();
     private Trading212TradeImportService service;
     private Trading212CsvParser parser;
     private Trading212ParsedReport report;
@@ -63,7 +67,7 @@ class Trading212TradeImportServiceTest {
         parser = new Trading212CsvParser(new Trading212PnlReconciler());
         report = parser.parse(fixture(), 10_000);
         service = new Trading212TradeImportService(currentUserService, parser, objectMapper, batchRepository,
-                aliasRepository, accountRepository, tradeRepository);
+                aliasRepository, accountRepository, tradeRepository, externalIdentity, importLockService);
         user = User.builder().id(UUID.randomUUID()).email("trader@example.test").baseCurrency("EUR").build();
         account = Account.builder().id(UUID.randomUUID()).user(user).name("Trading 212 EUR")
                 .broker("Trading 212").accountCurrency("EUR").build();
@@ -84,6 +88,13 @@ class Trading212TradeImportServiceTest {
             Trade trade = invocation.getArgument(0);
             if (trade.getId() == null) trade.setId(UUID.randomUUID());
             return trade;
+        });
+        when(tradeRepository.saveAll(any())).thenAnswer(invocation -> {
+            List<Trade> trades = invocation.getArgument(0);
+            trades.forEach(trade -> {
+                if (trade.getId() == null) trade.setId(UUID.randomUUID());
+            });
+            return trades;
         });
     }
 
@@ -107,9 +118,9 @@ class Trading212TradeImportServiceTest {
 
     @Test
     void commitsThreeTradesWithoutFabricatingCostsOrJournalData() {
-        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalPositionId(
-                eq(user.getId()), eq(account.getId()), eq(TradeSource.TRADING212_CSV), anyString()))
-                .thenReturn(Optional.empty());
+        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalTradeIdIn(
+                eq(user.getId()), eq(account.getId()), eq(TradeSource.TRADING212_CSV), anyCollection()))
+                .thenReturn(List.of());
 
         var result = service.commit(batch.getId(), request());
 
@@ -119,9 +130,12 @@ class Trading212TradeImportServiceTest {
         assertThat(result.grossPnl()).isEqualByComparingTo("-147.60");
         assertThat(result.netPnl()).isEqualByComparingTo("-147.60");
         assertThat(result.costs()).isEqualByComparingTo("0");
-        ArgumentCaptor<Trade> captor = ArgumentCaptor.forClass(Trade.class);
-        verify(tradeRepository, times(3)).save(captor.capture());
-        assertThat(captor.getAllValues()).allSatisfy(trade -> {
+        @SuppressWarnings("unchecked")
+        ArgumentCaptor<Iterable<Trade>> captor = ArgumentCaptor.forClass(Iterable.class);
+        verify(tradeRepository).saveAll(captor.capture());
+        List<Trade> saved = java.util.stream.StreamSupport.stream(
+                captor.getValue().spliterator(), false).toList();
+        assertThat(saved).allSatisfy(trade -> {
             assertThat(trade.getSource()).isEqualTo(TradeSource.TRADING212_CSV);
             assertThat(trade.getMarket()).isEqualTo(Market.CFD);
             assertThat(trade.getStopLossPrice()).isNull();
@@ -138,33 +152,42 @@ class Trading212TradeImportServiceTest {
 
     @Test
     void secondImportSkipsUnchangedPositionsWithoutRewritingTrades() {
-        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalPositionId(
-                eq(user.getId()), eq(account.getId()), eq(TradeSource.TRADING212_CSV), anyString()))
-                .thenReturn(Optional.empty());
+        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalTradeIdIn(
+                eq(user.getId()), eq(account.getId()), eq(TradeSource.TRADING212_CSV), anyCollection()))
+                .thenReturn(List.of());
         service.commit(batch.getId(), request());
         List<Trade> imported = mockingDetails(tradeRepository).getInvocations().stream()
-                .filter(invocation -> invocation.getMethod().getName().equals("save"))
-                .map(invocation -> (Trade) invocation.getArgument(0)).toList();
+                .filter(invocation -> invocation.getMethod().getName().equals("saveAll"))
+                .flatMap(invocation -> ((List<Trade>) invocation.getArgument(0)).stream()).toList();
         clearInvocations(tradeRepository, batchRepository);
 
         TradeImportBatch secondBatch = batch(report);
         when(batchRepository.findByIdAndUserId(secondBatch.getId(), user.getId())).thenReturn(Optional.of(secondBatch));
-        Map<String, Trade> byPosition = imported.stream().collect(java.util.stream.Collectors.toMap(
-                Trade::getExternalPositionId, java.util.function.Function.identity()));
-        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalPositionId(
-                eq(user.getId()), eq(account.getId()), eq(TradeSource.TRADING212_CSV), anyString()))
-                .thenAnswer(invocation -> Optional.of(byPosition.get(invocation.getArgument(3))));
+        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalTradeIdIn(
+                eq(user.getId()), eq(account.getId()), eq(TradeSource.TRADING212_CSV), anyCollection()))
+                .thenReturn(imported);
 
         var result = service.commit(secondBatch.getId(), request());
 
         assertThat(result.created()).isZero();
         assertThat(result.updated()).isZero();
         assertThat(result.duplicatesSkipped()).isEqualTo(3);
-        verify(tradeRepository, never()).save(any());
+        verify(tradeRepository, never()).saveAll(any());
     }
 
     @Test
-    void correctedBrokerDataUpdatesOnlyBrokerOwnedFieldsAndPreservesJournalData() throws Exception {
+    void explicitEmptySelectionImportsNothing() {
+        var result = service.commit(batch.getId(), new Trading212ImportCommitRequest(
+                account.getId(), List.of(), List.of(), List.of(), Map.of()));
+
+        assertThat(result.created()).isZero();
+        assertThat(result.updated()).isZero();
+        assertThat(result.excluded()).isEqualTo(3);
+        verify(tradeRepository, never()).saveAll(any());
+    }
+
+    @Test
+    void reimportNeverOverwritesExistingBrokerOrJournalFields() throws Exception {
         Trade existing = Trade.builder().id(UUID.randomUUID()).user(user).account(account)
                 .source(TradeSource.TRADING212_CSV).externalPositionId("POS54611997543")
                 .externalOrderId("54650150042").externalInstrumentName("Germany 40").externalSymbol("GER40")
@@ -178,9 +201,10 @@ class Trading212TradeImportServiceTest {
                 .profileCurrency("EUR").pnlProfileCurrency(new BigDecimal("-140.8"))
                 .notes("My journal").setup("Breakout").stopLossPrice(new BigDecimal("25020"))
                 .riskAmount(new BigDecimal("80")).build();
-        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalPositionId(
-                user.getId(), account.getId(), TradeSource.TRADING212_CSV, "POS54611997543"))
-                .thenReturn(Optional.of(existing));
+        existing.setExternalTradeId("54650150042");
+        when(tradeRepository.findByUserIdAndAccountIdAndSourceAndExternalTradeIdIn(
+                eq(user.getId()), eq(account.getId()), eq(TradeSource.TRADING212_CSV), anyCollection()))
+                .thenReturn(List.of(existing));
 
         String correctedCsv = new String(fixture(), java.nio.charset.StandardCharsets.UTF_8)
                 .replace("0.00,0.00,-140.80\n", "0.00,0.00,-141.80\n");
@@ -189,11 +213,12 @@ class Trading212TradeImportServiceTest {
         when(batchRepository.findByIdAndUserId(correctedBatch.getId(), user.getId())).thenReturn(Optional.of(correctedBatch));
 
         var result = service.commit(correctedBatch.getId(), new Trading212ImportCommitRequest(account.getId(),
-                List.of("POS54611997543"), List.of(), Map.of()));
+                List.of(), List.of("54650150042"), List.of(), Map.of()));
 
-        assertThat(result.updated()).isEqualTo(1);
-        assertThat(existing.getBrokerReportedNetPnl()).isEqualByComparingTo("-141.80");
-        assertThat(existing.getPnlProfileCurrency()).isEqualByComparingTo("-141.80");
+        assertThat(result.updated()).isZero();
+        assertThat(result.duplicatesSkipped()).isEqualTo(1);
+        assertThat(existing.getBrokerReportedNetPnl()).isEqualByComparingTo("-140.80");
+        assertThat(existing.getPnlProfileCurrency()).isEqualByComparingTo("-140.80");
         assertThat(existing.getNotes()).isEqualTo("My journal");
         assertThat(existing.getSetup()).isEqualTo("Breakout");
         assertThat(existing.getStopLossPrice()).isEqualByComparingTo("25020");
@@ -228,7 +253,9 @@ class Trading212TradeImportServiceTest {
 
     private Trading212ImportCommitRequest request() {
         return new Trading212ImportCommitRequest(account.getId(),
-                report.closedPositions().stream().map(position -> position.positionId()).toList(),
+                List.of(),
+                report.closedPositions().stream()
+                        .map(position -> externalIdentity.resolve(account.getId(), position)).toList(),
                 List.of(), Map.of());
     }
 

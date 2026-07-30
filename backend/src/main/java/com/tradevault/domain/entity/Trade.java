@@ -54,6 +54,8 @@ public class Trade {
     private String externalPositionId;
     @Column(name = "external_order_id", length = 128)
     private String externalOrderId;
+    @Column(name = "external_trade_id", length = 160)
+    private String externalTradeId;
     @Column(name = "external_instrument_name")
     private String externalInstrumentName;
     @Column(name = "external_symbol", length = 80)

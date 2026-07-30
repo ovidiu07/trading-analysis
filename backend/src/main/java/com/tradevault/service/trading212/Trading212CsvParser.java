@@ -20,7 +20,7 @@ import java.util.*;
 
 @Component
 public class Trading212CsvParser {
-    public static final String PARSER_VERSION = "trading212-csv-v1";
+    public static final String PARSER_VERSION = "trading212-csv-v2";
     public static final int HEADER_COUNT = 22;
 
     private static final String RECORD_TYPE = "record type";
@@ -87,41 +87,70 @@ public class Trading212CsvParser {
         List<Trading212ParsedReport.SourceRow> sourceRows = new ArrayList<>();
         List<String> reportWarnings = new ArrayList<>();
         Set<String> currencies = new LinkedHashSet<>();
+        Set<String> orderIds = new HashSet<>();
         OffsetDateTime earliest = null;
         OffsetDateTime latest = null;
+
+        boolean containsClosedPositions = records.stream().skip(1)
+                .anyMatch(record -> CLOSED_POSITION.equalsIgnoreCase(value(record, indexes, RECORD_TYPE)));
+        if (containsClosedPositions) {
+            List<String> missing = REQUIRED_CLOSED_HEADERS.stream()
+                    .filter(header -> !indexes.containsKey(header))
+                    .sorted()
+                    .toList();
+            if (!missing.isEmpty()) {
+                throw invalid("Missing required Trading 212 headers for closed positions: " + String.join(", ", missing));
+            }
+        }
 
         for (int recordIndex = 1; recordIndex < records.size(); recordIndex++) {
             CSVRecord csv = records.get(recordIndex);
             long rowNumber = recordIndex + 1L;
-            if (csv.size() > originalHeaders.size()) {
-                throw invalid("Row " + rowNumber + " has more values than the header");
-            }
             Map<String, String> raw = rawRow(csv, originalHeaders);
+            if (csv.size() > originalHeaders.size()) {
+                String recordType = value(csv, indexes, RECORD_TYPE);
+                String error = "Row " + rowNumber + " has more values than the header";
+                sourceRows.add(new Trading212ParsedReport.SourceRow(
+                        rowNumber, recordType, CLOSED_POSITION.equalsIgnoreCase(recordType), false,
+                        value(csv, indexes, "position id"), value(csv, indexes, "order id"),
+                        raw, List.of(), List.of(error)));
+                reportWarnings.add(error);
+                continue;
+            }
             String recordType = value(csv, indexes, RECORD_TYPE);
             boolean supported = CLOSED_POSITION.equalsIgnoreCase(recordType);
             if (!supported) {
                 List<String> warnings = List.of("Unsupported Trading 212 record type: "
                         + (recordType.isBlank() ? "(empty)" : recordType));
-                sourceRows.add(new Trading212ParsedReport.SourceRow(rowNumber, recordType, false,
-                        value(csv, indexes, "position id"), raw, warnings));
+                sourceRows.add(new Trading212ParsedReport.SourceRow(rowNumber, recordType, false, false,
+                        value(csv, indexes, "position id"), value(csv, indexes, "order id"),
+                        raw, warnings, List.of()));
                 reportWarnings.add("Row " + rowNumber + ": " + warnings.get(0));
                 continue;
             }
 
-            List<String> missing = REQUIRED_CLOSED_HEADERS.stream().filter(header -> !indexes.containsKey(header)).sorted().toList();
-            if (!missing.isEmpty()) {
-                throw invalid("Missing required Trading 212 headers for closed positions: " + String.join(", ", missing));
+            try {
+                Trading212ClosedPosition position = parseClosedPosition(csv, indexes, raw, rowNumber, recordType);
+                if (position.orderId() != null && !orderIds.add(position.orderId())) {
+                    String error = "Duplicate Trading 212 Order ID inside the uploaded file: " + position.orderId();
+                    sourceRows.add(new Trading212ParsedReport.SourceRow(rowNumber, recordType, true, false,
+                            position.positionId(), position.orderId(), raw, position.warnings(), List.of(error)));
+                    reportWarnings.add("Row " + rowNumber + ": " + error);
+                    continue;
+                }
+                positions.add(position);
+                currencies.add(position.accountCurrency());
+                earliest = min(earliest, position.openedAt());
+                latest = max(latest, position.closedAt());
+                sourceRows.add(new Trading212ParsedReport.SourceRow(rowNumber, recordType, true, true,
+                        position.positionId(), position.orderId(), raw, position.warnings(), List.of()));
+            } catch (ResponseStatusException ex) {
+                String error = ex.getReason() == null ? "Invalid Trading 212 row" : ex.getReason();
+                sourceRows.add(new Trading212ParsedReport.SourceRow(rowNumber, recordType, true, false,
+                        value(csv, indexes, "position id"), value(csv, indexes, "order id"),
+                        raw, List.of(), List.of(error)));
+                reportWarnings.add(error);
             }
-            Trading212ClosedPosition position = parseClosedPosition(csv, indexes, raw, rowNumber, recordType);
-            positions.add(position);
-            currencies.add(position.accountCurrency());
-            earliest = min(earliest, position.openedAt());
-            latest = max(latest, position.closedAt());
-            sourceRows.add(new Trading212ParsedReport.SourceRow(rowNumber, recordType, true,
-                    position.positionId(), raw, position.warnings()));
-        }
-        if (positions.isEmpty()) {
-            throw invalid("The Trading 212 CSV contains no supported Closed position rows");
         }
         if (currencies.size() > 1) {
             reportWarnings.add("The CSV contains multiple Trading 212 account currencies: " + String.join(", ", currencies));
@@ -130,7 +159,8 @@ public class Trading212CsvParser {
             reportWarnings.add("Unknown Trading 212 columns were preserved: " + String.join(", ", unknownHeaders));
         }
         return new Trading212ParsedReport(List.copyOf(originalHeaders), List.copyOf(positions), List.copyOf(sourceRows),
-                unknownHeaders, List.copyOf(reportWarnings), currencies.iterator().next(), earliest, latest);
+                unknownHeaders, List.copyOf(reportWarnings),
+                currencies.isEmpty() ? null : currencies.iterator().next(), earliest, latest);
     }
 
     private Trading212ClosedPosition parseClosedPosition(CSVRecord row, Map<String, Integer> indexes,

@@ -31,7 +31,8 @@ public record Trading212ImportPreviewResponse(
     public record Summary(int positionsFound, int ordersFound, int dealsFound, int accountTransactionsFound,
                           int tradesReady, int duplicates, int warnings, BigDecimal grossPnl,
                           BigDecimal costs, BigDecimal netPnl, int unsupportedRows,
-                          BigDecimal reportedSpread, OffsetDateTime earliestTimestamp, OffsetDateTime latestTimestamp) {
+                          int invalidRows, int duplicatesInFile, BigDecimal reportedSpread,
+                          OffsetDateTime earliestTimestamp, OffsetDateTime latestTimestamp) {
     }
 
     public record UnmappedSymbol(String externalSymbol, String suggestedInternalSymbol,
@@ -41,11 +42,13 @@ public record Trading212ImportPreviewResponse(
     public record ManualMatch(UUID tradeId, String symbol, int confidence, String explanation) {
     }
 
-    public record UnsupportedRow(long rowNumber, String recordType, List<String> warnings) {
+    public record UnsupportedRow(long rowNumber, String recordType, boolean invalid,
+                                 List<String> warnings, List<String> errors) {
     }
 
     public record TradePreview(
-            String externalPositionId, String externalOrderId, String externalInstrument, String externalSymbol,
+            String externalPositionId, String externalOrderId, String externalTradeId,
+            String externalInstrument, String externalSymbol,
             String mappedSymbol, Market market, String tradeCurrency, Direction direction, TradeStatus status,
             OffsetDateTime openedAt, OffsetDateTime closedAt, long durationSeconds, BigDecimal quantity,
             BigDecimal entryPrice, BigDecimal exitPrice, BigDecimal initialStopLossPrice,

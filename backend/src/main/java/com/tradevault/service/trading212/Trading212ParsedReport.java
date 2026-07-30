@@ -18,9 +18,12 @@ public record Trading212ParsedReport(
             long rowNumber,
             String recordType,
             boolean supported,
+            boolean valid,
             String positionId,
+            String orderId,
             Map<String, String> raw,
-            List<String> warnings
+            List<String> warnings,
+            List<String> errors
     ) {
     }
 }

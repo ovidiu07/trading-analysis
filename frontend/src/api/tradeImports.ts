@@ -12,6 +12,7 @@ export type Mt5ManualMatch = {
 export type Mt5TradePreview = {
   externalPositionId: string
   externalOrderId?: string | null
+  externalTradeId?: string | null
   externalInstrument?: string | null
   externalSymbol: string
   mappedSymbol?: string | null
@@ -83,6 +84,8 @@ export type Mt5ImportPreview = {
     costs: number
     netPnl: number
     unsupportedRows?: number
+    invalidRows?: number
+    duplicatesInFile?: number
     reportedSpread?: number
     earliestTimestamp?: string | null
     latestTimestamp?: string | null
@@ -97,7 +100,13 @@ export type Mt5ImportPreview = {
     suggestedMarket?: TradeRequest['market'] | null
   }>
   trades: Mt5TradePreview[]
-  unsupportedRows?: Array<{ rowNumber: number; recordType?: string | null; warnings: string[] }>
+  unsupportedRows?: Array<{
+    rowNumber: number
+    recordType?: string | null
+    invalid?: boolean
+    warnings: string[]
+    errors?: string[]
+  }>
   warnings: string[]
   errors: string[]
 }
@@ -117,13 +126,23 @@ export type Mt5SymbolMapping = {
 export type Mt5ImportCommitResult = {
   importBatchId: string
   status: string
+  totalRows?: number
+  validRows?: number
   created: number
   updated: number
   duplicatesSkipped: number
+  duplicatesInFile?: number
+  invalidRows?: number
+  failedRows?: number
   excluded: number
+  targetAccountId?: string
+  targetAccountName?: string
+  originalFilename?: string
+  importedAt?: string
   grossPnl: number
   costs: number
   netPnl: number
+  skippedNetPnl?: number
   tradeIds: string[]
   warnings: string[]
   errors: string[]
@@ -135,11 +154,13 @@ export async function previewMt5Import(file: File) {
   return apiPostMultipart<Mt5ImportPreview>('/trade-imports/metatrader5/preview', formData)
 }
 
-export async function previewTrading212Import(file: File, targetAccountId?: string) {
+export async function previewTrading212Import(file: File, targetAccountId: string) {
   const formData = new FormData()
   formData.append('file', file)
-  const query = targetAccountId ? `?targetAccountId=${encodeURIComponent(targetAccountId)}` : ''
-  return apiPostMultipart<Mt5ImportPreview>(`/trade-imports/trading212/preview${query}`, formData)
+  return apiPostMultipart<Mt5ImportPreview>(
+    `/trade-imports/trading212/preview?targetAccountId=${encodeURIComponent(targetAccountId)}`,
+    formData
+  )
 }
 
 export async function commitMt5Import(importBatchId: string, request: {
@@ -157,7 +178,7 @@ export async function commitMt5Import(importBatchId: string, request: {
 
 export async function commitTrading212Import(importBatchId: string, request: {
   targetAccountId: string
-  selectedPositionIds: string[]
+  selectedExternalTradeIds: string[]
   symbolMappings: Mt5SymbolMapping[]
   linkToExistingTradeIds: Record<string, string>
 }) {

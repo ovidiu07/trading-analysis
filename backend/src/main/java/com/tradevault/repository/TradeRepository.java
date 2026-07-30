@@ -34,6 +34,18 @@ public interface TradeRepository extends JpaRepository<Trade, UUID>, JpaSpecific
   Optional<Trade> findByUserIdAndAccountIdAndSourceAndExternalPositionId(
       UUID userId, UUID accountId, com.tradevault.domain.enums.TradeSource source, String externalPositionId);
 
+  Optional<Trade> findByUserIdAndAccountIdAndSourceAndExternalTradeId(
+      UUID userId, UUID accountId, com.tradevault.domain.enums.TradeSource source, String externalTradeId);
+
+  List<Trade> findByUserIdAndAccountIdAndSourceAndExternalTradeIdIn(
+      UUID userId, UUID accountId, com.tradevault.domain.enums.TradeSource source,
+      Collection<String> externalTradeIds);
+
+  List<Trade> findByUserIdAndAccountIdOrderByOpenedAtAsc(UUID userId, UUID accountId);
+
+  List<Trade> findByUserIdAndAccountIdAndClosedAtGreaterThanEqualAndClosedAtLessThanOrderByClosedAtAsc(
+      UUID userId, UUID accountId, OffsetDateTime fromInclusive, OffsetDateTime toExclusive);
+
   List<Trade> findByUser_IdAndStrategyIdAndStatus(UUID userId, UUID strategyId, TradeStatus status);
 
   @Query(value = """
