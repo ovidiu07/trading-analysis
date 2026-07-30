@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Button,
   Card,
@@ -64,6 +64,7 @@ export default function DashboardPage() {
   const [dailyPnlSeries, setDailyPnlSeries] = useState<DailyPnlResponse[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
+  const requestSequence = useRef(0)
   const { user } = useAuth()
   const { refreshToken } = useDemoData()
   const accountScope = useAccountScope()
@@ -93,9 +94,14 @@ export default function DashboardPage() {
   }), [queryState.from, queryState.market, queryState.status, queryState.to, scopedAccountIds])
 
   useEffect(() => {
+    const requestId = ++requestSequence.current
+    let active = true
     const load = async () => {
       setLoading(true)
       setError('')
+      setSummary(null)
+      setRecentTrades([])
+      setDailyPnlSeries([])
       try {
         const [summaryResponse, trades, dailyPnlResponse] = await Promise.all([
           fetchDashboardSummary(dashboardFilters),
@@ -108,22 +114,31 @@ export default function DashboardPage() {
             ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
           }).catch(() => [] as DailyPnlResponse[]),
         ])
+        if (!active || requestId !== requestSequence.current) return
         setSummary(summaryResponse)
         setRecentTrades(trades)
         setDailyPnlSeries(dailyPnlResponse)
       } catch (err) {
+        if (!active || requestId !== requestSequence.current) return
         const apiErr = err as ApiError
         setError(translateApiError(apiErr, t))
       } finally {
-        setLoading(false)
+        if (active && requestId === requestSequence.current) {
+          setLoading(false)
+        }
       }
     }
 
-    load()
+    void load()
+    return () => {
+      active = false
+    }
   }, [dashboardFilters, queryState.from, queryState.to, refreshToken, scopedAccountIds, t, timezone])
 
   const monetaryAnalyticsAvailable = summary?.accountScope?.monetaryAnalyticsAvailable !== false
-  const baseCurrency = summary?.accountScope?.reportingCurrency || user?.baseCurrency || 'USD'
+  const monetaryAnalyticsUnavailableReason = summary?.accountScope?.monetaryAnalyticsUnavailableReason
+    || (summary?.accountScope?.monetaryAnalyticsAvailable === false ? 'MULTIPLE_ACCOUNT_CURRENCIES' : 'NONE')
+  const baseCurrency = summary?.accountScope?.displayCurrency || summary?.accountScope?.reportingCurrency || user?.baseCurrency || 'USD'
 
   const kpis = useMemo<KpiCard[]>(() => {
     if (!summary) return []
@@ -233,7 +248,9 @@ export default function DashboardPage() {
         scope={accountScope.scope}
         accounts={accountScope.accounts}
         notice={accountScope.selectionNotice}
-        mixedCurrency={!monetaryAnalyticsAvailable}
+        unavailableReason={loading ? 'NONE' : monetaryAnalyticsUnavailableReason}
+        resolvedAccountIds={summary?.accountScope?.resolvedAccountIds}
+        selectedAccountCount={summary?.accountScope?.selectedAccountCount}
       />
 
       {error && <ErrorBanner message={error} />}

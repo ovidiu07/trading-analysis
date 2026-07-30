@@ -192,15 +192,16 @@ describe('CalendarPage', () => {
     expect(screen.getByText('No closed trades match this account in July 2026.')).toBeInTheDocument()
   })
 
-  it('safely falls back to all accounts for an unknown URL account', async () => {
+  it('preserves an unknown explicit account so the backend can reject it without querying all accounts', async () => {
     mockFetchMonthlyPnlSummary.mockResolvedValue(buildSummary(7, 50))
 
     renderCalendar(`/calendar?month=2026-07&accountIds=${UNKNOWN_ACCOUNT_ID}`)
 
-    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenLastCalledWith(
-      expect.not.objectContaining({ accountIds: expect.anything() })
-    ))
-    expect(await screen.findByText(/July 2026 · All accounts · Europe\/Bucharest/)).toBeInTheDocument()
+    await waitFor(() => expect(mockFetchDailyPnl).toHaveBeenLastCalledWith(expect.objectContaining({
+      accountIds: UNKNOWN_ACCOUNT_ID
+    })))
+    expect(await screen.findByText(/No other accounts were substituted/)).toBeInTheDocument()
+    expect(screen.queryByText(/July 2026 · All accounts · Europe\/Bucharest/)).not.toBeInTheDocument()
   })
 
   it('shows a per-account breakdown when opening a day', async () => {

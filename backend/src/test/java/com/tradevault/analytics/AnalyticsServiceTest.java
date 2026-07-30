@@ -6,6 +6,7 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.TradeStatus;
 import com.tradevault.dto.analytics.AnalyticsResponse;
+import com.tradevault.dto.analytics.MonetaryAnalyticsUnavailableReason;
 import com.tradevault.repository.TradeRepository;
 import com.tradevault.service.CurrentUserService;
 import com.tradevault.service.account.AccountScopeService;
@@ -187,6 +188,145 @@ class AnalyticsServiceTest {
         assertFalse(response.getAccountScope().isMonetaryAnalyticsAvailable());
         assertEquals(List.of("EUR", "USD"), response.getAccountScope().getReportingCurrencies());
         assertEquals(null, response.getAccountScope().getReportingCurrency());
+        assertEquals(MonetaryAnalyticsUnavailableReason.MULTIPLE_ACCOUNT_CURRENCIES,
+                response.getAccountScope().getMonetaryAnalyticsUnavailableReason());
+        assertEquals(2, response.getAccountScope().getSelectedAccountCount());
+        assertEquals(Set.of(usdAccountId, eurAccountId), Set.copyOf(response.getAccountScope().getResolvedAccountIds()));
+    }
+
+    @Test
+    void summarizeUsesOnlySelectedAccountBaseCurrencyAndIgnoresInstrumentCurrencies() {
+        User user = currentUserService.getCurrentUser();
+        UUID accountId = UUID.fromString("2d60879c-06b1-4b4f-84d5-cd91fd16b535");
+        Account account = Account.builder()
+                .id(accountId)
+                .name("Personal")
+                .accountCurrency(" eur ")
+                .build();
+        when(accountScopeService.resolve(accountId.toString(), null)).thenReturn(new AuthorizedAccountScope(
+                user.getId(),
+                AuthorizedAccountScope.Mode.SELECTED,
+                Set.of(accountId),
+                List.of(account)
+        ));
+        Trade mnq = buildTrade(UUID.randomUUID(), "MNQ", Direction.LONG, TradeStatus.CLOSED,
+                "2026-07-10T10:00:00Z", "2026-07-10T10:15:00Z", "125.50");
+        mnq.setAccount(account);
+        mnq.setAccountCurrency("EUR");
+        mnq.setTradeCurrency("USD");
+        mnq.setProfileCurrency("EUR");
+        Trade ger40 = buildTrade(UUID.randomUUID(), "GER40", Direction.SHORT, TradeStatus.CLOSED,
+                "2026-07-11T10:00:00Z", "2026-07-11T10:15:00Z", "-20.00");
+        ger40.setAccount(account);
+        ger40.setAccountCurrency("EUR");
+        ger40.setTradeCurrency("EUR");
+        ger40.setProfileCurrency("USD");
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of(mnq, ger40));
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null, null, null, null, TradeStatus.CLOSED, accountId.toString(), null,
+                null, null, null, null, "CLOSE", false, null
+        );
+
+        assertTrue(response.getAccountScope().isMonetaryAnalyticsAvailable());
+        assertEquals(MonetaryAnalyticsUnavailableReason.NONE,
+                response.getAccountScope().getMonetaryAnalyticsUnavailableReason());
+        assertEquals(List.of(accountId), response.getAccountScope().getRequestedAccountIds());
+        assertEquals(List.of(accountId), response.getAccountScope().getResolvedAccountIds());
+        assertEquals(List.of("EUR"), response.getAccountScope().getNormalizedAccountCurrencies());
+        assertEquals("EUR", response.getAccountScope().getReportingCurrency());
+        assertEquals("EUR", response.getAccountScope().getDisplayCurrency());
+        assertEquals(2, response.getKpi().getTotalTrades());
+        assertEquals(2, response.getEquityCurve().size());
+        assertEquals(2, response.getGroupedPnl().size());
+    }
+
+    @Test
+    void summarizeAggregatesMultipleAccountsWithEquivalentNormalizedCurrencies() {
+        User user = currentUserService.getCurrentUser();
+        UUID firstId = UUID.randomUUID();
+        UUID secondId = UUID.randomUUID();
+        when(accountScopeService.resolve(Mockito.any(), Mockito.any())).thenReturn(new AuthorizedAccountScope(
+                user.getId(),
+                AuthorizedAccountScope.Mode.SELECTED,
+                Set.of(firstId, secondId),
+                List.of(
+                        Account.builder().id(firstId).name("First").accountCurrency("EUR").build(),
+                        Account.builder().id(secondId).name("Second").accountCurrency("eur ").build()
+                )
+        ));
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of());
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null, null, null, null, null, null, null, null, null, null,
+                "CLOSE", false, null
+        );
+
+        assertTrue(response.getAccountScope().isMonetaryAnalyticsAvailable());
+        assertEquals(List.of("EUR"), response.getAccountScope().getNormalizedAccountCurrencies());
+        assertEquals(MonetaryAnalyticsUnavailableReason.NONE,
+                response.getAccountScope().getMonetaryAnalyticsUnavailableReason());
+    }
+
+    @Test
+    void summarizeReportsMissingCurrencySeparatelyFromMixedCurrency() {
+        User user = currentUserService.getCurrentUser();
+        UUID accountId = UUID.randomUUID();
+        when(accountScopeService.resolve(Mockito.any(), Mockito.any())).thenReturn(new AuthorizedAccountScope(
+                user.getId(),
+                AuthorizedAccountScope.Mode.SELECTED,
+                Set.of(accountId),
+                List.of(Account.builder().id(accountId).name("Unconfigured").accountCurrency("  ").build())
+        ));
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of());
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null, null, null, null, null, null, null, null, null, null,
+                "CLOSE", false, null
+        );
+
+        assertFalse(response.getAccountScope().isMonetaryAnalyticsAvailable());
+        assertEquals(MonetaryAnalyticsUnavailableReason.MISSING_ACCOUNT_CURRENCY,
+                response.getAccountScope().getMonetaryAnalyticsUnavailableReason());
+        assertEquals(List.of(), response.getAccountScope().getNormalizedAccountCurrencies());
+    }
+
+    @Test
+    void summarizeRejectsUnsupportedAccountCurrencyAsUnconfigured() {
+        User user = currentUserService.getCurrentUser();
+        UUID accountId = UUID.randomUUID();
+        when(accountScopeService.resolve(Mockito.any(), Mockito.any())).thenReturn(new AuthorizedAccountScope(
+                user.getId(),
+                AuthorizedAccountScope.Mode.SELECTED,
+                Set.of(accountId),
+                List.of(Account.builder().id(accountId).name("Invalid").accountCurrency("ZZZ").build())
+        ));
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of());
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null, null, null, null, null, null, null, null, null, null,
+                "CLOSE", false, null
+        );
+
+        assertFalse(response.getAccountScope().isMonetaryAnalyticsAvailable());
+        assertEquals(MonetaryAnalyticsUnavailableReason.MISSING_ACCOUNT_CURRENCY,
+                response.getAccountScope().getMonetaryAnalyticsUnavailableReason());
+    }
+
+    @Test
+    void summarizeReportsNoAccountsWithoutInventingMixedCurrency() {
+        when(tradeRepository.findAll(Mockito.any(Specification.class))).thenReturn(List.of());
+
+        AnalyticsResponse response = analyticsService.summarize(
+                null, null, null, null, null, null, null, null, null, null,
+                "CLOSE", false, null
+        );
+
+        assertFalse(response.getAccountScope().isMonetaryAnalyticsAvailable());
+        assertEquals(MonetaryAnalyticsUnavailableReason.NO_ACCOUNTS_SELECTED,
+                response.getAccountScope().getMonetaryAnalyticsUnavailableReason());
+        assertEquals(List.of(), response.getAccountScope().getResolvedAccountIds());
+        assertEquals(List.of(), response.getAccountScope().getNormalizedAccountCurrencies());
     }
 
     private Trade buildTrade(UUID id, String symbol, Direction direction, TradeStatus status, String openedAt, String closedAt, String pnlNet) {

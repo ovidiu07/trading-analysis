@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Accordion,
   AccordionDetails,
@@ -143,6 +143,7 @@ export default function AnalyticsPage() {
   const [coachLoading, setCoachLoading] = useState<boolean>(false)
   const [signalLoading, setSignalLoading] = useState<boolean>(false)
   const [error, setError] = useState('')
+  const analyticsRequestSequence = useRef(0)
   const [coachError, setCoachError] = useState('')
   const [signalError, setSignalError] = useState('')
   const [tab, setTab] = useState(0)
@@ -229,19 +230,25 @@ export default function AnalyticsPage() {
   }), [theme.palette.background.paper, theme.palette.divider, theme.palette.text.primary, theme.palette.text.secondary])
 
   const loadAnalytics = useCallback(async (activeFilters: AnalyticsFilters = DEFAULT_FILTERS) => {
+    const requestId = ++analyticsRequestSequence.current
     setLoading(true)
     setError('')
+    setSummary(null)
     try {
       const data = await fetchAnalyticsSummary({
         ...activeFilters,
         ...(scopedAccountIds ? { accountIds: scopedAccountIds } : {})
       })
+      if (requestId !== analyticsRequestSequence.current) return
       setSummary(data)
     } catch (err) {
+      if (requestId !== analyticsRequestSequence.current) return
       const apiErr = err as ApiError
       setError(translateApiError(apiErr, t, 'analytics.errors.loadAnalytics'))
     } finally {
-      setLoading(false)
+      if (requestId === analyticsRequestSequence.current) {
+        setLoading(false)
+      }
     }
   }, [scopedAccountIds, t])
 
@@ -436,7 +443,9 @@ export default function AnalyticsPage() {
   }
 
   const monetaryAnalyticsAvailable = summary?.accountScope?.monetaryAnalyticsAvailable !== false
-  const baseCurrency = summary?.accountScope?.reportingCurrency || user?.baseCurrency || 'USD'
+  const monetaryAnalyticsUnavailableReason = summary?.accountScope?.monetaryAnalyticsUnavailableReason
+    || (summary?.accountScope?.monetaryAnalyticsAvailable === false ? 'MULTIPLE_ACCOUNT_CURRENCIES' : 'NONE')
+  const baseCurrency = summary?.accountScope?.displayCurrency || summary?.accountScope?.reportingCurrency || user?.baseCurrency || 'USD'
   const formatAnalyticsCurrency = useCallback(
     (value?: number | null) => monetaryAnalyticsAvailable
       ? formatSignedCurrency(value, baseCurrency)
@@ -714,7 +723,9 @@ export default function AnalyticsPage() {
         scope={accountScope.scope}
         accounts={accountScope.accounts}
         notice={accountScope.selectionNotice}
-        mixedCurrency={!monetaryAnalyticsAvailable}
+        unavailableReason={loading ? 'NONE' : monetaryAnalyticsUnavailableReason}
+        resolvedAccountIds={summary?.accountScope?.resolvedAccountIds}
+        selectedAccountCount={summary?.accountScope?.selectedAccountCount}
       />
 
       <Card>

@@ -7,25 +7,49 @@ type Props = {
   scope: AccountScopeValue
   accounts: TradingAccountOption[]
   notice?: string
+  unavailableReason?: 'NONE' | 'MULTIPLE_ACCOUNT_CURRENCIES' | 'MISSING_ACCOUNT_CURRENCY' | 'NO_ACCOUNTS_SELECTED' | 'INVALID_ACCOUNT_SELECTION'
+  resolvedAccountIds?: string[]
+  selectedAccountCount?: number
   mixedCurrency?: boolean
 }
 
-export default function AccountScopeSummary({ scope, accounts, notice, mixedCurrency = false }: Props) {
+export default function AccountScopeSummary({
+  scope,
+  accounts,
+  notice,
+  unavailableReason = 'NONE',
+  resolvedAccountIds,
+  selectedAccountCount,
+  mixedCurrency = false
+}: Props) {
   const { t } = useI18n()
+  const effectiveIds = resolvedAccountIds || (scope.mode === 'selected' ? scope.accountIds : [])
   const selected = scope.mode === 'selected'
-    ? accounts.filter((account) => scope.accountIds.includes(account.id))
+    ? accounts.filter((account) => effectiveIds.includes(account.id))
     : []
+  const effectiveCount = selectedAccountCount ?? effectiveIds.length
   const label = scope.mode === 'all'
     ? t('accountScope.all')
-    : selected.length === 1
+    : effectiveCount === 1 && selected.length === 1
       ? selected[0].name
-      : t('accountScope.manySelected', { count: scope.accountIds.length })
+      : effectiveCount === 1
+        ? t('accountScope.oneSelected')
+        : t('accountScope.manySelected', { count: effectiveCount })
+  const warningKey = unavailableReason === 'MULTIPLE_ACCOUNT_CURRENCIES' || mixedCurrency
+    ? 'accountScope.mixedCurrency'
+    : unavailableReason === 'MISSING_ACCOUNT_CURRENCY'
+      ? 'accountScope.missingCurrency'
+      : unavailableReason === 'NO_ACCOUNTS_SELECTED'
+        ? 'accountScope.noAccountsSelected'
+        : unavailableReason === 'INVALID_ACCOUNT_SELECTION'
+          ? 'accountScope.invalidSelection'
+          : ''
 
   return (
     <Stack spacing={1} alignItems="flex-start">
       <Chip size="small" variant="outlined" label={`${t('accountScope.active')}: ${label}`} />
       {notice ? <Alert severity="info">{t(notice)}</Alert> : null}
-      {mixedCurrency ? <Alert severity="warning">{t('accountScope.mixedCurrency')}</Alert> : null}
+      {warningKey ? <Alert severity="warning">{t(warningKey)}</Alert> : null}
     </Stack>
   )
 }

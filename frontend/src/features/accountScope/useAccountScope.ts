@@ -9,7 +9,6 @@ import {
   accountScopeCacheKey,
   allAccountsScope,
   readAccountScope,
-  selectedAccountsScope,
   writeAccountScope
 } from './accountScope'
 
@@ -42,28 +41,18 @@ export function useAccountScope(enabled = true) {
     [searchParamsKey]
   )
 
-  const scope = useMemo<AccountScopeValue>(() => {
-    if (requestedScope.mode === 'all' || !accountsQuery.data) {
-      return requestedScope
-    }
-    const availableIds = new Set(accountsQuery.data.map((account) => account.id))
-    return selectedAccountsScope(requestedScope.accountIds.filter((id) => availableIds.has(id)))
-  }, [accountsQuery.data, requestedScope])
+  const scope = requestedScope
 
   useEffect(() => {
     if (!accountsQuery.data) return
-
-    const canonicalParams = writeAccountScope(searchParams, scope)
-    if (canonicalParams.toString() === searchParams.toString()) return
-
-    if (
-      requestedScope.mode === 'selected'
-      && (scope.mode === 'all' || scope.accountIds.length !== requestedScope.accountIds.length)
-    ) {
-      setSelectionNotice('accountScope.notice.removed')
+    if (requestedScope.mode === 'all') {
+      setSelectionNotice('')
+      return
     }
-    setSearchParams(canonicalParams, { replace: true })
-  }, [accountsQuery.data, requestedScope, scope, searchParams, setSearchParams])
+    const availableIds = new Set(accountsQuery.data.map((account) => account.id))
+    const hasUnavailableSelection = requestedScope.accountIds.some((id) => !availableIds.has(id))
+    setSelectionNotice(hasUnavailableSelection ? 'accountScope.notice.invalid' : '')
+  }, [accountsQuery.data, requestedScope])
 
   const setScope = useCallback((nextScope: AccountScopeValue) => {
     setSelectionNotice('')

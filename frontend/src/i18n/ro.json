@@ -28,9 +28,13 @@
     "empty": "Nu au fost găsite conturi TradeJAudit.",
     "noResults": "Niciun cont corespunzător",
     "notice": {
-      "removed": "Un cont care nu mai este accesibil a fost eliminat din selecție."
+      "removed": "Un cont care nu mai este accesibil a fost eliminat din selecție.",
+      "invalid": "Selecția de cont solicitată nu mai este accesibilă. Nu au fost înlocuite alte conturi."
     },
-    "mixedCurrency": "Analizele monetare combinate nu sunt disponibile deoarece conturile selectate folosesc monede de bază diferite."
+    "mixedCurrency": "Analizele monetare combinate nu sunt disponibile deoarece conturile selectate folosesc monede de bază diferite.",
+    "missingCurrency": "Analizele monetare nu sunt disponibile deoarece moneda de bază a contului selectat nu este configurată.",
+    "noAccountsSelected": "Analizele monetare nu sunt disponibile deoarece nu există conturi în domeniul selectat.",
+    "invalidSelection": "Analizele monetare nu sunt disponibile deoarece selecția de cont solicitată nu este validă."
   },
   "tradingAccounts": {
     "selectorLabel": "Cont de tranzacționare",
@@ -790,6 +794,7 @@
     "unauthorized": "Sesiune expirată sau neautorizată. Autentifică-te din nou.",
     "forbidden": "Nu ai permisiunea pentru această acțiune.",
     "notFound": "Resursa solicitată nu a fost găsită.",
+    "INVALID_ACCOUNT_SELECTION": "Selecția de cont solicitată nu este validă sau nu mai este accesibilă. Nu au fost interogate alte conturi.",
     "validation": "Verifică câmpurile marcate.",
     "EMAIL_NOT_VERIFIED": "Email neverificat. Verifică inboxul sau retrimite verificarea.",
     "EMAIL_IN_USE": "Există deja un cont cu acest email.",

@@ -2,12 +2,13 @@ package com.tradevault.service.account;
 
 import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.User;
+import com.tradevault.exception.AccountDomainException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.service.CurrentUserService;
-import jakarta.persistence.EntityNotFoundException;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,7 +49,10 @@ public class AccountScopeService {
         if (accounts.size() != requestedIds.size()) {
             log.warn("Rejected inaccessible account scope userId={} requestedCount={} resolvedCount={}",
                     user.getId(), requestedIds.size(), accounts.size());
-            throw new EntityNotFoundException("Account scope contains an inaccessible account");
+            throw invalidSelection(
+                    HttpStatus.NOT_FOUND,
+                    "The requested account selection contains an inaccessible or nonexistent account"
+            );
         }
 
         return new AuthorizedAccountScope(
@@ -72,11 +76,17 @@ public class AccountScopeService {
             try {
                 ids.add(UUID.fromString(normalized));
             } catch (IllegalArgumentException ex) {
-                throw new IllegalArgumentException("Account scope must contain internal TradeJAudit account IDs");
+                throw invalidSelection(
+                        HttpStatus.BAD_REQUEST,
+                        "Account selection must contain internal TradeJAudit account IDs"
+                );
             }
         }
         if (ids.isEmpty()) {
-            throw new IllegalArgumentException("Selected account scope must contain at least one account");
+            throw invalidSelection(
+                    HttpStatus.BAD_REQUEST,
+                    "Selected account scope must contain at least one account"
+            );
         }
         return ids.stream()
                 .sorted()
@@ -88,5 +98,9 @@ public class AccountScopeService {
             return primary;
         }
         return fallback;
+    }
+
+    private AccountDomainException invalidSelection(HttpStatus status, String message) {
+        return new AccountDomainException("INVALID_ACCOUNT_SELECTION", status, message);
     }
 }

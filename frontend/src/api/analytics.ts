@@ -171,10 +171,22 @@ export type AnalyticsResponse = {
   accountScope?: {
     mode: 'all' | 'selected'
     accountIds: string[]
+    requestedAccountIds?: string[]
+    resolvedAccountIds?: string[]
+    selectedAccountCount?: number
     accountNames: string[]
+    accountCurrencies?: Array<string | null>
+    normalizedAccountCurrencies?: string[]
     reportingCurrencies: string[]
     reportingCurrency?: string | null
+    displayCurrency?: string | null
     monetaryAnalyticsAvailable: boolean
+    monetaryAnalyticsUnavailableReason?:
+      | 'NONE'
+      | 'MULTIPLE_ACCOUNT_CURRENCIES'
+      | 'MISSING_ACCOUNT_CURRENCY'
+      | 'NO_ACCOUNTS_SELECTED'
+      | 'INVALID_ACCOUNT_SELECTION'
   }
   kpi: KpiSummary
   costs: CostSummary

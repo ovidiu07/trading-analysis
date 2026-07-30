@@ -11,8 +11,15 @@ import java.util.UUID;
 public class AccountScopeMetadata {
     private String mode;
     private List<UUID> accountIds;
+    private List<UUID> requestedAccountIds;
+    private List<UUID> resolvedAccountIds;
+    private int selectedAccountCount;
     private List<String> accountNames;
+    private List<String> accountCurrencies;
+    private List<String> normalizedAccountCurrencies;
     private List<String> reportingCurrencies;
     private String reportingCurrency;
+    private String displayCurrency;
     private boolean monetaryAnalyticsAvailable;
+    private MonetaryAnalyticsUnavailableReason monetaryAnalyticsUnavailableReason;
 }

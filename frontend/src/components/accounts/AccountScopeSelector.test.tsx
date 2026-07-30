@@ -89,4 +89,43 @@ describe('AccountScopeSelector', () => {
     expect(screen.getByText('Account scope: 2 accounts selected')).toBeInTheDocument()
     expect(screen.getByText(/Combined monetary analytics are unavailable/)).toBeInTheDocument()
   })
+
+  it('renders missing account currency separately from mixed currencies', () => {
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <I18nProvider>
+          <AccountScopeSummary
+            scope={{ mode: 'selected', accountIds: [accounts[0].id] }}
+            accounts={accounts}
+            unavailableReason="MISSING_ACCOUNT_CURRENCY"
+            resolvedAccountIds={[accounts[0].id]}
+            selectedAccountCount={1}
+          />
+        </I18nProvider>
+      </ThemeProvider>
+    )
+
+    expect(screen.getByText('Account scope: Primary')).toBeInTheDocument()
+    expect(screen.getByText(/does not have a base currency configured/)).toBeInTheDocument()
+    expect(screen.queryByText(/different base currencies/)).not.toBeInTheDocument()
+  })
+
+  it('does not show a warning for one resolved account with authoritative NONE metadata', () => {
+    render(
+      <ThemeProvider theme={createTheme()}>
+        <I18nProvider>
+          <AccountScopeSummary
+            scope={{ mode: 'selected', accountIds: [accounts[0].id] }}
+            accounts={accounts}
+            unavailableReason="NONE"
+            resolvedAccountIds={[accounts[0].id]}
+            selectedAccountCount={1}
+          />
+        </I18nProvider>
+      </ThemeProvider>
+    )
+
+    expect(screen.getByText('Account scope: Primary')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
 })

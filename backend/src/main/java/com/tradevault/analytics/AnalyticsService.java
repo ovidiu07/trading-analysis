@@ -11,6 +11,7 @@ import com.tradevault.repository.spec.TradeSpecifications;
 import com.tradevault.service.CurrentUserService;
 import com.tradevault.service.account.AccountScopeService;
 import com.tradevault.service.account.AuthorizedAccountScope;
+import com.tradevault.service.account.CurrencyCodeNormalizer;
 import lombok.RequiredArgsConstructor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -111,7 +112,7 @@ public class AnalyticsService {
                 Collectors.summingDouble(t -> t.getPnlNet() == null ? 0 : t.getPnlNet().doubleValue())));
 
         return AnalyticsResponse.builder()
-                .accountScope(buildAccountScopeMetadata(accountScope, filtered, user))
+                .accountScope(buildAccountScopeMetadata(accountScope, user))
                 .kpi(kpi)
                 .costs(costs)
                 .drawdown(drawdownResult.summary)
@@ -138,44 +139,55 @@ public class AnalyticsService {
     }
 
     private AccountScopeMetadata buildAccountScopeMetadata(AuthorizedAccountScope scope,
-                                                           List<Trade> trades,
                                                            User user) {
-        List<String> currencies = java.util.stream.Stream.concat(
-                        scope.accounts().stream().map(account -> account.getAccountCurrency()),
-                        trades.stream().map(trade -> firstNonBlank(
-                                trade.getAccountCurrency(),
-                                trade.getTradeCurrency(),
-                                trade.getProfileCurrency()
-                        ))
-                )
-                .filter(Objects::nonNull)
-                .filter(value -> !value.isBlank())
-                .map(String::trim)
-                .map(value -> value.toUpperCase(Locale.ROOT))
+        List<String> accountCurrencies = scope.accounts().stream()
+                .map(account -> account.getAccountCurrency())
+                .toList();
+        List<String> normalizedCurrencies = accountCurrencies.stream()
+                .map(CurrencyCodeNormalizer::normalize)
+                .flatMap(Optional::stream)
                 .distinct()
                 .sorted()
                 .toList();
-        if (currencies.isEmpty() && user.getBaseCurrency() != null) {
-            currencies = List.of(user.getBaseCurrency().toUpperCase(Locale.ROOT));
+        boolean hasMissingOrInvalidCurrency = accountCurrencies.stream()
+                .anyMatch(currency -> CurrencyCodeNormalizer.normalize(currency).isEmpty());
+        MonetaryAnalyticsUnavailableReason unavailableReason;
+        if (scope.accounts().isEmpty()) {
+            unavailableReason = MonetaryAnalyticsUnavailableReason.NO_ACCOUNTS_SELECTED;
+        } else if (hasMissingOrInvalidCurrency) {
+            unavailableReason = MonetaryAnalyticsUnavailableReason.MISSING_ACCOUNT_CURRENCY;
+        } else if (normalizedCurrencies.size() > 1) {
+            unavailableReason = MonetaryAnalyticsUnavailableReason.MULTIPLE_ACCOUNT_CURRENCIES;
+        } else {
+            unavailableReason = MonetaryAnalyticsUnavailableReason.NONE;
         }
-        boolean monetaryAvailable = currencies.size() <= 1;
+        boolean monetaryAvailable = unavailableReason == MonetaryAnalyticsUnavailableReason.NONE;
+        String reportingCurrency = monetaryAvailable ? normalizedCurrencies.get(0) : null;
+        String displayCurrency = reportingCurrency != null
+                ? reportingCurrency
+                : CurrencyCodeNormalizer.normalize(user.getBaseCurrency()).orElse(null);
+        List<UUID> requestedAccountIds = scope.isAll()
+                ? List.of()
+                : scope.accountIds().stream().sorted().toList();
+        List<UUID> resolvedAccountIds = scope.accounts().stream()
+                .map(account -> account.getId())
+                .sorted()
+                .toList();
         return AccountScopeMetadata.builder()
                 .mode(scope.isAll() ? "all" : "selected")
-                .accountIds(scope.accountIds().stream().toList())
+                .accountIds(resolvedAccountIds)
+                .requestedAccountIds(requestedAccountIds)
+                .resolvedAccountIds(resolvedAccountIds)
+                .selectedAccountCount(resolvedAccountIds.size())
                 .accountNames(scope.accounts().stream().map(account -> account.getName()).toList())
-                .reportingCurrencies(currencies)
-                .reportingCurrency(monetaryAvailable && !currencies.isEmpty() ? currencies.get(0) : null)
+                .accountCurrencies(accountCurrencies)
+                .normalizedAccountCurrencies(normalizedCurrencies)
+                .reportingCurrencies(normalizedCurrencies)
+                .reportingCurrency(reportingCurrency)
+                .displayCurrency(displayCurrency)
                 .monetaryAnalyticsAvailable(monetaryAvailable)
+                .monetaryAnalyticsUnavailableReason(unavailableReason)
                 .build();
-    }
-
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
     }
 
     public AnalyticsTimeseriesResponse timeseries(OffsetDateTime from,

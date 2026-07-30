@@ -28,9 +28,20 @@ describe('accountScope', () => {
       .toEqual({ mode: 'selected', accountIds: [FIRST_ID] })
   })
 
-  it('does not treat broker identifiers or malformed values as internal account scope', () => {
-    expect(readAccountScope(new URLSearchParams('accountId=MT5-123456'))).toEqual(allAccountsScope())
-    expect(readAccountScope(new URLSearchParams('accountIds=not-a-uuid'))).toEqual(allAccountsScope())
+  it('preserves invalid explicit selections so the backend can reject them without falling back to all accounts', () => {
+    expect(readAccountScope(new URLSearchParams('accountId=MT5-123456')))
+      .toEqual({ mode: 'selected', accountIds: ['MT5-123456'] })
+    expect(readAccountScope(new URLSearchParams('accountIds=not-a-uuid')))
+      .toEqual({ mode: 'selected', accountIds: ['not-a-uuid'] })
+    expect(accountScopeApiParams(readAccountScope(new URLSearchParams('accountIds=not-a-uuid'))))
+      .toEqual({ accountIds: 'not-a-uuid' })
+  })
+
+  it('gives explicit accountIds precedence over legacy and accountScope values', () => {
+    const scope = readAccountScope(new URLSearchParams(
+      `accountIds=${SECOND_ID}&accountId=${FIRST_ID}&accountScope=all`
+    ))
+    expect(scope).toEqual({ mode: 'selected', accountIds: [SECOND_ID] })
   })
 
   it('writes an explicit all default while preserving unrelated query state', () => {

@@ -2,9 +2,10 @@ package com.tradevault.service.account;
 
 import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.User;
+import com.tradevault.domain.enums.AccountStatus;
+import com.tradevault.exception.AccountDomainException;
 import com.tradevault.repository.AccountRepository;
 import com.tradevault.service.CurrentUserService;
-import jakarta.persistence.EntityNotFoundException;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -67,8 +68,16 @@ class AccountScopeServiceTest {
 
     @Test
     void rejectsMalformedAndLegacyBrokerIdentifiers() {
-        assertThrows(IllegalArgumentException.class, () -> accountScopeService.resolve("broker-123", null));
-        assertThrows(IllegalArgumentException.class, () -> accountScopeService.resolve(" , ", null));
+        AccountDomainException malformed = assertThrows(
+                AccountDomainException.class,
+                () -> accountScopeService.resolve("broker-123", null)
+        );
+        AccountDomainException empty = assertThrows(
+                AccountDomainException.class,
+                () -> accountScopeService.resolve(" , ", null)
+        );
+        assertEquals("INVALID_ACCOUNT_SELECTION", malformed.getCode());
+        assertEquals("INVALID_ACCOUNT_SELECTION", empty.getCode());
     }
 
     @Test
@@ -79,9 +88,39 @@ class AccountScopeServiceTest {
                 .thenReturn(List.of(account(ownedId, "Owned")));
 
         assertThrows(
-                EntityNotFoundException.class,
+                AccountDomainException.class,
                 () -> accountScopeService.resolve(ownedId + "," + inaccessibleId, null)
         );
+    }
+
+    @Test
+    void explicitAccountIdsTakePrecedenceOverLegacyAccountId() {
+        UUID explicitId = UUID.randomUUID();
+        UUID legacyId = UUID.randomUUID();
+        Account explicit = account(explicitId, "Explicit");
+        when(accountRepository.findByUserIdAndIdIn(org.mockito.ArgumentMatchers.eq(userId), anyCollection()))
+                .thenReturn(List.of(explicit));
+
+        AuthorizedAccountScope scope = accountScopeService.resolve(explicitId.toString(), legacyId.toString());
+
+        assertEquals(Set.of(explicitId), scope.accountIds());
+        assertEquals(List.of(explicit), scope.accounts());
+        verify(accountRepository).findByUserIdAndIdIn(userId, Set.of(explicitId));
+    }
+
+    @Test
+    void resolvesAnExplicitArchivedAccountForHistoricalQueriesWithoutExpandingTheScope() {
+        UUID archivedId = UUID.randomUUID();
+        Account archived = account(archivedId, "Archived");
+        archived.setStatus(AccountStatus.ARCHIVED);
+        when(accountRepository.findByUserIdAndIdIn(org.mockito.ArgumentMatchers.eq(userId), anyCollection()))
+                .thenReturn(List.of(archived));
+
+        AuthorizedAccountScope scope = accountScopeService.resolve(archivedId.toString(), null);
+
+        assertEquals(AuthorizedAccountScope.Mode.SELECTED, scope.mode());
+        assertEquals(Set.of(archivedId), scope.accountIds());
+        assertEquals(List.of(archived), scope.accounts());
     }
 
     private Account account(UUID id, String name) {

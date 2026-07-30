@@ -28,9 +28,13 @@
     "empty": "No TradeJAudit accounts were found.",
     "noResults": "No matching accounts",
     "notice": {
-      "removed": "An account that is no longer accessible was removed from the selection."
+      "removed": "An account that is no longer accessible was removed from the selection.",
+      "invalid": "The requested account selection is no longer accessible. No other accounts were substituted."
     },
-    "mixedCurrency": "Combined monetary analytics are unavailable because the selected accounts use different base currencies."
+    "mixedCurrency": "Combined monetary analytics are unavailable because the selected accounts use different base currencies.",
+    "missingCurrency": "Monetary analytics are unavailable because the selected account does not have a base currency configured.",
+    "noAccountsSelected": "Monetary analytics are unavailable because there are no accounts in the selected scope.",
+    "invalidSelection": "Monetary analytics are unavailable because the requested account selection is invalid."
   },
   "tradingAccounts": {
     "selectorLabel": "Trading account",
@@ -791,6 +795,7 @@
     "unauthorized": "Unauthorized or expired session. Please log in again.",
     "forbidden": "You do not have permission to perform this action.",
     "notFound": "The requested resource was not found.",
+    "INVALID_ACCOUNT_SELECTION": "The requested account selection is invalid or no longer accessible. No other accounts were queried.",
     "validation": "Please review the highlighted fields.",
     "EMAIL_NOT_VERIFIED": "Email not verified. Please check your inbox or resend verification.",
     "EMAIL_IN_USE": "An account with this email already exists.",
