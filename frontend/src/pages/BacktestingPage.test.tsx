@@ -234,6 +234,7 @@ describe('BacktestingPage Evidence Engine', () => {
     })
 
     renderPage()
+    await userEvent.click(await screen.findByRole('checkbox', { name: 'Show excluded records' }))
     await screen.findByText('GER40 · Long')
     expect(screen.getByText('Excluded')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Classify' })).not.toBeInTheDocument()

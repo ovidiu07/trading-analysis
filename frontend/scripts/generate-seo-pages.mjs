@@ -447,7 +447,7 @@ const homeLandingContent = {
       title: 'Metrics that matter',
       intro: 'A focused set of diagnostics to separate process quality from noise.',
       items: [
-        { title: 'Win rate', value: '52.4%', body: 'Shows whether your edge is real or random.' },
+        { title: 'Win rate', value: '52.4%', body: 'Share of eligible trades with positive net results. Win rate alone does not establish an edge.' },
         { title: 'Profit factor', value: '1.58', body: 'Shows whether average wins outweigh losses after costs.' },
         { title: 'Expectancy', value: '0.22R', body: 'Shows expected outcome per trade over a sample.' },
         { title: 'Drawdown and recovery', value: '-6.1%', body: 'Shows whether risk is controlled and recoverable.' },
@@ -918,6 +918,7 @@ const buildLanguageLinks = (language, pageSlug) => {
 }
 
 const buildPrimaryCtaHref = (language, pageKey) => {
+  if (pageKey === 'about') return normalizePublicPath(language, 'features')
   const base = legalPages.has(pageKey) ? '/login' : '/register'
   return `${base}?lang=${language}`
 }
@@ -936,7 +937,7 @@ const buildSecondaryCtaHref = (language, pageKey) => {
   return normalizePublicPath(language, slug)
 }
 
-const buildRegisterPathHref = (language, audiencePath) => `/register?lang=${language}&path=${audiencePath}`
+const buildRegisterPathHref = (language, audiencePath) => `/register?lang=${language}`
 
 const buildPreviewImage = ({ key, alt, eager = false, sizes = '(max-width: 1080px) 92vw, 460px' }) => {
   const asset = previewAssets[key]
@@ -1101,6 +1102,10 @@ const HeroWithPreview = (language, current) => {
   `
 }
 
+const SampleReview = (language) => language === 'ro' ? `
+<section class="section" aria-labelledby="sample-review"><div class="card"><h2 id="sample-review">Exemplu de evaluare · date sintetice</h2><p>Observație: 3 dintre 8 tranzacții evaluate s-au abătut de la planul declarat.</p><p>Eșantion: un cont demonstrativ, o sesiune, 8 evaluări confirmate de utilizator. Acesta nu este un rezultat al unui client.</p><details><summary>Inspectează dovezile exemplului</summary><p>DEMO-2: intrare înaintea confirmării. DEMO-5: invalidare ignorată. DEMO-7: setup diferit de cel planificat.</p></details><p>Acțiune: verifică condiția de intrare înaintea execuției.</p><p>Obiectivul sesiunii următoare: notează confirmarea înainte de a deschide o poziție.</p><p>Importuri disponibile: Trading 212 CSV, MT5 HTML și Tradovate. Rezultatele depind de datele înregistrate.</p></div></section>` : `
+<section class="section" aria-labelledby="sample-review"><div class="card"><h2 id="sample-review">Sample review · synthetic data</h2><p>Observation: 3 of 8 reviewed trades deviated from the stated plan.</p><p>Sample: one demonstration account, one session, 8 user-confirmed assessments. This is not a customer result.</p><details><summary>Inspect the example evidence</summary><p>DEMO-2: entry before confirmation. DEMO-5: invalidation ignored. DEMO-7: a different setup from the plan.</p></details><p>Review action: check the entry condition before execution.</p><p>Next-session focus: record confirmation before opening a position.</p><p>Supported imports: Trading 212 CSV, MT5 HTML and Tradovate. Results depend on recorded data.</p></div></section>`
+
 const PathSelector = (language) => {
   const content = homeLandingContent[language].pathSelector
 
@@ -1247,7 +1252,7 @@ const FinalCTA = (language) => {
 
 const renderHome = (language, current) => `
   ${HeroWithPreview(language, current)}
-  ${PathSelector(language)}
+  ${SampleReview(language)}
   ${WorkflowSteps(language)}
   ${PreviewGallery(language)}
   ${MetricsGrid(language)}
@@ -1293,14 +1298,14 @@ const renderPricing = (language, current) => {
         <h2 id="pricing-title">${escapeHtml(blueprint.tiersTitle)}</h2>
       </div>
       <div class="card-grid card-grid-3">
-        ${blueprint.tiers.map((tier) => `
+        ${blueprint.tiers.slice(0, 2).map((tier, index) => `
           <article class="card pricing-card${tier.featured ? ' pricing-card-featured' : ''}">
             <p class="plan-name">${escapeHtml(tier.name)}</p>
-            <p class="plan-price">${escapeHtml(tier.price)}<span>${escapeHtml(tier.period)}</span></p>
+            <p class="plan-price">${index === 0 ? escapeHtml(tier.price) : (language === 'ro' ? 'În pregătire' : 'Not yet available')}<span>${index === 0 ? escapeHtml(tier.period) : ''}</span></p>
             <ul>
-              ${tier.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join('')}
+              ${index === 0 ? tier.bullets.map((item) => `<li>${escapeHtml(item)}</li>`).join('') : `<li>${language === 'ro' ? 'Prețul de $19/lună este o ipoteză. Plata și limitele Pro nu sunt disponibile.' : 'The $19/month price is a hypothesis. Checkout and Pro limits are not available.'}</li>`}
             </ul>
-            <a class="button ${tier.featured ? 'button-primary' : 'button-ghost'}" href="/register?lang=${language}">${escapeHtml(tier.cta)}</a>
+            ${index === 0 ? `<a class="button button-primary" href="/register?lang=${language}">${escapeHtml(tier.cta)}</a>` : `<p>${language === 'ro' ? 'Nu se percep plăți.' : 'No payment is collected.'}</p>`}
           </article>
         `).join('')}
       </div>
@@ -2529,14 +2534,6 @@ const buildHtml = ({ language, page }) => {
   <meta name="twitter:description" content="${escapeHtml(current.description)}" />
   <meta name="twitter:image" content="${OG_IMAGE}" />
   <meta name="theme-color" content="#060b12" />
-  <!-- Google tag (gtag.js) -->
-  <script async src="https://www.googletagmanager.com/gtag/js?id=G-8H5HCBG170"></script>
-  <script>
-    window.dataLayer = window.dataLayer || [];
-    function gtag(){dataLayer.push(arguments);}
-    gtag('js', new Date());
-    gtag('config', 'G-8H5HCBG170');
-  </script>
   ${jsonLd}
   <style>${styles}</style>
 </head>

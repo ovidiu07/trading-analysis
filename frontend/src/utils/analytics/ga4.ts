@@ -23,11 +23,11 @@ const isDevEnabled = import.meta.env.DEV
 const isAnalyticsGloballyEnabled = Boolean(GA_ID) && isDevEnabled
 
 function hasAnalyticsConsent() {
-  // TODO: Wire this to cookie consent state if/when a consent banner is implemented.
-  return true
+  return localStorage.getItem('app.analyticsConsent') === 'granted'
 }
 
 function canUseAnalytics() {
+  if (typeof window !== 'undefined' && /^\/(login|register|verify|verify-email|reset-password|forgot-password|auth|oauth|callback)(\/|$)/.test(window.location.pathname)) return false
   return typeof window !== 'undefined' && typeof document !== 'undefined' && isAnalyticsGloballyEnabled && hasAnalyticsConsent()
 }
 
@@ -61,7 +61,9 @@ function ensureScriptTag() {
 }
 
 function normalizePagePath(path: string) {
-  const trimmed = (path || '/').trim()
+  const trimmed = (path || '/').split(/[?#]/)[0].trim()
+  const publicPaths = new Set(['/', '/en/', '/ro/', '/today', '/trades', '/analytics', '/dashboard', '/coach', '/diagnostics', '/strategies', '/backtesting', '/calendar', '/notebook', '/settings'])
+  if (!publicPaths.has(trimmed)) return '/other'
   return trimmed.startsWith('/') ? trimmed : `/${trimmed}`
 }
 
@@ -98,9 +100,7 @@ function sanitizeEventParams(params: Record<string, unknown>) {
 
   const payload: Record<string, unknown> = {
     page_path: pagePath,
-    feature_area: typeof params.feature_area === 'string' && params.feature_area
-      ? params.feature_area
-      : getFeatureArea(pagePath)
+    feature_area: getFeatureArea(pagePath)
   }
 
   Object.entries(params).forEach(([key, value]) => {
@@ -109,10 +109,10 @@ function sanitizeEventParams(params: Record<string, unknown>) {
     }
     if (key === 'error_message') {
       const trimmed = getTrimmedErrorMessage(value)
-      if (trimmed) payload.error_message = trimmed
+      if (trimmed) payload.error_present = true
       return
     }
-    payload[key] = value
+    if (['count', 'success', 'method', 'source'].includes(key) && (typeof value === 'number' || typeof value === 'boolean')) payload[key] = value
   })
 
   return payload
@@ -162,14 +162,14 @@ export function initializeAnalytics() {
   ensureDataLayerAndGtag()
 
   window.gtag?.('js', new Date())
-  window.gtag?.('config', GA_ID, { send_page_view: false })
+  window.gtag?.('config', GA_ID, { send_page_view: false, page_location: `${window.location.origin}${getCurrentPagePath()}`, page_referrer: '', page_title: 'TradeJAudit' })
   window.__tradeJAuditGaInitialized = true
 
   bindOutboundClickTracking()
 }
 
 export function trackPageView(path: string) {
-  if (!canUseAnalytics()) return
+  if (!canUseAnalytics() || /^\/(login|register|verify|verify-email|reset-password|forgot-password|auth|oauth|callback)(\/|$)/.test(window.location.pathname)) return
 
   initializeAnalytics()
   if (typeof window.gtag !== 'function') return
@@ -182,13 +182,14 @@ export function trackPageView(path: string) {
   window.__tradeJAuditLastTrackedPagePath = pagePath
   window.gtag('config', GA_ID, {
     page_path: pagePath,
-    page_location: window.location.href,
-    page_title: document.title
+    page_location: `${window.location.origin}${pagePath}`,
+    page_title: 'TradeJAudit',
+    page_referrer: ''
   })
 }
 
 export function trackEvent(name: string, params: Record<string, unknown> = {}) {
-  if (!canUseAnalytics() || !name) return
+  if (!canUseAnalytics() || !name || /^\/(login|register|verify|verify-email|reset-password|forgot-password|auth|oauth|callback)(\/|$)/.test(window.location.pathname)) return
 
   initializeAnalytics()
   if (typeof window.gtag !== 'function') return

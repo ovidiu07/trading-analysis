@@ -387,12 +387,21 @@ public class GrowthCoachService {
         BigDecimal costR = sample.expectancyR() == null || monthClosed.isEmpty()
                 ? null
                 : average(monthClosed.stream().map(this::costInR).filter(Objects::nonNull).toList());
+        PeriodContext periodContext = GrowthCoachPeriodResolver.resolve(periodType, anchorDate, zone, Clock.systemUTC());
+        OperatingSystem operatingSystem = operatingService.build(
+                user, account, profile, plan, periodContext, trades, ledgerEvents, initialCapital,
+                floating, exposure.totalOpenRisk(), exposure.openRiskKnown());
+        BigDecimal effectiveCap = operatingSystem.tradingPermission().maximumPermittedRisk();
+        BigDecimal effectiveRecommendation = effectiveCap == null || riskPlan.recommendedRiskAmount() == null
+                ? null : effectiveCap.min(riskPlan.recommendedRiskAmount());
+        String effectiveRiskState = effectiveCap == null ? "UNKNOWN" : effectiveCap.signum() == 0 ? "BLOCKED"
+                : "REDUCED_RISK_ONLY".equals(operatingSystem.tradingPermission().state()) ? "REDUCED" : riskPlan.state();
         List<CoachMessage> messages = messageEngine.evaluate(new GrowthCoachMessageEngine.Context(
                 initialCapital,
                 exposure.openRiskKnown(),
                 exposure.openTradeCount(),
                 exposure.tradesWithoutStop() + exposure.tradesWithoutQuantity(),
-                riskPlan.state(),
+                effectiveRiskState,
                 capital.dailyLossRemaining(),
                 target.targetReached(),
                 target.realisedCurrentMonthPnl().subtract(target.targetAmount()),
@@ -406,8 +415,8 @@ public class GrowthCoachService {
                 target.tradingDaysRemaining(),
                 floating,
                 plan.getPlannedRiskPerTradePct(),
-                riskPlan.recommendedRiskPct(),
-                riskPlan.recommendedRiskAmount(),
+                pct(effectiveRecommendation, capitalRules.riskReferenceCapital()),
+                effectiveRecommendation,
                 currentStreak,
                 sample.expectancyR(),
                 sample.outcomes().size(),
@@ -415,10 +424,7 @@ public class GrowthCoachService {
                 costPct,
                 costR
         ));
-        PeriodContext periodContext = GrowthCoachPeriodResolver.resolve(periodType, anchorDate, zone, Clock.systemUTC());
-        OperatingSystem operatingSystem = operatingService.build(
-                user, account, profile, plan, periodContext, trades, ledgerEvents, initialCapital,
-                floating, exposure.totalOpenRisk(), exposure.openRiskKnown());
+
 
         return new Detail(
                 new AccountInfo(account.getId(), account.getName(), account.getBroker(), profile.getAccountType().name(),

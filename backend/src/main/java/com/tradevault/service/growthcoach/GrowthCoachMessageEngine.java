@@ -100,7 +100,7 @@ public class GrowthCoachMessageEngine {
                     List.of("growthCoach.actions.followPlan")));
         }
         if (context.sampleSize() == 0) {
-            messages.add(message("NO_CLOSED_TRADES", "NO_DATA", "CAUTION", 850, false,
+            messages.add(message(context.realisedTradeCount() == 0 ? "NO_CLOSED_TRADES" : "NO_VALID_R_SAMPLE", "NO_DATA", "CAUTION", 850, false,
                     Map.of(), List.of("growthCoach.actions.addTrades")));
         } else if (context.sampleSize() < 20) {
             messages.add(message("LOW_SAMPLE_SIZE", "NO_DATA", "CAUTION", 840, false,

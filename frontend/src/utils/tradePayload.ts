@@ -10,7 +10,7 @@ type TradeFormValues = {
   closedAt?: string
   timeframe?: string
   quantity: number
-  entryPrice: number
+  entryPrice: number | ''
   exitPrice?: number
   stopLossPrice?: number
   takeProfitPrice?: number

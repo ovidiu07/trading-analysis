@@ -1771,6 +1771,10 @@ export default function NotebookPage() {
         icon={<MenuBookIcon fontSize="small" />}
       />
 
+      {(listCollapsed || (isMobile && mobilePanel !== 'list')) && <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1}>
+        <NewNoteMenu onCreate={handleCreateNote} onCreateFromTemplate={() => setTemplateDialogOpen(true)} onCreateLossRecap={() => setLossRecapOpen(true)} />
+        <TextField label={t('notebook.placeholders.searchNotes')} value={searchQuery} onChange={event => { setSearchQuery(event.target.value); if (listCollapsed) togglePane('listCollapsed'); if (isMobile) setMobilePanel('list') }} />
+      </Stack>}
       {error && <ErrorBanner message={error} />}
       {infoMessage && (
         <Alert severity="info" onClose={() => setInfoMessage('')}>

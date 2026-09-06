@@ -1,3 +1,4 @@
+import { formatNetResult, convertedNetResult } from '../utils/tradeMoney'
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
 import {
@@ -362,7 +363,7 @@ const buildDefaultValues = (timeZone: string, accountRefId = ''): TradeFormValue
   closedAt: '',
   timeframe: '',
   quantity: 1,
-  entryPrice: 0,
+  entryPrice: '',
   exitPrice: undefined,
   stopLossPrice: undefined,
   takeProfitPrice: undefined,
@@ -823,17 +824,15 @@ export default function TradesPage() {
       flex: 1,
       renderCell: (params) => {
         const row = params.row as TradeResponse
-        const profileCurrency = row.profileCurrency || baseCurrency
-        const tradeCurrency = row.tradeCurrency || profileCurrency
-        const pnlProfileCurrency = row.pnlProfileCurrency ?? row.pnlNet
+
         return (
           <Stack spacing={0.1} sx={{ minWidth: 0 }}>
             <Typography variant="body2" sx={{ fontWeight: 600 }}>
-              {formatSignedCurrency(pnlProfileCurrency, profileCurrency)}
+              {formatNetResult(row)}
             </Typography>
-            {tradeCurrency !== profileCurrency && (
+            {convertedNetResult(row) && (
               <Typography variant="caption" color="text.secondary">
-                {formatSignedCurrency(row.pnlNet, tradeCurrency)}
+                {convertedNetResult(row)}
               </Typography>
             )}
           </Stack>
@@ -960,6 +959,10 @@ export default function TradesPage() {
       setLoading(false)
     }
   }, [activeFilters, handleAuthFailure, hasSelectedAccountScope, isAuthenticated, paginationModel.page, paginationModel.pageSize, scopedAccountIds, t, timezone, viewMode])
+
+  useEffect(() => {
+    if (new URLSearchParams(location.search).get('import') === '1') setImportDialogOpen(true)
+  }, [location.search])
 
   const handleImportClick = useCallback(() => {
     setImportDialogOpen(true)
@@ -1392,11 +1395,11 @@ export default function TradesPage() {
               <Grid item xs={6}>
                 <Stack spacing={0.1}>
                   <Typography variant="body2">
-                    {t('trades.card.pnl')}: {formatSignedCurrency(trade.pnlProfileCurrency ?? trade.pnlNet, trade.profileCurrency || baseCurrency)}
+                    {t('trades.card.pnl')}: {formatNetResult(trade)}
                   </Typography>
-                  {(trade.tradeCurrency || trade.profileCurrency || baseCurrency) !== (trade.profileCurrency || baseCurrency) && (
+                  {convertedNetResult(trade) && (
                     <Typography variant="caption" color="text.secondary">
-                      {formatSignedCurrency(trade.pnlNet, trade.tradeCurrency || trade.profileCurrency || baseCurrency)}
+                      {convertedNetResult(trade)}
                     </Typography>
                   )}
                 </Stack>
@@ -1406,7 +1409,7 @@ export default function TradesPage() {
               </Grid>
               <Grid item xs={12}>
                 <Typography variant="caption" color="text.secondary">
-                  {t('trades.details.fxRate')}: {formatNumber(trade.fxRateTradeToProfile ?? 1, 6)} • {t('trades.details.fxSource')}: {trade.fxRateSource || t('common.na')}
+                  {t('trades.details.fxRate')}: {formatNumber(trade.fxRateTradeToProfile, 6)} • {t('trades.details.fxSource')}: {trade.fxRateSource || t('common.na')}
                 </Typography>
               </Grid>
               {trade.source === 'TRADING212_CSV' && (
@@ -1599,9 +1602,9 @@ export default function TradesPage() {
                       <Typography variant="subtitle2" gutterBottom>{t('trades.details.currency')}</Typography>
                       <Typography variant="body2">{t('trades.form.profileCurrency')}: {profileCurrency}</Typography>
                       <Typography variant="body2">{t('trades.form.tradeCurrency')}: {tradeCurrency}</Typography>
-                      <Typography variant="body2">{t('trades.details.pnlProfile')}: {formatSignedCurrency(pnlProfileCurrency, profileCurrency)}</Typography>
-                      <Typography variant="body2">{t('trades.details.pnlTrade')}: {formatSignedCurrency(expandedTrade.pnlNet, tradeCurrency)}</Typography>
-                      <Typography variant="body2">{t('trades.details.fxRate')}: {formatNumber(expandedTrade.fxRateTradeToProfile ?? 1, 6)}</Typography>
+                      <Typography variant="body2">{t('trades.details.pnlProfile')}: {convertedNetResult(expandedTrade) || '—'}</Typography>
+                      <Typography variant="body2">{t('trades.details.pnlTrade')}: {formatNetResult(expandedTrade)}</Typography>
+                      <Typography variant="body2">{t('trades.details.fxRate')}: {formatNumber(expandedTrade.fxRateTradeToProfile, 6)}</Typography>
                       <Typography variant="body2">{t('trades.details.fxSource')}: {expandedTrade.fxRateSource || t('common.na')}</Typography>
                       <Typography variant="body2">{t('trades.details.fxTimestamp')}: {expandedTrade.fxRateTimestamp ? formatDateTime(expandedTrade.fxRateTimestamp, timezone) : t('common.na')}</Typography>
                     </Grid>
@@ -1891,6 +1894,7 @@ export default function TradesPage() {
       <TradeImportDialog
         open={importDialogOpen}
         userTimezone={timezone}
+        selectedAccountId={resolvePreselectedAccountId() || undefined}
         onClose={() => setImportDialogOpen(false)}
         onTradovate={handleTradovateImport}
         onCommitted={() => { void fetchTrades() }}

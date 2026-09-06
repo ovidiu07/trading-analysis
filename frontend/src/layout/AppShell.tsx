@@ -110,9 +110,11 @@ export default function AppShell() {
     }
 
     return [
-      { key: 'trading', label: t('navGroups.trading'), items: tradingItems },
-      { key: 'journal', label: t('navGroups.journal'), items: journalItems },
-      { key: 'system', label: t('navGroups.system'), items: systemItems }
+      { key: 'trading', label: t('nav.today'), items: tradingItems.filter(x => x.path === '/today') },
+      { key: 'journal', label: t('navGroups.journal'), items: [...journalItems, ...tradingItems.filter(x => x.path === '/calendar')] },
+      { key: 'review', label: t('navGroups.review'), items: tradingItems.filter(x => ['/dashboard', '/analytics', '/coach', '/diagnostics'].includes(x.path)) },
+      { key: 'practice', label: t('navGroups.practice'), items: tradingItems.filter(x => ['/strategies', '/backtesting', '/insights'].includes(x.path)) },
+      { key: 'system', label: t('nav.settings'), items: systemItems }
     ]
   }, [t, user])
 
@@ -208,26 +210,7 @@ export default function AppShell() {
         overflowX: 'clip',
         position: 'relative',
         isolation: 'isolate',
-        '&::before': {
-          content: '""',
-          position: 'fixed',
-          inset: 0,
-          pointerEvents: 'none',
-          zIndex: -2,
-          background: (theme) => theme.palette.mode === 'dark'
-            ? `radial-gradient(900px 420px at -8% -6%, ${theme.palette.primary.main}24 0%, transparent 62%), radial-gradient(820px 380px at 108% -8%, ${theme.palette.secondary.main}22 0%, transparent 58%)`
-            : `radial-gradient(900px 420px at -8% -6%, ${theme.palette.primary.main}20 0%, transparent 62%), radial-gradient(820px 380px at 108% -8%, ${theme.palette.secondary.main}1f 0%, transparent 58%)`
-        },
-        '&::after': {
-          content: '""',
-          position: 'fixed',
-          inset: 0,
-          pointerEvents: 'none',
-          zIndex: -1,
-          opacity: 0.08,
-          backgroundImage: 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.65) 1px, transparent 0)',
-          backgroundSize: '3px 3px'
-        }
+
       }}
     >
       {isAuthenticated && (

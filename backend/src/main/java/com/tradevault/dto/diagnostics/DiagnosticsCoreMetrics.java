@@ -9,6 +9,18 @@ import java.math.BigDecimal;
 @Builder
 public class DiagnosticsCoreMetrics {
     int sampleSize;
+    int rSampleSize;
+    int missingRCount;
+    String rUnavailableReason;
+    int monetarySampleSize;
+    int missingMonetaryCount;
+    String rProfitFactorUnavailableReason;
+    String monetaryProfitFactorUnavailableReason;
+    BigDecimal monetaryWinRate;
+    BigDecimal monetaryExpectancy;
+    BigDecimal monetaryProfitFactor;
+    String monetaryCurrency;
+    String monetaryUnavailableReason;
     BigDecimal winRate;
     BigDecimal expectancyR;
     BigDecimal profitFactor;

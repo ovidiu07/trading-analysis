@@ -98,6 +98,7 @@ public class DiagnosticsService {
                             .strategyId(strategyId)
                             .strategyName(strategyName)
                             .sampleSize(stats.count)
+                            .rSampleSize(stats.rCount)
                             .winRate(scale(stats.winRatePct()))
                             .expectancyR(scale(stats.expectancyR()))
                             .profitFactor(scale(stats.profitFactor()))
@@ -199,6 +200,7 @@ public class DiagnosticsService {
                             .strategyId(strategyId)
                             .strategyName(strategyName)
                             .sampleSize(stats.count)
+                            .rSampleSize(stats.rCount)
                             .winRate(scale(stats.winRatePct()))
                             .expectancyR(scale(stats.expectancyR()))
                             .profitFactor(scale(stats.profitFactor()))
@@ -306,8 +308,11 @@ public class DiagnosticsService {
                                           String backtestSource,
                                           UUID strategyFilter,
                                           AuthorizedAccountScope accountScope) {
-        OffsetDateTime fromTs = from == null ? null : from.atStartOfDay().atOffset(java.time.ZoneOffset.UTC);
-        OffsetDateTime toTs = to == null ? null : to.plusDays(1).atStartOfDay().atOffset(java.time.ZoneOffset.UTC).minusNanos(1);
+        String zoneName = accountScope.accounts().size() == 1 ? accountScope.accounts().get(0).getBrokerTimezone() : null;
+        if (zoneName == null) zoneName = currentUserService.getCurrentUser().getTimezone();
+        java.time.ZoneId zone = java.time.ZoneId.of(zoneName == null ? "Europe/Bucharest" : zoneName);
+        OffsetDateTime fromTs = from == null ? null : from.atStartOfDay(zone).toOffsetDateTime();
+        OffsetDateTime toTs = to == null ? null : to.plusDays(1).atStartOfDay(zone).toOffsetDateTime().minusNanos(1);
         String normalizedSymbol = normalizeOptionalText(symbol);
         String normalizedSession = normalizeOptionalText(sessionWindow);
         String normalizedBacktestSource = normalizeOptionalText(backtestSource);
@@ -354,8 +359,10 @@ public class DiagnosticsService {
                         trade.getStrategyId(),
                         trade.getSymbol(),
                         session,
-                        trade.getClosedAt().getDayOfWeek(),
-                        trade.getRMultiple() == null ? BigDecimal.ZERO : trade.getRMultiple(),
+                        trade.getClosedAt().atZoneSameInstant(zone).getDayOfWeek(),
+                        trade.getRMultiple(),
+                        trade.getPnlNet(),
+                        trade.getSource() == null || trade.getSource() == com.tradevault.domain.enums.TradeSource.MANUAL ? trade.getTradeCurrency() : trade.getAccountCurrency(),
                         null,
                         null,
                         trade.getOpenedAt() != null
@@ -417,8 +424,10 @@ public class DiagnosticsService {
                         trade.getStrategyId(),
                         trade.getSymbol(),
                         session,
-                        eventTime.getDayOfWeek(),
-                        trade.getRMultiple() == null ? BigDecimal.ZERO : trade.getRMultiple(),
+                        eventTime.atZoneSameInstant(zone).getDayOfWeek(),
+                        trade.getRMultiple(),
+                        null,
+                        null,
                         trade.getMaeR(),
                         trade.getMfeR(),
                         trade.getDurationMinutes() == null ? null : BigDecimal.valueOf(trade.getDurationMinutes()),
@@ -436,6 +445,18 @@ public class DiagnosticsService {
         samples.forEach(bucket::add);
         return DiagnosticsCoreMetrics.builder()
                 .sampleSize(bucket.count)
+                .rSampleSize(bucket.rCount)
+                .missingRCount(bucket.count - bucket.rCount)
+                .rUnavailableReason(bucket.rCount == 0 ? "NO_VALID_R_OUTCOMES" : null)
+                .monetarySampleSize((int) samples.stream().filter(x -> x.monetaryOutcome() != null).count())
+                .missingMonetaryCount((int) samples.stream().filter(x -> x.monetaryOutcome() == null).count())
+                .rProfitFactorUnavailableReason(bucket.rCount == 0 ? "NO_VALID_R_OUTCOMES" : bucket.profitFactor() == null ? "NO_LOSS_OBSERVATIONS" : null)
+                .monetaryProfitFactorUnavailableReason(monetaryCurrency(samples) == null ? "MISSING_OR_MIXED_CURRENCY_OR_OUTCOMES" : monetaryMetric(samples, true) == null ? "NO_LOSS_OBSERVATIONS" : null)
+                .monetaryWinRate(monetaryWinRate(samples))
+                .monetaryExpectancy(monetaryMetric(samples, false))
+                .monetaryProfitFactor(monetaryMetric(samples, true))
+                .monetaryCurrency(monetaryCurrency(samples))
+                .monetaryUnavailableReason(monetaryCurrency(samples) == null ? "MISSING_OR_MIXED_CURRENCY_OR_OUTCOMES" : null)
                 .winRate(scale(bucket.winRatePct()))
                 .expectancyR(scale(bucket.expectancyR()))
                 .profitFactor(scale(bucket.profitFactor()))
@@ -443,6 +464,32 @@ public class DiagnosticsService {
                 .avgMfeR(scale(bucket.avgMfeR()))
                 .avgDurationMinutes(scale(bucket.avgDurationMinutes()))
                 .build();
+    }
+
+    // Breakeven is an eligible observation, but is neither a winner nor a loser.
+    private BigDecimal monetaryWinRate(List<TradeSample> samples) {
+        var eligible = samples.stream().map(TradeSample::monetaryOutcome).filter(Objects::nonNull).toList();
+        if (eligible.isEmpty()) return null;
+        return BigDecimal.valueOf(eligible.stream().filter(x -> x.signum() > 0).count())
+                .multiply(BigDecimal.valueOf(100)).divide(BigDecimal.valueOf(eligible.size()), 4, RoundingMode.HALF_UP);
+    }
+
+    private String monetaryCurrency(List<TradeSample> samples) {
+        var eligible = samples.stream().filter(x -> x.monetaryOutcome() != null).toList();
+        if (eligible.isEmpty() || eligible.stream().anyMatch(x -> x.monetaryCurrency() == null || x.monetaryCurrency().isBlank())) return null;
+        var currencies = eligible.stream().map(x -> x.monetaryCurrency().toUpperCase(Locale.ROOT)).distinct().toList();
+        return currencies.size() == 1 ? currencies.get(0) : null;
+    }
+
+    private BigDecimal monetaryMetric(List<TradeSample> samples, boolean factor) {
+        if (monetaryCurrency(samples) == null) return null;
+        var values = samples.stream().map(TradeSample::monetaryOutcome).filter(Objects::nonNull).toList();
+        if (!factor) return values.stream().reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(BigDecimal.valueOf(values.size()), 4, RoundingMode.HALF_UP);
+        var losses = values.stream().filter(x -> x.signum() < 0).reduce(BigDecimal.ZERO, BigDecimal::add).abs();
+        if (losses.signum() == 0) return null;
+        return values.stream().filter(x -> x.signum() > 0).reduce(BigDecimal.ZERO, BigDecimal::add)
+                .divide(losses, 4, RoundingMode.HALF_UP);
     }
 
     private List<DiagnosticsBreakdownRow> buildBreakdown(List<TradeSample> samples,
@@ -460,6 +507,7 @@ public class DiagnosticsService {
                 .map(entry -> DiagnosticsBreakdownRow.builder()
                         .key(entry.getKey())
                         .sampleSize(entry.getValue().count)
+                        .rSampleSize(entry.getValue().rCount)
                         .winRate(scale(entry.getValue().winRatePct()))
                         .expectancyR(scale(entry.getValue().expectancyR()))
                         .build())
@@ -507,8 +555,8 @@ public class DiagnosticsService {
                     .checkedExpectancy(checkedExpectancy)
                     .uncheckedExpectancy(uncheckedExpectancy)
                     .deltaExpectancy(delta)
-                    .checkedCount(checked.count)
-                    .uncheckedCount(unchecked.count)
+                    .checkedCount(checked.rCount)
+                    .uncheckedCount(unchecked.rCount)
                     .build());
         }
 
@@ -554,7 +602,7 @@ public class DiagnosticsService {
     private List<DiagnosticsFailureModeRow> buildFailureModes(List<TradeSample> samples,
                                                               Map<UUID, ContextSnapshot> snapshots) {
         List<TradeSample> losses = samples.stream()
-                .filter(sample -> sample.rMultiple().compareTo(BigDecimal.ZERO) < 0)
+                .filter(sample -> sample.rMultiple() != null && sample.rMultiple().compareTo(BigDecimal.ZERO) < 0)
                 .toList();
         if (losses.isEmpty()) {
             return List.of();
@@ -614,12 +662,13 @@ public class DiagnosticsService {
         List<DiagnosticsSuggestion> suggestions = new ArrayList<>();
 
         triggerImpact.stream()
+                .filter(item -> item.getCheckedCount() >= 8 && item.getUncheckedCount() >= 8)
                 .filter(item -> item.getTriggerKey().toUpperCase(Locale.ROOT).contains("MSS"))
                 .filter(item -> item.getDeltaExpectancy() != null && item.getDeltaExpectancy().compareTo(BigDecimal.valueOf(0.2)) > 0)
                 .findFirst()
                 .ifPresent(item -> suggestions.add(DiagnosticsSuggestion.builder()
-                        .title("Promote MSS to required")
-                        .description("Trades without MSS underperform. Make MSS required before execution.")
+                        .title("Review MSS association")
+                        .description("Recorded outcomes differ by MSS context. Review the examples; this association does not establish causation.")
                         .build()));
 
         failureModes.stream()
@@ -802,6 +851,8 @@ public class DiagnosticsService {
             String sessionLabel,
             DayOfWeek dayOfWeek,
             BigDecimal rMultiple,
+            BigDecimal monetaryOutcome,
+            String monetaryCurrency,
             BigDecimal maeR,
             BigDecimal mfeR,
             BigDecimal durationMinutes,
@@ -834,6 +885,7 @@ public class DiagnosticsService {
     private static final class StatsBucket {
         private int count;
         private int wins;
+        private int rCount;
         private BigDecimal sumR = BigDecimal.ZERO;
         private BigDecimal grossProfit = BigDecimal.ZERO;
         private BigDecimal grossLoss = BigDecimal.ZERO;
@@ -845,10 +897,14 @@ public class DiagnosticsService {
         private int durationCount;
 
         void add(TradeSample sample) {
-            if (sample == null || sample.rMultiple() == null) {
-                return;
-            }
+            if (sample == null) return;
             count++;
+            if (sample.durationMinutes() != null) {
+                sumDurationMinutes = sumDurationMinutes.add(sample.durationMinutes());
+                durationCount++;
+            }
+            if (sample.rMultiple() == null) return;
+            rCount++;
             BigDecimal r = sample.rMultiple();
             sumR = sumR.add(r);
             if (r.compareTo(BigDecimal.ZERO) > 0) {
@@ -865,52 +921,48 @@ public class DiagnosticsService {
                 sumMfeR = sumMfeR.add(sample.mfeR());
                 mfeCount++;
             }
-            if (sample.durationMinutes() != null) {
-                sumDurationMinutes = sumDurationMinutes.add(sample.durationMinutes());
-                durationCount++;
-            }
         }
 
         BigDecimal expectancyR() {
-            if (count == 0) {
-                return BigDecimal.ZERO;
+            if (rCount == 0) {
+                return null;
             }
-            return sumR.divide(BigDecimal.valueOf(count), 6, RoundingMode.HALF_UP);
+            return sumR.divide(BigDecimal.valueOf(rCount), 6, RoundingMode.HALF_UP);
         }
 
         BigDecimal winRatePct() {
-            if (count == 0) {
-                return BigDecimal.ZERO;
+            if (rCount == 0) {
+                return null;
             }
             return BigDecimal.valueOf(wins)
                     .multiply(BigDecimal.valueOf(100))
-                    .divide(BigDecimal.valueOf(count), 6, RoundingMode.HALF_UP);
+                    .divide(BigDecimal.valueOf(rCount), 6, RoundingMode.HALF_UP);
         }
 
         BigDecimal profitFactor() {
             if (grossLoss.compareTo(BigDecimal.ZERO) == 0) {
-                return grossProfit.compareTo(BigDecimal.ZERO) == 0 ? BigDecimal.ZERO : null;
+                return null;
             }
             return grossProfit.divide(grossLoss, 6, RoundingMode.HALF_UP);
         }
 
         BigDecimal avgMaeR() {
             if (maeCount == 0) {
-                return BigDecimal.ZERO;
+                return null;
             }
             return sumMaeR.divide(BigDecimal.valueOf(maeCount), 6, RoundingMode.HALF_UP);
         }
 
         BigDecimal avgMfeR() {
             if (mfeCount == 0) {
-                return BigDecimal.ZERO;
+                return null;
             }
             return sumMfeR.divide(BigDecimal.valueOf(mfeCount), 6, RoundingMode.HALF_UP);
         }
 
         BigDecimal avgDurationMinutes() {
             if (durationCount == 0) {
-                return BigDecimal.ZERO;
+                return null;
             }
             return sumDurationMinutes.divide(BigDecimal.valueOf(durationCount), 6, RoundingMode.HALF_UP);
         }

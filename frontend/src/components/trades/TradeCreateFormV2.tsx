@@ -377,11 +377,11 @@ export function TradeCreateFormV2({
     }
     const tradeCurrency = (values.tradeCurrency || baseCurrency).trim().toUpperCase()
     const profileCurrency = (values.profileCurrency || baseCurrency).trim().toUpperCase()
-    const fxRate = tradeCurrency === profileCurrency ? 1 : (values.fxRateTradeToProfile || 1)
+    const fxRate = tradeCurrency === profileCurrency ? 1 : values.fxRateTradeToProfile
     const totalCosts = (values.fees || 0) + (values.commission || 0) + (values.slippage || 0)
     const liveMetrics = calculateTradeLiveMetrics({
       direction: values.direction,
-      entryPrice: values.entryPrice,
+      entryPrice: values.entryPrice === '' ? null : values.entryPrice,
       exitPrice: values.exitPrice,
       quantity: values.quantity,
       contractMultiplier: values.contractMultiplier,
@@ -391,7 +391,7 @@ export function TradeCreateFormV2({
     })
 
     let pnlProfileCurrency: number | undefined = values.pnlProfileCurrency
-    if (liveMetrics.netPnl !== null) {
+    if (liveMetrics.netPnl !== null && fxRate != null && fxRate > 0) {
       pnlProfileCurrency = liveMetrics.netPnl * fxRate
     }
 
@@ -401,7 +401,7 @@ export function TradeCreateFormV2({
       profileCurrency,
       fxRateTradeToProfile: fxRate,
       fxRateSource: tradeCurrency === profileCurrency ? 'IDENTITY' : (values.fxRateSource || 'MANUAL'),
-      feesProfileCurrency: totalCosts * fxRate,
+      feesProfileCurrency: fxRate != null && fxRate > 0 ? totalCosts * fxRate : undefined,
       pnlProfileCurrency
     })
     await onSubmit(payload)

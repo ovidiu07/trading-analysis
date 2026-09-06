@@ -99,6 +99,29 @@ public class TradeCoachService {
         advice.addAll(buildOvertradingAdvice(metrics, mode, dataQualityPenalty));
         advice.addAll(buildDataQualityAdvice(dataQuality, metrics.size(), mode));
 
+        var currencies = closedForMetrics.stream().filter(x -> x.getPnlNet() != null)
+                .map(x -> x.getSource() == null || x.getSource() == com.tradevault.domain.enums.TradeSource.MANUAL ? x.getTradeCurrency() : x.getAccountCurrency())
+                .filter(Objects::nonNull).distinct().toList();
+        boolean missingCurrency = closedForMetrics.stream().filter(x -> x.getPnlNet() != null)
+                .anyMatch(x -> (x.getSource() == null || x.getSource() == com.tradevault.domain.enums.TradeSource.MANUAL ? x.getTradeCurrency() : x.getAccountCurrency()) == null);
+        if (currencies.size() != 1 || missingCurrency) advice.removeIf(x -> !"coach-data-quality".equals(x.getId()));
+        for (AdviceCard card : advice) {
+            if (card.getTradeIds() == null) {
+                card.setTradeIds(filtered.stream().filter(x -> x.getStatus() == TradeStatus.CLOSED)
+                        .filter(x -> x.getClosedAt() == null || x.getPnlNet() == null || x.getEntryPrice() == null || x.getExitPrice() == null || x.getQuantity() == null || isPnlInconsistent(x))
+                        .map(Trade::getId).toList());
+            }
+            card.setAccountIds(filtered.stream().filter(x -> x.getAccount() != null)
+                    .map(x -> x.getAccount().getId()).distinct().toList());
+            card.setRuleVersion("review-v1");
+            card.setCurrency(currencies.size() == 1 ? currencies.get(0) : null);
+            card.setDateBasis(mode.name());
+            card.setTimezone(DISPLAY_ZONE.getId());
+            card.setFrom(from); card.setTo(to); card.setGeneratedAt(OffsetDateTime.now());
+            card.setEligibleCount(card.getTradeIds().size());
+            card.setMissingCount(closedTrades.size() - metrics.size());
+        }
+
         return CoachResponse.builder()
                 .dataQuality(dataQuality)
                 .advice(advice)
@@ -198,23 +221,15 @@ public class TradeCoachService {
     }
 
     private boolean isPnlInconsistent(Trade trade) {
-        if (trade.getEntryPrice() == null || trade.getExitPrice() == null || trade.getQuantity() == null || trade.getDirection() == null) {
-            return false;
+        // Importers own broker-specific cost, FX and tolerance reconciliation.
+        // A generic price-gross/net comparison is dimensionally incompatible.
+        if (trade.getSource() != null && trade.getSource() != com.tradevault.domain.enums.TradeSource.MANUAL) {
+            return trade.getPnlReconciliationDifference() != null
+                    && trade.getPnlReconciliationDifference().abs().compareTo(new BigDecimal("0.01")) > 0;
         }
-        BigDecimal qty = trade.getQuantity();
-        BigDecimal entry = trade.getEntryPrice();
-        BigDecimal exit = trade.getExitPrice();
-        BigDecimal multiplier = defaultOne(trade.getContractMultiplier());
-        BigDecimal expected = trade.getDirection() == Direction.LONG
-                ? exit.subtract(entry).multiply(qty).multiply(multiplier)
-                : entry.subtract(exit).multiply(qty).multiply(multiplier);
-        BigDecimal actual = trade.getPnlNet();
-        BigDecimal diff = expected.subtract(actual).abs();
-        BigDecimal threshold = expected.abs().multiply(BigDecimal.valueOf(0.1));
-        if (threshold.compareTo(BigDecimal.ONE) < 0) {
-            threshold = BigDecimal.ONE;
-        }
-        return diff.compareTo(threshold) > 0;
+        if (trade.getCalculatedNetPnl() == null || trade.getPnlNet() == null) return false;
+        return trade.getCalculatedNetPnl().subtract(trade.getPnlNet()).abs()
+                .compareTo(new BigDecimal("0.01")) > 0;
     }
 
     private boolean hasDataQualityPenalty(CoachDataQuality dataQuality) {
@@ -231,7 +246,8 @@ public class TradeCoachService {
         if (trade.getClosedAt() == null && trade.getOpenedAt() == null) return null;
         OffsetDateTime eventTime = getEventTime(trade, mode);
         if (eventTime == null) return null;
-        BigDecimal pnlNet = trade.getPnlNet() == null ? BigDecimal.ZERO : trade.getPnlNet();
+        if (trade.getPnlNet() == null) return null;
+        BigDecimal pnlNet = trade.getPnlNet();
         BigDecimal fees = trade.getFees() == null ? BigDecimal.ZERO : trade.getFees();
         BigDecimal commission = trade.getCommission() == null ? BigDecimal.ZERO : trade.getCommission();
         BigDecimal slippage = trade.getSlippage() == null ? BigDecimal.ZERO : trade.getSlippage();
@@ -259,7 +275,7 @@ public class TradeCoachService {
         GroupStatsEntry<Integer> best = eligible.stream().max(Comparator.comparing(e -> e.stats.totalNet)).orElse(null);
         GroupStatsEntry<Integer> worst = eligible.stream().min(Comparator.comparing(e -> e.stats.totalNet)).orElse(null);
         List<AdviceCard> results = new ArrayList<>();
-        if (best != null) {
+        if (best != null && best.stats.totalNet.signum() > 0) {
             results.add(AdviceCard.builder()
                     .id("coach-hour-best-" + best.key)
                     .severity(AdviceSeverity.INFO)
@@ -269,12 +285,13 @@ public class TradeCoachService {
                             "This hour delivers your highest net P&L and expectancy.",
                             "Consider prioritizing setups that complete around this window."
                     ))
+                    .tradeIds(List.copyOf(best.stats.tradeIds))
                     .evidence(buildEvidence(best.stats))
                     .recommendedActions(List.of("Allocate more focus to this hour", "Review setups that win here"))
                     .filters(AdviceFilters.builder().hourBucket(String.valueOf(best.key)).dateMode(mode.name()).status("CLOSED").build())
                     .build());
         }
-        if (worst != null && (best == null || !Objects.equals(best.key, worst.key))) {
+        if (worst != null && worst.stats.totalNet.signum() < 0 && (best == null || !Objects.equals(best.key, worst.key))) {
             results.add(AdviceCard.builder()
                     .id("coach-hour-worst-" + worst.key)
                     .severity(AdviceSeverity.WARN)
@@ -284,6 +301,7 @@ public class TradeCoachService {
                             "This hour has the weakest net performance.",
                             "Reduce size or avoid marginal setups here."
                     ))
+                    .tradeIds(List.copyOf(worst.stats.tradeIds))
                     .evidence(buildEvidence(worst.stats))
                     .recommendedActions(List.of("Cut size during this hour", "Skip low-conviction setups"))
                     .filters(AdviceFilters.builder().hourBucket(String.valueOf(worst.key)).dateMode(mode.name()).status("CLOSED").build())
@@ -303,6 +321,7 @@ public class TradeCoachService {
         }
         List<AdviceCard> results = new ArrayList<>();
         eligible.stream()
+                .filter(entry -> entry.stats.totalNet.signum() > 0)
                 .sorted(Comparator.comparing((GroupStatsEntry<String> entry) -> entry.stats.totalNet).reversed())
                 .limit(3)
                 .forEach(entry -> results.add(AdviceCard.builder()
@@ -314,7 +333,8 @@ public class TradeCoachService {
                                 "This symbol is one of your strongest contributors.",
                                 "Increase attention on repeatable setups that work here."
                         ))
-                        .evidence(buildEvidence(entry.stats))
+                        .tradeIds(List.copyOf(entry.stats.tradeIds))
+                    .evidence(buildEvidence(entry.stats))
                         .recommendedActions(List.of("Review best setups on " + entry.key, "Keep sizing consistent here"))
                         .filters(AdviceFilters.builder().symbol(entry.key).dateMode(mode.name()).status("CLOSED").build())
                         .build()));
@@ -335,7 +355,8 @@ public class TradeCoachService {
                                     "Results are negative with weak profit factor.",
                                     "Stand down until you identify a clear edge or better conditions."
                             ))
-                            .evidence(buildEvidence(entry.stats))
+                            .tradeIds(List.copyOf(entry.stats.tradeIds))
+                    .evidence(buildEvidence(entry.stats))
                             .recommendedActions(List.of("Pause trades on " + entry.key, "Audit recent losses for common triggers"))
                             .filters(AdviceFilters.builder().symbol(entry.key).dateMode(mode.name()).status("CLOSED").build())
                             .build());
@@ -362,7 +383,7 @@ public class TradeCoachService {
         boolean triggered = useR
                 ? best.stats.averageR().subtract(worst.stats.averageR()).abs().compareTo(BigDecimal.valueOf(config.getHoldingBucketDeltaR())) >= 0
                 : delta.compareTo(BigDecimal.valueOf(config.getHoldingBucketDelta())) >= 0;
-        if (!triggered) {
+        if (!triggered || worst.stats.expectancy().signum() >= 0) {
             return List.of();
         }
         return List.of(AdviceCard.builder()
@@ -374,7 +395,8 @@ public class TradeCoachService {
                         "This holding bucket underperforms the best bucket by a wide margin.",
                         "Reduce exposure or tighten exits when trades drift into this range."
                 ))
-                .evidence(buildEvidence(worst.stats))
+                .tradeIds(List.copyOf(worst.stats.tradeIds))
+                    .evidence(buildEvidence(worst.stats))
                 .recommendedActions(List.of("Review exits for " + worst.key + " trades", "Set time-based stop for this bucket"))
                 .filters(AdviceFilters.builder().holdingBucket(worst.key).dateMode(mode.name()).status("CLOSED").build())
                 .build());
@@ -398,6 +420,7 @@ public class TradeCoachService {
                             "Win rate is strong, but payoff ratio is below target.",
                             "Let winners run slightly longer or tighten stop placement."
                     ))
+                    .tradeIds(List.copyOf(overall.tradeIds))
                     .evidence(buildEvidence(overall))
                     .recommendedActions(List.of("Review exit rules", "Measure average win expansion targets"))
                     .filters(AdviceFilters.builder().status("CLOSED").build())
@@ -413,6 +436,7 @@ public class TradeCoachService {
                             "Your losers are contained relative to winners.",
                             "Focus on selectivity to lift the win rate without shrinking payoff."
                     ))
+                    .tradeIds(List.copyOf(overall.tradeIds))
                     .evidence(buildEvidence(overall))
                     .recommendedActions(List.of("Tighten entry filters", "Continue keeping losers small"))
                     .filters(AdviceFilters.builder().status("CLOSED").build())
@@ -428,6 +452,7 @@ public class TradeCoachService {
                             "Expectancy and profit factor are below breakeven.",
                             "Tighten criteria or reduce size until edge improves."
                     ))
+                    .tradeIds(List.copyOf(overall.tradeIds))
                     .evidence(buildEvidence(overall))
                     .recommendedActions(List.of("Audit recent trades", "Reduce size on marginal setups"))
                     .filters(AdviceFilters.builder().status("CLOSED").build())
@@ -455,6 +480,7 @@ public class TradeCoachService {
         }
         return List.of(AdviceCard.builder()
                 .id("coach-costs-drag")
+                .tradeIds(List.copyOf(overall.tradeIds))
                 .severity(AdviceSeverity.WARN)
                 .confidence(confidenceForCount(overall.count, dataQualityPenalty))
                 .title("Costs are a material drag")
@@ -500,6 +526,7 @@ public class TradeCoachService {
                             "Your busiest days are net negative.",
                             "Cap daily trades or pause after a drawdown."
                     ))
+                    .tradeIds(List.copyOf(highVolumeStats.tradeIds))
                     .evidence(buildEvidence(highVolumeStats))
                     .recommendedActions(List.of("Set a daily trade limit", "Pause after 2 consecutive losses"))
                     .filters(AdviceFilters.builder().dateMode(mode.name()).status("CLOSED").build())
@@ -518,6 +545,7 @@ public class TradeCoachService {
                             "Trades placed within minutes of each other are net negative.",
                             "Slow down to avoid reactive decisions."
                     ))
+                    .tradeIds(List.copyOf(clusterStats.tradeIds))
                     .evidence(buildEvidence(clusterStats))
                     .recommendedActions(List.of("Pause 10 minutes after a trade", "Review triggers before re-entry"))
                     .filters(AdviceFilters.builder().dateMode(mode.name()).status("CLOSED").build())
@@ -545,7 +573,7 @@ public class TradeCoachService {
             bullets.add("Entry/exit/quantity fields are incomplete.");
         }
         if (dataQuality.getInconsistentPnlCount() > 0) {
-            bullets.add("Some P&L values do not match price math.");
+            bullets.add("Some recorded results have a source reconciliation discrepancy.");
         }
         AdviceCard card = AdviceCard.builder()
                 .id("coach-data-quality")
@@ -559,7 +587,7 @@ public class TradeCoachService {
                         AdviceEvidence.builder().label("Missing prices/qty").value((double) dataQuality.getMissingEntryExitCount()).kind("number").build(),
                         AdviceEvidence.builder().label("Inconsistent P&L").value((double) dataQuality.getInconsistentPnlCount()).kind("number").build()
                 ))
-                .recommendedActions(List.of("Fill in missing trade fields", "Recalculate P&L after import"))
+                .recommendedActions(List.of("Fill in missing trade fields", "Inspect broker reconciliation; preserve source results"))
                 .filters(AdviceFilters.builder().dateMode(mode.name()).build())
                 .build();
         return List.of(card);
@@ -764,12 +792,14 @@ public class TradeCoachService {
         private BigDecimal totalCosts = BigDecimal.ZERO;
         private BigDecimal sumWins = BigDecimal.ZERO;
         private BigDecimal sumLosses = BigDecimal.ZERO;
+        private final List<UUID> tradeIds = new ArrayList<>();
         private final List<BigDecimal> pnlValues = new ArrayList<>();
         private final List<BigDecimal> rValues = new ArrayList<>();
 
         void add(TradeMetrics metric) {
             if (metric == null) return;
             count++;
+            tradeIds.add(metric.id());
             BigDecimal pnl = metric.pnlNet == null ? BigDecimal.ZERO : metric.pnlNet;
             pnlValues.add(pnl);
             totalNet = totalNet.add(pnl);

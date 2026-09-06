@@ -396,9 +396,12 @@ public class TradeService {
         trade.setCommission(defaultZero(request.getCommission()));
         trade.setSlippage(defaultZero(request.getSlippage()));
         trade.setContractMultiplier(resolveContractMultiplier(request, trade));
-        trade.setFeesProfileCurrency(defaultZero(request.getFeesProfileCurrency()));
-        // Never accept client PnL fields on update; we'll recompute if needed
-        trade.setRiskAmount(request.getRiskAmount());
+        boolean manualResult = trade.getSource() == null || trade.getSource() == com.tradevault.domain.enums.TradeSource.MANUAL;
+        if (manualResult) {
+            trade.setFeesProfileCurrency(request.getFeesProfileCurrency());
+            trade.setRiskAmount(request.getRiskAmount());
+        }
+        // Broker monetary results and original risk stay authoritative during annotations.
         trade.setCapitalUsed(request.getCapitalUsed());
         trade.setTimeframe(request.getTimeframe());
         trade.setSetup(request.getSetup());
@@ -1016,6 +1019,10 @@ public class TradeService {
     }
 
     private void recalculateAndApplyPnl(Trade trade) {
+        if (trade.getSource() != null && trade.getSource() != com.tradevault.domain.enums.TradeSource.MANUAL) {
+            // Imported monetary results remain source-authoritative. Reconciliation is an explicit importer operation.
+            return;
+        }
         // Reset derived fields first
         trade.setPnlGross(null);
         trade.setPnlNet(null);
@@ -1064,6 +1071,7 @@ public class TradeService {
     }
 
     private void applyCurrencyContextForUpdate(Trade trade, TradeRequest request, User user) {
+        if (trade.getSource() != null && trade.getSource() != com.tradevault.domain.enums.TradeSource.MANUAL) return;
         String profileCurrency = resolveProfileCurrency(request.getProfileCurrency(), user.getBaseCurrency(), trade.getProfileCurrency());
         String tradeCurrency = resolveTradeCurrency(request.getTradeCurrency(), profileCurrency, trade.getTradeCurrency());
         BigDecimal fxRate = resolveFxRate(request.getFxRateTradeToProfile(), tradeCurrency, profileCurrency, trade.getFxRateTradeToProfile());
@@ -1091,7 +1099,7 @@ public class TradeService {
             candidate = existingRate;
         }
         if (candidate == null || candidate.compareTo(BigDecimal.ZERO) <= 0) {
-            candidate = BigDecimal.ONE;
+            return null;
         }
         return scaleRate(candidate);
     }
@@ -1128,8 +1136,14 @@ public class TradeService {
     }
 
     private void recalculateProfileCurrencyAmounts(Trade trade) {
+        if (trade.getSource() != null && trade.getSource() != com.tradevault.domain.enums.TradeSource.MANUAL) return;
         BigDecimal fxRate = resolveFxRate(trade.getFxRateTradeToProfile(), trade.getTradeCurrency(), trade.getProfileCurrency(), trade.getFxRateTradeToProfile());
         trade.setFxRateTradeToProfile(fxRate);
+        if (fxRate == null) {
+            trade.setFeesProfileCurrency(null);
+            trade.setPnlProfileCurrency(null);
+            return;
+        }
         trade.setFeesProfileCurrency(scaleMoney(defaultZero(trade.getFees()).multiply(fxRate)));
         if (trade.getPnlNet() == null) {
             trade.setPnlProfileCurrency(null);

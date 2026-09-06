@@ -178,13 +178,13 @@ describe('AppShell dashboard filters and logo placement', () => {
     expect(within(screen.getByRole('navigation')).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'horizontal')
   })
 
-  it('orders trading nav with dashboard directly under today and diagnostics before calendar', () => {
+  it('groups navigation around the daily journal, review and practice loop', () => {
     setViewportWidth(1280)
     renderShell('/today')
 
     const nav = screen.getByRole('navigation')
-    const expectedOrder = ['Today', 'Dashboard', 'Strategies', 'Backtesting', 'Mentor', 'Analytics', 'Diagnostics', 'Calendar']
-    const nodes = expectedOrder.map((label) => within(nav).getByText(label))
+    const expectedOrder = ['Today', 'Trades', 'Notebook', 'Calendar', 'Dashboard', 'Analytics', 'Diagnostics', 'Strategies', 'Backtesting', 'Mentor']
+    const nodes = expectedOrder.map((label) => within(nav).getByRole('link', { name: label, exact: true }))
 
     for (let index = 0; index < nodes.length - 1; index += 1) {
       const first = nodes[index]
@@ -205,6 +205,6 @@ describe('AppShell dashboard filters and logo placement', () => {
       'href',
       `/trades?accountIds=${firstId}%2C${secondId}`
     )
-    expect(within(nav).getByRole('link', { name: 'Backtesting' })).toHaveAttribute('href', '/backtesting')
+    expect(within(nav).getByRole('link', { name: 'Backtesting' })).toHaveAttribute('href', `/backtesting?accountIds=${firstId}%2C${secondId}`)
   })
 })

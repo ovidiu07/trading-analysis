@@ -476,6 +476,7 @@
       "theoreticalMaximum": "Theoretical account maximum risk",
       "remainingTrades": "Remaining trades", "limit": "Applicable limit",
       "reasons": {
+        "tradeCapacity": "The effective trade allowance is exhausted.",
         "withinLimits": "Current evidence remains within the active account and plan limits.",
         "monthlyLoss": "The monthly loss allowance has been exhausted.",
         "weeklyLoss": "The weekly loss allowance has been exhausted.",
@@ -652,7 +653,8 @@
       "STANDARD_RISK": { "title": "Current risk recommendation", "message": "The current recommended risk is {{riskPct}}% or {{riskAmount}} per trade." },
       "LOSING_STREAK": { "title": "Losing streak protection", "message": "You have recorded {{lossCount}} consecutive losses. Historical data supports reduced risk until compliant execution stabilises." },
       "NEGATIVE_EXPECTANCY": { "title": "Target not statistically supported", "message": "Current expectancy is {{expectancyR}}R per trade. The monthly target is not statistically supported without improving trade selection or execution." },
-      "POSITIVE_EXPECTANCY": { "title": "Positive validated expectancy", "message": "The selected projection dataset currently produces an expectancy of {{expectancyR}}R per trade." },
+      "POSITIVE_EXPECTANCY": { "title": "Positive measured R expectancy", "message": "The selected projection dataset currently produces an expectancy of {{expectancyR}}R per trade." },
+      "NO_VALID_R_SAMPLE": {"title": "R sample unavailable", "message": "Closed trades exist, but no valid initial-risk outcomes are available for the projection. Monetary results remain separate."},
       "NO_CLOSED_TRADES": { "title": "No closed-trade sample", "message": "No closed trades are available for this account. Add or import trades before using performance-based projections." },
       "LOW_SAMPLE_SIZE": { "title": "Low sample size", "message": "Only {{tradeCount}} valid trades are available. The current projection has low statistical confidence." },
       "INCONSISTENT_PNL": { "title": "P&L inconsistencies detected", "message": "{{count}} trades have P&L values that do not match the available reconciliation data. Recommendations have reduced confidence." },
@@ -706,6 +708,8 @@
     "openMenu": "Open menu"
   },
   "navGroups": {
+    "review": "Review",
+    "practice": "Practice",
     "trading": "Trading",
     "journal": "Journal",
     "system": "System"
@@ -1173,7 +1177,10 @@
       "loadCoach": "Failed to load coach insights."
     },
     "coach": {
-      "confidenceLabel": "Confidence",
+      "exactEvidence": "Exact qualifying trades: {{count}}",
+      "evidenceLimitations": "Exploratory evidence, not a causal claim or statistical confidence interval. Findings can overlap; their results are not additive.",
+      "staleEvidence": "Evidence is unavailable or has changed. Refresh the observation before acting.",
+      "confidenceLabel": "Evidence strength: {{confidence}}",
       "recommendedActions": "Recommended actions",
       "viewTrades": "View trades"
     },
@@ -2894,6 +2901,7 @@
     "heading": "Preferences",
     "subtitle": "Update your base currency and timezone. Changes apply across the app.",
     "tradingView": {
+      "configurationMissing": "A public HTTPS webhook base URL must be configured by the operator before using this integration.",
       "title": "TradingView signal intelligence", "body": "Generate a webhook secret, paste the JSON alert payload into the Pine signal engine, and TradeJAudit will start storing structured signal events for recommendations and diagnostics.",
       "enabled": "Enabled", "disabled": "Disabled", "loading": "Loading TradingView integration settings…", "enable": "Enable TradingView webhook ingestion",
       "resetSecret": "Reset webhook secret", "generateSecret": "Generate webhook secret", "secretHint": "Current secret hint: {{hint}}", "newSecret": "New webhook secret", "copy": "Copy",
@@ -4064,6 +4072,7 @@
       "ERROR": "Error"
     },
     "inbox": {
+      "showExcluded": "Show excluded records",
       "title": "Research Inbox",
       "description": "Review live trades that need a workspace, classification, or synchronization decision.",
       "needsWorkspace": "Needs workspace",
@@ -4350,5 +4359,92 @@
     "gapLiquidityRelation": "Relation to liquidity",
     "gapConfluenceNotes": "Gap confluence notes",
     "noGapData": "No gap data logged"
+  },
+  "dailyReview": {
+    "screenshots": "Trade screenshots",
+    "addScreenshot": "Choose screenshot",
+    "uploadScreenshot": "Save screenshot",
+    "imageValidation": "Choose a PNG, JPEG, WebP or GIF image up to 20 MB.",
+    "dayNotes": "Notes for this day",
+    "dayNotesScope": "General notes for this date and notes linked to this session’s trades. General notes have no account assignment.",
+    "history": "Review history",
+    "historyLimit": "The latest 100 saved revisions. Earlier revisions remain preserved.",
+    "revision": "Revision {{revision}}",
+    "conflictRecovery": "A draft from an older revision is retained. Compare it with the saved session below before restoring it. Saving creates another revision.",
+    "restoreDraft": "Restore my retained draft",
+    "compactMode": "Compact journal mode",
+    "chartMode": "Expand chart and plan",
+    "chartSymbol": "Chart symbol, including feed prefix",
+    "chartContext": "TradingView · {{symbol}} · exchange timezone · display only; no replay or broker execution",
+    "capacity": "Effective capacity: {{trades}} trades · additional planned risk {{risk}}",
+    "rulesUnavailable": "Account-rule capacity is unavailable. Inspect the account rules before adding risk.",
+    "ruleGuidance": "Application guidance based on recorded data; orders are not blocked at the broker.",
+    "shortQueue": "Show priority queue",
+    "allDecisions": "Show all session decisions",
+    "account": "Trading account",
+    "date": "Session date",
+    "chooseAccount": "Choose one account for this session.",
+    "loading": "Loading session…",
+    "loadError": "Session data could not be loaded. Retry before reviewing.",
+    "retry": "Retry",
+    "net": "Net result",
+    "closed": "Closed trades",
+    "reviewed": "Reviewed",
+    "freshness": "Based on recorded trades · updated {{time}}",
+    "moneyUnavailable": "The net total is unavailable because an outcome or its currency is missing or currencies differ. Counts remain available.",
+    "instruments": "Instruments",
+    "strategy": "Strategy / setup",
+    "noStrategy": "No strategy selected",
+    "focus": "One session focus",
+    "start": "Start session",
+    "timeline": "Execution timeline",
+    "decisions": "Review your decisions",
+    "import": "Import trades",
+    "log": "Log trade",
+    "noTrades": "No recorded executions for this account and date.",
+    "OPEN": "Open",
+    "CLOSED": "Closed",
+    "assessed": "Assessed",
+    "reviewTrade": "Review trade",
+    "carryForward": "What carries forward?",
+    "nextFocus": "One next-session focus",
+    "finish": "Finish review",
+    "complete": "Review completed and saved. You can reopen it; earlier revisions remain preserved.",
+    "reopen": "Reopen review",
+    "saveDraft": "Save session",
+    "saveError": "Save failed or a newer revision exists. Your local draft is retained. Retry, or reload to compare with the saved revision.",
+    "context": "Session context",
+    "noFocus": "Choose a focus during preparation, or review imported executions directly.",
+    "invalidation": "Invalidation",
+    "noTrade": "No-trade condition",
+    "rules": "Review account rules",
+    "chart": "Expand chart workspace",
+    "notes": "Open notebook",
+    "noObservation": "No new pattern worth highlighting here. Review the exact evidence before choosing a process change.",
+    "reviewEvidence": "Explore observations",
+    "contextBasis": "This is your assessment at review time. Current strategy rules are not proof of the rules in effect when this trade was opened.",
+    "note": "Short review note",
+    "fullTrade": "Full trade, notes and screenshots",
+    "states": {
+      "PREPARE": "Prepare",
+      "TRADE": "Trade",
+      "REVIEW": "Review"
+    },
+    "save": {
+      "saved": "Saved",
+      "draft": "Draft · this device",
+      "saving": "Saving…",
+      "error": "Save error"
+    },
+    "carry": {
+      "REPEAT": "Something to repeat",
+      "CHANGE": "Something to change",
+      "COLLECT": "No change yet; collect more evidence"
+    },
+    "assessment": {
+      "FOLLOWED": "Followed my plan",
+      "DEVIATED": "Deviated from my plan",
+      "CANNOT_ASSESS": "Cannot assess"
+    }
   }
 }

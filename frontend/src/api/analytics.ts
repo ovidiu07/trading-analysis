@@ -273,6 +273,17 @@ export type AdviceFilters = {
 }
 
 export type AdviceCard = {
+  tradeIds?: string[]
+  accountIds?: string[]
+  from?: string | null
+  to?: string | null
+  ruleVersion?: string
+  currency?: string | null
+  dateBasis?: string
+  timezone?: string
+  eligibleCount?: number
+  missingCount?: number
+  generatedAt?: string
   id: string
   severity: AdviceSeverity
   confidence: AdviceConfidence

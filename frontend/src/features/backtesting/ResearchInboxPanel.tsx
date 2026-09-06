@@ -59,6 +59,8 @@ export default function ResearchInboxPanel({ inbox, loading, onChanged, onError 
   const { t, locale } = useI18n()
   const theme = useTheme()
   const mobile = useMediaQuery(theme.breakpoints.down('sm'))
+  const [showExcluded, setShowExcluded] = useState(false)
+  const visibleItems = (inbox?.items || []).filter(item => showExcluded || (item.researchInclusionStatus !== 'EXCLUDED' && item.syncStatus !== 'EXCLUDED'))
   const [includeItem, setIncludeItem] = useState<BacktestingEvidence | null>(null)
   const [reasonItem, setReasonItem] = useState<BacktestingEvidence | null>(null)
   const [pickerItem, setPickerItem] = useState<BacktestingEvidence | null>(null)
@@ -159,11 +161,12 @@ export default function ResearchInboxPanel({ inbox, loading, onChanged, onError 
         </Stack>
       </Stack>
 
-      {loading ? <LoadingState rows={2} height={112} /> : !inbox?.items.length ? (
+      <FormControlLabel control={<Checkbox checked={showExcluded} onChange={(_, checked) => setShowExcluded(checked)} />} label={t('backtesting.inbox.showExcluded')} />
+      {loading ? <LoadingState rows={2} height={112} /> : !visibleItems.length ? (
         <EmptyState title={t('backtesting.empty.inboxTitle')} description={t('backtesting.empty.inboxBody')} />
       ) : (
         <Stack spacing={1}>
-          {inbox.items.map((item) => {
+          {visibleItems.map((item) => {
             const inclusionStatus = item.researchInclusionStatus || (item.syncStatus === 'EXCLUDED' ? 'EXCLUDED' : 'INCLUDED')
             const linkStatus = item.workspaceLinkStatus || fallbackLinkStatus(item)
             const excluded = inclusionStatus === 'EXCLUDED'

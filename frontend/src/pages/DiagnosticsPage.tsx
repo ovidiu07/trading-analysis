@@ -170,9 +170,9 @@ export default function DiagnosticsPage() {
                 }}
               >
                 {[
-                  { label: t('diagnostics.live.kpis.winRate'), value: formatPercent(summary.coreMetrics.winRate), icon: <BoltRoundedIcon color="primary" /> },
-                  { label: t('diagnostics.live.kpis.averageR'), value: formatSignedR(summary.coreMetrics.expectancyR), icon: <CandlestickChartRoundedIcon color="primary" /> },
-                  { label: t('diagnostics.live.kpis.profitFactor'), value: formatNumber(summary.coreMetrics.profitFactor, 2), icon: <ChecklistRoundedIcon color="primary" /> },
+                  { label: t('diagnostics.live.kpis.winRate'), value: `${formatPercent(summary.coreMetrics.monetaryWinRate)} · n=${summary.coreMetrics.monetarySampleSize ?? '—'}`, icon: <BoltRoundedIcon color="primary" /> },
+                  { label: t('diagnostics.live.kpis.averageR'), value: `${formatSignedR(summary.coreMetrics.expectancyR)} · n=${summary.coreMetrics.rSampleSize ?? '—'}`, icon: <CandlestickChartRoundedIcon color="primary" /> },
+                  { label: t('diagnostics.live.kpis.profitFactor'), value: formatNumber(summary.coreMetrics.monetaryProfitFactor, 2), icon: <ChecklistRoundedIcon color="primary" /> },
                   { label: t('diagnostics.live.kpis.sampleSize'), value: String(summary.coreMetrics.sampleSize), icon: <InsightsRoundedIcon color="primary" /> }
                 ].map((item) => (
                   <Card key={item.label} sx={{ borderRadius: 3, border: '1px solid', borderColor: 'divider' }}>
@@ -327,7 +327,7 @@ export default function DiagnosticsPage() {
                         <TableRow>
                           <TableCell>{t('diagnostics.live.table.strategy')}</TableCell>
                           <TableCell align="right">{t('diagnostics.live.table.trades')}</TableCell>
-                          <TableCell align="right">{t('diagnostics.live.table.winRate')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.winRate')} (R)</TableCell>
                           <TableCell align="right">{t('diagnostics.live.table.expectancy')}</TableCell>
                         </TableRow>
                       </TableHead>
@@ -335,7 +335,7 @@ export default function DiagnosticsPage() {
                         {summary.strategyPerformance.map((row) => (
                           <TableRow key={row.strategyId}>
                             <TableCell>{row.strategyName}</TableCell>
-                            <TableCell align="right">{row.sampleSize}</TableCell>
+                            <TableCell align="right">{row.sampleSize} · R: {row.rSampleSize ?? '—'}</TableCell>
                             <TableCell align="right">{formatPercent(row.winRate)}</TableCell>
                             <TableCell align="right">{formatSignedR(row.expectancyR)}</TableCell>
                           </TableRow>
@@ -357,7 +357,7 @@ export default function DiagnosticsPage() {
                         <TableRow>
                           <TableCell>{t('diagnostics.live.table.symbol')}</TableCell>
                           <TableCell align="right">{t('diagnostics.live.table.trades')}</TableCell>
-                          <TableCell align="right">{t('diagnostics.live.table.winRate')}</TableCell>
+                          <TableCell align="right">{t('diagnostics.live.table.winRate')} (R)</TableCell>
                           <TableCell align="right">{t('diagnostics.live.table.expectancy')}</TableCell>
                         </TableRow>
                       </TableHead>
@@ -365,7 +365,7 @@ export default function DiagnosticsPage() {
                         {summary.breakdownBySymbol.map((row) => (
                           <TableRow key={row.key}>
                             <TableCell>{row.key}</TableCell>
-                            <TableCell align="right">{row.sampleSize}</TableCell>
+                            <TableCell align="right">{row.sampleSize} · R: {row.rSampleSize ?? '—'}</TableCell>
                             <TableCell align="right">{formatPercent(row.winRate)}</TableCell>
                             <TableCell align="right">{formatSignedR(row.expectancyR)}</TableCell>
                           </TableRow>

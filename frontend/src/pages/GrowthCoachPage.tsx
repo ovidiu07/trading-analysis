@@ -1138,14 +1138,19 @@ function themeColor(positive: boolean, positiveTone: string, negativeTone: strin
 function RecommendedPlan({ detail }: { detail: GrowthCoachDetail }) {
   const { t } = useI18n()
   const { riskPlan, feasibility, projection, target, account, monthlyPlan } = detail
+  const permission = detail.operatingSystem?.tradingPermission
+  const effectiveRisk = permission ? permission.maximumPermittedRisk : riskPlan.maximumPermittedRiskAmount
+  const effectivePct = permission ? permission.maximumPermittedRiskPct : riskPlan.maximumPermittedRiskPct
+  const recommendedRisk = effectiveRisk == null || riskPlan.recommendedRiskAmount == null ? null : Math.min(effectiveRisk, riskPlan.recommendedRiskAmount)
+  const recommendedPct = effectivePct == null || riskPlan.recommendedRiskPct == null ? null : Math.min(effectivePct, riskPlan.recommendedRiskPct)
   return (
     <Card variant="outlined" sx={sectionCardSx}>
       <CardContent sx={{ p: { xs: 2, md: 3 } }}>
         <SectionTitle title={t('growthCoach.recommendedPlan.title')} subtitle={t('growthCoach.recommendedPlan.subtitle')} />
         <Grid container spacing={2} sx={{ mt: 0.5 }}>
           <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.feasibility')} value={t(`growthCoach.feasibility.levels.${feasibility.classification}`)} /></Grid>
-          <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.recommendedRisk')} value={`${formatPercent(riskPlan.recommendedRiskPct)} · ${formatCurrency(riskPlan.recommendedRiskAmount, account.currency)}`} /></Grid>
-          <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.maxSupportedRisk')} value={`${formatPercent(riskPlan.maximumPermittedRiskPct)} · ${formatCurrency(riskPlan.maximumPermittedRiskAmount, account.currency)}`} /></Grid>
+          <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.recommendedRisk')} value={`${formatPercent(recommendedPct)} · ${formatCurrency(recommendedRisk, account.currency)}`} /></Grid>
+          <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.maxSupportedRisk')} value={`${formatPercent(effectivePct)} · ${formatCurrency(effectiveRisk, account.currency)}`} /></Grid>
           <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.currentOpenRisk')} value={detail.openExposure.openRiskKnown ? `${formatPercent(detail.openExposure.openRiskPct)} · ${formatCurrency(detail.openExposure.totalOpenRisk, account.currency)}` : t('growthCoach.unknown')} tone={!detail.openExposure.openRiskKnown ? 'warning' : undefined} /></Grid>
           <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.requiredR')} value={target.requiredR == null ? '—' : `${formatNumber(target.requiredR)}R`} /></Grid>
           <Grid item {...metricGrid}><MetricCard label={t('growthCoach.metrics.expectedTrades')} value={projection.available ? `${formatNumber(projection.expectedTradesLow, 0)}–${formatNumber(projection.expectedTradesHigh, 0)}` : '—'} hint={projection.unavailableReasonKey ? t(projection.unavailableReasonKey) : undefined} /></Grid>

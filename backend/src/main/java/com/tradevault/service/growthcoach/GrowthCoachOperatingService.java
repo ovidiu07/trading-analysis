@@ -429,6 +429,10 @@ public class GrowthCoachOperatingService {
                 first(dayPlan.getDefaultRiskPerTrade(), profile.getDefaultRiskPerTradePct()), baseline);
         BigDecimal resumeRisk = min(plannedResumeRisk, profileCap);
         BigDecimal cap = min(profileCap, day.riskRemaining(), week.riskRemaining(), month.riskRemaining());
+        if (cap != null) {
+            if (month.riskRemaining() != null && cap.compareTo(month.riskRemaining()) == 0) limit = "MONTH";
+            else if (week.riskRemaining() != null && cap.compareTo(week.riskRemaining()) == 0) limit = "WEEK";
+        }
         if (cap != null && openRiskKnown && openRisk != null) cap = cap.subtract(openRisk).max(ZERO);
 
         if (month.lossAllowanceRemaining() != null && month.lossAllowanceRemaining().signum() <= 0) {
@@ -478,11 +482,22 @@ public class GrowthCoachOperatingService {
             if (cap != null) cap = cap.multiply(HUNDRED.subtract(reduction))
                     .divide(HUNDRED, 4, RoundingMode.HALF_UP);
         }
+        Integer effectiveTrades = minInteger(day.tradesRemaining(), week.tradesRemaining(), month.tradesRemaining());
+        if (effectiveTrades != null && effectiveTrades <= 0) {
+            cap = ZERO;
+            state = "DAILY_LOCKOUT";
+            primary = "growthCoach.permission.reasons.tradeCapacity";
+            action = "growthCoach.permission.actions.stopAndReview";
+            limit = month.tradesRemaining() != null && month.tradesRemaining() == 0 ? "MONTH"
+                    : week.tradesRemaining() != null && week.tradesRemaining() == 0 ? "WEEK" : "DAY";
+        }
+        if (cap == null) effectiveTrades = null;
+        else if (cap.signum() == 0) effectiveTrades = 0;
         if (month.targetProgressPct().compareTo(HUNDRED) >= 0) secondary.add("growthCoach.permission.reasons.monthlyTargetComplete");
         if (week.targetProgressPct().compareTo(HUNDRED) >= 0) secondary.add("growthCoach.permission.reasons.weeklyTargetComplete");
         return new TradingPermission(state, primary, secondary, scale(cap), pct(cap, baseline),
                 scale(resumeRisk), pct(resumeRisk, baseline), scale(profileCap), pct(profileCap, baseline),
-                minInteger(day.tradesRemaining(), week.tradesRemaining(), month.tradesRemaining()),
+                effectiveTrades,
                 limit, action);
     }
 

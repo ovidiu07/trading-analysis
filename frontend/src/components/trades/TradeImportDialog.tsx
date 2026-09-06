@@ -21,6 +21,7 @@ import TradingAccountSelector from '../accounts/TradingAccountSelector'
 type Props = {
   open: boolean
   userTimezone: string
+  selectedAccountId?: string
   onClose: () => void
   onTradovate: () => void
   onCommitted: () => void
@@ -35,7 +36,7 @@ const initialTargetAccountId = (accounts: TradingAccountOption[], mappedAccountI
   return accounts.length === 1 ? accounts[0].id : ''
 }
 
-export default function TradeImportDialog({ open, userTimezone, onClose, onTradovate, onCommitted }: Props) {
+export default function TradeImportDialog({ open, userTimezone, selectedAccountId, onClose, onTradovate, onCommitted }: Props) {
   const { t } = useI18n()
   const theme = useTheme()
   const fullScreen = useMediaQuery(theme.breakpoints.down('sm'))
@@ -95,7 +96,7 @@ export default function TradeImportDialog({ open, userTimezone, onClose, onTrado
 
   useEffect(() => {
     if (!open) return
-    void loadAccounts()
+    void loadAccounts(selectedAccountId)
     return () => { accountRequestId.current += 1 }
     // Account loading intentionally follows the dialog lifecycle, not preview state.
   }, [open])

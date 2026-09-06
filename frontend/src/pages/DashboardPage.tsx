@@ -295,7 +295,7 @@ export default function DashboardPage() {
             loading={loading}
             error={chartError}
             emptyTitle={t('dashboard.equityCurve.emptyTitle')}
-            emptyDescription={t('dashboard.equityCurve.emptyBody')}
+            emptyDescription={t(monetaryAnalyticsAvailable ? 'dashboard.equityCurve.emptyBody' : 'accountScope.mixedCurrency')}
             height={chartHeight}
           >
             {equityData.length > 0 ? (
@@ -330,7 +330,7 @@ export default function DashboardPage() {
             loading={loading}
             error={chartError}
             emptyTitle={t('dashboard.dailyPnl.emptyTitle')}
-            emptyDescription={t('dashboard.dailyPnl.emptyBody')}
+            emptyDescription={t(monetaryAnalyticsAvailable ? 'dashboard.dailyPnl.emptyBody' : 'accountScope.mixedCurrency')}
             height={chartHeight}
           >
             {groupedPnl.length > 0 ? (

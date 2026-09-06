@@ -12,7 +12,7 @@ import java.math.BigDecimal;
 @Getter
 @Setter
 public class SignalIntelProperties {
-    private String webhookBaseUrl = "http://localhost:8080";
+    private String webhookBaseUrl = "";
     private int recommendationMinSamples = 12;
     private int recommendationFreshnessHours = 6;
     private BigDecimal weakExpectancyThreshold = BigDecimal.valueOf(-0.10d);

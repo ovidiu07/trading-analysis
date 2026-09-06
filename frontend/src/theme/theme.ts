@@ -218,7 +218,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
               ? `radial-gradient(1000px 500px at -8% -10%, ${alpha(tokens.brand.primary, 0.19)} 0%, rgba(255,255,255,0) 62%), radial-gradient(880px 420px at 105% -5%, ${alpha(tokens.brand.secondary, 0.16)} 0%, rgba(255,255,255,0) 58%), linear-gradient(180deg, ${tokens.surface.background} 0%, ${tokens.surface.app} 100%)`
               : isBlackShiny
                 ? `radial-gradient(980px 440px at -12% -10%, ${alpha(tokens.brand.primary, 0.4)} 0%, rgba(0,0,0,0) 62%), radial-gradient(960px 460px at 112% -4%, ${alpha(tokens.brand.secondary, 0.28)} 0%, rgba(0,0,0,0) 58%), linear-gradient(180deg, #030303 0%, ${tokens.surface.background} 42%, ${tokens.surface.app} 100%)`
-                : `radial-gradient(960px 500px at -10% -8%, ${alpha(tokens.brand.primary, 0.34)} 0%, rgba(0,0,0,0) 64%), radial-gradient(880px 460px at 108% -5%, ${alpha(tokens.brand.secondary, 0.2)} 0%, rgba(0,0,0,0) 58%), linear-gradient(180deg, ${tokens.surface.background} 0%, ${tokens.surface.app} 100%)`,
+                : 'none',
             backgroundAttachment: 'fixed'
           },
           '#root': {
@@ -304,7 +304,8 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             backgroundColor: tokens.surface.panel,
             borderRadius: tokens.radius.md,
             border: `1px solid ${tokens.border.subtle}`,
-            backdropFilter: isBlackShiny ? 'blur(14px) saturate(1.2)' : 'blur(10px) saturate(1.15)'
+            backdropFilter: isBlackShiny ? 'blur(14px) saturate(1.2)' : 'none',
+            backgroundImage: 'none'
           }
         }
       },
@@ -314,6 +315,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             borderRadius: tokens.radius.md,
             border: `1px solid ${tokens.border.subtle}`,
             boxShadow: tokens.elevation.card,
+            backgroundImage: !isLight && !isBlackShiny ? 'linear-gradient(180deg, #172334, #121B28)' : 'none',
             overflow: 'hidden'
           }
         }
@@ -395,7 +397,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             borderRadius: tokens.radius.sm,
             backgroundColor: tokens.surface.panelMuted,
             '& .MuiOutlinedInput-notchedOutline': {
-              borderColor: tokens.border.subtle
+              borderColor: tokens.border.strong
             },
             '&:hover .MuiOutlinedInput-notchedOutline': {
               borderColor: tokens.border.strong

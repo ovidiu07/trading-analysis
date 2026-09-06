@@ -91,8 +91,11 @@ public class TradingViewSettingsService {
     private String buildWebhookUrl(String action, String token) {
         String base = properties.getWebhookBaseUrl();
         if (base == null || base.isBlank()) {
-            base = "http://localhost:8080";
+            return null;
         }
+        java.net.URI uri;
+        try { uri = java.net.URI.create(base); } catch (IllegalArgumentException ex) { return null; }
+        if (!"https".equalsIgnoreCase(uri.getScheme()) || uri.getHost() == null || "localhost".equalsIgnoreCase(uri.getHost())) return null;
         String normalizedBase = base.endsWith("/") ? base.substring(0, base.length() - 1) : base;
         return "%s/api/integrations/tradingview/signals/%s?token=%s".formatted(normalizedBase, action, token);
     }

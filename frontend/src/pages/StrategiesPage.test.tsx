@@ -1,3 +1,4 @@
+import userEvent from '@testing-library/user-event'
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
@@ -130,6 +131,8 @@ describe('StrategiesPage', () => {
     const page = screen.getByTestId('strategies-page')
     const grid = screen.getByTestId('strategies-grid')
     const strategyRow = screen.getByTestId('strategy-list-row')
+    expect(screen.queryByTestId('rich-text-toolbar')).not.toBeInTheDocument()
+    await userEvent.click(screen.getByRole('button', { name: 'Create strategy', exact: true }))
     const toolbar = screen.getByTestId('rich-text-toolbar')
 
     expect(page).toHaveStyle({ width: '100%', maxWidth: '100%' })

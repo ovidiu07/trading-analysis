@@ -1,3 +1,4 @@
+import FindingEvidenceDialog from '../components/analytics/FindingEvidenceDialog'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Accordion,
@@ -534,23 +535,8 @@ export default function AnalyticsPage() {
   const sessionPerformanceRows = summary?.sessionPerformance ?? []
   const planAdherence = summary?.planAdherence
 
-  const handleViewTrades = (card: AdviceCard) => {
-    const params = new URLSearchParams()
-    const dateMode = card.filters?.dateMode || filters.dateMode || 'CLOSE'
-    if (filters.from) {
-      if (dateMode === 'OPEN') params.set('openedAtFrom', filters.from)
-      else params.set('closedAtFrom', filters.from)
-    }
-    if (filters.to) {
-      if (dateMode === 'OPEN') params.set('openedAtTo', filters.to)
-      else params.set('closedAtTo', filters.to)
-    }
-    if (card.filters?.symbol || filters.symbol) params.set('symbol', card.filters?.symbol || filters.symbol || '')
-    if (card.filters?.direction || filters.direction) params.set('direction', card.filters?.direction || filters.direction || '')
-    if (card.filters?.status || filters.status) params.set('status', card.filters?.status || filters.status || '')
-    const scoped = writeAccountScope(params, accountScope.scope)
-    navigate(`/trades?${scoped.toString()}`)
-  }
+  const [evidenceFinding, setEvidenceFinding] = useState<AdviceCard | null>(null)
+  const handleViewTrades = (card: AdviceCard) => setEvidenceFinding(card)
 
   const filterFieldSx = { width: '100%', minWidth: 0, ...compactInputSx }
   const multiSelectSx = {
@@ -1587,6 +1573,7 @@ export default function AnalyticsPage() {
           )}
           {!coachLoading && sortedCoachAdvice.length > 0 && (
             <Stack spacing={2}>
+              <FindingEvidenceDialog finding={evidenceFinding} onClose={() => setEvidenceFinding(null)} />
               {sortedCoachAdvice.map((card) => (
                 <CoachAdviceCard key={card.id} card={card} currency={baseCurrency} onViewTrades={handleViewTrades} />
               ))}

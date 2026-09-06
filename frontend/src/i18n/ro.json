@@ -476,6 +476,7 @@
       "theoreticalMaximum": "Risc maxim teoretic al contului",
       "remainingTrades": "Tranzacții rămase", "limit": "Limita aplicabilă",
       "reasons": {
+        "tradeCapacity": "Limita efectivă de tranzacții este epuizată.",
         "withinLimits": "Datele curente se află în limitele active ale contului și planului.",
         "monthlyLoss": "Bugetul lunar de pierdere a fost epuizat.",
         "weeklyLoss": "Bugetul săptămânal de pierdere a fost epuizat.",
@@ -651,7 +652,8 @@
       "STANDARD_RISK": { "title": "Recomandarea curentă de risc", "message": "Riscul recomandat este {{riskPct}}% sau {{riskAmount}} per tranzacție." },
       "LOSING_STREAK": { "title": "Protecție în serie de pierderi", "message": "Ai înregistrat {{lossCount}} pierderi consecutive. Istoricul susține risc redus până la stabilizarea execuției conforme." },
       "NEGATIVE_EXPECTANCY": { "title": "Ținta nu este susținută statistic", "message": "Expectanța curentă este {{expectancyR}}R per tranzacție. Ținta nu este susținută fără îmbunătățirea selecției sau execuției." },
-      "POSITIVE_EXPECTANCY": { "title": "Expectanță validată pozitivă", "message": "Setul selectat produce o expectanță de {{expectancyR}}R per tranzacție." },
+      "POSITIVE_EXPECTANCY": { "title": "Expectanță R măsurată pozitivă", "message": "Setul selectat produce o expectanță de {{expectancyR}}R per tranzacție." },
+      "NO_VALID_R_SAMPLE": {"title": "Eșantionul R nu este disponibil", "message": "Există tranzacții închise, dar nu există rezultate cu risc inițial valid pentru proiecție. Rezultatele monetare rămân separate."},
       "NO_CLOSED_TRADES": { "title": "Nu există eșantion închis", "message": "Nu există tranzacții închise pentru acest cont. Adaugă sau importă tranzacții înaintea proiecțiilor." },
       "LOW_SAMPLE_SIZE": { "title": "Eșantion redus", "message": "Sunt disponibile doar {{tradeCount}} tranzacții valide. Proiecția are încredere statistică redusă." },
       "INCONSISTENT_PNL": { "title": "Au fost detectate inconsistențe P&L", "message": "{{count}} tranzacții au valori P&L care nu corespund reconcilierii disponibile. Recomandările au încredere redusă." },
@@ -705,6 +707,8 @@
     "openMenu": "Deschide meniul"
   },
   "navGroups": {
+    "review": "Evaluare",
+    "practice": "Practică",
     "trading": "Tranzacționare",
     "journal": "Jurnal",
     "system": "Sistem"
@@ -1172,7 +1176,10 @@
       "loadCoach": "Nu s-au putut încărca recomandările coach-ului."
     },
     "coach": {
-      "confidenceLabel": "Încredere",
+      "exactEvidence": "Tranzacții eligibile exacte: {{count}}",
+      "evidenceLimitations": "Dovezi exploratorii, nu o afirmație cauzală sau un interval statistic de încredere. Observațiile se pot suprapune; rezultatele lor nu se adună.",
+      "staleEvidence": "Dovezile nu sunt disponibile sau s-au modificat. Reîncarcă observația înainte de a acționa.",
+      "confidenceLabel": "Puterea dovezilor: {{confidence}}",
       "recommendedActions": "Acțiuni recomandate",
       "viewTrades": "Vezi tranzacțiile"
     },
@@ -2893,6 +2900,7 @@
     "heading": "Preferințe",
     "subtitle": "Actualizează moneda de bază și fusul orar; modificările se aplică în toată aplicația.",
     "tradingView": {
+      "configurationMissing": "Operatorul trebuie să configureze o adresă publică HTTPS pentru webhook înainte de utilizarea integrării.",
       "title": "Inteligență semnale TradingView", "body": "Generează un secret webhook, adaugă payload-ul JSON al alertei în motorul Pine, iar TradeJAudit va stoca evenimente structurate pentru recomandări și diagnostic.",
       "enabled": "Activat", "disabled": "Dezactivat", "loading": "Se încarcă setările integrării TradingView…", "enable": "Activează primirea webhook-urilor TradingView",
       "resetSecret": "Resetează secretul webhook", "generateSecret": "Generează secret webhook", "secretHint": "Indiciu secret curent: {{hint}}", "newSecret": "Secret webhook nou", "copy": "Copiază",
@@ -4063,6 +4071,7 @@
       "ERROR": "Eroare"
     },
     "inbox": {
+      "showExcluded": "Arată înregistrările excluse",
       "title": "Inbox de cercetare",
       "description": "Verifică tranzacțiile live care necesită un spațiu, clasificare sau o decizie de sincronizare.",
       "needsWorkspace": "Necesită un spațiu",
@@ -4349,5 +4358,92 @@
     "gapLiquidityRelation": "Relație cu lichiditatea",
     "gapConfluenceNotes": "Note confluente gap",
     "noGapData": "Nu există date despre gap"
+  },
+  "dailyReview": {
+    "screenshots": "Capturi ale tranzacției",
+    "addScreenshot": "Alege captura",
+    "uploadScreenshot": "Salvează captura",
+    "imageValidation": "Alege o imagine PNG, JPEG, WebP sau GIF de maximum 20 MB.",
+    "dayNotes": "Notițele acestei zile",
+    "dayNotesScope": "Notițe generale pentru această dată și notițe legate de tranzacțiile sesiunii. Notițele generale nu sunt atribuite unui cont.",
+    "history": "Istoricul evaluării",
+    "historyLimit": "Ultimele 100 de versiuni salvate. Versiunile anterioare rămân păstrate.",
+    "revision": "Versiunea {{revision}}",
+    "conflictRecovery": "O ciornă dintr-o versiune anterioară este păstrată. Compar-o cu sesiunea salvată mai jos înainte de restaurare. Salvarea creează o nouă versiune.",
+    "restoreDraft": "Restaurează ciorna păstrată",
+    "compactMode": "Mod jurnal compact",
+    "chartMode": "Extinde graficul și planul",
+    "chartSymbol": "Simbolul graficului, inclusiv furnizorul",
+    "chartContext": "TradingView · {{symbol}} · fusul bursei · doar afișare; fără replay sau execuție la broker",
+    "capacity": "Capacitate efectivă: {{trades}} tranzacții · risc planificat suplimentar {{risk}}",
+    "rulesUnavailable": "Capacitatea conform regulilor nu este disponibilă. Verifică regulile contului înainte de a adăuga risc.",
+    "ruleGuidance": "Îndrumare pe baza datelor înregistrate; ordinele nu sunt blocate la broker.",
+    "shortQueue": "Arată lista prioritară",
+    "allDecisions": "Arată toate deciziile sesiunii",
+    "account": "Cont de tranzacționare",
+    "date": "Data sesiunii",
+    "chooseAccount": "Alege un singur cont pentru această sesiune.",
+    "loading": "Se încarcă sesiunea…",
+    "loadError": "Datele sesiunii nu au putut fi încărcate. Reîncearcă înainte de evaluare.",
+    "retry": "Reîncearcă",
+    "net": "Rezultat net",
+    "closed": "Tranzacții închise",
+    "reviewed": "Evaluate",
+    "freshness": "Pe baza tranzacțiilor înregistrate · actualizat {{time}}",
+    "moneyUnavailable": "Totalul net nu este disponibil: lipsesc rezultate sau moneda acestora, ori monedele diferă. Numărul tranzacțiilor rămâne disponibil.",
+    "instruments": "Instrumente",
+    "strategy": "Strategie / setup",
+    "noStrategy": "Nicio strategie selectată",
+    "focus": "Un obiectiv de proces",
+    "start": "Începe sesiunea",
+    "timeline": "Cronologia execuțiilor",
+    "decisions": "Evaluează deciziile",
+    "import": "Importă tranzacții",
+    "log": "Adaugă tranzacție",
+    "noTrades": "Nu există execuții înregistrate pentru acest cont și această dată.",
+    "OPEN": "Deschisă",
+    "CLOSED": "Închisă",
+    "assessed": "Evaluată",
+    "reviewTrade": "Evaluează tranzacția",
+    "carryForward": "Ce păstrezi pentru viitor?",
+    "nextFocus": "Un obiectiv pentru sesiunea următoare",
+    "finish": "Finalizează evaluarea",
+    "complete": "Evaluare finalizată și salvată. O poți redeschide; versiunile anterioare sunt păstrate.",
+    "reopen": "Redeschide evaluarea",
+    "saveDraft": "Salvează sesiunea",
+    "saveError": "Salvarea a eșuat sau există o versiune mai nouă. Ciorna locală este păstrată. Reîncearcă sau reîncarcă pentru a compara cu versiunea salvată.",
+    "context": "Contextul sesiunii",
+    "noFocus": "Alege un obiectiv în pregătire sau evaluează direct execuțiile importate.",
+    "invalidation": "Invalidare",
+    "noTrade": "Condiție de abținere",
+    "rules": "Vezi regulile contului",
+    "chart": "Deschide spațiul cu grafic",
+    "notes": "Deschide jurnalul",
+    "noObservation": "Niciun tipar nou de evidențiat aici. Verifică dovezile exacte înainte de a schimba procesul.",
+    "reviewEvidence": "Explorează observațiile",
+    "contextBasis": "Aceasta este evaluarea ta la momentul revizuirii. Regulile actuale nu dovedesc ce reguli existau la deschiderea tranzacției.",
+    "note": "Notă scurtă de evaluare",
+    "fullTrade": "Tranzacția completă, note și capturi",
+    "states": {
+      "PREPARE": "Pregătire",
+      "TRADE": "Execuție",
+      "REVIEW": "Evaluare"
+    },
+    "save": {
+      "saved": "Salvat",
+      "draft": "Ciornă · acest dispozitiv",
+      "saving": "Se salvează…",
+      "error": "Eroare la salvare"
+    },
+    "carry": {
+      "REPEAT": "Ceva de repetat",
+      "CHANGE": "Ceva de schimbat",
+      "COLLECT": "Nicio schimbare încă; adună dovezi"
+    },
+    "assessment": {
+      "FOLLOWED": "Am urmat planul",
+      "DEVIATED": "M-am abătut de la plan",
+      "CANNOT_ASSESS": "Nu pot evalua"
+    }
   }
 }

@@ -535,6 +535,7 @@ export default function SettingsPage() {
                   />
                 )}
 
+                {tradingViewSettings && !tradingViewSettings.openSignalWebhookUrl && <Alert severity='warning'>{t('settings.tradingView.configurationMissing')}</Alert>}
                 <TextField
                   label={t('settings.tradingView.openUrl')}
                   value={tradingViewSettings?.openSignalWebhookUrl || ''}

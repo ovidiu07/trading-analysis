@@ -1,0 +1,65 @@
+{
+  "fixtureOnly": true,
+  "results": [
+    {
+      "width": 320,
+      "scroll": 320,
+      "offenders": []
+    },
+    {
+      "width": 360,
+      "scroll": 360,
+      "offenders": []
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "offenders": []
+    },
+    {
+      "width": 430,
+      "scroll": 430,
+      "offenders": []
+    },
+    {
+      "width": 768,
+      "scroll": 768,
+      "offenders": []
+    },
+    {
+      "width": 1024,
+      "scroll": 1024,
+      "offenders": []
+    },
+    {
+      "width": 1280,
+      "scroll": 1280,
+      "offenders": []
+    },
+    {
+      "width": 1440,
+      "scroll": 1440,
+      "offenders": []
+    },
+    {
+      "width": 1920,
+      "scroll": 1920,
+      "offenders": []
+    },
+    {
+      "escapeDismissal": true,
+      "focusRestored": true,
+      "draftRecovery": true
+    },
+    {
+      "historyOpened": true
+    },
+    {
+      "completion": true,
+      "reopening": true,
+      "savedRevision": 3
+    }
+  ],
+  "unexpected": [],
+  "errors": []
+}

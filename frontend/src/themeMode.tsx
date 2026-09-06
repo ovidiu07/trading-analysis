@@ -42,7 +42,7 @@ export function ThemeModeProvider({ children }: PropsWithChildren) {
   const { user } = useAuth()
   const [preference, setPreferenceState] = useState<ThemePreference>(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
-    return normalizeThemePreference(stored)
+    return stored == null ? 'dark' : normalizeThemePreference(stored)
   })
   const [systemMode, setSystemMode] = useState<MuiPaletteMode>(getSystemMode)
   const hasManualChange = useRef(false)

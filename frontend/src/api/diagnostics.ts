@@ -1,6 +1,7 @@
 import { apiGet } from './client'
 
 export type DiagnosticsStrategyHeadline = {
+  rSampleSize?: number
   strategyId: string
   strategyName: string
   sampleSize: number
@@ -14,6 +15,18 @@ export type DiagnosticsStrategiesResponse = {
 }
 
 export type DiagnosticsCoreMetrics = {
+  rSampleSize?: number
+  missingRCount?: number
+  rUnavailableReason?: string | null
+  monetarySampleSize?: number
+  missingMonetaryCount?: number
+  rProfitFactorUnavailableReason?: string | null
+  monetaryProfitFactorUnavailableReason?: string | null
+  monetaryWinRate?: number | null
+  monetaryExpectancy?: number | null
+  monetaryProfitFactor?: number | null
+  monetaryCurrency?: string | null
+  monetaryUnavailableReason?: string | null
   sampleSize: number
   winRate: number
   expectancyR: number
@@ -24,6 +37,7 @@ export type DiagnosticsCoreMetrics = {
 }
 
 export type DiagnosticsBreakdownRow = {
+  rSampleSize?: number
   key: string
   sampleSize: number
   winRate: number

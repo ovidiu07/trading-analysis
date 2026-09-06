@@ -761,12 +761,14 @@ public class AnalyticsService {
     private CoachingSummary buildCoachingSummary(List<StrategyPerformanceRow> strategyRows,
                                                  List<SessionPerformanceRow> sessionRows) {
         StrategyPerformanceRow best = strategyRows.stream()
-                .filter(row -> row.getTrades() >= 5)
+                .filter(row -> row.getTrades() >= 20)
+                .filter(row -> row.getStrategy() != null && !Set.of("unspecified", "unassigned", "unassigned strategy", "n/a").contains(row.getStrategy().trim().toLowerCase(Locale.ROOT)))
+                .filter(row -> row.getExpectancy() != null && row.getExpectancy().signum() > 0)
                 .findFirst()
-                .orElse(strategyRows.stream().findFirst().orElse(null));
+                .orElse(null);
 
         SessionPerformanceRow leak = sessionRows.stream()
-                .filter(row -> row.getTrades() > 0)
+                .filter(row -> row.getTrades() >= 20 && row.getExpectancy() != null && row.getExpectancy().signum() < 0)
                 .min(Comparator.comparing(SessionPerformanceRow::getExpectancy, Comparator.nullsLast(Comparator.naturalOrder())))
                 .orElse(null);
 

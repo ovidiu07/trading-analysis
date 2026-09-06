@@ -10,6 +10,7 @@ import java.math.BigDecimal;
 public class DiagnosticsBreakdownRow {
     String key;
     int sampleSize;
+    int rSampleSize;
     BigDecimal winRate;
     BigDecimal expectancyR;
 }

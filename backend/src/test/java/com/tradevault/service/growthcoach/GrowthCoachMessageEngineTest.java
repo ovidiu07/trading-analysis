@@ -41,6 +41,13 @@ class GrowthCoachMessageEngineTest {
         assertTrue(messages.stream().noneMatch(message -> message.key().equals("ENOUGH_TIME")));
     }
 
+    @Test
+    void distinguishesClosedTradesFromAnEmptyRSample() {
+        var messages = engine.evaluate(context(false, "UNKNOWN", "UNLIKELY", null, 0, 0));
+        assertTrue(messages.stream().anyMatch(message -> message.key().equals("NO_VALID_R_SAMPLE")));
+        assertTrue(messages.stream().noneMatch(message -> message.key().equals("NO_CLOSED_TRADES")));
+    }
+
     private GrowthCoachMessageEngine.Context context(boolean reached,
                                                      String riskState,
                                                      String feasibility,

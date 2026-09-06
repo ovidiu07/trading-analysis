@@ -126,6 +126,20 @@ class GrowthCoachOperatingServiceTest {
     }
 
     @Test
+    void weeklyTradeLimitControlsPositiveDailyAllowance() {
+        monthlyPlan.setPlannedMaxTradesPerWeek(1);
+        Trade priorDay = closedTrade("DEMO", "2026-07-27T08:00:00+03:00", "10", "10", "1");
+        PeriodContext context = GrowthCoachPeriodResolver.resolve("DAY", LocalDate.parse("2026-07-28"),
+                ZoneId.of("Europe/Bucharest"), Clock.fixed(Instant.parse("2026-07-28T12:00:00Z"), ZoneOffset.UTC));
+        OperatingSystem result = service.build(user, account, profile, monthlyPlan, context,
+                List.of(priorDay), List.of(), new BigDecimal("10000"), BigDecimal.ZERO, BigDecimal.ZERO, true);
+        org.junit.jupiter.api.Assertions.assertTrue(result.todayActivity().summary().tradesRemaining() > 0);
+        assertEquals(0, result.tradingPermission().remainingTrades());
+        assertEquals(0, result.tradingPermission().maximumPermittedRisk().signum());
+        assertEquals("WEEK", result.tradingPermission().applicableLimit());
+    }
+
+    @Test
     void restoresNullableMigratedMonthlyTargetBeforeBuildingChart() {
         monthlyPlan.setTargetAmount(null);
         PeriodContext context = GrowthCoachPeriodResolver.resolve(

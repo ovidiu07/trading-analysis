@@ -135,6 +135,7 @@ export default function StrategiesPage() {
   const queryClient = useQueryClient()
   const [apiError, setApiError] = useState('')
   const [apiSuccess, setApiSuccess] = useState('')
+  const [creating, setCreating] = useState(false)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [draft, setDraft] = useState<StrategyDraft>(emptyDraft)
   const [uploads, setUploads] = useState<UploadQueueItem[]>([])
@@ -465,6 +466,8 @@ export default function StrategiesPage() {
 
                 <Divider />
 
+                {!editingId && !creating && <Button variant='contained' onClick={() => setCreating(true)}>{t('strategies.form.createAction')}</Button>}
+                {(editingId || creating) && <>
                 <Typography variant='subtitle1'>{editingId ? t('strategies.form.edit') : t('strategies.form.create')}</Typography>
                 <Box component='form' onSubmit={submit}>
                   <Grid container spacing={1.25}>
@@ -613,6 +616,7 @@ export default function StrategiesPage() {
                     </Grid>
                   </Grid>
                 </Box>
+                </>}
 
                 <Divider />
 

@@ -81,6 +81,11 @@ function withSuspense(node: ReactNode) {
   )
 }
 
+function ScopeRedirect({ to }: { to: string }) {
+  const location = useLocation()
+  return <Navigate to={`${to}${location.search}${location.hash}`} replace />
+}
+
 function App() {
   return (
     <AppErrorBoundary>
@@ -95,7 +100,7 @@ function App() {
           <Route path="/forgot-password" element={withSuspense(<ForgotPasswordPage />)} />
           <Route path="/reset-password" element={withSuspense(<ResetPasswordPage />)} />
           <Route path="/" element={<Layout />}>
-            <Route index element={<Navigate to="/today" replace />} />
+            <Route index element={<ScopeRedirect to="/today" />} />
             <Route path="/terms" element={withSuspense(<TermsPage />)} />
             <Route path="/privacy" element={withSuspense(<PrivacyPage />)} />
             <Route path="/cookies" element={withSuspense(<CookiesPage />)} />
@@ -111,7 +116,7 @@ function App() {
             <Route path="/analytics" element={<ProtectedRoute>{withSuspense(<AnalyticsPage />)}</ProtectedRoute>} />
             <Route path="/coach" element={<ProtectedRoute>{withSuspense(<GrowthCoachPage />)}</ProtectedRoute>} />
             <Route path="/diagnostics" element={<ProtectedRoute>{withSuspense(<DiagnosticsPage />)}</ProtectedRoute>} />
-            <Route path="/insights" element={<ProtectedRoute><Navigate to="/insights/today" replace /></ProtectedRoute>} />
+            <Route path="/insights" element={<ProtectedRoute><ScopeRedirect to="/insights/today" /></ProtectedRoute>} />
             <Route path="/insights/today" element={<ProtectedRoute>{withSuspense(<InsightsPage />)}</ProtectedRoute>} />
             <Route path="/insights/week" element={<ProtectedRoute>{withSuspense(<InsightsPage />)}</ProtectedRoute>} />
             <Route path="/insights/playbooks" element={<ProtectedRoute>{withSuspense(<InsightsPage />)}</ProtectedRoute>} />

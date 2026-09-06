@@ -36,6 +36,7 @@ const formatEvidence = (evidence: AdviceEvidence, currency: string) => {
     return '—'
   }
   if (evidence.kind === 'currency') {
+    if (!currency) return '—'
     return formatSignedCurrency(evidence.value, currency)
   }
   if (evidence.kind === 'percent') {
@@ -79,6 +80,7 @@ export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachA
             ))}
           </Stack>
 
+          <Typography variant='caption' color='text.secondary'>{t('analytics.coach.evidenceLimitations')}</Typography>
           {card.recommendedActions.length > 0 && (
             <>
               <Divider />
@@ -102,7 +104,7 @@ export default function CoachAdviceCard({ card, currency, onViewTrades }: CoachA
                     key={`${card.id}-${item.label}`}
                     size="small"
                     variant="outlined"
-                    label={`${item.label}: ${formatEvidence(item, currency)}`}
+                    label={`${item.label}: ${formatEvidence(item, card.currency === undefined ? currency : card.currency || '')}`}
                   />
                 ))}
               </Stack>

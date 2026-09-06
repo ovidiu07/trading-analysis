@@ -149,7 +149,7 @@ class DiagnosticsServiceTest {
                                 && row.getDeltaExpectancy().compareTo(BigDecimal.ZERO) > 0);
         assertThat(response.getSuggestions())
                 .extracting(item -> item.getTitle())
-                .contains("Promote MSS to required");
+                .doesNotContain("Review MSS association");
     }
 
     @Test
@@ -187,7 +187,72 @@ class DiagnosticsServiceTest {
         var response = diagnosticsService.getStrategyDetail(strategyId, "LIVE", null, null, null, null, null);
 
         assertThat(response.getCoreMetrics().getSampleSize()).isEqualTo(1);
-        assertThat(response.getCoreMetrics().getExpectancyR()).isEqualByComparingTo("0.0000");
+        assertThat(response.getCoreMetrics().getExpectancyR()).isNull();
+        assertThat(response.getCoreMetrics().getMissingRCount()).isEqualTo(1);
+    }
+
+    @Test
+    void monetaryWinnersRemainWinnersWithoutR() {
+        Trade win = outcome("20", null, "EUR");
+        Trade loss = outcome("-10", null, "EUR");
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(win, loss));
+        var metrics = diagnosticsService.getLiveSummary(null, null, null, null).getCoreMetrics();
+        assertThat(metrics.getMonetaryWinRate()).isEqualByComparingTo("50");
+        assertThat(metrics.getMonetaryExpectancy()).isEqualByComparingTo("5");
+        assertThat(metrics.getMonetaryProfitFactor()).isEqualByComparingTo("2");
+        assertThat(metrics.getRSampleSize()).isZero();
+        assertThat(metrics.getExpectancyR()).isNull();
+    }
+
+    @Test
+    void partialRAndBreakevenUseSeparateDenominators() {
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(
+                outcome("20", "2", "EUR"), outcome("-10", null, "EUR"), outcome("0", "0", "EUR")));
+        var metrics = diagnosticsService.getLiveSummary(null, null, null, null).getCoreMetrics();
+        assertThat(metrics.getSampleSize()).isEqualTo(3);
+        assertThat(metrics.getRSampleSize()).isEqualTo(2);
+        assertThat(metrics.getExpectancyR()).isEqualByComparingTo("1");
+        assertThat(metrics.getMonetaryWinRate()).isEqualByComparingTo("33.3333");
+    }
+
+    @Test
+    void emptyAndNoLossSamplesHaveUnavailableProfitFactor() {
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of());
+        var empty = diagnosticsService.getLiveSummary(null, null, null, null).getCoreMetrics();
+        assertThat(empty.getMonetaryWinRate()).isNull();
+        assertThat(empty.getExpectancyR()).isNull();
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(outcome("0", "0", "EUR")));
+        var flat = diagnosticsService.getLiveSummary(null, null, null, null).getCoreMetrics();
+        assertThat(flat.getMonetaryWinRate()).isEqualByComparingTo("0");
+        assertThat(flat.getMonetaryProfitFactor()).isNull();
+        assertThat(flat.getProfitFactor()).isNull();
+    }
+
+    @Test
+    void mixedCurrenciesKeepCountsAndSuppressMoneyAggregation() {
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(outcome("10", null, "EUR"), outcome("20", null, "USD")));
+        var metrics = diagnosticsService.getLiveSummary(null, null, null, null).getCoreMetrics();
+        assertThat(metrics.getSampleSize()).isEqualTo(2);
+        assertThat(metrics.getMonetaryWinRate()).isEqualByComparingTo("100");
+        assertThat(metrics.getMonetaryExpectancy()).isNull();
+        assertThat(metrics.getMonetaryCurrency()).isNull();
+    }
+
+    @Test
+    void localMidnightUsesDaylightSavingOffset() {
+        user.setTimezone("Europe/Bucharest");
+        Trade before = outcome("10", null, "EUR"); before.setClosedAt(OffsetDateTime.parse("2026-03-29T20:59:59Z"));
+        Trade after = outcome("20", null, "EUR"); after.setClosedAt(OffsetDateTime.parse("2026-03-29T21:00:00Z"));
+        when(tradeRepository.findAll(any(org.springframework.data.jpa.domain.Specification.class))).thenReturn(List.of(before, after));
+        var metrics = diagnosticsService.getLiveSummary(java.time.LocalDate.parse("2026-03-30"), java.time.LocalDate.parse("2026-03-30"), null, null).getCoreMetrics();
+        assertThat(metrics.getSampleSize()).isEqualTo(1);
+        assertThat(metrics.getMonetaryExpectancy()).isEqualByComparingTo("20");
+    }
+
+    private Trade outcome(String pnl, String r, String currency) {
+        return Trade.builder().id(UUID.randomUUID()).user(user).symbol("DEMO").status(TradeStatus.CLOSED)
+                .closedAt(OffsetDateTime.parse("2026-03-01T10:00:00Z")).tradeCurrency(currency)
+                .pnlNet(pnl == null ? null : new BigDecimal(pnl)).rMultiple(r == null ? null : new BigDecimal(r)).build();
     }
 
     @Test

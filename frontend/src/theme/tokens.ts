@@ -190,68 +190,68 @@ const darkTokens: DesignTokens = {
     floating: '0 18px 42px rgba(0, 0, 0, 0.7)'
   },
   surface: {
-    app: '#050c18',
-    background: '#091222',
-    panel: 'rgba(16, 29, 48, 0.9)',
-    elevated: '#152943',
-    muted: '#101f34',
-    panelMuted: '#162842',
-    sidebar: 'rgba(9, 21, 35, 0.9)',
-    header: 'rgba(7, 17, 31, 0.8)'
+    app: '#080C12',
+    background: '#080C12',
+    panel: '#121B28',
+    elevated: '#1A2738',
+    muted: '#1A2738',
+    panelMuted: '#1A2738',
+    sidebar: '#0D131D',
+    header: '#0D131D'
   },
   text: {
-    primary: '#ecf3ff',
-    secondary: '#bccbe0',
-    muted: '#8ca3c2',
-    disabled: '#6f87a9',
-    inverse: '#081221'
+    primary: '#F3F7FC',
+    secondary: '#AFBDD0',
+    muted: '#8293AA',
+    disabled: '#8293AA',
+    inverse: '#08121F'
   },
   border: {
-    subtle: 'rgba(132, 164, 214, 0.28)',
-    strong: 'rgba(132, 164, 214, 0.46)',
-    focus: '#8abcfb'
+    subtle: '#2A3B52',
+    strong: '#627A96',
+    focus: '#B4E5FF'
   },
   brand: {
-    primary: '#74b1ff',
-    primaryStrong: '#4589f0',
+    primary: '#8AC7FF',
+    primaryStrong: '#B1DCFF',
     primarySoft: 'rgba(116, 177, 255, 0.22)',
     secondary: '#54d8c2',
     secondarySoft: 'rgba(84, 216, 194, 0.23)',
-    gradientStart: '#71aef8',
-    gradientEnd: '#4fd6bc'
+    gradientStart: '#A4D5FF',
+    gradientEnd: '#7AB9F3'
   },
   feedback: {
-    success: '#3dca8e',
-    successMuted: 'rgba(61, 202, 142, 0.18)',
-    warning: '#efbb5e',
-    warningMuted: 'rgba(239, 187, 94, 0.18)',
-    error: '#ef7a86',
-    errorMuted: 'rgba(239, 122, 134, 0.18)',
+    success: '#54D6A0',
+    successMuted: '#102A23',
+    warning: '#F3C675',
+    warningMuted: '#302719',
+    error: '#FF7C89',
+    errorMuted: '#321D27',
     info: '#93c9ff',
     infoMuted: 'rgba(147, 201, 255, 0.18)'
   },
   trading: {
-    profit: '#3dca8e',
-    loss: '#ef7a86',
-    flat: '#9aafcb',
-    long: '#74b1ff',
-    short: '#b69cff',
+    profit: '#54D6A0',
+    loss: '#FF7C89',
+    flat: '#AFBDD0',
+    long: '#8AC7FF',
+    short: '#C3AEFF',
     bullish: '#54d8c2',
     bearish: '#f090ad',
-    neutral: '#9aafcb',
+    neutral: '#AFBDD0',
     open: '#93c9ff',
-    closed: '#3dca8e',
-    pending: '#efbb5e',
+    closed: '#54D6A0',
+    pending: '#F3C675',
     archived: '#8798b2'
   },
   chart: {
     grid: 'rgba(148, 173, 213, 0.26)',
-    axis: '#b1c4e0',
-    positive: '#41cc93',
-    negative: '#f08e99'
+    axis: '#AFBDD0',
+    positive: '#8AC7FF',
+    negative: '#FF7C89'
   },
   interaction: {
-    hover: 'rgba(116, 177, 255, 0.16)',
+    hover: '#223249',
     selected: 'rgba(116, 177, 255, 0.27)',
     pressed: 'rgba(116, 177, 255, 0.35)'
   }

@@ -1,0 +1,39 @@
+{
+  "frontend": {
+    "filesPassed": 55,
+    "passed": 231,
+    "skipped": 10,
+    "total": 241
+  },
+  "backendFocused": {
+    "passed": 65,
+    "failures": 0,
+    "errors": 0,
+    "skipped": 0
+  },
+  "backendFullEarlier": {
+    "reported": 392,
+    "failures": 0,
+    "errors": 26,
+    "skipped": 6,
+    "dockerRelatedErrors": 23,
+    "otherErrors": 3
+  },
+  "build": "passed",
+  "lint": {
+    "errors": 0,
+    "warnings": 16
+  },
+  "localization": {
+    "en": 3700,
+    "ro": 3700,
+    "missing": 0,
+    "legacyHardcodedCandidates": 268
+  },
+  "migrationAssertions": 3,
+  "contrastPairsPassed": 11,
+  "validationBoundary": "Synthetic frontend browser interception and isolated PostgreSQL assertions; no full integrated/authenticated/staging/production verification",
+  "deployed": false,
+  "committed": false,
+  "productionDataChanged": false
+}

@@ -1,0 +1,90 @@
+[
+  {
+    "pair": "Primary text/card",
+    "foreground": "#F3F7FC",
+    "background": "#121B28",
+    "ratio": 16.09,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Secondary text/card",
+    "foreground": "#AFBDD0",
+    "background": "#121B28",
+    "ratio": 9.08,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Muted text/elevated",
+    "foreground": "#8293AA",
+    "background": "#1A2738",
+    "ratio": 4.82,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Primary button/start",
+    "foreground": "#08121F",
+    "background": "#A4D5FF",
+    "ratio": 12.13,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Primary button/end",
+    "foreground": "#08121F",
+    "background": "#7AB9F3",
+    "ratio": 9.01,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Profit/background",
+    "foreground": "#54D6A0",
+    "background": "#102A23",
+    "ratio": 8.35,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Loss/background",
+    "foreground": "#FF7C89",
+    "background": "#321D27",
+    "ratio": 6.34,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Attention/background",
+    "foreground": "#F3C675",
+    "background": "#302719",
+    "ratio": 9.19,
+    "minimum": 4.5,
+    "pass": true
+  },
+  {
+    "pair": "Control outline/elevated",
+    "foreground": "#627A96",
+    "background": "#1A2738",
+    "ratio": 3.41,
+    "minimum": 3,
+    "pass": true
+  },
+  {
+    "pair": "Focus/hover",
+    "foreground": "#B4E5FF",
+    "background": "#223249",
+    "ratio": 9.62,
+    "minimum": 3,
+    "pass": true
+  },
+  {
+    "pair": "Text/card gradient start",
+    "foreground": "#AFBDD0",
+    "background": "#172334",
+    "ratio": 8.3,
+    "minimum": 4.5,
+    "pass": true
+  }
+]

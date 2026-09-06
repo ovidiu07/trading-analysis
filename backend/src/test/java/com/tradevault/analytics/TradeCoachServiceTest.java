@@ -66,6 +66,13 @@ class TradeCoachServiceTest {
                 false
         );
 
+        response.getAdvice().forEach(card -> {
+            org.junit.jupiter.api.Assertions.assertEquals(card.getEligibleCount(), card.getTradeIds().size());
+            org.junit.jupiter.api.Assertions.assertTrue(trades.stream().map(Trade::getId).toList().containsAll(card.getTradeIds()));
+        });
+        var symbolFinding = response.getAdvice().stream().filter(card -> card.getId().equals("coach-symbol-focus-aapl")).findFirst().orElseThrow();
+        org.junit.jupiter.api.Assertions.assertEquals(12, symbolFinding.getTradeIds().size());
+        org.junit.jupiter.api.Assertions.assertTrue(symbolFinding.getTradeIds().stream().allMatch(id -> trades.stream().anyMatch(trade -> trade.getId().equals(id) && trade.getSymbol().equals("AAPL"))));
         List<String> ids = response.getAdvice().stream().map(card -> card.getId()).toList();
         assertTrue(ids.stream().anyMatch(id -> id.startsWith("coach-hour-best")), "Expected best hour advice");
         assertTrue(ids.stream().anyMatch(id -> id.startsWith("coach-hour-worst")), "Expected worst hour advice");
@@ -109,6 +116,8 @@ class TradeCoachServiceTest {
                              BigDecimal pnlNet,
                              BigDecimal riskAmount) {
         Trade trade = new Trade();
+        trade.setId(UUID.randomUUID());
+        trade.setTradeCurrency("USD");
         trade.setSymbol(symbol);
         trade.setDirection(direction);
         trade.setStatus(status);

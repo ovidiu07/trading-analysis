@@ -114,6 +114,10 @@ class GrowthCoachServiceTest {
                 .symbol("EUR_USD").bid(new BigDecimal("1.12")).ask(new BigDecimal("1.1202"))
                 .available(true).tsUtc(OffsetDateTime.now()).build());
 
+        when(operatingService.build(any(), any(), any(), any(), any(), anyList(), anyList(), any(), any(), any(), anyBoolean()))
+                .thenReturn(new GrowthCoachResponse.OperatingSystem(null, null, null, null,
+                        new GrowthCoachResponse.TradingPermission("INSUFFICIENT_DATA", "", List.of(), null, null, null, null, null, null, null, "DAY", ""),
+                        List.of(), null, List.of(), List.of(), List.of(), List.of()));
         GrowthCoachResponse response = service.getPage(account.getId(), "2026-07");
 
         assertEquals(0, new BigDecimal("300.0000").compareTo(plan.getTargetAmount()));

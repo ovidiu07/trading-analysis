@@ -150,7 +150,7 @@ export function TradeForm({
   const liveComputedValues = useMemo<ComputedTradeMetrics>(() => {
     const liveMetrics = calculateTradeLiveMetrics({
       direction: watchedValues.direction,
-      entryPrice: watchedValues.entryPrice,
+      entryPrice: watchedValues.entryPrice === '' ? null : watchedValues.entryPrice,
       exitPrice: watchedValues.exitPrice,
       quantity: watchedValues.quantity,
       contractMultiplier: watchedValues.contractMultiplier,

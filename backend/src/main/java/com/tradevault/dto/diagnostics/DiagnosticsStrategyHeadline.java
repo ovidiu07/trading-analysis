@@ -12,6 +12,7 @@ public class DiagnosticsStrategyHeadline {
     UUID strategyId;
     String strategyName;
     int sampleSize;
+    int rSampleSize;
     BigDecimal winRate;
     BigDecimal expectancyR;
     BigDecimal profitFactor;

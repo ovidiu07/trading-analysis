@@ -1,0 +1,58 @@
+[
+  {
+    "language": "en",
+    "width": 320,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "en",
+    "width": 390,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "en",
+    "width": 768,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "en",
+    "width": 1440,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "en",
+    "noFakeCheckout": true
+  },
+  {
+    "language": "ro",
+    "width": 320,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "ro",
+    "width": 390,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "ro",
+    "width": 768,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "ro",
+    "width": 1440,
+    "overflow": false,
+    "sampleExpanded": true
+  },
+  {
+    "language": "ro",
+    "noFakeCheckout": true
+  }
+]

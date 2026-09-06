@@ -172,7 +172,7 @@ backtest:
     base-url: ${BACKTEST_OANDA_BASE_URL:https://api-fxpractice.oanda.com/v3}
 
 signalintel:
-  webhook-base-url: ${SIGNALINTEL_WEBHOOK_BASE_URL:http://localhost:8080}
+  webhook-base-url: ${SIGNALINTEL_WEBHOOK_BASE_URL:}
   recommendation-min-samples: ${SIGNALINTEL_RECOMMENDATION_MIN_SAMPLES:12}
   recommendation-freshness-hours: ${SIGNALINTEL_RECOMMENDATION_FRESHNESS_HOURS:6}
   weak-expectancy-threshold: ${SIGNALINTEL_WEAK_EXPECTANCY_THRESHOLD:-0.10}
