@@ -8,6 +8,7 @@ type TradingViewWidgetProps = {
   hideControls?: boolean | null
   allowSymbolChange?: boolean | null
   preloadedIndicators?: string[] | null
+  height?: string | number
   minHeight?: number
   fallbackMessage?: string
   fallbackLinkLabel?: string
@@ -39,6 +40,7 @@ export default function TradingViewWidget({
   allowSymbolChange,
   preloadedIndicators,
   minHeight = 420,
+  height,
   fallbackMessage = 'Live TradingView chart could not be embedded in this browser context.',
   fallbackLinkLabel = 'Open on TradingView'
 }: TradingViewWidgetProps) {
@@ -62,7 +64,7 @@ export default function TradingViewWidget({
       })
   }, [preloadedIndicators])
   const studiesSignature = normalizedStudies.join('|')
-  const widgetKey = `${normalizedSymbol}-${normalizedInterval}-${widgetTheme}-${hideControls === false ? 'full' : 'compact'}-${allowSymbolChange ? 'symbol' : 'locked'}-${studiesSignature}`
+  const widgetKey = `${normalizedSymbol}-${normalizedInterval}-${widgetTheme}-${hideControls !== true ? 'full' : 'compact'}-${allowSymbolChange ? 'symbol' : 'locked'}-${studiesSignature}`
 
   useEffect(() => {
     setLoading(true)
@@ -93,8 +95,8 @@ export default function TradingViewWidget({
       theme: widgetTheme,
       style: '1',
       locale: 'en',
-      hide_side_toolbar: hideControls === false ? false : true,
-      hide_top_toolbar: hideControls === false ? false : true,
+      hide_side_toolbar: hideControls !== true ? false : true,
+      hide_top_toolbar: hideControls !== true ? false : true,
       allow_symbol_change: Boolean(allowSymbolChange),
       withdateranges: true,
       hideideas: true,
@@ -130,7 +132,7 @@ export default function TradingViewWidget({
   const openUrl = `https://www.tradingview.com/chart/?symbol=${encodeURIComponent(normalizedSymbol)}`
 
   return (
-    <Box sx={{ width: '100%', height: '100%', minHeight }}>
+    <Box sx={{ width: '100%', minWidth: 0, height: height ?? minHeight, minHeight }}>
       {failed ? (
         <Alert severity="warning">
           <Typography variant="body2" sx={{ mb: 0.5 }}>

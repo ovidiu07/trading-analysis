@@ -29,6 +29,27 @@ class SessionReviewServiceTest {
     SessionReviewService.Request request(String state, String carry) {
         return new SessionReviewService.Request(0, state, "DEMO", null, "", "", carry, List.of());
     }
+    @Test void sessionsHaveIndependentRevisionIdentity() {
+        service.get(accountId,date,"EUROPE"); service.get(accountId,date,"US");
+        verify(jdbc).query(anyString(), any(RowMapper.class), eq(userId),eq(accountId),eq(date),eq("EUROPE"));
+        verify(jdbc).query(anyString(), any(RowMapper.class), eq(userId),eq(accountId),eq(date),eq("US"));
+    }
+    @Test void invalidSessionRejected() {
+        assertThatThrownBy(()->service.get(accountId,date,"UNKNOWN")).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        verifyNoInteractions(jdbc);
+    }
+    @Test void readyRequiresExplicitConfirmations() {
+        var prep=new SessionReviewService.Preparation(3,"ASIA",false,"neutral","","XETR:DAX","15",true,false,false,false,List.of(),null);
+        var req=new SessionReviewService.Request(0,"TRADE","DAX",null,"","",null,List.of(),prep);
+        assertThatThrownBy(()->service.save(accountId,date,"US",req)).isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+    }
+    @Test void manualObservationCanBecomeReady() {
+        var prep=new SessionReviewService.Preparation(3,"ASIA",true,"neutral","Watch","XETR:DAX","15",true,true,true,true,List.of(),null);
+        var req=new SessionReviewService.Request(0,"TRADE","DAX",null,"Observe","",null,List.of(),prep);
+        var result=service.save(accountId,date,"US",req);
+        assertThat(result.data().path("readyContext").path("revision").asInt()).isEqualTo(1);
+        assertThat(result.data().path("readyContext").path("focus").asText()).isEqualTo("Observe");
+    }
     @Test void cannotReadAnotherAccount() {
         assertThatThrownBy(() -> service.get(UUID.randomUUID(), date)).isInstanceOf(jakarta.persistence.EntityNotFoundException.class);
         verifyNoInteractions(jdbc);
@@ -42,7 +63,7 @@ class SessionReviewServiceTest {
         assertThat(result.revision()).isEqualTo(1);
         assertThat(result.data().path("focus").asText()).isEmpty();
         assertThat(result.data().path("contextBasis").asText()).isEqualTo("USER_ASSESSMENT_AT_REVIEW_TIME");
-        verify(jdbc).update(startsWith("INSERT INTO session_review_revisions"), any(UUID.class), eq(userId), eq(accountId), eq(date), eq(1), anyString());
+        verify(jdbc).update(startsWith("INSERT INTO session_review_revisions"), any(UUID.class), eq(userId), eq(accountId), eq(date), eq(1), anyString(), eq("DAY"));
     }
     @Test void rejectsForeignTradeAssessment() {
         UUID tradeId = UUID.randomUUID();
@@ -57,7 +78,7 @@ class SessionReviewServiceTest {
     }
     @SuppressWarnings("unchecked")
     @Test void rejectsStaleRevisionWithoutWriting() {
-        when(jdbc.query(anyString(), any(RowMapper.class), eq(userId), eq(accountId), eq(date)))
+        when(jdbc.query(anyString(), any(RowMapper.class), eq(userId), eq(accountId), eq(date), eq("DAY")))
                 .thenReturn(List.of(new SessionReviewService.Response(3, mapper.createObjectNode())));
         assertThatThrownBy(() -> service.save(accountId, date, request("REVIEW", null)))
                 .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
@@ -71,7 +92,7 @@ class SessionReviewServiceTest {
         previous.put("strategyId", strategyId.toString());
         previous.put("timezone", "America/New_York");
         previous.putObject("strategyContext").put("entry", "Original rule");
-        when(jdbc.query(anyString(), any(RowMapper.class), eq(userId), eq(accountId), eq(date)))
+        when(jdbc.query(anyString(), any(RowMapper.class), eq(userId), eq(accountId), eq(date), eq("DAY")))
                 .thenReturn(List.of(new SessionReviewService.Response(2, previous)));
         when(strategies.findByIdAndUser_Id(strategyId, userId)).thenReturn(Optional.of(UserStrategy.builder().id(strategyId).name("Edited strategy").entryConditionsRich("New rule").build()));
         var request = new SessionReviewService.Request(2, "REVIEW", "", strategyId, "", "", "COLLECT", List.of());

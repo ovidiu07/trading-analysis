@@ -1,0 +1,22 @@
+[
+  {
+    "check": "Today save keeps Notebook editor representation consistent",
+    "passed": true
+  },
+  {
+    "check": "Notebook rejects stale edit after Today save",
+    "passed": true
+  },
+  {
+    "check": "Notebook saves with current version",
+    "passed": true
+  },
+  {
+    "check": "Today rejects stale edit after Notebook save",
+    "passed": true
+  },
+  {
+    "check": "Today reload sees same Notebook content",
+    "passed": true
+  }
+]

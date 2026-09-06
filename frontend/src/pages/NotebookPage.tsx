@@ -275,6 +275,8 @@ export default function NotebookPage() {
   const [tags, setTags] = useState<NotebookTag[]>([])
   const [notes, setNotes] = useState<NotebookNote[]>([])
   const [selectedNote, setSelectedNote] = useState<NotebookNote | null>(null)
+  const latestSelectedNote = useRef(selectedNote)
+  latestSelectedNote.current = selectedNote
   const [noteTags, setNoteTags] = useState<NotebookTag[]>([])
   const [navigation, setNavigation] = useState<NotebookNavigationState>(parseStoredNavigation)
   const [filters, setFilters] = useState<AdvancedNoteFilters>(parseStoredFilters)
@@ -718,6 +720,7 @@ export default function NotebookPage() {
         : extractPlainText(resolvedHtml)
 
       const updated = await updateNotebookNote(selectedNote.id, {
+        expectedUpdatedAt: selectedNote.updatedAt,
         title: selectedNote.title,
         body: payloadBody,
         bodyJson: payloadBodyJson,
@@ -733,11 +736,14 @@ export default function NotebookPage() {
         clearReview: !selectedNote.reviewJson
       })
 
+      const latest = latestSelectedNote.current
+      if (latest?.id !== updated.id) { upsertNote(updated); return true }
+      const changedDuringSave = buildNoteFingerprint(latest) !== buildNoteFingerprint(selectedNote)
       persistedFingerprintRef.current = buildNoteFingerprint(updated)
       persistedNoteRef.current = { ...updated }
-      setSelectedNote(updated)
-      setIsDirty(false)
-      setSaveState('saved')
+      setSelectedNote(changedDuringSave ? { ...latest, updatedAt: updated.updatedAt } : updated)
+      setIsDirty(changedDuringSave)
+      setSaveState(changedDuringSave ? 'idle' : 'saved')
       upsertNote(updated)
       setInfoMessage(t('notebook.saveState.saved'))
       return true

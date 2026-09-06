@@ -21,7 +21,7 @@ import { DataGrid, GridColDef, GridPaginationModel } from '@mui/x-data-grid'
 import EmptyState from '../../components/ui/EmptyState'
 import ErrorBanner from '../../components/ui/ErrorBanner'
 import LoadingState from '../../components/ui/LoadingState'
-import { ApiError } from '../../api/client'
+import { apiPost, ApiError } from '../../api/client'
 import {
   ContentPost,
   ContentPostStatus,
@@ -299,6 +299,7 @@ export default function AdminContentPage() {
 
   return (
     <Stack spacing={3}>
+      <Button disabled={actionLoading} onClick={async () => { setActionLoading(true); try { await apiPost('/strategies/mentor/seed', {}); await loadContent() } catch { setError(t('dailyReview.saveError')) } finally { setActionLoading(false) } }}>{t('prepare.seed')}</Button>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
         <Button variant="contained" onClick={() => navigate('/admin/content/new')} fullWidth={isCompact}>
           {t('adminContent.actions.createNew')}

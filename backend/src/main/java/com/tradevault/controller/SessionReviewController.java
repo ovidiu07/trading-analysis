@@ -13,16 +13,16 @@ import java.util.UUID;
 public class SessionReviewController {
     private final SessionReviewService reviews;
     @GetMapping("/{accountId}/{date}")
-    public SessionReviewService.Response get(@PathVariable UUID accountId, @PathVariable LocalDate date) {
-        return reviews.get(accountId, date);
+    public SessionReviewService.Response get(@PathVariable UUID accountId, @PathVariable LocalDate date, @RequestParam(defaultValue="DAY") String session) {
+        return reviews.get(accountId, date, session);
     }
     @GetMapping("/{accountId}/{date}/history")
-    public java.util.List<SessionReviewService.Response> history(@PathVariable UUID accountId, @PathVariable LocalDate date) {
-        return reviews.history(accountId, date);
+    public java.util.List<SessionReviewService.Response> history(@PathVariable UUID accountId, @PathVariable LocalDate date, @RequestParam(defaultValue="DAY") String session) {
+        return reviews.history(accountId, date, session);
     }
     @PutMapping("/{accountId}/{date}")
     public SessionReviewService.Response save(@PathVariable UUID accountId, @PathVariable LocalDate date,
-                                             @Valid @RequestBody SessionReviewService.Request request) {
-        return reviews.save(accountId, date, request);
+                                             @RequestParam(defaultValue="DAY") String session, @Valid @RequestBody SessionReviewService.Request request) {
+        return reviews.save(accountId, date, session, request);
     }
 }

@@ -41,7 +41,13 @@ public class OandaCandleProvider {
     );
 
     private final ObjectMapper objectMapper;
-    private final RestTemplate restTemplate = new RestTemplate();
+    private final RestTemplate restTemplate = boundedClient();
+    private static RestTemplate boundedClient() {
+        var factory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        factory.setConnectTimeout(5000);
+        factory.setReadTimeout(10000);
+        return new RestTemplate(factory);
+    }
 
     @Value("${backtest.oanda.base-url:https://api-fxpractice.oanda.com/v3}")
     private String baseUrl;

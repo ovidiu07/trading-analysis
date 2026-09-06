@@ -199,8 +199,11 @@ public class NotebookNoteService {
     @Transactional
     public NotebookNoteResponse update(UUID id, NotebookNoteRequest request) {
         User user = currentUserService.getCurrentUser();
-        NotebookNote note = noteRepository.findByIdAndUserId(id, user.getId())
+        NotebookNote note = noteRepository.findForUpdate(id, user.getId())
                 .orElseThrow(() -> new EntityNotFoundException("Note not found"));
+        if (request.getExpectedUpdatedAt() != null && (note.getUpdatedAt() == null || !request.getExpectedUpdatedAt().toInstant().equals(note.getUpdatedAt().toInstant()))) {
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT,"Journal changed elsewhere; retain your text and reload before saving");
+        }
         applyRequest(note, request, user);
         NotebookNote saved = noteRepository.save(note);
         if (request.getTagIds() != null) {

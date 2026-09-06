@@ -1,0 +1,34 @@
+[
+  {
+    "check": "User customizes only own copy",
+    "passed": true
+  },
+  {
+    "check": "Admin edits canonical global template",
+    "passed": true
+  },
+  {
+    "check": "User cannot edit global template",
+    "passed": true
+  },
+  {
+    "check": "Personalization survives admin update",
+    "passed": true
+  },
+  {
+    "check": "Admin seed callable and repeatable",
+    "passed": true
+  },
+  {
+    "check": "Seed forbidden to non-admin",
+    "passed": true
+  },
+  {
+    "check": "Seed does not resurrect archived personalization",
+    "passed": true
+  },
+  {
+    "check": "Global strategy count stays three after repeated seed",
+    "passed": true
+  }
+]

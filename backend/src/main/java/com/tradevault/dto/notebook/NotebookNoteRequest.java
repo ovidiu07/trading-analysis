@@ -10,6 +10,7 @@ import java.util.UUID;
 
 @Data
 public class NotebookNoteRequest {
+    private java.time.OffsetDateTime expectedUpdatedAt;
     private NotebookNoteType type;
     private UUID folderId;
     private String title;

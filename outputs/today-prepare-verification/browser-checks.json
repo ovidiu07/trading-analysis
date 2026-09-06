@@ -1,0 +1,30 @@
+{
+  "environment": "localhost:5173 frontend, localhost:8080 API, isolated PostgreSQL QA database",
+  "identity": "synthetic administrator; no real broker account",
+  "verified": [
+    "Prepare stepper, thesis entry and Mentor template adoption in authenticated browser",
+    "Explicit chart and preparation confirmations; Ready opens Trade",
+    "Session journal autosave and restoration after refresh",
+    "Embedded existing Log trade form saves OPEN trade without an exit and stays on Today",
+    "Review shows preserved preparation and journal",
+    "RO light mobile visual review at 390x844",
+    "DAX OANDA CFD candlesticks, interval controls and drawing tools visible",
+    "Actual iframe height 698px at 1440x1000; 628px at 900px viewport height",
+    "No horizontal page overflow at 360, 390, 768, 1280, 1440px for EN dark, RO light, RO dark"
+  ],
+  "responsive": [
+    {"width":360,"pageWidth":360,"chartWidth":300,"chartHeight":628},
+    {"width":390,"pageWidth":390,"chartWidth":330,"chartHeight":628},
+    {"width":768,"pageWidth":768,"chartWidth":692,"chartHeight":628},
+    {"width":1280,"pageWidth":1280,"chartWidth":910,"chartHeight":628},
+    {"width":1440,"pageWidth":1440,"chartWidth":1070,"chartHeight":628}
+  ],
+  "limitations": [
+    "XETR:DAX intraday rejected as EOD-only; replaced default with explicitly labelled OANDA:DE30EUR CFD",
+    "CME_MINI:ES1! rejected by widget as only available on TradingView; explicit external-link fallback added",
+    "TradingView script emitted a querySelector error during development remount/HMR",
+    "React Router emitted existing future-flag warnings",
+    "No comprehensive keyboard-only audit or every-step/every-theme screenshot matrix",
+    "No hosted environment or real OANDA/OpenAI/news feed credentials verified"
+  ]
+}

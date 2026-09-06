@@ -11,6 +11,10 @@ import java.util.UUID;
 
 public interface NotebookNoteRepository extends JpaRepository<NotebookNote, UUID>,
     NotebookNoteRepositoryCustom {
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @org.springframework.data.jpa.repository.Query("select n from NotebookNote n where n.id=:id and n.user.id=:userId")
+    Optional<NotebookNote> findForUpdate(@org.springframework.data.repository.query.Param("id") UUID id, @org.springframework.data.repository.query.Param("userId") UUID userId);
+
     Optional<NotebookNote> findByIdAndUserId(UUID id, UUID userId);
 
     List<NotebookNote> findByUserIdAndIsDeletedFalse(UUID userId);

@@ -14,6 +14,7 @@ export type NotebookFolder = {
 export type NotebookNoteType = 'DAILY_LOG' | 'TRADE_NOTE' | 'PLAN' | 'GOAL' | 'SESSION_RECAP' | 'NOTE'
 
 export type NotebookNote = {
+  expectedUpdatedAt?: string;
   id: string
   type: NotebookNoteType
   folderId?: string | null

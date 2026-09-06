@@ -1,0 +1,102 @@
+[
+  {
+    "check": "Create isolated QA account",
+    "passed": true
+  },
+  {
+    "check": "Durable European preparation",
+    "passed": true
+  },
+  {
+    "check": "Two sessions have independent revision one",
+    "passed": true
+  },
+  {
+    "check": "Foreign user cannot read preparation",
+    "passed": true
+  },
+  {
+    "check": "Stale tab write rejected",
+    "passed": true
+  },
+  {
+    "check": "Unavailable-provider briefing is persisted",
+    "passed": true
+  },
+  {
+    "check": "Briefing cache reuses exact version",
+    "passed": true
+  },
+  {
+    "check": "Foreign user cannot read briefing version",
+    "passed": true
+  },
+  {
+    "check": "Ready captures briefing version",
+    "passed": true
+  },
+  {
+    "check": "Refresh creates separate version",
+    "passed": true
+  },
+  {
+    "check": "Ready retains original briefing",
+    "passed": true
+  },
+  {
+    "check": "Canonical Notebook note creation",
+    "passed": true
+  },
+  {
+    "check": "Journal save",
+    "passed": true
+  },
+  {
+    "check": "Notebook reads same content",
+    "passed": true
+  },
+  {
+    "check": "Journal rejects stale timestamp",
+    "passed": true
+  },
+  {
+    "check": "Other user sees three published defaults",
+    "passed": true
+  },
+  {
+    "check": "Adopt canonical Mentor strategy",
+    "passed": true
+  },
+  {
+    "check": "Adoption retry uses same personal strategy",
+    "passed": true
+  },
+  {
+    "check": "Archive personal copy",
+    "passed": true
+  },
+  {
+    "check": "Adoption does not resurrect archived copy",
+    "passed": true
+  },
+  {
+    "check": "Explicit restoration",
+    "passed": true
+  },
+  {
+    "check": "Log open trade without exit",
+    "passed": true
+  },
+  {
+    "check": "Retry returns same trade",
+    "passed": true
+  },
+  {
+    "check": "Changed retry payload rejected",
+    "passed": true
+  },
+  {
+    "check": "Review retains Ready snapshot",
+    "passed": true
+  }
+]
