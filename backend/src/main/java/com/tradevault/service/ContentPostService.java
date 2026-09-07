@@ -130,6 +130,7 @@ public class ContentPostService {
     public ContentPostResponse update(UUID id, ContentPostRequest request, String locale) {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
+        guardEditorial(post);
         boolean wasPublished = post.getStatus() == ContentPostStatus.PUBLISHED;
         MeaningfulContentSnapshot before = wasPublished ? MeaningfulContentSnapshot.from(post, this::readList, this::readTemplateFields) : null;
 
@@ -157,6 +158,7 @@ public class ContentPostService {
     public ContentPostResponse publish(UUID id, String locale) {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
+        guardEditorial(post);
         boolean wasPublished = post.getStatus() == ContentPostStatus.PUBLISHED;
 
         post.setStatus(ContentPostStatus.PUBLISHED);
@@ -179,6 +181,7 @@ public class ContentPostService {
     public ContentPostResponse archive(UUID id, String locale) {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
+        guardEditorial(post);
         post.setStatus(ContentPostStatus.ARCHIVED);
         repository.save(post);
         return adminGet(id, locale);
@@ -188,6 +191,7 @@ public class ContentPostService {
     public void delete(UUID id) {
         ContentPost post = repository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Content not found"));
+        guardEditorial(post);
         assetService.deleteAssetsForContent(id);
         repository.delete(post);
     }
@@ -267,6 +271,11 @@ public class ContentPostService {
             return false;
         }
         return true;
+    }
+
+    private void guardEditorial(ContentPost post) {
+        if (post.getContentType() != null && "SESSION_BRIEFING".equals(post.getContentType().getKey()))
+            throw new org.springframework.web.server.ResponseStatusException(org.springframework.http.HttpStatus.CONFLICT, "Use Session briefings administration");
     }
 
     private void applyRequest(ContentPost post, ContentPostRequest request, boolean isCreate) {

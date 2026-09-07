@@ -299,6 +299,7 @@ export default function AdminContentPage() {
 
   return (
     <Stack spacing={3}>
+      <Button onClick={() => navigate('/admin/session-briefings')}>{t('editorial.adminTitle')}</Button>
       <Button disabled={actionLoading} onClick={async () => { setActionLoading(true); try { await apiPost('/strategies/mentor/seed', {}); await loadContent() } catch { setError(t('dailyReview.saveError')) } finally { setActionLoading(false) } }}>{t('prepare.seed')}</Button>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" spacing={1}>
         <Button variant="contained" onClick={() => navigate('/admin/content/new')} fullWidth={isCompact}>

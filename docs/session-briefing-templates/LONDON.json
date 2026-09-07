@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "editorialDate": "2000-01-01",
+  "editorialTimezone": "Europe/Bucharest",
+  "coverageStart": "2000-01-01T00:00:00Z",
+  "coverageEnd": "2000-01-01T00:00:00Z",
+  "referenceTime": "2000-01-01T00:00:00Z",
+  "coverage": "ONGOING",
+  "author": "",
+  "contentLanguage": "en",
+  "aiDisclosure": null,
+  "translations": {
+    "en": {
+      "title": "",
+      "summary": [
+        "",
+        "",
+        ""
+      ],
+      "facts": [],
+      "news": [],
+      "events": [],
+      "macro": [],
+      "scenarios": [],
+      "sourcesAndLimitations": ""
+    }
+  },
+  "slot": "LONDON"
+}

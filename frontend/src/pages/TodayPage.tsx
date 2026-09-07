@@ -1,3 +1,5 @@
+import { EditorialComposition } from '../features/briefings/EditorialView'
+import { Composition, editorialDate } from '../features/briefings/model'
 import { apiGet } from '../api/client'
 import { LogSessionTrade } from '../features/preparation/LogSessionTrade'
 import { SessionJournal } from '../features/preparation/SessionJournal'
@@ -66,7 +68,9 @@ function DailyWorkspace({ accountId, date, session, timezone: accountTimezone, b
   const draftKey = `today.review.${user?.id}.${accountId}.${date}.${session}`
   const saved = useQuery({ queryKey: ['sessionReview', accountId, date, session], queryFn: () => getSessionReview(accountId, date, session) })
   const timezone = saved.data?.data.timezone || accountTimezone
-  const [draft, setDraft] = useState<SessionReview>(() => ({ ...emptyReview, preparation: initialPreparation() }))
+  const accountToday = new Intl.DateTimeFormat('en-CA', { timeZone: accountTimezone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
+  const initialForWorkspace = () => ({ ...initialPreparation(date === accountToday ? editorialDate() : date), manualSession: date !== accountToday })
+  const [draft, setDraft] = useState<SessionReview>(() => ({ ...emptyReview, preparation: initialForWorkspace() }))
   const [revision, setRevision] = useState(0)
   const [ready, setReady] = useState(false)
   const [conflictingDraft, setConflictingDraft] = useState<SessionReview | null>(null)
@@ -103,8 +107,8 @@ function DailyWorkspace({ accountId, date, session, timezone: accountTimezone, b
     let recovered: { revision: number; data: SessionReview } | null = null
     try { recovered = JSON.parse(localStorage.getItem(draftKey) || 'null') } catch { /* Retain server state when local storage is invalid. */ }
     setRevision(saved.data.revision)
-    if (recovered && recovered.revision === saved.data.revision) { setDraft({ ...emptyReview, preparation: initialPreparation(), ...recovered.data }); setSaveState('draft') }
-    else { setDraft({ ...emptyReview, preparation: initialPreparation(), ...saved.data.data }); if (recovered) { setConflictingDraft(recovered.data); setSaveState('error') } }
+    if (recovered && recovered.revision === saved.data.revision) { setDraft({ ...emptyReview, preparation: initialForWorkspace(), ...recovered.data }); setSaveState('draft') }
+    else { setDraft({ ...emptyReview, preparation: initialForWorkspace(), ...saved.data.data }); if (recovered) { setConflictingDraft(recovered.data); setSaveState('error') } }
     setReady(true)
   }, [saved.data, ready, draftKey])
   const editSequence = useRef(0)
@@ -151,7 +155,7 @@ function DailyWorkspace({ accountId, date, session, timezone: accountTimezone, b
     if (!selected) return
     update({ assessments: [...draft.assessments.filter(x => x.tradeId !== selected.id), { tradeId: selected.id, decision, note }] })
   }
-  const prep = draft.preparation || initialPreparation()
+  const prep = draft.preparation || initialForWorkspace()
   const chart = <Card><CardContent><Stack spacing={1}>
     <Autocomplete multiple freeSolo options={['DAX', 'NASDAQ-100', 'ES']} value={draft.instruments.split(',').map(value => value.trim()).filter(Boolean)} onChange={(_, values) => update({ instruments: [...new Set(values)].join(', ') })} renderInput={params => <TextField {...params} label={t('dailyReview.instruments')} />} />
     <Stack direction="row" flexWrap="wrap" useFlexGap spacing={1}>{[['DAX · CFD', 'OANDA:DE30EUR'], ['NASDAQ-100 · CFD', 'OANDA:NAS100USD'], ['ES · Futures', 'CME_MINI:ES1!']].map(([label, symbol]) => <Button key={symbol} variant={prep.chartSymbol === symbol ? 'contained' : 'outlined'} onClick={() => update({ preparation: { ...prep, chartSymbol: symbol } })}>{label}</Button>)}</Stack>
@@ -169,7 +173,7 @@ function DailyWorkspace({ accountId, date, session, timezone: accountTimezone, b
       {(['PREPARE', 'TRADE', 'REVIEW'] as const).map(state => <Button key={state} variant={draft.state === state ? 'contained' : 'outlined'} disabled={saveState === 'saving' || (state === 'TRADE' && !draft.readyContext)} onClick={() => update({ state })}>{t(`dailyReview.states.${state}`)}</Button>)}
       <Chip role="status" label={t(`dailyReview.save.${saveState}`)} />
     </Stack>
-    {saveState === 'error' && <Alert severity="error" action={<Button onClick={async () => { const result = await saved.refetch(); if (result.data) { setConflictingDraft(draft); setRevision(result.data.revision); setDraft({ ...emptyReview, preparation: initialPreparation(), ...result.data.data }) } }}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.saveError')}</Alert>}
+    {saveState === 'error' && <Alert severity="error" action={<Button onClick={async () => { const result = await saved.refetch(); if (result.data) { setConflictingDraft(draft); setRevision(result.data.revision); setDraft({ ...emptyReview, preparation: initialForWorkspace(), ...result.data.data }) } }}>{t('dailyReview.retry')}</Button>}>{t('dailyReview.saveError')}</Alert>}
     {conflictingDraft && <Card><CardContent><Stack spacing={1}><Typography>{t('dailyReview.conflictRecovery')}</Typography><Typography variant='body2'>{t('dailyReview.focus')}: {conflictingDraft.focus}</Typography><Typography variant='body2'>{t('dailyReview.nextFocus')}: {conflictingDraft.nextFocus}</Typography><Button onClick={() => { update(conflictingDraft); setConflictingDraft(null) }}>{t('dailyReview.restoreDraft')}</Button></Stack></CardContent></Card>}
     {executions.isError && <Alert severity="error">{t('dailyReview.loadError')}</Alert>}
     {draft.state !== 'PREPARE' && <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(3, minmax(0, 1fr))', gap: 1 }}>
@@ -184,6 +188,7 @@ function DailyWorkspace({ accountId, date, session, timezone: accountTimezone, b
       <Typography>{draft.readyContext.instruments} · {draft.readyContext.focus}</Typography>
       <Typography>{draft.readyContext.strategyContext?.name || t('prepare.observe')} · {draft.readyContext.strategyContext?.versionId?.slice(0, 8)}</Typography>
       <Typography sx={{ whiteSpace: 'pre-line' }}>{draft.readyContext.preparation.chartPlan}</Typography>
+      {draft.readyContext.briefing?.kind === 'EDITORIAL' && <EditorialComposition capture={draft.readyContext.briefing as Composition} />}
       <Typography variant="caption">{t('prepare.reference')}: {draft.readyContext.briefing?.asOf ? formatDateTime(draft.readyContext.briefing.asOf, timezone) : '—'} · {draft.readyContext.briefing?.id.slice(0, 8)}</Typography>
     </Stack></CardContent></Card>}
     {draft.state === 'TRADE' && chart}
@@ -225,7 +230,7 @@ function DailyWorkspace({ accountId, date, session, timezone: accountTimezone, b
     </Stack></DialogContent><DialogActions><Button onClick={() => setHistoryOpen(false)}>{t('common.close')}</Button></DialogActions></Dialog>
     <FindingEvidenceDialog finding={finding} onClose={() => setFinding(null)} />
     <Dialog open={Boolean(selected)} onClose={() => setSelected(null)} fullWidth maxWidth="sm"><DialogTitle>{selected?.symbol} · {t('dailyReview.reviewTrade')}</DialogTitle><DialogContent><Stack spacing={2} sx={{ pt: 1 }}>
-      {executionContext.data?.readyContext ? <Card><CardContent><Typography>{executionContext.data.readyContext.readyAt}</Typography><Typography>{executionContext.data.readyContext.focus}</Typography><Typography>{executionContext.data.readyContext.strategyContext?.name}</Typography><Typography>{executionContext.data.readyContext.preparation.chartPlan}</Typography><Typography variant="caption">{executionContext.data.readyContext.briefing?.asOf}</Typography></CardContent></Card> : <Typography>{t('prepare.noLinkedPreparation')}</Typography>}
+      {executionContext.data?.readyContext ? <Card><CardContent><Typography>{executionContext.data.readyContext.readyAt}</Typography><Typography>{executionContext.data.readyContext.focus}</Typography><Typography>{executionContext.data.readyContext.strategyContext?.name}</Typography><Typography>{executionContext.data.readyContext.preparation.chartPlan}</Typography><Typography variant="caption">{executionContext.data.readyContext.briefing?.asOf}</Typography>{executionContext.data.readyContext.briefing?.kind === 'EDITORIAL' && <EditorialComposition capture={executionContext.data.readyContext.briefing as Composition} />}</CardContent></Card> : <Typography>{t('prepare.noLinkedPreparation')}</Typography>}
       <Typography>{selected && formatNetResult(selected)}</Typography><Alert severity="info">{t('dailyReview.contextBasis')}</Alert>
       <ToggleButtonGroup exclusive value={assessment?.decision || null} onChange={(_, value) => { if (value) assess(value) }} sx={{ flexWrap: 'wrap' }}>{['FOLLOWED', 'DEVIATED', 'CANNOT_ASSESS'].map(x => <ToggleButton key={x} value={x}>{t(`dailyReview.assessment.${x}`)}</ToggleButton>)}</ToggleButtonGroup>
       <TextField label={t('dailyReview.note')} multiline minRows={3} value={assessment?.note || ''} onChange={e => assess(assessment?.decision || 'CANNOT_ASSESS', e.target.value)} />

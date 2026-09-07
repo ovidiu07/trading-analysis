@@ -1,0 +1,19 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v1.6.1 /Users/ovidiu/Documents/trading-analysis/frontend
+
+ ✓ src/features/preparation/context.test.ts  (20 tests) 32ms
+ ✓ src/features/briefings/model.test.ts  (16 tests) 10ms
+ ✓ src/components/charts/TradingViewWidget.test.tsx  (5 tests) 78ms
+ ✓ src/features/preparation/BriefingPanel.test.tsx  (4 tests) 235ms
+stderr | src/pages/TodayPage.removePlan.test.tsx > Today session review > requires one account when an all-account URL is explicit
+⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+
+ ✓ src/pages/TodayPage.removePlan.test.tsx  (5 tests) 953ms
+
+ Test Files  5 passed (5)
+      Tests  50 passed (50)
+   Start at  00:01:18
+   Duration  2.63s (transform 416ms, setup 0ms, collect 2.88s, tests 1.31s, environment 1.95s, prepare 282ms)
+

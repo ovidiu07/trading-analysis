@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { apiPost } from '../../api/client'
 import { BriefingPanel } from './BriefingPanel'
 import { Alert, Box, Button, Card, CardContent, Checkbox, FormControlLabel, MenuItem, Stack, Step, StepButton, Stepper, TextField, Typography } from '@mui/material'
@@ -25,7 +25,9 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
     } catch { setAdoptionError(true) } finally { setAdopting(false) }
   }
   const p = draft.preparation || initialPreparation()
-  const patch = (value: Partial<Preparation>) => update({ preparation: { ...p, ...value } })
+  const preparationRef = useRef(p)
+  preparationRef.current = p
+  const patch = (value: Partial<Preparation>) => update({ preparation: { ...preparationRef.current, ...value } })
   const steps = ['briefing', 'coach', 'strategy', 'analysis']
   const selected = strategies.find(s => s.id === draft.strategyId)
   return <Stack spacing={2}>
@@ -36,16 +38,11 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
     </Stepper>
     {p.step === 0 && <Card><CardContent><Stack spacing={2}>
       <Typography variant="h6" component="h2">{t('prepare.briefing')}</Typography>
-      <TextField select label={t('prepare.session')} value={p.briefingSession} onChange={e => patch({ briefingSession: e.target.value as Preparation['briefingSession'], manualSession: true, briefingId: undefined })}>
-        <MenuItem value="ASIA">Asia · 09:00–15:00 Asia/Tokyo</MenuItem><MenuItem value="LONDON">London · 08:00–16:00 Europe/London</MenuItem>
-      </TextField>
-      <Typography variant="body2">{t('prepare.window')}</Typography>
-      <Alert severity="warning">{t('prepare.unavailable')}</Alert>
-      <BriefingPanel date={date} preparation={p} onVersion={id => patch({ briefingId: id })} />
+      <BriefingPanel date={date} preparation={p} onVersion={id => patch({ briefingId: id })} onSelection={patch} />
       <FormControlLabel control={<Checkbox checked={p.contextAcknowledged} onChange={e => patch({ contextAcknowledged: e.target.checked })} />} label={t('prepare.acknowledge')} />
     </Stack></CardContent></Card>}
     {p.step === 1 && <Stack spacing={2}>
-      <BriefingPanel coach date={date} preparation={p} onVersion={id => patch({ briefingId: id })} />
+      <BriefingPanel coach date={date} preparation={p} onSelection={patch} onVersion={id => patch({ briefingId: id })} />
       <TextField label={t('prepare.thesis')} value={draft.focus} multiline minRows={3} inputProps={{ maxLength: 2000 }} onChange={e => update({ focus: e.target.value })} />
       <TextField select label={t('prepare.bias')} value={p.bias} onChange={e => patch({ bias: e.target.value as Preparation['bias'] })}>{['bullish', 'bearish', 'neutral', 'mixed'].map(b => <MenuItem value={b} key={b}>{t(`prepare.${b}`)}</MenuItem>)}</TextField>
     </Stack>}

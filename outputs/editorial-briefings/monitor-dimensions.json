@@ -1,0 +1,62 @@
+[
+  {
+    "clientWidth": 360,
+    "frames": [
+      {
+        "height": 358,
+        "parentHeight": 360,
+        "width": 274
+      }
+    ],
+    "pageWidth": 360,
+    "width": 360
+  },
+  {
+    "clientWidth": 390,
+    "frames": [
+      {
+        "height": 358,
+        "parentHeight": 360,
+        "width": 304
+      }
+    ],
+    "pageWidth": 390,
+    "width": 390
+  },
+  {
+    "clientWidth": 768,
+    "frames": [
+      {
+        "height": 358,
+        "parentHeight": 360,
+        "width": 666
+      }
+    ],
+    "pageWidth": 768,
+    "width": 768
+  },
+  {
+    "clientWidth": 1280,
+    "frames": [
+      {
+        "height": 358,
+        "parentHeight": 360,
+        "width": 884
+      }
+    ],
+    "pageWidth": 1280,
+    "width": 1280
+  },
+  {
+    "clientWidth": 1440,
+    "frames": [
+      {
+        "height": 358,
+        "parentHeight": 360,
+        "width": 1044
+      }
+    ],
+    "pageWidth": 1440,
+    "width": 1440
+  }
+]

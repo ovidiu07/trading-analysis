@@ -1,40 +1,50 @@
-import { ContextFeed, Feed } from './ContextFeed'
 import { useQuery } from '@tanstack/react-query'
-import { Alert, Box, Button, Card, CardContent, Stack, Typography } from '@mui/material'
+import { Alert, Button, MenuItem, Stack, TextField, Typography } from '@mui/material'
+import { useEffect, useRef, useState } from 'react'
 import { apiGet, apiPost } from '../../api/client'
 import { Preparation } from '../../api/sessionReviews'
 import { useI18n } from '../../i18n'
-import { useEffect, useState } from 'react'
+import { Composition, Selection, Slot, editorialDate, slots } from '../briefings/model'
+import { EditorialComposition } from '../briefings/EditorialView'
+import { MarketMonitor } from '../briefings/MarketMonitor'
+import { LegacyBriefingPanel } from './LegacyBriefingPanel'
+import { selectBriefing } from './context'
 
-type Instrument = { latestAvailablePrice?: number; latestAvailableAt?: string; symbol: string; type: string; source: string; providerSymbol: string; status: string; reason?: string; dataDate?: string; observedUntil?: string; open?: number; high?: number; low?: number; close?: number; changeFromWindowOpen?: number; lower?: number; upper?: number; width?: number; percent?: number; observations?: number; sampleFrom?: string; sampleTo?: string; rangeStatus?: string }
-type Briefing = { id: string; asOf: string; window: string; contextFeed?: Feed; instruments: Instrument[]; coach?: { cards?: { symbol: string; bias: string; rationale: string; primary: string; alternative: string; invalidation: string; risks: string }[] } }
-export function BriefingPanel({ date, preparation: p, onVersion, coach = false }: { date: string; preparation: Preparation; onVersion: (id: string) => void; coach?: boolean }) {
-  const { t } = useI18n()
-  const [refreshing, setRefreshing] = useState(false)
-  const [error, setError] = useState(false)
-  const query = useQuery({ queryKey: ['preparationBriefing', date, p.briefingSession, p.briefingId],
-    queryFn: () => p.briefingId ? apiGet<Briefing>(`/today/briefing/version/${p.briefingId}`) : apiPost<Briefing>(`/today/briefing/${date}?session=${p.briefingSession}`, {}), retry: false, staleTime: Infinity })
-  useEffect(() => { if (query.data && !p.briefingId) onVersion(query.data.id) }, [query.data, p.briefingId, onVersion])
-  const refresh = async () => {
-    setRefreshing(true); setError(false)
-    try { const next = await apiPost<Briefing>(`/today/briefing/${date}?session=${p.briefingSession}&refresh=true`, {}); onVersion(next.id) }
-    catch { setError(true) } finally { setRefreshing(false) }
-  }
-  return <Stack spacing={1}>
-    <Button disabled={refreshing || query.isLoading} onClick={() => void refresh()}>{t('prepare.refreshBriefing')}</Button>
-    {(error || query.isError) && <Alert severity="warning">{t('prepare.unavailable')}</Alert>}
-    {query.isLoading && <Typography role="status">{t('dailyReview.loading')}</Typography>}
-    {query.data && <><Typography variant="caption">{t('prepare.reference')}: {query.data.asOf} · {query.data.window} · {query.data.id.slice(0,8)}</Typography>
-      {!coach && <Stack component="ul" spacing={0.5} sx={{ pl: 2.5 }}>{query.data.instruments.filter(item => item.close != null).map(item => <Typography component="li" variant="body2" key={item.symbol}>{item.symbol} · {item.dataDate}: {t((item.changeFromWindowOpen ?? 0) > 0 ? 'prepare.bullish' : (item.changeFromWindowOpen ?? 0) < 0 ? 'prepare.bearish' : 'prepare.neutral')} · {t('prepare.observedRange')} {item.low}–{item.high}. {t('prepare.latestAvailable')}: {item.latestAvailablePrice} · {item.latestAvailableAt}</Typography>)}<Typography component="li" variant="body2">{t('prepare.observationScope')}</Typography></Stack>}
-      <Box sx={{ display: 'grid', gap: 1, gridTemplateColumns: { xs: '1fr', md: 'repeat(3,minmax(0,1fr))' } }}>
-      {query.data.instruments.map(item => <Card key={item.symbol} variant="outlined"><CardContent><Stack spacing={1}>
-        <Typography variant="h6" component="h2">{item.symbol === 'GER40' ? 'DAX' : item.symbol === 'NAS100' ? 'NASDAQ-100' : 'ES'}</Typography>
-        <Typography variant="caption">{item.symbol} · {item.providerSymbol} · {item.source} · {item.type}</Typography>
-        <Typography variant="body2">{t('prepare.facts')} · {item.status}</Typography>
-        {item.close != null ? <><Typography>{item.close} · Δ {item.changeFromWindowOpen?.toFixed(2)} {t('prepare.fromOpen')}</Typography><Typography variant="body2">{t('prepare.observedRange')}: {item.low}–{item.high}</Typography><Typography variant="caption">{item.dataDate} · {t('prepare.until')} {item.observedUntil}</Typography></> : <Typography>{t('prepare.noData')}: {item.reason}</Typography>}
-        {coach && <><Typography>{query.data?.coach?.cards?.find(c => c.symbol === item.symbol)?.rationale || t('prepare.aiUnavailable')}</Typography>{query.data?.coach?.cards?.filter(c => c.symbol === item.symbol).map(c => <Stack key={c.symbol} spacing={1}><Typography>{t(`prepare.${c.bias}`)}</Typography>{(['primary','alternative','invalidation','risks'] as const).map(field => <Typography variant="body2" key={field}>{t(`prepare.${field}`)}: {c[field]}</Typography>)}</Stack>)}{item.rangeStatus === 'available' ? <><Typography>{t('prepare.estimatedRange')}: {item.lower?.toFixed(2)}–{item.upper?.toFixed(2)}</Typography><Typography variant="body2">{item.width?.toFixed(2)} pts · {item.percent?.toFixed(2)}% · n={item.observations}</Typography><Typography variant="caption">{t('prepare.rangeMethod')} · {item.sampleFrom}–{item.sampleTo} · {t('prepare.reference')}: {item.open}</Typography></> : <Typography variant="body2">{t('prepare.rangeUnavailable')}</Typography>}</>}
-        <Typography variant="caption">{t('prepare.instrumentMismatch')}</Typography>
-      </Stack></CardContent></Card>)}
-      </Box>{!coach && <ContextFeed feed={query.data.contextFeed} />}</>}
-  </Stack>
+export function BriefingPanel({ date, preparation:p,onVersion,onSelection,coach=false }: {date:string;preparation:Preparation;onVersion:(id:string)=>void;onSelection?:(p:Partial<Preparation>)=>void;coach?:boolean}) {
+ const {t}=useI18n();const [error,setError]=useState('');const [busy,setBusy]=useState(false);const loading=useRef(false)
+ const selectedDate=p.briefingDate || date
+ const mounted=useRef(true)
+ const selectionKey=`${date}:${selectedDate}:${p.manualSession}:${p.briefingSession}`
+ const latestSelection=useRef(selectionKey);latestSelection.current=selectionKey
+ useEffect(()=>{mounted.current=true;return()=>{mounted.current=false}},[])
+ const current=useQuery({queryKey:['editorialSelection',p.manualSession?selectedDate:'current-editorial-date',p.manualSession?p.briefingSession:'auto'],queryFn:()=>apiGet<Selection>(`/session-briefings?date=${p.manualSession?selectedDate:editorialDate()}${p.manualSession?`&slot=${p.briefingSession}`:''}`),refetchInterval:30000,retry:false})
+ const frozen=useQuery({queryKey:['preparationBriefingVersion',p.briefingId],queryFn:()=>apiGet<Composition>(`/today/briefing/version/${p.briefingId}`),enabled:Boolean(p.briefingId),staleTime:Infinity,retry:false})
+ async function capture() {
+  if(loading.current)return;loading.current=true;setBusy(true);setError('');const requestedKey=selectionKey
+  const slot=p.manualSession?p.briefingSession:current.data?.requestedSlot || selectBriefing(new Date())
+  const requestedDate=p.manualSession?selectedDate:current.data?.requestedDate || editorialDate()
+  try {const result=await apiPost<Composition>(`/session-briefings/capture/${date}`,{editorialDate:requestedDate,slot});
+   if(!mounted.current || latestSelection.current!==requestedKey)return
+   if(onSelection)onSelection({briefingId:result.id,briefingSession:slot,briefingDate:requestedDate,contextAcknowledged:false,preparationConfirmed:false});else onVersion(result.id)
+  }catch(e){setError(e instanceof Error?e.message:t('dailyReview.loadError'))}finally{loading.current=false;setBusy(false)}
+ }
+ const captureAction=useRef(capture);captureAction.current=capture
+ useEffect(()=>{if(!p.briefingId && current.data)void captureAction.current()},[p.briefingId,current.data])
+ if(frozen.data && frozen.data.kind!=='EDITORIAL')return <LegacyBriefingPanel date={date} preparation={p} onVersion={onVersion} coach={coach}/>
+ const data=frozen.data
+ const newer=data && current.data?.selected && data.selected?.id!==current.data.selected.id
+ const missingNext=data && current.data?.missingPreferred && !newer && (data.requestedSlot!==current.data.requestedSlot || data.requestedDate!==current.data.requestedDate)
+ return <Stack spacing={2}>
+ {!coach && <Stack direction={{xs:'column',sm:'row'}} spacing={1}>
+ <TextField type="date" label={t('editorial.editorialDate')} value={selectedDate} InputLabelProps={{shrink:true}} onChange={e=>{if(e.target.value)onSelection?.({briefingDate:e.target.value,manualSession:true,briefingId:undefined,contextAcknowledged:false,preparationConfirmed:false})}}/>
+ <TextField select label={t('prepare.session')} value={p.briefingSession} onChange={e=>onSelection?.({briefingSession:e.target.value as Slot,briefingDate:selectedDate,manualSession:true,briefingId:undefined,contextAcknowledged:false,preparationConfirmed:false})}>{slots.map(slot=><MenuItem value={slot} key={slot}>{t(`editorial.${slot}`)}</MenuItem>)}</TextField>
+ <Button disabled={busy} onClick={()=>void capture()}>{t('editorial.refreshSelection')}</Button>
+ </Stack>}
+ {missingNext && <Alert severity="info">{t('editorial.missing')}: {current.data?.requestedDate} · {t(`editorial.${current.data?.requestedSlot}`)}. {t('editorial.contextRetained')}</Alert>}
+ {newer && <Alert severity="info" action={<Button disabled={busy} onClick={()=>void capture()}>{t('editorial.switch')}</Button>}>{t('editorial.newer')}</Alert>}
+ {(error || current.isError || frozen.isError) && <Alert severity="warning">{error || t('dailyReview.loadError')} · {t('editorial.manualAllowed')}<Button disabled={busy} onClick={()=>void capture()}>{t('dailyReview.retry')}</Button></Alert>}
+ {(busy || frozen.isFetching) && <Typography role="status">{t('dailyReview.loading')}</Typography>}
+ {data && <EditorialComposition capture={data} scenariosOnly={coach}/>}
+ {!coach && <MarketMonitor historical={selectedDate!==editorialDate()}/>}
+ </Stack>
 }

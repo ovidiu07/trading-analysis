@@ -1,0 +1,214 @@
+[
+  {
+    "check": "Admin creates draft ASIA",
+    "passed": true
+  },
+  {
+    "check": "Admin creates draft LONDON",
+    "passed": true
+  },
+  {
+    "check": "Admin creates draft DAY_RECAP",
+    "passed": true
+  },
+  {
+    "check": "Duplicate date/session identity rejected",
+    "passed": true
+  },
+  {
+    "check": "Three draft slots visible to admin",
+    "passed": true
+  },
+  {
+    "check": "Drafts invisible in user discovery",
+    "passed": true
+  },
+  {
+    "check": "Normal user denied None",
+    "passed": true
+  },
+  {
+    "check": "Normal user denied None/history",
+    "passed": true
+  },
+  {
+    "check": "Normal user denied None/publish",
+    "passed": true
+  },
+  {
+    "check": "Normal user denied PUT",
+    "passed": true
+  },
+  {
+    "check": "Normal user denied None/withdraw",
+    "passed": true
+  },
+  {
+    "check": "Anonymous reads denied",
+    "passed": true
+  },
+  {
+    "check": "Normal user preview denied",
+    "passed": true
+  },
+  {
+    "check": "Offset-bearing reference accepted as an instant",
+    "passed": true
+  },
+  {
+    "check": "Valid import preview",
+    "passed": true
+  },
+  {
+    "check": "Reject privileged field",
+    "passed": true
+  },
+  {
+    "check": "Reject future reference",
+    "passed": true
+  },
+  {
+    "check": "Reject unsafe URL",
+    "passed": true
+  },
+  {
+    "check": "Reject missing availability",
+    "passed": true
+  },
+  {
+    "check": "Reject duplicate fact",
+    "passed": true
+  },
+  {
+    "check": "Reject missing original translation",
+    "passed": true
+  },
+  {
+    "check": "Reject invented widget metrics",
+    "passed": true
+  },
+  {
+    "check": "Reject future fact",
+    "passed": true
+  },
+  {
+    "check": "Idempotent publication retry",
+    "passed": true
+  },
+  {
+    "check": "Double-click with second key does not duplicate",
+    "passed": true
+  },
+  {
+    "check": "Another signed-in user reads publication",
+    "passed": true
+  },
+  {
+    "check": "Missing London retains actual Asia identity",
+    "passed": true
+  },
+  {
+    "check": "Asia-only composition",
+    "passed": true
+  },
+  {
+    "check": "Capture is private",
+    "passed": true
+  },
+  {
+    "check": "Ready freezes exact publication composition",
+    "passed": true
+  },
+  {
+    "check": "Stale draft rejected",
+    "passed": true
+  },
+  {
+    "check": "Stale publish rejected",
+    "passed": true
+  },
+  {
+    "check": "Update creates immutable revision two",
+    "passed": true
+  },
+  {
+    "check": "Correction preserved",
+    "passed": true
+  },
+  {
+    "check": "Ready unchanged after update",
+    "passed": true
+  },
+  {
+    "check": "Capture unchanged after update",
+    "passed": true
+  },
+  {
+    "check": "LONDON cumulative composition",
+    "passed": true
+  },
+  {
+    "check": "DAY_RECAP cumulative composition",
+    "passed": true
+  },
+  {
+    "check": "Earlier Asia view excludes later knowledge",
+    "passed": true
+  },
+  {
+    "check": "Weekend without Friday uses latest actual publication",
+    "passed": true
+  },
+  {
+    "check": "Open trade without exit logs",
+    "passed": true
+  },
+  {
+    "check": "Trade retry deduplicates",
+    "passed": true
+  },
+  {
+    "check": "Linked trade Review retains original context",
+    "passed": true
+  },
+  {
+    "check": "Withdrawal removes normal discovery",
+    "passed": true
+  },
+  {
+    "check": "Withdrawal notice for frozen preparation",
+    "passed": true
+  },
+  {
+    "check": "History preserves both revisions and actions",
+    "passed": true
+  },
+  {
+    "check": "Foreign user cannot read linked context",
+    "passed": true
+  },
+  {
+    "check": "Late earlier-reference revision excluded from earlier London cutoff",
+    "passed": true
+  },
+  {
+    "check": "Original London-eligible Asia revision retained",
+    "passed": true
+  },
+  {
+    "check": "Frozen capture contains no widget values",
+    "passed": true
+  },
+  {
+    "check": "Manual date/session persists",
+    "passed": true
+  },
+  {
+    "check": "Silent stable-ID fact rewrite rejected",
+    "passed": true
+  },
+  {
+    "check": "Generic CMS publication path is guarded",
+    "passed": true
+  }
+]

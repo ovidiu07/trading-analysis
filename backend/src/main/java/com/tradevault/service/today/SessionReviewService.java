@@ -43,12 +43,18 @@ public class SessionReviewService {
         }
     }
     public record Preparation(@Min(0) @Max(3) int step,
-        @Pattern(regexp="ASIA|LONDON") String briefingSession,
+        @Pattern(regexp="ASIA|LONDON|DAY_RECAP") String briefingSession,
         boolean manualSession, @Pattern(regexp="bullish|bearish|neutral|mixed") String bias,
         @Size(max=4000) String chartPlan, @Size(max=500) String chartSymbol,
         @Size(max=10) String chartInterval, boolean observing,
         boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
-        @Size(max=20) List<Boolean> checklist, UUID briefingId) {}
+        @Size(max=20) List<Boolean> checklist, UUID briefingId, LocalDate briefingDate) {
+        public Preparation(int step, String briefingSession, boolean manualSession, String bias, String chartPlan, String chartSymbol,
+          String chartInterval, boolean observing, boolean contextAcknowledged, boolean chartConfirmed, boolean preparationConfirmed,
+          List<Boolean> checklist, UUID briefingId) {
+          this(step,briefingSession,manualSession,bias,chartPlan,chartSymbol,chartInterval,observing,contextAcknowledged,chartConfirmed,preparationConfirmed,checklist,briefingId,null);
+        }
+    }
     public record Response(int revision, JsonNode data) {}
 
     private void validateSession(String session) {

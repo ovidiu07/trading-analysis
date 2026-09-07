@@ -1,0 +1,97 @@
+[
+  {
+    "clientWidth": 360,
+    "iframe": {
+      "bottom": 1425.6328125,
+      "height": 358,
+      "left": 43,
+      "right": 317,
+      "top": 1067.6328125,
+      "width": 274,
+      "x": 43,
+      "y": 1067.6328125
+    },
+    "scrollWidth": 360,
+    "width": 360,
+    "innerFrame": {
+      "height": 326,
+      "width": 274
+    }
+  },
+  {
+    "clientWidth": 390,
+    "iframe": {
+      "bottom": 608.0546875,
+      "height": 358,
+      "left": 43,
+      "right": 347,
+      "top": 250.0546875,
+      "width": 304,
+      "x": 43,
+      "y": 250.0546875
+    },
+    "scrollWidth": 390,
+    "width": 390,
+    "innerFrame": {
+      "height": 326,
+      "width": 304
+    }
+  },
+  {
+    "clientWidth": 768,
+    "iframe": {
+      "bottom": 309,
+      "height": 358,
+      "left": 51,
+      "right": 717,
+      "top": -49,
+      "width": 666,
+      "x": 51,
+      "y": -49
+    },
+    "scrollWidth": 768,
+    "width": 768,
+    "innerFrame": {
+      "height": 326,
+      "width": 666
+    }
+  },
+  {
+    "clientWidth": 1280,
+    "iframe": {
+      "bottom": 549.9296875,
+      "height": 358,
+      "left": 151,
+      "right": 1225,
+      "top": 191.9296875,
+      "width": 1074,
+      "x": 151,
+      "y": 191.9296875
+    },
+    "scrollWidth": 1280,
+    "width": 1280,
+    "innerFrame": {
+      "height": 326,
+      "width": 1074
+    }
+  },
+  {
+    "clientWidth": 1440,
+    "iframe": {
+      "bottom": 606.21875,
+      "height": 358,
+      "left": 151,
+      "right": 1385,
+      "top": 248.21875,
+      "width": 1234,
+      "x": 151,
+      "y": 248.21875
+    },
+    "scrollWidth": 1440,
+    "width": 1440,
+    "innerFrame": {
+      "height": 326,
+      "width": 1234
+    }
+  }
+]

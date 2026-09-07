@@ -34,6 +34,7 @@ const PrivacyPage = lazy(() => import('./pages/PrivacyPage'))
 const CookiesPage = lazy(() => import('./pages/CookiesPage'))
 const InsightsPage = lazy(() => import('./pages/InsightsPage'))
 const InsightDetailPage = lazy(() => import('./pages/InsightDetailPage'))
+const AdminSessionBriefingsPage = lazy(() => import('./pages/admin/AdminSessionBriefingsPage'))
 const AdminContentPage = lazy(() => import('./pages/admin/AdminContentPage'))
 const AdminContentEditorPage = lazy(() => import('./pages/admin/AdminContentEditorPage'))
 const AdminContentTypesPage = lazy(() => import('./pages/admin/AdminContentTypesPage'))
@@ -124,6 +125,7 @@ function App() {
             <Route path="/insights/:idOrSlug" element={<ProtectedRoute>{withSuspense(<InsightDetailPage />)}</ProtectedRoute>} />
             <Route path="/settings" element={<ProtectedRoute>{withSuspense(<SettingsPage />)}</ProtectedRoute>} />
             <Route path="/profile" element={<ProtectedRoute>{withSuspense(<ProfilePage />)}</ProtectedRoute>} />
+            <Route path="/admin/session-briefings" element={<AdminRoute>{withSuspense(<AdminSessionBriefingsPage />)}</AdminRoute>} />
             <Route path="/admin/content" element={<AdminRoute>{withSuspense(<AdminContentPage />)}</AdminRoute>} />
             <Route path="/admin/content/types" element={<AdminRoute>{withSuspense(<AdminContentTypesPage />)}</AdminRoute>} />
             <Route path="/admin/content/new" element={<AdminRoute>{withSuspense(<AdminContentEditorPage />)}</AdminRoute>} />
