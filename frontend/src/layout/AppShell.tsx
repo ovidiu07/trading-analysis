@@ -51,6 +51,7 @@ export default function AppShell() {
   const [searchParams, setSearchParams] = useSearchParams()
   const theme = useTheme()
   const isMobile = useMediaQuery(theme.breakpoints.down('md'))
+  const usesHorizontalNavigation = useMediaQuery(theme.breakpoints.up('lg'))
   const [mobileOpen, setMobileOpen] = useState(false)
   const [definitionsOpen, setDefinitionsOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem(SIDEBAR_STORAGE_KEY) === 'true')
@@ -198,7 +199,7 @@ export default function AppShell() {
   }, [location.pathname, location.search])
 
   const desktopCollapsed = isMobile ? false : sidebarCollapsed
-  const effectiveSidebarWidth = desktopCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH
+  const effectiveSidebarWidth = usesHorizontalNavigation ? 0 : desktopCollapsed ? SIDEBAR_COLLAPSED_WIDTH : SIDEBAR_WIDTH
 
   return (
     <Box
@@ -213,8 +214,8 @@ export default function AppShell() {
 
       }}
     >
-      {isAuthenticated && (
-        <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 }, minWidth: 0 }}>
+      {isAuthenticated && !usesHorizontalNavigation && (
+        <Box component="nav" sx={{ width: { md: effectiveSidebarWidth }, flexShrink: { md: 0 }, minWidth: 0, display: { lg: 'none' } }}>
           <Drawer
             variant={isMobile ? 'temporary' : 'permanent'}
             open={isMobile ? mobileOpen : true}
@@ -285,8 +286,8 @@ export default function AppShell() {
           ref={mainRef}
           maxWidth={false}
           sx={{
-            py: { xs: 1.5, md: 3 },
-            px: { xs: 1.5, sm: 2.5, md: 3 },
+            py: { xs: 1.5, md: 2 },
+            px: { xs: 1.5, sm: 2.5, md: 2 },
             flexGrow: 1,
             width: '100%',
             maxWidth: layoutTokens.content.wide,

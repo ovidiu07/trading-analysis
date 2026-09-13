@@ -1,0 +1,13 @@
+{
+  "jsonSyntax": "passed",
+  "existingImportSchema": "compatible after required real metadata completion",
+  "expectedUnresolvedTimestampPaths": [
+    "coverageEnd",
+    "coverageStart",
+    "referenceTime"
+  ],
+  "futuresContractMarkers": "NQ and ES require verified identity before final use",
+  "syntheticParserOnlyCopy": "passed; not a historical truth or publication test",
+  "privilegedExtraKeyRejected": true,
+  "published": false
+}

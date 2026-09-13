@@ -141,22 +141,20 @@ describe('AppShell dashboard filters and logo placement', () => {
   })
 
   it.each(['/dashboard', '/analytics', '/trades', '/today'])(
-    'removes TradeJAudit logo from top header while keeping it in the sidebar on %s',
+    'uses the compact terminal header and removes the desktop sidebar on %s',
     (route) => {
       setViewportWidth(1280)
       renderShell(route)
 
-      const sidebar = screen.getByRole('navigation')
-      expect(within(sidebar).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'horizontal')
-
       const banner = screen.getByRole('banner')
-      expect(within(banner).queryByTestId('brand-logo')).not.toBeInTheDocument()
+      expect(within(banner).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'horizontal')
+      expect(within(banner).getByRole('navigation')).toBeInTheDocument()
       expect(screen.getAllByTestId('brand-logo')).toHaveLength(1)
     }
   )
 
-  it('uses the supplied emblem when the desktop sidebar is collapsed', async () => {
-    setViewportWidth(1280)
+  it('uses the supplied emblem when the medium-width sidebar is collapsed', async () => {
+    setViewportWidth(960)
     renderShell('/today')
 
     const user = userEvent.setup()
@@ -178,12 +176,12 @@ describe('AppShell dashboard filters and logo placement', () => {
     expect(within(screen.getByRole('navigation')).getByTestId('brand-logo')).toHaveAttribute('data-layout', 'horizontal')
   })
 
-  it('groups navigation around the daily journal, review and practice loop', () => {
+  it('orders the primary terminal navigation around daily preparation and review', () => {
     setViewportWidth(1280)
     renderShell('/today')
 
     const nav = screen.getByRole('navigation')
-    const expectedOrder = ['Today', 'Trades', 'Notebook', 'Calendar', 'Dashboard', 'Analytics', 'Diagnostics', 'Strategies', 'Backtesting', 'Mentor']
+    const expectedOrder = ['Today', 'Dashboard', 'Journal', 'Analytics', 'Calendar', 'Market Context', 'Strategies']
     const nodes = expectedOrder.map((label) => within(nav).getByRole('link', { name: label, exact: true }))
 
     for (let index = 0; index < nodes.length - 1; index += 1) {
@@ -201,10 +199,10 @@ describe('AppShell dashboard filters and logo placement', () => {
     renderShell(`/analytics?accountIds=${secondId},${firstId}`)
 
     const nav = screen.getByRole('navigation')
-    expect(within(nav).getByRole('link', { name: 'Trades' })).toHaveAttribute(
+    expect(within(nav).getByRole('link', { name: 'Journal' })).toHaveAttribute(
       'href',
       `/trades?accountIds=${firstId}%2C${secondId}`
     )
-    expect(within(nav).getByRole('link', { name: 'Backtesting' })).toHaveAttribute('href', `/backtesting?accountIds=${firstId}%2C${secondId}`)
+    expect(within(nav).getByRole('link', { name: 'Strategies' })).toHaveAttribute('href', `/strategies?accountIds=${firstId}%2C${secondId}`)
   })
 })

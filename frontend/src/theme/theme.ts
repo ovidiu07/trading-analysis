@@ -102,8 +102,8 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
       }
     },
     typography: {
-      fontFamily: '"Manrope", "Plus Jakarta Sans", "Inter", "Segoe UI", "Helvetica Neue", Arial, sans-serif',
-      fontSize: 15,
+      fontFamily: '"Inter", "Geist", ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      fontSize: 14,
       h1: {
         fontWeight: 750,
         fontSize: '2.2rem',
@@ -315,7 +315,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
             borderRadius: tokens.radius.md,
             border: `1px solid ${tokens.border.subtle}`,
             boxShadow: tokens.elevation.card,
-            backgroundImage: !isLight && !isBlackShiny ? 'linear-gradient(180deg, #172334, #121B28)' : 'none',
+            backgroundImage: !isLight && !isBlackShiny ? 'linear-gradient(180deg, rgba(14, 28, 40, 0.98), rgba(10, 22, 33, 0.98))' : 'none',
             overflow: 'hidden'
           }
         }
@@ -337,7 +337,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
         },
         styleOverrides: {
           root: {
-            minHeight: 40,
+            minHeight: 36,
             borderRadius: tokens.radius.sm,
             transition: 'all 150ms ease'
           },
@@ -393,7 +393,7 @@ const createFintechTheme = (mode: AppThemeMode): Theme => {
       MuiOutlinedInput: {
         styleOverrides: {
           root: {
-            minHeight: 40,
+            minHeight: 36,
             borderRadius: tokens.radius.sm,
             backgroundColor: tokens.surface.panelMuted,
             '& .MuiOutlinedInput-notchedOutline': {

@@ -9,6 +9,14 @@ import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined'
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded'
 import SettingsBrightnessOutlinedIcon from '@mui/icons-material/SettingsBrightnessOutlined'
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded'
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded'
+import TodayOutlinedIcon from '@mui/icons-material/TodayOutlined'
+import SpaceDashboardRoundedIcon from '@mui/icons-material/SpaceDashboardRounded'
+import CandlestickChartRoundedIcon from '@mui/icons-material/CandlestickChartRounded'
+import QueryStatsRoundedIcon from '@mui/icons-material/QueryStatsRounded'
+import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded'
+import AutoStoriesOutlinedIcon from '@mui/icons-material/AutoStoriesOutlined'
+import AutoAwesomeMotionRoundedIcon from '@mui/icons-material/AutoAwesomeMotionRounded'
 import {
   AppBar,
   Avatar,
@@ -19,6 +27,7 @@ import {
   FormControl,
   IconButton,
   InputLabel,
+  InputAdornment,
   Menu,
   MenuItem,
   Select,
@@ -32,7 +41,7 @@ import {
   useMediaQuery,
   useTheme,
 } from '@mui/material'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import type { AppLanguage } from '../i18n'
 import type { AuthUser } from '../api/auth'
 import type { DashboardQueryState, DashboardStatusFilter } from '../features/dashboard/queryState'
@@ -42,7 +51,7 @@ import NotificationBell from '../components/layout/NotificationBell'
 import BrandLogo from '../components/brand/BrandLogo'
 import AccountScopeSelector from '../components/accounts/AccountScopeSelector'
 import { useAccountScope } from '../features/accountScope/useAccountScope'
-import { writeAccountScope } from '../features/accountScope/accountScope'
+import { readAccountScope, writeAccountScope } from '../features/accountScope/accountScope'
 
 const MARKET_OPTIONS = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'] as const
 
@@ -87,19 +96,33 @@ export default function TopBar({
   const theme = useTheme()
   const isNarrow = useMediaQuery(theme.breakpoints.down('md'))
   const isXs = useMediaQuery(theme.breakpoints.down('sm'))
+  const isHorizontalNav = useMediaQuery(theme.breakpoints.up('lg'))
   const isDashboardMobile = isDashboard && isNarrow
   const accountScope = useAccountScope(isAuthenticated)
+  const location = useLocation()
+  const navigate = useNavigate()
 
   const [profileAnchor, setProfileAnchor] = useState<null | HTMLElement>(null)
   const [themeAnchor, setThemeAnchor] = useState<null | HTMLElement>(null)
   const [mobileActionsAnchor, setMobileActionsAnchor] = useState<null | HTMLElement>(null)
   const [dashboardFiltersOpen, setDashboardFiltersOpen] = useState(false)
+  const [instrumentSearch, setInstrumentSearch] = useState('')
 
   const profileOpen = Boolean(profileAnchor)
   const themeOpen = Boolean(themeAnchor)
   const mobileActionsOpen = Boolean(mobileActionsAnchor)
   const timezone = user?.timezone || 'Europe/Bucharest'
   const currency = user?.baseCurrency || 'USD'
+  const scopedQuery = writeAccountScope(new URLSearchParams(), readAccountScope(new URLSearchParams(location.search))).toString()
+  const navItems = [
+    { label: t('nav.today'), path: '/today', icon: TodayOutlinedIcon },
+    { label: t('nav.dashboard'), path: '/dashboard', icon: SpaceDashboardRoundedIcon },
+    { label: t('nav.journal'), path: '/trades', icon: CandlestickChartRoundedIcon },
+    { label: t('nav.analytics'), path: '/analytics', icon: QueryStatsRoundedIcon },
+    { label: t('nav.calendar'), path: '/calendar', icon: CalendarMonthRoundedIcon },
+    { label: t('nav.marketContext'), path: '/insights/today', icon: AutoStoriesOutlinedIcon },
+    { label: t('nav.strategies'), path: '/strategies', icon: AutoAwesomeMotionRoundedIcon }
+  ]
 
   const getThemeLabel = (value: ThemePreference) => {
     if (value === 'light') return t('theme.light')
@@ -269,8 +292,8 @@ export default function TopBar({
         <Toolbar
           sx={{
             py: 1,
-            minHeight: isDashboard ? { xs: 74, md: 86 } : { xs: 68, md: 74 },
-            alignItems: 'flex-start',
+            minHeight: isHorizontalNav ? 60 : isDashboard ? { xs: 74, md: 86 } : { xs: 68, md: 74 },
+            alignItems: 'center',
             overflowX: 'clip',
             minWidth: 0
           }}
@@ -283,17 +306,17 @@ export default function TopBar({
               spacing={1}
               sx={{ minWidth: 0 }}
             >
-              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0 }}>
+              <Stack direction="row" alignItems="center" spacing={1} sx={{ minWidth: 0, flex: 1 }}>
                 {showMenuToggle && (
                   <IconButton onClick={onMenuToggle} aria-label={t('nav.openMenu')} sx={{ width: 44, height: 44 }}>
                     <MenuIcon />
                   </IconButton>
                 )}
 
-                {showMenuToggle && (
+                {(showMenuToggle || isHorizontalNav) && (
                   <Box
                     component={Link}
-                    to={`/today?${writeAccountScope(new URLSearchParams(), accountScope.scope).toString()}`}
+                    to={`/today?${scopedQuery}`}
                     aria-label={t('layout.homeLabel')}
                     sx={{
                       display: 'inline-flex',
@@ -305,11 +328,42 @@ export default function TopBar({
                       textDecoration: 'none'
                     }}
                   >
-                    <BrandLogo layout={isXs ? 'mark' : 'horizontal'} size="sm" decorative />
+                    <BrandLogo layout={isXs ? 'mark' : 'horizontal'} size={isHorizontalNav ? 'md' : 'sm'} decorative />
                   </Box>
                 )}
 
-                {showTitle && !isNarrow && (
+                {isAuthenticated && isHorizontalNav && (
+                  <Stack component="nav" aria-label={t('app.name')} direction="row" spacing={0.15} alignItems="center" sx={{ ml: 1, minWidth: 0 }}>
+                    {navItems.map((item) => {
+                      const Icon = item.icon
+                      const selected = location.pathname === item.path || location.pathname.startsWith(`${item.path}/`)
+                      return (
+                        <Button
+                          key={item.path}
+                          component={Link}
+                          to={`${item.path}${scopedQuery ? `?${scopedQuery}` : ''}`}
+                          startIcon={<Icon sx={{ fontSize: '17px !important' }} />}
+                          color="inherit"
+                          aria-current={selected ? 'page' : undefined}
+                          sx={{
+                            minWidth: 0,
+                            minHeight: 36,
+                            px: { lg: 0.8, xl: 1.15 },
+                            color: selected ? 'text.primary' : 'text.secondary',
+                            bgcolor: selected ? 'action.selected' : 'transparent',
+                            fontSize: { lg: 11.5, xl: 12.5 },
+                            whiteSpace: 'nowrap',
+                            '&:hover': { bgcolor: 'action.hover', color: 'text.primary' }
+                          }}
+                        >
+                          {item.label}
+                        </Button>
+                      )
+                    })}
+                  </Stack>
+                )}
+
+                {showTitle && !isNarrow && !isHorizontalNav && (
                   <Stack sx={{ minWidth: 0, pl: showMenuToggle ? 0.5 : 0 }}>
                     <Typography component="h1" variant="subtitle1" noWrap sx={{ fontSize: { xs: '0.9rem', md: '0.98rem' } }}>
                       {title}
@@ -325,8 +379,23 @@ export default function TopBar({
 
               {isAuthenticated ? (
                 <Stack direction="row" alignItems="center" spacing={0.75} sx={{ minWidth: 0 }}>
+                  {isHorizontalNav && (
+                    <TextField
+                      size="small"
+                      value={instrumentSearch}
+                      onChange={(event) => setInstrumentSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key !== 'Enter' || !instrumentSearch.trim()) return
+                        navigate(`/today/session?symbol=${encodeURIComponent(instrumentSearch.trim().toUpperCase())}`)
+                      }}
+                      placeholder={t('workstation.searchInstruments')}
+                      inputProps={{ 'aria-label': t('workstation.searchInstruments') }}
+                      InputProps={{ startAdornment: <InputAdornment position="start"><SearchRoundedIcon sx={{ fontSize: 18 }} /></InputAdornment> }}
+                      sx={{ width: { lg: 170, xl: 230 }, '& .MuiOutlinedInput-root': { bgcolor: 'background.paper' } }}
+                    />
+                  )}
                   <NotificationBell />
-                  {!isNarrow && (
+                  {!isNarrow && !isHorizontalNav && (
                     <>
                       <Chip label={currency} size="small" variant="outlined" aria-label={t('dashboard.topBar.currency')} />
                       <Chip label={timezone} size="small" variant="outlined" aria-label={t('dashboard.topBar.timezone')} />

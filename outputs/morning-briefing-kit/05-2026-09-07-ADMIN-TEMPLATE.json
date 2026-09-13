@@ -1,0 +1,207 @@
+{
+  "schemaVersion": 1,
+  "editorialDate": "2026-09-07",
+  "slot": "ASIA",
+  "editorialTimezone": "Europe/Bucharest",
+  "coverageStart": "__COVERAGE_START_UTC__",
+  "coverageEnd": "__COVERAGE_END_UTC__",
+  "referenceTime": "__REFERENCE_TIME_UTC__",
+  "coverage": "ONGOING",
+  "author": "@devtraderfx",
+  "contentLanguage": "ro",
+  "aiDisclosure": "Restructurare cu asistență AI a materialului primit; cifrele sunt atribuite sursei, nu recertificate. Scenarii propuse pentru verificarea administratorului.",
+  "translations": {
+    "ro": {
+      "title": "Briefing de dimineață — Asia → Europa & pregătire SUA | 7 septembrie 2026",
+      "summary": [
+        "Asia: avans raportat în tehnologie, dar participare neuniformă. Japonia și Coreea nu confirmă singure un avans general al piețelor.",
+        "DAX: context mixt între impulsul semiconductorilor și presiunea potențială a energiei/ratelor; confirmarea se caută pe instrumentul exact.",
+        "Nasdaq-100/NQ: tema AI este favorabilă în material, însă lipsesc contractul, observația directă și structura overnight verificate.",
+        "ES: analiză distinctă pentru piața largă; semiconductorii singuri nu confirmă participarea sectoarelor. Bias propus neutral din lipsă de confirmare.",
+        "Labor Day: cash NYSE închis; programul futures se verifică separat. Scenariile sunt condiționale și modul observație rămâne valid."
+      ],
+      "facts": [
+        {
+          "id": "2026-09-07-asia-asia",
+          "time": null,
+          "topic": "Asia: indici diferiți, momente diferite",
+          "statement": "Materialul primit indică Nikkei aproximativ +2,2%, Kospi +3,1%–3,3%, Hang Seng −1,1%, CSI 300 +0,2% și Shanghai Composite −0,2%. Observațiile nu sunt simultane și nu sunt reverificate în această rescriere.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/china/global-markets-global-markets-2026-09-07/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-semiconductori",
+          "time": null,
+          "topic": "Semiconductori Asia",
+          "statement": "Materialul atribuie AP creșteri Samsung de aproximativ 4,5% și SK Hynix de 6,2%; menționează și avansuri Tokyo Electron, Advantest și Kioxia. Nu este dovadă de participare pentru Nasdaq-100 sau DAX.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://apnews.com/article/5fed4e21cb3f80eef06087217dbbd9f7",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-foxconn",
+          "time": null,
+          "topic": "Foxconn / cerere AI",
+          "statement": "Materialul atribuie Reuters o creștere a veniturilor Foxconn din august de 51,98% YoY și o perspectivă favorabilă pentru T3. Comunicarea și momentul publicării rămân de verificat înaintea unei afirmații recertificate.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/asia-pacific/foxconn-says-third-quarter-outperform-market-expectations-ai-strength-2026-09-05/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-china",
+          "time": null,
+          "topic": "China / capital bancar",
+          "statement": "Materialul descrie aproximativ 54 mld. USD în recapitalizări pentru bănci și asigurători. Suma din text diferă de cea din URL-ul citat; această rescriere nu rezolvă diferența.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/asia-pacific/china-pump-47-bln-into-state-banks-insurers-capital-boosting-push-2026-09-06/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-japonia",
+          "time": null,
+          "topic": "Japonia / USDJPY / BOJ",
+          "statement": "Documentul indică USDJPY aproximativ 155,9–156,1 și așteptări BOJ mai restrictive. Procentele de probabilitate și momentele observațiilor nu sunt validate aici.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/asia-pacific/dollar-gets-little-lift-boost-fed-hike-expectations-2026-09-07/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-rate",
+          "time": null,
+          "topic": "US2Y / US10Y / DXY",
+          "statement": "Documentul indică US10Y aproximativ 4,784%, US2Y aproximativ 4,37% ca referință de vineri și DXY aproximativ 99,09–99,14. Nu reprezintă observații sincronizate. Lipsesc DE2Y/DE10Y.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/china/global-markets-global-markets-2026-09-07/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-energie",
+          "time": null,
+          "topic": "Brent / WTI / risc maritim",
+          "statement": "Documentul indică Brent aproximativ 97,07 și WTI 92,28 USD/baril, legând mișcarea de afirmații despre SUA–Iran/Hormuz. Identitatea seriilor, contractele, momentele și știrile necesită verificare.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/business/energy/oil-extends-gains-after-us-iran-strike-ships-2026-09-07/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-sua-futures",
+          "time": null,
+          "topic": "Futures SUA: identitate insuficientă",
+          "statement": "Materialul descrie S&P 500 și Nasdaq futures ca aproape flat/ușor negative, fără contracte și timestampuri. Nu furnizează niveluri ES/NQ, intervale overnight sau participare verificabilă.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/china/global-markets-global-markets-2026-09-07/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-sua-cash",
+          "time": null,
+          "topic": "Ultima sesiune cash SUA",
+          "statement": "Materialul raportează vineri Dow −0,51%, S&P 500 −0,38% și Nasdaq Composite −0,29%. Nasdaq Composite nu este Nasdaq-100; cifra nu se transferă către NDX sau NQ.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-09-04/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-nfp",
+          "time": null,
+          "topic": "Macro SUA: rezultat și consens atribuite",
+          "statement": "Materialul indică NFP +162.000 versus consens Reuters aproximativ +56.000 și un repricing Fed. Rezultatul, consensul și probabilitățile sunt afirmații preluate, nu reverificate în acest export.",
+          "source": "Material furnizat @devtraderfx; atribuire în text, de verificat",
+          "sourceUrl": "https://www.reuters.com/world/china/global-markets-wrapup-1-2026-09-04/",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        },
+        {
+          "id": "2026-09-07-asia-holiday",
+          "time": null,
+          "topic": "SUA / Labor Day",
+          "statement": "Documentul identifică 7 septembrie 2026 ca Labor Day cu cash SUA închis; calendarul NYSE consultat susține închiderea pieței sale cash. Programul futures ES/NQ trebuie stabilit separat la CME.",
+          "source": "NYSE; verificare calendar",
+          "sourceUrl": "https://www.nyse.com/trade/hours-calendars",
+          "availableAt": null,
+          "availabilityNotEstablished": "Fișierul primit nu stabilește momentul exact al disponibilității istorice. Rescrierea nu atribuie retroactiv o oră.",
+          "relatedFactId": null,
+          "relationship": null
+        }
+      ],
+      "news": [],
+      "events": [],
+      "macro": [],
+      "scenarios": [
+        {
+          "market": "DAX",
+          "instrument": "DAX cash — XETR:DAX",
+          "type": "INDEX",
+          "contract": null,
+          "bias": "mixed",
+          "context": "Materialul sugerează impuls tehnologic pozitiv și presiune din energie/rate. Nu oferă o observație DAX sincronizată. ASML este context sectorial european, nu dovadă de participare a componentelor DAX.",
+          "main": "Dacă DAX depășește o structură de referință verificată pe grafic, menține retestarea și participarea componentelor confirmă, poate apărea continuare ascendentă. Triggerul nu este observat în material. Pentru futures/CFD analizați separat intervalul overnight al instrumentului exact.",
+          "alternative": "Dacă impulsul este respins, prețul revine în structura de referință și participarea rămâne slabă, urmăriți posibilitatea unui range sau a deteriorării.",
+          "invalidation": "Pierderea retestării și revenirea susținută în structura anterioară infirmă ipoteza continuării. Nu sunt furnizate niveluri numerice.",
+          "risks": "Date macro, energie/rate și participare îngustă. Rămâneți în observație dacă identitatea instrumentului ori confirmarea sunt neclare.",
+          "limitations": "Analiză editorială propusă pentru revizuire. Cash DAX, FDAX/FDXM și CFD sunt distincte. Cash DAX nu primește un interval overnight inventat; niciun nivel de execuție nu este derivat din acest raport.",
+          "source": "Registrul materialului furnizat; scenarii editoriale @devtraderfx propuse spre verificare"
+        },
+        {
+          "market": "NASDAQ_100",
+          "instrument": "E-mini Nasdaq-100 futures — CME NQ",
+          "type": "FUTURES",
+          "contract": "__NQ_CONTRACT_VERIFIED__",
+          "bias": "mixed",
+          "context": "Tema AI/semiconductori este atribuită sursei primite. Contractul NQ, observația directă, intervalul overnight și participarea membrilor indicelui lipsesc. Nasdaq Composite −0,29% nu este performanța Nasdaq-100/NQ.",
+          "main": "După identificarea contractului, dacă NQ depășește intervalul overnight verificat, menține retestarea și confirmările disponibile pentru sesiune susțin mișcarea, tema AI poate sprijini continuarea. Nu presupuneți confirmare cash în zi cu cash închis.",
+          "alternative": "Respingerea breakout-ului și revenirea în interval, însoțite de deteriorarea confirmărilor disponibile, susțin revenirea în range sau scenariul descendent.",
+          "invalidation": "Acceptarea din nou în interval după breakout infirmă continuarea. Fără contract și fereastră verificabile, triggerul nu poate fi evaluat.",
+          "risks": "Program special, lichiditate și participare limitate, rate, mișcări concentrate. Observație când confirmările lipsesc.",
+          "limitations": "Cadru condițional adăugat editorial, nu observație NQ nouă. Completați contractul real înainte de importul final sau omiteți acest card. Nu există prețuri, suporturi, rezistențe ori fluxuri de ordine verificate.",
+          "source": "Registrul materialului furnizat; scenarii editoriale @devtraderfx propuse spre verificare"
+        },
+        {
+          "market": "ES",
+          "instrument": "E-mini S&P 500 futures — CME ES",
+          "type": "FUTURES",
+          "contract": "__ES_CONTRACT_VERIFIED__",
+          "bias": "neutral",
+          "context": "Raportul nu conține analiză ES suficientă. Forța semiconductorilor poate coexista cu slăbiciunea altor sectoare; nu există dovezi de breadth sau contract identificat. Bias-ul neutral reflectă lipsa confirmării.",
+          "main": "Dacă ES depășește și menține intervalul overnight al contractului verificat, cu confirmările disponibile pentru sesiunea respectivă, poate fi urmărită continuarea. Participarea cash se verifică la reluarea cash, nu se presupune disponibilă în sărbătoare.",
+          "alternative": "Dacă impulsul tehnologic nu este susținut în ES și prețul respinge extremitatea intervalului, rămâne posibil un range sau slăbiciunea pieței largi.",
+          "invalidation": "Eșecul retestării și revenirea în interval infirmă continuarea; menținerea în afara intervalului infirmă ipoteza revenirii în range.",
+          "risks": "Program/lichiditate de sărbătoare, informații sectoriale insuficiente, comparații NQ/ES incompatibile. Observație dacă identitatea sau structura nu sunt verificate.",
+          "limitations": "Cadru conceptual fără niveluri. Completați contractul verificat înainte de importul final sau omiteți cardul. S&P 500 cash, SPY, CFD US500 și ES nu sunt interschimbabile.",
+          "source": "Registrul materialului furnizat; scenarii editoriale @devtraderfx propuse spre verificare"
+        }
+      ],
+      "sourcesAndLimitations": "Șablon de finalizare a rescrierii materialului primit. Ora-limită reală, intervalul și contractele futures nu sunt stabilite: completați marcajele din metadate și contracte numai din surse verificabile. Cifrele sunt afirmații atribuite documentului, nu observații curente reverificate. news/events/macro sunt goale deoarece lipsesc metadatele temporale necesare. Calendarul propus în text: producție industrială Germania 09:00, Sentix 11:30, PIB/ocupare Eurostat 12:00 România, toate necesitând verificarea orei și statutului față de referenceTime; Eurostat susține data de 7 septembrie. Nu inserați rezultate aflate ulterior în această dimineață istorică. Randamentul US2Y relatat este de vineri, DE2Y/DE10Y lipsesc, cuprul este neconfirmat. Detaliile despre exporturile Coreei, rezervele Japoniei, probabilități BOJ/Fed, costuri Honda și tarife rămân context secundar de verificat. Scenariile nu conțin niveluri și nu reprezintă analiză personalizată. Dacă un contract nu poate fi stabilit, omiteți cardul futures; nu substituiți un contract presupus. Monitorul TradingView actual nu face parte din informația istorică. Sursa inițială: documentul utilizatorului cu atribuiri Reuters/AP/FT/Eurostat; verificarea limitată a surselor este documentată separat."
+    }
+  }
+}

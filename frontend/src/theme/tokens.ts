@@ -102,10 +102,10 @@ export type DesignTokens = {
 }
 
 const sharedRadius: RadiusTokens = {
-  xs: 8,
-  sm: 14,
-  md: 18,
-  lg: 24,
+  xs: 6,
+  sm: 8,
+  md: 10,
+  lg: 12,
   pill: 999
 }
 
@@ -186,74 +186,74 @@ const lightTokens: DesignTokens = {
 const darkTokens: DesignTokens = {
   radius: sharedRadius,
   elevation: {
-    card: '0 1px 1px rgba(0, 0, 0, 0.45), 0 20px 50px rgba(0, 0, 0, 0.58)',
-    floating: '0 18px 42px rgba(0, 0, 0, 0.7)'
+    card: '0 1px 2px rgba(0, 0, 0, 0.28)',
+    floating: '0 12px 28px rgba(0, 0, 0, 0.52)'
   },
   surface: {
-    app: '#080C12',
-    background: '#080C12',
-    panel: '#121B28',
-    elevated: '#1A2738',
-    muted: '#1A2738',
-    panelMuted: '#1A2738',
-    sidebar: '#0D131D',
-    header: '#0D131D'
+    app: '#071019',
+    background: '#071019',
+    panel: '#0B1621',
+    elevated: '#10202D',
+    muted: '#0E1B27',
+    panelMuted: '#0E1B27',
+    sidebar: '#08131D',
+    header: 'rgba(7, 16, 25, 0.96)'
   },
   text: {
     primary: '#F3F7FC',
-    secondary: '#AFBDD0',
-    muted: '#8293AA',
-    disabled: '#8293AA',
+    secondary: '#A9B8C9',
+    muted: '#718398',
+    disabled: '#627488',
     inverse: '#08121F'
   },
   border: {
-    subtle: '#2A3B52',
-    strong: '#627A96',
-    focus: '#B4E5FF'
+    subtle: 'rgba(130, 160, 190, 0.16)',
+    strong: 'rgba(130, 160, 190, 0.32)',
+    focus: '#4EA1FF'
   },
   brand: {
-    primary: '#8AC7FF',
-    primaryStrong: '#B1DCFF',
-    primarySoft: 'rgba(116, 177, 255, 0.22)',
-    secondary: '#54d8c2',
-    secondarySoft: 'rgba(84, 216, 194, 0.23)',
-    gradientStart: '#A4D5FF',
-    gradientEnd: '#7AB9F3'
+    primary: '#4EA1FF',
+    primaryStrong: '#7AB8FF',
+    primarySoft: 'rgba(78, 161, 255, 0.16)',
+    secondary: '#4FD6B5',
+    secondarySoft: 'rgba(79, 214, 181, 0.16)',
+    gradientStart: '#338DFF',
+    gradientEnd: '#246BFF'
   },
   feedback: {
-    success: '#54D6A0',
-    successMuted: '#102A23',
-    warning: '#F3C675',
-    warningMuted: '#302719',
-    error: '#FF7C89',
-    errorMuted: '#321D27',
-    info: '#93c9ff',
-    infoMuted: 'rgba(147, 201, 255, 0.18)'
+    success: '#43D9A3',
+    successMuted: '#0D2B24',
+    warning: '#E9B85F',
+    warningMuted: '#302617',
+    error: '#FF627A',
+    errorMuted: '#351923',
+    info: '#65B1FF',
+    infoMuted: 'rgba(101, 177, 255, 0.16)'
   },
   trading: {
-    profit: '#54D6A0',
-    loss: '#FF7C89',
-    flat: '#AFBDD0',
-    long: '#8AC7FF',
-    short: '#C3AEFF',
-    bullish: '#54d8c2',
-    bearish: '#f090ad',
-    neutral: '#AFBDD0',
-    open: '#93c9ff',
-    closed: '#54D6A0',
-    pending: '#F3C675',
-    archived: '#8798b2'
+    profit: '#43D9A3',
+    loss: '#FF627A',
+    flat: '#A9B8C9',
+    long: '#4EA1FF',
+    short: '#B29DFF',
+    bullish: '#43D9A3',
+    bearish: '#FF627A',
+    neutral: '#A9B8C9',
+    open: '#65B1FF',
+    closed: '#43D9A3',
+    pending: '#E9B85F',
+    archived: '#718398'
   },
   chart: {
-    grid: 'rgba(148, 173, 213, 0.26)',
-    axis: '#AFBDD0',
-    positive: '#8AC7FF',
-    negative: '#FF7C89'
+    grid: 'rgba(130, 160, 190, 0.13)',
+    axis: '#8192A5',
+    positive: '#43D9A3',
+    negative: '#FF627A'
   },
   interaction: {
-    hover: '#223249',
-    selected: 'rgba(116, 177, 255, 0.27)',
-    pressed: 'rgba(116, 177, 255, 0.35)'
+    hover: 'rgba(78, 161, 255, 0.08)',
+    selected: 'rgba(78, 161, 255, 0.15)',
+    pressed: 'rgba(78, 161, 255, 0.22)'
   }
 }
 
@@ -345,7 +345,7 @@ export const layoutTokens = {
   content: {
     reading: 960,
     standard: 1360,
-    wide: 1600
+    wide: 1920
   },
   sidebar: {
     expanded: 286,

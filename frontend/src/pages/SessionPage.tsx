@@ -179,6 +179,7 @@ export default function SessionPage() {
     return plan.bias || plan.objectives || plan.focusSymbols?.join(', ') || t('today.session.simple.plans.ready')
   }
   const requestedPlan = (searchParams.get('plan') || '').toUpperCase()
+  const requestedSymbol = normalizeSymbol(searchParams.get('symbol') || '')
 
   const [expandedPlans, setExpandedPlans] = useState<PlanScopeTab[]>(() => {
     if (requestedPlan === 'WEEKLY' || requestedPlan === 'MONTHLY') return [requestedPlan]
@@ -284,7 +285,7 @@ export default function SessionPage() {
       setupSignatureRef.current = selected ? JSON.stringify(toSetupPayload(selected)) : ''
       const todaySymbol = workspace.planningContext?.today?.focusSymbols?.[0] || ''
       const rememberedSymbol = localStorage.getItem(LAST_SYMBOL_KEY) || ''
-      setChartSymbol(normalizeSymbol(selected?.symbol || todaySymbol || rememberedSymbol))
+      setChartSymbol(normalizeSymbol(requestedSymbol || selected?.symbol || todaySymbol || rememberedSymbol))
     } else if (selected && setupDraft?.id !== selected.id && !setupMutation.isPending) {
       setSetupDraft(selected)
       setupSignatureRef.current = JSON.stringify(toSetupPayload(selected))
@@ -294,7 +295,7 @@ export default function SessionPage() {
       WEEKLY: toPeriodPlanDraft(workspace.planningContext?.weekly),
       MONTHLY: toPeriodPlanDraft(workspace.planningContext?.monthly)
     })
-  }, [activeWorkspaceSetup, setupDraft?.id, setupMutation.isPending, workspace])
+  }, [activeWorkspaceSetup, requestedSymbol, setupDraft?.id, setupMutation.isPending, workspace])
 
   useEffect(() => {
     if (!workspace || !setupDraft || setupDraft.id.startsWith('draft-')) return
