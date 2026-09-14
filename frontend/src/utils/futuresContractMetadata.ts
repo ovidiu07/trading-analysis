@@ -6,23 +6,26 @@ export type FuturesContractMetadata = {
   contractMultiplier: number
   tickSize: number
   tickValue: number
+  tradeCurrency: 'USD'
+  quantityStep: 1
+  source: 'CME_CONTRACT_METADATA'
 }
 
 const EXPIRY_SUFFIX_RE = /^([A-Z]+)([FGHJKMNQUVXZ])(\d{1,4})$/
 
 const FUTURES_CONTRACTS: Record<string, FuturesContractMetadata> = {
-  MNQ: { root: 'MNQ', displayName: 'Micro E-mini Nasdaq-100', contractMultiplier: 2, tickSize: 0.25, tickValue: 0.5 },
-  NQ: { root: 'NQ', displayName: 'E-mini Nasdaq-100', contractMultiplier: 20, tickSize: 0.25, tickValue: 5 },
-  MES: { root: 'MES', displayName: 'Micro E-mini S&P 500', contractMultiplier: 5, tickSize: 0.25, tickValue: 1.25 },
-  ES: { root: 'ES', displayName: 'E-mini S&P 500', contractMultiplier: 50, tickSize: 0.25, tickValue: 12.5 },
-  M2K: { root: 'M2K', displayName: 'Micro E-mini Russell 2000', contractMultiplier: 5, tickSize: 0.1, tickValue: 0.5 },
-  RTY: { root: 'RTY', displayName: 'E-mini Russell 2000', contractMultiplier: 50, tickSize: 0.1, tickValue: 5 },
-  MYM: { root: 'MYM', displayName: 'Micro E-mini Dow', contractMultiplier: 0.5, tickSize: 1, tickValue: 0.5 },
-  YM: { root: 'YM', displayName: 'E-mini Dow', contractMultiplier: 5, tickSize: 1, tickValue: 5 },
-  MCL: { root: 'MCL', displayName: 'Micro WTI Crude Oil', contractMultiplier: 100, tickSize: 0.01, tickValue: 1 },
-  CL: { root: 'CL', displayName: 'WTI Crude Oil', contractMultiplier: 1000, tickSize: 0.01, tickValue: 10 },
-  MGC: { root: 'MGC', displayName: 'Micro Gold', contractMultiplier: 10, tickSize: 0.1, tickValue: 1 },
-  GC: { root: 'GC', displayName: 'Gold', contractMultiplier: 100, tickSize: 0.1, tickValue: 10 }
+  MNQ: { root: 'MNQ', displayName: 'Micro E-mini Nasdaq-100', contractMultiplier: 2, tickSize: 0.25, tickValue: 0.5, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  NQ: { root: 'NQ', displayName: 'E-mini Nasdaq-100', contractMultiplier: 20, tickSize: 0.25, tickValue: 5, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  MES: { root: 'MES', displayName: 'Micro E-mini S&P 500', contractMultiplier: 5, tickSize: 0.25, tickValue: 1.25, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  ES: { root: 'ES', displayName: 'E-mini S&P 500', contractMultiplier: 50, tickSize: 0.25, tickValue: 12.5, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  M2K: { root: 'M2K', displayName: 'Micro E-mini Russell 2000', contractMultiplier: 5, tickSize: 0.1, tickValue: 0.5, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  RTY: { root: 'RTY', displayName: 'E-mini Russell 2000', contractMultiplier: 50, tickSize: 0.1, tickValue: 5, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  MYM: { root: 'MYM', displayName: 'Micro E-mini Dow', contractMultiplier: 0.5, tickSize: 1, tickValue: 0.5, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  YM: { root: 'YM', displayName: 'E-mini Dow', contractMultiplier: 5, tickSize: 1, tickValue: 5, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  MCL: { root: 'MCL', displayName: 'Micro WTI Crude Oil', contractMultiplier: 100, tickSize: 0.01, tickValue: 1, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  CL: { root: 'CL', displayName: 'WTI Crude Oil', contractMultiplier: 1000, tickSize: 0.01, tickValue: 10, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  MGC: { root: 'MGC', displayName: 'Micro Gold', contractMultiplier: 10, tickSize: 0.1, tickValue: 1, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' },
+  GC: { root: 'GC', displayName: 'Gold', contractMultiplier: 100, tickSize: 0.1, tickValue: 10, tradeCurrency: 'USD', quantityStep: 1, source: 'CME_CONTRACT_METADATA' }
 }
 
 const normalizeSymbol = (symbol?: string | null): string => (

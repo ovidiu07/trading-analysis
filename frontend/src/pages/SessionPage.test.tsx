@@ -833,11 +833,30 @@ describe('SessionPage simplified workflow', () => {
   })
 
   it('opens the existing Quick Log with available setup context and no readiness gate', async () => {
-    const setup = buildSetup('GER30', 'SHORT', 'London rejection')
+    const setup = buildSetup('ESZ6', 'SHORT', 'London rejection')
+    setup.accountRefId = 'account-1'
+    setup.accountCurrency = 'USD'
+    setup.sourceDraftId = 'risk-draft-1'
+    setup.market = 'FUTURES'
     setup.strategyId = 'strategy-1'
     setup.strategyLabel = 'Sweep model'
     setup.tradeSession = 'LONDON'
     setup.trigger.confirmationTimeframe = '5'
+    setup.executions.tickets[0] = {
+      ...setup.executions.tickets[0],
+      entryPrice: 6000.5,
+      stopLossPrice: 6005.5,
+      takeProfitPrice: 5990.5,
+      riskAmount: 250,
+      quantity: 1,
+      contractMultiplier: 50,
+      contractMetadataSource: 'CME_CONTRACT_METADATA',
+      tradeCurrency: 'USD',
+      profileCurrency: 'USD',
+      fxRateTradeToProfile: 1,
+      fxRateSource: 'IDENTITY',
+      invalidation: 'Acceptance above 6005.5'
+    }
     workspaceState.setups.push(setup)
     workspaceState.activeSetupId = setup.id
     workspaceState.session.readiness = makeReadiness(['risk configured', 'lock session'])
@@ -849,11 +868,19 @@ describe('SessionPage simplified workflow', () => {
     const location = screen.getByTestId('location-probe').textContent || ''
     expect(location).toContain('/trades?')
     expect(location).toContain('quickLog=1')
-    expect(location).toContain('symbol=GER30')
+    expect(location).toContain('symbol=ESZ6')
+    expect(location).toContain('market=FUTURES')
+    expect(location).toContain('accountRefId=account-1')
     expect(location).toContain('direction=SHORT')
     expect(location).toContain('setup=London+rejection')
     expect(location).toContain('session=LONDON')
     expect(location).toContain('timeframe=5')
+    expect(location).toContain('entryPrice=6000.5')
+    expect(location).toContain('stopLossPrice=6005.5')
+    expect(location).toContain('takeProfitPrice=5990.5')
+    expect(location).toContain('riskAmount=250')
+    expect(location).toContain('quantity=1')
+    expect(location).toContain('contractMultiplier=50')
     expect(location).toContain('planId=session-1')
   })
 

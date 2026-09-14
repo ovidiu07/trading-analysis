@@ -12,6 +12,8 @@ import java.util.UUID;
 
 @Data
 public class UpsertSessionSetupRequest {
+    private UUID accountRefId;
+    private String sourceDraftId;
     private String symbol;
     private Direction direction;
     private Market market;
@@ -86,6 +88,17 @@ public class UpsertSessionSetupRequest {
         private BigDecimal takeProfitPrice;
         private BigDecimal riskAmount;
         private BigDecimal quantity;
+        private BigDecimal contractMultiplier;
+        private String contractMetadataSource;
+        private String tradeCurrency;
+        private String profileCurrency;
+        private BigDecimal fxRateTradeToProfile;
+        private String fxRateSource;
+        private BigDecimal plannedRr;
+        private BigDecimal estimatedPriceRisk;
+        private Boolean costsIncluded;
+        private String calculationStatus;
+        private List<String> unavailableReasons;
         private String invalidation;
         private String whyWrong;
         private String initialNotes;

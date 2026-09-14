@@ -50,6 +50,7 @@ import { TradeCsvImportSummary, TradeResponse, createTrade, deleteTrade, getTrad
 import { createNotebookNote } from '../api/notebook'
 import { AssetItem, listTradeAssets } from '../api/assets'
 import { TradeFormValues, buildTradePayload } from '../utils/tradePayload'
+import { parseLocalizedNumberInput } from '../utils/numberInput'
 import { currentDateTimeForInput, formatUtcForDateTimeLocal } from '../utils/tradeDateTime'
 import { useAuth } from '../auth/AuthContext'
 import { ApiError } from '../api/client'
@@ -612,6 +613,7 @@ export default function TradesPage() {
   const optionsLoadedRef = useRef(false)
   const optionsLoadingPromiseRef = useRef<Promise<void> | null>(null)
   const screenshotRequestRef = useRef(0)
+  const quickLogSignatureRef = useRef('')
 
   const handleAuthFailure = useCallback((message?: string) => {
     setFetchError(message || t('trades.errors.loginRequired'))
@@ -1112,15 +1114,38 @@ export default function TradesPage() {
         .filter(Boolean)
 
       const requestedAccountId = params.get('accountRefId') || params.get('accountId')
-      const quickDefaults = buildQuickLogDefaults(timezone, resolvePreselectedAccountId(requestedAccountId))
+      const resolvedAccountId = resolvePreselectedAccountId(requestedAccountId)
+      const signature = `${location.search}::${resolvedAccountId}`
+      if (quickLogSignatureRef.current === signature) return
+      if (quickLogSignatureRef.current.startsWith(`${location.search}::`) && createFormDirty) return
+      const quickDefaults = buildQuickLogDefaults(timezone, resolvedAccountId)
       const requestedDirection = params.get('direction')
       const direction = requestedDirection === 'LONG' || requestedDirection === 'SHORT'
         ? requestedDirection
         : quickDefaults.direction
+      const requestedMarket = params.get('market')
+      const market = ['STOCK', 'CFD', 'FOREX', 'CRYPTO', 'FUTURES', 'OPTIONS', 'OTHER'].includes(requestedMarket || '')
+        ? requestedMarket as TradeFormValues['market']
+        : quickDefaults.market
+      const positiveParam = (key: string) => {
+        const parsed = parseLocalizedNumberInput(params.get(key))
+        return parsed != null && Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+      }
       setCreateFormValues({
         ...quickDefaults,
         symbol: params.get('symbol') || quickDefaults.symbol,
+        market,
         direction,
+        entryPrice: positiveParam('entryPrice') ?? quickDefaults.entryPrice,
+        stopLossPrice: positiveParam('stopLossPrice'),
+        takeProfitPrice: positiveParam('takeProfitPrice'),
+        riskAmount: positiveParam('riskAmount'),
+        quantity: positiveParam('quantity') ?? quickDefaults.quantity,
+        contractMultiplier: positiveParam('contractMultiplier'),
+        tradeCurrency: params.get('tradeCurrency') || quickDefaults.tradeCurrency,
+        profileCurrency: params.get('profileCurrency') || quickDefaults.profileCurrency,
+        fxRateTradeToProfile: positiveParam('fxRateTradeToProfile'),
+        fxRateSource: params.get('fxRateSource') || quickDefaults.fxRateSource,
         setup: params.get('setup') || quickDefaults.setup,
         timeframe: params.get('timeframe') || quickDefaults.timeframe,
         session: (params.get('session') || quickDefaults.session) as TradeFormValues['session'],
@@ -1129,14 +1154,16 @@ export default function TradesPage() {
         strategyId: params.get('strategyId') || quickDefaults.strategyId,
         linkedContentIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedContentIds,
         linkedPlanIds: linkedContentIds.length > 0 ? linkedContentIds : quickDefaults.linkedPlanIds,
+        notes: params.get('notes') || quickDefaults.notes,
       })
       setCreateDialogMode('quick')
       setCreateError('')
       setCreateFormDirty(false)
       setCreateDiscardDialogOpen(false)
       setCreateDialogOpen(true)
+      quickLogSignatureRef.current = signature
     }
-  }, [accountPreselectionKey, location.search, resolvePreselectedAccountId, timezone])
+  }, [accountPreselectionKey, createFormDirty, location.search, resolvePreselectedAccountId, timezone])
 
   useEffect(() => {
     if (!highlightTradeId) return

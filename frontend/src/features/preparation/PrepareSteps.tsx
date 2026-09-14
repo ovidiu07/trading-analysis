@@ -16,7 +16,6 @@ import {
   Typography
 } from '@mui/material'
 import TuneRoundedIcon from '@mui/icons-material/TuneRounded'
-import SecurityRoundedIcon from '@mui/icons-material/SecurityRounded'
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined'
 import PsychologyAltOutlinedIcon from '@mui/icons-material/PsychologyAltOutlined'
 import VerifiedUserOutlinedIcon from '@mui/icons-material/VerifiedUserOutlined'
@@ -35,12 +34,14 @@ import { useI18n } from '../../i18n'
 import { initialPreparation, strategyText } from './context'
 import MarketIntelligenceGrid from '../../components/trading-workspace/MarketIntelligenceGrid'
 import { PanelNumber, WorkstationCard } from '../../components/trading-workspace/WorkspacePrimitives'
+import { TodayRiskPanel } from '../risk/TodayRiskPanel'
+import type { SetupDirection, SetupItem } from '../../api/liveWorkspace'
 
 const demoSetupLabelKeys = ['liquiditySweep', 'displacement', 'mssChoch', 'fvgImbalance', 'orderBlock', 'htfConfluence'] as const
 
 type EmotionalState = 'calm' | 'focused' | 'neutral' | 'anxious' | 'fomo'
 
-export function PrepareSteps({ date, draft, update, strategies, start, saving, chart, mentorStrategies, reloadStrategies, accountLabel, riskLimit }: {
+export function PrepareSteps({ date, draft, update, strategies, start, saving, chart, mentorStrategies, reloadStrategies, userId, accountId, accountLabel, accountCurrency, isCurrentDate, session, symbol, market, direction, maximumPermittedRisk, maximumPermittedRiskPct, remainingTrades, capacityReason }: {
   date: string
   draft: SessionReview
   update: (value: Partial<SessionReview>) => void
@@ -50,8 +51,19 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
   start: () => void
   saving: boolean
   chart: React.ReactNode
-  accountLabel?: string
-  riskLimit?: string
+  userId: string
+  accountId: string
+  accountLabel: string
+  accountCurrency: string
+  isCurrentDate: boolean
+  session: string
+  symbol: string
+  market: NonNullable<SetupItem['market']>
+  direction: SetupDirection
+  maximumPermittedRisk?: number | null
+  maximumPermittedRiskPct?: number | null
+  remainingTrades?: number | null
+  capacityReason?: string | null
 }) {
   const { t } = useI18n()
   const [adopting, setAdopting] = useState(false)
@@ -206,28 +218,27 @@ export function PrepareSteps({ date, draft, update, strategies, start, saving, c
           </Stack>
         </WorkstationCard>
 
-        <WorkstationCard title={t('workstation.risk')} icon={SecurityRoundedIcon} action={<PanelNumber>2</PanelNumber>}>
-          <Stack spacing={1.1}>
-            <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="caption" color="text.secondary">{t('workstation.account')}</Typography>
-              <Typography variant="body2" sx={{ fontWeight: 700 }}>{accountLabel || t('workstation.selectedAccount')}</Typography>
-            </Box>
-            <Box sx={{ p: 1.1, borderRadius: 1, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
-              <Typography variant="caption" color="text.secondary">{t('workstation.maximumRisk')}</Typography>
-              <Typography className="metric-value" sx={{ fontWeight: 750, color: riskLimit ? 'text.primary' : 'text.secondary' }}>{riskLimit || t('workstation.unavailable')}</Typography>
-            </Box>
-            {['entryPrice', 'stopLoss', 'takeProfit', 'positionSize', 'riskReward'].map((key) => (
-              <Stack key={key} direction="row" justifyContent="space-between" sx={{ py: 0.55, borderBottom: '1px solid', borderColor: 'divider' }}>
-                <Typography variant="caption" color="text.secondary">{t(`workstation.${key}`)}</Typography>
-                <Typography className="metric-value" variant="caption">—</Typography>
-              </Stack>
-            ))}
-            <Typography variant="caption" color="text.secondary">
-              {t('workstation.executionUnavailable')}
-            </Typography>
-            <Button component={Link} to="/today/session" size="small" variant="outlined">{t('workstation.openExecution')}</Button>
-          </Stack>
-        </WorkstationCard>
+        <TodayRiskPanel
+          key={`${accountId}:${date}:${session}:${market}:${symbol}`}
+          userId={userId}
+          accountId={accountId}
+          accountLabel={accountLabel}
+          accountCurrency={accountCurrency}
+          date={date}
+          isCurrentDate={isCurrentDate}
+          session={session}
+          symbol={symbol}
+          market={market}
+          direction={direction}
+          strategyId={draft.strategyId}
+          strategyLabel={selected?.name}
+          thesis={draft.focus}
+          defaultInvalidation={p.chartPlan}
+          maximumPermittedRisk={maximumPermittedRisk}
+          maximumPermittedRiskPct={maximumPermittedRiskPct}
+          remainingTrades={remainingTrades}
+          capacityReason={capacityReason}
+        />
 
         <WorkstationCard title={t('workstation.tradePlan')} icon={DescriptionOutlinedIcon} action={<PanelNumber>3</PanelNumber>}>
           <Stack spacing={1.1}>

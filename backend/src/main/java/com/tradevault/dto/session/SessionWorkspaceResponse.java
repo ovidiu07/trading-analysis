@@ -93,6 +93,9 @@ public class SessionWorkspaceResponse {
     @Builder
     public static class SetupItem {
         UUID id;
+        UUID accountRefId;
+        String accountCurrency;
+        String sourceDraftId;
         String symbol;
         Direction direction;
         Market market;
@@ -191,6 +194,17 @@ public class SessionWorkspaceResponse {
         BigDecimal takeProfitPrice;
         BigDecimal riskAmount;
         BigDecimal quantity;
+        BigDecimal contractMultiplier;
+        String contractMetadataSource;
+        String tradeCurrency;
+        String profileCurrency;
+        BigDecimal fxRateTradeToProfile;
+        String fxRateSource;
+        BigDecimal plannedRr;
+        BigDecimal estimatedPriceRisk;
+        Boolean costsIncluded;
+        String calculationStatus;
+        List<String> unavailableReasons;
         String invalidation;
         String whyWrong;
         String initialNotes;

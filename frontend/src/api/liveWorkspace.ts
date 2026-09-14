@@ -104,6 +104,17 @@ export type ExecutionTicket = {
   takeProfitPrice?: number | null
   riskAmount?: number | null
   quantity?: number | null
+  contractMultiplier?: number | null
+  contractMetadataSource?: string | null
+  tradeCurrency?: string | null
+  profileCurrency?: string | null
+  fxRateTradeToProfile?: number | null
+  fxRateSource?: string | null
+  plannedRr?: number | null
+  estimatedPriceRisk?: number | null
+  costsIncluded?: boolean | null
+  calculationStatus?: string | null
+  unavailableReasons?: string[]
   invalidation?: string | null
   whyWrong?: string | null
   initialNotes?: string | null
@@ -176,6 +187,9 @@ export type MentorReference = {
 
 export type SetupItem = {
   id: string
+  accountRefId?: string | null
+  accountCurrency?: string | null
+  sourceDraftId?: string | null
   symbol: string
   direction: SetupDirection
   market?: 'STOCK' | 'CFD' | 'FOREX' | 'CRYPTO' | 'FUTURES' | 'OPTIONS' | 'OTHER' | null
@@ -346,6 +360,8 @@ export type SessionPeriodPlanRequest = {
 }
 
 export type SetupDraftRequest = {
+  accountRefId?: string | null
+  sourceDraftId?: string | null
   symbol?: string | null
   direction?: SetupDirection | null
   market?: SetupItem['market']

@@ -29,6 +29,17 @@ import { formatDateTime, formatSignedCurrency } from '../utils/format'
 import { formatNetResult, netResult } from '../utils/tradeMoney'
 import MarketTickerStrip from '../components/trading-workspace/MarketTickerStrip'
 import { demoMarketTicker } from '../features/trading-workspace/demoData'
+import type { SetupDirection, SetupItem } from '../api/liveWorkspace'
+
+function resolvePreparationInstrument(chartSymbol: string, instruments: string): { symbol: string; market: NonNullable<SetupItem['market']> } {
+  const selected = (chartSymbol || instruments.split(',')[0] || '').trim().toUpperCase()
+  if (selected.includes('CME_MINI:ES') || /^ES(?:[FGHJKMNQUVXZ]\d{1,4})?$/.test(selected)) return { symbol: selected.includes(':') ? 'ES' : selected, market: 'FUTURES' }
+  if (selected.includes('DE30') || selected.includes('DAX') || selected.includes('GER40')) return { symbol: 'DAX', market: 'CFD' }
+  if (selected.includes('NAS100') || selected.includes('NASDAQ-100')) return { symbol: 'NAS100', market: 'CFD' }
+  const plain = selected.split(':').pop()?.replace(/[^A-Z0-9]/g, '') || ''
+  if (/^[A-Z]{6}$/.test(plain)) return { symbol: plain, market: 'FOREX' }
+  return { symbol: plain || 'UNSET', market: 'OTHER' }
+}
 
 export default function TodayPage() {
   const { user } = useAuth()
@@ -158,6 +169,9 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     update({ assessments: [...draft.assessments.filter(x => x.tradeId !== selected.id), { tradeId: selected.id, decision, note }] })
   }
   const prep = draft.preparation || initialForWorkspace()
+  const preparedInstrument = resolvePreparationInstrument(prep.chartSymbol, draft.instruments)
+  const preparedDirection: SetupDirection = prep.bias === 'bullish' ? 'LONG' : prep.bias === 'bearish' ? 'SHORT' : 'UNDECIDED'
+  const effectiveAccountCurrency = accountCurrency || rules.data?.detail?.account.currency || ''
   const chart = <Card sx={{ minWidth: 0, overflow: 'hidden' }}><CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}><Stack spacing={0}>
     <Stack spacing={1} sx={{ p: 1.25, borderBottom: '1px solid', borderColor: 'divider' }}>
       <Stack direction={{ xs: 'column', md: 'row' }} spacing={1} alignItems={{ xs: 'stretch', md: 'center' }} justifyContent="space-between">
@@ -165,7 +179,7 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
         <Stack direction="row" spacing={0.5} flexWrap="wrap" useFlexGap>{['1','5','15','30','60','D'].map(value => <Button key={value} size="small" variant={prep.chartInterval === value ? 'contained' : 'text'} onClick={() => update({ preparation: { ...prep, chartInterval: value } })} sx={{ minWidth: 38 }}>{value === '60' ? '1h' : value === 'D' ? 'D' : `${value}m`}</Button>)}</Stack>
       </Stack>
       <Stack direction="row" spacing={0.75} alignItems="center" flexWrap="wrap" useFlexGap>
-        {[['DAX · CFD', 'OANDA:DE30EUR'], ['NASDAQ-100 · CFD', 'OANDA:NAS100USD'], ['ES · Futures', 'CME_MINI:ES1!']].map(([label, symbol]) => <Button size="small" key={symbol} variant={prep.chartSymbol === symbol ? 'outlined' : 'text'} onClick={() => update({ preparation: { ...prep, chartSymbol: symbol } })}>{label}</Button>)}
+        {[['DAX · CFD', 'OANDA:DE30EUR', 'DAX'], ['NASDAQ-100 · CFD', 'OANDA:NAS100USD', 'NAS100'], ['ES · Futures', 'CME_MINI:ES1!', 'ES']].map(([label, symbol, instrument]) => <Button size="small" key={symbol} variant={prep.chartSymbol === symbol ? 'outlined' : 'text'} onClick={() => update({ instruments: instrument, preparation: { ...prep, chartSymbol: symbol } })}>{label}</Button>)}
         <Typography className="metric-value" variant="caption" color="text.secondary" sx={{ ml: { md: 'auto' } }}>{prep.chartSymbol} · TradingView</Typography>
         <Button size="small" onClick={() => setChartExpanded(!chartExpanded)}>{t(chartExpanded ? 'dailyReview.compactMode' : 'dailyReview.chartMode')}</Button>
       </Stack>
@@ -193,7 +207,8 @@ function DailyWorkspace({ accountId, accountLabel, accountCurrency, date, sessio
     {draft.state !== 'PREPARE' && <Typography variant="caption" color="text.secondary">{t('dailyReview.freshness', { time: executions.dataUpdatedAt ? formatDateTime(new Date(executions.dataUpdatedAt).toISOString(), timezone) : '—' })} · {timezone}</Typography>}
     {closed.length > 0 && !knownMoney && <Alert severity="info">{t('dailyReview.moneyUnavailable')}</Alert>}
     {draft.state === 'PREPARE' && permission && <Alert severity={permission.maximumPermittedRisk === 0 ? 'warning' : 'info'}>{t('dailyReview.capacity', { trades: permission.remainingTrades ?? '—', risk: permission.maximumPermittedRisk == null ? '—' : formatSignedCurrency(permission.maximumPermittedRisk, rules.data!.detail!.account.currency) })} · {t(permission.primaryReason)}</Alert>}
-    {draft.state === 'PREPARE' && <PrepareSteps mentorStrategies={strategies.data?.mentorStrategies || []} reloadStrategies={() => { void strategies.refetch() }} date={date} draft={draft} update={update} strategies={strategies.data?.myStrategies || []} start={() => void save('TRADE')} saving={saveState === 'saving'} chart={chart} accountLabel={accountLabel} riskLimit={permission?.maximumPermittedRisk == null || !accountCurrency ? undefined : formatSignedCurrency(permission.maximumPermittedRisk, accountCurrency)} />}
+    {draft.state === 'PREPARE' && effectiveAccountCurrency && <PrepareSteps mentorStrategies={strategies.data?.mentorStrategies || []} reloadStrategies={() => { void strategies.refetch() }} date={date} draft={draft} update={update} strategies={strategies.data?.myStrategies || []} start={() => void save('TRADE')} saving={saveState === 'saving'} chart={chart} userId={user?.id || 'anonymous'} accountId={accountId} accountLabel={accountLabel} accountCurrency={effectiveAccountCurrency} isCurrentDate={date === accountToday} session={session} symbol={preparedInstrument.symbol} market={preparedInstrument.market} direction={preparedDirection} maximumPermittedRisk={permission?.maximumPermittedRisk} maximumPermittedRiskPct={permission?.maximumPermittedRiskPct} remainingTrades={permission?.remainingTrades} capacityReason={permission ? t(permission.primaryReason) : null} />}
+    {draft.state === 'PREPARE' && !effectiveAccountCurrency && <Alert severity="warning">{t('risk.reasons.accountCurrencyUnavailable')}</Alert>}
     {draft.state !== 'PREPARE' && draft.readyContext && <Card><CardContent><Stack spacing={1}>
       <Typography component="h2" variant="h6">{t('prepare.ready')} · {formatDateTime(draft.readyContext.readyAt, timezone)}</Typography>
       <Typography>{draft.readyContext.instruments} · {draft.readyContext.focus}</Typography>

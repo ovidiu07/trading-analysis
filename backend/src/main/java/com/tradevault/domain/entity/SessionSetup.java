@@ -54,6 +54,13 @@ public class SessionSetup {
     @JoinColumn(name = "user_id", nullable = false)
     private User user;
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "account_id")
+    private Account account;
+
+    @Column(name = "source_draft_id", length = 120)
+    private String sourceDraftId;
+
     @Column(name = "symbol", nullable = false, length = 64)
     private String symbol;
 

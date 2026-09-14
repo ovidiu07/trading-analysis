@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.tradevault.domain.entity.SessionLevel;
+import com.tradevault.domain.entity.Account;
 import com.tradevault.domain.entity.SessionNarrative;
 import com.tradevault.domain.entity.SessionSetup;
 import com.tradevault.domain.entity.NotebookFolder;
@@ -16,6 +17,7 @@ import com.tradevault.domain.entity.User;
 import com.tradevault.domain.entity.Plan;
 import com.tradevault.domain.entity.PlanAsset;
 import com.tradevault.domain.enums.ContextSnapshotMode;
+import com.tradevault.domain.enums.AccountStatus;
 import com.tradevault.domain.enums.Direction;
 import com.tradevault.domain.enums.Market;
 import com.tradevault.domain.enums.NotebookNoteType;
@@ -39,6 +41,7 @@ import com.tradevault.dto.asset.AssetResponse;
 import com.tradevault.dto.plan.PlanImageResponse;
 import com.tradevault.dto.trade.TradeRequest;
 import com.tradevault.repository.PlanAssetRepository;
+import com.tradevault.repository.AccountRepository;
 import com.tradevault.repository.SessionLevelRepository;
 import com.tradevault.repository.SessionNarrativeRepository;
 import com.tradevault.repository.SessionSetupRepository;
@@ -108,6 +111,7 @@ public class SessionWorkspaceService {
 
     private final TodaySessionRepository todaySessionRepository;
     private final SessionSetupRepository sessionSetupRepository;
+    private final AccountRepository accountRepository;
     private final SessionNarrativeRepository sessionNarrativeRepository;
     private final SessionLevelRepository sessionLevelRepository;
     private final TradeRepository tradeRepository;
@@ -292,11 +296,28 @@ public class SessionWorkspaceService {
     public SessionWorkspaceResponse createSetup(UUID sessionId, UpsertSessionSetupRequest request) {
         User user = currentUserService.getCurrentUser();
         TodaySession session = requireSession(user, sessionId);
+        String sourceDraftId = normalizeOptionalText(request == null ? null : request.getSourceDraftId(), 120);
+        if (sourceDraftId != null) {
+            SessionSetup existingDraft = sessionSetupRepository.findByUser_IdAndSourceDraftId(user.getId(), sourceDraftId).orElse(null);
+            if (existingDraft != null) {
+                if (!Objects.equals(existingDraft.getTodaySession().getId(), sessionId)) {
+                    throw new IllegalArgumentException("Prepared draft belongs to another session");
+                }
+                return updateSetup(sessionId, existingDraft.getId(), request);
+            }
+        }
+        Account account = requireOwnedAccount(user, request == null ? null : request.getAccountRefId(), sourceDraftId != null);
+        UpsertSessionSetupRequest.Execution preparedExecution = normalizeExecution(request == null ? null : request.getExecution());
+        if (sourceDraftId != null) {
+            validatePreparedExecution(request == null ? null : request.getDirection(), preparedExecution);
+        }
         List<SessionSetup> existing = loadSetups(session, user.getId());
 
         SessionSetup setup = SessionSetup.builder()
                 .todaySession(session)
                 .user(user)
+                .account(account)
+                .sourceDraftId(sourceDraftId)
                 .symbol(normalizeSymbol(request == null ? null : request.getSymbol()))
                 .direction(normalizeSetupDirection(request == null ? null : request.getDirection()))
                 .market(request == null ? null : request.getMarket())
@@ -309,7 +330,7 @@ public class SessionWorkspaceService {
                 .contextSnapshotJson(toJsonObject(request == null ? null : request.getContext()))
                 .strategySnapshotJson(toJsonObject(normalizeStrategySnapshot(request == null ? null : request.getStrategySnapshot(), request == null ? null : request.getStrategyId())))
                 .triggerSnapshotJson(toJsonObject(normalizeTrigger(request == null ? null : request.getTrigger())))
-                .executionSnapshotJson(toJsonObject(normalizeExecution(request == null ? null : request.getExecution())))
+                .executionSnapshotJson(toJsonObject(preparedExecution))
                 .reviewSnapshotJson(toJsonObject(normalizeReview(request == null ? null : request.getReview())))
                 .levelsJson(toJsonArray(request == null ? null : request.getLevels()))
                 .mentorReferenceJson(toJsonObject(request == null ? null : request.getMentorReference()))
@@ -341,6 +362,25 @@ public class SessionWorkspaceService {
         SessionSetup setup = requireSetup(sessionId, setupId, user.getId());
 
         if (request != null) {
+            String sourceDraftId = normalizeOptionalText(request.getSourceDraftId(), 120);
+            if (sourceDraftId != null && (setup.getLinkedTradeId() != null || TERMINAL_SETUP_STATUSES.contains(setup.getStatus()) || setup.getStatus() == SessionSetupStatus.EXECUTED)) {
+                throw new IllegalArgumentException("A linked or terminal setup cannot be replaced by a prepared draft");
+            }
+            if (sourceDraftId != null && setup.getSourceDraftId() != null && !Objects.equals(sourceDraftId, setup.getSourceDraftId())) {
+                throw new IllegalArgumentException("Prepared draft identity does not match this setup");
+            }
+            if (sourceDraftId != null) {
+                setup.setSourceDraftId(sourceDraftId);
+            }
+            if (request.getAccountRefId() != null) {
+                Account account = requireOwnedAccount(user, request.getAccountRefId(), true);
+                if (setup.getAccount() != null && !Objects.equals(setup.getAccount().getId(), account.getId())) {
+                    throw new IllegalArgumentException("Prepared draft account does not match this setup");
+                }
+                setup.setAccount(account);
+            } else if (sourceDraftId != null) {
+                throw new IllegalArgumentException("An account is required for a prepared execution draft");
+            }
             if (request.getSymbol() != null) {
                 setup.setSymbol(normalizeSymbol(request.getSymbol()));
             }
@@ -359,7 +399,11 @@ public class SessionWorkspaceService {
                 setup.setStrategySnapshotJson(toJsonObject(normalizeStrategySnapshot(request.getStrategySnapshot(), request.getStrategyId())));
             }
             setup.setTriggerSnapshotJson(toJsonObject(normalizeTrigger(request.getTrigger())));
-            setup.setExecutionSnapshotJson(toJsonObject(normalizeExecution(request.getExecution())));
+            UpsertSessionSetupRequest.Execution normalizedExecution = normalizeExecution(request.getExecution());
+            if (sourceDraftId != null) {
+                validatePreparedExecution(request.getDirection() == null ? setup.getDirection() : request.getDirection(), normalizedExecution);
+            }
+            setup.setExecutionSnapshotJson(toJsonObject(normalizedExecution));
             if (request.getReview() != null) {
             setup.setReviewSnapshotJson(toJsonObject(normalizeReview(request.getReview())));
             }
@@ -390,6 +434,8 @@ public class SessionWorkspaceService {
         SessionSetup duplicate = SessionSetup.builder()
                 .todaySession(session)
                 .user(user)
+                .account(source.getAccount())
+                .sourceDraftId(null)
                 .symbol(source.getSymbol())
                 .direction(source.getDirection())
                 .market(source.getMarket())
@@ -514,6 +560,9 @@ public class SessionWorkspaceService {
         if (setup.getLinkedTradeId() != null) {
             return toWorkspace(session, loadSetups(session, user.getId()), user.getId());
         }
+        if (setup.getAccount() == null) {
+            throw new IllegalArgumentException("Assign a TradeJAudit account before starting a trade");
+        }
 
         if (tradeRepository.findFirstByUser_IdAndSessionIdAndStatusOrderByOpenedAtDescCreatedAtDesc(
                 user.getId(), session.getId(), TradeStatus.OPEN).isPresent()) {
@@ -604,6 +653,12 @@ public class SessionWorkspaceService {
         tradeRequest.setStopLossPrice(executionTicket.getStopLossPrice());
         tradeRequest.setTakeProfitPrice(executionTicket.getTakeProfitPrice());
         tradeRequest.setRiskAmount(executionTicket.getRiskAmount());
+        tradeRequest.setContractMultiplier(executionTicket.getContractMultiplier());
+        tradeRequest.setTradeCurrency(executionTicket.getTradeCurrency());
+        tradeRequest.setProfileCurrency(firstNonBlank(executionTicket.getProfileCurrency(), setup.getAccount().getAccountCurrency(), user.getBaseCurrency()));
+        tradeRequest.setFxRateTradeToProfile(executionTicket.getFxRateTradeToProfile());
+        tradeRequest.setFxRateSource(executionTicket.getFxRateSource());
+        tradeRequest.setAccountRefId(setup.getAccount().getId());
         tradeRequest.setSetup(setup.getSetupTitle());
         tradeRequest.setStrategyId(setup.getStrategyId());
         tradeRequest.setStrategyTag(setup.getStrategyLabel());
@@ -621,7 +676,10 @@ public class SessionWorkspaceService {
         tradeRequest.setDisplacementConfirmed(trigger.getDisplacementConfirmed());
         tradeRequest.setMssConfirmed(trigger.getStructureConfirmed());
         tradeRequest.setLevelExpectation(normalizeOptionalText(context.getLiquidityNotes(), 48));
-        tradeRequest.setProfileCurrency(normalizeOptionalText(user.getBaseCurrency(), 16));
+        tradeRequest.setProfileCurrency(normalizeOptionalText(
+                firstNonBlank(executionTicket.getProfileCurrency(), setup.getAccount().getAccountCurrency(), user.getBaseCurrency()),
+                16
+        ));
 
         var tradeResponse = tradeService.create(tradeRequest);
         markExecutionStarted(execution, executionTicket.getId(), tradeResponse.getId(), tradeResponse.getOpenedAt());
@@ -802,6 +860,9 @@ public class SessionWorkspaceService {
 
         return SessionWorkspaceResponse.SetupItem.builder()
                 .id(setup.getId())
+                .accountRefId(setup.getAccount() == null ? null : setup.getAccount().getId())
+                .accountCurrency(setup.getAccount() == null ? null : setup.getAccount().getAccountCurrency())
+                .sourceDraftId(setup.getSourceDraftId())
                 .symbol(setup.getSymbol())
                 .direction(setup.getDirection())
                 .market(setup.getMarket())
@@ -1487,6 +1548,12 @@ public class SessionWorkspaceService {
         if (takeProfitPrice == null || takeProfitPrice.compareTo(BigDecimal.ZERO) <= 0) {
             executionMissing.add("take profit");
         }
+        if (entryPrice != null && entryPrice.compareTo(BigDecimal.ZERO) > 0
+                && stopLossPrice != null && stopLossPrice.compareTo(BigDecimal.ZERO) > 0
+                && takeProfitPrice != null && takeProfitPrice.compareTo(BigDecimal.ZERO) > 0
+                && computeRr(entryPrice, stopLossPrice, takeProfitPrice, setup.getDirection()) == null) {
+            executionMissing.add("directionally valid stop and target");
+        }
         if ((riskAmount == null || riskAmount.compareTo(BigDecimal.ZERO) <= 0)
                 && (quantity == null || quantity.compareTo(BigDecimal.ZERO) <= 0)) {
             executionMissing.add("risk amount or quantity");
@@ -1709,6 +1776,19 @@ public class SessionWorkspaceService {
         normalized.setTakeProfitPrice(scalePrice(ticket == null ? null : ticket.getTakeProfitPrice()));
         normalized.setRiskAmount(scaleMoney(ticket == null ? null : ticket.getRiskAmount()));
         normalized.setQuantity(scaleQuantity(ticket == null ? null : ticket.getQuantity()));
+        normalized.setContractMultiplier(scaleQuantity(ticket == null ? null : ticket.getContractMultiplier()));
+        normalized.setContractMetadataSource(normalizeOptionalText(ticket == null ? null : ticket.getContractMetadataSource(), 80));
+        normalized.setTradeCurrency(normalizeOptionalText(ticket == null ? null : ticket.getTradeCurrency(), 16));
+        normalized.setProfileCurrency(normalizeOptionalText(ticket == null ? null : ticket.getProfileCurrency(), 16));
+        normalized.setFxRateTradeToProfile(scaleRatio(ticket == null ? null : ticket.getFxRateTradeToProfile()));
+        normalized.setFxRateSource(normalizeOptionalText(ticket == null ? null : ticket.getFxRateSource(), 80));
+        normalized.setPlannedRr(scaleRatio(ticket == null ? null : ticket.getPlannedRr()));
+        normalized.setEstimatedPriceRisk(scaleMoney(ticket == null ? null : ticket.getEstimatedPriceRisk()));
+        normalized.setCostsIncluded(Boolean.TRUE.equals(ticket == null ? null : ticket.getCostsIncluded()));
+        normalized.setCalculationStatus(normalizeOptionalText(ticket == null ? null : ticket.getCalculationStatus(), 24));
+        normalized.setUnavailableReasons(ticket == null || ticket.getUnavailableReasons() == null
+                ? List.of()
+                : normalizeStringList(ticket.getUnavailableReasons(), 160));
         normalized.setInvalidation(normalizeOptionalText(ticket == null ? null : ticket.getInvalidation(), 400));
         normalized.setWhyWrong(normalizeOptionalText(ticket == null ? null : ticket.getWhyWrong(), 400));
         normalized.setInitialNotes(normalizeOptionalText(ticket == null ? null : ticket.getInitialNotes(), 2000));
@@ -1771,6 +1851,17 @@ public class SessionWorkspaceService {
                         .takeProfitPrice(scalePrice(ticket.getTakeProfitPrice()))
                         .riskAmount(scaleMoney(ticket.getRiskAmount()))
                         .quantity(scaleQuantity(ticket.getQuantity()))
+                        .contractMultiplier(scaleQuantity(ticket.getContractMultiplier()))
+                        .contractMetadataSource(normalizeOptionalText(ticket.getContractMetadataSource(), 80))
+                        .tradeCurrency(normalizeOptionalText(ticket.getTradeCurrency(), 16))
+                        .profileCurrency(normalizeOptionalText(ticket.getProfileCurrency(), 16))
+                        .fxRateTradeToProfile(scaleRatio(ticket.getFxRateTradeToProfile()))
+                        .fxRateSource(normalizeOptionalText(ticket.getFxRateSource(), 80))
+                        .plannedRr(scaleRatio(ticket.getPlannedRr()))
+                        .estimatedPriceRisk(scaleMoney(ticket.getEstimatedPriceRisk()))
+                        .costsIncluded(Boolean.TRUE.equals(ticket.getCostsIncluded()))
+                        .calculationStatus(normalizeOptionalText(ticket.getCalculationStatus(), 24))
+                        .unavailableReasons(ticket.getUnavailableReasons() == null ? List.of() : ticket.getUnavailableReasons())
                         .invalidation(normalizeOptionalText(ticket.getInvalidation(), 400))
                         .whyWrong(normalizeOptionalText(ticket.getWhyWrong(), 400))
                         .initialNotes(normalizeOptionalText(ticket.getInitialNotes(), 2000))
@@ -2221,6 +2312,57 @@ public class SessionWorkspaceService {
     private SessionSetup requireSetup(UUID sessionId, UUID setupId, UUID userId) {
         return sessionSetupRepository.findByIdAndTodaySession_IdAndUser_Id(setupId, sessionId, userId)
                 .orElseThrow(() -> new EntityNotFoundException("Session setup not found"));
+    }
+
+    private Account requireOwnedAccount(User user, UUID accountId, boolean required) {
+        if (accountId == null) {
+            if (required) {
+                throw new IllegalArgumentException("An account is required for a prepared execution draft");
+            }
+            return null;
+        }
+        Account account = accountRepository.findByIdAndUserId(accountId, user.getId())
+                .orElseThrow(() -> new EntityNotFoundException("Trading account not found"));
+        if (account.getStatus() != AccountStatus.ACTIVE) {
+            throw new IllegalArgumentException("The selected trading account is not active");
+        }
+        return account;
+    }
+
+    private void validatePreparedExecution(Direction direction, UpsertSessionSetupRequest.Execution execution) {
+        if (!isDirectionDecided(direction)) {
+            throw new IllegalArgumentException("Direction must be LONG or SHORT");
+        }
+        UpsertSessionSetupRequest.Ticket ticket = resolveExecutionTicket(execution, execution.getActiveExecutionId());
+        if (ticket == null) {
+            throw new IllegalArgumentException("Execution ticket is required");
+        }
+        if (ticket.getEntryPrice() == null || ticket.getEntryPrice().compareTo(BigDecimal.ZERO) <= 0
+                || ticket.getStopLossPrice() == null || ticket.getStopLossPrice().compareTo(BigDecimal.ZERO) <= 0
+                || ticket.getTakeProfitPrice() == null || ticket.getTakeProfitPrice().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Entry, stop loss, and take profit must be positive");
+        }
+        BigDecimal rr = computeRr(ticket.getEntryPrice(), ticket.getStopLossPrice(), ticket.getTakeProfitPrice(), direction);
+        if (rr == null) {
+            throw new IllegalArgumentException("Stop loss and take profit are invalid for the selected direction");
+        }
+        if (ticket.getRiskAmount() == null || ticket.getRiskAmount().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Intended risk must be positive");
+        }
+        if (ticket.getQuantity() == null || ticket.getQuantity().compareTo(BigDecimal.ZERO) <= 0) {
+            throw new IllegalArgumentException("Quantity must be positive");
+        }
+        if (!hasText(ticket.getInvalidation())) {
+            throw new IllegalArgumentException("Invalidation is required");
+        }
+        BigDecimal plannedRr = scaleRatio(rr);
+        ticket.setPlannedRr(plannedRr);
+        if (execution.getTickets() != null) {
+            execution.getTickets().stream()
+                    .filter(item -> Objects.equals(item.getId(), ticket.getId()))
+                    .findFirst()
+                    .ifPresent(item -> item.setPlannedRr(plannedRr));
+        }
     }
 
     private TodaySession requireSession(User user, UUID sessionId) {

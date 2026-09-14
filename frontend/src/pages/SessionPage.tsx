@@ -36,6 +36,7 @@ import {
   uploadSessionPlanImages,
   upsertSessionPeriodPlan,
   type LiveWorkspaceResponse,
+  type ExecutionTicket,
   type PeriodPlan,
   type PlanImage,
   type SetupDirection,
@@ -61,7 +62,9 @@ import {
   type PlanScopeTab
 } from '../features/session-workstation/sessionWorkstation'
 import { useI18n } from '../i18n'
-import { formatDate, formatSignedCurrency } from '../utils/format'
+import { formatDate, formatNumber, formatSignedCurrency } from '../utils/format'
+import { formatLocalizedNumberInput, parseLocalizedNumberInput } from '../utils/numberInput'
+import { calculatePlannedRr } from '../features/risk/preparedExecution'
 
 const LAST_SYMBOL_KEY = 'tradejaudit.session.lastSymbol'
 const FOCUS_MODE_KEY = 'tradejaudit.session.focusMode'
@@ -81,6 +84,37 @@ const readExpandedPlans = (): PlanScopeTab[] => {
 }
 
 const normalizeSymbol = (value: string) => value.replace(/\s+/g, '').toUpperCase()
+
+function ExecutionNumberField({ label, value, onCommit, helperText }: {
+  label: string
+  value?: number | null
+  onCommit: (value: number | null) => void
+  helperText?: string
+}) {
+  const [text, setText] = useState(() => formatLocalizedNumberInput(value))
+  const focused = useRef(false)
+
+  useEffect(() => {
+    if (!focused.current) setText(formatLocalizedNumberInput(value))
+  }, [value])
+
+  return (
+    <TextField
+      label={label}
+      value={text}
+      onFocus={() => { focused.current = true }}
+      onChange={(event) => setText(event.target.value)}
+      onBlur={() => {
+        focused.current = false
+        const parsed = parseLocalizedNumberInput(text)
+        onCommit(parsed ?? null)
+        setText(formatLocalizedNumberInput(parsed))
+      }}
+      helperText={helperText}
+      inputProps={{ inputMode: 'decimal' }}
+    />
+  )
+}
 
 const hasMeaningfulSetupContent = (setup: SetupItem) => Boolean(
   setup.setupTitle.trim()
@@ -180,6 +214,7 @@ export default function SessionPage() {
   }
   const requestedPlan = (searchParams.get('plan') || '').toUpperCase()
   const requestedSymbol = normalizeSymbol(searchParams.get('symbol') || '')
+  const requestedSetupId = searchParams.get('setupId')
 
   const [expandedPlans, setExpandedPlans] = useState<PlanScopeTab[]>(() => {
     if (requestedPlan === 'WEEKLY' || requestedPlan === 'MONTHLY') return [requestedPlan]
@@ -205,8 +240,11 @@ export default function SessionPage() {
   const workspace = workspaceQuery.data
   const activeWorkspaceSetup = useMemo(() => {
     if (!workspace) return null
-    return workspace.setups.find((item) => item.id === workspace.activeSetupId) || workspace.setups[0] || null
-  }, [workspace])
+    return workspace.setups.find((item) => item.id === requestedSetupId)
+      || workspace.setups.find((item) => item.id === workspace.activeSetupId)
+      || workspace.setups[0]
+      || null
+  }, [requestedSetupId, workspace])
 
   const mentorPlanQuery = useQuery({
     queryKey: ['todayMentorPlanWorkspace', workspace?.session.tradingDate || '', timezone],
@@ -316,6 +354,34 @@ export default function SessionPage() {
     })
   }
 
+  const updateActiveExecution = (patch: Partial<ExecutionTicket>) => {
+    updateSetup((current) => {
+      const normalized = ensureExecutionWorkspace(current)
+      const activeId = normalized.executions.activeExecutionId || normalized.executions.tickets[0]?.id
+      if (!activeId) return normalized
+      const tickets = normalized.executions.tickets.map((ticket) => ticket.id === activeId ? { ...ticket, ...patch } : ticket)
+      const active = tickets.find((ticket) => ticket.id === activeId)
+      return {
+        ...normalized,
+        context: patch.invalidation === undefined
+          ? normalized.context
+          : { ...normalized.context, invalidationIdea: patch.invalidation },
+        execution: active ? {
+          ...normalized.execution,
+          activeExecutionId: activeId,
+          entryPrice: active.entryPrice,
+          stopLossPrice: active.stopLossPrice,
+          takeProfitPrice: active.takeProfitPrice,
+          riskAmount: active.riskAmount,
+          quantity: active.quantity,
+          invalidation: active.invalidation,
+          tickets
+        } : normalized.execution,
+        executions: { activeExecutionId: activeId, tickets }
+      }
+    })
+  }
+
   useEffect(() => {
     if (!workspace || !setupDraft?.id.startsWith('draft-') || createSetupMutation.isPending) return
     const timer = window.setTimeout(() => {
@@ -402,7 +468,26 @@ export default function SessionPage() {
     if (setupDraft?.strategyLabel) params.set('strategyTag', setupDraft.strategyLabel)
     if (setupDraft?.strategyId) params.set('strategyId', setupDraft.strategyId)
     if (setupDraft?.tradeSession) params.set('session', setupDraft.tradeSession)
+    if (setupDraft?.market) params.set('market', setupDraft.market)
+    if (setupDraft?.accountRefId) params.set('accountRefId', setupDraft.accountRefId)
     if (setupDraft?.trigger.confirmationTimeframe) params.set('timeframe', setupDraft.trigger.confirmationTimeframe)
+    const normalized = setupDraft ? ensureExecutionWorkspace(setupDraft) : null
+    const execution = normalized?.executions.tickets.find((item) => item.id === normalized.executions.activeExecutionId)
+      || normalized?.executions.tickets[0]
+    const passNumber = (key: string, value?: number | null) => {
+      if (value != null && Number.isFinite(value) && value > 0) params.set(key, String(value))
+    }
+    passNumber('entryPrice', execution?.entryPrice)
+    passNumber('stopLossPrice', execution?.stopLossPrice)
+    passNumber('takeProfitPrice', execution?.takeProfitPrice)
+    passNumber('riskAmount', execution?.riskAmount)
+    passNumber('quantity', execution?.quantity)
+    passNumber('contractMultiplier', execution?.contractMultiplier)
+    passNumber('fxRateTradeToProfile', execution?.fxRateTradeToProfile)
+    if (execution?.tradeCurrency) params.set('tradeCurrency', execution.tradeCurrency)
+    if (execution?.profileCurrency) params.set('profileCurrency', execution.profileCurrency)
+    if (execution?.fxRateSource) params.set('fxRateSource', execution.fxRateSource)
+    if (execution?.initialNotes) params.set('notes', execution.initialNotes)
     const todayPlanId = workspace?.planningContext?.today?.id
     if (todayPlanId) params.set('planId', todayPlanId)
     navigate(`/trades?${params.toString()}`)
@@ -428,6 +513,20 @@ export default function SessionPage() {
       : saveState === 'saved'
         ? t('today.session.simple.saveState.saved')
         : ''
+  const activeExecution = setupDraft
+    ? (() => {
+        const normalized = ensureExecutionWorkspace(setupDraft)
+        return normalized.executions.tickets.find((item) => item.id === normalized.executions.activeExecutionId)
+          || normalized.executions.tickets[0]
+          || null
+      })()
+    : null
+  const plannedRr = calculatePlannedRr({
+    direction: setupDraft?.direction || 'UNDECIDED',
+    entryPrice: activeExecution?.entryPrice,
+    stopLossPrice: activeExecution?.stopLossPrice,
+    takeProfitPrice: activeExecution?.takeProfitPrice
+  })
 
   const renderPlan = (scope: PlanScopeTab, plan: PeriodPlan | null | undefined) => {
     const draft = planDrafts[scope]
@@ -640,7 +739,31 @@ export default function SessionPage() {
               <TextField label={t('today.session.simple.setup.narrative')} value={setupDraft?.context.narrative || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, narrative: event.target.value } }))} multiline minRows={3} fullWidth />
               <TextField label={t('today.session.simple.setup.liquidity')} value={setupDraft?.context.liquidityNotes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, liquidityNotes: event.target.value } }))} multiline minRows={2} fullWidth />
               <TextField label={t('today.session.simple.setup.entryZone')} value={setupDraft?.trigger.entryZone || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, entryZone: event.target.value } }))} multiline minRows={2} fullWidth />
-              <TextField label={t('today.session.simple.setup.invalidation')} value={setupDraft?.context.invalidationIdea || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} fullWidth />
+              {setupDraft?.sourceDraftId ? (
+                <Alert severity="info">
+                  {t('risk.reviewPrepared', { account: setupDraft.accountCurrency || baseCurrency })}
+                </Alert>
+              ) : null}
+              {activeExecution ? (
+                <Box sx={{ p: 1.25, border: '1px solid', borderColor: 'divider', borderRadius: 2 }}>
+                  <Stack spacing={1.15}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{t('risk.executionReview')}</Typography>
+                    <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.1 }}>
+                      <ExecutionNumberField label={t('workstation.entryPrice')} value={activeExecution.entryPrice} onCommit={(value) => updateActiveExecution({ entryPrice: value })} />
+                      <ExecutionNumberField label={t('workstation.stopLoss')} value={activeExecution.stopLossPrice} onCommit={(value) => updateActiveExecution({ stopLossPrice: value })} />
+                      <ExecutionNumberField label={t('workstation.takeProfit')} value={activeExecution.takeProfitPrice} onCommit={(value) => updateActiveExecution({ takeProfitPrice: value })} />
+                      <ExecutionNumberField label={t('risk.intendedRisk')} value={activeExecution.riskAmount} onCommit={(value) => updateActiveExecution({ riskAmount: value })} helperText={setupDraft.accountCurrency || baseCurrency} />
+                      <ExecutionNumberField label={t('risk.quantity')} value={activeExecution.quantity} onCommit={(value) => updateActiveExecution({ quantity: value })} />
+                      <TextField label={t('workstation.riskReward')} value={plannedRr.state === 'valid' ? `1 : ${formatNumber(plannedRr.value, 2)}` : t(plannedRr.reason)} InputProps={{ readOnly: true }} />
+                    </Box>
+                    <Typography variant="caption" color="text.secondary">
+                      {activeExecution.contractMultiplier ? t('risk.reviewBasis', { multiplier: activeExecution.contractMultiplier, currency: activeExecution.tradeCurrency || '—', source: activeExecution.contractMetadataSource || '—' }) : t('risk.reasons.unsupportedUnitModel')}
+                    </Typography>
+                    <Alert severity="warning">{t('risk.costsExcluded')}</Alert>
+                  </Stack>
+                </Box>
+              ) : null}
+              <TextField label={t('today.session.simple.setup.invalidation')} value={activeExecution?.invalidation ?? setupDraft?.context.invalidationIdea ?? ''} onChange={(event) => activeExecution ? updateActiveExecution({ invalidation: event.target.value }) : updateSetup((current) => ({ ...current, context: { ...current.context, invalidationIdea: event.target.value } }))} multiline minRows={2} fullWidth />
               <TextField label={t('today.session.simple.setup.target')} value={setupDraft?.trigger.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, trigger: { ...current.trigger, notes: event.target.value } }))} multiline minRows={2} fullWidth />
               <TextField label={t('today.session.simple.setup.notes')} value={setupDraft?.context.notes || ''} onChange={(event) => updateSetup((current) => ({ ...current, context: { ...current.context, notes: event.target.value } }))} multiline minRows={2} fullWidth />
 

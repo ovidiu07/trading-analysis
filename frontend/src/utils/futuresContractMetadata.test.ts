@@ -8,7 +8,10 @@ describe('futuresContractMetadata', () => {
       displayName: 'Micro E-mini Nasdaq-100',
       contractMultiplier: 2,
       tickSize: 0.25,
-      tickValue: 0.5
+      tickValue: 0.5,
+      tradeCurrency: 'USD',
+      quantityStep: 1,
+      source: 'CME_CONTRACT_METADATA'
     })
   })
 

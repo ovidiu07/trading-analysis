@@ -1,5 +1,6 @@
 vi.mock('../features/preparation/BriefingPanel', () => ({ BriefingPanel: () => null }))
 vi.mock('../features/preparation/SessionJournal', () => ({ SessionJournal: () => null }))
+vi.mock('../features/risk/TodayRiskPanel', () => ({ TodayRiskPanel: () => null }))
 import '@testing-library/jest-dom/vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'

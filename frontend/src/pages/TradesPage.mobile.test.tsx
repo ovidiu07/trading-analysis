@@ -359,7 +359,7 @@ describe('TradesPage mobile create dialog', () => {
   it('prefills Quick Log context supplied by Session Mode', async () => {
     setViewportSize(390, 844)
     render(
-      <MemoryRouter initialEntries={['/trades?quickLog=1&symbol=GER30&direction=SHORT&setup=London+rejection&timeframe=5&session=LONDON']}>
+      <MemoryRouter initialEntries={['/trades?quickLog=1&symbol=ESZ6&market=FUTURES&direction=SHORT&setup=London+rejection&timeframe=5&session=LONDON&accountRefId=account-1&entryPrice=6000.5&stopLossPrice=6005.5&takeProfitPrice=5990.5&riskAmount=250&quantity=1&contractMultiplier=50&tradeCurrency=USD&profileCurrency=USD&fxRateTradeToProfile=1&fxRateSource=IDENTITY']}>
         <I18nProvider>
           <TradesPage />
         </I18nProvider>
@@ -367,9 +367,14 @@ describe('TradesPage mobile create dialog', () => {
     )
 
     const dialog = await screen.findByRole('dialog')
-    expect((await within(dialog).findAllByLabelText('Symbol'))[0]).toHaveValue('GER30')
+    expect((await within(dialog).findAllByLabelText('Symbol'))[0]).toHaveValue('ESZ6')
     expect(within(dialog).getByRole('button', { name: 'Short' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(within(dialog).getByRole('button', { name: 'Advanced' }))
     expect((await within(dialog).findAllByLabelText('Setup'))[0]).toHaveValue('London rejection')
+    expect(dialog.querySelector('input[name="entryPrice"]')).toHaveValue('6000.5')
+    expect(dialog.querySelector('input[name="stopLossPrice"]')).toHaveValue('6005.5')
+    expect(dialog.querySelector('input[name="takeProfitPrice"]')).toHaveValue('5990.5')
+    expect(dialog.querySelector('input[name="quantity"]')).toHaveValue('1')
+    expect(dialog.querySelector('input[name="contractMultiplier"]')).toHaveValue('50')
   })
 })
